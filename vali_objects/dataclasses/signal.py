@@ -7,13 +7,9 @@ from vali_objects.dataclasses.base_objects.base_dataclass import BaseDataClass
 
 
 @dataclass
-class ClientOutput(BaseDataClass):
-    client_uuid: str
-    stream_type: str
-    topic_id: int
-    request_uuid: str
-    predictions: list[list[float]]
-    additional_details: dict
+class Signal(BaseDataClass):
+    leverage: float
+    order_type: str
 
     def __eq__(self, other):
         return self.equal_base_class_check(other)

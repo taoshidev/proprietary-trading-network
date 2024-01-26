@@ -9,6 +9,8 @@ from pydantic import Field
 
 from typing import List
 
+from vali_objects.dataclasses.signal import Signal
+
 
 class BaseProtocol(bt.Synapse):
     request_uuid: str = Field(..., allow_mutation=False)
@@ -17,37 +19,12 @@ class BaseProtocol(bt.Synapse):
     topic_id: typing.Optional[int] = Field(..., allow_mutation=False)
 
 
-class Forward(BaseProtocol):
-    feature_ids: List[float]
-    prediction_size: int = Field(..., allow_mutation=False)
-    schema_id: typing.Optional[int] = Field(..., allow_mutation=False)
-    predictions: typing.Optional[bt.Tensor] = None
-
-    # def deserialize(self) -> bt.Tensor:
-    #     return self.predictions
+class SendSignal(bt.Synapse):
+    signals: List[typing.Dict]
+    received: typing.Optional[bool] = None
 
 
-class Backward(BaseProtocol):
-    received: bool = None
-
-    # def deserialize(self) -> bool:
-    #     return self.received
-
-
-class TrainingForward(Forward):
-    pass
-
-
-class LiveForward(Forward):
-    pass
-
-
-class TrainingBackward(Backward):
-    pass
-
-
-class LiveBackward(Backward):
-    pass
-
-
+def convert_to_send_signal(signals = List[Signal]):
+    converted_signals = [{"order_type": signal.order_type, "leverage": signal.leverage} for signal in signals]
+    return SendSignal(signals=converted_signals)
 
