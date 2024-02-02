@@ -7,6 +7,7 @@
 # Step 1: Import necessary libraries and modules
 import os
 import time
+import uuid
 from typing import Tuple
 
 import template
@@ -14,7 +15,14 @@ import argparse
 import traceback
 import bittensor as bt
 
+from data_generator.twelvedata import TwelveData
+from time_util.time_util import TimeUtil
+from vali_config import ValiConfig
+from vali_objects.dataclasses.order import Order
+from vali_objects.dataclasses.position import Position
 from vali_objects.dataclasses.signal import Signal
+from vali_objects.enums.order_type_enum import OrderTypeEnum
+from vali_objects.utils.vali_utils import ValiUtils
 
 base_mining_model = None
 base_model_id = None
@@ -59,10 +67,19 @@ def get_config():
 
 # Main takes the config and starts the miner.
 def main(config):
+
+    global secrets
+
+    secrets = ValiUtils.get_secrets()
+    if secrets is None:
+        raise Exception("unable to get secrets data from "
+                        "validation/secrets.json. Please ensure it exists")
+
     # Activating Bittensor's logging with the set configurations.
     bt.logging(config=config, logging_dir=config.full_path)
     bt.logging.info(
-        f"Running validator for subnet: {config.netuid} on network: {config.subtensor.chain_endpoint} with config:"
+        f"Running validator for subnet: {config.netuid} "
+        f"on network: {config.subtensor.chain_endpoint} with config:"
     )
 
     # This logs the active configuration to the specified logging directory for review.
@@ -86,7 +103,8 @@ def main(config):
 
     if wallet.hotkey.ss58_address not in metagraph.hotkeys:
         bt.logging.error(
-            f"\nYour validator: {wallet} is not registered to chain connection: {subtensor} \nRun btcli register and try again. "
+            f"\nYour validator: {wallet} is not registered to chain "
+            f"connection: {subtensor} \nRun btcli register and try again. "
         )
         exit()
 
@@ -105,23 +123,94 @@ def main(config):
 
     def rs_priority_fn(synapse: template.protocol.SendSignal) -> float:
         bt.logging.debug("got to prioritization rs")
-        # simply just prioritize based on uid as its not significant
+        # simply just prioritize based on uid as it's not significant
         caller_uid = metagraph.hotkeys.index(synapse.dendrite.hotkey)
         priority = float(metagraph.uids[caller_uid])
         bt.logging.trace(f'Prioritizing {synapse.dendrite.hotkey} with value: ', priority)
         return priority
 
-    # This is the core miner function, which decides the miner's response to a valid, high-priority request.
+    # This is the core validator function, which decides the miner's response to a valid, high-priority request.
     def receive_signal(synapse: template.protocol.SendSignal) -> template.protocol.SendSignal:
 
-        bt.logging.info(f'received signals')
+        bt.logging.info(f'received signal request')
 
-        signals = synapse.signals
+        # error message to send back to miners in case of a problem so they can fix and resend
+        error_message = ""
+
+        # convert every signal to orders
+        # set the closing price for every order
+        signals = [Signal(**signal) for signal in synapse.signals]
+
+        # pull miner hotkey to reference in various activities
+        miner_hotkey = synapse.dendrite.hotkey
+
+        # gather open positions and see which trade pairs have an open position
+        open_positions = ValiUtils.get_all_miner_positions_and_orders(miner_hotkey,
+                                                                      only_open_positions=True)
+        open_position_trade_pairs = {position.trade_pair: position for position in open_positions}
+
+        # ensure all signals are for an existing trade pair
+        # can determine using the fees object
         for signal in signals:
-            signal_obj = Signal(signal["leverage"], signal["order_type"])
-            bt.logging.info(f'received signal with info trade type [{signal_obj.leverage}] '
-                            f'and leverage: [{signal_obj.leverage}]')
+            if signal.trade_pair not in ValiConfig.TRADE_PAIR_FEES:
+                error_message = f"miner [{synapse.dendrite.hotkey}] incorrectly " \
+                                f"sent trade pair [{signal.trade_pair}]"
+                bt.logging.error(error_message)
+            else:
+                trade_pair = signal.trade_pair
+                # trade pair exists, convert signal to order
+                signal_closing_price = TwelveData(api_key=secrets["twelvedata_apikey"]) \
+                    .get_data(symbol=trade_pair)
+                signal_to_order = Order(
+                    trade_pair = trade_pair,
+                    order_type = signal.order_type,
+                    leverage = signal.leverage,
+                    price = signal_closing_price,
+                    processed_ms = TimeUtil.now_in_millis(),
+                    order_uuid = str(uuid.uuid4()))
+                # if a position already exists, add the order to it and
+                # close if the order generates a FLAT
+                if trade_pair in open_position_trade_pairs:
+                    open_position = open_position_trade_pairs[trade_pair]
+                    open_position.orders.append(signal_to_order)
+                    if signal_to_order.order_type == OrderTypeEnum.FLAT:
+                        # close position - NEED TO CREATE CLOSING PROCESS
+                        open_position.close_ms = TimeUtil.now_in_millis()
+
+                    ValiUtils.save_miner_position(miner_hotkey,
+                                                  open_position.position_uuid,
+                                                  open_position)
+                else:
+                    # if the order is FLAT ignore and log
+                    if signal_to_order.order_type != OrderTypeEnum.FLAT:
+                        # if a position doesnt exist, then make a new one
+                        open_position = Position(miner_hotkey = miner_hotkey,
+                            position_uuid = str(uuid.uuid4()),
+                            open_ms = TimeUtil.now_in_millis(),
+                            close_price = signal_closing_price,
+                            trade_pair = trade_pair,
+                            orders = [signal_to_order])
+                        ValiUtils.save_miner_position(miner_hotkey,
+                                                      open_position.position_uuid,
+                                                      open_position)
+                    else:
+                        bt.logging.info(f"miner [{synapse.dendrite.hotkey}] sent a "
+                                        f"FLAT order with no existing position")
+
+
+
+
+        open_positions = ValiUtils.get_all_miner_positions_and_orders(synapse.dendrite.hotkey,
+                                                                 only_open_positions=True)
+        open_position_trade_pairs = [position.trade_pair for position in open_positions]
+
+        # signals = synapse.orders
+        # for signal in signals:
+        #
+        #     bt.logging.info(f'received signal with info trade type [{signal_obj.leverage}] '
+        #                     f'and leverage: [{signal_obj.leverage}]')
         synapse.received = 1
+        synapse.error_message = error_message
 
         print(f"printing synapse [{synapse}]")
 
