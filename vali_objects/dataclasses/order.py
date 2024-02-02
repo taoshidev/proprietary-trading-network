@@ -8,10 +8,13 @@ from vali_objects.enums.order_type_enum import OrderTypeEnum
 
 
 @dataclass
-class Signal(BaseDataClass):
+class Order(BaseDataClass):
     trade_pair: str
     order_type: OrderTypeEnum
     leverage: float
+    price: float
+    processed_ms: int
+    order_uuid: str
 
     def __eq__(self, other):
         return self.equal_base_class_check(other)

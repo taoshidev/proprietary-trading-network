@@ -15,6 +15,8 @@ from vali_objects.dataclasses.base_objects.new_request_dataclass import NewReque
 from vali_objects.dataclasses.client_request import ClientRequest
 from vali_objects.dataclasses.prediction_request import PredictionRequest
 from vali_objects.dataclasses.training_request import TrainingRequest
+
+from vali_objects.dataclasses.position import Position
 from vali_objects.exceptions.corrupt_data_exception import ValiBkpCorruptDataException
 from vali_objects.exceptions.vali_bkp_file_missing_exception import ValiFileMissingException
 from vali_objects.exceptions.vali_records_misalignment_exception import ValiRecordsMisalignmentException
@@ -84,16 +86,6 @@ class ValiUtils:
         ValiMemoryUtils.set_vali_memory(json.dumps(ValiUtils.get_vali_bkp_json()))
 
     @staticmethod
-    def get_vali_predictions(file) -> PredictionDataFile:
-        # wrapping here to allow simpler error handling & original for other error handling
-        try:
-            return ValiBkpUtils.get_vali_file(file, True)
-        except FileNotFoundError:
-            raise ValiFileMissingException("Vali predictions file is missing")
-        except UnpicklingError:
-            raise ValiBkpCorruptDataException("prediction data is not pickled")
-
-    @staticmethod
     def save_cmw_results(request_uuid: str, content: Dict | object):
         ValiBkpUtils.write_vali_file(ValiBkpUtils.get_vali_bkp_dir(),
                                      ValiBkpUtils.get_cmw_filename(request_uuid),
@@ -123,6 +115,24 @@ class ValiUtils:
                                      vali_weights)
 
     @staticmethod
+    def get_all_miner_positions_and_orders(miner_hotkey, only_open_positions=False):
+        def sort_by_end(item):
+            return item.open_ms
+
+        miner_dir = ValiBkpUtils.get_miner_dir(miner_hotkey)
+        all_files = ValiBkpUtils.get_all_files_in_dir(miner_dir)
+
+        positions = [ValiUtils.get_miner_positions(file) for file in all_files]
+
+        if only_open_positions:
+            positions = [position for position in positions if position.close_ms is None]
+
+        sorted_pred_requests = sorted(positions, key=sort_by_end, reverse=True)
+        return sorted_pred_requests
+
+
+
+    @staticmethod
     def get_predictions_to_complete() -> List[PredictionRequest]:
         def sort_by_end(item):
             return item.df.end
@@ -130,7 +140,7 @@ class ValiUtils:
         all_files = ValiBkpUtils.get_all_files_in_dir(ValiBkpUtils.get_vali_predictions_dir())
         request_to_complete = {}
         for file in all_files:
-            unpickled_df = ValiUtils.get_vali_predictions(file)
+            unpickled_df = ValiUtils.get_miner_positions(file)
             # need to add a buffer of 24 hours to ensure the data is available via api requests
             if TimeUtil.now_in_millis() > unpickled_df.end + TimeUtil.hours_in_millis(1):
                 if unpickled_df.vmins is not None \
@@ -212,3 +222,28 @@ class ValiUtils:
     def get_standardized_ds() -> List[List]:
         # close time, close, high, low, volume
         return [[], [], [], [], []]
+
+    @staticmethod
+    def get_miner_positions(file) -> Position:
+        # wrapping here to allow simpler error handling & original for other error handling
+        try:
+            return ValiBkpUtils.get_vali_file(file, True)
+        except FileNotFoundError:
+            raise ValiFileMissingException("Vali position file is missing")
+        except UnpicklingError:
+            raise ValiBkpCorruptDataException("position data is not pickled")
+
+    @staticmethod
+    def get_secrets() -> Dict:
+        # wrapping here to allow simpler error handling & original for other error handling
+        try:
+            secrets = ValiBkpUtils.get_vali_file(ValiBkpUtils.get_secrets_dir())
+            return json.loads(secrets)
+        except FileNotFoundError:
+            raise ValiFileMissingException("Vali secrets file is missing")
+
+    @staticmethod
+    def save_miner_position(miner_hotkey: str, position: str, content: Dict | object):
+        ValiBkpUtils.write_vali_file(ValiBkpUtils.get_vali_predictions_dir(),
+                                     ValiBkpUtils.get_miner_position_dir(miner_hotkey, position),
+                                     content, True)

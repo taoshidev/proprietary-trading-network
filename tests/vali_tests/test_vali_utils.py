@@ -64,8 +64,8 @@ class TestValiUtils(TestBase):
             pass
 
         try:
-            ValiUtils.get_vali_predictions(ValiBkpUtils.get_vali_predictions_dir()
-                                                                  + test_pred_filename + ".pickle")
+            ValiUtils.get_miner_positions(ValiBkpUtils.get_vali_predictions_dir()
+                                          + test_pred_filename + ".pickle")
         except Exception as e:
             self.assertIsInstance(e, ValiFileMissingException)
 
@@ -74,16 +74,16 @@ class TestValiUtils(TestBase):
                                      test_pred_filename + ".pickle",
                                      test_cmw)
         try:
-            ValiUtils.get_vali_predictions(ValiBkpUtils.get_vali_predictions_dir()
-                                                                  + test_pred_filename + ".pickle")
+            ValiUtils.get_miner_positions(ValiBkpUtils.get_vali_predictions_dir()
+                                          + test_pred_filename + ".pickle")
         except Exception as e:
             self.assertIsInstance(e, ValiBkpCorruptDataException)
 
         os.remove(ValiBkpUtils.get_vali_predictions_dir() + test_pred_filename + ".pickle")
 
         ValiUtils.save_predictions_request(test_pred_filename, TestingData.po)
-        testing_preds_output = ValiUtils.get_vali_predictions(ValiBkpUtils.get_vali_predictions_dir()
-                                                              + test_pred_filename + ".pickle")
+        testing_preds_output = ValiUtils.get_miner_positions(ValiBkpUtils.get_vali_predictions_dir()
+                                                             + test_pred_filename + ".pickle")
         self.assertTrue(testing_preds_output == TestingData.po)
         os.remove(ValiBkpUtils.get_vali_predictions_dir() + test_pred_filename + ".pickle")
 

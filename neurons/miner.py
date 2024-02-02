@@ -15,6 +15,7 @@ import bittensor as bt
 # This function is responsible for setting up and parsing command-line arguments.
 from template.protocol import convert_to_send_signal
 from vali_objects.dataclasses.signal import Signal
+from vali_objects.enums.order_type_enum import OrderTypeEnum
 
 
 def get_config():
@@ -475,7 +476,7 @@ def get_config():
 
 def send_signal(_dendrite, _config, _metagraph):
 
-    signal = Signal(leverage=0.1, order_type="LONG")
+    signal = Signal(trade_pair="BTC/USD", order_type=OrderTypeEnum.LONG, leverage=0.1)
     send_signal_proto = convert_to_send_signal([signal])
 
     try:

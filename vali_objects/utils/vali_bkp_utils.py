@@ -13,6 +13,22 @@ from vali_objects.dataclasses.prediction_data_file import PredictionDataFile
 class ValiBkpUtils:
 
     @staticmethod
+    def get_miner_dir(miner_hotkey) -> str:
+        return ValiConfig.BASE_DIR + f'/validation/{miner_hotkey}'
+
+    @staticmethod
+    def get_miner_position_dir(miner_hotkey, position) -> str:
+        return ValiConfig.BASE_DIR + f'/validation/{miner_hotkey}/{position}'
+
+    @staticmethod
+    def get_miner_order_dir(hotkey, position, order) -> str:
+        return ValiConfig.BASE_DIR + f'/validation/{hotkey}/{position}/{order}'
+
+    @staticmethod
+    def get_secrets_dir():
+        return ValiConfig.BASE_DIR + f'/validation/secrets.json'
+
+    @staticmethod
     def get_vali_bkp_dir() -> str:
         return ValiConfig.BASE_DIR + '/validation/backups/'
 
