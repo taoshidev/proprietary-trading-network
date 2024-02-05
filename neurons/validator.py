@@ -22,6 +22,7 @@ from vali_objects.dataclasses.order import Order
 from vali_objects.dataclasses.position import Position
 from vali_objects.dataclasses.signal import Signal
 from vali_objects.enums.order_type_enum import OrderTypeEnum
+from vali_objects.utils.exchange_utils import ExchangeUtils
 from vali_objects.utils.vali_utils import ValiUtils
 
 base_mining_model = None
@@ -173,9 +174,12 @@ def main(config):
                 if trade_pair in open_position_trade_pairs:
                     open_position = open_position_trade_pairs[trade_pair]
                     open_position.orders.append(signal_to_order)
-                    if signal_to_order.order_type == OrderTypeEnum.FLAT:
-                        # close position - NEED TO CREATE CLOSING PROCESS
+                    if ExchangeUtils.is_closed_position(open_position):
+                        # close_ms: Optional[int] = None
+                        # return_at_close: Optional[float] = None
+                        # close_price: Optional[float] = None
                         open_position.close_ms = TimeUtil.now_in_millis()
+                        open_position.close_price = signal_closing_price
 
                     ValiUtils.save_miner_position(miner_hotkey,
                                                   open_position.position_uuid,
