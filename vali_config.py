@@ -5,8 +5,8 @@
 class ValiConfig:
     # fees take into account exiting and entering a position, liquidity, and futures fees
     TRADE_PAIR_FEES = {
-        "BTC/USD": 0.3,
-        "ETH/USD": 0.3
+        "BTC/USD": 0.003,
+        "ETH/USD": 0.003
     }
     MIN_LEVERAGE = 0.001
     MAX_DAILY_DRAWDOWN = 0.05

@@ -2,7 +2,8 @@
 # Copyright © 2023 Taoshi Inc
 
 from dataclasses import dataclass, fields
-from typing import Optional
+from enum import Enum
+from typing import Optional, List
 
 import numpy as np
 
@@ -46,7 +47,9 @@ class BaseDataClass:
                 raise TypeError(f"The field `{f.name}` was assigned by `{ft}` instead of int or float")
 
         for field in fields(type(self)):
-            if field.type == Optional[list[float]] \
+            if field.type == list[object]:
+                pass
+            elif field.type == Optional[list[float]] \
                     or field.type == list[float] \
                     or field.type == list[int]:
                 if getattr(self, field.name) is not None:
@@ -69,6 +72,16 @@ class BaseDataClass:
                                             f"assigned by key value `{k_type}` instead of str")
             elif field.type == np:
                 pass
+            # Check if the field type is an enum
+            elif isinstance(field.type, type) and issubclass(field.type, Enum):
+                if getattr(self, field.name) is not None:
+                    # Check if the assigned value is a valid enum value
+                    if not isinstance(getattr(self, field.name), field.type):
+                        raise TypeError(f"The field `{field.name}` was assigned by "
+                                        f"`{type(getattr(self, field.name))}` instead of `{field.type}`")
+
+                    if getattr(self, field.name) not in field.type:
+                        raise ValueError(f"The field `{field.name}` was assigned an invalid enum value.")
             elif not isinstance(getattr(self, field.name), field.type):
                 current_type = type(getattr(self, field.name))
                 raise TypeError(f"The field `{field.name}` was assigned by `{current_type}` instead of `{field.type}`")
