@@ -9,7 +9,7 @@ from vali_objects.dataclasses.order import Order
 
 
 @dataclass
-class Position:
+class TestPosition:
     miner_hotkey: str
     position_uuid: str
     open_ms: int

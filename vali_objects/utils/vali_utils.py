@@ -11,17 +11,12 @@ from time_util.time_util import TimeUtil
 from vali_config import ValiConfig
 from vali_objects.cmw.cmw_objects.cmw import CMW
 from vali_objects.cmw.cmw_util import CMWUtil
-from vali_objects.dataclasses.base_objects.new_request_dataclass import NewRequestDataClass
-from vali_objects.dataclasses.client_request import ClientRequest
-from vali_objects.dataclasses.prediction_request import PredictionRequest
-from vali_objects.dataclasses.training_request import TrainingRequest
 
-from vali_objects.dataclasses.position import Position
+from vali_objects.position import Position
 from vali_objects.exceptions.corrupt_data_exception import ValiBkpCorruptDataException
 from vali_objects.exceptions.vali_bkp_file_missing_exception import ValiFileMissingException
 from vali_objects.exceptions.vali_records_misalignment_exception import ValiRecordsMisalignmentException
 from vali_objects.exceptions.vali_memory_missing_exception import ValiMemoryMissingException
-from vali_objects.dataclasses.prediction_data_file import PredictionDataFile
 from vali_objects.scaling.scaling import Scaling
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.utils.vali_memory_utils import ValiMemoryUtils
@@ -115,11 +110,14 @@ class ValiUtils:
                                      vali_weights)
 
     @staticmethod
-    def get_all_miner_positions_and_orders(miner_hotkey, only_open_positions=False):
-        def sort_by_end(item):
-            return item.open_ms
+    def get_all_miner_positions_and_orders(miner_hotkey,
+                                           only_open_positions=False,
+                                           sort_positions=False) -> List[Position]:
+        def _sort_by_close_ms(position):
+            # Treat None values as largest possible value
+            return position.close_ms if position.close_ms is not None else float('inf')
 
-        miner_dir = ValiBkpUtils.get_miner_dir(miner_hotkey)
+        miner_dir = ValiBkpUtils.get_miner_position_dir(miner_hotkey)
         all_files = ValiBkpUtils.get_all_files_in_dir(miner_dir)
 
         positions = [ValiUtils.get_miner_positions(file) for file in all_files]
@@ -127,101 +125,103 @@ class ValiUtils:
         if only_open_positions:
             positions = [position for position in positions if position.close_ms is None]
 
-        sorted_pred_requests = sorted(positions, key=sort_by_end, reverse=True)
-        return sorted_pred_requests
+        if sort_positions:
+            positions = sorted(positions, key=_sort_by_close_ms)
+        return positions
 
 
+    #
+    # @staticmethod
+    # def get_predictions_to_complete() -> List[PredictionRequest]:
+    #     def sort_by_end(item):
+    #         return item.df.end
+    #
+    #     all_files = ValiBkpUtils.get_all_files_in_dir(ValiBkpUtils.get_vali_predictions_dir())
+    #     request_to_complete = {}
+    #     for file in all_files:
+    #         unpickled_df = ValiUtils.get_miner_positions(file)
+    #         # need to add a buffer of 24 hours to ensure the data is available via api requests
+    #         if TimeUtil.now_in_millis() > unpickled_df.end + TimeUtil.hours_in_millis(1):
+    #             if unpickled_df.vmins is not None \
+    #                     and unpickled_df.vmaxs is not None \
+    #                     and unpickled_df.decimal_places is not None:
+    #                 unpickled_unscaled_data_structure = Scaling.unscale_values(unpickled_df.vmins[0],
+    #                                                                            unpickled_df.vmaxs[0],
+    #                                                                            unpickled_df.decimal_places[0],
+    #                                                                            unpickled_df.predictions)
+    #             else:
+    #                 unpickled_unscaled_data_structure = unpickled_df.predictions
+    #             if unpickled_df.request_uuid not in request_to_complete:
+    #                 # keeping as a dict to easily add new files to ref
+    #                 request_to_complete[unpickled_df.request_uuid] = PredictionRequest(
+    #                     request_uuid=unpickled_df.request_uuid,
+    #                     df=unpickled_df,
+    #                     files=[],
+    #                     predictions={}
+    #                 )
+    #             request_to_complete[
+    #                 unpickled_df.request_uuid].predictions[unpickled_df.miner_uid] = unpickled_unscaled_data_structure
+    #             request_to_complete[
+    #                 unpickled_df.request_uuid].files.append(file)
+    #     pred_requests = [pred_request for pred_request in request_to_complete.values()]
+    #     sorted_pred_requests = sorted(pred_requests, key=sort_by_end, reverse=True)
+    #     return sorted_pred_requests
+    #
+    # @staticmethod
+    # def generate_standard_request(request: Type[NewRequestDataClass]):
+    #     # templated for now as we trade only btc
+    #     stream_type = "BTCUSD-5m"
+    #     topic_id = 1
+    #     schema_id = 1
+    #     feature_ids = [0.001, 0.002, 0.003, 0.004, 0.005]
+    #     prediction_size = int(random.uniform(ValiConfig.PREDICTIONS_MIN, ValiConfig.PREDICTIONS_MAX))
+    #     additional_details = {
+    #         "tf": 5,
+    #         "trade_pair": "BTCUSD"
+    #     }
+    #
+    #     if request == TrainingRequest:
+    #         return TrainingRequest(
+    #             stream_type=stream_type,
+    #             topic_id=topic_id,
+    #             schema_id=schema_id,
+    #             feature_ids=feature_ids,
+    #             prediction_size=prediction_size,
+    #             additional_details=additional_details
+    #         )
+    #     elif request == ClientRequest:
+    #         return ClientRequest(
+    #             stream_type=stream_type,
+    #             topic_id=topic_id,
+    #             schema_id=schema_id,
+    #             feature_ids=feature_ids,
+    #             prediction_size=prediction_size,
+    #             additional_details=additional_details
+    #         )
+    #     else:
+    #         raise Exception("not a recognizable client request")
+
+    # @staticmethod
+    # def randomize_days(historical_lookback: bool) -> (int, int, List[Tuple[int, int]]):
+    #     days = int(random.uniform(ValiConfig.HISTORICAL_DATA_LOOKBACK_DAYS_MIN,
+    #                               ValiConfig.HISTORICAL_DATA_LOOKBACK_DAYS_MAX))
+    #     # if 1 then historical lookback, otherwise live
+    #     if historical_lookback:
+    #         start = int(random.uniform(30, 1460))
+    #     else:
+    #         start = days
+    #     TimeUtil.generate_start_timestamp(start)
+    #     return TimeUtil.generate_start_timestamp(start), \
+    #            TimeUtil.generate_start_timestamp(start - days), \
+    #            TimeUtil.convert_range_timestamps_to_millis(
+    #                TimeUtil.generate_range_timestamps(
+    #                    TimeUtil.generate_start_timestamp(start), days))
 
     @staticmethod
-    def get_predictions_to_complete() -> List[PredictionRequest]:
-        def sort_by_end(item):
-            return item.df.end
-
-        all_files = ValiBkpUtils.get_all_files_in_dir(ValiBkpUtils.get_vali_predictions_dir())
-        request_to_complete = {}
-        for file in all_files:
-            unpickled_df = ValiUtils.get_miner_positions(file)
-            # need to add a buffer of 24 hours to ensure the data is available via api requests
-            if TimeUtil.now_in_millis() > unpickled_df.end + TimeUtil.hours_in_millis(1):
-                if unpickled_df.vmins is not None \
-                        and unpickled_df.vmaxs is not None \
-                        and unpickled_df.decimal_places is not None:
-                    unpickled_unscaled_data_structure = Scaling.unscale_values(unpickled_df.vmins[0],
-                                                                               unpickled_df.vmaxs[0],
-                                                                               unpickled_df.decimal_places[0],
-                                                                               unpickled_df.predictions)
-                else:
-                    unpickled_unscaled_data_structure = unpickled_df.predictions
-                if unpickled_df.request_uuid not in request_to_complete:
-                    # keeping as a dict to easily add new files to ref
-                    request_to_complete[unpickled_df.request_uuid] = PredictionRequest(
-                        request_uuid=unpickled_df.request_uuid,
-                        df=unpickled_df,
-                        files=[],
-                        predictions={}
-                    )
-                request_to_complete[
-                    unpickled_df.request_uuid].predictions[unpickled_df.miner_uid] = unpickled_unscaled_data_structure
-                request_to_complete[
-                    unpickled_df.request_uuid].files.append(file)
-        pred_requests = [pred_request for pred_request in request_to_complete.values()]
-        sorted_pred_requests = sorted(pred_requests, key=sort_by_end, reverse=True)
-        return sorted_pred_requests
-
-    @staticmethod
-    def generate_standard_request(request: Type[NewRequestDataClass]):
-        # templated for now as we trade only btc
-        stream_type = "BTCUSD-5m"
-        topic_id = 1
-        schema_id = 1
-        feature_ids = [0.001, 0.002, 0.003, 0.004, 0.005]
-        prediction_size = int(random.uniform(ValiConfig.PREDICTIONS_MIN, ValiConfig.PREDICTIONS_MAX))
-        additional_details = {
-            "tf": 5,
-            "trade_pair": "BTCUSD"
+    def get_empty_eliminations() -> Dict:
+        return {
+            "eliminations": []
         }
-
-        if request == TrainingRequest:
-            return TrainingRequest(
-                stream_type=stream_type,
-                topic_id=topic_id,
-                schema_id=schema_id,
-                feature_ids=feature_ids,
-                prediction_size=prediction_size,
-                additional_details=additional_details
-            )
-        elif request == ClientRequest:
-            return ClientRequest(
-                stream_type=stream_type,
-                topic_id=topic_id,
-                schema_id=schema_id,
-                feature_ids=feature_ids,
-                prediction_size=prediction_size,
-                additional_details=additional_details
-            )
-        else:
-            raise Exception("not a recognizable client request")
-
-    @staticmethod
-    def randomize_days(historical_lookback: bool) -> (int, int, List[Tuple[int, int]]):
-        days = int(random.uniform(ValiConfig.HISTORICAL_DATA_LOOKBACK_DAYS_MIN,
-                                  ValiConfig.HISTORICAL_DATA_LOOKBACK_DAYS_MAX))
-        # if 1 then historical lookback, otherwise live
-        if historical_lookback:
-            start = int(random.uniform(30, 1460))
-        else:
-            start = days
-        TimeUtil.generate_start_timestamp(start)
-        return TimeUtil.generate_start_timestamp(start), \
-               TimeUtil.generate_start_timestamp(start - days), \
-               TimeUtil.convert_range_timestamps_to_millis(
-                   TimeUtil.generate_range_timestamps(
-                       TimeUtil.generate_start_timestamp(start), days))
-
-    @staticmethod
-    def get_standardized_ds() -> List[List]:
-        # close time, close, high, low, volume
-        return [[], [], [], [], []]
 
     @staticmethod
     def get_miner_positions(file) -> Position:
@@ -243,7 +243,26 @@ class ValiUtils:
             raise ValiFileMissingException("Vali secrets file is missing")
 
     @staticmethod
-    def save_miner_position(miner_hotkey: str, position: str, content: Dict | object):
-        ValiBkpUtils.write_vali_file(ValiBkpUtils.get_vali_predictions_dir(),
-                                     ValiBkpUtils.get_miner_position_dir(miner_hotkey, position),
-                                     content, True)
+    def get_eliminations() -> Dict:
+        # wrapping here to allow simpler error handling & original for other error handling
+        try:
+            secrets = ValiBkpUtils.get_vali_file(ValiBkpUtils.get_eliminations_dir())
+            return json.loads(secrets)
+        except FileNotFoundError:
+            print("no eliminations file, continuing")
+            return ValiUtils.get_empty_eliminations()
+
+    @staticmethod
+    def save_miner_position(miner_hotkey: str,
+                            position_uuid: str,
+                            content: Dict | object) -> None:
+        ValiBkpUtils.write_vali_file(ValiBkpUtils.get_miner_position_dir(miner_hotkey),
+                                     position_uuid,
+                                     content,
+                                     True)
+
+    @staticmethod
+    def set_eliminations(eliminations: Dict) -> None:
+        ValiBkpUtils.write_vali_file(ValiBkpUtils.get_eliminations_dir(),
+                                     "",
+                                     eliminations)
