@@ -14,15 +14,15 @@ class ValiBkpUtils:
 
     @staticmethod
     def get_miner_dir(miner_hotkey) -> str:
-        return ValiConfig.BASE_DIR + f'/validation/{miner_hotkey}'
+        return ValiConfig.BASE_DIR + f'/validation/{miner_hotkey}/'
 
     @staticmethod
-    def get_miner_position_dir(miner_hotkey, position) -> str:
-        return ValiConfig.BASE_DIR + f'/validation/{miner_hotkey}/{position}'
+    def get_miner_position_dir(miner_hotkey) -> str:
+        return ValiConfig.BASE_DIR + f'/validation/{miner_hotkey}/positions/'
 
     @staticmethod
-    def get_miner_order_dir(hotkey, position, order) -> str:
-        return ValiConfig.BASE_DIR + f'/validation/{hotkey}/{position}/{order}'
+    def get_eliminations_dir():
+        return ValiConfig.BASE_DIR + f'/validation/eliminations.json'
 
     @staticmethod
     def get_secrets_dir():

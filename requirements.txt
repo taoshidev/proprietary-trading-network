@@ -3,3 +3,4 @@ torch
 tensorflow
 scikit-learn
 pandas
+twelvedata

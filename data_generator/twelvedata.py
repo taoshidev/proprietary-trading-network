@@ -1,49 +1,45 @@
-import requests
+from typing import List
 
 from time_util.time_util import TimeUtil
+from vali_config import TradePair
+
+from twelvedata import TDClient
 
 
-class TwelveData():
+class TwelveData:
     def __init__(self, api_key):
         self._api_key = api_key
 
-    @staticmethod
-    def _fetch_data(symbol,
+    def _fetch_data(self,
+                    symbols,
                     interval,
-                    output_size,
-                    exchange=None):
+                    output_size):
 
-        url = f'https://api.twelvedata.com/time_series?' \
-              f'symbol={symbol}' \
-              f'&interval={interval}' \
-              f'&outputsize={output_size}' \
-              f'&exchange={exchange}'
-        response = requests.get(url)
+        td = TDClient(apikey=self._api_key)
+
+        ts = td.time_series(
+            symbol=symbols,
+            interval=interval,
+            outputsize=output_size
+        )
+
+        response = ts.as_json()
+
         if response.status_code == 200:
-            return response.json()['values']
+            return response.json()
         else:
             raise Exception("Error fetching data from twelvedata")
 
-    def get_data(self, symbol: str,
-                 output_size: int = 1,
-                 interval = '1min',
-                 start: int = None,
-                 end: int = None,
-                 exchange: str = None,
-                 close_only: bool = True):
+    def get_closes(self, trade_pairs: List[TradePair] | TradePair,
+                   output_size: int = 1,
+                   interval: str = '1min'):
 
-        def request_close_only(_close_only):
-            if _close_only:
-                return item['close']
-            else:
-                return item
+        stringified_trade_pairs = ','.join(map(str, trade_pairs))
 
-        aggregated_data = []
-        data = self._fetch_data(symbol, interval, output_size, exchange)
-        for item in data:
-            timestamp = TimeUtil.timestamp_to_millis(item['datetime'])
-            if start is not None and end is not None and start <= timestamp <= end:
-                aggregated_data.append(request_close_only(item))
-            else:
-                aggregated_data.append(request_close_only(item))
-        return aggregated_data
+        all_trade_pair_closes = {}
+
+        data = self._fetch_data(stringified_trade_pairs, interval, output_size)
+        for k, v in data.items():
+            all_trade_pair_closes[TradePair[k]] = v["values"]["close"]
+
+        return all_trade_pair_closes

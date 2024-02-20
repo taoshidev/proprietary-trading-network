@@ -3,15 +3,13 @@
 
 from dataclasses import dataclass
 
-from vali_objects.dataclasses.base_objects.base_dataclass import BaseDataClass
+from vali_config import TradePair
 from vali_objects.enums.order_type_enum import OrderTypeEnum
 
 
 @dataclass
-class Order:
-    trade_pair: str
+class Signal:
+    trade_pair: TradePair
     order_type: OrderTypeEnum
     leverage: float
-    price: float
-    processed_ms: int
-    order_uuid: str
+
