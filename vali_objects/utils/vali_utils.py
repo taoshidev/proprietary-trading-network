@@ -23,6 +23,9 @@ from vali_objects.utils.vali_memory_utils import ValiMemoryUtils
 
 
 class ValiUtils:
+
+    _ELIMINATIONS = "eliminations"
+
     @staticmethod
     def get_vali_records() -> CMW:
         try:
@@ -218,12 +221,6 @@ class ValiUtils:
     #                    TimeUtil.generate_start_timestamp(start), days))
 
     @staticmethod
-    def get_empty_eliminations() -> Dict:
-        return {
-            "eliminations": []
-        }
-
-    @staticmethod
     def get_miner_positions(file) -> Position:
         # wrapping here to allow simpler error handling & original for other error handling
         try:
@@ -243,14 +240,14 @@ class ValiUtils:
             raise ValiFileMissingException("Vali secrets file is missing")
 
     @staticmethod
-    def get_eliminations() -> Dict:
+    def get_eliminations() -> List:
         # wrapping here to allow simpler error handling & original for other error handling
         try:
             secrets = ValiBkpUtils.get_vali_file(ValiBkpUtils.get_eliminations_dir())
-            return json.loads(secrets)
+            return json.loads(secrets)[ValiUtils._ELIMINATIONS]
         except FileNotFoundError:
             print("no eliminations file, continuing")
-            return ValiUtils.get_empty_eliminations()
+            return []
 
     @staticmethod
     def save_miner_position(miner_hotkey: str,
@@ -262,7 +259,10 @@ class ValiUtils:
                                      True)
 
     @staticmethod
-    def set_eliminations(eliminations: Dict) -> None:
+    def set_eliminations(eliminations: List) -> None:
+        eliminations_dict = {
+            ValiUtils._ELIMINATIONS: eliminations
+        }
         ValiBkpUtils.write_vali_file(ValiBkpUtils.get_eliminations_dir(),
                                      "",
-                                     eliminations)
+                                     eliminations_dict)

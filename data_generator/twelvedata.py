@@ -34,7 +34,8 @@ class TwelveData:
                    output_size: int = 1,
                    interval: str = '1min'):
 
-        stringified_trade_pairs = ','.join(map(str, trade_pairs))
+        trade_pair_values = [trade_pair.value for trade_pair in trade_pairs]
+        stringified_trade_pairs = ','.join(map(str, trade_pair_values))
 
         all_trade_pair_closes = {}
 
