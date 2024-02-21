@@ -1,11 +1,24 @@
+from typing import List
+
 from vali_config import ValiConfig
 from vali_objects.enums.order_type_enum import OrderTypeEnum
+from vali_objects.position import Position
 
 
-# class ExchangeUtils:
-#
-# 	def calculate_return(self):
+class PositionUtils:
+	@staticmethod
+	def get_return_per_closed_position(positions: List[Position]) -> List[float]:
+		closed_position_returns = [position.return_at_close
+		                           for position in positions
+		                           if position.is_closed_position]
+		cumulative_return = 1
+		per_position_return = []
 
+		# calculate the return over time at each position close
+		for value in closed_position_returns:
+			cumulative_return *= value
+			per_position_return.append(cumulative_return)
+		return per_position_return
 #
 #     @staticmethod
 #     def is_closed_position(position: Position) -> bool:

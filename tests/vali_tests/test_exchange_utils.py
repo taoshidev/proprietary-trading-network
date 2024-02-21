@@ -4,7 +4,7 @@ from typing import List, Dict
 from vali_objects.dataclasses.order import Order
 from vali_objects.dataclasses.test_position import Position
 from vali_objects.enums.order_type_enum import OrderTypeEnum
-from vali_objects.utils.exchange_utils import ExchangeUtils
+from vali_objects.utils.position_utils import ExchangeUtils
 
 
 class TestExchangeUtils(unittest.TestCase):
