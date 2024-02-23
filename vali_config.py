@@ -1,6 +1,9 @@
 # developer: Taoshi
 # Copyright © 2023 Taoshi Inc
+import os
 from enum import Enum
+
+from time_util.time_util import TimeUtil
 
 
 class TradePair(Enum):
@@ -22,3 +25,10 @@ class ValiConfig:
 
     SET_WEIGHT_INTERVALS = [0, 30]
     SET_WEIGHT_LOOKBACK_RANGE_DAYS = 30
+
+    SET_WEIGHT_MINIMUM_POSITIONS = 3
+
+    ORDER_SIMILARITY_WINDOW_MS = TimeUtil.hours_in_millis(24)
+
+    BASE_DIR = base_directory = os.path.dirname(os.path.abspath(__file__))
+
