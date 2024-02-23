@@ -13,7 +13,7 @@ class Position:
                  position_uuid: str,
                  open_ms: int,
                  trade_pair: TradePair,
-                 orders=None,
+                 orders: List[Order] = None,
                  current_return: Optional[float] = 0,
                  max_drawdown: Optional[float] = 0,
                  close_ms: Optional[int] = None,

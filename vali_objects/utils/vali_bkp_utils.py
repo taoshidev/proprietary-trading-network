@@ -4,10 +4,8 @@
 import json
 import os
 import pickle
-from datetime import datetime
 
 from vali_config import ValiConfig
-from vali_objects.dataclasses.prediction_data_file import PredictionDataFile
 
 
 class ValiBkpUtils:
@@ -23,6 +21,10 @@ class ValiBkpUtils:
     @staticmethod
     def get_eliminations_dir():
         return ValiConfig.BASE_DIR + f'/validation/eliminations.json'
+
+    @staticmethod
+    def get_miner_copying_dir():
+        return ValiConfig.BASE_DIR + f'/validation/miner_copying.json'
 
     @staticmethod
     def get_secrets_dir():
@@ -86,7 +88,7 @@ class ValiBkpUtils:
         ValiBkpUtils.write_to_vali_dir(vali_dir + file_name, vali_data, is_pickle)
 
     @staticmethod
-    def get_vali_file(vali_file, is_pickle: bool = False) -> str | PredictionDataFile:
+    def get_vali_file(vali_file, is_pickle: bool = False) -> str | object:
         with open(vali_file, ValiBkpUtils.get_read_type(is_pickle)) as f:
             return pickle.load(f) if is_pickle else f.read()
 
@@ -98,19 +100,5 @@ class ValiBkpUtils:
                 if os.path.isfile(os.path.join(vali_dir, filename)):
                     all_files.append(vali_dir + filename)
         return all_files
-
-    @staticmethod
-    def delete_stale_files(vali_dir: str) -> None:
-        current_date = datetime.now()
-        if os.path.exists(vali_dir):
-            for filename in os.listdir(vali_dir):
-                file_path = os.path.join(vali_dir, filename)
-                if os.path.isfile(file_path):
-                    creation_timestamp = os.path.getctime(file_path)
-                    creation_date = datetime.fromtimestamp(creation_timestamp)
-                    age_in_days = (current_date - creation_date).days
-                    if age_in_days > ValiConfig.DELETE_STALE_DATA:
-                        os.remove(file_path)
-
 
 
