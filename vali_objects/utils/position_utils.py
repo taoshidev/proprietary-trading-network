@@ -72,42 +72,40 @@ class PositionUtils:
 
     @staticmethod
     def is_order_similar_to_positional_orders(
+        position_open_ms: int,
         check_order: Order,
         hotkey: str = None,
         hotkeys: List[str] = None,
-        orders: List[Order] = None,
         **args,
     ):
-        if orders is None and hotkeys is None:
-            raise ValueError(f"either hotkeys or orders need to be provided.")
 
         trade_pair_fee = ValiConfig.TRADE_PAIR_FEES[check_order.trade_pair]
 
-        if orders is None:
-            if hotkey is None:
-                raise ValueError("miner hotkey must be provided.")
+        if hotkey is None:
+            raise ValueError("miner hotkey must be provided.")
 
-            miner_positions_by_hotkey = PositionUtils.get_all_miner_positions_by_hotkey(
-                hotkeys, **args
-            )
-            # don't include their own hotkey
-            orders = [
-                porder
-                for key, positions in miner_positions_by_hotkey.items()
-                for position in positions
-                for porder in position.orders
-                if key != hotkey
-            ]
+        miner_positions_by_hotkey = PositionUtils.get_all_miner_positions_by_hotkey(
+            hotkeys, **args
+        )
+        # don't include their own hotkey
+        orders = {
+            porder.order_uuid: {"order": porder, "position": position}
+            for key, positions in miner_positions_by_hotkey.items()
+            for position in positions
+            for porder in position.orders
+            if key != hotkey
+        }
 
         # check to see if there is a similar order to the miner's in the time window
         # based on ranged values
-        for order in orders:
+        for order_uuid, order_info in orders.items():
             if (
-                order.trade_pair == check_order.trade_pair
-                and order.processed_ms
+                order_info["position"].open_ms < position_open_ms
+                and order_info["order"].trade_pair == check_order.trade_pair
+                and order_info["order"].processed_ms
                 > check_order.processed_ms - ValiConfig.ORDER_SIMILARITY_WINDOW_MS
                 and check_order.price * (1 - trade_pair_fee)
-                <= order.price
+                <= order_info["order"].price
                 <= check_order.price * (1 + trade_pair_fee)
             ):
                 return True

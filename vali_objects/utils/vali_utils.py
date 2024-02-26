@@ -41,23 +41,20 @@ class ValiUtils:
         miner_hotkey: str, position_uuid: str, content: Dict | object
     ) -> None:
         ValiBkpUtils.write_vali_file(
-            ValiBkpUtils.get_miner_position_dir(miner_hotkey),
-            position_uuid,
+            ValiBkpUtils.get_miner_position_dir(miner_hotkey) + position_uuid,
             content,
             True,
         )
 
     @staticmethod
-    def get_vali_json_file(vali_dir: str, key: str) -> List:
+    def get_vali_json_file(vali_dir: str, key: str = None) -> List | Dict:
         # wrapping here to allow simpler error handling & original for other error handling
         try:
             secrets = ValiBkpUtils.get_vali_file(vali_dir)
-            return json.loads(secrets)[key]
+            if key is not None:
+                return json.loads(secrets)[key]
+            else:
+                return json.loads(secrets)
         except FileNotFoundError:
             print(f"no vali json file [{dir}], continuing")
             return []
-
-    @staticmethod
-    def set_vali_json_file(values: List, key: str, vali_dir: str) -> None:
-        vali_json_dict = {key: values}
-        ValiBkpUtils.write_vali_file(vali_dir, "", vali_json_dict)

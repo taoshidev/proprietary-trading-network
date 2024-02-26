@@ -82,10 +82,10 @@ class ValiBkpUtils:
         f.close()
 
     @staticmethod
-    def write_vali_file(vali_dir: str, file_name: str, vali_data: dict | object, is_pickle: bool = False) -> None:
+    def write_vali_file(vali_dir: str, vali_data: dict | object, is_pickle: bool = False) -> None:
         # will concat dir and file name
         ValiBkpUtils.make_dir(vali_dir)
-        ValiBkpUtils.write_to_vali_dir(vali_dir + file_name, vali_data, is_pickle)
+        ValiBkpUtils.write_to_vali_dir(vali_dir, vali_data, is_pickle)
 
     @staticmethod
     def get_vali_file(vali_file, is_pickle: bool = False) -> str | object:

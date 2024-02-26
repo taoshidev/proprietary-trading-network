@@ -30,5 +30,7 @@ class ValiConfig:
 
     ORDER_SIMILARITY_WINDOW_MS = TimeUtil.hours_in_millis(24)
 
+    MINER_COPYING_WEIGHT = 0.01
+
     BASE_DIR = base_directory = os.path.dirname(os.path.abspath(__file__))
 
