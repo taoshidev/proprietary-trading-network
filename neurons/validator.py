@@ -22,6 +22,7 @@ import bittensor as bt
 from data_generator.twelvedata import TwelveData
 from time_util.time_util import TimeUtil
 from vali_config import ValiConfig, TradePair
+from vali_objects.exceptions.signal_exception import SignalException
 from vali_objects.scaling.scaling import Scaling
 from vali_objects.utils.position_utils import PositionUtils
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
@@ -173,6 +174,9 @@ def mdd_check():
         eliminations = ValiUtils.get_vali_json_file(
             ValiBkpUtils.get_eliminations_dir(), ValiUtils.ELIMINATIONS
         )
+        miner_copying = ValiUtils.get_vali_json_file(
+            ValiBkpUtils.get_miner_copying_dir()
+        )
 
         if time_now.second < 15:
             try:
@@ -184,16 +188,25 @@ def mdd_check():
                 hotkeys = metagraph.hotkeys
 
                 # remove miners who've already been deregd
+                # only keep miners who are still registered
                 updated_eliminations = [
                     elimination
                     for elimination in eliminations
                     if elimination in hotkeys
                 ]
 
-                hotkey_positions = (
-                    PositionUtils.get_all_miner_positions_by_hotkey(
-                        hotkeys, sort_positions=True, eliminations=updated_eliminations
-                    )
+                # update miner copying with miners who've been deregd
+                # only keep miners who are still registered
+                updated_miner_copying = {
+                    mch: mc for mch, mc in miner_copying.items() if mch in hotkeys
+                }
+
+                ValiBkpUtils.write_vali_file(
+                    ValiBkpUtils.get_miner_copying_dir(), updated_miner_copying
+                )
+
+                hotkey_positions = PositionUtils.get_all_miner_positions_by_hotkey(
+                    hotkeys, sort_positions=True, eliminations=updated_eliminations
                 )
                 for hotkey, positions in hotkey_positions.items():
                     current_dd = 1
@@ -259,10 +272,9 @@ def mdd_check():
 
                         if _is_beyond_mdd(current_dd, hotkey):
                             updated_eliminations.append(hotkey)
-                ValiUtils.set_vali_json_file(
-                    eliminations,
-                    ValiUtils.ELIMINATIONS,
-                    ValiBkpUtils.get_eliminations_dir(),
+                vali_elims = {ValiUtils.ELIMINATIONS: eliminations}
+                ValiBkpUtils.write_vali_file(
+                    ValiBkpUtils.get_eliminations_dir(), vali_elims
                 )
                 time.sleep(15)
             except Exception:
@@ -317,12 +329,24 @@ def main(config):
 
     def rs_blacklist_fn(synapse: template.protocol.SendSignal) -> Tuple[bool, str]:
         bt.logging.debug("got to blacklisting rs")
+
+        # Ignore requests from unrecognized entities.
         if synapse.dendrite.hotkey not in metagraph.hotkeys:
-            # Ignore requests from unrecognized entities.
             bt.logging.trace(
                 f"Blacklisting unrecognized hotkey {synapse.dendrite.hotkey}"
             )
             return True, synapse.dendrite.hotkey
+
+        eliminations = ValiUtils.get_vali_json_file(
+            ValiBkpUtils.get_eliminations_dir(), ValiUtils.ELIMINATIONS
+        )
+
+        # don't process eliminated miners
+        if synapse.dendrite.hotkey in eliminations:
+            # Ignore requests from eliminated hotkeys
+            bt.logging.trace(f"Eliminated hotkey {synapse.dendrite.hotkey}")
+            return True, synapse.dendrite.hotkey
+
         bt.logging.trace(
             f"Not Blacklisting recognized hotkey {synapse.dendrite.hotkey}"
         )
@@ -351,15 +375,6 @@ def main(config):
             ValiBkpUtils.get_eliminations_dir(), ValiUtils.ELIMINATIONS
         )
 
-        # don't process eliminated miners
-        if synapse.dendrite.hotkey in eliminations:
-            synapse.received = 1
-            synapse.error_message = (
-                f"Order request denied. "
-                f"miner [{synapse.dendrite.hotkey}] has been eliminated."
-            )
-            return synapse
-
         # error message to send back to miners in case of a problem so they can fix and resend
         error_message = ""
 
@@ -382,11 +397,10 @@ def main(config):
         try:
             for signal in signals:
                 if signal.trade_pair not in ValiConfig.TRADE_PAIR_FEES:
-                    error_message = (
+                    raise SignalException(
                         f"miner [{synapse.dendrite.hotkey}] incorrectly "
                         f"sent trade pair [{signal.trade_pair}]"
                     )
-                    bt.logging.error(error_message)
                 else:
                     trade_pair = signal.trade_pair
                     # trade pair exists, convert signal to order
@@ -436,10 +450,55 @@ def main(config):
                                 miner_hotkey, open_position.position_uuid, open_position
                             )
                         else:
-                            bt.logging.info(
+                            raise SignalException(
                                 f"miner [{synapse.dendrite.hotkey}] sent a "
-                                f"FLAT order with no existing position"
+                                f"FLAT order with no existing position."
                             )
+
+                        # check to see if order is similar to existing order
+                        is_similar_order = (
+                            PositionUtils.is_order_similar_to_positional_orders(
+                                open_position.open_ms,
+                                signal_to_order,
+                                hotkey=miner_hotkey,
+                                hotkeys=metagraph.hotkeys,
+                            )
+                        )
+                        miner_copying_json = ValiUtils.get_vali_json_file(
+                            ValiBkpUtils.get_miner_copying_dir()
+                        )
+                        current_hotkey_mc = miner_copying_json[miner_hotkey]
+                        if is_similar_order:
+                            current_hotkey_mc += ValiConfig.MINER_COPYING_WEIGHT
+                            if current_hotkey_mc > 1:
+                                eliminations.append(miner_hotkey)
+                                # updating both elims and miner copying
+                                miner_copying_json[miner_hotkey] = current_hotkey_mc
+                                ValiBkpUtils.write_vali_file(
+                                    ValiBkpUtils.get_miner_copying_dir(),
+                                    miner_copying_json,
+                                )
+                                ValiBkpUtils.write_vali_file(
+                                    ValiBkpUtils.get_eliminations_dir(), eliminations
+                                )
+                                raise SignalException(
+                                    f"miner eliminated for signal copying [{miner_hotkey}]."
+                                )
+                        else:
+                            if current_hotkey_mc > 0:
+                                current_hotkey_mc -= ValiConfig.MINER_COPYING_WEIGHT
+                                # updating miner copying file
+                                miner_copying_json[miner_hotkey] = current_hotkey_mc
+                                ValiBkpUtils.write_vali_file(
+                                    ValiBkpUtils.get_miner_copying_dir(),
+                                    miner_copying_json,
+                                )
+                        bt.logging.info(
+                            f"updated miner copying - [{miner_copying_json[miner_hotkey]}]"
+                        )
+        except SignalException as e:
+            error_message = e
+            bt.logging.warning(error_message)
         except Exception as e:
             error_message = e
             bt.logging.error(traceback.format_exc())
