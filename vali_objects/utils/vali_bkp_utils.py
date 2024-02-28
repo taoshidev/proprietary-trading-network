@@ -9,50 +9,53 @@ from vali_config import ValiConfig
 
 
 class ValiBkpUtils:
-
     @staticmethod
     def get_miner_dir(miner_hotkey) -> str:
-        return ValiConfig.BASE_DIR + f'/validation/{miner_hotkey}/'
+        return ValiConfig.BASE_DIR + f"/validation/miners/{miner_hotkey}/"
 
     @staticmethod
     def get_miner_position_dir(miner_hotkey) -> str:
-        return ValiConfig.BASE_DIR + f'/validation/{miner_hotkey}/positions/'
+        return ValiConfig.BASE_DIR + f"/validation/miners/{miner_hotkey}/positions/"
 
     @staticmethod
     def get_eliminations_dir():
-        return ValiConfig.BASE_DIR + f'/validation/eliminations.json'
+        return ValiConfig.BASE_DIR + f"/validation/eliminations.json"
 
     @staticmethod
     def get_miner_copying_dir():
-        return ValiConfig.BASE_DIR + f'/validation/miner_copying.json'
+        return ValiConfig.BASE_DIR + f"/validation/miner_copying.json"
 
     @staticmethod
     def get_secrets_dir():
-        return ValiConfig.BASE_DIR + f'/validation/secrets.json'
+        return ValiConfig.BASE_DIR + f"/validation/secrets.json"
 
     @staticmethod
     def get_vali_bkp_dir() -> str:
-        return ValiConfig.BASE_DIR + '/validation/backups/'
+        return ValiConfig.BASE_DIR + "/validation/backups/"
 
     @staticmethod
     def get_vali_outputs_dir() -> str:
-        return ValiConfig.BASE_DIR + '/validation/outputs/'
+        return ValiConfig.BASE_DIR + "/validation/outputs/"
 
     @staticmethod
     def get_vali_weights_dir() -> str:
-        return ValiConfig.BASE_DIR + '/validation/weights/'
+        return ValiConfig.BASE_DIR + "/validation/weights/"
+
+    @staticmethod
+    def get_vali_dir() -> str:
+        return ValiConfig.BASE_DIR + "/validation/"
 
     @staticmethod
     def get_vali_data_file() -> str:
-        return 'valirecords.json'
+        return "valirecords.json"
 
     @staticmethod
     def get_vali_weights_file() -> str:
-        return 'valiweights.json'
+        return "valiweights.json"
 
     @staticmethod
     def get_vali_predictions_dir() -> str:
-        return ValiConfig.BASE_DIR + '/validation/predictions/'
+        return ValiConfig.BASE_DIR + "/validation/predictions/"
 
     @staticmethod
     def get_response_filename(request_uuid: str) -> str:
@@ -69,22 +72,26 @@ class ValiBkpUtils:
 
     @staticmethod
     def get_write_type(is_pickle: bool) -> str:
-        return 'wb' if is_pickle else 'w'
+        return "wb" if is_pickle else "w"
 
     @staticmethod
     def get_read_type(is_pickle: bool) -> str:
-        return 'rb' if is_pickle else 'r'
+        return "rb" if is_pickle else "r"
 
     @staticmethod
-    def write_to_vali_dir(vali_file: str, vali_data: dict | object, is_pickle: bool = False) -> None:
+    def write_to_vali_dir(
+        vali_file: str, vali_data: dict | object, is_pickle: bool = False
+    ) -> None:
         with open(vali_file, ValiBkpUtils.get_write_type(is_pickle)) as f:
             pickle.dump(vali_data, f) if is_pickle else f.write(json.dumps(vali_data))
         f.close()
 
     @staticmethod
-    def write_vali_file(vali_dir: str, vali_data: dict | object, is_pickle: bool = False) -> None:
-        # will concat dir and file name
-        ValiBkpUtils.make_dir(vali_dir)
+    def write_vali_file(
+        vali_dir: str,
+        vali_data: dict | object,
+        is_pickle: bool = False
+    ) -> None:
         ValiBkpUtils.write_to_vali_dir(vali_dir, vali_data, is_pickle)
 
     @staticmethod
@@ -100,5 +107,3 @@ class ValiBkpUtils:
                 if os.path.isfile(os.path.join(vali_dir, filename)):
                     all_files.append(vali_dir + filename)
         return all_files
-
-
