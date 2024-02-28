@@ -9,7 +9,7 @@ from pydantic import Field
 
 from typing import List, Type
 
-from vali_objects.dataclasses.signal import Signal
+from vali_objects.vali_dataclasses.signal import Signal
 
 
 class BaseProtocol(bt.Synapse):

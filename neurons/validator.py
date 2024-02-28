@@ -2,10 +2,11 @@
 # Copyright © 2023 Yuma Rao
 # developer: Taoshidev
 # Copyright © 2023 Taoshi Inc
-
+import multiprocessing
 
 # Step 1: Import necessary libraries and modules
 import os
+import shutil
 import threading
 import time
 import uuid
@@ -24,6 +25,7 @@ from time_util.time_util import TimeUtil
 from vali_config import ValiConfig, TradePair
 from vali_objects.exceptions.signal_exception import SignalException
 from vali_objects.scaling.scaling import Scaling
+from vali_objects.utils.challenge_utils import ChallengeUtils
 from vali_objects.utils.position_utils import PositionUtils
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.vali_dataclasses.order import Order
@@ -31,10 +33,6 @@ from vali_objects.position import Position
 from vali_objects.vali_dataclasses.signal import Signal
 from vali_objects.enums.order_type_enum import OrderTypeEnum
 from vali_objects.utils.vali_utils import ValiUtils
-
-global secrets
-global metagraph
-global subtensor
 
 
 def get_config():
@@ -74,216 +72,259 @@ def get_config():
     return config
 
 
-def set_weights(netuid, wallet):
-    while True:
-        time_now = TimeUtil.generate_start_timestamp(0)
-        if time_now.minute in ValiConfig.SET_WEIGHT_INTERVALS:
-            hotkeys = metagraph.hotkeys
-            eliminations = ValiUtils.get_vali_json_file(
-                ValiBkpUtils.get_eliminations_dir(), ValiUtils.ELIMINATIONS
-            )
-
-            return_per_netuid = {}
-
-            netuid_returns = []
-            netuids = []
-
-            hotkey_positions = PositionUtils.get_all_miner_positions_by_hotkey(
-                hotkeys,
-                sort_positions=True,
-                eliminations=eliminations,
-                acceptable_position_end_ms=TimeUtil.timestamp_to_millis(
-                    TimeUtil.generate_start_timestamp(
-                        ValiConfig.SET_WEIGHT_LOOKBACK_RANGE_DAYS
-                    )
-                ),
-            )
-
-            for hotkey, positions in hotkey_positions.items():
-                # have to have a minimum number of positions during the period
-                # this removes anyone who got lucky on a couple trades
-                if len(positions) > ValiConfig.SET_WEIGHT_MINIMUM_POSITIONS:
-                    per_position_return = PositionUtils.get_return_per_closed_position(
-                        positions
-                    )
-                    last_positional_return = per_position_return[
-                        len(per_position_return) - 1
-                    ]
-                    netuid_returns.append(last_positional_return)
-                    netuid = metagraph.hotkeys.index(hotkey)
-                    return_per_netuid[netuid] = last_positional_return
-                    netuids.append(netuid)
-
-            bt.logging.info(f"return per uid [{return_per_netuid}]")
-
-            mean = np.mean(netuid_returns)
-            std_dev = np.std(netuid_returns)
-
-            lower_bound = mean - 3 * std_dev
-            bt.logging.debug(f"returns lower bound: [{lower_bound}]")
-
-            if lower_bound < 0:
-                lower_bound = 0
-
-            filtered_results = [
-                (k, v) for k, v in return_per_netuid.items() if lower_bound < v
-            ]
-            filtered_scores = np.array([x[1] for x in filtered_results])
-            filtered_netuids = np.array([x[0] for x in filtered_results])
-
-            # Normalize the list using Z-score normalization
-            transformed_results = yeojohnson(filtered_scores, lmbda=500)
-            scaled_transformed_list = Scaling.min_max_scalar_list(transformed_results)
-
-            bt.logging.info(f"filtered results list [{filtered_results}]")
-            bt.logging.info(f"scaled transformed list [{scaled_transformed_list}]")
-
-            result = subtensor.set_weights(
-                netuid=netuid,
-                wallet=wallet,
-                uids=filtered_netuids,
-                weights=scaled_transformed_list,
-            )
-
-            if result:
-                bt.logging.success("Successfully set weights.")
-            else:
-                bt.logging.error("Failed to set weights.")
-            time.sleep(60)
-
-
-def mdd_check():
-    def _is_beyond_mdd(dd, miner_hotkey):
-        if (
-            dd > ValiConfig.MAX_DAILY_DRAWDOWN
-            and time_now.hour == 0
-            and time_now.minute < 5
-        ) or (dd > ValiConfig.MAX_TOTAL_DRAWDOWN):
-            miner_dir = ValiBkpUtils.get_miner_dir(miner_hotkey)
-            bt.logging.info(
-                f"miner eliminated with hotkey [{hotkey}] with "
-                f"max dd of [{current_dd}]. "
-                f"Removing miner dir [{miner_dir}]"
-            )
-            os.rmdir(miner_dir)
-            return True
-        return False
-
-    while True:
-        time_now = TimeUtil.generate_start_timestamp(0)
-        eliminations = ValiUtils.get_vali_json_file(
-            ValiBkpUtils.get_eliminations_dir(), ValiUtils.ELIMINATIONS
-        )
-        miner_copying = ValiUtils.get_vali_json_file(
-            ValiBkpUtils.get_miner_copying_dir()
-        )
-
-        if time_now.second < 15:
-            try:
-                all_trade_pairs = [trade_pair for trade_pair in TradePair]
-                twelvedata = TwelveData(api_key=secrets["twelvedata_apikey"])
-                signal_closing_prices = twelvedata.get_closes(
-                    trade_pairs=all_trade_pairs
-                )
-                hotkeys = metagraph.hotkeys
-
-                # remove miners who've already been deregd
-                # only keep miners who are still registered
-                updated_eliminations = [
-                    elimination
-                    for elimination in eliminations
-                    if elimination in hotkeys
-                ]
-
-                # update miner copying with miners who've been deregd
-                # only keep miners who are still registered
-                updated_miner_copying = {
-                    mch: mc for mch, mc in miner_copying.items() if mch in hotkeys
-                }
-
-                ValiBkpUtils.write_vali_file(
-                    ValiBkpUtils.get_miner_copying_dir(), updated_miner_copying
-                )
-
-                hotkey_positions = PositionUtils.get_all_miner_positions_by_hotkey(
-                    hotkeys, sort_positions=True, eliminations=updated_eliminations
-                )
-                for hotkey, positions in hotkey_positions.items():
-                    current_dd = 1
-                    if len(positions) > 0:
-                        per_position_return = (
-                            PositionUtils.get_return_per_closed_position(positions)
-                        )
-
-                        # get the max return in order to calculate the current dd
-                        max_portfolio_return = max(per_position_return)
-                        max_index = per_position_return.index(max_portfolio_return)
-
-                        bt.logging.info(
-                            f"max port return for [{hotkey}] "
-                            f"is [{max_portfolio_return}]"
-                        )
-
-                        # check to see if any closed positions beyond the max index
-                        # already passed max dd as a safety measure
-
-                        for i, position_return in enumerate(per_position_return):
-                            # only check for the positions after the max positional return
-                            if i > max_index:
-                                # gets the drawdown as a decimal for comparative purposes
-                                closed_position_dd = (
-                                    1 - position_return / max_portfolio_return
-                                )
-                                # beyond max daily dd on start of new day
-                                # or beyond total max drawdown at any point in time
-                                if _is_beyond_mdd(closed_position_dd, hotkey):
-                                    updated_eliminations.append(hotkey)
-
-                        # get current dd using the last closed position against the max
-                        last_position_ind = len(per_position_return) - 1
-                        if max_index != last_position_ind:
-                            current_dd = (
-                                per_position_return[last_position_ind]
-                                / max_portfolio_return
-                            )
-
-                        # review open positions
-                        open_positions = [
-                            position
-                            for position in positions
-                            if position.is_closed_position is False
-                        ]
-                        open_position_trade_pairs = {
-                            position.position_uuid: position.trade_pair
-                            for position in open_positions
-                        }
-
-                        for open_position in open_positions:
-                            # get trade pair closing price using position uuid map
-                            position_closing_price = signal_closing_prices[
-                                open_position_trade_pairs[open_position.position_uuid]
-                            ]
-                            # get return, set current return, and update the current dd
-                            current_return = open_position.calculate_unrealized_pnl(
-                                position_closing_price
-                            )
-                            open_position.current_return = current_return
-                            current_dd *= current_return
-
-                        if _is_beyond_mdd(current_dd, hotkey):
-                            updated_eliminations.append(hotkey)
-                vali_elims = {ValiUtils.ELIMINATIONS: eliminations}
-                ValiBkpUtils.write_vali_file(
-                    ValiBkpUtils.get_eliminations_dir(), vali_elims
-                )
-                time.sleep(15)
-            except Exception:
-                bt.logging.error(traceback.format_exc())
-
-
 # Main takes the config and starts the miner.
 def main(config):
+    # def set_weights(netuid, wallet):
+    #     while True:
+    #         try:
+    #             time_now = TimeUtil.generate_start_timestamp(0)
+    #             if time_now.minute in ValiConfig.SET_WEIGHT_INTERVALS:
+    #                 hotkeys = metagraph.hotkeys
+    #                 eliminations = ValiUtils.get_vali_json_file(
+    #                     ValiBkpUtils.get_eliminations_dir(), ValiUtils.ELIMINATIONS
+    #                 )
+    #
+    #                 return_per_netuid = {}
+    #
+    #                 netuid_returns = []
+    #                 netuids = []
+    #
+    #                 hotkey_positions = PositionUtils.get_all_miner_positions_by_hotkey(
+    #                     hotkeys,
+    #                     sort_positions=True,
+    #                     eliminations=eliminations,
+    #                     acceptable_position_end_ms=TimeUtil.timestamp_to_millis(
+    #                         TimeUtil.generate_start_timestamp(
+    #                             ValiConfig.SET_WEIGHT_LOOKBACK_RANGE_DAYS
+    #                         )
+    #                     ),
+    #                 )
+    #
+    #                 for hotkey, positions in hotkey_positions.items():
+    #                     # have to have a minimum number of positions during the period
+    #                     # this removes anyone who got lucky on a couple trades
+    #                     if len(positions) > ValiConfig.SET_WEIGHT_MINIMUM_POSITIONS:
+    #                         per_position_return = (
+    #                             PositionUtils.get_return_per_closed_position(positions)
+    #                         )
+    #                         last_positional_return = 1
+    #                         if len(per_position_return) > 0:
+    #                             last_positional_return = per_position_return[
+    #                                 len(per_position_return) - 1
+    #                             ]
+    #                         netuid_returns.append(last_positional_return)
+    #                         netuid = metagraph.hotkeys.index(hotkey)
+    #                         return_per_netuid[netuid] = last_positional_return
+    #                         netuids.append(netuid)
+    #
+    #                 bt.logging.info(f"return per uid [{return_per_netuid}]")
+    #
+    #                 mean = np.mean(netuid_returns)
+    #                 std_dev = np.std(netuid_returns)
+    #
+    #                 lower_bound = mean - 3 * std_dev
+    #                 bt.logging.debug(f"returns lower bound: [{lower_bound}]")
+    #
+    #                 if lower_bound < 0:
+    #                     lower_bound = 0
+    #
+    #                 filtered_results = [
+    #                     (k, v) for k, v in return_per_netuid.items() if lower_bound < v
+    #                 ]
+    #                 filtered_scores = np.array([x[1] for x in filtered_results])
+    #                 filtered_netuids = np.array([x[0] for x in filtered_results])
+    #
+    #                 # Normalize the list using Z-score normalization
+    #                 transformed_results = yeojohnson(filtered_scores, lmbda=500)
+    #                 scaled_transformed_list = Scaling.min_max_scalar_list(
+    #                     transformed_results
+    #                 )
+    #
+    #                 bt.logging.info(f"filtered results list [{filtered_results}]")
+    #                 bt.logging.info(
+    #                     f"scaled transformed list [{scaled_transformed_list}]"
+    #                 )
+    #
+    #                 result = subtensor.set_weights(
+    #                     netuid=netuid,
+    #                     wallet=wallet,
+    #                     uids=filtered_netuids,
+    #                     weights=scaled_transformed_list,
+    #                 )
+    #
+    #                 if result:
+    #                     bt.logging.success("Successfully set weights.")
+    #                 else:
+    #                     bt.logging.error("Failed to set weights.")
+    #                 time.sleep(60)
+    #         except Exception:
+    #             bt.logging.error(traceback.format_exc())
+    #             time.sleep(15)
+    #
+    # def mdd_check():
+    #     def _is_beyond_mdd(dd, miner_hotkey):
+    #         if (
+    #             dd > ValiConfig.MAX_DAILY_DRAWDOWN
+    #             and time_now.hour == 0
+    #             and time_now.minute < 5
+    #         ) or (dd < ValiConfig.MAX_TOTAL_DRAWDOWN):
+    #             miner_dir = ValiBkpUtils.get_miner_dir(miner_hotkey)
+    #             bt.logging.debug(
+    #                 f"miner_hotkey [{miner_hotkey}] with miner dd [{current_dd}]"
+    #             )
+    #             bt.logging.info(
+    #                 f"miner eliminated with hotkey [{hotkey}] with "
+    #                 f"max dd of [{current_dd}]. "
+    #                 f"Removing miner dir [{miner_dir}]"
+    #             )
+    #             try:
+    #                 shutil.rmtree(miner_dir)
+    #             except FileNotFoundError:
+    #                 bt.logging.info(f"miner dir not found [{miner_dir}]")
+    #             return True
+    #         return False
+    #
+    #     while True:
+    #         time_now = TimeUtil.generate_start_timestamp(0)
+    #
+    #         if time_now.second < 15:
+    #             bt.logging.debug("checking mdd.")
+    #
+    #             _eliminations = ValiUtils.get_vali_json_file(
+    #                 ValiBkpUtils.get_eliminations_dir(), ValiUtils.ELIMINATIONS
+    #             )
+    #             _miner_copying = ValiUtils.get_vali_json_file(
+    #                 ValiBkpUtils.get_miner_copying_dir()
+    #             )
+    #
+    #             try:
+    #                 all_trade_pairs = [trade_pair for trade_pair in TradePair]
+    #                 twelvedata = TwelveData(api_key=secrets["twelvedata_apikey"])
+    #                 signal_closing_prices = twelvedata.get_closes(
+    #                     trade_pairs=all_trade_pairs
+    #                 )
+    #                 hotkeys = metagraph.hotkeys
+    #
+    #                 # remove miners who've already been deregd
+    #                 # only keep miners who are still registered
+    #                 updated_eliminations = [
+    #                     elimination
+    #                     for elimination in _eliminations
+    #                     if elimination in hotkeys
+    #                 ]
+    #
+    #                 # update miner copying with miners who've been deregd
+    #                 # only keep miners who are still registered
+    #                 updated_miner_copying = {
+    #                     mch: mc for mch, mc in _miner_copying.items() if mch in hotkeys
+    #                 }
+    #
+    #                 ValiBkpUtils.write_vali_file(
+    #                     ValiBkpUtils.get_miner_copying_dir(), updated_miner_copying
+    #                 )
+    #
+    #                 hotkey_positions = PositionUtils.get_all_miner_positions_by_hotkey(
+    #                     hotkeys, sort_positions=True, eliminations=updated_eliminations
+    #                 )
+    #                 for hotkey, positions in hotkey_positions.items():
+    #                     current_dd = 1
+    #                     if len(positions) > 0:
+    #                         per_position_return = (
+    #                             PositionUtils.get_return_per_closed_position(positions)
+    #                         )
+    #
+    #                         if len(per_position_return) > 0:
+    #                             # get the max return in order to calculate the current dd
+    #                             max_portfolio_return = max(per_position_return)
+    #                             max_index = per_position_return.index(
+    #                                 max_portfolio_return
+    #                             )
+    #
+    #                             bt.logging.info(
+    #                                 f"max port return for [{hotkey}] "
+    #                                 f"is [{max_portfolio_return}]"
+    #                             )
+    #
+    #                             # check to see if any closed positions beyond the max index
+    #                             # already passed max dd as a safety measure
+    #
+    #                             for i, position_return in enumerate(
+    #                                 per_position_return
+    #                             ):
+    #                                 # only check for the positions after the max positional return
+    #                                 if i > max_index:
+    #                                     # gets the drawdown as a decimal for comparative purposes
+    #                                     closed_position_return = (
+    #                                         position_return / max_portfolio_return
+    #                                     )
+    #                                     # beyond max daily dd on start of new day
+    #                                     # or beyond total max drawdown at any point in time
+    #                                     if _is_beyond_mdd(
+    #                                         closed_position_return, hotkey
+    #                                     ):
+    #                                         updated_eliminations.append(hotkey)
+    #
+    #                             # get current dd using the last closed position against the max
+    #                             last_position_ind = len(per_position_return) - 1
+    #                             if max_index != last_position_ind:
+    #                                 current_dd = (
+    #                                     per_position_return[last_position_ind]
+    #                                     / max_portfolio_return
+    #                                 )
+    #                         else:
+    #                             bt.logging.debug(
+    #                                 f"no existing closed positions for [{hotkey}]"
+    #                             )
+    #
+    #                         if hotkey not in updated_eliminations:
+    #                             bt.logging.debug(
+    #                                 f"reviewing open positions for [{hotkey}]"
+    #                             )
+    #
+    #                             # review open positions
+    #                             open_positions = [
+    #                                 position
+    #                                 for position in positions
+    #                                 if not position.is_closed_position
+    #                             ]
+    #                             open_position_trade_pairs = {
+    #                                 position.position_uuid: position.trade_pair
+    #                                 for position in open_positions
+    #                             }
+    #
+    #                             bt.logging.debug(
+    #                                 f"number of open positions [{len(open_positions)}]"
+    #                             )
+    #
+    #                             for open_position in open_positions:
+    #                                 # get trade pair closing price using position uuid map
+    #                                 position_closing_price = signal_closing_prices[
+    #                                     open_position_trade_pairs[
+    #                                         open_position.position_uuid
+    #                                     ]
+    #                                 ]
+    #                                 # get return, set current return, and update the current dd
+    #                                 current_return = (
+    #                                     open_position.calculate_unrealized_pnl(
+    #                                         position_closing_price
+    #                                     )
+    #                                 )
+    #                                 open_position.current_return = current_return
+    #                                 current_dd *= current_return
+    #
+    #                             if _is_beyond_mdd(current_dd, hotkey):
+    #                                 updated_eliminations.append(hotkey)
+    #                 vali_elims = {ValiUtils.ELIMINATIONS: eliminations}
+    #                 ValiBkpUtils.write_vali_file(
+    #                     ValiBkpUtils.get_eliminations_dir(), vali_elims
+    #                 )
+    #                 time.sleep(15)
+    #             except Exception:
+    #                 bt.logging.error(traceback.format_exc())
+    #                 time.sleep(15)
+
     secrets = ValiUtils.get_secrets()
+
     if secrets is None:
         raise Exception(
             "unable to get secrets data from "
@@ -378,9 +419,21 @@ def main(config):
         # error message to send back to miners in case of a problem so they can fix and resend
         error_message = ""
 
+        order_type_lookup = {
+            order_type.value: order_type for order_type in OrderTypeEnum
+        }
+        trade_pair_lookup = {pair.value: pair for pair in TradePair}
+
         # convert every signal to orders
         # set the closing price for every order
-        signals = [Signal(**signal) for signal in synapse.signals]
+        signals = [
+            Signal(
+                trade_pair_lookup[signal["trade_pair"]],
+                order_type_lookup[signal["order_type"]],
+                signal["leverage"],
+            )
+            for signal in synapse.signals
+        ]
 
         bt.logging.info(f"received [{len(signals)}] " f"signal request(s)")
 
@@ -405,9 +458,9 @@ def main(config):
                     trade_pair = signal.trade_pair
                     # trade pair exists, convert signal to order
                     twelvedata = TwelveData(api_key=secrets["twelvedata_apikey"])
-                    signal_closing_price = twelvedata.get_closes(
-                        trade_pairs=trade_pair
-                    )[trade_pair]
+                    signal_closing_price = twelvedata.get_close(trade_pair=trade_pair)[
+                        trade_pair
+                    ]
                     signal_to_order = Order(
                         trade_pair=trade_pair,
                         order_type=signal.order_type,
@@ -423,13 +476,6 @@ def main(config):
                         open_position = open_position_trade_pairs[trade_pair]
                         open_position.orders.append(signal_to_order)
                         open_position.update_position()
-                        if open_position.is_closed_position:
-                            bt.logging.debug(
-                                f"closing existing position details: "
-                                f"close_ms [{open_position.close_ms }] "
-                                f"close_price [{open_position.close_price }] "
-                                f"return_at_close [{open_position.return_at_close}]"
-                            )
                         ValiUtils.save_miner_position(
                             miner_hotkey, open_position.position_uuid, open_position
                         )
@@ -442,7 +488,7 @@ def main(config):
                                 miner_hotkey=miner_hotkey,
                                 position_uuid=str(uuid.uuid4()),
                                 open_ms=TimeUtil.now_in_millis(),
-                                close_price=signal_closing_price,
+                                open_price=signal_closing_price,
                                 trade_pair=trade_pair,
                                 orders=[signal_to_order],
                             )
@@ -496,8 +542,9 @@ def main(config):
                         bt.logging.info(
                             f"updated miner copying - [{miner_copying_json[miner_hotkey]}]"
                         )
+                    open_position.log_position_status()
         except SignalException as e:
-            error_message = e
+            error_message = str(e)
             bt.logging.warning(error_message)
         except Exception as e:
             error_message = e
@@ -508,7 +555,7 @@ def main(config):
 
         return synapse
 
-    # Step 5: Build and link miner functions to the axon.
+    # Step 5: Build and link vali functions to the axon.
     # The axon handles request processing, allowing validators to send this process requests.
     bt.logging.info(f"setting port [{config.axon.port}]")
     bt.logging.info(f"setting external port [{config.axon.external_port}]")
@@ -533,18 +580,39 @@ def main(config):
     )
     axon.serve(netuid=config.netuid, subtensor=subtensor)
 
-    run_mdd_check = threading.Thread(target=mdd_check, args=metagraph)
-    run_mdd_check.start()
+    # see if files exist and if not set them to empty
+    _eliminations = ValiUtils.get_vali_json_file(
+        ValiBkpUtils.get_eliminations_dir(), ValiUtils.ELIMINATIONS
+    )
 
-    run_set_weights = threading.Thread(target=set_weights, args=(my_subnet_uid, wallet))
-    run_set_weights.start()
+    ValiBkpUtils.make_dir(ValiBkpUtils.get_vali_dir())
+    _miner_copying = ValiUtils.get_vali_json_file(ValiBkpUtils.get_miner_copying_dir())
+
+    if len(_eliminations) == 0:
+        ValiBkpUtils.write_vali_file(
+            ValiBkpUtils.get_eliminations_dir(), {ValiUtils.ELIMINATIONS: []}
+        )
+
+    if len(_miner_copying) == 0:
+        miner_copying_file = {hotkey: 0 for hotkey in metagraph.hotkeys}
+        ValiBkpUtils.write_vali_file(
+            ValiBkpUtils.get_miner_copying_dir(), miner_copying_file
+        )
 
     # Start  starts the miner's axon, making it active on the network.
     bt.logging.info(f"Starting axon server on port: {config.axon.port}")
     axon.start()
 
-    # Step 6: Keep the miner alive
-    # This loop maintains the miner's operations until intentionally stopped.
+    run_mdd_check = threading.Thread(target=ChallengeUtils.mdd_check, args=(config,))
+    run_mdd_check.start()
+
+    run_set_weights = threading.Thread(
+        target=ChallengeUtils.set_weights, args=(config, wallet)
+    )
+    run_set_weights.start()
+
+    # Step 6: Keep the vali alive
+    # This loop maintains the vali's operations until intentionally stopped.
     bt.logging.info(f"Starting main loop")
     while True:
         try:
@@ -553,7 +621,7 @@ def main(config):
             metagraph.sync(subtensor=subtensor)
             metagraph = subtensor.metagraph(config.netuid)
             bt.logging.info(f"Metagraph updated: {metagraph}")
-            time.sleep(600)
+            time.sleep(120)
 
         # If someone intentionally stops the miner, it'll safely terminate operations.
         except KeyboardInterrupt:

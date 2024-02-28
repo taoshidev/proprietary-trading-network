@@ -4,6 +4,7 @@
 # Copyright © 2023 Taoshi Inc
 
 import os
+import random
 import time
 from datetime import datetime
 
@@ -14,7 +15,8 @@ import bittensor as bt
 # Step 2: Set up the configuration parser
 # This function is responsible for setting up and parsing command-line arguments.
 from template.protocol import convert_to_send_signal
-from vali_objects.dataclasses.signal import Signal
+from vali_config import TradePair
+from vali_objects.vali_dataclasses.signal import Signal
 from vali_objects.enums.order_type_enum import OrderTypeEnum
 
 
@@ -22,7 +24,7 @@ def get_config():
     parser = argparse.ArgumentParser()
     # TODO(developer): Adds your custom validator arguments to the parser.
     # Adds override arguments for network and netuid.
-    parser.add_argument('--netuid', type=int, default=1, help="The chain subnet uid.")
+    parser.add_argument("--netuid", type=int, default=1, help="The chain subnet uid.")
     # Adds subtensor specific arguments i.e. --subtensor.chain_endpoint ... --subtensor.network ...
     bt.subtensor.add_args(parser)
     # Adds logging specific arguments i.e. --logging.debug ..., --logging.trace .. or --logging.logging_dir ...
@@ -41,11 +43,12 @@ def get_config():
             config.wallet.name,
             config.wallet.hotkey,
             config.netuid,
-            'validator',
+            "validator",
         )
     )
     # Ensure the logging directory exists.
-    if not os.path.exists(config.full_path): os.makedirs(config.full_path, exist_ok=True)
+    if not os.path.exists(config.full_path):
+        os.makedirs(config.full_path, exist_ok=True)
 
     # Return the parsed config.
     return config
@@ -474,27 +477,49 @@ def get_config():
 #                 bt.logging.error(e)
 #                 traceback.print_exc()
 
+
 def send_signal(_dendrite, _config, _metagraph):
+    while True:
+        random_number = random.randint(1, 5)
+        if random_number == 1:
+            signal = Signal(
+                trade_pair=TradePair.BTCUSD.value,
+                order_type=OrderTypeEnum.FLAT.value,
+                leverage=1,
+            )
+        elif random_number == 2:
+            signal = Signal(
+                trade_pair=TradePair.BTCUSD.value,
+                order_type=OrderTypeEnum.SHORT.value,
+                leverage=1,
+            )
+        else:
+            signal = Signal(
+                trade_pair=TradePair.BTCUSD.value,
+                order_type=OrderTypeEnum.LONG.value,
+                leverage=1,
+            )
+        bt.logging.info(f"print out of sending signal [{signal}] and random number [{random_number}]")
+        send_signal_proto = convert_to_send_signal([signal])
 
-    signal = Signal(trade_pair="BTC/USD", order_type=OrderTypeEnum.LONG, leverage=0.1)
-    send_signal_proto = convert_to_send_signal([signal])
+        try:
+            vali_responses = _dendrite.query(
+                _metagraph.axons, send_signal_proto, deserialize=True
+            )
+            bt.logging.info("sent signal to validators")
 
-    try:
-        vali_responses = _dendrite.query(
-            _metagraph.axons,
-            send_signal_proto,
-            deserialize=True
-        )
-        bt.logging.info("sent signal to validators")
-
-        for i, resp_i in enumerate(vali_responses):
-            if resp_i.received:
-                bt.logging.info("vali received")
-            else:
-                bt.logging.info(f"vali did not receive [{metagraph.axons[i].hotkey}]")
-    except Exception:
-        traceback.print_exc()
-        bt.logging.info("failed sending back results to miners and continuing...")
+            for i, resp_i in enumerate(vali_responses):
+                if resp_i.received:
+                    bt.logging.info("vali received")
+                else:
+                    bt.logging.info(
+                        f"vali did not receive [{metagraph.axons[i].hotkey}]"
+                    )
+                bt.logging.info(f"printout message from vali [{resp_i.error_message}]")
+        except Exception:
+            traceback.print_exc()
+            bt.logging.info("failed sending back results to miners and continuing...")
+        time.sleep(15)
 
 
 # The main function parses the configuration and runs the validator.
@@ -506,7 +531,7 @@ if __name__ == "__main__":
     # Set up logging with the provided configuration and directory.
     bt.logging(config=config, logging_dir=config.full_path)
     bt.logging.info(
-        f"Running validator for subnet: {config.netuid} on network: {config.subtensor.chain_endpoint} with config:"
+        f"Running miner for subnet: {config.netuid} on network: {config.subtensor.chain_endpoint} with config:"
     )
     # Log the configuration for reference.
     bt.logging.info(config)
@@ -548,7 +573,7 @@ if __name__ == "__main__":
     while True:
         current_time = datetime.now().time()
         # updating metagraph before run
-        metagraph.sync(subtensor = subtensor)
+        metagraph.sync(subtensor=subtensor)
         bt.logging.info(f"Metagraph: {metagraph}")
         send_signal(dendrite, config, metagraph)
         time.sleep(10)

@@ -40,6 +40,7 @@ class ValiUtils:
     def save_miner_position(
         miner_hotkey: str, position_uuid: str, content: Dict | object
     ) -> None:
+        ValiBkpUtils.make_dir(ValiBkpUtils.get_miner_position_dir(miner_hotkey))
         ValiBkpUtils.write_vali_file(
             ValiBkpUtils.get_miner_position_dir(miner_hotkey) + position_uuid,
             content,

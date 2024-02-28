@@ -9,7 +9,7 @@ from vali_objects.enums.order_type_enum import OrderTypeEnum
 
 @dataclass
 class Signal:
-    trade_pair: TradePair
-    order_type: OrderTypeEnum
+    trade_pair: str | TradePair
+    order_type: str | OrderTypeEnum
     leverage: float
 

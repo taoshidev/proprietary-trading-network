@@ -111,22 +111,4 @@ class PositionUtils:
                 return True
         return False
 
-    @staticmethod
-    def is_position_similar_to_existing_positions(
-        check_position: Position,
-        hotkey: str = None,
-        hotkeys: List[str] = None,
-        miner_positions_by_hotkey: List[str, List[Position]] = None,
-        **args,
-    ):
-        if miner_positions_by_hotkey is None or (hotkeys is None and miner_positions_by_hotkey is None):
-            raise ValueError("need to provide positions by hotkey or hotkeys and miner hotkey")
-
-        # get miner positions by hotkey if not provided
-        if miner_positions_by_hotkey is None:
-            miner_positions_by_hotkey = PositionUtils.get_all_miner_positions_by_hotkey(
-                hotkeys, **args
-            )
-            del miner_positions_by_hotkey[hotkey]
-
 
