@@ -5,7 +5,7 @@ import time
 import numpy as np
 from scipy.stats import yeojohnson
 
-from data_generator.twelvedata import TwelveData
+from data_generator.twelvedata_service import TwelveDataService
 from time_util.time_util import TimeUtil
 from vali_config import ValiConfig, TradePair
 from vali_objects.scaling.scaling import Scaling
@@ -173,7 +173,7 @@ class ChallengeUtils:
 
                 try:
                     all_trade_pairs = [trade_pair for trade_pair in TradePair]
-                    twelvedata = TwelveData(api_key=secrets["twelvedata_apikey"])
+                    twelvedata = TwelveDataService(api_key=secrets["twelvedata_apikey"])
                     signal_closing_prices = twelvedata.get_closes(
                         trade_pairs=all_trade_pairs
                     )
