@@ -9,7 +9,7 @@ from vali_config import TradePair
 from twelvedata import TDClient
 
 
-class TwelveData:
+class TwelveDataService:
     def __init__(self, api_key):
         self._api_key = api_key
 

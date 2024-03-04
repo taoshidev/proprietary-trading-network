@@ -20,7 +20,7 @@ import argparse
 import traceback
 import bittensor as bt
 
-from data_generator.twelvedata import TwelveData
+from data_generator.twelvedata_service import TwelveDataService
 from time_util.time_util import TimeUtil
 from vali_config import ValiConfig, TradePair
 from vali_objects.exceptions.signal_exception import SignalException
@@ -457,7 +457,7 @@ def main(config):
                 else:
                     trade_pair = signal.trade_pair
                     # trade pair exists, convert signal to order
-                    twelvedata = TwelveData(api_key=secrets["twelvedata_apikey"])
+                    twelvedata = TwelveDataService(api_key=secrets["twelvedata_apikey"])
                     signal_closing_price = twelvedata.get_close(trade_pair=trade_pair)[
                         trade_pair
                     ]

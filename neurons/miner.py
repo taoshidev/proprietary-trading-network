@@ -491,7 +491,7 @@ def send_signal(_dendrite, _config, _metagraph):
             signal = Signal(
                 trade_pair=TradePair.BTCUSD.value,
                 order_type=OrderTypeEnum.SHORT.value,
-                leverage=1,
+                leverage=-1,
             )
         else:
             signal = Signal(
