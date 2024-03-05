@@ -6,22 +6,57 @@ from vali_objects.enums.order_type_enum import OrderTypeEnum
 
 import bittensor as bt
 
-
 class Position:
-    _FLAT_ACCOUNT = 0.00000001
+    """Represents a position in a trading system.
+
+    As a miner, you need to send in signals to the validators, who will keep track
+    of your closed and open positions based on your signals. Miners are judged based
+    on a 30-day rolling window of return, so they must continuously perform.
+
+    A signal contains the following information:
+    - Trade Pair: The trade pair you want to trade (e.g., major indexes, forex, BTC, ETH).
+    - Order Type: SHORT, LONG, or FLAT.
+    - Leverage: The amount of leverage for the order type.
+
+    On the validator's side, signals are converted into orders. The validator specifies
+    the price at which they fulfilled a signal, which is then used for the order.
+    Positions are composed of orders.
+
+    Rules:
+    - LONG signal's leverage should be positive.
+    - SHORT signal's leverage should be negative.
+    - You can only open 1 position per trade pair at a time.
+    - Positions are uni-directional. If a position starts LONG (the first order it receives
+      is LONG), it can't flip to SHORT. If you try to flip it to SHORT (using more leverage
+      SHORT than exists LONG), it will close out the position. You'll then need to open a
+      second position which is SHORT with the difference.
+    - You can take profit on an open position using LONG and SHORT. For example, if you have
+      an open LONG position with 0.75x leverage and you want to start taking profit, you
+      would send in SHORT signals to reduce the size of the position. This functions very
+      similarly to dYdX.
+    - You can close out a position by sending in a FLAT signal.
+    - Max drawdown is determined every minute. If you go beyond 5% max drawdown on daily
+      close, or 10% at any point in time, you're eliminated. Eliminated miners won't
+      necessarily be immediately eliminated; they'll need to wait to be deregistered based
+      on the immunity period.
+    - If a miner copies another miner's order repeatedly, they will be eliminated. There is
+      core logic to catch and remove miners who provide signals that are similar to another
+      miner.
+    - There is a fee per trade pair: Crypto has 0.3% per position, forex has 0.03%, and
+      indexes have 0.05%.
+    """
 
     def __init__(
         self,
-        miner_hotkey: str,
+        miner_hotkey: str, # hotkeys are used to sign for a coldkey. They're what registers with subnets and how we identify miners.
         position_uuid: str,
         open_ms: int,
         trade_pair: TradePair,
         orders: List[Order] = None,
-        current_return: Optional[float] = 0,
+        current_return: Optional[float] = 1,
         max_drawdown: Optional[float] = 0,
         close_ms: Optional[int] = None,
-        return_at_close: Optional[float] = None,
-        open_price: Optional[float] = None,
+        return_at_close: Optional[float] = 1,
     ):
         if orders is None:
             orders = []
@@ -35,7 +70,6 @@ class Position:
         self.max_drawdown = max_drawdown
         self.close_ms = close_ms
         self.return_at_close = return_at_close
-        self.open_price = open_price
 
         self._net_leverage = 0  # Positive for net long, negative for net short
         self._average_entry_price = 0
@@ -52,7 +86,7 @@ class Position:
         bt.logging.debug(
             f"position details: "
             f"close_ms [{self.close_ms }] "
-            f"open price [{self.open_price }] "
+            f"initial entry price [{self._initial_entry_price }] "
             f"net leverage [{self._net_leverage }] "
             f"average entry price [{self._average_entry_price }] "
             f"return_at_close [{self.return_at_close}]"
@@ -63,120 +97,71 @@ class Position:
         ]
         bt.logging.debug(f"position order details: " f"close_ms [{order_info}] ")
 
-    def set_current_return(self, current_price):
-        self.current_return = self.calculate_unrealized_pnl(current_price)
 
     def add_order(self, order: Order):
-        if self.position_type is not None and order.order_type != self.position_type:
-            raise ValueError(
-                f"order type [{order.order_type}] "
-                f"does not match position type [{self.position_type}]"
-            )
         self.orders.append(order)
+        self._update_position()
 
-    def update_position(self):
-        self._net_leverage = 0
-        for order in self.orders:
-            if self.position_type is not OrderTypeEnum.FLAT:
-                # set the position type
-                if self.position_type is None:
-                    if order.leverage > 0:
-                        self._position_log("setting new position type as LONG")
-                        self.position_type = OrderTypeEnum.LONG
-                    elif order.leverage < 0:
-                        self._position_log("setting new position type as SHORT")
-                        self.position_type = OrderTypeEnum.SHORT
-                    else:
-                        raise ValueError("leverage of 0 provided as initial order.")
+    # Must be called after every order to maintain accurate internal state
+    def update_returns(self, current_price, adjusted_leverage):
+        assert self._initial_entry_price > 0, self._initial_entry_price
+        
+        self._average_entry_price = (
+                self._average_entry_price * self._net_leverage
+                + current_price * adjusted_leverage
+            ) / (self._net_leverage + adjusted_leverage)
 
-                # add logic to set leverage reset to 0 leverage and close position
-                # if the position switches side
-                # check position status
-                flattened_trade = False
-                if (
-                    self.position_type == OrderTypeEnum.LONG
-                    and self._net_leverage + order.leverage <= 0
-                ):
-                    self._position_log("flattened LONG position from orders")
-                    adjusted_leverage = 0 - self._net_leverage + self._FLAT_ACCOUNT
-                    flattened_trade = True
-                elif (
-                    self.position_type == OrderTypeEnum.SHORT
-                    and self._net_leverage + order.leverage >= 0
-                ):
-                    self._position_log("flattened SHORT position from orders")
-                    adjusted_leverage = abs(self._net_leverage) - self._FLAT_ACCOUNT
-                    flattened_trade = True
-                elif (
-                    order.order_type == OrderTypeEnum.FLAT
-                    and self.position_type == OrderTypeEnum.SHORT
-                ):
-                    self._position_log("FLAT order on SHORT")
-                    adjusted_leverage = self._FLAT_ACCOUNT
-                    flattened_trade = True
-                elif (
-                    order.order_type == OrderTypeEnum.FLAT
-                    and self.position_type == OrderTypeEnum.LONG
-                ):
-                    self._position_log("FLAT order on LONG")
-                    adjusted_leverage = 0 - self._FLAT_ACCOUNT
-                    flattened_trade = True
-                else:
-                    adjusted_leverage = order.leverage
+        return_with_no_fees = 1 + \
+            (current_price - self._average_entry_price) * self._net_leverage / self._initial_entry_price
 
-                self._position_log(f"adjusted leverage provided [{adjusted_leverage}]")
-                # Calculate the new average entry price based on the leverage
-                total_leverage = self._net_leverage + adjusted_leverage
-
-                if flattened_trade:
-                    self.position_type = OrderTypeEnum.FLAT
-
-                self._average_entry_price = (
-                    self._average_entry_price * self._net_leverage
-                    + order.price * adjusted_leverage
-                ) / total_leverage
-
-                # Update the net leverage
-                if (
-                    order.order_type != OrderTypeEnum.FLAT
-                    and self.position_type != OrderTypeEnum.FLAT
-                ):
-                    self._net_leverage = total_leverage
-
-                if self._initial_entry_price == 0:
-                    self._initial_entry_price = order.price
-
-            if (
-                order.order_type is OrderTypeEnum.FLAT
-                or self.position_type == OrderTypeEnum.FLAT
-            ):
-                self.is_closed_position = True
-                self.open_price = order.price
-                self.close_ms = order.processed_ms
-
-                curr_return = self.calculate_unrealized_pnl(order.price)
-                self._position_log(f"closed position return [{curr_return}]")
-                self.current_return = curr_return
-                self.return_at_close = curr_return
-                self.set_return_at_close_with_fees()
-
-    def set_return_at_close_with_fees(self):
-        self.return_at_close = self.return_at_close * (
+        return_with_fees = return_with_no_fees * (
             1 - ValiConfig.TRADE_PAIR_FEES[self.trade_pair] * abs(self._net_leverage)
         )
-        self._position_log(f"closed position return w/ fees [{self.return_at_close}]")
+        self._position_log(f"closed position total w/ fees [{return_with_fees}]")
+        self._position_log(f"closed return with no fees [{return_with_no_fees}]")
 
-    def calculate_unrealized_pnl(self, current_price):
-        try:
-            # Calculate the unrealized profit or loss based on the current price
-            return (
-                1
-                + (current_price - self._average_entry_price)
-                * self._net_leverage
-                / self._initial_entry_price
-            )
-        except ZeroDivisionError:
-            return 1
+        self.current_return = return_with_no_fees
+        self.return_at_close = return_with_fees
+
+    def initialize_position_from_first_order(self, order):
+        self._initial_entry_price = order.price
+        if self._initial_entry_price <= 0:
+            raise ValueError("Initial entry price must be > 0")
+        # Initialize the position type. It will stay the same until the position is closed.
+        if order.leverage > 0:
+            self._position_log("setting new position type as LONG")
+            self.position_type = OrderTypeEnum.LONG
+        elif order.leverage < 0:
+            self._position_log("setting new position type as SHORT")
+            self.position_type = OrderTypeEnum.SHORT
+        else:
+            raise ValueError("leverage of 0 provided as initial order.")
+        
+    def _update_position(self):
+        self._net_leverage = 0
+        for order in self.orders:
+            if self.position_type is None:
+                self.initialize_position_from_first_order(order)
+
+            # Check if the new order flattens the position, explicitly or implicitly
+            new_net_leverage = self._net_leverage + order.leverage
+            if ((self.position_type == OrderTypeEnum.LONG and new_net_leverage <= 0) or
+                (self.position_type == OrderTypeEnum.SHORT and new_net_leverage >= 0) or
+                order.order_type == OrderTypeEnum.FLAT):
+                    self._position_log(f"Flattening {self.position_type.value} position from order {order}")
+                    self.position_type = OrderTypeEnum.FLAT
+                    self.is_closed_position = True
+                    self.close_ms = order.processed_ms
+
+            # Reflect the current order in the current position's return. 
+            adjusted_leverage = 0 if self.position_type == OrderTypeEnum.FLAT else order.leverage
+            self.update_returns(order.price, adjusted_leverage)
+            self._net_leverage = 0 if self.position_type == OrderTypeEnum.FLAT else new_net_leverage
+            
+            # If the position is already closed, we don't need to process any more orders. break in case there are more orders.
+            if (self.position_type == OrderTypeEnum.FLAT):
+                break
+
 
 
 if __name__ == "__main__":
@@ -202,36 +187,36 @@ if __name__ == "__main__":
     #         )
     #     )
 
-    position.add_order(
-        Order(
-            order_type=OrderTypeEnum.SHORT,
-            leverage=-0.1,
-            price=55000,
-            trade_pair=TradePair.BTCUSD,
-            processed_ms=123,
-            order_uuid="123",
-        )
-    )
-    position.add_order(
-        Order(
-            order_type=OrderTypeEnum.SHORT,
-            leverage=-0.1,
-            price=55250,
-            trade_pair=TradePair.BTCUSD,
-            processed_ms=123,
-            order_uuid="123",
-        )
-    )
-    position.add_order(
-        Order(
-            order_type=OrderTypeEnum.SHORT,
-            leverage=-10,
-            price=55500,
-            trade_pair=TradePair.BTCUSD,
-            processed_ms=123,
-            order_uuid="123",
-        )
-    )
+    #position.add_order(
+    #    Order(
+    #        order_type=OrderTypeEnum.SHORT,
+    #        leverage=-0.1,
+    #        price=55000,
+    #        trade_pair=TradePair.BTCUSD,
+    #        processed_ms=123,
+    #        order_uuid="123",
+    #    )
+    #)
+    #position.add_order(
+    #    Order(
+    #        order_type=OrderTypeEnum.SHORT,
+    #        leverage=-0.1,
+    #        price=55250,
+    #        trade_pair=TradePair.BTCUSD,
+    #        processed_ms=123,
+    #        order_uuid="123",
+    #    )
+    #)
+    #position.add_order(
+    #    Order(
+    #        order_type=OrderTypeEnum.SHORT,
+    #        leverage=-10,
+    #        price=55500,
+    #        trade_pair=TradePair.BTCUSD,
+    #        processed_ms=123,
+    #        order_uuid="123",
+    #    )
+    #)
     #
     # position.add_order(
     #     Order(
@@ -263,14 +248,27 @@ if __name__ == "__main__":
     #         order_uuid="123",
     #     )
     # )
+    position.add_order(Order(order_type=OrderTypeEnum.LONG,
+                              leverage=1,
+                              price=1,
+                              trade_pair=TradePair.BTCUSD,
+                              processed_ms=123,
+                              order_uuid="123"))
+
+    #position.add_order(Order(order_type=OrderTypeEnum.SHORT,
+    #                        leverage=-1,
+    #                        price=1.5,
+    #                        trade_pair=TradePair.BTCUSD,
+    #                        processed_ms=124,
+    #                        order_uuid="124")) 
     position.add_order(
         Order(
             order_type=OrderTypeEnum.FLAT,
             leverage=1,
-            price=55000,
+            price=2,
             trade_pair=TradePair.BTCUSD,
-            processed_ms=123,
-            order_uuid="123",
+            processed_ms=125,
+            order_uuid="125",
         )
     )
     # position.add_order(Order(order_type=OrderTypeEnum.LONG,
@@ -286,5 +284,4 @@ if __name__ == "__main__":
     #                          processed_ms=123,
     #                          order_uuid="123"))
 
-    position.update_position()
     print(position.return_at_close)

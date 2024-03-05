@@ -119,11 +119,12 @@ class ChallengeUtils:
 
     @staticmethod
     def mdd_check(config):
+        # TODO: Check with Arrash about adding a dict to track hot keys that need to be eliminated so that this function does not block when waiting the 1 hr for file deletion.
         bt.logging.info("running mdd checker")
 
         def _is_beyond_mdd(dd, miner_hotkey):
             if (
-                dd > ValiConfig.MAX_DAILY_DRAWDOWN
+                dd < ValiConfig.MAX_DAILY_DRAWDOWN
                 and time_now.hour == 0
                 and time_now.minute < 5
             ) or (dd < ValiConfig.MAX_TOTAL_DRAWDOWN):
