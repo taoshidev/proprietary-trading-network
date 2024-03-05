@@ -22,3 +22,7 @@ class Order:
         if abs(self.leverage) < ValiConfig.MIN_LEVERAGE and self.order_type != OrderTypeEnum.FLAT:
             raise ValueError(f"Leverage must be greater than [{ValiConfig.MIN_LEVERAGE}]."
                              f"Leverage provided - [{self.leverage}]")
+        
+    def __str__(self):
+        return str({'trade_pair': str(self.trade_pair), 'order_type': str(self.order_type), 'leverage': self.leverage, 
+                'price': self.price, 'processed_ms': self.processed_ms, 'order_uuid': self.order_uuid})

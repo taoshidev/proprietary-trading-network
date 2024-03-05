@@ -474,8 +474,7 @@ def main(config):
                     if trade_pair in open_position_trade_pairs:
                         bt.logging.debug("adding to existing position")
                         open_position = open_position_trade_pairs[trade_pair]
-                        open_position.orders.append(signal_to_order)
-                        open_position.update_position()
+                        open_position.add_order(signal_to_order)
                         ValiUtils.save_miner_position(
                             miner_hotkey, open_position.position_uuid, open_position
                         )
