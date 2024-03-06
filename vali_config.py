@@ -7,10 +7,10 @@ from time_util.time_util import TimeUtil
 
 
 class TradePair(Enum):
-    BTCUSD = ("BTCUSD", "BTC/USD", 0.003, 1, 0.0001, 20)
-    ETHUSD = ("ETHUSD", "ETH/USD", 0.003, 1, 0.0001, 20)
-    EURUSD = ("EURUSD", "EUR/USD", 0.0003, 1, 0.0001, 100)
-    SPX = ("SPX", "SPX", 0.0005, 1, 0.0001, 100)
+    BTCUSD = ("BTCUSD", "BTC/USD", 0.003, 0.0001, 20)
+    ETHUSD = ("ETHUSD", "ETH/USD", 0.003, 0.0001, 20)
+    EURUSD = ("EURUSD", "EUR/USD", 0.0003, 0.0001, 100)
+    SPX = ("SPX", "SPX", 0.0005, 0.0001, 100)
 
     def __init__(
         self,
@@ -28,7 +28,7 @@ class TradePair(Enum):
 
     @staticmethod
     def to_dict():
-        # Convert ValiStream Enum to a dictionary
+        # Convert TradePair Enum to a dictionary
         return {
             member.name: {
                 "stream_id": member.trade_pair_id,
@@ -45,11 +45,25 @@ class TradePair(Enum):
         m_map = {member.name: member for member in TradePair}
         return m_map[stream_id]
 
-    def __str__(self):
-        return self.value
+    @staticmethod
+    def pair_map():
+        return {pair.trade_pair_id: pair for pair in TradePair}
+
+    @staticmethod
+    def get_trade_pair(trade_pair_id: str):
+        tp_map = TradePair.pair_map()
+        return tp_map[trade_pair_id]
 
     def __str__(self):
-        return self.value
+        return str(
+            {
+                "trade_pair_id": self.trade_pair_id,
+                "trade_pair": self.trade_pair,
+                "fees": self.fees,
+                "min_leverage": self.min_leverage,
+                "max_leverage": self.max_leverage,
+            }
+        )
 
 
 class ValiConfig:
@@ -57,8 +71,8 @@ class ValiConfig:
     TRADE_PAIR_FEES = {TradePair.BTCUSD: 0.003, TradePair.ETHUSD: 0.003}
 
     MIN_LEVERAGE = 0.001
-    MAX_DAILY_DRAWDOWN = 0.95 # Portfolio should never fall below .95 x of initial value when measured day to day
-    MAX_TOTAL_DRAWDOWN = 0.9 # Portfolio should never fall below .90 x of initial value when measured at any instant
+    MAX_DAILY_DRAWDOWN = 0.95  # Portfolio should never fall below .95 x of initial value when measured day to day
+    MAX_TOTAL_DRAWDOWN = 0.9  # Portfolio should never fall below .90 x of initial value when measured at any instant
     MAX_ORDERS = 200
 
     SET_WEIGHT_INTERVALS = [0, 30]

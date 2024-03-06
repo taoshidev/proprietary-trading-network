@@ -17,7 +17,7 @@ import bittensor as bt
 from template.protocol import convert_to_send_signal
 from vali_config import TradePair
 from vali_objects.vali_dataclasses.signal import Signal
-from vali_objects.enums.order_type_enum import OrderTypeEnum
+from vali_objects.enums.order_type_enum import OrderType
 
 
 def get_config():
@@ -484,19 +484,19 @@ def send_signal(_dendrite, _config, _metagraph):
         if random_number == 1:
             signal = Signal(
                 trade_pair=TradePair.BTCUSD.trade_pair,
-                order_type=OrderTypeEnum.FLAT.value,
+                order_type=OrderType.FLAT.value,
                 leverage=1,
             )
         elif random_number == 2:
             signal = Signal(
                 trade_pair=TradePair.BTCUSD.trade_pair,
-                order_type=OrderTypeEnum.SHORT.value,
+                order_type=OrderType.SHORT.value,
                 leverage=-1,
             )
         else:
             signal = Signal(
                 trade_pair=TradePair.BTCUSD.trade_pair,
-                order_type=OrderTypeEnum.LONG.value,
+                order_type=OrderType.LONG.value,
                 leverage=1,
             )
         bt.logging.info(f"print out of sending signal [{signal}] and random number [{random_number}]")

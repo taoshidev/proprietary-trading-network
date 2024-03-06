@@ -3,7 +3,7 @@
 
 from tests.vali_tests.base_objects.test_base import TestBase
 from vali_config import TradePair
-from vali_objects.enums.order_type_enum import OrderTypeEnum
+from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.position import Position
 from vali_objects.vali_dataclasses.order import Order
 
@@ -35,13 +35,13 @@ class TestPositions(TestBase):
 
 
     def test_simple_long_position_with_explicit_FLAT(self):
-        o1 = Order(order_type=OrderTypeEnum.LONG,
+        o1 = Order(order_type=OrderType.LONG,
                    leverage=1,
                    price=100,
                    trade_pair=TradePair.BTCUSD,
                    processed_ms=1000,
                    order_uuid="1000")
-        o2 = Order(order_type=OrderTypeEnum.FLAT,
+        o2 = Order(order_type=OrderType.FLAT,
                    leverage=0,
                    price=110,
                    trade_pair=TradePair.BTCUSD,
@@ -51,7 +51,7 @@ class TestPositions(TestBase):
         self.position.add_order(o1)
         self.validate_intermediate_position_state({
             'orders': [o1],
-            'position_type': OrderTypeEnum.LONG,
+            'position_type': OrderType.LONG,
             'is_closed_position': False,
             '_net_leverage': 1,
             '_initial_entry_price': 100,
@@ -68,7 +68,7 @@ class TestPositions(TestBase):
         self.position.add_order(o2)
         self.validate_intermediate_position_state({
             'orders': [o1, o2],
-            'position_type': OrderTypeEnum.FLAT,
+            'position_type': OrderType.FLAT,
             'is_closed_position': True,
             '_net_leverage': 0,
             '_initial_entry_price': 100,
@@ -83,13 +83,13 @@ class TestPositions(TestBase):
         })
 
     def test_simple_long_position_with_implicit_FLAT(self):
-        o1 = Order(order_type=OrderTypeEnum.LONG,
+        o1 = Order(order_type=OrderType.LONG,
                    leverage=1,
                    price=500,
                    trade_pair=TradePair.BTCUSD,
                    processed_ms=1000,
                    order_uuid="1000")
-        o2 = Order(order_type=OrderTypeEnum.SHORT,
+        o2 = Order(order_type=OrderType.SHORT,
                    leverage=-1,
                    price=1000,
                    trade_pair=TradePair.BTCUSD,
@@ -99,7 +99,7 @@ class TestPositions(TestBase):
         self.position.add_order(o1)
         self.validate_intermediate_position_state({
             'orders': [o1],
-            'position_type': OrderTypeEnum.LONG,
+            'position_type': OrderType.LONG,
             'is_closed_position': False,
             '_net_leverage': 1,
             '_initial_entry_price': 500,
@@ -116,7 +116,7 @@ class TestPositions(TestBase):
         self.position.add_order(o2)
         self.validate_intermediate_position_state({
             'orders': [o1, o2],
-            'position_type': OrderTypeEnum.FLAT,
+            'position_type': OrderType.FLAT,
             'is_closed_position': True,
             '_net_leverage': 0,
             '_initial_entry_price': 500,
@@ -131,13 +131,13 @@ class TestPositions(TestBase):
         })
 
     def test_simple_short_position_with_explicit_FLAT(self):
-        o1 = Order(order_type=OrderTypeEnum.SHORT,
+        o1 = Order(order_type=OrderType.SHORT,
                    leverage=-1,
                    price=100,
                    trade_pair=TradePair.BTCUSD,
                    processed_ms=1000,
                    order_uuid="1000")
-        o2 = Order(order_type=OrderTypeEnum.FLAT,
+        o2 = Order(order_type=OrderType.FLAT,
                    leverage=0,
                    price=90,
                    trade_pair=TradePair.BTCUSD,
@@ -147,7 +147,7 @@ class TestPositions(TestBase):
         self.position.add_order(o1)
         self.validate_intermediate_position_state({
             'orders': [o1],
-            'position_type': OrderTypeEnum.SHORT,
+            'position_type': OrderType.SHORT,
             'is_closed_position': False,
             '_net_leverage': -1,
             '_initial_entry_price': 100,
@@ -164,7 +164,7 @@ class TestPositions(TestBase):
         self.position.add_order(o2)
         self.validate_intermediate_position_state({
             'orders': [o1, o2],
-            'position_type': OrderTypeEnum.FLAT,
+            'position_type': OrderType.FLAT,
             'is_closed_position': True,
             '_net_leverage': 0,
             '_initial_entry_price': 100,
@@ -179,13 +179,13 @@ class TestPositions(TestBase):
         })
 
     def test_simple_short_position_with_implicit_FLAT(self):
-        o1 = Order(order_type=OrderTypeEnum.SHORT,
+        o1 = Order(order_type=OrderType.SHORT,
                    leverage=-1,
                    price=1000,
                    trade_pair=TradePair.BTCUSD,
                    processed_ms=1000,
                    order_uuid="1000")
-        o2 = Order(order_type=OrderTypeEnum.LONG,
+        o2 = Order(order_type=OrderType.LONG,
                    leverage=2,
                    price=500,
                    trade_pair=TradePair.BTCUSD,
@@ -195,7 +195,7 @@ class TestPositions(TestBase):
         self.position.add_order(o1)
         self.validate_intermediate_position_state({
             'orders': [o1],
-            'position_type': OrderTypeEnum.SHORT,
+            'position_type': OrderType.SHORT,
             'is_closed_position': False,
             '_net_leverage': -1,
             '_initial_entry_price': 1000,
@@ -212,7 +212,7 @@ class TestPositions(TestBase):
         self.position.add_order(o2)
         self.validate_intermediate_position_state({
             'orders': [o1, o2],
-            'position_type': OrderTypeEnum.FLAT,
+            'position_type': OrderType.FLAT,
             'is_closed_position': True,
             '_net_leverage': 0,
             '_initial_entry_price': 1000,
@@ -228,7 +228,7 @@ class TestPositions(TestBase):
 
     def test_zero_leverage_order(self):
         with self.assertRaises(ValueError):
-            self.position.add_order(Order(order_type=OrderTypeEnum.LONG,
+            self.position.add_order(Order(order_type=OrderType.LONG,
                                           leverage=0,
                                           price=100,
                                           trade_pair=TradePair.BTCUSD,
@@ -252,7 +252,7 @@ class TestPositions(TestBase):
         })
 
     def test_invalid_prices_zero(self):
-        o1 = Order(order_type=OrderTypeEnum.LONG,
+        o1 = Order(order_type=OrderType.LONG,
                    leverage=1,
                    price=0,
                    trade_pair=TradePair.BTCUSD,
@@ -278,7 +278,7 @@ class TestPositions(TestBase):
         })
 
     def test_invalid_prices_negative(self):
-        o1 = Order(order_type=OrderTypeEnum.LONG,
+        o1 = Order(order_type=OrderType.LONG,
                    leverage=1,
                    price=-1,
                    trade_pair=TradePair.BTCUSD,

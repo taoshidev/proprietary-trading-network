@@ -6,6 +6,8 @@ import uuid
 from flask import Flask, request, jsonify
 
 from miner_config import MinerConfig
+from vali_config import TradePair
+from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.vali_dataclasses.signal import Signal
 
@@ -41,16 +43,17 @@ def handle_data():
         return jsonify({"error": "Request must be JSON"}), 400
 
     try:
+        print(data["leverage"])
         # ensure to fits rules for a Signal
-        signal = Signal(trade_pair=data["trade_pair"],
+        signal = Signal(trade_pair=TradePair.get_trade_pair(data["trade_pair"]),
                         leverage=data["leverage"],
-                        order_type=data["order_type"])
+                        order_type=OrderType.get_order_type(data["order_type"]))
         # make miner received signals dir if doesnt exist
         ValiBkpUtils.make_dir(MinerConfig.get_miner_received_signals_dir())
         # store miner signal
         signal_file_uuid = str(uuid.uuid4())
         ValiBkpUtils.write_file(
-            MinerConfig.get_miner_received_signals_dir() + signal_file_uuid, signal.__dict__
+            MinerConfig.get_miner_received_signals_dir() + signal_file_uuid, str(signal)
         )
     except ValueError:
         print(traceback.format_exc())

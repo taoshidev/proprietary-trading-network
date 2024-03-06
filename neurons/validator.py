@@ -31,7 +31,7 @@ from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.vali_dataclasses.order import Order
 from vali_objects.position import Position
 from vali_objects.vali_dataclasses.signal import Signal
-from vali_objects.enums.order_type_enum import OrderTypeEnum
+from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.utils.vali_utils import ValiUtils
 
 
@@ -419,17 +419,13 @@ def main(config):
         # error message to send back to miners in case of a problem so they can fix and resend
         error_message = ""
 
-        order_type_lookup = {
-            order_type.value: order_type for order_type in OrderTypeEnum
-        }
-        trade_pair_lookup = {pair.trade_pair_id: pair for pair in TradePair}
 
         # convert every signal to orders
         # set the closing price for every order
         signals = [
             Signal(
-                trade_pair_lookup[signal["trade_pair"]],
-                order_type_lookup[signal["order_type"]],
+                TradePair.get_trade_pair(signal["trade_pair"]),
+                OrderType.get_order_type[signal["order_type"]],
                 signal["leverage"],
             )
             for signal in synapse.signals
@@ -481,7 +477,7 @@ def main(config):
                     else:
                         bt.logging.debug("processing new position")
                         # if the order is FLAT ignore and log
-                        if signal_to_order.order_type != OrderTypeEnum.FLAT:
+                        if signal_to_order.order_type != OrderType.FLAT:
                             # if a position doesn't exist, then make a new one
                             open_position = Position(
                                 miner_hotkey=miner_hotkey,

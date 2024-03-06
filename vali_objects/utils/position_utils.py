@@ -1,7 +1,7 @@
 from typing import List, Dict
 
 from vali_config import ValiConfig
-from vali_objects.enums.order_type_enum import OrderTypeEnum
+from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.position import Position
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.utils.vali_utils import ValiUtils

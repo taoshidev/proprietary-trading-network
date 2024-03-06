@@ -2,7 +2,7 @@ from typing import Optional, List
 
 from vali_config import ValiConfig, TradePair
 from vali_objects.vali_dataclasses.order import Order
-from vali_objects.enums.order_type_enum import OrderTypeEnum
+from vali_objects.enums.order_type_enum import OrderType
 
 import bittensor as bt
 
@@ -130,10 +130,10 @@ class Position:
         # Initialize the position type. It will stay the same until the position is closed.
         if order.leverage > 0:
             self._position_log("setting new position type as LONG")
-            self.position_type = OrderTypeEnum.LONG
+            self.position_type = OrderType.LONG
         elif order.leverage < 0:
             self._position_log("setting new position type as SHORT")
-            self.position_type = OrderTypeEnum.SHORT
+            self.position_type = OrderType.SHORT
         else:
             raise ValueError("leverage of 0 provided as initial order.")
         
@@ -145,21 +145,21 @@ class Position:
 
             # Check if the new order flattens the position, explicitly or implicitly
             new_net_leverage = self._net_leverage + order.leverage
-            if ((self.position_type == OrderTypeEnum.LONG and new_net_leverage <= 0) or
-                (self.position_type == OrderTypeEnum.SHORT and new_net_leverage >= 0) or
-                order.order_type == OrderTypeEnum.FLAT):
+            if ((self.position_type == OrderType.LONG and new_net_leverage <= 0) or
+                (self.position_type == OrderType.SHORT and new_net_leverage >= 0) or
+                order.order_type == OrderType.FLAT):
                     self._position_log(f"Flattening {self.position_type.value} position from order {order}")
-                    self.position_type = OrderTypeEnum.FLAT
+                    self.position_type = OrderType.FLAT
                     self.is_closed_position = True
                     self.close_ms = order.processed_ms
 
             # Reflect the current order in the current position's return. 
-            adjusted_leverage = 0 if self.position_type == OrderTypeEnum.FLAT else order.leverage
+            adjusted_leverage = 0 if self.position_type == OrderType.FLAT else order.leverage
             self.update_returns(order.price, adjusted_leverage)
-            self._net_leverage = 0 if self.position_type == OrderTypeEnum.FLAT else new_net_leverage
+            self._net_leverage = 0 if self.position_type == OrderType.FLAT else new_net_leverage
             
             # If the position is already closed, we don't need to process any more orders. break in case there are more orders.
-            if (self.position_type == OrderTypeEnum.FLAT):
+            if (self.position_type == OrderType.FLAT):
                 break
 
 
@@ -248,12 +248,12 @@ if __name__ == "__main__":
     #         order_uuid="123",
     #     )
     # )
-    position.add_order(Order(order_type=OrderTypeEnum.LONG,
-                              leverage=1,
-                              price=1,
-                              trade_pair=TradePair.BTCUSD,
-                              processed_ms=123,
-                              order_uuid="123"))
+    position.add_order(Order(order_type=OrderType.LONG,
+                             leverage=1,
+                             price=1,
+                             trade_pair=TradePair.BTCUSD,
+                             processed_ms=123,
+                             order_uuid="123"))
 
     #position.add_order(Order(order_type=OrderTypeEnum.SHORT,
     #                        leverage=-1,
@@ -263,7 +263,7 @@ if __name__ == "__main__":
     #                        order_uuid="124")) 
     position.add_order(
         Order(
-            order_type=OrderTypeEnum.FLAT,
+            order_type=OrderType.FLAT,
             leverage=1,
             price=2,
             trade_pair=TradePair.BTCUSD,
