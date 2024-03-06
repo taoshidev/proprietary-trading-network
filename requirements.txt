@@ -4,3 +4,5 @@ tensorflow
 scikit-learn
 pandas
 twelvedata
+flask
+gunicorn

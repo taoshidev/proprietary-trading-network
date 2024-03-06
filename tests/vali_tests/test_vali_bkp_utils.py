@@ -46,12 +46,12 @@ class TestValiBkpUtils(TestBase):
         test_valirecords = "test_valirecords.json"
         test_cmw = CMWUtil.initialize_cmw()
         test_valirecords_location = ValiBkpUtils.get_vali_bkp_dir() + test_valirecords
-        ValiBkpUtils.write_to_vali_dir(test_valirecords_location, test_cmw)
+        ValiBkpUtils.write_to_dir(test_valirecords_location, test_cmw)
         self.assertTrue(os.path.exists(test_valirecords_location))
         os.remove(test_valirecords_location)
 
         test_valipreds_location = ValiBkpUtils.get_vali_predictions_dir() + "test.pickle"
-        ValiBkpUtils.write_to_vali_dir(test_valipreds_location, TestingData.po, True)
+        ValiBkpUtils.write_to_dir(test_valipreds_location, TestingData.po, True)
         self.assertTrue(os.path.exists(test_valipreds_location))
         os.remove(test_valipreds_location)
 
@@ -59,26 +59,26 @@ class TestValiBkpUtils(TestBase):
         # test writing a valirecords file
         test_valirecords = "test_valirecords.json"
         test_cmw = CMWUtil.initialize_cmw()
-        ValiBkpUtils.write_vali_file(ValiBkpUtils.get_vali_bkp_dir(),
-                                     test_valirecords,
-                                     test_cmw)
+        ValiBkpUtils.write_file(ValiBkpUtils.get_vali_bkp_dir(),
+                                test_valirecords,
+                                test_cmw)
         self.assertTrue(os.path.exists(ValiBkpUtils.get_vali_bkp_dir()+test_valirecords))
 
         test_valirecords_location = ValiBkpUtils.get_vali_bkp_dir() + test_valirecords
-        get_test_cmw = json.loads(ValiBkpUtils.get_vali_file(test_valirecords_location))
+        get_test_cmw = json.loads(ValiBkpUtils.get_file(test_valirecords_location))
         self.assertEqual(test_cmw, get_test_cmw)
 
         os.remove(ValiBkpUtils.get_vali_bkp_dir()+test_valirecords)
 
         test_pred_filename = "test.pickle"
-        ValiBkpUtils.write_vali_file(ValiBkpUtils.get_vali_predictions_dir(),
-                                     test_pred_filename,
-                                     TestingData.po,
-                                     True)
+        ValiBkpUtils.write_file(ValiBkpUtils.get_vali_predictions_dir(),
+                                test_pred_filename,
+                                TestingData.po,
+                                True)
         self.assertTrue(os.path.exists(ValiBkpUtils.get_vali_predictions_dir() + test_pred_filename))
 
         test_valipreds_location = ValiBkpUtils.get_vali_predictions_dir() + test_pred_filename
-        get_test_valipreds = ValiBkpUtils.get_vali_file(test_valipreds_location, True)
+        get_test_valipreds = ValiBkpUtils.get_file(test_valipreds_location, True)
         self.assertTrue(get_test_valipreds == TestingData.po)
 
         os.remove(ValiBkpUtils.get_vali_predictions_dir() + test_pred_filename)
@@ -88,7 +88,7 @@ class TestValiBkpUtils(TestBase):
         test_valirecords = "test_valirecords.json"
         test_cmw = CMWUtil.initialize_cmw()
         test_valirecords_location = ValiBkpUtils.get_vali_bkp_dir() + test_valirecords
-        ValiBkpUtils.write_to_vali_dir(test_valirecords_location, test_cmw)
+        ValiBkpUtils.write_to_dir(test_valirecords_location, test_cmw)
 
         vali_bkp_dir_files = ValiBkpUtils.get_all_files_in_dir(ValiBkpUtils.get_vali_bkp_dir())
         self.assertTrue(test_valirecords_location in vali_bkp_dir_files)

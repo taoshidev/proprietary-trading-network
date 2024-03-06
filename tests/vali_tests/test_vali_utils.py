@@ -70,9 +70,9 @@ class TestValiUtils(TestBase):
             self.assertIsInstance(e, ValiFileMissingException)
 
         test_cmw = CMWUtil.initialize_cmw()
-        ValiBkpUtils.write_vali_file(ValiBkpUtils.get_vali_predictions_dir(),
-                                     test_pred_filename + ".pickle",
-                                     test_cmw)
+        ValiBkpUtils.write_file(ValiBkpUtils.get_vali_predictions_dir(),
+                                test_pred_filename + ".pickle",
+                                test_cmw)
         try:
             ValiUtils.get_miner_positions(ValiBkpUtils.get_vali_predictions_dir()
                                           + test_pred_filename + ".pickle")

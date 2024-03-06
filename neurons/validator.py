@@ -520,11 +520,11 @@ def main(config):
                                 eliminations.append(miner_hotkey)
                                 # updating both elims and miner copying
                                 miner_copying_json[miner_hotkey] = current_hotkey_mc
-                                ValiBkpUtils.write_vali_file(
+                                ValiBkpUtils.write_file(
                                     ValiBkpUtils.get_miner_copying_dir(),
                                     miner_copying_json,
                                 )
-                                ValiBkpUtils.write_vali_file(
+                                ValiBkpUtils.write_file(
                                     ValiBkpUtils.get_eliminations_dir(), eliminations
                                 )
                                 raise SignalException(
@@ -535,7 +535,7 @@ def main(config):
                                 current_hotkey_mc -= ValiConfig.MINER_COPYING_WEIGHT
                                 # updating miner copying file
                                 miner_copying_json[miner_hotkey] = current_hotkey_mc
-                                ValiBkpUtils.write_vali_file(
+                                ValiBkpUtils.write_file(
                                     ValiBkpUtils.get_miner_copying_dir(),
                                     miner_copying_json,
                                 )
@@ -589,13 +589,13 @@ def main(config):
     _miner_copying = ValiUtils.get_vali_json_file(ValiBkpUtils.get_miner_copying_dir())
 
     if len(_eliminations) == 0:
-        ValiBkpUtils.write_vali_file(
+        ValiBkpUtils.write_file(
             ValiBkpUtils.get_eliminations_dir(), {ValiUtils.ELIMINATIONS: []}
         )
 
     if len(_miner_copying) == 0:
         miner_copying_file = {hotkey: 0 for hotkey in metagraph.hotkeys}
-        ValiBkpUtils.write_vali_file(
+        ValiBkpUtils.write_file(
             ValiBkpUtils.get_miner_copying_dir(), miner_copying_file
         )
 

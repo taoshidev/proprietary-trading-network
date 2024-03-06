@@ -79,7 +79,7 @@ class ValiBkpUtils:
         return "rb" if is_pickle else "r"
 
     @staticmethod
-    def write_to_vali_dir(
+    def write_to_dir(
         vali_file: str, vali_data: dict | object, is_pickle: bool = False
     ) -> None:
         with open(vali_file, ValiBkpUtils.get_write_type(is_pickle)) as f:
@@ -87,15 +87,15 @@ class ValiBkpUtils:
         f.close()
 
     @staticmethod
-    def write_vali_file(
+    def write_file(
         vali_dir: str,
         vali_data: dict | object,
         is_pickle: bool = False
     ) -> None:
-        ValiBkpUtils.write_to_vali_dir(vali_dir, vali_data, is_pickle)
+        ValiBkpUtils.write_to_dir(vali_dir, vali_data, is_pickle)
 
     @staticmethod
-    def get_vali_file(vali_file, is_pickle: bool = False) -> str | object:
+    def get_file(vali_file, is_pickle: bool = False) -> str | object:
         with open(vali_file, ValiBkpUtils.get_read_type(is_pickle)) as f:
             return pickle.load(f) if is_pickle else f.read()
 
