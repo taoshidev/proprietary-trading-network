@@ -32,7 +32,7 @@ class TwelveDataService:
 
         all_trade_pair_closes = {}
 
-        trade_pair_lookup = {pair.value: pair for pair in TradePair}
+        trade_pair_lookup = {pair.trade_pair: pair for pair in TradePair}
 
         data = self._fetch_data(stringified_trade_pairs, interval, output_size)
         for k, v in data.items():

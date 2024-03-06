@@ -422,7 +422,7 @@ def main(config):
         order_type_lookup = {
             order_type.value: order_type for order_type in OrderTypeEnum
         }
-        trade_pair_lookup = {pair.value: pair for pair in TradePair}
+        trade_pair_lookup = {pair.trade_pair_id: pair for pair in TradePair}
 
         # convert every signal to orders
         # set the closing price for every order

@@ -162,7 +162,7 @@ class Position:
 
     def set_return_at_close_with_fees(self):
         self.return_at_close = self.return_at_close * (
-            1 - ValiConfig.TRADE_PAIR_FEES[self.trade_pair] * abs(self._net_leverage)
+            1 - self.trade_pair.fees * abs(self._net_leverage)
         )
         self._position_log(f"closed position return w/ fees [{self.return_at_close}]")
 

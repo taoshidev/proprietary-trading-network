@@ -483,19 +483,19 @@ def send_signal(_dendrite, _config, _metagraph):
         random_number = random.randint(1, 5)
         if random_number == 1:
             signal = Signal(
-                trade_pair=TradePair.BTCUSD.value,
+                trade_pair=TradePair.BTCUSD.trade_pair,
                 order_type=OrderTypeEnum.FLAT.value,
                 leverage=1,
             )
         elif random_number == 2:
             signal = Signal(
-                trade_pair=TradePair.BTCUSD.value,
+                trade_pair=TradePair.BTCUSD.trade_pair,
                 order_type=OrderTypeEnum.SHORT.value,
                 leverage=-1,
             )
         else:
             signal = Signal(
-                trade_pair=TradePair.BTCUSD.value,
+                trade_pair=TradePair.BTCUSD.trade_pair,
                 order_type=OrderTypeEnum.LONG.value,
                 leverage=1,
             )

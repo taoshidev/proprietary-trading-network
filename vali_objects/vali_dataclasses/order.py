@@ -22,3 +22,7 @@ class Order:
         if abs(self.leverage) < ValiConfig.MIN_LEVERAGE and self.order_type != OrderTypeEnum.FLAT:
             raise ValueError(f"Leverage must be greater than [{ValiConfig.MIN_LEVERAGE}]."
                              f"Leverage provided - [{self.leverage}]")
+
+        trade_pair_map = [trade_pair.trade_pair_id for trade_pair in TradePair]
+        if self.trade_pair not in trade_pair_map:
+            raise ValueError(f"Trade pair passed isn't an option for this subnet [{self.trade_pair}].")

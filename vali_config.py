@@ -7,16 +7,48 @@ from time_util.time_util import TimeUtil
 
 
 class TradePair(Enum):
-    BTCUSD = "BTC/USD"
-    ETHUSD = "ETH/USD"
+    BTCUSD = ("BTCUSD", "BTC/USD", 0.003, 1, 0.0001, 20)
+    ETHUSD = ("ETHUSD", "ETH/USD", 0.003, 1, 0.0001, 20)
+    EURUSD = ("EURUSD", "EUR/USD", 0.0003, 1, 0.0001, 100)
+    SPX = ("SPX", "SPX", 0.0005, 1, 0.0001, 100)
+
+    def __init__(
+        self,
+        trade_pair_id: str,
+        trade_pair: str,
+        fees: float,
+        min_leverage: float,
+        max_leverage: float,
+    ):
+        self.trade_pair_id = trade_pair_id
+        self.trade_pair = trade_pair
+        self.fees = fees
+        self.min_leverage = min_leverage
+        self.max_leverage = max_leverage
+
+    @staticmethod
+    def to_dict():
+        # Convert ValiStream Enum to a dictionary
+        return {
+            member.name: {
+                "stream_id": member.trade_pair_id,
+                "trade_pair": member.trade_pair,
+                "fees": member.fees,
+                "min_leverage": member.min_leverage,
+                "max_leverage": member.max_leverage,
+            }
+            for member in TradePair
+        }
+
+    @staticmethod
+    def to_enum(stream_id):
+        m_map = {member.name: member for member in TradePair}
+        return m_map[stream_id]
 
 
 class ValiConfig:
     # fees take into account exiting and entering a position, liquidity, and futures fees
-    TRADE_PAIR_FEES = {
-        TradePair.BTCUSD: 0.003,
-        TradePair.ETHUSD: 0.003
-    }
+    TRADE_PAIR_FEES = {TradePair.BTCUSD: 0.003, TradePair.ETHUSD: 0.003}
 
     MIN_LEVERAGE = 0.001
     MAX_DAILY_DRAWDOWN = 0.95
@@ -33,4 +65,3 @@ class ValiConfig:
     MINER_COPYING_WEIGHT = 0.01
 
     BASE_DIR = base_directory = os.path.dirname(os.path.abspath(__file__))
-
