@@ -48,6 +48,9 @@ class TradePair(Enum):
     def __str__(self):
         return self.value
 
+    def __str__(self):
+        return self.value
+
 
 class ValiConfig:
     # fees take into account exiting and entering a position, liquidity, and futures fees
