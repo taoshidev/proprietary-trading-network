@@ -45,14 +45,17 @@ class TradePair(Enum):
         m_map = {member.name: member for member in TradePair}
         return m_map[stream_id]
 
+    def __str__(self):
+        return self.value
+
 
 class ValiConfig:
     # fees take into account exiting and entering a position, liquidity, and futures fees
     TRADE_PAIR_FEES = {TradePair.BTCUSD: 0.003, TradePair.ETHUSD: 0.003}
 
     MIN_LEVERAGE = 0.001
-    MAX_DAILY_DRAWDOWN = 0.95
-    MAX_TOTAL_DRAWDOWN = 0.9
+    MAX_DAILY_DRAWDOWN = 0.95 # Portfolio should never fall below .95 x of initial value when measured day to day
+    MAX_TOTAL_DRAWDOWN = 0.9 # Portfolio should never fall below .90 x of initial value when measured at any instant
     MAX_ORDERS = 200
 
     SET_WEIGHT_INTERVALS = [0, 30]
