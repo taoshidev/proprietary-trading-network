@@ -11,15 +11,23 @@ from datetime import datetime
 
 import argparse
 import traceback
+from typing import List
+
 import bittensor as bt
 
 from miner_config import MinerConfig
 
 # Step 2: Set up the configuration parser
 # This function is responsible for setting up and parsing command-line arguments.
-from template.protocol import SendSignal
+from template.protocol import SendSignal, GetPositions
 from vali_objects.decoders.signal_json_decoder import SignalJSONDecoder
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
+
+global send_signal_vali_retry_axons
+global retry_counter
+
+send_signal_vali_retry_axon_ids = []
+retry_counter = 3
 
 
 def get_config():
@@ -67,38 +75,62 @@ def send_signal(_dendrite, _config, _metagraph):
                     f"found [{len(new_signal_files)}] new signal files to send."
                 )
                 new_signals = [
-                    json.loads(ValiBkpUtils.get_file(new_signal_file), cls=SignalJSONDecoder)
+                    json.loads(
+                        ValiBkpUtils.get_file(new_signal_file), cls=SignalJSONDecoder
+                    )
                     for new_signal_file in new_signal_files
                 ]
                 print(new_signals)
-                send_signal_proto = SendSignal(signals=new_signals)
+                for new_signal in new_signals:
+                    send_signal_proto = SendSignal(signals=new_signal)
 
-                vali_responses = _dendrite.query(
-                    _metagraph.axons, send_signal_proto, deserialize=True
-                )
-                bt.logging.info("sent signal to validators")
+                    vali_responses = _dendrite.query(
+                        _metagraph.axons, send_signal_proto, deserialize=True
+                    )
+                    bt.logging.info("sent signal to validators")
 
-                for i, resp_i in enumerate(vali_responses):
-                    if resp_i.successfully_processed:
-                        bt.logging.info(
-                            "vali processed all signals. Moving all signals to processed dir. "
-                        )
-                        for new_signal_file in new_signal_files:
-                            shutil.move(
-                                new_signal_file,
-                                MinerConfig.get_miner_processed_signals_dir()
-                                + os.path.basename(new_signal_file),
+                    for i, resp_i in enumerate(vali_responses):
+                        if resp_i.successfully_processed:
+                            bt.logging.info(
+                                "vali processed all signals. Moving all signals to processed dir. "
                             )
-                    else:
-                        bt.logging.info(
-                            f"vali did not successfully process [{metagraph.axons[i].hotkey}]. "
-                            f"printout message from vali [{resp_i.error_message}]. "
-                            f"Will retry in 15 seconds."
-                        )
+                        else:
+                            bt.logging.info(
+                                f"vali did not successfully process [{metagraph.axons[i].hotkey}]. "
+                                f"printout message from vali [{resp_i.error_message}]. "
+                                f"Will retry on these valis in 15 seconds."
+                            )
             except Exception:
                 (traceback.print_exc())
             bt.logging.info("failed sending back results to miners and continuing...")
+
+        # TODO - make it a smarter process as to retry with failures
+        for new_signal_file in new_signal_files:
+            shutil.move(
+                new_signal_file,
+                MinerConfig.get_miner_processed_signals_dir()
+                + os.path.basename(new_signal_file),
+            )
         time.sleep(15)
+
+
+def get_positions(_dendrite, _config, _metagraph, validators):
+    get_position_proto = GetPositions()
+
+    # order validators by largest stake holding, request from 1 of the top 3
+    # get all uids, order by largest stake
+    # stake = metagraph.axons[uid].stake.tao
+
+    # if they're not in the same state, then choose from the vali that has the most
+    # orders filled for the miner
+
+    vali_responses = _dendrite.query(
+        _metagraph.axons[0], get_position_proto, deserialize=True
+    )
+
+def order_valis_by_stake(metagraph) -> List[int]:
+    # stake = metagraph.axons[uid].stake.tao
+
 
 
 # The main function parses the configuration and runs the miner.
