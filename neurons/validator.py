@@ -598,7 +598,7 @@ def main(config):
             ValiBkpUtils.get_miner_copying_dir(), miner_copying_file
         )
 
-    # Start  starts the miner's axon, making it active on the network.
+    # Starts the miner's axon, making it active on the network.
     bt.logging.info(f"Starting axon server on port: {config.axon.port}")
     axon.start()
 
