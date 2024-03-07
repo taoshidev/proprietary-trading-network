@@ -21,11 +21,7 @@ class BaseProtocol(bt.Synapse):
 
 class SendSignal(bt.Synapse):
     signals: List[typing.Dict]
-    received: typing.Optional[bool] = None
+    successfully_processed: typing.Optional[bool] = None
     error_message: typing.Optional[str] = None
 
-
-def convert_to_send_signal(signals = Type[List[Signal]]):
-    converted_signals = [signal.__dict__ for signal in signals]
-    return SendSignal(signals=converted_signals)
 
