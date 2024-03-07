@@ -135,9 +135,7 @@ class Position:
                 self._average_entry_price * self._net_leverage
                 + current_price * adjusted_leverage
             ) / new_net_leverage
-            self._net_leverage = new_net_leverage
-            
-            
+            self._net_leverage = new_net_leverage            
 
 
     def initialize_position_from_first_order(self, order):

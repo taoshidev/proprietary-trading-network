@@ -538,6 +538,51 @@ class TestPositions(TestBase):
 
 
 
+        def test_returns_on_late_entry(self):
+            o1 = Order(order_type=OrderTypeEnum.LONG,
+                    leverage=1,
+                    price=1000,
+                    trade_pair=TradePair.BTCUSD,
+                    processed_ms=1000,
+                    order_uuid="1000")
+            o2 = Order(order_type=OrderTypeEnum.LONG,
+                    leverage=0.1,
+                    price=2000,
+                    trade_pair=TradePair.BTCUSD,
+                    processed_ms=2000,
+                    order_uuid="2000")
+            o3 = Order(order_type=OrderTypeEnum.LONG,
+                    leverage=5,
+                    price=39000,
+                    trade_pair=TradePair.BTCUSD,
+                    processed_ms=3000,
+                    order_uuid="3000")
+            o4 = Order(order_type=OrderTypeEnum.LONG,
+                    leverage=.1,
+                    price=40000,
+                    trade_pair=TradePair.BTCUSD,
+                    processed_ms=4000,
+                    order_uuid="4000")
+            o5 = Order(order_type=OrderTypeEnum.FLAT,
+                    leverage=0,
+                    price=40000,
+                    trade_pair=TradePair.BTCUSD,
+                    processed_ms=5000,
+                    order_uuid="5000")
+
+            self.position.add_order(o1)
+            print(self.position.current_return)
+            self.position.add_order(o2)
+            print(self.position.current_return)
+            self.position.add_order(o3)
+            print(self.position.current_return)
+            self.position.add_order(o4)
+            print(self.position.current_return)
+            self.position.add_order(o5)
+        
+
+
+
 if __name__ == '__main__':
     import unittest
     unittest.main()
