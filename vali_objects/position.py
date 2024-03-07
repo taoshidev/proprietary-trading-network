@@ -129,7 +129,7 @@ class Position:
         #self._position_log(f"closed return with fees [{self.return_at_close}]")
         
         if self.position_type == OrderType.FLAT:
-z            self._net_leverage = 0
+            self._net_leverage = 0
         else:
             self._average_entry_price = (
                 self._average_entry_price * self._net_leverage
