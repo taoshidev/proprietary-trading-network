@@ -2,6 +2,7 @@
 # Copyright © 2023 Yuma Rao
 # developer: Taoshidev
 # Copyright © 2023 Taoshi Inc
+import ast
 import json
 import os
 import shutil
@@ -17,6 +18,7 @@ from miner_config import MinerConfig
 # Step 2: Set up the configuration parser
 # This function is responsible for setting up and parsing command-line arguments.
 from template.protocol import SendSignal
+from vali_objects.decoders.signal_json_decoder import SignalJSONDecoder
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 
 
@@ -65,9 +67,10 @@ def send_signal(_dendrite, _config, _metagraph):
                     f"found [{len(new_signal_files)}] new signal files to send."
                 )
                 new_signals = [
-                    json.loads(ValiBkpUtils.get_file(new_signal_file))
+                    json.loads(ValiBkpUtils.get_file(new_signal_file), cls=SignalJSONDecoder)
                     for new_signal_file in new_signal_files
                 ]
+                print(new_signals)
                 send_signal_proto = SendSignal(signals=new_signals)
 
                 vali_responses = _dendrite.query(
@@ -92,11 +95,9 @@ def send_signal(_dendrite, _config, _metagraph):
                             f"printout message from vali [{resp_i.error_message}]. "
                             f"Will retry in 15 seconds."
                         )
-            except Exception:(
-            traceback.print_exc())
-            bt.logging.info(
-                "failed sending back results to miners and continuing..."
-            )
+            except Exception:
+                (traceback.print_exc())
+            bt.logging.info("failed sending back results to miners and continuing...")
         time.sleep(15)
 
 

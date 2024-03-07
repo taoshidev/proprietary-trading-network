@@ -70,7 +70,6 @@ class ValiConfig:
     # fees take into account exiting and entering a position, liquidity, and futures fees
     TRADE_PAIR_FEES = {TradePair.BTCUSD: 0.003, TradePair.ETHUSD: 0.003}
 
-    MIN_LEVERAGE = 0.001
     MAX_DAILY_DRAWDOWN = 0.95  # Portfolio should never fall below .95 x of initial value when measured day to day
     MAX_TOTAL_DRAWDOWN = 0.9  # Portfolio should never fall below .90 x of initial value when measured at any instant
     MAX_ORDERS = 200

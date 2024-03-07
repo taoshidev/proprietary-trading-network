@@ -13,7 +13,7 @@ from vali_objects.vali_dataclasses.signal import Signal
 
 app = Flask(__name__)
 
-secrets_json_path = "secrets.json"
+secrets_json_path = "miner_secrets.json"
 # Define your API key
 if os.path.exists(secrets_json_path):
     with open(secrets_json_path, "r") as file:

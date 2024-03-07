@@ -27,7 +27,7 @@ class ValiBkpUtils:
 
     @staticmethod
     def get_secrets_dir():
-        return ValiConfig.BASE_DIR + f"/validation/secrets.json"
+        return ValiConfig.BASE_DIR + f"/secrets.json"
 
     @staticmethod
     def get_vali_bkp_dir() -> str:
