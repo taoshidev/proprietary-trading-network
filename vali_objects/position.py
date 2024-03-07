@@ -2,7 +2,7 @@ from typing import Optional, List
 
 from vali_config import ValiConfig, TradePair
 from vali_objects.vali_dataclasses.order import Order
-from vali_objects.enums.order_type_enum import OrderTypeEnum
+from vali_objects.enums.order_type_enum import OrderType
 
 import bittensor as bt
 
@@ -128,8 +128,8 @@ class Position:
         #self._position_log(f"closed position total w/o fees [{self.current_return}]")
         #self._position_log(f"closed return with fees [{self.return_at_close}]")
         
-        if self.position_type == OrderTypeEnum.FLAT:
-            self._net_leverage = 0
+        if self.position_type == OrderType.FLAT:
+z            self._net_leverage = 0
         else:
             self._average_entry_price = (
                 self._average_entry_price * self._net_leverage
@@ -145,10 +145,10 @@ class Position:
         # Initialize the position type. It will stay the same until the position is closed.
         if order.leverage > 0:
             #self._position_log("setting new position type as LONG")
-            self.position_type = OrderTypeEnum.LONG
+            self.position_type = OrderType.LONG
         elif order.leverage < 0:
             #self._position_log("setting new position type as SHORT")
-            self.position_type = OrderTypeEnum.SHORT
+            self.position_type = OrderType.SHORT
         else:
             raise ValueError("leverage of 0 provided as initial order.")
         
@@ -159,79 +159,18 @@ class Position:
                 self.initialize_position_from_first_order(order)
 
             # Check if the new order flattens the position, explicitly or implicitly
-            if ((self.position_type == OrderTypeEnum.LONG and self._net_leverage + order.leverage <= 0) or
-                (self.position_type == OrderTypeEnum.SHORT and self._net_leverage + order.leverage >= 0) or
-                order.order_type == OrderTypeEnum.FLAT):
+            if ((self.position_type == OrderType.LONG and self._net_leverage + order.leverage <= 0) or
+                (self.position_type == OrderType.SHORT and self._net_leverage + order.leverage >= 0) or
+                order.order_type == OrderType.FLAT):
                     #self._position_log(f"Flattening {self.position_type.value} position from order {order}")
-                    self.position_type = OrderTypeEnum.FLAT
+                    self.position_type = OrderType.FLAT
                     self.is_closed_position = True
                     self.close_ms = order.processed_ms
 
             # Reflect the current order in the current position's return. 
-            adjusted_leverage = 0 if self.position_type == OrderTypeEnum.FLAT else order.leverage
+            adjusted_leverage = 0 if self.position_type == OrderType.FLAT else order.leverage
             self.update_returns(order.price, adjusted_leverage)
-
             
             # If the position is already closed, we don't need to process any more orders. break in case there are more orders.
-            if (self.position_type == OrderTypeEnum.FLAT):
+            if self.position_type == OrderType.FLAT:
                 break
-
-
-
-if __name__ == "__main__":
-    # Example usage:
-    position = Position(
-        miner_hotkey="test",
-        position_uuid="test",
-        open_ms=123,
-        trade_pair=TradePair.BTCUSD,
-    )
-
-    
-    o1 = Order(order_type=OrderTypeEnum.LONG,
-            leverage=1,
-            price=1000,
-            trade_pair=TradePair.BTCUSD,
-            processed_ms=1000,
-            order_uuid="1000")
-    o2 = Order(order_type=OrderTypeEnum.LONG,
-            leverage=0.1,
-            price=2000,
-            trade_pair=TradePair.BTCUSD,
-            processed_ms=2000,
-            order_uuid="2000")
-    o3 = Order(order_type=OrderTypeEnum.LONG,
-            leverage=5,
-            price=40000,
-            trade_pair=TradePair.BTCUSD,
-            processed_ms=3000,
-            order_uuid="3000")
-    o4 = Order(order_type=OrderTypeEnum.LONG,
-            leverage=.1,
-            price=40000,
-            trade_pair=TradePair.BTCUSD,
-            processed_ms=4000,
-            order_uuid="4000")
-    o5 = Order(order_type=OrderTypeEnum.FLAT,
-            leverage=0,
-            price=40000,
-            trade_pair=TradePair.BTCUSD,
-            processed_ms=5000,
-            order_uuid="5000")
-    o6 = Order(order_type=OrderTypeEnum.FLAT,
-            leverage=0,
-            price=2000,
-            trade_pair=TradePair.BTCUSD,
-            processed_ms=5000,
-            order_uuid="5000")
-    position.add_order(o1)
-    print(position.current_return)
-    position.add_order(o2)
-    print(position.current_return)
-    position.add_order(o6)
-    print(position.current_return)
-    #print(position.current_return)
-    #position.add_order(o4)
-    #print(position.current_return)
-    #position.add_order(o5)
-    #print(position.current_return)

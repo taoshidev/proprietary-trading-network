@@ -1,27 +1,15 @@
 # developer: Taoshidev
 # Copyright © 2023 Taoshi Inc
 
-from vali_config import TradePair, ValiConfig
-from vali_objects.enums.order_type_enum import OrderTypeEnum
 from dataclasses import dataclass
+from vali_objects.vali_dataclasses.signal import Signal
 
 
 @dataclass
-class Order:
-    trade_pair: TradePair
-    order_type: OrderTypeEnum
-    leverage: float
+class Order(Signal):
     price: float
     processed_ms: int
     order_uuid: str
-
-    def __post_init__(self):
-        if (self.order_type == OrderTypeEnum.SHORT and self.leverage > 0) or \
-           (self.order_type == OrderTypeEnum.LONG and self.leverage < 0):
-            raise ValueError("Leverage must be negative for SHORT orders and positive for LONG orders.")
-        if abs(self.leverage) < ValiConfig.MIN_LEVERAGE and self.order_type != OrderTypeEnum.FLAT:
-            raise ValueError(f"Leverage must be greater than [{ValiConfig.MIN_LEVERAGE}]."
-                             f"Leverage provided - [{self.leverage}]")
         
     def __str__(self):
         return str({'trade_pair': str(self.trade_pair), 'order_type': str(self.order_type), 'leverage': self.leverage, 

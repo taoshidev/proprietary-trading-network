@@ -21,7 +21,7 @@ class ValiUtils:
     def get_miner_positions(file) -> Position:
         # wrapping here to allow simpler error handling & original for other error handling
         try:
-            return ValiBkpUtils.get_vali_file(file, True)
+            return ValiBkpUtils.get_file(file, True)
         except FileNotFoundError:
             raise ValiFileMissingException("Vali position file is missing")
         except UnpicklingError:
@@ -31,7 +31,7 @@ class ValiUtils:
     def get_secrets() -> Dict:
         # wrapping here to allow simpler error handling & original for other error handling
         try:
-            secrets = ValiBkpUtils.get_vali_file(ValiBkpUtils.get_secrets_dir())
+            secrets = ValiBkpUtils.get_file(ValiBkpUtils.get_secrets_dir())
             return json.loads(secrets)
         except FileNotFoundError:
             raise ValiFileMissingException("Vali secrets file is missing")
@@ -41,7 +41,7 @@ class ValiUtils:
         miner_hotkey: str, position_uuid: str, content: Dict | object
     ) -> None:
         ValiBkpUtils.make_dir(ValiBkpUtils.get_miner_position_dir(miner_hotkey))
-        ValiBkpUtils.write_vali_file(
+        ValiBkpUtils.write_file(
             ValiBkpUtils.get_miner_position_dir(miner_hotkey) + position_uuid,
             content,
             True,
@@ -51,7 +51,7 @@ class ValiUtils:
     def get_vali_json_file(vali_dir: str, key: str = None) -> List | Dict:
         # wrapping here to allow simpler error handling & original for other error handling
         try:
-            secrets = ValiBkpUtils.get_vali_file(vali_dir)
+            secrets = ValiBkpUtils.get_file(vali_dir)
             if key is not None:
                 return json.loads(secrets)[key]
             else:

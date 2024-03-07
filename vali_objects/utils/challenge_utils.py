@@ -194,7 +194,7 @@ class ChallengeUtils:
                         mch: mc for mch, mc in miner_copying.items() if mch in hotkeys
                     }
 
-                    ValiBkpUtils.write_vali_file(
+                    ValiBkpUtils.write_file(
                         ValiBkpUtils.get_miner_copying_dir(), updated_miner_copying
                     )
 
@@ -306,7 +306,7 @@ class ChallengeUtils:
                                 if _is_beyond_mdd(current_dd, hotkey):
                                     updated_eliminations.append(hotkey)
                     vali_elims = {ValiUtils.ELIMINATIONS: updated_eliminations}
-                    ValiBkpUtils.write_vali_file(
+                    ValiBkpUtils.write_file(
                         ValiBkpUtils.get_eliminations_dir(), vali_elims
                     )
                     time.sleep(15)
