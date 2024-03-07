@@ -58,7 +58,7 @@ class TestPositions(TestBase):
             '_average_entry_price': 100,
             'max_drawdown': 0,
             'close_ms': None,
-            'return_at_close': 1.0,
+            'return_at_close': 0.997,
             'current_return': 1.0,
             'miner_hotkey': self.MINER_HOTKEY,
             'open_ms': self.OPEN_MS,
@@ -106,7 +106,7 @@ class TestPositions(TestBase):
             '_average_entry_price': 500,
             'max_drawdown': 0,
             'close_ms': None,
-            'return_at_close': 1.0,
+            'return_at_close': 0.997,
             'current_return': 1.0,
             'miner_hotkey': self.MINER_HOTKEY,
             'open_ms': self.OPEN_MS,
@@ -154,7 +154,7 @@ class TestPositions(TestBase):
             '_average_entry_price': 100,
             'max_drawdown': 0,
             'close_ms': None,
-            'return_at_close': 1.0,
+            'return_at_close': .997,
             'current_return': 1.0,
             'miner_hotkey': self.MINER_HOTKEY,
             'open_ms': self.OPEN_MS,
@@ -202,7 +202,7 @@ class TestPositions(TestBase):
             '_average_entry_price': 1000,
             'max_drawdown': 0,
             'close_ms': None,
-            'return_at_close': 1.0,
+            'return_at_close': .997,
             'current_return': 1.0,
             'miner_hotkey': self.MINER_HOTKEY,
             'open_ms': self.OPEN_MS,
@@ -302,6 +302,51 @@ class TestPositions(TestBase):
             'open_ms': self.OPEN_MS,
             'trade_pair': self.DEFAULT_TRADE_PAIR
         })
+
+
+        def test_returns_on_late_entry(self):
+            o1 = Order(order_type=OrderTypeEnum.LONG,
+                    leverage=1,
+                    price=1000,
+                    trade_pair=TradePair.BTCUSD,
+                    processed_ms=1000,
+                    order_uuid="1000")
+            o2 = Order(order_type=OrderTypeEnum.LONG,
+                    leverage=0.1,
+                    price=2000,
+                    trade_pair=TradePair.BTCUSD,
+                    processed_ms=2000,
+                    order_uuid="2000")
+            o3 = Order(order_type=OrderTypeEnum.LONG,
+                    leverage=5,
+                    price=39000,
+                    trade_pair=TradePair.BTCUSD,
+                    processed_ms=3000,
+                    order_uuid="3000")
+            o4 = Order(order_type=OrderTypeEnum.LONG,
+                    leverage=.1,
+                    price=40000,
+                    trade_pair=TradePair.BTCUSD,
+                    processed_ms=4000,
+                    order_uuid="4000")
+            o5 = Order(order_type=OrderTypeEnum.FLAT,
+                    leverage=0,
+                    price=40000,
+                    trade_pair=TradePair.BTCUSD,
+                    processed_ms=5000,
+                    order_uuid="5000")
+
+            self.position.add_order(o1)
+            print(self.position.current_return)
+            self.position.add_order(o2)
+            print(self.position.current_return)
+            self.position.add_order(o3)
+            print(self.position.current_return)
+            self.position.add_order(o4)
+            print(self.position.current_return)
+            self.position.add_order(o5)
+        
+
 
 
 if __name__ == '__main__':
