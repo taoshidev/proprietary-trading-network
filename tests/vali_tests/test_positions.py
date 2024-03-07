@@ -31,7 +31,7 @@ class TestPositions(TestBase):
             expected_value = expected_state.get(attr)
             actual_value = getattr(self.position, attr, None)
             self.assertEqual(actual_value, expected_value,
-                             f"Expected {attr} to be {expected_value}, got {actual_value}. position: {str(self.position)}")
+                             f"Expected {attr} to be {expected_value}, got {actual_value}. expeced state: {str(expected_state)} actual state: {str(self.position)}")
 
 
     def test_simple_long_position_with_explicit_FLAT(self):

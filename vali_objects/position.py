@@ -117,21 +117,18 @@ class Position:
             1 + (current_price - self._average_entry_price) * self._net_leverage / self._initial_entry_price
 
     # Must be called after every order to maintain accurate internal state
-    def update_returns(self, current_price, adjusted_leverage):
-        def _set_current_return():
-            self.current_return = self.calculate_unrealized_pnl(current_price)
-            
-            self.return_at_close = self.current_return * (
-                1 - ValiConfig.TRADE_PAIR_FEES[self.trade_pair] * abs(self._net_leverage)
-            )
-            self._position_log(f"closed position total w/o fees [{self.current_return}]")
-            self._position_log(f"closed return with fees [{self.return_at_close}]")
-        
+    def update_returns(self, current_price, adjusted_leverage):        
         assert self._initial_entry_price > 0, self._initial_entry_price
         new_net_leverage = self._net_leverage + adjusted_leverage
+
+        self.current_return = self.calculate_unrealized_pnl(current_price)
+        self.return_at_close = self.current_return * (
+            1 - ValiConfig.TRADE_PAIR_FEES[self.trade_pair] * abs(new_net_leverage)
+        )
+        #self._position_log(f"closed position total w/o fees [{self.current_return}]")
+        #self._position_log(f"closed return with fees [{self.return_at_close}]")
         
         if self.position_type == OrderTypeEnum.FLAT:
-            _set_current_return()
             self._net_leverage = 0
         else:
             self._average_entry_price = (
@@ -139,7 +136,7 @@ class Position:
                 + current_price * adjusted_leverage
             ) / new_net_leverage
             self._net_leverage = new_net_leverage
-            _set_current_return()
+            
             
 
 
@@ -149,10 +146,10 @@ class Position:
             raise ValueError("Initial entry price must be > 0")
         # Initialize the position type. It will stay the same until the position is closed.
         if order.leverage > 0:
-            self._position_log("setting new position type as LONG")
+            #self._position_log("setting new position type as LONG")
             self.position_type = OrderTypeEnum.LONG
         elif order.leverage < 0:
-            self._position_log("setting new position type as SHORT")
+            #self._position_log("setting new position type as SHORT")
             self.position_type = OrderTypeEnum.SHORT
         else:
             raise ValueError("leverage of 0 provided as initial order.")
@@ -167,7 +164,7 @@ class Position:
             if ((self.position_type == OrderTypeEnum.LONG and self._net_leverage + order.leverage <= 0) or
                 (self.position_type == OrderTypeEnum.SHORT and self._net_leverage + order.leverage >= 0) or
                 order.order_type == OrderTypeEnum.FLAT):
-                    self._position_log(f"Flattening {self.position_type.value} position from order {order}")
+                    #self._position_log(f"Flattening {self.position_type.value} position from order {order}")
                     self.position_type = OrderTypeEnum.FLAT
                     self.is_closed_position = True
                     self.close_ms = order.processed_ms
