@@ -128,8 +128,10 @@ def get_positions(_dendrite, _config, _metagraph, validators):
         _metagraph.axons[0], get_position_proto, deserialize=True
     )
 
+
 def order_valis_by_stake(metagraph) -> List[int]:
     # stake = metagraph.axons[uid].stake.tao
+    pass
 
 
 

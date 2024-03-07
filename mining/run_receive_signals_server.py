@@ -11,6 +11,16 @@ from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.vali_dataclasses.signal import Signal
 
+'''
+for production: 
+
+1. brew install nginx
+2. update your receive_signals.conf file in mining/nginx_conf
+3. create symbolic link for nginx conf sudo ln -s /path/to/receive_signals.conf /etc/nginx/conf.d/myapp.conf
+4. brew services start nginx
+5. brew services stop nginx
+'''
+
 app = Flask(__name__)
 
 secrets_json_path = "miner_secrets.json"
