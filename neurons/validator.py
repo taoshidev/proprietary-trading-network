@@ -75,7 +75,7 @@ def main(config):
     if secrets is None:
         raise Exception(
             "unable to get secrets data from "
-            "validation/secrets.json. Please ensure it exists"
+            "validation/miner_secrets.json. Please ensure it exists"
         )
 
     # Activating Bittensor's logging with the set configurations.
