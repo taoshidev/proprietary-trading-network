@@ -23,6 +23,7 @@ class Position:
     Positions are composed of orders.
 
     Rules:
+    - Returns are calculated as a multiplier of the original portfolio value which for simplicity can be considered 1.
     - LONG signal's leverage should be positive.
     - SHORT signal's leverage should be negative.
     - You can only open 1 position per trade pair at a time.
@@ -32,8 +33,8 @@ class Position:
       second position which is SHORT with the difference.
     - You can take profit on an open position using LONG and SHORT. For example, if you have
       an open LONG position with 0.75x leverage and you want to start taking profit, you
-      would send in SHORT signals to reduce the size of the position. This functions very
-      similarly to dYdX.
+      would send in SHORT signals to reduce the size of the position. Ex: Sending a short at 
+      -.25 leverage. This functions very similarly to dYdX.
     - You can close out a position by sending in a FLAT signal.
     - Max drawdown is determined every minute. If you go beyond 5% max drawdown on daily
       close, or 10% at any point in time, you're eliminated. Eliminated miners won't
@@ -102,26 +103,39 @@ class Position:
         self.orders.append(order)
         self._update_position()
 
+    def calculate_unrealized_pnl(self, current_price):
+        if self._initial_entry_price == 0 or self._average_entry_price is None:
+            return 1
+        
+        return \
+            1 + (current_price - self._average_entry_price) * self._net_leverage / self._initial_entry_price
+
     # Must be called after every order to maintain accurate internal state
     def update_returns(self, current_price, adjusted_leverage):
-        assert self._initial_entry_price > 0, self._initial_entry_price
+        def _set_current_return():
+            self.current_return = self.calculate_unrealized_pnl(current_price)
+            
+            self.return_at_close = self.current_return * (
+                1 - ValiConfig.TRADE_PAIR_FEES[self.trade_pair] * abs(self._net_leverage)
+            )
+            self._position_log(f"closed position total w/o fees [{self.current_return}]")
+            self._position_log(f"closed return with fees [{self.return_at_close}]")
         
-        self._average_entry_price = (
+        assert self._initial_entry_price > 0, self._initial_entry_price
+        new_net_leverage = self._net_leverage + adjusted_leverage
+        
+        if self.position_type == OrderTypeEnum.FLAT:
+            _set_current_return()
+            self._net_leverage = 0
+        else:
+            self._average_entry_price = (
                 self._average_entry_price * self._net_leverage
                 + current_price * adjusted_leverage
-            ) / (self._net_leverage + adjusted_leverage)
+            ) / new_net_leverage
+            self._net_leverage = new_net_leverage
+            _set_current_return()
+            
 
-        return_with_no_fees = 1 + \
-            (current_price - self._average_entry_price) * self._net_leverage / self._initial_entry_price
-
-        return_with_fees = return_with_no_fees * (
-            1 - ValiConfig.TRADE_PAIR_FEES[self.trade_pair] * abs(self._net_leverage)
-        )
-        self._position_log(f"closed position total w/ fees [{return_with_fees}]")
-        self._position_log(f"closed return with no fees [{return_with_no_fees}]")
-
-        self.current_return = return_with_no_fees
-        self.return_at_close = return_with_fees
 
     def initialize_position_from_first_order(self, order):
         self._initial_entry_price = order.price
@@ -144,9 +158,8 @@ class Position:
                 self.initialize_position_from_first_order(order)
 
             # Check if the new order flattens the position, explicitly or implicitly
-            new_net_leverage = self._net_leverage + order.leverage
-            if ((self.position_type == OrderTypeEnum.LONG and new_net_leverage <= 0) or
-                (self.position_type == OrderTypeEnum.SHORT and new_net_leverage >= 0) or
+            if ((self.position_type == OrderTypeEnum.LONG and self._net_leverage + order.leverage <= 0) or
+                (self.position_type == OrderTypeEnum.SHORT and self._net_leverage + order.leverage >= 0) or
                 order.order_type == OrderTypeEnum.FLAT):
                     self._position_log(f"Flattening {self.position_type.value} position from order {order}")
                     self.position_type = OrderTypeEnum.FLAT
@@ -156,7 +169,7 @@ class Position:
             # Reflect the current order in the current position's return. 
             adjusted_leverage = 0 if self.position_type == OrderTypeEnum.FLAT else order.leverage
             self.update_returns(order.price, adjusted_leverage)
-            self._net_leverage = 0 if self.position_type == OrderTypeEnum.FLAT else new_net_leverage
+
             
             # If the position is already closed, we don't need to process any more orders. break in case there are more orders.
             if (self.position_type == OrderTypeEnum.FLAT):
@@ -173,115 +186,51 @@ if __name__ == "__main__":
         trade_pair=TradePair.BTCUSD,
     )
 
-    # a = 50000
-    # for x in range(50):
-    #     a += x
-    #     position.add_order(
-    #         Order(
-    #             order_type=OrderTypeEnum.LONG,
-    #             leverage=0.1,
-    #             price=a,
-    #             trade_pair=TradePair.BTCUSD,
-    #             processed_ms=123,
-    #             order_uuid="123",
-    #         )
-    #     )
-
-    #position.add_order(
-    #    Order(
-    #        order_type=OrderTypeEnum.SHORT,
-    #        leverage=-0.1,
-    #        price=55000,
-    #        trade_pair=TradePair.BTCUSD,
-    #        processed_ms=123,
-    #        order_uuid="123",
-    #    )
-    #)
-    #position.add_order(
-    #    Order(
-    #        order_type=OrderTypeEnum.SHORT,
-    #        leverage=-0.1,
-    #        price=55250,
-    #        trade_pair=TradePair.BTCUSD,
-    #        processed_ms=123,
-    #        order_uuid="123",
-    #    )
-    #)
-    #position.add_order(
-    #    Order(
-    #        order_type=OrderTypeEnum.SHORT,
-    #        leverage=-10,
-    #        price=55500,
-    #        trade_pair=TradePair.BTCUSD,
-    #        processed_ms=123,
-    #        order_uuid="123",
-    #    )
-    #)
-    #
-    # position.add_order(
-    #     Order(
-    #         order_type=OrderTypeEnum.SHORT,
-    #         leverage=-0.99999,
-    #         price=90,
-    #         trade_pair=TradePair.BTCUSD,
-    #         processed_ms=123,
-    #         order_uuid="123",
-    #     )
-    # )
-    # position.add_order(
-    #     Order(
-    #         order_type=OrderTypeEnum.LONG,
-    #         leverage=1.0,
-    #         price=90,
-    #         trade_pair=TradePair.BTCUSD,
-    #         processed_ms=123,
-    #         order_uuid="123",
-    #     )
-    # )
-    # position.add_order(
-    #     Order(
-    #         order_type=OrderTypeEnum.SHORT,
-    #         leverage=-0.99999,
-    #         price=80,
-    #         trade_pair=TradePair.BTCUSD,
-    #         processed_ms=123,
-    #         order_uuid="123",
-    #     )
-    # )
-    position.add_order(Order(order_type=OrderTypeEnum.LONG,
-                              leverage=1,
-                              price=1,
-                              trade_pair=TradePair.BTCUSD,
-                              processed_ms=123,
-                              order_uuid="123"))
-
-    #position.add_order(Order(order_type=OrderTypeEnum.SHORT,
-    #                        leverage=-1,
-    #                        price=1.5,
-    #                        trade_pair=TradePair.BTCUSD,
-    #                        processed_ms=124,
-    #                        order_uuid="124")) 
-    position.add_order(
-        Order(
-            order_type=OrderTypeEnum.FLAT,
+    
+    o1 = Order(order_type=OrderTypeEnum.LONG,
             leverage=1,
-            price=2,
+            price=1000,
             trade_pair=TradePair.BTCUSD,
-            processed_ms=125,
-            order_uuid="125",
-        )
-    )
-    # position.add_order(Order(order_type=OrderTypeEnum.LONG,
-    #                          leverage=0,
-    #                          price=80,
-    #                          trade_pair=TradePair.BTCUSD,
-    #                          processed_ms=123,
-    #                          order_uuid="123"))
-    # position.add_order(Order(order_type=OrderTypeEnum.LONG,
-    #                          leverage=0,
-    #                          price=90,
-    #                          trade_pair=TradePair.BTCUSD,
-    #                          processed_ms=123,
-    #                          order_uuid="123"))
-
-    print(position.return_at_close)
+            processed_ms=1000,
+            order_uuid="1000")
+    o2 = Order(order_type=OrderTypeEnum.LONG,
+            leverage=0.1,
+            price=2000,
+            trade_pair=TradePair.BTCUSD,
+            processed_ms=2000,
+            order_uuid="2000")
+    o3 = Order(order_type=OrderTypeEnum.LONG,
+            leverage=5,
+            price=40000,
+            trade_pair=TradePair.BTCUSD,
+            processed_ms=3000,
+            order_uuid="3000")
+    o4 = Order(order_type=OrderTypeEnum.LONG,
+            leverage=.1,
+            price=40000,
+            trade_pair=TradePair.BTCUSD,
+            processed_ms=4000,
+            order_uuid="4000")
+    o5 = Order(order_type=OrderTypeEnum.FLAT,
+            leverage=0,
+            price=40000,
+            trade_pair=TradePair.BTCUSD,
+            processed_ms=5000,
+            order_uuid="5000")
+    o6 = Order(order_type=OrderTypeEnum.FLAT,
+            leverage=0,
+            price=2000,
+            trade_pair=TradePair.BTCUSD,
+            processed_ms=5000,
+            order_uuid="5000")
+    position.add_order(o1)
+    print(position.current_return)
+    position.add_order(o2)
+    print(position.current_return)
+    position.add_order(o6)
+    print(position.current_return)
+    #print(position.current_return)
+    #position.add_order(o4)
+    #print(position.current_return)
+    #position.add_order(o5)
+    #print(position.current_return)
