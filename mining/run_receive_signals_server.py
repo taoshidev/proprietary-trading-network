@@ -43,7 +43,6 @@ def handle_data():
         return jsonify({"error": "Request must be JSON"}), 400
 
     try:
-        print(data["leverage"])
         # ensure to fits rules for a Signal
         signal = Signal(trade_pair=TradePair.get_trade_pair(data["trade_pair"]),
                         leverage=data["leverage"],
