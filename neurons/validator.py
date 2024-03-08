@@ -20,7 +20,7 @@ from data_generator.twelvedata_service import TwelveDataService
 from time_util.time_util import TimeUtil
 from vali_config import ValiConfig, TradePair
 from vali_objects.exceptions.signal_exception import SignalException
-from vali_objects.utils.challenge_utils import ChallengeUtils
+from vali_objects.utils.challenge_utils import SubtensorWeightSetter, MDDChecker
 from vali_objects.utils.position_utils import PositionUtils
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.vali_dataclasses.order import Order
@@ -148,67 +148,108 @@ def main(config):
             f"Prioritizing {synapse.dendrite.hotkey} with value: ", priority
         )
         return priority
+    
+    def check_for_order_mimicking(open_position: Position, signal_to_order: Order, miner_hotkey: str, eliminations: list, metagraph) -> None:
+        # check to see if order is similar to existing order
+        is_similar_order = (
+            PositionUtils.is_order_similar_to_positional_orders(
+                open_position.open_ms,
+                signal_to_order,
+                hotkey=miner_hotkey,
+                hotkeys=metagraph.hotkeys,
+            )
+        )
+        miner_copying_json = ValiUtils.get_vali_json_file(
+            ValiBkpUtils.get_miner_copying_dir()
+        )
+        # If this is a new miner, use the initial value 0. TODO: verify with Arrash
+        current_hotkey_mc = miner_copying_json.get(miner_hotkey, 0)
+        if is_similar_order:
+            current_hotkey_mc += ValiConfig.MINER_COPYING_WEIGHT
+            if current_hotkey_mc > 1:
+                eliminations.append(miner_hotkey)
+                # updating both elims and miner copying
+                miner_copying_json[miner_hotkey] = current_hotkey_mc
+                ValiBkpUtils.write_file(
+                    ValiBkpUtils.get_eliminations_dir(), eliminations
+                )
+                raise SignalException(
+                    f"miner eliminated for signal copying [{miner_hotkey}]."
+                )
+        else:
+            if current_hotkey_mc > 0:
+                current_hotkey_mc -= ValiConfig.MINER_COPYING_WEIGHT
+                # updating miner copying file
+                miner_copying_json[miner_hotkey] = current_hotkey_mc
+
+        ValiBkpUtils.write_file(
+            ValiBkpUtils.get_miner_copying_dir(),
+            miner_copying_json,
+        )
+        bt.logging.info(
+            f"updated miner copying - [{miner_copying_json[miner_hotkey]}]"
+        )
 
     # This is the core validator function to receive a signal
     def receive_signal(
         synapse: template.protocol.SendSignal,
     ) -> template.protocol.SendSignal:
-        bt.logging.info(f"received signal request")
-
         # pull miner hotkey to reference in various activities
         miner_hotkey = synapse.dendrite.hotkey
+        signal = synapse.signal
+
+        bt.logging.info(f"received signal [{signal}] from miner_hotkey [{miner_hotkey}]")
 
         eliminations = ValiUtils.get_vali_json_file(
             ValiBkpUtils.get_eliminations_dir(), ValiUtils.ELIMINATIONS
         )
 
+        bt.logging.info(f"Current eliminations: {eliminations}")
+
         # error message to send back to miners in case of a problem so they can fix and resend
         error_message = ""
 
-        signal = synapse.signal
-
-        # convert every signal to orders
-        # set the closing price for every order
-        signal = Signal(
+        # convert signal to order
+        order = Signal(
             TradePair.get_trade_pair(signal["trade_pair"]),
-            OrderType.get_order_type[signal["order_type"]],
+            OrderType.get_order_type(signal["order_type"]),
             signal["leverage"],
         )
 
+        bt.logging.sucess(f"Converted signal to order: {order}")
+
         # gather open positions and see which trade pairs have an open position
-        open_positions = PositionUtils.get_all_miner_positions(
-            miner_hotkey, only_open_positions=True
-        )
         open_position_trade_pairs = {
-            position.trade_pair: position for position in open_positions
+            position.trade_pair: position for position in PositionUtils.get_all_miner_positions(miner_hotkey, only_open_positions=True)
         }
 
         # ensure all signals are for an existing trade pair
         # can determine using the fees object
         try:
-            if signal.trade_pair not in ValiConfig.TRADE_PAIR_FEES:
+            trade_pair = order.trade_pair
+            if trade_pair not in ValiConfig.TRADE_PAIR_FEES:
                 raise SignalException(
                     f"miner [{synapse.dendrite.hotkey}] incorrectly "
-                    f"sent trade pair [{signal.trade_pair}]"
+                    f"sent trade pair [{order.trade_pair}]"
                 )
             else:
-                trade_pair = signal.trade_pair
                 # trade pair exists, convert signal to order
-                twelvedata = TwelveDataService(api_key=secrets["twelvedata_apikey"])
-                signal_closing_price = twelvedata.get_close(trade_pair=trade_pair)[
-                    trade_pair
-                ]
+                signal_closing_price = TwelveDataService(api_key=secrets["twelvedata_apikey"]).get_close(trade_pair=trade_pair)[trade_pair]
                 signal_to_order = Order(
                     trade_pair=trade_pair,
-                    order_type=signal.order_type,
-                    leverage=signal.leverage,
+                    order_type=order.order_type,
+                    leverage=order.leverage,
                     price=signal_closing_price,
                     processed_ms=TimeUtil.now_in_millis(),
                     order_uuid=str(uuid.uuid4()),
                 )
-                # if a position already exists, add the order to it and
-                # close if the order generates a FLAT
+                # if a position already exists, add the order to it 
                 if trade_pair in open_position_trade_pairs:
+                    # If the position is closed, raise an exception
+                    if open_position_trade_pairs[trade_pair].is_closed_position():
+                        raise SignalException(
+                            f"miner [{synapse.dendrite.hotkey}] sent signal for "
+                            f"closed position [{trade_pair}]")
                     bt.logging.debug("adding to existing position")
                     open_position = open_position_trade_pairs[trade_pair]
                     open_position.add_order(signal_to_order)
@@ -218,7 +259,12 @@ def main(config):
                 else:
                     bt.logging.debug("processing new position")
                     # if the order is FLAT ignore and log
-                    if signal_to_order.order_type != OrderType.FLAT:
+                    if signal_to_order.order_type == OrderType.FLAT:
+                        raise SignalException(
+                            f"miner [{synapse.dendrite.hotkey}] sent a "
+                            f"FLAT order with no existing position."
+                        )
+                    else:
                         # if a position doesn't exist, then make a new one
                         open_position = Position(
                             miner_hotkey=miner_hotkey,
@@ -231,53 +277,9 @@ def main(config):
                         ValiUtils.save_miner_position(
                             miner_hotkey, open_position.position_uuid, open_position
                         )
-                    else:
-                        raise SignalException(
-                            f"miner [{synapse.dendrite.hotkey}] sent a "
-                            f"FLAT order with no existing position."
-                        )
 
-                    # check to see if order is similar to existing order
-                    is_similar_order = (
-                        PositionUtils.is_order_similar_to_positional_orders(
-                            open_position.open_ms,
-                            signal_to_order,
-                            hotkey=miner_hotkey,
-                            hotkeys=metagraph.hotkeys,
-                        )
-                    )
-                    miner_copying_json = ValiUtils.get_vali_json_file(
-                        ValiBkpUtils.get_miner_copying_dir()
-                    )
-                    current_hotkey_mc = miner_copying_json[miner_hotkey]
-                    if is_similar_order:
-                        current_hotkey_mc += ValiConfig.MINER_COPYING_WEIGHT
-                        if current_hotkey_mc > 1:
-                            eliminations.append(miner_hotkey)
-                            # updating both elims and miner copying
-                            miner_copying_json[miner_hotkey] = current_hotkey_mc
-                            ValiBkpUtils.write_file(
-                                ValiBkpUtils.get_miner_copying_dir(),
-                                miner_copying_json,
-                            )
-                            ValiBkpUtils.write_file(
-                                ValiBkpUtils.get_eliminations_dir(), eliminations
-                            )
-                            raise SignalException(
-                                f"miner eliminated for signal copying [{miner_hotkey}]."
-                            )
-                    else:
-                        if current_hotkey_mc > 0:
-                            current_hotkey_mc -= ValiConfig.MINER_COPYING_WEIGHT
-                            # updating miner copying file
-                            miner_copying_json[miner_hotkey] = current_hotkey_mc
-                            ValiBkpUtils.write_file(
-                                ValiBkpUtils.get_miner_copying_dir(),
-                                miner_copying_json,
-                            )
-                    bt.logging.info(
-                        f"updated miner copying - [{miner_copying_json[miner_hotkey]}]"
-                    )
+                    check_for_order_mimicking(open_position, signal_to_order, miner_hotkey, eliminations, metagraph)
+
                 open_position.log_position_status()
         except SignalException as e:
             error_message = f"error processing signal [{e}]"
@@ -344,7 +346,7 @@ def main(config):
     )
     bt.logging.info(f"Axon {axon}")
 
-    # Attach determiners which functions are called when servicing a request.
+    # Attach determines which functions are called when servicing a request.
     bt.logging.info(f"Attaching forward function to axon.")
     axon.attach(
         forward_fn=receive_signal,
@@ -384,15 +386,17 @@ def main(config):
             ValiBkpUtils.get_miner_copying_dir(), miner_copying_file
         )
 
-    # Start  starts the miner's axon, making it active on the network.
+    # Starts the miner's axon, making it active on the network.
     bt.logging.info(f"Starting axon server on port: {config.axon.port}")
     axon.start()
 
-    run_mdd_check = threading.Thread(target=ChallengeUtils.mdd_check, args=(config,))
+    mddChecker = MDDChecker(config)
+    run_mdd_check = threading.Thread(target=mddChecker.mdd_check, args=())
     run_mdd_check.start()
 
+    weightSetter = SubtensorWeightSetter(config, wallet)
     run_set_weights = threading.Thread(
-        target=ChallengeUtils.set_weights, args=(config, wallet)
+        target=weightSetter.set_weights, args=()
     )
     run_set_weights.start()
 

@@ -31,5 +31,5 @@ if __name__ == "__main__":
         print("Response:")
         print(response.json())  # Print the response data
     else:
-        print(response)
+        print(response.__dict__)
         print("POST request failed with status code:", response.status_code)
