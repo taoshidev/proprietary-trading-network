@@ -82,7 +82,8 @@ def send_signal(_dendrite, _config, _metagraph):
                 ]
                 print(new_signals)
                 for new_signal in new_signals:
-                    send_signal_proto = SendSignal(signals=new_signal)
+                    # Send one signal for now. Later on modify to sent multiple signals at once
+                    send_signal_proto = SendSignal(signal=new_signal)
 
                     vali_responses = _dendrite.query(
                         _metagraph.axons, send_signal_proto, deserialize=True
@@ -102,7 +103,7 @@ def send_signal(_dendrite, _config, _metagraph):
                             )
             except Exception:
                 (traceback.print_exc())
-            bt.logging.info("failed sending back results to miners and continuing...")
+                bt.logging.info("failed sending back results to miners and continuing...")
 
         # TODO - make it a smarter process as to retry with failures
         for new_signal_file in new_signal_files:
