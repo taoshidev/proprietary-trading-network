@@ -75,6 +75,7 @@ def handle_data():
         print(traceback.format_exc())
         return jsonify({"error": "error storing signal on miner"}), 400
 
+
     return (
         jsonify({"message": "Signal {} received successfully".format(str(signal))}),
         200,

@@ -1,7 +1,9 @@
 # developer: Taoshidev
 # Copyright © 2023 Taoshi Inc
 
+import datetime
 import json
+import os
 from pickle import UnpicklingError
 from typing import Dict, List
 
@@ -59,3 +61,46 @@ class ValiUtils:
         except FileNotFoundError:
             print(f"no vali json file [{dir}], continuing")
             return []
+        
+    @staticmethod
+    def get_miner_eliminations_from_cache() -> Dict:
+        return ValiUtils.get_vali_json_file(
+            ValiBkpUtils.get_eliminations_dir(), ValiUtils.ELIMINATIONS
+    )
+        
+    @staticmethod
+    def get_miner_copying_from_cache() -> Dict:
+        return ValiUtils.get_vali_json_file(
+            ValiBkpUtils.get_copy_trading_dir(), ValiUtils.COPY_TRADING
+    )
+
+    @staticmethod
+    def init_cache_files(metagraph: object):
+        ValiBkpUtils.make_dir(ValiBkpUtils.get_vali_dir())
+
+        if len(ValiUtils.get_miner_eliminations_from_cache()) == 0:
+            ValiBkpUtils.write_file(
+                ValiBkpUtils.get_eliminations_dir(), {ValiUtils.ELIMINATIONS: []}
+            )
+
+        if len(ValiUtils.get_vali_json_file(ValiBkpUtils.get_miner_copying_dir())) == 0:
+            miner_copying_file = {hotkey: 0 for hotkey in metagraph.hotkeys}
+            ValiBkpUtils.write_file(
+                ValiBkpUtils.get_miner_copying_dir(), miner_copying_file
+            )
+
+
+    @staticmethod
+    def get_last_modified_time_miner_directory(directory_path):
+        try:
+            # Get the last modification time of the directory
+            timestamp = os.path.getmtime(directory_path)
+            
+            # Convert the timestamp to a datetime object
+            last_modified_date = datetime.datetime.fromtimestamp(timestamp)
+            
+            return last_modified_date
+        except FileNotFoundError:
+            # Handle the case where the directory does not exist
+            print(f"The directory {directory_path} was not found.")
+            return None
