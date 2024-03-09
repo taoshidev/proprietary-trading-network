@@ -148,16 +148,20 @@ def main(config):
             f"Prioritizing {synapse.dendrite.hotkey} with value: ", priority
         )
         return priority
-    
-    def check_for_order_mimicking(open_position: Position, signal_to_order: Order, miner_hotkey: str, eliminations: list, metagraph) -> None:
+
+    def check_for_order_mimicking(
+        open_position: Position,
+        signal_to_order: Order,
+        miner_hotkey: str,
+        eliminations: list,
+        metagraph,
+    ) -> None:
         # check to see if order is similar to existing order
-        is_similar_order = (
-            PositionUtils.is_order_similar_to_positional_orders(
-                open_position.open_ms,
-                signal_to_order,
-                hotkey=miner_hotkey,
-                hotkeys=metagraph.hotkeys,
-            )
+        is_similar_order = PositionUtils.is_order_similar_to_positional_orders(
+            open_position.open_ms,
+            signal_to_order,
+            hotkey=miner_hotkey,
+            hotkeys=metagraph.hotkeys,
         )
         miner_copying_json = ValiUtils.get_vali_json_file(
             ValiBkpUtils.get_miner_copying_dir()
@@ -186,9 +190,7 @@ def main(config):
             ValiBkpUtils.get_miner_copying_dir(),
             miner_copying_json,
         )
-        bt.logging.info(
-            f"updated miner copying - [{miner_copying_json[miner_hotkey]}]"
-        )
+        bt.logging.info(f"updated miner copying - [{miner_copying_json[miner_hotkey]}]")
 
     # This is the core validator function to receive a signal
     def receive_signal(
@@ -198,7 +200,9 @@ def main(config):
         miner_hotkey = synapse.dendrite.hotkey
         signal = synapse.signal
 
-        bt.logging.info(f"received signal [{signal}] from miner_hotkey [{miner_hotkey}]")
+        bt.logging.info(
+            f"received signal [{signal}] from miner_hotkey [{miner_hotkey}]"
+        )
 
         eliminations = ValiUtils.get_vali_json_file(
             ValiBkpUtils.get_eliminations_dir(), ValiUtils.ELIMINATIONS
@@ -211,16 +215,19 @@ def main(config):
 
         # convert signal to order
         order = Signal(
-            TradePair.get_trade_pair(signal["trade_pair"]),
+            TradePair.get_trade_pair(signal["trade_pair"]["trade_pair_id"]),
             OrderType.get_order_type(signal["order_type"]),
             signal["leverage"],
         )
 
-        bt.logging.sucess(f"Converted signal to order: {order}")
+        bt.logging.success(f"Converted signal to order: {order}")
 
         # gather open positions and see which trade pairs have an open position
         open_position_trade_pairs = {
-            position.trade_pair: position for position in PositionUtils.get_all_miner_positions(miner_hotkey, only_open_positions=True)
+            position.trade_pair: position
+            for position in PositionUtils.get_all_miner_positions(
+                miner_hotkey, only_open_positions=True
+            )
         }
 
         # ensure all signals are for an existing trade pair
@@ -234,7 +241,9 @@ def main(config):
                 )
             else:
                 # trade pair exists, convert signal to order
-                signal_closing_price = TwelveDataService(api_key=secrets["twelvedata_apikey"]).get_close(trade_pair=trade_pair)[trade_pair]
+                signal_closing_price = TwelveDataService(
+                    api_key=secrets["twelvedata_apikey"]
+                ).get_close(trade_pair=trade_pair)[trade_pair]
                 signal_to_order = Order(
                     trade_pair=trade_pair,
                     order_type=order.order_type,
@@ -243,13 +252,14 @@ def main(config):
                     processed_ms=TimeUtil.now_in_millis(),
                     order_uuid=str(uuid.uuid4()),
                 )
-                # if a position already exists, add the order to it 
+                # if a position already exists, add the order to it
                 if trade_pair in open_position_trade_pairs:
                     # If the position is closed, raise an exception
-                    if open_position_trade_pairs[trade_pair].is_closed_position():
+                    if open_position_trade_pairs[trade_pair].is_closed_position:
                         raise SignalException(
                             f"miner [{synapse.dendrite.hotkey}] sent signal for "
-                            f"closed position [{trade_pair}]")
+                            f"closed position [{trade_pair}]"
+                        )
                     bt.logging.debug("adding to existing position")
                     open_position = open_position_trade_pairs[trade_pair]
                     open_position.add_order(signal_to_order)
@@ -270,7 +280,6 @@ def main(config):
                             miner_hotkey=miner_hotkey,
                             position_uuid=str(uuid.uuid4()),
                             open_ms=TimeUtil.now_in_millis(),
-                            open_price=signal_closing_price,
                             trade_pair=trade_pair,
                             orders=[signal_to_order],
                         )
@@ -278,7 +287,13 @@ def main(config):
                             miner_hotkey, open_position.position_uuid, open_position
                         )
 
-                    check_for_order_mimicking(open_position, signal_to_order, miner_hotkey, eliminations, metagraph)
+                    check_for_order_mimicking(
+                        open_position,
+                        signal_to_order,
+                        miner_hotkey,
+                        eliminations,
+                        metagraph,
+                    )
 
                 open_position.log_position_status()
         except SignalException as e:
@@ -395,9 +410,7 @@ def main(config):
     run_mdd_check.start()
 
     weightSetter = SubtensorWeightSetter(config, wallet)
-    run_set_weights = threading.Thread(
-        target=weightSetter.set_weights, args=()
-    )
+    run_set_weights = threading.Thread(target=weightSetter.set_weights, args=())
     run_set_weights.start()
 
     # Step 6: Keep the vali alive

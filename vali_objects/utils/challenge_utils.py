@@ -263,7 +263,7 @@ class MDDChecker(ChallengeBase):
         if (dd < ValiConfig.MAX_DAILY_DRAWDOWN and time_now.hour == 0 and time_now.minute < 5) or (
             dd < ValiConfig.MAX_TOTAL_DRAWDOWN
         ):
-            miner_dir = ValiBkpUtils.get_miner_dir(miner_hotkey)
+            miner_dir = ValiBkpUtils.get_miner_hotkey_dir(miner_hotkey)
             bt.logging.debug(f"miner_hotkey [{miner_hotkey}] with miner dd [{dd}]")
             bt.logging.info(
                 f"miner eliminated with hotkey [{miner_hotkey}] with max dd of [{dd}]. "

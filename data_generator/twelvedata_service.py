@@ -49,7 +49,7 @@ class TwelveDataService:
         retries: int = 5,
     ):
         try:
-            data = self._fetch_data(trade_pair.value, interval, output_size)
+            data = self._fetch_data(trade_pair.trade_pair, interval, output_size)
         except ReadTimeout:
             time.sleep(5)
             retries -= 1

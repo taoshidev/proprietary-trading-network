@@ -9,4 +9,4 @@ class MinerConfig:
 
     @staticmethod
     def get_miner_processed_signals_dir() -> str:
-        return ValiConfig.BASE_DIR + f"/mining/sent_signals/"
+        return ValiConfig.BASE_DIR + f"/mining/processed_signals/"

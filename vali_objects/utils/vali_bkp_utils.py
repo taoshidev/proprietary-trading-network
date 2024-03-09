@@ -10,12 +10,19 @@ from vali_config import ValiConfig
 
 class ValiBkpUtils:
     @staticmethod
-    def get_miner_dir(miner_hotkey) -> str:
-        return ValiConfig.BASE_DIR + f"/validation/miners/{miner_hotkey}/"
+    def get_miner_dir() -> str:
+        return ValiConfig.BASE_DIR + f"/validation/miners/"
+
+    @staticmethod
+    def get_miner_hotkey_dir(miner_hotkey) -> str:
+        return ValiConfig.BASE_DIR + f"{ValiBkpUtils.get_miner_dir()}{miner_hotkey}/"
 
     @staticmethod
     def get_miner_position_dir(miner_hotkey) -> str:
-        return ValiConfig.BASE_DIR + f"/validation/miners/{miner_hotkey}/positions/"
+        return (
+            ValiConfig.BASE_DIR
+            + f"{ValiBkpUtils.get_miner_dir()}{miner_hotkey}/positions/"
+        )
 
     @staticmethod
     def get_eliminations_dir():
@@ -88,9 +95,7 @@ class ValiBkpUtils:
 
     @staticmethod
     def write_file(
-        vali_dir: str,
-        vali_data: dict | object,
-        is_pickle: bool = False
+        vali_dir: str, vali_data: dict | object, is_pickle: bool = False
     ) -> None:
         ValiBkpUtils.write_to_dir(vali_dir, vali_data, is_pickle)
 
@@ -107,3 +112,11 @@ class ValiBkpUtils:
                 if os.path.isfile(os.path.join(vali_dir, filename)):
                     all_files.append(vali_dir + filename)
         return all_files
+
+    @staticmethod
+    def get_directories_in_dir(directory):
+        return [
+            name
+            for name in os.listdir(directory)
+            if os.path.isdir(os.path.join(directory, name))
+        ]
