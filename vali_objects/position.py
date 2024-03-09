@@ -82,9 +82,11 @@ class Position:
     def __str__(self) -> str:
         return str({'net_leverage': self._net_leverage, 
                 'average_entry_price': self._average_entry_price, 
-                'position_type': self.position_type, 
+                'position_type': str(self.position_type),
                 'return_at_close': self.return_at_close, 
-                'current_return': self.current_return})
+                'current_return': self.current_return,
+                'orders': [str(order) for order in self.orders]})
+
     @staticmethod
     def _position_log(message):
         bt.logging.info("Position Notification - " + message)

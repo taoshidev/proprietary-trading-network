@@ -4,12 +4,12 @@ import json
 if __name__ == "__main__":
 
     # Define the URL endpoint
-    url = 'http://127.0.0.1:5000/api/receive-signal'
+    url = 'http://127.0.0.1:80/api/receive-signal'
 
     # Define the JSON data to be sent in the request
     data = {
         'trade_pair': 'BTCUSD',
-        'order_type': 'LONG',
+        'order_type': 'FLAT',
         'leverage': .5,
         'api_key': 'xxxx'
     }

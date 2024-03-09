@@ -5,4 +5,4 @@ scikit-learn
 pandas
 twelvedata
 flask
-gunicorn
+waitress
