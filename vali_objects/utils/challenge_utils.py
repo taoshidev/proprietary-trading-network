@@ -4,10 +4,12 @@ import time
 
 import numpy as np
 from scipy.stats import yeojohnson
+from sympy import Order
 
 from data_generator.twelvedata_service import TwelveDataService
 from time_util.time_util import TimeUtil
 from vali_config import ValiConfig, TradePair
+from vali_objects.position import Position
 from vali_objects.scaling.scaling import Scaling
 from vali_objects.utils.position_utils import PositionUtils
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
@@ -16,26 +18,31 @@ from vali_objects.utils.vali_utils import ValiUtils
 import bittensor as bt
 
 class ChallengeBase:
-    def __init__(self, config):
+    def __init__(self, config, metagraph):
         self.config = config
         self.subtensor = bt.subtensor(config=config)
-        self.metagraph = self.subtensor.metagraph(config.netuid)
-        self.last_metagraph_update_time_s = 0
+        self.metagraph = metagraph # Refreshes happen on validator
         self.last_update_time_s = 0
+        self.eliminations = None
+        self.miner_copying = None
 
-    def _update_metagraph(self):
-        if time.time() - self.last_metagraph_update_time_s < 60 * 5:
-            return
-        
-        bt.logging.info("updating metagraph in set weights...")
-        self.metagraph.sync(subtensor=self.subtensor)
-        self.metagraph = self.subtensor.metagraph(self.config.netuid)
-        bt.logging.info("metagraph updated.")
-        self.last_metagraph_update_time_s = time.time()
+    def _load_eliminations_from_cache(self):
+        cached_eliminations = ValiUtils.get_vali_json_file(ValiBkpUtils.get_eliminations_dir(), ValiUtils.ELIMINATIONS)
+        updated_eliminations = [elimination for elimination in cached_eliminations if elimination in self.metagraph.hotkeys]
+        if len(updated_eliminations) < len(cached_eliminations):
+            self._write_updated_eliminations(updated_eliminations)
+        self.eliminations = updated_eliminations
+
+    def _load_miner_copying_from_cache(self):
+        cached_miner_copying = ValiUtils.get_vali_json_file(ValiBkpUtils.get_miner_copying_dir())
+        updated_miner_copying = {mch: mc for mch, mc in cached_miner_copying.items() if mch in self.metagraph.hotkeys}
+        if len(updated_miner_copying) < len(cached_miner_copying):
+            self._write_updated_copying(updated_miner_copying)
+        self.miner_copying = updated_miner_copying
 
 class SubtensorWeightSetter(ChallengeBase):
-    def __init__(self, config, wallet):
-        super().__init__(config)
+    def __init__(self, config, wallet, metagraph):
+        super().__init__(config, metagraph)
         self.wallet = wallet
 
     def set_weights(self):
@@ -44,7 +51,6 @@ class SubtensorWeightSetter(ChallengeBase):
 
         while True:
             try:
-                self._update_metagraph()
                 self._handle_weights()
                 
             except Exception:
@@ -55,11 +61,9 @@ class SubtensorWeightSetter(ChallengeBase):
             time.sleep(1)
             return
         
-        cached_eliminations = ValiUtils.get_vali_json_file(
-            ValiBkpUtils.get_eliminations_dir(), ValiUtils.ELIMINATIONS
-        )
+        self._load_eliminations_from_cache()
 
-        return_per_netuid = self._calculate_return_per_netuid(self.metagraph.hotkeys, cached_eliminations)
+        return_per_netuid = self._calculate_return_per_netuid()
         bt.logging.info(f"return per uid [{return_per_netuid}]")
         if len(return_per_netuid) == 0:
             bt.logging.info("no returns to set weights with. Do nothing for now.")
@@ -69,15 +73,15 @@ class SubtensorWeightSetter(ChallengeBase):
             self._set_subtensor_weights(filtered_netuids, scaled_transformed_list)
         self.last_update_time_s = time.time()
 
-    def _calculate_return_per_netuid(self, hotkeys, eliminations):
+    def _calculate_return_per_netuid(self):
         return_per_netuid = {}
         netuid_returns = []
         netuids = []
 
         hotkey_positions = PositionUtils.get_all_miner_positions_by_hotkey(
-            hotkeys,
+            self.metagraph.hotkeys,
             sort_positions=True,
-            eliminations=eliminations,
+            eliminations=self.eliminations,
             acceptable_position_end_ms=TimeUtil.timestamp_to_millis(
                 TimeUtil.generate_start_timestamp(ValiConfig.SET_WEIGHT_LOOKBACK_RANGE_DAYS)
             ),
@@ -93,7 +97,7 @@ class SubtensorWeightSetter(ChallengeBase):
             if len(per_position_return) > 0:
                 last_positional_return = per_position_return[len(per_position_return) - 1]
             netuid_returns.append(last_positional_return)
-            netuid = hotkeys.index(hotkey)
+            netuid = self.metagraph.hotkeys.index(hotkey)
             return_per_netuid[netuid] = last_positional_return
             netuids.append(netuid)
 
@@ -139,12 +143,59 @@ class SubtensorWeightSetter(ChallengeBase):
         else:
             bt.logging.error("Failed to set weights.")
 
+class PlagiarismDetector(ChallengeBase):
+    def __init__(self, config, metagraph):
+        super().__init__(config, metagraph)
+
+    def check_plagiarism(self, open_position: Position,
+                                   signal_to_order: Order, 
+                                   miner_hotkey: str,
+                                     eliminations: list,
+                                       metagraph) -> None:
+        # check to see if order is similar to existing order
+        is_similar_order = (
+            PositionUtils.is_order_similar_to_positional_orders(
+                open_position.open_ms,
+                signal_to_order,
+                hotkey=miner_hotkey,
+                hotkeys=metagraph.hotkeys,
+            )
+        )
+        miner_copying_json = ValiUtils.get_vali_json_file(
+            ValiBkpUtils.get_miner_copying_dir()
+        )
+        # If this is a new miner, use the initial value 0. 
+        current_hotkey_mc = miner_copying_json.get(miner_hotkey, 0)
+        if is_similar_order:
+            current_hotkey_mc += ValiConfig.MINER_COPYING_WEIGHT
+            if current_hotkey_mc > 1:
+                eliminations.append(miner_hotkey)
+                # updating both elims and miner copying
+                miner_copying_json[miner_hotkey] = current_hotkey_mc
+                ValiBkpUtils.write_file(
+                    ValiBkpUtils.get_eliminations_dir(), eliminations
+                )
+                raise SignalException(
+                    f"miner eliminated for signal copying [{miner_hotkey}]."
+                )
+        else:
+            if current_hotkey_mc > 0:
+                current_hotkey_mc -= ValiConfig.MINER_COPYING_WEIGHT
+                # updating miner copying file
+                miner_copying_json[miner_hotkey] = current_hotkey_mc
+
+        ValiBkpUtils.write_file(
+            ValiBkpUtils.get_miner_copying_dir(),
+            miner_copying_json,
+        )
+        bt.logging.info(
+            f"updated miner copying - [{miner_copying_json[miner_hotkey]}]"
+        )
+
 
 class MDDChecker(ChallengeBase):
-    def __init__(self, config):
-        super().__init__(config)        
-        self.hotkeys_to_eliminate = {}
-
+    def __init__(self, config, metagraph):
+        super().__init__(config, metagraph)        
 
     def mdd_check(self):
         bt.logging.info("running mdd checker")
@@ -152,7 +203,6 @@ class MDDChecker(ChallengeBase):
 
         while True:
             try:
-                self._update_metagraph()
                 self._handle_eliminations()
             except Exception:
                 bt.logging.error(traceback.format_exc())
@@ -163,9 +213,8 @@ class MDDChecker(ChallengeBase):
             time.sleep(1)
             return
         
+        self._load_eliminations_from_cache()
         bt.logging.debug("checking mdd.")
-
-        updated_eliminations = self._update_elimination_and_copying_data()
 
         try:
             secrets = ValiUtils.get_secrets()
@@ -173,14 +222,14 @@ class MDDChecker(ChallengeBase):
             twelvedata = TwelveDataService(api_key=secrets["twelvedata_apikey"])
             signal_closing_prices = twelvedata.get_closes(trade_pairs=all_trade_pairs)
             hotkey_positions = PositionUtils.get_all_miner_positions_by_hotkey(
-                self.metagraph.hotkeys, sort_positions=True, eliminations=updated_eliminations
+                self.metagraph.hotkeys, sort_positions=True, eliminations=self.eliminations
             )
 
             for hotkey, positions in hotkey_positions.items():
                 current_dd = self._process_positions(hotkey, positions, signal_closing_prices, updated_eliminations)
 
                 if self._is_beyond_mdd(current_dd, hotkey):
-                    updated_eliminations.append(hotkey)
+                    updated_eliminations.append({'hotkey':hotkey, 'elimination_time': time.now()})
 
             self._write_updated_eliminations(updated_eliminations)
 
@@ -189,24 +238,6 @@ class MDDChecker(ChallengeBase):
 
         self.last_update_time_s = time.time()
 
-    def _load_elimination_and_copying_data(self):
-        eliminations = ValiUtils.get_vali_json_file(
-            ValiBkpUtils.get_eliminations_dir(), ValiUtils.ELIMINATIONS
-        )
-        miner_copying = ValiUtils.get_vali_json_file(ValiBkpUtils.get_miner_copying_dir())
-        return eliminations, miner_copying
-
-    def _update_elimination_and_copying_data(self):
-        cached_eliminations = ValiUtils.get_vali_json_file(
-            ValiBkpUtils.get_eliminations_dir(), ValiUtils.ELIMINATIONS
-        )
-        cached_miner_copying = ValiUtils.get_vali_json_file(ValiBkpUtils.get_miner_copying_dir())
-
-        # remove miners who've already been deregd. only keep miners who are still registered
-        updated_eliminations = [elimination for elimination in cached_eliminations if elimination in self.metagraph.hotkeys]
-        updated_miner_copying = {mch: mc for mch, mc in cached_miner_copying.items() if mch in self.metagraph.hotkeys}
-        ValiBkpUtils.write_file(ValiBkpUtils.get_miner_copying_dir(), updated_miner_copying)
-        return updated_eliminations
 
     def _process_positions(self, hotkey, positions, signal_closing_prices, updated_eliminations):
         current_dd = 1
@@ -279,4 +310,11 @@ class MDDChecker(ChallengeBase):
     def _write_updated_eliminations(self, updated_eliminations):
         vali_elims = {ValiUtils.ELIMINATIONS: updated_eliminations}
         ValiBkpUtils.write_file(ValiBkpUtils.get_eliminations_dir(), vali_elims)
+
+    def _write_updated_copying(self, updated_miner_copying):
+        ValiBkpUtils.write_file(ValiBkpUtils.get_miner_copying_dir(), updated_miner_copying)
+
+
+
+                
 

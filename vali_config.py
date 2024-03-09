@@ -87,3 +87,5 @@ class ValiConfig:
     BASE_DIR = base_directory = os.path.dirname(os.path.abspath(__file__))
 
     METAGRAPH_UPDATE_REFRESH_TIME_S = 60 * 5  # 5 minutes
+
+    ELIMINATION_FILE_DELETION_DELAY_S = 60 * 30  # 30 min

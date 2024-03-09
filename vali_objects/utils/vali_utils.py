@@ -59,3 +59,31 @@ class ValiUtils:
         except FileNotFoundError:
             print(f"no vali json file [{dir}], continuing")
             return []
+        
+    @staticmethod
+    def get_miner_eliminations_from_cache() -> Dict:
+        return ValiUtils.get_vali_json_file(
+            ValiBkpUtils.get_eliminations_dir(), ValiUtils.ELIMINATIONS
+    )
+        
+    @staticmethod
+    def get_miner_copying_from_cache() -> Dict:
+        return ValiUtils.get_vali_json_file(
+            ValiBkpUtils.get_copy_trading_dir(), ValiUtils.COPY_TRADING
+    )
+
+    @staticmethod
+    def init_cache_files(metagraph: object):
+         
+        ValiBkpUtils.make_dir(ValiBkpUtils.get_vali_dir())
+
+        if len(ValiBkpUtils.get_miner_eliminations_from_cache()) == 0:
+            ValiBkpUtils.write_file(
+                ValiBkpUtils.get_eliminations_dir(), {ELIMINATIONS: []}
+            )
+
+        if len(ValiUtils.get_vali_json_file(ValiBkpUtils.get_miner_copying_dir())) == 0:
+            miner_copying_file = {hotkey: 0 for hotkey in metagraph.hotkeys}
+            ValiBkpUtils.write_file(
+                ValiBkpUtils.get_miner_copying_dir(), miner_copying_file
+            )

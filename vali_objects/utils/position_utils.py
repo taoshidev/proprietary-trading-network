@@ -61,13 +61,13 @@ class PositionUtils:
 
     @staticmethod
     def get_all_miner_positions_by_hotkey(
-        hotkeys: List[str], eliminations: List[str] = None, **args
+        hotkeys: List[str], eliminations: Dict = None, **args
     ) -> Dict[str, List[Position]]:
+        eliminated_hotkeys = set(x['hotkey'] for x in eliminations) if eliminations is not None else set()
         return {
             hotkey: PositionUtils.get_all_miner_positions(hotkey, **args)
             for hotkey in hotkeys
-            if eliminations is None
-            or (eliminations is not None and hotkey not in eliminations)
+            if hotkey not in eliminated_hotkeys
         }
 
     @staticmethod
