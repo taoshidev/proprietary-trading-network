@@ -1,7 +1,7 @@
 import json
 
 
-class SignalJSONDecoder(json.JSONDecoder):
+class GeneralizedJSONDecoder(json.JSONDecoder):
     def decode(self, s, *args, **kwargs):
         s = s.replace("'", '"')
         s = s.replace('\\"', '"')

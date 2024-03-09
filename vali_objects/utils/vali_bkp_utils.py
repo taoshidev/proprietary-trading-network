@@ -19,9 +19,7 @@ class ValiBkpUtils:
 
     @staticmethod
     def get_miner_position_dir(miner_hotkey) -> str:
-        return (
-            f"{ValiBkpUtils.get_miner_dir()}{miner_hotkey}/positions/"
-        )
+        return f"{ValiBkpUtils.get_miner_dir()}{miner_hotkey}/positions/"
 
     @staticmethod
     def get_eliminations_dir():

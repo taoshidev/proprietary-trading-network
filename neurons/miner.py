@@ -20,7 +20,7 @@ from miner_config import MinerConfig
 # Step 2: Set up the configuration parser
 # This function is responsible for setting up and parsing command-line arguments.
 from template.protocol import SendSignal, GetPositions
-from vali_objects.decoders.signal_json_decoder import SignalJSONDecoder
+from vali_objects.decoders.generalized_json_decoder import GeneralizedJSONDecoder
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 
 global send_signal_vali_retry_axons
@@ -76,7 +76,7 @@ def send_signal(_dendrite, _config, _metagraph):
                 )
                 new_signals = [
                     json.loads(
-                        ValiBkpUtils.get_file(new_signal_file), cls=SignalJSONDecoder
+                        ValiBkpUtils.get_file(new_signal_file), cls=GeneralizedJSONDecoder
                     )
                     for new_signal_file in new_signal_files
                 ]
