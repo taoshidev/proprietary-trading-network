@@ -110,6 +110,9 @@ def main(config):
     metagraphUpdater.update_metagraph()
     bt.logging.info(f"Metagraph: {metagraph}")
 
+    # see if cache files exist and if not set them to empty
+    ValiUtils.init_cache_files(metagraph)
+
     if wallet.hotkey.ss58_address not in metagraph.hotkeys:
         bt.logging.error(
             f"\nYour validator: {wallet} is not registered to chain "
@@ -226,7 +229,7 @@ def main(config):
             # if a position already exists, add the order to it 
             if trade_pair in open_position_trade_pairs:
                 # If the position is closed, raise an exception
-                if open_position_trade_pairs[trade_pair].is_closed_position():
+                if open_position_trade_pairs[trade_pair].is_closed_position:
                     raise SignalException(
                         f"miner [{synapse.dendrite.hotkey}] sent signal for "
                         f"closed position [{trade_pair}]")
@@ -250,7 +253,6 @@ def main(config):
                         miner_hotkey=miner_hotkey,
                         position_uuid=str(uuid.uuid4()),
                         open_ms=TimeUtil.now_in_millis(),
-                        open_price=signal_to_order.price,
                         trade_pair=trade_pair,
                         orders=[signal_to_order],
                     )
@@ -346,9 +348,6 @@ def main(config):
         f" {config.subtensor.chain_endpoint} with netuid: {config.netuid}"
     )
     axon.serve(netuid=config.netuid, subtensor=subtensor)
-
-    # see if files exist and if not set them to empty
-    ValiUtils.init_cache_files(metagraph)
 
     # Starts the miner's axon, making it active on the network.
     bt.logging.info(f"Starting axon server on port: {config.axon.port}")

@@ -16,7 +16,7 @@ class PlagiarismDetector(ChallengeBase):
     def __init__(self, config, metagraph):
         super().__init__(config, metagraph)
         # May be run simultaneously in multiple threads spawned by received_signal. Lock for file IO safety.
-        _file_lock = threading.Lock()
+        self._file_lock = threading.Lock()
 
 
     def is_order_similar_to_positional_orders(self,
@@ -68,16 +68,16 @@ class PlagiarismDetector(ChallengeBase):
         
         # update the miner copying json while holding the file lock
         with self._file_lock:
-            miner_copying_json = self._load_miner_copying_from_cache()
+            self._load_miner_copying_from_cache()
             # If this is a new miner, use the initial value 0. 
-            current_hotkey_mc = miner_copying_json.get(miner_hotkey, 0)
+            current_hotkey_mc = self.miner_copying.get(miner_hotkey, 0)
             if is_similar_order:
                 current_hotkey_mc += ValiConfig.MINER_COPYING_WEIGHT
-                miner_copying_json[miner_hotkey] = current_hotkey_mc
+                self.miner_copying[miner_hotkey] = current_hotkey_mc
             else:
                 current_hotkey_mc -= ValiConfig.MINER_COPYING_WEIGHT
-                miner_copying_json[miner_hotkey] = max(0, current_hotkey_mc)
+                self.miner_copying[miner_hotkey] = max(0, current_hotkey_mc)
 
-            self._write_updated_copying(miner_copying_json)
+            self._write_updated_copying(self.miner_copying)
 
 
