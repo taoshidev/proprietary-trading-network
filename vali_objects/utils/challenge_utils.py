@@ -4,16 +4,17 @@ from vali_objects.utils.vali_utils import ValiUtils
 import bittensor as bt
 
 class ChallengeBase:
-    def __init__(self, config, metagraph):
+    def __init__(self, config=None, metagraph=None):
         self.config = config
-        self.subtensor = bt.subtensor(config=config)
+        if config is not None:
+            self.subtensor = bt.subtensor(config=config)
+        else:
+            self.subtensor = None
+
         self.metagraph = metagraph # Refreshes happen on validator
         self.last_update_time_s = 0
         self.eliminations = None
         self.miner_copying = None
-
-    def __init__(self):
-        self.eliminations = None
 
     def _write_updated_eliminations(self, updated_eliminations):
         vali_elims = {ValiUtils.ELIMINATIONS: updated_eliminations}

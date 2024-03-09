@@ -29,7 +29,9 @@ class MDDChecker(ChallengeBase):
             except Exception:
                 bt.logging.error(traceback.format_exc())
 
-
+    def generate_elimination_row(self, hotkey, dd, reason):
+        return {'hotkey': hotkey, 'elimination_time': time.now(), 'dd': dd, 'reason': reason}
+    
     def _handle_eliminations(self):
         if time.time() - self.last_update_time_s < ValiConfig.MDD_CHECK_REFRESH_TIME_S:
             time.sleep(1)
@@ -47,9 +49,9 @@ class MDDChecker(ChallengeBase):
             for hotkey, positions in hotkey_positions.items():
                 current_dd = self._calculate_miner_dd(hotkey, positions, signal_closing_prices)
 
-                mdd_failure = self._is_beyond_mdd(current_dd, hotkey)
+                mdd_failure = self._is_beyond_mdd(current_dd)
                 if mdd_failure:
-                    self.eliminations.append({'hotkey':hotkey, 'elimination_time': time.now(), 'dd': current_dd, 'reason': mdd_failure})
+                    self.eliminations.append(self.generate_elimination_row(hotkey, current_dd, mdd_failure))
 
             self._write_updated_eliminations(self.eliminations)
 
@@ -77,8 +79,9 @@ class MDDChecker(ChallengeBase):
                 for i, position_return in enumerate(per_position_return):
                     if i > max_index:
                         closed_position_return = position_return / max_portfolio_return
-                        if self._is_beyond_mdd(closed_position_return, hotkey):
-                            self.eliminations.append(hotkey)
+                        mdd_failure = self._is_beyond_mdd(closed_position_return)
+                        if mdd_failure:
+                            self.eliminations.append(self.generate_elimination_row(hotkey, current_dd, mdd_failure))
 
                 last_position_ind = len(per_position_return) - 1
                 if max_index != last_position_ind:

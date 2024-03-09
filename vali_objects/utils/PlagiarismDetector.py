@@ -1,4 +1,5 @@
 from ast import List
+import threading
 from sympy import Order
 
 from vali_config import ValiConfig
@@ -14,12 +15,14 @@ import bittensor as bt
 class PlagiarismDetector(ChallengeBase):
     def __init__(self, config, metagraph):
         super().__init__(config, metagraph)
+        # May be run simultaneously in multiple threads spawned by received_signal. Lock for file IO safety.
+        _file_lock = threading.Lock()
+
 
     def is_order_similar_to_positional_orders(self,
         position_open_ms: int,
         check_order: Order,
         hotkey: str = None,
-        hotkeys: List[str] = None,
         **args,
     ):
 
@@ -28,9 +31,7 @@ class PlagiarismDetector(ChallengeBase):
         if hotkey is None:
             raise ValueError("miner hotkey must be provided.")
 
-        miner_positions_by_hotkey = PositionUtils.get_all_miner_positions_by_hotkey(
-            hotkeys, **args
-        )
+        miner_positions_by_hotkey = PositionUtils.get_all_miner_positions_by_hotkey(self.metagraph.hotkeys, **args)
         # don't include their own hotkey
         orders = {
             porder.order_uuid: {"order": porder, "position": position}
@@ -57,46 +58,26 @@ class PlagiarismDetector(ChallengeBase):
 
 
     def check_plagiarism(self, open_position: Position,
-                                   signal_to_order: Order, 
-                                   miner_hotkey: str,
-                                     eliminations: list,
-                                       metagraph) -> None:
+                               signal_to_order: Order, 
+                               miner_hotkey: str) -> None:
         # check to see if order is similar to existing order
         is_similar_order = self.is_order_similar_to_positional_orders(
                 open_position.open_ms,
                 signal_to_order,
-                hotkey=miner_hotkey,
-                hotkeys=metagraph.hotkeys,
-            )
+                hotkey=miner_hotkey)
         
-        miner_copying_json = ValiUtils.get_vali_json_file(
-            ValiBkpUtils.get_miner_copying_dir()
-        )
-        # If this is a new miner, use the initial value 0. 
-        current_hotkey_mc = miner_copying_json.get(miner_hotkey, 0)
-        if is_similar_order:
-            current_hotkey_mc += ValiConfig.MINER_COPYING_WEIGHT
-            if current_hotkey_mc > 1:
-                eliminations.append(miner_hotkey)
-                # updating both elims and miner copying
+        # update the miner copying json while holding the file lock
+        with self._file_lock:
+            miner_copying_json = self._load_miner_copying_from_cache()
+            # If this is a new miner, use the initial value 0. 
+            current_hotkey_mc = miner_copying_json.get(miner_hotkey, 0)
+            if is_similar_order:
+                current_hotkey_mc += ValiConfig.MINER_COPYING_WEIGHT
                 miner_copying_json[miner_hotkey] = current_hotkey_mc
-                ValiBkpUtils.write_file(
-                    ValiBkpUtils.get_eliminations_dir(), eliminations
-                )
-                raise SignalException(
-                    f"miner eliminated for signal copying [{miner_hotkey}]."
-                )
-        else:
-            if current_hotkey_mc > 0:
+            else:
                 current_hotkey_mc -= ValiConfig.MINER_COPYING_WEIGHT
-                # updating miner copying file
-                miner_copying_json[miner_hotkey] = current_hotkey_mc
+                miner_copying_json[miner_hotkey] = max(0, current_hotkey_mc)
 
-        ValiBkpUtils.write_file(
-            ValiBkpUtils.get_miner_copying_dir(),
-            miner_copying_json,
-        )
-        bt.logging.info(
-            f"updated miner copying - [{miner_copying_json[miner_hotkey]}]"
-        )
+            self._write_updated_copying(miner_copying_json)
+
 

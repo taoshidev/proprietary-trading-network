@@ -76,10 +76,9 @@ class ValiUtils:
 
     @staticmethod
     def init_cache_files(metagraph: object):
-         
         ValiBkpUtils.make_dir(ValiBkpUtils.get_vali_dir())
 
-        if len(ValiBkpUtils.get_miner_eliminations_from_cache()) == 0:
+        if len(ValiUtils.get_miner_eliminations_from_cache()) == 0:
             ValiBkpUtils.write_file(
                 ValiBkpUtils.get_eliminations_dir(), {ValiUtils.ELIMINATIONS: []}
             )

@@ -20,7 +20,8 @@ from data_generator.twelvedata_service import TwelveDataService
 from time_util.time_util import TimeUtil
 from vali_config import ValiConfig, TradePair
 from vali_objects.exceptions.signal_exception import SignalException
-from vali_objects.utils import CacheCleaner, MetagraphUpdater
+from vali_objects.utils.MetagraphUpdater import MetagraphUpdater
+from vali_objects.utils.EliminationManager import EliminationManager
 from vali_objects.utils.SubtensorWeightSetter import SubtensorWeightSetter
 from vali_objects.utils.MDDChecker import MDDChecker
 from vali_objects.utils.PlagiarismDetector import PlagiarismDetector
@@ -103,7 +104,10 @@ def main(config):
     bt.logging.info(f"Subtensor: {subtensor}")
 
     # metagraph provides the network's current state, holding state about other participants in a subnet.
+    # IMPORTANT: Only update this variable in-place. Otherwise, the reference will be lost in the helper classes.
     metagraph = subtensor.metagraph(config.netuid)
+    metagraphUpdater = MetagraphUpdater(config, metagraph)
+    metagraphUpdater.update_metagraph()
     bt.logging.info(f"Metagraph: {metagraph}")
 
     if wallet.hotkey.ss58_address not in metagraph.hotkeys:
@@ -187,6 +191,7 @@ def main(config):
         bt.logging.success(f"Converted signal to order: {order}")
         return order
     
+    plagiarismDetector = PlagiarismDetector(config, metagraph)
     # This is the core validator function to receive a signal
     def receive_signal(
         synapse: template.protocol.SendSignal,
@@ -254,6 +259,8 @@ def main(config):
                     )
 
             open_position.log_position_status()
+            plagiarismDetector.check_plagiarism(open_position, signal_to_order, miner_hotkey)
+
         except SignalException as e:
             error_message = f"error processing signal [{e}]"
             bt.logging.warning(error_message)
@@ -341,17 +348,15 @@ def main(config):
     axon.serve(netuid=config.netuid, subtensor=subtensor)
 
     # see if files exist and if not set them to empty
-    ValiBkpUtils.init_cache_files(metagraph)
+    ValiUtils.init_cache_files(metagraph)
 
     # Starts the miner's axon, making it active on the network.
     bt.logging.info(f"Starting axon server on port: {config.axon.port}")
     axon.start()
 
-    metagraphUpdater = MetagraphUpdater(config, metagraph)
-    plagiarismDetector = PlagiarismDetector(config, metagraph)
     mddChecker = MDDChecker(config, metagraph)
     weightSetter = SubtensorWeightSetter(config, wallet, metagraph)
-    cacheCleaner = CacheCleaner()
+    eliminationManager = EliminationManager()
     
 
     # Step 6: Keep the vali alive
@@ -360,10 +365,9 @@ def main(config):
     while True:
         try:
             metagraphUpdater.update_metagraph()
-            plagiarismDetector.check_plagiarism()
             mddChecker.mdd_check()
             weightSetter.set_weights()
-            cacheCleaner.clean_cache()
+            eliminationManager.process_eliminations()
 
         # If someone intentionally stops the miner, it'll safely terminate operations.
         except KeyboardInterrupt:
