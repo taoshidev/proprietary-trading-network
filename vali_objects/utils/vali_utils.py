@@ -1,7 +1,9 @@
 # developer: Taoshidev
 # Copyright © 2023 Taoshi Inc
 
+import datetime
 import json
+import os
 from pickle import UnpicklingError
 from typing import Dict, List
 
@@ -79,7 +81,7 @@ class ValiUtils:
 
         if len(ValiBkpUtils.get_miner_eliminations_from_cache()) == 0:
             ValiBkpUtils.write_file(
-                ValiBkpUtils.get_eliminations_dir(), {ELIMINATIONS: []}
+                ValiBkpUtils.get_eliminations_dir(), {ValiUtils.ELIMINATIONS: []}
             )
 
         if len(ValiUtils.get_vali_json_file(ValiBkpUtils.get_miner_copying_dir())) == 0:
@@ -87,3 +89,19 @@ class ValiUtils:
             ValiBkpUtils.write_file(
                 ValiBkpUtils.get_miner_copying_dir(), miner_copying_file
             )
+
+
+    @staticmethod
+    def get_last_modified_time_miner_directory(directory_path):
+        try:
+            # Get the last modification time of the directory
+            timestamp = os.path.getmtime(directory_path)
+            
+            # Convert the timestamp to a datetime object
+            last_modified_date = datetime.datetime.fromtimestamp(timestamp)
+            
+            return last_modified_date
+        except FileNotFoundError:
+            # Handle the case where the directory does not exist
+            print(f"The directory {directory_path} was not found.")
+            return None

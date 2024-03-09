@@ -20,7 +20,10 @@ from data_generator.twelvedata_service import TwelveDataService
 from time_util.time_util import TimeUtil
 from vali_config import ValiConfig, TradePair
 from vali_objects.exceptions.signal_exception import SignalException
-from vali_objects.utils.challenge_utils import SubtensorWeightSetter, MDDChecker, PlagiarismDetector
+from vali_objects.utils import CacheCleaner, MetagraphUpdater
+from vali_objects.utils.SubtensorWeightSetter import SubtensorWeightSetter
+from vali_objects.utils.MDDChecker import MDDChecker
+from vali_objects.utils.PlagiarismDetector import PlagiarismDetector
 from vali_objects.utils.position_utils import PositionUtils
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.vali_dataclasses.order import Order
@@ -242,7 +245,7 @@ def main(config):
                         miner_hotkey=miner_hotkey,
                         position_uuid=str(uuid.uuid4()),
                         open_ms=TimeUtil.now_in_millis(),
-                        open_price=signal_closing_price,
+                        open_price=signal_to_order.price,
                         trade_pair=trade_pair,
                         orders=[signal_to_order],
                     )
@@ -344,32 +347,23 @@ def main(config):
     bt.logging.info(f"Starting axon server on port: {config.axon.port}")
     axon.start()
 
+    metagraphUpdater = MetagraphUpdater(config, metagraph)
     plagiarismDetector = PlagiarismDetector(config, metagraph)
-    plagiarism_check = threading.Thread(target=plagiarismDetector.check_plagiarism, args=())
-    plagiarism_check.start()
-
     mddChecker = MDDChecker(config, metagraph)
-    run_mdd_check = threading.Thread(target=mddChecker.mdd_check, args=())
-    run_mdd_check.start()
-
-
     weightSetter = SubtensorWeightSetter(config, wallet, metagraph)
-    run_set_weights = threading.Thread(target=weightSetter.set_weights, args=())
-    run_set_weights.start()
+    cacheCleaner = CacheCleaner()
+    
 
     # Step 6: Keep the vali alive
     # This loop maintains the vali's operations until intentionally stopped.
     bt.logging.info(f"Starting main loop")
-    last_metagraph_update_time_s = 0
     while True:
         try:
-            if time.time() - last_metagraph_update_time_s < ValiConfig.METAGRAPH_UPDATE_REFRESH_TIME_S:
-                time.sleep(1)
-                continue
-            bt.logging.info("Updating metagraph.")
-            metagraph.sync(subtensor=subtensor)
-            bt.logging.info(f"Metagraph updated: {metagraph}")
-            last_metagraph_update_time_s = time.time()
+            metagraphUpdater.update_metagraph()
+            plagiarismDetector.check_plagiarism()
+            mddChecker.mdd_check()
+            weightSetter.set_weights()
+            cacheCleaner.clean_cache()
 
         # If someone intentionally stops the miner, it'll safely terminate operations.
         except KeyboardInterrupt:
@@ -379,10 +373,6 @@ def main(config):
         # In case of unforeseen errors, the miner will log the error and continue operations.
         except Exception:
             bt.logging.error(traceback.format_exc())
-
-    run_mdd_check.join()
-    run_set_weights.join()
-    plagiarism_check.join()
 
 
 # This is the main function, which runs the miner.
