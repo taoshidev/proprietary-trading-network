@@ -64,46 +64,39 @@ def get_config():
     return config
 
 
-def send_signal(_dendrite, _config, _metagraph):
-    while True:
-        new_signal_files = ValiBkpUtils.get_all_files_in_dir(
-            MinerConfig.get_miner_received_signals_dir()
-        )
-        if len(new_signal_files) > 0:
-            try:
+def send_signal(_dendrite, _metagraph, config):
+    bt.logging.info(f"Num validators detected: {len(_metagraph.axons)}.")
+    new_signals = [json.loads(ValiBkpUtils.get_file(new_signal_file), cls=SignalJSONDecoder) for
+                        new_signal_file in ValiBkpUtils.get_all_files_in_dir(MinerConfig.get_miner_received_signals_dir())]
+    bt.logging.info("number of new signals: " + str(len(new_signals)))
+    # Send one signal at a time for now. Later on modify to sent multiple signals at once
+    for new_signal in new_signals:
+    #try:
+        send_signal_proto = SendSignal(signal=new_signal)
+        # Get response per validator
+        vali_responses = _dendrite.query(_metagraph.axons, send_signal_proto, deserialize=True) 
+        bt.logging.info(f"sent signal {new_signal} to validators and received {len(vali_responses)} responses.")
+
+        for i, resp in enumerate(vali_responses):
+            if resp.successfully_processed:
+                bt.logging.success(f"vali processed signal {resp}. Moving signal to processed dir. ")
+            else:
+                # Ignore random test validators from random locations when testing
+                if config.subtensor.network == 'test':
+                    continue
                 bt.logging.info(
-                    f"found [{len(new_signal_files)}] new signal files to send."
-                )
-                new_signals = [
-                    json.loads(
-                        ValiBkpUtils.get_file(new_signal_file), cls=SignalJSONDecoder
-                    )
-                    for new_signal_file in new_signal_files
-                ]
-                print(new_signals)
-                for new_signal in new_signals:
-                    # Send one signal for now. Later on modify to sent multiple signals at once
-                    send_signal_proto = SendSignal(signal=new_signal)
+                    f"vali did not successfully process [{metagraph.axons[i].hotkey}]. "
+                    f"printout message from vali [{resp.error_message}]. "
+                    f"Will retry on these valis in 15 seconds.")
+                bt.logging.info(
+                    f"vali did not successfully process [{metagraph.axons[i].hotkey}]. "
+                    f"printout message from vali [{resp.error_message}]. "
+                    f"Will retry on these valis in 15 seconds.")
+    #except Exception:
+    #    (traceback.print_exc())
+    #    bt.logging.info("failed sending back results to miners and continuing...")
 
-                    vali_responses = _dendrite.query(
-                        _metagraph.axons, send_signal_proto, deserialize=True
-                    )
-                    bt.logging.info("sent signal to validators")
 
-                    for i, resp_i in enumerate(vali_responses):
-                        if resp_i.successfully_processed:
-                            bt.logging.info(
-                                "vali processed all signals. Moving all signals to processed dir. "
-                            )
-                        else:
-                            bt.logging.info(
-                                f"vali did not successfully process [{metagraph.axons[i].hotkey}]. "
-                                f"printout message from vali [{resp_i.error_message}]. "
-                                f"Will retry on these valis in 15 seconds."
-                            )
-            except Exception:
-                (traceback.print_exc())
-                bt.logging.info("failed sending back results to miners and continuing...")
 
         # TODO - make it a smarter process as to retry with failures
         # make miner received signals dir if doesnt exist
@@ -191,5 +184,5 @@ if __name__ == "__main__":
         # updating metagraph before run
         metagraph.sync(subtensor=subtensor)
         bt.logging.info(f"Metagraph: {metagraph}")
-        send_signal(dendrite, config, metagraph)
+        send_signal(dendrite, metagraph, config)
         time.sleep(10)

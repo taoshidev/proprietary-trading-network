@@ -1,5 +1,6 @@
 # developer: Taoshi
 # Copyright © 2023 Taoshi Inc
+import json
 import os
 from enum import Enum
 
@@ -15,10 +16,10 @@ class TradePair(Enum):
     def __init__(
         self,
         trade_pair_id: str,
-        trade_pair: str,
-        fees: float,
-        min_leverage: float,
-        max_leverage: float,
+        trade_pair: str = None,
+        fees: float = None,
+        min_leverage: float = None,
+        max_leverage: float = None,
     ):
         self.trade_pair_id = trade_pair_id
         self.trade_pair = trade_pair
@@ -54,16 +55,18 @@ class TradePair(Enum):
         tp_map = TradePair.pair_map()
         return tp_map[trade_pair_id]
 
+    def __json__(self):
+        # Provide a dictionary representation for JSON serialization
+        return {
+            "trade_pair_id": self.trade_pair_id,
+            "trade_pair": self.trade_pair,
+            "fees": self.fees,
+            "min_leverage": self.min_leverage,
+            "max_leverage": self.max_leverage,
+        }
+
     def __str__(self):
-        return str(
-            {
-                "trade_pair_id": self.trade_pair_id,
-                "trade_pair": self.trade_pair,
-                "fees": self.fees,
-                "min_leverage": self.min_leverage,
-                "max_leverage": self.max_leverage,
-            }
-        )
+        return str(self.__json__())
 
 
 class ValiConfig:
@@ -90,4 +93,5 @@ class ValiConfig:
 
     ELIMINATION_CHECK_INTERVAL_S = 60 * 5  # 5 minutes
     ELIMINATION_FILE_DELETION_DELAY_S = 60 * 30  # 30 min
+    MAX_MINER_PLAGIARISM_SCORE = 1.0
 

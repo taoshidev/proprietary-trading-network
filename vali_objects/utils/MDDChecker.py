@@ -17,31 +17,23 @@ class MDDChecker(ChallengeBase):
         super().__init__(config, metagraph)   
         secrets = ValiUtils.get_secrets()
         self.all_trade_pairs = [trade_pair for trade_pair in TradePair]
-        self.twelvedata = TwelveDataService(api_key=secrets["twelvedata_apikey"])     
-
+        self.twelvedata = TwelveDataService(api_key=secrets["twelvedata_apikey"])
+    
     def mdd_check(self):
         bt.logging.info("running mdd checker")
-        bt.logging.info(f"Subtensor: {self.subtensor}")
 
-        while True:
-            try:
-                self._handle_eliminations()
-            except Exception:
-                bt.logging.error(traceback.format_exc())
-
-    def generate_elimination_row(self, hotkey, dd, reason):
-        return {'hotkey': hotkey, 'elimination_time': time.now(), 'dd': dd, 'reason': reason}
-    
-    def _handle_eliminations(self):
         if time.time() - self.last_update_time_s < ValiConfig.MDD_CHECK_REFRESH_TIME_S:
             time.sleep(1)
             return
         
-        self._load_eliminations_from_cache()
+        self._load_latest_eliminations_from_disk()
         bt.logging.debug("checking mdd.")
 
         try:
             signal_closing_prices = self.twelvedata.get_closes(trade_pairs=self.all_trade_pairs)
+            for trade_pair, closing_price in signal_closing_prices.items():
+                bt.logging.debug(f"Live price for {trade_pair} is {closing_price}")
+
             hotkey_positions = PositionUtils.get_all_miner_positions_by_hotkey(
                 self.metagraph.hotkeys, sort_positions=True, eliminations=self.eliminations
             )
@@ -51,9 +43,10 @@ class MDDChecker(ChallengeBase):
 
                 mdd_failure = self._is_beyond_mdd(current_dd)
                 if mdd_failure:
-                    self.eliminations.append(self.generate_elimination_row(hotkey, current_dd, mdd_failure))
+                    self.eliminations.append(
+                        self.deregister_and_generate_elimination_row(hotkey, current_dd, mdd_failure))
 
-            self._write_updated_eliminations(self.eliminations)
+            self._write_eliminations_from_memory_to_disk()
 
         except Exception:
             bt.logging.error(traceback.format_exc())
@@ -81,7 +74,7 @@ class MDDChecker(ChallengeBase):
                         closed_position_return = position_return / max_portfolio_return
                         mdd_failure = self._is_beyond_mdd(closed_position_return)
                         if mdd_failure:
-                            self.eliminations.append(self.generate_elimination_row(hotkey, current_dd, mdd_failure))
+                            self.eliminations.append(self.deregister_and_generate_elimination_row(hotkey, current_dd, mdd_failure))
 
                 last_position_ind = len(per_position_return) - 1
                 if max_index != last_position_ind:

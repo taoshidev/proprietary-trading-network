@@ -17,3 +17,7 @@ class OrderType(Enum):
     def get_order_type(order_type_value: str):
         otm = OrderType.order_type_map()
         return otm[order_type_value]
+
+    def __json__(self):
+        # Provide a dictionary representation for JSON serialization
+        return self.__str__()
