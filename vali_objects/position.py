@@ -80,12 +80,16 @@ class Position:
         self.is_closed_position = False
 
     def __str__(self) -> str:
-        return str({'net_leverage': self._net_leverage, 
+        return str({
+                'position_uuid': self.position_uuid,
+                'net_leverage': self._net_leverage,
                 'average_entry_price': self._average_entry_price, 
                 'position_type': str(self.position_type),
                 'return_at_close': self.return_at_close, 
                 'current_return': self.current_return,
-                'orders': [str(order) for order in self.orders]})
+                'orders': [str(order) for order in self.orders],
+                'close_ms': self.close_ms
+        })
 
     @staticmethod
     def _position_log(message):

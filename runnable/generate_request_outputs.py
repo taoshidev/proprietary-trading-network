@@ -12,9 +12,13 @@ from vali_objects.utils.vali_utils import ValiUtils
 
 
 def generate_request_outputs():
-    eliminations = ValiUtils.get_vali_json_file(
-        ValiBkpUtils.get_eliminations_dir(), ValiUtils.ELIMINATIONS
-    )
+    try:
+        eliminations = ValiUtils.get_vali_json_file(
+            ValiBkpUtils.get_eliminations_dir(), ValiUtils.ELIMINATIONS
+        )
+    except Exception:
+        print("couldn't get eliminations file.")
+        eliminations = None
     try:
         try:
             all_miner_hotkeys = ValiBkpUtils.get_directories_in_dir(
@@ -45,11 +49,14 @@ def generate_request_outputs():
                 "thirty_day_returns": 1.0,
             }
             return_per_position = PositionUtils.get_return_per_closed_position(ps)
+
             if len(return_per_position) > 0:
                 curr_return = return_per_position[len(return_per_position) - 1]
                 dict_hotkey_position_map[k]["thirty_day_returns"] = curr_return
 
             for p in ps:
+                if p.close_ms is None:
+                    p.close_ms = 0
                 dict_hotkey_position_map[k]["positions"].append(
                     json.loads(str(p), cls=GeneralizedJSONDecoder)
                 )

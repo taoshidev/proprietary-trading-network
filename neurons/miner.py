@@ -107,13 +107,13 @@ def send_signal(_dendrite, _config, _metagraph):
 
         # TODO - make it a smarter process as to retry with failures
         # make miner received signals dir if doesnt exist
-        # ValiBkpUtils.make_dir(MinerConfig.get_miner_processed_signals_dir())
-        # for new_signal_file in new_signal_files:
-        #     shutil.move(
-        #         new_signal_file,
-        #         MinerConfig.get_miner_processed_signals_dir()
-        #         + os.path.basename(new_signal_file),
-        #     )
+        ValiBkpUtils.make_dir(MinerConfig.get_miner_processed_signals_dir())
+        for new_signal_file in new_signal_files:
+            shutil.move(
+                new_signal_file,
+                MinerConfig.get_miner_processed_signals_dir()
+                + os.path.basename(new_signal_file),
+            )
         time.sleep(15)
 
 
