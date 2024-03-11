@@ -2,32 +2,17 @@
 # Copyright © 2023 Yuma Rao
 # developer: Taoshidev
 # Copyright © 2023 Taoshi Inc
-import ast
-import json
 import os
-import shutil
-import time
-from datetime import datetime
-
 import argparse
-import traceback
-from typing import List
 
 import bittensor as bt
-
-from miner_config import MinerConfig
+from typing import List
+from miner_objects.PropNetOrderPlacer import PropNetOrderPlacer
+from shared_objects.MetagraphUpdater import MetagraphUpdater
 
 # Step 2: Set up the configuration parser
 # This function is responsible for setting up and parsing command-line arguments.
 from template.protocol import SendSignal, GetPositions
-from vali_objects.decoders.generalized_json_decoder import GeneralizedJSONDecoder
-from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
-
-global send_signal_vali_retry_axons
-global retry_counter
-
-send_signal_vali_retry_axon_ids = []
-retry_counter = 3
 
 
 def get_config():
@@ -63,48 +48,6 @@ def get_config():
     # Return the parsed config.
     return config
 
-
-def send_signal(_dendrite, _metagraph, config):
-    bt.logging.info(f"Num validators detected: {len(_metagraph.axons)}.")
-    new_signal_files = ValiBkpUtils.get_all_files_in_dir(MinerConfig.get_miner_received_signals_dir())
-    bt.logging.info("number of new signals: " + str(len(new_signal_files)))
-    successfully_sent_signal_files = []
-    # Send one signal at a time for now. Later on modify to sent multiple signals at once
-    for new_signal_file in new_signal_files:
-        new_signal = json.loads(ValiBkpUtils.get_file(new_signal_file), cls=GeneralizedJSONDecoder)
-        send_signal_proto = SendSignal(signal=new_signal)
-        # Get response per validator
-        vali_responses = _dendrite.query(_metagraph.axons, send_signal_proto, deserialize=True) 
-        bt.logging.info(f"sent signal {new_signal} to validators and received {len(vali_responses)} responses.")
-        n_validators_success = 0
-        for i, resp in enumerate(vali_responses):
-            if resp.successfully_processed:
-                bt.logging.success(f"vali processed signal {resp}. Moving signal to processed dir. ")
-                n_validators_success += 1
-            else:
-                # Ignore random test validators from random locations when testing
-                if config.subtensor.network == 'test':
-                    continue
-                bt.logging.info(
-                    f"vali did not successfully process [{metagraph.axons[i].hotkey}]. "
-                    f"printout message from vali [{resp.error_message}]. ")
-
-        # Log the number of successful validators acks as well as the total number of validators. Show percentage too.
-        bt.logging.info(f"number of validators that successfully processed signal: "
-                        f"{n_validators_success} out of {len(vali_responses)} "
-                        f"({(n_validators_success / len(vali_responses)) * 100}%)")
-
-        # TODO - make it a smarter process as to retry with failures
-        if n_validators_success > 0:
-            successfully_sent_signal_files.append(new_signal_file)
-
-        ValiBkpUtils.make_dir(MinerConfig.get_miner_processed_signals_dir())
-        for file in successfully_sent_signal_files:
-            shutil.move(
-                file,
-                MinerConfig.get_miner_processed_signals_dir()
-                + os.path.basename(file))
-        time.sleep(15)
 
 
 def get_positions(_dendrite, _config, _metagraph, validators):
@@ -158,9 +101,14 @@ if __name__ == "__main__":
     dendrite = bt.dendrite(wallet=wallet)
     bt.logging.info(f"Dendrite: {dendrite}")
 
-    # The metagraph holds the state of the network
+    # metagraph provides the network's current state, holding state about other participants in a subnet.
+    # IMPORTANT: Only update this variable in-place. Otherwise, the reference will be lost in the helper classes.
     metagraph = subtensor.metagraph(config.netuid)
+    metagraphUpdater = MetagraphUpdater(config, metagraph)
+    metagraphUpdater.update_metagraph()
     bt.logging.info(f"Metagraph: {metagraph}")
+
+    propNetOrderPlacer = PropNetOrderPlacer(dendrite, metagraph, config)
 
     # Step 5: Connect the miner to the network
     if wallet.hotkey.ss58_address not in metagraph.hotkeys:
@@ -177,9 +125,5 @@ if __name__ == "__main__":
     bt.logging.info("Starting miner loop.")
 
     while True:
-        current_time = datetime.now().time()
-        # updating metagraph before run
-        metagraph.sync(subtensor=subtensor)
-        bt.logging.info(f"Metagraph: {metagraph}")
-        send_signal(dendrite, metagraph, config)
-        time.sleep(10)
+        metagraphUpdater.update_metagraph()
+        propNetOrderPlacer.send_signals()

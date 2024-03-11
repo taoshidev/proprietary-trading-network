@@ -1,21 +1,13 @@
-import shutil
-import traceback
 import time
-
+import bittensor as bt
 import numpy as np
 from scipy.stats import yeojohnson
-from sympy import Order
 
-from data_generator.twelvedata_service import TwelveDataService
 from time_util.time_util import TimeUtil
 from vali_config import ValiConfig
 from vali_objects.scaling.scaling import Scaling
-from vali_objects.utils.challenge_utils import ChallengeBase
+from shared_objects.challenge_utils import ChallengeBase
 from vali_objects.utils.position_utils import PositionUtils
-
-
-import bittensor as bt
-
 
 class SubtensorWeightSetter(ChallengeBase):
     def __init__(self, config, wallet, metagraph):
@@ -23,22 +15,22 @@ class SubtensorWeightSetter(ChallengeBase):
         self.wallet = wallet
 
     def set_weights(self):
-        bt.logging.info("running set weights")
-        if time.time() - self.last_update_time_s < ValiConfig.SET_WEIGHT_REFRESH_TIME_S:
+        if time.time() - self.get_last_update_time() < ValiConfig.SET_WEIGHT_REFRESH_TIME_S:
             time.sleep(1)
             return
-        
-        self._load_latest_eliminations_from_disk()
 
+        bt.logging.info("running set weights")
+        self._load_latest_eliminations_from_disk()
         return_per_netuid = self._calculate_return_per_netuid()
         bt.logging.info(f"return per uid [{return_per_netuid}]")
         if len(return_per_netuid) == 0:
             bt.logging.info("no returns to set weights with. Do nothing for now.")
         else:
+            bt.logging.info("calculating new subtensor weights...")
             filtered_results, filtered_netuids = self._filter_results(return_per_netuid)
             scaled_transformed_list = self._transform_and_scale_results(filtered_results)
             self._set_subtensor_weights(filtered_netuids, scaled_transformed_list)
-        self.last_update_time_s = time.time()
+        self.set_last_update_time()
 
     def _calculate_return_per_netuid(self):
         return_per_netuid = {}

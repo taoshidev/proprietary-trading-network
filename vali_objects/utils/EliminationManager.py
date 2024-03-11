@@ -2,7 +2,7 @@ import shutil
 import time
 
 from vali_config import ValiConfig
-from vali_objects.utils.challenge_utils import ChallengeBase
+from shared_objects.challenge_utils import ChallengeBase
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 
 import bittensor as bt
@@ -12,12 +12,13 @@ class EliminationManager(ChallengeBase):
         super().__init__(metagraph=metagraph)
 
     def process_eliminations(self):
-        if time.time() - self.last_update_time_s < ValiConfig.ELIMINATION_CHECK_INTERVAL_S:
+        if time.time() - self.get_last_update_time() < ValiConfig.ELIMINATION_CHECK_INTERVAL_S:
             return
+        bt.logging.info("running elimination manager")
         self._load_latest_eliminations_from_disk()
         self._handle_plagiarism_eliminations()
         self._delete_eliminated_expired_miners()
-        self.last_update_time_s = time.time()
+        self.set_last_update_time()
 
 
     def _handle_plagiarism_eliminations(self):
@@ -59,4 +60,4 @@ class EliminationManager(ChallengeBase):
         if len(updated_eliminations) != len(self.eliminations):
             self.eliminations = updated_eliminations
             self._write_eliminations_from_memory_to_disk()
-            self.last_update_time_s = time.time()
+            self.set_last_update_time()

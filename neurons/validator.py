@@ -17,7 +17,7 @@ from data_generator.twelvedata_service import TwelveDataService
 from time_util.time_util import TimeUtil
 from vali_config import ValiConfig, TradePair
 from vali_objects.exceptions.signal_exception import SignalException
-from vali_objects.utils.MetagraphUpdater import MetagraphUpdater
+from shared_objects.MetagraphUpdater import MetagraphUpdater
 from vali_objects.utils.EliminationManager import EliminationManager
 from vali_objects.utils.SubtensorWeightSetter import SubtensorWeightSetter
 from vali_objects.utils.MDDChecker import MDDChecker
@@ -26,7 +26,6 @@ from vali_objects.utils.position_utils import PositionUtils
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.vali_dataclasses.order import Order
 from vali_objects.position import Position
-from vali_objects.vali_dataclasses.signal import Signal
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.utils.vali_utils import ValiUtils
 
@@ -369,7 +368,7 @@ def main(config):
         # If someone intentionally stops the miner, it'll safely terminate operations.
         except KeyboardInterrupt:
             axon.stop()
-            bt.logging.success("Miner killed by keyboard interrupt.")
+            bt.logging.success("Validator killed by keyboard interrupt.")
             break
         # In case of unforeseen errors, the miner will log the error and continue operations.
         except Exception:
