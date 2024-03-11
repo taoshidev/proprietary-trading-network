@@ -5,13 +5,15 @@ import uuid
 
 from flask import Flask, request, jsonify
 
+import waitress
+
 from miner_config import MinerConfig
 from vali_config import TradePair
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.vali_dataclasses.signal import Signal
 
-'''
+"""
 for production: 
 
 1. brew install nginx
@@ -19,7 +21,7 @@ for production:
 3. create symbolic link for nginx conf sudo ln -s /path/to/receive_signals.conf /etc/nginx/conf.d/myapp.conf
 4. brew services start nginx
 5. brew services stop nginx
-'''
+"""
 
 app = Flask(__name__)
 
@@ -73,8 +75,12 @@ def handle_data():
         print(traceback.format_exc())
         return jsonify({"error": "error storing signal on miner"}), 400
 
-    return jsonify({"message": "Signal of type {} received successfully: {}".format(type(signal), str(signal))}), 200
+
+    return (
+        jsonify({"message": "Signal {} received successfully".format(str(signal))}),
+        200,
+    )
 
 
 if __name__ == "__main__":
-    app.run(debug=True)  # In production, set debug=False
+    waitress.serve(app, host="0.0.0.0", port=8080)
