@@ -2,7 +2,7 @@ import shutil
 import time
 
 from vali_config import ValiConfig
-from vali_objects.utils.challenge_utils import ChallengeBase
+from shared_objects.challenge_utils import ChallengeBase
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 
 import bittensor as bt

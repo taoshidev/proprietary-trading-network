@@ -1,16 +1,11 @@
-from ast import List
 import threading
 from sympy import Order
 
 from vali_config import ValiConfig
-from vali_objects.exceptions.signal_exception import SignalException
 from vali_objects.position import Position
-from vali_objects.utils.challenge_utils import ChallengeBase
+from shared_objects.challenge_utils import ChallengeBase
 from vali_objects.utils.position_utils import PositionUtils
-from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
-from vali_objects.utils.vali_utils import ValiUtils
 
-import bittensor as bt
 
 class PlagiarismDetector(ChallengeBase):
     def __init__(self, config, metagraph):

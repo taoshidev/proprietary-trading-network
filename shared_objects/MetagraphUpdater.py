@@ -1,7 +1,7 @@
 import time
 
 from vali_config import ValiConfig
-from vali_objects.utils.challenge_utils import ChallengeBase
+from shared_objects.challenge_utils import ChallengeBase
 
 
 import bittensor as bt

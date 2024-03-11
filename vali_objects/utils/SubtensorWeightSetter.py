@@ -6,7 +6,7 @@ from scipy.stats import yeojohnson
 from time_util.time_util import TimeUtil
 from vali_config import ValiConfig
 from vali_objects.scaling.scaling import Scaling
-from vali_objects.utils.challenge_utils import ChallengeBase
+from shared_objects.challenge_utils import ChallengeBase
 from vali_objects.utils.position_utils import PositionUtils
 
 class SubtensorWeightSetter(ChallengeBase):
