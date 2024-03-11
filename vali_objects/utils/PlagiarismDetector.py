@@ -68,16 +68,16 @@ class PlagiarismDetector(ChallengeBase):
         
         # update the miner copying json while holding the file lock
         with self._file_lock:
-            self._load_miner_copying_from_cache()
+            self._load_latest_miner_plagiarism_from_cache()
             # If this is a new miner, use the initial value 0. 
-            current_hotkey_mc = self.miner_copying.get(miner_hotkey, 0)
+            current_hotkey_mc = self.miner_plagiarism_scores.get(miner_hotkey, 0)
             if is_similar_order:
                 current_hotkey_mc += ValiConfig.MINER_COPYING_WEIGHT
-                self.miner_copying[miner_hotkey] = current_hotkey_mc
+                self.miner_plagiarism_scores[miner_hotkey] = current_hotkey_mc
             else:
                 current_hotkey_mc -= ValiConfig.MINER_COPYING_WEIGHT
-                self.miner_copying[miner_hotkey] = max(0, current_hotkey_mc)
+                self.miner_plagiarism_scores[miner_hotkey] = max(0, current_hotkey_mc)
 
-            self._write_updated_copying(self.miner_copying)
+            self._write_updated_plagiarism_scores_from_memory_to_disk()
 
 

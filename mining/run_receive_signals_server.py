@@ -41,6 +41,8 @@ def handle_data():
     # Check if 'Authorization' header is provided
     data = request.json
 
+    print("received data:", data)
+
     if "api_key" in data:
         token = data["api_key"]
     else:
@@ -56,11 +58,9 @@ def handle_data():
 
     try:
         # ensure to fits rules for a Signal
-        signal = Signal(
-            trade_pair=TradePair.get_trade_pair(data["trade_pair"]),
-            leverage=data["leverage"],
-            order_type=OrderType.get_order_type(data["order_type"]),
-        )
+        signal = Signal(trade_pair=TradePair.get_trade_pair(data["trade_pair"]["trade_pair_id"]),
+                        leverage=data["leverage"],
+                        order_type=OrderType.get_order_type(data["order_type"]))
         # make miner received signals dir if doesnt exist
         ValiBkpUtils.make_dir(MinerConfig.get_miner_received_signals_dir())
         # store miner signal

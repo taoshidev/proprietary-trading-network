@@ -7,15 +7,14 @@ import typing
 import bittensor as bt
 from pydantic import Field
 
-from typing import List, Type
+from typing import List
 
 from vali_objects.vali_dataclasses.signal import Signal
 
-
 class SendSignal(bt.Synapse):
-    signal: typing.Dict
-    successfully_processed: typing.Optional[bool] = None
-    error_message: typing.Optional[str] = None
+    signal: typing.Dict = Field({}, title="Signal", allow_mutation=False)
+    successfully_processed: bool = Field(False, title="Successfully Processed", allow_mutation=True)
+    error_message: str = Field("", title="Error Message", allow_mutation=True)
 
 
 class GetPositions(bt.Synapse):

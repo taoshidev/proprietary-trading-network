@@ -24,21 +24,11 @@ class SubtensorWeightSetter(ChallengeBase):
 
     def set_weights(self):
         bt.logging.info("running set weights")
-        bt.logging.info(f"subtensor: {self.subtensor}")
-
-        while True:
-            try:
-                self._handle_weights()
-                
-            except Exception:
-                bt.logging.error(traceback.format_exc())
-
-    def _handle_weights(self):
         if time.time() - self.last_update_time_s < ValiConfig.SET_WEIGHT_REFRESH_TIME_S:
             time.sleep(1)
             return
         
-        self._load_eliminations_from_cache()
+        self._load_latest_eliminations_from_disk()
 
         return_per_netuid = self._calculate_return_per_netuid()
         bt.logging.info(f"return per uid [{return_per_netuid}]")

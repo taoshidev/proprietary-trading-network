@@ -2,12 +2,9 @@
 # Copyright © 2023 Yuma Rao
 # developer: Taoshidev
 # Copyright © 2023 Taoshi Inc
-import multiprocessing
 
 # Step 1: Import necessary libraries and modules
 import os
-import threading
-import time
 import uuid
 from typing import Tuple
 
@@ -166,28 +163,29 @@ def main(config):
           'order_type': 'LONG',
           'leverage': 0.5}
         """
-        signal_trade_pair = TradePair.get_trade_pair(signal["trade_pair"]["trade_pair_id"])
-        if signal_trade_pair not in ValiConfig.TRADE_PAIR_FEES:
+        string_trade_pair = signal["trade_pair"]["trade_pair_id"]
+        trade_pair = TradePair.get_trade_pair(string_trade_pair)
+        if trade_pair not in ValiConfig.TRADE_PAIR_FEES:
             raise SignalException(
                 f"miner [{hotkey}] incorrectly "
-                f"sent trade pair [{signal_trade_pair}]"
+                f"sent trade pair [{trade_pair}]"
             )
-    
-        bt.logging.success(f"Parsed trade pair from signal: {signal_trade_pair}")
+
+        bt.logging.info(f"Parsed trade pair from signal: {trade_pair}")
         signal_order_type = OrderType.get_order_type(signal["order_type"])
-        bt.logging.success(f"Parsed order type from signal: {signal_order_type}")
+        bt.logging.info(f"Parsed order type from signal: {signal_order_type}")
         signal_leverage = signal["leverage"]
-        bt.logging.success(f"Parsed leverage from signal: {signal_leverage}")
+        bt.logging.info(f"Parsed leverage from signal: {signal_leverage}")
 
         tds = TwelveDataService(api_key=secrets["twelvedata_apikey"])
-        bt.logging.info("Attempting to get closing price for trade pair: " + signal_trade_pair.trade_pair_id)
-        signal_closing_price = tds.get_close(trade_pair=signal_trade_pair)[signal_trade_pair]
+        bt.logging.info("Attempting to get closing price for trade pair: " + trade_pair.trade_pair_id)
+        live_closing_price = tds.get_close(trade_pair=trade_pair)[trade_pair]
         
         order = Order(
-            trade_pair=signal_trade_pair,
+            trade_pair=trade_pair,
             order_type=signal_order_type,
             leverage=signal_leverage,
-            price=signal_closing_price,
+            price=live_closing_price,
             processed_ms=TimeUtil.now_in_millis(),
             order_uuid=str(uuid.uuid4()),
         )
@@ -202,7 +200,7 @@ def main(config):
         # pull miner hotkey to reference in various activities
         miner_hotkey = synapse.dendrite.hotkey
         signal = synapse.signal
-        bt.logging.info(f"received signal [{signal}] from miner_hotkey [{miner_hotkey}]. Signal is of type: {type(signal)}")
+        bt.logging.info(f"received signal [{signal}] from miner_hotkey [{miner_hotkey}].")
 
         eliminations = ValiUtils.get_vali_json_file(
             ValiBkpUtils.get_eliminations_dir(), ValiUtils.ELIMINATIONS
@@ -224,14 +222,14 @@ def main(config):
         # ensure all signals are for an existing trade pair
         # can determine using the fees object
         try:
-            signal_to_order = convert_signal_to_order(signal, synapse.dendrite.hotkey)
+            signal_to_order = convert_signal_to_order(signal, miner_hotkey)
             trade_pair = signal_to_order.trade_pair
             # if a position already exists, add the order to it 
             if trade_pair in open_position_trade_pairs:
                 # If the position is closed, raise an exception
                 if open_position_trade_pairs[trade_pair].is_closed_position:
                     raise SignalException(
-                        f"miner [{synapse.dendrite.hotkey}] sent signal for "
+                        f"miner [{miner_hotkey}] sent signal for "
                         f"closed position [{trade_pair}]")
                 bt.logging.debug("adding to existing position")
                 open_position = open_position_trade_pairs[trade_pair]
@@ -244,7 +242,7 @@ def main(config):
                 # if the order is FLAT ignore and log
                 if signal_to_order.order_type == OrderType.FLAT:
                     raise SignalException(
-                        f"miner [{synapse.dendrite.hotkey}] sent a "
+                        f"miner [{miner_hotkey}] sent a "
                         f"FLAT order with no existing position."
                     )
                 else:
@@ -265,15 +263,15 @@ def main(config):
 
         except SignalException as e:
             error_message = f"error processing signal [{e}]"
-            bt.logging.warning(error_message)
+            bt.logging.error(error_message)
         except Exception as e:
             error_message = e
+            bt.logging.error(f"Error processing signal for [{miner_hotkey}] with error [{e}]")
             bt.logging.error(traceback.format_exc())
 
-        if error_message == "":
-            synapse.successfully_processed = 1
+        synapse.successfully_processed = bool(error_message == "")
         synapse.error_message = error_message
-
+        bt.logging.success(f"Sending back signal to miner [{miner_hotkey}] signal{synapse}")
         return synapse
 
     def gp_blacklist_fn(synapse: template.protocol.GetPositions) -> Tuple[bool, str]:
@@ -335,11 +333,11 @@ def main(config):
         blacklist_fn=rs_blacklist_fn,
         priority_fn=rs_priority_fn,
     )
-    axon.attach(
-        forward_fn=get_positions,
-        blacklist_fn=gp_blacklist_fn,
-        priority_fn=gp_priority_fn,
-    )
+    #axon.attach(
+    #    forward_fn=get_positions,
+    #    blacklist_fn=gp_blacklist_fn,
+    #    priority_fn=gp_priority_fn,
+    #)
 
     # Serve passes the axon information to the network + netuid we are hosting on.
     # This will auto-update if the axon port of external ip have changed.
@@ -355,7 +353,7 @@ def main(config):
 
     mddChecker = MDDChecker(config, metagraph)
     weightSetter = SubtensorWeightSetter(config, wallet, metagraph)
-    eliminationManager = EliminationManager()
+    eliminationManager = EliminationManager(metagraph)
     
 
     # Step 6: Keep the vali alive
