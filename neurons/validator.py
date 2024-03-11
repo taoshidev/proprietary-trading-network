@@ -369,7 +369,7 @@ def main(config):
         # If someone intentionally stops the miner, it'll safely terminate operations.
         except KeyboardInterrupt:
             axon.stop()
-            bt.logging.success("Miner killed by keyboard interrupt.")
+            bt.logging.success("Validator killed by keyboard interrupt.")
             break
         # In case of unforeseen errors, the miner will log the error and continue operations.
         except Exception:

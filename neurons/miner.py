@@ -2,19 +2,15 @@
 # Copyright © 2023 Yuma Rao
 # developer: Taoshidev
 # Copyright © 2023 Taoshi Inc
-import ast
 import json
 import os
 import shutil
 import time
-from datetime import datetime
-
 import argparse
-import traceback
-from typing import List
 
 import bittensor as bt
-
+from datetime import datetime
+from typing import List
 from miner_config import MinerConfig
 
 # Step 2: Set up the configuration parser
@@ -22,13 +18,6 @@ from miner_config import MinerConfig
 from template.protocol import SendSignal, GetPositions
 from vali_objects.decoders.generalized_json_decoder import GeneralizedJSONDecoder
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
-
-global send_signal_vali_retry_axons
-global retry_counter
-
-send_signal_vali_retry_axon_ids = []
-retry_counter = 3
-
 
 def get_config():
     parser = argparse.ArgumentParser()
@@ -104,7 +93,6 @@ def send_signal(_dendrite, _metagraph, config):
                 file,
                 MinerConfig.get_miner_processed_signals_dir()
                 + os.path.basename(file))
-        time.sleep(15)
 
 
 def get_positions(_dendrite, _config, _metagraph, validators):

@@ -20,12 +20,11 @@ class MDDChecker(ChallengeBase):
         self.twelvedata = TwelveDataService(api_key=secrets["twelvedata_apikey"])
     
     def mdd_check(self):
-        bt.logging.info("running mdd checker")
-
-        if time.time() - self.last_update_time_s < ValiConfig.MDD_CHECK_REFRESH_TIME_S:
+        if time.time() - self.get_last_update_time() < ValiConfig.MDD_CHECK_REFRESH_TIME_S:
             time.sleep(1)
             return
-        
+
+        bt.logging.info("running mdd checker")
         self._load_latest_eliminations_from_disk()
         bt.logging.debug("checking mdd.")
 
@@ -51,7 +50,7 @@ class MDDChecker(ChallengeBase):
         except Exception:
             bt.logging.error(traceback.format_exc())
 
-        self.last_update_time_s = time.time()
+        self.set_last_update_time()
 
 
     def _calculate_miner_dd(self, hotkey, positions, signal_closing_prices):
