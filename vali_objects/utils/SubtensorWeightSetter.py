@@ -15,6 +15,7 @@ class SubtensorWeightSetter(ChallengeBase):
         self.wallet = wallet
 
     def set_weights(self):
+        # TODO: Should this check for eliminated miners and set their weight to 0 / exclude them.
         if time.time() - self.get_last_update_time() < ValiConfig.SET_WEIGHT_REFRESH_TIME_S:
             time.sleep(1)
             return
@@ -48,6 +49,7 @@ class SubtensorWeightSetter(ChallengeBase):
 
         # have to have a minimum number of positions during the period
         # this removes anyone who got lucky on a couple trades
+        # TODO: should this be multiplying each position return by the previous? Seems to be overwriting the previous value.
         for hotkey, positions in hotkey_positions.items():
             if len(positions) <= ValiConfig.SET_WEIGHT_MINIMUM_POSITIONS:
                 continue

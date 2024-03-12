@@ -1,3 +1,4 @@
+import logging
 from typing import Optional, List
 
 from vali_config import ValiConfig, TradePair
@@ -5,6 +6,7 @@ from vali_objects.vali_dataclasses.order import Order
 from vali_objects.enums.order_type_enum import OrderType
 
 import bittensor as bt
+
 
 class Position:
     """Represents a position in a trading system.
@@ -48,16 +50,17 @@ class Position:
     """
 
     def __init__(
-        self,
-        miner_hotkey: str, # hotkeys are used to sign for a coldkey. They're what registers with subnets and how we identify miners.
-        position_uuid: str,
-        open_ms: int,
-        trade_pair: TradePair,
-        orders: List[Order] = None,
-        current_return: Optional[float] = 1,
-        max_drawdown: Optional[float] = 0,
-        close_ms: Optional[int] = None,
-        return_at_close: Optional[float] = 1,
+            self,
+            miner_hotkey: str,
+            # hotkeys are used to sign for a coldkey. They're what registers with subnets and how we identify miners.
+            position_uuid: str,
+            open_ms: int,
+            trade_pair: TradePair,
+            orders: List[Order] = None,
+            current_return: Optional[float] = 1,
+            max_drawdown: Optional[float] = 0,
+            close_ms: Optional[int] = None,
+            return_at_close: Optional[float] = 1,
     ):
         if orders is None:
             orders = []
@@ -81,14 +84,14 @@ class Position:
 
     def __str__(self) -> str:
         return str({
-                'position_uuid': self.position_uuid,
-                'net_leverage': self._net_leverage,
-                'average_entry_price': self._average_entry_price, 
-                'position_type': str(self.position_type),
-                'return_at_close': self.return_at_close, 
-                'current_return': self.current_return,
-                'orders': [str(order) for order in self.orders],
-                'close_ms': self.close_ms
+            'position_uuid': self.position_uuid,
+            'net_leverage': self._net_leverage,
+            'average_entry_price': self._average_entry_price,
+            'position_type': str(self.position_type),
+            'return_at_close': self.return_at_close,
+            'current_return': self.current_return,
+            'orders': [str(order) for order in self.orders],
+            'close_ms': self.close_ms
         })
 
     @staticmethod
@@ -98,10 +101,10 @@ class Position:
     def log_position_status(self):
         bt.logging.debug(
             f"position details: "
-            f"close_ms [{self.close_ms }] "
-            f"initial entry price [{self._initial_entry_price }] "
-            f"net leverage [{self._net_leverage }] "
-            f"average entry price [{self._average_entry_price }] "
+            f"close_ms [{self.close_ms}] "
+            f"initial entry price [{self._initial_entry_price}] "
+            f"net leverage [{self._net_leverage}] "
+            f"average entry price [{self._average_entry_price}] "
             f"return_at_close [{self.return_at_close}]"
         )
         order_info = [
@@ -110,39 +113,60 @@ class Position:
         ]
         bt.logging.debug(f"position order details: " f"close_ms [{order_info}] ")
 
-
     def add_order(self, order: Order):
+        if self.is_closed_position:
+            logging.warning("Miner attempted to add order to a closed/liquidated position. Ignoring.")
+            return
         self.orders.append(order)
         self._update_position()
 
     def calculate_unrealized_pnl(self, current_price):
         if self._initial_entry_price == 0 or self._average_entry_price is None:
             return 1
-        
-        return \
-            1 + (current_price - self._average_entry_price) * self._net_leverage / self._initial_entry_price
 
-    # Must be called after every order to maintain accurate internal state
-    def update_returns(self, current_price, adjusted_leverage):        
+        bt.logging.info(
+            f"current price: {current_price}, average entry price: {self._average_entry_price}, net leverage: {self._net_leverage}, initial entry price: {self._initial_entry_price}")
+        gain = (current_price - self._average_entry_price) * self._net_leverage / self._initial_entry_price
+        # Check if liquidated
+        if gain <= -1.0:
+            gain = -1.0
+        net_return = 1 + gain
+        return net_return
+
+    def _handle_liquidation(self, order):
+        self._position_log("position liquidated")
+        self._close_out_position(order)
+
+    def update_returns(self, order, delta_leverage):
+        """
+        Must be called after every order to maintain accurate internal state. The variable _average_entry_price has
+        a name that can be a little confusing. Although it claims to be the average price, it is really isn't. For example
+        it can take a negative value. A more accurate name for this variable is the weighted average entry price.
+        """
+        realtime_price = order.price
         assert self._initial_entry_price > 0, self._initial_entry_price
-        new_net_leverage = self._net_leverage + adjusted_leverage
+        new_net_leverage = self._net_leverage + delta_leverage
 
-        self.current_return = self.calculate_unrealized_pnl(current_price)
+        self.current_return = self.calculate_unrealized_pnl(realtime_price)
         self.return_at_close = self.current_return * (
-            1 - ValiConfig.TRADE_PAIR_FEES[self.trade_pair] * abs(new_net_leverage)
+                1 - ValiConfig.TRADE_PAIR_FEES[self.trade_pair] * abs(new_net_leverage)
         )
+        if self.current_return < 0:
+            raise ValueError(f"current return must be positive {self.current_return}")
+
+        if self.current_return == 0:
+            self._handle_liquidation(order)
+            return
         self._position_log(f"closed position total w/o fees [{self.current_return}]")
         self._position_log(f"closed return with fees [{self.return_at_close}]")
-        
+
         if self.position_type == OrderType.FLAT:
             self._net_leverage = 0
         else:
-            self._average_entry_price = (
-                self._average_entry_price * self._net_leverage
-                + current_price * adjusted_leverage
-            ) / new_net_leverage
-            self._net_leverage = new_net_leverage            
-
+            self._average_entry_price = \
+                ((self._average_entry_price * self._net_leverage + realtime_price * delta_leverage) /
+                 new_net_leverage)
+            self._net_leverage = new_net_leverage
 
     def initialize_position_from_first_order(self, order):
         self._initial_entry_price = order.price
@@ -157,7 +181,12 @@ class Position:
             self.position_type = OrderType.SHORT
         else:
             raise ValueError("leverage of 0 provided as initial order.")
-        
+
+    def _close_out_position(self, order):
+        self.position_type = OrderType.FLAT
+        self.is_closed_position = True
+        self.close_ms = order.processed_ms
+
     def _update_position(self):
         self._net_leverage = 0
         for order in self.orders:
@@ -166,17 +195,15 @@ class Position:
 
             # Check if the new order flattens the position, explicitly or implicitly
             if ((self.position_type == OrderType.LONG and self._net_leverage + order.leverage <= 0) or
-                (self.position_type == OrderType.SHORT and self._net_leverage + order.leverage >= 0) or
-                order.order_type == OrderType.FLAT):
-                    self._position_log(f"Flattening {self.position_type.value} position from order {order}")
-                    self.position_type = OrderType.FLAT
-                    self.is_closed_position = True
-                    self.close_ms = order.processed_ms
+                    (self.position_type == OrderType.SHORT and self._net_leverage + order.leverage >= 0) or
+                    order.order_type == OrderType.FLAT):
+                self._position_log(f"Flattening {self.position_type.value} position from order {order}")
+                self._close_out_position(order)
 
             # Reflect the current order in the current position's return. 
             adjusted_leverage = 0 if self.position_type == OrderType.FLAT else order.leverage
-            self.update_returns(order.price, adjusted_leverage)
-            
+            self.update_returns(order, adjusted_leverage)
+
             # If the position is already closed, we don't need to process any more orders. break in case there are more orders.
             if self.position_type == OrderType.FLAT:
                 break

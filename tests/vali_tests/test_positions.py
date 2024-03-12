@@ -30,8 +30,8 @@ class TestPositions(TestBase):
                      'open_ms', 'trade_pair']:
             expected_value = expected_state.get(attr)
             actual_value = getattr(self.position, attr, None)
-            self.assertEqual(actual_value, expected_value,
-                             f"Expected {attr} to be {expected_value}, got {actual_value}. expeced state: {str(expected_state)} actual state: {str(self.position)}")
+            self.assertEqual(expected_value, actual_value,
+                             f"Expected {attr} to be {expected_value}, got {actual_value}. expected position: {str(expected_state)} actual position: {str(self.position)}")
 
     def test_simple_long_position_with_explicit_FLAT(self):
         o1 = Order(order_type=OrderType.LONG,
@@ -172,6 +172,245 @@ class TestPositions(TestBase):
             'close_ms': o2.processed_ms,
             'return_at_close': 1.0967,
             'current_return': 1.1,
+            'miner_hotkey': self.MINER_HOTKEY,
+            'open_ms': self.OPEN_MS,
+            'trade_pair': self.DEFAULT_TRADE_PAIR
+        })
+
+    def test_liquidated_long_position_with_explicit_FLAT(self):
+        o1 = Order(order_type=OrderType.LONG,
+                   leverage=10.0,
+                   price=100,
+                   trade_pair=TradePair.BTCUSD,
+                   processed_ms=1000,
+                   order_uuid="1000")
+        o2 = Order(order_type=OrderType.FLAT,
+                   leverage=0.0,
+                   price=50,
+                   trade_pair=TradePair.BTCUSD,
+                   processed_ms=2000,
+                   order_uuid="2000")
+
+        self.position.add_order(o1)
+        self.validate_intermediate_position_state({
+            'orders': [o1],
+            'position_type': OrderType.LONG,
+            'is_closed_position': False,
+            '_net_leverage': 10,
+            '_initial_entry_price': 100,
+            '_average_entry_price': 100,
+            'max_drawdown': 0,
+            'close_ms': None,
+            'return_at_close': .97,
+            'current_return': 1.0,
+            'miner_hotkey': self.MINER_HOTKEY,
+            'open_ms': self.OPEN_MS,
+            'trade_pair': self.DEFAULT_TRADE_PAIR
+        })
+
+        self.position.add_order(o2)
+        self.validate_intermediate_position_state({
+            'orders': [o1, o2],
+            'position_type': OrderType.FLAT,
+            'is_closed_position': True,
+            '_net_leverage': 10.0,
+            '_initial_entry_price': 100,
+            '_average_entry_price': 100,
+            'max_drawdown': 0,
+            'close_ms': o2.processed_ms,
+            'return_at_close': 0.0,
+            'current_return': 0.0,
+            'miner_hotkey': self.MINER_HOTKEY,
+            'open_ms': self.OPEN_MS,
+            'trade_pair': self.DEFAULT_TRADE_PAIR
+        })
+    def test_liquidated_short_position_with_explicit_FLAT(self):
+        o1 = Order(order_type=OrderType.SHORT,
+                   leverage=-1.0,
+                   price=100,
+                   trade_pair=TradePair.BTCUSD,
+                   processed_ms=1000,
+                   order_uuid="1000")
+        o2 = Order(order_type=OrderType.FLAT,
+                   leverage=0.0,
+                   price=9000,
+                   trade_pair=TradePair.BTCUSD,
+                   processed_ms=2000,
+                   order_uuid="2000")
+
+        self.position.add_order(o1)
+        self.validate_intermediate_position_state({
+            'orders': [o1],
+            'position_type': OrderType.SHORT,
+            'is_closed_position': False,
+            '_net_leverage': -1,
+            '_initial_entry_price': 100,
+            '_average_entry_price': 100,
+            'max_drawdown': 0,
+            'close_ms': None,
+            'return_at_close': .997,
+            'current_return': 1.0,
+            'miner_hotkey': self.MINER_HOTKEY,
+            'open_ms': self.OPEN_MS,
+            'trade_pair': self.DEFAULT_TRADE_PAIR
+        })
+
+        self.position.add_order(o2)
+        self.validate_intermediate_position_state({
+            'orders': [o1, o2],
+            'position_type': OrderType.FLAT,
+            'is_closed_position': True,
+            '_net_leverage': -1.0,
+            '_initial_entry_price': 100,
+            '_average_entry_price': 100,
+            'max_drawdown': 0,
+            'close_ms': o2.processed_ms,
+            'return_at_close': 0.0,
+            'current_return': 0.0,
+            'miner_hotkey': self.MINER_HOTKEY,
+            'open_ms': self.OPEN_MS,
+            'trade_pair': self.DEFAULT_TRADE_PAIR
+        })
+
+    def test_liquidated_short_position_with_no_FLAT(self):
+        o1 = Order(order_type=OrderType.SHORT,
+                   leverage=-1.0,
+                   price=100,
+                   trade_pair=TradePair.BTCUSD,
+                   processed_ms=1000,
+                   order_uuid="1000")
+        o2 = Order(order_type=OrderType.LONG,
+                   leverage=.1,
+                   price=9000,
+                   trade_pair=TradePair.BTCUSD,
+                   processed_ms=2000,
+                   order_uuid="2000")
+        o3 = Order(order_type=OrderType.LONG,
+                   leverage=.1,
+                   price=9000,
+                   trade_pair=TradePair.BTCUSD,
+                   processed_ms=3000,
+                   order_uuid="3000")
+
+        self.position.add_order(o1)
+        self.validate_intermediate_position_state({
+            'orders': [o1],
+            'position_type': OrderType.SHORT,
+            'is_closed_position': False,
+            '_net_leverage': -1,
+            '_initial_entry_price': 100,
+            '_average_entry_price': 100,
+            'max_drawdown': 0,
+            'close_ms': None,
+            'return_at_close': .997,
+            'current_return': 1.0,
+            'miner_hotkey': self.MINER_HOTKEY,
+            'open_ms': self.OPEN_MS,
+            'trade_pair': self.DEFAULT_TRADE_PAIR
+        })
+
+        self.position.add_order(o2)
+        self.validate_intermediate_position_state({
+            'orders': [o1, o2],
+            'position_type': OrderType.FLAT,
+            'is_closed_position': True,
+            '_net_leverage': -1.0,
+            '_initial_entry_price': 100,
+            '_average_entry_price': 100,
+            'max_drawdown': 0,
+            'close_ms': o2.processed_ms,
+            'return_at_close': 0.0,
+            'current_return': 0.0,
+            'miner_hotkey': self.MINER_HOTKEY,
+            'open_ms': self.OPEN_MS,
+            'trade_pair': self.DEFAULT_TRADE_PAIR
+        })
+
+        # Orders post-liquidation are ignored
+        self.position.add_order(o3)
+        self.validate_intermediate_position_state({
+            'orders': [o1, o2],
+            'position_type': OrderType.FLAT,
+            'is_closed_position': True,
+            '_net_leverage': -1.0,
+            '_initial_entry_price': 100,
+            '_average_entry_price': 100,
+            'max_drawdown': 0,
+            'close_ms': o2.processed_ms,
+            'return_at_close': 0.0,
+            'current_return': 0.0,
+            'miner_hotkey': self.MINER_HOTKEY,
+            'open_ms': self.OPEN_MS,
+            'trade_pair': self.DEFAULT_TRADE_PAIR
+        })
+
+    def test_liquidated_long_position_with_no_FLAT(self):
+        o1 = Order(order_type=OrderType.LONG,
+                   leverage=10,
+                   price=100,
+                   trade_pair=TradePair.BTCUSD,
+                   processed_ms=1000,
+                   order_uuid="1000")
+        o2 = Order(order_type=OrderType.SHORT,
+                   leverage=-.1,
+                   price=50,
+                   trade_pair=TradePair.BTCUSD,
+                   processed_ms=2000,
+                   order_uuid="2000")
+        o3 = Order(order_type=OrderType.SHORT,
+                   leverage=-.1,
+                   price=50,
+                   trade_pair=TradePair.BTCUSD,
+                   processed_ms=3000,
+                   order_uuid="3000")
+
+        self.position.add_order(o1)
+        self.validate_intermediate_position_state({
+            'orders': [o1],
+            'position_type': OrderType.LONG,
+            'is_closed_position': False,
+            '_net_leverage': 10,
+            '_initial_entry_price': 100,
+            '_average_entry_price': 100,
+            'max_drawdown': 0,
+            'close_ms': None,
+            'return_at_close': .97,
+            'current_return': 1.0,
+            'miner_hotkey': self.MINER_HOTKEY,
+            'open_ms': self.OPEN_MS,
+            'trade_pair': self.DEFAULT_TRADE_PAIR
+        })
+
+        self.position.add_order(o2)
+        self.validate_intermediate_position_state({
+            'orders': [o1, o2],
+            'position_type': OrderType.FLAT,
+            'is_closed_position': True,
+            '_net_leverage': 10,
+            '_initial_entry_price': 100,
+            '_average_entry_price': 100,
+            'max_drawdown': 0,
+            'close_ms': o2.processed_ms,
+            'return_at_close': 0.0,
+            'current_return': 0.0,
+            'miner_hotkey': self.MINER_HOTKEY,
+            'open_ms': self.OPEN_MS,
+            'trade_pair': self.DEFAULT_TRADE_PAIR
+        })
+
+        # Orders post-liquidation are ignored
+        self.position.add_order(o3)
+        self.validate_intermediate_position_state({
+            'orders': [o1, o2],
+            'position_type': OrderType.FLAT,
+            'is_closed_position': True,
+            '_net_leverage': 10,
+            '_initial_entry_price': 100,
+            '_average_entry_price': 100,
+            'max_drawdown': 0,
+            'close_ms': o2.processed_ms,
+            'return_at_close': 0.0,
+            'current_return': 0.0,
             'miner_hotkey': self.MINER_HOTKEY,
             'open_ms': self.OPEN_MS,
             'trade_pair': self.DEFAULT_TRADE_PAIR

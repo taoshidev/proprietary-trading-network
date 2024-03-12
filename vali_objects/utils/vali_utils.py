@@ -4,6 +4,8 @@
 import datetime
 import json
 import os
+import shutil
+
 from pickle import UnpicklingError
 from typing import Dict, List
 
@@ -13,17 +15,19 @@ from vali_objects.exceptions.vali_bkp_file_missing_exception import (
     ValiFileMissingException,
 )
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
-
+import bittensor as bt
 
 class ValiUtils:
     ELIMINATIONS = "eliminations"
     COPY_TRADING = "copy_trading"
 
     @staticmethod
-    def get_miner_positions(file) -> Position:
+    def get_miner_positions(file) -> str | object:
         # wrapping here to allow simpler error handling & original for other error handling
         try:
-            return ValiBkpUtils.get_file(file, True)
+            ans = ValiBkpUtils.get_file(file, True)
+            bt.logging.info(f"vali_utils get_miner_positions: {ans}")
+            return ans
         except FileNotFoundError:
             raise ValiFileMissingException("Vali position file is missing")
         except UnpicklingError:
@@ -42,12 +46,25 @@ class ValiUtils:
     def save_miner_position(
         miner_hotkey: str, position_uuid: str, content: Dict | object
     ) -> None:
-        ValiBkpUtils.make_dir(ValiBkpUtils.get_miner_position_dir(miner_hotkey))
         ValiBkpUtils.write_file(
             ValiBkpUtils.get_miner_position_dir(miner_hotkey) + position_uuid,
             content,
             True,
         )
+
+    @staticmethod
+    def clear_all_miner_positions_from_disk():
+        # Clear all files and directories in the directory specified by dir
+        dir = ValiBkpUtils.get_miner_dir()
+        for file in os.listdir(dir):
+            file_path = os.path.join(dir, file)
+            try:
+                if os.path.isfile(file_path):
+                    os.unlink(file_path)
+                elif os.path.isdir(file_path):
+                    shutil.rmtree(file_path)
+            except Exception as e:
+                print(f"Error: {e}")
 
     @staticmethod
     def get_vali_json_file(vali_dir: str, key: str = None) -> List | Dict:
@@ -67,7 +84,7 @@ class ValiUtils:
         return ValiUtils.get_vali_json_file(
             ValiBkpUtils.get_eliminations_dir(), ValiUtils.ELIMINATIONS
     )
-        
+
     @staticmethod
     def get_miner_copying_from_cache() -> Dict:
         return ValiUtils.get_vali_json_file(
@@ -88,6 +105,10 @@ class ValiUtils:
             ValiBkpUtils.write_file(
                 ValiBkpUtils.get_miner_copying_dir(), miner_copying_file
             )
+
+        # Check if the get_miner_dir directory exists. If not, create it
+        if not os.path.exists(ValiBkpUtils.get_miner_dir()):
+            os.makedirs(ValiBkpUtils.get_miner_dir())
 
 
     @staticmethod

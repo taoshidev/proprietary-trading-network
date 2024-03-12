@@ -233,9 +233,6 @@ def main(config):
                 bt.logging.debug("adding to existing position")
                 open_position = open_position_trade_pairs[trade_pair]
                 open_position.add_order(signal_to_order)
-                ValiUtils.save_miner_position(
-                    miner_hotkey, open_position.position_uuid, open_position
-                )
             else:
                 bt.logging.debug("processing new position")
                 # if the order is FLAT ignore and log
@@ -253,9 +250,9 @@ def main(config):
                         trade_pair=trade_pair,
                         orders=[signal_to_order],
                     )
-                    ValiUtils.save_miner_position(
-                        miner_hotkey, open_position.position_uuid, open_position
-                    )
+            ValiUtils.save_miner_position(
+                miner_hotkey, open_position.position_uuid, open_position
+            )
 
             open_position.log_position_status()
             plagiarismDetector.check_plagiarism(open_position, signal_to_order, miner_hotkey)

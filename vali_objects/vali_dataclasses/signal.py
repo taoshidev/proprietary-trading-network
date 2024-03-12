@@ -14,6 +14,9 @@ class Signal:
     leverage: float
 
     def __post_init__(self):
+        if isinstance(self.leverage, int):
+            self.leverage = float(self.leverage)
+
         if not isinstance(self.order_type, OrderType):
             raise ValueError(f"Order type value received is not of type trade pair [{self.order_type}].")
 

@@ -6,7 +6,7 @@ import os
 import pickle
 
 from vali_config import ValiConfig
-
+import bittensor as bt
 
 class ValiBkpUtils:
     @staticmethod
@@ -86,6 +86,7 @@ class ValiBkpUtils:
     def write_to_dir(
         vali_file: str, vali_data: dict | object, is_pickle: bool = False
     ) -> None:
+        os.makedirs(os.path.dirname(vali_file), exist_ok=True)
         with open(vali_file, ValiBkpUtils.get_write_type(is_pickle)) as f:
             pickle.dump(vali_data, f) if is_pickle else f.write(json.dumps(vali_data))
         f.close()
@@ -99,7 +100,9 @@ class ValiBkpUtils:
     @staticmethod
     def get_file(vali_file, is_pickle: bool = False) -> str | object:
         with open(vali_file, ValiBkpUtils.get_read_type(is_pickle)) as f:
-            return pickle.load(f) if is_pickle else f.read()
+            ans = pickle.load(f) if is_pickle else f.read()
+            bt.logging.info(f"vali_file: {vali_file}, ans: {ans}")
+            return ans
 
     @staticmethod
     def get_all_files_in_dir(vali_dir: str) -> list[str]:
