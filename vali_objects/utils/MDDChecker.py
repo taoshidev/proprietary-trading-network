@@ -25,7 +25,7 @@ class MDDChecker(ChallengeBase):
             return
 
         bt.logging.info("running mdd checker")
-        self._load_latest_eliminations_from_disk()
+        self._refresh_eliminations_in_memory_and_disk()
 
         try:
             signal_closing_prices = self.twelvedata.get_closes(trade_pairs=self.all_trade_pairs)

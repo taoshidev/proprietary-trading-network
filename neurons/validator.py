@@ -14,6 +14,7 @@ import traceback
 import bittensor as bt
 
 from data_generator.twelvedata_service import TwelveDataService
+from shared_objects.challenge_utils import ChallengeBase
 from time_util.time_util import TimeUtil
 from vali_config import ValiConfig, TradePair
 from vali_objects.exceptions.signal_exception import SignalException
@@ -130,14 +131,14 @@ def main(config):
             )
             return True, synapse.dendrite.hotkey
 
-        eliminations = ValiUtils.get_vali_json_file(
-            ValiBkpUtils.get_eliminations_dir(), ValiUtils.ELIMINATIONS
-        )
+        eliminations = ChallengeBase.get_filtered_eliminations_from_disk(metagraph.hotkeys)
+        eliminated_hotkeys = set(x['hotkey'] for x in eliminations) if eliminations is not None else set()
 
         # don't process eliminated miners
-        if synapse.dendrite.hotkey in eliminations:
+        if synapse.dendrite.hotkey in eliminated_hotkeys:
             # Ignore requests from eliminated hotkeys
-            bt.logging.trace(f"Eliminated hotkey {synapse.dendrite.hotkey}")
+            msg = f"This miner hotkey {synapse.dendrite.hotkey} has been deregistered and cannot participate in this subnet. Try again after re-registering."
+            bt.logging.trace(msg)
             return True, synapse.dendrite.hotkey
 
         bt.logging.trace(
@@ -200,12 +201,6 @@ def main(config):
         miner_hotkey = synapse.dendrite.hotkey
         signal = synapse.signal
         bt.logging.info(f"received signal [{signal}] from miner_hotkey [{miner_hotkey}].")
-
-        eliminations = ValiUtils.get_vali_json_file(
-            ValiBkpUtils.get_eliminations_dir(), ValiUtils.ELIMINATIONS
-        )
-
-        bt.logging.info(f"Current eliminations: {eliminations}")
 
         # error message to send back to miners in case of a problem so they can fix and resend
         error_message = ""

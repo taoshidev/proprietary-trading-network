@@ -52,14 +52,19 @@ class ChallengeBase:
     def _write_updated_plagiarism_scores_from_memory_to_disk(self):
         ValiBkpUtils.write_file(ValiBkpUtils.get_miner_copying_dir(), self.miner_plagiarism_scores)
 
-    def _load_latest_eliminations_from_disk(self):
+    def _refresh_eliminations_in_memory_and_disk(self):
+        self.eliminations = ChallengeBase.get_filtered_eliminations_from_disk(self.metagraph.hotkeys)
+        self._write_eliminations_from_memory_to_disk()
+
+    @staticmethod
+    def get_filtered_eliminations_from_disk(hotkeys):
         cached_eliminations = ValiUtils.get_vali_json_file(ValiBkpUtils.get_eliminations_dir(), ValiUtils.ELIMINATIONS)
         bt.logging.info(f"Loaded [{len(cached_eliminations)}] eliminations from disk: {cached_eliminations}")
         updated_eliminations = [elimination for elimination in cached_eliminations if
-                                elimination['hotkey'] in self.metagraph.hotkeys]
+                                elimination['hotkey'] in hotkeys]
+        return updated_eliminations
 
-        self.eliminations = updated_eliminations
-        self._write_eliminations_from_memory_to_disk()
+
 
     def _load_latest_miner_plagiarism_from_cache(self):
         cached_miner_plagiarism = ValiUtils.get_vali_json_file(ValiBkpUtils.get_miner_copying_dir())

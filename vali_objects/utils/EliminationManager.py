@@ -23,7 +23,7 @@ class EliminationManager(ChallengeBase):
         if time.time() - self.get_last_update_time() < ValiConfig.ELIMINATION_CHECK_INTERVAL_S:
             return
         bt.logging.info("running elimination manager")
-        self._load_latest_eliminations_from_disk()
+        self._refresh_eliminations_in_memory_and_disk()
         self._handle_plagiarism_eliminations()
         self._delete_eliminated_expired_miners()
         self.set_last_update_time()
@@ -31,7 +31,7 @@ class EliminationManager(ChallengeBase):
 
     def _handle_plagiarism_eliminations(self):
         existing_plagiarism_eliminations = set(x for x in self.eliminations if x['reason'] == 'plagiarism')
-        self._load_latest_eliminations_from_disk()
+        self._refresh_eliminations_in_memory_and_disk()
         bt.logging.debug("checking plagiarism.")
         self._load_latest_miner_plagiarism_from_cache()
         # miner_copying_json[miner_hotkey] = current_hotkey_mc

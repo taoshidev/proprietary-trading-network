@@ -47,7 +47,7 @@ class TestMDDChecker(TestBase):
         self.tds = TwelveDataService(api_key=secrets["twelvedata_apikey"])
 
     def verify_elimination_data_in_memory_and_disk(self, expected_eliminations):
-        self.mddChecker._load_latest_eliminations_from_disk()
+        self.mddChecker._refresh_eliminations_in_memory_and_disk()
         eliminated_hotkeys = [x['hotkey'] for x in expected_eliminations]
         expected_eliminated_hotkeys = [x['hotkey'] for x in self.mddChecker.eliminations]
         self.assertEqual(len(eliminated_hotkeys),
