@@ -31,11 +31,12 @@ class ChallengeBase:
         return {'hotkey': hotkey, 'elimination_initiated_time': time.time(), 'dd': dd, 'reason': reason}
     def close_positions_and_append_elimination_row(self, hotkey, dd, reason):
         """
-        We are closing the positions here. Ensure that subsequent orders are not allowed to be placed.
-        Orders can be placed again after the elimination time has passed and all old miner positions have been deleted.
-        The elimination time gives bittensor sufficient time to deregister the miner. However, deregistration isn't
-        guaranteed if there are few miners on the network.
+        We are closing the positions here. By adding the miner to the elimination file, we ensure that subsequent orders
+         are not allowed to be placed. Orders can be placed again after the elimination time has passed and all old
+         miner positions have been deleted. The elimination time gives bittensor sufficient time to deregister the
+         miner. However, deregistration isn't guaranteed if there are few miners on the network.
         """
+        # TODO: Close positions
         r = ChallengeBase.generate_elimination_row(hotkey, dd, reason)
         bt.logging.info(f"Created elimination row: {r}")
         self.eliminations.append(r)

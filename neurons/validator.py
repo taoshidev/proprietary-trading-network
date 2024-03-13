@@ -321,13 +321,14 @@ class Validator:
                         miner_hotkey=miner_hotkey,
                         position_uuid=str(uuid.uuid4()),
                         open_ms=TimeUtil.now_in_millis(),
-                        trade_pair=trade_pair,
-                        orders=[signal_to_order],
+                        trade_pair=trade_pair
                     )
             open_position.add_order(signal_to_order)
             ValiUtils.save_miner_position(
                 miner_hotkey, open_position.position_uuid, open_position
             )
+            # Log the open position for the miner
+            bt.logging.info(f"Position for miner [{miner_hotkey}] updated: {open_position}")
 
             open_position.log_position_status()
             self.plagiarismDetector.check_plagiarism(open_position, signal_to_order, miner_hotkey)
