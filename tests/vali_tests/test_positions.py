@@ -89,7 +89,7 @@ class TestPositions(TestBase):
                    processed_ms=1000,
                    order_uuid="1000")
         o2 = Order(order_type=OrderType.SHORT,
-                   leverage=-1.0,
+                   leverage=1.0,
                    price=1000,
                    trade_pair=TradePair.BTCUSD,
                    processed_ms=2000,
@@ -131,7 +131,7 @@ class TestPositions(TestBase):
 
     def test_simple_short_position_with_explicit_FLAT(self):
         o1 = Order(order_type=OrderType.SHORT,
-                   leverage=-1.0,
+                   leverage=1.0,
                    price=100,
                    trade_pair=TradePair.BTCUSD,
                    processed_ms=1000,
@@ -226,7 +226,7 @@ class TestPositions(TestBase):
         })
     def test_liquidated_short_position_with_explicit_FLAT(self):
         o1 = Order(order_type=OrderType.SHORT,
-                   leverage=-1.0,
+                   leverage=1.0,
                    price=100,
                    trade_pair=TradePair.BTCUSD,
                    processed_ms=1000,
@@ -274,7 +274,7 @@ class TestPositions(TestBase):
 
     def test_liquidated_short_position_with_no_FLAT(self):
         o1 = Order(order_type=OrderType.SHORT,
-                   leverage=-1.0,
+                   leverage=1.0,
                    price=100,
                    trade_pair=TradePair.BTCUSD,
                    processed_ms=1000,
@@ -352,13 +352,13 @@ class TestPositions(TestBase):
                    processed_ms=1000,
                    order_uuid="1000")
         o2 = Order(order_type=OrderType.SHORT,
-                   leverage=-.1,
+                   leverage=.1,
                    price=50,
                    trade_pair=TradePair.BTCUSD,
                    processed_ms=2000,
                    order_uuid="2000")
         o3 = Order(order_type=OrderType.SHORT,
-                   leverage=-.1,
+                   leverage=.1,
                    price=50,
                    trade_pair=TradePair.BTCUSD,
                    processed_ms=3000,
@@ -418,7 +418,7 @@ class TestPositions(TestBase):
 
     def test_simple_short_position_with_implicit_FLAT(self):
         o1 = Order(order_type=OrderType.SHORT,
-                   leverage=-1.0,
+                   leverage=1.0,
                    price=1000,
                    trade_pair=TradePair.BTCUSD,
                    processed_ms=1000,
@@ -516,30 +516,14 @@ class TestPositions(TestBase):
         })
 
     def test_invalid_prices_negative(self):
-        o1 = Order(order_type=OrderType.LONG,
-                   leverage=1.0,
-                   price=-1,
-                   trade_pair=TradePair.BTCUSD,
-                   processed_ms=1000,
-                   order_uuid="1000")
-        with self.assertRaises(ValueError):
-            self.position.add_order(o1)
 
-        self.validate_intermediate_position_state({
-            'orders': [o1],
-            'position_type': None,
-            'is_closed_position': False,
-            '_net_leverage': 0.0,
-            '_initial_entry_price': -1,
-            '_average_entry_price': 0,
-            'max_drawdown': 0,
-            'close_ms': None,
-            'return_at_close': 1.0,
-            'current_return': 1.0,
-            'miner_hotkey': self.MINER_HOTKEY,
-            'open_ms': self.OPEN_MS,
-            'trade_pair': self.DEFAULT_TRADE_PAIR
-        })
+        with self.assertRaises(ValueError):
+            o1 = Order(order_type=OrderType.LONG,
+                       leverage=1.0,
+                       price=-1,
+                       trade_pair=TradePair.BTCUSD,
+                       processed_ms=1000,
+                       order_uuid="1000")
 
     def test_three_orders_with_longs_no_drawdown(self):
         o1 = Order(order_type=OrderType.LONG,
@@ -674,7 +658,7 @@ class TestPositions(TestBase):
                     processed_ms=2000,
                     order_uuid="2000")
             o3 = Order(order_type=OrderType.SHORT,
-                    leverage=-0.1,
+                    leverage=0.1,
                     price=1000,
                     trade_pair=TradePair.BTCUSD,
                     processed_ms=5000,
@@ -870,7 +854,7 @@ class TestPositions(TestBase):
                     processed_ms=2000,
                     order_uuid="2000")
             o3 = Order(order_type=OrderType.SHORT,
-                    leverage=-0.1,
+                    leverage=0.1,
                     price=1000,
                     trade_pair=TradePair.BTCUSD,
                     processed_ms=5000,

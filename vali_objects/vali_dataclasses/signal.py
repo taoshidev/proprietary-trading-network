@@ -13,6 +13,7 @@ class Signal:
     order_type: OrderType
     leverage: float
 
+
     def __post_init__(self):
         if isinstance(self.leverage, int):
             self.leverage = float(self.leverage)
