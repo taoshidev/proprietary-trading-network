@@ -33,7 +33,7 @@ class EliminationManager(ChallengeBase):
         existing_plagiarism_eliminations = set(x for x in self.eliminations if x['reason'] == 'plagiarism')
         self._refresh_eliminations_in_memory_and_disk()
         bt.logging.debug("checking plagiarism.")
-        self._load_latest_miner_plagiarism_from_cache()
+        self._refresh_plagiarism_scores_in_memory_and_disk()
         # miner_copying_json[miner_hotkey] = current_hotkey_mc
         for miner_hotkey, current_plagiarism_score in self.miner_plagiarism_scores.items():
             if miner_hotkey in existing_plagiarism_eliminations:

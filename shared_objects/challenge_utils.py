@@ -64,9 +64,7 @@ class ChallengeBase:
                                 elimination['hotkey'] in hotkeys]
         return updated_eliminations
 
-
-
-    def _load_latest_miner_plagiarism_from_cache(self):
+    def _refresh_plagiarism_scores_in_memory_and_disk(self):
         cached_miner_plagiarism = ValiUtils.get_vali_json_file(ValiBkpUtils.get_miner_copying_dir())
         self.miner_plagiarism_scores = {mch: mc for mch, mc in cached_miner_plagiarism.items() if
                                         mch in self.metagraph.hotkeys}

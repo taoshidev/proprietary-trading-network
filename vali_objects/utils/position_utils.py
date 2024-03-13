@@ -49,7 +49,7 @@ class PositionUtils:
 
         positions = [ValiUtils.get_miner_positions(file) for file in all_files]
         # log miner_dir, files, and positions
-        bt.logging.info(f"miner_dir: {miner_dir}, all_files: {all_files}, n_positions: {len(positions)}")
+        #bt.logging.info(f"miner_dir: {miner_dir}, all_files: {all_files}, n_positions: {len(positions)}")
 
         if acceptable_position_end_ms is not None:
             positions = [

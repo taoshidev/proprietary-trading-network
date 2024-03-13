@@ -35,7 +35,6 @@ class MDDChecker(ChallengeBase):
             hotkey_positions = PositionUtils.get_all_miner_positions_by_hotkey(
                 self.metagraph.hotkeys, sort_positions=True, eliminations=self.eliminations
             )
-            bt.logging.info(f"found hotkey positions: {hotkey_positions}")
             for hotkey, sorted_positions in hotkey_positions.items():
                 self._search_for_miner_dd_failures(hotkey, sorted_positions, signal_closing_prices)
 

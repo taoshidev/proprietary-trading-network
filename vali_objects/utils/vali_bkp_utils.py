@@ -101,7 +101,7 @@ class ValiBkpUtils:
     def get_file(vali_file, is_pickle: bool = False) -> str | object:
         with open(vali_file, ValiBkpUtils.get_read_type(is_pickle)) as f:
             ans = pickle.load(f) if is_pickle else f.read()
-            bt.logging.info(f"vali_file: {vali_file}, ans: {ans}")
+            #bt.logging.info(f"vali_file: {vali_file}, ans: {ans}")
             return ans
 
     @staticmethod
