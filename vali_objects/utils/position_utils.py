@@ -1,3 +1,5 @@
+# developer: jbonilla
+# Copyright © 2023 Taoshi Inc
 from typing import List, Dict
 import bittensor as bt
 
@@ -70,7 +72,7 @@ class PositionUtils:
 
     @staticmethod
     def get_all_miner_positions_by_hotkey(
-        hotkeys: List[str], eliminations: Dict = None, **args
+        hotkeys: List[str], eliminations: List = None, **args
     ) -> Dict[str, List[Position]]:
         eliminated_hotkeys = set(x['hotkey'] for x in eliminations) if eliminations is not None else set()
         bt.logging.info(f"eliminated hotkeys: {eliminated_hotkeys}")

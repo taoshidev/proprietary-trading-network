@@ -1,3 +1,5 @@
+# developer: jbonilla
+# Copyright © 2023 Taoshi Inc
 import shutil
 import time
 

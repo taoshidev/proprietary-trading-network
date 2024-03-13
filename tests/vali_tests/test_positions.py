@@ -7,7 +7,6 @@ from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.position import Position
 from vali_objects.vali_dataclasses.order import Order
 
-
 class TestPositions(TestBase):
 
     def setUp(self):
