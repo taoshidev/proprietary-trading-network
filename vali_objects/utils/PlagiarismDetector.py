@@ -63,7 +63,7 @@ class PlagiarismDetector(ChallengeBase):
         
         # update the miner copying json while holding the file lock
         with self._file_lock:
-            self._load_latest_miner_plagiarism_from_cache()
+            self._refresh_plagiarism_scores_in_memory_and_disk()
             # If this is a new miner, use the initial value 0. 
             current_hotkey_mc = self.miner_plagiarism_scores.get(miner_hotkey, 0)
             if is_similar_order:

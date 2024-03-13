@@ -1,21 +1,27 @@
 from typing import List, Dict
+import bittensor as bt
 
-from vali_config import ValiConfig
-from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.position import Position
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.utils.vali_utils import ValiUtils
-from vali_objects.vali_dataclasses.order import Order
 
 
 class PositionUtils:
     @staticmethod
     def get_return_per_closed_position(positions: List[Position]) -> List[float]:
-        closed_position_returns = [
-            position.return_at_close
-            for position in positions
-            if position.is_closed_position
-        ]
+        if len(positions) == 0:
+            return []
+
+        t0 = None
+        closed_position_returns = []
+        for position in positions:
+            if not position.is_closed_position:
+                continue
+            elif t0 and position.close_ms < t0:
+                raise ValueError("Positions must be sorted by close time for this calculation to work.")
+            t0 = position.close_ms
+            closed_position_returns.append(position.return_at_close)
+
         cumulative_return = 1
         per_position_return = []
 
@@ -42,6 +48,8 @@ class PositionUtils:
         all_files = ValiBkpUtils.get_all_files_in_dir(miner_dir)
 
         positions = [ValiUtils.get_miner_positions(file) for file in all_files]
+        # log miner_dir, files, and positions
+        #bt.logging.info(f"miner_dir: {miner_dir}, all_files: {all_files}, n_positions: {len(positions)}")
 
         if acceptable_position_end_ms is not None:
             positions = [
@@ -57,6 +65,7 @@ class PositionUtils:
 
         if sort_positions:
             positions = sorted(positions, key=_sort_by_close_ms)
+
         return positions
 
     @staticmethod
@@ -64,6 +73,7 @@ class PositionUtils:
         hotkeys: List[str], eliminations: Dict = None, **args
     ) -> Dict[str, List[Position]]:
         eliminated_hotkeys = set(x['hotkey'] for x in eliminations) if eliminations is not None else set()
+        bt.logging.info(f"eliminated hotkeys: {eliminated_hotkeys}")
         return {
             hotkey: PositionUtils.get_all_miner_positions(hotkey, **args)
             for hotkey in hotkeys
