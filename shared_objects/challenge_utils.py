@@ -1,3 +1,6 @@
+# developer: jbonilla
+# Copyright © 2023 Taoshi Inc
+
 import time
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.utils.vali_utils import ValiUtils

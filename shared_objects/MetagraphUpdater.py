@@ -1,3 +1,6 @@
+# developer: jbonilla
+# Copyright © 2023 Taoshi Inc
+
 import time
 
 from vali_config import ValiConfig

@@ -7,7 +7,6 @@ from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.position import Position
 from vali_objects.utils.MDDChecker import MDDChecker
 from vali_objects.utils.vali_utils import ValiUtils
-from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.vali_dataclasses.order import Order
 from data_generator.twelvedata_service import TwelveDataService
 

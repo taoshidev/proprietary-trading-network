@@ -1,3 +1,5 @@
+# developer: jbonilla
+# Copyright © 2023 Taoshi Inc
 from typing import List, Dict
 import bittensor as bt
 
