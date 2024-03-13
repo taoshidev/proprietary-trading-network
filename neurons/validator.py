@@ -23,6 +23,7 @@ from vali_objects.utils.EliminationManager import EliminationManager
 from vali_objects.utils.SubtensorWeightSetter import SubtensorWeightSetter
 from vali_objects.utils.MDDChecker import MDDChecker
 from vali_objects.utils.PlagiarismDetector import PlagiarismDetector
+from vali_objects.utils.position_lock import PositionLocks
 from vali_objects.utils.position_utils import PositionUtils
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.vali_dataclasses.order import Order
@@ -144,6 +145,7 @@ class Validator:
         self.mddChecker = MDDChecker(self.config, self.metagraph)
         self.weightSetter = SubtensorWeightSetter(self.config, wallet, self.metagraph)
         self.eliminationManager = EliminationManager(self.metagraph)
+        self.positionLocks = PositionLocks()
 
     @staticmethod
     def blacklist_fn(synapse, metagraph, rateLimiter) -> Tuple[bool, str]:
@@ -229,6 +231,7 @@ class Validator:
                 self.mddChecker.mdd_check()
                 self.weightSetter.set_weights()
                 self.eliminationManager.process_eliminations()
+                self.positionLocks.cleanup_locks(self.metagraph.hotkeys)
 
             # If someone intentionally stops the miner, it'll safely terminate operations.
             except KeyboardInterrupt:
@@ -274,6 +277,35 @@ class Validator:
         bt.logging.success(f"Converted signal to order: {order}")
         return order
 
+    def get_relevant_position(self, signal_to_order, open_position_trade_pairs, miner_hotkey):
+        trade_pair = signal_to_order.trade_pair
+        # if a position already exists, add the order to it
+        if trade_pair in open_position_trade_pairs:
+            # If the position is closed, raise an exception
+            if open_position_trade_pairs[trade_pair].is_closed_position:
+                raise SignalException(
+                    f"miner [{miner_hotkey}] sent signal for "
+                    f"closed position [{trade_pair}]")
+            bt.logging.debug("adding to existing position")
+            open_position = open_position_trade_pairs[trade_pair]
+        else:
+            bt.logging.debug("processing new position")
+            # if the order is FLAT ignore and log
+            if signal_to_order.order_type == OrderType.FLAT:
+                raise SignalException(
+                    f"miner [{miner_hotkey}] sent a "
+                    f"FLAT order with no existing position."
+                )
+            else:
+                # if a position doesn't exist, then make a new one
+                open_position = Position(
+                    miner_hotkey=miner_hotkey,
+                    position_uuid=str(uuid.uuid4()),
+                    open_ms=TimeUtil.now_in_millis(),
+                    trade_pair=trade_pair
+                )
+        return open_position
+
     # This is the core validator function to receive a signal
     def receive_signal(self, synapse: template.protocol.SendSignal,
     ) -> template.protocol.SendSignal:
@@ -281,65 +313,33 @@ class Validator:
         miner_hotkey = synapse.dendrite.hotkey
         signal = synapse.signal
         bt.logging.info(f"received signal [{signal}] from miner_hotkey [{miner_hotkey}].")
+        signal_to_order = self.convert_signal_to_order(signal, miner_hotkey)
 
         # error message to send back to miners in case of a problem so they can fix and resend
         error_message = ""
 
-        # gather open positions and see which trade pairs have an open position
-        open_position_trade_pairs = {
-            position.trade_pair: position
-            for position in PositionUtils.get_all_miner_positions(
-                miner_hotkey, only_open_positions=True
-            )
-        }
+        with self.positionLocks.get_lock(miner_hotkey, signal_to_order.trade_pair.trade_pair_id):
+            # gather open positions and see which trade pairs have an open position
+            open_position_trade_pairs = {position.trade_pair: position for position in PositionUtils.get_all_miner_positions(miner_hotkey, only_open_positions=True)}
 
-        # ensure all signals are for an existing trade pair
-        # can determine using the fees object
-        try:
-            signal_to_order = self.convert_signal_to_order(signal, miner_hotkey)
-            trade_pair = signal_to_order.trade_pair
-            # if a position already exists, add the order to it
-            if trade_pair in open_position_trade_pairs:
-                # If the position is closed, raise an exception
-                if open_position_trade_pairs[trade_pair].is_closed_position:
-                    raise SignalException(
-                        f"miner [{miner_hotkey}] sent signal for "
-                        f"closed position [{trade_pair}]")
-                bt.logging.debug("adding to existing position")
-                open_position = open_position_trade_pairs[trade_pair]
-            else:
-                bt.logging.debug("processing new position")
-                # if the order is FLAT ignore and log
-                if signal_to_order.order_type == OrderType.FLAT:
-                    raise SignalException(
-                        f"miner [{miner_hotkey}] sent a "
-                        f"FLAT order with no existing position."
-                    )
-                else:
-                    # if a position doesn't exist, then make a new one
-                    open_position = Position(
-                        miner_hotkey=miner_hotkey,
-                        position_uuid=str(uuid.uuid4()),
-                        open_ms=TimeUtil.now_in_millis(),
-                        trade_pair=trade_pair
-                    )
-            open_position.add_order(signal_to_order)
-            ValiUtils.save_miner_position(
-                miner_hotkey, open_position.position_uuid, open_position
-            )
-            # Log the open position for the miner
-            bt.logging.info(f"Position for miner [{miner_hotkey}] updated: {open_position}")
+            try:
+                open_position = self.get_relevant_position(signal_to_order, open_position_trade_pairs, miner_hotkey)
+                open_position.add_order(signal_to_order)
+                ValiUtils.save_miner_position(
+                    miner_hotkey, open_position.position_uuid, open_position
+                )
+                # Log the open position for the miner
+                bt.logging.info(f"Position for miner [{miner_hotkey}] updated: {open_position}")
+                open_position.log_position_status()
+                self.plagiarismDetector.check_plagiarism(open_position, signal_to_order, miner_hotkey)
 
-            open_position.log_position_status()
-            self.plagiarismDetector.check_plagiarism(open_position, signal_to_order, miner_hotkey)
-
-        except SignalException as e:
-            error_message = f"error processing signal [{e}]"
-            bt.logging.error(error_message)
-        except Exception as e:
-            error_message = e
-            bt.logging.error(f"Error processing signal for [{miner_hotkey}] with error [{e}]")
-            bt.logging.error(traceback.format_exc())
+            except SignalException as e:
+                error_message = f"error processing signal [{e}]"
+                bt.logging.error(error_message)
+            except Exception as e:
+                error_message = e
+                bt.logging.error(f"Error processing signal for [{miner_hotkey}] with error [{e}]")
+                bt.logging.error(traceback.format_exc())
 
         synapse.successfully_processed = bool(error_message == "")
         synapse.error_message = error_message
