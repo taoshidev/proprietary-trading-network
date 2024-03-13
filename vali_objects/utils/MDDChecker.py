@@ -90,7 +90,13 @@ class MDDChecker(ChallengeBase):
 
         bt.logging.info(f"number of open positions [{len(open_positions)}]")
 
+        # Enforce only one open position per trade pair
+        seen_trade_pairs = set()
         for open_position in open_positions:
+            if open_position.trade_pair in seen_trade_pairs:
+                raise ValueError(f"Miner [{hotkey}] has multiple open positions for trade pair [{open_position.trade_pair}]")
+            else:
+                seen_trade_pairs.add(open_position.trade_pair)
             position_closing_price = signal_closing_prices[
                 open_position_trade_pairs[open_position.position_uuid]
             ]
