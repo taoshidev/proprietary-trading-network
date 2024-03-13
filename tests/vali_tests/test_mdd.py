@@ -9,6 +9,8 @@ from vali_objects.utils.MDDChecker import MDDChecker
 from vali_objects.utils.vali_utils import ValiUtils
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.vali_dataclasses.order import Order
+from data_generator.twelvedata_service import TwelveDataService
+
 TEST_MINER = "test_miner"
 
 class MockMDDChecker(MDDChecker):
@@ -41,6 +43,8 @@ class TestMDDChecker(TestBase):
         ValiUtils.init_cache_files(self.mockMetagraph)
         ChallengeBase.clear_eliminations_from_disk()
         ValiUtils.clear_all_miner_positions_from_disk()
+        secrets = ValiUtils.get_secrets()
+        self.tds = TwelveDataService(api_key=secrets["twelvedata_apikey"])
 
     def verify_elimination_data_in_memory_and_disk(self, expected_eliminations):
         self.mddChecker._load_latest_eliminations_from_disk()
@@ -56,7 +60,7 @@ class TestMDDChecker(TestBase):
             self.assertEqual(v1['reason'], v2['reason'])
             self.assertAlmostEquals(v1['elimination_initiated_time'], v2['elimination_initiated_time'], places=1)
 
-    def test_mdd_failure_simple(self):
+    def test_mdd_failure_with_open_position(self):
         self.verify_elimination_data_in_memory_and_disk([])
         self.position = self.trade_pair_to_default_position[TradePair.BTCUSD]
         o1 = Order(order_type=OrderType.SHORT,
@@ -66,6 +70,36 @@ class TestMDDChecker(TestBase):
                 processed_ms=1000,
                 order_uuid="1000")
 
+        relevant_position = self.trade_pair_to_default_position[TradePair.BTCUSD]
+        self.mddChecker.mdd_check()
+        # Running mdd_check with no positions should not cause any eliminations but it should write an empty list to disk
+        self.verify_elimination_data_in_memory_and_disk([])
+
+        relevant_position.add_order(o1)
+        self.assertEqual(relevant_position.is_closed_position, False)
+        ValiUtils.save_miner_position(self.MINER_HOTKEY, self.DEFAULT_TEST_POSITION_UUID, relevant_position)
+        self.mddChecker.mdd_check()
+        failure_row = ChallengeBase.generate_elimination_row(TEST_MINER, 0, MDDChecker.MAX_TOTAL_DRAWDOWN)
+        self.verify_elimination_data_in_memory_and_disk([failure_row])
+
+
+    def test_mdd_failure_with_closed_position(self):
+        self.verify_elimination_data_in_memory_and_disk([])
+        self.position = self.trade_pair_to_default_position[TradePair.BTCUSD]
+        live_price = self.tds.get_close(trade_pair=TradePair.BTCUSD)[TradePair.BTCUSD]
+        o1 = Order(order_type=OrderType.SHORT,
+                leverage=-1.0,
+                price=live_price,
+                trade_pair=TradePair.BTCUSD,
+                processed_ms=1000,
+                order_uuid="1000")
+
+        o2 = Order(order_type=OrderType.FLAT,
+                leverage=0,
+                price=live_price * 100,
+                trade_pair=TradePair.BTCUSD,
+                processed_ms=2000,
+                order_uuid="2000")
 
         relevant_position = self.trade_pair_to_default_position[TradePair.BTCUSD]
         self.mddChecker.mdd_check()
@@ -73,13 +107,16 @@ class TestMDDChecker(TestBase):
         self.verify_elimination_data_in_memory_and_disk([])
 
         relevant_position.add_order(o1)
+        self.mddChecker.mdd_check()
+        self.assertEqual(relevant_position.is_closed_position, False)
+        self.verify_elimination_data_in_memory_and_disk([])
+
+        relevant_position.add_order(o2)
+        self.assertEqual(relevant_position.is_closed_position, True)
         ValiUtils.save_miner_position(self.MINER_HOTKEY, self.DEFAULT_TEST_POSITION_UUID, relevant_position)
         self.mddChecker.mdd_check()
         failure_row = ChallengeBase.generate_elimination_row(TEST_MINER, 0, MDDChecker.MAX_TOTAL_DRAWDOWN)
         self.verify_elimination_data_in_memory_and_disk([failure_row])
-
-
-
 
 
 if __name__ == '__main__':
