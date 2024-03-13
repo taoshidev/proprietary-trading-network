@@ -1,14 +1,19 @@
 import json
 import traceback
+import uuid
 from datetime import datetime
 import time
+import logging
 
 from time_util.time_util import TimeUtil
 from vali_config import ValiConfig
 from vali_objects.decoders.generalized_json_decoder import GeneralizedJSONDecoder
+from vali_objects.enums.order_type_enum import OrderType
+from vali_objects.utils.logger_utils import LoggerUtils
 from vali_objects.utils.position_utils import PositionUtils
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.utils.vali_utils import ValiUtils
+from vali_objects.vali_dataclasses.order import Order
 
 
 def generate_request_outputs():
@@ -17,7 +22,7 @@ def generate_request_outputs():
             ValiBkpUtils.get_eliminations_dir(), ValiUtils.ELIMINATIONS
         )
     except Exception:
-        print("couldn't get eliminations file.")
+        logger.warning("couldn't get eliminations file.")
         eliminations = None
     try:
         try:
@@ -33,7 +38,6 @@ def generate_request_outputs():
         hotkey_positions = PositionUtils.get_all_miner_positions_by_hotkey(
             all_miner_hotkeys,
             sort_positions=True,
-            eliminations=eliminations,
             acceptable_position_end_ms=TimeUtil.timestamp_to_millis(
                 TimeUtil.generate_start_timestamp(
                     ValiConfig.SET_WEIGHT_LOOKBACK_RANGE_DAYS
@@ -48,6 +52,7 @@ def generate_request_outputs():
                 "positions": [],
                 "thirty_day_returns": 1.0,
             }
+
             return_per_position = PositionUtils.get_return_per_closed_position(ps)
 
             if len(return_per_position) > 0:
@@ -55,6 +60,27 @@ def generate_request_outputs():
                 dict_hotkey_position_map[k]["thirty_day_returns"] = curr_return
 
             for p in ps:
+                if k in eliminations:
+                    if p.is_closed_position is False:
+                        logger.warning(
+                            "position was not closed. Will check last order and "
+                            "see if its closed. If not, will note and add."
+                        )
+                        if p.orders[len(p.orders) - 1].order_type != OrderType.FLAT:
+                            logger.warning("order was not closed. Will add close.")
+                            # price shouldn't matter, the miner already added to elims
+                            # price is only used for return purposes which would be irrelevant
+                            p.orders.append(
+                                Order(
+                                    OrderType.FLAT,
+                                    0.0,
+                                    0.0,
+                                    p.trade_pair,
+                                    TimeUtil.now_in_millis(),
+                                    str(uuid.uuid4()),
+                                )
+                            )
+
                 if p.close_ms is None:
                     p.close_ms = 0
                 dict_hotkey_position_map[k]["positions"].append(
@@ -75,17 +101,18 @@ def generate_request_outputs():
             ValiBkpUtils.get_vali_outputs_dir() + "output.json",
             ord_dict_hotkey_position_map,
         )
-        print("successfully outputted request output.")
+        logger.info("successfully outputted request output.")
     except Exception:
-        print("error occurred trying generate request outputs.")
-        print(traceback.format_exc())
+        logger.error("error occurred trying generate request outputs.")
+        logger.info(traceback.format_exc())
 
 
 if __name__ == "__main__":
-    print("generate request outputs")
+    logger = LoggerUtils.init_logger("generate_request_outputs")
+    logger.info("generate request outputs")
     while True:
         now = datetime.utcnow()
         if True:
-            print(f"{now}: outputting request output")
+            logger.info(f"{now}: outputting request output")
             generate_request_outputs()
             time.sleep(15)

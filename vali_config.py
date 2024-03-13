@@ -32,7 +32,7 @@ class TradePair(Enum):
         # Convert TradePair Enum to a dictionary
         return {
             member.name: {
-                "stream_id": member.trade_pair_id,
+                "trade_pair_id": member.trade_pair_id,
                 "trade_pair": member.trade_pair,
                 "fees": member.fees,
                 "min_leverage": member.min_leverage,
