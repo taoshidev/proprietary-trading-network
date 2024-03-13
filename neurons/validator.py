@@ -13,6 +13,7 @@ import traceback
 import bittensor as bt
 
 from data_generator.twelvedata_service import TwelveDataService
+from shared_objects.RateLimiter import RateLimiter
 from shared_objects.challenge_utils import ChallengeBase
 from time_util.time_util import TimeUtil
 from vali_config import ValiConfig, TradePair
@@ -88,14 +89,16 @@ class Validator:
         # Attach determines which functions are called when servicing a request.
         bt.logging.info(f"Attaching forward function to axon.")
 
+        self.rateLimiter = RateLimiter()
+
         def rs_blacklist_fn(synapse: template.protocol.SendSignal) -> Tuple[bool, str]:
-            return Validator.blacklist_fn(synapse, self.metagraph)
+            return Validator.blacklist_fn(synapse, self.metagraph, self.rateLimiter)
 
         def rs_priority_fn(synapse: template.protocol.SendSignal) -> float:
             return Validator.priority_fn(synapse, self.metagraph)
 
         def gp_blacklist_fn(synapse: template.protocol.GetPositions) -> Tuple[bool, str]:
-            return Validator.blacklist_fn(synapse, self.metagraph)
+            return Validator.blacklist_fn(synapse, self.metagraph, self.rateLimiter)
 
         def gp_priority_fn(synapse: template.protocol.GetPositions) -> float:
             return Validator.priority_fn(synapse, self.metagraph)
@@ -143,11 +146,16 @@ class Validator:
         self.eliminationManager = EliminationManager(self.metagraph)
 
     @staticmethod
-    def blacklist_fn(synapse, metagraph) -> Tuple[bool, str]:
+    def blacklist_fn(synapse, metagraph, rateLimiter) -> Tuple[bool, str]:
         bt.logging.debug("got to blacklisting rs")
+        miner_hotkey = synapse.dendrite.hotkey
+        allowed, wait_time = rateLimiter.is_allowed(miner_hotkey)
+        if not allowed:
+            bt.logging.trace(f"Blacklisting {miner_hotkey} for {wait_time} seconds.")
+            return True, synapse.dendrite.hotkey
 
         # Ignore requests from unrecognized entities.
-        if synapse.dendrite.hotkey not in metagraph.hotkeys:
+        if miner_hotkey not in metagraph.hotkeys:
             bt.logging.trace(
                 f"Blacklisting unrecognized hotkey {synapse.dendrite.hotkey}"
             )
