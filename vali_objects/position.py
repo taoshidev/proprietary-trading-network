@@ -137,7 +137,7 @@ class Position:
 
     def _handle_liquidation(self, order):
         self._position_log("position liquidated")
-        self._close_out_position(order)
+        self.close_out_position(order.processed_ms)
 
     def set_returns(self, realtime_price, net_leverage):
         self.current_return = self.calculate_unrealized_pnl(realtime_price)
@@ -188,10 +188,10 @@ class Position:
         else:
             raise ValueError("leverage of 0 provided as initial order.")
 
-    def _close_out_position(self, order):
+    def close_out_position(self, close_ms):
         self.position_type = OrderType.FLAT
         self.is_closed_position = True
-        self.close_ms = order.processed_ms
+        self.close_ms = close_ms
 
     def _update_position(self):
         self._net_leverage = 0.0
@@ -205,7 +205,7 @@ class Position:
                     (self.position_type == OrderType.SHORT and self._net_leverage + order.leverage >= 0) or
                     order.order_type == OrderType.FLAT):
                 self._position_log(f"Flattening {self.position_type.value} position from order {order}")
-                self._close_out_position(order)
+                self.close_out_position(order.processed_ms)
 
             # Reflect the current order in the current position's return. 
             adjusted_leverage = 0.0 if self.position_type == OrderType.FLAT else order.leverage

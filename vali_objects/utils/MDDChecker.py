@@ -50,8 +50,9 @@ class MDDChecker(ChallengeBase):
     def _hotkey_in_eliminations(self, hotkey):
         return any(hotkey == x['hotkey'] for x in self.eliminations)
 
-    def _replay_all_closed_positions(self, hotkey, sorted_per_position_return, current_dd):
+    def _replay_all_closed_positions(self, hotkey, sorted_positions, current_dd):
         elimination_occurred = False
+        sorted_per_position_return = PositionUtils.get_return_per_closed_position(sorted_positions)
         if len(sorted_per_position_return) == 0:
             bt.logging.info(f"no existing closed positions for [{hotkey}]")
             return elimination_occurred, current_dd
@@ -78,9 +79,7 @@ class MDDChecker(ChallengeBase):
         if self._hotkey_in_eliminations(hotkey):
             return
 
-        sorted_per_position_return = PositionUtils.get_return_per_closed_position(sorted_positions)
-
-        elimination_occurred, current_dd = self._replay_all_closed_positions(hotkey, sorted_per_position_return, current_dd)
+        elimination_occurred, current_dd = self._replay_all_closed_positions(hotkey, sorted_positions, current_dd)
         if elimination_occurred:
             return
 
@@ -107,9 +106,9 @@ class MDDChecker(ChallengeBase):
             bt.logging.success(f"current return for [{open_position.position_uuid}] is [{open_position.current_return}]")
             current_dd *= open_position.current_return
 
-            bt.logging.info(f"updating - current return [{open_position.current_return}]")
-            bt.logging.info(f"updating - current dd [{current_dd}]")
-            bt.logging.info(f"updating - net leverage [{open_position.get_net_leverage()}]")
+            bt.logging.info(f"MDD checker - current return [{open_position.current_return}]")
+            bt.logging.info(f"MDD checker - current dd [{current_dd}]")
+            bt.logging.info(f"MDD checker - net leverage [{open_position.get_net_leverage()}]")
 
         mdd_failure = self._is_beyond_mdd(current_dd)
         if mdd_failure:

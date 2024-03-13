@@ -2,6 +2,8 @@
 # Copyright © 2023 Taoshi Inc
 
 import time
+
+from vali_objects.utils.position_utils import PositionUtils
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.utils.vali_utils import ValiUtils
 
@@ -34,15 +36,24 @@ class ChallengeBase:
         return {'hotkey': hotkey, 'elimination_initiated_time': time.time(), 'dd': dd, 'reason': reason}
     def close_positions_and_append_elimination_row(self, hotkey, dd, reason):
         """
-        We are closing the positions here. By adding the miner to the elimination file, we ensure that subsequent orders
+         We are closing the positions here. By adding the miner to the elimination file, we ensure that subsequent orders
          are not allowed to be placed. Orders can be placed again after the elimination time has passed and all old
          miner positions have been deleted. The elimination time gives bittensor sufficient time to deregister the
          miner. However, deregistration isn't guaranteed if there are few miners on the network.
+
+         Close positions before writing elimination to disk. This is because the miner will be immediately
+         blacklisted and unable to modify their data anymore.
         """
-        # TODO: Close positions
+        #
+        for open_position in PositionUtils.get_all_miner_positions(hotkey, only_open_positions=True):
+            open_position.close_out_position(time.time())
+            ValiUtils.save_miner_position(hotkey, open_position.position_uuid, open_position)
+
         r = ChallengeBase.generate_elimination_row(hotkey, dd, reason)
         bt.logging.info(f"Created elimination row: {r}")
         self.eliminations.append(r)
+
+
 
     def _write_eliminations_from_memory_to_disk(self):
         vali_elims = {ValiUtils.ELIMINATIONS: self.eliminations}
