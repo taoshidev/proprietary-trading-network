@@ -118,6 +118,40 @@ class TestMDDChecker(TestBase):
         self.verify_elimination_data_in_memory_and_disk([failure_row])
 
 
+    def test_no_mdd_failures(self):
+        self.verify_elimination_data_in_memory_and_disk([])
+        self.position = self.trade_pair_to_default_position[TradePair.BTCUSD]
+        live_price = self.tds.get_close(trade_pair=TradePair.BTCUSD)[TradePair.BTCUSD]
+        o1 = Order(order_type=OrderType.SHORT,
+                leverage=1.0,
+                price=live_price,
+                trade_pair=TradePair.BTCUSD,
+                processed_ms=live_price,
+                order_uuid="1000")
+
+        o2 = Order(order_type=OrderType.LONG,
+                leverage=.5,
+                price=live_price,
+                trade_pair=TradePair.BTCUSD,
+                processed_ms=2000,
+                order_uuid="2000")
+
+        relevant_position = self.trade_pair_to_default_position[TradePair.BTCUSD]
+        self.mddChecker.mdd_check()
+        # Running mdd_check with no positions should not cause any eliminations but it should write an empty list to disk
+        self.verify_elimination_data_in_memory_and_disk([])
+
+        relevant_position.add_order(o1)
+        self.mddChecker.mdd_check()
+        self.assertEqual(relevant_position.is_closed_position, False)
+        self.verify_elimination_data_in_memory_and_disk([])
+
+        relevant_position.add_order(o2)
+        self.assertEqual(relevant_position.is_closed_position, False)
+        ValiUtils.save_miner_position(self.MINER_HOTKEY, self.DEFAULT_TEST_POSITION_UUID, relevant_position)
+        self.mddChecker.mdd_check()
+        self.verify_elimination_data_in_memory_and_disk([])
+
 if __name__ == '__main__':
     import unittest
     unittest.main()
