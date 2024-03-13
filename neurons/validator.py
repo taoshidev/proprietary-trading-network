@@ -3,7 +3,6 @@
 # developer: Taoshidev
 # Copyright © 2023 Taoshi Inc
 
-# Step 1: Import necessary libraries and modules
 import os
 import uuid
 from typing import Tuple
@@ -36,6 +35,10 @@ from vali_objects.utils.vali_utils import ValiUtils
 class Validator:
     def __init__(self):
         self.config = self.get_config()
+        # Ensure the directory for logging exists, else create one.
+        if not os.path.exists(self.config.full_path):
+            os.makedirs(self.config.full_path, exist_ok=True)
+
         self.secrets = ValiUtils.get_secrets()
         if self.secrets is None:
             raise Exception(
@@ -54,7 +57,7 @@ class Validator:
         # This logs the active configuration to the specified logging directory for review.
         bt.logging.info(self.config)
 
-        # Step 4: Initialize Bittensor miner objects
+        # Initialize Bittensor miner objects
         # These classes are vital to interact and function within the Bittensor network.
         bt.logging.info("Setting up bittensor objects.")
 
@@ -73,7 +76,7 @@ class Validator:
         self.metagraphUpdater.update_metagraph()
         bt.logging.info(f"Metagraph: {self.metagraph}")
 
-        # Step 5: Build and link vali functions to the axon.
+        # Build and link vali functions to the axon.
         # The axon handles request processing, allowing validators to send this process requests.
         bt.logging.info(f"setting port [{self.config.axon.port}]")
         bt.logging.info(f"setting external port [{self.config.axon.external_port}]")
@@ -206,9 +209,6 @@ class Validator:
                 "miner",
             )
         )
-        # Ensure the directory for logging exists, else create one.
-        if not os.path.exists(config.full_path):
-            os.makedirs(config.full_path, exist_ok=True)
         return config
 
     # Main takes the config and starts the miner.

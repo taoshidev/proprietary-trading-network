@@ -64,7 +64,7 @@ class TestMDDChecker(TestBase):
         self.verify_elimination_data_in_memory_and_disk([])
         self.position = self.trade_pair_to_default_position[TradePair.BTCUSD]
         o1 = Order(order_type=OrderType.SHORT,
-                leverage=-1.0,
+                leverage=1.0,
                 price=1000,
                 trade_pair=TradePair.BTCUSD,
                 processed_ms=1000,
@@ -88,7 +88,7 @@ class TestMDDChecker(TestBase):
         self.position = self.trade_pair_to_default_position[TradePair.BTCUSD]
         live_price = self.tds.get_close(trade_pair=TradePair.BTCUSD)[TradePair.BTCUSD]
         o1 = Order(order_type=OrderType.SHORT,
-                leverage=-1.0,
+                leverage=1.0,
                 price=live_price,
                 trade_pair=TradePair.BTCUSD,
                 processed_ms=1000,
