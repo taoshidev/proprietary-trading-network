@@ -90,18 +90,24 @@ class MDDChecker(ChallengeBase):
 
         bt.logging.info(f"number of open positions [{len(open_positions)}]")
 
+        # Enforce only one open position per trade pair
+        seen_trade_pairs = set()
         for open_position in open_positions:
-            position_closing_price = signal_closing_prices[
+            if open_position.trade_pair in seen_trade_pairs:
+                raise ValueError(f"Miner [{hotkey}] has multiple open positions for trade pair [{open_position.trade_pair}]")
+            else:
+                seen_trade_pairs.add(open_position.trade_pair)
+            realtime_price = signal_closing_prices[
                 open_position_trade_pairs[open_position.position_uuid]
             ]
-            current_return = open_position.calculate_unrealized_pnl(position_closing_price)
-            bt.logging.success(f"current return for [{open_position.position_uuid}] is [{current_return}]")
-            open_position.current_return = current_return
-            current_dd *= current_return
+            open_position.set_returns(realtime_price, open_position.get_net_leverage())
 
-            bt.logging.info(f"updating - current return [{current_return}]")
+            bt.logging.success(f"current return for [{open_position.position_uuid}] is [{open_position.current_return}]")
+            current_dd *= open_position.current_return
+
+            bt.logging.info(f"updating - current return [{open_position.current_return}]")
             bt.logging.info(f"updating - current dd [{current_dd}]")
-            bt.logging.info(f"updating - net leverage [{open_position._net_leverage}]")
+            bt.logging.info(f"updating - net leverage [{open_position.get_net_leverage()}]")
 
         mdd_failure = self._is_beyond_mdd(current_dd)
         if mdd_failure:
