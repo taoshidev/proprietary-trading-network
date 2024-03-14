@@ -31,8 +31,6 @@ class MDDChecker(ChallengeBase):
 
         try:
             signal_closing_prices = self.twelvedata.get_closes(trade_pairs=self.all_trade_pairs)
-            for trade_pair, closing_price in signal_closing_prices.items():
-                bt.logging.info(f"Live price for {trade_pair} is {closing_price}")
 
             hotkey_positions = PositionUtils.get_all_miner_positions_by_hotkey(
                 self.metagraph.hotkeys, sort_positions=True, eliminations=self.eliminations
@@ -83,13 +81,12 @@ class MDDChecker(ChallengeBase):
         if elimination_occurred:
             return
 
-        bt.logging.info(f"reviewing open positions for [{hotkey}]. Current_dd [{current_dd}]")
         open_positions = [position for position in sorted_positions if not position.is_closed_position]
+        bt.logging.info(f"reviewing open positions for [{hotkey}]. Current_dd [{current_dd}]. n_positions [{len(open_positions)}]")
+
         open_position_trade_pairs = {
             position.position_uuid: position.trade_pair for position in open_positions
         }
-
-        bt.logging.info(f"number of open positions [{len(open_positions)}]")
 
         # Enforce only one open position per trade pair
         seen_trade_pairs = set()

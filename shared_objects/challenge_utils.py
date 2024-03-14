@@ -45,7 +45,9 @@ class ChallengeBase:
          blacklisted and unable to modify their data anymore.
         """
         #
-        for open_position in PositionUtils.get_all_miner_positions(hotkey, only_open_positions=True):
+        open_positions = PositionUtils.get_all_miner_positions(hotkey, only_open_positions=True)
+        bt.logging.info(f"Closing [{len(open_positions)}] positions for hotkey: {hotkey}")
+        for open_position in open_positions:
             open_position.close_out_position(time.time())
             ValiUtils.save_miner_position(hotkey, open_position.position_uuid, open_position)
 
@@ -63,6 +65,10 @@ class ChallengeBase:
     @staticmethod
     def clear_eliminations_from_disk():
         ValiBkpUtils.write_file(ValiBkpUtils.get_eliminations_dir(), {ValiUtils.ELIMINATIONS: []})
+
+    @staticmethod
+    def clear_plagiarism_scores_from_disk():
+        ValiBkpUtils.write_file(ValiBkpUtils.get_miner_copying_dir(), {})
 
     def _write_updated_plagiarism_scores_from_memory_to_disk(self):
         ValiBkpUtils.write_file(ValiBkpUtils.get_miner_copying_dir(), self.miner_plagiarism_scores)
