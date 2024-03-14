@@ -8,10 +8,42 @@ from time_util.time_util import TimeUtil
 
 
 class TradePair(Enum):
+    # crypto
     BTCUSD = ("BTCUSD", "BTC/USD", 0.003, 0.0001, 20)
     ETHUSD = ("ETHUSD", "ETH/USD", 0.003, 0.0001, 20)
-    EURUSD = ("EURUSD", "EUR/USD", 0.0003, 0.0001, 100)
-    SPX = ("SPX", "SPX", 0.0005, 0.0001, 100)
+
+    # forex
+    AUDCAD = ("AUDCAD", "AUD/CAD", 0.0003, 0.0001, 500)
+    AUDUSD = ("AUDUSD", "AUD/USD", 0.0003, 0.0001, 500)
+    AUDJPY = ("AUDJPY", "AUD/JPY", 0.0003, 0.0001, 500)
+
+    CADCHF = ("CADCHF", "CAD/CHF", 0.0003, 0.0001, 500)
+    CADJPY = ("CADJPY", "CAD/JPY", 0.0003, 0.0001, 500)
+
+    CHFJPY = ("CHFJPY", "CHF/JPY", 0.0003, 0.0001, 500)
+
+    EURCAD = ("EURCAD", "EUR/CAD", 0.0003, 0.0001, 500)
+    EURUSD = ("EURUSD", "EUR/USD", 0.0003, 0.0001, 500)
+    EURCHF = ("EURCHF", "EUR/CHF", 0.0003, 0.0001, 500)
+    EURGBP = ("EURGBP", "EUR/GBP", 0.0003, 0.0001, 500)
+    EURJPY = ("EURJPY", "EUR/JPY", 0.0003, 0.0001, 500)
+    EURNZD = ("EURNZD", "EUR/NZD", 0.0003, 0.0001, 500)
+
+    NZDCAD = ("NZDCAD", "NZD/CAD", 0.0003, 0.0001, 500)
+    NZDJPY = ("NZDJPY", "NZD/JPY", 0.0003, 0.0001, 500)
+
+    GBPUSD = ("GBPUSD", "GBP/USD", 0.0003, 0.0001, 500)
+    GBPJPY = ("GBPJPY", "GBP/JPY", 0.0003, 0.0001, 500)
+
+    USDCAD = ("USDCAD", "USD/CAD", 0.0003, 0.0001, 500)
+    USDCHF = ("USDCHF", "USD/CHF", 0.0003, 0.0001, 500)
+    USDJPY = ("USDJPY", "USD/JPY", 0.0003, 0.0001, 500)
+
+    # indices
+    SPX = ("SPX", "SPX", 0.0005, 0.0001, 500)
+    DJI = ("DJI", "DJI", 0.0005, 0.0001, 500)
+    FTSE = ("FTSE", "FTSE", 0.0005, 0.0001, 500)
+    GDAXI = ("GDAXI", "GDAXI", 0.0005, 0.0001, 500)
 
     def __init__(
         self,
@@ -73,7 +105,7 @@ class ValiConfig:
     # fees take into account exiting and entering a position, liquidity, and futures fees
     TRADE_PAIR_FEES = {TradePair.BTCUSD: 0.003, TradePair.ETHUSD: 0.003}
 
-    MDD_CHECK_REFRESH_TIME_S = 15 # 15 seconds
+    MDD_CHECK_REFRESH_TIME_S = 15  # 15 seconds
     MAX_DAILY_DRAWDOWN = 0.95  # Portfolio should never fall below .95 x of initial value when measured day to day
     MAX_TOTAL_DRAWDOWN = 0.9  # Portfolio should never fall below .90 x of initial value when measured at any instant
     MAX_ORDERS = 200
@@ -94,4 +126,3 @@ class ValiConfig:
     ELIMINATION_CHECK_INTERVAL_S = 60 * 5  # 5 minutes
     ELIMINATION_FILE_DELETION_DELAY_S = 60 * 30  # 30 min
     MAX_MINER_PLAGIARISM_SCORE = 1.0
-
