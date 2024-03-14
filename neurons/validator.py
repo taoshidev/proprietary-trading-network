@@ -30,9 +30,7 @@ from vali_objects.vali_dataclasses.order import Order
 from vali_objects.position import Position
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.utils.vali_utils import ValiUtils
-
-
-
+from vali_config import ValiConfig
 
 class Validator:
     def __init__(self):

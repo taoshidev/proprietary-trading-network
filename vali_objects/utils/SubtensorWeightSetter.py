@@ -33,8 +33,6 @@ class SubtensorWeightSetter(ChallengeBase):
             bt.logging.info("calculating new subtensor weights...")
             filtered_results = Scoring.filter_results(return_per_netuid)
             scaled_transformed_list = Scoring.transform_and_scale_results(filtered_results)
-            bt.logging.info(f"filtered results: {filtered_results}")
-            bt.logging.info(f"scaled transformed list: {scaled_transformed_list}")
             self._set_subtensor_weights(scaled_transformed_list)
         self.set_last_update_time()
 

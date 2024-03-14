@@ -1,22 +1,10 @@
 # developer: trdougherty
 # Copyright © 2024 Taoshi Inc
-from shared_objects.challenge_utils import ChallengeBase
-from tests.shared_objects.mock_classes import MockMetagraph, MockWeights
 from tests.vali_tests.base_objects.test_base import TestBase
-from vali_config import ValiConfig
-from vali_objects.enums.order_type_enum import OrderType
-from vali_objects.position import Position
 from vali_objects.scoring.scoring import Scoring
-
-from vali_objects.utils.vali_utils import ValiUtils
-
-from vali_objects.vali_dataclasses.order import Order
-from data_generator.twelvedata_service import TwelveDataService
 
 import numpy as np
 import random
-
-from vali_objects.utils.SubtensorWeightSetter import SubtensorWeightSetter
 
 class TestWeights(TestBase):
 
