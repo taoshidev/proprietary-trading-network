@@ -35,3 +35,14 @@ class Order(Signal):
     def __str__(self):
         return str({'trade_pair': str(self.trade_pair), 'order_type': str(self.order_type), 'leverage': self.leverage, 
                 'price': self.price, 'processed_ms': self.processed_ms, 'order_uuid': self.order_uuid})
+
+    @staticmethod
+    def from_dict(order_dict):
+        return Order(
+                OrderType.get_order_type(order_dict["order_type"]),
+                order_dict["leverage"],
+                order_dict["price"],
+                TradePair.get_trade_pair(order_dict["trade_pair"]["trade_pair_id"]),
+                order_dict["processed_ms"],
+                order_dict["order_uuid"],
+            )

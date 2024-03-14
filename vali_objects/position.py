@@ -35,7 +35,7 @@ class Position:
       second position which is SHORT with the difference.
     - You can take profit on an open position using LONG and SHORT. For example, if you have
       an open LONG position with 0.75x leverage and you want to start taking profit, you
-      would send in SHORT signals to reduce the size of the position. Ex: Sending a short at 
+      would send in SHORT signals to reduce the size of the position. Ex: Sending a short at
       -.25 leverage. This functions very similarly to dYdX.
     - You can close out a position by sending in a FLAT signal.
     - Max drawdown is determined every minute. If you go beyond 5% max drawdown on daily
@@ -50,17 +50,22 @@ class Position:
     """
 
     def __init__(
-            self,
-            miner_hotkey: str,
-            # hotkeys are used to sign for a coldkey. They're what registers with subnets and how we identify miners.
-            position_uuid: str,
-            open_ms: int,
-            trade_pair: TradePair,
-            orders: List[Order] = None,
-            current_return: Optional[float] = 1,
-            max_drawdown: Optional[float] = 0,
-            close_ms: Optional[int] = None,
-            return_at_close: Optional[float] = 1,
+        self,
+        miner_hotkey: str,
+        # hotkeys are used to sign for a coldkey. They're what registers with subnets and how we identify miners.
+        position_uuid: str,
+        open_ms: int,
+        trade_pair: TradePair,
+        orders: List[Order] = None,
+        current_return: Optional[float] = 1,
+        max_drawdown: Optional[float] = 0,
+        close_ms: Optional[int] = None,
+        return_at_close: Optional[float] = 1,
+        net_leverage: Optional[float] = 0,
+        average_entry_price: Optional[float] = 0,
+        initial_entry_price: Optional[float] = 0,
+        position_type: Optional[OrderType] = None,
+        is_closed_position: Optional[bool] = False
     ):
         if orders is None:
             orders = []
@@ -75,30 +80,53 @@ class Position:
         self.close_ms = close_ms
         self.return_at_close = return_at_close
 
-        self._net_leverage = 0  # Positive for net long, negative for net short
-        self._average_entry_price = 0
-        self._initial_entry_price = 0
+        self._net_leverage = net_leverage
+        self._average_entry_price = average_entry_price
+        self._initial_entry_price = initial_entry_price
 
-        self.position_type = None
-        self.is_closed_position = False
+        self.position_type = position_type
+        self.is_closed_position = is_closed_position
 
     def __str__(self) -> str:
-        return str({
-            'position_uuid': self.position_uuid,
-            'net_leverage': self._net_leverage,
-            'average_entry_price': self._average_entry_price,
-            'position_type': str(self.position_type),
-            'return_at_close': self.return_at_close,
-            'current_return': self.current_return,
-            'orders': [str(order) for order in self.orders],
-            'close_ms': self.close_ms
-        })
+        return str(
+            {
+                # args
+                "miner_hotkey": self.miner_hotkey,
+                "position_uuid": self.position_uuid,
+                "open_ms": self.open_ms,
+                "trade_pair": str(self.trade_pair),
+                "orders": [str(order) for order in self.orders],
+                "current_return": self.current_return,
+                "max_drawdown": self.max_drawdown,
+                "close_ms": self.close_ms,
+                # additional important data
+                "return_at_close": self.return_at_close,
+                "net_leverage": self._net_leverage,
+                "average_entry_price": self._average_entry_price,
+                "initial_entry_price": self._initial_entry_price,
+                "position_type": str(self.position_type),
+                "is_closed_position": str(self.is_closed_position),
+            }
+        )
+
+    @staticmethod
+    def from_dict(position_dict):
+        orders = [Order.from_dict(order) for order in position_dict["orders"]]
+        position_dict["orders"] = orders
+        position_dict["trade_pair"] = TradePair.get_trade_pair(
+            position_dict["trade_pair"]["trade_pair_id"]
+        )
+        position_dict["is_closed_position"] = (
+            True if position_dict["is_closed_position"].lower() == "true" else False
+        )
+        return Position(**position_dict)
 
     @staticmethod
     def _position_log(message):
         bt.logging.info("Position Notification - " + message)
 
-    def get_net_leverage(self): return self._net_leverage
+    def get_net_leverage(self):
+        return self._net_leverage
 
     def log_position_status(self):
         bt.logging.debug(
@@ -110,14 +138,20 @@ class Position:
             f"return_at_close [{self.return_at_close}]"
         )
         order_info = [
-            {"order type": order.order_type.value, "leverage": order.leverage, "price": order}
+            {
+                "order type": order.order_type.value,
+                "leverage": order.leverage,
+                "price": order,
+            }
             for order in self.orders
         ]
         bt.logging.debug(f"position order details: " f"close_ms [{order_info}] ")
 
     def add_order(self, order: Order):
         if self.is_closed_position:
-            logging.warning("Miner attempted to add order to a closed/liquidated position. Ignoring.")
+            logging.warning(
+                "Miner attempted to add order to a closed/liquidated position. Ignoring."
+            )
             return
         self.orders.append(order)
         self._update_position()
@@ -127,8 +161,13 @@ class Position:
             return 1
 
         bt.logging.info(
-            f"current price: {current_price}, average entry price: {self._average_entry_price}, net leverage: {self._net_leverage}, initial entry price: {self._initial_entry_price}")
-        gain = (current_price - self._average_entry_price) * self._net_leverage / self._initial_entry_price
+            f"current price: {current_price}, average entry price: {self._average_entry_price}, net leverage: {self._net_leverage}, initial entry price: {self._initial_entry_price}"
+        )
+        gain = (
+            (current_price - self._average_entry_price)
+            * self._net_leverage
+            / self._initial_entry_price
+        )
         # Check if liquidated
         if gain <= -1.0:
             return 0
@@ -142,7 +181,7 @@ class Position:
     def set_returns(self, realtime_price, net_leverage):
         self.current_return = self.calculate_unrealized_pnl(realtime_price)
         self.return_at_close = self.current_return * (
-                1 - ValiConfig.TRADE_PAIR_FEES[self.trade_pair] * abs(net_leverage)
+            1 - ValiConfig.TRADE_PAIR_FEES[self.trade_pair] * abs(net_leverage)
         )
 
     def update_position_state_for_new_order(self, order, delta_leverage):
@@ -169,9 +208,10 @@ class Position:
         if self.position_type == OrderType.FLAT:
             self._net_leverage = 0.0
         else:
-            self._average_entry_price = \
-                ((self._average_entry_price * self._net_leverage + realtime_price * delta_leverage) /
-                 new_net_leverage)
+            self._average_entry_price = (
+                self._average_entry_price * self._net_leverage
+                + realtime_price * delta_leverage
+            ) / new_net_leverage
             self._net_leverage = new_net_leverage
 
     def initialize_position_from_first_order(self, order):
@@ -201,15 +241,29 @@ class Position:
                 self.initialize_position_from_first_order(order)
 
             # Check if the new order flattens the position, explicitly or implicitly
-            if ((self.position_type == OrderType.LONG and self._net_leverage + order.leverage <= 0) or
-                    (self.position_type == OrderType.SHORT and self._net_leverage + order.leverage >= 0) or
-                    order.order_type == OrderType.FLAT):
-                self._position_log(f"Flattening {self.position_type.value} position from order {order}")
+            if (
+                (
+                    self.position_type == OrderType.LONG
+                    and self._net_leverage + order.leverage <= 0
+                )
+                or (
+                    self.position_type == OrderType.SHORT
+                    and self._net_leverage + order.leverage >= 0
+                )
+                or order.order_type == OrderType.FLAT
+            ):
+                self._position_log(
+                    f"Flattening {self.position_type.value} position from order {order}"
+                )
                 self.close_out_position(order.processed_ms)
 
-            # Reflect the current order in the current position's return. 
-            adjusted_leverage = 0.0 if self.position_type == OrderType.FLAT else order.leverage
-            bt.logging.info(f"Updating position state for new order {order} with adjusted leverage {adjusted_leverage}")
+            # Reflect the current order in the current position's return.
+            adjusted_leverage = (
+                0.0 if self.position_type == OrderType.FLAT else order.leverage
+            )
+            bt.logging.info(
+                f"Updating position state for new order {order} with adjusted leverage {adjusted_leverage}"
+            )
             self.update_position_state_for_new_order(order, adjusted_leverage)
 
             # If the position is already closed, we don't need to process any more orders. break in case there are more orders.
