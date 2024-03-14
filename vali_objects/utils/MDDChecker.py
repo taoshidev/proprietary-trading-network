@@ -57,15 +57,14 @@ class MDDChecker(ChallengeBase):
 
         # Already sorted
         for position_return in sorted_per_position_return:
-            current_dd *= position_return
-            mdd_failure = self._is_beyond_mdd(current_dd)
+            mdd_failure = self._is_beyond_mdd(position_return)
             if mdd_failure:
-                self.close_positions_and_append_elimination_row(hotkey, current_dd, mdd_failure)
+                self.close_positions_and_append_elimination_row(hotkey, position_return, mdd_failure)
                 elimination_occurred = True
                 return elimination_occurred, current_dd
 
         # Replay of closed positions complete. If
-        return elimination_occurred, current_dd
+        return elimination_occurred, sorted_per_position_return[-1]
 
 
     def _search_for_miner_dd_failures(self, hotkey, sorted_positions, signal_closing_prices):

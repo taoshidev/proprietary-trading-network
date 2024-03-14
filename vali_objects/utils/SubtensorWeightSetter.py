@@ -18,7 +18,6 @@ class SubtensorWeightSetter(ChallengeBase):
         self.wallet = wallet
 
     def set_weights(self):
-        # TODO: Should this check for eliminated miners and set their weight to 0 / exclude them.
         if time.time() - self.get_last_update_time() < ValiConfig.SET_WEIGHT_REFRESH_TIME_S:
             time.sleep(1)
             return
@@ -41,6 +40,7 @@ class SubtensorWeightSetter(ChallengeBase):
         netuid_returns = []
         netuids = []
 
+        # Note, eliminated miners will not appear in the dict below
         hotkey_positions = PositionUtils.get_all_miner_positions_by_hotkey(
             self.metagraph.hotkeys,
             sort_positions=True,
@@ -52,14 +52,11 @@ class SubtensorWeightSetter(ChallengeBase):
 
         # have to have a minimum number of positions during the period
         # this removes anyone who got lucky on a couple trades
-        # TODO: should this be multiplying each position return by the previous? Seems to be overwriting the previous value.
         for hotkey, positions in hotkey_positions.items():
             if len(positions) <= ValiConfig.SET_WEIGHT_MINIMUM_POSITIONS:
                 continue
             per_position_return = PositionUtils.get_return_per_closed_position(positions)
-            last_positional_return = 1
-            if len(per_position_return) > 0:
-                last_positional_return = per_position_return[len(per_position_return) - 1]
+            last_positional_return = per_position_return[-1]
             netuid_returns.append(last_positional_return)
             netuid = self.metagraph.hotkeys.index(hotkey)
             return_per_netuid[netuid] = last_positional_return
