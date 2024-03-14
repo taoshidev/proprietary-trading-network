@@ -22,7 +22,7 @@ class ValiUtils:
     COPY_TRADING = "copy_trading"
 
     @staticmethod
-    def get_miner_positions(file) -> str | object:
+    def get_miner_positions_from_disk(file) -> str | object:
         # wrapping here to allow simpler error handling & original for other error handling
         try:
             ans = ValiBkpUtils.get_file(file, True)
@@ -43,13 +43,9 @@ class ValiUtils:
             raise ValiFileMissingException("Vali secrets file is missing")
 
     @staticmethod
-    def save_miner_position(
-        miner_hotkey: str, position_uuid: str, content: Dict | object
-    ) -> None:
+    def save_miner_position_to_disk(position: Position) -> None:
         ValiBkpUtils.write_file(
-            ValiBkpUtils.get_miner_position_dir(miner_hotkey) + position_uuid,
-            content,
-            True,
+            ValiBkpUtils.get_miner_position_dir(position.miner_hotkey) + position.position_uuid, position,True
         )
 
     @staticmethod
@@ -80,7 +76,7 @@ class ValiUtils:
             return []
         
     @staticmethod
-    def get_miner_eliminations_from_cache() -> Dict:
+    def get_miner_eliminations_from_disk() -> Dict:
         return ValiUtils.get_vali_json_file(
             ValiBkpUtils.get_eliminations_dir(), ValiUtils.ELIMINATIONS
     )
@@ -95,7 +91,7 @@ class ValiUtils:
     def init_cache_files(metagraph: object):
         ValiBkpUtils.make_dir(ValiBkpUtils.get_vali_dir())
 
-        if len(ValiUtils.get_miner_eliminations_from_cache()) == 0:
+        if len(ValiUtils.get_miner_eliminations_from_disk()) == 0:
             ValiBkpUtils.write_file(
                 ValiBkpUtils.get_eliminations_dir(), {ValiUtils.ELIMINATIONS: []}
             )

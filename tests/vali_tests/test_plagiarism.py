@@ -52,17 +52,26 @@ class TestPlagiarism(TestBase):
         secrets = ValiUtils.get_secrets()
         self.tds = TwelveDataService(api_key=secrets["twelvedata_apikey"])
 
+    def add_order_to_position_and_save_to_disk(self, position, order):
+        position.add_order(order)
+        ValiUtils.save_miner_position_to_disk(position)
 
     def test_plagiarism_all_zero_scores(self):
+        self.assertEqual({}, self.plagiarismDetector.miner_plagiarism_scores)
+
         o1 = Order(order_type=OrderType.SHORT,
                 leverage=1.0,
                 price=1000,
                 trade_pair=TradePair.ETHUSD,
                 processed_ms=1000,
                 order_uuid="1000")
-        self.eth_position1.add_order(o1)
-        self.plagiarismDetector.check_plagiarism(self.eth_position1, o1, self.MINER_HOTKEY1)
+        self.add_order_to_position_and_save_to_disk(self.eth_position1, o1)
+        self.plagiarismDetector.check_plagiarism(self.eth_position1, o1)
         self.assertEqual({self.MINER_HOTKEY1: 0}, self.plagiarismDetector.miner_plagiarism_scores)
+
+        self.add_order_to_position_and_save_to_disk(self.eth_position2, o1)
+        self.plagiarismDetector.check_plagiarism(self.eth_position2, o1)
+        self.assertEqual({self.MINER_HOTKEY1: 0, self.MINER_HOTKEY2: 0}, self.plagiarismDetector.miner_plagiarism_scores)
 
         o2 = Order(order_type=OrderType.SHORT,
                 leverage=1.0,
@@ -70,6 +79,6 @@ class TestPlagiarism(TestBase):
                 trade_pair=TradePair.ETHUSD,
                 processed_ms=2000,
                 order_uuid="2000")
-        self.eth_position2.add_order(o1)
-        self.plagiarismDetector.check_plagiarism(self.eth_position2, o2, self.MINER_HOTKEY2)
-        self.assertEqual({self.MINER_HOTKEY1: 0, self.MINER_HOTKEY2: 0}, self.plagiarismDetector.miner_plagiarism_scores)
+
+        #TODO ...
+
