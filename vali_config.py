@@ -85,8 +85,7 @@ class TradePair(Enum):
     @staticmethod
     def get_trade_pair(trade_pair_id: str):
         tp_map = TradePair.pair_map()
-        # could also raise a signal exception here if not found
-        return tp_map.get(trade_pair_id, None)
+        return tp_map[trade_pair_id] 
 
     def __json__(self):
         # Provide a dictionary representation for JSON serialization
