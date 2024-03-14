@@ -278,17 +278,29 @@ class Validator:
         bt.logging.success(f"Converted signal to order: {order}")
         return order
 
-    def get_relevant_position(self, signal_to_order, open_position_trade_pairs, miner_hotkey):
+    def _enforce_num_open_order_limit(self, trade_pair_to_open_position: dict, signal_to_order):
+        # Check if there are too many orders across all open positions.
+        # If so, check if the current order is a FLAT order (reduces number of open orders). If not, raise an exception
+        n_open_positions = sum([len(position.orders) for position in trade_pair_to_open_position.values()])
+        if n_open_positions >= ValiConfig.MAX_OPEN_ORDERS_PER_HOTKEY:
+            if signal_to_order.order_type != OrderType.FLAT:
+                raise SignalException(
+                    f"miner [{signal_to_order}] sent too many open orders [{len(trade_pair_to_open_position)}] and "
+                    f"order [{signal_to_order}] is not a FLAT order."
+                )
+
+    def _get_relevant_position(self, signal_to_order: Order, miner_hotkey: str, trade_pair_to_open_position: dict):
         trade_pair = signal_to_order.trade_pair
+
         # if a position already exists, add the order to it
-        if trade_pair in open_position_trade_pairs:
+        if trade_pair in trade_pair_to_open_position:
             # If the position is closed, raise an exception
-            if open_position_trade_pairs[trade_pair].is_closed_position:
+            if trade_pair_to_open_position[trade_pair].is_closed_position:
                 raise SignalException(
                     f"miner [{miner_hotkey}] sent signal for "
                     f"closed position [{trade_pair}]")
             bt.logging.debug("adding to existing position")
-            open_position = open_position_trade_pairs[trade_pair]
+            open_position = trade_pair_to_open_position[trade_pair]
         else:
             bt.logging.debug("processing new position")
             # if the order is FLAT ignore and log
@@ -320,8 +332,11 @@ class Validator:
             signal_to_order = self.convert_signal_to_order(signal, miner_hotkey)
             with self.positionLocks.get_lock(miner_hotkey, signal_to_order.trade_pair.trade_pair_id):
                 # gather open positions and see which trade pairs have an open position
-                open_position_trade_pairs = {position.trade_pair: position for position in PositionUtils.get_all_miner_positions(miner_hotkey, only_open_positions=True)}
-                open_position = self.get_relevant_position(signal_to_order, open_position_trade_pairs, miner_hotkey)
+                trade_pair_to_open_position = {position.trade_pair: position for position in
+                                             PositionUtils.get_all_miner_positions(miner_hotkey,
+                                                                                   only_open_positions=True)}
+                self._enforce_num_open_order_limit(trade_pair_to_open_position, signal_to_order)
+                open_position = self._get_relevant_position(signal_to_order, miner_hotkey, trade_pair_to_open_position)
                 open_position.add_order(signal_to_order)
                 ValiUtils.save_miner_position_to_disk(open_position)
                 # Log the open position for the miner
