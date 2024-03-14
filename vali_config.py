@@ -106,7 +106,7 @@ class ValiConfig:
     MDD_CHECK_REFRESH_TIME_S = 15  # 15 seconds
     MAX_DAILY_DRAWDOWN = 0.95  # Portfolio should never fall below .95 x of initial value when measured day to day
     MAX_TOTAL_DRAWDOWN = 0.9  # Portfolio should never fall below .90 x of initial value when measured at any instant
-    MAX_ORDERS = 200
+    MAX_OPEN_ORDERS_PER_HOTKEY = 200
 
     SET_WEIGHT_REFRESH_TIME_S = 60 * 30  # 30 minutes
     SET_WEIGHT_LOOKBACK_RANGE_DAYS = 30
