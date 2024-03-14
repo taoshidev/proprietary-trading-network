@@ -9,6 +9,7 @@ from scipy.stats import yeojohnson
 from time_util.time_util import TimeUtil
 from vali_config import ValiConfig
 from vali_objects.scaling.scaling import Scaling
+from vali_objects.scoring.scoring import Scoring
 from shared_objects.challenge_utils import ChallengeBase
 from vali_objects.utils.position_utils import PositionUtils
 
@@ -32,13 +33,12 @@ class SubtensorWeightSetter(ChallengeBase):
             bt.logging.info("calculating new subtensor weights...")
             filtered_results, filtered_netuids = self._filter_results(return_per_netuid)
             scaled_transformed_list = self._transform_and_scale_results(filtered_results)
-            self._set_subtensor_weights(filtered_netuids, scaled_transformed_list)
+            self._set_subtensor_weights(scaled_transformed_list)
         self.set_last_update_time()
 
-    def _calculate_return_per_netuid(self):
+    def _calculate_return_per_netuid(self) -> dict[str, float]:
         return_per_netuid = {}
         netuid_returns = []
-        netuids = []
 
         # Note, eliminated miners will not appear in the dict below
         hotkey_positions = PositionUtils.get_all_miner_positions_by_hotkey(
@@ -60,11 +60,10 @@ class SubtensorWeightSetter(ChallengeBase):
             netuid_returns.append(last_positional_return)
             netuid = self.metagraph.hotkeys.index(hotkey)
             return_per_netuid[netuid] = last_positional_return
-            netuids.append(netuid)
 
         return return_per_netuid
 
-    def _filter_results(self, return_per_netuid):
+    def _filter_results(self, return_per_netuid:  dict[str, float]) -> tuple[list[tuple[str, float]], list[str]]:
         mean = np.mean(list(return_per_netuid.values()))
         std_dev = np.std(list(return_per_netuid.values()))
 
@@ -80,18 +79,16 @@ class SubtensorWeightSetter(ChallengeBase):
         bt.logging.info(f"filtered netuids list [{filtered_netuids}]")
         return filtered_results, filtered_netuids
 
-    def _transform_and_scale_results(self, filtered_results):
-        filtered_scores = np.array([x[1] for x in filtered_results])
-        bt.logging.success("calculated filtered_scores {filtered_scores}".format(filtered_scores=filtered_scores))
-        # Normalize the list using Z-score normalization
-        transformed_results = yeojohnson(filtered_scores, lmbda=500)
-        bt.logging.success("calculated transformed_results {transformed_results}".format(transformed_results=transformed_results))
-        if len(transformed_results) == 0:
-            return []
-        scaled_transformed_list = Scaling.min_max_scalar_list(transformed_results)
-        return scaled_transformed_list
+    def _transform_and_scale_results(self, filtered_results: list[tuple[str, float]]) -> list[tuple[str, float]]:
+        # Exponential decay of the scores
+        transformed_results: list[tuple[str, float]] = Scoring.weigh_miner_scores(filtered_results)
+        bt.logging.success(f"calculated transformed_results {transformed_results}")
+        return transformed_results
 
-    def _set_subtensor_weights(self, filtered_netuids, scaled_transformed_list):
+    def _set_subtensor_weights(self, filtered_results: list[tuple[str, float]]):
+        filtered_netuids = [ x[0] for x in filtered_results ]
+        scaled_transformed_list = [ x[1] for x in filtered_results ]
+
         result = self.subtensor.set_weights(
             netuid=self.config.netuid,
             wallet=self.wallet,

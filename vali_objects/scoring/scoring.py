@@ -12,21 +12,64 @@ from vali_objects.exceptions.min_responses_exception import MinResponsesExceptio
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.utils.vali_utils import ValiUtils
 
+import bittensor as bt
 
 class Scoring:
 
     @staticmethod
-    def calculate_weighted_rmse(predictions: np, actual: np) -> float:
-        predictions = np.array(predictions)
-        actual = np.array(actual)
+    def weigh_miner_scores(returns: list[tuple[str, float]]) -> list[tuple[str, float]]:
+        ## Assign weights to the returns based on their relative position
+        if len(returns) == 0:
+            bt.logging.debug(f"No returns to score, returning empty list")
+            return []
+        if len(returns) == 1:
+            bt.logging.info(f"Only one miner, returning 1.0 for the solo miner weight")
+            return [returns[0][0], 1.0]
 
-        k = ValiConfig.RMSE_WEIGHT
+        # Sort the returns in descending order
+        sorted_returns = sorted(returns, key=lambda x: x[1], reverse=True)
+        print(f"Sorted Returns:  {sorted_returns}")
 
-        weights = np.exp(-k * np.arange(len(predictions)))
-        weighted_squared_errors = weights * (predictions - actual) ** 2
-        weighted_rmse = np.sqrt(np.sum(weighted_squared_errors) / np.sum(weights))
+        n_miners = len(sorted_returns)
+        miner_names = [x[0] for x in sorted_returns]
 
-        return weighted_rmse
+        top_miner_benefit = ValiConfig.TOP_MINER_BENEFIT
+        top_miner_percent = ValiConfig.TOP_MINER_PERCENT
+
+        def exponential_decay_returns(scale: int, a_percent: float, b_percent: float) -> np.ndarray:
+            """
+            Args:
+                scale: int - the number of miners
+                a_percent: float - % benefit to the top % miners
+                b_percent: float - top % of miners
+            """
+            a_percent = np.clip(a_percent, a_min=0, a_max=0.99999999)
+            b_percent = np.clip(b_percent, a_min=0.00000001, a_max=1)
+            scale = np.clip(scale, a_min=1, a_max=None)
+            if scale == 1:
+                # base case, if there is only one miner
+                return np.array([1])
+
+            k = -np.log(1 - a_percent) / (b_percent * scale)
+            xdecay = np.linspace(0, scale-1, scale)
+            decayed_returns = np.exp((-k) * xdecay)
+
+            # Normalize the decayed_returns so that they sum up to 1
+            return decayed_returns / np.sum(decayed_returns)
+
+        decayed_returns = exponential_decay_returns(
+            n_miners, 
+            top_miner_benefit, 
+            top_miner_percent
+        )
+
+        # Create a dictionary to map miner names to their decayed returns
+        miner_decay_returns_dict = dict(zip(miner_names, decayed_returns))
+
+        # Assign the decayed returns to the sorted miner names
+        weighted_returns = [(miner, miner_decay_returns_dict[miner]) for miner, _ in sorted_returns]
+
+        return weighted_returns
 
     @staticmethod
     def calculate_directional_accuracy(predictions: np, actual: np) -> float:
@@ -42,43 +85,6 @@ class Scoring:
         return correct_directions / (pred_len-1)
 
     @staticmethod
-    def score_response(predictions: np, actual: np) -> float:
-        if len(predictions) != len(actual) or len(predictions) == 0 or len(actual) < 2:
-            raise IncorrectPredictionSizeError(f"the number of predictions or the number of responses "
-                                               f"needed are incorrect: preds: '{len(predictions)}',"
-                                               f" results: '{len(actual)}'")
-
-        rmse = Scoring.calculate_weighted_rmse(predictions, actual)
-
-        return rmse
-
-    @staticmethod
-    def scale_scores(scores: Dict[str, float]) -> Dict[str, float]:
-        avg_score = sum([score for miner_uid, score in scores.items()]) / len(scores)
-        scaled_scores_map = {}
-        for miner_uid, score in scores.items():
-            # handle case of a perfect score
-            if score == 0:
-                score = 0.00000001
-            scaled_scores_map[miner_uid] = 1 - math.e ** (-1 / (score / avg_score))
-        return scaled_scores_map
-
-    @staticmethod
-    def weigh_miner_scores(scores: List[Tuple[str, float]]) -> List[Tuple[str, float]]:
-        if len(scores) == 1:
-            return [(scores[0][0], 1.0)]
-
-        min_score = min(score for _, score in scores)
-        max_score = max(score for _, score in scores)
-
-        normalized_scores = [(name, (score - min_score) / (max_score - min_score)) for name, score in scores]
-        total_normalized_score = sum(score for _, score in normalized_scores)
-
-        normalized_scores = [(name, round(score / total_normalized_score, 4)) for name, score in normalized_scores]
-
-        return normalized_scores
-
-    @staticmethod
     def simple_scale_scores(scores: Dict[str, float]) -> Dict[str, float]:
         if len(scores) <= 1:
             raise MinResponsesException("not enough responses")
@@ -87,57 +93,6 @@ class Scoring:
         max_score = max(score_values)
 
         return {miner_uid:  1 - ((score - min_score) / (max_score - min_score)) for miner_uid, score in scores.items()}
-
-    @staticmethod
-    def history_of_values() -> None | Dict[str, float]:
-        # attempt to rebuild state using cmw objects
-        pass
-
-    @staticmethod
-    def get_percentile(value, percentiles):
-        for ind, range_value in enumerate(percentiles):
-            percentile = (ind + 1) / 100
-            if value < range_value:
-                return percentile
-        return 1
-
-    @staticmethod
-    def get_geometric_mean_of_percentile(ds: List[List[float]]):
-        min_max_ranges_percentiled = ValiConfig.MIN_MAX_RANGES_PERCENTILED
-        std_dev_ranges_percentiled = ValiConfig.STD_DEV_RANGES_PERCENTILED
-
-        results_min_max = max(ds[1]) / min(ds[1])
-        results_std_dev = np.std(ds[1])
-
-        min_max_percentile = Scoring.get_percentile(results_min_max, min_max_ranges_percentiled)
-        std_dev_percentile = Scoring.get_percentile(results_std_dev, std_dev_ranges_percentiled)
-
-        return math.sqrt(min_max_percentile * std_dev_percentile)
-
-    @staticmethod
-    def update_weights_using_historical_distributions(scores: List[Tuple[str, float]], ds: List[List[float]]):
-
-        vweights = ValiUtils.get_vali_weights_json()
-        geometric_mean_of_percentile = Scoring.get_geometric_mean_of_percentile(ds)
-
-        score_miner_uids = [score[0] for score in scores]
-
-        for key, value in vweights.items():
-            if key not in score_miner_uids:
-                vweights[key] = Scoring.basic_ema((vweights[key] +
-                                                        (0 * geometric_mean_of_percentile))
-                                                       / (1 + geometric_mean_of_percentile), vweights[key])
-
-        for score in scores:
-            if score[0] in vweights:
-                vweights[score[0]] = Scoring.basic_ema((vweights[score[0]] +
-                                                        (score[1] * geometric_mean_of_percentile))
-                                                       / (1 + geometric_mean_of_percentile), vweights[score[0]])
-            else:
-                vweights[score[0]] = score[1] * geometric_mean_of_percentile
-
-        ValiUtils.set_vali_weights_bkp(vweights)
-        return vweights, geometric_mean_of_percentile
 
     @staticmethod
     def update_weights_remove_deregistrations(miner_uids: List[str]):
