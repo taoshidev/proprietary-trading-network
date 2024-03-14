@@ -24,7 +24,7 @@ class PlagiarismDetector(ChallengeBase):
         **args,
     ):
 
-        trade_pair_fee = ValiConfig.TRADE_PAIR_FEES[check_order.trade_pair]
+        trade_pair_fee = check_order.trade_pair.fees
 
         if hotkey is None:
             raise ValueError("miner hotkey must be provided.")

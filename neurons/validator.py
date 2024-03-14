@@ -16,7 +16,7 @@ from data_generator.twelvedata_service import TwelveDataService
 from shared_objects.RateLimiter import RateLimiter
 from shared_objects.challenge_utils import ChallengeBase
 from time_util.time_util import TimeUtil
-from vali_config import ValiConfig, TradePair
+from vali_config import TradePair
 from vali_objects.exceptions.signal_exception import SignalException
 from shared_objects.MetagraphUpdater import MetagraphUpdater
 from vali_objects.utils.EliminationManager import EliminationManager
@@ -251,7 +251,8 @@ class Validator:
         """
         string_trade_pair = signal["trade_pair"]["trade_pair_id"]
         trade_pair = TradePair.get_trade_pair(string_trade_pair)
-        if trade_pair not in ValiConfig.TRADE_PAIR_FEES:
+        if trade_pair is None:
+            bt.logging.error(f"[{trade_pair}] not in TradePair enum.")
             raise SignalException(
                 f"miner [{hotkey}] incorrectly "
                 f"sent trade pair [{trade_pair}]"
