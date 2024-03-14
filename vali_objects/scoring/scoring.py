@@ -47,10 +47,7 @@ class Scoring:
     @staticmethod
     def exponential_decay_returns(scale: int) -> np.ndarray:
         """
-        Args:
-            scale: int - the number of miners
-            a_percent: float - % benefit to the top % miners
-            b_percent: float - top % of miners
+        Args: scale: int - the number of miners
         """
         top_miner_benefit = ValiConfig.TOP_MINER_BENEFIT
         top_miner_percent = ValiConfig.TOP_MINER_PERCENT
