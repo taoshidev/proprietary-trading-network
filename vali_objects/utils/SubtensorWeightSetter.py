@@ -31,8 +31,10 @@ class SubtensorWeightSetter(ChallengeBase):
             bt.logging.info("no returns to set weights with. Do nothing for now.")
         else:
             bt.logging.info("calculating new subtensor weights...")
-            filtered_results, filtered_netuids = self._filter_results(return_per_netuid)
-            scaled_transformed_list = self._transform_and_scale_results(filtered_results)
+            filtered_results = Scoring.filter_results(return_per_netuid)
+            scaled_transformed_list = Scoring.transform_and_scale_results(filtered_results)
+            bt.logging.info(f"filtered results: {filtered_results}")
+            bt.logging.info(f"scaled transformed list: {scaled_transformed_list}")
             self._set_subtensor_weights(scaled_transformed_list)
         self.set_last_update_time()
 
@@ -62,29 +64,7 @@ class SubtensorWeightSetter(ChallengeBase):
             return_per_netuid[netuid] = last_positional_return
 
         return return_per_netuid
-
-    def _filter_results(self, return_per_netuid:  dict[str, float]) -> tuple[list[tuple[str, float]], list[str]]:
-        mean = np.mean(list(return_per_netuid.values()))
-        std_dev = np.std(list(return_per_netuid.values()))
-
-        lower_bound = mean - 3 * std_dev
-        bt.logging.debug(f"returns lower bound: [{lower_bound}]")
-
-        if lower_bound < 0:
-            lower_bound = 0
-
-        filtered_results = [(k, v) for k, v in return_per_netuid.items() if lower_bound < v]
-        filtered_netuids = np.array([x[0] for x in filtered_results])
-        bt.logging.info(f"filtered results list [{filtered_results}]")
-        bt.logging.info(f"filtered netuids list [{filtered_netuids}]")
-        return filtered_results, filtered_netuids
-
-    def _transform_and_scale_results(self, filtered_results: list[tuple[str, float]]) -> list[tuple[str, float]]:
-        # Exponential decay of the scores
-        transformed_results: list[tuple[str, float]] = Scoring.weigh_miner_scores(filtered_results)
-        bt.logging.success(f"calculated transformed_results {transformed_results}")
-        return transformed_results
-
+    
     def _set_subtensor_weights(self, filtered_results: list[tuple[str, float]]):
         filtered_netuids = [ x[0] for x in filtered_results ]
         scaled_transformed_list = [ x[1] for x in filtered_results ]
