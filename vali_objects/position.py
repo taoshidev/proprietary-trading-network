@@ -1,7 +1,7 @@
 import logging
 from typing import Optional, List
 
-from vali_config import ValiConfig, TradePair
+from vali_config import TradePair
 from vali_objects.vali_dataclasses.order import Order
 from vali_objects.enums.order_type_enum import OrderType
 
@@ -181,7 +181,7 @@ class Position:
     def set_returns(self, realtime_price, net_leverage):
         self.current_return = self.calculate_unrealized_pnl(realtime_price)
         self.return_at_close = self.current_return * (
-            1 - ValiConfig.TRADE_PAIR_FEES[self.trade_pair] * abs(net_leverage)
+            1 - self.trade_pair.fees * abs(net_leverage)
         )
 
     def update_position_state_for_new_order(self, order, delta_leverage):
