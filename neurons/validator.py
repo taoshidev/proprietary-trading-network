@@ -313,33 +313,29 @@ class Validator:
         miner_hotkey = synapse.dendrite.hotkey
         signal = synapse.signal
         bt.logging.info(f"received signal [{signal}] from miner_hotkey [{miner_hotkey}].")
-        signal_to_order = self.convert_signal_to_order(signal, miner_hotkey)
-
         # error message to send back to miners in case of a problem so they can fix and resend
         error_message = ""
+        try:
+            signal_to_order = self.convert_signal_to_order(signal, miner_hotkey)
+            with self.positionLocks.get_lock(miner_hotkey, signal_to_order.trade_pair.trade_pair_id):
+                # gather open positions and see which trade pairs have an open position
+                open_position_trade_pairs = {position.trade_pair: position for position in PositionUtils.get_all_miner_positions(miner_hotkey, only_open_positions=True)}
 
-        with self.positionLocks.get_lock(miner_hotkey, signal_to_order.trade_pair.trade_pair_id):
-            # gather open positions and see which trade pairs have an open position
-            open_position_trade_pairs = {position.trade_pair: position for position in PositionUtils.get_all_miner_positions(miner_hotkey, only_open_positions=True)}
-
-            try:
                 open_position = self.get_relevant_position(signal_to_order, open_position_trade_pairs, miner_hotkey)
                 open_position.add_order(signal_to_order)
-                ValiUtils.save_miner_position_to_disk(
-                    miner_hotkey, open_position.position_uuid, open_position
-                )
+                ValiUtils.save_miner_position_to_disk(open_position)
                 # Log the open position for the miner
                 bt.logging.info(f"Position for miner [{miner_hotkey}] updated: {open_position}")
                 open_position.log_position_status()
                 self.plagiarismDetector.check_plagiarism(open_position, signal_to_order)
 
-            except SignalException as e:
-                error_message = f"error processing signal [{e}]"
-                bt.logging.error(error_message)
-            except Exception as e:
-                error_message = e
-                bt.logging.error(f"Error processing signal for [{miner_hotkey}] with error [{e}]")
-                bt.logging.error(traceback.format_exc())
+        except SignalException as e:
+            error_message = f"error processing signal [{e}]"
+            bt.logging.error(error_message)
+        except Exception as e:
+            error_message = e
+            bt.logging.error(f"Error processing signal for [{miner_hotkey}] with error [{e}]")
+            bt.logging.error(traceback.format_exc())
 
         synapse.successfully_processed = bool(error_message == "")
         synapse.error_message = error_message
