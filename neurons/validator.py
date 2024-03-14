@@ -321,14 +321,13 @@ class Validator:
             with self.positionLocks.get_lock(miner_hotkey, signal_to_order.trade_pair.trade_pair_id):
                 # gather open positions and see which trade pairs have an open position
                 open_position_trade_pairs = {position.trade_pair: position for position in PositionUtils.get_all_miner_positions(miner_hotkey, only_open_positions=True)}
-
                 open_position = self.get_relevant_position(signal_to_order, open_position_trade_pairs, miner_hotkey)
                 open_position.add_order(signal_to_order)
                 ValiUtils.save_miner_position_to_disk(open_position)
                 # Log the open position for the miner
                 bt.logging.info(f"Position for miner [{miner_hotkey}] updated: {open_position}")
                 open_position.log_position_status()
-                self.plagiarismDetector.check_plagiarism(open_position, signal_to_order)
+            self.plagiarismDetector.check_plagiarism(open_position, signal_to_order)
 
         except SignalException as e:
             error_message = f"error processing signal [{e}]"
