@@ -325,13 +325,13 @@ class Validator:
             try:
                 open_position = self.get_relevant_position(signal_to_order, open_position_trade_pairs, miner_hotkey)
                 open_position.add_order(signal_to_order)
-                ValiUtils.save_miner_position(
+                ValiUtils.save_miner_position_to_disk(
                     miner_hotkey, open_position.position_uuid, open_position
                 )
                 # Log the open position for the miner
                 bt.logging.info(f"Position for miner [{miner_hotkey}] updated: {open_position}")
                 open_position.log_position_status()
-                self.plagiarismDetector.check_plagiarism(open_position, signal_to_order, miner_hotkey)
+                self.plagiarismDetector.check_plagiarism(open_position, signal_to_order)
 
             except SignalException as e:
                 error_message = f"error processing signal [{e}]"

@@ -49,7 +49,7 @@ class PositionUtils:
         miner_dir = ValiBkpUtils.get_miner_position_dir(miner_hotkey)
         all_files = ValiBkpUtils.get_all_files_in_dir(miner_dir)
 
-        positions = [ValiUtils.get_miner_positions(file) for file in all_files]
+        positions = [ValiUtils.get_miner_positions_from_disk(file) for file in all_files]
         # log miner_dir, files, and positions
         #bt.logging.info(f"miner_dir: {miner_dir}, all_files: {all_files}, n_positions: {len(positions)}")
 

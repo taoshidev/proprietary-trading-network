@@ -35,8 +35,8 @@ class TestMDDChecker(TestBase):
 
     def verify_elimination_data_in_memory_and_disk(self, expected_eliminations):
         self.mddChecker._refresh_eliminations_in_memory_and_disk()
-        eliminated_hotkeys = [x['hotkey'] for x in expected_eliminations]
-        expected_eliminated_hotkeys = [x['hotkey'] for x in self.mddChecker.eliminations]
+        expected_eliminated_hotkeys = [x['hotkey'] for x in expected_eliminations]
+        eliminated_hotkeys = [x['hotkey'] for x in self.mddChecker.eliminations]
         self.assertEqual(len(eliminated_hotkeys),
                          len(expected_eliminated_hotkeys),
                          "Eliminated hotkeys in memory/disk do not match expected. eliminated_hotkeys: "
@@ -47,6 +47,10 @@ class TestMDDChecker(TestBase):
             self.assertEqual(v1['reason'], v2['reason'])
             self.assertAlmostEquals(v1['elimination_initiated_time'], v2['elimination_initiated_time'], places=1)
             self.assertAlmostEquals(v1['dd'], v2['dd'], places=2)
+
+    def add_order_to_position_and_save_to_disk(self, position, order):
+        position.add_order(order)
+        ValiUtils.save_miner_position_to_disk(position)
 
     def test_mdd_failure_with_open_position(self):
         self.verify_elimination_data_in_memory_and_disk([])
@@ -63,11 +67,10 @@ class TestMDDChecker(TestBase):
         # Running mdd_check with no positions should not cause any eliminations but it should write an empty list to disk
         self.verify_elimination_data_in_memory_and_disk([])
 
-        relevant_position.add_order(o1)
+        self.add_order_to_position_and_save_to_disk(relevant_position, o1)
         self.assertEqual(relevant_position.is_closed_position, False)
-        ValiUtils.save_miner_position(self.MINER_HOTKEY, self.DEFAULT_TEST_POSITION_UUID, relevant_position)
         self.mddChecker.mdd_check()
-        failure_row = ChallengeBase.generate_elimination_row(self.MINER_HOTKEY, 0, MDDChecker.MAX_TOTAL_DRAWDOWN)
+        failure_row = ChallengeBase.generate_elimination_row(relevant_position.miner_hotkey, 0, MDDChecker.MAX_TOTAL_DRAWDOWN)
         self.verify_elimination_data_in_memory_and_disk([failure_row])
 
 
@@ -94,16 +97,15 @@ class TestMDDChecker(TestBase):
         # Running mdd_check with no positions should not cause any eliminations but it should write an empty list to disk
         self.verify_elimination_data_in_memory_and_disk([])
 
-        relevant_position.add_order(o1)
+        self.add_order_to_position_and_save_to_disk(relevant_position, o1)
         self.mddChecker.mdd_check()
         self.assertEqual(relevant_position.is_closed_position, False)
         self.verify_elimination_data_in_memory_and_disk([])
 
-        relevant_position.add_order(o2)
+        self.add_order_to_position_and_save_to_disk(relevant_position, o2)
         self.assertEqual(relevant_position.is_closed_position, True)
-        ValiUtils.save_miner_position(self.MINER_HOTKEY, self.DEFAULT_TEST_POSITION_UUID, relevant_position)
         self.mddChecker.mdd_check()
-        failure_row = ChallengeBase.generate_elimination_row(self.MINER_HOTKEY, 0, MDDChecker.MAX_TOTAL_DRAWDOWN)
+        failure_row = ChallengeBase.generate_elimination_row(relevant_position.miner_hotkey, 0, MDDChecker.MAX_TOTAL_DRAWDOWN)
         self.verify_elimination_data_in_memory_and_disk([failure_row])
 
     def test_mdd_failure_with_two_open_orders_different_trade_pairs(self):
@@ -135,15 +137,13 @@ class TestMDDChecker(TestBase):
         # Running mdd_check with no positions should not cause any eliminations but it should write an empty list to disk
         self.verify_elimination_data_in_memory_and_disk([])
 
-        position_btc.add_order(o1)
-        ValiUtils.save_miner_position(self.MINER_HOTKEY, self.DEFAULT_TEST_POSITION_UUID + '_btc', position_btc)
+        self.add_order_to_position_and_save_to_disk(position_btc, o1)
         self.mddChecker.mdd_check()
         self.verify_elimination_data_in_memory_and_disk([])
 
-        position_eth.add_order(o2)
-        ValiUtils.save_miner_position(self.MINER_HOTKEY, self.DEFAULT_TEST_POSITION_UUID + '_eth', position_eth)
+        self.add_order_to_position_and_save_to_disk(position_eth, o2)
         self.mddChecker.mdd_check()
-        failure_row = ChallengeBase.generate_elimination_row(self.MINER_HOTKEY, .826, MDDChecker.MAX_TOTAL_DRAWDOWN)
+        failure_row = ChallengeBase.generate_elimination_row(position_eth.miner_hotkey, .826, MDDChecker.MAX_TOTAL_DRAWDOWN)
         self.verify_elimination_data_in_memory_and_disk([failure_row])
 
     def test_no_mdd_failures(self):
@@ -169,14 +169,13 @@ class TestMDDChecker(TestBase):
         # Running mdd_check with no positions should not cause any eliminations but it should write an empty list to disk
         self.verify_elimination_data_in_memory_and_disk([])
 
-        relevant_position.add_order(o1)
+        self.add_order_to_position_and_save_to_disk(relevant_position, o1)
         self.mddChecker.mdd_check()
         self.assertEqual(relevant_position.is_closed_position, False)
         self.verify_elimination_data_in_memory_and_disk([])
 
-        relevant_position.add_order(o2)
+        self.add_order_to_position_and_save_to_disk(relevant_position, o2)
         self.assertEqual(relevant_position.is_closed_position, False)
-        ValiUtils.save_miner_position(self.MINER_HOTKEY, self.DEFAULT_TEST_POSITION_UUID, relevant_position)
         self.mddChecker.mdd_check()
         self.verify_elimination_data_in_memory_and_disk([])
 

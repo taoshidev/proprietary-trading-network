@@ -21,7 +21,7 @@ class ChallengeBase:
         self.metagraph = metagraph  # Refreshes happen on validator
         self._last_update_time_s = 0
         self.eliminations = []
-        self.miner_plagiarism_scores = []
+        self.miner_plagiarism_scores = {}
 
     def get_last_update_time(self):
         return self._last_update_time_s
@@ -49,7 +49,7 @@ class ChallengeBase:
         bt.logging.info(f"Closing [{len(open_positions)}] positions for hotkey: {hotkey}")
         for open_position in open_positions:
             open_position.close_out_position(time.time())
-            ValiUtils.save_miner_position(hotkey, open_position.position_uuid, open_position)
+            ValiUtils.save_miner_position_to_disk(open_position)
 
         r = ChallengeBase.generate_elimination_row(hotkey, dd, reason)
         bt.logging.info(f"Created elimination row: {r}")

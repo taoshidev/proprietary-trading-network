@@ -56,8 +56,8 @@ class PlagiarismDetector(ChallengeBase):
 
 
     def check_plagiarism(self, open_position: Position,
-                               signal_to_order: Order, 
-                               miner_hotkey: str) -> None:
+                               signal_to_order: Order) -> None:
+        miner_hotkey = open_position.miner_hotkey
         # check to see if the new order that just came in is similar to an existing order
         is_similar_order = self.is_order_similar_to_positional_orders(
                 open_position.open_ms,

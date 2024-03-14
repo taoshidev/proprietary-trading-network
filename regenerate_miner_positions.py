@@ -30,7 +30,7 @@ def regenerate_miner_positions():
         ValiBkpUtils.make_dir(ValiBkpUtils.get_miner_position_dir(muid))
         for p_dict in all_ps["positions"]:
             p = Position.from_dict(p_dict)
-            ValiUtils.save_miner_position(muid, p.position_uuid, p)
+            ValiUtils.save_miner_position_to_disk(muid, p.position_uuid, p)
     return True
 
 
