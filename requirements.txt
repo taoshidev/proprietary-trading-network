@@ -1,0 +1,8 @@
+bittensor
+torch
+tensorflow
+scikit-learn
+pandas
+twelvedata
+flask
+waitress
