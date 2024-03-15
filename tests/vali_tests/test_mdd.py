@@ -1,12 +1,13 @@
 # developer: jbonilla
-# Copyright © 2023 Taoshi Inc
-from shared_objects.challenge_utils import ChallengeBase
+# Copyright © 2024 Taoshi Inc
+from shared_objects.cache_controller import CacheController
 from tests.shared_objects.mock_classes import MockMetagraph, MockMDDChecker
 from tests.vali_tests.base_objects.test_base import TestBase
 from vali_config import TradePair, ValiConfig
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.position import Position
 from vali_objects.utils.mdd_checker import MDDChecker
+from vali_objects.utils.position_manager import PositionManager
 from vali_objects.utils.vali_utils import ValiUtils
 from vali_objects.vali_dataclasses.order import Order
 from data_generator.twelvedata_service import TwelveDataService
@@ -18,18 +19,19 @@ class TestMDDChecker(TestBase):
         self.MINER_HOTKEY = "test_miner"
         self.mock_metagraph = MockMetagraph([self.MINER_HOTKEY])
         self.mdd_checker = MockMDDChecker(self.mock_metagraph)
+        self.position_manager = PositionManager(metagraph=self.mock_metagraph, running_unit_tests=True)
         self.DEFAULT_TEST_POSITION_UUID = "test_position"
         self.DEFAULT_OPEN_MS = 1000
-        self.trade_pair_to_default_position = {x : Position(
+        self.trade_pair_to_default_position = {x: Position(
             miner_hotkey=self.MINER_HOTKEY,
             position_uuid=self.DEFAULT_TEST_POSITION_UUID + str(x.trade_pair_id),
             open_ms=self.DEFAULT_OPEN_MS,
             trade_pair=x,
         ) for x in TradePair}
 
-        ValiUtils.init_cache_files(self.mock_metagraph)
-        ChallengeBase.clear_eliminations_from_disk()
-        ValiUtils.clear_all_miner_positions_from_disk()
+        self.mdd_checker.init_cache_files()
+        self.mdd_checker.clear_eliminations_from_disk()
+        self.position_manager.clear_all_miner_positions_from_disk()
         secrets = ValiUtils.get_secrets()
         self.tds = TwelveDataService(api_key=secrets["twelvedata_apikey"])
 
@@ -50,7 +52,7 @@ class TestMDDChecker(TestBase):
 
     def add_order_to_position_and_save_to_disk(self, position, order):
         position.add_order(order)
-        ValiUtils.save_miner_position_to_disk(position)
+        self.position_manager.save_miner_position_to_disk(position)
 
     def test_mdd_failure_with_open_position(self):
         self.verify_elimination_data_in_memory_and_disk([])
@@ -70,7 +72,7 @@ class TestMDDChecker(TestBase):
         self.add_order_to_position_and_save_to_disk(relevant_position, o1)
         self.assertEqual(relevant_position.is_closed_position, False)
         self.mdd_checker.mdd_check()
-        failure_row = ChallengeBase.generate_elimination_row(relevant_position.miner_hotkey, 0, MDDChecker.MAX_TOTAL_DRAWDOWN)
+        failure_row = CacheController.generate_elimination_row(relevant_position.miner_hotkey, 0, MDDChecker.MAX_TOTAL_DRAWDOWN)
         self.verify_elimination_data_in_memory_and_disk([failure_row])
 
 
@@ -105,7 +107,7 @@ class TestMDDChecker(TestBase):
         self.add_order_to_position_and_save_to_disk(relevant_position, o2)
         self.assertEqual(relevant_position.is_closed_position, True)
         self.mdd_checker.mdd_check()
-        failure_row = ChallengeBase.generate_elimination_row(relevant_position.miner_hotkey, 0, MDDChecker.MAX_TOTAL_DRAWDOWN)
+        failure_row = CacheController.generate_elimination_row(relevant_position.miner_hotkey, 0, MDDChecker.MAX_TOTAL_DRAWDOWN)
         self.verify_elimination_data_in_memory_and_disk([failure_row])
 
     def test_mdd_failure_with_two_open_orders_different_trade_pairs(self):
@@ -143,7 +145,7 @@ class TestMDDChecker(TestBase):
 
         self.add_order_to_position_and_save_to_disk(position_eth, o2)
         self.mdd_checker.mdd_check()
-        failure_row = ChallengeBase.generate_elimination_row(position_eth.miner_hotkey, .826, MDDChecker.MAX_TOTAL_DRAWDOWN)
+        failure_row = CacheController.generate_elimination_row(position_eth.miner_hotkey, .826, MDDChecker.MAX_TOTAL_DRAWDOWN)
         self.verify_elimination_data_in_memory_and_disk([failure_row])
 
     def test_no_mdd_failures(self):

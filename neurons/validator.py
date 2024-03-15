@@ -1,7 +1,7 @@
 # The MIT License (MIT)
-# Copyright © 2023 Yuma Rao
+# Copyright © 2024 Yuma Rao
 # developer: Taoshidev
-# Copyright © 2023 Taoshi Inc
+# Copyright © 2024 Taoshi Inc
 
 import os
 import uuid
@@ -14,9 +14,9 @@ import bittensor as bt
 
 from data_generator.twelvedata_service import TwelveDataService
 from shared_objects.rate_limiter import RateLimiter
-from shared_objects.challenge_utils import ChallengeBase
+from shared_objects.cache_controller import CacheController
 from time_util.time_util import TimeUtil
-from vali_config import TradePair, ValiConfig
+from vali_config import TradePair
 from vali_objects.exceptions.signal_exception import SignalException
 from shared_objects.metagraph_updater import MetagraphUpdater
 from vali_objects.utils.elimination_manager import EliminationManager
@@ -24,13 +24,13 @@ from vali_objects.utils.subtensor_weight_setter import SubtensorWeightSetter
 from vali_objects.utils.mdd_checker import MDDChecker
 from vali_objects.utils.plagiarism_detector import PlagiarismDetector
 from vali_objects.utils.position_lock import PositionLocks
-from vali_objects.utils.position_utils import PositionUtils
-from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
+from vali_objects.utils.position_manager import PositionManager
 from vali_objects.vali_dataclasses.order import Order
 from vali_objects.position import Position
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.utils.vali_utils import ValiUtils
 from vali_config import ValiConfig
+
 
 class Validator:
     def __init__(self):
@@ -89,15 +89,16 @@ class Validator:
         bt.logging.info(f"Attaching forward function to axon.")
 
         self.rate_limiter = RateLimiter()
+        self.position_manager = PositionManager(metagraph=self.metagraph, config=self.config)
 
         def rs_blacklist_fn(synapse: template.protocol.SendSignal) -> Tuple[bool, str]:
-            return Validator.blacklist_fn(synapse, self.metagraph, self.rate_limiter)
+            return Validator.blacklist_fn(synapse, self.metagraph, self.rate_limiter, self.mdd_checker)
 
         def rs_priority_fn(synapse: template.protocol.SendSignal) -> float:
             return Validator.priority_fn(synapse, self.metagraph)
 
         def gp_blacklist_fn(synapse: template.protocol.GetPositions) -> Tuple[bool, str]:
-            return Validator.blacklist_fn(synapse, self.metagraph, self.rate_limiter)
+            return Validator.blacklist_fn(synapse, self.metagraph, self.rate_limiter, self.mdd_checker)
 
         def gp_priority_fn(synapse: template.protocol.GetPositions) -> float:
             return Validator.priority_fn(synapse, self.metagraph)
@@ -126,7 +127,7 @@ class Validator:
         self.axon.start()
 
         # see if cache files exist and if not set them to empty
-        ValiUtils.init_cache_files(self.metagraph)
+        self.position_manager.init_cache_files()
 
         if wallet.hotkey.ss58_address not in self.metagraph.hotkeys:
             bt.logging.error(
@@ -146,8 +147,7 @@ class Validator:
         self.position_locks = PositionLocks()
 
     @staticmethod
-    def blacklist_fn(synapse, metagraph, rateLimiter) -> Tuple[bool, str]:
-        bt.logging.debug("got to blacklisting rs")
+    def blacklist_fn(synapse, metagraph, rateLimiter, mdd_checker) -> Tuple[bool, str]:
         miner_hotkey = synapse.dendrite.hotkey
         allowed, wait_time = rateLimiter.is_allowed(miner_hotkey)
         if not allowed:
@@ -161,14 +161,14 @@ class Validator:
             )
             return True, synapse.dendrite.hotkey
 
-        eliminations = ChallengeBase.get_filtered_eliminations_from_disk(metagraph.hotkeys)
+        eliminations = mdd_checker.get_filtered_eliminations_from_disk()
         eliminated_hotkeys = set(x['hotkey'] for x in eliminations) if eliminations is not None else set()
 
         # don't process eliminated miners
         if synapse.dendrite.hotkey in eliminated_hotkeys:
             # Ignore requests from eliminated hotkeys
             msg = f"This miner hotkey {synapse.dendrite.hotkey} has been deregistered and cannot participate in this subnet. Try again after re-registering."
-            bt.logging.trace(msg)
+            bt.logging.debug(msg)
             return True, synapse.dendrite.hotkey
 
         bt.logging.trace(
@@ -178,7 +178,6 @@ class Validator:
 
     @staticmethod
     def priority_fn(synapse, metagraph) -> float:
-        bt.logging.debug("got to prioritization rs")
         # simply just prioritize based on uid as it's not significant
         caller_uid = metagraph.hotkeys.index(synapse.dendrite.hotkey)
         priority = float(metagraph.uids[caller_uid])
@@ -186,6 +185,7 @@ class Validator:
             f"Prioritizing {synapse.dendrite.hotkey} with value: ", priority
         )
         return priority
+
     def get_config(self):
         # Step 2: Set up the configuration parser
         # This function initializes the necessary command-line arguments.
@@ -319,7 +319,7 @@ class Validator:
 
     # This is the core validator function to receive a signal
     def receive_signal(self, synapse: template.protocol.SendSignal,
-    ) -> template.protocol.SendSignal:
+                       ) -> template.protocol.SendSignal:
         # pull miner hotkey to reference in various activities
         miner_hotkey = synapse.dendrite.hotkey
         signal = synapse.signal
@@ -331,12 +331,12 @@ class Validator:
             with self.position_locks.get_lock(miner_hotkey, signal_to_order.trade_pair.trade_pair_id):
                 # gather open positions and see which trade pairs have an open position
                 trade_pair_to_open_position = {position.trade_pair: position for position in
-                                             PositionUtils.get_all_miner_positions(miner_hotkey,
-                                                                                   only_open_positions=True)}
+                                               self.position_manager.get_all_miner_positions(miner_hotkey,
+                                                                                             only_open_positions=True)}
                 self._enforce_num_open_order_limit(trade_pair_to_open_position, signal_to_order)
                 open_position = self._get_relevant_position(signal_to_order, miner_hotkey, trade_pair_to_open_position)
                 open_position.add_order(signal_to_order)
-                ValiUtils.save_miner_position_to_disk(open_position)
+                self.position_manager.save_miner_position_to_disk(open_position)
                 # Log the open position for the miner
                 bt.logging.info(f"Position for miner [{miner_hotkey}] updated: {open_position}")
                 open_position.log_position_status()
@@ -356,7 +356,7 @@ class Validator:
         return synapse
 
     def get_positions(self, synapse: template.protocol.GetPositions,
-    ) -> template.protocol.GetPositions:
+                      ) -> template.protocol.GetPositions:
         # use position_util.get_all_miner_positions and return the synapse over the network
         # synapse.positions = position_util.get_all_miner_positions()
         # return synapse

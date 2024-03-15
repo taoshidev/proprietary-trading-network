@@ -1,7 +1,7 @@
 # The MIT License (MIT)
-# Copyright © 2023 Yuma Rao
+# Copyright © 2024 Yuma Rao
 # developer: Taoshidev
-# Copyright © 2023 Taoshi Inc
+# Copyright © 2024 Taoshi Inc
 
 __version__ = "1.0.0"
 version_split = __version__.split(".")

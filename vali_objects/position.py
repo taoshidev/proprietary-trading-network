@@ -13,7 +13,7 @@ class Position:
 
     As a miner, you need to send in signals to the validators, who will keep track
     of your closed and open positions based on your signals. Miners are judged based
-    on a 30-day rolling window of return, so they must continuously perform.
+    on a 30-day rolling window of return with time decay, so they must continuously perform.
 
     A signal contains the following information:
     - Trade Pair: The trade pair you want to trade (e.g., major indexes, forex, BTC, ETH).
@@ -25,28 +25,7 @@ class Position:
     Positions are composed of orders.
 
     Rules:
-    - Returns are calculated as a multiplier of the original portfolio value which for simplicity can be considered 1.
-    - LONG signal's leverage should be positive.
-    - SHORT signal's leverage should be negative.
-    - You can only open 1 position per trade pair at a time.
-    - Positions are uni-directional. If a position starts LONG (the first order it receives
-      is LONG), it can't flip to SHORT. If you try to flip it to SHORT (using more leverage
-      SHORT than exists LONG), it will close out the position. You'll then need to open a
-      second position which is SHORT with the difference.
-    - You can take profit on an open position using LONG and SHORT. For example, if you have
-      an open LONG position with 0.75x leverage and you want to start taking profit, you
-      would send in SHORT signals to reduce the size of the position. Ex: Sending a short at
-      -.25 leverage. This functions very similarly to dYdX.
-    - You can close out a position by sending in a FLAT signal.
-    - Max drawdown is determined every minute. If you go beyond 5% max drawdown on daily
-      close, or 10% at any point in time, you're eliminated. Eliminated miners won't
-      necessarily be immediately eliminated; they'll need to wait to be deregistered based
-      on the immunity period.
-    - If a miner copies another miner's order repeatedly, they will be eliminated. There is
-      core logic to catch and remove miners who provide signals that are similar to another
-      miner.
-    - There is a fee per trade pair: Crypto has 0.3% per position, forex has 0.03%, and
-      indexes have 0.05%.
+    - Please refer to README.md for the rules of the trading system.
     """
 
     def __init__(
@@ -76,13 +55,12 @@ class Position:
         self.trade_pair = trade_pair
         self.orders = orders
         self.current_return = current_return
-        self.max_drawdown = max_drawdown
         self.close_ms = close_ms
         self.return_at_close = return_at_close
 
-        self._net_leverage = net_leverage
-        self._average_entry_price = average_entry_price
-        self._initial_entry_price = initial_entry_price
+        self.net_leverage = net_leverage
+        self.average_entry_price = average_entry_price
+        self.initial_entry_price = initial_entry_price
 
         self.position_type = position_type
         self.is_closed_position = is_closed_position
@@ -97,13 +75,12 @@ class Position:
                 "trade_pair": str(self.trade_pair),
                 "orders": [str(order) for order in self.orders],
                 "current_return": self.current_return,
-                "max_drawdown": self.max_drawdown,
                 "close_ms": self.close_ms,
                 # additional important data
                 "return_at_close": self.return_at_close,
-                "net_leverage": self._net_leverage,
-                "average_entry_price": self._average_entry_price,
-                "initial_entry_price": self._initial_entry_price,
+                "net_leverage": self.net_leverage,
+                "average_entry_price": self.average_entry_price,
+                "initial_entry_price": self.initial_entry_price,
                 "position_type": str(self.position_type),
                 "is_closed_position": str(self.is_closed_position),
             }
@@ -126,15 +103,15 @@ class Position:
         bt.logging.info("Position Notification - " + message)
 
     def get_net_leverage(self):
-        return self._net_leverage
+        return self.net_leverage
 
     def log_position_status(self):
         bt.logging.debug(
             f"position details: "
             f"close_ms [{self.close_ms}] "
-            f"initial entry price [{self._initial_entry_price}] "
-            f"net leverage [{self._net_leverage}] "
-            f"average entry price [{self._average_entry_price}] "
+            f"initial entry price [{self.initial_entry_price}] "
+            f"net leverage [{self.net_leverage}] "
+            f"average entry price [{self.average_entry_price}] "
             f"return_at_close [{self.return_at_close}]"
         )
         order_info = [
@@ -161,16 +138,16 @@ class Position:
         self._update_position()
 
     def calculate_unrealized_pnl(self, current_price):
-        if self._initial_entry_price == 0 or self._average_entry_price is None:
+        if self.initial_entry_price == 0 or self.average_entry_price is None:
             return 1
 
         bt.logging.info(
-            f"current price: {current_price}, average entry price: {self._average_entry_price}, net leverage: {self._net_leverage}, initial entry price: {self._initial_entry_price}"
+            f"current price: {current_price}, average entry price: {self.average_entry_price}, net leverage: {self.net_leverage}, initial entry price: {self.initial_entry_price}"
         )
         gain = (
-            (current_price - self._average_entry_price)
-            * self._net_leverage
-            / self._initial_entry_price
+            (current_price - self.average_entry_price)
+            * self.net_leverage
+            / self.initial_entry_price
         )
         # Check if liquidated
         if gain <= -1.0:
@@ -190,13 +167,14 @@ class Position:
 
     def update_position_state_for_new_order(self, order, delta_leverage):
         """
-        Must be called after every order to maintain accurate internal state. The variable _average_entry_price has
-        a name that can be a little confusing. Although it claims to be the average price, it is really isn't. For example
-        it can take a negative value. A more accurate name for this variable is the weighted average entry price.
+        Must be called after every order to maintain accurate internal state. The variable average_entry_price has
+        a name that can be a little confusing. Although it claims to be the average price, it really isn't.
+        For example, it can take a negative value. A more accurate name for this variable is the weighted average
+        entry price.
         """
         realtime_price = order.price
-        assert self._initial_entry_price > 0, self._initial_entry_price
-        new_net_leverage = self._net_leverage + delta_leverage
+        assert self.initial_entry_price > 0, self.initial_entry_price
+        new_net_leverage = self.net_leverage + delta_leverage
 
         self.set_returns(realtime_price, new_net_leverage)
 
@@ -210,17 +188,17 @@ class Position:
         self._position_log(f"closed return with fees [{self.return_at_close}]")
 
         if self.position_type == OrderType.FLAT:
-            self._net_leverage = 0.0
+            self.net_leverage = 0.0
         else:
-            self._average_entry_price = (
-                self._average_entry_price * self._net_leverage
+            self.average_entry_price = (
+                self.average_entry_price * self.net_leverage
                 + realtime_price * delta_leverage
             ) / new_net_leverage
-            self._net_leverage = new_net_leverage
+            self.net_leverage = new_net_leverage
 
     def initialize_position_from_first_order(self, order):
-        self._initial_entry_price = order.price
-        if self._initial_entry_price <= 0:
+        self.initial_entry_price = order.price
+        if self.initial_entry_price <= 0:
             raise ValueError("Initial entry price must be > 0")
         # Initialize the position type. It will stay the same until the position is closed.
         if order.leverage > 0:
@@ -238,7 +216,7 @@ class Position:
         self.close_ms = close_ms
 
     def _update_position(self):
-        self._net_leverage = 0.0
+        self.net_leverage = 0.0
         bt.logging.info(f"Updating position with n orders: {len(self.orders)}")
         for order in self.orders:
             if self.position_type is None:
@@ -248,11 +226,11 @@ class Position:
             if (
                 (
                     self.position_type == OrderType.LONG
-                    and self._net_leverage + order.leverage <= 0
+                    and self.net_leverage + order.leverage <= 0
                 )
                 or (
                     self.position_type == OrderType.SHORT
-                    and self._net_leverage + order.leverage >= 0
+                    and self.net_leverage + order.leverage >= 0
                 )
                 or order.order_type == OrderType.FLAT
             ):

@@ -1,15 +1,15 @@
 # developer: jbonilla
-# Copyright © 2023 Taoshi Inc
+# Copyright © 2024 Taoshi Inc
 
 import time
 
 from vali_config import ValiConfig
-from shared_objects.challenge_utils import ChallengeBase
+from shared_objects.cache_controller import CacheController
 
 
 import bittensor as bt
 
-class MetagraphUpdater(ChallengeBase):
+class MetagraphUpdater(CacheController):
     def __init__(self, config, metagraph):
         super().__init__(config, metagraph)   
 
