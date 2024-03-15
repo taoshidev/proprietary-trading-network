@@ -1,11 +1,4 @@
 <p align="center">
-    <a href="https://taoshi.io">
-      <img width="500" alt="taoshi - subnet 8 repo logo" src="https://i.imgur.com/deBxDUm.png">
-    </a>
-    
-</p>
-
-<p align="center">
   <a href="https://taoshi.io">Website</a>
   ·
   <a href="#installation">Installation</a>
@@ -36,7 +29,7 @@
         </li>
       </ol>
     </li>
-    <li><a href="#prediction-subnet">Prediction Subnet</a></li>
+    <li><a href="#prediction-subnet">Proprietary Trading Network</a></li>
     <li><a href="#features">Featuers</a></li>
     <li><a href="#prerequisites">Prerequisites</a></li>
     <li>
@@ -65,11 +58,14 @@
 
 # Bittensor
 
-Bittensor is a mining network, similar to Bitcoin, that includes built-in incentives designed to encourage computers to provide access to machine learning models in an efficient and censorship-resistant manner. Bittensor is comprised of Subnets, Miners, and Validators.
+Bittensor is a mining network, similar to Bitcoin, that includes built-in incentives designed to encourage
+computers to provide access to machine learning models in an efficient and censorship-resistant manner.
+Bittensor is compromised of Subnets, Miners, and Validators.
 
 **Explain Like I'm Five**
 
-Bittensor is an API that connects machine learning models and incentivizes correctness through the power of the blockchain.
+Bittensor is an API that connects machine learning models and incentivizes correctness through the power of the
+blockchain.
 
 ### Subnets
 
@@ -81,28 +77,59 @@ Miners run machine learning models. They fulfill requests from the Validators.
 
 ### Validators
 
-Validators query and prompt the Miners. Validators also validate miner requests. Validators are also storefronts for data.
+Validators query and prompt the Miners. Validators also validate miner requests. Validators are also storefronts for
+data.
 
-# Prediction Subnet
+# Proprietary Trading Subnet
 
-This repository contains the code for the Time-Series Prediction Subnet (TSPS) developed by Taoshi.
+This repository contains the code for the Proprietary Trading Network (PTN) developed by Taoshi.
 
-Initially, the primary focus of TSPS is to forecast the future trends of financial markets, starting with predicting the price movements of Bitcoin. Eventually, TSPS will expand to include a broader range of cryptocurrency trading pairs. Subsequently, our scope will broaden to encompass additional financial markets.
+PTN receives signals from quant and deep learning machine learning trading systems to deliver the world's
+most complete trading signals across a variety of asset classes.
 
-As the project evolves, we anticipate that miners will diversify their focus, specializing in different subjects or domains. Some may concentrate on specific areas, while others, particularly those with advanced skills, tackle multiple topics, such as sports betting or various client-requested issues.
+## How does it work?
+
+PTN is the most challenging & competitive network in the world. Our miners need to provide futures based signals (
+long/short)
+that are highly efficient and effective across various markets to compete (forex, crypto, indices). The top miners are
+those that provide the most returns, while never exceeding certain drawdown limits.
+
+### Rules
+
+1. Miners can submit LONG, SHORT, or FLAT signal into the network 
+2. Miners can only open 1 position per trade pair/symbol at a time 
+3. Positions are uni-directional. Meaning, if a position starts LONG (the first order it receives is LONG), 
+it can't flip SHORT. If you try and have it flip SHORT (using more leverage SHORT than exists LONG) it will close out 
+the position. You'll then need to open a second position which is SHORT with the difference. 
+4. You can take profit on an open position using LONG and SHORT. Say you have an open LONG position with .75x 
+leverage and you want to reduce it to a .5x leverage position to start taking profit on it. You would send in a SHORT signal
+of size .25x leverage to reduce the size of the position. LONG and SHORT signals can be thought of working in opposite 
+directions in this way.
+5. You can close out a position by sending in a FLAT signal. 
+6. max drawdown is determined every minute. If you go beyond **5% max drawdown on daily close**, or **10% at any point in time** your miner will be eliminated. 
+Eliminated miners won't necessarily be immediately deregistered, they'll need to wait to be deregistered based on registrations & immunity period. 
+7. If a miner copies another miner's order repeatedly they will be eliminated. When any order is submitted, analysis
+on the integrity of the order is performed. If the order is deemed to be plagiarising it is flagged by the network. Repeated
+occurrence leads to removal from the network.
+8. There is a fee per trade pair position. Crypto has a 0.3% per position, forex has 0.03%, indices have 0.05%.
+9. There is a minimum registration fee of 5 TAO on the mainnet subnet.
+10. There is an immunity period of 9 days to help miners submit orders to become competitive with existing miners.
+11. The miners who can provide the most returns over a 30 day rolling lookback period are provided the most incentive.
+
+With this system only the world's best traders & deep learning / quant based trading systems can compete.
 
 # Features
 
-🛠️&nbsp;Open Source Modeling<br>
-🫰&nbsp;Intraday Bitcoin Predictions<br>
+🛠️&nbsp;Open Source Strategy Building Techniques (In Our Taoshi Community)<br>
+🫰&nbsp;Signals From a Variety of Asset Classes - Forex, Indices, Crypto<br>
 📈&nbsp;Higher Payouts<br>
 📉&nbsp;Lower Registration Fees<br>
 💪&nbsp;Superior Cryptocurrency Infrastructure<br>
-⚡&nbsp;Faster Payouts<br>
 
 # Prerequisites
 
-Below are the prerequisites for validators and miners, you may be able to make miner and validator work off lesser specs.
+Below are the prerequisites for validators and miners, you may be able to make miner and validator work off lesser
+specs.
 
 Requires **Python 3.10 or higher.**
 
@@ -110,6 +137,7 @@ Requires **Python 3.10 or higher.**
 
 - 2 vCPU + 8 GB memory
 - 100 GB balanced persistent disk
+- A "Grow" Twelvedata API account (https://twelvedata.com/)
 
 **Miner**
 
@@ -131,10 +159,10 @@ $ sudo apt install python3-pip
 $ sudo apt-get install python3-venv
 
 # clone repo
-$ git clone https://github.com/taoshidev/time-series-prediction-subnet.git
+$ git clone https://github.com/taoshidev/prop-net.git
 
 # change directory
-$ cd time-series-prediction-subnet
+$ cd prop-net
 
 # create virtual environment
 $ python3 -m venv venv
@@ -155,9 +183,26 @@ $ python -m pip install -e .
 
 # Usage
 
-## Running a Validator
+## Understanding Core Validator Logic & Files
 
-Your validator will request predictions hourly based on your randomized interval to help distribute the load. After live results come 10 hours after predictions, rewards will be distributed.
+Your validator receives signals from miners when they have one prepared. Your validator will perform core logic checks
+to ensure only registered non-eliminated miners can be given weights. Your validator will look to set weights
+every 30 minutes.
+
+Your validator will store all information related to miners on disk as it doesn't take up much space. 
+All information created is stored in the `validation` directory.
+
+When the validator receives signals, they are converted to orders. These orders make up positions which are stored
+are safely stored as pickle objects in the `validation/miners` directory on a per miner basis.
+
+The core logic looks to detect & eliminate any sort of miner copying from the network. It does this by performing
+an analysis on every order received. If a miner is detected to be plagiarising off another miner, they will be eliminated
+from the network. The information on plagiarising miners is held in `validation/miner_copying.json`.
+
+When a miner is eliminated due to xceeding drawdown limits, or being caught plagiarising 
+they will end up in the `validation/eliminations.json` file.
+
+## Running a Validator
 
 ### Using Provided Scripts
 
@@ -209,7 +254,7 @@ $ pm2 update
 3. Be sure to install venv for the repo.
 
 ```bash
-# /time-series-prediction-subnet
+# /prop-net
 
 # create virtual environment
 $ python3 -m venv venv
@@ -230,8 +275,8 @@ $ pm2 start run.sh --name sn8 -- --wallet.name <wallet> --wallet.hotkey <hotkey>
 This will run two PM2 process:
 
 1. A process for the validator, called sn8 by default (you can change this in run.sh)
-2. And a process for the run.sh script (in step 4, we named it tsps). The script will check for updates every 30 minutes,
-   if there is an update, it will pull, install, restart tsps, and restart itself.
+2. And a process for the run.sh script (in step 4, we named it ptn). The script will check for updates every 30 minutes,
+   if there is an update, it will pull, install, restart ptn, and restart itself.
 
 ### Manually
 
@@ -249,11 +294,13 @@ $ nohup python neurons/validator.py --netuid 8 --wallet.name <wallet> --wallet.h
 
 ## Running a Miner
 
-If you're running a miner, you should see two types of requests: LiveForward and LiveBackward. LiveForward will be when your miner performs predictions; LiveBackward will receive the results that occurred live if you want to use them for any updating purposes.
+On the mining side we've setup some helpful infrastructure for you to send in signals to the network. You can run
+`mining/run_receive_signals_server.py` which will launch a flask server. You can use this flask server to send in
+signals to the network. To see an example of sending a signal into the server, checkout `mining/sample_signal_request.py`.
 
-You'll receive rewards for your predictions ~10 hours after making them. Therefore, if you start running on the network, you should expect a lag in receiving rewards. Predictions are reviewed and rewarded every 30 minutes.
-
-In the short term, your miner will not be trained on the network (TrainingBackward and TrainingForward will only run sometimes). Please train beforehand as we'll only be using BTC/USD on the 5m to begin, which you can prepare for.
+Once a signal is properly sent into the signals server, it is stored locally in `mining/received_signals` to 
+prepare for processing. From there, the core miner logic will automatically look to send the signal into the network, 
+retrying on failure. Once the signal is attempted to send into the network, the signal is stored in `mining/processed_signals`.
 
 # Running on mainnet
 
@@ -264,111 +311,43 @@ analyze why your miner isn't running.
 
 The current flow of information is as follows:
 
-1. Validators request predictions every 30 minutes.
-2. Miners make predictions.
-3. Validators store predictions.
-4. Validators wait until data is available to compare against (roughly a day and a half for 5m data).
-5. Validators compare when data is ready.
+1. Send in your signals to validators
+2. Validators update your existing positions, or create new positions based on your signals
+3. Validators track your positions returns
+4. Validators review your predictions to assess drawdown every minute
+4. Validators wait for you to send in signals to close out positions (FLAT)
+5. Validators set weights based on miner returns every 30 minutes
 
-So don't expect emissions on predictions immediately; you will need to wait for the predicted information to occur to be compared against.
+# Building a strategy
 
-# Building a model
-
-You can build a model on your own or use the infrastructure inside this repository.
-
-If you choose to use the infrastructure provided in here, you can choose to leverage standardized financial market indicators provided in `mining_objects/financial_market_indicators.py` as well as a standardized LSTM model in `mining_objects/base_mining_model.py`.
-
-You can generate a historical Bitcoin dataset using the script
-`runnable/generate_historical_data.py` and choose the timeframe you'd like to generate for using the comments provided inside the script.
-
-We've provided a basis for creating and testing models using `runnable/miner_testing.py` and `runnable/miner_training.py`
-
-Please note that we are constantly adjusting these scripts and will make improvements over time.
+We recommend joining our community hub via Discord to get assistance in building a trading strategy. We have partnerships
+with both glassnode and LunarCrush who provide valuable data to be able to create an effective strategy. Analysis and information
+on how to build a deep learning ML based strategy will continue to be discussed in an open manner by team Taoshi to help
+guide miners to compete.
 
 # Testing
 
 You can begin testing on testnet netuid 3. You can follow the `docs/running_on_testnet.md` file inside the repo
 to run on testnet.
 
-A recommendation when testing on testnet to speed up testing is to pass the `test_only_historical`
-argument for your validator.
-
 You can do this by using running:
 
 ```bash
-$ python neurons/validator.py --netuid 3 --subtensor.network test --wallet.name validator --wallet.hotkey default --logging.debug --test_only_historical 1
+$ python neurons/validator.py --netuid 3 --subtensor.network test --wallet.name miner --wallet.hotkey default --logging.debug
 ```
 
-This will have the validator run and test against historical data instead of live. Don't use this flag if you only want to test against live data.
+This will have the validator run and test against historical data instead of live. Don't use this flag if you only want
+to test against live data.
 
-We also recommend using two miners when testing, as a single miner won't provide enough responses to pass for weighing. You can pass a different port for the 2nd registered miner.
+We also recommend using two miners when testing, as a single miner won't provide enough responses to pass for weighing.
+You can pass a different port for the 2nd registered miner.
 
 You can run the second miner using the following example command:
 
 ```bash
-$ python neurons/miner.py --netuid 3 --subtensor.network test --wallet.name miner --wallet.hotkey default --logging.debug --axon.port 8095
+$ python neurons/miner.py --netuid 3 --subtensor.network test --wallet.name miner2 --wallet.hotkey default --logging.debug --axon.port 8095
 ```
 
-# FAQ
-
-<details>
-  <summary>How does rewarding work?</summary>
-  <br>
-  <p>
-    Miners are rewarded based on predicting future information or live data as we classify it in the subnet. The network will also provide training data on the various datasets (trade pairs for financial market data) to increase miner accuracy. However, rewarding occurs on data that has yet to happen or what the subnet defines as live data. Once the future data is known, we compare it against the predictions made and reward based on performance.
-  </p>
-</details>
-
-<details>
-  <summary>What processing power is required to be a validator?</summary>
-  <br>
-  <p>
-    To be a validator, you must have a server running in the EU (recommend Ireland, UK). This server can be through a VPN or a cloud-based server. Not all financial data can be accessed inside the US (for crypto). The actual processing power is light, as validators only compare results against what occurs live; therefore, a relatively small machine can be a validator.
-  </p>
-</details>
-
-<details>
-  <summary>What is the expected data input and output as a miner?</summary>
-  <br>
-  <p>
-For financial markets, the goal will be to predict the next 8 hours of closes on a 5m interval (100 closes). The subnet will provide the trade pair's last 25-30 days of 5m data to help achieve that goal. You'll likely want to incorporate additional data into your modeling techniques.
-    
-    Input Features: [close_timestamp (milliseconds), close, high, low, volume]
-    Target Feature: [close]
-  </p>
-</details>
-
-<details>
-  <summary>Can I be a miner with little knowledge?</summary>
-  <br>
-  <p>
-    Predicting on markets is very hard, but we want to help those who want to contribute to the network by providing models that can be used. These models can be used to build upon, or just run yourself to try and compete.
-
-    You can participate by running these pre-built & pre-trained models provided to all miners [here](https://huggingface.co/Taoshi/model_v4).
-
-    These model are already built into the core logic of `neurons/miner.py` for you to run and compete as a miner. All you need to do is run `neurons/miner.py` and specify the model you want to run as an argument through --base_model:
-    --base_model model_v4_1
-
-  </p>
-
-</details>
-
-<details>
-  <summary>I'm knowledgeable about creating a competing prediction model on my own. Can I prepare my miner to compete?</summary>
-  <br>
-  <p>
-You can start using the hugging face models to prepare for release or from scratch and test on testnet (netuid 3). You can use the training data provided by the subnet or prepare separately using your training data (say on BTC to start).
-  </p>
-</details>
-
-<details>
-  <summary>Where can I begin testing?</summary>
-  <br>
-  <p>
-    You can begin testing on testnet netuid 3. You can follow the
-    `docs/running_on_testnet.md` file inside the repo to run on testnet.
-  </p>
-</details>
 
 ---
 
