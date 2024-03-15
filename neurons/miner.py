@@ -50,9 +50,19 @@ class Miner:
         bt.logging.add_args(parser)
         # Adds wallet specific arguments i.e. --wallet.name ..., --wallet.hotkey ./. or --wallet.path ...
         bt.wallet.add_args(parser)
+        # Adds an argument to allow setting write_failed_signal_logs from the command line
+        # We use a placeholder default value here (None) to check if the user has provided a value later
+        parser.add_argument("--write_failed_signal_logs", type=bool, default=None,
+                            help="Whether to write logs for failed signals. Default is True unless --subtensor.network is 'test'.")
+
         # Parse the config (will take command-line arguments if provided)
         # To print help message, run python3 template/miner.py --help
         config = bt.config(parser)
+
+        # Determine the default value for write_failed_signal_logs based on the subtensor.network,
+        # but only if the user hasn't explicitly set it via command line.
+        if config.write_failed_signal_logs is None:
+            config.write_failed_signal_logs = False if config.subtensor.network == "test" else True
 
         # Step 3: Set up logging directory
         # Logging is crucial for monitoring and debugging purposes.

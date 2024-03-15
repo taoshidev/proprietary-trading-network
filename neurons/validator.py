@@ -16,7 +16,7 @@ from data_generator.twelvedata_service import TwelveDataService
 from shared_objects.RateLimiter import RateLimiter
 from shared_objects.challenge_utils import ChallengeBase
 from time_util.time_util import TimeUtil
-from vali_config import TradePair
+from vali_config import TradePair, ValiConfig
 from vali_objects.exceptions.signal_exception import SignalException
 from shared_objects.MetagraphUpdater import MetagraphUpdater
 from vali_objects.utils.EliminationManager import EliminationManager

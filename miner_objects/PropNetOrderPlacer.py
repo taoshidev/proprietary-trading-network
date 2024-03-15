@@ -48,7 +48,7 @@ class PropNetOrderPlacer:
         if len(signal_files) == 0:
             time.sleep(10)
 
-    def process_each_signal(self, signal_file_path):
+    def process_each_signal(self, signal_file_path: str):
         """
         Processes each signal file by attempting to send it to the validators.
         Manages retry attempts and employs exponential backoff for failed attempts.
@@ -66,16 +66,22 @@ class PropNetOrderPlacer:
         while retry_status[signal_file_path]['retry_attempts'] < self.MAX_RETRIES and retry_status[signal_file_path]['validators_needing_retry']:
             self.attempt_to_send_signal(signal_data, signal_file_path, retry_status)
 
-        # Even if there were validators that failed to process the signal, we move the file to the processed directory
-        self.move_signal_to_processed_directory(signal_file_path)
+        # If there were validators that failed to process the signal, we move the file to the failed directory
+        info = retry_status[signal_file_path]
+
+        # If the config allows it and we have validators needing retry, we move the file to the failed directory
+        if info['validators_needing_retry'] and self.config.write_failed_signal_logs:
+            self.move_signal_to_failure_directory(signal_file_path, info['validators_needing_retry'])
+        else:
+            self.move_signal_to_processed_directory(signal_file_path)
 
         return signal_file_path
 
-    def load_signal_data(self, signal_file_path):
+    def load_signal_data(self, signal_file_path: str):
         """Loads the signal data from a file."""
         return json.loads(ValiBkpUtils.get_file(signal_file_path), cls=GeneralizedJSONDecoder)
 
-    def attempt_to_send_signal(self, signal_data, signal_file_path, retry_status):
+    def attempt_to_send_signal(self, signal_data: object, signal_file_path: str, retry_status: dict):
         """
         Attempts to send a signal to the validators that need retrying, applying exponential backoff for each retry attempt.
         Logs the retry attempt number, and the number of validators that successfully responded out of the total number of original validators.
@@ -107,9 +113,26 @@ class PropNetOrderPlacer:
 
         retry_status[signal_file_path]['retry_attempts'] += 1  # Update the retry attempt count for this signal file
 
-    def move_signal_to_processed_directory(self, signal_file_path):
+    def move_signal_to_processed_directory(self, signal_file_path: str):
         """Moves a processed signal file to the processed directory."""
-        processed_signals_directory = MinerConfig.get_miner_processed_signals_dir()
-        ValiBkpUtils.make_dir(processed_signals_directory)
-        shutil.move(signal_file_path, os.path.join(processed_signals_directory, os.path.basename(signal_file_path)))
-        bt.logging.info(f"Signal file {signal_file_path} has been moved to the processed directory.")
+        self.move_signal_to_directory(MinerConfig.get_miner_processed_signals_dir(), signal_file_path)
+    def move_signal_to_failure_directory(self, signal_file_path: str, validators_needing_retry: list):
+        # Append the failure information to the signal data.
+        json_validator_data = [{'ip': validator.ip, 'port': validator.port, 'ip_type': validator.ip_type,
+                                'hotkey': validator.hotkey, 'coldkey': validator.coldkey, 'protocol': validator.protocol}
+                               for validator in validators_needing_retry]
+        new_data = {'original_signal': self.load_signal_data(signal_file_path),
+                    'validators_needing_retry': json_validator_data}
+
+        # Move signal file to the failed directory
+        self.move_signal_to_directory(MinerConfig.get_miner_failed_signals_dir(), signal_file_path)
+
+        # Overwrite the file we just moved with the new data
+        new_file_path = os.path.join(MinerConfig.get_miner_failed_signals_dir(), os.path.basename(signal_file_path))
+        ValiBkpUtils.write_file(new_file_path, json.dumps(new_data))
+        bt.logging.info(f"Signal file overwritten with failure information: {new_file_path}")
+
+    def move_signal_to_directory(self, directory: str, signal_file_path):
+        ValiBkpUtils.make_dir(directory)
+        shutil.move(signal_file_path, os.path.join(directory, os.path.basename(signal_file_path)))
+        bt.logging.info(f"Signal file {signal_file_path} has been moved to {directory} ")
