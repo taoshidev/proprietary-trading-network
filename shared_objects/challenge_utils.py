@@ -27,8 +27,8 @@ class ChallengeBase:
     def get_last_update_time_ms(self):
         return self._last_update_time_ms
 
-    def refresh_allowed(self, refresh_interval):
-        return TimeUtil.now_in_millis() - self.get_last_update_time_ms() > refresh_interval
+    def refresh_allowed(self, refresh_interval_ms):
+        return TimeUtil.now_in_millis() - self.get_last_update_time_ms() > refresh_interval_ms
 
     def set_last_update_time(self):
         # Log that the class has finished updating and the time it finished updating

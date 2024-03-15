@@ -20,6 +20,20 @@ class MDDChecker(ChallengeBase):
         secrets = ValiUtils.get_secrets()
         self.all_trade_pairs = [trade_pair for trade_pair in TradePair]
         self.twelvedata = TwelveDataService(api_key=secrets["twelvedata_apikey"])
+
+    def get_required_closing_prices(self, hotkey_positions):
+        required_trade_pairs = set()
+        for sorted_positions in hotkey_positions.values():
+            for position in sorted_positions:
+                # Only need live price for open positions
+                if position.is_closed_position:
+                    continue
+                required_trade_pairs.add(position.trade_pair)
+
+        trade_pairs_list = list(required_trade_pairs)
+        if len(trade_pairs_list) == 0:
+            return {}
+        return self.twelvedata.get_closes(trade_pairs=trade_pairs_list)
     
     def mdd_check(self):
         if not self.refresh_allowed(ValiConfig.MDD_CHECK_REFRESH_TIME_MS):
@@ -30,12 +44,11 @@ class MDDChecker(ChallengeBase):
         self._refresh_eliminations_in_memory_and_disk()
 
         try:
-            signal_closing_prices = self.twelvedata.get_closes(trade_pairs=self.all_trade_pairs)
-
-            hotkey_positions = PositionUtils.get_all_miner_positions_by_hotkey(
+            hotkey_to_positions = PositionUtils.get_all_miner_positions_by_hotkey(
                 self.metagraph.hotkeys, sort_positions=True, eliminations=self.eliminations
             )
-            for hotkey, sorted_positions in hotkey_positions.items():
+            signal_closing_prices = self.get_required_closing_prices(hotkey_to_positions)
+            for hotkey, sorted_positions in hotkey_to_positions.items():
                 self._search_for_miner_dd_failures(hotkey, sorted_positions, signal_closing_prices)
 
             self._write_eliminations_from_memory_to_disk()
