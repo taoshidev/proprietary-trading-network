@@ -13,16 +13,16 @@ import traceback
 import bittensor as bt
 
 from data_generator.twelvedata_service import TwelveDataService
-from shared_objects.RateLimiter import RateLimiter
+from shared_objects.rate_limiter import RateLimiter
 from shared_objects.challenge_utils import ChallengeBase
 from time_util.time_util import TimeUtil
 from vali_config import TradePair, ValiConfig
 from vali_objects.exceptions.signal_exception import SignalException
-from shared_objects.MetagraphUpdater import MetagraphUpdater
-from vali_objects.utils.EliminationManager import EliminationManager
-from vali_objects.utils.SubtensorWeightSetter import SubtensorWeightSetter
-from vali_objects.utils.MDDChecker import MDDChecker
-from vali_objects.utils.PlagiarismDetector import PlagiarismDetector
+from shared_objects.metagraph_updater import MetagraphUpdater
+from vali_objects.utils.elimination_manager import EliminationManager
+from vali_objects.utils.subtensor_weight_setter import SubtensorWeightSetter
+from vali_objects.utils.mdd_checker import MDDChecker
+from vali_objects.utils.plagiarism_detector import PlagiarismDetector
 from vali_objects.utils.position_lock import PositionLocks
 from vali_objects.utils.position_utils import PositionUtils
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
@@ -72,8 +72,8 @@ class Validator:
         # metagraph provides the network's current state, holding state about other participants in a subnet.
         # IMPORTANT: Only update this variable in-place. Otherwise, the reference will be lost in the helper classes.
         self.metagraph = subtensor.metagraph(self.config.netuid)
-        self.metagraphUpdater = MetagraphUpdater(self.config, self.metagraph)
-        self.metagraphUpdater.update_metagraph()
+        self.metagraph_updater = MetagraphUpdater(self.config, self.metagraph)
+        self.metagraph_updater.update_metagraph()
         bt.logging.info(f"Metagraph: {self.metagraph}")
 
         # Build and link vali functions to the axon.
@@ -88,16 +88,16 @@ class Validator:
         # Attach determines which functions are called when servicing a request.
         bt.logging.info(f"Attaching forward function to axon.")
 
-        self.rateLimiter = RateLimiter()
+        self.rate_limiter = RateLimiter()
 
         def rs_blacklist_fn(synapse: template.protocol.SendSignal) -> Tuple[bool, str]:
-            return Validator.blacklist_fn(synapse, self.metagraph, self.rateLimiter)
+            return Validator.blacklist_fn(synapse, self.metagraph, self.rate_limiter)
 
         def rs_priority_fn(synapse: template.protocol.SendSignal) -> float:
             return Validator.priority_fn(synapse, self.metagraph)
 
         def gp_blacklist_fn(synapse: template.protocol.GetPositions) -> Tuple[bool, str]:
-            return Validator.blacklist_fn(synapse, self.metagraph, self.rateLimiter)
+            return Validator.blacklist_fn(synapse, self.metagraph, self.rate_limiter)
 
         def gp_priority_fn(synapse: template.protocol.GetPositions) -> float:
             return Validator.priority_fn(synapse, self.metagraph)
@@ -139,11 +139,11 @@ class Validator:
         my_subnet_uid = self.metagraph.hotkeys.index(wallet.hotkey.ss58_address)
         bt.logging.info(f"Running validator on uid: {my_subnet_uid}")
 
-        self.plagiarismDetector = PlagiarismDetector(self.config, self.metagraph)
-        self.mddChecker = MDDChecker(self.config, self.metagraph)
-        self.weightSetter = SubtensorWeightSetter(self.config, wallet, self.metagraph)
-        self.eliminationManager = EliminationManager(self.metagraph)
-        self.positionLocks = PositionLocks()
+        self.plagiarism_detector = PlagiarismDetector(self.config, self.metagraph)
+        self.mdd_checker = MDDChecker(self.config, self.metagraph)
+        self.weight_setter = SubtensorWeightSetter(self.config, wallet, self.metagraph)
+        self.elimination_manager = EliminationManager(self.metagraph)
+        self.position_locks = PositionLocks()
 
     @staticmethod
     def blacklist_fn(synapse, metagraph, rateLimiter) -> Tuple[bool, str]:
@@ -225,11 +225,11 @@ class Validator:
         bt.logging.info(f"Starting main loop")
         while True:
             try:
-                self.metagraphUpdater.update_metagraph()
-                self.mddChecker.mdd_check()
-                self.weightSetter.set_weights()
-                self.eliminationManager.process_eliminations()
-                self.positionLocks.cleanup_locks(self.metagraph.hotkeys)
+                self.metagraph_updater.update_metagraph()
+                self.mdd_checker.mdd_check()
+                self.weight_setter.set_weights()
+                self.elimination_manager.process_eliminations()
+                self.position_locks.cleanup_locks(self.metagraph.hotkeys)
 
             # If someone intentionally stops the miner, it'll safely terminate operations.
             except KeyboardInterrupt:
@@ -328,7 +328,7 @@ class Validator:
         error_message = ""
         try:
             signal_to_order = self.convert_signal_to_order(signal, miner_hotkey)
-            with self.positionLocks.get_lock(miner_hotkey, signal_to_order.trade_pair.trade_pair_id):
+            with self.position_locks.get_lock(miner_hotkey, signal_to_order.trade_pair.trade_pair_id):
                 # gather open positions and see which trade pairs have an open position
                 trade_pair_to_open_position = {position.trade_pair: position for position in
                                              PositionUtils.get_all_miner_positions(miner_hotkey,
@@ -340,7 +340,7 @@ class Validator:
                 # Log the open position for the miner
                 bt.logging.info(f"Position for miner [{miner_hotkey}] updated: {open_position}")
                 open_position.log_position_status()
-            self.plagiarismDetector.check_plagiarism(open_position, signal_to_order)
+            self.plagiarism_detector.check_plagiarism(open_position, signal_to_order)
 
         except SignalException as e:
             error_message = f"error processing signal [{e}]"

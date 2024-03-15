@@ -6,7 +6,7 @@ from tests.vali_tests.base_objects.test_base import TestBase
 from vali_config import TradePair, ValiConfig
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.position import Position
-from vali_objects.utils.MDDChecker import MDDChecker
+from vali_objects.utils.mdd_checker import MDDChecker
 from vali_objects.utils.vali_utils import ValiUtils
 from vali_objects.vali_dataclasses.order import Order
 from data_generator.twelvedata_service import TwelveDataService
@@ -16,8 +16,8 @@ class TestMDDChecker(TestBase):
     def setUp(self):
         super().setUp()
         self.MINER_HOTKEY = "test_miner"
-        self.mockMetagraph = MockMetagraph([self.MINER_HOTKEY])
-        self.mddChecker = MockMDDChecker(self.mockMetagraph)
+        self.mock_metagraph = MockMetagraph([self.MINER_HOTKEY])
+        self.mdd_checker = MockMDDChecker(self.mock_metagraph)
         self.DEFAULT_TEST_POSITION_UUID = "test_position"
         self.DEFAULT_OPEN_MS = 1000
         self.trade_pair_to_default_position = {x : Position(
@@ -27,22 +27,22 @@ class TestMDDChecker(TestBase):
             trade_pair=x,
         ) for x in TradePair}
 
-        ValiUtils.init_cache_files(self.mockMetagraph)
+        ValiUtils.init_cache_files(self.mock_metagraph)
         ChallengeBase.clear_eliminations_from_disk()
         ValiUtils.clear_all_miner_positions_from_disk()
         secrets = ValiUtils.get_secrets()
         self.tds = TwelveDataService(api_key=secrets["twelvedata_apikey"])
 
     def verify_elimination_data_in_memory_and_disk(self, expected_eliminations):
-        self.mddChecker._refresh_eliminations_in_memory_and_disk()
+        self.mdd_checker._refresh_eliminations_in_memory_and_disk()
         expected_eliminated_hotkeys = [x['hotkey'] for x in expected_eliminations]
-        eliminated_hotkeys = [x['hotkey'] for x in self.mddChecker.eliminations]
+        eliminated_hotkeys = [x['hotkey'] for x in self.mdd_checker.eliminations]
         self.assertEqual(len(eliminated_hotkeys),
                          len(expected_eliminated_hotkeys),
                          "Eliminated hotkeys in memory/disk do not match expected. eliminated_hotkeys: "
                          + str(eliminated_hotkeys) + " expected_eliminated_hotkeys: " + str(expected_eliminated_hotkeys))
         self.assertEqual(set(eliminated_hotkeys), set(expected_eliminated_hotkeys))
-        for v1, v2 in zip(expected_eliminations, self.mddChecker.eliminations):
+        for v1, v2 in zip(expected_eliminations, self.mdd_checker.eliminations):
             self.assertEqual(v1['hotkey'], v2['hotkey'])
             self.assertEqual(v1['reason'], v2['reason'])
             self.assertAlmostEquals(v1['elimination_initiated_time_ms'] / 1000.0, v2['elimination_initiated_time_ms'] / 1000.0, places=1)
@@ -63,13 +63,13 @@ class TestMDDChecker(TestBase):
                 order_uuid="1000")
 
         relevant_position = self.trade_pair_to_default_position[TradePair.BTCUSD]
-        self.mddChecker.mdd_check()
+        self.mdd_checker.mdd_check()
         # Running mdd_check with no positions should not cause any eliminations but it should write an empty list to disk
         self.verify_elimination_data_in_memory_and_disk([])
 
         self.add_order_to_position_and_save_to_disk(relevant_position, o1)
         self.assertEqual(relevant_position.is_closed_position, False)
-        self.mddChecker.mdd_check()
+        self.mdd_checker.mdd_check()
         failure_row = ChallengeBase.generate_elimination_row(relevant_position.miner_hotkey, 0, MDDChecker.MAX_TOTAL_DRAWDOWN)
         self.verify_elimination_data_in_memory_and_disk([failure_row])
 
@@ -93,18 +93,18 @@ class TestMDDChecker(TestBase):
                 order_uuid="2000")
 
         relevant_position = self.trade_pair_to_default_position[TradePair.BTCUSD]
-        self.mddChecker.mdd_check()
+        self.mdd_checker.mdd_check()
         # Running mdd_check with no positions should not cause any eliminations but it should write an empty list to disk
         self.verify_elimination_data_in_memory_and_disk([])
 
         self.add_order_to_position_and_save_to_disk(relevant_position, o1)
-        self.mddChecker.mdd_check()
+        self.mdd_checker.mdd_check()
         self.assertEqual(relevant_position.is_closed_position, False)
         self.verify_elimination_data_in_memory_and_disk([])
 
         self.add_order_to_position_and_save_to_disk(relevant_position, o2)
         self.assertEqual(relevant_position.is_closed_position, True)
-        self.mddChecker.mdd_check()
+        self.mdd_checker.mdd_check()
         failure_row = ChallengeBase.generate_elimination_row(relevant_position.miner_hotkey, 0, MDDChecker.MAX_TOTAL_DRAWDOWN)
         self.verify_elimination_data_in_memory_and_disk([failure_row])
 
@@ -133,16 +133,16 @@ class TestMDDChecker(TestBase):
                 processed_ms=2000,
                 order_uuid="2000")
 
-        self.mddChecker.mdd_check()
+        self.mdd_checker.mdd_check()
         # Running mdd_check with no positions should not cause any eliminations but it should write an empty list to disk
         self.verify_elimination_data_in_memory_and_disk([])
 
         self.add_order_to_position_and_save_to_disk(position_btc, o1)
-        self.mddChecker.mdd_check()
+        self.mdd_checker.mdd_check()
         self.verify_elimination_data_in_memory_and_disk([])
 
         self.add_order_to_position_and_save_to_disk(position_eth, o2)
-        self.mddChecker.mdd_check()
+        self.mdd_checker.mdd_check()
         failure_row = ChallengeBase.generate_elimination_row(position_eth.miner_hotkey, .826, MDDChecker.MAX_TOTAL_DRAWDOWN)
         self.verify_elimination_data_in_memory_and_disk([failure_row])
 
@@ -165,18 +165,18 @@ class TestMDDChecker(TestBase):
                 order_uuid="2000")
 
         relevant_position = self.trade_pair_to_default_position[TradePair.BTCUSD]
-        self.mddChecker.mdd_check()
+        self.mdd_checker.mdd_check()
         # Running mdd_check with no positions should not cause any eliminations but it should write an empty list to disk
         self.verify_elimination_data_in_memory_and_disk([])
 
         self.add_order_to_position_and_save_to_disk(relevant_position, o1)
-        self.mddChecker.mdd_check()
+        self.mdd_checker.mdd_check()
         self.assertEqual(relevant_position.is_closed_position, False)
         self.verify_elimination_data_in_memory_and_disk([])
 
         self.add_order_to_position_and_save_to_disk(relevant_position, o2)
         self.assertEqual(relevant_position.is_closed_position, False)
-        self.mddChecker.mdd_check()
+        self.mdd_checker.mdd_check()
         self.verify_elimination_data_in_memory_and_disk([])
 
 if __name__ == '__main__':

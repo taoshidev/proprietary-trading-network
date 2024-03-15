@@ -1,5 +1,5 @@
-from vali_objects.utils.MDDChecker import MDDChecker
-from vali_objects.utils.PlagiarismDetector import PlagiarismDetector
+from vali_objects.utils.mdd_checker import MDDChecker
+from vali_objects.utils.plagiarism_detector import PlagiarismDetector
 
 
 class MockMDDChecker(MDDChecker):

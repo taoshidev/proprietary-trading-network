@@ -16,8 +16,8 @@ class TestPlagiarism(TestBase):
         super().setUp()
         self.MINER_HOTKEY1 = "test_miner1"
         self.MINER_HOTKEY2 = "test_miner2"
-        self.mockMetagraph = MockMetagraph([self.MINER_HOTKEY1, self.MINER_HOTKEY2])
-        self.plagiarismDetector = MockPlagiarismDetector(self.mockMetagraph)
+        self.mock_metagraph = MockMetagraph([self.MINER_HOTKEY1, self.MINER_HOTKEY2])
+        self.plagiarism_detector = MockPlagiarismDetector(self.mock_metagraph)
         self.DEFAULT_TEST_POSITION_UUID = "test_position"
         self.DEFAULT_OPEN_MS = 1000
         self.eth_position1 = Position(
@@ -45,7 +45,7 @@ class TestPlagiarism(TestBase):
             trade_pair=TradePair.BTCUSD,
         )
 
-        ValiUtils.init_cache_files(self.mockMetagraph)
+        ValiUtils.init_cache_files(self.mock_metagraph)
         ChallengeBase.clear_eliminations_from_disk()
         ChallengeBase.clear_plagiarism_scores_from_disk()
         ValiUtils.clear_all_miner_positions_from_disk()
@@ -57,7 +57,7 @@ class TestPlagiarism(TestBase):
         ValiUtils.save_miner_position_to_disk(position)
 
     def test_plagiarism_all_zero_scores(self):
-        self.assertEqual({}, self.plagiarismDetector.miner_plagiarism_scores)
+        self.assertEqual({}, self.plagiarism_detector.miner_plagiarism_scores)
 
         o1 = Order(order_type=OrderType.SHORT,
                 leverage=1.0,
@@ -66,12 +66,12 @@ class TestPlagiarism(TestBase):
                 processed_ms=1000,
                 order_uuid="1000")
         self.add_order_to_position_and_save_to_disk(self.eth_position1, o1)
-        self.plagiarismDetector.check_plagiarism(self.eth_position1, o1)
-        self.assertEqual({self.MINER_HOTKEY1: 0}, self.plagiarismDetector.miner_plagiarism_scores)
+        self.plagiarism_detector.check_plagiarism(self.eth_position1, o1)
+        self.assertEqual({self.MINER_HOTKEY1: 0}, self.plagiarism_detector.miner_plagiarism_scores)
 
         self.add_order_to_position_and_save_to_disk(self.eth_position2, o1)
-        self.plagiarismDetector.check_plagiarism(self.eth_position2, o1)
-        self.assertEqual({self.MINER_HOTKEY1: 0, self.MINER_HOTKEY2: 0}, self.plagiarismDetector.miner_plagiarism_scores)
+        self.plagiarism_detector.check_plagiarism(self.eth_position2, o1)
+        self.assertEqual({self.MINER_HOTKEY1: 0, self.MINER_HOTKEY2: 0}, self.plagiarism_detector.miner_plagiarism_scores)
 
         o2 = Order(order_type=OrderType.SHORT,
                 leverage=1.0,

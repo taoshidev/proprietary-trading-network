@@ -8,8 +8,8 @@ import traceback
 from typing import List
 
 import bittensor as bt
-from miner_objects.PropNetOrderPlacer import PropNetOrderPlacer
-from shared_objects.MetagraphUpdater import MetagraphUpdater
+from miner_objects.prop_net_order_placer import PropNetOrderPlacer
+from shared_objects.metagraph_updater import MetagraphUpdater
 from template.protocol import GetPositions
 
 
@@ -31,8 +31,8 @@ class Miner:
         self.subtensor = bt.subtensor(config=self.config)
         self.dendrite = bt.dendrite(wallet=self.wallet)
         self.metagraph = self.subtensor.metagraph(self.config.netuid)
-        self.metagraphUpdater = MetagraphUpdater(self.config, self.metagraph)
-        self.propNetOrderPlacer = PropNetOrderPlacer(self.dendrite, self.metagraph, self.config)
+        self.metagraph_updater = MetagraphUpdater(self.config, self.metagraph)
+        self.prop_net_order_placer = PropNetOrderPlacer(self.dendrite, self.metagraph, self.config)
 
     def check_miner_registration(self):
         if self.wallet.hotkey.ss58_address not in self.metagraph.hotkeys:
@@ -101,8 +101,8 @@ class Miner:
 
         while True:
             try:
-                self.metagraphUpdater.update_metagraph()
-                self.propNetOrderPlacer.send_signals()
+                self.metagraph_updater.update_metagraph()
+                self.prop_net_order_placer.send_signals()
             # If someone intentionally stops the miner, it'll safely terminate operations.
             except KeyboardInterrupt:
                 bt.logging.success("Miner killed by keyboard interrupt.")
