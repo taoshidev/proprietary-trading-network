@@ -153,6 +153,10 @@ class Position:
                 "Miner attempted to add order to a closed/liquidated position. Ignoring."
             )
             return
+        if order.trade_pair != self.trade_pair:
+            raise ValueError(
+                f"Order trade pair [{order.trade_pair}] does not match position trade pair [{self.trade_pair}]"
+            )
         self.orders.append(order)
         self._update_position()
 

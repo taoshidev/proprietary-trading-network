@@ -4,6 +4,7 @@
 # Copyright © 2023 Taoshi Inc
 import os
 import argparse
+import traceback
 from typing import List
 
 import bittensor as bt
@@ -89,8 +90,16 @@ class Miner:
         bt.logging.info("Starting miner loop.")
 
         while True:
-            self.metagraphUpdater.update_metagraph()
-            self.propNetOrderPlacer.send_signals()
+            try:
+                self.metagraphUpdater.update_metagraph()
+                self.propNetOrderPlacer.send_signals()
+            # If someone intentionally stops the miner, it'll safely terminate operations.
+            except KeyboardInterrupt:
+                bt.logging.success("Miner killed by keyboard interrupt.")
+                break
+            # In case of unforeseen errors, the miner will log the error and continue operations.
+            except Exception:
+                bt.logging.error(traceback.format_exc())
 
 
 if __name__ == "__main__":
