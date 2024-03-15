@@ -72,7 +72,6 @@ setup(
     packages=find_packages(),
     include_package_data=True,
     author_email="support@taoshi.io",
-    license="MIT",
     python_requires=">=3.10",
     install_requires=requirements,
     classifiers=[
