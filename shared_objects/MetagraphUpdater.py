@@ -14,7 +14,7 @@ class MetagraphUpdater(ChallengeBase):
         super().__init__(config, metagraph)   
 
     def update_metagraph(self):
-        if time.time() - self.get_last_update_time() < ValiConfig.METAGRAPH_UPDATE_REFRESH_TIME_S:
+        if not self.refresh_allowed(ValiConfig.METAGRAPH_UPDATE_REFRESH_TIME_MS):
             return
         bt.logging.info("Updating metagraph.")
         self.metagraph.sync(subtensor=self.subtensor)

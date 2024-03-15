@@ -45,7 +45,7 @@ class TestMDDChecker(TestBase):
         for v1, v2 in zip(expected_eliminations, self.mddChecker.eliminations):
             self.assertEqual(v1['hotkey'], v2['hotkey'])
             self.assertEqual(v1['reason'], v2['reason'])
-            self.assertAlmostEquals(v1['elimination_initiated_time'], v2['elimination_initiated_time'], places=1)
+            self.assertAlmostEquals(v1['elimination_initiated_time_ms'] / 1000.0, v2['elimination_initiated_time_ms'] / 1000.0, places=1)
             self.assertAlmostEquals(v1['dd'], v2['dd'], places=2)
 
     def add_order_to_position_and_save_to_disk(self, position, order):

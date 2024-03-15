@@ -22,7 +22,7 @@ class EliminationManager(ChallengeBase):
         super().__init__(metagraph=metagraph)
 
     def process_eliminations(self):
-        if time.time() - self.get_last_update_time() < ValiConfig.ELIMINATION_CHECK_INTERVAL_S:
+        if not self.refresh_allowed(ValiConfig.ELIMINATION_CHECK_INTERVAL_MS):
             return
         bt.logging.info("running elimination manager")
         self._refresh_eliminations_in_memory_and_disk()
@@ -52,9 +52,9 @@ class EliminationManager(ChallengeBase):
         # self.eliminations were just refreshed in _load_latest_eliminations_from_disk and _handle_plagiarism_eliminations
         for x in self.eliminations:
             hotkey = x['hotkey']
-            elimination_initiated_time = x['elimination_initiated_time']
+            elimination_initiated_time_ms = x['elimination_initiated_time_ms']
             # Don't delete this miner until it hits the minimum elimination time.
-            if time.time() - elimination_initiated_time < ValiConfig.ELIMINATION_FILE_DELETION_DELAY_S:
+            if self.refresh_allowed(ValiConfig.ELIMINATION_FILE_DELETION_DELAY_MS):
                 updated_eliminations.append(x)
                 continue
             # We will not delete this miner's cache until it has been deregistered by BT

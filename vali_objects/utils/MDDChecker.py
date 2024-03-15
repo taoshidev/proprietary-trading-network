@@ -22,7 +22,7 @@ class MDDChecker(ChallengeBase):
         self.twelvedata = TwelveDataService(api_key=secrets["twelvedata_apikey"])
     
     def mdd_check(self):
-        if time.time() - self.get_last_update_time() < ValiConfig.MDD_CHECK_REFRESH_TIME_S:
+        if not self.refresh_allowed(ValiConfig.MDD_CHECK_REFRESH_TIME_MS):
             time.sleep(1)
             return
 

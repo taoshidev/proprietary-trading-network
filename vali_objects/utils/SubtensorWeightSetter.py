@@ -18,7 +18,7 @@ class SubtensorWeightSetter(ChallengeBase):
         self.wallet = wallet
 
     def set_weights(self):
-        if time.time() - self.get_last_update_time() < ValiConfig.SET_WEIGHT_REFRESH_TIME_S:
+        if not self.refresh_allowed(ValiConfig.SET_WEIGHT_REFRESH_TIME_MS):
             time.sleep(1)
             return
 

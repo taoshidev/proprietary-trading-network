@@ -33,13 +33,13 @@ class RateLimiter:
           - is_request_allowed indicates if the miner's request is within the rate limit.
           - wait_time_seconds is the time the miner should wait before making another request if the rate limit is exceeded.
         """
-        current_time = time.time()
+        current_time_s = time.time()
         window_start_timestamp, request_count = self.requests_history.get(miner_hotkey, (0, 0))
 
         # Determine if the current request is within the rate limit window.
-        if current_time - window_start_timestamp > self.rate_limit_window_duration_seconds:
+        if current_time_s - window_start_timestamp > self.rate_limit_window_duration_seconds:
             # If outside the window, reset the count for this miner.
-            self.requests_history[miner_hotkey] = (current_time, 1)
+            self.requests_history[miner_hotkey] = (current_time_s, 1)
             return True, 0.0
 
         if request_count < self.max_requests_per_window:
@@ -48,5 +48,5 @@ class RateLimiter:
             return True, 0.0
         else:
             # If limit is exceeded, calculate the remaining wait time.
-            wait_time_seconds = self.rate_limit_window_duration_seconds - (current_time - window_start_timestamp)
+            wait_time_seconds = self.rate_limit_window_duration_seconds - (current_time_s - window_start_timestamp)
             return False, wait_time_seconds

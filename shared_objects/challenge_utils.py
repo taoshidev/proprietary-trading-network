@@ -3,6 +3,7 @@
 
 import time
 
+from time_util.time_util import TimeUtil
 from vali_objects.utils.position_utils import PositionUtils
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.utils.vali_utils import ValiUtils
@@ -19,21 +20,24 @@ class ChallengeBase:
             self.subtensor = None
 
         self.metagraph = metagraph  # Refreshes happen on validator
-        self._last_update_time_s = 0
+        self._last_update_time_ms = 0
         self.eliminations = []
         self.miner_plagiarism_scores = {}
 
-    def get_last_update_time(self):
-        return self._last_update_time_s
+    def get_last_update_time_ms(self):
+        return self._last_update_time_ms
+
+    def refresh_allowed(self, refresh_interval):
+        return TimeUtil.now_in_millis() - self.get_last_update_time_ms() > refresh_interval
 
     def set_last_update_time(self):
         # Log that the class has finished updating and the time it finished updating
-        bt.logging.success(f"Finished updating class {self.__class__.__name__} at time {time.time()}")
-        self._last_update_time_s = time.time()
+        bt.logging.success(f"Finished updating class {self.__class__.__name__}")
+        self._last_update_time_ms = TimeUtil.now_in_millis()
 
     @staticmethod
     def generate_elimination_row(hotkey, dd, reason):
-        return {'hotkey': hotkey, 'elimination_initiated_time': time.time(), 'dd': dd, 'reason': reason}
+        return {'hotkey': hotkey, 'elimination_initiated_time_ms': TimeUtil.now_in_millis(), 'dd': dd, 'reason': reason}
     def close_positions_and_append_elimination_row(self, hotkey, dd, reason):
         """
          We are closing the positions here. By adding the miner to the elimination file, we ensure that subsequent orders
@@ -48,7 +52,7 @@ class ChallengeBase:
         open_positions = PositionUtils.get_all_miner_positions(hotkey, only_open_positions=True)
         bt.logging.info(f"Closing [{len(open_positions)}] positions for hotkey: {hotkey}")
         for open_position in open_positions:
-            open_position.close_out_position(time.time())
+            open_position.close_out_position(TimeUtil.now_in_millis())
             ValiUtils.save_miner_position_to_disk(open_position)
 
         r = ChallengeBase.generate_elimination_row(hotkey, dd, reason)
