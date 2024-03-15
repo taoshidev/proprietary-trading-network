@@ -29,7 +29,7 @@
         </li>
       </ol>
     </li>
-    <li><a href="#prediction-subnet">Proprietary Trading Network</a></li>
+    <li><a href="#prop-subnet">Proprietary Trading Network</a></li>
     <li><a href="#features">Featuers</a></li>
     <li><a href="#prerequisites">Prerequisites</a></li>
     <li>
@@ -199,7 +199,7 @@ The core logic looks to detect & eliminate any sort of miner copying from the ne
 an analysis on every order received. If a miner is detected to be plagiarising off another miner, they will be eliminated
 from the network. The information on plagiarising miners is held in `validation/miner_copying.json`.
 
-When a miner is eliminated due to xceeding drawdown limits, or being caught plagiarising 
+When a miner is eliminated due to exceeding drawdown limits, or being caught plagiarising 
 they will end up in the `validation/eliminations.json` file.
 
 ## Running a Validator
@@ -210,7 +210,7 @@ These validators run and update themselves automatically.
 
 To run a validator, follow these steps:
 
-1. [Install Prediction Subnet.](#installation)
+1. [Install Prop Subnet.](#installation)
 2. Install [PM2](https://pm2.io) and the (jq)[https://jqlang.github.io/jq/] package on your system.
 
 On Linux:
@@ -314,7 +314,7 @@ The current flow of information is as follows:
 1. Send in your signals to validators
 2. Validators update your existing positions, or create new positions based on your signals
 3. Validators track your positions returns
-4. Validators review your predictions to assess drawdown every minute
+4. Validators review your positions to assess drawdown every minute
 4. Validators wait for you to send in signals to close out positions (FLAT)
 5. Validators set weights based on miner returns every 30 minutes
 
