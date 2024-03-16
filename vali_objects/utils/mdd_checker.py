@@ -63,7 +63,11 @@ class MDDChecker(ChallengeBase):
 
     def _replay_all_closed_positions(self, hotkey, sorted_positions, current_dd):
         elimination_occurred = False
-        sorted_per_position_return = PositionUtils.get_return_per_closed_position(sorted_positions)
+        current_time = TimeUtil.now_in_millis()
+        sorted_per_position_return = PositionUtils.get_return_per_closed_position(
+            sorted_positions,
+            current_time
+        )
         if len(sorted_per_position_return) == 0:
             bt.logging.info(f"no existing closed positions for [{hotkey}]")
             return elimination_occurred, current_dd

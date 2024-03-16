@@ -52,10 +52,15 @@ class SubtensorWeightSetter(ChallengeBase):
 
         # have to have a minimum number of positions during the period
         # this removes anyone who got lucky on a couple trades
+        current_time = TimeUtil.now_in_millis()
         for hotkey, positions in hotkey_positions.items():
             if len(positions) <= ValiConfig.SET_WEIGHT_MINIMUM_POSITIONS:
                 continue
-            per_position_return = PositionUtils.get_return_per_closed_position(positions)
+
+            per_position_return = PositionUtils.get_return_per_closed_position(
+                positions,
+                current_time
+            )
             last_positional_return = per_position_return[-1]
             netuid_returns.append(last_positional_return)
             netuid = self.metagraph.hotkeys.index(hotkey)
