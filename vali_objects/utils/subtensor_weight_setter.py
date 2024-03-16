@@ -1,21 +1,19 @@
 # developer: jbonilla
-# Copyright © 2023 Taoshi Inc
+# Copyright © 2024 Taoshi Inc
 
 import time
 import bittensor as bt
-import numpy as np
-from scipy.stats import yeojohnson
 
 from time_util.time_util import TimeUtil
 from vali_config import ValiConfig
-from vali_objects.scaling.scaling import Scaling
 from vali_objects.scoring.scoring import Scoring
-from shared_objects.challenge_utils import ChallengeBase
-from vali_objects.utils.position_utils import PositionUtils
+from shared_objects.cache_controller import CacheController
+from vali_objects.utils.position_manager import PositionManager
 
-class SubtensorWeightSetter(ChallengeBase):
-    def __init__(self, config, wallet, metagraph):
-        super().__init__(config, metagraph)
+class SubtensorWeightSetter(CacheController):
+    def __init__(self, config, wallet, metagraph, running_unit_tests=False):
+        super().__init__(config, metagraph, running_unit_tests=running_unit_tests)
+        self.position_manager = PositionManager(metagraph=metagraph, running_unit_tests=running_unit_tests)
         self.wallet = wallet
 
     def set_weights(self):
@@ -41,7 +39,7 @@ class SubtensorWeightSetter(ChallengeBase):
         netuid_returns = []
 
         # Note, eliminated miners will not appear in the dict below
-        hotkey_positions = PositionUtils.get_all_miner_positions_by_hotkey(
+        hotkey_positions = self.position_manager.get_all_miner_positions_by_hotkey(
             self.metagraph.hotkeys,
             sort_positions=True,
             eliminations=self.eliminations,
@@ -55,7 +53,7 @@ class SubtensorWeightSetter(ChallengeBase):
         for hotkey, positions in hotkey_positions.items():
             if len(positions) <= ValiConfig.SET_WEIGHT_MINIMUM_POSITIONS:
                 continue
-            per_position_return = PositionUtils.get_return_per_closed_position(positions)
+            per_position_return = self.position_manager.get_return_per_closed_position(positions)
             last_positional_return = per_position_return[-1]
             netuid_returns.append(last_positional_return)
             netuid = self.metagraph.hotkeys.index(hotkey)

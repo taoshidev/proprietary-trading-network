@@ -1,18 +1,19 @@
 # developer: jbonilla
-# Copyright © 2023 Taoshi Inc
+# Copyright © 2024 Taoshi Inc
 
 import threading
 from sympy import Order
 
 from vali_config import ValiConfig
 from vali_objects.position import Position
-from shared_objects.challenge_utils import ChallengeBase
-from vali_objects.utils.position_utils import PositionUtils
+from shared_objects.cache_controller import CacheController
+from vali_objects.utils.position_manager import PositionManager
 
 
-class PlagiarismDetector(ChallengeBase):
-    def __init__(self, config, metagraph):
-        super().__init__(config, metagraph)
+class PlagiarismDetector(CacheController):
+    def __init__(self, config, metagraph, running_unit_tests=False):
+        super().__init__(config, metagraph, running_unit_tests=running_unit_tests)
+        self.position_manager = PositionManager(metagraph=metagraph, running_unit_tests=running_unit_tests)
         # May be run simultaneously in multiple threads spawned by received_signal. Lock for file IO safety.
         self._file_lock = threading.Lock()
 
@@ -29,7 +30,7 @@ class PlagiarismDetector(ChallengeBase):
         if hotkey is None:
             raise ValueError("miner hotkey must be provided.")
 
-        miner_positions_by_hotkey = PositionUtils.get_all_miner_positions_by_hotkey(self.metagraph.hotkeys, **args)
+        miner_positions_by_hotkey = self.position_manager.get_all_miner_positions_by_hotkey(self.metagraph.hotkeys, **args)
         # don't include their own hotkey
         orders = {
             porder.order_uuid: {"order": porder, "position": position}

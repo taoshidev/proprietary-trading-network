@@ -1,33 +1,31 @@
 # developer: Taoshidev
-# Copyright © 2023 Taoshi Inc
+# Copyright © 2024 Taoshi Inc
 
 import json
 import os
 import pickle
 
 from vali_config import ValiConfig
-import bittensor as bt
 
 class ValiBkpUtils:
     @staticmethod
-    def get_miner_dir() -> str:
-        return ValiConfig.BASE_DIR + f"/validation/miners/"
+    def get_miner_dir(running_unit_tests=False) -> str:
+        suffix = "/tests" if running_unit_tests else ""
+        return ValiConfig.BASE_DIR + f"{suffix}/validation/miners/"
 
     @staticmethod
-    def get_miner_hotkey_dir(miner_hotkey) -> str:
-        return f"{ValiBkpUtils.get_miner_dir()}{miner_hotkey}/"
+    def get_miner_position_dir(miner_hotkey, running_unit_tests=False) -> str:
+        return f"{ValiBkpUtils.get_miner_dir(running_unit_tests=running_unit_tests)}{miner_hotkey}/positions/"
 
     @staticmethod
-    def get_miner_position_dir(miner_hotkey) -> str:
-        return f"{ValiBkpUtils.get_miner_dir()}{miner_hotkey}/positions/"
+    def get_eliminations_dir(running_unit_tests=False) -> str:
+        suffix = "/tests" if running_unit_tests else ""
+        return ValiConfig.BASE_DIR + f"{suffix}/validation/eliminations.json"
 
     @staticmethod
-    def get_eliminations_dir():
-        return ValiConfig.BASE_DIR + f"/validation/eliminations.json"
-
-    @staticmethod
-    def get_miner_copying_dir():
-        return ValiConfig.BASE_DIR + f"/validation/miner_copying.json"
+    def get_plagiarism_scores_dir(running_unit_tests=False) -> str:
+        suffix = "/tests" if running_unit_tests else ""
+        return ValiConfig.BASE_DIR + f"{suffix}/validation/plagiarism.json"
 
     @staticmethod
     def get_secrets_dir():
@@ -46,8 +44,9 @@ class ValiBkpUtils:
         return ValiConfig.BASE_DIR + "/validation/weights/"
 
     @staticmethod
-    def get_vali_dir() -> str:
-        return ValiConfig.BASE_DIR + "/validation/"
+    def get_vali_dir(running_unit_tests=False) -> str:
+        suffix = "/tests" if running_unit_tests else ""
+        return ValiConfig.BASE_DIR + f"{suffix}/validation/"
 
     @staticmethod
     def get_vali_data_file() -> str:

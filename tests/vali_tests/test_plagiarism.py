@@ -1,11 +1,12 @@
 # developer: jbonilla
-# Copyright © 2023 Taoshi Inc
-from shared_objects.challenge_utils import ChallengeBase
-from tests.shared_objects.mock_classes import MockMetagraph, MockPlagiarismDetector, MockMDDChecker
+# Copyright © 2024 Taoshi Inc
+from shared_objects.cache_controller import CacheController
+from tests.shared_objects.mock_classes import MockMetagraph, MockPlagiarismDetector
 from tests.vali_tests.base_objects.test_base import TestBase
 from vali_config import TradePair
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.position import Position
+from vali_objects.utils.position_manager import PositionManager
 from vali_objects.utils.vali_utils import ValiUtils
 from vali_objects.vali_dataclasses.order import Order
 from data_generator.twelvedata_service import TwelveDataService
@@ -18,6 +19,7 @@ class TestPlagiarism(TestBase):
         self.MINER_HOTKEY2 = "test_miner2"
         self.mock_metagraph = MockMetagraph([self.MINER_HOTKEY1, self.MINER_HOTKEY2])
         self.plagiarism_detector = MockPlagiarismDetector(self.mock_metagraph)
+        self.position_manager = PositionManager(metagraph=self.mock_metagraph, running_unit_tests=True)
         self.DEFAULT_TEST_POSITION_UUID = "test_position"
         self.DEFAULT_OPEN_MS = 1000
         self.eth_position1 = Position(
@@ -45,16 +47,16 @@ class TestPlagiarism(TestBase):
             trade_pair=TradePair.BTCUSD,
         )
 
-        ValiUtils.init_cache_files(self.mock_metagraph)
-        ChallengeBase.clear_eliminations_from_disk()
-        ChallengeBase.clear_plagiarism_scores_from_disk()
-        ValiUtils.clear_all_miner_positions_from_disk()
+        self.plagiarism_detector.init_cache_files()
+        self.plagiarism_detector.clear_eliminations_from_disk()
+        self.plagiarism_detector.clear_plagiarism_scores_from_disk()
+        self.position_manager.clear_all_miner_positions_from_disk()
         secrets = ValiUtils.get_secrets()
         self.tds = TwelveDataService(api_key=secrets["twelvedata_apikey"])
 
     def add_order_to_position_and_save_to_disk(self, position, order):
         position.add_order(order)
-        ValiUtils.save_miner_position_to_disk(position)
+        self.position_manager.save_miner_position_to_disk(position)
 
     def test_plagiarism_all_zero_scores(self):
         self.assertEqual({}, self.plagiarism_detector.miner_plagiarism_scores)

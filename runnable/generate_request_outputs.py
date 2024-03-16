@@ -10,7 +10,7 @@ from vali_config import ValiConfig
 from vali_objects.decoders.generalized_json_decoder import GeneralizedJSONDecoder
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.utils.logger_utils import LoggerUtils
-from vali_objects.utils.position_utils import PositionUtils
+from vali_objects.utils.position_manager import PositionManager
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.utils.vali_utils import ValiUtils
 from vali_objects.vali_dataclasses.order import Order
@@ -35,7 +35,7 @@ def generate_request_outputs():
                 f"[{ValiBkpUtils.get_miner_dir()}]. Skip run for now."
             )
 
-        hotkey_positions = PositionUtils.get_all_miner_positions_by_hotkey(
+        hotkey_positions = PositionManager.get_all_miner_positions_by_hotkey(
             all_miner_hotkeys,
             sort_positions=True,
             acceptable_position_end_ms=TimeUtil.timestamp_to_millis(
@@ -53,7 +53,7 @@ def generate_request_outputs():
                 "thirty_day_returns": 1.0,
             }
 
-            return_per_position = PositionUtils.get_return_per_closed_position(ps)
+            return_per_position = PositionManager.get_return_per_closed_position(ps)
 
             if len(return_per_position) > 0:
                 curr_return = return_per_position[len(return_per_position) - 1]
