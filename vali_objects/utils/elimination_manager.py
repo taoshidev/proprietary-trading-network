@@ -16,9 +16,10 @@ class EliminationManager(CacheController):
     we may need to handle the case where we allow the miner to participate again. In this case, the elimination
     would already be cleared and their weight would be calculated as normal.
     """
-    def __init__(self, metagraph, running_unit_tests=False):
+    def __init__(self, metagraph, position_manager, running_unit_tests=False):
         super().__init__(metagraph=metagraph)
-        self.position_manager = PositionManager(metagraph=metagraph, running_unit_tests=running_unit_tests)
+        self.position_manager =position_manager
+        assert running_unit_tests == self.position_manager.running_unit_tests
 
     def process_eliminations(self):
         if not self.refresh_allowed(ValiConfig.ELIMINATION_CHECK_INTERVAL_MS):

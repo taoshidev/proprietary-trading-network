@@ -15,10 +15,11 @@ import bittensor as bt
 class MDDChecker(CacheController):
     MAX_DAILY_DRAWDOWN = 'MAX_DAILY_DRAWDOWN'
     MAX_TOTAL_DRAWDOWN = 'MAX_TOTAL_DRAWDOWN'
-    def __init__(self, config, metagraph, running_unit_tests=False):
+    def __init__(self, config, metagraph, position_manager, running_unit_tests=False):
         super().__init__(config, metagraph, running_unit_tests=running_unit_tests)
         secrets = ValiUtils.get_secrets()
-        self.position_manager = PositionManager(metagraph=metagraph, running_unit_tests=running_unit_tests)
+        self.position_manager = position_manager
+        assert self.running_unit_tests == self.position_manager.running_unit_tests
         self.all_trade_pairs = [trade_pair for trade_pair in TradePair]
         self.twelvedata = TwelveDataService(api_key=secrets["twelvedata_apikey"])
 
@@ -93,7 +94,7 @@ class MDDChecker(CacheController):
             return
 
         open_positions = [position for position in sorted_positions if not position.is_closed_position]
-        bt.logging.info(f"reviewing open positions for [{hotkey}]. Current_dd [{current_dd}]. n_positions [{len(open_positions)}]")
+        bt.logging.info(f"reviewing open positions for [{hotkey}]. Current_dd [{current_dd}]. n positions open [{len(open_positions)} / {len(sorted_positions)}]")
 
         open_position_trade_pairs = {
             position.position_uuid: position.trade_pair for position in open_positions
