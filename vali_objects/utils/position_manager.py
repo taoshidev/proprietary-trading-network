@@ -13,6 +13,7 @@ from vali_objects.exceptions.vali_bkp_file_missing_exception import ValiFileMiss
 from vali_objects.position import Position
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 
+
 class PositionManager(CacheController):
     def __init__(self, config=None, metagraph=None, running_unit_tests=False):
         super().__init__(config=config, metagraph=metagraph, running_unit_tests=running_unit_tests)
@@ -48,11 +49,11 @@ class PositionManager(CacheController):
         return per_position_return
 
     def get_all_miner_positions(self,
-        miner_hotkey: str,
-        only_open_positions: bool = False,
-        sort_positions: bool = False,
-        acceptable_position_end_ms: int = None
-    ) -> List[Position]:
+                                miner_hotkey: str,
+                                only_open_positions: bool = False,
+                                sort_positions: bool = False,
+                                acceptable_position_end_ms: int = None
+                                ) -> List[Position]:
         def _sort_by_close_ms(_position):
             # Treat None values as largest possible value
             return (
@@ -62,9 +63,9 @@ class PositionManager(CacheController):
         miner_dir = ValiBkpUtils.get_miner_position_dir(miner_hotkey, running_unit_tests=self.running_unit_tests)
         all_files = ValiBkpUtils.get_all_files_in_dir(miner_dir)
 
-        positions = [self.get_miner_positions_from_disk(file) for file in all_files]
+        positions = [self.get_miner_position_from_disk(file) for file in all_files]
         # log miner_dir, files, and positions
-        #bt.logging.info(f"miner_dir: {miner_dir}, all_files: {all_files}, n_positions: {len(positions)}")
+        bt.logging.info(f"miner_dir: {miner_dir}, n_positions: {len(positions)}")
 
         if acceptable_position_end_ms is not None:
             positions = [
@@ -83,7 +84,8 @@ class PositionManager(CacheController):
 
         return positions
 
-    def get_all_miner_positions_by_hotkey(self, hotkeys: List[str], eliminations: List = None, **args) -> Dict[str, List[Position]]:
+    def get_all_miner_positions_by_hotkey(self, hotkeys: List[str], eliminations: List = None, **args) -> Dict[
+        str, List[Position]]:
         eliminated_hotkeys = set(x['hotkey'] for x in eliminations) if eliminations is not None else set()
         bt.logging.info(f"eliminated hotkeys: {eliminated_hotkeys}")
         return {
@@ -111,9 +113,9 @@ class PositionManager(CacheController):
                     return False, f"{attr} is different. {value1} != {value2}"
         return True, ""
 
-
-    def get_miner_positions_from_disk(self, file) -> str | List[Position]:
+    def get_miner_position_from_disk(self, file) -> str | List[Position]:
         # wrapping here to allow simpler error handling & original for other error handling
+        # Note one position always corresponds to one file.
         try:
             ans = ValiBkpUtils.get_file(file, True)
             bt.logging.info(f"vali_utils get_miner_positions: {ans}")
@@ -123,12 +125,12 @@ class PositionManager(CacheController):
         except UnpicklingError:
             raise ValiBkpCorruptDataException("position data is not pickled")
 
-
     def save_miner_position_to_disk(self, position: Position) -> None:
-        miner_dir = ValiBkpUtils.get_miner_position_dir(position.miner_hotkey, running_unit_tests=self.running_unit_tests)
+        miner_dir = ValiBkpUtils.get_miner_position_dir(position.miner_hotkey,
+                                                        running_unit_tests=self.running_unit_tests)
         ValiBkpUtils.write_file(
             miner_dir + position.position_uuid,
-            position,True
+            position, True
         )
 
     def clear_all_miner_positions_from_disk(self):
@@ -140,6 +142,3 @@ class PositionManager(CacheController):
                 os.unlink(file_path)
             elif os.path.isdir(file_path):
                 shutil.rmtree(file_path)
-
-   
-

@@ -11,6 +11,7 @@ from vali_objects.utils.position_manager import PositionManager
 from vali_objects.utils.vali_utils import ValiUtils
 from vali_objects.vali_dataclasses.order import Order
 
+
 class TestPositionManager(TestBase):
 
     def setUp(self):
@@ -30,7 +31,6 @@ class TestPositionManager(TestBase):
         self.position_manager.init_cache_files()
         self.position_manager.clear_all_miner_positions_from_disk()
 
-
     def add_order_to_position_and_save_to_disk(self, position, order):
         position.add_order(order)
         self.position_manager.save_miner_position_to_disk(position)
@@ -47,7 +47,6 @@ class TestPositionManager(TestBase):
         self.assertTrue(success, "In memory position is not as expected. " + reason)
         success, reason = PositionManager.positions_are_the_same(disk_position, expected_state)
         self.assertTrue(success, "Disc position is not as expected. " + reason)
-
 
     def test_creating_closing_and_fetching_multiple_positions(self):
         n_trade_pairs = len(TradePair)
@@ -73,7 +72,6 @@ class TestPositionManager(TestBase):
             idx_to_position[(i, j)] = position
             self.position_manager.save_miner_position_to_disk(position)
 
-
         # Fetch all positions and verify that they are the same as the ones we created
         for i in range(n_trade_pairs):
             for j in range(6):
@@ -85,6 +83,10 @@ class TestPositionManager(TestBase):
         self.assertEqual(len(all_positions), n_trade_pairs * 6)
         # TODO: Validate these positions are the same as the ones we created
 
+        # Test the optional filter args. Consider putting the population of the positions in setUp.
+
+
 if __name__ == '__main__':
     import unittest
+
     unittest.main()
