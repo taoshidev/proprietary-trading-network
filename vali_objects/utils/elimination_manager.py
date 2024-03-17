@@ -48,30 +48,30 @@ class EliminationManager(CacheController):
         
 
     def _delete_eliminated_expired_miners(self):
-        updated_eliminations = []
+        eliminated_hotkeys = set()
         # self.eliminations were just refreshed in _load_latest_eliminations_from_disk and _handle_plagiarism_eliminations
         for x in self.eliminations:
             hotkey = x['hotkey']
             elimination_initiated_time_ms = x['elimination_initiated_time_ms']
             # Don't delete this miner until it hits the minimum elimination time.
             if self.refresh_allowed(ValiConfig.ELIMINATION_FILE_DELETION_DELAY_MS):
-                updated_eliminations.append(x)
                 continue
             # We will not delete this miner's cache until it has been deregistered by BT
             if hotkey in self.metagraph.hotkeys:
                 bt.logging.info(f"miner [{hotkey}] has not been deregistered by BT yet. Not deleting miner dir.")
                 continue
             miner_dir = ValiBkpUtils.get_miner_dir()
-            bt.logging.info(
-                f"miner eliminated with hotkey [{hotkey}] with max dd of [{x.get('dd', 'N/A')}]. reason: [{x['reason']}]"
-                f"Removing miner dir [{miner_dir}]"
-            )
             try:
                 shutil.rmtree(miner_dir)
+                bt.logging.info(
+                    f"miner eliminated with hotkey [{hotkey}] with max dd of [{x.get('dd', 'N/A')}]. reason: [{x['reason']}]"
+                    f"Removing miner dir [{miner_dir}]"
+                )
+                eliminated_hotkeys.add(hotkey)
             except FileNotFoundError:
                 bt.logging.info(f"miner dir not found [{miner_dir}]")
                 
-        if len(updated_eliminations) != len(self.eliminations):
-            self.eliminations = updated_eliminations
+        if eliminated_hotkeys:
+            self.eliminations = [x for x in self.eliminations if x['hotkey'] not in eliminated_hotkeys]
             self._write_eliminations_from_memory_to_disk()
             self.set_last_update_time()

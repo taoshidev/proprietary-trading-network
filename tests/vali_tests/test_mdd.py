@@ -50,13 +50,24 @@ class TestMDDChecker(TestBase):
             self.assertAlmostEquals(v1['elimination_initiated_time_ms'] / 1000.0, v2['elimination_initiated_time_ms'] / 1000.0, places=1)
             self.assertAlmostEquals(v1['dd'], v2['dd'], places=2)
 
+    def verify_positions_on_disk(self, in_memory_positions, assert_all_closed=None, assert_all_open=None):
+        positions_from_disk = self.position_manager.get_all_miner_positions(self.MINER_HOTKEY, only_open_positions=False)
+        self.assertEqual(len(positions_from_disk), len(in_memory_positions))
+        for position in in_memory_positions:
+            matching_disk_position = next((x for x in positions_from_disk if x.position_uuid == position.position_uuid), None)
+            self.position_manager.positions_are_the_same(position, matching_disk_position)
+            if assert_all_closed:
+                self.assertTrue(matching_disk_position.is_closed_position)
+            if assert_all_open:
+                self.assertFalse(matching_disk_position.is_closed_position)
+
+
     def add_order_to_position_and_save_to_disk(self, position, order):
         position.add_order(order)
         self.position_manager.save_miner_position_to_disk(position)
 
     def test_mdd_failure_with_open_position(self):
         self.verify_elimination_data_in_memory_and_disk([])
-        self.position = self.trade_pair_to_default_position[TradePair.BTCUSD]
         o1 = Order(order_type=OrderType.SHORT,
                 leverage=1.0,
                 price=1000,
@@ -70,15 +81,16 @@ class TestMDDChecker(TestBase):
         self.verify_elimination_data_in_memory_and_disk([])
 
         self.add_order_to_position_and_save_to_disk(relevant_position, o1)
-        self.assertEqual(relevant_position.is_closed_position, False)
+        self.assertFalse(relevant_position.is_closed_position)
+        self.verify_positions_on_disk([relevant_position], assert_all_open=True)
         self.mdd_checker.mdd_check()
         failure_row = CacheController.generate_elimination_row(relevant_position.miner_hotkey, 0, MDDChecker.MAX_TOTAL_DRAWDOWN)
         self.verify_elimination_data_in_memory_and_disk([failure_row])
+        self.verify_positions_on_disk([relevant_position], assert_all_closed=True)
 
 
     def test_mdd_failure_with_closed_position(self):
         self.verify_elimination_data_in_memory_and_disk([])
-        self.position = self.trade_pair_to_default_position[TradePair.BTCUSD]
         live_price = self.tds.get_close(trade_pair=TradePair.BTCUSD)[TradePair.BTCUSD]
         o1 = Order(order_type=OrderType.SHORT,
                 leverage=1.0,
@@ -100,15 +112,18 @@ class TestMDDChecker(TestBase):
         self.verify_elimination_data_in_memory_and_disk([])
 
         self.add_order_to_position_and_save_to_disk(relevant_position, o1)
+        self.assertFalse(relevant_position.is_closed_position)
+        self.verify_positions_on_disk([relevant_position])
         self.mdd_checker.mdd_check()
-        self.assertEqual(relevant_position.is_closed_position, False)
+        self.verify_positions_on_disk([relevant_position], assert_all_open=True)
         self.verify_elimination_data_in_memory_and_disk([])
 
         self.add_order_to_position_and_save_to_disk(relevant_position, o2)
-        self.assertEqual(relevant_position.is_closed_position, True)
+        self.assertTrue(relevant_position.is_closed_position)
         self.mdd_checker.mdd_check()
         failure_row = CacheController.generate_elimination_row(relevant_position.miner_hotkey, 0, MDDChecker.MAX_TOTAL_DRAWDOWN)
         self.verify_elimination_data_in_memory_and_disk([failure_row])
+        self.verify_positions_on_disk([relevant_position], assert_all_closed=True)
 
     def test_mdd_failure_with_two_open_orders_different_trade_pairs(self):
         self.verify_elimination_data_in_memory_and_disk([])
@@ -142,11 +157,13 @@ class TestMDDChecker(TestBase):
         self.add_order_to_position_and_save_to_disk(position_btc, o1)
         self.mdd_checker.mdd_check()
         self.verify_elimination_data_in_memory_and_disk([])
+        self.verify_positions_on_disk([position_btc], assert_all_open=True)
 
         self.add_order_to_position_and_save_to_disk(position_eth, o2)
         self.mdd_checker.mdd_check()
         failure_row = CacheController.generate_elimination_row(position_eth.miner_hotkey, .826, MDDChecker.MAX_TOTAL_DRAWDOWN)
         self.verify_elimination_data_in_memory_and_disk([failure_row])
+        self.verify_positions_on_disk([position_btc, position_eth])
 
     def test_no_mdd_failures(self):
         self.verify_elimination_data_in_memory_and_disk([])
@@ -175,11 +192,13 @@ class TestMDDChecker(TestBase):
         self.mdd_checker.mdd_check()
         self.assertEqual(relevant_position.is_closed_position, False)
         self.verify_elimination_data_in_memory_and_disk([])
+        self.verify_positions_on_disk([relevant_position], assert_all_open=True)
 
         self.add_order_to_position_and_save_to_disk(relevant_position, o2)
         self.assertEqual(relevant_position.is_closed_position, False)
         self.mdd_checker.mdd_check()
         self.verify_elimination_data_in_memory_and_disk([])
+        self.verify_positions_on_disk([relevant_position], assert_all_open=True)
 
 if __name__ == '__main__':
     import unittest
