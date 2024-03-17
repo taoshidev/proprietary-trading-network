@@ -11,19 +11,23 @@ from time_util.time_util import TimeUtil
 from vali_objects.exceptions.corrupt_data_exception import ValiBkpCorruptDataException
 from vali_objects.exceptions.vali_bkp_file_missing_exception import ValiFileMissingException
 from vali_objects.position import Position
+from vali_objects.utils.position_lock import PositionLocks
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 
 
 class PositionManager(CacheController):
     def __init__(self, config=None, metagraph=None, running_unit_tests=False):
+        self.position_locks = PositionLocks()
         super().__init__(config=config, metagraph=metagraph, running_unit_tests=running_unit_tests)
 
     def close_open_positions_for_miner(self, hotkey):
+        # TODO: Partition positions by trade_pair and lock the retreival of positions for each trade_pair as well as writing to disk.
         open_positions = self.get_all_miner_positions(hotkey, only_open_positions=True)
         bt.logging.info(f"Closing [{len(open_positions)}] positions for hotkey: {hotkey}")
         for open_position in open_positions:
-            open_position.close_out_position(TimeUtil.now_in_millis())
-            self.save_miner_position_to_disk(open_position)
+            with self.position_locks.get_lock(hotkey, open_position.trade_pair.trade_pair_id):
+                open_position.close_out_position(TimeUtil.now_in_millis())
+                self.save_miner_position_to_disk(open_position)
 
     def get_return_per_closed_position(self, positions: List[Position]) -> List[float]:
         if len(positions) == 0:
