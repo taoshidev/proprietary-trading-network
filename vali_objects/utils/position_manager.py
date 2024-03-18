@@ -3,8 +3,9 @@
 import os
 import shutil
 from pickle import UnpicklingError
-from typing import List, Dict
+from typing import List, Dict, Union
 import bittensor as bt
+import numpy as np
 
 from shared_objects.cache_controller import CacheController
 from time_util.time_util import TimeUtil
@@ -16,6 +17,7 @@ from vali_objects.position import Position
 from vali_objects.utils.position_lock import PositionLocks
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.vali_dataclasses.order import OrderStatus
+from vali_objects.utils.position_utils import PositionUtils
 
 
 class PositionManager(CacheController):
@@ -56,6 +58,48 @@ class PositionManager(CacheController):
             cumulative_return *= value
             per_position_return.append(cumulative_return)
         return per_position_return
+    
+    def get_return_per_closed_position_augmented(
+            self, 
+            positions: List[Position], 
+            evaluation_time_ms: Union[None, int] = None
+        ) -> List[float]:
+        if len(positions) == 0:
+            return []
+
+        t0 = None
+        closed_position_returns = []
+        for position in positions:
+            if not position.is_closed_position:
+                continue
+            elif t0 and position.close_ms < t0:
+                raise ValueError("Positions must be sorted by close time for this calculation to work.")
+            t0 = position.close_ms
+
+            # this value will probably be around 0, or between -1 and 1
+            logged_return_at_close = PositionUtils.log_transform(position.return_at_close)
+
+            # this should be even closer to 0 with an absolute value less than the logged_return_at_close
+            if evaluation_time_ms is None:
+                raise ValueError("evaluation_time_ms must be provided if augmented is True")
+            
+            dampened_return_at_close = PositionUtils.dampen_return(
+                logged_return_at_close, 
+                position.open_ms, 
+                position.close_ms, 
+                evaluation_time_ms
+            )
+            closed_position_returns.append(dampened_return_at_close)
+
+        cumulative_return_logged = 0
+        per_position_return_logged = []
+
+        # calculate the return over time at each position close
+        for value in closed_position_returns:
+            cumulative_return_logged += value
+            per_position_return_logged.append(cumulative_return_logged)
+
+        return [ PositionUtils.exp_transform(value) for value in per_position_return_logged ]
 
     def get_all_miner_positions(self,
                                 miner_hotkey: str,
