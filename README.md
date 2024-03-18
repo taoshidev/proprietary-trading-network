@@ -193,7 +193,7 @@ Your validator will store all information related to miners on disk as it doesn'
 All information created is stored in the `validation` directory.
 
 When the validator receives signals, they are converted to orders. These orders make up positions which are stored
-are safely stored as pickle objects in the `validation/miners` directory on a per miner basis.
+are safely stored as files in the `validation/miners` directory on a per miner basis.
 
 The core logic looks to detect & eliminate any sort of miner copying from the network. It does this by performing
 an analysis on every order received. If a miner is detected to be plagiarising off another miner, they will be eliminated
@@ -212,6 +212,15 @@ To run a validator, follow these steps:
 
 1. [Install Prop Subnet.](#installation)
 2. Install [PM2](https://pm2.io) and the (jq)[https://jqlang.github.io/jq/] package on your system.
+3. Create a secrets.json file in the root level of the PTN repo to include your TwelveData API key as shown below:
+
+```json
+{
+  "twelvedata_apikey": "YOUR_API_KEY_HERE"
+}
+```
+- Replace YOUR_API_KEY_HERE with your actual TwelveData API key.
+- Obtain an API key by signing up at TwelveData's website. The free tier is sufficient for testnet usage. For mainnet applications, a premium tier subscription is recommended.
 
 On Linux:
 
