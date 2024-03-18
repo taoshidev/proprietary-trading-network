@@ -1,25 +1,24 @@
 # developer: jbonilla
-# Copyright © 2023 Taoshi Inc
+# Copyright © 2024 Taoshi Inc
 import shutil
-import time
 
 from vali_config import ValiConfig
-from shared_objects.challenge_utils import ChallengeBase
+from shared_objects.cache_controller import CacheController
+from vali_objects.utils.position_manager import PositionManager
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 
 import bittensor as bt
 
-class EliminationManager(ChallengeBase):
+class EliminationManager(CacheController):
     """"
-    TODO: confirm with Arrash that we basically want to zero out the weights of the eliminated miners
+    We basically want to zero out the weights of the eliminated miners
     for long enough that BT deregisters them. However, there is no guarantee that they get deregistered and
     we may need to handle the case where we allow the miner to participate again. In this case, the elimination
     would already be cleared and their weight would be calculated as normal.
-
-    TODO: Is zeroing out the weight equivalant to not providing a weight at all?
     """
-    def __init__(self, metagraph):
+    def __init__(self, metagraph, running_unit_tests=False):
         super().__init__(metagraph=metagraph)
+        self.position_manager = PositionManager(metagraph=metagraph, running_unit_tests=running_unit_tests)
 
     def process_eliminations(self):
         if not self.refresh_allowed(ValiConfig.ELIMINATION_CHECK_INTERVAL_MS):
@@ -41,7 +40,8 @@ class EliminationManager(ChallengeBase):
             if miner_hotkey in existing_plagiarism_eliminations:
                 continue
             if current_plagiarism_score > ValiConfig.MAX_MINER_PLAGIARISM_SCORE:
-                self.close_positions_and_append_elimination_row(miner_hotkey, -1, 'plagiarism')
+                self.position_manager.close_open_positions_for_miner(miner_hotkey)
+                self.append_elimination_row(miner_hotkey, -1, 'plagiarism')
                 bt.logging.info(f"miner eliminated with hotkey [{miner_hotkey}] with plagiarism score of [{current_plagiarism_score}]")
 
         self._write_eliminations_from_memory_to_disk()

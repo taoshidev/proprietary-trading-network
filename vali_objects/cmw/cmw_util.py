@@ -1,5 +1,5 @@
 # developer: Taoshidev
-# Copyright © 2023 Taoshi, LLC
+# Copyright © 2024 Taoshi, LLC
 
 import json
 from typing import Dict

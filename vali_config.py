@@ -1,5 +1,5 @@
 # developer: Taoshi
-# Copyright © 2023 Taoshi Inc
+# Copyright © 2024 Taoshi Inc
 import json
 import os
 from enum import Enum

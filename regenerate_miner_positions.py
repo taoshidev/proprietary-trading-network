@@ -1,13 +1,11 @@
 import json
-import logging
 import os
 from datetime import datetime
-import time
 
 from vali_objects.position import Position
 from vali_objects.utils.logger_utils import LoggerUtils
+from vali_objects.utils.position_manager import PositionManager
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
-from vali_objects.utils.vali_utils import ValiUtils
 
 
 def get_file(f):
@@ -21,6 +19,7 @@ def get_file(f):
 
 
 def regenerate_miner_positions():
+    position_manager = PositionManager()
     miner_positions = "miner_positions.json"
     data = get_file(miner_positions)
     if data is None:
@@ -30,7 +29,7 @@ def regenerate_miner_positions():
         ValiBkpUtils.make_dir(ValiBkpUtils.get_miner_position_dir(muid))
         for p_dict in all_ps["positions"]:
             p = Position.from_dict(p_dict)
-            ValiUtils.save_miner_position_to_disk(muid, p.position_uuid, p)
+            position_manager.save_miner_position_to_disk(p)
     return True
 
 

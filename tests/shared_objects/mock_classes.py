@@ -4,7 +4,7 @@ from vali_objects.utils.plagiarism_detector import PlagiarismDetector
 
 class MockMDDChecker(MDDChecker):
     def __init__(self, metagraph):
-        super().__init__(None, metagraph)
+        super().__init__(None, metagraph, running_unit_tests=True)
 
     # Lets us bypass the wait period in MDDChecker
     def get_last_update_time_ms(self):
@@ -12,7 +12,7 @@ class MockMDDChecker(MDDChecker):
 
 class MockPlagiarismDetector(PlagiarismDetector):
     def __init__(self, metagraph):
-        super().__init__(None, metagraph)
+        super().__init__(None, metagraph, running_unit_tests=True)
 
     # Lets us bypass the wait period in PlagiarismDetector
     def get_last_update_time_ms(self):
