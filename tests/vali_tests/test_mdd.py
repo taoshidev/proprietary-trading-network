@@ -18,8 +18,8 @@ class TestMDDChecker(TestBase):
         super().setUp()
         self.MINER_HOTKEY = "test_miner"
         self.mock_metagraph = MockMetagraph([self.MINER_HOTKEY])
-        self.mdd_checker = MockMDDChecker(self.mock_metagraph)
         self.position_manager = PositionManager(metagraph=self.mock_metagraph, running_unit_tests=True)
+        self.mdd_checker = MockMDDChecker(self.mock_metagraph, self.position_manager)
         self.DEFAULT_TEST_POSITION_UUID = "test_position"
         self.DEFAULT_OPEN_MS = 1000
         self.trade_pair_to_default_position = {x: Position(
@@ -52,12 +52,14 @@ class TestMDDChecker(TestBase):
 
     def verify_positions_on_disk(self, in_memory_positions, assert_all_closed=None, assert_all_open=None):
         positions_from_disk = self.position_manager.get_all_miner_positions(self.MINER_HOTKEY, only_open_positions=False)
-        self.assertEqual(len(positions_from_disk), len(in_memory_positions))
+        self.assertEqual(len(positions_from_disk), len(in_memory_positions),
+                         f"Mismatched number of positions. Positions on disk: {positions_from_disk}"
+                         f" Positions in memory: {in_memory_positions}")
         for position in in_memory_positions:
             matching_disk_position = next((x for x in positions_from_disk if x.position_uuid == position.position_uuid), None)
             self.position_manager.positions_are_the_same(position, matching_disk_position)
             if assert_all_closed:
-                self.assertTrue(matching_disk_position.is_closed_position)
+                self.assertTrue(matching_disk_position.is_closed_position, f"Position in memory: {position} Position on disk: {matching_disk_position}")
             if assert_all_open:
                 self.assertFalse(matching_disk_position.is_closed_position)
 

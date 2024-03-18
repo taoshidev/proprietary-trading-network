@@ -4,9 +4,8 @@ from vali_objects.utils.position_manager import PositionManager
 
 
 class MockMDDChecker(MDDChecker):
-    def __init__(self, metagraph):
-        position_manger = PositionManager(metagraph=metagraph, running_unit_tests=True)
-        super().__init__(None, metagraph, position_manger, running_unit_tests=True)
+    def __init__(self, metagraph, position_manager):
+        super().__init__(None, metagraph, position_manager, running_unit_tests=True)
 
     # Lets us bypass the wait period in MDDChecker
     def get_last_update_time_ms(self):

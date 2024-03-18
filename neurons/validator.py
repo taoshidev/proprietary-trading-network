@@ -351,7 +351,7 @@ class Validator:
 
         synapse.successfully_processed = bool(error_message == "")
         synapse.error_message = error_message
-        bt.logging.success(f"Sending back signal to miner [{miner_hotkey}] signal{synapse}")
+        bt.logging.success(f"Sending ack back to miner [{miner_hotkey}]")
         return synapse
 
     def get_positions(self, synapse: template.protocol.GetPositions,

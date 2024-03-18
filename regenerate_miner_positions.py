@@ -26,7 +26,7 @@ def regenerate_miner_positions():
         logger.warning(f"necessary file doesn't exist [{miner_positions}]")
         return False
     for muid, all_ps in data.items():
-        ValiBkpUtils.make_dir(ValiBkpUtils.get_miner_position_dir(muid))
+        ValiBkpUtils.make_dir(ValiBkpUtils.get_miner_all_positions_dir(muid))
         for p_dict in all_ps["positions"]:
             p = Position.from_dict(p_dict)
             position_manager.save_miner_position_to_disk(p)
