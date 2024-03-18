@@ -65,14 +65,14 @@ class SubtensorWeightSetter(CacheController):
         filtered_netuids = [ x[0] for x in filtered_results ]
         scaled_transformed_list = [ x[1] for x in filtered_results ]
 
-        result = self.subtensor.set_weights(
+        success, err_msg = self.subtensor.set_weights(
             netuid=self.config.netuid,
             wallet=self.wallet,
             uids=filtered_netuids,
             weights=scaled_transformed_list,
         )
 
-        if result:
+        if success:
             bt.logging.success("Successfully set weights.")
         else:
-            bt.logging.error("Failed to set weights.")
+            bt.logging.error(f"Failed to set weights. Error message: {err_msg}")
