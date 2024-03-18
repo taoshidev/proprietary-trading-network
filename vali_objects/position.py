@@ -72,7 +72,7 @@ class Position:
                 "miner_hotkey": self.miner_hotkey,
                 "position_uuid": self.position_uuid,
                 "open_ms": self.open_ms,
-                "trade_pair": str(self.trade_pair),
+                "trade_pair": str(self.trade_pair.trade_pair_id),
                 "orders": [str(order) for order in self.orders],
                 "current_return": self.current_return,
                 "close_ms": self.close_ms,
@@ -142,7 +142,9 @@ class Position:
             return 1
 
         bt.logging.info(
-            f"current price: {current_price}, average entry price: {self.average_entry_price}, net leverage: {self.net_leverage}, initial entry price: {self.initial_entry_price}"
+            f"trade_pair: {self.trade_pair.trade_pair_id} current price: {current_price},"
+            f" average entry price: {self.average_entry_price}, net leverage: {self.net_leverage}, "
+            f"initial entry price: {self.initial_entry_price}"
         )
         gain = (
             (current_price - self.average_entry_price)

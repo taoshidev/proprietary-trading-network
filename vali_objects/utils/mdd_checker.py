@@ -15,10 +15,11 @@ import bittensor as bt
 class MDDChecker(CacheController):
     MAX_DAILY_DRAWDOWN = 'MAX_DAILY_DRAWDOWN'
     MAX_TOTAL_DRAWDOWN = 'MAX_TOTAL_DRAWDOWN'
-    def __init__(self, config, metagraph, running_unit_tests=False):
+    def __init__(self, config, metagraph, position_manager, running_unit_tests=False):
         super().__init__(config, metagraph, running_unit_tests=running_unit_tests)
         secrets = ValiUtils.get_secrets()
-        self.position_manager = PositionManager(metagraph=metagraph, running_unit_tests=running_unit_tests)
+        self.position_manager = position_manager
+        assert self.running_unit_tests == self.position_manager.running_unit_tests
         self.all_trade_pairs = [trade_pair for trade_pair in TradePair]
         self.twelvedata = TwelveDataService(api_key=secrets["twelvedata_apikey"])
 
@@ -80,6 +81,7 @@ class MDDChecker(CacheController):
 
 
     def _search_for_miner_dd_failures(self, hotkey, sorted_positions, signal_closing_prices):
+        seen_trade_pairs = set()
         current_dd = 1
         # Log sorted positions length
         if len(sorted_positions) == 0:
@@ -92,32 +94,37 @@ class MDDChecker(CacheController):
         if elimination_occurred:
             return
 
-        open_positions = [position for position in sorted_positions if not position.is_closed_position]
-        bt.logging.info(f"reviewing open positions for [{hotkey}]. Current_dd [{current_dd}]. n_positions [{len(open_positions)}]")
+        open_positions = []
+        closed_positions = []
+        for position in sorted_positions:
+            if position.is_closed_position:
+                closed_positions.append(position)
+            else:
+                open_positions.append(position)
+        bt.logging.info(f"reviewing open positions for [{hotkey}]. Current_dd [{current_dd}]. n positions open [{len(open_positions)} / {len(sorted_positions)}]")
 
         open_position_trade_pairs = {
             position.position_uuid: position.trade_pair for position in open_positions
         }
 
         # Enforce only one open position per trade pair
-        seen_trade_pairs = set()
         for open_position in open_positions:
-            if open_position.trade_pair in seen_trade_pairs:
-                raise ValueError(f"Miner [{hotkey}] has multiple open positions for trade pair [{open_position.trade_pair}]")
+            if open_position.trade_pair.trade_pair_id in seen_trade_pairs:
+                raise ValueError(f"Miner [{hotkey}] has multiple open positions for trade pair [{open_position.trade_pair}]. Please restore cache.")
             else:
-                seen_trade_pairs.add(open_position.trade_pair)
+                seen_trade_pairs.add(open_position.trade_pair.trade_pair_id)
             realtime_price = signal_closing_prices[
                 open_position_trade_pairs[open_position.position_uuid]
             ]
             open_position.set_returns(realtime_price, open_position.get_net_leverage())
 
-            bt.logging.success(f"current return with fees for [{open_position.position_uuid}] is [{open_position.return_at_close}]")
+            #bt.logging.success(f"current return with fees for [{open_position.position_uuid}] is [{open_position.return_at_close}]")
             current_dd *= open_position.return_at_close
 
-            bt.logging.info(f"MDD checker - current return with fees [{open_position.return_at_close}]")
-            bt.logging.info(f"MDD checker - current dd [{current_dd}]")
-            bt.logging.info(f"MDD checker - net leverage [{open_position.get_net_leverage()}]")
-
+        for position in closed_positions:
+            seen_trade_pairs.add(position.trade_pair.trade_pair_id)
+        # Log the dd for this miner and the positions trade_pairs they are in as well as total number of positions
+        bt.logging.info(f"MDD checker -- current dd for [{hotkey}] is [{current_dd}]. Seen trade pairs: {seen_trade_pairs}. n_positions: [{len(sorted_positions)}]")
         mdd_failure = self._is_beyond_mdd(current_dd)
         if mdd_failure:
             self.position_manager.close_open_positions_for_miner(hotkey)

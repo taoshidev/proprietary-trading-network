@@ -6,6 +6,9 @@ import os
 import pickle
 
 from vali_config import ValiConfig
+from vali_objects.position import Position
+from vali_objects.vali_dataclasses.order import OrderStatus
+
 
 class ValiBkpUtils:
     @staticmethod
@@ -14,7 +17,7 @@ class ValiBkpUtils:
         return ValiConfig.BASE_DIR + f"{suffix}/validation/miners/"
 
     @staticmethod
-    def get_miner_position_dir(miner_hotkey, running_unit_tests=False) -> str:
+    def get_miner_all_positions_dir(miner_hotkey, running_unit_tests=False) -> str:
         return f"{ValiBkpUtils.get_miner_dir(running_unit_tests=running_unit_tests)}{miner_hotkey}/positions/"
 
     @staticmethod
@@ -106,10 +109,10 @@ class ValiBkpUtils:
     @staticmethod
     def get_all_files_in_dir(vali_dir: str) -> list[str]:
         all_files = []
-        if os.path.exists(vali_dir):
-            for filename in os.listdir(vali_dir):
-                if os.path.isfile(os.path.join(vali_dir, filename)):
-                    all_files.append(vali_dir + filename)
+        for dirpath, dirnames, filenames in os.walk(vali_dir):
+            for filename in filenames:
+                filepath = os.path.join(dirpath, filename)
+                all_files.append(filepath)
         return all_files
 
     @staticmethod
@@ -119,3 +122,19 @@ class ValiBkpUtils:
             for name in os.listdir(directory)
             if os.path.isdir(os.path.join(directory, name))
         ]
+
+    @staticmethod
+    def get_partitioned_miner_positions_dir(miner_hotkey, trade_pair_id, order_status=OrderStatus.ALL,
+                                            running_unit_tests=False) -> str:
+
+        base_dir = (f"{ValiBkpUtils.get_miner_dir(running_unit_tests=running_unit_tests)}"
+               f"{miner_hotkey}/positions/{trade_pair_id}/")
+
+        # Decide the subdirectory based on the order_status
+        status_dir = {
+            OrderStatus.OPEN: "open/",
+            OrderStatus.CLOSED: "closed/",
+            OrderStatus.ALL: ""
+        }[order_status]
+
+        return f"{base_dir}{status_dir}"

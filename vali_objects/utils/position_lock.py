@@ -11,7 +11,7 @@ class PositionLocks:
         self.global_lock = Lock()
 
     def get_lock(self, miner_hotkey, trade_pair):
-        bt.logging.info(f"Getting lock for miner_hotkey [{miner_hotkey}] and trade_pair [{trade_pair}].")
+        #bt.logging.info(f"Getting lock for miner_hotkey [{miner_hotkey}] and trade_pair [{trade_pair}].")
         lock_key = (miner_hotkey, trade_pair)
         with self.global_lock:  # Ensure thread-safe access to the locks dictionary
             if lock_key not in self.locks:

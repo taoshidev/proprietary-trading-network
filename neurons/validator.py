@@ -14,7 +14,6 @@ import bittensor as bt
 
 from data_generator.twelvedata_service import TwelveDataService
 from shared_objects.rate_limiter import RateLimiter
-from shared_objects.cache_controller import CacheController
 from time_util.time_util import TimeUtil
 from vali_config import TradePair
 from vali_objects.exceptions.signal_exception import SignalException
@@ -23,7 +22,6 @@ from vali_objects.utils.elimination_manager import EliminationManager
 from vali_objects.utils.subtensor_weight_setter import SubtensorWeightSetter
 from vali_objects.utils.mdd_checker import MDDChecker
 from vali_objects.utils.plagiarism_detector import PlagiarismDetector
-from vali_objects.utils.position_lock import PositionLocks
 from vali_objects.utils.position_manager import PositionManager
 from vali_objects.vali_dataclasses.order import Order
 from vali_objects.position import Position
@@ -141,10 +139,9 @@ class Validator:
         bt.logging.info(f"Running validator on uid: {my_subnet_uid}")
 
         self.plagiarism_detector = PlagiarismDetector(self.config, self.metagraph)
-        self.mdd_checker = MDDChecker(self.config, self.metagraph)
+        self.mdd_checker = MDDChecker(self.config, self.metagraph, self.position_manager)
         self.weight_setter = SubtensorWeightSetter(self.config, wallet, self.metagraph)
-        self.elimination_manager = EliminationManager(self.metagraph)
-        self.position_locks = PositionLocks()
+        self.elimination_manager = EliminationManager(self.metagraph, self.position_manager)
 
     @staticmethod
     def blacklist_fn(synapse, metagraph, rateLimiter, mdd_checker) -> Tuple[bool, str]:
@@ -229,7 +226,7 @@ class Validator:
                 self.mdd_checker.mdd_check()
                 self.weight_setter.set_weights()
                 self.elimination_manager.process_eliminations()
-                self.position_locks.cleanup_locks(self.metagraph.hotkeys)
+                self.position_manager.position_locks.cleanup_locks(self.metagraph.hotkeys)
 
             # If someone intentionally stops the miner, it'll safely terminate operations.
             except KeyboardInterrupt:
@@ -287,12 +284,13 @@ class Validator:
                     f"order [{signal_to_order}] is not a FLAT order."
                 )
 
-    def _get_relevant_position(self, signal_to_order: Order, miner_hotkey: str, trade_pair_to_open_position: dict):
+    def _get_or_create_open_position(self, signal_to_order: Order, miner_hotkey: str, trade_pair_to_open_position: dict):
         trade_pair = signal_to_order.trade_pair
 
         # if a position already exists, add the order to it
         if trade_pair in trade_pair_to_open_position:
-            # If the position is closed, raise an exception
+            # If the position is closed, raise an exception. This can happen if the miner is eliminated in the main
+            # loop thread.
             if trade_pair_to_open_position[trade_pair].is_closed_position:
                 raise SignalException(
                     f"miner [{miner_hotkey}] sent signal for "
@@ -328,13 +326,14 @@ class Validator:
         error_message = ""
         try:
             signal_to_order = self.convert_signal_to_order(signal, miner_hotkey)
-            with self.position_locks.get_lock(miner_hotkey, signal_to_order.trade_pair.trade_pair_id):
+            # Multiple threads can run receive_signal at once. Don't allow two threads to trample each other.
+            with self.position_manager.position_locks.get_lock(miner_hotkey, signal_to_order.trade_pair.trade_pair_id):
                 # gather open positions and see which trade pairs have an open position
                 trade_pair_to_open_position = {position.trade_pair: position for position in
                                                self.position_manager.get_all_miner_positions(miner_hotkey,
                                                                                              only_open_positions=True)}
                 self._enforce_num_open_order_limit(trade_pair_to_open_position, signal_to_order)
-                open_position = self._get_relevant_position(signal_to_order, miner_hotkey, trade_pair_to_open_position)
+                open_position = self._get_or_create_open_position(signal_to_order, miner_hotkey, trade_pair_to_open_position)
                 open_position.add_order(signal_to_order)
                 self.position_manager.save_miner_position_to_disk(open_position)
                 # Log the open position for the miner
@@ -352,7 +351,7 @@ class Validator:
 
         synapse.successfully_processed = bool(error_message == "")
         synapse.error_message = error_message
-        bt.logging.success(f"Sending back signal to miner [{miner_hotkey}] signal{synapse}")
+        bt.logging.success(f"Sending ack back to miner [{miner_hotkey}]")
         return synapse
 
     def get_positions(self, synapse: template.protocol.GetPositions,
