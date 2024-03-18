@@ -74,7 +74,7 @@ class Scoring:
             return []
         if len(returns) == 1:
             bt.logging.info(f"Only one miner, returning 1.0 for the solo miner weight")
-            return [returns[0][0], 1.0]
+            return [(returns[0][0], 1.0)]
 
         # Sort the returns in descending order
         sorted_returns = sorted(returns, key=lambda x: x[1], reverse=True)
