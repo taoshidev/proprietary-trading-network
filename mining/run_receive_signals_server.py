@@ -50,7 +50,7 @@ def handle_data():
     try:
         # ensure to fits rules for a Signal
         signal = Signal(trade_pair=TradePair.get_trade_pair(data["trade_pair"]["trade_pair_id"]),
-                        leverage=data["leverage"],
+                        leverage=float(data["leverage"]),
                         order_type=OrderType.get_order_type(data["order_type"]))
         # make miner received signals dir if doesnt exist
         ValiBkpUtils.make_dir(MinerConfig.get_miner_received_signals_dir())
