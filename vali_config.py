@@ -83,9 +83,27 @@ class TradePair(Enum):
         return {pair.trade_pair_id: pair for pair in TradePair}
 
     @staticmethod
-    def get_trade_pair(trade_pair_id: str):
+    def from_trade_pair_id(trade_pair_id: str):
+        """
+        Converts a trade_pair_id string into a TradePair object.
+
+        Args:
+            trade_pair_id (str): The ID of the trade pair to convert.
+
+        Returns:
+            TradePair: The corresponding TradePair object.
+
+        Raises:
+            ValueError: If no matching trade pair is found.
+        """
+        # Utilize the pair_map method to get a mapping of trade_pair_id to TradePair objects
         tp_map = TradePair.pair_map()
-        return tp_map[trade_pair_id] 
+        if trade_pair_id in tp_map:
+            return tp_map[trade_pair_id]
+        else:
+            # Raise an error with a helpful message if the trade_pair_id is not found
+            raise ValueError(
+                f"No matching trade pair found for ID '{trade_pair_id}'. Please check the input and try again.")
 
     def __json__(self):
         # Provide a dictionary representation for JSON serialization
@@ -103,12 +121,12 @@ class TradePair(Enum):
 
 class ValiConfig:
     # fees take into account exiting and entering a position, liquidity, and futures fees
-    MDD_CHECK_REFRESH_TIME_MS = 15 * 1000 # 15 seconds
+    MDD_CHECK_REFRESH_TIME_MS = 15 * 1000  # 15 seconds
     MAX_DAILY_DRAWDOWN = 0.95  # Portfolio should never fall below .95 x of initial value when measured day to day
     MAX_TOTAL_DRAWDOWN = 0.9  # Portfolio should never fall below .90 x of initial value when measured at any instant
     MAX_OPEN_ORDERS_PER_HOTKEY = 200
 
-    SET_WEIGHT_REFRESH_TIME_MS = 60 * 30 * 1000 # 30 minutes
+    SET_WEIGHT_REFRESH_TIME_MS = 60 * 30 * 1000  # 30 minutes
     SET_WEIGHT_LOOKBACK_RANGE_DAYS = 30
     SET_WEIGHT_LOOKBACK_RANGE_MS = SET_WEIGHT_LOOKBACK_RANGE_DAYS * 24 * 60 * 60 * 1000
 
@@ -122,12 +140,11 @@ class ValiConfig:
 
     BASE_DIR = base_directory = os.path.dirname(os.path.abspath(__file__))
 
-    METAGRAPH_UPDATE_REFRESH_TIME_MS = 60 * 5 * 1000 # 5 minutes
+    METAGRAPH_UPDATE_REFRESH_TIME_MS = 60 * 5 * 1000  # 5 minutes
 
-    ELIMINATION_CHECK_INTERVAL_MS = 60 * 5 * 1000 # 5 minutes
-    ELIMINATION_FILE_DELETION_DELAY_MS = 60 * 30 * 1000 # 30 min
+    ELIMINATION_CHECK_INTERVAL_MS = 60 * 5 * 1000  # 5 minutes
+    ELIMINATION_FILE_DELETION_DELAY_MS = 60 * 30 * 1000  # 30 min
     MAX_MINER_PLAGIARISM_SCORE = 1.0
 
     TOP_MINER_BENEFIT = 0.8
     TOP_MINER_PERCENT = 0.2
-

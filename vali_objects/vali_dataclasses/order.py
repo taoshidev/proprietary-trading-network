@@ -40,10 +40,10 @@ class Order(Signal):
     @staticmethod
     def from_dict(order_dict):
         return Order(
-                OrderType.get_order_type(order_dict["order_type"]),
+                OrderType.from_string(order_dict["order_type"]),
                 order_dict["leverage"],
                 order_dict["price"],
-                TradePair.get_trade_pair(order_dict["trade_pair"]["trade_pair_id"]),
+                TradePair.from_trade_pair_id(order_dict["trade_pair"]["trade_pair_id"]),
                 order_dict["processed_ms"],
                 order_dict["order_uuid"],
             )
