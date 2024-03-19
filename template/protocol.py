@@ -18,4 +18,6 @@ class SendSignal(bt.Synapse):
 
 
 class GetPositions(bt.Synapse):
-    positions: List[typing.Dict]
+    positions: List[typing.Dict] = Field([], title="Positions", allow_mutation=True)
+    successfully_processed: bool = Field(False, title="Successfully Processed", allow_mutation=True)
+    error_message: str = Field("", title="Error Message", allow_mutation=True)

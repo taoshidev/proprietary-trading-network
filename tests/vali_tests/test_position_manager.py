@@ -1,15 +1,12 @@
 # developer: jbonilla
 # Copyright © 2024 Taoshi Inc
 from copy import deepcopy
-
+import random
 from tests.shared_objects.mock_classes import MockMetagraph
 from tests.vali_tests.base_objects.test_base import TestBase
 from vali_config import TradePair
-from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.position import Position
 from vali_objects.utils.position_manager import PositionManager
-from vali_objects.utils.vali_utils import ValiUtils
-from vali_objects.vali_dataclasses.order import Order
 
 
 class TestPositionManager(TestBase):
@@ -72,6 +69,19 @@ class TestPositionManager(TestBase):
             idx_to_position[(i, j)] = position
             self.position_manager.save_miner_position_to_disk(position)
 
+        all_disk_positions = self.position_manager.get_all_miner_positions(self.DEFAULT_MINER_HOTKEY, sort_positions=True)
+        self.assertEqual(len(all_disk_positions), n_trade_pairs * 6)
+        # Ensure the positions in all_disk_positions are sorted by close_ms.
+        t0 = all_disk_positions[0].close_ms
+        for i in range(n_trade_pairs):
+            for j in range(6):
+                n = i * 6 + j
+                t1 = all_disk_positions[n].close_ms or float('inf')
+                # Ensure the timestamp is increasing.
+                self.assertTrue(t0 <= t1, 'timestamps not increasing or a valid timestamp came after a None timestamp')
+                t0 = t1
+
+
         # Fetch all positions and verify that they are the same as the ones we created
         for i in range(n_trade_pairs):
             for j in range(6):
@@ -79,11 +89,35 @@ class TestPositionManager(TestBase):
                 disk_position = self._find_disk_position_from_memory_position(expected_position)
                 self.validate_positions(expected_position, disk_position)
 
-        all_positions = self.position_manager.get_all_miner_positions(self.DEFAULT_MINER_HOTKEY)
-        self.assertEqual(len(all_positions), n_trade_pairs * 6)
-        # TODO: Validate these positions are the same as the ones we created
+    def test_sorting_and_fetching_positions_with_random_close_times(self):
+        num_positions = 100
+        open_time_start = 1000
+        open_time_end = 2000
+        positions = []
 
-        # Test the optional filter args. Consider putting the population of the positions in setUp.
+        # Generate and save positions
+        for i in range(num_positions):
+            open_ms = random.randint(open_time_start, open_time_end)
+            close_ms = None if random.choice([True, False]) else open_ms + random.randint(1, 1000)
+            position = deepcopy(self.default_position)
+            position.position_uuid = f"{self.DEFAULT_POSITION_UUID}_{i}"
+            position.open_ms = open_ms
+            position.close_ms = close_ms
+            self.position_manager.save_miner_position_to_disk(position)
+            positions.append(position)
+
+        # Fetch and sort positions from disk
+        all_disk_positions = self.position_manager.get_all_miner_positions(self.DEFAULT_MINER_HOTKEY,
+                                                                           sort_positions=True)
+
+        # Verify the number of positions fetched matches expectations
+        self.assertEqual(len(all_disk_positions), num_positions)
+
+        # Verify that positions are sorted correctly by close_ms, treating None as infinity
+        for i in range(1, num_positions):
+            prev_close_ms = all_disk_positions[i - 1].close_ms or float('inf')
+            curr_close_ms = all_disk_positions[i].close_ms or float('inf')
+            self.assertTrue(prev_close_ms <= curr_close_ms, "Positions are not sorted correctly by close_ms")
 
 
 if __name__ == '__main__':

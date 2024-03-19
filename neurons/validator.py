@@ -356,10 +356,21 @@ class Validator:
 
     def get_positions(self, synapse: template.protocol.GetPositions,
                       ) -> template.protocol.GetPositions:
-        # use position_util.get_all_miner_positions and return the synapse over the network
-        # synapse.positions = position_util.get_all_miner_positions()
-        # return synapse
-        pass
+        miner_hotkey = synapse.dendrite.hotkey
+        error_message = ""
+        try:
+            hotkey = synapse.dendrite.hotkey
+            positions = self.position_manager.get_all_miner_positions(hotkey, sort_positions=True)
+            synapse.positions = [position.to_dict() for position in positions]
+            synapse.successfully_processed = True
+        except Exception as e:
+            error_message = e
+            bt.logging.error(f"Error processing signal for [{miner_hotkey}] with error [{e}]")
+            bt.logging.error(traceback.format_exc())
+            synapse.successfully_processed = False
+
+        synapse.error_message = error_message
+        return synapse
 
 
 # This is the main function, which runs the miner.
