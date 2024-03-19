@@ -131,7 +131,7 @@ With this system only the world's best traders & deep learning / quant based tra
 Below are the prerequisites for validators and miners, you may be able to make miner and validator work off lesser
 specs.
 
-Requires **Python 3.10 or higher.**
+Requires **Python 3.10.**
 
 **Validator**
 
