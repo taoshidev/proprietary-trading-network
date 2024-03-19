@@ -15,13 +15,14 @@ import bittensor as bt
 class MDDChecker(CacheController):
     MAX_DAILY_DRAWDOWN = 'MAX_DAILY_DRAWDOWN'
     MAX_TOTAL_DRAWDOWN = 'MAX_TOTAL_DRAWDOWN'
-    def __init__(self, config, metagraph, position_manager, running_unit_tests=False):
+    def __init__(self, config, metagraph, position_manager, eliminations_lock, running_unit_tests=False):
         super().__init__(config, metagraph, running_unit_tests=running_unit_tests)
         secrets = ValiUtils.get_secrets()
         self.position_manager = position_manager
         assert self.running_unit_tests == self.position_manager.running_unit_tests
         self.all_trade_pairs = [trade_pair for trade_pair in TradePair]
         self.twelvedata = TwelveDataService(api_key=secrets["twelvedata_apikey"])
+        self.eliminations_lock = eliminations_lock
 
     def get_required_closing_prices(self, hotkey_positions):
         required_trade_pairs = set()
@@ -43,17 +44,20 @@ class MDDChecker(CacheController):
             return
 
         bt.logging.info("running mdd checker")
-        self._refresh_eliminations_in_memory_and_disk()
+        self._refresh_eliminations_in_memory()
 
         hotkey_to_positions = self.position_manager.get_all_miner_positions_by_hotkey(
             self.metagraph.hotkeys, sort_positions=True,
             eliminations=self.eliminations
         )
         signal_closing_prices = self.get_required_closing_prices(hotkey_to_positions)
+        any_eliminations = False
         for hotkey, sorted_positions in hotkey_to_positions.items():
-            self._search_for_miner_dd_failures(hotkey, sorted_positions, signal_closing_prices)
+            any_eliminations |= self._search_for_miner_dd_failures(hotkey, sorted_positions, signal_closing_prices)
 
-        self._write_eliminations_from_memory_to_disk()
+        if any_eliminations:
+            with self.eliminations_lock:
+                self._write_eliminations_from_memory_to_disk()
 
         self.set_last_update_time()
 
@@ -77,19 +81,19 @@ class MDDChecker(CacheController):
         return elimination_occurred, sorted_per_position_return[-1]
 
 
-    def _search_for_miner_dd_failures(self, hotkey, sorted_positions, signal_closing_prices):
+    def _search_for_miner_dd_failures(self, hotkey, sorted_positions, signal_closing_prices) -> bool:
         seen_trade_pairs = set()
         current_dd = 1
         # Log sorted positions length
         if len(sorted_positions) == 0:
-            return
+            return False
         # Already eliminated
         if self._hotkey_in_eliminations(hotkey):
-            return
+            return False
 
         elimination_occurred, current_dd = self._replay_all_closed_positions(hotkey, sorted_positions, current_dd)
         if elimination_occurred:
-            return
+            return True
 
         open_positions = []
         closed_positions = []
@@ -127,14 +131,16 @@ class MDDChecker(CacheController):
             self.position_manager.close_open_positions_for_miner(hotkey)
             self.append_elimination_row(hotkey, current_dd, mdd_failure)
 
-    def _is_beyond_mdd(self, dd):
+        return bool(mdd_failure)
+
+    def _is_beyond_mdd(self, dd) -> str | bool:
         time_now = TimeUtil.generate_start_timestamp(0)
         if (dd < ValiConfig.MAX_DAILY_DRAWDOWN and time_now.hour == 0 and time_now.minute < 5):
             return MDDChecker.MAX_DAILY_DRAWDOWN
         elif (dd < ValiConfig.MAX_TOTAL_DRAWDOWN):
             return MDDChecker.MAX_TOTAL_DRAWDOWN
         else:
-            return None
+            return False
 
 
 

@@ -18,5 +18,5 @@ class MetagraphUpdater(CacheController):
             return
         bt.logging.info("Updating metagraph.")
         self.metagraph.sync(subtensor=self.subtensor)
-        bt.logging.info(f"Metagraph updated: {self.metagraph}")
+        bt.logging.info(f"Metagraph updated. Hotkeys: {self.metagraph.hotkeys}")
         self.set_last_update_time()

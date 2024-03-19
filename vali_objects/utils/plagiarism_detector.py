@@ -1,22 +1,17 @@
 # developer: jbonilla
 # Copyright © 2024 Taoshi Inc
 
-import threading
-from sympy import Order
-
 from vali_config import ValiConfig
 from vali_objects.position import Position
 from shared_objects.cache_controller import CacheController
 from vali_objects.utils.position_manager import PositionManager
+from vali_objects.vali_dataclasses.order import Order
 
 
 class PlagiarismDetector(CacheController):
     def __init__(self, config, metagraph, running_unit_tests=False):
         super().__init__(config, metagraph, running_unit_tests=running_unit_tests)
         self.position_manager = PositionManager(metagraph=metagraph, running_unit_tests=running_unit_tests)
-        # May be run simultaneously in multiple threads spawned by received_signal. Lock for file IO safety.
-        self._file_lock = threading.Lock()
-
 
     def is_order_similar_to_positional_orders(self,
         position_open_ms: int,
@@ -65,18 +60,16 @@ class PlagiarismDetector(CacheController):
                 signal_to_order,
                 hotkey=miner_hotkey)
         
-        # update the miner copying json while holding the file lock
-        with self._file_lock:
-            self._refresh_plagiarism_scores_in_memory_and_disk()
-            # If this is a new miner, use the initial value 0. 
-            current_hotkey_mc = self.miner_plagiarism_scores.get(miner_hotkey, 0)
-            if is_similar_order:
-                current_hotkey_mc += ValiConfig.MINER_COPYING_WEIGHT
-                self.miner_plagiarism_scores[miner_hotkey] = current_hotkey_mc
-            else:
-                current_hotkey_mc -= ValiConfig.MINER_COPYING_WEIGHT
-                self.miner_plagiarism_scores[miner_hotkey] = max(0, current_hotkey_mc)
+        self._update_plagiarism_scores_in_memory()
+        # If this is a new miner, use the initial value 0.
+        current_hotkey_mc = self.miner_plagiarism_scores.get(miner_hotkey, 0)
+        if is_similar_order:
+            current_hotkey_mc += ValiConfig.MINER_COPYING_WEIGHT
+            self.miner_plagiarism_scores[miner_hotkey] = current_hotkey_mc
+        else:
+            current_hotkey_mc -= ValiConfig.MINER_COPYING_WEIGHT
+            self.miner_plagiarism_scores[miner_hotkey] = max(0, current_hotkey_mc)
 
-            self._write_updated_plagiarism_scores_from_memory_to_disk()
+        self._write_updated_plagiarism_scores_from_memory_to_disk()
 
 
