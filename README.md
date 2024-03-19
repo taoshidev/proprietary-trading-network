@@ -159,10 +159,10 @@ $ sudo apt install python3-pip
 $ sudo apt-get install python3-venv
 
 # clone repo
-$ git clone https://github.com/taoshidev/prop-net.git
+$ git clone https://github.com/taoshidev/proprietary-trading-network.git
 
 # change directory
-$ cd prop-net
+$ cd proprietary-trading-network
 
 # create virtual environment
 $ python3 -m venv venv
@@ -263,7 +263,7 @@ $ pm2 update
 3. Be sure to install venv for the repo.
 
 ```bash
-# /prop-net
+# /proprietary-trading-network
 
 # create virtual environment
 $ python3 -m venv venv
