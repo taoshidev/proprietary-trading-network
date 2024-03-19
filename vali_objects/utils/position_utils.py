@@ -35,7 +35,7 @@ class PositionUtils:
         position_close_ms: int, 
         evaluation_time_ms: int
     ) -> float:
-        lookback_period = ValiConfig.SET_WEIGHT_REFRESH_TIME_MS
+        lookback_period = ValiConfig.SET_WEIGHT_LOOKBACK_RANGE_MS
         time_since_closed = evaluation_time_ms - position_close_ms
         time_fraction = time_since_closed / lookback_period
         time_fraction = np.clip(time_fraction, 0, 1)
