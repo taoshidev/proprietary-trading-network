@@ -66,8 +66,10 @@ class Position:
         self.is_closed_position = is_closed_position
 
     def __str__(self) -> str:
-        return str(
-            {
+        return str(self.to_dict())
+
+    def to_dict(self):
+        return {
                 # args
                 "miner_hotkey": self.miner_hotkey,
                 "position_uuid": self.position_uuid,
@@ -84,7 +86,6 @@ class Position:
                 "position_type": str(self.position_type),
                 "is_closed_position": str(self.is_closed_position),
             }
-        )
 
     @staticmethod
     def from_dict(position_dict):

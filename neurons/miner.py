@@ -9,6 +9,7 @@ from typing import List
 
 import bittensor as bt
 from miner_objects.prop_net_order_placer import PropNetOrderPlacer
+from miner_objects.position_inspector import PositionInspector
 from shared_objects.metagraph_updater import MetagraphUpdater
 from template.protocol import GetPositions
 
@@ -33,6 +34,7 @@ class Miner:
         self.metagraph = self.subtensor.metagraph(self.config.netuid)
         self.metagraph_updater = MetagraphUpdater(self.config, self.metagraph)
         self.prop_net_order_placer = PropNetOrderPlacer(self.dendrite, self.metagraph, self.config)
+        self.position_inspector = PositionInspector(self.dendrite, self.metagraph, self.config)
 
     def check_miner_registration(self):
         if self.wallet.hotkey.ss58_address not in self.metagraph.hotkeys:
@@ -77,24 +79,6 @@ class Miner:
         )
         return config
 
-    def get_positions(self, _dendrite, _config, _metagraph, validators):
-        get_position_proto = GetPositions()
-
-        # order validators by largest stake holding, request from 1 of the top 3
-        # get all uids, order by largest stake
-        # stake = metagraph.axons[uid].stake.tao
-
-        # if they're not in the same state, then choose from the vali that has the most
-        # orders filled for the miner
-
-        vali_responses = _dendrite.query(
-            _metagraph.axons[0], get_position_proto, deserialize=True
-        )
-
-    def order_valis_by_stake(self, metagraph) -> List[int]:
-        # stake = metagraph.axons[uid].stake.tao
-        pass
-
     def run(self):
         bt.logging(config=self.config, logging_dir=self.config.full_path)
         bt.logging.info("Starting miner loop.")
@@ -103,6 +87,7 @@ class Miner:
             try:
                 self.metagraph_updater.update_metagraph()
                 self.prop_net_order_placer.send_signals()
+                self.position_inspector.send_signals_with_cooldown()
             # If someone intentionally stops the miner, it'll safely terminate operations.
             except KeyboardInterrupt:
                 bt.logging.success("Miner killed by keyboard interrupt.")
