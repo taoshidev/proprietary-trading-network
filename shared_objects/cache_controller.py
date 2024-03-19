@@ -28,6 +28,9 @@ class CacheController:
     def get_last_update_time_ms(self):
         return self._last_update_time_ms
 
+    def _hotkey_in_eliminations(self, hotkey):
+        return any(hotkey == x['hotkey'] for x in self.eliminations)
+
     @staticmethod
     def generate_elimination_row(hotkey, dd, reason):
         return {'hotkey': hotkey, 'elimination_initiated_time_ms': TimeUtil.now_in_millis(), 'dd': dd, 'reason': reason}

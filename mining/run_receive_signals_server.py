@@ -2,7 +2,9 @@ import json
 import os
 import traceback
 import uuid
-
+import subprocess
+import sys
+import time
 from flask import Flask, request, jsonify
 
 import waitress
@@ -12,7 +14,6 @@ from vali_config import TradePair, ValiConfig
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.vali_dataclasses.signal import Signal
-
 
 app = Flask(__name__)
 
@@ -78,6 +79,6 @@ def handle_data():
         200,
     )
 
-
 if __name__ == "__main__":
     waitress.serve(app, host="0.0.0.0", port=80)
+    print('Successfully started run_receive_signals_server.')

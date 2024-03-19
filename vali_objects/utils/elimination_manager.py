@@ -32,13 +32,12 @@ class EliminationManager(CacheController):
 
 
     def _handle_plagiarism_eliminations(self):
-        existing_plagiarism_eliminations = set(x for x in self.eliminations if x['reason'] == 'plagiarism')
         self._refresh_eliminations_in_memory_and_disk()
         bt.logging.debug("checking plagiarism.")
         self._refresh_plagiarism_scores_in_memory_and_disk()
         # miner_copying_json[miner_hotkey] = current_hotkey_mc
         for miner_hotkey, current_plagiarism_score in self.miner_plagiarism_scores.items():
-            if miner_hotkey in existing_plagiarism_eliminations:
+            if self._hotkey_in_eliminations(miner_hotkey):
                 continue
             if current_plagiarism_score > ValiConfig.MAX_MINER_PLAGIARISM_SCORE:
                 self.position_manager.close_open_positions_for_miner(miner_hotkey)
@@ -70,7 +69,7 @@ class EliminationManager(CacheController):
                 )
                 eliminated_hotkeys.add(hotkey)
             except FileNotFoundError:
-                bt.logging.info(f"miner dir not found [{miner_dir}]")
+                bt.logging.info(f"miner dir not found. Already deleted. [{miner_dir}]")
                 
         if eliminated_hotkeys:
             self.eliminations = [x for x in self.eliminations if x['hotkey'] not in eliminated_hotkeys]

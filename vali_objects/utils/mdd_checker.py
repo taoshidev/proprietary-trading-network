@@ -57,9 +57,6 @@ class MDDChecker(CacheController):
 
         self.set_last_update_time()
 
-    def _hotkey_in_eliminations(self, hotkey):
-        return any(hotkey == x['hotkey'] for x in self.eliminations)
-
     def _replay_all_closed_positions(self, hotkey, sorted_positions, current_dd):
         elimination_occurred = False
         sorted_per_position_return = self.position_manager.get_return_per_closed_position(sorted_positions)
