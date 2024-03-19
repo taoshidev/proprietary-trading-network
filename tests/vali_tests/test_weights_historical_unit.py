@@ -106,7 +106,7 @@ class TestWeights(TestBase):
         position = self.mock_positions[0]
 
         evaluation_time = 1710523564446
-        time_delta = ValiConfig.SET_WEIGHT_REFRESH_TIME_MS
+        time_delta = ValiConfig.SET_WEIGHT_LOOKBACK_RANGE_MS
 
         close_time = evaluation_time - time_delta + int(time_delta * 0.3) # 30% of the way through the lookback period
         open_time = evaluation_time - time_delta + int(time_delta * 0.1) # 10% of the way through the lookback period
