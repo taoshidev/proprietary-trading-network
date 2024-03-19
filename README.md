@@ -137,7 +137,7 @@ Requires **Python 3.10.**
 
 - 2 vCPU + 8 GB memory
 - 100 GB balanced persistent disk
-- A "Grow" Twelvedata API account (https://twelvedata.com/)
+- A Twelvedata API account to allow your validator to fetch live prices (https://twelvedata.com/)
 
 **Miner**
 
@@ -220,7 +220,7 @@ To run a validator, follow these steps:
 }
 ```
 - Replace YOUR_API_KEY_HERE with your actual TwelveData API key.
-- Obtain an API key by signing up at TwelveData's website. The free tier is sufficient for testnet usage. For mainnet applications, a premium tier subscription is recommended.
+- Obtain an API key by signing up at TwelveData's website. The free tier is sufficient for testnet usage. For mainnet applications, a "Grow" tier subscription is required.
 
 On Linux:
 
