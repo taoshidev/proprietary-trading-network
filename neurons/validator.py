@@ -245,7 +245,7 @@ class Validator:
           'leverage': 0.5}
         """
         string_trade_pair = signal["trade_pair"]["trade_pair_id"]
-        trade_pair = TradePair.get_trade_pair(string_trade_pair)
+        trade_pair = TradePair.from_trade_pair_id(string_trade_pair)
         if trade_pair is None:
             bt.logging.error(f"[{trade_pair}] not in TradePair enum.")
             raise SignalException(
@@ -254,7 +254,7 @@ class Validator:
             )
 
         bt.logging.info(f"Parsed trade pair from signal: {trade_pair}")
-        signal_order_type = OrderType.get_order_type(signal["order_type"])
+        signal_order_type = OrderType.from_string(signal["order_type"])
         bt.logging.info(f"Parsed order type from signal: {signal_order_type}")
         signal_leverage = signal["leverage"]
         bt.logging.info(f"Parsed leverage from signal: {signal_leverage}")

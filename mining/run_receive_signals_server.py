@@ -49,9 +49,16 @@ def handle_data():
 
     try:
         # ensure to fits rules for a Signal
-        signal = Signal(trade_pair=TradePair.get_trade_pair(data["trade_pair"]["trade_pair_id"]),
+        if isinstance(data['trade_pair'], dict):
+            signal_trade_pair_str = data["trade_pair"]["trade_pair_id"]
+        elif isinstance(data['trade_pair'], str):
+            signal_trade_pair_str = data["trade_pair"]
+        else:
+            raise Exception("trade_pair must be a string or a dict")
+
+        signal = Signal(trade_pair=TradePair.from_trade_pair_id(signal_trade_pair_str),
                         leverage=float(data["leverage"]),
-                        order_type=OrderType.get_order_type(data["order_type"]))
+                        order_type=OrderType.from_string(data["order_type"]))
         # make miner received signals dir if doesnt exist
         ValiBkpUtils.make_dir(MinerConfig.get_miner_received_signals_dir())
         # store miner signal

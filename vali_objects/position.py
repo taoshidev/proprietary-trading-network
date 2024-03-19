@@ -90,7 +90,7 @@ class Position:
     def from_dict(position_dict):
         orders = [Order.from_dict(order) for order in position_dict["orders"]]
         position_dict["orders"] = orders
-        position_dict["trade_pair"] = TradePair.get_trade_pair(
+        position_dict["trade_pair"] = TradePair.from_trade_pair_id(
             position_dict["trade_pair"]["trade_pair_id"]
         )
         position_dict["is_closed_position"] = (
