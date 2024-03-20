@@ -130,7 +130,7 @@ class PropNetOrderPlacer:
         # Overwrite the file we just moved with the new data
         new_file_path = os.path.join(MinerConfig.get_miner_failed_signals_dir(), os.path.basename(signal_file_path))
         ValiBkpUtils.write_file(new_file_path, json.dumps(new_data))
-        bt.logging.info(f"Signal file overwritten with failure information: {new_file_path}")
+        bt.logging.info(f"Signal file modified to include failure information: {new_file_path}")
 
     def move_signal_to_directory(self, directory: str, signal_file_path):
         ValiBkpUtils.make_dir(directory)
