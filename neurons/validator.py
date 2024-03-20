@@ -5,6 +5,7 @@
 
 import os
 import threading
+import time
 import uuid
 from typing import Tuple
 
@@ -80,7 +81,9 @@ class Validator:
         bt.logging.info(f"setting port [{self.config.axon.port}]")
         bt.logging.info(f"setting external port [{self.config.axon.external_port}]")
         self.axon = bt.axon(
-            wallet=wallet, port=self.config.axon.port, external_port=self.config.axon.external_port
+            wallet=wallet,
+            port=self.config.axon.port,
+            external_port=self.config.axon.external_port,
         )
         bt.logging.info(f"Axon {self.axon}")
 
@@ -88,16 +91,32 @@ class Validator:
         bt.logging.info(f"Attaching forward function to axon.")
 
         self.rate_limiter = RateLimiter()
-        self.position_manager = PositionManager(metagraph=self.metagraph, config=self.config)
+        self.position_manager = PositionManager(
+            metagraph=self.metagraph, config=self.config
+        )
 
         def rs_blacklist_fn(synapse: template.protocol.SendSignal) -> Tuple[bool, str]:
-            return Validator.blacklist_fn(synapse, self.metagraph, self.rate_limiter, self.mdd_checker, self.eliminations_lock)
+            return Validator.blacklist_fn(
+                synapse,
+                self.metagraph,
+                self.rate_limiter,
+                self.mdd_checker,
+                self.eliminations_lock,
+            )
 
         def rs_priority_fn(synapse: template.protocol.SendSignal) -> float:
             return Validator.priority_fn(synapse, self.metagraph)
 
-        def gp_blacklist_fn(synapse: template.protocol.GetPositions) -> Tuple[bool, str]:
-            return Validator.blacklist_fn(synapse, self.metagraph, self.rate_limiter, self.mdd_checker, self.eliminations_lock)
+        def gp_blacklist_fn(
+            synapse: template.protocol.GetPositions,
+        ) -> Tuple[bool, str]:
+            return Validator.blacklist_fn(
+                synapse,
+                self.metagraph,
+                self.rate_limiter,
+                self.mdd_checker,
+                self.eliminations_lock,
+            )
 
         def gp_priority_fn(synapse: template.protocol.GetPositions) -> float:
             return Validator.priority_fn(synapse, self.metagraph)
@@ -145,13 +164,18 @@ class Validator:
         # reading outside of the mainloop (validator).
         self.eliminations_lock = threading.Lock()
         self.plagiarism_detector = PlagiarismDetector(self.config, self.metagraph)
-        self.mdd_checker = MDDChecker(self.config, self.metagraph, self.position_manager, self.eliminations_lock)
+        self.mdd_checker = MDDChecker(
+            self.config, self.metagraph, self.position_manager, self.eliminations_lock
+        )
         self.weight_setter = SubtensorWeightSetter(self.config, wallet, self.metagraph)
-        self.elimination_manager = EliminationManager(self.metagraph, self.position_manager, self.eliminations_lock)
-
+        self.elimination_manager = EliminationManager(
+            self.metagraph, self.position_manager, self.eliminations_lock
+        )
 
     @staticmethod
-    def blacklist_fn(synapse, metagraph, rateLimiter, mdd_checker, eliminations_lock) -> Tuple[bool, str]:
+    def blacklist_fn(
+        synapse, metagraph, rateLimiter, mdd_checker, eliminations_lock
+    ) -> Tuple[bool, str]:
         miner_hotkey = synapse.dendrite.hotkey
         allowed, wait_time = rateLimiter.is_allowed(miner_hotkey)
         if not allowed:
@@ -167,7 +191,11 @@ class Validator:
 
         with eliminations_lock:
             eliminations = mdd_checker.get_eliminations_from_disk()
-        eliminated_hotkeys = set(x['hotkey'] for x in eliminations) if eliminations is not None else set()
+        eliminated_hotkeys = (
+            set(x["hotkey"] for x in eliminations)
+            if eliminations is not None
+            else set()
+        )
 
         # don't process eliminated miners
         if synapse.dendrite.hotkey in eliminated_hotkeys:
@@ -198,7 +226,9 @@ class Validator:
         parser = argparse.ArgumentParser()
         # TODO(developer): Adds your custom miner arguments to the parser.
         # Adds override arguments for network and netuid.
-        parser.add_argument("--netuid", type=int, default=1, help="The chain subnet uid.")
+        parser.add_argument(
+            "--netuid", type=int, default=1, help="The chain subnet uid."
+        )
         # Adds subtensor specific arguments i.e. --subtensor.chain_endpoint ... --subtensor.network ...
         bt.subtensor.add_args(parser)
         # Adds logging specific arguments i.e. --logging.debug ..., --logging.trace .. or --logging.logging_dir ...
@@ -234,7 +264,9 @@ class Validator:
                 self.mdd_checker.mdd_check()
                 self.weight_setter.set_weights()
                 self.elimination_manager.process_eliminations()
-                self.position_manager.position_locks.cleanup_locks(self.metagraph.hotkeys)
+                self.position_manager.position_locks.cleanup_locks(
+                    self.metagraph.hotkeys
+                )
 
             # If someone intentionally stops the miner, it'll safely terminate operations.
             except KeyboardInterrupt:
@@ -257,8 +289,7 @@ class Validator:
         if trade_pair is None:
             bt.logging.error(f"[{trade_pair}] not in TradePair enum.")
             raise SignalException(
-                f"miner [{hotkey}] incorrectly "
-                f"sent trade pair [{trade_pair}]"
+                f"miner [{hotkey}] incorrectly " f"sent trade pair [{trade_pair}]"
             )
 
         bt.logging.info(f"Parsed trade pair from signal: {trade_pair}")
@@ -267,7 +298,10 @@ class Validator:
         signal_leverage = signal["leverage"]
         bt.logging.info(f"Parsed leverage from signal: {signal_leverage}")
 
-        bt.logging.info("Attempting to get closing price for trade pair: " + trade_pair.trade_pair_id)
+        bt.logging.info(
+            "Attempting to get closing price for trade pair: "
+            + trade_pair.trade_pair_id
+        )
         live_closing_price = self.tds.get_close(trade_pair=trade_pair)[trade_pair]
 
         order = Order(
@@ -281,10 +315,14 @@ class Validator:
         bt.logging.success(f"Converted signal to order: {order}")
         return order
 
-    def _enforce_num_open_order_limit(self, trade_pair_to_open_position: dict, signal_to_order):
+    def _enforce_num_open_order_limit(
+        self, trade_pair_to_open_position: dict, signal_to_order
+    ):
         # Check if there are too many orders across all open positions.
         # If so, check if the current order is a FLAT order (reduces number of open orders). If not, raise an exception
-        n_open_positions = sum([len(position.orders) for position in trade_pair_to_open_position.values()])
+        n_open_positions = sum(
+            [len(position.orders) for position in trade_pair_to_open_position.values()]
+        )
         if n_open_positions >= ValiConfig.MAX_OPEN_ORDERS_PER_HOTKEY:
             if signal_to_order.order_type != OrderType.FLAT:
                 raise SignalException(
@@ -292,7 +330,12 @@ class Validator:
                     f"order [{signal_to_order}] is not a FLAT order."
                 )
 
-    def _get_or_create_open_position(self, signal_to_order: Order, miner_hotkey: str, trade_pair_to_open_position: dict):
+    def _get_or_create_open_position(
+        self,
+        signal_to_order: Order,
+        miner_hotkey: str,
+        trade_pair_to_open_position: dict,
+    ):
         trade_pair = signal_to_order.trade_pair
 
         # if a position already exists, add the order to it
@@ -302,7 +345,8 @@ class Validator:
             if trade_pair_to_open_position[trade_pair].is_closed_position:
                 raise SignalException(
                     f"miner [{miner_hotkey}] sent signal for "
-                    f"closed position [{trade_pair}]")
+                    f"closed position [{trade_pair}]"
+                )
             bt.logging.debug("adding to existing position")
             open_position = trade_pair_to_open_position[trade_pair]
         else:
@@ -319,33 +363,48 @@ class Validator:
                     miner_hotkey=miner_hotkey,
                     position_uuid=str(uuid.uuid4()),
                     open_ms=TimeUtil.now_in_millis(),
-                    trade_pair=trade_pair
+                    trade_pair=trade_pair,
                 )
         return open_position
 
     # This is the core validator function to receive a signal
-    def receive_signal(self, synapse: template.protocol.SendSignal,
-                       ) -> template.protocol.SendSignal:
+    def receive_signal(
+        self,
+        synapse: template.protocol.SendSignal,
+    ) -> template.protocol.SendSignal:
         # pull miner hotkey to reference in various activities
         miner_hotkey = synapse.dendrite.hotkey
         signal = synapse.signal
-        bt.logging.info(f"received signal [{signal}] from miner_hotkey [{miner_hotkey}].")
+        bt.logging.info(
+            f"received signal [{signal}] from miner_hotkey [{miner_hotkey}]."
+        )
         # error message to send back to miners in case of a problem so they can fix and resend
         error_message = ""
         try:
             signal_to_order = self.convert_signal_to_order(signal, miner_hotkey)
             # Multiple threads can run receive_signal at once. Don't allow two threads to trample each other.
-            with self.position_manager.position_locks.get_lock(miner_hotkey, signal_to_order.trade_pair.trade_pair_id):
+            with self.position_manager.position_locks.get_lock(
+                miner_hotkey, signal_to_order.trade_pair.trade_pair_id
+            ):
                 # gather open positions and see which trade pairs have an open position
-                trade_pair_to_open_position = {position.trade_pair: position for position in
-                                               self.position_manager.get_all_miner_positions(miner_hotkey,
-                                                                                             only_open_positions=True)}
-                self._enforce_num_open_order_limit(trade_pair_to_open_position, signal_to_order)
-                open_position = self._get_or_create_open_position(signal_to_order, miner_hotkey, trade_pair_to_open_position)
+                trade_pair_to_open_position = {
+                    position.trade_pair: position
+                    for position in self.position_manager.get_all_miner_positions(
+                        miner_hotkey, only_open_positions=True
+                    )
+                }
+                self._enforce_num_open_order_limit(
+                    trade_pair_to_open_position, signal_to_order
+                )
+                open_position = self._get_or_create_open_position(
+                    signal_to_order, miner_hotkey, trade_pair_to_open_position
+                )
                 open_position.add_order(signal_to_order)
                 self.position_manager.save_miner_position_to_disk(open_position)
                 # Log the open position for the miner
-                bt.logging.info(f"Position for miner [{miner_hotkey}] updated: {open_position}")
+                bt.logging.info(
+                    f"Position for miner [{miner_hotkey}] updated: {open_position}"
+                )
                 open_position.log_position_status()
             self.plagiarism_detector.check_plagiarism(open_position, signal_to_order)
 
@@ -354,7 +413,9 @@ class Validator:
             bt.logging.error(error_message)
         except Exception as e:
             error_message = e
-            bt.logging.error(f"Error processing signal for [{miner_hotkey}] with error [{e}]")
+            bt.logging.error(
+                f"Error processing signal for [{miner_hotkey}] with error [{e}]"
+            )
             bt.logging.error(traceback.format_exc())
 
         synapse.successfully_processed = bool(error_message == "")
@@ -362,18 +423,24 @@ class Validator:
         bt.logging.success(f"Sending ack back to miner [{miner_hotkey}]")
         return synapse
 
-    def get_positions(self, synapse: template.protocol.GetPositions,
-                      ) -> template.protocol.GetPositions:
+    def get_positions(
+        self,
+        synapse: template.protocol.GetPositions,
+    ) -> template.protocol.GetPositions:
         miner_hotkey = synapse.dendrite.hotkey
         error_message = ""
         try:
             hotkey = synapse.dendrite.hotkey
-            positions = self.position_manager.get_all_miner_positions(hotkey, sort_positions=True)
+            positions = self.position_manager.get_all_miner_positions(
+                hotkey, sort_positions=True
+            )
             synapse.positions = [position.to_dict() for position in positions]
             synapse.successfully_processed = True
         except Exception as e:
             error_message = e
-            bt.logging.error(f"Error processing signal for [{miner_hotkey}] with error [{e}]")
+            bt.logging.error(
+                f"Error processing signal for [{miner_hotkey}] with error [{e}]"
+            )
             bt.logging.error(traceback.format_exc())
             synapse.successfully_processed = False
 
@@ -381,7 +448,168 @@ class Validator:
         return synapse
 
 
+def basic_get_config():
+    # Set up the configuration parser
+    # This function initializes the necessary command-line arguments.
+    # Using command-line arguments allows users to customize various miner settings.
+    parser = argparse.ArgumentParser()
+    # TODO(developer): Adds your custom miner arguments to the parser.
+    parser.add_argument(
+        "--custom",
+        default="my_custom_value",
+        help="Adds a custom value to the parser.",
+    )
+    # Adds override arguments for network and netuid.
+    parser.add_argument("--netuid", type=int, default=1, help="The chain subnet uid.")
+    parser.add_argument(
+        "--base_model",
+        type=str,
+        default="model_v5_1",
+        help="Choose the base model you want to run (if you're not using a custom one).",
+    )
+    # Adds subtensor specific arguments i.e. --subtensor.chain_endpoint ... --subtensor.network ...
+    bt.subtensor.add_args(parser)
+    # Adds logging specific arguments i.e. --logging.debug ..., --logging.trace .. or --logging.logging_dir ...
+    bt.logging.add_args(parser)
+    # Adds wallet specific arguments i.e. --wallet.name ..., --wallet.hotkey ./. or --wallet.path ...
+    bt.wallet.add_args(parser)
+    # Adds axon specific arguments i.e. --axon.port ...
+    bt.axon.add_args(parser)
+    # Activating the parser to read any command-line inputs.
+    # To print help message, run python3 template/miner.py --help
+    config = bt.config(parser)
+
+    # Set up logging directory
+    # Logging captures events for diagnosis or understanding miner's behavior.
+    config.full_path = os.path.expanduser(
+        "{}/{}/{}/netuid{}/{}".format(
+            config.logging.logging_dir,
+            config.wallet.name,
+            config.wallet.hotkey,
+            config.netuid,
+            "miner",
+        )
+    )
+    # Ensure the directory for logging exists, else create one.
+    if not os.path.exists(config.full_path):
+        os.makedirs(config.full_path, exist_ok=True)
+    return config
+
+
+def basic_main(config):
+    # This logs the active configuration to the specified logging directory for review.
+    bt.logging.info(config)
+
+    # Step 4: Initialize Bittensor miner objects
+    # These classes are vital to interact and function within the Bittensor network.
+    bt.logging.info("Setting up bittensor objects.")
+
+    # Wallet holds cryptographic information, ensuring secure transactions and communication.
+    wallet = bt.wallet(config=config)
+    bt.logging.info(f"Wallet: {wallet}")
+
+    # subtensor manages the blockchain connection, facilitating interaction with the Bittensor blockchain.
+    subtensor = bt.subtensor(config=config)
+    bt.logging.info(f"Subtensor: {subtensor}")
+
+    # metagraph provides the network's current state, holding state about other participants in a subnet.
+    metagraph = subtensor.metagraph(config.netuid)
+    bt.logging.info(f"Metagraph: {metagraph}")
+
+    if wallet.hotkey.ss58_address not in metagraph.hotkeys:
+        bt.logging.error(
+            f"\nYour miner: {wallet} is not registered to chain connection: {subtensor} \nRun btcli register and try again. "
+        )
+        exit()
+
+    # Each miner gets a unique identity (UID) in the network for differentiation.
+    my_subnet_uid = metagraph.hotkeys.index(wallet.hotkey.ss58_address)
+    bt.logging.info(f"Running miner on uid: {my_subnet_uid}")
+
+    def dummy_blacklist_fn(
+        synapse: template.protocol.Dummy,
+    ) -> Tuple[bool, str]:
+        print("TEST")
+        return False, synapse.dendrite.hotkey
+
+    def dummy_priority_fn(synapse: template.protocol.Dummy) -> float:
+        print("TEST2")
+        caller_uid = metagraph.hotkeys.index(synapse.dendrite.hotkey)
+        priority = float(metagraph.S[caller_uid])
+        bt.logging.trace(
+            f"Prioritizing {synapse.dendrite.hotkey} with value: ", priority
+        )
+        return priority
+
+    def dummy_f(
+        synapse: template.protocol.Dummy,
+    ) -> template.protocol.Dummy:
+        return synapse
+
+    # Build and link miner functions to the axon.
+    # The axon handles request processing, allowing validators to send this process requests.
+    bt.logging.info(f"setting port [{config.axon.port}]")
+    bt.logging.info(f"setting external port [{config.axon.external_port}]")
+    axon = bt.axon(
+        wallet=wallet, port=config.axon.port, external_port=config.axon.external_port
+    )
+    bt.logging.info(f"Axon {axon}")
+
+    # Attach determiners which functions are called when servicing a request.
+    bt.logging.info(f"Attaching live forward functions to axon.")
+    axon.attach(
+        forward_fn=dummy_f,
+        blacklist_fn=dummy_blacklist_fn,
+        priority_fn=dummy_priority_fn,
+    )
+
+    bt.logging.info(
+        f"Serving attached axons on network:"
+        f" {config.subtensor.chain_endpoint} with netuid: {config.netuid}"
+    )
+    axon.serve(netuid=config.netuid, subtensor=subtensor)
+    # Start  starts the miner's axon, making it active on the network.
+    bt.logging.info(f"Starting axon server on port: {config.axon.port}")
+    axon.start()
+
+    # Keep the miner alive
+    # This loop maintains the miner's operations until intentionally stopped.
+    bt.logging.info(f"Starting main loop")
+    step = 0
+
+    while True:
+        try:
+            # Below: Periodically update our knowledge of the network graph.
+            if step % 5 == 0:
+                metagraph = subtensor.metagraph(config.netuid)
+                log = (
+                    f"Step:{step} | "
+                    f"Block:{metagraph.block.item()} | "
+                    f"Stake:{metagraph.S[my_subnet_uid]} | "
+                    f"Rank:{metagraph.R[my_subnet_uid]} | "
+                    f"Trust:{metagraph.T[my_subnet_uid]} | "
+                    f"Consensus:{metagraph.C[my_subnet_uid] } | "
+                    f"Incentive:{metagraph.I[my_subnet_uid]} | "
+                    f"Emission:{metagraph.E[my_subnet_uid]}"
+                )
+                bt.logging.info(log)
+            step += 1
+            time.sleep(1)
+
+        # If someone intentionally stops the miner, it'll safely terminate operations.
+        except KeyboardInterrupt:
+            axon.stop()
+            bt.logging.success("Miner killed by keyboard interrupt.")
+            break
+
+        # In case of unforeseen errors, the miner will log the error and continue operations.
+        except Exception as main_loop_exception:  # noqa
+            bt.logging.error(traceback.format_exc())
+            continue
+
+
 # This is the main function, which runs the miner.
 if __name__ == "__main__":
-    validator = Validator()
-    validator.main()
+    # validator = Validator()
+    # validator.main()
+    basic_main(basic_get_config())
