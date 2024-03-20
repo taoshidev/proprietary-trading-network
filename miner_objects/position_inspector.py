@@ -32,6 +32,17 @@ class PositionInspector:
 
         return max(hotkey_to_positions.items(), key=lambda x: len(x[1]))
 
+    def log_position_discrepancies(self, hotkey_to_positions, top_validators):
+        hotkey_to_validator = {v.hotkey: v for v in top_validators}
+        positions_count = {hotkey: len(positions) for hotkey, positions in hotkey_to_positions.items()}
+        unique_counts = set(positions_count.values())
+
+        if len(unique_counts) > 1:
+            for hotkey, count in positions_count.items():
+                axon_info = hotkey_to_validator[hotkey]
+                bt.logging.warning(f"Validator {hotkey} has {count} positions, axon: {axon_info}. "
+                                   f"Validators may be mis-synced.")
+
     def get_positions_with_retry(self, top_validators):
         attempts = 0
         delay = self.INITIAL_RETRY_DELAY
@@ -51,6 +62,8 @@ class PositionInspector:
             # Log how many validators failed to respond
             bt.logging.warning(
                 f"Failed to get positions from {len(top_validators) - len(hotkey_to_positions)} out of {len(top_validators)} validators. Continuing...")
+
+        self.log_position_discrepancies(hotkey_to_positions, top_validators)
         # Return the validator with the most positions
         return self.get_validator_response_with_most_positions(hotkey_to_positions)
 
