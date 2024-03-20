@@ -1,3 +1,5 @@
+import sys
+
 import requests
 import json
 from vali_objects.enums.order_type_enum import OrderType
@@ -12,9 +14,20 @@ class CustomEncoder(json.JSONEncoder):
         return json.JSONEncoder.default(self, obj)
 
 if __name__ == "__main__":
+    # Set the default URL endpoint
+    default_base_url = 'http://127.0.0.1:80'
 
-    # Define the URL endpoint
-    url = 'http://127.0.0.1:8080/api/receive-signal'
+    # Check if the URL argument is provided
+    if len(sys.argv) == 2:
+        # Extract the URL from the command line argument
+        base_url = sys.argv[1]
+    else:
+        # Use the default URL if no argument is provided
+        base_url = default_base_url
+
+    print("base URL endpoint:", base_url)
+
+    url = f'{base_url}/api/receive-signal'
 
     # Define the JSON data to be sent in the request
     data = {

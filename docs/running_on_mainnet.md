@@ -13,8 +13,8 @@ passwords as your mainnet wallet, and make sure your mechanism is resistant to a
 This clones and installs the template if you dont already have it (if you do, skip this step)
 ```bash
 cd .. # back out of the subtensor repo
-git clone git@github.com:taoshidev/prop-net.git # Clone the prop net subnet repo
-cd prop-net # Enter the prop net repo
+git clone git@github.com:taoshidev/proprietary-trading-network.git # Clone the prop net subnet repo
+cd proprietary-trading-network # Enter the prop net repo
 python -m pip install -e . # Install the bittensor-subnet-template package
 ```
 
