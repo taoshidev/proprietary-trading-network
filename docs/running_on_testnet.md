@@ -62,7 +62,7 @@ This returns information about your registered keys.
 ```bash
 # Check that your validator key has been registered.
 btcli wallet overview --wallet.name validator --subtensor.network test
-Subnet: 1                                                                                                                                                                
+Subnet: 116                                                                                                                                                                
 COLDKEY  HOTKEY   UID  ACTIVE  STAKE(τ)     RANK    TRUST  CONSENSUS  INCENTIVE  DIVIDENDS  EMISSION(ρ)   VTRUST  VPERMIT  UPDATED  AXON  HOTKEY_SS58                    
 miner    default  0      True   0.00000  0.00000  0.00000    0.00000    0.00000    0.00000            0  0.00000                14  none  5GTFrsEQfvTsh3WjiEVFeKzFTc2xcf…
 1        1        2            τ0.00000  0.00000  0.00000    0.00000    0.00000    0.00000           ρ0  0.00000                                                         
@@ -70,7 +70,7 @@ miner    default  0      True   0.00000  0.00000  0.00000    0.00000    0.00000 
 
 # Check that your miner has been registered.
 btcli wallet overview --wallet.name miner --subtensor.network test
-Subnet: 1                                                                                                                                                                
+Subnet: 116                                                                                                                                                                
 COLDKEY  HOTKEY   UID  ACTIVE  STAKE(τ)     RANK    TRUST  CONSENSUS  INCENTIVE  DIVIDENDS  EMISSION(ρ)   VTRUST  VPERMIT  UPDATED  AXON  HOTKEY_SS58                    
 miner    default  1      True   0.00000  0.00000  0.00000    0.00000    0.00000    0.00000            0  0.00000                14  none  5GTFrsEQfvTsh3WjiEVFeKzFTc2xcf…
 1        1        2            τ0.00000  0.00000  0.00000    0.00000    0.00000    0.00000           ρ0  0.00000                                                         
