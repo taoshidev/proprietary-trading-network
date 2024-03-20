@@ -8,7 +8,7 @@ from flask import Flask, request, jsonify
 import waitress
 
 from miner_config import MinerConfig
-from vali_config import TradePair
+from vali_config import TradePair, ValiConfig
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.vali_dataclasses.signal import Signal
@@ -16,7 +16,7 @@ from vali_objects.vali_dataclasses.signal import Signal
 
 app = Flask(__name__)
 
-secrets_json_path = "miner_secrets.json"
+secrets_json_path = ValiConfig.BASE_DIR + "/mining/miner_secrets.json"
 # Define your API key
 if os.path.exists(secrets_json_path):
     with open(secrets_json_path, "r") as file:
@@ -73,7 +73,6 @@ def handle_data():
         print(traceback.format_exc())
         return jsonify({"error": "error storing signal on miner"}), 400
 
-
     return (
         jsonify({"message": "Signal {} received successfully".format(str(signal))}),
         200,
@@ -81,4 +80,4 @@ def handle_data():
 
 
 if __name__ == "__main__":
-    waitress.serve(app, host="0.0.0.0", port=8080)
+    waitress.serve(app, host="0.0.0.0", port=80)
