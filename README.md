@@ -336,26 +336,8 @@ guide miners to compete.
 
 # Testing
 
-You can begin testing on testnet netuid 3. You can follow the `docs/running_on_testnet.md` file inside the repo
+You can begin testing on testnet netuid 116. You can follow the `docs/running_on_testnet.md` file inside the repo
 to run on testnet.
-
-You can do this by using running:
-
-```bash
-$ python neurons/validator.py --netuid 3 --subtensor.network test --wallet.name miner --wallet.hotkey default --logging.debug
-```
-
-This will have the validator run and test against historical data instead of live. Don't use this flag if you only want
-to test against live data.
-
-We also recommend using two miners when testing, as a single miner won't provide enough responses to pass for weighing.
-You can pass a different port for the 2nd registered miner.
-
-You can run the second miner using the following example command:
-
-```bash
-$ python neurons/miner.py --netuid 3 --subtensor.network test --wallet.name miner2 --wallet.hotkey default --logging.debug --axon.port 8095
-```
 
 
 ---
