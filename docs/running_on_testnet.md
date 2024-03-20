@@ -35,12 +35,11 @@ btcli wallet new_hotkey --wallet.name validator --wallet.hotkey default
 If you don't have enough tokens to register with testnet, please go to the bittensor discord and request testnet tao
 from the general discussion.
 
-4. Register your validator and miner keys to the networks.
-This registers your validator and miner keys to the network giving them the first 2 slots on the network.
+4. Register your validator and miner keys to the TPN testnet.
+This registers your validator and miner keys to the network.
 ```bash
 # Register your miner key to the network.
-btcli subnet register --wallet.name miner --wallet.hotkey default  --subtensor.network test
->> Enter netuid [3] (1): # Enter netuid 3 to specify the network you just created.
+btcli subnet register --wallet.name miner --wallet.hotkey default  --subtensor.network test --netuid 116
 >> Continue Registration?
   hotkey:     ...
   coldkey:    ...
@@ -49,8 +48,7 @@ btcli subnet register --wallet.name miner --wallet.hotkey default  --subtensor.n
 >> ✅ Registered
 
 # Register your validator key to the network.
-btcli subnet register --wallet.name validator --wallet.hotkey default --subtensor.network test
->> Enter netuid [3] (1): # Enter netuid 3 to specify the network you just created.
+btcli subnet register --wallet.name validator --wallet.hotkey default --subtensor.network test --netuid 116
 >> Continue Registration?
   hotkey:     ...
   coldkey:    ...
@@ -82,12 +80,12 @@ miner    default  1      True   0.00000  0.00000  0.00000    0.00000    0.00000 
 6. Run the miner and validator directly with the netuid and chain_endpoint arguments.
 ```bash
 # Run the miner with the netuid and chain_endpoint arguments.
-python neurons/miner.py --netuid 3 --subtensor.network test --wallet.name miner --wallet.hotkey default --logging.debug
->> 2023-08-08 16:58:11.223 |       INFO       | Running miner for subnet: 1 on network: ws://127.0.0.1:9946 with config: ...
+python neurons/miner.py --netuid 116 --subtensor.network test --wallet.name miner --wallet.hotkey default --logging.debug
+>> 2023-08-08 16:58:11.223 |        INFO       | Connected to test network and wss://test.finney.opentensor.ai:443/...
 
 # Run the validator with the netuid and chain_endpoint arguments.
-python neurons/validator.py --netuid 3 --subtensor.network test --wallet.name validator --wallet.hotkey default --logging.debug
->> 2023-08-08 16:58:11.223 |       INFO       | Running validator for subnet: 1 on network: ws://127.0.0.1:9946 with config: ...
+python neurons/validator.py --netuid 116 --subtensor.network test --wallet.name validator --wallet.hotkey default --logging.debug
+>> 2023-08-08 16:58:11.223 |       INFO       | Running validator for subnet: 116 on network: wss://entrypoint-finney.opentensor.ai:443 with config:...
 ```
 
 7. Stopping Your Nodes:
