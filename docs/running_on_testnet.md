@@ -88,6 +88,14 @@ python neurons/validator.py --netuid 116 --subtensor.network test --wallet.name 
 >> 2023-08-08 16:58:11.223 |       INFO       | Running validator for subnet: 116 on network: wss://entrypoint-finney.opentensor.ai:443 with config:...
 ```
 
+You can also use two miners/validators when testing.
+
+Example running a second miner:
+
+```bash
+$ python neurons/miner.py --netuid 116 --subtensor.network test --wallet.name miner2 --wallet.hotkey default --logging.debug --axon.port 8095
+```
+
 7. Stopping Your Nodes:
 If you want to stop your nodes, you can do so by pressing CTRL + C in the terminal where the nodes are running.
 
