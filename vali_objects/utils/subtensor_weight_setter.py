@@ -22,7 +22,7 @@ class SubtensorWeightSetter(CacheController):
             return
 
         bt.logging.info("running set weights")
-        self._refresh_eliminations_in_memory_and_disk()
+        self._refresh_eliminations_in_memory()
         return_per_netuid = self._calculate_return_per_netuid()
         bt.logging.info(f"return per uid [{return_per_netuid}]")
         if len(return_per_netuid) == 0:

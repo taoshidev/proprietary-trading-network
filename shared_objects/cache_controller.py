@@ -2,6 +2,7 @@
 # Copyright © 2024 Taoshi Inc
 import os
 import datetime
+import threading
 
 from time_util.time_util import TimeUtil
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
@@ -27,6 +28,9 @@ class CacheController:
 
     def get_last_update_time_ms(self):
         return self._last_update_time_ms
+
+    def _hotkey_in_eliminations(self, hotkey):
+        return any(hotkey == x['hotkey'] for x in self.eliminations)
 
     @staticmethod
     def generate_elimination_row(hotkey, dd, reason):
@@ -59,10 +63,13 @@ class CacheController:
         self.eliminations = self.get_filtered_eliminations_from_disk()
         self._write_eliminations_from_memory_to_disk()
 
+    def _refresh_eliminations_in_memory(self):
+        self.eliminations = self.get_eliminations_from_disk()
+
     def get_filtered_eliminations_from_disk(self):
-        cached_eliminations = ValiUtils.get_vali_json_file(ValiBkpUtils.get_eliminations_dir(running_unit_tests=self.running_unit_tests),
-                                                           CacheController.ELIMINATIONS)
-        bt.logging.info(f"Loaded [{len(cached_eliminations)}] eliminations from disk: {cached_eliminations}")
+        # Filters out miners that have already been deregistered. (Not in the metagraph)
+        # This allows the miner to participate again once they re-register
+        cached_eliminations = self.get_eliminations_from_disk()
         updated_eliminations = [elimination for elimination in cached_eliminations if
                                 elimination['hotkey'] in self.metagraph.hotkeys]
         if len(updated_eliminations) != len(cached_eliminations):
@@ -70,12 +77,26 @@ class CacheController:
                             f"{len(cached_eliminations)} eliminations from disk due to not being in the metagraph")
         return updated_eliminations
 
+    def get_eliminations_from_disk(self):
+        cached_eliminations = ValiUtils.get_vali_json_file(
+            ValiBkpUtils.get_eliminations_dir(running_unit_tests=self.running_unit_tests),
+            CacheController.ELIMINATIONS)
+        bt.logging.info(f"Loaded [{len(cached_eliminations)}] eliminations from disk: {cached_eliminations}")
+        return cached_eliminations
+
     def _refresh_plagiarism_scores_in_memory_and_disk(self):
+        # Filters out miners that have already been deregistered. (Not in the metagraph)
+        # This allows the miner to participate again once they re-register
         cached_miner_plagiarism = ValiUtils.get_vali_json_file(
             ValiBkpUtils.get_plagiarism_scores_dir(running_unit_tests=self.running_unit_tests))
         self.miner_plagiarism_scores = {mch: mc for mch, mc in cached_miner_plagiarism.items() if
                                         mch in self.metagraph.hotkeys}
         self._write_updated_plagiarism_scores_from_memory_to_disk()
+
+    def _update_plagiarism_scores_in_memory(self):
+        cached_miner_plagiarism = ValiUtils.get_vali_json_file(
+            ValiBkpUtils.get_plagiarism_scores_dir(running_unit_tests=self.running_unit_tests))
+        self.miner_plagiarism_scores = {mch: mc for mch, mc in cached_miner_plagiarism.items()}
 
 
     def init_cache_files(self) -> None:

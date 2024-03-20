@@ -2,6 +2,7 @@ import sys
 
 import requests
 import json
+
 from vali_objects.enums.order_type_enum import OrderType
 from vali_config import TradePair
 

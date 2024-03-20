@@ -4,6 +4,7 @@
 # Copyright © 2024 Taoshi Inc
 
 import os
+import threading
 import uuid
 from typing import Tuple
 
@@ -90,13 +91,13 @@ class Validator:
         self.position_manager = PositionManager(metagraph=self.metagraph, config=self.config)
 
         def rs_blacklist_fn(synapse: template.protocol.SendSignal) -> Tuple[bool, str]:
-            return Validator.blacklist_fn(synapse, self.metagraph, self.rate_limiter, self.mdd_checker)
+            return Validator.blacklist_fn(synapse, self.metagraph, self.rate_limiter, self.mdd_checker, self.eliminations_lock)
 
         def rs_priority_fn(synapse: template.protocol.SendSignal) -> float:
             return Validator.priority_fn(synapse, self.metagraph)
 
         def gp_blacklist_fn(synapse: template.protocol.GetPositions) -> Tuple[bool, str]:
-            return Validator.blacklist_fn(synapse, self.metagraph, self.rate_limiter, self.mdd_checker)
+            return Validator.blacklist_fn(synapse, self.metagraph, self.rate_limiter, self.mdd_checker, self.eliminations_lock)
 
         def gp_priority_fn(synapse: template.protocol.GetPositions) -> float:
             return Validator.priority_fn(synapse, self.metagraph)
@@ -138,13 +139,19 @@ class Validator:
         my_subnet_uid = self.metagraph.hotkeys.index(wallet.hotkey.ss58_address)
         bt.logging.info(f"Running validator on uid: {my_subnet_uid}")
 
+        # Eliminations are read in validator, elimination_manager, mdd_checker, weight setter.
+        # Eliminations are written in elimination_manager, mdd_checker
+        # Since the mainloop is run synchronously, we just need to lock eliminations when writing to them and when
+        # reading outside of the mainloop (validator).
+        self.eliminations_lock = threading.Lock()
         self.plagiarism_detector = PlagiarismDetector(self.config, self.metagraph)
-        self.mdd_checker = MDDChecker(self.config, self.metagraph, self.position_manager)
+        self.mdd_checker = MDDChecker(self.config, self.metagraph, self.position_manager, self.eliminations_lock)
         self.weight_setter = SubtensorWeightSetter(self.config, wallet, self.metagraph)
-        self.elimination_manager = EliminationManager(self.metagraph, self.position_manager)
+        self.elimination_manager = EliminationManager(self.metagraph, self.position_manager, self.eliminations_lock)
+
 
     @staticmethod
-    def blacklist_fn(synapse, metagraph, rateLimiter, mdd_checker) -> Tuple[bool, str]:
+    def blacklist_fn(synapse, metagraph, rateLimiter, mdd_checker, eliminations_lock) -> Tuple[bool, str]:
         miner_hotkey = synapse.dendrite.hotkey
         allowed, wait_time = rateLimiter.is_allowed(miner_hotkey)
         if not allowed:
@@ -158,7 +165,8 @@ class Validator:
             )
             return True, synapse.dendrite.hotkey
 
-        eliminations = mdd_checker.get_filtered_eliminations_from_disk()
+        with eliminations_lock:
+            eliminations = mdd_checker.get_eliminations_from_disk()
         eliminated_hotkeys = set(x['hotkey'] for x in eliminations) if eliminations is not None else set()
 
         # don't process eliminated miners
