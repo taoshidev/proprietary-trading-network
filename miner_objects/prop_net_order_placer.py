@@ -24,14 +24,16 @@ class PropNetOrderPlacer:
         self.dendrite = dendrite
         self.metagraph = metagraph
         self.config = config
+        self.recently_acked_validators = []
 
-    def send_signals(self):
+    def send_signals(self, recently_acked_validators: list[str]):
         """
         Initiates the process of sending signals to all validators in parallel.
         This method improves efficiency by leveraging concurrent processing,
         which is especially effective during the initial phase where most signal
         sending attempts are expected to succeed.
         """
+        self.recently_acked_validators = recently_acked_validators
         signal_files = ValiBkpUtils.get_all_files_in_dir(MinerConfig.get_miner_received_signals_dir())
         bt.logging.info(f"Total new signals to send: {len(signal_files)}.")
 
@@ -99,13 +101,16 @@ class PropNetOrderPlacer:
         validator_responses = self.dendrite.query(retry_status[signal_file_path]['validators_needing_retry'],
                                                   send_signal_request, deserialize=True)
 
-        # Filtering validators for the next retry based on the current response. Subsequent attempts only retry for vtrust > 0
-        retry_status[signal_file_path]['validators_needing_retry'] = [
-            validator for validator, response in
-            zip(retry_status[signal_file_path]['validators_needing_retry'], validator_responses)
-            if not response.successfully_processed and hotkey_to_v_trust[validator.hotkey] > 0
-        ]
+        # Filtering validators for the next retry based on the current response.
+        new_validators_to_retry = []
+        for validator, response in zip(retry_status[signal_file_path]['validators_needing_retry'], validator_responses):
+            if not response.successfully_processed:
+                if hotkey_to_v_trust[validator.hotkey] > 0:
+                    new_validators_to_retry.append(validator)
+                elif validator.hotkey in self.recently_acked_validators:
+                    new_validators_to_retry.append(validator)
 
+        retry_status[signal_file_path]['validators_needing_retry'] = new_validators_to_retry
         for validator, response in zip(retry_status[signal_file_path]['validators_needing_retry'], validator_responses):
             if response.error_message:
                 bt.logging.warning(f"Error sending order to {validator}. Error message: {response.error_message}")

@@ -17,6 +17,9 @@ class PositionInspector:
         self.last_update_time = 0
         self.recently_acked_validators = []
 
+    def get_recently_acked_validators(self):
+        return self.recently_acked_validators
+
     def get_possible_validators(self):
         # Right now bittensor has no functionality to know if a hotkey 100% corresponds to a validator
         # Revisit this in the future.
@@ -76,7 +79,8 @@ class PositionInspector:
             attempts += 1
 
         bt.logging.info(f"Got positions from {len(hotkey_to_positions)} validators")
-
+        # We consider a validator acked if it successfully responded to the signal.
+        # Note, a validator that has this miner blacklisted will not be added.
         self.recently_acked_validators = hotkey_to_positions.keys()
         position_most_orders = self.reconcile_validator_positions(hotkey_to_positions, validators_to_query)
         # Return the validator with the most orders

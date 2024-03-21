@@ -64,14 +64,14 @@ class MetagraphUpdater(CacheController):
         bt.logging.info(f"Metagraph state (approximation): {n_validators} active validators, {n_miners} active miners, hotkeys: "
                         f"{len(self.metagraph.hotkeys)}")
 
-    def update_metagraph(self, likely_miners=None, likely_validators=None):
+    def update_metagraph(self, recently_acked_miners=None, recently_acked_validators=None):
         if not self.refresh_allowed(ValiConfig.METAGRAPH_UPDATE_REFRESH_TIME_MS):
             return
         bt.logging.info("Updating metagraph...")
         self.metagraph.sync(subtensor=self.subtensor)
-        if likely_miners:
-            self.update_likely_miners(likely_miners)
-        if likely_validators:
-            self.update_likely_validators(likely_validators)
+        if recently_acked_miners:
+            self.update_likely_miners(recently_acked_miners)
+        if recently_acked_validators:
+            self.update_likely_validators(recently_acked_validators)
         self.log_metagraph_state()
         self.set_last_update_time()

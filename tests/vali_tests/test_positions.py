@@ -2,18 +2,22 @@
 # Copyright © 2024 Taoshi Inc
 from copy import deepcopy
 
+from data_generator.twelvedata_service import TwelveDataService
 from tests.shared_objects.mock_classes import MockMetagraph
 from tests.vali_tests.base_objects.test_base import TestBase
 from vali_config import TradePair
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.position import Position
 from vali_objects.utils.position_manager import PositionManager
+from vali_objects.utils.vali_utils import ValiUtils
 from vali_objects.vali_dataclasses.order import Order
 
 class TestPositions(TestBase):
 
     def setUp(self):
         super().setUp()
+        secrets = ValiUtils.get_secrets()
+        self.tds = TwelveDataService(api_key=secrets["twelvedata_apikey"])
         self.DEFAULT_MINER_HOTKEY = "test_miner"
         self.DEFAULT_POSITION_UUID = "test_position"
         self.DEFAULT_OPEN_MS = 1000
@@ -907,6 +911,155 @@ class TestPositions(TestBase):
             'open_ms': self.DEFAULT_OPEN_MS,
             'trade_pair': trade_pair2,
             'position_uuid': self.DEFAULT_POSITION_UUID + '_2'
+        })
+    def test_leverage_clamping_long(self):
+        position = deepcopy(self.default_position)
+        live_price = self.tds.get_close(trade_pair=TradePair.BTCUSD)[TradePair.BTCUSD]
+        o1 = Order(order_type=OrderType.LONG,
+                   leverage=10.0,
+                   price=live_price,
+                   trade_pair=TradePair.BTCUSD,
+                   processed_ms=1000,
+                   order_uuid="1000")
+        o2 = Order(order_type=OrderType.LONG,
+                   leverage=11.0,
+                   price=live_price,
+                   trade_pair=TradePair.BTCUSD,
+                   processed_ms=2000,
+                   order_uuid="2000")
+
+        o2_clamped = deepcopy(o2)
+        o2_clamped.leverage = TradePair.BTCUSD.max_leverage - o1.leverage
+
+
+        for order in [o1, o2]:
+            self.add_order_to_position_and_save_to_disk(position, order)
+
+        self.validate_intermediate_position_state(position, {
+            'orders': [o1, o2_clamped],
+            'position_type': OrderType.LONG,
+            'is_closed_position': False,
+            'net_leverage': TradePair.BTCUSD.max_leverage,
+            'initial_entry_price': live_price,
+            'average_entry_price': position.average_entry_price,
+            'close_ms': None,
+            'return_at_close': position.return_at_close,
+            'current_return': position.current_return,
+            'miner_hotkey': position.miner_hotkey,
+            'open_ms': self.DEFAULT_OPEN_MS,
+            'trade_pair': self.DEFAULT_TRADE_PAIR,
+            'position_uuid': self.DEFAULT_POSITION_UUID
+        })
+
+
+    def test_leverage_clamping_skip_long_order(self):
+        position = deepcopy(self.default_position)
+        live_price = self.tds.get_close(trade_pair=TradePair.BTCUSD)[TradePair.BTCUSD]
+        o1 = Order(order_type=OrderType.LONG,
+                   leverage=TradePair.BTCUSD.max_leverage,
+                   price=live_price,
+                   trade_pair=TradePair.BTCUSD,
+                   processed_ms=1000,
+                   order_uuid="1000")
+        o2 = Order(order_type=OrderType.LONG,
+                   leverage=1.0,
+                   price=live_price,
+                   trade_pair=TradePair.BTCUSD,
+                   processed_ms=2000,
+                   order_uuid="2000")
+
+
+        for order in [o1, o2]:
+            self.add_order_to_position_and_save_to_disk(position, order)
+
+        self.validate_intermediate_position_state(position, {
+            'orders': [o1],
+            'position_type': OrderType.LONG,
+            'is_closed_position': False,
+            'net_leverage': TradePair.BTCUSD.max_leverage,
+            'initial_entry_price': live_price,
+            'average_entry_price': position.average_entry_price,
+            'close_ms': None,
+            'return_at_close': position.return_at_close,
+            'current_return': position.current_return,
+            'miner_hotkey': position.miner_hotkey,
+            'open_ms': self.DEFAULT_OPEN_MS,
+            'trade_pair': self.DEFAULT_TRADE_PAIR,
+            'position_uuid': self.DEFAULT_POSITION_UUID
+        })
+
+    def test_leverage_clamping_short(self):
+        position = deepcopy(self.default_position)
+        live_price = self.tds.get_close(trade_pair=TradePair.BTCUSD)[TradePair.BTCUSD]
+        o1 = Order(order_type=OrderType.SHORT,
+                   leverage=-10.0,
+                   price=live_price,
+                   trade_pair=TradePair.BTCUSD,
+                   processed_ms=1000,
+                   order_uuid="1000")
+        o2 = Order(order_type=OrderType.SHORT,
+                   leverage=-11.0,
+                   price=live_price,
+                   trade_pair=TradePair.BTCUSD,
+                   processed_ms=2000,
+                   order_uuid="2000")
+
+        o2_clamped = deepcopy(o2)
+        o2_clamped.leverage = -1.0 * (TradePair.BTCUSD.max_leverage - abs(o1.leverage))
+
+
+        for order in [o1, o2]:
+            self.add_order_to_position_and_save_to_disk(position, order)
+
+        self.validate_intermediate_position_state(position, {
+            'orders': [o1, o2_clamped],
+            'position_type': OrderType.SHORT,
+            'is_closed_position': False,
+            'net_leverage': -1.0 * TradePair.BTCUSD.max_leverage,
+            'initial_entry_price': live_price,
+            'average_entry_price': position.average_entry_price,
+            'close_ms': None,
+            'return_at_close': position.return_at_close,
+            'current_return': position.current_return,
+            'miner_hotkey': position.miner_hotkey,
+            'open_ms': self.DEFAULT_OPEN_MS,
+            'trade_pair': self.DEFAULT_TRADE_PAIR,
+            'position_uuid': self.DEFAULT_POSITION_UUID
+        })
+    def test_leverage_clamping_skip_short_order(self):
+        position = deepcopy(self.default_position)
+        live_price = self.tds.get_close(trade_pair=TradePair.BTCUSD)[TradePair.BTCUSD]
+        o1 = Order(order_type=OrderType.SHORT,
+                   leverage=-self.DEFAULT_TRADE_PAIR.max_leverage,
+                   price=live_price,
+                   trade_pair=TradePair.BTCUSD,
+                   processed_ms=1000,
+                   order_uuid="1000")
+        o2 = Order(order_type=OrderType.SHORT,
+                   leverage=1.0,
+                   price=live_price,
+                   trade_pair=TradePair.BTCUSD,
+                   processed_ms=2000,
+                   order_uuid="2000")
+
+
+        for order in [o1, o2]:
+            self.add_order_to_position_and_save_to_disk(position, order)
+
+        self.validate_intermediate_position_state(position, {
+            'orders': [o1],
+            'position_type': OrderType.SHORT,
+            'is_closed_position': False,
+            'net_leverage': -TradePair.BTCUSD.max_leverage,
+            'initial_entry_price': live_price,
+            'average_entry_price': position.average_entry_price,
+            'close_ms': None,
+            'return_at_close': position.return_at_close,
+            'current_return': position.current_return,
+            'miner_hotkey': position.miner_hotkey,
+            'open_ms': self.DEFAULT_OPEN_MS,
+            'trade_pair': self.DEFAULT_TRADE_PAIR,
+            'position_uuid': self.DEFAULT_POSITION_UUID
         })
 
 

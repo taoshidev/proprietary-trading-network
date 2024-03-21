@@ -135,6 +135,17 @@ class Position:
             raise ValueError(
                 f"Order trade pair [{order.trade_pair}] does not match position trade pair [{self.trade_pair}]"
             )
+
+        if self._clamp_leverage(order):
+            if order.leverage == 0:
+                # This order's leverage got clamped to zero.
+                # Skip it since we don't want to consider this a FLAT position and we don't want to allow bad actors
+                # to send in a bunch of spam orders.
+                logging.warning(
+                    f"Miner attempted to add exceed max leverage for trade pair {self.trade_pair.trade_pair_id}. "
+                    f"Clamping to max leverage {self.trade_pair.max_leverage}"
+                )
+                return
         self.orders.append(order)
         self._update_position()
 
@@ -218,6 +229,17 @@ class Position:
         self.is_closed_position = True
         self.close_ms = close_ms
 
+    def _clamp_leverage(self, order):
+        proposed_leverage = self.net_leverage + order.leverage
+        if self.position_type == OrderType.LONG and proposed_leverage > self.trade_pair.max_leverage:
+            order.leverage = self.trade_pair.max_leverage - self.net_leverage
+            return True
+        elif self.position_type == OrderType.SHORT and proposed_leverage < -self.trade_pair.max_leverage:
+            order.leverage = -self.trade_pair.max_leverage - self.net_leverage
+            return True
+
+        return False
+
     def _update_position(self):
         self.net_leverage = 0.0
         bt.logging.info(f"Updating position with n orders: {len(self.orders)}")
@@ -237,18 +259,18 @@ class Position:
                 )
                 or order.order_type == OrderType.FLAT
             ):
-                self._position_log(
-                    f"Flattening {self.position_type.value} position from order {order}"
-                )
+                #self._position_log(
+                #    f"Flattening {self.position_type.value} position from order {order}"
+                #)
                 self.close_out_position(order.processed_ms)
 
             # Reflect the current order in the current position's return.
             adjusted_leverage = (
                 0.0 if self.position_type == OrderType.FLAT else order.leverage
             )
-            bt.logging.info(
-                f"Updating position state for new order {order} with adjusted leverage {adjusted_leverage}"
-            )
+            #bt.logging.info(
+            #    f"Updating position state for new order {order} with adjusted leverage {adjusted_leverage}"
+            #)
             self.update_position_state_for_new_order(order, adjusted_leverage)
 
             # If the position is already closed, we don't need to process any more orders. break in case there are more orders.
