@@ -26,7 +26,7 @@ def generate_request_outputs():
         eliminations = None
     try:
         try:
-            all_miner_hotkeys = ValiBkpUtils.get_directories_in_dir(
+            all_miner_hotkeys:list = ValiBkpUtils.get_directories_in_dir(
                 ValiBkpUtils.get_miner_dir()
             )
         except FileNotFoundError:
@@ -34,8 +34,14 @@ def generate_request_outputs():
                 f"directory for miners doesn't exist "
                 f"[{ValiBkpUtils.get_miner_dir()}]. Skip run for now."
             )
+        
+        positionmanager = PositionManager(
+            config=None, 
+            metagraph=all_miner_hotkeys, 
+            running_unit_tests=False
+        )
 
-        hotkey_positions = PositionManager.get_all_miner_positions_by_hotkey(
+        hotkey_positions = positionmanager.get_all_miner_positions_by_hotkey(
             all_miner_hotkeys,
             sort_positions=True,
             acceptable_position_end_ms=TimeUtil.timestamp_to_millis(
@@ -53,14 +59,28 @@ def generate_request_outputs():
                 "thirty_day_returns": 1.0,
             }
 
-            return_per_position = PositionManager.get_return_per_closed_position(ps)
+            return_per_position = positionmanager.get_return_per_closed_position(ps)
+
+            ## also get the augmented returns
+            return_per_position_augmented = positionmanager.get_return_per_closed_position_augmented(
+                ps,
+                evaluation_time_ms=TimeUtil.now_in_millis(),
+            )
 
             if len(return_per_position) > 0:
                 curr_return = return_per_position[len(return_per_position) - 1]
                 dict_hotkey_position_map[k]["thirty_day_returns"] = curr_return
 
+            if len(return_per_position_augmented) > 0:
+                curr_return_augmented = return_per_position_augmented[
+                    len(return_per_position_augmented) - 1
+                ]
+                dict_hotkey_position_map[k][
+                    "thirty_day_returns_augmented"
+                ] = curr_return_augmented
+
             for p in ps:
-                if k in eliminations:
+                if eliminations is not None and k in eliminations:
                     if p.is_closed_position is False:
                         logger.warning(
                             "position was not closed. Will check last order and "
