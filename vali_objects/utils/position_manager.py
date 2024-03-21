@@ -193,7 +193,7 @@ class PositionManager(CacheController):
                 root_last_modified_time = self._get_file_mod_time(item_path)
                 latest_modification_time = self._get_latest_file_modification_time(item_path, root_last_modified_time)
                 # Check if the directory was updated in the last 24 hours
-                if current_time - latest_modification_time < 86400:  # 24 hours in seconds
+                if current_time - latest_modification_time < 259200:  # 3 days in seconds
                     updated_directory_names.append(item)
 
         return updated_directory_names

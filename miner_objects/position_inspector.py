@@ -53,7 +53,7 @@ class PositionInspector:
 
         # Return the position in hotkey_to_positions that has the most orders
         bt.logging.info(f"Validator with the most orders: {corresponding_hotkey}, n_orders: {max_order_count}, v_trust:"
-                        f" {hotkey_to_v_trust[corresponding_hotkey]}")
+                        f" {hotkey_to_v_trust.get(corresponding_hotkey, 0)}")
         return corresponding_positions
 
     def get_positions_with_retry(self, validators_to_query):
