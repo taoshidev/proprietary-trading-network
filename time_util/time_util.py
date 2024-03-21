@@ -40,6 +40,22 @@ class TimeUtil:
         return int(datetime.utcnow().replace(tzinfo=timezone.utc).timestamp() * 1000)
 
     @staticmethod
+    def millis_to_datetime(millis: int) -> datetime:
+        """
+        Convert a timestamp in milliseconds to a datetime object in UTC.
+
+        Parameters:
+        - millis: An integer representing a timestamp in milliseconds.
+
+        Returns:
+        - A datetime object representing the timestamp in UTC.
+        """
+        # Convert milliseconds to seconds
+        seconds = millis / 1000.0
+        # Convert seconds to a datetime object, and make it timezone-aware in UTC
+        return datetime.fromtimestamp(seconds, tz=timezone.utc)
+
+    @staticmethod
     def timestamp_to_millis(dt) -> int:
         return int(dt.timestamp() * 1000)
 
