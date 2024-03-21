@@ -32,7 +32,7 @@ class Signal:
             raise ValueError("Leverage must be positive for LONG orders.")
 
         if (self.order_type != OrderType.FLAT
-                and ((self.trade_pair.min_leverage < abs(self.leverage) < self.trade_pair.max_leverage) is False)):
+                and ((self.trade_pair.min_leverage <= abs(self.leverage) <= self.trade_pair.max_leverage) is False)):
             raise ValueError(f"Leverage must be greater than [{self.trade_pair.min_leverage}] and"
                              f" less than [{self.trade_pair.max_leverage}]."
                              f"Leverage provided - [{self.leverage}]")
