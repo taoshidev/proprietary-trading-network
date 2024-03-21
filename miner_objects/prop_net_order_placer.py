@@ -15,9 +15,10 @@ from vali_objects.decoders.generalized_json_decoder import GeneralizedJSONDecode
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 
 class PropNetOrderPlacer:
-    # Constants for retry logic with exponential backoff
+    # Constants for retry logic with exponential backoff. After trying 3 times, there will be a delay of ~ 2 minutes.
+    # This time is sufficient for validators to go offline, update, and come back online.
     MAX_RETRIES = 3
-    INITIAL_RETRY_DELAY_SECONDS = 3
+    INITIAL_RETRY_DELAY_SECONDS = 15
 
     def __init__(self, dendrite, metagraph, config):
         self.dendrite = dendrite
@@ -31,7 +32,6 @@ class PropNetOrderPlacer:
         which is especially effective during the initial phase where most signal
         sending attempts are expected to succeed.
         """
-        bt.logging.info(f"Number of validators detected: {len(self.metagraph.axons)}.")
         signal_files = ValiBkpUtils.get_all_files_in_dir(MinerConfig.get_miner_received_signals_dir())
         bt.logging.info(f"Total new signals to send: {len(signal_files)}.")
 
@@ -69,8 +69,9 @@ class PropNetOrderPlacer:
         # If there were validators that failed to process the signal, we move the file to the failed directory
         info = retry_status[signal_file_path]
 
-        # If the config allows it and we have validators needing retry, we move the file to the failed directory
-        if info['validators_needing_retry'] and self.config.write_failed_signal_logs:
+        all_failure = len(info['validators_needing_retry']) == len(self.metagraph.axons)
+        # If there is a validator that hasn't received our order after the max number of retries.
+        if all_failure or (info['validators_needing_retry'] and self.config.write_failed_signal_logs):
             self.move_signal_to_failure_directory(signal_file_path, info['validators_needing_retry'])
         else:
             self.move_signal_to_processed_directory(signal_file_path)
@@ -86,10 +87,11 @@ class PropNetOrderPlacer:
         Attempts to send a signal to the validators that need retrying, applying exponential backoff for each retry attempt.
         Logs the retry attempt number, and the number of validators that successfully responded out of the total number of original validators.
         """
-        current_attempt = retry_status[signal_file_path]['retry_attempts'] + 1  # Increment attempt counter for logging
-        total_validators = len(self.metagraph.axons)  # Total number of validators for percentage calculation
+        # Total number of axons being pinged this round. Used for percentage calculation
+        total_n_validators_this_round = len(retry_status[signal_file_path]['validators_needing_retry'])
+        hotkey_to_v_trust = {neuron.hotkey: neuron.validator_trust for neuron in self.metagraph.neurons}
 
-        if current_attempt > 1:  # Apply exponential backoff after the first attempt
+        if retry_status[signal_file_path]['retry_attempts'] != 0:  # Apply exponential backoff after the first attempt
             time.sleep(retry_status[signal_file_path]['retry_delay_seconds'])
             retry_status[signal_file_path]['retry_delay_seconds'] *= 2  # Double the delay for the next attempt
 
@@ -97,19 +99,23 @@ class PropNetOrderPlacer:
         validator_responses = self.dendrite.query(retry_status[signal_file_path]['validators_needing_retry'],
                                                   send_signal_request, deserialize=True)
 
-        # Filtering validators for the next retry based on the current response
+        # Filtering validators for the next retry based on the current response. Subsequent attempts only retry for vtrust > 0
         retry_status[signal_file_path]['validators_needing_retry'] = [
             validator for validator, response in
             zip(retry_status[signal_file_path]['validators_needing_retry'], validator_responses)
-            if not response.successfully_processed
+            if not response.successfully_processed and hotkey_to_v_trust[validator.hotkey] > 0
         ]
+
+        for validator, response in zip(retry_status[signal_file_path]['validators_needing_retry'], validator_responses):
+            if response.error_message:
+                bt.logging.warning(f"Error sending signal to {validator}: {response.error_message}")
 
         # Calculating the number of successful responses
         n_fails = len([response for response in validator_responses if not response.successfully_processed])
         # Logging detailed status including the retry attempt, successful responses, and total validators count
         bt.logging.info(
-            f"Attempt {current_attempt}: Signal file {signal_file_path} was successfully processed by"
-            f" {total_validators - n_fails}/{total_validators} validators.")
+            f"Attempt {retry_status[signal_file_path]['retry_attempts'] + 1}: Signal file {signal_file_path} was successfully processed by"
+            f" {total_n_validators_this_round - n_fails}/{total_n_validators_this_round} validators.")
 
         retry_status[signal_file_path]['retry_attempts'] += 1  # Update the retry attempt count for this signal file
 

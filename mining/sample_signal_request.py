@@ -34,7 +34,7 @@ if __name__ == "__main__":
     data = {
         'trade_pair': TradePair.BTCUSD,
         'order_type': OrderType.LONG,
-        'leverage': 1.0,
+        'leverage': 0.1,
         'api_key': 'xxxx'
     }
 
