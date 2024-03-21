@@ -25,6 +25,10 @@ class PositionInspector:
     def query_positions(self, validators, hotkey_to_positions):
         remaining_validators_to_query = [v for v in validators if v.hotkey not in hotkey_to_positions]
         responses = self.dendrite.query(remaining_validators_to_query, GetPositions(), deserialize=True)
+        for validator, response in zip(remaining_validators_to_query, responses):
+            if response.error_message:
+                bt.logging.warning(f"Error getting positions from {validator}. Error message: {response.error_message}")
+
         return [(validator, response.positions) for validator, response in zip(remaining_validators_to_query, responses) if
                 response.successfully_processed]
 
