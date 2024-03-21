@@ -109,7 +109,7 @@ class PropNetOrderPlacer:
                 if response.error_message:
                     bt.logging.warning(f"Error sending order to {validator}. Error message: {response.error_message}")
                 if eliminated:
-                    continue  # Do not retry if we have been eliminated
+                    continue
                 if hotkey_to_v_trust[validator.hotkey] > 0:
                     new_validators_to_retry.append(validator)
                 elif validator.hotkey in self.recently_acked_validators:

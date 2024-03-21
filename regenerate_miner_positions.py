@@ -10,6 +10,7 @@ from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 
 def get_file(f):
     output_json_path = os.path.abspath(os.path.join(f))
+    print('path:', output_json_path)
     if os.path.exists(output_json_path):
         with open(output_json_path, "r") as file:
             data = file.read()
@@ -20,15 +21,16 @@ def get_file(f):
 
 def regenerate_miner_positions():
     position_manager = PositionManager()
-    miner_positions = "miner_positions.json"
+    miner_positions = "validation/outputs/output.json"#"miner_positions.json"
     data = get_file(miner_positions)
     if data is None:
         logger.warning(f"necessary file doesn't exist [{miner_positions}]")
         return False
     for muid, all_ps in data.items():
         ValiBkpUtils.make_dir(ValiBkpUtils.get_miner_all_positions_dir(muid))
-        for p_dict in all_ps["positions"]:
-            p = Position.from_dict(p_dict)
+        for json_positions_dict in all_ps["positions"]:
+            print(f'json_positions_dict {json_positions_dict}')
+            p = Position(**json_positions_dict)
             position_manager.save_miner_position_to_disk(p)
     return True
 

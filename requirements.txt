@@ -1,3 +1,4 @@
+pydantic<2.0
 bittensor
 torch
 tensorflow

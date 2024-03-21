@@ -92,13 +92,14 @@ def generate_request_outputs():
                             # price is only used for return purposes which would be irrelevant
                             p.orders.append(
                                 Order(
-                                    OrderType.FLAT,
-                                    0.0,
-                                    0.0,
-                                    p.trade_pair,
-                                    TimeUtil.now_in_millis(),
-                                    str(uuid.uuid4()),
+                                    order_type=OrderType.FLAT,
+                                    leverage=0.0,
+                                    price=0.0,
+                                    trade_pair=p.trade_pair,
+                                    processed_ms=TimeUtil.now_in_millis(),
+                                    order_uuid=str(uuid.uuid4()),
                                 )
+
                             )
 
                 if p.close_ms is None:
