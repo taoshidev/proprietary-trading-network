@@ -85,7 +85,7 @@ class Miner:
 
         while True:
             try:
-                self.metagraph_updater.update_metagraph(likely_validators=self.position_inspector.recently_acked_validators),
+                self.metagraph_updater.update_metagraph(likely_validators=self.position_inspector.recently_acked_validators)
                 self.prop_net_order_placer.send_signals()
                 self.position_inspector.log_validator_positions()
             # If someone intentionally stops the miner, it'll safely terminate operations.

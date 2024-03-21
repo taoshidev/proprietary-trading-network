@@ -320,9 +320,10 @@ class Validator:
         # don't process eliminated miners
         with self.eliminations_lock:
             eliminations = self.mdd_checker.get_eliminations_from_disk()
-        eliminated_hotkeys = set(x['hotkey'] for x in eliminations) if eliminations is not None else set()
-        if synapse.dendrite.hotkey in eliminated_hotkeys:
-            msg = f"This miner hotkey {synapse.dendrite.hotkey} has been eliminated and cannot participate in this subnet. Try again after re-registering."
+        eliminated_hotkey_to_info ={x['hotkey']: x for x in eliminations} if eliminations else dict()
+        if synapse.dendrite.hotkey in eliminated_hotkey_to_info:
+            reason = eliminated_hotkey_to_info[synapse.dendrite.hotkey]['reason']
+            msg = f"This miner hotkey {synapse.dendrite.hotkey} has been eliminated for reason {reason} and cannot participate in this subnet. Try again after re-registering."
             bt.logging.debug(msg)
             synapse.successfully_processed = False
             synapse.error_message = msg
@@ -360,14 +361,18 @@ class Validator:
             self.plagiarism_detector.check_plagiarism(open_position, signal_to_order)
 
         except SignalException as e:
-            error_message = f"error processing signal [{e}]"
-            bt.logging.error(error_message)
+            error_message = f"Error processing order for [{miner_hotkey}] with error [{e}]"
+            bt.logging.error(traceback.format_exc())
         except Exception as e:
-            error_message = e
-            bt.logging.error(f"Error processing signal for [{miner_hotkey}] with error [{e}]")
+            error_message = f"Error processing order for [{miner_hotkey}] with error [{e}]"
             bt.logging.error(traceback.format_exc())
 
-        synapse.successfully_processed = bool(error_message == "")
+        if error_message == "":
+            synapse.successfully_processed = True
+        else:
+            bt.logging.error(error_message)
+            synapse.successfully_processed = False
+
         synapse.error_message = error_message
         bt.logging.success(f"Sending ack back to miner [{miner_hotkey}]")
         return synapse
@@ -383,13 +388,15 @@ class Validator:
             hotkey = synapse.dendrite.hotkey
             positions = self.position_manager.get_all_miner_positions(hotkey, sort_positions=True)
             synapse.positions = [position.to_dict() for position in positions]
-            synapse.successfully_processed = True
         except Exception as e:
-            error_message = e
-            bt.logging.error(f"Error processing signal for [{miner_hotkey}] with error [{e}]")
+            error_message = f"Error processing signal for [{miner_hotkey}] with error [{e}]"
             bt.logging.error(traceback.format_exc())
-            synapse.successfully_processed = False
 
+        if error_message == "":
+            synapse.successfully_processed = True
+        else:
+            bt.logging.error(error_message)
+            synapse.successfully_processed = False
         synapse.error_message = error_message
         return synapse
 
