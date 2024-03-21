@@ -322,8 +322,8 @@ class Validator:
             eliminations = self.mdd_checker.get_eliminations_from_disk()
         eliminated_hotkey_to_info ={x['hotkey']: x for x in eliminations} if eliminations else dict()
         if synapse.dendrite.hotkey in eliminated_hotkey_to_info:
-            reason = eliminated_hotkey_to_info[synapse.dendrite.hotkey]['reason']
-            msg = f"This miner hotkey {synapse.dendrite.hotkey} has been eliminated for reason {reason} and cannot participate in this subnet. Try again after re-registering."
+            info = eliminated_hotkey_to_info[synapse.dendrite.hotkey]
+            msg = f"This miner hotkey {synapse.dendrite.hotkey} has been eliminated for reason {info} and cannot participate in this subnet. Try again after re-registering."
             bt.logging.debug(msg)
             synapse.successfully_processed = False
             synapse.error_message = msg
