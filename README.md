@@ -100,21 +100,22 @@ those that provide the most returns, while never exceeding certain drawdown limi
 2. Miners can only open 1 position per trade pair/symbol at a time 
 3. Positions are uni-directional. Meaning, if a position starts LONG (the first order it receives is LONG), 
 it can't flip SHORT. If you try and have it flip SHORT (using more leverage SHORT than exists LONG) it will close out 
-the position. You'll then need to open a second position which is SHORT with the difference. 
-4. You can take profit on an open position using LONG and SHORT. Say you have an open LONG position with .75x 
+the position. You'll then need to open a second position which is SHORT with the difference.
+4. Position leverage is bound per trade_pair. If an order would cause the position's leverage to exceed the boundary, the position leverage will be clamped. 
+5. You can take profit on an open position using LONG and SHORT. Say you have an open LONG position with .75x 
 leverage and you want to reduce it to a .5x leverage position to start taking profit on it. You would send in a SHORT signal
 of size .25x leverage to reduce the size of the position. LONG and SHORT signals can be thought of working in opposite 
 directions in this way.
-5. You can close out a position by sending in a FLAT signal. 
-6. max drawdown is determined every minute. If you go beyond **5% max drawdown on daily close**, or **10% at any point in time** your miner will be eliminated. 
+6. You can close out a position by sending in a FLAT signal. 
+7. max drawdown is determined every minute. If you go beyond **5% max drawdown on daily close**, or **10% at any point in time** your miner will be eliminated. 
 Eliminated miners won't necessarily be immediately deregistered, they'll need to wait to be deregistered based on registrations & immunity period. 
-7. If a miner copies another miner's order repeatedly they will be eliminated. When any order is submitted, analysis
+8. If a miner copies another miner's order repeatedly they will be eliminated. When any order is submitted, analysis
 on the integrity of the order is performed. If the order is deemed to be plagiarising it is flagged by the network. Repeated
 occurrence leads to removal from the network.
-8. There is a fee per trade pair position. Crypto has a 0.3% per position, forex has 0.03%, indices have 0.05%.
-9. There is a minimum registration fee of 5 TAO on the mainnet subnet.
-10. There is an immunity period of 9 days to help miners submit orders to become competitive with existing miners.
-11. The miners who can provide the most returns over a 30 day rolling lookback period are provided the most incentive.
+9. There is a fee per trade pair position. Crypto has a 0.3% per position, forex has 0.03%, indices have 0.05%.
+10. There is a minimum registration fee of 5 TAO on the mainnet subnet.
+11. There is an immunity period of 9 days to help miners submit orders to become competitive with existing miners.
+12. The miners who can provide the most returns over a 30 day rolling lookback period are provided the most incentive.
 
 With this system only the world's best traders & deep learning / quant based trading systems can compete.
 
