@@ -2,7 +2,7 @@
 
 while true; do
     echo "Starting Python script..."
-    source venv/bin/activate
+    . venv/bin/activate
     python -m pip install -e .
     nohup venv/bin/python mining/run_receive_signals_server.py &
     PID=$!
