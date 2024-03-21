@@ -108,7 +108,7 @@ class PropNetOrderPlacer:
 
         for validator, response in zip(retry_status[signal_file_path]['validators_needing_retry'], validator_responses):
             if response.error_message:
-                bt.logging.warning(f"Error sending signal to {validator}: {response.error_message}")
+                bt.logging.warning(f"Error sending order to {validator}. Error message: {response.error_message}")
 
         # Calculating the number of successful responses
         n_fails = len([response for response in validator_responses if not response.successfully_processed])
