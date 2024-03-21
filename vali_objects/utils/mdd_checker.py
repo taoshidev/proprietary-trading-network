@@ -102,7 +102,6 @@ class MDDChecker(CacheController):
                 closed_positions.append(position)
             else:
                 open_positions.append(position)
-        bt.logging.info(f"reviewing open positions for [{hotkey}]. Current_dd [{current_dd}]. n positions open [{len(open_positions)} / {len(sorted_positions)}]")
 
         open_position_trade_pairs = {
             position.position_uuid: position.trade_pair for position in open_positions
@@ -125,7 +124,7 @@ class MDDChecker(CacheController):
         for position in closed_positions:
             seen_trade_pairs.add(position.trade_pair.trade_pair_id)
         # Log the dd for this miner and the positions trade_pairs they are in as well as total number of positions
-        bt.logging.info(f"MDD checker -- current dd for [{hotkey}] is [{current_dd}]. Seen trade pairs: {seen_trade_pairs}. n_positions: [{len(sorted_positions)}]")
+        bt.logging.info(f"MDD checker -- current dd for [{hotkey}] is [{current_dd}]. Seen trade pairs: {seen_trade_pairs}. n positions open [{len(open_positions)} / {len(sorted_positions)}]")
         mdd_failure = self._is_beyond_mdd(current_dd)
         if mdd_failure:
             self.position_manager.close_open_positions_for_miner(hotkey)

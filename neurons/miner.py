@@ -32,7 +32,7 @@ class Miner:
         self.subtensor = bt.subtensor(config=self.config)
         self.dendrite = bt.dendrite(wallet=self.wallet)
         self.metagraph = self.subtensor.metagraph(self.config.netuid)
-        self.metagraph_updater = MetagraphUpdater(self.config, self.metagraph)
+        self.metagraph_updater = MetagraphUpdater(self.config, self.metagraph, self.wallet.hotkey.ss58_address, is_miner=True)
         self.prop_net_order_placer = PropNetOrderPlacer(self.dendrite, self.metagraph, self.config)
         self.position_inspector = PositionInspector(self.dendrite, self.metagraph, self.config)
 
@@ -85,9 +85,9 @@ class Miner:
 
         while True:
             try:
-                self.metagraph_updater.update_metagraph()
+                self.metagraph_updater.update_metagraph(likely_validators=self.position_inspector.recently_acked_validators),
                 self.prop_net_order_placer.send_signals()
-                self.position_inspector.send_signals_with_cooldown()
+                self.position_inspector.log_validator_positions()
             # If someone intentionally stops the miner, it'll safely terminate operations.
             except KeyboardInterrupt:
                 bt.logging.success("Miner killed by keyboard interrupt.")

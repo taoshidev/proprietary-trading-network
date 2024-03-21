@@ -71,9 +71,15 @@ class Validator:
         # metagraph provides the network's current state, holding state about other participants in a subnet.
         # IMPORTANT: Only update this variable in-place. Otherwise, the reference will be lost in the helper classes.
         self.metagraph = subtensor.metagraph(self.config.netuid)
-        self.metagraph_updater = MetagraphUpdater(self.config, self.metagraph)
-        self.metagraph_updater.update_metagraph()
+        self.metagraph_updater = MetagraphUpdater(self.config, self.metagraph, wallet.hotkey.ss58_address, is_miner=False)
         bt.logging.info(f"Metagraph: {self.metagraph}")
+
+        if wallet.hotkey.ss58_address not in self.metagraph.hotkeys:
+            bt.logging.error(
+                f"\nYour validator: {wallet} is not registered to chain "
+                f"connection: {subtensor} \nRun btcli register and try again. "
+            )
+            exit()
 
         # Build and link vali functions to the axon.
         # The axon handles request processing, allowing validators to send this process requests.
@@ -91,13 +97,13 @@ class Validator:
         self.position_manager = PositionManager(metagraph=self.metagraph, config=self.config)
 
         def rs_blacklist_fn(synapse: template.protocol.SendSignal) -> Tuple[bool, str]:
-            return Validator.blacklist_fn(synapse, self.metagraph, self.rate_limiter, self.mdd_checker, self.eliminations_lock)
+            return Validator.blacklist_fn(synapse, self.metagraph)
 
         def rs_priority_fn(synapse: template.protocol.SendSignal) -> float:
             return Validator.priority_fn(synapse, self.metagraph)
 
         def gp_blacklist_fn(synapse: template.protocol.GetPositions) -> Tuple[bool, str]:
-            return Validator.blacklist_fn(synapse, self.metagraph, self.rate_limiter, self.mdd_checker, self.eliminations_lock)
+            return Validator.blacklist_fn(synapse, self.metagraph)
 
         def gp_priority_fn(synapse: template.protocol.GetPositions) -> float:
             return Validator.priority_fn(synapse, self.metagraph)
@@ -128,13 +134,6 @@ class Validator:
         # see if cache files exist and if not set them to empty
         self.position_manager.init_cache_files()
 
-        if wallet.hotkey.ss58_address not in self.metagraph.hotkeys:
-            bt.logging.error(
-                f"\nYour validator: {wallet} is not registered to chain "
-                f"connection: {subtensor} \nRun btcli register and try again. "
-            )
-            exit()
-
         # Each miner gets a unique identity (UID) in the network for differentiation.
         my_subnet_uid = self.metagraph.hotkeys.index(wallet.hotkey.ss58_address)
         bt.logging.info(f"Running validator on uid: {my_subnet_uid}")
@@ -151,29 +150,13 @@ class Validator:
 
 
     @staticmethod
-    def blacklist_fn(synapse, metagraph, rateLimiter, mdd_checker, eliminations_lock) -> Tuple[bool, str]:
+    def blacklist_fn(synapse, metagraph) -> Tuple[bool, str]:
         miner_hotkey = synapse.dendrite.hotkey
-        allowed, wait_time = rateLimiter.is_allowed(miner_hotkey)
-        if not allowed:
-            bt.logging.trace(f"Blacklisting {miner_hotkey} for {wait_time} seconds.")
-            return True, synapse.dendrite.hotkey
-
         # Ignore requests from unrecognized entities.
         if miner_hotkey not in metagraph.hotkeys:
             bt.logging.trace(
                 f"Blacklisting unrecognized hotkey {synapse.dendrite.hotkey}"
             )
-            return True, synapse.dendrite.hotkey
-
-        with eliminations_lock:
-            eliminations = mdd_checker.get_eliminations_from_disk()
-        eliminated_hotkeys = set(x['hotkey'] for x in eliminations) if eliminations is not None else set()
-
-        # don't process eliminated miners
-        if synapse.dendrite.hotkey in eliminated_hotkeys:
-            # Ignore requests from eliminated hotkeys
-            msg = f"This miner hotkey {synapse.dendrite.hotkey} has been deregistered and cannot participate in this subnet. Try again after re-registering."
-            bt.logging.debug(msg)
             return True, synapse.dendrite.hotkey
 
         bt.logging.trace(
@@ -230,7 +213,7 @@ class Validator:
         bt.logging.info(f"Starting main loop")
         while True:
             try:
-                self.metagraph_updater.update_metagraph()
+                self.metagraph_updater.update_metagraph(likely_miners=self.position_manager.get_recently_updated_miner_hotkeys())
                 self.mdd_checker.mdd_check()
                 self.weight_setter.set_weights()
                 self.elimination_manager.process_eliminations()
@@ -323,6 +306,30 @@ class Validator:
                 )
         return open_position
 
+    def should_fail_early(self, synapse: template.protocol.SendSignal | template.protocol.GetPositions) -> bool:
+        miner_hotkey = synapse.dendrite.hotkey
+        # Don't allow miners to send too many signals in a short period of time
+        allowed, wait_time = self.rate_limiter.is_allowed(miner_hotkey)
+        if not allowed:
+            msg = f"Rate limited. Please wait {wait_time} seconds before sending another signal."
+            bt.logging.trace(msg)
+            synapse.successfully_processed = False
+            synapse.error_message = msg
+            return True
+
+        # don't process eliminated miners
+        with self.eliminations_lock:
+            eliminations = self.mdd_checker.get_eliminations_from_disk()
+        eliminated_hotkeys = set(x['hotkey'] for x in eliminations) if eliminations is not None else set()
+        if synapse.dendrite.hotkey in eliminated_hotkeys:
+            msg = f"This miner hotkey {synapse.dendrite.hotkey} has been eliminated and cannot participate in this subnet. Try again after re-registering."
+            bt.logging.debug(msg)
+            synapse.successfully_processed = False
+            synapse.error_message = msg
+            return True
+
+        return False
+
     # This is the core validator function to receive a signal
     def receive_signal(self, synapse: template.protocol.SendSignal,
                        ) -> template.protocol.SendSignal:
@@ -330,6 +337,9 @@ class Validator:
         miner_hotkey = synapse.dendrite.hotkey
         signal = synapse.signal
         bt.logging.info(f"received signal [{signal}] from miner_hotkey [{miner_hotkey}].")
+        if self.should_fail_early(synapse):
+            return synapse
+
         # error message to send back to miners in case of a problem so they can fix and resend
         error_message = ""
         try:
@@ -364,6 +374,9 @@ class Validator:
 
     def get_positions(self, synapse: template.protocol.GetPositions,
                       ) -> template.protocol.GetPositions:
+        if self.should_fail_early(synapse):
+            return synapse
+
         miner_hotkey = synapse.dendrite.hotkey
         error_message = ""
         try:
