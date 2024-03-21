@@ -143,7 +143,7 @@ class Validator:
         # Since the mainloop is run synchronously, we just need to lock eliminations when writing to them and when
         # reading outside of the mainloop (validator).
         self.eliminations_lock = threading.Lock()
-        self.plagiarism_detector = PlagiarismDetector(self.config, self.metagraph)
+        # self.plagiarism_detector = PlagiarismDetector(self.config, self.metagraph)
         self.mdd_checker = MDDChecker(self.config, self.metagraph, self.position_manager, self.eliminations_lock)
         self.weight_setter = SubtensorWeightSetter(self.config, wallet, self.metagraph)
         self.elimination_manager = EliminationManager(self.metagraph, self.position_manager, self.eliminations_lock)
@@ -358,7 +358,7 @@ class Validator:
                 # Log the open position for the miner
                 bt.logging.info(f"Position for miner [{miner_hotkey}] updated: {open_position}")
                 open_position.log_position_status()
-            self.plagiarism_detector.check_plagiarism(open_position, signal_to_order)
+            # self.plagiarism_detector.check_plagiarism(open_position, signal_to_order)
 
         except SignalException as e:
             error_message = f"Error processing order for [{miner_hotkey}] with error [{e}]"

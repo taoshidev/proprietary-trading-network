@@ -35,6 +35,10 @@ class ValiBkpUtils:
         return ValiConfig.BASE_DIR + f"/secrets.json"
 
     @staticmethod
+    def get_plagiarism_file():
+        return ValiConfig.BASE_DIR + f"/miner_blocklist.json"
+    
+    @staticmethod
     def get_vali_bkp_dir() -> str:
         return ValiConfig.BASE_DIR + "/validation/backups/"
 

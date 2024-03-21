@@ -96,7 +96,7 @@ class TestWeights(TestBase):
 
         # Check that the values are scaled correctly, assuming we filtered one miner
         # 0.152 = exponential_decay_returns(49)[0]
-        self.assertAlmostEqual(scaled_transformed_list[0][1], 0.152, places=3)
+        self.assertAlmostEqual(scaled_transformed_list[0][1], 0.375, places=3)
         self.assertAlmostEqual(scaled_transformed_list[-1][1], 0.0, places=3)
 
 

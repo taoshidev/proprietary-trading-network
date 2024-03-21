@@ -89,8 +89,25 @@ class CacheController:
         # This allows the miner to participate again once they re-register
         cached_miner_plagiarism = ValiUtils.get_vali_json_file(
             ValiBkpUtils.get_plagiarism_scores_dir(running_unit_tests=self.running_unit_tests))
+        
+        blocklist_dict = ValiUtils.get_vali_json_file(
+            ValiBkpUtils.get_plagiarism_file()
+        )
+
+        blocklist_scores = {
+            key['miner_id']: 1 for key in blocklist_dict
+        }
+
         self.miner_plagiarism_scores = {mch: mc for mch, mc in cached_miner_plagiarism.items() if
                                         mch in self.metagraph.hotkeys}
+        
+        self.miner_plagiarism_scores = {
+            **self.miner_plagiarism_scores,
+            **blocklist_scores
+        }
+
+        bt.logging.info(f"Loaded [{len(self.miner_plagiarism_scores)}] miner plagiarism scores from disk: {self.miner_plagiarism_scores}")
+
         self._write_updated_plagiarism_scores_from_memory_to_disk()
 
     def _update_plagiarism_scores_in_memory(self):
