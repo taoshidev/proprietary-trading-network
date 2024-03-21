@@ -213,7 +213,8 @@ class Validator:
         bt.logging.info(f"Starting main loop")
         while True:
             try:
-                self.metagraph_updater.update_metagraph(likely_miners=self.position_manager.get_recently_updated_miner_hotkeys())
+                ram = self.position_manager.get_recently_updated_miner_hotkeys()
+                self.metagraph_updater.update_metagraph(recently_acked_miners=ram)
                 self.mdd_checker.mdd_check()
                 self.weight_setter.set_weights()
                 self.elimination_manager.process_eliminations()
