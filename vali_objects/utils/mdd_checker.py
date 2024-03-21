@@ -73,7 +73,7 @@ class MDDChecker(CacheController):
         cuml_return = 1.0
 
         if len(sorted_closed_positions) == 0:
-            bt.logging.info(f"no existing closed positions for [{hotkey}]")
+            #bt.logging.info(f"no existing closed positions for [{hotkey}]")
             return False, cuml_return
 
         # Already sorted
