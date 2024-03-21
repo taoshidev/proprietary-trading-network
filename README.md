@@ -1,4 +1,17 @@
 <p align="center">
+  <a href="https://taoshi.io">
+    <img width="500" alt="taoshi - ptn repo logo" src="https://i.imgur.com/5hTsp97.png">
+  </a>
+</p>
+
+<div align='center'>
+
+[![Discord Chat](https://img.shields.io/discord/1163496128499683389.svg)](https://discord.gg/2XSw62p9Fj)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+
+</div>
+
+<p align="center">
   <a href="https://taoshi.io">Website</a>
   ·
   <a href="#installation">Installation</a>
@@ -15,57 +28,31 @@
 <details>
   <summary>Table of contents</summary>
   <ol>
+    <li><a href="#proprietary-trading-network">Proprietary Trading Network</a></li>
+    <li><a href="#features">Features</a></li>
+    <li><a href="#how-does-it-work">How does it work?</a></li>
     <li>
-      <a href="#bittensor">Bittensor</a>
-      <ol>
-        <li>
-          <a href="#subnets">Subnets</a>
-        </li>
-        <li>
-          <a href="#miners">Miners</a>
-        </li>
-        <li>
-          <a href="#validators">Validators</a>
-        </li>
-      </ol>
-    </li>
-    <li><a href="#prop-subnet">Proprietary Trading Network</a></li>
-    <li><a href="#features">Featuers</a></li>
-    <li><a href="#prerequisites">Prerequisites</a></li>
-    <li>
-      <a href="#installation">Installation</a>
-    </li>
-    <li>
-      <a href="#usage">Usage</a>
-      <ol>
-        <li>
-          <a href="#running-a-validator">Running a Validator</a>
-        </li>
-        <li>
-          <a href="#running-a-miner">Running a Miner</a>
-        </li>
-      </ol>
+      <a href="#getting-started">Getting Started</a>
     </li>
     <li><a href="#building-a-model">Building A Model</a></li>
     <li><a href="#testing">Testing</a></li>
     <li><a href="#faq">FAQ</a></li>
     <li><a href="#contributing">Contributing</a></li>
     <li><a href="#license">License</a></li>
+
   </ol>
 </details>
 
 ---
 
-# Bittensor
+<details id='bittensor'>
+  <summary>What is Bittensor?</summary>
 
-Bittensor is a mining network, similar to Bitcoin, that includes built-in incentives designed to encourage
-computers to provide access to machine learning models in an efficient and censorship-resistant manner.
-Bittensor is compromised of Subnets, Miners, and Validators.
+Bittensor is a mining network, similar to Bitcoin, that includes built-in incentives designed to encourage computers to provide access to machine learning models in an efficient and censorship-resistant manner. Bittensor is comprised of Subnets, Miners, and Validators.
 
-**Explain Like I'm Five**
+> Explain Like I'm Five
 
-Bittensor is an API that connects machine learning models and incentivizes correctness through the power of the
-blockchain.
+Bittensor is an API that connects machine learning models and incentivizes correctness through the power of the blockchain.
 
 ### Subnets
 
@@ -77,8 +64,12 @@ Miners run machine learning models. They fulfill requests from the Validators.
 
 ### Validators
 
-Validators query and prompt the Miners. Validators also validate miner requests. Validators are also storefronts for
-data.
+Validators query and prompt the Miners. Validators also validate miner requests. Validators are also storefronts for data.
+
+</details>
+
+<br />
+<br />
 
 # Proprietary Trading Subnet
 
@@ -86,6 +77,14 @@ This repository contains the code for the Proprietary Trading Network (PTN) deve
 
 PTN receives signals from quant and deep learning machine learning trading systems to deliver the world's
 most complete trading signals across a variety of asset classes.
+
+# Features
+
+🛠️&nbsp;Open Source Strategy Building Techniques (In Our Taoshi Community)<br>
+🫰&nbsp;Signals From a Variety of Asset Classes - Forex, Indices, Crypto<br>
+📈&nbsp;Higher Payouts<br>
+📉&nbsp;Lower Registration Fees<br>
+💪&nbsp;Superior Cryptocurrency Infrastructure<br>
 
 ## How does it work?
 
@@ -119,229 +118,19 @@ occurrence leads to removal from the network.
 
 With this system only the world's best traders & deep learning / quant based trading systems can compete.
 
-# Features
+# Get Started
 
-🛠️&nbsp;Open Source Strategy Building Techniques (In Our Taoshi Community)<br>
-🫰&nbsp;Signals From a Variety of Asset Classes - Forex, Indices, Crypto<br>
-📈&nbsp;Higher Payouts<br>
-📉&nbsp;Lower Registration Fees<br>
-💪&nbsp;Superior Cryptocurrency Infrastructure<br>
+Please see our [Validator Installation](https://github.com/taoshidev//proprietary-trading-network/blob/main/docs/validator.md) guide.
 
-# Prerequisites
+### Miner Installation
 
-Below are the prerequisites for validators and miners, you may be able to make miner and validator work off lesser
-specs.
-
-Requires **Python 3.10.**
-
-**Validator**
-
-- 2 vCPU + 8 GB memory
-- 100 GB balanced persistent disk
-- A Twelvedata API account to allow your validator to fetch live prices (https://twelvedata.com/)
-
-**Miner**
-
-- 2 vCPU + 8 GB memory
-- Run the miner using CPU
-
-# Installation
-
-On Linux
-
-```bash
-# install git and subpackages
-$ sudo apt install git-all
-
-# install pip package manager for python 3
-$ sudo apt install python3-pip
-
-# install venv virtual environment package for python 3
-$ sudo apt-get install python3-venv
-
-# clone repo
-$ git clone https://github.com/taoshidev/proprietary-trading-network.git
-
-# change directory
-$ cd proprietary-trading-network
-
-# create virtual environment
-$ python3 -m venv venv
-
-# activate the virtual environment
-$ . venv/bin/activate
-
-# disable pip cache
-$ export PIP_NO_CACHE_DIR=1
-
-# install dependencies
-$ pip install -r requirements.txt
-
-# create a local and editable installation
-$ python -m pip install -e .
-
-```
-
-# Usage
-
-## Understanding Core Validator Logic & Files
-
-Your validator receives signals from miners when they have one prepared. Your validator will perform core logic checks
-to ensure only registered non-eliminated miners can be given weights. Your validator will look to set weights
-every 30 minutes.
-
-Your validator will store all information related to miners on disk as it doesn't take up much space. 
-All information created is stored in the `validation` directory.
-
-When the validator receives signals, they are converted to orders. These orders make up positions which are stored
-are safely stored as files in the `validation/miners` directory on a per miner basis.
-
-The core logic looks to detect & eliminate any sort of miner copying from the network. It does this by performing
-an analysis on every order received. If a miner is detected to be plagiarising off another miner, they will be eliminated
-from the network. The information on plagiarising miners is held in `validation/miner_copying.json`.
-
-When a miner is eliminated due to exceeding drawdown limits, or being caught plagiarising 
-they will end up in the `validation/eliminations.json` file.
-
-## Running a Validator
-
-### Using Provided Scripts
-
-These validators run and update themselves automatically.
-
-To run a validator, follow these steps:
-
-1. [Install Prop Subnet.](#installation)
-2. Install [PM2](https://pm2.io) and the (jq)[https://jqlang.github.io/jq/] package on your system.
-3. Create a secrets.json file in the root level of the PTN repo to include your TwelveData API key as shown below:
-
-```json
-{
-  "twelvedata_apikey": "YOUR_API_KEY_HERE"
-}
-```
-- Replace YOUR_API_KEY_HERE with your actual TwelveData API key.
-- Obtain an API key by signing up at TwelveData's website. The free tier is sufficient for testnet usage. For mainnet applications, a "Grow" tier subscription is required.
-
-On Linux:
-
-```bash
-# update lists
-$ sudo apt update
-
-# JSON-processor
-$ sudo apt install jq
-
-# install npm
-$ sudo apt install npm
-
-# install pm2 globally
-$ sudo npm install pm2 -g
-
-# update pm2 process list
-$ pm2 update
-```
-
-On MacOS:
-
-```bash
-# update lists
-$ brew update
-
-# JSON-processor
-$ brew install jq
-
-# install npm
-$ brew install npm
-
-# install pm2 globally
-$ sudo npm install pm2 -g
-
-# update pm2 process list
-$ pm2 update
-```
-
-3. Be sure to install venv for the repo.
-
-```bash
-# /proprietary-trading-network
-
-# create virtual environment
-$ python3 -m venv venv
-
-# activate virtual environment
-$ source venv/bin/activate
-
-# install packages
-$ pip install -r requirements.txt
-```
-
-4. Run the `run.sh` script, which will run your validator and pull the latest updates as they are issued.
-
-```bash
-$ pm2 start run.sh --name sn8 -- --wallet.name <wallet> --wallet.hotkey <hotkey> --netuid 8
-```
-
-This will run two PM2 process:
-
-1. A process for the validator, called sn8 by default (you can change this in run.sh)
-2. And a process for the run.sh script (in step 4, we named it ptn). The script will check for updates every 30 minutes,
-   if there is an update, it will pull, install, restart ptn, and restart itself.
-
-### Manually
-
-If there are any issues with the run script or you choose not to use it, run a validator manually.
-
-```bash
-$ python neurons/validator.py --netuid 8 --wallet.name <wallet> --wallet.hotkey <hotkey>
-```
-
-You can also run your script in the background. Logs are stored in `nohup.out`.
-
-```bash
-$ nohup python neurons/validator.py --netuid 8 --wallet.name <wallet> --wallet.hotkey <hotkey> &
-```
-
-## Running a Miner
-
-On the mining side we've setup some helpful infrastructure for you to send in signals to the network. You can run
-`mining/run_receive_signals_server.py` which will launch a flask server. You can use this flask server to send in
-signals to the network. To see an example of sending a signal into the server, checkout `mining/sample_signal_request.py`.
-
-Once a signal is properly sent into the signals server, it is stored locally in `mining/received_signals` to 
-prepare for processing. From there, the core miner logic will automatically look to send the signal into the network, 
-retrying on failure. Once the signal is attempted to send into the network, the signal is stored in `mining/processed_signals`.
-
-# Running on mainnet
-
-You can run on mainnet by following the instructions in `docs/running_on_mainnet.md`.
-
-If you are running into issues, please run with `--logging.debug` and `--logging.trace` set so you can better
-analyze why your miner isn't running.
-
-The current flow of information is as follows:
-
-1. Send in your signals to validators
-2. Validators update your existing positions, or create new positions based on your signals
-3. Validators track your positions returns
-4. Validators review your positions to assess drawdown every minute
-4. Validators wait for you to send in signals to close out positions (FLAT)
-5. Validators set weights based on miner returns every 30 minutes
+Please see our [Miner Installation](https://github.com/taoshidev/proprietary-trading-network/blob/main/docs/miner.md) guide.
 
 # Building a strategy
 
-We recommend joining our community hub via Discord to get assistance in building a trading strategy. We have partnerships
-with both glassnode and LunarCrush who provide valuable data to be able to create an effective strategy. Analysis and information
+We recommend joining our community hub via Discord to get assistance in building a trading strategy. We have partnerships with both Glassnode and LunarCrush who provide valuable data to be able to create an effective strategy. Analysis and information
 on how to build a deep learning ML based strategy will continue to be discussed in an open manner by team Taoshi to help
 guide miners to compete.
-
-# Testing
-
-You can begin testing on testnet netuid 116. You can follow the `docs/running_on_testnet.md` file inside the repo
-to run on testnet.
-
-
----
 
 # Contributing
 
