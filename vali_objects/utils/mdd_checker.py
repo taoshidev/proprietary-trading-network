@@ -53,6 +53,7 @@ class MDDChecker(CacheController):
             eliminations=self.eliminations
         )
         signal_closing_prices = self.get_required_closing_prices(hotkey_to_positions)
+
         any_eliminations = False
         for hotkey, sorted_positions in hotkey_to_positions.items():
             any_eliminations |= self._search_for_miner_dd_failures(hotkey, sorted_positions, signal_closing_prices)
@@ -94,6 +95,26 @@ class MDDChecker(CacheController):
         # Replay of closed positions complete.
         return False, cuml_return
 
+    def _update_open_position_returns_and_persist_to_disk(self, hotkey, open_position, signal_closing_prices) -> Position:
+        """
+        Setting the latest returns and persisting to disk for accurate MDD calculation and logging in get_positions
+
+        Won't account for a position that was added in the time between mdd_check being called and this function
+        being called. But that's ok as we will process such new positions the next round.
+        """
+        trade_pair_id = open_position.trade_pair.trade_pair_id
+        realtime_price = signal_closing_prices[open_position.trade_pair]
+
+        with self.position_manager.position_locks.get_lock(hotkey, trade_pair_id):
+            # Position could have updated in the time between mdd_check being called and this function being called
+            position = self.position_manager.get_miner_position_from_disk_using_position_in_memory(open_position)
+            # It's unlikely but this position could have just closed.
+            # That's ok since we haven't started MDD calculations yet.
+            if not position.is_closed_position:
+                position.set_returns(realtime_price, open_position.get_net_leverage())
+                self.position_manager.save_miner_position_to_disk(position)
+            return position
+
 
     def _search_for_miner_dd_failures(self, hotkey, sorted_positions, signal_closing_prices) -> bool:
         # Log sorted positions length
@@ -109,15 +130,15 @@ class MDDChecker(CacheController):
             if position.is_closed_position:
                 closed_positions.append(position)
             else:
-                open_positions.append(position)
+                updated_position = self._update_open_position_returns_and_persist_to_disk(hotkey, position, signal_closing_prices)
+                if updated_position.is_closed_position:
+                    closed_positions.append(updated_position)
+                else:
+                    open_positions.append(updated_position)
 
         elimination_occurred, return_with_closed_positions = self._replay_all_closed_positions(hotkey, closed_positions)
         if elimination_occurred:
             return True
-
-        open_position_trade_pairs = {
-            position.position_uuid: position.trade_pair for position in open_positions
-        }
 
         # Enforce only one open position per trade pair
         seen_trade_pairs = set()
@@ -127,10 +148,6 @@ class MDDChecker(CacheController):
                 raise ValueError(f"Miner [{hotkey}] has multiple open positions for trade pair [{open_position.trade_pair}]. Please restore cache.")
             else:
                 seen_trade_pairs.add(open_position.trade_pair.trade_pair_id)
-            realtime_price = signal_closing_prices[
-                open_position_trade_pairs[open_position.position_uuid]
-            ]
-            open_position.set_returns(realtime_price, open_position.get_net_leverage())
 
             #bt.logging.success(f"current return with fees for [{open_position.position_uuid}] is [{open_position.return_at_close}]")
             return_with_open_positions *= open_position.return_at_close

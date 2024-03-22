@@ -166,6 +166,28 @@ class PositionManager(CacheController):
                     return False, f"{attr} is different. {value1} != {value2}"
         return True, ""
 
+    def get_miner_position_from_disk_using_position_in_memory(self, memory_position: Position) -> Position:
+        # Position could have changed to closed
+        is_open = not memory_position.is_closed_position
+        fp = self.get_filepath_for_position(hotkey=memory_position.miner_hotkey,
+                                            trade_pair_id=memory_position.trade_pair.trade_pair_id,
+                                            position_uuid=memory_position.position_uuid,
+                                            is_open=is_open)
+        try:
+            return self.get_miner_position_from_disk(fp)
+        except Exception as e:
+            bt.logging.info(f"Error getting position from disk: {e}")
+            if is_open:
+                bt.logging.warning(f"Attempting to get closed position from disk for memory position {memory_position}")
+                fp = self.get_filepath_for_position(hotkey=memory_position.miner_hotkey,
+                                                    trade_pair_id=memory_position.trade_pair.trade_pair_id,
+                                                    position_uuid=memory_position.position_uuid,
+                                                    is_open=False
+                                                )
+                return self.get_miner_position_from_disk(fp)
+            else:
+                raise e
+
     def get_miner_position_from_disk(self, file) -> Position:
         # wrapping here to allow simpler error handling & original for other error handling
         # Note one position always corresponds to one file.

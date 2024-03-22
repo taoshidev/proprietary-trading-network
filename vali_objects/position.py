@@ -3,6 +3,8 @@ import logging
 from copy import deepcopy
 from typing import Optional, List
 from pydantic import BaseModel, root_validator
+
+from time_util.time_util import TimeUtil
 from vali_config import TradePair
 from vali_objects.vali_dataclasses.order import Order
 from vali_objects.enums.order_type_enum import OrderType
@@ -164,15 +166,22 @@ class Position(BaseModel):
         net_return = 1 + gain
         return net_return
 
-    def _handle_liquidation(self, order):
+    def _handle_liquidation(self, time_ms):
         self._position_log("position liquidated")
-        self.close_out_position(order.processed_ms)
 
-    def set_returns(self, realtime_price, net_leverage):
+        self.close_out_position(time_ms)
+
+    def set_returns(self, realtime_price, net_leverage, time_ms=None):
         self.current_return = self.calculate_unrealized_pnl(realtime_price)
         self.return_at_close = self.current_return * (
             1 - self.trade_pair.fees * abs(net_leverage)
         )
+
+        if self.current_return < 0:
+            raise ValueError(f"current return must be positive {self.current_return}")
+
+        if self.current_return == 0:
+            self._handle_liquidation(time_ms if time_ms else TimeUtil.now_in_millis())
 
     def update_position_state_for_new_order(self, order, delta_leverage):
         """
@@ -185,13 +194,10 @@ class Position(BaseModel):
         assert self.initial_entry_price > 0, self.initial_entry_price
         new_net_leverage = self.net_leverage + delta_leverage
 
-        self.set_returns(realtime_price, new_net_leverage)
+        self.set_returns(realtime_price, new_net_leverage, time_ms=order.processed_ms)
 
-        if self.current_return < 0:
-            raise ValueError(f"current return must be positive {self.current_return}")
-
+        # Liquidated
         if self.current_return == 0:
-            self._handle_liquidation(order)
             return
         self._position_log(f"closed position total w/o fees [{self.current_return}]")
         self._position_log(f"closed return with fees [{self.return_at_close}]")

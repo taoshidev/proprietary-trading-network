@@ -55,10 +55,12 @@ class PositionInspector:
         unique_counts = set(orders_count.values())
 
         if len(unique_counts) > 1:
+            bt.logging.warning("Spilling hotkey to positions:")
             for hotkey, count in orders_count.items():
                 axon_info = hotkey_to_validator[hotkey]
                 bt.logging.warning(f"Validator {hotkey} has {count} orders with v_trust {hotkey_to_v_trust[hotkey]}, axon: {axon_info}. "
                                    f"Validators may be mis-synced.")
+                bt.logging.warning(f"Validator {hotkey} has these positions {hotkey_to_positions[hotkey]}.")
 
         # Return the position in hotkey_to_positions that has the most orders
         bt.logging.info(f"Validator with the most orders: {corresponding_hotkey}, n_orders: {max_order_count}, v_trust:"
@@ -80,7 +82,7 @@ class PositionInspector:
 
             attempts += 1
 
-        bt.logging.info(f"Got positions from {len(hotkey_to_positions)} validators")
+        bt.logging.info(f"Got positions from {len(hotkey_to_positions)} possible validators")
         # We consider a validator acked if it successfully responded to the signal.
         # Note, a validator that has this miner blacklisted will not be added.
         self.recently_acked_validators = hotkey_to_positions.keys()
