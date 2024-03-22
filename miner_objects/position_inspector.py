@@ -28,12 +28,14 @@ class PositionInspector:
     def query_positions(self, validators, hotkey_to_positions):
         remaining_validators_to_query = [v for v in validators if v.hotkey not in hotkey_to_positions]
         responses = self.dendrite.query(remaining_validators_to_query, GetPositions(), deserialize=True)
+        ret = []
         for validator, response in zip(remaining_validators_to_query, responses):
             if response.error_message:
                 bt.logging.warning(f"Error getting positions from {validator}. Error message: {response.error_message}")
+            if response.successfully_processed:
+                ret.append((validator, response.positions))
 
-        return [(validator, response.positions) for validator, response in zip(remaining_validators_to_query, responses) if
-                response.successfully_processed]
+        return ret
 
     def reconcile_validator_positions(self, hotkey_to_positions, validators):
         hotkey_to_validator = {v.hotkey: v for v in validators}
@@ -45,10 +47,10 @@ class PositionInspector:
         for hotkey, positions in hotkey_to_positions.items():
             for position in positions:
                 orders_count[hotkey] += len(position['orders'])
-                if orders_count[hotkey] > max_order_count:
-                    max_order_count = orders_count[hotkey]
-                    corresponding_positions = position
-                    corresponding_hotkey = hotkey
+            if orders_count[hotkey] > max_order_count:
+                max_order_count = orders_count[hotkey]
+                corresponding_positions = positions
+                corresponding_hotkey = hotkey
 
         unique_counts = set(orders_count.values())
 
