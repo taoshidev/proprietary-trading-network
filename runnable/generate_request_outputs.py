@@ -3,7 +3,6 @@ import traceback
 import uuid
 from datetime import datetime
 import time
-import logging
 
 from time_util.time_util import TimeUtil
 from vali_config import ValiConfig
@@ -12,17 +11,20 @@ from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.utils.logger_utils import LoggerUtils
 from vali_objects.utils.position_manager import PositionManager
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
-from vali_objects.utils.vali_utils import ValiUtils
 from vali_objects.vali_dataclasses.order import Order
 
 
 def generate_request_outputs():
+    position_manager = PositionManager(
+        config=None,
+        metagraph=None,
+        running_unit_tests=False
+    )
     try:
-        eliminations = ValiUtils.get_vali_json_file(
-            ValiBkpUtils.get_eliminations_dir(), ValiUtils.ELIMINATIONS
-        )
-    except Exception:
+        eliminations = position_manager.get_eliminations_from_disk()
+    except Exception as e:
         logger.warning("couldn't get eliminations file.")
+        logger.warning(e)
         eliminations = None
     try:
         try:
@@ -35,13 +37,9 @@ def generate_request_outputs():
                 f"[{ValiBkpUtils.get_miner_dir()}]. Skip run for now."
             )
         
-        positionmanager = PositionManager(
-            config=None, 
-            metagraph=all_miner_hotkeys, 
-            running_unit_tests=False
-        )
 
-        hotkey_positions = positionmanager.get_all_miner_positions_by_hotkey(
+
+        hotkey_positions = position_manager.get_all_miner_positions_by_hotkey(
             all_miner_hotkeys,
             sort_positions=True,
             acceptable_position_end_ms=TimeUtil.timestamp_to_millis(
@@ -59,10 +57,10 @@ def generate_request_outputs():
                 "thirty_day_returns": 1.0,
             }
 
-            return_per_position = positionmanager.get_return_per_closed_position(ps)
+            return_per_position = position_manager.get_return_per_closed_position(ps)
 
             ## also get the augmented returns
-            return_per_position_augmented = positionmanager.get_return_per_closed_position_augmented(
+            return_per_position_augmented = position_manager.get_return_per_closed_position_augmented(
                 ps,
                 evaluation_time_ms=TimeUtil.now_in_millis(),
             )
