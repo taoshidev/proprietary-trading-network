@@ -1,5 +1,6 @@
 # developer: jbonilla
 # Copyright © 2024 Taoshi Inc
+import json
 from copy import deepcopy
 
 from data_generator.twelvedata_service import TwelveDataService
@@ -489,7 +490,7 @@ class TestPositions(TestBase):
             'position_uuid': self.DEFAULT_POSITION_UUID
         })
 
-    def test_zero_leverage_order(self):
+    def test_invalid_leverage_order(self):
         position = deepcopy(self.default_position)
         with self.assertRaises(ValueError):
             position.add_order(Order(order_type=OrderType.LONG,
@@ -498,6 +499,35 @@ class TestPositions(TestBase):
                                           trade_pair=TradePair.BTCUSD,
                                           processed_ms=1000,
                                           order_uuid="1000"))
+        with self.assertRaises(ValueError):
+            position.add_order(Order(order_type=OrderType.LONG,
+                                          leverage=TradePair.BTCUSD.max_leverage + 1,
+                                          price=100,
+                                          trade_pair=TradePair.BTCUSD,
+                                          processed_ms=1000,
+                                          order_uuid="1000"))
+        with self.assertRaises(ValueError):
+            position.add_order(Order(order_type=OrderType.SHORT,
+                                          leverage=TradePair.BTCUSD.max_leverage + 1,
+                                          price=100,
+                                          trade_pair=TradePair.BTCUSD,
+                                          processed_ms=1000,
+                                          order_uuid="1000"))
+        with self.assertRaises(ValueError):
+            position.add_order(Order(order_type=OrderType.LONG,
+                                     leverage=-1.0,
+                                     price=100,
+                                     trade_pair=TradePair.BTCUSD,
+                                     processed_ms=1000,
+                                     order_uuid="1000"))
+        with self.assertRaises(ValueError):
+            position.add_order(Order(order_type=OrderType.LONG,
+                                     leverage=TradePair.BTCUSD.min_leverage / 2.0,
+                                     price=100,
+                                     trade_pair=TradePair.BTCUSD,
+                                     processed_ms=1000,
+                                     order_uuid="1000"))
+
 
     def test_invalid_prices_zero(self):
         position = deepcopy(self.default_position)
@@ -670,7 +700,6 @@ class TestPositions(TestBase):
                 'net_leverage': 1.0,
                 'initial_entry_price': 1000,
                 'average_entry_price': 1000,
-                'max_drawdown': 0,
                 'close_ms': None,
                 'return_at_close': .997,
                 'current_return': 1.0,
@@ -688,7 +717,6 @@ class TestPositions(TestBase):
                 'net_leverage': 1.1,
                 'initial_entry_price': 1000,
                 'average_entry_price': 954.5454545454545,
-                'max_drawdown': 0,
                 'close_ms': None,
                 'return_at_close': 0.49835,
                 'current_return': 0.5,
@@ -706,7 +734,6 @@ class TestPositions(TestBase):
                 'net_leverage': 1.0,
                 'initial_entry_price': 1000,
                 'average_entry_price': 950.0,
-                'max_drawdown': 0,
                 'close_ms': None,
                 'return_at_close': 1.04685,
                 'current_return': 1.05,
@@ -1061,6 +1088,55 @@ class TestPositions(TestBase):
             'trade_pair': self.DEFAULT_TRADE_PAIR,
             'position_uuid': self.DEFAULT_POSITION_UUID
         })
+
+    def test_position_json(self):
+        position = deepcopy(self.default_position)
+        live_price = 100000
+        o1 = Order(order_type=OrderType.LONG,
+                   leverage=10.0,
+                   price=live_price,
+                   trade_pair=TradePair.BTCUSD,
+                   processed_ms=1000,
+                   order_uuid="1000")
+        o2 = Order(order_type=OrderType.LONG,
+                   leverage=5.0,
+                   price=live_price,
+                   trade_pair=TradePair.BTCUSD,
+                   processed_ms=2000,
+                   order_uuid="2000")
+
+        for order in [o1, o2]:
+            self.add_order_to_position_and_save_to_disk(position, order)
+
+
+        #self.assertEqual(position_json, {})
+        dict_repr = position.to_dict()  # Make sure no side effects in the recreated object...
+        for x in dict_repr['orders']:
+            self.assertFalse('trade_pair' in x, dict_repr)
+
+        position_json = position.to_json_string()
+        recreated_object = Position(**json.loads(position_json))
+        for x in recreated_object.orders:
+            self.assertTrue(hasattr(x, 'trade_pair'), recreated_object)
+
+        recreated_object_json = json.loads(position_json)
+        for x in recreated_object_json['orders']:
+            self.assertFalse('trade_pair' in x, recreated_object_json)
+
+        #print(f"position json: {position_json}")
+        dict_repr = position.to_dict() # Make sure no side effects in the recreated object...
+
+        recreated_object = Position.parse_raw(position_json)#Position(**json.loads(position_json))
+        #print(f"recreated object str repr: {recreated_object}")
+        #print("recreated object:", recreated_object)
+        self.assertTrue(PositionManager.positions_are_the_same(position, recreated_object))
+        for x in dict_repr['orders']:
+            self.assertFalse('trade_pair' in x, dict_repr)
+
+        for x in recreated_object.orders:
+            self.assertTrue(hasattr(x, 'trade_pair'), recreated_object)
+
+
 
 
 if __name__ == '__main__':

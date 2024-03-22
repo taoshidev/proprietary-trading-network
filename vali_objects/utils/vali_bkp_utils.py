@@ -94,7 +94,12 @@ class ValiBkpUtils:
     ) -> None:
         os.makedirs(os.path.dirname(vali_file), exist_ok=True)
         with open(vali_file, ValiBkpUtils.get_write_type(is_pickle)) as f:
-            pickle.dump(vali_data, f) if is_pickle else f.write(json.dumps(vali_data))
+            if isinstance(vali_data, Position):
+                f.write(vali_data.to_json_string())
+            elif is_pickle:
+                pickle.dump(vali_data, f)
+            else:
+                f.write(json.dumps(vali_data))
         f.close()
 
     @staticmethod

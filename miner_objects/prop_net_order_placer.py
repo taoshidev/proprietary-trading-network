@@ -104,16 +104,21 @@ class PropNetOrderPlacer:
         # Filtering validators for the next retry based on the current response.
         new_validators_to_retry = []
         for validator, response in zip(retry_status[signal_file_path]['validators_needing_retry'], validator_responses):
+            eliminated = "has been eliminated" in response.error_message
             if not response.successfully_processed:
+                if response.error_message:
+                    bt.logging.warning(f"Error sending order to {validator}. Error message: {response.error_message}")
+                if eliminated:
+                    continue
                 if hotkey_to_v_trust[validator.hotkey] > 0:
                     new_validators_to_retry.append(validator)
                 elif validator.hotkey in self.recently_acked_validators:
                     new_validators_to_retry.append(validator)
+                else:
+                    # Do not retry if the validator has 0 trust and is not in the recently acked list. Maybe another miner or inactive hotkey.
+                    pass
 
         retry_status[signal_file_path]['validators_needing_retry'] = new_validators_to_retry
-        for validator, response in zip(retry_status[signal_file_path]['validators_needing_retry'], validator_responses):
-            if response.error_message:
-                bt.logging.warning(f"Error sending order to {validator}. Error message: {response.error_message}")
 
         # Calculating the number of successful responses
         n_fails = len([response for response in validator_responses if not response.successfully_processed])

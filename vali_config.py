@@ -9,55 +9,61 @@ from time_util.time_util import TimeUtil
 
 class TradePair(Enum):
     # crypto
-    BTCUSD = ("BTCUSD", "BTC/USD", 0.003, 0.001, 20)
-    ETHUSD = ("ETHUSD", "ETH/USD", 0.003, 0.001, 20)
+    BTCUSD = ["BTCUSD", "BTC/USD", 0.003, 0.001, 20]
+    ETHUSD = ["ETHUSD", "ETH/USD", 0.003, 0.001, 20]
 
     # forex
-    AUDCAD = ("AUDCAD", "AUD/CAD", 0.0003, 0.001, 500)
-    AUDUSD = ("AUDUSD", "AUD/USD", 0.0003, 0.001, 500)
-    AUDJPY = ("AUDJPY", "AUD/JPY", 0.0003, 0.001, 500)
+    AUDCAD = ["AUDCAD", "AUD/CAD", 0.0003, 0.001, 500]
+    AUDUSD = ["AUDUSD", "AUD/USD", 0.0003, 0.001, 500]
+    AUDJPY = ["AUDJPY", "AUD/JPY", 0.0003, 0.001, 500]
 
-    CADCHF = ("CADCHF", "CAD/CHF", 0.0003, 0.001, 500)
-    CADJPY = ("CADJPY", "CAD/JPY", 0.0003, 0.001, 500)
+    CADCHF = ["CADCHF", "CAD/CHF", 0.0003, 0.001, 500]
+    CADJPY = ["CADJPY", "CAD/JPY", 0.0003, 0.001, 500]
 
-    CHFJPY = ("CHFJPY", "CHF/JPY", 0.0003, 0.001, 500)
+    CHFJPY = ["CHFJPY", "CHF/JPY", 0.0003, 0.001, 500]
 
-    EURCAD = ("EURCAD", "EUR/CAD", 0.0003, 0.001, 500)
-    EURUSD = ("EURUSD", "EUR/USD", 0.0003, 0.001, 500)
-    EURCHF = ("EURCHF", "EUR/CHF", 0.0003, 0.001, 500)
-    EURGBP = ("EURGBP", "EUR/GBP", 0.0003, 0.001, 500)
-    EURJPY = ("EURJPY", "EUR/JPY", 0.0003, 0.001, 500)
-    EURNZD = ("EURNZD", "EUR/NZD", 0.0003, 0.001, 500)
+    EURCAD = ["EURCAD", "EUR/CAD", 0.0003, 0.001, 500]
+    EURUSD = ["EURUSD", "EUR/USD", 0.0003, 0.001, 500]
+    EURCHF = ["EURCHF", "EUR/CHF", 0.0003, 0.001, 500]
+    EURGBP = ["EURGBP", "EUR/GBP", 0.0003, 0.001, 500]
+    EURJPY = ["EURJPY", "EUR/JPY", 0.0003, 0.001, 500]
+    EURNZD = ["EURNZD", "EUR/NZD", 0.0003, 0.001, 500]
 
-    NZDCAD = ("NZDCAD", "NZD/CAD", 0.0003, 0.001, 500)
-    NZDJPY = ("NZDJPY", "NZD/JPY", 0.0003, 0.001, 500)
+    NZDCAD = ["NZDCAD", "NZD/CAD", 0.0003, 0.001, 500]
+    NZDJPY = ["NZDJPY", "NZD/JPY", 0.0003, 0.001, 500]
 
-    GBPUSD = ("GBPUSD", "GBP/USD", 0.0003, 0.001, 500)
-    GBPJPY = ("GBPJPY", "GBP/JPY", 0.0003, 0.001, 500)
+    GBPUSD = ["GBPUSD", "GBP/USD", 0.0003, 0.001, 500]
+    GBPJPY = ["GBPJPY", "GBP/JPY", 0.0003, 0.001, 500]
 
-    USDCAD = ("USDCAD", "USD/CAD", 0.0003, 0.001, 500)
-    USDCHF = ("USDCHF", "USD/CHF", 0.0003, 0.001, 500)
-    USDJPY = ("USDJPY", "USD/JPY", 0.0003, 0.001, 500)
+    USDCAD = ["USDCAD", "USD/CAD", 0.0003, 0.001, 500]
+    USDCHF = ["USDCHF", "USD/CHF", 0.0003, 0.001, 500]
+    USDJPY = ["USDJPY", "USD/JPY", 0.0003, 0.001, 500]
 
     # indices
-    SPX = ("SPX", "SPX", 0.0005, 0.001, 500)
-    DJI = ("DJI", "DJI", 0.0005, 0.001, 500)
-    FTSE = ("FTSE", "FTSE", 0.0005, 0.001, 500)
-    GDAXI = ("GDAXI", "GDAXI", 0.0005, 0.001, 500)
+    SPX = ["SPX", "SPX", 0.0005, 0.001, 500]
+    DJI = ["DJI", "DJI", 0.0005, 0.001, 500]
+    FTSE = ["FTSE", "FTSE", 0.0005, 0.001, 500]
+    GDAXI = ["GDAXI", "GDAXI", 0.0005, 0.001, 500]
 
-    def __init__(
-        self,
-        trade_pair_id: str,
-        trade_pair: str = None,
-        fees: float = None,
-        min_leverage: float = None,
-        max_leverage: float = None,
-    ):
-        self.trade_pair_id = trade_pair_id
-        self.trade_pair = trade_pair
-        self.fees = fees
-        self.min_leverage = min_leverage
-        self.max_leverage = max_leverage
+    @property
+    def trade_pair_id(self):
+        return self.value[0]
+
+    @property
+    def trade_pair(self):
+        return self.value[1]
+
+    @property
+    def fees(self):
+        return self.value[2]
+
+    @property
+    def min_leverage(self):
+        return self.value[3]
+
+    @property
+    def max_leverage(self):
+        return self.value[4]
 
     @staticmethod
     def to_dict():

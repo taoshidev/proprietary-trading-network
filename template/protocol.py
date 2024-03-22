@@ -9,8 +9,6 @@ from pydantic import Field
 
 from typing import List
 
-from vali_objects.vali_dataclasses.signal import Signal
-
 class SendSignal(bt.Synapse):
     signal: typing.Dict = Field({}, title="Signal", allow_mutation=False)
     successfully_processed: bool = Field(False, title="Successfully Processed", allow_mutation=True)

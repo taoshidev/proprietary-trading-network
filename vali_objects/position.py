@@ -1,6 +1,8 @@
+import json
 import logging
+from copy import deepcopy
 from typing import Optional, List
-
+from pydantic import BaseModel, root_validator
 from vali_config import TradePair
 from vali_objects.vali_dataclasses.order import Order
 from vali_objects.enums.order_type_enum import OrderType
@@ -8,7 +10,7 @@ from vali_objects.enums.order_type_enum import OrderType
 import bittensor as bt
 
 
-class Position:
+class Position(BaseModel):
     """Represents a position in a trading system.
 
     As a miner, you need to send in signals to the validators, who will keep track
@@ -28,76 +30,69 @@ class Position:
     - Please refer to README.md for the rules of the trading system.
     """
 
-    def __init__(
-        self,
-        miner_hotkey: str,
-        # hotkeys are used to sign for a coldkey. They're what registers with subnets and how we identify miners.
-        position_uuid: str,
-        open_ms: int,
-        trade_pair: TradePair,
-        orders: List[Order] = None,
-        current_return: Optional[float] = 1,
-        max_drawdown: Optional[float] = 0,
-        close_ms: Optional[int] = None,
-        return_at_close: Optional[float] = 1,
-        net_leverage: Optional[float] = 0,
-        average_entry_price: Optional[float] = 0,
-        initial_entry_price: Optional[float] = 0,
-        position_type: Optional[OrderType] = None,
-        is_closed_position: Optional[bool] = False
-    ):
-        if orders is None:
-            orders = []
+    miner_hotkey: str
+    position_uuid: str
+    open_ms: int
+    trade_pair: TradePair
+    orders: List[Order] = []
+    current_return: float = 1.0
+    close_ms: Optional[int] = None
+    return_at_close: float = 1.0
+    net_leverage: float = 0.0
+    average_entry_price: float = 0.0
+    initial_entry_price: float = 0.0
+    position_type: Optional[OrderType] = None
+    is_closed_position: bool = False
 
-        self.miner_hotkey = miner_hotkey
-        self.position_uuid = position_uuid
-        self.open_ms = open_ms
-        self.trade_pair = trade_pair
-        self.orders = orders
-        self.current_return = current_return
-        self.close_ms = close_ms
-        self.return_at_close = return_at_close
+    @root_validator(pre=True)
+    def add_trade_pair_to_orders(cls, values):
+        trade_pair = values.get('trade_pair')
+        orders = values.get('orders', [])
+        if trade_pair and orders:
+            # Add the position-level trade_pair to each order
+            updated_orders = []
+            for order in orders:
+                order['trade_pair'] = trade_pair
+                updated_orders.append(order)
+            values['orders'] = updated_orders
+        return values
 
-        self.net_leverage = net_leverage
-        self.average_entry_price = average_entry_price
-        self.initial_entry_price = initial_entry_price
-
-        self.position_type = position_type
-        self.is_closed_position = is_closed_position
-
-    def __str__(self) -> str:
-        return str(self.to_dict())
+    def _strip_trade_pair_from_orders(self, d):
+        if 'orders' in d:
+            for order in d['orders']:
+                if 'trade_pair' in order:
+                    del order['trade_pair']
+        return d
 
     def to_dict(self):
-        return {
-                # args
-                "miner_hotkey": self.miner_hotkey,
-                "position_uuid": self.position_uuid,
-                "open_ms": self.open_ms,
-                "trade_pair": str(self.trade_pair.trade_pair_id),
-                "orders": [str(order) for order in self.orders],
-                "current_return": self.current_return,
-                "close_ms": self.close_ms,
-                # additional important data
-                "return_at_close": self.return_at_close,
-                "net_leverage": self.net_leverage,
-                "average_entry_price": self.average_entry_price,
-                "initial_entry_price": self.initial_entry_price,
-                "position_type": str(self.position_type),
-                "is_closed_position": str(self.is_closed_position),
-            }
+        d = deepcopy(self.dict())
+        return self._strip_trade_pair_from_orders(d)
 
-    @staticmethod
-    def from_dict(position_dict):
-        orders = [Order.from_dict(order) for order in position_dict["orders"]]
-        position_dict["orders"] = orders
-        position_dict["trade_pair"] = TradePair.from_trade_pair_id(
-            position_dict["trade_pair"]["trade_pair_id"]
-        )
-        position_dict["is_closed_position"] = (
-            True if position_dict["is_closed_position"].lower() == "true" else False
-        )
-        return Position(**position_dict)
+    def __str__(self):
+        return self.to_json_string()
+
+    def to_json_string(self) -> str:
+        # Using pydantic's json method with built-in validation
+        json_str = self.json()
+        # Unfortunately, we can't tell pydantic v1 to strip certain fields so we do that here
+        json_loaded = json.loads(json_str)
+        json_compressed = self._strip_trade_pair_from_orders(json_loaded)
+        return json.dumps(json_compressed)
+
+    @classmethod
+    def from_dict(cls, position_dict):
+        # Assuming 'orders' and 'trade_pair' need to be parsed from dict representations
+        # Adjust as necessary based on the actual structure and types of Order and TradePair
+        if 'orders' in position_dict:
+            position_dict['orders'] = [Order.parse_obj(order) for order in position_dict['orders']]
+        if 'trade_pair' in position_dict and isinstance(position_dict['trade_pair'], dict):
+            # This line assumes TradePair can be initialized directly from a dict or has a similar parsing method
+            position_dict['trade_pair'] = TradePair.from_trade_pair_id(position_dict['trade_pair']['trade_pair_id'])
+
+        # Convert is_closed_position to bool if necessary
+        # (assuming this conversion logic is no longer needed if input is properly formatted for Pydantic)
+
+        return cls(**position_dict)
 
     @staticmethod
     def _position_log(message):

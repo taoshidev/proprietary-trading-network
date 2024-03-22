@@ -166,17 +166,20 @@ class PositionManager(CacheController):
                     return False, f"{attr} is different. {value1} != {value2}"
         return True, ""
 
-    def get_miner_position_from_disk(self, file) -> str | List[Position]:
+    def get_miner_position_from_disk(self, file) -> Position:
         # wrapping here to allow simpler error handling & original for other error handling
         # Note one position always corresponds to one file.
         try:
-            ans = ValiBkpUtils.get_file(file, True)
+            file_string = ValiBkpUtils.get_file(file)
+            ans = Position.parse_raw(file_string)
             #bt.logging.info(f"vali_utils get_miner_position: {ans}")
             return ans
         except FileNotFoundError:
             raise ValiFileMissingException("Vali position file is missing")
         except UnpicklingError:
             raise ValiBkpCorruptDataException("position data is not pickled")
+        except UnicodeDecodeError as e:
+            raise ValiBkpCorruptDataException(f" Error {e} You may be running an old version of the software. Confirm with the team if you should delete your cache.")
 
     def get_recently_updated_miner_hotkeys(self):
         # Define the path to the directory containing the directories to check
@@ -234,7 +237,7 @@ class PositionManager(CacheController):
                                                                      position.trade_pair.trade_pair_id,
                                                                      order_status=order_status,
                                                                      running_unit_tests=self.running_unit_tests)
-        ValiBkpUtils.write_file(miner_dir + position.position_uuid, position, True)
+        ValiBkpUtils.write_file(miner_dir + position.position_uuid, position)
 
     def clear_all_miner_positions_from_disk(self):
         # Clear all files and directories in the directory specified by dir

@@ -4,49 +4,46 @@
 from dataclasses import dataclass
 
 from vali_config import TradePair
+from pydantic import validator
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.vali_dataclasses.signal import Signal
 from enum import Enum, auto
 
 class Order(Signal):
-    def __init__(self, order_type: OrderType, leverage: float, price: float, trade_pair: TradePair, processed_ms: int, order_uuid: str):
-        if price < 0:
-            raise ValueError(f"Price must be greater than 0. Leverage provided - [{price}]")
+    price: float
+    processed_ms: int
+    order_uuid: str
 
-        if processed_ms < 0:
-            raise ValueError(f"processed_ms must be greater than 0. Leverage provided - [{processed_ms}]")
+    @validator('price', 'processed_ms', 'leverage', pre=True, each_item=False)
+    def validate_values(cls, v, values, field):
+        if field.name == 'price' and v < 0:
+            raise ValueError("Price must be greater than 0")
+        if field.name == 'processed_ms' and v < 0:
+            raise ValueError("processed_ms must be greater than 0")
+        if field.name == 'leverage':
+            order_type = values.get('order_type')
+            if order_type == OrderType.LONG and v < 0:
+                raise ValueError("Leverage must be positive for LONG orders.")
+        return v
 
-        if not isinstance(order_type, OrderType):
-            raise ValueError(f"Order type value received is not of type trade pair [{order_type}].")
-
-        if order_type == OrderType.LONG and leverage < 0:
-            raise ValueError("Leverage must be positive for LONG orders.")
-
-        if not isinstance(trade_pair, TradePair):
-            raise ValueError(f"Trade pair value received is not of type trade pair [{trade_pair}].")
-
-        # super init
-        super().__init__(trade_pair=trade_pair,
-                         order_type=order_type,
-                         leverage=-1.0 * abs(leverage) if order_type == OrderType.SHORT else float(leverage))
-        self.price = price
-        self.processed_ms = processed_ms
-        self.order_uuid = order_uuid
+    # Using Pydantic's constructor instead of a custom from_dict method
+    @classmethod
+    def from_dict(cls, order_dict):
+        # This method is now simplified as Pydantic can automatically
+        # handle the conversion from dict to model instance
+        return cls(**order_dict)
 
     def __str__(self):
-        return str({'trade_pair': str(self.trade_pair.trade_pair_id), 'order_type': str(self.order_type), 'leverage': self.leverage,
-                'price': self.price, 'processed_ms': self.processed_ms, 'order_uuid': self.order_uuid})
+        # Ensuring the `trade_pair.trade_pair_id` is accessible for the string representation
+        # This assumes that trade_pair_id is a valid attribute of trade_pair
+        trade_pair_id = self.trade_pair.trade_pair_id if hasattr(self.trade_pair, 'trade_pair_id') else 'unknown'
+        return str({'trade_pair': trade_pair_id,
+                    'order_type': self.order_type.name,
+                    'leverage': self.leverage,
+                    'price': self.price,
+                    'processed_ms': self.processed_ms,
+                    'order_uuid': self.order_uuid})
 
-    @staticmethod
-    def from_dict(order_dict):
-        return Order(
-                OrderType.from_string(order_dict["order_type"]),
-                order_dict["leverage"],
-                order_dict["price"],
-                TradePair.from_trade_pair_id(order_dict["trade_pair"]["trade_pair_id"]),
-                order_dict["processed_ms"],
-                order_dict["order_uuid"],
-            )
 class OrderStatus(Enum):
     OPEN = auto()
     CLOSED = auto()
