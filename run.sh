@@ -208,7 +208,7 @@ if [ "$?" -eq 1 ]; then
         # First ensure that this is a git installation
         if [ -d "./.git" ]; then
             # check value on github remotely
-            latest_version=$(check_variable_value_on_github "taoshidev/prop-net" $version_location $version)
+            latest_version=$(check_variable_value_on_github "taoshidev/proprietary-trading-network" $version_location $version)
 
             # Wait until the variable is not empty
             while [ -z "$latest_version" ]; do
@@ -260,7 +260,7 @@ if [ "$?" -eq 1 ]; then
                 fi
             fi
         else
-            echo "The installation does not appear to be done through Git. Please install from source at https://github.com/taoshidev/prop-net and rerun this script."
+            echo "The installation does not appear to be done through Git. Please install from source at https://github.com/taoshidev/proprietary-trading-network and rerun this script."
         fi
         # Check if the process is running if something went sideways
         if pm2 list | grep -q "$proc_name"; then
