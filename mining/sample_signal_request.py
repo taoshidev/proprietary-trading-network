@@ -32,8 +32,8 @@ if __name__ == "__main__":
 
     # Define the JSON data to be sent in the request
     data = {
-        'trade_pair': TradePair.BTCUSD,
-        'order_type': OrderType.LONG,
+        'trade_pair': TradePair.ETHUSD,
+        'order_type': OrderType.FLAT,
         'leverage': 1.0,
         'api_key': 'xxxx'
     }
