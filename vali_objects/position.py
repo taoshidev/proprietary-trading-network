@@ -172,9 +172,11 @@ class Position(BaseModel):
         self.close_out_position(time_ms)
 
     def set_returns(self, realtime_price, net_leverage, time_ms=None):
+        # We used to multiple trade_pair.fees by net_leverage. Eventually we will
+        # Update this calculation to approximate actual exchange fees.
         self.current_return = self.calculate_unrealized_pnl(realtime_price)
         self.return_at_close = self.current_return * (
-            1 - self.trade_pair.fees * abs(net_leverage)
+            1 - self.trade_pair.fees
         )
 
         if self.current_return < 0:
