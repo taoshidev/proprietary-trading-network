@@ -45,12 +45,21 @@ class PositionInspector:
         corresponding_positions = []
         corresponding_hotkey = None
         for hotkey, positions in hotkey_to_positions.items():
+            hotkey_total_portfolio_leverage = 0
             for position in positions:
                 orders_count[hotkey] += len(position['orders'])
+                hotkey_total_portfolio_leverage += abs(position['net_leverage'])
+
+            if hotkey_total_portfolio_leverage >= 10:
+                bt.logging.warning(
+                    f"Validator {hotkey} has a total portfolio leverage of {hotkey_total_portfolio_leverage}. "
+                    f"High leverage comes with high fees which greatly increase your draw down.")
+
             if orders_count[hotkey] > max_order_count:
                 max_order_count = orders_count[hotkey]
                 corresponding_positions = positions
                 corresponding_hotkey = hotkey
+
 
         unique_counts = set(orders_count.values())
 
@@ -62,6 +71,7 @@ class PositionInspector:
                                    f"Validators may be mis-synced.")
                 for i, position in enumerate(hotkey_to_positions[hotkey]):
                     bt.logging.warning(f"Position {i}: {position}")
+
 
         # Return the position in hotkey_to_positions that has the most orders
         bt.logging.info(f"Validator with the most orders: {corresponding_hotkey}, n_orders: {max_order_count}, v_trust:"

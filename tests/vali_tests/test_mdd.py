@@ -241,6 +241,53 @@ class TestMDDChecker(TestBase):
         self.verify_elimination_data_in_memory_and_disk([])
         self.verify_positions_on_disk([relevant_position], assert_all_open=True)
 
+
+    def test_no_mdd_failures_high_leverage_one_order(self):
+        self.verify_elimination_data_in_memory_and_disk([])
+        position_btc = self.trade_pair_to_default_position[TradePair.BTCUSD]
+        live_btc_price = self.tds.get_close(trade_pair=TradePair.BTCUSD)[TradePair.BTCUSD]
+        o1 = Order(order_type=OrderType.LONG,
+                leverage=20.0,
+                price=live_btc_price *1.001, # Down 0.1%
+                trade_pair=TradePair.BTCUSD,
+                processed_ms=1000,
+                order_uuid="1000")
+
+
+        self.mdd_checker.mdd_check()
+        # Running mdd_check with no positions should not cause any eliminations but it should write an empty list to disk
+        self.verify_elimination_data_in_memory_and_disk([])
+
+        self.add_order_to_position_and_save_to_disk(position_btc, o1)
+        self.mdd_checker.mdd_check()
+        self.assertEqual(position_btc.is_closed_position, False)
+        self.verify_elimination_data_in_memory_and_disk([])
+        self.verify_positions_on_disk([position_btc], assert_all_open=True)
+
+        btc_position_from_disk = self.position_manager.get_all_miner_positions(self.MINER_HOTKEY, only_open_positions=False)[0]
+        print("Position return on BTC after mdd_check:", btc_position_from_disk.current_return)
+        print("Max MDD for closed positions:", self.mdd_checker.portfolio_max_dd_closed_positions)
+        print("Max MDD for all positions:", self.mdd_checker.portfolio_max_dd_all_positions)
+
+
+        print("Adding ETH position")
+        position_eth = self.trade_pair_to_default_position[TradePair.ETHUSD]
+        live_eth_price = self.tds.get_close(trade_pair=TradePair.ETHUSD)[TradePair.ETHUSD]
+        o2 = Order(order_type=OrderType.LONG,
+                   leverage=20.0,
+                   price=live_eth_price * 1.001,  # Down 0.1%
+                   trade_pair=TradePair.ETHUSD,
+                   processed_ms=2000,
+                   order_uuid="2000")
+        self.add_order_to_position_and_save_to_disk(position_eth, o2)
+        self.mdd_checker.mdd_check()
+        positions_from_disk = self.position_manager.get_all_miner_positions(self.MINER_HOTKEY, only_open_positions=False)
+        for p in positions_from_disk:
+            print('individual position return', p.trade_pair, p.current_return)
+        print("Max MDD for closed positions:", self.mdd_checker.portfolio_max_dd_closed_positions)
+        print("Max MDD for all position:", self.mdd_checker.portfolio_max_dd_all_positions)
+
+
 if __name__ == '__main__':
     import unittest
     unittest.main()
