@@ -7,6 +7,7 @@ import os
 import shutil
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from copy import deepcopy
 
 import bittensor as bt
 from miner_config import MinerConfig
@@ -98,7 +99,8 @@ class PropNetOrderPlacer:
             retry_status[signal_file_path]['retry_delay_seconds'] *= 2  # Double the delay for the next attempt
 
         send_signal_request = SendSignal(signal=signal_data)
-        validator_responses = self.dendrite.query(retry_status[signal_file_path]['validators_needing_retry'],
+        dendrite_copy = deepcopy(self.dendrite)  # So that we can query in parallel across multiple threads
+        validator_responses = dendrite_copy.query(retry_status[signal_file_path]['validators_needing_retry'],
                                                   send_signal_request, deserialize=True)
 
         # Filtering validators for the next retry based on the current response.
