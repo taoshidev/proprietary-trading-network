@@ -132,7 +132,7 @@ class ValiConfig:
     MAX_TOTAL_DRAWDOWN = 0.9  # Portfolio should never fall below .90 x of initial value when measured at any instant
     MAX_OPEN_ORDERS_PER_HOTKEY = 200
 
-    SET_WEIGHT_REFRESH_TIME_MS = 60 * 30 * 1000  # 30 minutes
+    SET_WEIGHT_REFRESH_TIME_MS = 60 * 5 * 1000  # 5 minutes
     SET_WEIGHT_LOOKBACK_RANGE_DAYS = 30
     SET_WEIGHT_LOOKBACK_RANGE_MS = SET_WEIGHT_LOOKBACK_RANGE_DAYS * 24 * 60 * 60 * 1000
 
