@@ -57,7 +57,7 @@ class EliminationManager(CacheController):
             hotkey = x['hotkey']
             elimination_initiated_time_ms = x['elimination_initiated_time_ms']
             # Don't delete this miner until it hits the minimum elimination time.
-            if TimeUtil.now_in_millis() - elimination_initiated_time_ms < ValiConfig.ELIMINATION_FILE_DELETION_DELAY_MS
+            if TimeUtil.now_in_millis() - elimination_initiated_time_ms < ValiConfig.ELIMINATION_FILE_DELETION_DELAY_MS:
                 continue
             # We will not delete this miner's cache until it has been deregistered by BT
             if hotkey in self.metagraph.hotkeys:
