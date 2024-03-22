@@ -10,11 +10,15 @@ from vali_objects.scoring.scoring import Scoring
 from shared_objects.cache_controller import CacheController
 from vali_objects.utils.position_manager import PositionManager
 
+
 class SubtensorWeightSetter(CacheController):
     def __init__(self, config, wallet, metagraph, running_unit_tests=False):
         super().__init__(config, metagraph, running_unit_tests=running_unit_tests)
-        self.position_manager = PositionManager(metagraph=metagraph, running_unit_tests=running_unit_tests)
+        self.position_manager = PositionManager(
+            metagraph=metagraph, running_unit_tests=running_unit_tests
+        )
         self.wallet = wallet
+        self.subnet_version = "2.0.0"
 
     def set_weights(self):
         if not self.refresh_allowed(ValiConfig.SET_WEIGHT_REFRESH_TIME_MS):
@@ -30,7 +34,9 @@ class SubtensorWeightSetter(CacheController):
         else:
             bt.logging.info("calculating new subtensor weights...")
             filtered_results = Scoring.filter_results(return_per_netuid)
-            scaled_transformed_list = Scoring.transform_and_scale_results(filtered_results)
+            scaled_transformed_list = Scoring.transform_and_scale_results(
+                filtered_results
+            )
             self._set_subtensor_weights(scaled_transformed_list)
         self.set_last_update_time()
 
@@ -44,7 +50,9 @@ class SubtensorWeightSetter(CacheController):
             sort_positions=True,
             eliminations=self.eliminations,
             acceptable_position_end_ms=TimeUtil.timestamp_to_millis(
-                TimeUtil.generate_start_timestamp(ValiConfig.SET_WEIGHT_LOOKBACK_RANGE_DAYS)
+                TimeUtil.generate_start_timestamp(
+                    ValiConfig.SET_WEIGHT_LOOKBACK_RANGE_DAYS
+                )
             ),
         )
 
@@ -56,27 +64,29 @@ class SubtensorWeightSetter(CacheController):
                 continue
 
             # compute the autmented returns for internal calculation
-            per_position_return = self.position_manager.get_return_per_closed_position_augmented(
-                positions,
-                evaluation_time_ms=current_time
+            per_position_return = (
+                self.position_manager.get_return_per_closed_position_augmented(
+                    positions, evaluation_time_ms=current_time
+                )
             )
-            
+
             last_positional_return = per_position_return[-1]
             netuid_returns.append(last_positional_return)
             netuid = self.metagraph.hotkeys.index(hotkey)
             return_per_netuid[netuid] = last_positional_return
 
         return return_per_netuid
-    
+
     def _set_subtensor_weights(self, filtered_results: list[tuple[str, float]]):
-        filtered_netuids = [ x[0] for x in filtered_results ]
-        scaled_transformed_list = [ x[1] for x in filtered_results ]
+        filtered_netuids = [x[0] for x in filtered_results]
+        scaled_transformed_list = [x[1] for x in filtered_results]
 
         success, err_msg = self.subtensor.set_weights(
             netuid=self.config.netuid,
             wallet=self.wallet,
             uids=filtered_netuids,
             weights=scaled_transformed_list,
+            version_key=self.subnet_version,
         )
 
         if success:
