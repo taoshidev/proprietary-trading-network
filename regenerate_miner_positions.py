@@ -21,7 +21,7 @@ def get_file(f):
 
 def regenerate_miner_positions():
     position_manager = PositionManager()
-    miner_positions = "validation/outputs/output.json"#"miner_positions.json"
+    miner_positions = "miner_positions.json"
     data = get_file(miner_positions)
     if data is None:
         logger.warning(f"necessary file doesn't exist [{miner_positions}]")
