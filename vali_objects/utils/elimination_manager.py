@@ -2,6 +2,7 @@
 # Copyright © 2024 Taoshi Inc
 import shutil
 
+from time_util.time_util import TimeUtil
 from vali_config import ValiConfig
 from shared_objects.cache_controller import CacheController
 from vali_objects.utils.position_manager import PositionManager
@@ -56,13 +57,13 @@ class EliminationManager(CacheController):
             hotkey = x['hotkey']
             elimination_initiated_time_ms = x['elimination_initiated_time_ms']
             # Don't delete this miner until it hits the minimum elimination time.
-            if self.refresh_allowed(ValiConfig.ELIMINATION_FILE_DELETION_DELAY_MS):
+            if TimeUtil.now_in_millis() - elimination_initiated_time_ms < ValiConfig.ELIMINATION_FILE_DELETION_DELAY_MS
                 continue
             # We will not delete this miner's cache until it has been deregistered by BT
             if hotkey in self.metagraph.hotkeys:
                 bt.logging.info(f"miner [{hotkey}] has not been deregistered by BT yet. Not deleting miner dir.")
                 continue
-            miner_dir = ValiBkpUtils.get_miner_dir()
+            miner_dir = ValiBkpUtils.get_miner_dir() + hotkey
             try:
                 shutil.rmtree(miner_dir)
                 bt.logging.info(
