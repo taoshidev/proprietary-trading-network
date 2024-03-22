@@ -18,7 +18,7 @@ class SubtensorWeightSetter(CacheController):
             metagraph=metagraph, running_unit_tests=running_unit_tests
         )
         self.wallet = wallet
-        self.subnet_version = "2.0.0"
+        self.subnet_version = 200
 
     def set_weights(self):
         if not self.refresh_allowed(ValiConfig.SET_WEIGHT_REFRESH_TIME_MS):
