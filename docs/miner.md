@@ -59,6 +59,20 @@ Change directory
 cd proprietary-trading-network
 ```
 
+Create `/mining/miner_secrets.json` and replace xxxx with your API key
+
+```json
+{
+	"api_key": "xxxx"
+}
+```
+
+Change directory back to the root of the project
+
+```bash
+cd ..
+```
+
 Create Virtual Environment
 
 ```bash
