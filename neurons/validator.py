@@ -228,6 +228,7 @@ class Validator:
             # In case of unforeseen errors, the miner will log the error and continue operations.
             except Exception:
                 bt.logging.error(traceback.format_exc())
+                break
 
     def convert_signal_to_order(self, signal, hotkey) -> Order:
         """
