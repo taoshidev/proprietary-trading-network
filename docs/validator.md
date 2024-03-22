@@ -19,7 +19,7 @@ Before attempting to register on mainnet, we strongly recommend that you run a v
 | Environment | Netuid |
 | ----------- | -----: |
 | Mainnet     |      8 |
-| Testnet     |      3 |
+| Testnet     |    116 |
 
 Your incentive mechanisms running on the mainnet are open to anyone. They emit real TAO. Creating these mechanisms incur a lock_cost in TAO.
 
@@ -142,7 +142,7 @@ To check your validator on the testnet add the `--subtensor.network test` flag
 The above command will display the below:
 
 ```bash
-Subnet: 8 # or 3 on testnet
+Subnet: 8 # or 116 on testnet
 COLDKEY    HOTKEY   UID  ACTIVE  STAKE(τ)     RANK    TRUST  CONSENSUS  INCENTIVE  DIVIDENDS  EMISSION(ρ)   VTRUST  VPERMIT  UPDATED  AXON  HOTKEY_SS58
 validator  default  197    True   0.00000  0.00000  0.00000    0.00000    0.00000    0.00000            0  0.00000                56  none  5GKkQKmDLfsKaumnkD479RBoD5CsbN2yRbMpY88J8YeC5DT4
 1          1        1            τ0.00000  0.00000  0.00000    0.00000    0.00000    0.00000           ρ0  0.00000
@@ -163,7 +163,7 @@ To run a validator, follow these steps:
 
 ```json
 {
-	"twelvedata_apikey": "YOUR_API_KEY_HERE"
+  "twelvedata_apikey": "YOUR_API_KEY_HERE"
 }
 ```
 
@@ -190,7 +190,7 @@ python neurons/validator.py --netuid 8 --wallet.name <wallet> --wallet.hotkey <h
 
 ```
 
-To run your validator on the testnet add the `--subtensor.network test` flag and `--netuid 3` flag.
+To run your validator on the testnet add the `--subtensor.network test` flag and `--netuid 116` flag.
 
 You can also run your script in the background. Logs are stored in `nohup.out`.
 
@@ -198,7 +198,7 @@ You can also run your script in the background. Logs are stored in `nohup.out`.
 nohup python neurons/validator.py --netuid 8 --wallet.name <wallet> --wallet.hotkey <hotkey> &
 ```
 
-To run your validator on the testnet add the `--subtensor.network test` flag and `--netuid 3` flag.
+To run your validator on the testnet add the `--subtensor.network test` flag and `--netuid 116` flag.
 
 ## 7. Get emissions flowing
 
@@ -224,10 +224,10 @@ To stop your validator, press CTRL + C in the terminal where the validator is ru
 
 # Testing
 
-You can begin testing PTN on the testnet with netuid 3. You can do this by using running:
+You can begin testing PTN on the testnet with netuid 116. You can do this by using running:
 
 ```bash
-python neurons/validator.py --netuid 3 --subtensor.network test --wallet.name miner --wallet.hotkey default --logging.debug
+python neurons/validator.py --netuid 116 --subtensor.network test --wallet.name miner --wallet.hotkey default --logging.debug
 ```
 
 This will have the validator run and test against historical data instead of live. Don't use this flag if you only want to test against live data.

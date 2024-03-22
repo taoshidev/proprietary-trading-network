@@ -22,7 +22,7 @@ Before attempting to register on mainnet, we strongly recommend that you run a v
 | Environment | Netuid |
 | ----------- | -----: |
 | Mainnet     |      8 |
-| Testnet     |      3 |
+| Testnet     |    116 |
 
 Your incentive mechanisms running on the mainnet are open to anyone. They emit real TAO. Creating these mechanisms incur a lock_cost in TAO.
 
@@ -146,7 +146,7 @@ To check your miner on the testnet add the `--subtensor.network test` flag
 The above command will display the below:
 
 ```bash
-Subnet: 8 # or 3 on testnet
+Subnet: 8 # or 116 on testnet
 COLDKEY  HOTKEY   UID  ACTIVE  STAKE(τ)     RANK    TRUST  CONSENSUS  INCENTIVE  DIVIDENDS  EMISSION(ρ)   VTRUST  VPERMIT  UPDATED  AXON  HOTKEY_SS58
 miner    default  196    True   0.00000  0.00000  0.00000    0.00000    0.00000    0.00000            0  0.00000        *      134  none  5HRPpSSMD3TKkmgxfF7Bfu67sZRefUMNAcDofqRMb4zpU4S6
 1        1        1            τ0.00000  0.00000  0.00000    0.00000    0.00000    0.00000           ρ0  0.00000
@@ -161,7 +161,7 @@ Run the subnet miner:
 python neurons/miner.py --netuid 8  --wallet.name miner --wallet.hotkey default --logging.debug
 ```
 
-To run your miner on the testnet add the `--subtensor.network test` flag and `--netuid 3` flag.
+To run your miner on the testnet add the `--subtensor.network test` flag and `--netuid 116` flag.
 
 You will see the below terminal output:
 
@@ -200,7 +200,7 @@ You can pass a different port for the 2nd registered miner.
 You can run the second miner using the following example command:
 
 ```bash
-python neurons/miner.py --netuid 3 --subtensor.network test --wallet.name miner2 --wallet.hotkey default --logging.debug --axon.port 8095
+python neurons/miner.py --netuid 116 --subtensor.network test --wallet.name miner2 --wallet.hotkey default --logging.debug --axon.port 8095
 ```
 
 # Issues?
