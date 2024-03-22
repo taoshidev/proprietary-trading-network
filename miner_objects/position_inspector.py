@@ -60,7 +60,8 @@ class PositionInspector:
                 axon_info = hotkey_to_validator[hotkey]
                 bt.logging.warning(f"Validator {hotkey} has {count} orders with v_trust {hotkey_to_v_trust[hotkey]}, axon: {axon_info}. "
                                    f"Validators may be mis-synced.")
-                bt.logging.warning(f"Validator {hotkey} has these positions {hotkey_to_positions[hotkey]}.")
+                for i, position in enumerate(hotkey_to_positions[hotkey]):
+                    bt.logging.warning(f"Position {i}: {position}")
 
         # Return the position in hotkey_to_positions that has the most orders
         bt.logging.info(f"Validator with the most orders: {corresponding_hotkey}, n_orders: {max_order_count}, v_trust:"

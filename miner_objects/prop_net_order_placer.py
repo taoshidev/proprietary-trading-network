@@ -125,7 +125,7 @@ class PropNetOrderPlacer:
         # Logging detailed status including the retry attempt, successful responses, and total validators count
         bt.logging.info(
             f"Attempt {retry_status[signal_file_path]['retry_attempts'] + 1}: Signal file {signal_file_path} was successfully processed by"
-            f" {total_n_validators_this_round - n_fails}/{total_n_validators_this_round} validators.")
+            f" {total_n_validators_this_round - n_fails}/{total_n_validators_this_round} possible validators.")
 
         retry_status[signal_file_path]['retry_attempts'] += 1  # Update the retry attempt count for this signal file
 
