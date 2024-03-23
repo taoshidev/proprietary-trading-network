@@ -1,7 +1,10 @@
 # Regenerating Validator State
 
-If your validator goes down and you fall out of consensus due to missing orders/positions, 
-you can always regenerate state following this script.
+If 
+1. You are running a validator for the first time
+2. Your validator experiences unexpected downtime.
+
+You will need to synchronize your validator's positions using these steps to stay in consensus. Otherwise your missing orders/positions will lead your validator to have low v_trust.
 
 ## Purpose
 
