@@ -200,6 +200,12 @@ nohup python neurons/validator.py --netuid 8 --wallet.name <wallet> --wallet.hot
 
 To run your validator on the testnet add the `--subtensor.network test` flag and `--netuid 116` flag.
 
+### Synchronizing your validator
+
+Once you confirmed that your validator is able to run, you will want to stop it to perform the manual synchronizatioin procedure. This procedure should be used when your validator is starting for the first time or experiences unexpected downtime. After the procedure is complete, your validator will have the most update to date miner positions and will be able to maintain a high trust score.
+
+ Please follow the steps here for performing the synchronization: https://github.com/taoshidev/proprietary-trading-network/blob/main/docs/regenerating_validator_state.md
+
 ## 7. Get emissions flowing
 
 Register to the root network using the `btcli`:
