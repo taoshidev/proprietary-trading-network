@@ -44,7 +44,7 @@ class PositionManager(CacheController):
         t0 = None
         closed_position_returns = []
         for position in positions:
-            if not position.is_closed_position:
+            if position.is_open_position:
                 continue
             elif t0 and position.close_ms < t0:
                 raise ValueError("Positions must be sorted by close time for this calculation to work.")
@@ -71,7 +71,7 @@ class PositionManager(CacheController):
         t0 = None
         closed_position_returns = []
         for position in positions:
-            if not position.is_closed_position:
+            if position.is_open_position:
                 continue
             elif t0 and position.close_ms < t0:
                 raise ValueError("Positions must be sorted by close time for this calculation to work.")
@@ -109,9 +109,8 @@ class PositionManager(CacheController):
                                 acceptable_position_end_ms: int = None
                                 ) -> List[Position]:
         def _sort_by_close_ms(_position):
-            # Treat None values as largest possible value
             return (
-                _position.close_ms if _position.close_ms is not None else float("inf")
+                _position.close_ms if _position.is_closed_position else float("inf")
             )
 
         miner_dir = ValiBkpUtils.get_miner_all_positions_dir(miner_hotkey, running_unit_tests=self.running_unit_tests)
@@ -130,7 +129,7 @@ class PositionManager(CacheController):
 
         if only_open_positions:
             positions = [
-                position for position in positions if position.close_ms is None
+                position for position in positions if position.is_open_position
             ]
 
         if sort_positions:
@@ -151,33 +150,35 @@ class PositionManager(CacheController):
     def positions_are_the_same(position1: Position, position2: Position | dict) -> (bool, str):
         # Iterate through all the attributes of position1 and compare them to position2.
         # Get attributes programmatically.
+        comparing_to_dict = isinstance(position2, dict)
         for attr in dir(position1):
-            if not attr.startswith("_") and not callable(getattr(position1, attr)):
-                value1 = getattr(position1, attr)
+            attr_is_property = isinstance(getattr(type(position1), attr, None), property)
+            if attr.startswith("_") or callable(getattr(position1, attr)) or (comparing_to_dict and attr_is_property):
+                continue
 
-                # Check if position2 is a dict and access the value accordingly.
-                if isinstance(position2, dict):
-                    # Use .get() to avoid KeyError if the attribute is missing in the dictionary.
-                    value2 = position2.get(attr)
-                else:
-                    value2 = getattr(position2, attr, None)
+            value1 = getattr(position1, attr)
+            # Check if position2 is a dict and access the value accordingly.
+            if comparing_to_dict:
+                # Use .get() to avoid KeyError if the attribute is missing in the dictionary.
+                value2 = position2.get(attr)
+            else:
+                value2 = getattr(position2, attr, None)
 
-                if value1 != value2:
-                    return False, f"{attr} is different. {value1} != {value2}"
+            if value1 != value2:
+                return False, f"{attr} is different. {value1} != {value2}"
         return True, ""
 
     def get_miner_position_from_disk_using_position_in_memory(self, memory_position: Position) -> Position:
         # Position could have changed to closed
-        is_open = not memory_position.is_closed_position
         fp = self.get_filepath_for_position(hotkey=memory_position.miner_hotkey,
                                             trade_pair_id=memory_position.trade_pair.trade_pair_id,
                                             position_uuid=memory_position.position_uuid,
-                                            is_open=is_open)
+                                            is_open=memory_position.is_open_position)
         try:
             return self.get_miner_position_from_disk(fp)
         except Exception as e:
             bt.logging.info(f"Error getting position from disk: {e}")
-            if is_open:
+            if memory_position.is_open_position:
                 bt.logging.warning(f"Attempting to get closed position from disk for memory position {memory_position}")
                 fp = self.get_filepath_for_position(hotkey=memory_position.miner_hotkey,
                                                     trade_pair_id=memory_position.trade_pair.trade_pair_id,
@@ -249,16 +250,32 @@ class PositionManager(CacheController):
         if open_position:
             self.delete_position_from_disk(open_position.miner_hotkey, open_position.trade_pair.trade_pair_id,
                                            open_position.position_uuid, True)
+
+    def verify_open_position_write(self, miner_dir, updated_position):
+        all_files = ValiBkpUtils.get_all_files_in_dir(miner_dir)
+        # Print all files found for dir
+        positions = [self.get_miner_position_from_disk(file) for file in all_files]
+        if len(positions) == 0:
+            return  # First time open position is being saved
+        if len(positions) > 1:
+            raise ValiRecordsMisalignmentException(f"More than one open position for miner {updated_position.miner_hotkey} and trade_pair."
+                                                   f" {updated_position.trade_pair.trade_pair_id}. Please restore cache. Positions: {positions}")
+        elif len(positions) == 1:
+            if positions[0].position_uuid != updated_position.position_uuid:
+                raise ValiRecordsMisalignmentException(f"Open position for miner {updated_position.miner_hotkey} and trade_pair."
+                                                       f" {updated_position.trade_pair.trade_pair_id} does not match the updated position."
+                                                       f" Please restore cache. Position: {positions[0]} Updated position: {updated_position}")
+
     def save_miner_position_to_disk(self, position: Position) -> None:
-        if position.is_closed_position:
-            order_status = OrderStatus.CLOSED
-            self.delete_open_position_if_exists(position)
-        else:
-            order_status = OrderStatus.OPEN
         miner_dir = ValiBkpUtils.get_partitioned_miner_positions_dir(position.miner_hotkey,
                                                                      position.trade_pair.trade_pair_id,
-                                                                     order_status=order_status,
+                                                                     order_status=OrderStatus.OPEN if position.is_open_position else OrderStatus.CLOSED,
                                                                      running_unit_tests=self.running_unit_tests)
+        if position.is_closed_position:
+            self.delete_open_position_if_exists(position)
+        else:
+            self.verify_open_position_write(miner_dir, position)
+
         ValiBkpUtils.write_file(miner_dir + position.position_uuid, position)
 
     def clear_all_miner_positions_from_disk(self):
@@ -278,7 +295,8 @@ class PositionManager(CacheController):
         # Print all files found for dir
         positions = [self.get_miner_position_from_disk(file) for file in all_files]
         if len(positions) > 1:
-            raise ValiRecordsMisalignmentException(f"More than one open position for miner {hotkey} and trade_pair {trade_pair_id}")
+            raise ValiRecordsMisalignmentException(f"More than one open position for miner {hotkey} and trade_pair."
+                                                   f" {trade_pair_id}. Please restore cache. Positions: {positions}")
         return positions[0] if len(positions) == 1 else None
 
     def get_filepath_for_position(self, hotkey, trade_pair_id, position_uuid, is_open):

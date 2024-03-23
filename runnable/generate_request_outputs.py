@@ -79,7 +79,7 @@ def generate_request_outputs():
 
             for p in ps:
                 if eliminations is not None and k in eliminations:
-                    if p.is_closed_position is False:
+                    if p.is_open_position:
                         logger.warning(
                             "position was not closed. Will check last order and "
                             "see if its closed. If not, will note and add."

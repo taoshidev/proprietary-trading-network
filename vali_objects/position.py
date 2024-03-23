@@ -70,6 +70,10 @@ class Position(BaseModel):
         d = deepcopy(self.dict())
         return self._strip_trade_pair_from_orders(d)
 
+    @property
+    def is_open_position(self):
+        return not self.is_closed_position
+
     def __str__(self):
         return self.to_json_string()
 
