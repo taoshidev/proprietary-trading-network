@@ -31,3 +31,8 @@ should be all of the positions and orders downloaded from the dashboard from
 the `miner_positions.json` file
 
 8. Start your pm2 processes again, `pm2 start sn8` and `pm2 start ptn`
+
+
+## Future Improvements
+
+As we gather feedback, we may make adjustments to this process to make it more automated. Please let us know if you run into any issues.
