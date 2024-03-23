@@ -122,7 +122,7 @@ class MDDChecker(CacheController):
 
             # Log return before calling set_returns
             #bt.logging.info(f"current return with fees for open position with trade pair[{open_position.trade_pair.trade_pair_id}] is [{open_position.return_at_close}]. Position: {position}")
-            if not position.is_closed_position:
+            if position.is_open_position:
                 position.set_returns(realtime_price, open_position.get_net_leverage())
                 self.position_manager.save_miner_position_to_disk(position)
             #bt.logging.info(f"updated return with fees for open position with trade pair[{open_position.trade_pair.trade_pair_id}] is [{position.return_at_close}]. position: {position}")
@@ -159,7 +159,8 @@ class MDDChecker(CacheController):
         for open_position in open_positions:
             #bt.logging.info(f"current return with fees for open position with trade pair[{open_position.trade_pair.trade_pair_id}] is [{open_position.return_at_close}]")
             if open_position.trade_pair.trade_pair_id in seen_trade_pairs:
-                raise ValueError(f"Miner [{hotkey}] has multiple open positions for trade pair [{open_position.trade_pair}]. Please restore cache.")
+                debug_positions = [p for p in open_positions if p.trade_pair.trade_pair_id == open_position.trade_pair.trade_pair_id]
+                raise ValueError(f"Miner [{hotkey}] has multiple open positions for trade pair [{open_position.trade_pair}]. Please restore cache. Affected positions: {debug_positions}")
             else:
                 seen_trade_pairs.add(open_position.trade_pair.trade_pair_id)
 
