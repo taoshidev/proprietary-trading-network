@@ -4,6 +4,7 @@ import uuid
 from datetime import datetime
 import time
 
+from shared_objects.cache_controller import CacheController
 from time_util.time_util import TimeUtil
 from vali_config import ValiConfig
 from vali_objects.decoders.generalized_json_decoder import GeneralizedJSONDecoder
@@ -11,6 +12,7 @@ from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.utils.logger_utils import LoggerUtils
 from vali_objects.utils.position_manager import PositionManager
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
+from vali_objects.utils.vali_utils import ValiUtils
 from vali_objects.vali_dataclasses.order import Order
 
 
@@ -20,9 +22,21 @@ def generate_request_outputs():
         metagraph=None,
         running_unit_tests=False
     )
-    eliminations = position_manager.get_eliminations_from_disk()
+    def get_eliminations_from_disk():
+        location = ValiBkpUtils.get_eliminations_dir(running_unit_tests=False)
+        cached_eliminations = ValiUtils.get_vali_json_file(location, CacheController.ELIMINATIONS)
+        logger.info(f"Loaded [{len(cached_eliminations)}] eliminations from disk: {cached_eliminations}. Dir: {location}")
+        return cached_eliminations
+
+    def get_plagiarism_scores_from_disk():
+        location = ValiBkpUtils.get_plagiarism_scores_file_location(running_unit_tests=False)
+        ans = ValiUtils.get_vali_json_file(location)
+        logger.info(f"Loaded [{len(ans)}] plagiarism scores from disk: {ans}. Dir: {location}")
+        return ans
+    
+    eliminations = get_eliminations_from_disk()
     eliminated_hotkeys = set(x['hotkey'] for x in eliminations)
-    plagiarism = position_manager.get_plagiarism_scores_from_disk()
+    plagiarism = get_plagiarism_scores_from_disk()
 
     try:
         try:
