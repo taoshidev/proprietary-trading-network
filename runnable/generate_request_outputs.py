@@ -4,7 +4,6 @@ import uuid
 from datetime import datetime
 import time
 
-from shared_objects.cache_controller import CacheController
 from time_util.time_util import TimeUtil
 from vali_config import ValiConfig
 from vali_objects.decoders.generalized_json_decoder import GeneralizedJSONDecoder
@@ -12,9 +11,8 @@ from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.utils.logger_utils import LoggerUtils
 from vali_objects.utils.position_manager import PositionManager
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
-from vali_objects.utils.vali_utils import ValiUtils
 from vali_objects.vali_dataclasses.order import Order
-
+from vali_objects.scoring.scoring import Scoring
 
 def generate_request_outputs():
     position_manager = PositionManager(
@@ -22,21 +20,9 @@ def generate_request_outputs():
         metagraph=None,
         running_unit_tests=False
     )
-    def get_eliminations_from_disk():
-        location = ValiBkpUtils.get_eliminations_dir(running_unit_tests=False)
-        cached_eliminations = ValiUtils.get_vali_json_file(location, CacheController.ELIMINATIONS)
-        logger.info(f"Loaded [{len(cached_eliminations)}] eliminations from disk: {cached_eliminations}. Dir: {location}")
-        return cached_eliminations
-
-    def get_plagiarism_scores_from_disk():
-        location = ValiBkpUtils.get_plagiarism_scores_file_location(running_unit_tests=False)
-        ans = ValiUtils.get_vali_json_file(location)
-        logger.info(f"Loaded [{len(ans)}] plagiarism scores from disk: {ans}. Dir: {location}")
-        return ans
-    
-    eliminations = get_eliminations_from_disk()
+    eliminations = position_manager.get_eliminations_from_disk()
     eliminated_hotkeys = set(x['hotkey'] for x in eliminations)
-    plagiarism = get_plagiarism_scores_from_disk()
+    plagiarism = position_manager.get_plagiarism_scores_from_disk()
 
     try:
         try:
@@ -124,6 +110,16 @@ def generate_request_outputs():
                 dict_hotkey_position_map[k]["positions"].append(
                     json.loads(str(p), cls=GeneralizedJSONDecoder)
                 )
+                
+        miner_finalscores = {
+            k: v['thirty_day_returns_augmented']
+            for k, v in dict_hotkey_position_map.items()
+            if 'thirty_day_returns_augmented' in v
+        }
+
+        filtered_results = Scoring.filter_results(miner_finalscores)
+        filtered_miners = list(set(miner_finalscores.keys()) - set([x[0] for x in filtered_results]))
+        scaled_transformed_list = Scoring.transform_and_scale_results(filtered_results)
 
         ord_dict_hotkey_position_map = dict(
             sorted(
@@ -135,8 +131,11 @@ def generate_request_outputs():
 
         now_ms = TimeUtil.now_in_millis()
         final_dict = {
+            'version': ValiConfig.VERSION,
             'positions': ord_dict_hotkey_position_map,
+            'weights': scaled_transformed_list,
             'eliminations': eliminations,
+            'filtered': filtered_miners,
             'plagiarism': plagiarism,
             'youngest_order_processed_ms': youngest_order_processed_ms,
             'oldest_order_processed_ms': oldest_order_processed_ms,
