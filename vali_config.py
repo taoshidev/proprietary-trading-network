@@ -126,6 +126,9 @@ class TradePair(Enum):
 
 
 class ValiConfig:
+    ## versioning
+    VERSION = "2.0.0"
+
     # fees take into account exiting and entering a position, liquidity, and futures fees
     MDD_CHECK_REFRESH_TIME_MS = 15 * 1000  # 15 seconds
     MAX_DAILY_DRAWDOWN = 0.95  # Portfolio should never fall below .95 x of initial value when measured day to day

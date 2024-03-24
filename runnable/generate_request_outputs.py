@@ -1,7 +1,6 @@
 import json
 import traceback
 import uuid
-from datetime import datetime
 import time
 
 from time_util.time_util import TimeUtil
@@ -12,7 +11,7 @@ from vali_objects.utils.logger_utils import LoggerUtils
 from vali_objects.utils.position_manager import PositionManager
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.vali_dataclasses.order import Order
-
+from vali_objects.scoring.scoring import Scoring
 
 def generate_request_outputs():
     position_manager = PositionManager(
@@ -20,12 +19,10 @@ def generate_request_outputs():
         metagraph=None,
         running_unit_tests=False
     )
-    try:
-        eliminations = position_manager.get_eliminations_from_disk()
-    except Exception as e:
-        logger.warning("couldn't get eliminations file.")
-        logger.warning(e)
-        eliminations = None
+    eliminations = position_manager.get_eliminations_from_disk()
+    eliminated_hotkeys = set(x['hotkey'] for x in eliminations)
+    plagiarism = position_manager.get_plagiarism_scores_from_disk()
+
     try:
         try:
             all_miner_hotkeys:list = ValiBkpUtils.get_directories_in_dir(
@@ -50,7 +47,8 @@ def generate_request_outputs():
         )
 
         dict_hotkey_position_map = {}
-
+        youngest_order_processed_ms = float("inf")
+        oldest_order_processed_ms = 0
         for k, ps in hotkey_positions.items():
             dict_hotkey_position_map[k] = {
                 "positions": [],
@@ -78,9 +76,15 @@ def generate_request_outputs():
                 ] = curr_return_augmented
 
             for p in ps:
-                if eliminations is not None and k in eliminations:
+                youngest_order_processed_ms = min(youngest_order_processed_ms,
+                                                  min(p.orders, key=lambda o: o.processed_ms).processed_ms)
+                oldest_order_processed_ms = max(oldest_order_processed_ms,
+                                                max(p.orders, key=lambda o: o.processed_ms).processed_ms)
+
+                if k in eliminated_hotkeys:
                     if p.is_open_position:
                         logger.warning(
+                            "This should not happen anymore. Please alert the team if you see this."
                             "position was not closed. Will check last order and "
                             "see if its closed. If not, will note and add."
                         )
@@ -105,6 +109,16 @@ def generate_request_outputs():
                 dict_hotkey_position_map[k]["positions"].append(
                     json.loads(str(p), cls=GeneralizedJSONDecoder)
                 )
+                
+        miner_finalscores = {
+            k: v['thirty_day_returns_augmented']
+            for k, v in dict_hotkey_position_map.items()
+            if 'thirty_day_returns_augmented' in v
+        }
+
+        filtered_results = Scoring.filter_results(miner_finalscores)
+        filtered_miners = list(set(miner_finalscores.keys()) - set([x[0] for x in filtered_results]))
+        scaled_transformed_list = Scoring.transform_and_scale_results(filtered_results)
 
         ord_dict_hotkey_position_map = dict(
             sorted(
@@ -114,11 +128,25 @@ def generate_request_outputs():
             )
         )
 
-        ValiBkpUtils.make_dir(ValiBkpUtils.get_vali_outputs_dir())
+        now_ms = TimeUtil.now_in_millis()
+        final_dict = {
+            'version': ValiConfig.VERSION,
+            'positions': ord_dict_hotkey_position_map,
+            'weights': scaled_transformed_list,
+            'eliminations': eliminations,
+            'filtered': filtered_miners,
+            'plagiarism': plagiarism,
+            'youngest_order_processed_ms': youngest_order_processed_ms,
+            'oldest_order_processed_ms': oldest_order_processed_ms,
+            'created_timestamp_ms': now_ms,
+            'created_date': TimeUtil.millis_to_datetime(now_ms).strftime("%Y-%m-%d %H:%M:%S"),
+        }
 
+        output_file_path = ValiBkpUtils.get_vali_outputs_dir() + "validator_checkpoint.json"
+        logger.info("Writing to output_file_path:" + output_file_path)
         ValiBkpUtils.write_file(
-            ValiBkpUtils.get_vali_outputs_dir() + "output.json",
-            ord_dict_hotkey_position_map,
+            output_file_path,
+            final_dict,
         )
         logger.info("successfully outputted request output.")
     except Exception:
@@ -130,8 +158,8 @@ if __name__ == "__main__":
     logger = LoggerUtils.init_logger("generate_request_outputs")
     logger.info("generate request outputs")
     while True:
-        now = datetime.utcnow()
-        if True:
-            logger.info(f"{now}: outputting request output")
-            generate_request_outputs()
-            time.sleep(15)
+        t0 = time.time()
+        logger.info(f"Creating validator checkpoint...")
+        generate_request_outputs()
+        logger.info(f"Checkpoint created in {time.time() - t0} s")
+        time.sleep(15)
