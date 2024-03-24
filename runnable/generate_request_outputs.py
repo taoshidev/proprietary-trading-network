@@ -20,12 +20,10 @@ def generate_request_outputs():
         metagraph=None,
         running_unit_tests=False
     )
-    try:
-        eliminations = position_manager.get_eliminations_from_disk()
-    except Exception as e:
-        logger.warning("couldn't get eliminations file.")
-        logger.warning(e)
-        eliminations = None
+    eliminations = position_manager.get_eliminations_from_disk()
+    eliminated_hotkeys = set(x['hotkey'] for x in eliminations)
+    plagiarism = position_manager.get_plagiarism_scores_from_disk()
+
     try:
         try:
             all_miner_hotkeys:list = ValiBkpUtils.get_directories_in_dir(
@@ -50,7 +48,8 @@ def generate_request_outputs():
         )
 
         dict_hotkey_position_map = {}
-
+        youngest_order_processed_ms = float("inf")
+        oldest_order_processed_ms = 0
         for k, ps in hotkey_positions.items():
             dict_hotkey_position_map[k] = {
                 "positions": [],
@@ -78,9 +77,15 @@ def generate_request_outputs():
                 ] = curr_return_augmented
 
             for p in ps:
-                if eliminations is not None and k in eliminations:
+                youngest_order_processed_ms = min(youngest_order_processed_ms,
+                                                  min(p.orders, key=lambda o: o.processed_ms).processed_ms)
+                oldest_order_processed_ms = max(oldest_order_processed_ms,
+                                                max(p.orders, key=lambda o: o.processed_ms).processed_ms)
+
+                if k in eliminated_hotkeys:
                     if p.is_open_position:
                         logger.warning(
+                            "This should not happen anymore. Please alert the team if you see this."
                             "position was not closed. Will check last order and "
                             "see if its closed. If not, will note and add."
                         )
@@ -114,11 +119,22 @@ def generate_request_outputs():
             )
         )
 
-        ValiBkpUtils.make_dir(ValiBkpUtils.get_vali_outputs_dir())
+        now_ms = TimeUtil.now_in_millis()
+        final_dict = {
+            'positions': ord_dict_hotkey_position_map,
+            'eliminations': eliminations,
+            'plagiarism': plagiarism,
+            'youngest_order_processed_ms': youngest_order_processed_ms,
+            'oldest_order_processed_ms': oldest_order_processed_ms,
+            'created_timestamp_ms': now_ms,
+            'created_date': TimeUtil.millis_to_datetime(now_ms).strftime("%Y-%m-%d %H:%M:%S"),
+        }
 
+        output_file_path = ValiBkpUtils.get_vali_outputs_dir() + "validator_checkpoint.json"
+        logger.info("Writing to output_file_path:" + output_file_path)
         ValiBkpUtils.write_file(
-            ValiBkpUtils.get_vali_outputs_dir() + "output.json",
-            ord_dict_hotkey_position_map,
+            output_file_path,
+            final_dict,
         )
         logger.info("successfully outputted request output.")
     except Exception:

@@ -26,7 +26,7 @@ class ValiBkpUtils:
         return ValiConfig.BASE_DIR + f"{suffix}/validation/eliminations.json"
 
     @staticmethod
-    def get_plagiarism_scores_dir(running_unit_tests=False) -> str:
+    def get_plagiarism_scores_file_location(running_unit_tests=False) -> str:
         suffix = "/tests" if running_unit_tests else ""
         return ValiConfig.BASE_DIR + f"{suffix}/validation/plagiarism.json"
 
@@ -35,7 +35,7 @@ class ValiBkpUtils:
         return ValiConfig.BASE_DIR + f"/secrets.json"
 
     @staticmethod
-    def get_plagiarism_file():
+    def get_plagiarism_blocklist_file_location():
         return ValiConfig.BASE_DIR + f"/miner_blocklist.json"
     
     @staticmethod
@@ -44,7 +44,7 @@ class ValiBkpUtils:
 
     @staticmethod
     def get_vali_outputs_dir() -> str:
-        return ValiConfig.BASE_DIR + "/validation/outputs/"
+        return ValiConfig.BASE_DIR + "/"
 
     @staticmethod
     def get_vali_weights_dir() -> str:
