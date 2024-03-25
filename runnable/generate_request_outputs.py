@@ -148,6 +148,14 @@ def generate_request_outputs():
             output_file_path,
             final_dict,
         )
+
+        # Support for legacy output file
+        legacy_output_file_path = ValiConfig.BASE_DIR + "/validation/outputs/output.json"
+        ValiBkpUtils.write_file(
+            legacy_output_file_path,
+            ord_dict_hotkey_position_map,
+        )
+
         logger.info("successfully outputted request output.")
     except Exception:
         logger.error("error occurred trying generate request outputs.")
