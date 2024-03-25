@@ -1,5 +1,7 @@
 # Miner
 
+The goal of the miner is to make a consistently competitive trading strategy. We track the returns for each miner over the past 30 days, and use this information to build a score for them. If you have a a few great trades on the morning, you could be pushed to the top of the rankings that same day. We use a historical decay to discourage miners from sitting on a single good trade, that decay dampens prior positive returns but also dampens losses, giving miners a new chance to participate on bad returns. We then rank the miners based on their augmented historical return, and distribute emissions based on an exponential decay function, giving significant priority to the top miners. Details of both scoring functions can be found [here](https://github.com/taoshidev/proprietary-trading-network/tree/main/vali_objects/scoring). The best way to get emissions is to have a consistently great trading strategy, which makes multiple transactions each week (the more the better).
+
 On the mining side we've setup some helpful infrastructure for you to send in signals to the network. You can run `mining/run_receive_signals_server.py` which will launch a flask server.
 
 You can use this flask server to send in signals to the network. To see an example of sending a signal into the server, checkout `mining/sample_signal_request.py`.
