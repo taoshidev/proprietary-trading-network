@@ -45,19 +45,26 @@ class CacheController:
         self._last_update_time_ms = TimeUtil.now_in_millis()
 
     def _write_eliminations_from_memory_to_disk(self):
-        vali_elims = {CacheController.ELIMINATIONS: self.eliminations}
-        bt.logging.info(f"Writing [{len(self.eliminations)}] eliminations from memory to disk: {vali_elims}")
-        ValiBkpUtils.write_file(ValiBkpUtils.get_eliminations_dir(running_unit_tests=self.running_unit_tests), vali_elims)
+        self.write_eliminations_to_disk(self.eliminations)
+
+    def write_eliminations_to_disk(self, eliminations):
+        vali_eliminations = {CacheController.ELIMINATIONS: eliminations}
+        bt.logging.info(f"Writing [{len(eliminations)}] eliminations from memory to disk: {vali_eliminations}")
+        output_location = ValiBkpUtils.get_eliminations_dir(running_unit_tests=self.running_unit_tests)
+        ValiBkpUtils.write_file(output_location, vali_eliminations)
 
     def clear_eliminations_from_disk(self):
         ValiBkpUtils.write_file(ValiBkpUtils.get_eliminations_dir(running_unit_tests=self.running_unit_tests), {CacheController.ELIMINATIONS: []})
 
     def clear_plagiarism_scores_from_disk(self):
-        ValiBkpUtils.write_file(ValiBkpUtils.get_plagiarism_scores_dir(running_unit_tests=self.running_unit_tests), {})
+        ValiBkpUtils.write_file(ValiBkpUtils.get_plagiarism_scores_file_location(running_unit_tests=self.running_unit_tests), {})
 
     def _write_updated_plagiarism_scores_from_memory_to_disk(self):
-        ValiBkpUtils.write_file(ValiBkpUtils.get_plagiarism_scores_dir(running_unit_tests=self.running_unit_tests),
-                                self.miner_plagiarism_scores)
+        self.write_plagiarism_scores_to_disk(self.miner_plagiarism_scores)
+
+    def write_plagiarism_scores_to_disk(self, scores):
+        ValiBkpUtils.write_file(ValiBkpUtils.get_plagiarism_scores_file_location(
+            running_unit_tests=self.running_unit_tests), scores)
 
     def _refresh_eliminations_in_memory_and_disk(self):
         self.eliminations = self.get_filtered_eliminations_from_disk()
@@ -78,20 +85,24 @@ class CacheController:
         return updated_eliminations
 
     def get_eliminations_from_disk(self):
-        cached_eliminations = ValiUtils.get_vali_json_file(
-            ValiBkpUtils.get_eliminations_dir(running_unit_tests=self.running_unit_tests),
-            CacheController.ELIMINATIONS)
-        bt.logging.info(f"Loaded [{len(cached_eliminations)}] eliminations from disk: {cached_eliminations}")
+        location = ValiBkpUtils.get_eliminations_dir(running_unit_tests=self.running_unit_tests)
+        cached_eliminations = ValiUtils.get_vali_json_file(location, CacheController.ELIMINATIONS)
+        bt.logging.info(f"Loaded [{len(cached_eliminations)}] eliminations from disk: {cached_eliminations}. Dir: {location}")
         return cached_eliminations
+
+    def get_plagiarism_scores_from_disk(self):
+        location = ValiBkpUtils.get_plagiarism_scores_file_location(running_unit_tests=self.running_unit_tests)
+        ans = ValiUtils.get_vali_json_file(location)
+        bt.logging.info(f"Loaded [{len(ans)}] plagiarism scores from disk: {ans}. Dir: {location}")
+        return ans
 
     def _refresh_plagiarism_scores_in_memory_and_disk(self):
         # Filters out miners that have already been deregistered. (Not in the metagraph)
         # This allows the miner to participate again once they re-register
-        cached_miner_plagiarism = ValiUtils.get_vali_json_file(
-            ValiBkpUtils.get_plagiarism_scores_dir(running_unit_tests=self.running_unit_tests))
+        cached_miner_plagiarism = self.get_plagiarism_scores_from_disk()
         
         blocklist_dict = ValiUtils.get_vali_json_file(
-            ValiBkpUtils.get_plagiarism_file()
+            ValiBkpUtils.get_plagiarism_blocklist_file_location()
         )
 
         blocklist_scores = {
@@ -106,13 +117,13 @@ class CacheController:
             **blocklist_scores
         }
 
-        bt.logging.info(f"Loaded [{len(self.miner_plagiarism_scores)}] miner plagiarism scores from disk: {self.miner_plagiarism_scores}")
+        bt.logging.info(f"Loaded [{len(self.miner_plagiarism_scores)}] miner plagiarism scores from disk.")
 
         self._write_updated_plagiarism_scores_from_memory_to_disk()
 
     def _update_plagiarism_scores_in_memory(self):
         cached_miner_plagiarism = ValiUtils.get_vali_json_file(
-            ValiBkpUtils.get_plagiarism_scores_dir(running_unit_tests=self.running_unit_tests))
+            ValiBkpUtils.get_plagiarism_scores_file_location(running_unit_tests=self.running_unit_tests))
         self.miner_plagiarism_scores = {mch: mc for mch, mc in cached_miner_plagiarism.items()}
 
 
@@ -124,10 +135,10 @@ class CacheController:
                 ValiBkpUtils.get_eliminations_dir(running_unit_tests=self.running_unit_tests), {CacheController.ELIMINATIONS: []}
             )
 
-        if len(ValiUtils.get_vali_json_file(ValiBkpUtils.get_plagiarism_scores_dir(running_unit_tests=self.running_unit_tests))) == 0:
+        if len(ValiUtils.get_vali_json_file(ValiBkpUtils.get_plagiarism_scores_file_location(running_unit_tests=self.running_unit_tests))) == 0:
             miner_copying_file = {hotkey: 0 for hotkey in self.metagraph.hotkeys}
             ValiBkpUtils.write_file(
-                ValiBkpUtils.get_plagiarism_scores_dir(running_unit_tests=self.running_unit_tests), miner_copying_file
+                ValiBkpUtils.get_plagiarism_scores_file_location(running_unit_tests=self.running_unit_tests), miner_copying_file
             )
 
         # Check if the get_miner_dir directory exists. If not, create it

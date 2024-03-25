@@ -36,6 +36,10 @@ class PositionManager(CacheController):
                     open_position.close_out_position(TimeUtil.now_in_millis())
                     self.save_miner_position_to_disk(open_position)
 
+    def sort_by_close_ms(self, _position):
+        return (
+            _position.close_ms if _position.is_closed_position else float("inf")
+        )
 
     def get_return_per_closed_position(self, positions: List[Position]) -> List[float]:
         if len(positions) == 0:
@@ -108,10 +112,6 @@ class PositionManager(CacheController):
                                 sort_positions: bool = False,
                                 acceptable_position_end_ms: int = None
                                 ) -> List[Position]:
-        def _sort_by_close_ms(_position):
-            return (
-                _position.close_ms if _position.is_closed_position else float("inf")
-            )
 
         miner_dir = ValiBkpUtils.get_miner_all_positions_dir(miner_hotkey, running_unit_tests=self.running_unit_tests)
         all_files = ValiBkpUtils.get_all_files_in_dir(miner_dir)
@@ -133,7 +133,7 @@ class PositionManager(CacheController):
             ]
 
         if sort_positions:
-            positions = sorted(positions, key=_sort_by_close_ms)
+            positions = sorted(positions, key=self.sort_by_close_ms)
 
         return positions
 
@@ -287,6 +287,43 @@ class PositionManager(CacheController):
                 os.unlink(file_path)
             elif os.path.isdir(file_path):
                 shutil.rmtree(file_path)
+
+    def get_number_of_eliminations(self):
+        return len(self.get_miner_eliminations_from_disk())
+
+    def get_number_of_plagiarism_scores(self):
+        return len(self.get_plagiarism_scores_from_disk())
+
+    def get_number_of_miners_with_any_positions(self):
+        dir = ValiBkpUtils.get_miner_dir(running_unit_tests=self.running_unit_tests)
+        ret = 0
+        try:
+            for file in os.listdir(dir):
+                file_path = os.path.join(dir, file)
+                ret += os.path.isdir(file_path)
+            bt.logging.info(f"Number of miners with any positions: {ret}. Positions dir: {dir}")
+        except FileNotFoundError:
+            bt.logging.info(f"Directory for miners doesn't exist [{dir}].")
+        return ret
+
+    def get_extreme_position_order_processed_on_disk_ms(self):
+        dir = ValiBkpUtils.get_miner_dir(running_unit_tests=self.running_unit_tests)
+        min_time = float("inf")
+        max_time = 0
+        for file in os.listdir(dir):
+            file_path = os.path.join(dir, file)
+            if os.path.isfile(file_path):
+                continue
+            hotkey = file
+            # Read all positions in this directory
+            positions = self.get_all_miner_positions(hotkey)
+            for p in positions:
+                for o in p.orders:
+                    min_time = min(min_time, o.processed_ms)
+                    max_time = max(max_time, o.processed_ms)
+        return min_time, max_time
+
+
 
     def get_open_position_for_a_miner_trade_pair(self, hotkey: str, trade_pair_id: str) -> Position | None:
         dir = ValiBkpUtils.get_partitioned_miner_positions_dir(hotkey, trade_pair_id, order_status=OrderStatus.OPEN,
