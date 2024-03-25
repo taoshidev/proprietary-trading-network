@@ -172,14 +172,19 @@ To run a validator, follow these steps:
 
 4. Run the `run.sh` script, which will run your validator and pull the latest updates as they are issued.
 
+mainnet:
 ```bash
 $ pm2 start run.sh --name sn8 -- --wallet.name <wallet> --wallet.hotkey <hotkey> --netuid 8
+```
+testnet:
+```bash
+$ pm2 start run.sh --name sn8 -- --wallet.name <wallet> --wallet.hotkey <hotkey> --netuid 116 --subtensor.network test
 ```
 
 This will run two PM2 process:
 
-1. A process for the validator, called sn8 by default (you can change this in run.sh)
-2. A process for the `run.sh` script. The script will check for updates every 30 minutes, if there is an update, it will pull, install, restart tsps, and restart itself.
+1. A process for the validator, called `ptn` by default (you can change this in run.sh)
+2. A process for the autoupdated script called `sn8`. The script will check for updates every 30 minutes, if there is an update, it will pull, install, restart tsps, and restart itself.
 
 ### Manually
 
@@ -190,7 +195,6 @@ python neurons/validator.py --netuid 8 --wallet.name <wallet> --wallet.hotkey <h
 
 ```
 
-To run your validator on the testnet add the `--subtensor.network test` flag and `--netuid 116` flag.
 
 You can also run your script in the background. Logs are stored in `nohup.out`.
 
