@@ -11,6 +11,7 @@ from typing import Tuple
 import template
 import argparse
 import traceback
+import time
 import bittensor as bt
 
 from data_generator.twelvedata_service import TwelveDataService
@@ -228,7 +229,7 @@ class Validator:
             # In case of unforeseen errors, the miner will log the error and continue operations.
             except Exception:
                 bt.logging.error(traceback.format_exc())
-                break
+                time.sleep(10)
 
     def convert_signal_to_order(self, signal, hotkey) -> Order:
         """

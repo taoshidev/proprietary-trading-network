@@ -5,13 +5,11 @@
 import os
 import argparse
 import traceback
-from typing import List
-
+import time
 import bittensor as bt
 from miner_objects.prop_net_order_placer import PropNetOrderPlacer
 from miner_objects.position_inspector import PositionInspector
 from shared_objects.metagraph_updater import MetagraphUpdater
-from template.protocol import GetPositions
 
 
 class Miner:
@@ -96,6 +94,7 @@ class Miner:
             # In case of unforeseen errors, the miner will log the error and continue operations.
             except Exception:
                 bt.logging.error(traceback.format_exc())
+                time.sleep(10)
 
 
 if __name__ == "__main__":
