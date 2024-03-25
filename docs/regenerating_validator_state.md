@@ -1,38 +1,32 @@
 # Regenerating Validator State
 
-If 
-1. You are running a validator for the first time
-2. Your validator experiences unexpected downtime.
-
-You will need to synchronize your validator's positions using these steps to stay in consensus. Otherwise your missing orders/positions will lead your validator to have low v_trust.
+When initiating a validator for the first time or recovering from unexpected downtime, it's crucial to synchronize your validator's positions to maintain consensus. Failure to do so may result in missing orders/positions, leading to a lower v_trust score.
 
 ## Purpose
 
-This script will regenerate the `validation/miners` directory, filling it with the latest positions
-and orders from mainnet.
+The script detailed below regenerates the `validation/*` directory by fetching the latest positions, eliminations, and plagiarism scores from the mainnet, ensuring your validator remains in sync with the network.
 
 ## Steps
 
-1. Ensure you are on the latest version of PTN. You can check this by running `git pull origin main` 
-inside the `proprietary-trading-network` directory.
-2. Stop your validator. You can do this by using the pm2 process. `pm2 stop sn8` and `pm2 stop ptn` if you
-are using the standard setup provided in the readme.
-3. Move your existing `validation/miners` dir. You can call it `validation/miners_bkp`. Once moved, you should
-have no `validation/miners` directory.
-4. Go to https://dashboard.taoshi.io/
-5. Press the "Download Positions" button in the top right corner. This should provide you with
-a downloaded file called `miner_positions.json`. If the file is not called `miner_positions.json` please
-rename it so that it is.
-6. Move this file to the `proprietary-trading-network` dir
-7. Run `regenerate_miner_positions.py` inside the `proprietary-trading-network` dir
-
-You should see that a new `validation/miners` directory has been created and inside there 
-should be all of the positions and orders downloaded from the dashboard from 
-the `miner_positions.json` file
-
-8. Start your pm2 processes again, `pm2 start sn8` and `pm2 start ptn`
-
+1. **Update PTN**: Ensure your Proprietary Trading Network (PTN) is up-to-date by executing `git pull origin main` in the `proprietary-trading-network` directory.
+2. **Stop Validator**: Temporarily halt your validator with PM2 using `pm2 stop sn8`.
+3. **Download Positions**: Visit [Taoshi Dashboard](https://dashboard.taoshi.io/) and click the "Download Positions" button to obtain a file named `validator_checkpoint.json`. Rename the file if necessary.
+4. **Prepare for Restoration**: Move `validator_checkpoint.json` to the root level of the `proprietary-trading-network` directory.
+5. **Run Restoration Script**: Execute `restore_validator_from_backup.py` within the `proprietary-trading-network` directory. Successful restoration is indicated by:
+    ```
+    2024-03-25 01:05:36.660 | INFO | regeneration complete in 1.25 seconds
+    ```
+6. **Verify Backups**: Confirm the creation of a `backups/` directory containing previous data (positions, eliminations, plagiarism). For example:
+    ```
+    (venv) jbonilla@MacBook-Air prop-net % ls -lh backups/20240325_010535
+    total 16
+    -rw-r--r--  1 jbonilla staff 164B Mar 25 01:05 eliminations.json
+    drwxr-xr-x 148 jbonilla staff 4.6K Mar 25 00:36 miners
+    -rw-r--r--  1 jbonilla staff 165B Mar 25 01:05 plagiarism.json
+    ```
+    If restoration fails, consult the failure log for troubleshooting steps.
+7. **Restart Validator**: Resume your PM2 processes with `pm2 start sn8`.
 
 ## Future Improvements
 
-As we gather feedback, we may make adjustments to this process to make it more automated. Please let us know if you run into any issues.
+We're committed to refining this process through automation and your feedback. Please report any issues encountered during restoration.
