@@ -1,14 +1,14 @@
 # Validator
 
-Your validator receives signals from miners when they have one prepared. Your validator will perform core logic checks to ensure only registered non-eliminated miners can be given weights. Your validator will look to set weights every 30 minutes.
+Your validator receives trade signals from miners and maintains a portfolio per miner with all their positions on disk in the `validation/miners` directory. 
 
-Your validator will store all information related to miners on disk as it doesn't take up much space. All information created is stored in the `validation` directory.
+Your validator will track portfolio returns using live price information and assign miner weights based on portfolio performance. Your validator will look to set weights every 5 minutes.
 
-When the validator receives signals, they are converted to orders. These orders make up positions which are stored are safely stored as files in the `validation/miners` directory on a per miner basis.
+Validators detect & eliminate any sort of miner copying from the network. It does this by performing an analysis on every order received. If a miner is detected to be plagiarising off another miner, they will be eliminated from the network. The information on plagiarising miners is held in `validation/miner_copying.json`.
 
-The core logic looks to detect & eliminate any sort of miner copying from the network. It does this by performing an analysis on every order received. If a miner is detected to be plagiarising off another miner, they will be eliminated from the network. The information on plagiarising miners is held in `validation/miner_copying.json`.
+When a miner is eliminated due to exceeding drawdown limits, or being caught plagiarising they will end up in the `validation/eliminations.json` file. Only registered non-eliminated miners can be given weights. Once eliminated, a miner can no longer send requests to validators until they are deregistered by the network and then re-register. 
 
-When a miner is eliminated due to exceeding drawdown limits, or being caught plagiarising they will end up in the `validation/eliminations.json` file.
+
 
 This tutorial shows how to run a PTN Validator.
 
@@ -100,7 +100,7 @@ btcli wallet new_hotkey --wallet.name validator --wallet.hotkey default
 
 ## 2a. (Optional) Getting faucet tokens
 
-Faucet is disabled on the testnet. Hence, if you don't have sufficient faucet tokens, ask the Bittensor Discord community for faucet tokens.
+Faucet is disabled on the testnet. Hence, if you don't have sufficient faucet tokens, ask the Bittensor Discord community for faucet tokens. Bittensor -> help-forum -> Requests for Testnet TAO
 
 ## 3. Register keys
 
