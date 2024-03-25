@@ -9,7 +9,7 @@ The script detailed below regenerates the `validation/*` directory by fetching t
 ## Steps
 
 1. **Update PTN**: Ensure your Proprietary Trading Network (PTN) is up-to-date by executing `git pull origin main` in the `proprietary-trading-network` directory.
-2. **Stop Validator**: Temporarily halt your validator with PM2 using `pm2 stop sn8`.
+2. **Stop Validator**: Temporarily halt your validator with PM2 using `pm2 stop sn8` and `pm2 stop ptn`.
 3. **Download Positions**: Visit [Taoshi Dashboard](https://dashboard.taoshi.io/) and click the "Download Positions" button to obtain a file named `validator_checkpoint.json`. Rename the file if necessary.
 4. **Prepare for Restoration**: Move `validator_checkpoint.json` to the root level of the `proprietary-trading-network` directory.
 5. **Run Restoration Script**: Within the `proprietary-trading-network` directory, execute:
@@ -24,7 +24,9 @@ The script detailed below regenerates the `validation/*` directory by fetching t
     ```
      If restoration fails, consult the failure log for troubleshooting steps.
 
-6. **Verify Backups (optional)**: Confirm the creation of a `backups/` directory containing previous data (positions, eliminations, plagiarism). For example:
+   
+6. **Restart Validator**: Resume your PM2 processes with `pm2 start sn8` and `pm2 start ptn` .
+7. **Verify Backups (optional)**: Confirm the creation of a `backups/` directory containing previous data (positions, eliminations, plagiarism). For example:
     ```
     (venv) jbonilla@MacBook-Air prop-net % ls -lh backups/20240325_010535
     total 16
@@ -32,8 +34,6 @@ The script detailed below regenerates the `validation/*` directory by fetching t
     drwxr-xr-x 148 jbonilla staff 4.6K Mar 25 00:36 miners
     -rw-r--r--  1 jbonilla staff 165B Mar 25 01:05 plagiarism.json
     ```
-   
-7. **Restart Validator**: Resume your PM2 processes with `pm2 start sn8`.
 
 ## Future Improvements
 
