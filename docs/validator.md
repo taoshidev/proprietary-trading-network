@@ -202,9 +202,9 @@ To run your validator on the testnet add the `--subtensor.network test` flag and
 
 ### Synchronizing your validator
 
-Once you confirmed that your validator is able to run, you will want to stop it to perform the manual synchronizatioin procedure. This procedure should be used when your validator is starting for the first time or experiences unexpected downtime. After the procedure is complete, your validator will have the most update to date miner positions and will be able to maintain a high trust score.
+Once you confirmed that your validator is able to run, you will want to stop it to perform the manual synchronization procedure. This procedure should be used when your validator is starting for the first time or experiences unexpected downtime. After the procedure is complete, your validator will have the most update to date miner positions and will be able to maintain a high trust score.
 
- Please follow the steps here for performing the synchronization: https://github.com/taoshidev/proprietary-trading-network/blob/main/docs/regenerating_validator_state.md
+ Please follow the steps [here](https://github.com/taoshidev/proprietary-trading-network/blob/main/docs/regenerating_validator_state.md) for performing the synchronization.
 
 ## 7. Get emissions flowing
 
