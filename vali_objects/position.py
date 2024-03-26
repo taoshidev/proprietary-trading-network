@@ -48,27 +48,45 @@ class Position(BaseModel):
 
     @root_validator(pre=True)
     def add_trade_pair_to_orders(cls, values):
-        trade_pair = values.get('trade_pair')
+        if isinstance(values['trade_pair'], TradePair):
+            trade_pair_id = values['trade_pair'].trade_pair_id
+        else:
+            trade_pair_id = values['trade_pair'][0]
+        trade_pair = TradePair.get_latest_trade_pair_from_trade_pair_id(trade_pair_id)
         orders = values.get('orders', [])
-        if trade_pair and orders:
-            # Add the position-level trade_pair to each order
-            updated_orders = []
-            for order in orders:
-                order['trade_pair'] = trade_pair
-                updated_orders.append(order)
-            values['orders'] = updated_orders
+
+        # Add the position-level trade_pair to each order
+        updated_orders = []
+        for order in orders:
+            order['trade_pair'] = trade_pair
+            updated_orders.append(order)
+        values['orders'] = updated_orders
+
+        values['trade_pair'] = trade_pair
         return values
 
-    def _strip_trade_pair_from_orders(self, d):
+    def _handle_trade_pair_encoding(self, d):
+        # Remove trade_pair from orders
         if 'orders' in d:
             for order in d['orders']:
                 if 'trade_pair' in order:
                     del order['trade_pair']
+        # Write the trade_pair in the legacy tuple format as to not break generate_request_outputs. This is temporary
+        # code until generate_request_outputs is updated to have the new TradePair decoding logic. If BTC or ETH, put
+        # the legacy fee value so that pydantic can validate the JSON with the original decoding logic
+        if isinstance(d['trade_pair'], TradePair):
+            tp = d['trade_pair']
+            fee = .003 if tp.is_crypto else tp.fees
+            d['trade_pair'] = [tp.trade_pair_id, tp.trade_pair, fee, tp.min_leverage, tp.max_leverage]
+        else:
+            d['trade_pair'] = d['trade_pair'][:5]
+            if d['trade_pair'][0] in (TradePair.BTCUSD.trade_pair_id, TradePair.ETHUSD.trade_pair_id):
+                d['trade_pair'][2] = 0.003
         return d
 
     def to_dict(self):
         d = deepcopy(self.dict())
-        return self._strip_trade_pair_from_orders(d)
+        return self._handle_trade_pair_encoding(d)
 
     @property
     def is_open_position(self):
@@ -82,7 +100,7 @@ class Position(BaseModel):
         json_str = self.json()
         # Unfortunately, we can't tell pydantic v1 to strip certain fields so we do that here
         json_loaded = json.loads(json_str)
-        json_compressed = self._strip_trade_pair_from_orders(json_loaded)
+        json_compressed = self._handle_trade_pair_encoding(json_loaded)
         return json.dumps(json_compressed)
 
     @classmethod
@@ -175,19 +193,30 @@ class Position(BaseModel):
 
         self.close_out_position(time_ms)
 
-    def set_returns(self, realtime_price, net_leverage, time_ms=None):
+    def calculate_return_with_fees(self, current_return_no_fees, net_leverage, trade_pair):
+        # Note: Closed positions will have static returns. This method is only called for open positions.
+        # V2 fee calculation. Crypto fee lowered from .003 to .002. Multiply fee by leverage for crypto pairs.
+        if trade_pair.is_crypto:
+            fee = self.trade_pair.fees * abs(net_leverage)
+        else:
+            fee = self.trade_pair.fees
+
+        return current_return_no_fees * (1.0 - fee)
+
+
+    def set_returns(self, realtime_price, net_leverage, trade_pair, time_ms=None):
+        if time_ms is None:
+            time_ms = TimeUtil.now_in_millis()
         # We used to multiple trade_pair.fees by net_leverage. Eventually we will
         # Update this calculation to approximate actual exchange fees.
         self.current_return = self.calculate_unrealized_pnl(realtime_price)
-        self.return_at_close = self.current_return * (
-            1 - self.trade_pair.fees
-        )
+        self.return_at_close = self.calculate_return_with_fees(self.current_return, net_leverage, trade_pair)
 
         if self.current_return < 0:
             raise ValueError(f"current return must be positive {self.current_return}")
 
         if self.current_return == 0:
-            self._handle_liquidation(time_ms if time_ms else TimeUtil.now_in_millis())
+            self._handle_liquidation(time_ms)
 
     def update_position_state_for_new_order(self, order, delta_leverage):
         """
@@ -200,7 +229,7 @@ class Position(BaseModel):
         assert self.initial_entry_price > 0, self.initial_entry_price
         new_net_leverage = self.net_leverage + delta_leverage
 
-        self.set_returns(realtime_price, new_net_leverage, time_ms=order.processed_ms)
+        self.set_returns(realtime_price, new_net_leverage, order.trade_pair, time_ms=order.processed_ms)
 
         # Liquidated
         if self.current_return == 0:

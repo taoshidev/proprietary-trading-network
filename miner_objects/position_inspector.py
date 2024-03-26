@@ -50,10 +50,10 @@ class PositionInspector:
                 orders_count[hotkey] += len(position['orders'])
                 hotkey_total_portfolio_leverage += abs(position['net_leverage'])
 
-            #if hotkey_total_portfolio_leverage >= 10:
-            #    bt.logging.warning(
-            #        f"Validator {hotkey} has a total portfolio leverage of {hotkey_total_portfolio_leverage}. "
-            #        f"High leverage comes with high fees which greatly increase your draw down.")
+            if hotkey_total_portfolio_leverage >= 10:
+                bt.logging.warning(
+                    f"Validator {hotkey} has a total portfolio leverage of {hotkey_total_portfolio_leverage}. "
+                    f"High leverage on crypto trade pairs comes with high fees which greatly increase your draw down.")
 
             if orders_count[hotkey] > max_order_count:
                 max_order_count = orders_count[hotkey]
