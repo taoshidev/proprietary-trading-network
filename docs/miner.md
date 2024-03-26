@@ -13,18 +13,19 @@ The current flow of information is as follows:
 3. Validators track your positions returns
 4. Validators review your positions to assess drawdown every minute
 5. Validators wait for you to send in signals to close out positions (FLAT)
-6. Validators set weights based on miner returns every 30 minutes
+6. Validators set weights based on miner returns every 5 minutes
 
 **IMPORTANT**
+When first getting set up, we recommend running a miner locally to ensure there are no errors. Do this by running `mining/run_receive_signals_server.py` and `mining/sample_signal_request.py` in conjunction with `neurons/miner.py`. 
 
-Before attempting to register on mainnet, we strongly recommend that you run a validator on the testnet. To do ensure you add the appropriate testnet flags.
+After that, we suggest running on testnet and inspecting the log outputs to ensure that validators received your orders. To do ensure you are on your intended enviornment add the appropriate testnet flags.
 
 | Environment | Netuid |
 | ----------- | -----: |
 | Mainnet     |      8 |
 | Testnet     |    116 |
 
-Your incentive mechanisms running on the mainnet are open to anyone. They emit real TAO. Creating these mechanisms incur a lock_cost in TAO.
+Your incentive mechanisms are open to anyone. They emit real TAO. Creating these mechanisms incur a lock_cost in TAO. Before attempting to register on mainnet, we strongly recommend that you run a miner on the testnet. 
 
 **DANGER**
 
