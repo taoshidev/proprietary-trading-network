@@ -61,7 +61,7 @@ class EliminationManager(CacheController):
                 continue
             # We will not delete this miner's cache until it has been deregistered by BT
             if hotkey in self.metagraph.hotkeys:
-                bt.logging.info(f"miner [{hotkey}] has not been deregistered by BT yet. Not deleting miner dir.")
+                bt.logging.trace(f"miner [{hotkey}] has not been deregistered by BT yet. Not deleting miner dir.")
                 continue
             miner_dir = ValiBkpUtils.get_miner_dir() + hotkey
             try:
