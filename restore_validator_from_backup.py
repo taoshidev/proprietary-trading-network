@@ -42,23 +42,23 @@ def regenerate_miner_positions(perform_backup=True):
     position_manager = PositionManager()
     position_manager.init_cache_files()
     # We want to get the smallest processed_ms timestamp across all positions in the backup and then compare this to
-    # the smallest processed_ms timestamp across all orders on the local filesystem. If the backup youngest timestamp is
-    # older than the local youngest timestamp, we will not regenerate the positions. Similarly for the oldest timestamp.
-    youngest_disk_ms, oldest_disk_ms = (
+    # the smallest processed_ms timestamp across all orders on the local filesystem. If the backup smallest timestamp is
+    # older than the local smallest timestamp, we will not regenerate the positions. Similarly for the oldest timestamp.
+    smallest_disk_ms, largest_disk_ms = (
         position_manager.get_extreme_position_order_processed_on_disk_ms())
-    youngest_backup_ms = data['youngest_order_processed_ms']
-    oldest_backup_ms = data['oldest_order_processed_ms']
-    bt.logging.info(f"youngest_disk_order_timestamp: {youngest_disk_ms}, "
-          f"youngest_backup_order_timestamp: {youngest_backup_ms}, "
-          f"oldest_disk_order_timestamp: {oldest_disk_ms}, "
-          f"oldest_backup_order_timestamp: {oldest_backup_ms}")
+    smallest_backup_ms = data['youngest_order_processed_ms']
+    largest_backup_ms = data['oldest_order_processed_ms']
+    bt.logging.info(f"smallest_disk_order_timestamp: {smallest_disk_ms}, "
+          f"smallest_backup_order_timestamp: {smallest_backup_ms}, "
+          f"oldest_disk_order_timestamp: {largest_disk_ms}, "
+          f"oldest_backup_order_timestamp: {largest_backup_ms}")
 
-    if youngest_disk_ms >= youngest_backup_ms and oldest_disk_ms <= oldest_backup_ms:
+    if smallest_disk_ms >= smallest_backup_ms and largest_disk_ms <= largest_backup_ms:
         pass  # Ready for update!
-    elif oldest_disk_ms > oldest_backup_ms:
+    elif largest_disk_ms > largest_backup_ms:
         bt.logging.error("Please re-pull the backup file before restoring. Backup appears to be older than the disk.")
         return False
-    elif youngest_disk_ms < youngest_backup_ms:
+    elif smallest_disk_ms < smallest_backup_ms:
         bt.logging.error("Your local filesystem has older orders than the backup. Please reach out to the team ASAP before regenerating. You may be holding irrecoverable data!")
         return False
     else:
