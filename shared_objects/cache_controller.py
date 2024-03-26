@@ -136,7 +136,8 @@ class CacheController:
             )
 
         if len(ValiUtils.get_vali_json_file(ValiBkpUtils.get_plagiarism_scores_file_location(running_unit_tests=self.running_unit_tests))) == 0:
-            miner_copying_file = {hotkey: 0 for hotkey in self.metagraph.hotkeys}
+            hotkeys = self.metagraph.hotkeys if self.metagraph is not None else []
+            miner_copying_file = {hotkey: 0 for hotkey in hotkeys}
             ValiBkpUtils.write_file(
                 ValiBkpUtils.get_plagiarism_scores_file_location(running_unit_tests=self.running_unit_tests), miner_copying_file
             )
