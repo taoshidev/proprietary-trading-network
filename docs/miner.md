@@ -16,9 +16,10 @@ The current flow of information is as follows:
 6. Validators set weights based on miner returns every 5 minutes
 
 **IMPORTANT**
-When first getting set up, we recommend running a miner locally to ensure there are no errors. Do this by running `mining/run_receive_signals_server.py` and `mining/sample_signal_request.py` in conjunction with `neurons/miner.py`. 
+When first getting set up, we recommend running a miner locally to ensure there are no errors. Do this by running `mining/run_receive_signals_server.py` and `mining/sample_signal_request.py`.
+. 
 
-After that, we suggest running on testnet and inspecting the log outputs to ensure that validators received your orders. To do ensure you are on your intended enviornment add the appropriate testnet flags.
+After that, we suggest running `mining/run_receive_signals_server.py` and `mining/sample_signal_request.py` in conjunction with `neurons/miner.py` on testnet. Inspect the log outputs to ensure that validators receive your orders. Ensure you are on your intended enviornment add the appropriate testnet flags.
 
 | Environment | Netuid |
 | ----------- | -----: |
