@@ -118,7 +118,7 @@ class PositionManager(CacheController):
 
         positions = [self.get_miner_position_from_disk(file) for file in all_files]
         if len(positions):
-            bt.logging.info(f"miner_dir: {miner_dir}, n_positions: {len(positions)}")
+            bt.logging.trace(f"miner_dir: {miner_dir}, n_positions: {len(positions)}")
 
         if acceptable_position_end_ms is not None:
             positions = [
