@@ -40,6 +40,7 @@ def regenerate_miner_positions(perform_backup=True):
             bt.logging.info(f"    {key}: {value}")
 
     position_manager = PositionManager()
+    position_manager.init_cache_files()
     # We want to get the smallest processed_ms timestamp across all positions in the backup and then compare this to
     # the smallest processed_ms timestamp across all orders on the local filesystem. If the backup youngest timestamp is
     # older than the local youngest timestamp, we will not regenerate the positions. Similarly for the oldest timestamp.
