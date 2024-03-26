@@ -147,7 +147,8 @@ class ValiConfig:
 
     HISTORICAL_DECAY_TIME_INTENSITY_COEFFICIENT = 0.35
 
-    SET_WEIGHT_MINIMUM_POSITIONS = 3
+    SET_WEIGHT_MINIMUM_POSITIONS = 2 # mimumum of two positions over the lookback range
+    SET_WEIGHT_MINIMUM_POSITION_DURATION_MS = 5 * 60 * 1000  # 5 minutes
 
     ORDER_SIMILARITY_WINDOW_MS = TimeUtil.hours_in_millis(24)
 

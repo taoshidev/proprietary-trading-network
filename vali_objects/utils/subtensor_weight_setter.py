@@ -6,10 +6,10 @@ import bittensor as bt
 
 from time_util.time_util import TimeUtil
 from vali_config import ValiConfig
-from vali_objects.scoring.scoring import Scoring
 from shared_objects.cache_controller import CacheController
 from vali_objects.utils.position_manager import PositionManager
-
+from vali_objects.position import Position
+from vali_objects.scoring.scoring import Scoring
 
 class SubtensorWeightSetter(CacheController):
     def __init__(self, config, wallet, metagraph, running_unit_tests=False):
@@ -60,13 +60,15 @@ class SubtensorWeightSetter(CacheController):
         # this removes anyone who got lucky on a couple trades
         current_time = TimeUtil.now_in_millis()
         for hotkey, positions in hotkey_positions.items():
-            if len(positions) <= ValiConfig.SET_WEIGHT_MINIMUM_POSITIONS:
+            filtered_positions = self._filter_positions(positions)
+            filter_position_logic = self._filter_miner(filtered_positions)
+            if filter_position_logic:
                 continue
 
             # compute the autmented returns for internal calculation
             per_position_return = (
                 self.position_manager.get_return_per_closed_position_augmented(
-                    positions, evaluation_time_ms=current_time
+                    filtered_positions, evaluation_time_ms=current_time
                 )
             )
 
@@ -76,6 +78,35 @@ class SubtensorWeightSetter(CacheController):
             return_per_netuid[netuid] = last_positional_return
 
         return return_per_netuid
+    
+    def _filter_miner(self, positions:list[Position]):
+        """
+        Filter out miners who don't have enough positions to be considered for setting weights
+        """
+        if len(positions) < ValiConfig.SET_WEIGHT_MINIMUM_POSITIONS:
+            return True
+        
+        # check that the position
+        return False
+    
+    def _filter_positions(self, positions: list[Position]):
+        """
+        Filter out positions that are not within the lookback range.
+        """
+        filtered_positions = []
+        for position in positions:
+            # only take the closed positions
+            if position.is_open_position:
+                continue
+
+            position_duration = position.close_ms - position.open_ms
+            if position_duration < ValiConfig.SET_WEIGHT_MINIMUM_POSITION_DURATION_MS:
+                continue
+
+            filtered_positions.append(position)
+
+        return filtered_positions
+
 
     def _set_subtensor_weights(self, filtered_results: list[tuple[str, float]]):
         filtered_netuids = [x[0] for x in filtered_results]
