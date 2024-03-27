@@ -5,7 +5,6 @@ import math
 from typing import List, Tuple, Dict
 
 import numpy as np
-from scipy.stats import norm
 
 from vali_config import ValiConfig
 from vali_objects.exceptions.incorrect_prediction_size_error import IncorrectPredictionSizeError
@@ -17,36 +16,20 @@ import bittensor as bt
 
 class Scoring:
     @staticmethod
-    def filter_results(return_per_netuid:  dict[str, float]) -> list[tuple[str, float]]:
-        if len(return_per_netuid) == 0:
-            bt.logging.info(f"no returns to filter, returning empty lists")
-            return []
-        
-        # if len(return_per_netuid) == 1:
-        #     bt.logging.info(f"Only one miner, returning 1.0 for the solo miner weight")
-        #     return [ (list(return_per_netuid.keys())[0], [1.0]) ]
-
-        # mean = np.mean(list(return_per_netuid.values()))
-        # std_dev = np.std(list(return_per_netuid.values()))
-
-        # lower_bound = mean - 3 * std_dev
-        # bt.logging.info(f"returns lower bound: [{lower_bound}]")
-
-        # if lower_bound < 0:
-        #     lower_bound = 0
-
-        return [ 
-            (k, v) for k, v in return_per_netuid.items() 
-            # if lower_bound < v 
-        ]
-
-    @staticmethod
     def transform_and_scale_results(
         filtered_results: list[tuple[str, list[float]]]
     ) -> list[tuple[str, float]]:
         """
         Args: filtered_results: list[tuple[str, list[float]]] - takes a list of dampened returns for each miner and computes their risk adjusted returns, weighing them against the competition. It then averages the weights assigned for each of these tasks and returns the final weights for each miner which are normalized to sum to 1.
         """
+
+        if len(filtered_results) == 0:
+            bt.logging.info(f"No results to transform and scale, returning empty list")
+            return []
+        
+        if len(filtered_results) == 1:
+            bt.logging.info(f"Only one miner, returning 1.0 for the solo miner weight")
+            return [(filtered_results[0][0], 1.0)]
 
         scoring_functions = [
             Scoring.omega,
@@ -90,10 +73,13 @@ class Scoring:
             bt.logging.info(f"sum_scores is 0, returning empty list")
             return []
         
-        normalized_scores = {miner: score / sum_scores for miner, score in combined_scores.items()}
+        normalized_scores = [(miner, score / sum_scores) for miner, score in combined_scores.items()]
         bt.logging.info(f"Max miner weight for round: {max([x[1] for x in normalized_scores])}")
         bt.logging.info(f"Transformed results sum: {sum([x[1] for x in normalized_scores])}")
-        return normalized_scores    
+
+        normalized_scores = sorted(normalized_scores, key=lambda x: x[1], reverse=True)
+
+        return normalized_scores
 
     @staticmethod
     def omega(returns: list[float]) -> float:
@@ -101,35 +87,35 @@ class Scoring:
         Args: returns: list[float] - the omega ratio of the miner returns
         """
         if len(returns) == 0:
+            # won't happen because we need a minimum number of trades, but would kick them to 0 weight (bottom of the list)
             return 0
 
-        threshold = 1 + ValiConfig.LOOKBACK_RANGE_DAYS_RISK_FREE_RATE
+        threshold = 1 + ValiConfig.OMEGA_RATIO_THRESHOLD
         omega_minimum_denominator = ValiConfig.OMEGA_MINIMUM_DENOMINATOR
 
         # need to convert this to percentage based returns
-        returns_above_threshold = []
-        returns_below_threshold = []
+        sum_above = 0
+        sum_below = 0
 
-        for return_ in returns:
-            if return_ >= threshold:
-                returns_above_threshold.append(return_)
+        threshold_return = [ return_ - threshold for return_ in returns ]
+        for return_ in threshold_return:
+            if return_ > 0:
+                sum_above += return_
             else:
-                returns_below_threshold.append(return_)
+                sum_below += return_
 
-        sum_above_threshold = sum(returns_above_threshold)
-        sum_below_threshold = sum(returns_below_threshold)
-
-        if sum_below_threshold == 0:
-            # Modified Omega Ratio: Add a small constant to the denominator
-            sum_below_threshold = omega_minimum_denominator
-
-        return sum_above_threshold / abs(sum_below_threshold)
+        sum_below = max(abs(sum_below), omega_minimum_denominator)
+        return sum_above / sum_below
     
     @staticmethod
     def total_return(returns: list[float]) -> float:
         """
         Args: returns: list[float] - the total return of the miner returns
         """
+        ## again, won't happen but in case there are no returns
+        if len(returns) == 0:
+            return 0
+        
         return np.prod(returns)
     
     @staticmethod
@@ -174,7 +160,7 @@ class Scoring:
         if std_dev == 0:
             std_dev = ValiConfig.PROBABILISTIC_SHARPE_RATIO_MIN_STD_DEV
 
-        threshold = 1 + ValiConfig.LOOKBACK_RANGE_DAYS_RISK_FREE_RATE
+        threshold = 1 + ValiConfig.PROBABILISTIC_SHARPE_RATIO_THRESHOLD
         sharpe_ratio = (mean_return - threshold) / std_dev
 
         return sharpe_ratio
@@ -253,38 +239,9 @@ class Scoring:
         return weighted_returns
 
     @staticmethod
-    def calculate_directional_accuracy(predictions: np, actual: np) -> float:
-        pred_len = len(predictions)
-
-        pred_dir = np.sign([predictions[i] - predictions[i - 1] for i in range(1, pred_len)])
-        actual_dir = np.sign([actual[i] - actual[i - 1] for i in range(1, pred_len)])
-
-        correct_directions = 0
-        for i in range(0, pred_len-1):
-            correct_directions += actual_dir[i] == pred_dir[i]
-
-        return correct_directions / (pred_len-1)
-
-    @staticmethod
-    def simple_scale_scores(scores: Dict[str, float]) -> Dict[str, float]:
-        if len(scores) <= 1:
-            raise MinResponsesException("not enough responses")
-        score_values = [score for miner_uid, score in scores.items()]
-        min_score = min(score_values)
-        max_score = max(score_values)
-
-        return {miner_uid:  1 - ((score - min_score) / (max_score - min_score)) for miner_uid, score in scores.items()}
-
-    @staticmethod
     def update_weights_remove_deregistrations(miner_uids: List[str]):
         vweights = ValiUtils.get_vali_weights_json()
         for miner_uid in miner_uids:
             if miner_uid in vweights:
                 del vweights[miner_uid]
         ValiUtils.set_vali_weights_bkp(vweights)
-
-    @staticmethod
-    def basic_ema(current_value, previous_ema, length=48):
-        alpha = 2 / (length + 1)
-        ema = alpha * current_value + (1 - alpha) * previous_ema
-        return ema

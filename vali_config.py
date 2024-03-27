@@ -119,6 +119,9 @@ class TradePair(Enum):
             "max_leverage": self.max_leverage,
             "is_crypto": self.is_crypto,
         }
+    
+    def __dict__(self):
+        return self.__json__()
 
     @staticmethod
     def get_latest_trade_pair_from_trade_pair_id(trade_pair_id):
@@ -133,7 +136,7 @@ TRADE_PAIR_ID_TO_TRADE_PAIR = {x.trade_pair_id: x for x in TradePair}
 
 class ValiConfig:
     ## versioning
-    VERSION = "2.0.0"
+    VERSION = "2.1.0"
 
     # fees take into account exiting and entering a position, liquidity, and futures fees
     MDD_CHECK_REFRESH_TIME_MS = 15 * 1000  # 15 seconds
@@ -147,8 +150,11 @@ class ValiConfig:
 
     HISTORICAL_DECAY_TIME_INTENSITY_COEFFICIENT = 0.35
     ANNUAL_RISK_FREE_RATE = 0.02
-    LOOKBACK_RANGE_DAYS_RISK_FREE_RATE = (1+ANNUAL_RISK_FREE_RATE)**(SET_WEIGHT_LOOKBACK_RANGE_DAYS/365) - 1
-    OMEGA_RATIO_THRESHOLD = LOOKBACK_RANGE_DAYS_RISK_FREE_RATE
+    DAYS_IN_YEAR = 365.25
+    LOOKBACK_RANGE_DAYS_RISK_FREE_RATE = (1+ANNUAL_RISK_FREE_RATE)**(SET_WEIGHT_LOOKBACK_RANGE_DAYS/DAYS_IN_YEAR) - 1
+
+    PROBABILISTIC_SHARPE_RATIO_THRESHOLD = 0.0
+    OMEGA_RATIO_THRESHOLD = 0.0 # in reality, this would be the risk free rate - but we just want the functionality to compare the magnitude of gains and losses internally for our scoring function
     OMEGA_MINIMUM_DENOMINATOR = 1e-6
     PROBABILISTIC_SHARPE_RATIO_MIN_STD_DEV = 1e-6
 

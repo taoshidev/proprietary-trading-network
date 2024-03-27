@@ -33,7 +33,7 @@ class SubtensorWeightSetter(CacheController):
             bt.logging.info("no returns to set weights with. Do nothing for now.")
         else:
             bt.logging.info("calculating new subtensor weights...")
-            filtered_results = Scoring.filter_results(returns_per_netuid)
+            filtered_results = [ (k,v) for k,v in returns_per_netuid.items() ]
             scaled_transformed_list = Scoring.transform_and_scale_results(
                 filtered_results
             )
