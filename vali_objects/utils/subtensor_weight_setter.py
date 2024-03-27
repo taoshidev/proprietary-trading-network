@@ -27,22 +27,24 @@ class SubtensorWeightSetter(CacheController):
 
         bt.logging.info("running set weights")
         self._refresh_eliminations_in_memory()
-        return_per_netuid = self._calculate_return_per_netuid()
-        bt.logging.info(f"return per uid [{return_per_netuid}]")
-        if len(return_per_netuid) == 0:
+        returns_per_netuid = self._calculate_return_per_netuid()
+        bt.logging.info(f"return per uid [{returns_per_netuid}]")
+        if len(returns_per_netuid) == 0:
             bt.logging.info("no returns to set weights with. Do nothing for now.")
         else:
             bt.logging.info("calculating new subtensor weights...")
-            filtered_results = Scoring.filter_results(return_per_netuid)
+            filtered_results = Scoring.filter_results(returns_per_netuid)
             scaled_transformed_list = Scoring.transform_and_scale_results(
                 filtered_results
             )
             self._set_subtensor_weights(scaled_transformed_list)
         self.set_last_update_time()
 
-    def _calculate_return_per_netuid(self) -> dict[str, float]:
+    def _calculate_return_per_netuid(self) -> dict[str, list[float]]:
+        """
+        Calculate all returns for the .
+        """
         return_per_netuid = {}
-        netuid_returns = []
 
         # Note, eliminated miners will not appear in the dict below
         hotkey_positions = self.position_manager.get_all_miner_positions_by_hotkey(
@@ -72,10 +74,9 @@ class SubtensorWeightSetter(CacheController):
                 )
             )
 
-            last_positional_return = per_position_return[-1]
-            netuid_returns.append(last_positional_return)
+            # last_positional_return = per_position_return[-1]
             netuid = self.metagraph.hotkeys.index(hotkey)
-            return_per_netuid[netuid] = last_positional_return
+            return_per_netuid[netuid] = per_position_return
 
         return return_per_netuid
     
@@ -86,6 +87,13 @@ class SubtensorWeightSetter(CacheController):
         if len(positions) < ValiConfig.SET_WEIGHT_MINIMUM_POSITIONS:
             return True
         
+        total_position_time = 0
+        for position in positions:
+            total_position_time += position.close_ms - position.open_ms
+
+        if total_position_time < ValiConfig.SET_WEIGHT_MINIMUM_POSITION_DURATION_MS:
+            return True
+        
         # check that the position
         return False
     
@@ -93,19 +101,7 @@ class SubtensorWeightSetter(CacheController):
         """
         Filter out positions that are not within the lookback range.
         """
-        filtered_positions = []
-        for position in positions:
-            # only take the closed positions
-            if position.is_open_position:
-                continue
-
-            position_duration = position.close_ms - position.open_ms
-            if position_duration < ValiConfig.SET_WEIGHT_MINIMUM_POSITION_DURATION_MS:
-                continue
-
-            filtered_positions.append(position)
-
-        return filtered_positions
+        return positions
 
 
     def _set_subtensor_weights(self, filtered_results: list[tuple[str, float]]):

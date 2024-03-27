@@ -96,15 +96,15 @@ class PositionManager(CacheController):
             )
             closed_position_returns.append(dampened_return_at_close)
 
-        cumulative_return_logged = 0
-        per_position_return_logged = []
+        # cumulative_return_logged = 0
+        # per_position_return_logged = []
 
-        # calculate the return over time at each position close
-        for value in closed_position_returns:
-            cumulative_return_logged += value
-            per_position_return_logged.append(cumulative_return_logged)
+        # # calculate the return over time at each position close
+        # for value in closed_position_returns:
+        #     cumulative_return_logged += value
+        #     per_position_return_logged.append(value)
 
-        return [ PositionUtils.exp_transform(value) for value in per_position_return_logged ]
+        return [ PositionUtils.exp_transform(value) for value in closed_position_returns ]
 
     def get_all_miner_positions(self,
                                 miner_hotkey: str,
