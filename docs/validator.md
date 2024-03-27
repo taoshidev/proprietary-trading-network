@@ -237,7 +237,10 @@ To stop your validator, press CTRL + C in the terminal where the validator is ru
 You can begin testing PTN on the testnet with netuid 116. You can do this by using running:
 
 ```bash
-python neurons/validator.py --netuid 116 --subtensor.network test --wallet.name miner --wallet.hotkey default --logging.debug
+python neurons/validator.py --netuid 116 --subtensor.network test --wallet.name miner --wallet.hotkey default
 ```
+Note this won't launch the autoupdater. To launch with the autoupdater, use the run.sh command.
 
-This will have the validator run and test against historical data instead of live. Don't use this flag if you only want to test against live data.
+## 9. Pitfall Prevention
+
+When running a validator in certain cloud environments such as Runpod, you may not have your Bittensor default port open (8091). This will cause your validator to be unable to communicate with miners and thus have a low VTRUST as your validator isn't receiving the latest orders. In order to correct this issue, explicitly open a tcp port, and pass this as an arugment with `--axon.port <YOUR_OPEN_PORT>`
