@@ -10,6 +10,7 @@ from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.utils.logger_utils import LoggerUtils
 from vali_objects.utils.position_manager import PositionManager
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
+from vali_objects.utils.subtensor_weight_setter import SubtensorWeightSetter
 from vali_objects.vali_dataclasses.order import Order
 from vali_objects.scoring.scoring import Scoring
 
@@ -19,6 +20,14 @@ def generate_request_outputs():
         metagraph=None,
         running_unit_tests=False
     )
+
+    subtensor_weight_setter = SubtensorWeightSetter(
+        config=None,
+        wallet=None,
+        metagraph=None,
+        running_unit_tests=False
+    )
+
     eliminations = position_manager.get_eliminations_from_disk()
     eliminated_hotkeys = set(x['hotkey'] for x in eliminations)
     plagiarism = position_manager.get_plagiarism_scores_from_disk()
@@ -33,8 +42,6 @@ def generate_request_outputs():
                 f"directory for miners doesn't exist "
                 f"[{ValiBkpUtils.get_miner_dir()}]. Skip run for now."
             )
-        
-
 
         hotkey_positions = position_manager.get_all_miner_positions_by_hotkey(
             all_miner_hotkeys,
@@ -55,10 +62,16 @@ def generate_request_outputs():
                 "thirty_day_returns": 1.0,
             }
 
+            ps = subtensor_weight_setter._filter_positions(ps)
+            filter_miner_boolean = subtensor_weight_setter._filter_miner(ps)
+            if filter_miner_boolean:
+                continue
+
+
             return_per_position = position_manager.get_return_per_closed_position(ps)
 
             ## also get the augmented returns
-            return_per_position_augmented = position_manager.get_return_per_closed_position_augmented(
+            return_per_position_augmented: list[float] = position_manager.get_return_per_closed_position_augmented(
                 ps,
                 evaluation_time_ms=TimeUtil.now_in_millis(),
             )
@@ -68,9 +81,7 @@ def generate_request_outputs():
                 dict_hotkey_position_map[k]["thirty_day_returns"] = curr_return
 
             if len(return_per_position_augmented) > 0:
-                curr_return_augmented = return_per_position_augmented[
-                    len(return_per_position_augmented) - 1
-                ]
+                curr_return_augmented = return_per_position_augmented
                 dict_hotkey_position_map[k][
                     "thirty_day_returns_augmented"
                 ] = curr_return_augmented
@@ -116,10 +127,30 @@ def generate_request_outputs():
             if 'thirty_day_returns_augmented' in v
         }
 
-        filtered_results = Scoring.filter_results(miner_finalscores)
-        filtered_miners = list(set(miner_finalscores.keys()) - set([x[0] for x in filtered_results]))
-        scaled_transformed_list = Scoring.transform_and_scale_results(filtered_results)
+        filtered_results = list(miner_finalscores.items())
+        ## Can also start tracking some of the other metrics here
+        omega_list = []
+        augmented_return_list = []
+        sharpe_ratio_list = []
+        probabilistic_sharpe_ratio_list = []
 
+        for miner_id, returns in filtered_results:
+            miner_omega_score = Scoring.omega(returns)
+            augmented_return = Scoring.total_return(returns)
+            sharpe_ratio = Scoring.sharpe_ratio(returns)
+            probabilistic_sharpe_ratio = Scoring.probabilistic_sharpe_ratio(returns)
+
+            omega_list.append((miner_id, miner_omega_score))
+            augmented_return_list.append((miner_id, augmented_return))
+            sharpe_ratio_list.append((miner_id, sharpe_ratio))
+            probabilistic_sharpe_ratio_list.append((miner_id, probabilistic_sharpe_ratio))
+
+        augmented_return_list = []
+        for miner_id, returns in filtered_results:
+            augmented_return = Scoring.total_return(returns)
+            augmented_return_list.append((miner_id, augmented_return))
+
+        scaled_transformed_list = Scoring.transform_and_scale_results(filtered_results)
         ord_dict_hotkey_position_map = dict(
             sorted(
                 dict_hotkey_position_map.items(),
@@ -133,8 +164,13 @@ def generate_request_outputs():
             'version': ValiConfig.VERSION,
             'positions': ord_dict_hotkey_position_map,
             'weights': scaled_transformed_list,
+            "metrics": {
+                "omega": omega_list,
+                "augmented_return": augmented_return_list,
+                "sharpe_ratio": sharpe_ratio_list,
+                "probabilistic_sharpe_ratio": probabilistic_sharpe_ratio_list,
+            },
             'eliminations': eliminations,
-            'filtered': filtered_miners,
             'plagiarism': plagiarism,
             'youngest_order_processed_ms': youngest_order_processed_ms,
             'oldest_order_processed_ms': oldest_order_processed_ms,
