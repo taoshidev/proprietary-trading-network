@@ -87,13 +87,6 @@ class SubtensorWeightSetter(CacheController):
         if len(positions) < ValiConfig.SET_WEIGHT_MINIMUM_POSITIONS:
             return True
         
-        total_position_time = 0
-        for position in positions:
-            total_position_time += position.close_ms - position.open_ms
-
-        if total_position_time < ValiConfig.SET_WEIGHT_MINIMUM_POSITION_DURATION_MS:
-            return True
-        
         # check that the position
         return False
     
@@ -101,7 +94,12 @@ class SubtensorWeightSetter(CacheController):
         """
         Filter out positions that are not within the lookback range.
         """
-        return positions
+        filtered_positions = []
+        for position in positions:
+            if position.close_ms - position.open_ms < ValiConfig.SET_WEIGHT_MINIMUM_POSITION_DURATION_MS:
+                continue
+            filtered_positions.append(position)
+        return filtered_positions
 
 
     def _set_subtensor_weights(self, filtered_results: list[tuple[str, float]]):
