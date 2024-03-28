@@ -65,7 +65,7 @@ def handle_data():
         # store miner signal
         signal_file_uuid = str(uuid.uuid4())
         ValiBkpUtils.write_file(
-            MinerConfig.get_miner_received_signals_dir() + signal_file_uuid, str(signal)
+            MinerConfig.get_miner_received_signals_dir() + signal_file_uuid, dict(signal)
         )
     except ValueError:
         print(traceback.format_exc())

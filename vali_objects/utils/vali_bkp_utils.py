@@ -8,7 +8,14 @@ import pickle
 from vali_config import ValiConfig
 from vali_objects.position import Position
 from vali_objects.vali_dataclasses.order import OrderStatus
+from vali_objects.enums.order_type_enum import OrderType
+from vali_config import TradePair
 
+class CustomEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, TradePair) or isinstance(obj, OrderType):
+            return obj.__json__()
+        return json.JSONEncoder.default(self, obj)
 
 class ValiBkpUtils:
     @staticmethod
@@ -99,7 +106,7 @@ class ValiBkpUtils:
             elif is_pickle:
                 pickle.dump(vali_data, f)
             else:
-                f.write(json.dumps(vali_data))
+                f.write(json.dumps(vali_data, cls=CustomEncoder, indent=4))
         f.close()
 
     @staticmethod
