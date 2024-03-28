@@ -63,8 +63,8 @@ class SubtensorWeightSetter(CacheController):
         current_time = TimeUtil.now_in_millis()
         for hotkey, positions in hotkey_positions.items():
             filtered_positions = self._filter_positions(positions)
-            filter_position_logic = self._filter_miner(filtered_positions)
-            if filter_position_logic:
+            filter_miner_logic = self._filter_miner(filtered_positions)
+            if filter_miner_logic:
                 continue
 
             # compute the autmented returns for internal calculation
@@ -101,7 +101,7 @@ class SubtensorWeightSetter(CacheController):
 
             if position.close_ms - position.open_ms < ValiConfig.SET_WEIGHT_MINIMUM_POSITION_DURATION_MS:
                 continue
-            
+
             filtered_positions.append(position)
         return filtered_positions
 
