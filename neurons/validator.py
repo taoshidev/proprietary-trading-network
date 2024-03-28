@@ -35,6 +35,7 @@ from vali_config import ValiConfig
 class Validator:
     def __init__(self):
         self.config = self.get_config()
+        self.is_mainnet = self.config.netuid == 8
         # Ensure the directory for logging exists, else create one.
         if not os.path.exists(self.config.full_path):
             os.makedirs(self.config.full_path, exist_ok=True)
@@ -148,6 +149,27 @@ class Validator:
         self.mdd_checker = MDDChecker(self.config, self.metagraph, self.position_manager, self.eliminations_lock)
         self.weight_setter = SubtensorWeightSetter(self.config, wallet, self.metagraph)
         self.elimination_manager = EliminationManager(self.metagraph, self.position_manager, self.eliminations_lock)
+
+        # Validators on mainnet net to be syned for the first time or after interruption need to resync their
+        # positions. Assert there are existing orders that occurred > 24hrs in the past. Assert that the newest order
+        # was placed within 24 hours.
+        if self.is_mainnet:
+            n_positions_on_disk = self.position_manager.get_number_of_miners_with_any_positions()
+            smallest_disk_ms, largest_disk_ms = (
+                self.position_manager.get_extreme_position_order_processed_on_disk_ms())
+            bt.logging.info(f"Found {n_positions_on_disk} positions on disk."
+                            f" Found youngest_disk_ms: {TimeUtil.millis_to_datetime(smallest_disk_ms)},"
+                            f" oldest_disk_ms: {TimeUtil.millis_to_datetime(largest_disk_ms)}")
+            if (n_positions_on_disk == 0 or
+                    smallest_disk_ms > TimeUtil.timestamp_to_millis(TimeUtil.generate_start_timestamp(days=1)) or
+                    largest_disk_ms < TimeUtil.timestamp_to_millis(TimeUtil.generate_start_timestamp(days=1))):
+                msg = (f"Validator data needs to be synced with mainnet. Please restore data from checkpoint "
+                       f"before running the validator. More info here: "
+                       f"https://github.com/taoshidev/proprietary-trading-network/"
+                       f"blob/main/docs/regenerating_validator_state.md")
+                bt.logging.error(msg)
+                raise Exception(msg)
+
 
 
     @staticmethod

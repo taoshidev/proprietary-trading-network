@@ -87,7 +87,7 @@ class CacheController:
     def get_eliminations_from_disk(self):
         location = ValiBkpUtils.get_eliminations_dir(running_unit_tests=self.running_unit_tests)
         cached_eliminations = ValiUtils.get_vali_json_file(location, CacheController.ELIMINATIONS)
-        bt.logging.info(f"Loaded [{len(cached_eliminations)}] eliminations from disk: {cached_eliminations}. Dir: {location}")
+        bt.logging.info(f"Loaded [{len(cached_eliminations)}] eliminations from disk. Dir: {location}")
         return cached_eliminations
 
     def get_plagiarism_scores_from_disk(self):
