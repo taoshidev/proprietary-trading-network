@@ -96,8 +96,12 @@ class SubtensorWeightSetter(CacheController):
         """
         filtered_positions = []
         for position in positions:
+            if not position.is_closed_position:
+                continue
+
             if position.close_ms - position.open_ms < ValiConfig.SET_WEIGHT_MINIMUM_POSITION_DURATION_MS:
                 continue
+            
             filtered_positions.append(position)
         return filtered_positions
 

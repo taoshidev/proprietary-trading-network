@@ -129,28 +129,18 @@ def generate_request_outputs():
 
         filtered_results = list(miner_finalscores.items())
         ## Can also start tracking some of the other metrics here
-        omega_list = []
-        augmented_return_list = []
-        sharpe_ratio_list = []
-        probabilistic_sharpe_ratio_list = []
+        omega_list = {}
+        augmented_return_list = {}
+        sharpe_ratio_list = {}
+        probabilistic_sharpe_ratio_list = {}
 
         for miner_id, returns in filtered_results:
-            miner_omega_score = Scoring.omega(returns)
-            augmented_return = Scoring.total_return(returns)
-            sharpe_ratio = Scoring.sharpe_ratio(returns)
-            probabilistic_sharpe_ratio = Scoring.probabilistic_sharpe_ratio(returns)
+            omega_list[miner_id] = Scoring.omega(returns)
+            augmented_return_list[miner_id] = Scoring.total_return(returns)
+            sharpe_ratio_list[miner_id] = Scoring.sharpe_ratio(returns)
+            probabilistic_sharpe_ratio_list[miner_id] = Scoring.probabilistic_sharpe_ratio(returns)
 
-            omega_list.append((miner_id, miner_omega_score))
-            augmented_return_list.append((miner_id, augmented_return))
-            sharpe_ratio_list.append((miner_id, sharpe_ratio))
-            probabilistic_sharpe_ratio_list.append((miner_id, probabilistic_sharpe_ratio))
-
-        augmented_return_list = []
-        for miner_id, returns in filtered_results:
-            augmented_return = Scoring.total_return(returns)
-            augmented_return_list.append((miner_id, augmented_return))
-
-        scaled_transformed_list = Scoring.transform_and_scale_results(filtered_results)
+        scaled_transformed_list = dict(Scoring.transform_and_scale_results(filtered_results))
         ord_dict_hotkey_position_map = dict(
             sorted(
                 dict_hotkey_position_map.items(),
