@@ -177,7 +177,7 @@ def generate_request_outputs():
             'youngest_order_processed_ms': youngest_order_processed_ms,
             'oldest_order_processed_ms': oldest_order_processed_ms,
             'created_timestamp_ms': now_ms,
-            'created_date': TimeUtil.millis_to_datetime(now_ms).strftime("%Y-%m-%d %H:%M:%S"),
+            'created_date': TimeUtil.millis_to_formatted_date_str(now_ms),
         }
 
         output_file_path = ValiBkpUtils.get_vali_outputs_dir() + "validator_checkpoint.json"
