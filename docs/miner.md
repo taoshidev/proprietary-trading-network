@@ -15,6 +15,9 @@ The current flow of information is as follows:
 5. Validators wait for you to send in signals to close out positions (FLAT)
 6. Validators set weights based on miner returns every 5 minutes
 
+
+Please keep in mind that only one order can be submitted per minute per trade pair. This limitation may interfere with certain HFT strategies. We suggest verifying your miner on testnet before running on mainnet. 
+
 **IMPORTANT**
 When first getting set up, we recommend running a miner locally to ensure there are no errors. Do this by running `mining/run_receive_signals_server.py` and `mining/sample_signal_request.py`.
 . 
