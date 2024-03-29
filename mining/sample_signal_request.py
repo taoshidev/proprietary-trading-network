@@ -4,12 +4,17 @@ import requests
 import json
 
 from vali_objects.enums.order_type_enum import OrderType
-from vali_config import TradePair
+from vali_config import TradePair, TradePairCategory
+
 
 class CustomEncoder(json.JSONEncoder):
     def default(self, obj):
         if isinstance(obj, TradePair) or isinstance(obj, OrderType):
             return obj.__json__()  # Use the to_dict method to serialize TradePair
+
+        if isinstance(obj, TradePairCategory):
+            # Return the value of the Enum member, which is a string
+            return obj.value
 
         # Let the base class default method raise the TypeError
         return json.JSONEncoder.default(self, obj)
