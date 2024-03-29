@@ -56,37 +56,34 @@ def generate_request_outputs():
         dict_hotkey_position_map = {}
         youngest_order_processed_ms = float("inf")
         oldest_order_processed_ms = 0
-        for k, ps in hotkey_positions.items():
+        for k, original_positions in hotkey_positions.items():
             dict_hotkey_position_map[k] = {
                 "positions": [],
                 "thirty_day_returns": 1.0,
             }
 
-            ps = subtensor_weight_setter._filter_positions(ps)
+            ps = subtensor_weight_setter._filter_positions(original_positions)
             filter_miner_boolean = subtensor_weight_setter._filter_miner(ps)
-            if filter_miner_boolean:
-                continue
+            if not filter_miner_boolean:
+                return_per_position = position_manager.get_return_per_closed_position(ps)
 
+                ## also get the augmented returns
+                return_per_position_augmented: list[float] = position_manager.get_return_per_closed_position_augmented(
+                    ps,
+                    evaluation_time_ms=TimeUtil.now_in_millis(),
+                )
 
-            return_per_position = position_manager.get_return_per_closed_position(ps)
+                if len(return_per_position) > 0:
+                    curr_return = return_per_position[len(return_per_position) - 1]
+                    dict_hotkey_position_map[k]["thirty_day_returns"] = curr_return
 
-            ## also get the augmented returns
-            return_per_position_augmented: list[float] = position_manager.get_return_per_closed_position_augmented(
-                ps,
-                evaluation_time_ms=TimeUtil.now_in_millis(),
-            )
+                if len(return_per_position_augmented) > 0:
+                    curr_return_augmented = return_per_position_augmented
+                    dict_hotkey_position_map[k][
+                        "thirty_day_returns_augmented"
+                    ] = curr_return_augmented
 
-            if len(return_per_position) > 0:
-                curr_return = return_per_position[len(return_per_position) - 1]
-                dict_hotkey_position_map[k]["thirty_day_returns"] = curr_return
-
-            if len(return_per_position_augmented) > 0:
-                curr_return_augmented = return_per_position_augmented
-                dict_hotkey_position_map[k][
-                    "thirty_day_returns_augmented"
-                ] = curr_return_augmented
-
-            for p in ps:
+            for p in original_positions:
                 youngest_order_processed_ms = min(youngest_order_processed_ms,
                                                   min(p.orders, key=lambda o: o.processed_ms).processed_ms)
                 oldest_order_processed_ms = max(oldest_order_processed_ms,
