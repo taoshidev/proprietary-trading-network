@@ -6,44 +6,42 @@ from enum import Enum
 
 from time_util.time_util import TimeUtil
 
+class TradePairCategory(Enum):
+    CRYPTO = "crypto"
+    FOREX = "forex"
+    INDICES = "indices"
 
 class TradePair(Enum):
     # crypto
-    BTCUSD = ["BTCUSD", "BTC/USD", 0.002, 0.001, 20, True]
-    ETHUSD = ["ETHUSD", "ETH/USD", 0.002, 0.001, 20, True]
+    BTCUSD = ["BTCUSD", "BTC/USD", 0.002, 0.001, 20, TradePairCategory.CRYPTO]
+    ETHUSD = ["ETHUSD", "ETH/USD", 0.002, 0.001, 20, TradePairCategory.CRYPTO]
 
     # forex
-    AUDCAD = ["AUDCAD", "AUD/CAD", 0.0003, 0.001, 500, False]
-    AUDUSD = ["AUDUSD", "AUD/USD", 0.0003, 0.001, 500, False]
-    AUDJPY = ["AUDJPY", "AUD/JPY", 0.0003, 0.001, 500, False]
-
-    CADCHF = ["CADCHF", "CAD/CHF", 0.0003, 0.001, 500, False]
-    CADJPY = ["CADJPY", "CAD/JPY", 0.0003, 0.001, 500, False]
-
-    CHFJPY = ["CHFJPY", "CHF/JPY", 0.0003, 0.001, 500, False]
-
-    EURCAD = ["EURCAD", "EUR/CAD", 0.0003, 0.001, 500, False]
-    EURUSD = ["EURUSD", "EUR/USD", 0.0003, 0.001, 500, False]
-    EURCHF = ["EURCHF", "EUR/CHF", 0.0003, 0.001, 500, False]
-    EURGBP = ["EURGBP", "EUR/GBP", 0.0003, 0.001, 500, False]
-    EURJPY = ["EURJPY", "EUR/JPY", 0.0003, 0.001, 500, False]
-    EURNZD = ["EURNZD", "EUR/NZD", 0.0003, 0.001, 500, False]
-
-    NZDCAD = ["NZDCAD", "NZD/CAD", 0.0003, 0.001, 500, False]
-    NZDJPY = ["NZDJPY", "NZD/JPY", 0.0003, 0.001, 500, False]
-
-    GBPUSD = ["GBPUSD", "GBP/USD", 0.0003, 0.001, 500, False]
-    GBPJPY = ["GBPJPY", "GBP/JPY", 0.0003, 0.001, 500, False]
-
-    USDCAD = ["USDCAD", "USD/CAD", 0.0003, 0.001, 500, False]
-    USDCHF = ["USDCHF", "USD/CHF", 0.0003, 0.001, 500, False]
-    USDJPY = ["USDJPY", "USD/JPY", 0.0003, 0.001, 500, False]
+    AUDCAD = ["AUDCAD", "AUD/CAD", 0.00007, 0.001, 500, TradePairCategory.FOREX]
+    AUDUSD = ["AUDUSD", "AUD/USD", 0.00007, 0.001, 500, TradePairCategory.FOREX]
+    AUDJPY = ["AUDJPY", "AUD/JPY", 0.00007, 0.001, 500, TradePairCategory.FOREX]
+    CADCHF = ["CADCHF", "CAD/CHF", 0.00007, 0.001, 500, TradePairCategory.FOREX]
+    CADJPY = ["CADJPY", "CAD/JPY", 0.00007, 0.001, 500, TradePairCategory.FOREX]
+    CHFJPY = ["CHFJPY", "CHF/JPY", 0.00007, 0.001, 500, TradePairCategory.FOREX]
+    EURCAD = ["EURCAD", "EUR/CAD", 0.00007, 0.001, 500, TradePairCategory.FOREX]
+    EURUSD = ["EURUSD", "EUR/USD", 0.00007, 0.001, 500, TradePairCategory.FOREX]
+    EURCHF = ["EURCHF", "EUR/CHF", 0.00007, 0.001, 500, TradePairCategory.FOREX]
+    EURGBP = ["EURGBP", "EUR/GBP", 0.00007, 0.001, 500, TradePairCategory.FOREX]
+    EURJPY = ["EURJPY", "EUR/JPY", 0.00007, 0.001, 500, TradePairCategory.FOREX]
+    EURNZD = ["EURNZD", "EUR/NZD", 0.00007, 0.001, 500, TradePairCategory.FOREX]
+    NZDCAD = ["NZDCAD", "NZD/CAD", 0.00007, 0.001, 500, TradePairCategory.FOREX]
+    NZDJPY = ["NZDJPY", "NZD/JPY", 0.00007, 0.001, 500, TradePairCategory.FOREX]
+    GBPUSD = ["GBPUSD", "GBP/USD", 0.00007, 0.001, 500, TradePairCategory.FOREX]
+    GBPJPY = ["GBPJPY", "GBP/JPY", 0.00007, 0.001, 500, TradePairCategory.FOREX]
+    USDCAD = ["USDCAD", "USD/CAD", 0.00007, 0.001, 500, TradePairCategory.FOREX]
+    USDCHF = ["USDCHF", "USD/CHF", 0.00007, 0.001, 500, TradePairCategory.FOREX]
+    USDJPY = ["USDJPY", "USD/JPY", 0.00007, 0.001, 500, TradePairCategory.FOREX]
 
     # indices
-    SPX = ["SPX", "SPX", 0.0005, 0.001, 500, False]
-    DJI = ["DJI", "DJI", 0.0005, 0.001, 500, False]
-    FTSE = ["FTSE", "FTSE", 0.0005, 0.001, 500, False]
-    GDAXI = ["GDAXI", "GDAXI", 0.0005, 0.001, 500, False]
+    SPX = ["SPX", "SPX", 0.00009, 0.001, 500, TradePairCategory.INDICES]
+    DJI = ["DJI", "DJI", 0.00009, 0.001, 500, TradePairCategory.INDICES]
+    FTSE = ["FTSE", "FTSE", 0.00009, 0.001, 500, TradePairCategory.INDICES]
+    GDAXI = ["GDAXI", "GDAXI", 0.00009, 0.001, 500, TradePairCategory.INDICES]
 
     @property
     def trade_pair_id(self):
@@ -66,8 +64,20 @@ class TradePair(Enum):
         return self.value[4]
 
     @property
-    def is_crypto(self):
+    def trade_pair_category(self):
         return self.value[5]
+
+    @property
+    def is_crypto(self):
+        return self.trade_pair_category == TradePairCategory.CRYPTO
+
+    @property
+    def is_forex(self):
+        return self.trade_pair_category == TradePairCategory.FOREX
+
+    @property
+    def is_indices(self):
+        return self.trade_pair_category == TradePairCategory.INDICES
 
     @staticmethod
     def to_dict():
@@ -117,8 +127,11 @@ class TradePair(Enum):
             "fees": self.fees,
             "min_leverage": self.min_leverage,
             "max_leverage": self.max_leverage,
-            "is_crypto": self.is_crypto,
+            "trade_pair_category": self.trade_pair_category,
         }
+    
+    def __dict__(self):
+        return self.__json__()
 
     @staticmethod
     def get_latest_trade_pair_from_trade_pair_id(trade_pair_id):
@@ -133,21 +146,32 @@ TRADE_PAIR_ID_TO_TRADE_PAIR = {x.trade_pair_id: x for x in TradePair}
 
 class ValiConfig:
     ## versioning
-    VERSION = "2.0.0"
+    VERSION = "2.1.0"
 
     # fees take into account exiting and entering a position, liquidity, and futures fees
     MDD_CHECK_REFRESH_TIME_MS = 15 * 1000  # 15 seconds
     MAX_DAILY_DRAWDOWN = 0.95  # Portfolio should never fall below .95 x of initial value when measured day to day
     MAX_TOTAL_DRAWDOWN = 0.9  # Portfolio should never fall below .90 x of initial value when measured at any instant
     MAX_OPEN_ORDERS_PER_HOTKEY = 200
+    ORDER_COOLDOWN_MS = 60000  # 1 minute
 
     SET_WEIGHT_REFRESH_TIME_MS = 60 * 5 * 1000  # 5 minutes
     SET_WEIGHT_LOOKBACK_RANGE_DAYS = 30
     SET_WEIGHT_LOOKBACK_RANGE_MS = SET_WEIGHT_LOOKBACK_RANGE_DAYS * 24 * 60 * 60 * 1000
 
     HISTORICAL_DECAY_TIME_INTENSITY_COEFFICIENT = 0.35
+    ANNUAL_RISK_FREE_RATE = 0.02
+    DAYS_IN_YEAR = 365.25
+    LOOKBACK_RANGE_DAYS_RISK_FREE_RATE = (1+ANNUAL_RISK_FREE_RATE)**(SET_WEIGHT_LOOKBACK_RANGE_DAYS/DAYS_IN_YEAR) - 1
 
-    SET_WEIGHT_MINIMUM_POSITIONS = 3
+    PROBABILISTIC_SHARPE_RATIO_THRESHOLD = 0.0
+    OMEGA_RATIO_THRESHOLD = 0.0 # in reality, this would be the risk free rate - but we just want the functionality to compare the magnitude of gains and losses internally for our scoring function
+    OMEGA_MINIMUM_DENOMINATOR = 1e-6
+    PROBABILISTIC_SHARPE_RATIO_MIN_STD_DEV = 1e-6
+
+    SET_WEIGHT_MINIMUM_POSITIONS = 10 # mimumum number of positions over the lookback range
+    SET_WEIGHT_MINIMUM_POSITION_DURATION_MS = 1 * 60 * 1000  # 1 minutes
+    SET_WEIGHT_MINIMUM_POSITION_DURATION_TOTAL_MS = SET_WEIGHT_MINIMUM_POSITION_DURATION_MS * SET_WEIGHT_MINIMUM_POSITIONS
 
     ORDER_SIMILARITY_WINDOW_MS = TimeUtil.hours_in_millis(24)
 

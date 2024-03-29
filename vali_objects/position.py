@@ -193,24 +193,21 @@ class Position(BaseModel):
 
         self.close_out_position(time_ms)
 
-    def calculate_return_with_fees(self, current_return_no_fees, net_leverage, trade_pair):
+    def calculate_return_with_fees(self, current_return_no_fees, net_leverage):
         # Note: Closed positions will have static returns. This method is only called for open positions.
         # V2 fee calculation. Crypto fee lowered from .003 to .002. Multiply fee by leverage for crypto pairs.
-        if trade_pair.is_crypto:
-            fee = self.trade_pair.fees * abs(net_leverage)
-        else:
-            fee = self.trade_pair.fees
-
+        # V3 calculation. All fees scaled by leverage. Updated forex and indices fees.
+        fee = self.trade_pair.fees * abs(net_leverage)
         return current_return_no_fees * (1.0 - fee)
 
 
-    def set_returns(self, realtime_price, net_leverage, trade_pair, time_ms=None):
+    def set_returns(self, realtime_price, net_leverage, time_ms=None):
         if time_ms is None:
             time_ms = TimeUtil.now_in_millis()
         # We used to multiple trade_pair.fees by net_leverage. Eventually we will
         # Update this calculation to approximate actual exchange fees.
         self.current_return = self.calculate_unrealized_pnl(realtime_price)
-        self.return_at_close = self.calculate_return_with_fees(self.current_return, net_leverage, trade_pair)
+        self.return_at_close = self.calculate_return_with_fees(self.current_return, net_leverage)
 
         if self.current_return < 0:
             raise ValueError(f"current return must be positive {self.current_return}")
@@ -229,7 +226,7 @@ class Position(BaseModel):
         assert self.initial_entry_price > 0, self.initial_entry_price
         new_net_leverage = self.net_leverage + delta_leverage
 
-        self.set_returns(realtime_price, new_net_leverage, order.trade_pair, time_ms=order.processed_ms)
+        self.set_returns(realtime_price, new_net_leverage, time_ms=order.processed_ms)
 
         # Liquidated
         if self.current_return == 0:

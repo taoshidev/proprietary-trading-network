@@ -356,6 +356,21 @@ class Validator:
 
         return False
 
+    def enforce_order_cooldown(self, order, open_position):
+        # Don't allow orders to be placed within ORDER_COOLDOWN_MS of the previous order
+        if len(open_position.orders) == 0:
+            return
+        last_order = open_position.orders[-1]
+        if order.processed_ms - last_order.processed_ms < ValiConfig.ORDER_COOLDOWN_MS:
+            previous_order_time = TimeUtil.millis_to_formatted_date_str(last_order.processed_ms)
+            current_time = TimeUtil.millis_to_formatted_date_str(order.processed_ms)
+            time_to_wait_in_s = (ValiConfig.ORDER_COOLDOWN_MS - (order.processed_ms - last_order.processed_ms)) / 1000
+            raise SignalException(
+                f"Order for trade pair [{order.trade_pair.trade_pair_id}] was placed too soon after the previous order. "
+                f"Last order was placed at [{previous_order_time}] and current order was placed at [{current_time}]."
+                f"Please wait {time_to_wait_in_s} seconds before placing another order."
+            )
+
     # This is the core validator function to receive a signal
     def receive_signal(self, synapse: template.protocol.SendSignal,
                        ) -> template.protocol.SendSignal:
@@ -378,6 +393,7 @@ class Validator:
                                                                                              only_open_positions=True)}
                 self._enforce_num_open_order_limit(trade_pair_to_open_position, signal_to_order)
                 open_position = self._get_or_create_open_position(signal_to_order, miner_hotkey, trade_pair_to_open_position)
+                self.enforce_order_cooldown(signal_to_order, open_position)
                 open_position.add_order(signal_to_order)
                 self.position_manager.save_miner_position_to_disk(open_position)
                 # Log the open position for the miner

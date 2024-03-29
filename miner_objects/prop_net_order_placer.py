@@ -12,6 +12,8 @@ from copy import deepcopy
 import bittensor as bt
 from miner_config import MinerConfig
 from template.protocol import SendSignal
+from time_util.time_util import TimeUtil
+from vali_config import TradePair, ValiConfig
 from vali_objects.decoders.generalized_json_decoder import GeneralizedJSONDecoder
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 
@@ -26,6 +28,26 @@ class PropNetOrderPlacer:
         self.metagraph = metagraph
         self.config = config
         self.recently_acked_validators = []
+        self.trade_pair_id_to_last_order_send = {tp.trade_pair_id: 0 for tp in TradePair}
+
+    def error_check(self, signal_files: list[str]):
+        signals = [self.load_signal_data(f) for f in signal_files]
+        # Find out if any signals are for the same trade pair so an exception can be thrown
+        trade_pair_ids = [s['trade_pair']['trade_pair_id'] for s in signals]
+        if len(trade_pair_ids) != len(set(trade_pair_ids)):
+            raise Exception("Multiple signals found for the same trade pair. Please ensure that each trade pair "
+                            "has only one signal per batch, otherwise orders may not be processed in the correct order."
+                            "Relevant signal files: " + str(signal_files))
+        for s in signals:
+            trade_pair_id = s['trade_pair']['trade_pair_id']
+            last_send_time_ms = self.trade_pair_id_to_last_order_send[trade_pair_id]
+            if TimeUtil.now_in_millis() - last_send_time_ms < ValiConfig.ORDER_COOLDOWN_MS:
+                time_to_wait_s = (ValiConfig.ORDER_COOLDOWN_MS - (TimeUtil.now_in_millis() - last_send_time_ms)) / 1000
+                raise Exception(f"Cannot send signal for trade pair {trade_pair_id} yet. Last order sent at "
+                                f"{TimeUtil.millis_to_formatted_date_str(last_send_time_ms)}"
+                                f" (cooldown period: {ValiConfig.ORDER_COOLDOWN_MS} ms). "
+                                f"Order can be sent in {time_to_wait_s} seconds. Retrying...")
+            self.trade_pair_id_to_last_order_send[trade_pair_id] = TimeUtil.now_in_millis()
 
     def send_signals(self, recently_acked_validators: list[str]):
         """
@@ -36,6 +58,7 @@ class PropNetOrderPlacer:
         """
         self.recently_acked_validators = recently_acked_validators
         signal_files = ValiBkpUtils.get_all_files_in_dir(MinerConfig.get_miner_received_signals_dir())
+        self.error_check(signal_files)
         bt.logging.info(f"Total new signals to send: {len(signal_files)}.")
 
         # Use ThreadPoolExecutor to process signals in parallel
