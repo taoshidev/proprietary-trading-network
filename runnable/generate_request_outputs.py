@@ -146,6 +146,18 @@ def generate_request_outputs():
             )
         )
 
+        n_orders_original = 0
+        for positions in hotkey_positions.values():
+            n_orders_original += sum([len(position.orders) for position in positions])
+
+        n_positions_new = 0
+        for data in ord_dict_hotkey_position_map.values():
+            positions = data['positions']
+            n_positions_new += sum([len(p['orders']) for p in positions])
+
+        logger.info(f"n_orders_original: {n_orders_original}, n_positions_new: {n_positions_new}")
+        assert n_orders_original == n_positions_new, f"n_orders_original: {n_orders_original}, n_positions_new: {n_positions_new}"
+
         now_ms = TimeUtil.now_in_millis()
         final_dict = {
             'version': ValiConfig.VERSION,
