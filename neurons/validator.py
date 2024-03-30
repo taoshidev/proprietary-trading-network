@@ -157,9 +157,10 @@ class Validator:
             n_positions_on_disk = self.position_manager.get_number_of_miners_with_any_positions()
             smallest_disk_ms, largest_disk_ms = (
                 self.position_manager.get_extreme_position_order_processed_on_disk_ms())
-            bt.logging.info(f"Found {n_positions_on_disk} positions on disk."
-                            f" Found youngest_disk_ms: {TimeUtil.millis_to_datetime(smallest_disk_ms)},"
-                            f" oldest_disk_ms: {TimeUtil.millis_to_datetime(largest_disk_ms)}")
+            if (n_positions_on_disk > 0):
+                bt.logging.info(f"Found {n_positions_on_disk} positions on disk."
+                                f" Found youngest_disk_ms: {TimeUtil.millis_to_datetime(smallest_disk_ms)},"
+                                f" oldest_disk_ms: {TimeUtil.millis_to_datetime(largest_disk_ms)}")
             if (n_positions_on_disk == 0 or
                     smallest_disk_ms > TimeUtil.timestamp_to_millis(TimeUtil.generate_start_timestamp(days=1)) or
                     largest_disk_ms < TimeUtil.timestamp_to_millis(TimeUtil.generate_start_timestamp(days=1))):
