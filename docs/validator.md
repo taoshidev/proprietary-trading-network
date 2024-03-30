@@ -2,7 +2,7 @@
 
 Your validator receives trade signals from miners and maintains a portfolio per miner with all their positions on disk in the `validation/miners` directory. 
 
-Your validator will track portfolio returns using live price information and assign miner weights based on portfolio performance. Your validator will look to set weights every 5 minutes.
+Your validator will track portfolio returns using live price information. If a portfolio's value declines beyond the drawdown limits, the validator will eliminate that miner. Based on portfolio metrics such as omega score and return, weights get set to reward the best miners. Your validator will look to set weights every 5 minutes.
 
 Validators detect & eliminate any sort of miner copying from the network. It does this by performing an analysis on every order received. If a miner is detected to be plagiarising off another miner, they will be eliminated from the network. The information on plagiarising miners is held in `validation/miner_copying.json`.
 
