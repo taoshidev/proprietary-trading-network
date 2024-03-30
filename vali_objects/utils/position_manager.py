@@ -3,11 +3,13 @@
 import os
 import shutil
 import time
+from collections import defaultdict
 from pickle import UnpicklingError
-from typing import List, Dict, Union
+from typing import List, Dict, Union, Set
 import bittensor as bt
 from pathlib import Path
 
+from copy import deepcopy
 from shared_objects.cache_controller import CacheController
 from time_util.time_util import TimeUtil
 from vali_config import TradePair
@@ -22,9 +24,11 @@ from vali_objects.utils.position_utils import PositionUtils
 
 
 class PositionManager(CacheController):
-    def __init__(self, config=None, metagraph=None, running_unit_tests=False):
+    def __init__(self, config=None, metagraph=None, running_unit_tests=False, load_retroactive_eliminations=False):
         self.position_locks = PositionLocks()
         super().__init__(config=config, metagraph=metagraph, running_unit_tests=running_unit_tests)
+        self.position_uuids_to_ignore = self.get_retroactive_eliminations_from_disk()
+
 
     def close_open_positions_for_miner(self, hotkey):
         for trade_pair in TradePair:
@@ -35,6 +39,83 @@ class PositionManager(CacheController):
                     bt.logging.info(f"Closing open position for hotkey: {hotkey} and trade_pair: {trade_pair_id}")
                     open_position.close_out_position(TimeUtil.now_in_millis())
                     self.save_miner_position_to_disk(open_position)
+
+    def recalculate_return_at_close(self, position: Position):
+        # Recalculate return_at_close for the position. Note, we are not modifying the input position
+        disposable_clone = deepcopy(position)
+        disposable_clone.position_type = None
+        disposable_clone._update_position()
+        #bt.logging.info(f"Recalculated return_at_close for position {position.position_uuid}. New value: {disposable_clone.return_at_close}. Original value: {position.return_at_close}")
+        return disposable_clone.return_at_close
+
+
+    def get_all_disk_positions_for_all_miners(self, **a):
+        all_miner_hotkeys: list = ValiBkpUtils.get_directories_in_dir(
+            ValiBkpUtils.get_miner_dir()
+        )
+        return self.get_all_miner_positions_by_hotkey(all_miner_hotkeys, only_open_positions=False, sort_positions=sort_positions)
+
+    def get_retroactive_eliminations_from_disk(self) -> Set[str]:
+        # Scan all closed positions on disk and recalculate return_at_close.
+        # If the drawdown ever exceeds the threshold, add the position_uuid to the return set
+        ret = set()
+        all_positions = self.get_all_disk_positions_for_all_miners(sort_positions=True, only_open_positions=False)
+        hotkey_to_ignores = defaultdict(set)
+        eliminations = self.get_miner_eliminations_from_disk()
+        eliminated_hotkeys = set(x['hotkey'] for x in eliminations)
+        bt.logging.info(f"Found {len(eliminations)} eliminations on disk.")
+
+        for hotkey, positions in all_positions.items():
+            if hotkey in eliminated_hotkeys:
+                continue
+            max_portfolio_return = 1.0
+            cur_portfolio_return = 1.0
+            most_recent_elimination_idx = None
+
+            if len(positions) == 0:
+                continue
+
+            prev_t = positions[0].close_ms
+            for i, position in enumerate(positions):
+                if position.is_open_position:
+                    assert all(p.is_open_position for p in positions[i:])
+                    break
+                assert position.close_ms >= prev_t, f"Positions must be sorted by close time for this calculation to work."
+                cur_portfolio_return *= self.recalculate_return_at_close(position)
+                max_portfolio_return = max(max_portfolio_return, cur_portfolio_return)
+                drawdown = self.calculate_drawdown(cur_portfolio_return, max_portfolio_return)
+                mdd_failure = self.is_drawdown_beyond_mdd(drawdown,
+                                                           time_now=TimeUtil.millis_to_datetime(position.close_ms))
+                if mdd_failure:
+                    most_recent_elimination_idx = i
+                prev_t = position.close_ms
+            if most_recent_elimination_idx is not None:
+                for position in positions[:most_recent_elimination_idx + 1]:
+                    ret.add(position.position_uuid)
+                    hotkey_to_ignores[hotkey].add(position.position_uuid)
+        if ret:
+            bt.logging.info(f"Found {len(ret)} positions to ignore from retroactive eliminations across {len(hotkey_to_ignores)} hotkeys.")
+        for hotkey, position_uuids in hotkey_to_ignores.items():
+            bt.logging.trace(f"hotkey: {hotkey}. n_positions_to_ignore: {len(position_uuids)}")
+        #self.log_remaining_miners_debug(all_positions, eliminated_hotkeys, ret)
+        return ret
+
+    def log_remaining_miners_debug(self, all_positions, eliminated_hotkeys, ret):
+        # Figure out how many miners have >= 10 positions, excluding eliminations and retroactive eliminations
+        hotkey_to_n_positions = defaultdict(int)
+        for hotkey, positions in all_positions.items():
+            if hotkey in eliminated_hotkeys:
+                continue
+            for position in positions:
+                if position.position_uuid in ret:
+                    continue
+                hotkey_to_n_positions[hotkey] += 1
+        j = 1
+        for hotkey, n_positions in hotkey_to_n_positions.items():
+            if n_positions >= 10:
+                bt.logging.info(f"hotkey # {j} will still get weight: {hotkey}. n_positions: {n_positions}")
+                j += 1
+
 
     def sort_by_close_ms(self, _position):
         return (
@@ -110,7 +191,8 @@ class PositionManager(CacheController):
                                 miner_hotkey: str,
                                 only_open_positions: bool = False,
                                 sort_positions: bool = False,
-                                acceptable_position_end_ms: int = None
+                                acceptable_position_end_ms: int = None,
+                                filter_retroactive_eliminations: bool = False,
                                 ) -> List[Position]:
 
         miner_dir = ValiBkpUtils.get_miner_all_positions_dir(miner_hotkey, running_unit_tests=self.running_unit_tests)
@@ -134,6 +216,9 @@ class PositionManager(CacheController):
 
         if sort_positions:
             positions = sorted(positions, key=self.sort_by_close_ms)
+
+        if filter_retroactive_eliminations:
+            positions = [position for position in positions if position.position_uuid not in self.position_uuids_to_ignore]
 
         return positions
 

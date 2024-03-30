@@ -9,14 +9,12 @@ from time_util.time_util import TimeUtil
 from vali_config import ValiConfig, TradePair
 from shared_objects.cache_controller import CacheController
 from vali_objects.position import Position
-from vali_objects.utils.position_manager import PositionManager
 from vali_objects.utils.vali_utils import ValiUtils
 
 import bittensor as bt
 
 class MDDChecker(CacheController):
-    MAX_DAILY_DRAWDOWN = 'MAX_DAILY_DRAWDOWN'
-    MAX_TOTAL_DRAWDOWN = 'MAX_TOTAL_DRAWDOWN'
+
     def __init__(self, config, metagraph, position_manager, eliminations_lock, running_unit_tests=False):
         super().__init__(config, metagraph, running_unit_tests=running_unit_tests)
         secrets = ValiUtils.get_secrets()
@@ -72,11 +70,6 @@ class MDDChecker(CacheController):
 
         self.set_last_update_time()
 
-    def _calculate_drawdown(self, final, initial):
-        # Ex we went from return of 1 to 0.9. Drawdown is -10% or in this case -0.1. Return 1 - 0.1 = 0.9
-        # Ex we went from return of 0.9 to 1. Drawdown is +10% or in this case 0.1. Return 1 + 0.1 = 1.1 (not really a drawdown)
-        return 1.0 + ((float(final) - float(initial)) / float(initial))
-
     def _replay_all_closed_positions(self, hotkey: str, sorted_closed_positions: List[Position]) -> (bool, float):
         max_cuml_return_so_far = 1.0
         cuml_return = 1.0
@@ -92,9 +85,9 @@ class MDDChecker(CacheController):
             if cuml_return > max_cuml_return_so_far:
                 max_cuml_return_so_far = cuml_return
 
-            drawdown = self._calculate_drawdown(cuml_return, max_cuml_return_so_far)
+            drawdown = self.calculate_drawdown(cuml_return, max_cuml_return_so_far)
             self.portfolio_max_dd_closed_positions = max(drawdown, self.portfolio_max_dd_closed_positions)
-            mdd_failure = self._is_drawdown_beyond_mdd(drawdown, time_now=TimeUtil.millis_to_datetime(position.close_ms))
+            mdd_failure = self.is_drawdown_beyond_mdd(drawdown, time_now=TimeUtil.millis_to_datetime(position.close_ms))
 
             if mdd_failure:
                 self.position_manager.close_open_positions_for_miner(hotkey)
@@ -170,27 +163,19 @@ class MDDChecker(CacheController):
         for position in closed_positions:
             seen_trade_pairs.add(position.trade_pair.trade_pair_id)
 
-        dd_with_open_positions = self._calculate_drawdown(return_with_open_positions, return_with_closed_positions)
+        dd_with_open_positions = self.calculate_drawdown(return_with_open_positions, return_with_closed_positions)
         self.portfolio_max_dd_all_positions = max(self.portfolio_max_dd_closed_positions, dd_with_open_positions)
         # Log the dd for this miner and the positions trade_pairs they are in as well as total number of positions
         bt.logging.info(f"MDD checker -- current return for [{hotkey}]'s portfolio is [{return_with_open_positions}]. max_portfolio_drawdown: {self.portfolio_max_dd_all_positions}. Seen trade pairs: {seen_trade_pairs}. n positions open [{len(open_positions)} / {len(sorted_positions)}]")
 
-        mdd_failure = self._is_drawdown_beyond_mdd(dd_with_open_positions)
+        mdd_failure = self.is_drawdown_beyond_mdd(dd_with_open_positions)
         if mdd_failure:
             self.position_manager.close_open_positions_for_miner(hotkey)
             self.append_elimination_row(hotkey, dd_with_open_positions, mdd_failure)
 
         return bool(mdd_failure)
 
-    def _is_drawdown_beyond_mdd(self, dd, time_now=None) -> str | bool:
-        if time_now is None:
-            time_now = TimeUtil.generate_start_timestamp(0)
-        if (dd < ValiConfig.MAX_DAILY_DRAWDOWN and time_now.hour == 0 and time_now.minute < 5):
-            return MDDChecker.MAX_DAILY_DRAWDOWN
-        elif (dd < ValiConfig.MAX_TOTAL_DRAWDOWN):
-            return MDDChecker.MAX_TOTAL_DRAWDOWN
-        else:
-            return False
+
 
 
 

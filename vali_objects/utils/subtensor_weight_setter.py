@@ -49,6 +49,7 @@ class SubtensorWeightSetter(CacheController):
         # Note, eliminated miners will not appear in the dict below
         hotkey_positions = self.position_manager.get_all_miner_positions_by_hotkey(
             self.metagraph.hotkeys,
+            filter_retroactive_eliminations=True,
             sort_positions=True,
             eliminations=self.eliminations,
             acceptable_position_end_ms=TimeUtil.timestamp_to_millis(

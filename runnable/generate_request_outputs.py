@@ -31,6 +31,7 @@ def generate_request_outputs():
     eliminations = position_manager.get_eliminations_from_disk()
     eliminated_hotkeys = set(x['hotkey'] for x in eliminations)
     plagiarism = position_manager.get_plagiarism_scores_from_disk()
+    position_uuids_to_ignore = list(position_manager.get_retroactive_eliminations_from_disk())
 
     try:
         try:
@@ -182,6 +183,7 @@ def generate_request_outputs():
                 "max_daily_drawdown": ValiConfig.MAX_DAILY_DRAWDOWN,
             },
             'eliminations': eliminations,
+            'position_uuids_to_ignore': position_uuids_to_ignore,
             'plagiarism': plagiarism,
             'youngest_order_processed_ms': youngest_order_processed_ms,
             'oldest_order_processed_ms': oldest_order_processed_ms,

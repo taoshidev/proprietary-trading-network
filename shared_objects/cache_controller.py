@@ -5,6 +5,7 @@ import datetime
 import threading
 
 from time_util.time_util import TimeUtil
+from vali_config import ValiConfig
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.utils.vali_utils import ValiUtils
 
@@ -13,6 +14,8 @@ import bittensor as bt
 
 class CacheController:
     ELIMINATIONS = "eliminations"
+    MAX_DAILY_DRAWDOWN = 'MAX_DAILY_DRAWDOWN'
+    MAX_TOTAL_DRAWDOWN = 'MAX_TOTAL_DRAWDOWN'
     def __init__(self, config=None, metagraph=None, running_unit_tests=False):
         self.config = config
         if config is not None:
@@ -171,3 +174,16 @@ class CacheController:
         bt.logging.info(f"Created and appended elimination row: {r}")
         self.eliminations.append(r)
 
+    def calculate_drawdown(self, final, initial):
+        # Ex we went from return of 1 to 0.9. Drawdown is -10% or in this case -0.1. Return 1 - 0.1 = 0.9
+        # Ex we went from return of 0.9 to 1. Drawdown is +10% or in this case 0.1. Return 1 + 0.1 = 1.1 (not really a drawdown)
+        return 1.0 + ((float(final) - float(initial)) / float(initial))
+    def is_drawdown_beyond_mdd(self, dd, time_now=None) -> str | bool:
+        if time_now is None:
+            time_now = TimeUtil.generate_start_timestamp(0)
+        if (dd < ValiConfig.MAX_DAILY_DRAWDOWN and time_now.hour == 0 and time_now.minute < 5):
+            return CacheController.MAX_DAILY_DRAWDOWN
+        elif (dd < ValiConfig.MAX_TOTAL_DRAWDOWN):
+            return CacheController.MAX_TOTAL_DRAWDOWN
+        else:
+            return False

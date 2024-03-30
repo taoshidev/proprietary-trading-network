@@ -96,7 +96,7 @@ class Validator:
         bt.logging.info(f"Attaching forward function to axon.")
 
         self.rate_limiter = RateLimiter()
-        self.position_manager = PositionManager(metagraph=self.metagraph, config=self.config)
+        self.position_manager = PositionManager(metagraph=self.metagraph, config=self.config, load_retroactive_eliminations=True)
 
         def rs_blacklist_fn(synapse: template.protocol.SendSignal) -> Tuple[bool, str]:
             return Validator.blacklist_fn(synapse, self.metagraph)

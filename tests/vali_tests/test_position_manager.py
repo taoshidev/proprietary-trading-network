@@ -4,7 +4,8 @@ from copy import deepcopy
 import random
 from tests.shared_objects.mock_classes import MockMetagraph
 from tests.vali_tests.base_objects.test_base import TestBase
-from vali_config import TradePair
+from time_util.time_util import TimeUtil
+from vali_config import TradePair, ValiConfig
 from vali_objects.exceptions.vali_records_misalignment_exception import ValiRecordsMisalignmentException
 from vali_objects.position import Position
 from vali_objects.utils.position_manager import PositionManager
@@ -221,7 +222,14 @@ class TestPositionManager(TestBase):
         self.assertEqual(len(all_disk_positions), 2 * len(TradePair))
 
 
-
+    def test_retroactive_eliminations(self):
+        position_manager = PositionManager(metagraph=self.mock_metagraph, running_unit_tests=False)
+        ans = position_manager.get_retroactive_eliminations_from_disk()
+        hotkey_positions_with_filter = self.position_manager.get_all_miner_positions_by_hotkey(
+            self.metagraph.hotkeys,
+            filter_retroactive_eliminations=True,
+            sort_positions=True
+        )
 
 if __name__ == '__main__':
     import unittest
