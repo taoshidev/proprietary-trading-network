@@ -39,7 +39,7 @@ Below are the prerequisites for validators. You may be able to make a validator 
 
 - 2 vCPU + 8 GB memory
 - 100 GB balanced persistent disk
-- An "Enterprise" Twelvedata API account with 2584 credits per minute. (https://twelvedata.com/)
+- An "Enterprise" Twelvedata API account with 2584 credits per minute. (https://twelvedata.com/). The free tier is sufficient for testnet usage. For mainnet applications, an Enterprise tier subscription is required to stay in consensus due to improved SLAs over the other tiers.
 
 # Getting Started
 
@@ -168,7 +168,7 @@ To run a validator, follow these steps:
 ```
 
 - Replace `YOUR_API_KEY_HERE` with your actual TwelveData API key.
-- Obtain an API key by signing up at TwelveData's website. The free tier is sufficient for testnet usage. For mainnet applications, an Enterprise tier subscription is required to stay in consensus due to improved SLAs over the other tiers.
+- Obtain an API key by signing up at TwelveData's website.
 
 
 4. Run the `run.sh` script, which will run your validator and pull the latest updates as they are issued.
