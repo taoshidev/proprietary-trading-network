@@ -106,12 +106,11 @@ leverage and you want to reduce it to a .5x leverage position to start taking pr
 of size .25x leverage to reduce the size of the position. LONG and SHORT signals can be thought of working in opposite 
 directions in this way.
 6. You can close out a position by sending in a FLAT signal. 
-7. max drawdown is determined every minute. If you go beyond **5% max drawdown on daily close**, or **10% at any point in time** your miner will be eliminated. 
-Eliminated miners won't necessarily be immediately deregistered, they'll need to wait to be deregistered based on registrations & immunity period. 
+7. max drawdown is determined every minute. If you go beyond **5% max drawdown on daily close**, or **10% at any point in time** your miner will be eliminated and unable to submit orders or receive rewards. Eliminated miners won't necessarily be immediately deregistered, they'll need to wait to be deregistered from the Bittensor network based on registrations & immunity period. 
 8. If a miner copies another miner's order repeatedly they will be eliminated. When any order is submitted, analysis
 on the integrity of the order is performed. If the order is deemed to be plagiarising it is flagged by the network. Repeated
 occurrence leads to removal from the network.
-9. There is a fee per trade pair position. Crypto has a 0.3% per position, forex has 0.03%, indices have 0.05%.
+9. There is a fee per trade pair position. The fee scales with leverage. e.x a 10x leveraged position will have a 10x higher fee.
 10. There is a minimum registration fee of 5 TAO on the mainnet subnet.
 11. There is an immunity period of 9 days to help miners submit orders to become competitive with existing miners.
 12. The miners who can provide the most returns over a 30 day rolling lookback period are provided the most incentive.
