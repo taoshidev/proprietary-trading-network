@@ -3,10 +3,12 @@ import os
 import threading
 from typing import List
 
+import pytz
+
 from vali_config import TradePair, TradePairCategory
 import time
 from twelvedata import TDClient
-
+from datetime import datetime
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.utils.vali_utils import ValiUtils
 import bittensor as bt
@@ -195,8 +197,7 @@ class TwelveDataService:
 
         # Only
     def _fetch_data_rest(self, symbols, interval, output_size):
-        td = TDClient(apikey=self._api_key)
-        ts = td.time_series(symbol=symbols, interval=interval, outputsize=output_size)
+        ts = self.td.time_series(symbol=symbols, interval=interval, outputsize=output_size)
         response = ts.as_json()
         return response
 
@@ -306,10 +307,27 @@ class TwelveDataService:
 
         return closes
 
+    def get_close_at_date(self, trade_pair: TradePair, date: str):
+        symbol = trade_pair.trade_pair
+        ts = self.td.time_series(symbol=symbol, interval='1min', outputsize=1, date=date)
+        response = ts.as_json()
+        return float(response[0]["close"]), response[0]["datetime"]
+
 
 
 if __name__ == "__main__":
     secrets = ValiUtils.get_secrets()
+
+    from twelvedata import TDClient
+
+    # Initialize client
+    twelve_data = TwelveDataService(api_key=secrets['twelvedata_apikey'])
+
+    data = twelve_data.get_close_at_date(TradePair.SPX, '2024-04-01')
+    print(data)
+
+    assert 0
+
     for i, secret in enumerate([secrets['twelvedata_apikey'], secrets['twelvedata_apikey2']]):
         if i == 0:
             print("USING ENTERPRISE TIER")

@@ -8,6 +8,7 @@ from typing import List, Dict, Union
 import bittensor as bt
 from pathlib import Path
 
+from copy import deepcopy
 from shared_objects.cache_controller import CacheController
 from time_util.time_util import TimeUtil
 from vali_config import TradePair
@@ -15,26 +16,139 @@ from vali_objects.exceptions.corrupt_data_exception import ValiBkpCorruptDataExc
 from vali_objects.exceptions.vali_bkp_file_missing_exception import ValiFileMissingException
 from vali_objects.exceptions.vali_records_misalignment_exception import ValiRecordsMisalignmentException
 from vali_objects.position import Position
+from vali_objects.utils.live_price_fetcher import LivePriceFetcher
 from vali_objects.utils.position_lock import PositionLocks
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
+from vali_objects.utils.vali_utils import ValiUtils
 from vali_objects.vali_dataclasses.order import OrderStatus
 from vali_objects.utils.position_utils import PositionUtils
 
 
 class PositionManager(CacheController):
-    def __init__(self, config=None, metagraph=None, running_unit_tests=False):
-        self.position_locks = PositionLocks()
+    def __init__(self, config=None, metagraph=None, running_unit_tests=False, perform_price_adjustment=False, live_price_fetcher=None):
         super().__init__(config=config, metagraph=metagraph, running_unit_tests=running_unit_tests)
+        self.position_locks = PositionLocks()
+        self.live_price_fetcher = live_price_fetcher
+        if perform_price_adjustment:
+            self.perform_price_recalibration_and_close_open_orders_for_suspended_trade_pairs()
 
-    def close_open_positions_for_miner(self, hotkey):
+
+    def close_open_position_for_miner(self, hotkey: str, trade_pair: TradePair):
+        with self.position_locks.get_lock(hotkey, trade_pair.trade_pair_id):
+            open_position = self.get_open_position_for_a_miner_trade_pair(hotkey, trade_pair.trade_pair_id)
+            if open_position:
+                bt.logging.info(f"Closing open position for hotkey: {hotkey} and trade_pair: {trade_pair.trade_pair_id}")
+                open_position.close_out_position(TimeUtil.now_in_millis())
+                self.save_miner_position_to_disk(open_position)
+
+    def close_open_positions_for_miner(self, hotkey: str):
         for trade_pair in TradePair:
-            trade_pair_id = trade_pair.trade_pair_id
-            with self.position_locks.get_lock(hotkey, trade_pair_id):
-                open_position = self.get_open_position_for_a_miner_trade_pair(hotkey, trade_pair_id)
-                if open_position:
-                    bt.logging.info(f"Closing open position for hotkey: {hotkey} and trade_pair: {trade_pair_id}")
-                    open_position.close_out_position(TimeUtil.now_in_millis())
-                    self.save_miner_position_to_disk(open_position)
+            self.close_open_position_for_miner(hotkey, trade_pair)
+
+    def recalculate_return_at_close_and_write_corrected_position_to_disk(self, position: Position, hotkey:str):
+        tp = position.trade_pair
+        if not tp.is_indices:
+            return position.return_at_close
+
+        any_changes = False
+        disposable_clone = deepcopy(position)
+        deltas = []
+        for o in disposable_clone.orders:
+            date = TimeUtil.millis_to_formatted_date_str(o.processed_ms)
+            old_price = o.price
+            new_price, reported_timestamp = self.live_price_fetcher.get_close_at_date(tp, date)
+            if new_price != old_price:
+                any_changes = True
+                deltas.append((old_price, new_price))
+            o.price = new_price
+
+        disposable_clone.position_type = None
+        disposable_clone._update_position()
+        if any_changes:
+            with self.position_locks.get_lock(hotkey, tp.trade_pair_id):
+                self.save_miner_position_to_disk(disposable_clone)
+            bt.logging.info(f"Recalculated return_at_close for position {position.position_uuid}."
+                            f" Trade pair {position.trade_pair.trade_pair_id} New value: "
+                            f"{disposable_clone.return_at_close}. Original value: {position.return_at_close}")
+            bt.logging.info(f"Corrected n={len(deltas)} prices for position {position.position_uuid} Trade pair {tp.trade_pair_id}. Deltas (before/after): {deltas}")
+        return disposable_clone.return_at_close
+
+
+    def get_all_disk_positions_for_all_miners(self, **args):
+        all_miner_hotkeys: list = ValiBkpUtils.get_directories_in_dir(
+            ValiBkpUtils.get_miner_dir()
+        )
+        return self.get_all_miner_positions_by_hotkey(all_miner_hotkeys, **args)
+
+    def perform_price_recalibration_and_close_open_orders_for_suspended_trade_pairs(self):
+        # Scan all closed positions on disk and recalculate return_at_close.
+        # If the drawdown ever exceeds the threshold, add the position_uuid to the return set
+        if not self.live_price_fetcher:
+            self.live_price_fetcher = LivePriceFetcher(secrets=ValiUtils.get_secrets())
+
+        all_positions = self.get_all_disk_positions_for_all_miners(sort_positions=True, only_open_positions=False)
+        eliminations = self.get_miner_eliminations_from_disk()
+        eliminated_hotkeys = set(x['hotkey'] for x in eliminations)
+        bt.logging.info(f"Found {len(eliminations)} eliminations on disk.")
+        hotkeys_eliminated_to_current_return = {}
+        hotkeys_with_return_modified = set()
+        for hotkey, positions in all_positions.items():
+            if hotkey in eliminated_hotkeys:
+                continue
+            max_portfolio_return = 1.0
+            cur_portfolio_return = 1.0
+            most_recent_elimination_idx = None
+
+            if len(positions) == 0:
+                continue
+
+            dd_to_log = None
+            for i, position in enumerate(positions):
+                original_return = position.return_at_close
+                new_return = self.recalculate_return_at_close_and_write_corrected_position_to_disk(position, hotkey)
+                if original_return != new_return:
+                    hotkeys_with_return_modified.add(hotkey)
+                if position.is_open_position:
+                    continue
+                cur_portfolio_return *= new_return
+                max_portfolio_return = max(max_portfolio_return, cur_portfolio_return)
+                drawdown = self.calculate_drawdown(cur_portfolio_return, max_portfolio_return)
+                mdd_failure = self.is_drawdown_beyond_mdd(drawdown,
+                                                           time_now=TimeUtil.millis_to_datetime(position.close_ms))
+                if mdd_failure:
+                    dd_to_log = drawdown
+                    most_recent_elimination_idx = i
+
+            return_with_open_positions = cur_portfolio_return
+            for p in positions:
+                if p.is_open_position:
+                    return_with_open_positions *= p.return_at_close
+
+            drawdown = self.calculate_drawdown(return_with_open_positions, max_portfolio_return)
+            mdd_failure = self.is_drawdown_beyond_mdd(drawdown)
+            if mdd_failure:
+                most_recent_elimination_idx = len(positions) - 1
+                dd_to_log = drawdown
+
+            if most_recent_elimination_idx is not None:
+                return_as_shown_on_dash = 1.0
+                for p in positions:
+                    return_as_shown_on_dash *= p.return_at_close
+                hotkeys_eliminated_to_current_return[hotkey] = return_as_shown_on_dash
+                bt.logging.warning(
+                    f"MDD failure occurred at position {most_recent_elimination_idx} out of {len(positions)} positions for hotkey "
+                    f"{hotkey}. Drawdown: {dd_to_log}. MDD failure: {mdd_failure}. Portfolio return: {return_with_open_positions}. ")
+
+            for position in positions:
+                if position.trade_pair.is_indices and position.is_open_position:
+                    bt.logging.info(f"Position {position.position_uuid} for hotkey {hotkey} and trade pair {position.trade_pair.trade_pair_id} has been closed")
+                    self.close_open_position_for_miner(hotkey, position.trade_pair)
+
+
+        bt.logging.info(f"Found n= {len(hotkeys_eliminated_to_current_return)} hotkeys to eliminate. After modifying returns for n = {len(hotkeys_with_return_modified)} hotkeys.")
+        for k, v in sorted(hotkeys_eliminated_to_current_return.items(), key=lambda x: x[1]):
+            bt.logging.info(f"hotkey: {k}. return as shown on dash: {v}")
+        return hotkeys_eliminated_to_current_return
 
     def sort_by_close_ms(self, _position):
         return (

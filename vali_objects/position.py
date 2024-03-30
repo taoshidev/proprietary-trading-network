@@ -120,7 +120,7 @@ class Position(BaseModel):
 
     @staticmethod
     def _position_log(message):
-        bt.logging.info("Position Notification - " + message)
+        bt.logging.trace("Position Notification - " + message)
 
     def get_net_leverage(self):
         return self.net_leverage
@@ -172,7 +172,7 @@ class Position(BaseModel):
         if self.initial_entry_price == 0 or self.average_entry_price is None:
             return 1
 
-        bt.logging.info(
+        bt.logging.trace(
             f"trade_pair: {self.trade_pair.trade_pair_id} current price: {current_price},"
             f" average entry price: {self.average_entry_price}, net leverage: {self.net_leverage}, "
             f"initial entry price: {self.initial_entry_price}"
@@ -275,7 +275,7 @@ class Position(BaseModel):
 
     def _update_position(self):
         self.net_leverage = 0.0
-        bt.logging.info(f"Updating position with n orders: {len(self.orders)}")
+        bt.logging.trace(f"Updating position with n orders: {len(self.orders)}")
         for order in self.orders:
             if self.position_type is None:
                 self.initialize_position_from_first_order(order)

@@ -75,7 +75,9 @@ class Validator:
         # IMPORTANT: Only update this variable in-place. Otherwise, the reference will be lost in the helper classes.
         self.metagraph = subtensor.metagraph(self.config.netuid)
         bt.logging.info(f"Metagraph: {self.metagraph}")
-        self.position_manager = PositionManager(metagraph=self.metagraph, config=self.config)
+        self.position_manager = PositionManager(metagraph=self.metagraph, config=self.config,
+                                                perform_price_adjustment=True,
+                                                live_price_fetcher=self.live_price_fetcher)
 
         self.metagraph_updater = MetagraphUpdater(self.config, self.metagraph, wallet.hotkey.ss58_address,
                                                   False, position_manager=self.position_manager)
@@ -380,6 +382,13 @@ class Validator:
             if tp and self.live_price_fetcher.is_market_closed_for_trade_pair(tp):
                 msg = (f"Market for trade pair [{tp.trade_pair_id}] is likely closed or this validator is"
                        f" having issues fetching live price. Please try again later.")
+                bt.logging.error(msg)
+                synapse.successfully_processed = False
+                synapse.error_message = msg
+                return True
+            if tp and tp.is_indices:
+                msg = (f"Trade pair [{tp.trade_pair_id}] is in a trading category that has been temporarily halted. "
+                       f"Please try again with a different trade pair.")
                 bt.logging.error(msg)
                 synapse.successfully_processed = False
                 synapse.error_message = msg
