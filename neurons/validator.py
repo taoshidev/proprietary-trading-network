@@ -14,13 +14,13 @@ import traceback
 import time
 import bittensor as bt
 
-from data_generator.twelvedata_service import TwelveDataService
 from shared_objects.rate_limiter import RateLimiter
 from time_util.time_util import TimeUtil
 from vali_config import TradePair
 from vali_objects.exceptions.signal_exception import SignalException
 from shared_objects.metagraph_updater import MetagraphUpdater
 from vali_objects.utils.elimination_manager import EliminationManager
+from vali_objects.utils.live_price_fetcher import LivePriceFetcher
 from vali_objects.utils.subtensor_weight_setter import SubtensorWeightSetter
 from vali_objects.utils.mdd_checker import MDDChecker
 from vali_objects.utils.plagiarism_detector import PlagiarismDetector
@@ -47,7 +47,7 @@ class Validator:
                 "validation/miner_secrets.json. Please ensure it exists"
             )
 
-        self.tds = TwelveDataService(api_key=self.secrets["twelvedata_apikey"])
+        self.live_price_fetcher = LivePriceFetcher(secrets=self.secrets)
         # Activating Bittensor's logging with the set configurations.
         bt.logging(config=self.config, logging_dir=self.config.full_path)
         bt.logging.info(
@@ -262,6 +262,19 @@ class Validator:
                 bt.logging.error(traceback.format_exc())
                 time.sleep(10)
 
+
+    def parse_trade_pair_from_signal(self, signal) -> TradePair | None:
+        if not signal or not isinstance(signal, dict):
+            return None
+        if 'trade_pair' not in signal:
+            return None
+        temp = signal["trade_pair"]
+        if 'trade_pair_id' not in temp:
+            return None
+        string_trade_pair = signal["trade_pair"]["trade_pair_id"]
+        trade_pair = TradePair.from_trade_pair_id(string_trade_pair)
+        return trade_pair
+
     def convert_signal_to_order(self, signal, hotkey) -> Order:
         """
         Example input signal
@@ -269,8 +282,7 @@ class Validator:
           'order_type': 'LONG',
           'leverage': 0.5}
         """
-        string_trade_pair = signal["trade_pair"]["trade_pair_id"]
-        trade_pair = TradePair.from_trade_pair_id(string_trade_pair)
+        trade_pair = self.parse_trade_pair_from_signal(signal)
         if trade_pair is None:
             bt.logging.error(f"[{trade_pair}] not in TradePair enum.")
             raise SignalException(
@@ -285,7 +297,7 @@ class Validator:
         bt.logging.info(f"Parsed leverage from signal: {signal_leverage}")
 
         bt.logging.info("Attempting to get closing price for trade pair: " + trade_pair.trade_pair_id)
-        live_closing_price = self.tds.get_close(trade_pair=trade_pair)[trade_pair]
+        live_closing_price = self.live_price_fetcher.get_close(trade_pair=trade_pair)
 
         order = Order(
             trade_pair=trade_pair,
@@ -340,7 +352,7 @@ class Validator:
                 )
         return open_position
 
-    def should_fail_early(self, synapse: template.protocol.SendSignal | template.protocol.GetPositions) -> bool:
+    def should_fail_early(self, synapse: template.protocol.SendSignal | template.protocol.GetPositions, signal=None) -> bool:
         miner_hotkey = synapse.dendrite.hotkey
         # Don't allow miners to send too many signals in a short period of time
         allowed, wait_time = self.rate_limiter.is_allowed(miner_hotkey)
@@ -362,6 +374,16 @@ class Validator:
             synapse.successfully_processed = False
             synapse.error_message = msg
             return True
+
+        if signal:
+            tp = self.parse_trade_pair_from_signal(signal)
+            if tp and self.live_price_fetcher.is_market_closed_for_trade_pair(tp):
+                msg = (f"Market for trade pair [{tp.trade_pair_id}] is likely closed or this validator is"
+                       f" having issues fetching live price. Please try again later.")
+                bt.logging.error(msg)
+                synapse.successfully_processed = False
+                synapse.error_message = msg
+                return True
 
         return False
 
@@ -387,7 +409,7 @@ class Validator:
         miner_hotkey = synapse.dendrite.hotkey
         signal = synapse.signal
         bt.logging.info(f"received signal [{signal}] from miner_hotkey [{miner_hotkey}].")
-        if self.should_fail_early(synapse):
+        if self.should_fail_early(synapse, signal=signal):
             return synapse
 
         # error message to send back to miners in case of a problem so they can fix and resend

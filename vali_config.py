@@ -115,9 +115,7 @@ class TradePair(Enum):
         if trade_pair_id in TRADE_PAIR_ID_TO_TRADE_PAIR:
             return TRADE_PAIR_ID_TO_TRADE_PAIR[trade_pair_id]
         else:
-            # Raise an error with a helpful message if the trade_pair_id is not found
-            raise ValueError(
-                f"No matching trade pair found for ID '{trade_pair_id}'. Please check the input and try again.")
+            return None
 
     def __json__(self):
         # Provide a dictionary representation for JSON serialization

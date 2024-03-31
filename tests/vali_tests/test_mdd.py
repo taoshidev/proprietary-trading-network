@@ -6,6 +6,7 @@ from tests.vali_tests.base_objects.test_base import TestBase
 from vali_config import TradePair, ValiConfig
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.position import Position
+from vali_objects.utils.live_price_fetcher import LivePriceFetcher
 from vali_objects.utils.mdd_checker import MDDChecker
 from vali_objects.utils.position_manager import PositionManager
 from vali_objects.utils.vali_utils import ValiUtils
@@ -33,7 +34,8 @@ class TestMDDChecker(TestBase):
         self.mdd_checker.clear_eliminations_from_disk()
         self.position_manager.clear_all_miner_positions_from_disk()
         secrets = ValiUtils.get_secrets()
-        self.tds = TwelveDataService(api_key=secrets["twelvedata_apikey"])
+        secrets["twelvedata_apikey"] = secrets["twelvedata_apikey2"]
+        self.live_price_fetcher = LivePriceFetcher(secrets=secrets)
 
     def verify_elimination_data_in_memory_and_disk(self, expected_eliminations):
         self.mdd_checker._refresh_eliminations_in_memory_and_disk()
@@ -93,7 +95,7 @@ class TestMDDChecker(TestBase):
 
     def test_mdd_failure_with_closed_position_daily_drawdown(self):
         self.verify_elimination_data_in_memory_and_disk([])
-        live_price = self.tds.get_close(trade_pair=TradePair.BTCUSD)[TradePair.BTCUSD]
+        live_price = self.live_price_fetcher.get_close(trade_pair=TradePair.BTCUSD)
         o1 = Order(order_type=OrderType.SHORT,
                 leverage=1.0,
                 price=live_price,
@@ -130,7 +132,7 @@ class TestMDDChecker(TestBase):
 
     def test_mdd_failure_with_closed_position_total_drawdown(self):
         self.verify_elimination_data_in_memory_and_disk([])
-        live_price = self.tds.get_close(trade_pair=TradePair.BTCUSD)[TradePair.BTCUSD]
+        live_price = self.live_price_fetcher.get_close(trade_pair=TradePair.BTCUSD)
         o1 = Order(order_type=OrderType.SHORT,
                 leverage=1.0,
                 price=live_price,
@@ -174,8 +176,8 @@ class TestMDDChecker(TestBase):
         position_eth.position_uuid = self.DEFAULT_TEST_POSITION_UUID + '_eth'
         position_btc.position_uuid = self.DEFAULT_TEST_POSITION_UUID + '_btc'
 
-        live_btc_price = self.tds.get_close(trade_pair=TradePair.BTCUSD)[TradePair.BTCUSD]
-        live_eth_price = self.tds.get_close(trade_pair=TradePair.ETHUSD)[TradePair.ETHUSD]
+        live_btc_price = self.live_price_fetcher.get_close(trade_pair=TradePair.BTCUSD)
+        live_eth_price = self.live_price_fetcher.get_close(trade_pair=TradePair.ETHUSD)
 
         o1 = Order(order_type=OrderType.LONG,
                 leverage=1.0,
@@ -209,7 +211,7 @@ class TestMDDChecker(TestBase):
     def test_no_mdd_failures(self):
         self.verify_elimination_data_in_memory_and_disk([])
         self.position = self.trade_pair_to_default_position[TradePair.BTCUSD]
-        live_price = self.tds.get_close(trade_pair=TradePair.BTCUSD)[TradePair.BTCUSD]
+        live_price = self.live_price_fetcher.get_close(trade_pair=TradePair.BTCUSD)
         o1 = Order(order_type=OrderType.SHORT,
                 leverage=1.0,
                 price=live_price,
@@ -245,7 +247,7 @@ class TestMDDChecker(TestBase):
     def test_no_mdd_failures_high_leverage_one_order(self):
         self.verify_elimination_data_in_memory_and_disk([])
         position_btc = self.trade_pair_to_default_position[TradePair.BTCUSD]
-        live_btc_price = self.tds.get_close(trade_pair=TradePair.BTCUSD)[TradePair.BTCUSD]
+        live_btc_price = self.live_price_fetcher.get_close(trade_pair=TradePair.BTCUSD)
         o1 = Order(order_type=OrderType.LONG,
                 leverage=20.0,
                 price=live_btc_price *1.001, # Down 0.1%
@@ -272,7 +274,7 @@ class TestMDDChecker(TestBase):
 
         print("Adding ETH position")
         position_eth = self.trade_pair_to_default_position[TradePair.ETHUSD]
-        live_eth_price = self.tds.get_close(trade_pair=TradePair.ETHUSD)[TradePair.ETHUSD]
+        live_eth_price = self.live_price_fetcher.get_close(trade_pair=TradePair.ETHUSD)
         o2 = Order(order_type=OrderType.LONG,
                    leverage=20.0,
                    price=live_eth_price * 1.001,  # Down 0.1%
