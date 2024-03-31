@@ -216,28 +216,28 @@ class PositionManager(CacheController):
             item_path = Path(query_dir) / item  # Construct the full path
             if item_path.is_dir():  # Check if the item is a directory
                 # Get the last modification time of the directory
-                root_last_modified_time = self._get_file_mod_time(item_path)
-                latest_modification_time = self._get_latest_file_modification_time(item_path, root_last_modified_time)
-                # Check if the directory was updated in the last 24 hours
-                if current_time - latest_modification_time < 259200:  # 3 days in seconds
+                root_last_modified_time_s = self._get_file_mod_time_s(item_path)
+                latest_modification_time_s = self._get_latest_file_modification_time_s(item_path, root_last_modified_time_s)
+                # Check if the directory was updated in the last 3 days
+                if current_time - latest_modification_time_s < 259200:  # 3 days in seconds
                     updated_directory_names.append(item)
 
         return updated_directory_names
 
-    def _get_latest_file_modification_time(self, dir_path, root_last_modified_time):
+    def _get_latest_file_modification_time_s(self, dir_path, root_last_modified_time):
         """
         Recursively finds the max modification time of all files within a directory.
         """
-        latest_mod_time = root_last_modified_time
+        latest_mod_time_s = root_last_modified_time
         for root, dirs, files in os.walk(dir_path):
             for file in files:
                 file_path = Path(root) / file
-                mod_time = self._get_file_mod_time(file_path)
-                latest_mod_time = max(latest_mod_time, mod_time)
+                mod_time = self._get_file_mod_time_s(file_path)
+                latest_mod_time_s = max(latest_mod_time_s, mod_time)
 
-        return latest_mod_time
+        return latest_mod_time_s
 
-    def _get_file_mod_time(self, file_path):
+    def _get_file_mod_time_s(self, file_path):
         try:
             return os.path.getmtime(file_path)
         except OSError:  # Handle the case where the file is inaccessible
