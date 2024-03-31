@@ -6,7 +6,7 @@ from enum import Enum
 
 from time_util.time_util import TimeUtil
 
-class TradePairCategory(Enum):
+class TradePairCategory(str, Enum):
     CRYPTO = "crypto"
     FOREX = "forex"
     INDICES = "indices"
