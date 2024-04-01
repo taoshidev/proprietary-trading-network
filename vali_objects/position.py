@@ -189,7 +189,7 @@ class Position(BaseModel):
         return net_return
 
     def _handle_liquidation(self, time_ms):
-        self._position_log("position liquidated")
+        self._position_log("position liquidated. Trade pair: " + str(self.trade_pair.trade_pair_id))
 
         self.close_out_position(time_ms)
 
@@ -231,8 +231,8 @@ class Position(BaseModel):
         # Liquidated
         if self.current_return == 0:
             return
-        self._position_log(f"closed position total w/o fees [{self.current_return}]")
-        self._position_log(f"closed return with fees [{self.return_at_close}]")
+        self._position_log(f"closed position total w/o fees [{self.current_return}]. Trade pair: {self.trade_pair.trade_pair_id}")
+        self._position_log(f"closed return with fees [{self.return_at_close}]. Trade pair: {self.trade_pair.trade_pair_id}")
 
         if self.position_type == OrderType.FLAT:
             self.net_leverage = 0.0
@@ -249,10 +249,10 @@ class Position(BaseModel):
             raise ValueError("Initial entry price must be > 0")
         # Initialize the position type. It will stay the same until the position is closed.
         if order.leverage > 0:
-            self._position_log("setting new position type as LONG")
+            self._position_log("setting new position type as LONG. Trade pair: " + str(self.trade_pair.trade_pair_id))
             self.position_type = OrderType.LONG
         elif order.leverage < 0:
-            self._position_log("setting new position type as SHORT")
+            self._position_log("setting new position type as SHORT. Trade pair: " + str(self.trade_pair.trade_pair_id))
             self.position_type = OrderType.SHORT
         else:
             raise ValueError("leverage of 0 provided as initial order.")

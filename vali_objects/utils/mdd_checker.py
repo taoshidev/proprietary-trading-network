@@ -9,6 +9,7 @@ from time_util.time_util import TimeUtil
 from vali_config import ValiConfig, TradePair
 from shared_objects.cache_controller import CacheController
 from vali_objects.position import Position
+from vali_objects.utils.live_price_fetcher import LivePriceFetcher
 from vali_objects.utils.position_manager import PositionManager
 from vali_objects.utils.vali_utils import ValiUtils
 
@@ -23,7 +24,7 @@ class MDDChecker(CacheController):
         self.position_manager = position_manager
         assert self.running_unit_tests == self.position_manager.running_unit_tests
         self.all_trade_pairs = [trade_pair for trade_pair in TradePair]
-        self.twelvedata = TwelveDataService(api_key=secrets["twelvedata_apikey"])
+        self.live_price_fetcher = LivePriceFetcher(secrets=secrets)
         self.eliminations_lock = eliminations_lock
         self.portfolio_max_dd_closed_positions = None
         self.portfolio_max_dd_all_positions = None
@@ -45,7 +46,7 @@ class MDDChecker(CacheController):
         trade_pairs_list = list(required_trade_pairs)
         if len(trade_pairs_list) == 0:
             return {}
-        return self.twelvedata.get_closes(trade_pairs=trade_pairs_list)
+        return self.live_price_fetcher.get_closes(trade_pairs=trade_pairs_list)
     
     def mdd_check(self):
         if not self.refresh_allowed(ValiConfig.MDD_CHECK_REFRESH_TIME_MS):

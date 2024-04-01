@@ -9,6 +9,7 @@ from tests.vali_tests.base_objects.test_base import TestBase
 from vali_config import TradePair
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.position import Position
+from vali_objects.utils.live_price_fetcher import LivePriceFetcher
 from vali_objects.utils.position_manager import PositionManager
 from vali_objects.utils.vali_utils import ValiUtils
 from vali_objects.vali_dataclasses.order import Order
@@ -18,7 +19,8 @@ class TestPositions(TestBase):
     def setUp(self):
         super().setUp()
         secrets = ValiUtils.get_secrets()
-        self.tds = TwelveDataService(api_key=secrets["twelvedata_apikey"])
+        secrets["twelvedata_apikey"] = secrets["twelvedata_apikey2"]
+        self.live_price_fetcher = LivePriceFetcher(secrets=secrets)
         self.DEFAULT_MINER_HOTKEY = "test_miner"
         self.DEFAULT_POSITION_UUID = "test_position"
         self.DEFAULT_OPEN_MS = 1000
@@ -941,7 +943,7 @@ class TestPositions(TestBase):
         })
     def test_leverage_clamping_long(self):
         position = deepcopy(self.default_position)
-        live_price = self.tds.get_close(trade_pair=TradePair.BTCUSD)[TradePair.BTCUSD]
+        live_price = self.live_price_fetcher.get_close(trade_pair=TradePair.BTCUSD)
         o1 = Order(order_type=OrderType.LONG,
                    leverage=10.0,
                    price=live_price,
@@ -981,7 +983,7 @@ class TestPositions(TestBase):
 
     def test_leverage_clamping_skip_long_order(self):
         position = deepcopy(self.default_position)
-        live_price = self.tds.get_close(trade_pair=TradePair.BTCUSD)[TradePair.BTCUSD]
+        live_price = self.live_price_fetcher.get_close(trade_pair=TradePair.BTCUSD)
         o1 = Order(order_type=OrderType.LONG,
                    leverage=TradePair.BTCUSD.max_leverage,
                    price=live_price,
@@ -1017,7 +1019,7 @@ class TestPositions(TestBase):
 
     def test_leverage_clamping_short(self):
         position = deepcopy(self.default_position)
-        live_price = self.tds.get_close(trade_pair=TradePair.BTCUSD)[TradePair.BTCUSD]
+        live_price = self.live_price_fetcher.get_close(trade_pair=TradePair.BTCUSD)
         o1 = Order(order_type=OrderType.SHORT,
                    leverage=-10.0,
                    price=live_price,
@@ -1055,7 +1057,7 @@ class TestPositions(TestBase):
         })
     def test_leverage_clamping_skip_short_order(self):
         position = deepcopy(self.default_position)
-        live_price = self.tds.get_close(trade_pair=TradePair.BTCUSD)[TradePair.BTCUSD]
+        live_price = self.live_price_fetcher.get_close(trade_pair=TradePair.BTCUSD)
         o1 = Order(order_type=OrderType.SHORT,
                    leverage=-self.DEFAULT_TRADE_PAIR.max_leverage,
                    price=live_price,
