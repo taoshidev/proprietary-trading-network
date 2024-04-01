@@ -4,6 +4,7 @@
 # Copyright © 2024 Taoshi Inc
 import os
 import argparse
+import threading
 import traceback
 import time
 import bittensor as bt
@@ -21,6 +22,10 @@ class Miner:
         self.my_subnet_uid = self.metagraph.hotkeys.index(self.wallet.hotkey.ss58_address)
         bt.logging.info(f"Running miner on uid: {self.my_subnet_uid}")
 
+        # Start the metagraph updater loop in its own thread
+        self.updater_thread = threading.Thread(target=self.metagraph_updater.run_update_loop, daemon=True)
+        self.updater_thread.start()
+
     def setup_logging_directory(self):
         if not os.path.exists(self.config.full_path):
             os.makedirs(self.config.full_path, exist_ok=True)
@@ -30,9 +35,11 @@ class Miner:
         self.subtensor = bt.subtensor(config=self.config)
         self.dendrite = bt.dendrite(wallet=self.wallet)
         self.metagraph = self.subtensor.metagraph(self.config.netuid)
-        self.metagraph_updater = MetagraphUpdater(self.config, self.metagraph, self.wallet.hotkey.ss58_address, is_miner=True)
         self.prop_net_order_placer = PropNetOrderPlacer(self.dendrite, self.metagraph, self.config)
         self.position_inspector = PositionInspector(self.dendrite, self.metagraph, self.config)
+        self.metagraph_updater = MetagraphUpdater(self.config, self.metagraph, self.wallet.hotkey.ss58_address,
+                                                  True, position_inspector=self.position_inspector)
+
 
     def check_miner_registration(self):
         if self.wallet.hotkey.ss58_address not in self.metagraph.hotkeys:
@@ -83,13 +90,14 @@ class Miner:
 
         while True:
             try:
-                rav = self.position_inspector.get_recently_acked_validators()
-                self.metagraph_updater.update_metagraph(recently_acked_validators=rav)
-                self.prop_net_order_placer.send_signals(recently_acked_validators=rav)
+                self.prop_net_order_placer.send_signals(recently_acked_validators=
+                                                        self.position_inspector.get_recently_acked_validators())
                 self.position_inspector.log_validator_positions()
             # If someone intentionally stops the miner, it'll safely terminate operations.
             except KeyboardInterrupt:
                 bt.logging.success("Miner killed by keyboard interrupt.")
+                self.metagraph_updater.stop_update_loop()
+                self.updater_thread.join()
                 break
             # In case of unforeseen errors, the miner will log the error and continue operations.
             except Exception:

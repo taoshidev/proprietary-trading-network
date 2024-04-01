@@ -70,11 +70,20 @@ class Validator:
         subtensor = bt.subtensor(config=self.config)
         bt.logging.info(f"Subtensor: {subtensor}")
 
+
         # metagraph provides the network's current state, holding state about other participants in a subnet.
         # IMPORTANT: Only update this variable in-place. Otherwise, the reference will be lost in the helper classes.
         self.metagraph = subtensor.metagraph(self.config.netuid)
-        self.metagraph_updater = MetagraphUpdater(self.config, self.metagraph, wallet.hotkey.ss58_address, is_miner=False)
         bt.logging.info(f"Metagraph: {self.metagraph}")
+        self.position_manager = PositionManager(metagraph=self.metagraph, config=self.config)
+
+        self.metagraph_updater = MetagraphUpdater(self.config, self.metagraph, wallet.hotkey.ss58_address,
+                                                  False, position_manager=self.position_manager)
+
+        # Start the metagraph updater loop in its own thread
+        self.updater_thread = threading.Thread(target=self.metagraph_updater.run_update_loop, daemon=True)
+        self.updater_thread.start()
+
 
         if wallet.hotkey.ss58_address not in self.metagraph.hotkeys:
             bt.logging.error(
@@ -96,7 +105,6 @@ class Validator:
         bt.logging.info(f"Attaching forward function to axon.")
 
         self.rate_limiter = RateLimiter()
-        self.position_manager = PositionManager(metagraph=self.metagraph, config=self.config)
 
         def rs_blacklist_fn(synapse: template.protocol.SendSignal) -> Tuple[bool, str]:
             return Validator.blacklist_fn(synapse, self.metagraph)
@@ -237,8 +245,6 @@ class Validator:
         bt.logging.info(f"Starting main loop")
         while True:
             try:
-                ram = self.position_manager.get_recently_updated_miner_hotkeys()
-                self.metagraph_updater.update_metagraph(recently_acked_miners=ram)
                 self.mdd_checker.mdd_check()
                 self.weight_setter.set_weights()
                 self.elimination_manager.process_eliminations()
@@ -248,6 +254,8 @@ class Validator:
             except KeyboardInterrupt:
                 self.axon.stop()
                 bt.logging.success("Validator killed by keyboard interrupt.")
+                self.metagraph_updater.stop_update_loop()
+                self.updater_thread.join()
                 break
             # In case of unforeseen errors, the miner will log the error and continue operations.
             except Exception:

@@ -30,14 +30,9 @@ class PropNetOrderPlacer:
         self.recently_acked_validators = []
         self.trade_pair_id_to_last_order_send = {tp.trade_pair_id: 0 for tp in TradePair}
 
-    def error_check(self, signal_files: list[str]):
-        signals = [self.load_signal_data(f) for f in signal_files]
+    def order_cooldown_check(self, signals):
         # Find out if any signals are for the same trade pair so an exception can be thrown
-        trade_pair_ids = [s['trade_pair']['trade_pair_id'] for s in signals]
-        if len(trade_pair_ids) != len(set(trade_pair_ids)):
-            raise Exception("Multiple signals found for the same trade pair. Please ensure that each trade pair "
-                            "has only one signal per batch, otherwise orders may not be processed in the correct order."
-                            "Relevant signal files: " + str(signal_files))
+
         for s in signals:
             trade_pair_id = s['trade_pair']['trade_pair_id']
             last_send_time_ms = self.trade_pair_id_to_last_order_send[trade_pair_id]
@@ -49,6 +44,31 @@ class PropNetOrderPlacer:
                                 f"Order can be sent in {time_to_wait_s} seconds. Retrying...")
             self.trade_pair_id_to_last_order_send[trade_pair_id] = TimeUtil.now_in_millis()
 
+    def get_all_files_in_dir_no_duplicate_trade_pairs(self):
+        # If there are duplicate trade pairs, only the most recent signal for that trade pair will be sent this round.
+        all_files = ValiBkpUtils.get_all_files_in_dir(MinerConfig.get_miner_received_signals_dir())
+        temp = {}
+        n_files_being_suppressed_this_round = 0
+        for f_name in all_files:
+            signal = self.load_signal_data(f_name)
+            time_of_signal_file = os.path.getmtime(f_name)
+            trade_pair_id = signal['trade_pair']['trade_pair_id']
+            if trade_pair_id not in temp:
+                temp[trade_pair_id] = (signal, f_name, time_of_signal_file)
+            else:
+                if temp[trade_pair_id][2] < time_of_signal_file:
+                    temp[trade_pair_id] = (signal, f_name, time_of_signal_file)
+                    bt.logging.info(f"Found duplicate signals for trade pair {trade_pair_id}."
+                                    f" Will save this signal for next round: {temp[trade_pair_id][1]}")
+                    n_files_being_suppressed_this_round += 1
+                elif temp[trade_pair_id][2] == time_of_signal_file:
+                    raise Exception(f"MANUAL INTERVENTION REQUIRED. Multiple signals found for the same trade pair with "
+                                    f"the same timestamp. "
+                                    f"Preventing sending as orders may not be processed in the intended order."
+                                    f"Relevant signal file: {f_name}")
+        # Return all signals as a list
+        return [x[0] for x in temp.values()], [x[1] for x in temp.values()], n_files_being_suppressed_this_round
+
     def send_signals(self, recently_acked_validators: list[str]):
         """
         Initiates the process of sending signals to all validators in parallel.
@@ -57,22 +77,24 @@ class PropNetOrderPlacer:
         sending attempts are expected to succeed.
         """
         self.recently_acked_validators = recently_acked_validators
-        signal_files = ValiBkpUtils.get_all_files_in_dir(MinerConfig.get_miner_received_signals_dir())
-        self.error_check(signal_files)
-        bt.logging.info(f"Total new signals to send: {len(signal_files)}.")
+        signals, signal_file_names, n_files_being_suppressed_this_round = self.get_all_files_in_dir_no_duplicate_trade_pairs()
+        self.order_cooldown_check(signals)
+        bt.logging.info(f"Total new signals to send this round: {len(signals)}. n signals waiting for next round: "
+                        f"{n_files_being_suppressed_this_round}")
 
         # Use ThreadPoolExecutor to process signals in parallel
         with ThreadPoolExecutor() as executor:
             # Schedule the processing of each signal file
-            futures = [executor.submit(self.process_each_signal, signal_file_path) for signal_file_path in signal_files]
+            futures = [executor.submit(self.process_each_signal, signal_file_path) for signal_file_path in
+                       signal_file_names]
             # as_completed() is used to handle the results as they become available
             for future in as_completed(futures):
                 # Logging the completion of signal processing
                 bt.logging.info(f"Signal processing completed for: {future.result()}")
 
         # Wait before the next batch if no signals are found, to avoid busy looping
-        if len(signal_files) == 0:
-            time.sleep(10)
+        if len(signals) == 0:
+            time.sleep(1)
 
     def process_each_signal(self, signal_file_path: str):
         """
