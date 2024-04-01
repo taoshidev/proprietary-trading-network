@@ -64,18 +64,18 @@ def generate_request_outputs():
 
             ps = subtensor_weight_setter._filter_positions(original_positions)
             filter_miner_boolean = subtensor_weight_setter._filter_miner(ps)
-            if not filter_miner_boolean:
-                return_per_position = position_manager.get_return_per_closed_position(ps)
 
+            return_per_position = position_manager.get_return_per_closed_position(ps)
+            if len(return_per_position) > 0:
+                curr_return = return_per_position[len(return_per_position) - 1]
+                dict_hotkey_position_map[k]["thirty_day_returns"] = curr_return
+
+            if not filter_miner_boolean:
                 ## also get the augmented returns
                 return_per_position_augmented: list[float] = position_manager.get_return_per_closed_position_augmented(
                     ps,
                     evaluation_time_ms=TimeUtil.now_in_millis(),
                 )
-
-                if len(return_per_position) > 0:
-                    curr_return = return_per_position[len(return_per_position) - 1]
-                    dict_hotkey_position_map[k]["thirty_day_returns"] = curr_return
 
                 if len(return_per_position_augmented) > 0:
                     curr_return_augmented = return_per_position_augmented
