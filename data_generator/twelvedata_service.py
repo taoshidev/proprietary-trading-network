@@ -153,7 +153,7 @@ class TwelveDataService:
             time.sleep(10)
             if self._should_reset_websocket():
                 self._reset_websocket()
-            #self.debug_log()
+            self.debug_log()
 
     def debug_log(self):
         trade_pairs_to_track = [k for k, v in self.last_websocket_ping_time_s.items()]
@@ -164,8 +164,15 @@ class TwelveDataService:
             else:
                 if lag > self.trade_pair_to_longest_seen_lag[tp]:
                     self.trade_pair_to_longest_seen_lag[tp] = lag
-            # log how long it has been since the last ping
-        bt.logging.error(f"Worst lags seen: {self.trade_pair_to_longest_seen_lag}")
+        # log how long it has been since the last ping
+        formatted_lags = {tp: f"{lag:.2f}" for tp, lag in self.trade_pair_to_longest_seen_lag.items()}
+        bt.logging.error(f"Worst lags seen: {formatted_lags}")
+        # Log the last time since websocket ping
+        formatted_lags = {tp: f"{time.time() - timestamp:.2f}" for tp, timestamp in self.last_websocket_ping_time_s.items()}
+        bt.logging.error(f"Last websocket pings: {formatted_lags}")
+        # Log the prices
+        formatted_prices = {tp: f"{price:.2f}" for tp, price in self.latest_websocket_prices.items()}
+        bt.logging.error(f"Latest websocket prices: {formatted_prices}")
         # Log which trade pairs are likely in closed markets
         trade_pair_is_closed = {}
         for trade_pair in TradePair:
@@ -193,7 +200,6 @@ class TwelveDataService:
         if old_ws:
             old_ws.disconnect()
 
-        # Only
     def _fetch_data_rest(self, symbols, interval, output_size):
         td = TDClient(apikey=self._api_key)
         ts = td.time_series(symbol=symbols, interval=interval, outputsize=output_size)
