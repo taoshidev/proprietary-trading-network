@@ -50,6 +50,9 @@ class LivePriceFetcher():
     def get_closes(self, trade_pairs: list):
         return self.twelve_data.get_closes(trade_pairs)
 
+    def get_close_at_date(self, trade_pair, date):
+        return self.twelve_data.get_close_at_date(trade_pair=trade_pair, date=date)
+
     def is_market_closed_for_trade_pair(self, trade_pair):
         return self.twelve_data.trade_pair_market_likely_closed(trade_pair)
 

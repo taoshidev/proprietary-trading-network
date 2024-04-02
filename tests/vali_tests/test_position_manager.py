@@ -2,6 +2,7 @@
 # Copyright © 2024 Taoshi Inc
 from copy import deepcopy
 import random
+
 from tests.shared_objects.mock_classes import MockMetagraph
 from tests.vali_tests.base_objects.test_base import TestBase
 from vali_config import TradePair
@@ -221,6 +222,19 @@ class TestPositionManager(TestBase):
         self.assertEqual(len(all_disk_positions), 2 * len(TradePair))
 
 
+
+    """
+    def test_retroactive_eliminations(self):
+        position_manager = PositionManager(metagraph=self.mock_metagraph, running_unit_tests=False, perform_price_adjustment=True)
+
+        hotkey_positions_with_filter = position_manager.get_all_disk_positions_for_all_miners(
+            sort_positions=True,
+            only_open_positions=False,
+        )
+        n_positions_total_with_filter = 0
+        for hotkey, positions in hotkey_positions_with_filter.items():
+            n_positions_total_with_filter += len(positions)
+    """
 
 
 if __name__ == '__main__':

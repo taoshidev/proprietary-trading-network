@@ -70,9 +70,9 @@ class EliminationManager(CacheController):
                     f"miner eliminated with hotkey [{hotkey}] with max dd of [{x.get('dd', 'N/A')}]. reason: [{x['reason']}]"
                     f"Removing miner dir [{miner_dir}]"
                 )
-                eliminated_hotkeys.add(hotkey)
             except FileNotFoundError:
                 bt.logging.info(f"miner dir not found. Already deleted. [{miner_dir}]")
+            eliminated_hotkeys.add(hotkey)
 
         if eliminated_hotkeys:
             self.eliminations = [x for x in self.eliminations if x['hotkey'] not in eliminated_hotkeys]
