@@ -30,7 +30,7 @@ class EliminationManager(CacheController):
             return
         bt.logging.info("running elimination manager")
         with self.eliminations_lock:
-            self._refresh_eliminations_in_memory_and_disk()
+            self.eliminations = self.get_eliminations_from_disk()
         self._handle_plagiarism_eliminations()
         self._delete_eliminated_expired_miners()
         self.set_last_update_time()
@@ -63,7 +63,7 @@ class EliminationManager(CacheController):
             if hotkey in self.metagraph.hotkeys:
                 bt.logging.trace(f"miner [{hotkey}] has not been deregistered by BT yet. Not deleting miner dir.")
                 continue
-            miner_dir = ValiBkpUtils.get_miner_dir() + hotkey
+            miner_dir = ValiBkpUtils.get_miner_dir(running_unit_tests=self.running_unit_tests) + hotkey
             try:
                 shutil.rmtree(miner_dir)
                 bt.logging.info(
@@ -79,3 +79,14 @@ class EliminationManager(CacheController):
             with self.eliminations_lock:
                 self._write_eliminations_from_memory_to_disk()
             self.set_last_update_time()
+
+        all_miners_dir = ValiBkpUtils.get_miner_dir(running_unit_tests=self.running_unit_tests)
+        for hotkey in self.get_directory_names(all_miners_dir):
+            miner_dir = all_miners_dir + hotkey
+            if self.is_zombie_hotkey(hotkey):
+                try:
+                    shutil.rmtree(miner_dir)
+                    bt.logging.info(f"Zombie miner dir removed [{miner_dir}]")
+                except FileNotFoundError:
+                    bt.logging.info(f"Zombie miner dir not found. Already deleted. [{miner_dir}]")
+
