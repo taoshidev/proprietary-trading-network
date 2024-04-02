@@ -2,11 +2,11 @@
 # Copyright © 2024 Taoshi Inc
 import os
 import datetime
-import threading
 
 from time_util.time_util import TimeUtil
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.utils.vali_utils import ValiUtils
+from pathlib import Path
 
 import bittensor as bt
 
@@ -43,6 +43,16 @@ class CacheController:
         # Log that the class has finished updating and the time it finished updating
         bt.logging.success(f"Finished updating class {self.__class__.__name__}")
         self._last_update_time_ms = TimeUtil.now_in_millis()
+
+    def get_directory_names(self, query_dir):
+        """
+        Returns a list of directory names contained in the specified directory.
+
+        :param query_dir: Path to the directory to query.
+        :return: List of directory names.
+        """
+        directory_names = [item for item in os.listdir(query_dir) if (Path(query_dir) / item).is_dir()]
+        return directory_names
 
     def _write_eliminations_from_memory_to_disk(self):
         self.write_eliminations_to_disk(self.eliminations)
@@ -83,6 +93,18 @@ class CacheController:
             bt.logging.info(f"Filtered [{len(cached_eliminations) - len(updated_eliminations)}] / "
                             f"{len(cached_eliminations)} eliminations from disk due to not being in the metagraph")
         return updated_eliminations
+
+    def is_zombie_hotkey(self, hotkey):
+        if not isinstance(self.eliminations, list):
+            return False
+
+        if hotkey in self.metagraph.hotkeys:
+            return False
+
+        if any(x['hotkey'] == hotkey for x in self.eliminations):
+            return False
+
+        return True
 
     def get_eliminations_from_disk(self):
         location = ValiBkpUtils.get_eliminations_dir(running_unit_tests=self.running_unit_tests)
