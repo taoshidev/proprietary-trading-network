@@ -34,10 +34,12 @@ class Scoring:
         scoring_functions = [
             Scoring.omega,
             Scoring.total_return,
+            Scoring.sharpe_ratio
         ]
 
         scoring_function_weights = [
-            0.8,
+            0.4,
+            0.4,
             0.2
         ]
 
@@ -131,6 +133,9 @@ class Scoring:
         Returns:
             float: Probabilistic Sharpe Ratio (PSR).
         """
+        if len(returns) == 0:
+            return 0
+        
         sharpe_ratio = Scoring.sharpe_ratio(returns)
 
         # skewness, kurtosis = Scoring.calculate_moments(returns)
@@ -153,6 +158,9 @@ class Scoring:
         Returns:
             float: Sharpe Ratio.
         """
+        if len(returns) == 0:
+            return 0
+        
         returns = np.array(returns)
         mean_return = np.mean(returns)
         std_dev = np.std(returns)

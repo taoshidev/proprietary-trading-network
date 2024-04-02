@@ -137,6 +137,38 @@ class TestWeights(TestBase):
         total_return = Scoring.total_return(sample_returns)
         self.assertAlmostEqual(total_return, hand_computed_total_return, places=3)
 
+    def test_positive_sharp_ratio(self):
+        """Test that the sharp ratio function works as expected for only positive returns"""
+        sample_returns = [1.4, 1.1, 1.2, 1.3, 1.4, 1.2]
+        sharp_ratio_positive = Scoring.sharpe_ratio(sample_returns)
+
+        self.assertGreater(sharp_ratio_positive, 0.0)
+
+    def test_negative_sharp_ratio(self):
+        """Test that the sharp ratio function works as expected for all negative returns"""
+        sample_returns = [0.9, 0.8, 0.7, 0.6, 0.5, 0.4]
+        sharp_ratio_negative = Scoring.sharpe_ratio(sample_returns)
+
+        self.assertLess(sharp_ratio_negative, 0.0)
+
+    def test_sharp_zero_length_returns(self):
+        """Test that the sharp ratio function works as expected with zero length returns"""
+        sample_returns = []
+        sharp_ratio = Scoring.sharpe_ratio(sample_returns)
+
+        self.assertEqual(sharp_ratio, 0.0)
+
+    def test_sharpe_ratio(self):
+        """Test that the sharpe ratio function works as expected"""
+        sample_returns = [0.9, 0.7, 1.1, 1.2, 1.3, 1.4, 1.2]
+
+        ## should be the product of returns over the std dev.
+        threshold = 1 + ValiConfig.PROBABILISTIC_SHARPE_RATIO_THRESHOLD
+        hand_sharpe = np.mean([ x - threshold for x in sample_returns ]) / np.std(sample_returns)
+
+        sharpe_ratio = Scoring.sharpe_ratio(sample_returns)
+        self.assertAlmostEqual(sharpe_ratio, hand_sharpe, places=3)
+
     def test_total_return_zero_length_returns(self):
         """Test that the total return function works as expected with zero length returns"""
         sample_returns = []
