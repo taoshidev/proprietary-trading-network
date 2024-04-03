@@ -85,29 +85,12 @@ class Scoring:
                 combined_scores[miner] += score * scoring_function_weights[c]
         # this finishes the non-grace period miners
         normalized_scores = Scoring.normalize_scores(combined_scores)
-
-        # now we need to add the grace period miners
-        normalized_scores_values = list(normalized_scores.values())
-        bt.logging.info(f"Normalized scores values: {normalized_scores_values}")
-
-        if len(normalized_scores_values) < 2:
-            # if we have no regular miners participating, the grace period miners enter euphoria
-            grace_period_score = grace_period_value
-        else:
-            grace_period_score = np.percentile(
-                normalized_scores_values,
-                int(ValiConfig.SET_WEIGHT_MINER_GRACE_PERIOD_EQUIVALENT_PERCENTILE)
-            )
-
-        grace_period_miner_ids = [x[0] for x in grace_period_miners]
-        grace_period_miner_scores = [ float(grace_period_score) for _ in grace_period_miners ]
+        grace_period_miner_ids = [ x[0] for x in grace_period_miners ]
+        grace_period_miner_scores = [ float(grace_period_value) for _ in grace_period_miners ]
 
         grace_period_scores = dict(
             zip(grace_period_miner_ids, grace_period_miner_scores)
         )
-
-        bt.logging.info(f"Grace period scores: {grace_period_scores}")
-        bt.logging.info(f"Regular scores: {normalized_scores}")
 
         total_score_dict = {
             **normalized_scores, 
@@ -127,7 +110,7 @@ class Scoring:
         """
         Args: scores: dict[str, float] - the scores of the miner returns
         """
-        bt.logging.info(f"Normalizing scores: {scores}")
+        # bt.logging.info(f"Normalizing scores: {scores}")
         if len(scores) == 0:
             bt.logging.info(f"No scores to normalize, returning empty list")
             return {}
@@ -140,9 +123,6 @@ class Scoring:
         normalized_scores = {
             miner: (score / sum_scores) for miner, score in scores.items()
         }
-
-        bt.logging.info(f"Normalized scores: {normalized_scores}")
-
         # normalized_scores = sorted(normalized_scores, key=lambda x: x[1], reverse=True)
         return normalized_scores
 

@@ -97,7 +97,7 @@ those that provide the most returns, while never exceeding certain drawdown limi
 
 1. Miners can submit LONG, SHORT, or FLAT signal into the network.
 2. Miners can only open 1 position per trade pair/symbol at a time.
-3. Miners must have a minimum of 10 closed positions within the past 30 days to be evaluated for the scoring system. If they have between 1 and 10 positions closed, they will be provided an incredibly small amount of TAO each round for the first month as they get onboarded.
+3. Miners must have a minimum of 10 closed positions within the past 30 days to be evaluated for the scoring system. If they have between 1 and 10 positions closed, they will be provided an incredibly small amount of TAO each round for the first month as they get onboarded to help avoid eliminations.
 4. Positions are uni-directional. Meaning, if a position starts LONG (the first order it receives is LONG), 
 it can't flip SHORT. If you try and have it flip SHORT (using more leverage SHORT than exists LONG) it will close out 
 the position. You'll then need to open a second position which is SHORT with the difference.

@@ -88,11 +88,17 @@ class SubtensorWeightSetter(CacheController):
             return True
         
         # find the time when the first position was opened
-        min_position_time = positions[0].close_ms
+        first_closed_position_ms = positions[0].close_ms
         for i in range(1, len(positions)):
-            min_position_time = min(min_position_time, positions[i].close_ms)
+            first_closed_position_ms = min(
+                first_closed_position_ms, 
+                positions[i].close_ms
+            )
 
-        grace_period = (current_time - min_position_time) < ValiConfig.SET_WEIGHT_MINER_GRACE_PERIOD_MS
+
+        grace_period_duration_ms = ValiConfig.SET_WEIGHT_MINER_GRACE_PERIOD_MS
+        grace_period = (current_time - first_closed_position_ms) < grace_period_duration_ms
+
         if grace_period:
             return False
 

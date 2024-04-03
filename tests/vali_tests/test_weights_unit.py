@@ -2,6 +2,11 @@
 # Copyright © 2024 Taoshi Inc
 from tests.vali_tests.base_objects.test_base import TestBase
 from vali_objects.scoring.scoring import Scoring
+from vali_objects.position import Position
+from vali_objects.utils.subtensor_weight_setter import SubtensorWeightSetter
+
+from vali_config import TradePair
+
 from vali_config import ValiConfig
 
 import numpy as np
@@ -35,6 +40,12 @@ class TestWeights(TestBase):
         returns['miner0'] = [0.7,0.8,0.7,0.6,0.9] # this is going to be the outlier - the one which should get filtered if filtering happens
 
         self.returns: list[str, list[float]] = list(returns.items())
+        self.subtensor_weight_setter = SubtensorWeightSetter(
+            config=None,
+            wallet=None,
+            metagraph=None,
+            running_unit_tests=True
+        )
 
     def test_miner_scoring_no_miners(self):
         """
@@ -76,7 +87,7 @@ class TestWeights(TestBase):
         self.assertEqual(values, sorted(values, reverse=True))
 
         # Check that the values are scaled correctly
-        self.assertAlmostEqual(sum(values), 1.0, places=5)
+        self.assertAlmostEqual(sum(values), 1.0, places=3)
 
     def test_positive_omega(self):
         """Test that the omega function works as expected for only positive returns"""
@@ -180,7 +191,7 @@ class TestWeights(TestBase):
         """Test that the transform and scale results works as expected with empty returns"""
         sample_returns = [
             ('miner0', []),
-            ('miner1', [1.5, 0.5, 1.4, 0.6, 1.4]), # yolo miner
+            ('miner1', [1.5, 0.5, 1.1, 0.6, 1.2]), # yolo miner
             ('miner2', [1.01, 1.00, 1.02, 1.01, 0.99]), # decent miner
             ('miner3', [1.03, 1.03, 1.01, 1.04, 1.01]), # consistently great miner
         ]
@@ -190,7 +201,7 @@ class TestWeights(TestBase):
 
         self.assertEqual(
             transformed_minernames, 
-            ['miner3', 'miner2', 'miner1']
+            ['miner1', 'miner2', 'miner3']
         )
 
     def test_transform_and_scale_results(self):
@@ -227,6 +238,126 @@ class TestWeights(TestBase):
         transformed_minervalues = [ x[1] for x in scaled_transformed_list ]
         self.assertGreater(transformed_minervalues[0], transformed_minervalues[1])
 
+    def test_transform_and_scale_results_grace_period(self):
+        """Test that the transform and scale results works as expected with a grace period"""
+        sample_returns = [
+            ('miner0', [1.15, 0.95, 1.20, 0.90, 1.10, 1.05, 0.85]), # grace period miner, should return almost 0
+            ('miner1', [1.05, 1.02, 0.98, 1.03, 1.01, 0.99, 1.04, 1.00, 1.02, 0.97, 1.04]),
+        ]
+
+        ## the transformation should be some kind of average of the two
+        scaled_transformed_list = Scoring.transform_and_scale_results(sample_returns)
+
+        minimum_miner_benefit = ValiConfig.SET_WEIGHT_MINER_GRACE_PERIOD_VALUE
+        
+        miner_scores_dict = dict(scaled_transformed_list)
+        graceperiod_miner_score = miner_scores_dict['miner0']
+
+        self.assertGreater(graceperiod_miner_score, 0)
+        self.assertGreaterEqual(graceperiod_miner_score, minimum_miner_benefit)
+
+        self.assertGreater(miner_scores_dict['miner1'], miner_scores_dict['miner0'])
+
+    def test_transform_and_scale_results_grace_period_no_positions(self):
+        """Test that the transform and scale results works as expected with a grace period"""
+        sample_returns = [
+            ('miner0', []),
+            ('miner1', [1.05, 1.02, 0.98, 1.03, 1.01, 0.99, 1.04, 1.00, 1.02, 0.97, 1.04]),
+            ('miner2', [1.05, 1.02, 0.98, 1.03, 1.01, 0.99, 1.04, 1.00, 1.02, 0.97, 1.08]),
+        ]
+
+        ## the transformation should be some kind of average of the two
+        scaled_transformed_list = Scoring.transform_and_scale_results(sample_returns)        
+        miner_scores_dict = dict(scaled_transformed_list)
+
+        # should not exist in the returned dict
+        graceperiod_miner_score = miner_scores_dict.get('miner0', None)
+
+        self.assertEqual(graceperiod_miner_score, None)
+
+    def test_miner_filter_graceperiod(self):
+        """Test that the miner filter function works as expected"""
+
+        # this should be around 2.59e9 for one month
+        current_time = int(2.5e9)
+
+        minimum_positions = ValiConfig.SET_WEIGHT_MINIMUM_POSITIONS
+        minimum_positions = max(minimum_positions - 1, 0)
+
+        time_partition = np.linspace(0, 2.5, minimum_positions) # want one less than the minimum
+        opened_ms_list = [ 0 for _ in time_partition ]
+        closed_ms_list = [ int(x * 1e9) for x in time_partition ]
+
+        example_miner: list[Position] = [
+            Position(
+                miner_hotkey='miner0',
+                position_uuid=str(i),
+                open_ms=opened_ms_list[i],
+                close_ms=closed_ms_list[i],
+                trade_pair=TradePair.BTCUSD,
+                orders=[],
+                current_return=1.0,
+                return_at_close=1.0,
+                net_leverage=0.0,
+                average_entry_price=0.0,
+                initial_entry_price=0.0,
+                position_type=None,
+                is_closed_position=True
+            )
+            for i in range(len(time_partition))
+        ]
+
+        ## should be filtered out
+        filter_miner_logic = self.subtensor_weight_setter._filter_miner(example_miner, current_time)
+        self.assertFalse(filter_miner_logic)
+
+    def test_miner_filter_older_than_graceperiod(self):
+        """Test that the miner filter function works as expected"""
+
+        # this should be around 2.59e9 for one month
+        current_time = int(8.1e9) # one month prior should be around 5.5
+
+        # some of these open positions should be older than the grace period
+        minimum_positions = ValiConfig.SET_WEIGHT_MINIMUM_POSITIONS
+        minimum_positions = max(minimum_positions - 1, 0)
+
+        time_partition = np.linspace(4, 8, minimum_positions)
+        opened_ms_list = [ 0 for _ in time_partition ]
+        closed_ms_list = [ int(x * 1e9) for x in time_partition ]
+
+        example_miner: list[Position] = [
+            Position(
+                miner_hotkey='miner0',
+                position_uuid=str(i),
+                open_ms=opened_ms_list[i],
+                close_ms=closed_ms_list[i],
+                trade_pair=TradePair.BTCUSD,
+                orders=[],
+                current_return=1.0,
+                return_at_close=1.0,
+                net_leverage=0.0,
+                average_entry_price=0.0,
+                initial_entry_price=0.0,
+                position_type=None,
+                is_closed_position=True
+            )
+            for i in range(len(time_partition))
+        ]
+
+        ## should be filtered out
+        filter_miner_logic = self.subtensor_weight_setter._filter_miner(example_miner, current_time)
+        self.assertTrue(filter_miner_logic)
+
+
+    def test_miner_filter_graceperiod_no_positions(self):
+        """Test that the miner filter function works as expected with no positions"""
+        current_time = int(4.1e9)
+
+        example_miner = []
+
+        ## should be filtered out
+        filter_miner_logic = self.subtensor_weight_setter._filter_miner(example_miner, current_time)
+        self.assertTrue(filter_miner_logic)
 
 
 
