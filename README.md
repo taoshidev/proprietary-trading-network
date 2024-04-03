@@ -95,25 +95,26 @@ those that provide the most returns, while never exceeding certain drawdown limi
 
 ### Rules
 
-1. Miners can submit LONG, SHORT, or FLAT signal into the network 
-2. Miners can only open 1 position per trade pair/symbol at a time 
-3. Positions are uni-directional. Meaning, if a position starts LONG (the first order it receives is LONG), 
+1. Miners can submit LONG, SHORT, or FLAT signal into the network.
+2. Miners can only open 1 position per trade pair/symbol at a time.
+3. Miners must have a minimum of 10 closed positions within the past 30 days to be evaluated for the scoring system. If they have between 1 and 10 positions closed, they will be provided an incredibly small amount of TAO each round for the first month as they get onboarded to help avoid eliminations.
+4. Positions are uni-directional. Meaning, if a position starts LONG (the first order it receives is LONG), 
 it can't flip SHORT. If you try and have it flip SHORT (using more leverage SHORT than exists LONG) it will close out 
 the position. You'll then need to open a second position which is SHORT with the difference.
-4. Position leverage is bound per trade_pair. If an order would cause the position's leverage to exceed the boundary, the position leverage will be clamped. 
-5. You can take profit on an open position using LONG and SHORT. Say you have an open LONG position with .75x 
+5. Position leverage is bound per trade_pair. If an order would cause the position's leverage to exceed the boundary, the position leverage will be clamped.
+6. You can take profit on an open position using LONG and SHORT. Say you have an open LONG position with .75x 
 leverage and you want to reduce it to a .5x leverage position to start taking profit on it. You would send in a SHORT signal
 of size .25x leverage to reduce the size of the position. LONG and SHORT signals can be thought of working in opposite 
 directions in this way.
-6. You can close out a position by sending in a FLAT signal. 
-7. max drawdown is determined every minute. If you go beyond **5% max drawdown on daily close**, or **10% at any point in time** your miner will be eliminated and unable to submit orders or receive rewards. Eliminated miners won't necessarily be immediately deregistered, they'll need to wait to be deregistered from the Bittensor network based on registrations & immunity period. 
-8. If a miner copies another miner's order repeatedly they will be eliminated. When any order is submitted, analysis
+7. You can close out a position by sending in a FLAT signal. 
+8. Max drawdown is determined every minute. If you go beyond **5% max drawdown on daily close**, or **10% at any point in time** your miner will be eliminated and unable to submit orders or receive rewards. Eliminated miners won't necessarily be immediately deregistered, they'll need to wait to be deregistered from the Bittensor network based on registrations & immunity period. 
+9. If a miner copies another miner's order repeatedly they will be eliminated. When any order is submitted, analysis
 on the integrity of the order is performed. If the order is deemed to be plagiarising it is flagged by the network. Repeated
 occurrence leads to removal from the network.
-9. There is a fee per trade pair position. The fee scales with leverage. e.x a 10x leveraged position will have a 10x higher fee.
-10. There is a minimum registration fee of 5 TAO on the mainnet subnet.
-11. There is an immunity period of 9 days to help miners submit orders to become competitive with existing miners.
-12. The miners who can provide the most returns over a 30 day rolling lookback period are provided the most incentive.
+10. There is a fee per trade pair position. The fee scales with leverage. e.x a 10x leveraged position will have a 10x higher fee.
+11. There is a minimum registration fee of 5 TAO on the mainnet subnet.
+12. There is an immunity period of 9 days to help miners submit orders to become competitive with existing miners.
+13. The miners who can provide the most returns over a 30 day rolling lookback period are provided the most incentive.
 
 With this system only the world's best traders & deep learning / quant based trading systems can compete.
 
