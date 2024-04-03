@@ -2,11 +2,15 @@
 
 # Initialize variables
 script="neurons/validator.py"
+generate_script="runnable/generate_request_outputs.py"
 autoRunLoc=$(readlink -f "$0")
 proc_name="ptn"
+generate_proc_name="generate"
 args=()
+generate_args=() # Assuming no specific arguments to the generate script
 version_location="meta/meta.json"
 version=".subnet_version"
+start_generate=false
 
 old_args=$@
 
@@ -19,22 +23,18 @@ then
     exit 1
 fi
 
+# Define your function for version comparison and other utilities here
+
 # Checks if $1 is smaller than $2
-# If $1 is smaller than or equal to $2, then true.
-# else false.
 version_less_than_or_equal() {
     [  "$1" = "`echo -e "$1\n$2" | sort -V | head -n1`" ]
 }
 
 # Checks if $1 is smaller than $2
-# If $1 is smaller than $2, then true.
-# else false.
 version_less_than() {
     [ "$1" = "$2" ] && return 1 || version_less_than_or_equal $1 $2
 }
 
-# Returns the difference between
-# two versions as a numerical value.
 get_version_difference() {
     local tag1="$1"
     local tag2="$2"
@@ -64,11 +64,6 @@ get_version_difference() {
     strip_quotes $diff
 }
 
-read_version_value() {
-    jq -r $version "$version_location"
-}
-
-
 check_package_installed() {
     local package_name="$1"
     os_name=$(uname -s)
@@ -96,8 +91,9 @@ check_variable_value_on_github() {
     local repo="$1"
     local file_path="$2"
     local variable_name="$3"
+    local branch="$4"
 
-    local url="https://api.github.com/repos/$repo/contents/$file_path"
+    local url="https://api.github.com/repos/$repo/contents/$file_path?ref=$branch"
     local response=$(curl -s "$url")
 
     # Check if the response contains an error message
@@ -126,155 +122,129 @@ strip_quotes() {
     echo "$stripped"
 }
 
+read_version_value() {
+    jq -r $version "$version_location"
+}
+
 # Loop through all command line arguments
+# Similar logic to handle script arguments; adjust as necessary
+
 while [[ $# -gt 0 ]]; do
   arg="$1"
 
-  # Check if the argument starts with a hyphen (flag)
   if [[ "$arg" == -* ]]; then
-    # Check if the argument has a value
     if [[ $# -gt 1 && "$2" != -* ]]; then
-          if [[ "$arg" == "--script" ]]; then
-            script="$2";
-            shift 2
-        else
-            # Add '=' sign between flag and value
-            args+=("'$arg'");
-            args+=("'$2'");
-            shift 2
-        fi
+      if [[ "$arg" == "--script" ]]; then
+        script="$2";
+        shift 2
+      elif [[ "$arg" == "--start-generate" ]]; then
+        start_generate=true
+        shift
+      else
+        args+=("$arg")
+        args+=("$2")
+        shift 2
+      fi
     else
-      # Add '=True' for flags with no value
-      args+=("'$arg'");
+      if [[ "$arg" == "--start-generate" ]]; then
+        start_generate=true
+      else
+        args+=("$arg")
+      fi
       shift
     fi
   else
-    # Argument is not a flag, add it as it is
-    args+=("'$arg '");
+    args+=("$arg")
     shift
   fi
 done
 
-# Check if script argument was provided
-if [[ -z "$script" ]]; then
-    echo "The --script argument is required."
-    exit 1
-fi
+branch=$(git branch --show-current)
+echo "Watching branch: $branch"
+echo "PM2 process names: $proc_name, $generate_proc_name"
 
-branch=$(git branch --show-current)            # get current branch.
-echo watching branch: $branch
-echo pm2 process name: $proc_name
-
-# Get the current version locally.
 current_version=$(read_version_value)
 
-# Check if script is already running with pm2
-if pm2 status | grep -q $proc_name; then
-    echo "The script is already running with pm2. Stopping and restarting..."
-    pm2 delete $proc_name
+# Function to check and restart pm2 processes
+check_and_restart_pm2() {
+    local proc_name=$1
+    local script_path=$2
+    local proc_args=("${!3}")
+
+    if pm2 status | grep -q $proc_name; then
+        echo "The script $script_path is already running with pm2 under the name $proc_name. Stopping and restarting..."
+        pm2 delete $proc_name
+    fi
+
+    echo "Running $script_path with the following pm2 config:"
+
+    joined_args=$(printf "'%s'," "${proc_args[@]}")
+    joined_args=${joined_args%,}
+
+    echo "module.exports = {
+      apps : [{
+        name   : '$proc_name',
+        script : '$script_path',
+        interpreter: 'python3',
+        min_uptime: '5m',
+        max_restarts: '5',
+        args: [$joined_args]
+      }]
+    }" > $proc_name.app.config.js
+
+    cat $proc_name.app.config.js
+    pm2 start $proc_name.app.config.js
+}
+
+# Initial call to start both processes before entering the update loop
+check_and_restart_pm2 "$proc_name" "$script" args[@]
+if [ "$start_generate" = true ]; then
+    check_and_restart_pm2 "$generate_proc_name" "$generate_script" generate_args[@]
 fi
 
-# Run the Python script with the arguments using pm2
-echo "Running $script with the following pm2 config:"
-
-# Join the arguments with commas using printf
-joined_args=$(printf "%s," "${args[@]}")
-
-# Remove the trailing comma
-joined_args=${joined_args%,}
-
-# Create the pm2 config file
-echo "module.exports = {
-  apps : [{
-    name   : '$proc_name',
-    script : '$script',
-    interpreter: 'python3',
-    min_uptime: '5m',
-    max_restarts: '5',
-    args: [$joined_args]
-  }]
-}" > app.config.js
-
-# Print configuration to be used
-cat app.config.js
-
-pm2 start app.config.js
-
-
-# Check if packages are installed.
-check_package_installed "jq"
-if [ "$?" -eq 1 ]; then
-    while true; do
-        # First ensure that this is a git installation
+# Continuous checking and updating logic
+while true; do
+    # Check for package installation and git updates as before
+    # Ensure jq is installed
+    check_package_installed "jq"
+    if [ "$?" -eq 1 ]; then
         if [ -d "./.git" ]; then
-            # check value on github remotely
-            latest_version=$(check_variable_value_on_github "taoshidev/proprietary-trading-network" $version_location $version)
-
-            # Wait until the variable is not empty
+            latest_version=$(check_variable_value_on_github "taoshidev/proprietary-trading-network" $version_location $version $branch)
+            # Wait for latest_version to be available
             while [ -z "$latest_version" ]; do
                 echo "Waiting for latest version to be set..."
-                sleep 1  # You can adjust the sleep duration as needed
+                sleep 1
             done
 
-            echo "latest version value" $latest_version
-
+            echo "Latest version: $latest_version"
             latest_version="${latest_version#"${latest_version%%[![:space:]]*}"}"
             current_version="${current_version#"${current_version%%[![:space:]]*}"}"
 
             if [ -n "$latest_version" ] && ! echo "$latest_version" | grep -q "Error"; then
-                # If the file has been updated
-                if [ "$latest_version" != "$current_version" ]; then
-                    echo "---- updating because of version mismatch ----"
-                    echo "current validator version:" "$current_version"
-                    echo "latest validator version:" "$latest_version"
-
-                    # Pull latest changes
-                    # Failed git pull will return a non-zero output
+                if version_less_than $current_version $latest_version; then
+                    echo "Updating due to version mismatch. Current: $current_version, Latest: $latest_version"
                     if git pull origin $branch; then
-                        # latest_version is newer than current_version, should download and reinstall.
                         echo "New version published. Updating the local copy."
-
-                        # Install latest changes just in case.
                         pip install -e .
-
-                        # # Run the Python script with the arguments using pm2
-                        # TODO (shib): Remove this pm2 del in the next spec version update.
-                        pm2 del ptn
-                        echo "Restarting PM2 process"
-                        pm2 restart $proc_name
-
-                        # Update current version:
+                        check_and_restart_pm2 "$proc_name" "$script" args[@]
+                        if [ "$start_generate" = true ]; then
+                            check_and_restart_pm2 "$generate_proc_name" "$generate_script" generate_args[@]
+                        fi
                         current_version=$(read_version_value)
-                        echo ""
-
-                        # Restart autorun script
-                        echo "Restarting script..."
-                        ./$(basename $0) $old_args && exit
+                        echo "Update completed. Continuing monitoring..."
                     else
-                        echo "**Will not update**"
-                        echo "It appears you have made changes on your local copy. Please stash your changes using git stash."
+                        echo "Please stash your changes using git stash."
                     fi
                 else
-                    echo "**Skipping update **"
-                    echo "$current_version is the same as or more than $latest_version. You are likely running locally."
+                    echo "You are up-to-date with the latest version."
                 fi
             fi
         else
-            echo "The installation does not appear to be done through Git. Please install from source at https://github.com/taoshidev/proprietary-trading-network and rerun this script."
+            echo "This installation does not seem to be a Git repository. Please install from source."
         fi
-        # Check if the process is running if something went sideways
-        if pm2 list | grep -q "$proc_name"; then
-            echo "Process $proc_name is already running."
-        else
-            echo "Process $proc_name is not running. Starting it..."
-            pm2 start $proc_name
-        fi
-        # Wait about 30 minutes
-        # This should be plenty of time for validators to catch up
-        # and should prevent any rate limitations by GitHub.
-        sleep 1800
-    done
-else
-    echo "Missing package 'jq'. Please install it for your system first."
-fi
-
+    else
+        echo "Missing 'jq'. Please install it first."
+        break
+    fi
+    sleep 1800 # Wait for 30 minutes before checking again
+done

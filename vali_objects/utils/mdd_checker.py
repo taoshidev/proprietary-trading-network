@@ -20,19 +20,28 @@ class MDDChecker(CacheController):
 
     def __init__(self, config, metagraph, position_manager, eliminations_lock, running_unit_tests=False):
         super().__init__(config, metagraph, running_unit_tests=running_unit_tests)
+        self.n_miners_skipped_already_eliminated = 0
+        self.n_eliminations_this_round = 0
+        self.n_miners_mdd_checked = 0
+        self.portfolio_max_dd_closed_positions = 0
+        self.portfolio_max_dd_all_positions = 0
         secrets = ValiUtils.get_secrets()
         self.position_manager = position_manager
         assert self.running_unit_tests == self.position_manager.running_unit_tests
         self.all_trade_pairs = [trade_pair for trade_pair in TradePair]
         self.live_price_fetcher = LivePriceFetcher(secrets=secrets)
         self.eliminations_lock = eliminations_lock
-        self.portfolio_max_dd_closed_positions = None
-        self.portfolio_max_dd_all_positions = None
         self.reset_debug_counters()
 
-    def reset_debug_counters(self):
+    def reset_debug_counters(self, reset_global_counters=True):
         self.portfolio_max_dd_closed_positions = 0
         self.portfolio_max_dd_all_positions = 0
+        if reset_global_counters:
+            self.n_miners_skipped_already_eliminated = 0
+            self.n_eliminations_this_round = 0
+            self.n_miners_mdd_checked = 0
+            self.max_portfolio_value_seen = 0
+            self.min_portfolio_value_seen = float("inf")
 
     def get_required_closing_prices(self, hotkey_positions):
         required_trade_pairs = set()
@@ -54,6 +63,7 @@ class MDDChecker(CacheController):
             return
 
         bt.logging.info("running mdd checker")
+        self.reset_debug_counters()
         self._refresh_eliminations_in_memory()
 
         hotkey_to_positions = self.position_manager.get_all_miner_positions_by_hotkey(
@@ -64,14 +74,19 @@ class MDDChecker(CacheController):
 
         any_eliminations = False
         for hotkey, sorted_positions in hotkey_to_positions.items():
-            self.reset_debug_counters()
-            any_eliminations |= self._search_for_miner_dd_failures(hotkey, sorted_positions, signal_closing_prices)
+            self.reset_debug_counters(reset_global_counters=False)
+            if self._search_for_miner_dd_failures(hotkey, sorted_positions, signal_closing_prices):
+                any_eliminations = True
+                self.n_eliminations_this_round += 1
 
         if any_eliminations:
             with self.eliminations_lock:
                 self._write_eliminations_from_memory_to_disk()
 
-        self.set_last_update_time()
+        bt.logging.info(f"mdd checker completed for {self.n_miners_mdd_checked} miners. n_eliminations_this_round: "
+                        f"{self.n_eliminations_this_round}. Max portfolio value seen: {self.max_portfolio_value_seen}. "
+                        f"Min portfolio value seen: {self.min_portfolio_value_seen}. ")
+        self.set_last_update_time(skip_message=True)
 
     def _replay_all_closed_positions(self, hotkey: str, sorted_closed_positions: List[Position]) -> (bool, float):
         max_cuml_return_so_far = 1.0
@@ -85,9 +100,8 @@ class MDDChecker(CacheController):
         for position in sorted_closed_positions:
             position_return = position.return_at_close
             cuml_return *= position_return
-            if cuml_return > max_cuml_return_so_far:
-                max_cuml_return_so_far = cuml_return
-
+            max_cuml_return_so_far = max(cuml_return, max_cuml_return_so_far)
+            self._update_portfolio_debug_counters(cuml_return)
             drawdown = self.calculate_drawdown(cuml_return, max_cuml_return_so_far)
             self.portfolio_max_dd_closed_positions = max(drawdown, self.portfolio_max_dd_closed_positions)
             mdd_failure = self.is_drawdown_beyond_mdd(drawdown, time_now=TimeUtil.millis_to_datetime(position.close_ms))
@@ -124,15 +138,19 @@ class MDDChecker(CacheController):
             #bt.logging.info(f"updated return with fees for open position with trade pair[{open_position.trade_pair.trade_pair_id}] is [{position.return_at_close}]. position: {position}")
             return position
 
+    def _update_portfolio_debug_counters(self, portfolio_ret):
+        self.max_portfolio_value_seen = max(self.max_portfolio_value_seen, portfolio_ret)
+        self.min_portfolio_value_seen = min(self.min_portfolio_value_seen, portfolio_ret)
 
     def _search_for_miner_dd_failures(self, hotkey, sorted_positions, signal_closing_prices) -> bool:
-        # Log sorted positions length
         if len(sorted_positions) == 0:
             return False
         # Already eliminated
         if self._hotkey_in_eliminations(hotkey):
+            self.n_miners_skipped_already_eliminated += 1
             return False
 
+        self.n_miners_mdd_checked += 1
         open_positions = []
         closed_positions = []
         for position in sorted_positions:
@@ -163,13 +181,15 @@ class MDDChecker(CacheController):
             #bt.logging.success(f"current return with fees for [{open_position.position_uuid}] is [{open_position.return_at_close}]")
             return_with_open_positions *= open_position.return_at_close
 
+        self._update_portfolio_debug_counters(return_with_open_positions)
+
         for position in closed_positions:
             seen_trade_pairs.add(position.trade_pair.trade_pair_id)
 
         dd_with_open_positions = self.calculate_drawdown(return_with_open_positions, max_cuml_return_so_far)
         self.portfolio_max_dd_all_positions = max(self.portfolio_max_dd_closed_positions, dd_with_open_positions)
         # Log the dd for this miner and the positions trade_pairs they are in as well as total number of positions
-        bt.logging.info(f"MDD checker -- current return for [{hotkey}]'s portfolio is [{return_with_open_positions}]. max_portfolio_drawdown: {self.portfolio_max_dd_all_positions}. Seen trade pairs: {seen_trade_pairs}. n positions open [{len(open_positions)} / {len(sorted_positions)}]")
+        bt.logging.trace(f"MDD checker -- current return for [{hotkey}]'s portfolio is [{return_with_open_positions}]. max_portfolio_drawdown: {self.portfolio_max_dd_all_positions}. Seen trade pairs: {seen_trade_pairs}. n positions open [{len(open_positions)} / {len(sorted_positions)}]")
 
         mdd_failure = self.is_drawdown_beyond_mdd(dd_with_open_positions)
         if mdd_failure:

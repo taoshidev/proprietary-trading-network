@@ -154,7 +154,7 @@ class PropNetOrderPlacer:
             eliminated = "has been eliminated" in response.error_message
             if not response.successfully_processed:
                 if response.error_message:
-                    bt.logging.warning(f"Error sending order to {validator}. Error message: {response.error_message}")
+                    bt.logging.error(f"Error sending order to {validator}. Error message: {response.error_message}")
                 if eliminated:
                     continue
                 if hotkey_to_v_trust[validator.hotkey] > 0:

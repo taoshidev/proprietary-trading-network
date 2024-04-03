@@ -42,9 +42,10 @@ class CacheController:
     def refresh_allowed(self, refresh_interval_ms):
         return TimeUtil.now_in_millis() - self.get_last_update_time_ms() > refresh_interval_ms
 
-    def set_last_update_time(self):
+    def set_last_update_time(self, skip_message=False):
         # Log that the class has finished updating and the time it finished updating
-        bt.logging.success(f"Finished updating class {self.__class__.__name__}")
+        if not skip_message:
+            bt.logging.success(f"Finished updating class {self.__class__.__name__}")
         self._last_update_time_ms = TimeUtil.now_in_millis()
 
     def get_directory_names(self, query_dir):
@@ -118,7 +119,7 @@ class CacheController:
     def get_plagiarism_scores_from_disk(self):
         location = ValiBkpUtils.get_plagiarism_scores_file_location(running_unit_tests=self.running_unit_tests)
         ans = ValiUtils.get_vali_json_file(location)
-        bt.logging.info(f"Loaded [{len(ans)}] plagiarism scores from disk: {ans}. Dir: {location}")
+        bt.logging.info(f"Loaded [{len(ans)}] plagiarism scores from disk. Dir: {location}")
         return ans
 
     def _refresh_plagiarism_scores_in_memory_and_disk(self):

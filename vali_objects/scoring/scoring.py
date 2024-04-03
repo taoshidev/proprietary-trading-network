@@ -47,28 +47,35 @@ class Scoring:
         grace_period_value = float(ValiConfig.SET_WEIGHT_MINER_GRACE_PERIOD_VALUE)
         grace_period_miners = []
         non_grace_period_miners = []
+        debug_miners_in_grace_period = []
+        debug_miners_no_returns = []
         for miner, returns in filtered_results:
             if len(returns) < ValiConfig.SET_WEIGHT_MINIMUM_POSITIONS:
-                bt.logging.info(f"Miner {miner} is currently using the grace period.")
+                debug_miners_in_grace_period.append(miner)
                 if len(returns) == 0:
-                    bt.logging.debug(f"Grace period miner has no returns, skipping for scoring [{miner}].")
+                    debug_miners_no_returns.append(miner)
                     continue
                 grace_period_miners.append((miner, returns))
             else:
                 non_grace_period_miners.append((miner, returns))
 
         miner_scores_list: list[list[tuple[str,float]]] = []
+        debug_miners_not_reach_minimum_positions = []
         for scoring_function in scoring_functions:
             miner_scoring_function_scores = []
             for miner, returns in non_grace_period_miners:
                 if len(returns) < int(ValiConfig.SET_WEIGHT_MINIMUM_POSITIONS):
-                    bt.logging.info(f"Miner has not reached minimum for positions scoring [{miner}]")
+                    debug_miners_not_reach_minimum_positions.append(miner)
                     continue
 
                 score = scoring_function(returns)
                 miner_scoring_function_scores.append((miner, score))
             
             miner_scores_list.append(miner_scoring_function_scores)
+
+        bt.logging.info(f"Grace period miners skipped due to no returns: {debug_miners_no_returns}. "
+                        f"Miners in grace period: {debug_miners_in_grace_period}"
+                        f"Miners not reaching minimum positions for scoring: {debug_miners_not_reach_minimum_positions}")
 
         # Combine the scores from the different scoring functions
         weighted_scores: list[list[str, float]] = []
@@ -100,8 +107,8 @@ class Scoring:
         total_scores = list(total_score_dict.items())
         total_scores = sorted(total_scores, key=lambda x: x[1], reverse=True)
 
-        bt.logging.info(f"Max miner weight for round: {max([x[1] for x in total_scores])}")
-        bt.logging.info(f"Transformed results sum: {sum([x[1] for x in total_scores])}")
+        bt.logging.info(f"Max miner weight for round: {max([x[1] for x in total_scores])}. "
+                        f"Transformed results sum: {sum([x[1] for x in total_scores])}")
 
         return total_scores
     
