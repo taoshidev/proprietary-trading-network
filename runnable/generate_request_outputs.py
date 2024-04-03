@@ -53,6 +53,7 @@ def generate_request_outputs():
             ),
         )
 
+        time_now = TimeUtil.now_in_millis()
         dict_hotkey_position_map = {}
         youngest_order_processed_ms = float("inf")
         oldest_order_processed_ms = 0
@@ -63,7 +64,7 @@ def generate_request_outputs():
             }
 
             ps = subtensor_weight_setter._filter_positions(original_positions)
-            filter_miner_boolean = subtensor_weight_setter._filter_miner(ps)
+            filter_miner_boolean = subtensor_weight_setter._filter_miner(ps, time_now)
 
             return_per_position = position_manager.get_return_per_closed_position(ps)
             if len(return_per_position) > 0:
