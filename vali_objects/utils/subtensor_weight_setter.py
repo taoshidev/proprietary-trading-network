@@ -63,7 +63,7 @@ class SubtensorWeightSetter(CacheController):
         current_time = TimeUtil.now_in_millis()
         for hotkey, positions in hotkey_positions.items():
             filtered_positions = self._filter_positions(positions)
-            filter_miner_logic = self._filter_miner(filtered_positions)
+            filter_miner_logic = self._filter_miner(filtered_positions, current_time)
             if filter_miner_logic:
                 continue
 
@@ -80,10 +80,22 @@ class SubtensorWeightSetter(CacheController):
 
         return return_per_netuid
     
-    def _filter_miner(self, positions:list[Position]):
+    def _filter_miner(self, positions:list[Position], current_time:int):
         """
         Filter out miners who don't have enough positions to be considered for setting weights
         """
+        if len(positions) == 0:
+            return True
+        
+        # find the time when the first position was opened
+        min_position_time = positions[0].close_ms
+        for i in range(1, len(positions)):
+            min_position_time = min(min_position_time, positions[i].close_ms)
+
+        grace_period = (current_time - min_position_time) < ValiConfig.SET_WEIGHT_MINER_GRACE_PERIOD_MS
+        if grace_period:
+            return False
+
         if len(positions) < ValiConfig.SET_WEIGHT_MINIMUM_POSITIONS:
             return True
         

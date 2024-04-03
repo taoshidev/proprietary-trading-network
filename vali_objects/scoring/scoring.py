@@ -43,12 +43,26 @@ class Scoring:
             0.2
         ]
 
+        ## split into grace period miners and non-grace period miners
+        grace_period_value = float(ValiConfig.SET_WEIGHT_MINER_GRACE_PERIOD_VALUE)
+        grace_period_miners = []
+        non_grace_period_miners = []
+        for miner, returns in filtered_results:
+            if len(returns) < ValiConfig.SET_WEIGHT_MINIMUM_POSITIONS:
+                bt.logging.info(f"Miner {miner} is currently using the grace period.")
+                if len(returns) == 0:
+                    bt.logging.debug(f"Grace period miner has no returns, skipping for scoring [{miner}].")
+                    continue
+                grace_period_miners.append((miner, returns))
+            else:
+                non_grace_period_miners.append((miner, returns))
+
         miner_scores_list: list[list[tuple[str,float]]] = []
         for scoring_function in scoring_functions:
             miner_scoring_function_scores = []
-            for miner, returns in filtered_results:
-                if len(returns) == 0:
-                    bt.logging.info(f"no returns for miner [{miner}]")
+            for miner, returns in non_grace_period_miners:
+                if len(returns) < int(ValiConfig.SET_WEIGHT_MINIMUM_POSITIONS):
+                    bt.logging.info(f"Miner has not reached minimum for positions scoring [{miner}]")
                     continue
 
                 score = scoring_function(returns)
@@ -67,20 +81,69 @@ class Scoring:
             for miner, score in weighted_score:
                 if miner not in combined_scores:
                     combined_scores[miner] = 0
-                combined_scores[miner] += score * scoring_function_weights[c]
 
-        # Normalize the combined scores so that they sum up to 1
-        sum_scores = sum(combined_scores.values())
+                combined_scores[miner] += score * scoring_function_weights[c]
+        # this finishes the non-grace period miners
+        normalized_scores = Scoring.normalize_scores(combined_scores)
+
+        # now we need to add the grace period miners
+        normalized_scores_values = list(normalized_scores.values())
+        bt.logging.info(f"Normalized scores values: {normalized_scores_values}")
+
+        if len(normalized_scores_values) < 2:
+            # if we have no regular miners participating, the grace period miners enter euphoria
+            grace_period_score = grace_period_value
+        else:
+            grace_period_score = np.percentile(
+                normalized_scores_values,
+                int(ValiConfig.SET_WEIGHT_MINER_GRACE_PERIOD_EQUIVALENT_PERCENTILE)
+            )
+
+        grace_period_miner_ids = [x[0] for x in grace_period_miners]
+        grace_period_miner_scores = [ float(grace_period_score) for _ in grace_period_miners ]
+
+        grace_period_scores = dict(
+            zip(grace_period_miner_ids, grace_period_miner_scores)
+        )
+
+        bt.logging.info(f"Grace period scores: {grace_period_scores}")
+        bt.logging.info(f"Regular scores: {normalized_scores}")
+
+        total_score_dict = {
+            **normalized_scores, 
+            **grace_period_scores
+        }
+
+        total_scores = list(total_score_dict.items())
+        total_scores = sorted(total_scores, key=lambda x: x[1], reverse=True)
+
+        bt.logging.info(f"Max miner weight for round: {max([x[1] for x in total_scores])}")
+        bt.logging.info(f"Transformed results sum: {sum([x[1] for x in total_scores])}")
+
+        return total_scores
+    
+    @staticmethod
+    def normalize_scores(scores: dict[str, float]) -> dict[str, float]:
+        """
+        Args: scores: dict[str, float] - the scores of the miner returns
+        """
+        bt.logging.info(f"Normalizing scores: {scores}")
+        if len(scores) == 0:
+            bt.logging.info(f"No scores to normalize, returning empty list")
+            return {}
+        
+        sum_scores = sum(scores.values())
         if sum_scores == 0:
             bt.logging.info(f"sum_scores is 0, returning empty list")
-            return []
+            return {}
         
-        normalized_scores = [(miner, score / sum_scores) for miner, score in combined_scores.items()]
-        bt.logging.info(f"Max miner weight for round: {max([x[1] for x in normalized_scores])}")
-        bt.logging.info(f"Transformed results sum: {sum([x[1] for x in normalized_scores])}")
+        normalized_scores = {
+            miner: (score / sum_scores) for miner, score in scores.items()
+        }
 
-        normalized_scores = sorted(normalized_scores, key=lambda x: x[1], reverse=True)
+        bt.logging.info(f"Normalized scores: {normalized_scores}")
 
+        # normalized_scores = sorted(normalized_scores, key=lambda x: x[1], reverse=True)
         return normalized_scores
 
     @staticmethod
