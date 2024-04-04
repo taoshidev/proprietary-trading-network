@@ -31,6 +31,7 @@ class TradePair(Enum):
     EURNZD = ["EURNZD", "EUR/NZD", 0.00007, 0.001, 500, TradePairCategory.FOREX]
     NZDCAD = ["NZDCAD", "NZD/CAD", 0.00007, 0.001, 500, TradePairCategory.FOREX]
     NZDJPY = ["NZDJPY", "NZD/JPY", 0.00007, 0.001, 500, TradePairCategory.FOREX]
+    NZDUSD = ["NZDUSD", "NZD/USD", 0.00007, 0.001, 500, TradePairCategory.FOREX]
     GBPUSD = ["GBPUSD", "GBP/USD", 0.00007, 0.001, 500, TradePairCategory.FOREX]
     GBPJPY = ["GBPJPY", "GBP/JPY", 0.00007, 0.001, 500, TradePairCategory.FOREX]
     USDCAD = ["USDCAD", "USD/CAD", 0.00007, 0.001, 500, TradePairCategory.FOREX]

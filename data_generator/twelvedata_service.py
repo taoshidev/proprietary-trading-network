@@ -166,14 +166,23 @@ class TwelveDataService:
             else:
                 if lag > self.trade_pair_to_longest_seen_lag[tp]:
                     self.trade_pair_to_longest_seen_lag[tp] = lag
-            # log how long it has been since the last ping
-        bt.logging.error(f"Worst lags seen: {self.trade_pair_to_longest_seen_lag}")
+        # log how long it has been since the last ping
+        formatted_lags = {tp: f"{lag:.2f}" for tp, lag in self.trade_pair_to_longest_seen_lag.items()}
+        bt.logging.warning(f"Worst lags seen: {formatted_lags}")
+        # Log the last time since websocket ping
+        formatted_lags = {tp: f"{time.time() - timestamp:.2f}" for tp, timestamp in
+                          self.last_websocket_ping_time_s.items()}
+        bt.logging.warning(f"Last websocket pings: {formatted_lags}")
+        # Log the prices
+        formatted_prices = {tp: f"{price:.2f}" for tp, price in self.latest_websocket_prices.items()}
+        bt.logging.warning(f"Latest websocket prices: {formatted_prices}")
         # Log which trade pairs are likely in closed markets
         trade_pair_is_closed = {}
         for trade_pair in TradePair:
-            trade_pair_is_closed[trade_pair.trade_pair] = self.trade_pair_market_likely_closed(trade_pair)
+            if self.trade_pair_market_likely_closed(trade_pair):
+                trade_pair_is_closed[trade_pair.trade_pair] = True
 
-        bt.logging.info(f"Market likely closed for {trade_pair_is_closed}")
+        bt.logging.warning(f"Market likely closed for {trade_pair_is_closed}")
 
 
     def _reset_websocket(self):

@@ -76,7 +76,7 @@ class Validator:
         self.metagraph = subtensor.metagraph(self.config.netuid)
         bt.logging.info(f"Metagraph: {self.metagraph}")
         self.position_manager = PositionManager(metagraph=self.metagraph, config=self.config,
-                                                perform_price_adjustment=True,
+                                                perform_price_adjustment=False,
                                                 live_price_fetcher=self.live_price_fetcher)
 
         self.metagraph_updater = MetagraphUpdater(self.config, self.metagraph, wallet.hotkey.ss58_address,
@@ -288,8 +288,7 @@ class Validator:
         if trade_pair is None:
             bt.logging.error(f"[{trade_pair}] not in TradePair enum.")
             raise SignalException(
-                f"miner [{hotkey}] incorrectly "
-                f"sent trade pair [{trade_pair}]"
+                f"miner [{hotkey}] incorrectly sent trade pair. Raw signal: {signal}"
             )
 
         bt.logging.info(f"Parsed trade pair from signal: {trade_pair}")

@@ -67,12 +67,12 @@ def handle_data():
         ValiBkpUtils.write_file(
             MinerConfig.get_miner_received_signals_dir() + signal_file_uuid, dict(signal)
         )
-    except ValueError:
+    except ValueError as e:
         print(traceback.format_exc())
-        return jsonify({"error": "improperly formatted signal received"}), 400
-    except Exception:
+        return jsonify({"error": f"improperly formatted signal received. {e}"}), 400
+    except Exception as e:
         print(traceback.format_exc())
-        return jsonify({"error": "error storing signal on miner"}), 400
+        return jsonify({"error": f"error storing signal on miner. {e}"}), 400
 
     return (
         jsonify({"message": "Signal {} received successfully".format(str(signal))}),
