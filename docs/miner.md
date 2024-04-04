@@ -1,26 +1,27 @@
 # Miner
 
-On the mining side we've setup some helpful infrastructure for you to send in signals to the network. You can run `mining/run_receive_signals_server.py` which will launch a flask server.
+On the mining side we've setup some helpful infrastructure for you to send in signals to the network. The script `mining/run_receive_signals_server.py` will launch a flask server to receive order signals.
 
-You can use this flask server to send in signals to the network. To see an example of sending a signal into the server, checkout `mining/sample_signal_request.py`.
+We recommend using this flask server to send in signals to the network. To see an example of sending a signal into the server, use `mining/sample_signal_request.py`.
 
-Once a signal is properly sent into the signals server, it is stored locally in `mining/received_signals` to prepare for processing. From there, the core miner logic will automatically look to send the signal into the network, retrying on failure. Once the signal is attempted to send into the network, the signal is stored in `mining/processed_signals`.
+Once a signal is properly sent into the signals server, it is parsed and stored locally in `mining/received_signals` to prepare for processing by `miner.py`. From there, the core miner logic in `neurons/miner.py` will automatically look to send the signal to validators on the network, retrying on failure. Once the signal is attempted to send into the network, the signal is stored in `mining/processed_signals`. 
 
 The current flow of information is as follows:
 
-1. Send in your signals to validators
-2. Validators update your existing positions, or create new positions based on your signals
-3. Validators track your positions returns
-4. Validators review your positions to assess drawdown every minute
-5. Validators wait for you to send in signals to close out positions (FLAT)
-6. Validators set weights based on miner returns every 5 minutes
+1. Run `mining/run_receive_signals_server.py` and `neurons/miner.py` to receive and parse signals
+2. Send order signals from your choice of data provider (TradingView, python script, manually running `mining/sample_signal_request.py`)
+3. Allow the miner to automatically send in your signals to validators
+4. Validators update your existing positions, or create new positions based on your signals
+5. Validators track your positions returns
+6. Validators review your positions to assess drawdown every few minutes to determine if a miner should be eliminated (see main README for more info)
+7. Validators wait for you to send in signals to close out positions (FLAT)
+8. Validators set weights based on miner returns every 5 minutes based on portfolio performance. 
 
 
 Please keep in mind that only one order can be submitted per minute per trade pair. This limitation may interfere with certain HFT strategies. We suggest verifying your miner on testnet before running on mainnet. 
 
 **IMPORTANT**
-When first getting set up, we recommend running a miner locally to ensure there are no errors. Do this by running `mining/run_receive_signals_server.py` and `mining/sample_signal_request.py`.
-. 
+When first getting set up, we recommend running `mining/run_receive_signals_server.py` and `mining/sample_signal_request.py` locally to verify that order signals can be created and parsed correctly.
 
 After that, we suggest running `mining/run_receive_signals_server.py` and `mining/sample_signal_request.py` in conjunction with `neurons/miner.py` on testnet. Inspect the log outputs to ensure that validators receive your orders. Ensure you are on your intended enviornment add the appropriate testnet flags.
 
