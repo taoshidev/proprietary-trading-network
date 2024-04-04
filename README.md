@@ -107,16 +107,36 @@ leverage and you want to reduce it to a .5x leverage position to start taking pr
 of size .25x leverage to reduce the size of the position. LONG and SHORT signals can be thought of working in opposite 
 directions in this way.
 7. You can close out a position by sending in a FLAT signal. 
-8. Max drawdown is determined every minute. If you go beyond **5% max drawdown on daily close**, or **10% at any point in time** your miner will be eliminated and unable to submit orders or receive rewards. Eliminated miners won't necessarily be immediately deregistered, they'll need to wait to be deregistered from the Bittensor network based on registrations & immunity period. 
-9. If a miner copies another miner's order repeatedly they will be eliminated. When any order is submitted, analysis
-on the integrity of the order is performed. If the order is deemed to be plagiarising it is flagged by the network. Repeated
-occurrence leads to removal from the network.
-10. There is a fee per trade pair position. The fee scales with leverage. e.x a 10x leveraged position will have a 10x higher fee.
-11. There is a minimum registration fee of 5 TAO on the mainnet subnet.
-12. There is an immunity period of 9 days to help miners submit orders to become competitive with existing miners.
-13. The miners who can provide the most returns over a 30 day rolling lookback period are provided the most incentive.
+8. Miners are eliminated if their portfolio return falls below certain thresholds or if they they are detected as plagiarising other miners. (more info in  the "Eliminations" section).
+9. There is a fee per trade pair position. The fee scales with leverage. e.x a 10x leveraged position will have a 10x higher fee.
+10. There is a minimum registration fee of 5 TAO on the mainnet subnet.
+11. There is an immunity period of 9 days to help miners submit orders to become competitive with existing miners.
+12. Based on portfolio metrics such as omega score and total portfolio return, weights/incentive get set to reward the best miners.
 
 With this system only the world's best traders & deep learning / quant based trading systems can compete.
+
+
+# Eliminations
+
+In the Proprietary Trading Network, the performance of each miner's portfolio is constantly monitored to ensure competitiveness and integrity within the network. Eliminations are a crucial part of maintaining the network's quality, and they occur under the following circumstances:
+
+### Maximum Drawdown (MDD)
+
+1. **Daily MDD Limit**: If a miner's portfolio experiences more than a **5% maximum drawdown** based on the day's closing values, relative to the highest portfolio value realized, the miner will be eliminated.
+2. **Anytime MDD Limit**: Similarly, if at any point, the miner's portfolio undergoes a **10% maximum drawdown** from its peak value, the miner will be eliminated.
+
+- **Drawdown Calculation**: Drawdowns are calculated by replaying each position based on the time they were closed. We track the portfolio's highest ever realized return and compare ongoing cumulative return against this peak. If a portfolio that once realized a 100x return drops by 11% due to a subsequent position, the miner is eliminated. Another example - if two subsequent positions result in a portfolio drop of 6% each, the miner is eliminated. 
+
+- **Open Position Treatment**: Open positions across different trade pairs are considered together for MDD calculations. For example, if multiple open positions across different pairs collectively result in a return that doesn't breach the MDD threshold, the miner remains active. Conversely, a single poor-performing open position can result in elimination.
+
+### Plagiarism
+
+Miners who repeatedly copy another miner's trades will be eliminated. Our system analyzes the uniqueness of each submitted order. If an order is found to be a copy (plagiarized), it triggers the miner's elimination.
+### Post-Elimination
+
+After elimination, miners are not immediately deregistered from the network. They will undergo a waiting period, determined by registration timelines and the network's immunity policy, before official deregistration. Upon official deregistration, the miner forfeits registration fees paid.
+
+
 
 # Get Started
 
