@@ -13,7 +13,7 @@ The current flow of information is as follows:
 3. Allow the miner to automatically send in your signals to validators
 4. Validators update your existing positions, or create new positions based on your signals
 5. Validators track your positions returns
-6. Validators review your positions to assess drawdown every few minutes to determine if a miner should be eliminated (see main README for more info)
+6. Validators review your positions to assess drawdown every few seconds to determine if a miner should be eliminated (see main README for more info)
 7. Validators wait for you to send in signals to close out positions (FLAT)
 8. Validators set weights based on miner returns every 5 minutes based on portfolio performance. 
 
