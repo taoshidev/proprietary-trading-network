@@ -188,26 +188,49 @@ class Position(BaseModel):
         net_return = 1 + gain
         return net_return
 
+    def _leverage_flipped(self, prev_leverage, cur_leverage):
+        return prev_leverage * cur_leverage < 0
+    def max_leverage_seen(self):
+        max_leverage = 0
+        current_leverage = 0
+        for order in self.orders:
+            # Explicit flat
+            if order.order_type == OrderType.FLAT:
+                break
+            prev_leverage = current_leverage
+            current_leverage += order.leverage
+            if current_leverage > self.trade_pair.max_leverage:
+                current_leverage = self.trade_pair.max_leverage
+            elif current_leverage < -self.trade_pair.max_leverage:
+                current_leverage = -self.trade_pair.max_leverage
+            # Implicit FLAT
+            if current_leverage == 0 or self._leverage_flipped(prev_leverage, current_leverage):
+                break
+
+            if abs(current_leverage) > max_leverage:
+                max_leverage = abs(current_leverage)
+        return max_leverage
+
     def _handle_liquidation(self, time_ms):
         self._position_log("position liquidated. Trade pair: " + str(self.trade_pair.trade_pair_id))
 
         self.close_out_position(time_ms)
 
-    def calculate_return_with_fees(self, current_return_no_fees, net_leverage):
+    def calculate_return_with_fees(self, current_return_no_fees):
         # Note: Closed positions will have static returns. This method is only called for open positions.
         # V2 fee calculation. Crypto fee lowered from .003 to .002. Multiply fee by leverage for crypto pairs.
         # V3 calculation. All fees scaled by leverage. Updated forex and indices fees.
-        fee = self.trade_pair.fees * abs(net_leverage)
+        fee = self.trade_pair.fees * self.max_leverage_seen()
         return current_return_no_fees * (1.0 - fee)
 
 
-    def set_returns(self, realtime_price, net_leverage, time_ms=None):
+    def set_returns(self, realtime_price, time_ms=None):
         if time_ms is None:
             time_ms = TimeUtil.now_in_millis()
         # We used to multiple trade_pair.fees by net_leverage. Eventually we will
         # Update this calculation to approximate actual exchange fees.
         self.current_return = self.calculate_unrealized_pnl(realtime_price)
-        self.return_at_close = self.calculate_return_with_fees(self.current_return, net_leverage)
+        self.return_at_close = self.calculate_return_with_fees(self.current_return)
 
         if self.current_return < 0:
             raise ValueError(f"current return must be positive {self.current_return}")
@@ -226,7 +249,7 @@ class Position(BaseModel):
         assert self.initial_entry_price > 0, self.initial_entry_price
         new_net_leverage = self.net_leverage + delta_leverage
 
-        self.set_returns(realtime_price, new_net_leverage, time_ms=order.processed_ms)
+        self.set_returns(realtime_price, time_ms=order.processed_ms)
 
         # Liquidated
         if self.current_return == 0:
