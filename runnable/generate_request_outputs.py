@@ -54,6 +54,8 @@ def generate_request_outputs():
 
     time_now = TimeUtil.now_in_millis()
     dict_hotkey_position_map = {}
+    graceperiod_miners = set()
+
     youngest_order_processed_ms = float("inf")
     oldest_order_processed_ms = 0
     for k, original_positions in hotkey_positions.items():
@@ -62,26 +64,30 @@ def generate_request_outputs():
             "thirty_day_returns": 1.0,
         }
 
-        ps = subtensor_weight_setter._filter_positions(original_positions)
-        filter_miner_boolean = subtensor_weight_setter._filter_miner(ps, time_now)
+        if k not in eliminated_hotkeys:
+            ps = subtensor_weight_setter._filter_positions(original_positions)
+            filter_miner_boolean = subtensor_weight_setter._filter_miner(ps, time_now)
 
-        return_per_position = position_manager.get_return_per_closed_position(ps)
-        if len(return_per_position) > 0:
-            curr_return = return_per_position[len(return_per_position) - 1]
-            dict_hotkey_position_map[k]["thirty_day_returns"] = curr_return
+            return_per_position = position_manager.get_return_per_closed_position(ps)
+            if len(return_per_position) > 0:
+                curr_return = return_per_position[len(return_per_position) - 1]
+                dict_hotkey_position_map[k]["thirty_day_returns"] = curr_return
 
-        if not filter_miner_boolean:
-            ## also get the augmented returns
-            return_per_position_augmented: list[float] = position_manager.get_return_per_closed_position_augmented(
-                ps,
-                evaluation_time_ms=TimeUtil.now_in_millis(),
-            )
+            if not filter_miner_boolean:
+                ## also get the augmented returns
+                return_per_position_augmented: list[float] = position_manager.get_return_per_closed_position_augmented(
+                    ps,
+                    evaluation_time_ms=TimeUtil.now_in_millis(),
+                )
 
-            if len(return_per_position_augmented) > 0:
-                curr_return_augmented = return_per_position_augmented
-                dict_hotkey_position_map[k][
-                    "thirty_day_returns_augmented"
-                ] = curr_return_augmented
+                if len(return_per_position_augmented) > 0:
+                    curr_return_augmented = return_per_position_augmented
+                    dict_hotkey_position_map[k][
+                        "thirty_day_returns_augmented"
+                    ] = curr_return_augmented
+
+                if len(return_per_position_augmented) < ValiConfig.SET_WEIGHT_MINIMUM_POSITIONS:
+                    graceperiod_miners.add(k)
 
         for p in original_positions:
             youngest_order_processed_ms = min(youngest_order_processed_ms,
@@ -132,6 +138,9 @@ def generate_request_outputs():
     probabilistic_sharpe_ratio_list = {}
 
     for miner_id, returns in filtered_results:
+        if miner_id in eliminated_hotkeys:
+            continue
+
         omega_list[miner_id] = Scoring.omega(returns)
         augmented_return_list[miner_id] = Scoring.total_return(returns)
         sharpe_ratio_list[miner_id] = Scoring.sharpe_ratio(returns)
@@ -181,6 +190,7 @@ def generate_request_outputs():
             "max_total_drawdown": ValiConfig.MAX_TOTAL_DRAWDOWN,
             "max_daily_drawdown": ValiConfig.MAX_DAILY_DRAWDOWN,
         },
+        'graceperiod_miners': list(graceperiod_miners),
         'eliminations': eliminations,
         'plagiarism': plagiarism,
         'youngest_order_processed_ms': youngest_order_processed_ms,

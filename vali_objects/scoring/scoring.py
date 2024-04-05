@@ -24,11 +24,11 @@ class Scoring:
         """
 
         if len(filtered_results) == 0:
-            bt.logging.info(f"No results to transform and scale, returning empty list")
+            bt.logging.debug(f"No results to transform and scale, returning empty list")
             return []
         
         if len(filtered_results) == 1:
-            bt.logging.info(f"Only one miner, returning 1.0 for the solo miner weight")
+            bt.logging.debug(f"Only one miner, returning 1.0 for the solo miner weight")
             return [(filtered_results[0][0], 1.0)]
 
         scoring_functions = [
@@ -73,9 +73,9 @@ class Scoring:
             
             miner_scores_list.append(miner_scoring_function_scores)
 
-        bt.logging.info(f"Grace period miners skipped due to no returns: {debug_miners_no_returns}. "
-                        f"Miners in grace period: {debug_miners_in_grace_period}"
-                        f"Miners not reaching minimum positions for scoring: {debug_miners_not_reach_minimum_positions}")
+        # bt.logging.info(f"Grace period miners skipped due to no returns: {debug_miners_no_returns}. "
+        #                 f"Miners in grace period: {debug_miners_in_grace_period}"
+        #                 f"Miners not reaching minimum positions for scoring: {debug_miners_not_reach_minimum_positions}")
 
         # Combine the scores from the different scoring functions
         weighted_scores: list[list[str, float]] = []
@@ -107,8 +107,8 @@ class Scoring:
         total_scores = list(total_score_dict.items())
         total_scores = sorted(total_scores, key=lambda x: x[1], reverse=True)
 
-        bt.logging.info(f"Max miner weight for round: {max([x[1] for x in total_scores])}. "
-                        f"Transformed results sum: {sum([x[1] for x in total_scores])}")
+        # bt.logging.info(f"Max miner weight for round: {max([x[1] for x in total_scores])}. "
+        #                 f"Transformed results sum: {sum([x[1] for x in total_scores])}")
 
         return total_scores
     
