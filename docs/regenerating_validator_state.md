@@ -8,7 +8,7 @@ The script detailed below regenerates the `validation/*` directory by fetching t
 
 ## Steps
 
-1. **Update PTN**: Ensure your Proprietary Trading Network (PTN) is up-to-date by executing `git pull origin main` in the `proprietary-trading-network` directory.
+1. **Update PTN**: Ensure your Proprietary Trading Network (PTN) is up-to-date by executing `git fetch` and `git pull origin main` in the `proprietary-trading-network` directory.
 2. **Stop Validator**: Temporarily halt your validator with PM2 using `pm2 stop sn8` and `pm2 stop ptn`.
 3. **Download Positions**: Visit [Taoshi Dashboard](https://dashboard.taoshi.io/) and click the "Download Positions" button to obtain a file named `validator_checkpoint.json`. Rename the file if necessary.
 4. **Prepare for Restoration**: Move `validator_checkpoint.json` to the root level of the `proprietary-trading-network` directory.
