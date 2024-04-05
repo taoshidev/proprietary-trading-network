@@ -3,6 +3,7 @@
 import os
 import shutil
 import time
+import uuid
 from pickle import UnpicklingError
 from typing import List, Dict, Union
 import bittensor as bt
@@ -12,6 +13,7 @@ from copy import deepcopy
 from shared_objects.cache_controller import CacheController
 from time_util.time_util import TimeUtil
 from vali_config import TradePair
+from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.exceptions.corrupt_data_exception import ValiBkpCorruptDataException
 from vali_objects.exceptions.vali_bkp_file_missing_exception import ValiFileMissingException
 from vali_objects.exceptions.vali_records_misalignment_exception import ValiRecordsMisalignmentException
@@ -20,18 +22,103 @@ from vali_objects.utils.live_price_fetcher import LivePriceFetcher
 from vali_objects.utils.position_lock import PositionLocks
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.utils.vali_utils import ValiUtils
-from vali_objects.vali_dataclasses.order import OrderStatus
+from vali_objects.vali_dataclasses.order import OrderStatus, Order
 from vali_objects.utils.position_utils import PositionUtils
 
 
 class PositionManager(CacheController):
-    def __init__(self, config=None, metagraph=None, running_unit_tests=False, perform_price_adjustment=False, live_price_fetcher=None):
+    def __init__(self, config=None, metagraph=None, running_unit_tests=False, perform_price_adjustment=False, live_price_fetcher=None, perform_order_corrections=False, perform_fee_structure_update=False):
         super().__init__(config=config, metagraph=metagraph, running_unit_tests=running_unit_tests)
         self.position_locks = PositionLocks()
         self.live_price_fetcher = live_price_fetcher
+        if perform_order_corrections:
+            self.apply_order_corrections()
+        if perform_fee_structure_update:
+            self.ensure_latest_fee_structure_applied()
         if perform_price_adjustment:
             self.perform_price_recalibration_and_close_open_orders_for_suspended_trade_pairs()
 
+    def apply_order_corrections(self):
+        """
+        This is our mechanism for manually synchronizing validator orders in situations where a bug prevented an
+        order from filling. We are working on a more robust automated synchronization/recovery system.
+
+        11/4/2024 - Metagraph synchronization was set to 5 minutes preventing a new miner from having their orders
+        processed by all validators. After verifying that this miner's order should have been sent to all validators,
+        we increased the metagraph update frequency to 1 minute to prevent this from happening again. This override
+        will correct the order status for this miner.
+        """
+        # First check if this miner is in the metagraph
+        miner_hotkey = '5DUdfzm4cUtQ8Hr6vcYdCzEz7TR8WUSMaDwnWKjPHwzLT5gJ'
+
+        hotkey_to_positions = self.get_all_miner_positions_by_hotkey(
+            [miner_hotkey], sort_positions=True
+        )
+        expected_tp = TradePair.EURUSD
+        positions = hotkey_to_positions[miner_hotkey]
+        corrected_orders = [
+            Order(trade_pair=expected_tp, order_type=OrderType.LONG, leverage=200.0, price=1.0864, processed_ms=1712234889295, order_uuid=str(uuid.uuid4())),
+            Order(trade_pair=expected_tp, order_type=OrderType.LONG, leverage=50.0, price=1.0866, processed_ms=1712234995623, order_uuid=str(uuid.uuid4())),
+            Order(trade_pair=expected_tp, order_type=OrderType.FLAT, leverage=50.0, price=1.0873, processed_ms=1712238798693, order_uuid=str(uuid.uuid4()))
+        ]
+        for p in positions:
+            # We are targeting the first EURUSD position for this miner
+            if p.trade_pair == TradePair.EURUSD:
+                if len(p.orders) == 3:
+                    return  # Order already corrected
+
+                # Ensure that open_ms of the position to be corrected is within 5 minutes of the expected time_ms
+                target_open_time_ms = 1712234995216
+                if not abs(p.open_ms - target_open_time_ms) < 5 * 60 * 1000:
+                    return
+
+                bt.logging.info(f"Correcting order status for position {p.position_uuid} trade pair {expected_tp.trade_pair_id}")
+                # Update the position
+                disposable_clone = deepcopy(p)
+                disposable_clone.orders = corrected_orders
+                disposable_clone.position_type = None
+                disposable_clone.open_ms = 1712234889296
+                disposable_clone._update_position()
+                assert len(disposable_clone.orders) == 3
+                assert disposable_clone.max_leverage_seen() == 250.0, f"max_leverage_seen: {disposable_clone.max_leverage_seen()}"
+                # Write new position to disk
+                self.save_miner_position_to_disk(disposable_clone)
+                # Ensure we can read this position back from disk
+                disk_position = self.get_miner_position_from_disk_using_position_in_memory(disposable_clone)
+                bt.logging.info(f"position successfully corrected and written to disk: {disk_position}")
+                return # done
+
+
+    def ensure_latest_fee_structure_applied(self):
+        hotkey_to_positions = self.get_all_disk_positions_for_all_miners(only_open_positions=False, sort_positions=True)
+        n_positions_seen = 0
+        n_positions_updated = 0
+        n_positions_updated_significantly = 0
+        n_positions_stayed_the_same = 0
+        significant_deltas = []
+        for hotkey, positions in hotkey_to_positions.items():
+            for position in positions:
+                # skip open positions as their returns will be updated in the next MDD check.
+                # Also once positions closes, it will make it past this check next validator boot
+                if position.is_open_position:
+                    continue
+                n_positions_seen += 1
+                # Ensure this position is using the latest fee structure. If not, recalculate and persist the new return to disk
+                old_return_at_close = position.return_at_close
+                new_return_at_close = position.calculate_return_with_fees(position.current_return)
+                if old_return_at_close != new_return_at_close:
+                    n_positions_updated += 1
+                    if abs(old_return_at_close - new_return_at_close) / old_return_at_close > 0.03:
+                        n_positions_updated_significantly += 1
+                        bt.logging.info(f"Updating return_at_close for position {position.position_uuid} trade pair "
+                                        f"{position.trade_pair.trade_pair_id} from {old_return_at_close} to {new_return_at_close}")
+                        #significant_deltas.append((old_return_at_close, new_return_at_close, position.to_json_string()))
+                    position.return_at_close = new_return_at_close
+                    self.save_miner_position_to_disk(position, delete_open_position_if_exists=False)
+                else:
+                    n_positions_stayed_the_same += 1
+        bt.logging.info(f"Updated {n_positions_updated} positions. {n_positions_updated_significantly} positions "
+                        f"were updated significantly. {n_positions_stayed_the_same} stayed the same. {n_positions_seen} positions were seen in total. Significant deltas: {significant_deltas}")
 
     def close_open_position_for_miner(self, hotkey: str, trade_pair: TradePair):
         with self.position_locks.get_lock(hotkey, trade_pair.trade_pair_id):
@@ -384,14 +471,14 @@ class PositionManager(CacheController):
                                                        f" {updated_position.trade_pair.trade_pair_id} does not match the updated position."
                                                        f" Please restore cache. Position: {positions[0]} Updated position: {updated_position}")
 
-    def save_miner_position_to_disk(self, position: Position) -> None:
+    def save_miner_position_to_disk(self, position: Position, delete_open_position_if_exists=True) -> None:
         miner_dir = ValiBkpUtils.get_partitioned_miner_positions_dir(position.miner_hotkey,
                                                                      position.trade_pair.trade_pair_id,
                                                                      order_status=OrderStatus.OPEN if position.is_open_position else OrderStatus.CLOSED,
                                                                      running_unit_tests=self.running_unit_tests)
-        if position.is_closed_position:
+        if position.is_closed_position and delete_open_position_if_exists:
             self.delete_open_position_if_exists(position)
-        else:
+        elif position.is_open_position:
             self.verify_open_position_write(miner_dir, position)
 
         ValiBkpUtils.write_file(miner_dir + position.position_uuid, position)

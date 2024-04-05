@@ -197,6 +197,7 @@ check_and_restart_pm2() {
 }
 
 # Initial call to start both processes before entering the update loop
+pip install -e .
 check_and_restart_pm2 "$proc_name" "$script" args[@]
 if [ "$start_generate" = true ]; then
     check_and_restart_pm2 "$generate_proc_name" "$generate_script" generate_args[@]
