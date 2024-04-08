@@ -118,18 +118,26 @@ With this system only the world's best traders & deep learning / quant based tra
 
 # Eliminations
 
-In the Proprietary Trading Network, the performance of each miner's portfolio is constantly monitored to ensure competitiveness and integrity within the network. Eliminations are a crucial part of maintaining the network's quality, and they occur under the following circumstances:
+In the Proprietary Trading Network, the performance of each miner's portfolio is constantly monitored to ensure competitiveness and integrity within the network. Eliminations are a crucial part of maintaining the network's quality, and they occur under two circumstances MDD, and Plagiarism.
 
-### Maximum Drawdown (MDD)
 
-1. **Daily MDD Limit**: If a miner's portfolio experiences more than a **5% maximum drawdown** based on the day's closing values, relative to the highest portfolio value realized, the miner will be eliminated.
-2. **Anytime MDD Limit**: Similarly, if at any point, the miner's portfolio undergoes a **10% maximum drawdown** from its peak value, the miner will be eliminated.
+### Maximum Drawdown (MDD) Eliminations
 
-- **Drawdown Calculation**: Drawdowns are calculated by replaying each position based on the time they were closed. We track the portfolio's highest ever realized return and compare ongoing cumulative return against this peak. If a portfolio that once realized a 100x return drops by 11% due to a subsequent position, the miner is eliminated. Another example - if two subsequent positions result in a portfolio drop of 6% each, the miner is eliminated. 
+1. **Daily MDD Limit**: If a miner's portfolio experiences more than a **5% drawdown** on a daily close (UTC), the miner will be eliminated.
+2. **Anytime MDD Limit**: Similarly, if at any point, the miner's portfolio undergoes a **10% drawdown**, the miner will be eliminated.
 
 - **Open Position Treatment**: Open positions across different trade pairs are considered together for MDD calculations. For example, if multiple open positions across different pairs collectively result in a return that doesn't breach the MDD threshold, the miner remains active. Conversely, a single poor-performing open position can result in elimination.
 
-### Plagiarism
+### Drawdown Calculation
+When monitoring a miner's portfolio, validators calculate "drawdown". This drawdown value is calculated by comparing the instantaneous value of the portfolio to its maximum all time realized return. All portfolios start at a value of 1x or 100%. Thus, after the first closed trade, if the portfolio goes up by 10%, the drawdown is taken as (1.1 - 1.1) / 1.1 = 0%. The portfolio has no drawdown because it has been increasingly in value only.
+
+Another example - if the first position, open or closed, results in a portfolio drop of 6%, the miner has a drawdown of (.94 - 1) / 1 = 6%
+
+Another example - if the first two closed positions result in a portfolio drop of 6% each, the miner has a drawdown of (.94 * .94 - 1) / 1 = 11.64%
+
+Another example - If the first closed position results in a portfolio gain of 50% and the second position, open or closed, results in a portfolio drop of 6%, the miner has a drawdown of (1.41 - 1.5) / 1.5 = 6%
+
+### Plagiarism Eliminations
 
 Miners who repeatedly copy another miner's trades will be eliminated. Our system analyzes the uniqueness of each submitted order. If an order is found to be a copy (plagiarized), it triggers the miner's elimination.
 ### Post-Elimination
