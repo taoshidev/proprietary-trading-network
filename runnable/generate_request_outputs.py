@@ -184,7 +184,7 @@ def generate_request_outputs():
             "set_weight_minimum_position_duration_ms": ValiConfig.SET_WEIGHT_MINIMUM_POSITION_DURATION_MS,
             "omega_minimum_denominator": ValiConfig.OMEGA_MINIMUM_DENOMINATOR,
             "omega_ratio_threshold": ValiConfig.OMEGA_RATIO_THRESHOLD,
-            "probabilistic_sharpe_ratio_threshold": ValiConfig.PROBABILISTIC_SHARPE_RATIO_THRESHOLD,
+            "probabilistic_sharpe_ratio_threshold": ValiConfig.PROBABILISTIC_LOG_SHARPE_RATIO_THRESHOLD,
             "annual_risk_free_rate": ValiConfig.ANNUAL_RISK_FREE_RATE,
             "lookback_range_days_risk_free_rate": ValiConfig.LOOKBACK_RANGE_DAYS_RISK_FREE_RATE,
             "max_total_drawdown": ValiConfig.MAX_TOTAL_DRAWDOWN,

@@ -136,13 +136,13 @@ class Scoring:
     @staticmethod
     def omega(returns: list[float]) -> float:
         """
-        Args: returns: list[float] - the omega ratio of the miner returns
+        Args: returns: list[float] - the logged returns for each miner
         """
         if len(returns) == 0:
             # won't happen because we need a minimum number of trades, but would kick them to 0 weight (bottom of the list)
             return 0
 
-        threshold = 1 + ValiConfig.OMEGA_RATIO_THRESHOLD
+        threshold = ValiConfig.OMEGA_LOG_RATIO_THRESHOLD
         omega_minimum_denominator = ValiConfig.OMEGA_MINIMUM_DENOMINATOR
 
         # need to convert this to percentage based returns
@@ -157,7 +157,7 @@ class Scoring:
                 sum_below += return_
 
         sum_below = max(abs(sum_below), omega_minimum_denominator)
-        return sum_above / sum_below
+        return np.exp(sum_above) / np.exp(sum_below)
     
     @staticmethod
     def total_return(returns: list[float]) -> float:
@@ -168,7 +168,7 @@ class Scoring:
         if len(returns) == 0:
             return 0
         
-        return np.prod(returns)
+        return np.sum(returns)
     
     @staticmethod
     def probabilistic_sharpe_ratio(returns: list[float]) -> float:
@@ -218,10 +218,10 @@ class Scoring:
         if std_dev == 0:
             std_dev = ValiConfig.PROBABILISTIC_SHARPE_RATIO_MIN_STD_DEV
 
-        threshold = 1 + ValiConfig.PROBABILISTIC_SHARPE_RATIO_THRESHOLD
+        threshold = ValiConfig.PROBABILISTIC_LOG_SHARPE_RATIO_THRESHOLD
         sharpe_ratio = (mean_return - threshold) / std_dev
 
-        return sharpe_ratio
+        return np.exp(sharpe_ratio)
     
     @staticmethod # Calculate the Probabilistic Sharpe Ratio (PSR) using the normal CDF approximation
     def norm_cdf(x):

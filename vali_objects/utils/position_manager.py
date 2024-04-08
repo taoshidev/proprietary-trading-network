@@ -305,7 +305,7 @@ class PositionManager(CacheController):
         #     cumulative_return_logged += value
         #     per_position_return_logged.append(value)
 
-        return [ PositionUtils.exp_transform(value) for value in closed_position_returns ]
+        return closed_position_returns
 
     def get_all_miner_positions(self,
                                 miner_hotkey: str,
