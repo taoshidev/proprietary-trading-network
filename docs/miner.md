@@ -29,7 +29,7 @@ After that, we suggest running `mining/run_receive_signals_server.py` and `minin
 | Mainnet     |      8 |
 | Testnet     |    116 |
 
-The simplest way to get a miner to submit orders to validators is by manually running `mining/sample_signal_request.py`. However, we expect most top miners to interface their existing trading software with `neurons/miner.py` and `mining/run_receive_signals_server.py` to automatically send trade signals.
+The simplest way to get a miner to submit orders to validators is by manually running `mining/sample_signal_request.py`. However, we expect most top miners to interface their existing trading software with `neurons/miner.py` and `mining/run_receive_signals_server.py` to automatically send trade signals. We will be releasing more detailed guides on how to set up an automated trades soon.
 
 **DANGER**
 
