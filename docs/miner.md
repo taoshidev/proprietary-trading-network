@@ -4,7 +4,7 @@ On the mining side we've setup some helpful infrastructure for you to send in si
 
 We recommend using this flask server to send in signals to the network. To see an example of sending a signal into the server, use `mining/sample_signal_request.py`.
 
-Once a signal is properly sent into the signals server, it is parsed and stored locally in `mining/received_signals` to prepare for processing by `miner.py`. From there, the core miner logic in `neurons/miner.py` will automatically look to send the signal to validators on the network, retrying on failure. Once the signal is attempted to send into the network, the signal is stored in `mining/processed_signals`. 
+Once a signal is properly sent into the signals server, it is parsed and stored locally in `mining/received_signals` to prepare for processing by `neurons/miner.py`. From there, the core miner logic in `neurons/miner.py` will automatically look to send the signal to validators on the network, retrying on failure. Once the signal is successfully sent into the network and ack'd by validators, the signal is stored in `mining/processed_signals`. otherwise, it gets stored in `mining/failed_signals` with debug information about which validators didn't receive the signal.
 
 The current flow of information is as follows:
 
@@ -20,7 +20,7 @@ The current flow of information is as follows:
 
 Please keep in mind that only one order can be submitted per minute per trade pair. This limitation may interfere with certain HFT strategies. We suggest verifying your miner on testnet before running on mainnet. 
 
-**IMPORTANT**
+**Getting Started**
 When first getting set up, we recommend running `mining/run_receive_signals_server.py` and `mining/sample_signal_request.py` locally to verify that order signals can be created and parsed correctly.
 
 After that, we suggest running `mining/run_receive_signals_server.py` and `mining/sample_signal_request.py` in conjunction with `neurons/miner.py` on testnet. Inspect the log outputs to ensure that validators receive your orders. Ensure you are on your intended enviornment add the appropriate testnet flags.
@@ -30,7 +30,7 @@ After that, we suggest running `mining/run_receive_signals_server.py` and `minin
 | Mainnet     |      8 |
 | Testnet     |    116 |
 
-Your incentive mechanisms are open to anyone. They emit real TAO. Creating these mechanisms incur a lock_cost in TAO. Before attempting to register on mainnet, we strongly recommend that you run a miner on the testnet. 
+The simplest way to get a miner to submit orders to validators is by manually running `mining/sample_signal_request.py`. However, we expect most top miners to interface their existing trading software with `neurons/miner.py` and `mining/run_receive_signals_server.py` to automatically send trade signals.
 
 **DANGER**
 
@@ -38,6 +38,8 @@ Your incentive mechanisms are open to anyone. They emit real TAO. Creating these
 - Only use your testnet wallet.
 - Do not reuse the password of your mainnet wallet.
 - Make sure your incentive mechanism is resistant to abuse.
+- Your incentive mechanisms are open to anyone. They emit real TAO. Creating these mechanisms incur a lock_cost in TAO.
+- Before attempting to register on mainnet, we strongly recommend that you run a miner on the testnet. 
 
 # System Requirements
 
@@ -205,13 +207,11 @@ To set your weights on testnet `--subtensor.network test` flag.
 
 To stop your miner, press CTRL + C in the terminal where the miner is running.
 
-# Testing
+# Running Multiple Miners
 
-We also recommend using two miners when testing, as a single miner won't provide enough responses to pass for weighing.
+You may use multiple miners when testing if you pass a different port per registered miner.
 
-You can pass a different port for the 2nd registered miner.
-
-You can run the second miner using the following example command:
+You can run a second miner using the following example command:
 
 ```bash
 python neurons/miner.py --netuid 116 --subtensor.network test --wallet.name miner2 --wallet.hotkey default --logging.debug --axon.port 8095
