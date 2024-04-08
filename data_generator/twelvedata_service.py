@@ -1,10 +1,9 @@
 import json
-import os
 import threading
+from collections import defaultdict
 from typing import List
 
-import pytz
-
+from time_util.time_util import TimeUtil
 from vali_config import TradePair, TradePairCategory
 import time
 from twelvedata import TDClient
@@ -14,17 +13,26 @@ from vali_objects.utils.vali_utils import ValiUtils
 import bittensor as bt
 import requests
 
+WS = None
+trade_pair_to_price_history = defaultdict(list)
+last_websocket_ping_time_s = ValiBkpUtils.safe_load_dict_from_disk('last_websocket_ping_time_s.json', {})
+last_rest_update_time_s = ValiBkpUtils.safe_load_dict_from_disk('last_rest_update_time_s.json', {})
+last_rest_datetime_received = ValiBkpUtils.safe_load_dict_from_disk('last_rest_datetime_received.json', {})
+latest_websocket_prices = ValiBkpUtils.safe_load_dict_from_disk('latest_websocket_prices.json', {})
+n_events_global = 0
+DEBUG = 0
+
+if DEBUG:
+    import matplotlib.pyplot as plt
+
 class TwelveDataService:
 
     def __init__(self, api_key):
+        self.n_events_local = 0
+        self.n_resets = 0
         self.init_time = time.time()
         self._api_key = api_key
         self.td = TDClient(apikey=self._api_key)
-        self.ws = None
-        self.last_websocket_ping_time_s = self._load_from_disk('last_websocket_ping_time_s.json', {})
-        self.last_rest_update_time_s = self._load_from_disk('last_rest_update_time_s.json', {})
-        self.last_rest_datetime_received = self._load_from_disk('last_rest_datetime_received.json', {})
-        self.latest_websocket_prices = self._load_from_disk('latest_websocket_prices.json', {})
 
         self._reset_websocket()
         self._heartbeat_thread = threading.Thread(target=self._websocket_heartbeat)
@@ -43,66 +51,42 @@ class TwelveDataService:
             assert trade_pair.trade_pair_category in self.trade_pair_category_to_longest_allowed_lag, \
                 f"Trade pair {trade_pair} has no allowed lag time"
 
-    def _load_from_disk(self, filename, default_value):
-        try:
-            full_path = ValiBkpUtils.get_vali_dir(running_unit_tests=False) + filename
-            if os.path.exists(full_path):
-                with open(full_path, 'r') as f:
-                    return json.load(f)
-
-            temp_filename = f"{filename}.tmp"
-            full_path_temp = ValiBkpUtils.get_vali_dir(running_unit_tests=False) + temp_filename
-            if os.path.exists(full_path_temp):
-                with open(full_path_temp, 'r') as f:
-                    ans = json.load(f)
-                    # Write to disk with the correct filename
-                    self._save_to_disk(filename, ans, skip_temp_write=True)
-        except Exception as e:
-            bt.logging.error(f"Error loading {filename} from disk: {e}")
-
-        return default_value
-
-    def _save_to_disk(self, filename, data, skip_temp_write=False):
-        try:
-            temp_filename = f"{filename}.tmp"
-            full_path_temp = ValiBkpUtils.get_vali_dir(running_unit_tests=False) + temp_filename
-            full_path_orig = ValiBkpUtils.get_vali_dir(running_unit_tests=False) + filename
-            if skip_temp_write:
-                with open(full_path_orig, 'w') as f:
-                    json.dump(data, f)
-            else:
-                with open(full_path_temp, 'w') as f:
-                    json.dump(data, f)
-                os.replace(full_path_temp, full_path_orig)
-        except Exception as e:
-            bt.logging.error(f"Error saving {filename} to disk: {e}")
-
     def _periodic_save(self):
         while True:
             time.sleep(60)  # Save every 60 seconds
-            self._save_to_disk('last_websocket_ping_time_s.json', self.last_websocket_ping_time_s)
-            self._save_to_disk('last_rest_update_time_s.json', self.last_rest_update_time_s)
-            self._save_to_disk('last_rest_datetime_received.json', self.last_rest_datetime_received)
-            self._save_to_disk('latest_websocket_prices.json', self.latest_websocket_prices)
+            ValiBkpUtils.safe_save_dict_to_disk('last_websocket_ping_time_s.json', last_websocket_ping_time_s)
+            ValiBkpUtils.safe_save_dict_to_disk('last_rest_update_time_s.json', last_rest_update_time_s)
+            ValiBkpUtils.safe_save_dict_to_disk('last_rest_datetime_received.json', last_rest_datetime_received)
+            ValiBkpUtils.safe_save_dict_to_disk('latest_websocket_prices.json', latest_websocket_prices)
 
     def trade_pair_market_likely_closed(self, trade_pair: TradePair):
         # Check if the last websocket ping happened within the last 15 minutes
         symbol = trade_pair.trade_pair
-        if symbol in self.last_websocket_ping_time_s:
-            return time.time() - self.last_websocket_ping_time_s[symbol] > 900
+        if symbol in last_websocket_ping_time_s:
+            return time.time() - last_websocket_ping_time_s[symbol] > 900
         # Check if the last REST ping succeeded within the last 15 minutes (validators who don't have enterprise tier...)
-        if symbol in self.last_rest_update_time_s:
-            return time.time() - self.last_rest_update_time_s[symbol] > 900
+        if symbol in last_rest_update_time_s:
+            return time.time() - last_rest_update_time_s[symbol] > 900
         return True
 
 
     def _on_event(self, event):
+        global n_events_global
         if event['event'] == 'price':
             #bt.logging.info(f"Received price event: {event}")
             symbol = event['symbol']
             price = float(event['price'])
-            self.latest_websocket_prices[symbol] = price
-            self.last_websocket_ping_time_s[symbol] = time.time()
+            latest_websocket_prices[symbol] = price
+            last_websocket_ping_time_s[symbol] = time.time()
+            self.n_events_local += 1
+            n_events_global += 1
+            if DEBUG:
+                formatted_time = TimeUtil.millis_to_formatted_date_str(TimeUtil.now_in_millis())
+                trade_pair_to_price_history[symbol].append((formatted_time, price))
+                history_size = sum(len(v) for v in trade_pair_to_price_history.values())
+                bt.logging.info("History Size: " + str(history_size))
+                bt.logging.info(f"n_events_global: {n_events_global}, n_events_local: {self.n_events_local}")
+
         elif event['event'] == 'subscribe-status':
             if event['status'] == 'ok':
                 bt.logging.info(f"Subscribed to symbols: {event['success']}")
@@ -135,30 +119,39 @@ class TwelveDataService:
         if now - self.init_time < 180:
             return False
 
-        if not self.latest_websocket_prices:
+        if not latest_websocket_prices:
             return True
 
         # You get 3 minutes to get any websocket data or you're out
-        last_ping = max(timestamp for timestamp in self.last_websocket_ping_time_s.values())
+        last_ping = max(timestamp for timestamp in last_websocket_ping_time_s.values())
         if now - last_ping > 180:
             return True
 
     def get_websocket_lag_for_trade_pair_s(self, trade_pair: str):
-        if trade_pair in self.last_websocket_ping_time_s:
-            return time.time() - self.last_websocket_ping_time_s.get(trade_pair, 0)
+        if trade_pair in last_websocket_ping_time_s:
+            return time.time() - last_websocket_ping_time_s.get(trade_pair, 0)
         return None
 
+    def spill_price_history(self):
+        # Write the price history to disk in a format that will let us plot it
+        filename = f"price_history.json"
+        with open(filename, 'w') as f:
+            json.dump(trade_pair_to_price_history, f)
+
     def _websocket_heartbeat(self):
+        global WS
         while True:
-            if self.ws:
-                self.ws.heartbeat()
+            if WS:
+                WS.heartbeat()
             time.sleep(10)
             if self._should_reset_websocket():
                 self._reset_websocket()
-            #self.debug_log()
+            if DEBUG:
+                self.spill_price_history()
+                self.debug_log()
 
     def debug_log(self):
-        trade_pairs_to_track = [k for k, v in self.last_websocket_ping_time_s.items()]
+        trade_pairs_to_track = [k for k, v in last_websocket_ping_time_s.items()]
         for tp in trade_pairs_to_track:
             lag = self.get_websocket_lag_for_trade_pair_s(tp)
             if tp not in self.trade_pair_to_longest_seen_lag:
@@ -171,10 +164,10 @@ class TwelveDataService:
         bt.logging.warning(f"Worst lags seen: {formatted_lags}")
         # Log the last time since websocket ping
         formatted_lags = {tp: f"{time.time() - timestamp:.2f}" for tp, timestamp in
-                          self.last_websocket_ping_time_s.items()}
+                          last_websocket_ping_time_s.items()}
         bt.logging.warning(f"Last websocket pings: {formatted_lags}")
         # Log the prices
-        formatted_prices = {tp: f"{price:.2f}" for tp, price in self.latest_websocket_prices.items()}
+        formatted_prices = {tp: f"{price:.2f}" for tp, price in latest_websocket_prices.items()}
         bt.logging.warning(f"Latest websocket prices: {formatted_prices}")
         # Log which trade pairs are likely in closed markets
         trade_pair_is_closed = {}
@@ -186,10 +179,12 @@ class TwelveDataService:
 
 
     def _reset_websocket(self):
-        bt.logging.info(f"last_websocket_ping_time_s: n = {len(self.last_websocket_ping_time_s)}")
-        bt.logging.info(f"last_rest_update_time_s: n = {len(self.last_rest_update_time_s)}")
-        bt.logging.info(f"last_rest_datetime_received: n = {len(self.last_rest_datetime_received)}")
-        bt.logging.info(f"latest_websocket_prices: n = {len(self.latest_websocket_prices)}")
+        global WS
+        self.n_resets += 1
+        bt.logging.info(f"last_websocket_ping_time_s: n = {len(last_websocket_ping_time_s)}")
+        bt.logging.info(f"last_rest_update_time_s: n = {len(last_rest_update_time_s)}")
+        bt.logging.info(f"last_rest_datetime_received: n = {len(last_rest_datetime_received)}")
+        bt.logging.info(f"latest_websocket_prices: n = {len(latest_websocket_prices)}")
         new_ws = self.td.websocket(on_event=self._on_event)
         pairs = []
         for trade_pair in TradePair:
@@ -199,8 +194,8 @@ class TwelveDataService:
             pairs.append(s)
         new_ws.subscribe(pairs)
         new_ws.connect()
-        old_ws = self.ws
-        self.ws = new_ws
+        old_ws = WS
+        WS = new_ws
         if old_ws:
             old_ws.disconnect()
 
@@ -237,12 +232,12 @@ class TwelveDataService:
         bt.logging.trace(f"update_last_rest_update_time received data: {[(k.trade_pair, v) for k, v in data.items()]}")
         for trade_pair, d in data.items():
             symbol = trade_pair.trade_pair
-            previous_datetime = self.last_rest_datetime_received.get(symbol, '')
-            self.last_rest_datetime_received[symbol] = d["datetime"]
-            if previous_datetime != self.last_rest_datetime_received[symbol]:
-                self.last_rest_update_time_s[symbol] = time.time()
+            previous_datetime = last_rest_datetime_received.get(symbol, '')
+            last_rest_datetime_received[symbol] = d["datetime"]
+            if previous_datetime != last_rest_datetime_received[symbol]:
+                last_rest_update_time_s[symbol] = time.time()
                 bt.logging.trace(
-                    f"Updated last_rest_update_time_s for {trade_pair.trade_pair} at {self.last_rest_update_time_s[symbol]}")
+                    f"Updated last_rest_update_time_s for {trade_pair.trade_pair} at {last_rest_update_time_s[symbol]}")
 
 
     def get_close_rest(
@@ -259,8 +254,8 @@ class TwelveDataService:
         closes = {}
         for trade_pair in trade_pairs:
             symbol = trade_pair.trade_pair
-            if symbol in self.latest_websocket_prices:
-                price = self.latest_websocket_prices[symbol]
+            if symbol in latest_websocket_prices:
+                price = latest_websocket_prices[symbol]
                 lag = self.get_websocket_lag_for_trade_pair_s(symbol)
                 is_stale = lag > self.trade_pair_category_to_longest_allowed_lag[trade_pair.trade_pair_category]
                 if is_stale:
@@ -275,9 +270,9 @@ class TwelveDataService:
 
     def get_close_websocket(self, trade_pair: TradePair):
         symbol = trade_pair.trade_pair
-        if symbol in self.latest_websocket_prices and symbol in self.last_websocket_ping_time_s:
-            price = self.latest_websocket_prices[symbol]
-            timestamp = self.last_websocket_ping_time_s.get(symbol, 0)
+        if symbol in latest_websocket_prices and symbol in last_websocket_ping_time_s:
+            price = latest_websocket_prices[symbol]
+            timestamp = last_websocket_ping_time_s.get(symbol, 0)
             max_allowed_lag = self.trade_pair_category_to_longest_allowed_lag[trade_pair.trade_pair_category]
             is_stale = time.time() - timestamp > max_allowed_lag
             if is_stale:
@@ -322,20 +317,66 @@ class TwelveDataService:
         response = ts.as_json()
         return float(response[0]["close"]), response[0]["datetime"]
 
+    def get_range_of_closes(self, trade_pair, start_date: str, end_date: str):
+        ts = self.td.time_series(symbol=trade_pair, interval='1min', start_date=start_date, end_date=end_date, outputsize=5000)
+        response = ts.as_json()
+        closes = [(d['datetime'], float(d["close"])) for d in response]
+        return closes
+
 
 
 if __name__ == "__main__":
     secrets = ValiUtils.get_secrets()
 
-    from twelvedata import TDClient
-
     # Initialize client
     twelve_data = TwelveDataService(api_key=secrets['twelvedata_apikey'])
+    data = None
+    #data = twelve_data.get_close_at_date(TradePair.SPX, '2024-04-01')
+    # read in the cached data
+    with open('/Users/jbonilla/Documents/prop-net/price_history_2.json', 'r') as f:
+        data = json.load(f)
 
-    data = twelve_data.get_close_at_date(TradePair.SPX, '2024-04-01')
-    print(data)
+    for trade_pair, websocket_price_history in data.items():
+        print(trade_pair)
+        websocket_times = [datetime.strptime(x[0], '%Y-%m-%d %H:%M:%S') for x in websocket_price_history]
+        websocket_prices = [x[1] for x in websocket_price_history]
+
+        min_time = min(websocket_price_history, key=lambda x: x[0])[0]
+        max_time = max(websocket_price_history, key=lambda x: x[0])[0]
+        closes_historical = twelve_data.get_range_of_closes(trade_pair, min_time, max_time)
+        historical_times = [datetime.strptime(x[0], '%Y-%m-%d %H:%M:%S') for x in closes_historical]
+        historical_prices = [x[1] for x in closes_historical]
+
+        plt.figure(figsize=(10, 6))
+        plt.plot(historical_times, historical_prices, label='Historical Data', marker='o', linestyle='-', markersize=4)
+        plt.plot(websocket_times, websocket_prices, label='Websocket Data', marker='x', linestyle='--', markersize=4)
+        plt.title(f'Trade Pair: {trade_pair}')
+        plt.xlabel('Time')
+        plt.ylabel('Price')
+        plt.legend()
+        plt.xticks(rotation=45)
+        plt.tight_layout()
+
+        # Step 5: Display or Save the Plot
+        plt.show()
+
 
     assert 0
+
+
+    ######################
+    def on_event(e):
+        # do whatever is needed with data
+        print(e)
+
+    td = TDClient(apikey=secrets['twelvedata_apikey'])
+    ws = td.websocket(symbols="BTC/USD", on_event=on_event)
+    ws.subscribe(['ETH/BTC', 'AAPL'])
+    ws.connect()
+
+    time.sleep(1000000)
+    raise Exception('@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@')
+    ############################
 
     for i, secret in enumerate([secrets['twelvedata_apikey'], secrets['twelvedata_apikey2']]):
         if i == 0:
