@@ -31,7 +31,8 @@ class TestWeights(TestBase):
             open_time_ms, 
             close_time_ms,
             trade_pair,
-            return_at_close
+            net_leverage = 1.0,
+            return_at_close = 1.0
         ):
             generated_position = Position(
                 miner_hotkey='miner0',
@@ -41,6 +42,7 @@ class TestWeights(TestBase):
                     return_at_close,
                     trade_pair
                 )),
+                net_leverage=net_leverage,
                 open_ms=open_time_ms,
                 trade_pair=trade_pair,
             )
@@ -80,7 +82,11 @@ class TestWeights(TestBase):
 
         ## positions in the last 80% of the time range
         imbalanced_position_close_times = sorted([
-            get_time_in_range(x, (self.end_time - self.start_time) * 0.8, self.end_time) for x in np.random.rand(n_positions)
+            get_time_in_range(
+                x, 
+                self.start_time + ((self.end_time - self.start_time) * 0.8), 
+                self.end_time) 
+            for x in np.random.rand(n_positions)
         ])
 
         ## this should score much lower
@@ -89,6 +95,7 @@ class TestWeights(TestBase):
                 open_time_ms=self.start_time,
                 close_time_ms=imbalanced_position_close_times[c],
                 trade_pair=TradePair.BTCUSD,
+                net_leverage = 1.0,
                 return_at_close=1.1
             ) for c in range(n_positions)
         ]
@@ -99,6 +106,18 @@ class TestWeights(TestBase):
                 open_time_ms=self.start_times[c],
                 close_time_ms=self.end_times[c],
                 trade_pair=TradePair.BTCUSD,
+                net_leverage = 1.0,
+                return_at_close=1.1
+            ) for c in range(n_positions)
+        ]
+
+        ## this should score well in balance
+        self.balanced_positions_no_leverage = [
+            position_generator(
+                open_time_ms=self.start_times[c],
+                close_time_ms=self.end_times[c],
+                trade_pair=TradePair.BTCUSD,
+                net_leverage = 0.0,
                 return_at_close=1.1
             ) for c in range(n_positions)
         ]
@@ -139,7 +158,25 @@ class TestWeights(TestBase):
         )
 
         self.assertGreater(penalty, 0)
-        self.assertLessEqual(penalty, 0.5)
+        self.assertLessEqual(penalty, 0.8)
+
+    def test_compute_consistency_penalty_single_no_leverage(self):
+        """
+        Test that the consistency penalty works as expected when there is only one position
+        """
+        evaluation_time = self.end_time
+        penalty = PositionUtils.compute_consistency_penalty(
+            self.balanced_positions, 
+            evaluation_time
+        )
+
+        no_leverage_penalty = PositionUtils.compute_consistency_penalty(
+            self.balanced_positions_no_leverage, 
+            evaluation_time
+        )
+
+        self.assertGreater(penalty, 0)
+        self.assertLessEqual(no_leverage_penalty, penalty)
 
     def test_compute_consistency_penalty_known(self):
         """
@@ -179,6 +216,7 @@ class TestWeights(TestBase):
                 open_ms=self.start_time,
                 close_ms=x,
                 trade_pair=TradePair.BTCUSD,
+                net_leverage = 1.0,
                 is_closed_position=True
             ) for x in close_times
         ]
@@ -189,6 +227,7 @@ class TestWeights(TestBase):
                 position_uuid='imbalanced',
                 open_ms=self.start_time,
                 close_ms=x,
+                net_leverage = 1.0,
                 trade_pair=TradePair.BTCUSD,
                 is_closed_position=True
             ) for x in imbalanced_close_times

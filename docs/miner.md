@@ -1,5 +1,17 @@
 # Miner
 
+Basic Rules:
+1. Miner must have a minimum of 10 trades. Before they reach 10 trades, the miner will be in the grace period for the first month. In this month, they will receive a small amount of TAO that will help them avoid getting deregistered.
+2. Miner will be penalized if they are not providing consistent predictions to the system. The details of this may be found [here](https://github.com/taoshidev/proprietary-trading-network/blob/main/vali_objects/utils/position_utils.py).
+3. Positions must be open for a minimum of one minute.
+4. A miner can have a maximum of 200 positions open.
+5. A portfolio that falls more than 10% of the maximum value will be eliminated.
+6. A portfolio that falls more than 5% in a single day from a daily max will be eliminated.
+
+The goal of the miner is to make a consistently competitive trading strategy. We track the returns for each miner over the past 30 days, and use this information to build a score for them. If you have a few great trades on the morning, you could be pushed to the top of the rankings that same day. We use a historical decay to discourage miners from sitting on a single good trade, that decay dampens prior positive returns but also dampens losses, giving miners a new chance to participate on bad returns. The historical decay function used can be found [here](https://github.com/taoshidev/proprietary-trading-network/blob/main/vali_objects/scoring/historical_scoring.py).
+
+We then rank the miners based on their augmented historical return, and distribute emissions based on an exponential decay function, giving significant priority to the top miners. Details of both scoring functions can be found [here](https://github.com/taoshidev/proprietary-trading-network/tree/main/vali_objects/scoring). The best way to get emissions is to have a consistently great trading strategy, which makes multiple transactions each week (the more the better).
+
 On the mining side we've setup some helpful infrastructure for you to send in signals to the network. The script `mining/run_receive_signals_server.py` will launch a flask server to receive order signals.
 
 We recommend using this flask server to send in signals to the network. To see an example of sending a signal into the server, use `mining/sample_signal_request.py`.
