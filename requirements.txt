@@ -1,5 +1,5 @@
 pydantic<2.0
-bittensor
+bittensor == 6.9.3
 torch
 tensorflow
 scikit-learn
