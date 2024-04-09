@@ -145,7 +145,7 @@ TRADE_PAIR_ID_TO_TRADE_PAIR = {x.trade_pair_id: x for x in TradePair}
 
 class ValiConfig:
     ## versioning
-    VERSION = "2.1.0"
+    VERSION = "2.2.0"
 
     # fees take into account exiting and entering a position, liquidity, and futures fees
     MDD_CHECK_REFRESH_TIME_MS = 15 * 1000  # 15 seconds
@@ -162,6 +162,8 @@ class ValiConfig:
     ANNUAL_RISK_FREE_RATE = 0.02
     DAYS_IN_YEAR = 365.25
     LOOKBACK_RANGE_DAYS_RISK_FREE_RATE = (1+ANNUAL_RISK_FREE_RATE)**(SET_WEIGHT_LOOKBACK_RANGE_DAYS/DAYS_IN_YEAR) - 1
+    HISTORICAL_PENALTY_WINDOW = 5 / 30 # 5 day window
+    HISTORICAL_PENALTY_STRIDE = 1 / 30 # 1 day stride
 
     PROBABILISTIC_LOG_SHARPE_RATIO_THRESHOLD = 0.0
 
@@ -180,6 +182,7 @@ class ValiConfig:
     SET_WEIGHT_MINER_GRACE_PERIOD_MS = 30 * 24 * 60 * 60 * 1000  # 30 days
     SET_WEIGHT_MINER_GRACE_PERIOD_VALUE = 5.4e-06 # essentially nothing
     SET_WEIGHT_MINER_GRACE_PERIOD_EQUIVALENT_PERCENTILE = 2 # two pence for their troubles
+    MIN_LEVERAGE_CONSITENCY_PENALTY = 0.01
 
     ORDER_SIMILARITY_WINDOW_MS = TimeUtil.hours_in_millis(24)
 

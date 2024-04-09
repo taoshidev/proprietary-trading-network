@@ -157,7 +157,7 @@ class Scoring:
                 sum_below += return_
 
         sum_below = max(abs(sum_below), omega_minimum_denominator)
-        return np.exp(sum_above) / np.exp(sum_below)
+        return sum_above / sum_below
     
     @staticmethod
     def total_return(returns: list[float]) -> float:
@@ -168,7 +168,7 @@ class Scoring:
         if len(returns) == 0:
             return 0
         
-        return np.sum(returns)
+        return np.exp(np.sum(returns))
     
     @staticmethod
     def probabilistic_sharpe_ratio(returns: list[float]) -> float:
@@ -219,9 +219,9 @@ class Scoring:
             std_dev = ValiConfig.PROBABILISTIC_SHARPE_RATIO_MIN_STD_DEV
 
         threshold = ValiConfig.PROBABILISTIC_LOG_SHARPE_RATIO_THRESHOLD
-        sharpe_ratio = (mean_return - threshold) / std_dev
+        log_sharpe = (mean_return - threshold) / std_dev
 
-        return np.exp(sharpe_ratio)
+        return np.exp(log_sharpe)
     
     @staticmethod # Calculate the Probabilistic Sharpe Ratio (PSR) using the normal CDF approximation
     def norm_cdf(x):
