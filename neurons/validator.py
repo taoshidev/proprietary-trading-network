@@ -387,13 +387,14 @@ class Validator:
                 synapse.successfully_processed = False
                 synapse.error_message = msg
                 return True
-            if tp and tp.is_indices:
-                msg = (f"Trade pair [{tp.trade_pair_id}] is in a trading category that has been temporarily halted. "
-                       f"Please try again with a different trade pair.")
-                bt.logging.error(msg)
-                synapse.successfully_processed = False
-                synapse.error_message = msg
-                return True
+
+            #if tp and tp.is_indices:
+            #    msg = (f"Trade pair [{tp.trade_pair_id}] is in a trading category that has been temporarily halted. "
+            #           f"Please try again with a different trade pair.")
+            #    bt.logging.error(msg)
+            #    synapse.successfully_processed = False
+            #    synapse.error_message = msg
+            #    return True
 
         return False
 
