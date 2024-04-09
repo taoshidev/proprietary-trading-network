@@ -100,7 +100,8 @@ class Miner:
                 self.updater_thread.join()
                 break
             # In case of unforeseen errors, the miner will log the error and continue operations.
-            except Exception:
+            except Exception as e:
+                bt.logging.error(f"Error in miner loop: {e}")
                 bt.logging.error(traceback.format_exc())
                 time.sleep(10)
 

@@ -4,7 +4,8 @@
 # Copyright © 2024 Taoshi Inc
 import json
 import os
-import shutil
+import threading
+
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from copy import deepcopy
@@ -17,6 +18,61 @@ from vali_config import TradePair, ValiConfig
 from vali_objects.decoders.generalized_json_decoder import GeneralizedJSONDecoder
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 
+executor = ThreadPoolExecutor()
+trade_pair_id_to_last_order_send = {tp.trade_pair_id: 0 for tp in TradePair}
+
+
+def signal_to_trade_pair_id(signal):
+    return signal['trade_pair']['trade_pair_id']
+
+def order_cooldown_filter(signal):
+    # Find out if any signals are for the same trade pair so an exception can be thrown
+    trade_pair_id = signal_to_trade_pair_id(signal)
+    last_send_time_ms = trade_pair_id_to_last_order_send[trade_pair_id]
+    if TimeUtil.now_in_millis() - last_send_time_ms < ValiConfig.ORDER_COOLDOWN_MS:
+        time_to_wait_s = (ValiConfig.ORDER_COOLDOWN_MS - (TimeUtil.now_in_millis() - last_send_time_ms)) / 1000
+        msg = f"Cannot send signal for trade pair {trade_pair_id} yet. Last order sent at " \
+              f"{TimeUtil.millis_to_formatted_date_str(last_send_time_ms)}" \
+              f" (cooldown period: {ValiConfig.ORDER_COOLDOWN_MS} ms). " \
+              f"Order can be sent in {time_to_wait_s} seconds. Retrying later..."
+        bt.logging.error(msg)
+        return True
+    else:
+        return False
+
+def load_signal_data(signal_file_path: str):
+    """Loads the signal data from a file."""
+    signal_data = json.loads(ValiBkpUtils.get_file(signal_file_path), cls=GeneralizedJSONDecoder)
+    return signal_data
+
+def get_all_files_in_dir_no_duplicate_trade_pairs():
+    # If there are duplicate trade pairs, only the most recent signal for that trade pair will be sent this round.
+    all_files = ValiBkpUtils.get_all_files_in_dir(MinerConfig.get_miner_received_signals_dir())
+    bt.logging.warning("Found # of signals to send this round: " + str(len(all_files)))
+    temp = {}
+    n_files_being_suppressed_this_round = 0
+    for f_name in all_files:
+        time_of_signal_file = os.path.getmtime(f_name)
+        signal = load_signal_data(f_name)
+        trade_pair_id = signal['trade_pair']['trade_pair_id']
+        if order_cooldown_filter(signal):
+            n_files_being_suppressed_this_round += 1
+        elif trade_pair_id not in temp:
+            temp[trade_pair_id] = (signal, f_name, time_of_signal_file)
+        else:
+            if temp[trade_pair_id][2] < time_of_signal_file:
+                temp[trade_pair_id] = (signal, f_name, time_of_signal_file)
+                bt.logging.info(f"Found duplicate signals for trade pair {trade_pair_id}."
+                                f" Will save this signal for next round: {temp[trade_pair_id][1]}")
+                n_files_being_suppressed_this_round += 1
+            elif temp[trade_pair_id][2] == time_of_signal_file:
+                raise Exception(f"MANUAL INTERVENTION REQUIRED. Multiple signals found for the same trade pair with "
+                                f"the same timestamp. "
+                                f"Preventing sending as orders may not be processed in the intended order."
+                                f"Relevant signal file: {f_name}")
+    # Return all signals as a list
+    return [x[0] for x in temp.values()], [x[1] for x in temp.values()], n_files_being_suppressed_this_round
+
 class PropNetOrderPlacer:
     # Constants for retry logic with exponential backoff. After trying 3 times, there will be a delay of ~ 2 minutes.
     # This time is sufficient for validators to go offline, update, and come back online.
@@ -28,46 +84,16 @@ class PropNetOrderPlacer:
         self.metagraph = metagraph
         self.config = config
         self.recently_acked_validators = []
-        self.trade_pair_id_to_last_order_send = {tp.trade_pair_id: 0 for tp in TradePair}
 
-    def order_cooldown_check(self, signals):
-        # Find out if any signals are for the same trade pair so an exception can be thrown
-
-        for s in signals:
-            trade_pair_id = s['trade_pair']['trade_pair_id']
-            last_send_time_ms = self.trade_pair_id_to_last_order_send[trade_pair_id]
-            if TimeUtil.now_in_millis() - last_send_time_ms < ValiConfig.ORDER_COOLDOWN_MS:
-                time_to_wait_s = (ValiConfig.ORDER_COOLDOWN_MS - (TimeUtil.now_in_millis() - last_send_time_ms)) / 1000
-                raise Exception(f"Cannot send signal for trade pair {trade_pair_id} yet. Last order sent at "
-                                f"{TimeUtil.millis_to_formatted_date_str(last_send_time_ms)}"
-                                f" (cooldown period: {ValiConfig.ORDER_COOLDOWN_MS} ms). "
-                                f"Order can be sent in {time_to_wait_s} seconds. Retrying...")
-            self.trade_pair_id_to_last_order_send[trade_pair_id] = TimeUtil.now_in_millis()
-
-    def get_all_files_in_dir_no_duplicate_trade_pairs(self):
-        # If there are duplicate trade pairs, only the most recent signal for that trade pair will be sent this round.
-        all_files = ValiBkpUtils.get_all_files_in_dir(MinerConfig.get_miner_received_signals_dir())
-        temp = {}
-        n_files_being_suppressed_this_round = 0
-        for f_name in all_files:
-            signal = self.load_signal_data(f_name)
-            time_of_signal_file = os.path.getmtime(f_name)
-            trade_pair_id = signal['trade_pair']['trade_pair_id']
-            if trade_pair_id not in temp:
-                temp[trade_pair_id] = (signal, f_name, time_of_signal_file)
-            else:
-                if temp[trade_pair_id][2] < time_of_signal_file:
-                    temp[trade_pair_id] = (signal, f_name, time_of_signal_file)
-                    bt.logging.info(f"Found duplicate signals for trade pair {trade_pair_id}."
-                                    f" Will save this signal for next round: {temp[trade_pair_id][1]}")
-                    n_files_being_suppressed_this_round += 1
-                elif temp[trade_pair_id][2] == time_of_signal_file:
-                    raise Exception(f"MANUAL INTERVENTION REQUIRED. Multiple signals found for the same trade pair with "
-                                    f"the same timestamp. "
-                                    f"Preventing sending as orders may not be processed in the intended order."
-                                    f"Relevant signal file: {f_name}")
-        # Return all signals as a list
-        return [x[0] for x in temp.values()], [x[1] for x in temp.values()], n_files_being_suppressed_this_round
+    # Instead of waiting for tasks to complete, schedule a separate task to log their completion.
+    def log_completion(self, futures):
+        for future in futures:
+            # Logging the completion of signal processing
+            try:
+                result = future.result()  # This will block until the future is completed
+                bt.logging.info(f"Signal processing completed for: {result}")
+            except Exception as e:
+                bt.logging.error(f"Error processing signal: {e}")
 
     def send_signals(self, recently_acked_validators: list[str]):
         """
@@ -77,31 +103,36 @@ class PropNetOrderPlacer:
         sending attempts are expected to succeed.
         """
         self.recently_acked_validators = recently_acked_validators
-        signals, signal_file_names, n_files_being_suppressed_this_round = self.get_all_files_in_dir_no_duplicate_trade_pairs()
-        self.order_cooldown_check(signals)
+        signals, signal_file_names, n_files_being_suppressed_this_round = get_all_files_in_dir_no_duplicate_trade_pairs()
+        if len(signals) == 0:
+            time.sleep(3)  # Prevent busy loop
+            return
+
         bt.logging.info(f"Total new signals to send this round: {len(signals)}. n signals waiting for next round: "
                         f"{n_files_being_suppressed_this_round}")
 
-        # Use ThreadPoolExecutor to process signals in parallel
-        with ThreadPoolExecutor() as executor:
-            # Schedule the processing of each signal file
-            futures = [executor.submit(self.process_each_signal, signal_file_path) for signal_file_path in
-                       signal_file_names]
-            # as_completed() is used to handle the results as they become available
-            for future in as_completed(futures):
-                # Logging the completion of signal processing
-                bt.logging.info(f"Signal processing completed for: {future.result()}")
+        # Creating a list to hold references to the futures
+        futures = []
 
-        # Wait before the next batch if no signals are found, to avoid busy looping
-        if len(signals) == 0:
-            time.sleep(1)
+        # Submitting tasks to the executor
+        for signal_file_path in signal_file_names:
+            future = executor.submit(self.process_each_signal, signal_file_path)
+            futures.append(future)
+
+        # Run the log_completion function in a separate thread to avoid blocking
+        logging_thread = threading.Thread(target=self.log_completion, args=(futures,))
+        logging_thread.start()
+
 
     def process_each_signal(self, signal_file_path: str):
         """
         Processes each signal file by attempting to send it to the validators.
         Manages retry attempts and employs exponential backoff for failed attempts.
         """
-        signal_data = self.load_signal_data(signal_file_path)
+        signal_data = load_signal_data(signal_file_path)
+        trade_pair_id = signal_to_trade_pair_id(signal_data)
+        trade_pair_id_to_last_order_send[trade_pair_id] = TimeUtil.now_in_millis()
+        os.remove(signal_file_path)  # delete from disk to prevent duplicate processing
         retry_status = {
             signal_file_path: {
                 'retry_attempts': 0,
@@ -119,16 +150,13 @@ class PropNetOrderPlacer:
 
         all_failure = len(info['validators_needing_retry']) == len(self.metagraph.axons)
         # If there is a validator that hasn't received our order after the max number of retries.
+        f_name = signal_file_path.split('/')[-1]
         if all_failure or (info['validators_needing_retry'] and self.config.write_failed_signal_logs):
-            self.move_signal_to_failure_directory(signal_file_path, info['validators_needing_retry'])
+            self.write_signal_to_failure_directory(signal_data, f_name, info['validators_needing_retry'])
         else:
-            self.move_signal_to_processed_directory(signal_file_path)
+            self.write_signal_to_processed_directory(signal_data, f_name)
 
         return signal_file_path
-
-    def load_signal_data(self, signal_file_path: str):
-        """Loads the signal data from a file."""
-        return json.loads(ValiBkpUtils.get_file(signal_file_path), cls=GeneralizedJSONDecoder)
 
     def attempt_to_send_signal(self, signal_data: object, signal_file_path: str, retry_status: dict):
         """
@@ -176,26 +204,22 @@ class PropNetOrderPlacer:
 
         retry_status[signal_file_path]['retry_attempts'] += 1  # Update the retry attempt count for this signal file
 
-    def move_signal_to_processed_directory(self, signal_file_path: str):
+    def write_signal_to_processed_directory(self, signal_data: dict, f_name: str):
         """Moves a processed signal file to the processed directory."""
-        self.move_signal_to_directory(MinerConfig.get_miner_processed_signals_dir(), signal_file_path)
-    def move_signal_to_failure_directory(self, signal_file_path: str, validators_needing_retry: list):
+        new_file_path = os.path.join(MinerConfig.get_miner_processed_signals_dir(), f_name)
+        ValiBkpUtils.write_file(new_file_path, json.dumps(signal_data))
+        bt.logging.info(f"Signal file modified to include failure information: {new_file_path}")
+
+
+    def write_signal_to_failure_directory(self, signal_data:dict, f_name: str, validators_needing_retry: list):
         # Append the failure information to the signal data.
         json_validator_data = [{'ip': validator.ip, 'port': validator.port, 'ip_type': validator.ip_type,
                                 'hotkey': validator.hotkey, 'coldkey': validator.coldkey, 'protocol': validator.protocol}
                                for validator in validators_needing_retry]
-        new_data = {'original_signal': self.load_signal_data(signal_file_path),
+        new_data = {'original_signal': signal_data,
                     'validators_needing_retry': json_validator_data}
 
-        # Move signal file to the failed directory
-        self.move_signal_to_directory(MinerConfig.get_miner_failed_signals_dir(), signal_file_path)
-
-        # Overwrite the file we just moved with the new data
-        new_file_path = os.path.join(MinerConfig.get_miner_failed_signals_dir(), os.path.basename(signal_file_path))
+        new_file_path = os.path.join(MinerConfig.get_miner_failed_signals_dir(), f_name)
         ValiBkpUtils.write_file(new_file_path, json.dumps(new_data))
         bt.logging.info(f"Signal file modified to include failure information: {new_file_path}")
 
-    def move_signal_to_directory(self, directory: str, signal_file_path):
-        ValiBkpUtils.make_dir(directory)
-        shutil.move(signal_file_path, os.path.join(directory, os.path.basename(signal_file_path)))
-        bt.logging.info(f"Signal file {signal_file_path} has been moved to {directory} ")
