@@ -4,6 +4,7 @@
 import json
 import os
 import pickle
+import bittensor as bt
 
 from vali_config import ValiConfig
 from vali_objects.position import Position
@@ -121,6 +122,43 @@ class ValiBkpUtils:
             ans = pickle.load(f) if is_pickle else f.read()
             #bt.logging.info(f"vali_file: {vali_file}, ans: {ans}")
             return ans
+
+
+    @staticmethod
+    def safe_load_dict_from_disk(filename, default_value):
+        try:
+            full_path = ValiBkpUtils.get_vali_dir(running_unit_tests=False) + filename
+            if os.path.exists(full_path):
+                with open(full_path, 'r') as f:
+                    return json.load(f)
+
+            temp_filename = f"{filename}.tmp"
+            full_path_temp = ValiBkpUtils.get_vali_dir(running_unit_tests=False) + temp_filename
+            if os.path.exists(full_path_temp):
+                with open(full_path_temp, 'r') as f:
+                    ans = json.load(f)
+                    # Write to disk with the correct filename
+                    ValiBkpUtils.safe_save_dict_to_disk(filename, ans, skip_temp_write=True)
+        except Exception as e:
+            bt.logging.error(f"Error loading {filename} from disk: {e}")
+
+        return default_value
+
+    @staticmethod
+    def safe_save_dict_to_disk(filename, data, skip_temp_write=False):
+        try:
+            temp_filename = f"{filename}.tmp"
+            full_path_temp = ValiBkpUtils.get_vali_dir(running_unit_tests=False) + temp_filename
+            full_path_orig = ValiBkpUtils.get_vali_dir(running_unit_tests=False) + filename
+            if skip_temp_write:
+                with open(full_path_orig, 'w') as f:
+                    json.dump(data, f)
+            else:
+                with open(full_path_temp, 'w') as f:
+                    json.dump(data, f)
+                os.replace(full_path_temp, full_path_orig)
+        except Exception as e:
+            bt.logging.error(f"Error saving {filename} to disk: {e}")
 
     @staticmethod
     def get_all_files_in_dir(vali_dir: str) -> list[str]:
