@@ -12,7 +12,7 @@ from pathlib import Path
 from copy import deepcopy
 from shared_objects.cache_controller import CacheController
 from time_util.time_util import TimeUtil
-from vali_config import TradePair
+from vali_config import TradePair, ValiConfig
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.exceptions.corrupt_data_exception import ValiBkpCorruptDataException
 from vali_objects.exceptions.vali_bkp_file_missing_exception import ValiFileMissingException
@@ -275,6 +275,7 @@ class PositionManager(CacheController):
 
         t0 = None
         closed_position_returns = []
+
         for position in positions:
             if position.is_open_position:
                 continue
@@ -288,7 +289,7 @@ class PositionManager(CacheController):
             # this should be even closer to 0 with an absolute value less than the logged_return_at_close
             if evaluation_time_ms is None:
                 raise ValueError("evaluation_time_ms must be provided if augmented is True")
-            
+
             dampened_return_at_close = PositionUtils.dampen_return(
                 logged_return_at_close, 
                 position.open_ms, 
@@ -296,6 +297,11 @@ class PositionManager(CacheController):
                 evaluation_time_ms
             )
             closed_position_returns.append(dampened_return_at_close)
+
+        consistency_penalty = PositionUtils.compute_consistency_penalty(
+            positions, 
+            evaluation_time_ms
+        )
 
         # cumulative_return_logged = 0
         # per_position_return_logged = []
@@ -305,7 +311,7 @@ class PositionManager(CacheController):
         #     cumulative_return_logged += value
         #     per_position_return_logged.append(value)
 
-        return [ PositionUtils.exp_transform(value) for value in closed_position_returns ]
+        return [ x * consistency_penalty for x in closed_position_returns ]
 
     def get_all_miner_positions(self,
                                 miner_hotkey: str,

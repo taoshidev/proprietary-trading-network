@@ -92,9 +92,9 @@ class TestWeights(TestBase):
     def test_positive_omega(self):
         """Test that the omega function works as expected for only positive returns"""
         sample_returns = [1.4, 1.1, 1.2, 1.3, 1.4, 1.2]
-        risk_free_rate = ValiConfig.LOOKBACK_RANGE_DAYS_RISK_FREE_RATE
+        risk_free_rate = ValiConfig.OMEGA_LOG_RATIO_THRESHOLD
 
-        sample_returns = [ x + risk_free_rate for x in sample_returns ]
+        sample_returns = [ np.log(x) - risk_free_rate for x in sample_returns ]
         omega_positive = Scoring.omega(sample_returns)
 
         ## omega_minimum_denominator should kick in
@@ -107,9 +107,7 @@ class TestWeights(TestBase):
         """Test that the omega function works as expected for all negative returns"""
         sample_returns = [0.9, 0.8, 0.7, 0.6, 0.5, 0.4]
 
-        risk_free_rate = ValiConfig.LOOKBACK_RANGE_DAYS_RISK_FREE_RATE
-
-        sample_returns = [ x - risk_free_rate for x in sample_returns ]
+        sample_returns = [ np.log(x) for x in sample_returns ]
         omega_negative = Scoring.omega(sample_returns)
 
         # sum above threshold should be 0
@@ -123,12 +121,12 @@ class TestWeights(TestBase):
         ## positive returns should be [ 1.1, 1.2, 1.3, 1.4, 1.2 ] -> [ 0.1, 0.2, 0.3, 0.4, 0.2 ]
         ## negative returns should be [ 0.9, 0.7 ] -> [ -0.1, -0.3 ]
 
-        positive_sum = sum([ 0.1, 0.2, 0.3, 0.4, 0.2 ])
-        negative_sum = sum([ -0.1, -0.3 ])
+        positive_sum = np.sum(np.log(np.array([ 1.1, 1.2, 1.3, 1.4, 1.2 ])))
+        negative_sum = np.sum(np.log(np.array([ 1-0.1, 1-0.3 ])))
         hand_computed_omega = positive_sum / abs(negative_sum)
 
         ## omega should be [ 1.1 + 1.2 + 1.3 + 1.4 + 1.2 ] / [ 0.9 + 0.7 ]
-        omega = Scoring.omega(sample_returns)
+        omega = Scoring.omega([ np.log(x) for x in sample_returns ])
         self.assertEqual(omega, hand_computed_omega)
 
     def test_omega_zero_length_returns(self):
@@ -140,7 +138,7 @@ class TestWeights(TestBase):
 
     def test_total_return(self):
         """Test that the total return function works as expected"""
-        sample_returns = [0.9, 0.7, 1.1, 1.2, 1.3, 1.4, 1.2]
+        sample_returns = [ np.log(x) for x in [0.9, 0.7, 1.1, 1.2, 1.3, 1.4, 1.2] ]
         ## hand computed total return
         hand_computed_total_return = 0.9 * 0.7 * 1.1 * 1.2 * 1.3 * 1.4 * 1.2
         self.assertAlmostEqual(hand_computed_total_return, 1.816, places=3)
@@ -157,10 +155,10 @@ class TestWeights(TestBase):
 
     def test_negative_sharp_ratio(self):
         """Test that the sharp ratio function works as expected for all negative returns"""
-        sample_returns = [0.9, 0.8, 0.7, 0.6, 0.5, 0.4]
+        sample_returns = [ np.log(x) for x in [0.9, 0.8, 0.7, 0.6, 0.5, 0.4] ]
         sharp_ratio_negative = Scoring.sharpe_ratio(sample_returns)
 
-        self.assertLess(sharp_ratio_negative, 0.0)
+        self.assertLess(sharp_ratio_negative, 1.0)
 
     def test_sharp_zero_length_returns(self):
         """Test that the sharp ratio function works as expected with zero length returns"""
@@ -171,11 +169,12 @@ class TestWeights(TestBase):
 
     def test_sharpe_ratio(self):
         """Test that the sharpe ratio function works as expected"""
-        sample_returns = [0.9, 0.7, 1.1, 1.2, 1.3, 1.4, 1.2]
+        sample_returns = [ np.log(x) for x in [0.9, 0.7, 1.1, 1.2, 1.3, 1.4, 1.2] ]
 
         ## should be the product of returns over the std dev.
-        threshold = 1 + ValiConfig.PROBABILISTIC_SHARPE_RATIO_THRESHOLD
-        hand_sharpe = np.mean([ x - threshold for x in sample_returns ]) / np.std(sample_returns)
+        threshold = np.log(1 + ValiConfig.PROBABILISTIC_LOG_SHARPE_RATIO_THRESHOLD)
+        hand_sharpe_log = np.mean([ x - threshold for x in sample_returns ]) / np.std(sample_returns)
+        hand_sharpe = np.exp(hand_sharpe_log)
 
         sharpe_ratio = Scoring.sharpe_ratio(sample_returns)
         self.assertAlmostEqual(sharpe_ratio, hand_sharpe, places=3)
@@ -191,9 +190,9 @@ class TestWeights(TestBase):
         """Test that the transform and scale results works as expected with empty returns"""
         sample_returns = [
             ('miner0', []),
-            ('miner1', [1.5, 0.5, 1.1, 0.6, 1.2]), # yolo miner
-            ('miner2', [1.01, 1.00, 1.02, 1.01, 0.99]), # decent miner
-            ('miner3', [1.03, 1.03, 1.01, 1.04, 1.01]), # consistently great miner
+            ('miner1', [ np.log(x) for x in [1.5, 0.5, 1.1, 0.6, 1.2] ]), # yolo miner
+            ('miner2', [ np.log(x) for x in [1.01, 1.00, 1.02, 1.01, 0.99] ]), # decent miner
+            ('miner3', [ np.log(x) for x in [1.03, 1.03, 1.01, 1.04, 1.01] ]), # consistently great miner
         ]
 
         scaled_transformed_list = Scoring.transform_and_scale_results(sample_returns)
@@ -201,13 +200,13 @@ class TestWeights(TestBase):
 
         self.assertEqual(
             transformed_minernames, 
-            ['miner1', 'miner2', 'miner3']
+            ['miner1', 'miner2', 'miner3'] 
         )
 
     def test_transform_and_scale_results(self):
         sample_returns = [
-            ('miner0', [1.15, 0.95, 1.20, 0.90, 1.10, 1.05, 0.85]),
-            ('miner1', [1.05, 1.02, 0.98, 1.03, 1.01, 0.99, 1.04, 1.00, 1.02, 0.97]),
+            ('miner0', [ np.log(x) for x in [1.15, 0.95, 1.20, 0.90, 1.10, 1.05, 0.85] ]),
+            ('miner1', [ np.log(x) for x in [1.05, 1.02, 0.98, 1.03, 1.01, 0.99, 1.04, 1.00, 1.02, 0.97] ]),
         ]
 
         ## miner1 has a higher return, but lower omega
@@ -241,8 +240,8 @@ class TestWeights(TestBase):
     def test_transform_and_scale_results_grace_period(self):
         """Test that the transform and scale results works as expected with a grace period"""
         sample_returns = [
-            ('miner0', [1.15, 0.95, 1.20, 0.90, 1.10, 1.05, 0.85]), # grace period miner, should return almost 0
-            ('miner1', [1.05, 1.02, 0.98, 1.03, 1.01, 0.99, 1.04, 1.00, 1.02, 0.97, 1.04]),
+            ('miner0', [ np.log(x) for x in [1.15, 0.95, 1.20, 0.90, 1.10, 1.05, 0.85] ]), # grace period miner, should return almost 0
+            ('miner1', [ np.log(x) for x in [1.05, 1.02, 0.98, 1.03, 1.01, 0.99, 1.04, 1.00, 1.02, 0.97, 1.04] ]),
         ]
 
         ## the transformation should be some kind of average of the two
@@ -262,8 +261,8 @@ class TestWeights(TestBase):
         """Test that the transform and scale results works as expected with a grace period"""
         sample_returns = [
             ('miner0', []),
-            ('miner1', [1.05, 1.02, 0.98, 1.03, 1.01, 0.99, 1.04, 1.00, 1.02, 0.97, 1.04]),
-            ('miner2', [1.05, 1.02, 0.98, 1.03, 1.01, 0.99, 1.04, 1.00, 1.02, 0.97, 1.08]),
+            ('miner1', [ np.log(x) for x in [1.05, 1.02, 0.98, 1.03, 1.01, 0.99, 1.04, 1.00, 1.02, 0.97, 1.04] ]),
+            ('miner2', [ np.log(x) for x in [1.05, 1.02, 0.98, 1.03, 1.01, 0.99, 1.04, 1.00, 1.02, 0.97, 1.08] ]),
         ]
 
         ## the transformation should be some kind of average of the two

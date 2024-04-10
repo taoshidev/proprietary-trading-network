@@ -73,7 +73,7 @@ class SubtensorWeightSetter(CacheController):
                     filtered_positions, evaluation_time_ms=current_time
                 )
             )
-
+            
             # last_positional_return = per_position_return[-1]
             netuid = self.metagraph.hotkeys.index(hotkey)
             return_per_netuid[netuid] = per_position_return
