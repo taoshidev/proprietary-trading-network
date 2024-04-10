@@ -1,54 +1,59 @@
 from data_generator.twelvedata_service import TwelveDataService
-
-import time
-from functools import wraps
-import bittensor as bt
+from data_generator.polygon_data_service import PolygonDataService
 
 from vali_config import TradePair
 from vali_objects.utils.vali_utils import ValiUtils
-
-
-def retry(tries=5, delay=5, backoff=1):
-    """
-    Retry decorator with exponential backoff, works for all exceptions.
-
-    Parameters:
-    - tries: number of times to try (not retry) before giving up.
-    - delay: initial delay between retries in seconds.
-    - backoff: backoff multiplier e.g. value of 2 will double the delay each retry.
-
-    Usage:
-    @retry(tries=5, delay=5, backoff=2)
-    def my_func():
-        pass
-    """
-    def deco_retry(f):
-        @wraps(f)
-        def f_retry(*args, **kwargs):
-            mtries, mdelay = tries, delay
-            while mtries > 1:
-                try:
-                    return f(*args, **kwargs)
-                except Exception as e:
-                    bt.logging.error(f"Error: {str(e)}, Retrying in {mdelay} seconds...")
-                    time.sleep(mdelay)
-                    mtries -= 1
-                    mdelay *= backoff
-            return f(*args, **kwargs)  # Last attempt
-        return f_retry
-    return deco_retry
+from shared_objects.retry import retry
 
 class LivePriceFetcher():
     def __init__(self, secrets):
-        self.twelve_data = TwelveDataService(api_key=secrets["twelvedata_apikey"])
+        if "twelvedata_apikey" in secrets:
+            self.twelve_data = TwelveDataService(api_key=secrets["twelvedata_apikey"])
+        else:
+            self.twelve_data = None
+        if "polygon_apikey" in secrets:
+            self.polygon_data_provider = PolygonDataService(api_key=secrets["polygon_apikey"])
+        else:
+            self.polygon_data_provider = None
+
+        assert self.twelvedata_available or self.polygon_available, \
+            "No data provider available. Make sure your API keys are correctly configured in secrets.json"
+
+    @property
+    def twelvedata_available(self):
+        return self.twelve_data is not None
+
+    @property
+    def polygon_available(self):
+        return self.polygon_data_provider is not None
 
     @retry(tries=2, delay=5, backoff=2)
     def get_close(self, trade_pair):
-        return self.twelve_data.get_close(trade_pair=trade_pair)
+        if self.polygon_available:
+            ans = self.polygon_data_provider.get_close(trade_pair=trade_pair)
+            if ans:
+                return ans
+        if self.twelvedata_available:
+            return self.twelve_data.get_close(trade_pair=trade_pair)
 
     @retry(tries=2, delay=5, backoff=2)
     def get_closes(self, trade_pairs: list):
-        return self.twelve_data.get_closes(trade_pairs)
+        ans = {}
+        if self.polygon_available:
+            ans = self.polygon_data_provider.get_closes(trade_pairs=trade_pairs)
+            invalid_closes = {k: v for k, v in ans.items() if v is None}
+            if ans and len(invalid_closes) == 0:
+                return ans
+        if self.twelvedata_available:
+            td_closes = self.twelve_data.get_closes(trade_pairs=list(set(trade_pairs) - set(ans.keys())))
+            ans.update(td_closes)
+        return ans
+
+    def time_since_last_ping_s(self, trade_pair: TradePair) -> float | None:
+        if self.polygon_available:
+            return self.polygon_data_provider.get_websocket_lag_for_trade_pair_s(trade_pair=trade_pair)
+        # Don't want to use twelvedata for this
+        return None
 
     def get_close_at_date(self, trade_pair, date):
         return self.twelve_data.get_close_at_date(trade_pair=trade_pair, date=date)

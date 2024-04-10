@@ -29,6 +29,7 @@ from vali_objects.utils.position_utils import PositionUtils
 class PositionManager(CacheController):
     def __init__(self, config=None, metagraph=None, running_unit_tests=False, perform_price_adjustment=False, live_price_fetcher=None, perform_order_corrections=False, perform_fee_structure_update=False):
         super().__init__(config=config, metagraph=metagraph, running_unit_tests=running_unit_tests)
+        self.init_cache_files()
         self.position_locks = PositionLocks()
         self.live_price_fetcher = live_price_fetcher
         if perform_order_corrections:
@@ -134,7 +135,7 @@ class PositionManager(CacheController):
 
     def recalculate_return_at_close_and_write_corrected_position_to_disk(self, position: Position, hotkey:str):
         tp = position.trade_pair
-        if not tp == TradePair.CADCHF:
+        if not tp in (TradePair.CADJPY, TradePair.USDJPY, TradePair.CHFJPY):
             return position.return_at_close
 
         any_changes = False
@@ -230,7 +231,7 @@ class PositionManager(CacheController):
             for position in positions:
                 if position.is_closed_position:
                     continue
-                if position.trade_pair == TradePair.CADCHF:
+                if position.trade_pair == None:
                     bt.logging.info(f"Position {position.position_uuid} for hotkey {hotkey} and trade pair {position.trade_pair.trade_pair_id} has been closed")
                     self.close_open_position_for_miner(hotkey, position.trade_pair)
 

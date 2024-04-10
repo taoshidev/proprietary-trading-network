@@ -18,7 +18,7 @@ import bittensor as bt
 
 class MDDChecker(CacheController):
 
-    def __init__(self, config, metagraph, position_manager, eliminations_lock, running_unit_tests=False):
+    def __init__(self, config, metagraph, position_manager, eliminations_lock, running_unit_tests=False, live_price_fetcher=None):
         super().__init__(config, metagraph, running_unit_tests=running_unit_tests)
         self.n_miners_skipped_already_eliminated = 0
         self.n_eliminations_this_round = 0
@@ -29,7 +29,10 @@ class MDDChecker(CacheController):
         self.position_manager = position_manager
         assert self.running_unit_tests == self.position_manager.running_unit_tests
         self.all_trade_pairs = [trade_pair for trade_pair in TradePair]
-        self.live_price_fetcher = LivePriceFetcher(secrets=secrets)
+        if live_price_fetcher is None:
+            self.live_price_fetcher = LivePriceFetcher(secrets=secrets)
+        else:
+            self.live_price_fetcher = live_price_fetcher
         self.eliminations_lock = eliminations_lock
         self.reset_debug_counters()
 
