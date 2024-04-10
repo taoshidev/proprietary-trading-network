@@ -25,6 +25,8 @@ def regenerate_miner_positions(perform_backup=True):
     backup_file_path = "validator_checkpoint.json"
     try:
         data = json.loads(ValiBkpUtils.get_file(backup_file_path))
+        if isinstance(data, str):  # TODO: Why is the data being double serialized?
+            data = json.loads(data)
     except Exception as e:
         bt.logging.error(f"Unable to read validator checkpoint file. {e}")
         return False
