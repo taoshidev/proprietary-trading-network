@@ -76,10 +76,10 @@ class Validator:
         self.metagraph = subtensor.metagraph(self.config.netuid)
         bt.logging.info(f"Metagraph: {self.metagraph}")
         self.position_manager = PositionManager(metagraph=self.metagraph, config=self.config,
-                                                perform_price_adjustment=False,
+                                                perform_price_adjustment=True,
                                                 live_price_fetcher=self.live_price_fetcher,
-                                                perform_fee_structure_update=True,
-                                                perform_order_corrections=True)
+                                                perform_fee_structure_update=False,
+                                                perform_order_corrections=False)
 
         self.metagraph_updater = MetagraphUpdater(self.config, self.metagraph, wallet.hotkey.ss58_address,
                                                   False, position_manager=self.position_manager)
@@ -388,7 +388,7 @@ class Validator:
                 synapse.error_message = msg
                 return True
 
-            if tp and tp.is_indices:
+            if tp and (tp.is_indices or tp == TradePair.CADCHF):
                 msg = (f"Trade pair [{tp.trade_pair_id}] has been temporarily halted. "
                        f"Please try again with a different trade pair.")
                 bt.logging.error(msg)
