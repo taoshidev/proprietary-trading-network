@@ -58,7 +58,9 @@ class Position(BaseModel):
         # Add the position-level trade_pair to each order
         updated_orders = []
         for order in orders:
-            order['trade_pair'] = trade_pair
+            if not isinstance(order, Order):
+                order['trade_pair'] = trade_pair
+                
             updated_orders.append(order)
         values['orders'] = updated_orders
 

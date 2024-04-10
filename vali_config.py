@@ -145,7 +145,7 @@ TRADE_PAIR_ID_TO_TRADE_PAIR = {x.trade_pair_id: x for x in TradePair}
 
 class ValiConfig:
     ## versioning
-    VERSION = "2.2.0"
+    VERSION = "2.2.1"
 
     # fees take into account exiting and entering a position, liquidity, and futures fees
     MDD_CHECK_REFRESH_TIME_MS = 15 * 1000  # 15 seconds

@@ -85,7 +85,7 @@ class PositionUtils:
                 position.close_ms,
                 evaluation_time_ms
             ) for position in positions
-            if position.is_closed_position and position.net_leverage >= ValiConfig.MIN_LEVERAGE_CONSITENCY_PENALTY
+            if position.is_closed_position and position.max_leverage_seen() >= ValiConfig.MIN_LEVERAGE_CONSITENCY_PENALTY
         ]
 
         # Sort the lookback fractions in ascending order
@@ -121,5 +121,5 @@ class PositionUtils:
             return 0.8
         elif penalty_score >= 0.1:
             return 0.75
-        
+                
         return 0.75
