@@ -208,7 +208,7 @@ class Scoring:
         Returns:
             float: Sharpe Ratio.
         """
-        if len(returns) == 0:
+        if len(returns) <= 1:
             return 0
         
         returns = np.array(returns)
