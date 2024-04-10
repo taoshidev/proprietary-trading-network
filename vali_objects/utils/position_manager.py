@@ -134,7 +134,7 @@ class PositionManager(CacheController):
 
     def recalculate_return_at_close_and_write_corrected_position_to_disk(self, position: Position, hotkey:str):
         tp = position.trade_pair
-        if not tp.is_indices:
+        if not tp == TradePair.CADCHF:
             return position.return_at_close
 
         any_changes = False
@@ -226,8 +226,11 @@ class PositionManager(CacheController):
                     f"MDD failure occurred at position {most_recent_elimination_idx} out of {len(positions)} positions for hotkey "
                     f"{hotkey}. Drawdown: {dd_to_log}. MDD failure: {mdd_failure}. Portfolio return: {return_with_open_positions}. ")
 
+            # Closing all open positions for the specified trade pair
             for position in positions:
-                if position.trade_pair.is_indices and position.is_open_position:
+                if position.is_closed_position:
+                    continue
+                if position.trade_pair == TradePair.CADCHF:
                     bt.logging.info(f"Position {position.position_uuid} for hotkey {hotkey} and trade pair {position.trade_pair.trade_pair_id} has been closed")
                     self.close_open_position_for_miner(hotkey, position.trade_pair)
 
