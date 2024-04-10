@@ -11,6 +11,7 @@ from vali_objects.utils.logger_utils import LoggerUtils
 from vali_objects.utils.position_manager import PositionManager
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.utils.subtensor_weight_setter import SubtensorWeightSetter
+from vali_objects.utils.position_utils import PositionUtils
 from vali_objects.vali_dataclasses.order import Order
 from vali_objects.scoring.scoring import Scoring
 
@@ -55,6 +56,7 @@ def generate_request_outputs():
     time_now = TimeUtil.now_in_millis()
     dict_hotkey_position_map = {}
     graceperiod_miners = set()
+    consistency_penalties = {}
 
     youngest_order_processed_ms = float("inf")
     oldest_order_processed_ms = 0
@@ -85,6 +87,12 @@ def generate_request_outputs():
                     dict_hotkey_position_map[k][
                         "thirty_day_returns_augmented"
                     ] = curr_return_augmented
+
+                if len(return_per_position_augmented) > 0:
+                    consistency_penalty = PositionUtils.compute_consistency_penalty(
+                        ps, time_now
+                    )
+                    consistency_penalties[k] = consistency_penalty
 
                 if len(return_per_position_augmented) < ValiConfig.SET_WEIGHT_MINIMUM_POSITIONS:
                     graceperiod_miners.add(k)
@@ -170,8 +178,10 @@ def generate_request_outputs():
     now_ms = TimeUtil.now_in_millis()
     final_dict = {
         'version': ValiConfig.VERSION,
-        'positions': ord_dict_hotkey_position_map,
+        'created_timestamp_ms': now_ms,
+        'created_date': TimeUtil.millis_to_formatted_date_str(now_ms),
         'weights': scaled_transformed_list,
+        'consistency_penalties': consistency_penalties,
         "metrics": {
             "omega": omega_list,
             "augmented_return": augmented_return_list,
@@ -195,8 +205,7 @@ def generate_request_outputs():
         'plagiarism': plagiarism,
         'youngest_order_processed_ms': youngest_order_processed_ms,
         'oldest_order_processed_ms': oldest_order_processed_ms,
-        'created_timestamp_ms': now_ms,
-        'created_date': TimeUtil.millis_to_formatted_date_str(now_ms),
+        'positions': ord_dict_hotkey_position_map,
     }
 
     output_file_path = ValiBkpUtils.get_vali_outputs_dir() + "validator_checkpoint.json"

@@ -4,7 +4,10 @@ from tests.vali_tests.base_objects.test_base import TestBase
 from vali_objects.scoring.scoring import Scoring
 from vali_objects.position import Position
 import pickle
+import uuid
 import hashlib
+from vali_objects.vali_dataclasses.order import Order
+from vali_objects.enums.order_type_enum import OrderType
 from vali_config import ValiConfig, TradePair
 from vali_objects.utils.position_utils import PositionUtils
 from vali_objects.scoring.historical_scoring import HistoricalScoring
@@ -12,47 +15,70 @@ from vali_objects.scoring.historical_scoring import HistoricalScoring
 import numpy as np
 import random
 
+def get_time_in_range(percent, start, end):
+    return int(start + ((end - start) * percent))
+
+def hash_object(obj):
+    serialized_obj = pickle.dumps(obj)
+    hash_obj = hashlib.sha256()
+    hash_obj.update(serialized_obj)
+    hashed_str = hash_obj.hexdigest()
+    return hashed_str[:10]
+
+def order_generator(
+    leverage = 1.0,
+    n_orders:int = 10
+) -> list[Order]:
+    order_list = []
+    for _ in range(n_orders):
+        leverage = np.random.rand() * 2 + 1
+        sample_order = Order(
+            order_type = OrderType.LONG,
+            leverage = leverage,
+            price = 3000,
+            trade_pair = TradePair.BTCUSD,
+            processed_ms = 1710521764446,
+            order_uuid = "1000"
+        )
+        
+        order_list.append(sample_order)
+
+    return order_list
+
+def position_generator(
+    open_time_ms, 
+    close_time_ms,
+    trade_pair,
+    net_leverage = 1.0,
+    return_at_close = 1.0
+):
+    n_orders = np.random.randint(1, 10)
+    generated_position = Position(
+        miner_hotkey='miner0',
+        position_uuid=hash_object((
+            open_time_ms,
+            close_time_ms,
+            return_at_close,
+            trade_pair
+        )),
+        orders=order_generator(n_orders=n_orders),
+        net_leverage=net_leverage,
+        open_ms=open_time_ms,
+        trade_pair=trade_pair,
+    )
+
+    generated_position.close_out_position(
+        close_ms = close_time_ms
+    )
+    generated_position.return_at_close = return_at_close
+    return generated_position
+
 class TestWeights(TestBase):
 
     def setUp(self):
         super().setUp()
 
-        def hash_object(obj):
-            serialized_obj = pickle.dumps(obj)
-            hash_obj = hashlib.sha256()
-            hash_obj.update(serialized_obj)
-            hashed_str = hash_obj.hexdigest()
-            return hashed_str[:10]
-        
-        def get_time_in_range(percent, start, end):
-            return int(start + ((end - start) * percent))
-
-        def position_generator(
-            open_time_ms, 
-            close_time_ms,
-            trade_pair,
-            net_leverage = 1.0,
-            return_at_close = 1.0
-        ):
-            generated_position = Position(
-                miner_hotkey='miner0',
-                position_uuid=hash_object((
-                    open_time_ms,
-                    close_time_ms,
-                    return_at_close,
-                    trade_pair
-                )),
-                net_leverage=net_leverage,
-                open_ms=open_time_ms,
-                trade_pair=trade_pair,
-            )
-
-            generated_position.close_out_position(
-                close_ms = close_time_ms
-            )
-            generated_position.return_at_close = return_at_close
-            return generated_position
-        
+        possible_tradepairs = list(TradePair.__members__)    
 
         ## seeding
         np.random.seed(0)
@@ -76,7 +102,7 @@ class TestWeights(TestBase):
                     open_time_ms=self.start_times[position],
                     close_time_ms=self.end_times[position],
                     trade_pair=TradePair.BTCUSD,
-                    return_at_close=self.returns_at_close[position]
+                    return_at_close=self.returns_at_close[position],
                 )
             )
 
@@ -96,7 +122,7 @@ class TestWeights(TestBase):
                 close_time_ms=imbalanced_position_close_times[c],
                 trade_pair=TradePair.BTCUSD,
                 net_leverage = 1.0,
-                return_at_close=1.1
+                return_at_close=1.1,
             ) for c in range(n_positions)
         ]
 
@@ -107,7 +133,7 @@ class TestWeights(TestBase):
                 close_time_ms=self.end_times[c],
                 trade_pair=TradePair.BTCUSD,
                 net_leverage = 1.0,
-                return_at_close=1.1
+                return_at_close=1.1,
             ) for c in range(n_positions)
         ]
 
@@ -118,7 +144,7 @@ class TestWeights(TestBase):
                 close_time_ms=self.end_times[c],
                 trade_pair=TradePair.BTCUSD,
                 net_leverage = 0.0,
-                return_at_close=1.1
+                return_at_close=1.1,
             ) for c in range(n_positions)
         ]
 
@@ -215,6 +241,7 @@ class TestWeights(TestBase):
                 position_uuid='balanced',
                 open_ms=self.start_time,
                 close_ms=x,
+                orders = order_generator(n_orders=10),
                 trade_pair=TradePair.BTCUSD,
                 net_leverage = 1.0,
                 is_closed_position=True
@@ -228,6 +255,7 @@ class TestWeights(TestBase):
                 open_ms=self.start_time,
                 close_ms=x,
                 net_leverage = 1.0,
+                orders = order_generator(n_orders=10),
                 trade_pair=TradePair.BTCUSD,
                 is_closed_position=True
             ) for x in imbalanced_close_times
