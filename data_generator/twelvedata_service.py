@@ -286,7 +286,7 @@ class TwelveDataService:
     def get_close(self, trade_pair: TradePair):
         ans = self.get_close_websocket(trade_pair)
         if not ans:
-            bt.logging.info(f"Fetching stale trade pair using TD REST: {trade_pair}")
+            bt.logging.info(f"Fetching stale trade pair using TD REST: {trade_pair.trade_pair}")
             ans = self.get_close_rest(trade_pair)
             bt.logging.info(f"Received TD REST data for {trade_pair.trade_pair}: {ans}")
 

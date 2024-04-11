@@ -1,5 +1,7 @@
 # developer: jbonilla
 # Copyright © 2024 Taoshi Inc
+import time
+
 from shared_objects.cache_controller import CacheController
 from tests.shared_objects.mock_classes import MockMetagraph, MockMDDChecker
 from tests.vali_tests.base_objects.test_base import TestBase
@@ -34,7 +36,7 @@ class TestMDDChecker(TestBase):
         self.mdd_checker.clear_eliminations_from_disk()
         self.position_manager.clear_all_miner_positions_from_disk()
         secrets = ValiUtils.get_secrets()
-        secrets["twelvedata_apikey"] = secrets["twelvedata_apikey2"]
+        #secrets["twelvedata_apikey"] = secrets["twelvedata_apikey2"]
         self.live_price_fetcher = LivePriceFetcher(secrets=secrets)
 
     def verify_elimination_data_in_memory_and_disk(self, expected_eliminations):
@@ -196,13 +198,14 @@ class TestMDDChecker(TestBase):
         self.mdd_checker.mdd_check()
         # Running mdd_check with no positions should not cause any eliminations but it should write an empty list to disk
         self.verify_elimination_data_in_memory_and_disk([])
-
         self.add_order_to_position_and_save_to_disk(position_btc, o1)
+        time.sleep(5) # Let time build up for the candles
         self.mdd_checker.mdd_check()
         self.verify_elimination_data_in_memory_and_disk([])
         self.verify_positions_on_disk([position_btc], assert_all_open=True)
 
         self.add_order_to_position_and_save_to_disk(position_eth, o2)
+        time.sleep(5)  # Let time build up for the candles
         self.mdd_checker.mdd_check()
         failure_row = CacheController.generate_elimination_row(position_eth.miner_hotkey, .826, MDDChecker.MAX_TOTAL_DRAWDOWN)
         self.verify_elimination_data_in_memory_and_disk([failure_row])

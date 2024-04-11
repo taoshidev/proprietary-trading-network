@@ -1,9 +1,11 @@
 from data_generator.twelvedata_service import TwelveDataService
 from data_generator.polygon_data_service import PolygonDataService
+from time_util.time_util import TimeUtil
 
 from vali_config import TradePair
 from vali_objects.utils.vali_utils import ValiUtils
 from shared_objects.retry import retry
+import bittensor as bt
 
 class LivePriceFetcher():
     def __init__(self, secrets):
@@ -54,6 +56,20 @@ class LivePriceFetcher():
             return self.polygon_data_provider.get_websocket_lag_for_trade_pair_s(trade_pair=trade_pair)
         # Don't want to use twelvedata for this
         return None
+
+    def get_candles(self, trade_pairs, start_time_ms, end_time_ms) -> dict:
+        ans = {}
+        if self.polygon_available:
+            bt.logging.info(f"Fetching candles from Polygon for {[x.trade_pair for x in trade_pairs]} from"
+                            f" {TimeUtil.millis_to_formatted_date_str(start_time_ms)} to "
+                            f"{TimeUtil.millis_to_formatted_date_str(end_time_ms)}")
+            ans = self.polygon_data_provider.get_candles(trade_pairs=trade_pairs, start_time_ms=start_time_ms, end_time_ms=end_time_ms)
+        # If Polygon has any missing keys, it is intentional and corresponds to a closed market. We don't want to use twelvedata for this
+        if self.twelvedata_available and len(ans) == 0:
+            bt.logging.info(f"Fetching candles from TD for {[x.trade_pair for x in trade_pairs]} from {start_time_ms} to {end_time_ms}")
+            closes = self.twelve_data.get_closes(trade_pairs=trade_pairs)
+            ans.update(closes)
+        return ans
 
     def get_close_at_date(self, trade_pair, date):
         return self.twelve_data.get_close_at_date(trade_pair=trade_pair, date=date)

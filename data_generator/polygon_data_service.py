@@ -270,12 +270,14 @@ class PolygonDataService:
         polygon_ticker = self.trade_pair_to_polygon_ticker(trade_pair)
         #bt.logging.info(f"Fetching REST data for {polygon_ticker}")
 
+        debug = PolygonDataService.is_market_open(trade_pair)
         if not PolygonDataService.is_market_open(trade_pair):
             return {trade_pair: self.get_price_before_market_close(trade_pair)}
 
         aggs = []
         now = TimeUtil.now_in_millis()
         price = None
+        prev_timestamp = None
         for a in POLYGON_CLIENT.list_aggs(
                 polygon_ticker,
                 1,
@@ -286,8 +288,10 @@ class PolygonDataService:
             #print('agg:', a)
             price = a.close
             epoch_miliseconds = a.timestamp
-            formatted_date = TimeUtil.millis_to_formatted_date_str(epoch_miliseconds // 1000)
+            assert prev_timestamp is None or prev_timestamp < epoch_miliseconds
+            #formatted_date = TimeUtil.millis_to_formatted_date_str(epoch_miliseconds // 1000)
             aggs.append(a)
+            prev_timestamp = epoch_miliseconds
         if not aggs:
             bt.logging.error(f"Polygon failed to fetch REST data for {trade_pair.trade_pair}. If you keep seeing this error, report it to the team ASAP")
         else:
@@ -324,14 +328,15 @@ class PolygonDataService:
         elif trade_pair in UNSUPPORTED_TRADE_PAIRS:
             return None
 
-        polygon_ticker = self.trade_pair_to_polygon_ticker(trade_pair)
-        aggs = POLYGON_CLIENT.get_previous_close_agg(polygon_ticker)
-
-        if len(aggs) == 0:
+        # start 7 days ago
+        end_time_ms = TimeUtil.now_in_millis()
+        start_time_ms = TimeUtil.now_in_millis() - 1000 * 60 * 60 * 24 * 7
+        candles = self.get_candles_for_trade_pair(trade_pair, start_time_ms, end_time_ms)
+        if len(candles) == 0:
             msg = f"Failed to fetch market close for {trade_pair.trade_pair}"
             raise ValueError(msg)
 
-        ans = aggs[-1].close
+        ans = candles[-1].close
         closed_market_prices[trade_pair] = ans
         return closed_market_prices[trade_pair]
 
@@ -369,11 +374,11 @@ class PolygonDataService:
     def get_close(self, trade_pair: TradePair) -> float | None:
         ans = self.get_close_websocket(trade_pair)
         if not ans:
-            bt.logging.info(f"Fetching stale trade pair using POLY REST: {trade_pair}")
+            bt.logging.info(f"Fetching stale trade pair using POLY REST: {trade_pair.trade_pair}")
             ans = self.get_close_rest(trade_pair)[trade_pair]
             bt.logging.info(f"Received POLY REST data for {trade_pair.trade_pair}: {ans}")
-
-        bt.logging.info(f"Using POLY websocket data for {trade_pair.trade_pair}")
+        else:
+            bt.logging.info(f"Using POLY websocket data for {trade_pair.trade_pair}")
         return ans
 
     def get_closes(self, trade_pairs: List[TradePair]) -> dict:
@@ -406,6 +411,76 @@ class PolygonDataService:
         closes = [(d['datetime'], float(d["close"])) for d in response]
         return closes
 
+    def get_candles(self, trade_pairs, start_time_ms, end_time_ms):
+        # Dictionary to store the minimum prices for each trade pair
+        ret = {}
+
+        # Create a ThreadPoolExecutor with a maximum of 5 threads
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            # Future objects dictionary to hold the ongoing computations
+            futures = {executor.submit(self.get_candles_for_trade_pair, tp, start_time_ms, end_time_ms): tp for tp in trade_pairs}
+
+            # Retrieve the results as they complete
+            for future in as_completed(futures):
+                trade_pair = futures[future]
+                try:
+                    # Collect the result from future
+                    result = future.result()
+                    ret[trade_pair] = result
+                except Exception as exc:
+                    print(f'{trade_pair} get_min_prices_in_window generated an exception: {exc}')
+
+        # Return the collected results
+        return ret
+
+    def get_candles_for_trade_pair(
+        self,
+        trade_pair: TradePair,
+        start_timestamp_ms: int,
+        end_timestamp_ms: int
+    ) -> list | None:
+
+        delta_time_ms = end_timestamp_ms - start_timestamp_ms
+        delta_time_seconds = delta_time_ms / 1000
+        delta_time_minutes = delta_time_seconds / 60
+        delta_time_hours = delta_time_minutes / 60
+
+        if delta_time_seconds < 70:
+            timespan = "second"
+        elif delta_time_minutes < 70:
+            timespan = "minute"
+        elif delta_time_hours < 70:
+            timespan = "hour"
+        else:
+            timespan = "day"
+
+        polygon_ticker = self.trade_pair_to_polygon_ticker(trade_pair)
+
+        aggs = []
+        prev_timestamp = None
+        for i, a in enumerate(POLYGON_CLIENT.list_aggs(
+                polygon_ticker,
+                1,
+                timespan,
+                start_timestamp_ms,
+                end_timestamp_ms
+        )):
+            epoch_miliseconds = a.timestamp
+            assert prev_timestamp is None or epoch_miliseconds >= prev_timestamp, ('candles not sorted', prev_timestamp, epoch_miliseconds)
+            #formatted_date = TimeUtil.millis_to_formatted_date_str(epoch_miliseconds)
+            #if i != -1:
+                #print('        agg:', a.low, formatted_date, trade_pair.trade_pair_id, timespan)
+            aggs.append(a)
+            prev_timestamp = epoch_miliseconds
+        if not aggs:
+            bt.logging.trace(f"Polygon failed to fetch candle data for {trade_pair.trade_pair}. "
+                             f" Perhaps this trade pair was closed during the specified window.")
+            return None
+        else:
+            #print('found aggs:', aggs, 'date', formatted_date)
+            self.update_last_rest_update_time({trade_pair: aggs[-1]})
+            return aggs
+
 
 
 if __name__ == "__main__":
@@ -414,13 +489,48 @@ if __name__ == "__main__":
     # Initialize client
     polygon_data_provider = PolygonDataService(api_key=secrets['polygon_apikey'])
 
+    time.sleep(12)
+    print(polygon_data_provider.get_close(TradePair.SPX))
+    assert 0
+
+
+
     #for t in polygon_data_provider.polygon_client.list_tickers(market="indices", limit=1000):
     #    if t.ticker.startswith("I:F"):
     #        print(t.ticker)
 
+    times_to_test = []
+
+    start_time_ms = TimeUtil.now_in_millis() - 1000 * 10  # 10 seconds ago
+    end_time_ms = TimeUtil.now_in_millis() - 1000 * 5  # 5 seconds ago
+    times_to_test.append((start_time_ms, end_time_ms))
+
+    start_time_ms = TimeUtil.now_in_millis() - 1000 * 60 * 10  # 10 minutes ago
+    end_time_ms = TimeUtil.now_in_millis() - 1000 * 60 * 5  # 5 minutes ago
+    times_to_test.append((start_time_ms, end_time_ms))
+
+    start_time_ms = TimeUtil.now_in_millis() - 1000 * 60 * 60 * 10  # 10 hours ago
+    end_time_ms = TimeUtil.now_in_millis() - 1000 * 60 * 60 * 9  # 9 hours ago
+    times_to_test.append((start_time_ms, end_time_ms))
+
+    start_time_ms = TimeUtil.now_in_millis() - 1000 * 60 * 60 * 10 * 24  # 10 days ago
+    end_time_ms = TimeUtil.now_in_millis() - 1000 * 60 * 60 * 5 * 24  # 5 days ago
+    times_to_test.append((start_time_ms, end_time_ms))
+
+    for start_time_ms, end_time_ms in times_to_test:
+        start_date_formatted = TimeUtil.millis_to_formatted_date_str(start_time_ms)
+        end_date_formatted = TimeUtil.millis_to_formatted_date_str(end_time_ms)
+        print('-------------------------------------------------------------------')
+        print(f"Testing between {start_date_formatted} and {end_date_formatted}")
+
+        tps = [tp for tp in TradePair if tp not in UNSUPPORTED_TRADE_PAIRS]
+        candles = polygon_data_provider.get_candles(tps, start_time_ms, end_time_ms)
+        print(f"    candles: {candles}")
+
     for tp in TradePair:
         if tp != TradePair.GBPUSD:
             continue
+
         is_open = PolygonDataService.is_market_open(tp)
         print(f'market is open for {tp}: ', is_open)
         print('PRICE BEFORE MARKET CLOSE: ', polygon_data_provider.get_price_before_market_close(tp))
@@ -428,7 +538,7 @@ if __name__ == "__main__":
 
 
 
-    time.sleep(10)
+
 
 
     trade_pairs = [TradePair.BTCUSD, TradePair.ETHUSD, TradePair.SPX, TradePair.GBPUSD, TradePair.DJI]
