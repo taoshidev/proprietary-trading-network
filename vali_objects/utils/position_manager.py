@@ -565,8 +565,7 @@ class PositionManager(CacheController):
         open_position = self.get_open_position_for_a_miner_trade_pair(position.miner_hotkey,
                                                                       position.trade_pair.trade_pair_id)
         if open_position:
-            self.delete_position_from_disk(open_position.miner_hotkey, open_position.trade_pair.trade_pair_id,
-                                           open_position.position_uuid, True)
+            self.delete_position_from_disk(open_position)
 
     def verify_open_position_write(self, miner_dir, updated_position):
         all_files = ValiBkpUtils.get_all_files_in_dir(miner_dir)
