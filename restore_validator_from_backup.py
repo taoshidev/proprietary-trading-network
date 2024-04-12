@@ -5,13 +5,13 @@ import time
 from datetime import datetime
 
 from vali_objects.position import Position
-#from vali_objects.utils.live_price_fetcher import LivePriceFetcher
+from vali_objects.utils.live_price_fetcher import LivePriceFetcher
 from vali_objects.utils.position_manager import PositionManager
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 import bittensor as bt
 
-#from vali_objects.utils.vali_utils import ValiUtils
-
+from vali_objects.utils.vali_utils import ValiUtils
+DEBUG = 0
 
 def backup_validation_directory():
     dir_to_backup = ValiBkpUtils.get_vali_dir()
@@ -27,7 +27,7 @@ def regenerate_miner_positions(perform_backup=True):
     backup_file_path = "validator_checkpoint.json"
     try:
         data = json.loads(ValiBkpUtils.get_file(backup_file_path))
-        if isinstance(data, str):  # TODO: Why is the data being double serialized?
+        if isinstance(data, str):
             data = json.loads(data)
     except Exception as e:
         bt.logging.error(f"Unable to read validator checkpoint file. {e}")
@@ -43,13 +43,16 @@ def regenerate_miner_positions(perform_backup=True):
         else:
             bt.logging.info(f"    {key}: {value}")
 
-    # TESTING
-    #secrets = ValiUtils.get_secrets()
-    #live_price_fetcher = LivePriceFetcher(secrets=secrets)
-    #position_manager = PositionManager(live_price_fetcher=live_price_fetcher)
-    position_manager = PositionManager()
-    position_manager.init_cache_files()
-    #position_manager.perform_price_recalibration(time_per_batch_s=10000000)
+    if DEBUG:
+        secrets = ValiUtils.get_secrets()
+        live_price_fetcher = LivePriceFetcher(secrets=secrets)
+        position_manager = PositionManager(live_price_fetcher=live_price_fetcher)
+        position_manager.init_cache_files()
+        position_manager.apply_order_corrections()
+        position_manager.perform_price_recalibration(time_per_batch_s=10000000)
+    else:
+        position_manager = PositionManager()
+        position_manager.init_cache_files()
     # We want to get the smallest processed_ms timestamp across all positions in the backup and then compare this to
     # the smallest processed_ms timestamp across all orders on the local filesystem. If the backup smallest timestamp is
     # older than the local smallest timestamp, we will not regenerate the positions. Similarly for the oldest timestamp.

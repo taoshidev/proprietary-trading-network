@@ -74,9 +74,27 @@ class LivePriceFetcher():
         return ans
 
     def get_close_at_date(self, trade_pair, timestamp_ms):
-        ans = self.polygon_data_provider.get_close_at_date(trade_pair=trade_pair, timestamp_ms=timestamp_ms)
+        ans = self.polygon_data_provider.get_close_at_date_second(trade_pair=trade_pair, timestamp_ms=timestamp_ms)
         if ans is None:
             ans = self.twelve_data.get_close_at_date(trade_pair=trade_pair, timestamp_ms=timestamp_ms)
+            if ans is not None:
+                bt.logging.warning(f"Fell back to TwelveData get_date for price of {trade_pair.trade_pair} at {TimeUtil.timestamp_ms_to_eastern_time_str(timestamp_ms)}, ms: {timestamp_ms}")
+
+        if ans is None:
+            ans = self.polygon_data_provider.get_close_at_date_minute_fallback(trade_pair=trade_pair, timestamp_ms=timestamp_ms)
+            if ans:
+                bt.logging.warning(f"Fell back to Polygon get_date_minute_fallback for price of {trade_pair.trade_pair} at {TimeUtil.timestamp_ms_to_eastern_time_str(timestamp_ms)}, ms: {timestamp_ms}")
+        if ans is None:
+            ans = self.polygon_data_provider.get_close_in_past_hour_fallback(trade_pair=trade_pair, timestamp_ms=timestamp_ms)
+            if ans:
+                formatted_date = TimeUtil.timestamp_ms_to_eastern_time_str(timestamp_ms)
+                bt.logging.warning(f"Fell back to Polygon get_close_in_past_hour_fallback for price of {trade_pair.trade_pair} at {formatted_date}, ms: {timestamp_ms}")
+        if ans is None:
+            formatted_date = TimeUtil.timestamp_ms_to_eastern_time_str(timestamp_ms)
+            bt.logging.error(
+                f"Failed to get data at ET date {formatted_date} for {trade_pair.trade_pair}. Timestamp ms: {timestamp_ms}."
+                f" Ask a team member to investigate this issue.")
+
         return ans
 
     def is_market_closed_for_trade_pair(self, trade_pair):
