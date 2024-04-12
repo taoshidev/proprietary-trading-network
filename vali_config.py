@@ -134,14 +134,18 @@ class TradePair(Enum):
 
     @staticmethod
     def get_latest_trade_pair_from_trade_pair_id(trade_pair_id):
-        return TRADE_PAIR_ID_TO_TRADE_PAIR[trade_pair_id]
+        return TRADE_PAIR_ID_TO_TRADE_PAIR.get(trade_pair_id)
+
+    @staticmethod
+    def get_latest_tade_pair_from_trade_pair_str(trade_pair_str):
+        return TRADE_PAIR_STR_TO_TRADE_PAIR.get(trade_pair_str)
 
     def __str__(self):
         return str(self.__json__())
 
 
 TRADE_PAIR_ID_TO_TRADE_PAIR = {x.trade_pair_id: x for x in TradePair}
-
+TRADE_PAIR_STR_TO_TRADE_PAIR = {x.trade_pair: x for x in TradePair}
 
 class ValiConfig:
     ## versioning

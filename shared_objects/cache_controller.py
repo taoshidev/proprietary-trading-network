@@ -63,7 +63,7 @@ class CacheController:
 
     def write_eliminations_to_disk(self, eliminations):
         vali_eliminations = {CacheController.ELIMINATIONS: eliminations}
-        bt.logging.info(f"Writing [{len(eliminations)}] eliminations from memory to disk: {vali_eliminations}")
+        bt.logging.trace(f"Writing [{len(eliminations)}] eliminations from memory to disk: {vali_eliminations}")
         output_location = ValiBkpUtils.get_eliminations_dir(running_unit_tests=self.running_unit_tests)
         ValiBkpUtils.write_file(output_location, vali_eliminations)
 
@@ -113,13 +113,13 @@ class CacheController:
     def get_eliminations_from_disk(self):
         location = ValiBkpUtils.get_eliminations_dir(running_unit_tests=self.running_unit_tests)
         cached_eliminations = ValiUtils.get_vali_json_file(location, CacheController.ELIMINATIONS)
-        bt.logging.info(f"Loaded [{len(cached_eliminations)}] eliminations from disk. Dir: {location}")
+        bt.logging.trace(f"Loaded [{len(cached_eliminations)}] eliminations from disk. Dir: {location}")
         return cached_eliminations
 
     def get_plagiarism_scores_from_disk(self):
         location = ValiBkpUtils.get_plagiarism_scores_file_location(running_unit_tests=self.running_unit_tests)
         ans = ValiUtils.get_vali_json_file(location)
-        bt.logging.info(f"Loaded [{len(ans)}] plagiarism scores from disk. Dir: {location}")
+        bt.logging.trace(f"Loaded [{len(ans)}] plagiarism scores from disk. Dir: {location}")
         return ans
 
     def _refresh_plagiarism_scores_in_memory_and_disk(self):
@@ -143,7 +143,7 @@ class CacheController:
             **blocklist_scores
         }
 
-        bt.logging.info(f"Loaded [{len(self.miner_plagiarism_scores)}] miner plagiarism scores from disk.")
+        bt.logging.trace(f"Loaded [{len(self.miner_plagiarism_scores)}] miner plagiarism scores from disk.")
 
         self._write_updated_plagiarism_scores_from_memory_to_disk()
 

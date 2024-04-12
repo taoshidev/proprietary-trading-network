@@ -89,9 +89,9 @@ class TwelveDataService:
 
         elif event['event'] == 'subscribe-status':
             if event['status'] == 'ok':
-                bt.logging.info(f"Subscribed to symbols: {event['success']}")
+                bt.logging.info(f"TD Websocket Subscribed to symbols: {event['success']}")
             else:
-                bt.logging.error(f"YOU LIKELY NEED TO UPGRADE YOUR TWELVE DATA API KEY TO ENTERPRISE. "
+                bt.logging.error(f"YOU LIKELY NEED TO UPGRADE YOUR TWELVE DATA API KEY TO PRO. "
                                 f"USING A LOWER TIER WILL CAUSE YOU TO FALL OUT OF CONSENSUS. Failed to subscribe to "
                                 f"websocket symbols: {event['fails']}")
         elif event['event'] == 'heartbeat':
@@ -259,7 +259,7 @@ class TwelveDataService:
                 lag = self.get_websocket_lag_for_trade_pair_s(symbol)
                 is_stale = lag > self.trade_pair_category_to_longest_allowed_lag[trade_pair.trade_pair_category]
                 if is_stale:
-                    bt.logging.warning(f"Found stale websocket data for {trade_pair.trade_pair}. Lag: {lag} seconds. "
+                    bt.logging.warning(f"Found stale TD websocket data for {trade_pair.trade_pair}. Lag: {lag} seconds. "
                                        f"Max allowed lag for category: "
                                        f"{self.trade_pair_category_to_longest_allowed_lag[trade_pair.trade_pair_category]} seconds."
                                        f"Ignoring this data.")
@@ -276,7 +276,7 @@ class TwelveDataService:
             max_allowed_lag = self.trade_pair_category_to_longest_allowed_lag[trade_pair.trade_pair_category]
             is_stale = time.time() - timestamp > max_allowed_lag
             if is_stale:
-                bt.logging.info(f"Found stale websocket data for {trade_pair.trade_pair}. Lag: {time.time() - timestamp} "
+                bt.logging.info(f"Found stale TD websocket data for {trade_pair.trade_pair}. Lag: {time.time() - timestamp} "
                                 f"seconds. Max allowed lag for category: {max_allowed_lag} seconds. Ignoring this data.")
             else:
                 return price
@@ -286,11 +286,11 @@ class TwelveDataService:
     def get_close(self, trade_pair: TradePair):
         ans = self.get_close_websocket(trade_pair)
         if not ans:
-            bt.logging.info(f"Fetching stale trade pair using REST: {trade_pair}")
+            bt.logging.info(f"Fetching stale trade pair using TD REST: {trade_pair.trade_pair}")
             ans = self.get_close_rest(trade_pair)
-            bt.logging.info(f"Received REST data for {trade_pair.trade_pair}: {ans}")
+            bt.logging.info(f"Received TD REST data for {trade_pair.trade_pair}: {ans}")
 
-        bt.logging.info(f"Using websocket data for {trade_pair.trade_pair}")
+        bt.logging.info(f"Using TD websocket data for {trade_pair.trade_pair}")
         return ans
 
     def get_closes(self, trade_pairs: List[TradePair]):
@@ -301,12 +301,12 @@ class TwelveDataService:
                 missing_trade_pairs.append(tp)
         if closes:
             debug = {k.trade_pair: v for k, v in closes.items()}
-            bt.logging.info(f"Received websocket data: {debug}")
+            bt.logging.info(f"Received TD websocket data: {debug}")
 
         if missing_trade_pairs:
             rest_closes = self.get_closes_rest(missing_trade_pairs)
             debug = {k.trade_pair: v for k, v in rest_closes.items()}
-            bt.logging.info(f"Received stale/websocket-less data using REST: {debug}")
+            bt.logging.info(f"Received TD stale/websocket-less data using REST: {debug}")
             closes.update(rest_closes)
 
         return closes
