@@ -313,11 +313,37 @@ class TwelveDataService:
 
     def get_close_at_date(self, trade_pair: TradePair, timestamp_ms: int):
         symbol = trade_pair.trade_pair
-        ts = self.td.time_series(symbol=symbol, interval='1min', outputsize=1, date=timestamp_ms)
+        input_time_formatted = TimeUtil.millis_to_formatted_date_str(timestamp_ms)
+        ts = self.td.time_series(symbol=symbol, interval='1min', outputsize=1, date=input_time_formatted)
         response = ts.as_json()
+        smallest_delta_ms = None
+        price = None
+        corresponding_date = None
+        #print('Got response: ', response)
+        def update_best_answer(p, t_ms):
+            nonlocal smallest_delta_ms, price, corresponding_date
+            delta_ms = abs(timestamp_ms - t_ms)
+            if smallest_delta_ms is None or delta_ms < smallest_delta_ms:
+                price = p
+                smallest_delta_ms = delta_ms
+                corresponding_date = TimeUtil.millis_to_formatted_date_str(t_ms)
 
-        #t = response[0]["datetime"]
-        return float(response[0]["close"])
+        t_str = response[0]["datetime"]
+        t_ms = TimeUtil.formatted_date_str_to_millis(t_str)
+        update_best_answer(float(response[0]["open"]), t_ms)
+        update_best_answer(float(response[0]["close"]), t_ms + 60 * 1000)
+
+
+        #print(f"Input time: {input_time_formatted}, Response time: {t_str}")
+
+        smallest_delta_s = smallest_delta_ms / 1000
+        print('TD Delta time in s: ', smallest_delta_s, 'Reported time', corresponding_date, 'Input date', input_time_formatted)
+        if abs(smallest_delta_s) > 60:
+            return None
+
+
+        return price
+
 
     def get_range_of_closes(self, trade_pair, start_date: str, end_date: str):
         ts = self.td.time_series(symbol=trade_pair, interval='1min', start_date=start_date, end_date=end_date, outputsize=5000)
@@ -335,7 +361,7 @@ if __name__ == "__main__":
 
     #time.sleep(12)
     #print(twelve_data.get_close_at_date(TradePair.CADCHF, TimeUtil.millis_to_formatted_date_str(1720130492000)))
-    print(twelve_data.get_close_at_date(TradePair.CADCHF, 1720130492000))
+    print(twelve_data.get_close_at_date(TradePair.CADJPY, 1712746241174))
     assert 0
 
 
