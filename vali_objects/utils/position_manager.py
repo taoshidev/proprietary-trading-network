@@ -47,9 +47,9 @@ class PositionManager(CacheController):
         eliminations = self.get_miner_eliminations_from_disk()
         new_eliminations = []
         for e in eliminations:
-            if e['hotkey'] in ():
+            # 5CY3NdQ7nQj7MsUEMi68u8poDxkNAJhB9FU48YxzAYC5MhCJ. closing forex candle scam wick. Only happens at the close. Need to investigate
+            if e['hotkey'] in ('5CY3NdQ7nQj7MsUEMi68u8poDxkNAJhB9FU48YxzAYC5MhCJ'):
                 bt.logging.warning('Removed elimination for hotkey ', e['hotkey'])
-                continue
             else:
                 new_eliminations.append(e)
 
