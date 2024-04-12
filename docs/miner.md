@@ -5,8 +5,10 @@ Basic Rules:
 2. Miner will be penalized if they are not providing consistent predictions to the system. The details of this may be found [here](https://github.com/taoshidev/proprietary-trading-network/blob/main/vali_objects/utils/position_utils.py).
 3. Positions must be open for a minimum of one minute.
 4. A miner can have a maximum of 200 positions open.
-5. A portfolio that falls more than 10% of the maximum value will be eliminated.
-6. A portfolio that falls more than 5% in a single day from a daily max will be eliminated.
+5. A miner's order will be ignored if placing a trade outside of market hours
+6. A miner's order will be ignored if they are rate limited (maliciously sending too many requests)
+7. A portfolio that falls more than 10% of the maximum value will be eliminated.
+8. A portfolio that falls more than 5% in a single day from a daily max will be eliminated.
 
 The goal of the miner is to make a consistently competitive trading strategy. We track the returns for each miner over the past 30 days, and use this information to build a score for them. If you have a few great trades on the morning, you could be pushed to the top of the rankings that same day. We use a historical decay to discourage miners from sitting on a single good trade, that decay dampens prior positive returns but also dampens losses, giving miners a new chance to participate on bad returns. The historical decay function used can be found [here](https://github.com/taoshidev/proprietary-trading-network/blob/main/vali_objects/scoring/historical_scoring.py).
 
@@ -50,7 +52,8 @@ The simplest way to get a miner to submit orders to validators is by manually ru
 - Do not reuse the password of your mainnet wallet.
 - Make sure your incentive mechanism is resistant to abuse.
 - Your incentive mechanisms are open to anyone. They emit real TAO. Creating these mechanisms incur a lock_cost in TAO.
-- Before attempting to register on mainnet, we strongly recommend that you run a miner on the testnet. 
+- Before attempting to register on mainnet, we strongly recommend that you run a miner on the testnet.
+- Miners should use real exchange prices directly for training and live data purposes. This should come from MT5 and CB Pro / Binance. They should not rely on the data sources validators are providing for prices, as the data is subject to change based on potential downtime and fallback logic. 
 
 # System Requirements
 
