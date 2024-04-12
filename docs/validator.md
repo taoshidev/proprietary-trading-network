@@ -39,7 +39,15 @@ Below are the prerequisites for validators. You may be able to make a validator 
 
 - 2 vCPU + 8 GB memory
 - 100 GB balanced persistent disk
-- An "Enterprise" Twelvedata API account with 2584 credits per minute. (https://twelvedata.com/). The free tier is sufficient for testnet usage. For mainnet applications, an Enterprise tier subscription is required to stay in consensus due to improved SLAs over the other tiers.
+- A Twelvedata API account. (https://twelvedata.com/) with "Pro 610". The free tier is sufficient for testnet usage.
+<img src="https://github.com/taoshidev/proprietary-trading-network/assets/161871533/ab74b310-7d32-432e-aada-4e0da2cb7a04" width="300">
+
+- A Polygon API account (https://polygon.io/) with "Currencies Starter" as well as "Indicies Advanced"
+<img src="https://github.com/taoshidev/proprietary-trading-network/assets/161871533/37e525b9-ab43-48b5-95ab-10fdc0903a5d" width="300">
+
+<img src="https://github.com/taoshidev/proprietary-trading-network/assets/161871533/e726ed33-a3d4-4f58-9270-ce201b51e1b1" width="300">
+
+For mainnet applications, the paid tiers are required to stay in consensus (~$250/month as of the time of writing). For testnet, you may use the free tiers.
 
 # Getting Started
 
@@ -163,7 +171,8 @@ To run a validator, follow these steps:
 
 ```json
 {
-  "twelvedata_apikey": "YOUR_API_KEY_HERE"
+  "twelvedata_apikey": "YOUR_API_KEY_HERE",
+  "polygon_apikey": "OTHER_API_KEY_HERE"
 }
 ```
 
