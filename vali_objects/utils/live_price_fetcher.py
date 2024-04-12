@@ -60,10 +60,12 @@ class LivePriceFetcher():
     def get_candles(self, trade_pairs, start_time_ms, end_time_ms) -> dict:
         ans = {}
         if self.polygon_available:
-            bt.logging.info(f"Fetching candles from Polygon for {[x.trade_pair for x in trade_pairs]} from"
+            ans = self.polygon_data_provider.get_candles(trade_pairs=trade_pairs, start_time_ms=start_time_ms, end_time_ms=end_time_ms)
+            if isinstance(ans, dict) and len(ans) > 0:
+                debug = {k.trade_pair: len(v) for k, v in ans.items() if v and isinstance(v, list) and len(v) > 0}
+            bt.logging.info(f"Fetched candles from Polygon for {debug} from"
                             f" {TimeUtil.millis_to_formatted_date_str(start_time_ms)} to "
                             f"{TimeUtil.millis_to_formatted_date_str(end_time_ms)}")
-            ans = self.polygon_data_provider.get_candles(trade_pairs=trade_pairs, start_time_ms=start_time_ms, end_time_ms=end_time_ms)
         # If Polygon has any missing keys, it is intentional and corresponds to a closed market. We don't want to use twelvedata for this
         if self.twelvedata_available and len(ans) == 0:
             bt.logging.info(f"Fetching candles from TD for {[x.trade_pair for x in trade_pairs]} from {start_time_ms} to {end_time_ms}")
@@ -71,8 +73,8 @@ class LivePriceFetcher():
             ans.update(closes)
         return ans
 
-    def get_close_at_date(self, trade_pair, date):
-        return self.twelve_data.get_close_at_date(trade_pair=trade_pair, date=date)
+    def get_close_at_date(self, trade_pair, timestamp_ms):
+        return self.polygon_data_provider.get_close_at_date(trade_pair=trade_pair, timestamp_ms=timestamp_ms)
 
     def is_market_closed_for_trade_pair(self, trade_pair):
         return self.twelve_data.trade_pair_market_likely_closed(trade_pair)

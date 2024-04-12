@@ -32,12 +32,14 @@ class PositionManager(CacheController):
         self.init_cache_files()
         self.position_locks = PositionLocks()
         self.live_price_fetcher = live_price_fetcher
+        self.recalibrated_position_uuids = set()
         if perform_order_corrections:
             self.apply_order_corrections()
         if perform_fee_structure_update:
             self.ensure_latest_fee_structure_applied()
         if perform_price_adjustment:
-            self.perform_price_recalibration_and_close_open_orders_for_suspended_trade_pairs()
+            self.perform_price_recalibration()
+
 
     def apply_order_corrections(self):
         """
@@ -134,6 +136,7 @@ class PositionManager(CacheController):
             self.close_open_position_for_miner(hotkey, trade_pair)
 
     def recalculate_return_at_close_and_write_corrected_position_to_disk(self, position: Position, hotkey:str):
+        # TODO LOCK and how to handle open positions?
         tp = position.trade_pair
         if not tp in (TradePair.CADJPY, TradePair.USDJPY, TradePair.CHFJPY):
             return position.return_at_close
@@ -141,17 +144,48 @@ class PositionManager(CacheController):
         any_changes = False
         disposable_clone = deepcopy(position)
         deltas = []
+        new_orders = []
         for o in disposable_clone.orders:
-            date = TimeUtil.millis_to_formatted_date_str(o.processed_ms)
+            timestamp_ms = o.processed_ms
             old_price = o.price
-            new_price, reported_timestamp = self.live_price_fetcher.get_close_at_date(tp, date)
-            if new_price != old_price:
+            new_price = self.live_price_fetcher.get_close_at_date(tp, timestamp_ms)
+            if new_price is not None and new_price != old_price:
                 any_changes = True
                 deltas.append((old_price, new_price))
-            o.price = new_price
+                o.price = new_price
+            new_orders.append(o)
 
-        disposable_clone.position_type = None
-        disposable_clone._update_position()
+
+        for i in range(len(position.orders)):
+            orders = new_orders[:i+1]
+            disposable_clone.orders = orders
+            disposable_clone.position_type = None
+            disposable_clone._update_position()
+            if disposable_clone.orders[0].leverage < 0:
+                order_type = OrderType.SHORT
+            else:
+                order_type = OrderType.LONG
+            if len(orders) > 1:
+                prev_order = orders[-2]
+                o = orders[-1]
+                window_start_ms = prev_order.processed_ms
+                window_end_ms = o.processed_ms
+                candles = self.live_price_fetcher.get_candles([tp], window_start_ms,
+                                                              window_end_ms) if window_start_ms else None
+                fs = TimeUtil.millis_to_formatted_date_str(window_start_ms)
+                fe = TimeUtil.millis_to_formatted_date_str(window_end_ms)
+                if tp in candles and candles[tp] and isinstance(candles[tp], list):
+                    min_price_seen = min([x.low for x in candles[tp]])
+                    max_price_seen = max([x.high for x in candles[tp]])
+                    unrealized_return = disposable_clone.calculate_unrealized_pnl(min_price_seen if order_type == OrderType.LONG else max_price_seen)
+                    unrealized_return_with_fees = disposable_clone.calculate_return_with_fees(unrealized_return)
+                    drawdown = self.calculate_drawdown(unrealized_return_with_fees, 1.0)
+                    bt.logging.warning(f"Drawdown is {drawdown} for hotkey {hotkey} trade pair {tp.trade_pair_id}. Between time: {fs} and {fe}. p1: {prev_order.price} p2: {o.price}, min: {min_price_seen}.")
+                    if drawdown < ValiConfig.MAX_TOTAL_DRAWDOWN:
+                        bt.logging.error(f"Drawdown is {drawdown} for hotkey {hotkey} trade pair {tp.trade_pair_id}. Unrealized return: {unrealized_return_with_fees}.")
+
+
+        assert len(disposable_clone.orders) == len(position.orders)
         if any_changes:
             with self.position_locks.get_lock(hotkey, tp.trade_pair_id):
                 self.save_miner_position_to_disk(disposable_clone)
@@ -159,6 +193,7 @@ class PositionManager(CacheController):
                             f" Trade pair {position.trade_pair.trade_pair_id} New value: "
                             f"{disposable_clone.return_at_close}. Original value: {position.return_at_close}")
             bt.logging.info(f"Corrected n={len(deltas)} prices for position {position.position_uuid} Trade pair {tp.trade_pair_id}. Deltas (before/after): {deltas}")
+
         return disposable_clone.return_at_close
 
 
@@ -168,36 +203,74 @@ class PositionManager(CacheController):
         )
         return self.get_all_miner_positions_by_hotkey(all_miner_hotkeys, **args)
 
-    def perform_price_recalibration_and_close_open_orders_for_suspended_trade_pairs(self):
-        # Scan all closed positions on disk and recalculate return_at_close.
-        # If the drawdown ever exceeds the threshold, add the position_uuid to the return set
-        if not self.live_price_fetcher:
-            self.live_price_fetcher = LivePriceFetcher(secrets=ValiUtils.get_secrets())
-
+    def close_open_orders_for_suspended_trade_pairs(self):
+        tps_to_eliminate = []
         all_positions = self.get_all_disk_positions_for_all_miners(sort_positions=True, only_open_positions=False)
         eliminations = self.get_miner_eliminations_from_disk()
         eliminated_hotkeys = set(x['hotkey'] for x in eliminations)
         bt.logging.info(f"Found {len(eliminations)} eliminations on disk.")
-        hotkeys_eliminated_to_current_return = {}
-        hotkeys_with_return_modified = set()
         for hotkey, positions in all_positions.items():
             if hotkey in eliminated_hotkeys:
                 continue
+            # Closing all open positions for the specified trade pair
+            for position in positions:
+                if position.is_closed_position:
+                    continue
+                if position.trade_pair in tps_to_eliminate:
+                    bt.logging.info(
+                        f"Position {position.position_uuid} for hotkey {hotkey} and trade pair {position.trade_pair.trade_pair_id} has been closed")
+                    self.close_open_position_for_miner(hotkey, position.trade_pair)
+
+    def perform_price_recalibration(self, time_per_batch_s=90):
+        try:
+            t0 = time.time()
+            if not self.live_price_fetcher.polygon_available:
+                bt.logging.error("Polygon API not detected. Skipping price recalibration. Your validator will fall out of consensus.")
+                return
+            self.perform_price_recalibration_arap(time_per_batch_s)
+            bt.logging.info(f"Price recalibration complete for {len(self.recalibrated_position_uuids)} positions in {time.time() - t0} seconds.")
+        except Exception as e:
+            bt.logging.error(f"Error performing price recalibration: {e}")
+
+    def perform_price_recalibration_arap(self, time_per_batch_s):
+        t0 = time.time()
+        all_positions = self.get_all_disk_positions_for_all_miners(sort_positions=True, only_open_positions=False)
+        eliminations = self.get_miner_eliminations_from_disk()
+        eliminated_hotkeys = set(x['hotkey'] for x in eliminations)
+        hotkeys_eliminated_to_current_return = {}
+        hotkeys_with_return_modified = set()
+        skipped_eliminated = 0
+        n_positions_total = 0
+        n_positions_modified = 0
+        RETURNS_MODIFIED = []
+        for hotkey, positions in all_positions.items():
             max_portfolio_return = 1.0
             cur_portfolio_return = 1.0
             most_recent_elimination_idx = None
+            n_positions_total += len(positions)
 
             if len(positions) == 0:
                 continue
 
+            if hotkey in eliminated_hotkeys:
+                skipped_eliminated += len(positions)
+                continue
+
             dd_to_log = None
             for i, position in enumerate(positions):
+                if position.position_uuid in self.recalibrated_position_uuids:
+                    continue
+                if time.time() - t0 > time_per_batch_s:
+                    return
                 original_return = position.return_at_close
                 new_return = self.recalculate_return_at_close_and_write_corrected_position_to_disk(position, hotkey)
                 if original_return != new_return:
                     hotkeys_with_return_modified.add(hotkey)
+                    n_positions_modified += 1
+                    RETURNS_MODIFIED.append((original_return, new_return, hotkey, position))
                 if position.is_open_position:
                     continue
+                self.recalibrated_position_uuids.add(position.position_uuid)
                 cur_portfolio_return *= new_return
                 max_portfolio_return = max(max_portfolio_return, cur_portfolio_return)
                 drawdown = self.calculate_drawdown(cur_portfolio_return, max_portfolio_return)
@@ -227,16 +300,10 @@ class PositionManager(CacheController):
                     f"MDD failure occurred at position {most_recent_elimination_idx} out of {len(positions)} positions for hotkey "
                     f"{hotkey}. Drawdown: {dd_to_log}. MDD failure: {mdd_failure}. Portfolio return: {return_with_open_positions}. ")
 
-            # Closing all open positions for the specified trade pair
-            for position in positions:
-                if position.is_closed_position:
-                    continue
-                if position.trade_pair == None:
-                    bt.logging.info(f"Position {position.position_uuid} for hotkey {hotkey} and trade pair {position.trade_pair.trade_pair_id} has been closed")
-                    self.close_open_position_for_miner(hotkey, position.trade_pair)
-
 
         bt.logging.info(f"Found n= {len(hotkeys_eliminated_to_current_return)} hotkeys to eliminate. After modifying returns for n = {len(hotkeys_with_return_modified)} hotkeys.")
+        bt.logging.info(f"Total initial positions: {n_positions_total}, Modified {n_positions_modified}, Skipped {skipped_eliminated} eliminated.")
+        bt.logging.warning(f"Position returns modified: {RETURNS_MODIFIED}")
         for k, v in sorted(hotkeys_eliminated_to_current_return.items(), key=lambda x: x[1]):
             bt.logging.info(f"hotkey: {k}. return as shown on dash: {v}")
         return hotkeys_eliminated_to_current_return

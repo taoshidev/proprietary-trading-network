@@ -76,7 +76,7 @@ class Validator:
         self.metagraph = subtensor.metagraph(self.config.netuid)
         bt.logging.info(f"Metagraph: {self.metagraph}")
         self.position_manager = PositionManager(metagraph=self.metagraph, config=self.config,
-                                                perform_price_adjustment=False,
+                                                perform_price_adjustment=True,
                                                 live_price_fetcher=self.live_price_fetcher,
                                                 perform_fee_structure_update=False,
                                                 perform_order_corrections=False)

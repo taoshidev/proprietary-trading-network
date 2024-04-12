@@ -33,7 +33,10 @@ if DEBUG:
 
 secrets = ValiUtils.get_secrets()
 
-POLYGON_CLIENT = RESTClient(api_key=secrets['polygon_apikey'])
+if 'polygon_apikey' not in secrets:
+    POLYGON_CLIENT = None
+else:
+    POLYGON_CLIENT = RESTClient(api_key=secrets['polygon_apikey'])
 
 POLY_WEBSOCKETS = {
     Market.Crypto: None,
@@ -60,7 +63,7 @@ def handle_msg(msgs: List[CurrencyAgg | EquityAgg]):
                     tp = PolygonDataService.symbol_to_trade_pair(m.pair)
                 else:
                     raise ValueError(f"Unknown message in POLY websocket: {m}")
-                price = m.close
+                price = float(m.close)
                 latest_websocket_prices[tp] = price
                 last_websocket_ping_time_s[tp] = time.time()
                 # Reset the closed market price, indicating that a new close should be fetched after the current day's close
@@ -127,22 +130,22 @@ def debug_log():
                 trade_pair_to_longest_seen_lag[tp] = lag
     # log how long it has been since the last ping
     formatted_lags = {tp.trade_pair_id: f"{lag:.2f}" for tp, lag in trade_pair_to_longest_seen_lag.items()}
-    bt.logging.warning(f"Worst POLY lags seen: {formatted_lags}")
+    bt.logging.info(f"Worst POLY lags seen: {formatted_lags}")
     # Log the last time since websocket ping
     formatted_lags = {tp.trade_pair_id: f"{time.time() - timestamp:.2f}" for tp, timestamp in
                       last_websocket_ping_time_s.items()}
-    bt.logging.warning(f"Last POLY websocket pings: {formatted_lags}")
+    bt.logging.info(f"Last POLY websocket pings: {formatted_lags}")
     # Log the prices
     formatted_prices = {tp.trade_pair_id: f"{price:.2f}" for tp, price in latest_websocket_prices.items()}
-    bt.logging.warning(f"Latest POLY websocket prices: {formatted_prices}")
+    bt.logging.info(f"Latest POLY websocket prices: {formatted_prices}")
     # Log which trade pairs are likely in closed markets
     closed_trade_pairs = {}
     for trade_pair in TradePair:
         if not PolygonDataService.is_market_open(trade_pair):
             closed_trade_pairs[trade_pair.trade_pair] = closed_market_prices[trade_pair]
 
-    bt.logging.warning(f"POLY Market closed with closing prices for {closed_trade_pairs}")
-    bt.logging.warning(f'POLY websocket n_events_global: {n_events_global}')
+    bt.logging.info(f"POLY Market closed with closing prices for {closed_trade_pairs}")
+    bt.logging.info(f'POLY websocket n_events_global: {n_events_global}')
 
 def websocket_manager():
     global MARKET_STATUS, n_events_global, websocket_client_crypto, websocket_client_indices, websocket_client_forex, POLYGON_CLIENT
@@ -175,6 +178,7 @@ class PolygonDataService:
         # Start thread to refresh market status
         self.websocket_manager_thread = threading.Thread(target=websocket_manager, daemon=True)
         self.websocket_manager_thread.start()
+        time.sleep(3) # Let the websocket_manager_thread start
 
     @staticmethod
     def subscribe_websockets():
@@ -270,7 +274,6 @@ class PolygonDataService:
         polygon_ticker = self.trade_pair_to_polygon_ticker(trade_pair)
         #bt.logging.info(f"Fetching REST data for {polygon_ticker}")
 
-        debug = PolygonDataService.is_market_open(trade_pair)
         if not PolygonDataService.is_market_open(trade_pair):
             return {trade_pair: self.get_price_before_market_close(trade_pair)}
 
@@ -399,11 +402,40 @@ class PolygonDataService:
 
         return closes
 
-    def get_close_at_date(self, trade_pair: TradePair, date: str):
-        symbol = trade_pair.trade_pair
-        ts = self.td.time_series(symbol=symbol, interval='1min', outputsize=1, date=date)
-        response = ts.as_json()
-        return float(response[0]["close"]), response[0]["datetime"]
+    def get_close_at_date(self, trade_pair: TradePair, timestamp_ms: int):
+        polygon_ticker = self.trade_pair_to_polygon_ticker(trade_pair)
+
+        if not PolygonDataService.is_market_open(trade_pair):
+            return self.get_price_before_market_close(trade_pair)
+
+        prev_timestamp = None
+        closest_timestamp = None
+        corresponding_price = None
+        n_responses = 0
+        for a in POLYGON_CLIENT.list_aggs(
+                polygon_ticker,
+                1,
+                "second",
+                timestamp_ms - 5000,
+                timestamp_ms + 5000
+        ):
+            n_responses += 1
+            price = a.close
+            epoch_miliseconds = a.timestamp
+            time_delta_ms = abs(epoch_miliseconds - timestamp_ms)
+            if closest_timestamp is None or time_delta_ms < closest_timestamp:
+                closest_timestamp = time_delta_ms
+                corresponding_price = price
+
+            assert prev_timestamp is None or prev_timestamp < epoch_miliseconds
+            prev_timestamp = epoch_miliseconds
+        if n_responses == 0:
+            formatted_date = TimeUtil.millis_to_formatted_date_str(timestamp_ms)
+            bt.logging.error(
+                f"Polygon failed to get data at date {formatted_date} for {trade_pair.trade_pair}."
+                f" Ask a team member to investigate this issue.")
+
+        return corresponding_price
 
     def get_range_of_closes(self, trade_pair, start_date: str, end_date: str):
         ts = self.td.time_series(symbol=trade_pair, interval='1min', start_date=start_date, end_date=end_date, outputsize=5000)

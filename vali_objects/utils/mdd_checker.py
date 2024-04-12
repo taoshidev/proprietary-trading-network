@@ -8,6 +8,7 @@ from data_generator.twelvedata_service import TwelveDataService
 from time_util.time_util import TimeUtil
 from vali_config import ValiConfig, TradePair
 from shared_objects.cache_controller import CacheController
+from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.position import Position
 from vali_objects.utils.live_price_fetcher import LivePriceFetcher
 from vali_objects.utils.position_manager import PositionManager
@@ -139,39 +140,45 @@ class MDDChecker(CacheController):
         if dat is None:
             # Market is closed for this trade pair
             return None
-        if isinstance(dat, float):
+        if isinstance(dat, float) or isinstance(dat, int):
             # From TwelveData
-            return dat
+            return float(dat)
 
         # Get the newest price in the window
         price = None
         for a in dat:
             #bt.logging.info(f"in _parse_price_from_closing_prices. timestamp: {a.timestamp}, close: {a.close}")
             if a.close is not None:
-                price = a.close
+                price = float(a.close)
 
         #bt.logging.info(f"in _parse_price_from_closing_prices. price: {price}. trade pair {trade_pair.trade_pair_id}")
         return price
 
-    def _parse_min_price_in_window(self, signal_closing_prices, open_position):
+    def _parse_extreme_price_in_window(self, signal_closing_prices, open_position, parse_min=True):
         trade_pair = open_position.trade_pair
         dat = signal_closing_prices[trade_pair]
         if dat is None:
             # Market is closed for this trade pair
             return None
-        if isinstance(dat, float):
+        if isinstance(dat, float) or isinstance(dat, int):
             # From TwelveData
-            return dat
+            return float(dat)
         # Handle the case where an order gets placed in between MDD checks.
         min_allowed_timestamp_ms = open_position.orders[-1].processed_ms
-        min_price = None
+        price = None
         for a in dat:
             candle_epoch_ms = a.timestamp
+            if candle_epoch_ms < min_allowed_timestamp_ms:
+                continue
             #bt.logging.info(f"in _parse_min_price_in_window. timestamp: {a.timestamp}, close: {a.close}")
-            if a.low is not None and candle_epoch_ms >= min_allowed_timestamp_ms:
-                min_price = a.low if min_price is None else min(min_price, a.low)
+            if parse_min:
+                if a.low is not None:
+                    price = a.low if price is None else min(price, a.low)
+            else:
+                if a.high is not None:
+                    price = a.high if price is None else max(price, a.high)
         #print(f"in _parse_min_price_in_window min_price: {min_price}. trade_pair {trade_pair.trade_pair_id}")
-        return min_price
+        return float(price)
 
 
     def _update_open_position_returns_and_persist_to_disk(self, hotkey, open_position, signal_closing_prices) -> Position:
@@ -242,11 +249,12 @@ class MDDChecker(CacheController):
                 seen_trade_pairs.add(open_position.trade_pair.trade_pair_id)
 
             #bt.logging.success(f"current return with fees for [{open_position.position_uuid}] is [{open_position.return_at_close}]")
-            min_price = self._parse_min_price_in_window(signal_closing_prices, open_position)
-            if min_price is None:  # Market closed for this trade pair. keep return the same
+            parse_min = open_position.position_type == OrderType.LONG
+            candle_price = self._parse_extreme_price_in_window(signal_closing_prices, open_position, parse_min=parse_min)
+            if candle_price is None:  # Market closed for this trade pair. keep return the same
                 unrealized_return_with_fees = open_position.return_at_close
             else:
-                unrealized_return = open_position.calculate_unrealized_pnl(min_price)
+                unrealized_return = open_position.calculate_unrealized_pnl(candle_price)
                 unrealized_return_with_fees = open_position.calculate_return_with_fees(unrealized_return)
             return_with_open_positions *= unrealized_return_with_fees
 
