@@ -74,7 +74,10 @@ class LivePriceFetcher():
         return ans
 
     def get_close_at_date(self, trade_pair, timestamp_ms):
-        return self.polygon_data_provider.get_close_at_date(trade_pair=trade_pair, timestamp_ms=timestamp_ms)
+        ans = self.polygon_data_provider.get_close_at_date(trade_pair=trade_pair, timestamp_ms=timestamp_ms)
+        if ans is None:
+            ans = self.twelve_data.get_close_at_date(trade_pair=trade_pair, timestamp_ms=timestamp_ms)
+        return ans
 
     def is_market_closed_for_trade_pair(self, trade_pair):
         return self.twelve_data.trade_pair_market_likely_closed(trade_pair)
