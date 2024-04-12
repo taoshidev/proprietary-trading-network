@@ -311,11 +311,13 @@ class TwelveDataService:
 
         return closes
 
-    def get_close_at_date(self, trade_pair: TradePair, date: str):
+    def get_close_at_date(self, trade_pair: TradePair, timestamp_ms: int):
         symbol = trade_pair.trade_pair
-        ts = self.td.time_series(symbol=symbol, interval='1min', outputsize=1, date=date)
+        ts = self.td.time_series(symbol=symbol, interval='1min', outputsize=1, date=timestamp_ms)
         response = ts.as_json()
-        return float(response[0]["close"]), response[0]["datetime"]
+
+        #t = response[0]["datetime"]
+        return float(response[0]["close"])
 
     def get_range_of_closes(self, trade_pair, start_date: str, end_date: str):
         ts = self.td.time_series(symbol=trade_pair, interval='1min', start_date=start_date, end_date=end_date, outputsize=5000)
@@ -330,6 +332,13 @@ if __name__ == "__main__":
 
     # Initialize client
     twelve_data = TwelveDataService(api_key=secrets['twelvedata_apikey'])
+
+    #time.sleep(12)
+    #print(twelve_data.get_close_at_date(TradePair.CADCHF, TimeUtil.millis_to_formatted_date_str(1720130492000)))
+    print(twelve_data.get_close_at_date(TradePair.CADCHF, 1720130492000))
+    assert 0
+
+
     data = None
     #data = twelve_data.get_close_at_date(TradePair.SPX, '2024-04-01')
     # read in the cached data

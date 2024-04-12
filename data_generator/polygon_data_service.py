@@ -416,8 +416,8 @@ class PolygonDataService:
                 polygon_ticker,
                 1,
                 "second",
-                timestamp_ms - 5000,
-                timestamp_ms + 5000
+                timestamp_ms - 8000,
+                timestamp_ms + 8000
         ):
             n_responses += 1
             price = a.close
@@ -521,8 +521,8 @@ if __name__ == "__main__":
     # Initialize client
     polygon_data_provider = PolygonDataService(api_key=secrets['polygon_apikey'])
 
-    time.sleep(12)
-    print(polygon_data_provider.get_close(TradePair.SPX))
+    #time.sleep(12)
+    print(polygon_data_provider.get_close_at_date(TradePair.CADCHF, 1720130492000))
     assert 0
 
 
