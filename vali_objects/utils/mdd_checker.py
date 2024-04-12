@@ -178,7 +178,7 @@ class MDDChecker(CacheController):
                 if a.high is not None:
                     price = a.high if price is None else max(price, a.high)
         #print(f"in _parse_min_price_in_window min_price: {min_price}. trade_pair {trade_pair.trade_pair_id}")
-        return float(price)
+        return float(price) if price else None
 
 
     def _update_open_position_returns_and_persist_to_disk(self, hotkey, open_position, signal_closing_prices) -> Position:
