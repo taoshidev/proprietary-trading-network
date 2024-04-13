@@ -176,9 +176,8 @@ To run a validator, follow these steps:
 }
 ```
 
-- Replace `YOUR_API_KEY_HERE` with your actual TwelveData API key.
-- Obtain an API key by signing up at TwelveData's website.
-
+- Obtain API keys by signing up at data providers' websites.
+- Be careful to format your file as shown above or errors will be thrown when running your validator. Don't forget the comma!
 
 4. Run the `run.sh` script, which will run your validator and pull the latest updates as they are issued.
 
@@ -253,4 +252,7 @@ Note this won't launch the autoupdater. To launch with the autoupdater, use the 
 
 ## 9. Pitfall Prevention
 
-When running a validator in certain cloud environments such as Runpod, you may not have your Bittensor default port open (8091). This will cause your validator to be unable to communicate with miners and thus have a low VTRUST as your validator isn't receiving the latest orders. In order to correct this issue, explicitly open a tcp port, and pass this as an arugment with `--axon.port <YOUR_OPEN_PORT>`
+1. When running a validator in certain cloud environments such as Runpod, you may not have your Bittensor default port open (8091). This will cause your validator to be unable to communicate with miners and thus have a low VTRUST as your validator isn't receiving the latest orders. In order to correct this issue, explicitly open a tcp port, and pass this as an arugment with `--axon.port <YOUR_OPEN_PORT>`
+
+
+2. If you see an a ```JSONDecodeError``` exception when running your validator, ensure you secrets.json file is correctly formatted with proper commas.  
