@@ -287,6 +287,11 @@ class Position(BaseModel):
         self.is_closed_position = True
         self.close_ms = close_ms
 
+    def reopen_position(self, order_type: OrderType):
+        self.is_closed_position = False
+        self.close_ms = None
+        self.position_type = order_type
+
     def _clamp_leverage(self, order):
         proposed_leverage = self.net_leverage + order.leverage
         if self.position_type == OrderType.LONG and proposed_leverage > self.trade_pair.max_leverage:

@@ -47,8 +47,8 @@ class PositionManager(CacheController):
         eliminations = self.get_miner_eliminations_from_disk()
         new_eliminations = []
         for e in eliminations:
-            # 5CY3NdQ7nQj7MsUEMi68u8poDxkNAJhB9FU48YxzAYC5MhCJ. closing forex candle scam wick. Only happens at the close. Need to investigate
-            if e['hotkey'] in ('5CY3NdQ7nQj7MsUEMi68u8poDxkNAJhB9FU48YxzAYC5MhCJ'):
+            # closing forex candle scam wick. Only happens at the close. Need to investigate
+            if e['hotkey'] == '5CY3NdQ7nQj7MsUEMi68u8poDxkNAJhB9FU48YxzAYC5MhCJ':
                 bt.logging.warning('Removed elimination for hotkey ', e['hotkey'])
             else:
                 new_eliminations.append(e)
@@ -70,6 +70,31 @@ class PositionManager(CacheController):
 
         hotkey_to_positions = self.get_all_disk_positions_for_all_miners(sort_positions=True, only_open_positions=False)
         for miner_hotkey, positions in hotkey_to_positions.items():
+            if miner_hotkey == '5CY3NdQ7nQj7MsUEMi68u8poDxkNAJhB9FU48YxzAYC5MhCJ':
+                last_nzdusd_position = None
+                last_audusd_position = None
+                last_eurusd_position = None
+                for p in positions:
+                    if p.trade_pair == TradePair.NZDUSD:
+                        last_nzdusd_position = p
+                    if p.trade_pair == TradePair.AUDUSD:
+                        last_audusd_position = p
+                    if p.trade_pair == TradePair.EURUSD:
+                        last_eurusd_position = p
+                def process_position(poz):
+                    # delete old position if it was closed
+                    if poz.is_closed_position:
+                        self.delete_position_from_disk(poz)
+                        poz.reopen_position(OrderType.LONG)
+                        # save position
+                        self.save_miner_position_to_disk(poz)
+                if last_nzdusd_position:
+                    process_position(last_nzdusd_position)
+                if last_audusd_position:
+                    process_position(last_audusd_position)
+                if last_eurusd_position:
+                    process_position(last_eurusd_position)
+
             for p in positions:
                 if miner_hotkey == '5DPKguJR87SPhVAGmuxLP8kDHh47CZcc8ZobYD3jqjNwK8vk':
                     if p.trade_pair == TradePair.FTSE:
