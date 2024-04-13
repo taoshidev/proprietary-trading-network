@@ -82,17 +82,18 @@ class PositionManager(CacheController):
                     if p.trade_pair == TradePair.EURUSD:
                         last_eurusd_position = p
                 def process_position(poz):
-                    # delete old position if it was closed
-                    if poz.is_closed_position:
-                        self.delete_position_from_disk(poz)
-                        poz.reopen_position(OrderType.LONG)
-                        # save position
-                        self.save_miner_position_to_disk(poz)
+                    self.delete_position_from_disk(poz)
+                    poz.reopen_position(OrderType.LONG)
+                    # save position
+                    self.save_miner_position_to_disk(poz)
                 if last_nzdusd_position:
+                    last_nzdusd_position.return_at_close = 0.9820682530366055
                     process_position(last_nzdusd_position)
                 if last_audusd_position:
+                    last_audusd_position.return_at_close = 0.9854943507578879
                     process_position(last_audusd_position)
                 if last_eurusd_position:
+                    last_eurusd_position.return_at_close = 0.9889648983626383
                     process_position(last_eurusd_position)
 
             for p in positions:
