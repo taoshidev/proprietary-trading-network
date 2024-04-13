@@ -127,6 +127,10 @@ class Position(BaseModel):
     def get_net_leverage(self):
         return self.net_leverage
 
+    def rebuild_position_with_updated_orders(self):
+        self.position_type = None
+        self._update_position()
+
     def log_position_status(self):
         bt.logging.debug(
             f"position details: "
