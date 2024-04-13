@@ -103,13 +103,16 @@ class PositionManager(CacheController):
         One miner was eliminated due to a faulty candle from polygon at the close. We are investigating a workaround
         and have several candidate solutions.
 
+        miner couldn't close position due to temporary bug. deleted position completely.
+
         """
         self.give_erronously_eliminated_miners_another_shot()
         n_corrections = 0
-        n_attempts = 12
+        n_attempts = 1
         unique_corrections = set()
         hotkey_to_positions = self.get_all_disk_positions_for_all_miners(sort_positions=True, only_open_positions=False)
         for miner_hotkey, positions in hotkey_to_positions.items():
+            continue
             """
             if miner_hotkey == '5CY3NdQ7nQj7MsUEMi68u8poDxkNAJhB9FU48YxzAYC5MhCJ':
                 last_nzdusd_position = None
@@ -136,7 +139,7 @@ class PositionManager(CacheController):
                 if last_eurusd_position:
                     last_eurusd_position.return_at_close = 0.9889648983626383
                     process_position(last_eurusd_position)
-            """
+                    
             if miner_hotkey == '5DX8tSyGrx1QuoR1wL99TWDusvmmWgQW5su3ik2Sc8y8Mqu3':
                 n_corrections += self.correct_for_tp(positions, 0, [151.83500671, 151.792], TradePair.USDJPY, unique_corrections)
 
@@ -160,6 +163,9 @@ class PositionManager(CacheController):
 
             if miner_hotkey == '5Ct1J2jNxb9zeHpsj547BR1nZk4ZD51Bb599tzEWnxyEr4WR':
                 n_corrections += self.correct_for_tp(positions, 0, None, TradePair.CADCHF, unique_corrections)
+            """
+            #if miner_hotkey == '5G3ys2356ovgUivX3endMP7f37LPEjRkzDAM3Km8CxQnErCw':
+            #    n_corrections += self.correct_for_tp(positions, 2, None, TradePair.EURCHF, unique_corrections)
 
 
 
