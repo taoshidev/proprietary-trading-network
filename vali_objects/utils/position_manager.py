@@ -3,6 +3,7 @@
 import os
 import shutil
 import time
+import traceback
 import uuid
 from pickle import UnpicklingError
 from typing import List, Dict, Union
@@ -31,6 +32,8 @@ class PositionManager(CacheController):
         self.position_locks = PositionLocks()
         self.live_price_fetcher = live_price_fetcher
         self.recalibrated_position_uuids = set()
+        if perform_price_adjustment:
+            self.perform_price_recalibration()
         if perform_order_corrections:
             try:
                 self.apply_order_corrections()
@@ -38,8 +41,7 @@ class PositionManager(CacheController):
                 bt.logging.error(f"Error applying order corrections: {e}")
         if perform_fee_structure_update:
             self.ensure_latest_fee_structure_applied()
-        if perform_price_adjustment:
-            self.perform_price_recalibration()
+
 
 
     def give_erronously_eliminated_miners_another_shot(self):
@@ -47,13 +49,40 @@ class PositionManager(CacheController):
         eliminations = self.get_miner_eliminations_from_disk()
         new_eliminations = []
         for e in eliminations:
-            # closing forex candle scam wick. Only happens at the close. Need to investigate
-            if e['hotkey'] == '5CY3NdQ7nQj7MsUEMi68u8poDxkNAJhB9FU48YxzAYC5MhCJ':
+            if e['hotkey'] == '':
                 bt.logging.warning('Removed elimination for hotkey ', e['hotkey'])
             else:
                 new_eliminations.append(e)
 
         self.write_eliminations_to_disk(new_eliminations)
+
+    def correct_for_tp(self, positions, idx, prices, tp, unique_corrections):
+        pos = None
+        i = -1
+
+        for p in positions:
+            if p.trade_pair == tp:
+                pos = p
+                i += 1
+                if i == idx:
+                    break
+
+        if not prices:
+            # del position
+            if pos:
+                self.delete_position_from_disk(pos)
+                unique_corrections.add(pos.position_uuid)
+                return 1
+
+        elif i == idx and pos and len(prices) == len(pos.orders):
+            self.delete_position_from_disk(pos)
+            for i, o in enumerate(pos.orders):
+                o.price = prices[i]
+            pos.rebuild_position_with_updated_orders()
+            self.save_miner_position_to_disk(pos)
+            unique_corrections.add(pos.position_uuid)
+            return 1
+        return 0
 
     def apply_order_corrections(self):
         """
@@ -64,12 +93,24 @@ class PositionManager(CacheController):
         processed by all validators. After verifying that this miner's order should have been sent to all validators,
         we increased the metagraph update frequency to 1 minute to prevent this from happening again. This override
         will correct the order status for this miner.
+
+        4/13/2024 - Price recalibration incorrectly applied to orders made after TwelveData websocket prices were
+        implemented. This regressed pricing since the websocket prices are more accurate.
+
+        Errantly closed out open CADCHF positions during a recalibration. Delete these positions that adversely affected
+        miners
+
+        One miner was eliminated due to a faulty candle from polygon at the close. We are investigating a workaround
+        and have several candidate solutions.
+
         """
         self.give_erronously_eliminated_miners_another_shot()
-        # First check if this miner is in the metagraph
-
+        n_corrections = 0
+        n_attempts = 12
+        unique_corrections = set()
         hotkey_to_positions = self.get_all_disk_positions_for_all_miners(sort_positions=True, only_open_positions=False)
         for miner_hotkey, positions in hotkey_to_positions.items():
+            """
             if miner_hotkey == '5CY3NdQ7nQj7MsUEMi68u8poDxkNAJhB9FU48YxzAYC5MhCJ':
                 last_nzdusd_position = None
                 last_audusd_position = None
@@ -95,15 +136,45 @@ class PositionManager(CacheController):
                 if last_eurusd_position:
                     last_eurusd_position.return_at_close = 0.9889648983626383
                     process_position(last_eurusd_position)
+            """
+            if miner_hotkey == '5DX8tSyGrx1QuoR1wL99TWDusvmmWgQW5su3ik2Sc8y8Mqu3':
+                n_corrections += self.correct_for_tp(positions, 0, [151.83500671, 151.792], TradePair.USDJPY, unique_corrections)
 
+            if miner_hotkey == '5C5dGkAZ8P58Rcm7abWwsKRv91h8aqTsvVak2ogJ6wpxSZPw':
+                n_corrections += self.correct_for_tp(positions, 0, [0.66623, 0.66634], TradePair.CADCHF, unique_corrections)
+
+            if miner_hotkey == '5D4zieKMoRVm477oUyMTZAWZ9orzpiJM8K6ufQQjryiXwpGU':
+                n_corrections += self.correct_for_tp(positions, 0, [0.66634, 0.6665], TradePair.CADCHF, unique_corrections)
+
+            if miner_hotkey == '5G3ys2356ovgUivX3endMP7f37LPEjRkzDAM3Km8CxQnErCw':
+                n_corrections += self.correct_for_tp(positions, 0, None, TradePair.CADCHF, unique_corrections)
+                n_corrections += self.correct_for_tp(positions, 0, [151.841, 151.773], TradePair.USDJPY, unique_corrections)
+                n_corrections += self.correct_for_tp(positions, 1, [151.8, 152.302], TradePair.USDJPY, unique_corrections)
+
+            if miner_hotkey == '5Ec93qtHkKprEaA5EWXrmPmWppMeMiwaY868bpxfkH5ocBxi':
+                n_corrections += self.correct_for_tp(positions, 0, [151.808, 151.844], TradePair.USDJPY, unique_corrections)
+                n_corrections += self.correct_for_tp(positions, 1, [151.817, 151.84], TradePair.USDJPY, unique_corrections)
+                n_corrections += self.correct_for_tp(positions, 2, [151.839, 151.809], TradePair.USDJPY, unique_corrections)
+                n_corrections += self.correct_for_tp(positions, 3, [151.772, 151.751], TradePair.USDJPY, unique_corrections)
+                n_corrections += self.correct_for_tp(positions, 4, [151.77, 151.748], TradePair.USDJPY, unique_corrections)
+
+            if miner_hotkey == '5Ct1J2jNxb9zeHpsj547BR1nZk4ZD51Bb599tzEWnxyEr4WR':
+                n_corrections += self.correct_for_tp(positions, 0, None, TradePair.CADCHF, unique_corrections)
+
+
+
+            """
             for p in positions:
+                pass
+
+
                 if miner_hotkey == '5DPKguJR87SPhVAGmuxLP8kDHh47CZcc8ZobYD3jqjNwK8vk':
                     if p.trade_pair == TradePair.FTSE:
                         if p.max_leverage_seen() > 100:
                             # This position should never have existed as it was opened during offmarket hours. Delete it
                             self.delete_position_from_disk(p)
                             break
-
+                            
                 if miner_hotkey == '5DUdfzm4cUtQ8Hr6vcYdCzEz7TR8WUSMaDwnWKjPHwzLT5gJ':
                     expected_tp = TradePair.EURUSD
                     corrected_orders = [
@@ -137,8 +208,8 @@ class PositionManager(CacheController):
                         disk_position = self.get_miner_position_from_disk_using_position_in_memory(disposable_clone)
                         bt.logging.warning(f"position successfully corrected and written to disk: {disk_position}")
                         break  # done
-
-
+                """
+        bt.logging.warning(f"Applied {n_corrections} order corrections out of {n_attempts} attempts. unique positions corrected: {len(unique_corrections)}")
 
 
     def ensure_latest_fee_structure_applied(self):
@@ -288,6 +359,7 @@ class PositionManager(CacheController):
             bt.logging.info(f"Price recalibration complete for {len(self.recalibrated_position_uuids)} positions in {time.time() - t0} seconds.")
         except Exception as e:
             bt.logging.error(f"Error performing price recalibration: {e}")
+            bt.logging.error(traceback.format_exc())
 
     def perform_price_recalibration_arap(self, time_per_batch_s):
         t0 = time.time()

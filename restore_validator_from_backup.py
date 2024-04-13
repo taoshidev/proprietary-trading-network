@@ -46,10 +46,9 @@ def regenerate_miner_positions(perform_backup=True):
     if DEBUG:
         secrets = ValiUtils.get_secrets()
         live_price_fetcher = LivePriceFetcher(secrets=secrets)
-        position_manager = PositionManager(live_price_fetcher=live_price_fetcher)
-        position_manager.init_cache_files()
-        position_manager.apply_order_corrections()
-        position_manager.perform_price_recalibration(time_per_batch_s=10000000)
+        position_manager = PositionManager(live_price_fetcher=live_price_fetcher, perform_price_adjustment=False,
+                                           perform_order_corrections=True)
+        #position_manager.perform_price_recalibration(time_per_batch_s=10000000)
     else:
         position_manager = PositionManager()
         position_manager.init_cache_files()
