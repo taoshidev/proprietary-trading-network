@@ -56,34 +56,6 @@ class PositionManager(CacheController):
 
         self.write_eliminations_to_disk(new_eliminations)
 
-    def correct_for_tp(self, positions, idx, prices, tp, unique_corrections):
-        pos = None
-        i = -1
-
-        for p in positions:
-            if p.trade_pair == tp:
-                pos = p
-                i += 1
-                if i == idx:
-                    break
-
-        if not prices:
-            # del position
-            if pos:
-                self.delete_position_from_disk(pos)
-                unique_corrections.add(pos.position_uuid)
-                return 1
-
-        elif i == idx and pos and len(prices) == len(pos.orders):
-            self.delete_position_from_disk(pos)
-            for i, o in enumerate(pos.orders):
-                o.price = prices[i]
-            pos.rebuild_position_with_updated_orders()
-            self.save_miner_position_to_disk(pos)
-            unique_corrections.add(pos.position_uuid)
-            return 1
-        return 0
-
     def apply_order_corrections(self):
         """
         This is our mechanism for manually synchronizing validator orders in situations where a bug prevented an
@@ -106,13 +78,53 @@ class PositionManager(CacheController):
         miner couldn't close position due to temporary bug. deleted position completely.
 
         """
+
+        def correct_for_tp(positions, idx, prices, tp, timestamp_ms=None):
+            nonlocal n_attempts, n_corrections, unique_corrections
+            n_attempts += 1
+            pos = None
+            i = -1
+
+            for p in positions:
+                if p.trade_pair == tp:
+                    pos = p
+                    i += 1
+                    if i == idx:
+                        break
+
+            if pos and timestamp_ms:
+                # check if the timestamp_ms is outside of 5 minutes of the position's open_ms
+                delta_time_min = abs(timestamp_ms - pos.open_ms) / 1000.0 / 60.0
+                if delta_time_min > 5.0:
+                    bt.logging.warning(
+                        f"Timestamp ms: {timestamp_ms} is more than 5 minutes away from position open ms: {pos.open_ms}. delta_time_min {delta_time_min}")
+                    return
+
+            if not prices:
+                # del position
+                if pos:
+                    self.delete_position_from_disk(pos)
+                    unique_corrections.add(pos.position_uuid)
+                    n_corrections += 1
+                    return
+
+            elif i == idx and pos and len(prices) == len(pos.orders):
+                self.delete_position_from_disk(pos)
+                for i, o in enumerate(pos.orders):
+                    o.price = prices[i]
+                pos.rebuild_position_with_updated_orders()
+                self.save_miner_position_to_disk(pos)
+                unique_corrections.add(pos.position_uuid)
+                n_corrections += 1
+                return
+
+
         self.give_erronously_eliminated_miners_another_shot()
         n_corrections = 0
-        n_attempts = 1
+        n_attempts = 0
         unique_corrections = set()
         hotkey_to_positions = self.get_all_disk_positions_for_all_miners(sort_positions=True, only_open_positions=False)
         for miner_hotkey, positions in hotkey_to_positions.items():
-            continue
             """
             if miner_hotkey == '5CY3NdQ7nQj7MsUEMi68u8poDxkNAJhB9FU48YxzAYC5MhCJ':
                 last_nzdusd_position = None
@@ -164,57 +176,17 @@ class PositionManager(CacheController):
             if miner_hotkey == '5Ct1J2jNxb9zeHpsj547BR1nZk4ZD51Bb599tzEWnxyEr4WR':
                 n_corrections += self.correct_for_tp(positions, 0, None, TradePair.CADCHF, unique_corrections)
             """
-            #if miner_hotkey == '5G3ys2356ovgUivX3endMP7f37LPEjRkzDAM3Km8CxQnErCw':
-            #    n_corrections += self.correct_for_tp(positions, 2, None, TradePair.EURCHF, unique_corrections)
+            if miner_hotkey == '5G3ys2356ovgUivX3endMP7f37LPEjRkzDAM3Km8CxQnErCw':
+                correct_for_tp(positions, 2, None, TradePair.EURCHF, timestamp_ms=1712950839925)
+            if miner_hotkey == '5GhCxfBcA7Ur5iiAS343xwvrYHTUfBjBi4JimiL5LhujRT9t':
+                correct_for_tp(positions, 0, [0.66242, 0.66464], TradePair.CADCHF)
+            if miner_hotkey == '5D4zieKMoRVm477oUyMTZAWZ9orzpiJM8K6ufQQjryiXwpGU':
+                correct_for_tp(positions, 0, [111.947, 111.987], TradePair.CADJPY)
+            if miner_hotkey == '5C5dGkAZ8P58Rcm7abWwsKRv91h8aqTsvVak2ogJ6wpxSZPw':
+                correct_for_tp(positions, 0, [151.727, 151.858, 153.0370, 153.0560, 153.0720, 153.2400, 153.2280, 153.2400], TradePair.USDJPY)
+            if miner_hotkey == '5DfhKZckZwjCqEcBUsW7jwzA5APCdj5SgZbfK6zzS9bMPuHn':
+                correct_for_tp(positions, 0, [111.599, 111.55999756, 111.622], TradePair.CADJPY)
 
-
-
-            """
-            for p in positions:
-                pass
-
-
-                if miner_hotkey == '5DPKguJR87SPhVAGmuxLP8kDHh47CZcc8ZobYD3jqjNwK8vk':
-                    if p.trade_pair == TradePair.FTSE:
-                        if p.max_leverage_seen() > 100:
-                            # This position should never have existed as it was opened during offmarket hours. Delete it
-                            self.delete_position_from_disk(p)
-                            break
-                            
-                if miner_hotkey == '5DUdfzm4cUtQ8Hr6vcYdCzEz7TR8WUSMaDwnWKjPHwzLT5gJ':
-                    expected_tp = TradePair.EURUSD
-                    corrected_orders = [
-                        Order(trade_pair=expected_tp, order_type=OrderType.LONG, leverage=200.0, price=1.0864, processed_ms=1712234889295, order_uuid=str(uuid.uuid4())),
-                        Order(trade_pair=expected_tp, order_type=OrderType.LONG, leverage=50.0, price=1.0866, processed_ms=1712234995623, order_uuid=str(uuid.uuid4())),
-                        Order(trade_pair=expected_tp, order_type=OrderType.FLAT, leverage=50.0, price=1.0873, processed_ms=1712238798693, order_uuid=str(uuid.uuid4()))
-                    ]
-
-                    if p.trade_pair == TradePair.EURUSD:
-                        if len(p.orders) == 3:
-                            break  # Order already corrected. completely done with this miner
-
-                        # Ensure that open_ms of the position to be corrected is within 5 minutes of the expected time_ms
-                        target_open_time_ms = 1712234995216
-                        if not abs(p.open_ms - target_open_time_ms) < 5 * 60 * 1000:
-                            continue
-
-                        bt.logging.warning(
-                            f"Correcting order status for position {p.position_uuid} trade pair {expected_tp.trade_pair_id}")
-                        # Update the position
-                        disposable_clone = deepcopy(p)
-                        disposable_clone.orders = corrected_orders
-                        disposable_clone.position_type = None
-                        disposable_clone.open_ms = 1712234889296
-                        disposable_clone._update_position()
-                        assert len(disposable_clone.orders) == 3
-                        assert disposable_clone.max_leverage_seen() == 250.0, f"max_leverage_seen: {disposable_clone.max_leverage_seen()}"
-                        # Write new position to disk
-                        self.save_miner_position_to_disk(disposable_clone)
-                        # Ensure we can read this position back from disk
-                        disk_position = self.get_miner_position_from_disk_using_position_in_memory(disposable_clone)
-                        bt.logging.warning(f"position successfully corrected and written to disk: {disk_position}")
-                        break  # done
-                """
         bt.logging.warning(f"Applied {n_corrections} order corrections out of {n_attempts} attempts. unique positions corrected: {len(unique_corrections)}")
 
 
