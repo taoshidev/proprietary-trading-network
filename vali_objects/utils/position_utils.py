@@ -114,12 +114,12 @@ class PositionUtils:
         elif penalty_score >= 0.5:
             return 0.5
         elif penalty_score >= 0.4:
-            return 0.3
-        elif penalty_score >= 0.3:
             return 0.2
-        elif penalty_score >= 0.2:
-            return 0.1
-        elif penalty_score >= 0.1:
+        elif penalty_score >= 0.3:
             return 0.05
+        elif penalty_score >= 0.2:
+            return 0.025
+        elif penalty_score >= 0.1:
+            return 0.01
                 
-        return 0.05
+        return 0.01
