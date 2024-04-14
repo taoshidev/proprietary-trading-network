@@ -32,6 +32,10 @@ if __name__ == "__main__":
     logger.info(f"top miners [{top_miners}]")
     logger.info(f"top miners scores [{y_values}]")
 
+    # Add names for each value
+    for x in range(len(y_values)):
+        plt.text(x, y_values[x], f"({top_miners[x]}, {y_values[x]})", ha="left")
+
     plt.plot([x for x in range(len(y_values))], y_values, marker="o", linestyle="-")
     plt.xlabel("X-axis")
     plt.ylabel("Y-axis")
