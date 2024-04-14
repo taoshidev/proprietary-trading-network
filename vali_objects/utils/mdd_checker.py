@@ -62,15 +62,15 @@ class MDDChecker(CacheController):
             return {}
 
         now = TimeUtil.now_in_millis()
-        # If we're going to use candles, we need at least 2 seconds to have elapsed.
-        if self.last_price_fetch_time_ms is None or now - self.last_price_fetch_time_ms < 2000:
-            ans = self.live_price_fetcher.get_closes(trade_pairs=trade_pairs_list)
-        else:
-            ans = self.live_price_fetcher.get_candles(trade_pairs=trade_pairs_list,
-                                                      start_time_ms=self.last_price_fetch_time_ms,
-                                                      end_time_ms=now)
-            bt.logging.info(f"mdd checker successfully retrieved candles for trade pairs:"
-                            f" {[(k.trade_pair_id, len(v) if isinstance(v, list) else v) for k, v in ans.items()]}.")
+        if self.last_price_fetch_time_ms is None:
+            self.last_price_fetch_time_ms = now
+            time.sleep(2)
+
+        ans = self.live_price_fetcher.get_candles(trade_pairs=trade_pairs_list,
+                                                  start_time_ms=self.last_price_fetch_time_ms,
+                                                  end_time_ms=now)
+        bt.logging.info(f"mdd checker successfully retrieved candles for trade pairs:"
+                        f" {[(k.trade_pair_id, len(v) if isinstance(v, list) else v) for k, v in ans.items()]}.")
         self.last_price_fetch_time_ms = now
         return ans
 
@@ -148,8 +148,8 @@ class MDDChecker(CacheController):
         price = None
         for a in dat:
             #bt.logging.info(f"in _parse_price_from_closing_prices. timestamp: {a.timestamp}, close: {a.close}")
-            if a.close is not None:
-                price = float(a.close)
+            if a.vwap is not None:
+                price = float(a.vwap)
 
         #bt.logging.info(f"in _parse_price_from_closing_prices. price: {price}. trade pair {trade_pair.trade_pair_id}")
         return price
@@ -173,10 +173,10 @@ class MDDChecker(CacheController):
             #bt.logging.info(f"in _parse_min_price_in_window. timestamp: {a.timestamp}, close: {a.close}")
             if parse_min:
                 if a.low is not None:
-                    price = a.low if price is None else min(price, a.low)
+                    price = a.vwap if price is None else min(price, a.vwap)
             else:
                 if a.high is not None:
-                    price = a.high if price is None else max(price, a.high)
+                    price = a.vwap if price is None else max(price, a.vwap)
         #print(f"in _parse_min_price_in_window min_price: {min_price}. trade_pair {trade_pair.trade_pair_id}")
         return float(price) if price else None
 

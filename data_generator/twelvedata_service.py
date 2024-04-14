@@ -45,8 +45,8 @@ class TwelveDataService:
 
         self.trade_pair_lookup = {pair.trade_pair: pair for pair in TradePair}
         self.trade_pair_to_longest_seen_lag = {}
-        self.trade_pair_category_to_longest_allowed_lag = {TradePairCategory.CRYPTO: 60, TradePairCategory.FOREX: 60,
-                                                           TradePairCategory.INDICES: 60}
+        self.trade_pair_category_to_longest_allowed_lag = {TradePairCategory.CRYPTO: 10, TradePairCategory.FOREX: 10,
+                                                           TradePairCategory.INDICES: 10}
         for trade_pair in TradePair:
             assert trade_pair.trade_pair_category in self.trade_pair_category_to_longest_allowed_lag, \
                 f"Trade pair {trade_pair} has no allowed lag time"
@@ -140,15 +140,20 @@ class TwelveDataService:
 
     def _websocket_heartbeat(self):
         global WS
+        n_sleeps = 0
         while True:
             if WS:
                 WS.heartbeat()
+
             time.sleep(10)
+            n_sleeps += 1
+            if n_sleeps % 6 == 0:
+                self.debug_log()
+
             if self._should_reset_websocket():
                 self._reset_websocket()
             if DEBUG:
                 self.spill_price_history()
-                self.debug_log()
 
     def debug_log(self):
         trade_pairs_to_track = [k for k, v in last_websocket_ping_time_s.items()]
@@ -161,21 +166,21 @@ class TwelveDataService:
                     self.trade_pair_to_longest_seen_lag[tp] = lag
         # log how long it has been since the last ping
         formatted_lags = {tp: f"{lag:.2f}" for tp, lag in self.trade_pair_to_longest_seen_lag.items()}
-        bt.logging.warning(f"Worst lags seen: {formatted_lags}")
+        bt.logging.warning(f"TD Worst lags seen: {formatted_lags}")
         # Log the last time since websocket ping
         formatted_lags = {tp: f"{time.time() - timestamp:.2f}" for tp, timestamp in
                           last_websocket_ping_time_s.items()}
-        bt.logging.warning(f"Last websocket pings: {formatted_lags}")
+        bt.logging.warning(f"TD Last websocket pings: {formatted_lags}")
         # Log the prices
         formatted_prices = {tp: f"{price:.2f}" for tp, price in latest_websocket_prices.items()}
-        bt.logging.warning(f"Latest websocket prices: {formatted_prices}")
+        bt.logging.warning(f"TD Latest websocket prices: {formatted_prices}")
         # Log which trade pairs are likely in closed markets
         trade_pair_is_closed = {}
         for trade_pair in TradePair:
             if self.trade_pair_market_likely_closed(trade_pair):
                 trade_pair_is_closed[trade_pair.trade_pair] = True
 
-        bt.logging.warning(f"Market likely closed for {trade_pair_is_closed}")
+        #bt.logging.warning(f"Market likely closed for {trade_pair_is_closed}")
 
 
     def _reset_websocket(self):
@@ -201,7 +206,7 @@ class TwelveDataService:
 
         # Only
     def _fetch_data_rest(self, symbols, interval, output_size):
-        ts = self.td.time_series(symbol=symbols, interval=interval, outputsize=output_size)
+        ts = self.td.time_series(symbol=symbols, interval=interval, outputsize=output_size, timezone='UTC')
         response = ts.as_json()
         return response
 
@@ -293,7 +298,8 @@ class TwelveDataService:
         bt.logging.info(f"Using TD websocket data for {trade_pair.trade_pair}")
         return ans
 
-    def get_closes(self, trade_pairs: List[TradePair]):
+    def get_closes(self, trade_pairs: List[TradePair], websocket_only=False):
+        # Setting websocket_only will only get websocket data
         closes = self.get_closes_websocket(trade_pairs)
         missing_trade_pairs = []
         for tp in trade_pairs:
@@ -303,7 +309,7 @@ class TwelveDataService:
             debug = {k.trade_pair: v for k, v in closes.items()}
             bt.logging.info(f"Received TD websocket data: {debug}")
 
-        if missing_trade_pairs:
+        if missing_trade_pairs and not websocket_only:
             rest_closes = self.get_closes_rest(missing_trade_pairs)
             debug = {k.trade_pair: v for k, v in rest_closes.items()}
             bt.logging.info(f"Received TD stale/websocket-less data using REST: {debug}")
@@ -314,8 +320,9 @@ class TwelveDataService:
     def get_close_at_date(self, trade_pair: TradePair, timestamp_ms: int):
         symbol = trade_pair.trade_pair
         input_time_formatted = TimeUtil.millis_to_formatted_date_str(timestamp_ms)
-        ts = self.td.time_series(symbol=symbol, interval='1min', outputsize=1, date=input_time_formatted)
+        ts = self.td.time_series(symbol=symbol, interval='1min', outputsize=1, date=input_time_formatted, timezone='UTC')
         response = ts.as_json()
+
         smallest_delta_ms = None
         price = None
         corresponding_date = None
@@ -336,11 +343,11 @@ class TwelveDataService:
 
         #print(f"Input time: {input_time_formatted}, Response time: {t_str}")
 
-        smallest_delta_s = smallest_delta_ms / 1000
-        print('TD Delta time in s: ', smallest_delta_s, 'Reported time', corresponding_date, 'Input date', input_time_formatted)
-        if abs(smallest_delta_s) > 60:
+        smallest_delta_s = smallest_delta_ms / 1000 if smallest_delta_ms else smallest_delta_ms
+        print('TD Delta time in s: ', smallest_delta_s, 'Reported time', corresponding_date, 'Reported price',
+              price, 'Input date', input_time_formatted)
+        if smallest_delta_s is None or abs(smallest_delta_s) > 27.0:
             return None
-
 
         return price
 
@@ -352,7 +359,6 @@ class TwelveDataService:
         return closes
 
 
-
 if __name__ == "__main__":
     secrets = ValiUtils.get_secrets()
 
@@ -360,8 +366,8 @@ if __name__ == "__main__":
     twelve_data = TwelveDataService(api_key=secrets['twelvedata_apikey'])
 
     #time.sleep(12)
-    #print(twelve_data.get_close_at_date(TradePair.CADCHF, TimeUtil.millis_to_formatted_date_str(1720130492000)))
-    print(twelve_data.get_close_at_date(TradePair.CADJPY, 1712746241174))
+    print(twelve_data.get_close_at_date(TradePair.CADJPY, 1712746241334))
+    #print(twelve_data.get_close_at_date(TradePair.CADJPY, 1712746241174))
     assert 0
 
 

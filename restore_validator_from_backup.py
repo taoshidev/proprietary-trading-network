@@ -12,7 +12,7 @@ from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 import bittensor as bt
 
 from vali_objects.utils.vali_utils import ValiUtils
-DEBUG = 0
+DEBUG = 1
 
 def backup_validation_directory():
     dir_to_backup = ValiBkpUtils.get_vali_dir()
@@ -48,8 +48,8 @@ def regenerate_miner_positions(perform_backup=True):
     if DEBUG:
         secrets = ValiUtils.get_secrets()
         live_price_fetcher = LivePriceFetcher(secrets=secrets)
-        position_manager = PositionManager(live_price_fetcher=live_price_fetcher, perform_price_adjustment=False,
-                                           perform_order_corrections=True)
+        position_manager = PositionManager(live_price_fetcher=live_price_fetcher, perform_price_adjustment=True,
+                                           perform_order_corrections=False)
         #position_manager.perform_price_recalibration(time_per_batch_s=10000000)
     else:
         position_manager = PositionManager()

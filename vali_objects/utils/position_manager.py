@@ -216,8 +216,6 @@ class PositionManager(CacheController):
     def recalculate_return_at_close_and_write_corrected_position_to_disk(self, position: Position, hotkey:str):
         # TODO LOCK and how to handle open positions?
         tp = position.trade_pair
-        if tp not in (TradePair.CADJPY, TradePair.USDJPY, TradePair.CHFJPY):
-            return position.return_at_close
 
         any_changes = False
         disposable_clone = deepcopy(position)
@@ -225,6 +223,11 @@ class PositionManager(CacheController):
         new_orders = []
         for o in disposable_clone.orders:
             timestamp_ms = o.processed_ms
+            new_orders.append(o)
+            # After the implementation of websocket prices
+            # @@@@@@ REMOVE ME @@@@@@@@
+            if 1 or timestamp_ms > 1711947988000:
+                continue
             old_price = o.price
             new_price = self.live_price_fetcher.get_close_at_date(tp, timestamp_ms)
 
@@ -238,10 +241,9 @@ class PositionManager(CacheController):
                 else:
                     any_changes = True
                     deltas.append((old_price, new_price))
-                    o.price = new_price
-            new_orders.append(o)
+                    new_orders[-1].price = new_price
 
-
+        hotkey_to_worst_naive_drawdown = {}
         for i in range(len(position.orders)):
             orders = new_orders[:i+1]
             disposable_clone.orders = orders
@@ -251,7 +253,7 @@ class PositionManager(CacheController):
                 order_type = OrderType.SHORT
             else:
                 order_type = OrderType.LONG
-            if 0:#len(orders) > 1:
+            if len(orders) > 1:
                 prev_order = orders[-2]
                 o = orders[-1]
                 window_start_ms = prev_order.processed_ms
@@ -266,21 +268,28 @@ class PositionManager(CacheController):
                     unrealized_return = disposable_clone.calculate_unrealized_pnl(min_price_seen if order_type == OrderType.LONG else max_price_seen)
                     unrealized_return_with_fees = disposable_clone.calculate_return_with_fees(unrealized_return)
                     drawdown = self.calculate_drawdown(unrealized_return_with_fees, 1.0)
-                    bt.logging.warning(f"Drawdown is {drawdown} for hotkey {hotkey} trade pair {tp.trade_pair_id}. Between time: {fs} and {fe}. p1: {prev_order.price} p2: {o.price}, min: {min_price_seen}.")
+                    #bt.logging.warning(f"Drawdown is {drawdown} for hotkey {hotkey} trade pair {tp.trade_pair_id}. Between time: {fs} and {fe}. p1: {prev_order.price} p2: {o.price}, min: {min_price_seen}.")
                     if drawdown < ValiConfig.MAX_TOTAL_DRAWDOWN:
-                        bt.logging.error(f"Drawdown is {drawdown} for hotkey {hotkey} trade pair {tp.trade_pair_id}. Unrealized return: {unrealized_return_with_fees}.")
+                        hotkey_to_worst_naive_drawdown[hotkey] = max(hotkey_to_worst_naive_drawdown.get(hotkey, 0), drawdown)
+        if hotkey in hotkey_to_worst_naive_drawdown:
+            bt.logging.error(f"Drawdown is {hotkey_to_worst_naive_drawdown[hotkey]} for hotkey {hotkey} trade pair {tp.trade_pair_id}")
 
-
+        ## @@@@@ REMOVE ME @@@@@@
+        return position.return_at_close
         assert len(disposable_clone.orders) == len(position.orders)
         if any_changes:
+            disposable_clone = deepcopy(position)
+            disposable_clone.orders = new_orders
+            disposable_clone.rebuild_position_with_updated_orders()
             with self.position_locks.get_lock(hotkey, tp.trade_pair_id):
                 self.save_miner_position_to_disk(disposable_clone, delete_open_position_if_exists=False)
             bt.logging.info(f"Recalculated return_at_close for position {position.position_uuid}."
                             f" Trade pair {position.trade_pair.trade_pair_id} New value: "
                             f"{disposable_clone.return_at_close}. Original value: {position.return_at_close}")
-            bt.logging.info(f"Corrected n={len(deltas)} prices for position {position.position_uuid} Trade pair {tp.trade_pair_id}. Deltas (before/after): {deltas}")
-
-        return disposable_clone.return_at_close
+            bt.logging.info(f"    Corrected n={len(deltas)} prices for Trade pair {tp.trade_pair_id}. Deltas (before/after): {deltas}")
+            return disposable_clone.return_at_close
+        else:
+            return position.return_at_close
 
 
     def get_all_disk_positions_for_all_miners(self, **args):
@@ -391,9 +400,8 @@ class PositionManager(CacheController):
         bt.logging.info(f"Found n= {len(hotkeys_eliminated_to_current_return)} hotkeys to eliminate. After modifying returns for n = {len(hotkeys_with_return_modified)} hotkeys.")
         bt.logging.info(f"Total initial positions: {n_positions_total}, Modified {n_positions_modified}, Skipped {skipped_eliminated} eliminated.")
         bt.logging.warning(f"Position returns modified: {RETURNS_MODIFIED}")
-        for rm in RETURNS_MODIFIED:
-            if abs(rm[0] - rm[1]) / rm[0] > -1:
-                bt.logging.warning(f"    Original return: {rm[0]}, New return: {rm[1]}, Trade pair: {rm[2]} hotkey: {rm[3]}")
+        for rm in sorted(RETURNS_MODIFIED, key=lambda x: x[1]):
+            bt.logging.warning(f"    Original return: {rm[0]}, New return: {rm[1]}, Trade pair: {rm[2]} hotkey: {rm[3]}")
 
         for k, v in sorted(hotkeys_eliminated_to_current_return.items(), key=lambda x: x[1]):
             bt.logging.info(f"hotkey: {k}. return as shown on dash: {v}")

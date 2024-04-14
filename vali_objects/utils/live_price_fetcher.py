@@ -39,15 +39,15 @@ class LivePriceFetcher():
             return self.twelve_data.get_close(trade_pair=trade_pair)
 
     @retry(tries=2, delay=5, backoff=2)
-    def get_closes(self, trade_pairs: list):
+    def get_closes(self, trade_pairs: list, websocket_only=False):
         ans = {}
         if self.polygon_available:
-            ans = self.polygon_data_provider.get_closes(trade_pairs=trade_pairs)
+            ans = self.polygon_data_provider.get_closes(trade_pairs=trade_pairs, websocket_only=websocket_only)
             invalid_closes = {k: v for k, v in ans.items() if v is None}
             if ans and len(invalid_closes) == 0:
                 return ans
         if self.twelvedata_available:
-            td_closes = self.twelve_data.get_closes(trade_pairs=list(set(trade_pairs) - set(ans.keys())))
+            td_closes = self.twelve_data.get_closes(trade_pairs=list(set(trade_pairs) - set(ans.keys())), websocket_only=websocket_only)
             ans.update(td_closes)
         return ans
 
@@ -61,31 +61,43 @@ class LivePriceFetcher():
         ans = {}
         if self.polygon_available:
             ans = self.polygon_data_provider.get_candles(trade_pairs=trade_pairs, start_time_ms=start_time_ms, end_time_ms=end_time_ms)
-            if isinstance(ans, dict) and len(ans) > 0:
-                debug = {k.trade_pair: len(v) for k, v in ans.items() if v and isinstance(v, list) and len(v) > 0}
-            bt.logging.info(f"Fetched candles from Polygon for {debug} from"
+            debug = {}
+            no_candles = []
+            for k, v in ans.items():
+                if v and isinstance(v, list):
+                    debug[k.trade_pair] = len(v)
+                else:
+                    debug[k.trade_pair] = v
+                    no_candles.append(k)
+
+            live_prices = self.get_closes(no_candles, websocket_only=True)
+            debug.update(live_prices)
+            bt.logging.info(f"Fetched candles/live_price from Polygon for {debug} from"
                             f" {TimeUtil.millis_to_formatted_date_str(start_time_ms)} to "
                             f"{TimeUtil.millis_to_formatted_date_str(end_time_ms)}")
+            ans.update(live_prices)
+
         # If Polygon has any missing keys, it is intentional and corresponds to a closed market. We don't want to use twelvedata for this
+        # Also TD candles are only 1 min granularity
         if self.twelvedata_available and len(ans) == 0:
-            bt.logging.info(f"Fetching candles from TD for {[x.trade_pair for x in trade_pairs]} from {start_time_ms} to {end_time_ms}")
+            bt.logging.info(f"Fetching live prices from TD {[x.trade_pair for x in trade_pairs]} from {start_time_ms} to {end_time_ms}")
             closes = self.twelve_data.get_closes(trade_pairs=trade_pairs)
             ans.update(closes)
         return ans
 
     def get_close_at_date(self, trade_pair, timestamp_ms):
-        ans = self.polygon_data_provider.get_close_at_date_second(trade_pair=trade_pair, timestamp_ms=timestamp_ms)
+        ans = self.polygon_data_provider.get_close_at_date(trade_pair=trade_pair, timestamp_ms=timestamp_ms, timespan='second')
         if ans is None:
             ans = self.twelve_data.get_close_at_date(trade_pair=trade_pair, timestamp_ms=timestamp_ms)
             if ans is not None:
                 bt.logging.warning(f"Fell back to TwelveData get_date for price of {trade_pair.trade_pair} at {TimeUtil.timestamp_ms_to_eastern_time_str(timestamp_ms)}, ms: {timestamp_ms}")
 
         if ans is None:
-            ans = self.polygon_data_provider.get_close_at_date_minute_fallback(trade_pair=trade_pair, timestamp_ms=timestamp_ms)
+            ans = self.polygon_data_provider.get_close_at_date(trade_pair=trade_pair, timestamp_ms=timestamp_ms, timespan='minute')
             if ans:
                 bt.logging.warning(f"Fell back to Polygon get_date_minute_fallback for price of {trade_pair.trade_pair} at {TimeUtil.timestamp_ms_to_eastern_time_str(timestamp_ms)}, ms: {timestamp_ms}")
         if ans is None:
-            ans = self.polygon_data_provider.get_close_in_past_hour_fallback(trade_pair=trade_pair, timestamp_ms=timestamp_ms)
+            ans = self.polygon_data_provider.get_close_at_date(trade_pair=trade_pair, timestamp_ms=timestamp_ms, timespan='hour')
             if ans:
                 formatted_date = TimeUtil.timestamp_ms_to_eastern_time_str(timestamp_ms)
                 bt.logging.warning(f"Fell back to Polygon get_close_in_past_hour_fallback for price of {trade_pair.trade_pair} at {formatted_date}, ms: {timestamp_ms}")
