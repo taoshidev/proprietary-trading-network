@@ -112,7 +112,7 @@ directions in this way.
 10. There is a fee per trade pair position. The fee scales with leverage. e.x a 10x leveraged position will have a 10x higher fee.
 11. There is a minimum registration fee of 5 TAO on the mainnet subnet.
 12. There is an immunity period of 9 days to help miners submit orders to become competitive with existing miners.
-13. Based on portfolio metrics such as omega score and total portfolio return, weights/incentive get set to reward the best miners.
+13. Based on portfolio metrics such as omega score and total portfolio return, weights/incentive get set to reward the best miners. This is based on both open and closed positions.
 
 With this system only the world's best traders & deep learning / quant based trading systems can compete.
 
