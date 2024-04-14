@@ -4,6 +4,7 @@ import shutil
 import time
 from datetime import datetime
 
+from time_util.time_util import TimeUtil
 from vali_objects.position import Position
 from vali_objects.utils.live_price_fetcher import LivePriceFetcher
 from vali_objects.utils.position_manager import PositionManager
@@ -42,6 +43,7 @@ def regenerate_miner_positions(perform_backup=True):
             bt.logging.info(f"    {key}: {len(value)} entries")
         else:
             bt.logging.info(f"    {key}: {value}")
+    backup_creation_time_ms = data['created_timestamp_ms']
 
     if DEBUG:
         secrets = ValiUtils.get_secrets()
@@ -59,15 +61,30 @@ def regenerate_miner_positions(perform_backup=True):
         position_manager.get_extreme_position_order_processed_on_disk_ms())
     smallest_backup_ms = data['youngest_order_processed_ms']
     largest_backup_ms = data['oldest_order_processed_ms']
-    bt.logging.info(f"smallest_disk_order_timestamp: {smallest_disk_ms}, "
-          f"smallest_backup_order_timestamp: {smallest_backup_ms}, "
-          f"oldest_disk_order_timestamp: {largest_disk_ms}, "
-          f"oldest_backup_order_timestamp: {largest_backup_ms}")
+    try:
+        formatted_backup_creation_time = TimeUtil.millis_to_formatted_date_str(backup_creation_time_ms)
+        formatted_disk_date_largest = TimeUtil.millis_to_formatted_date_str(largest_disk_ms)
+        formatted_backup_date_largest = TimeUtil.millis_to_formatted_date_str(largest_backup_ms)
+        formatted_disk_date_smallest = TimeUtil.millis_to_formatted_date_str(smallest_disk_ms)
+        formatted_backup_date_smallest = TimeUtil.millis_to_formatted_date_str(smallest_backup_ms)
+    except:
+        formatted_backup_creation_time = backup_creation_time_ms
+        formatted_disk_date_largest = largest_disk_ms
+        formatted_backup_date_largest = largest_backup_ms
+        formatted_disk_date_smallest = smallest_disk_ms
+        formatted_backup_date_smallest = smallest_backup_ms
 
-    if smallest_disk_ms >= smallest_backup_ms and largest_disk_ms <= largest_backup_ms:
+    bt.logging.info(f"Timestamp analysis of backup vs disk (UTC):")
+    bt.logging.info(f"    backup_creation_time: {formatted_backup_creation_time}")
+    bt.logging.info(f"    smallest_disk_order_timestamp: {formatted_disk_date_smallest}")
+    bt.logging.info(f"    smallest_backup_order_timestamp: {formatted_backup_date_smallest}")
+    bt.logging.info(f"    oldest_disk_order_timestamp: {formatted_disk_date_largest}")
+    bt.logging.info(f"    oldest_backup_order_timestamp: {formatted_backup_date_largest}")
+
+    if smallest_disk_ms >= smallest_backup_ms and largest_disk_ms <= backup_creation_time_ms:
         pass  # Ready for update!
-    elif largest_disk_ms > largest_backup_ms:
-        bt.logging.error("Please re-pull the backup file before restoring. Backup appears to be older than the disk.")
+    elif largest_disk_ms > backup_creation_time_ms:
+        bt.logging.error(f"Please re-pull the backup file before restoring. Backup {formatted_backup_creation_time} appears to be older than the disk {formatted_disk_date_largest}.")
         return False
     elif smallest_disk_ms < smallest_backup_ms:
         bt.logging.error("Your local filesystem has older orders than the backup. Please reach out to the team ASAP before regenerating. You may be holding irrecoverable data!")
