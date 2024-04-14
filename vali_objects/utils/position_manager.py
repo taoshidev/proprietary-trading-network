@@ -126,31 +126,6 @@ class PositionManager(CacheController):
         hotkey_to_positions = self.get_all_disk_positions_for_all_miners(sort_positions=True, only_open_positions=False)
         for miner_hotkey, positions in hotkey_to_positions.items():
             """
-            if miner_hotkey == '5CY3NdQ7nQj7MsUEMi68u8poDxkNAJhB9FU48YxzAYC5MhCJ':
-                last_nzdusd_position = None
-                last_audusd_position = None
-                last_eurusd_position = None
-                for p in positions:
-                    if p.trade_pair == TradePair.NZDUSD:
-                        last_nzdusd_position = p
-                    if p.trade_pair == TradePair.AUDUSD:
-                        last_audusd_position = p
-                    if p.trade_pair == TradePair.EURUSD:
-                        last_eurusd_position = p
-                def process_position(poz):
-                    self.delete_position_from_disk(poz)
-                    poz.reopen_position(OrderType.LONG)
-                    # save position
-                    self.save_miner_position_to_disk(poz)
-                if last_nzdusd_position:
-                    last_nzdusd_position.return_at_close = 0.9820682530366055
-                    process_position(last_nzdusd_position)
-                if last_audusd_position:
-                    last_audusd_position.return_at_close = 0.9854943507578879
-                    process_position(last_audusd_position)
-                if last_eurusd_position:
-                    last_eurusd_position.return_at_close = 0.9889648983626383
-                    process_position(last_eurusd_position)
                     
             if miner_hotkey == '5DX8tSyGrx1QuoR1wL99TWDusvmmWgQW5su3ik2Sc8y8Mqu3':
                 n_corrections += self.correct_for_tp(positions, 0, [151.83500671, 151.792], TradePair.USDJPY, unique_corrections)
@@ -175,7 +150,7 @@ class PositionManager(CacheController):
 
             if miner_hotkey == '5Ct1J2jNxb9zeHpsj547BR1nZk4ZD51Bb599tzEWnxyEr4WR':
                 n_corrections += self.correct_for_tp(positions, 0, None, TradePair.CADCHF, unique_corrections)
-            """
+                
             if miner_hotkey == '5G3ys2356ovgUivX3endMP7f37LPEjRkzDAM3Km8CxQnErCw':
                 correct_for_tp(positions, 2, None, TradePair.EURCHF, timestamp_ms=1712950839925)
             if miner_hotkey == '5GhCxfBcA7Ur5iiAS343xwvrYHTUfBjBi4JimiL5LhujRT9t':
@@ -186,6 +161,11 @@ class PositionManager(CacheController):
                 correct_for_tp(positions, 0, [151.727, 151.858, 153.0370, 153.0560, 153.0720, 153.2400, 153.2280, 153.2400], TradePair.USDJPY)
             if miner_hotkey == '5DfhKZckZwjCqEcBUsW7jwzA5APCdj5SgZbfK6zzS9bMPuHn':
                 correct_for_tp(positions, 0, [111.599, 111.55999756, 111.622], TradePair.CADJPY)
+            """
+            if miner_hotkey == '5C5dGkAZ8P58Rcm7abWwsKRv91h8aqTsvVak2ogJ6wpxSZPw':
+                correct_for_tp(positions, 0, [151.73, 151.862, 153.047, 153.051, 153.071, 153.241, 153.225, 153.235], TradePair.USDJPY)
+            if miner_hotkey == '5HCJ6okRkmCsu7iLEWotBxgcZy11RhbxSzs8MXT4Dei9osUx':
+                correct_for_tp(positions, 0, None, TradePair.ETHUSD, timestamp_ms=1713102534971)
 
         bt.logging.warning(f"Applied {n_corrections} order corrections out of {n_attempts} attempts. unique positions corrected: {len(unique_corrections)}")
 
