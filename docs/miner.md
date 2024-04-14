@@ -29,7 +29,7 @@ The current flow of information is as follows:
 5. Validators track your positions returns
 6. Validators review your positions to assess drawdown every few seconds to determine if a miner should be eliminated (see main README for more info)
 7. Validators wait for you to send in signals to close out positions (FLAT)
-8. Validators set weights based on miner returns every 5 minutes based on portfolio performance. 
+8. Validators set weights based on miner returns every 5 minutes based on portfolio performance with both open and closed positions. 
 
 
 Please keep in mind that only one order can be submitted per minute per trade pair. This limitation may interfere with certain HFT strategies. We suggest verifying your miner on testnet before running on mainnet. 
