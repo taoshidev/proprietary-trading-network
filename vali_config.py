@@ -200,5 +200,5 @@ class ValiConfig:
     ELIMINATION_FILE_DELETION_DELAY_MS = 60 * 30 * 1000  # 30 min
 
     MAX_MINER_PLAGIARISM_SCORE = 0.9 # want to make sure we're filtering out the bad actors
-    TOP_MINER_BENEFIT = 0.9
-    TOP_MINER_PERCENT = 0.1
+    TOP_MINER_BENEFIT = 0.6
+    TOP_MINER_PERCENT = 0.4
