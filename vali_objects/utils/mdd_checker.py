@@ -132,55 +132,6 @@ class MDDChecker(CacheController):
         # Replay of closed positions complete.
         return False, cuml_return, max_cuml_return_so_far
 
-    def _parse_price_from_closing_prices(self, signal_closing_prices, trade_pair):
-        if trade_pair not in signal_closing_prices:
-            raise ValueError(f"Trade pair [{trade_pair}] not in closing prices. Closing price keys: {signal_closing_prices.keys()}")
-
-        dat = signal_closing_prices[trade_pair]
-        if dat is None:
-            # Market is closed for this trade pair
-            return None
-        if isinstance(dat, float) or isinstance(dat, int):
-            # From TwelveData
-            return float(dat)
-
-        # Get the newest price in the window
-        price = None
-        for a in dat:
-            #bt.logging.info(f"in _parse_price_from_closing_prices. timestamp: {a.timestamp}, close: {a.close}")
-            if a.vwap is not None:
-                price = float(a.vwap)
-
-        #bt.logging.info(f"in _parse_price_from_closing_prices. price: {price}. trade pair {trade_pair.trade_pair_id}")
-        return price
-
-    def _parse_extreme_price_in_window(self, signal_closing_prices, open_position, parse_min=True):
-        trade_pair = open_position.trade_pair
-        dat = signal_closing_prices[trade_pair]
-        if dat is None:
-            # Market is closed for this trade pair
-            return None
-        if isinstance(dat, float) or isinstance(dat, int):
-            # From TwelveData
-            return float(dat)
-        # Handle the case where an order gets placed in between MDD checks.
-        min_allowed_timestamp_ms = open_position.orders[-1].processed_ms
-        price = None
-        for a in dat:
-            candle_epoch_ms = a.timestamp
-            if candle_epoch_ms < min_allowed_timestamp_ms:
-                continue
-            #bt.logging.info(f"in _parse_min_price_in_window. timestamp: {a.timestamp}, close: {a.close}")
-            if parse_min:
-                if a.low is not None:
-                    price = a.vwap if price is None else min(price, a.vwap)
-            else:
-                if a.high is not None:
-                    price = a.vwap if price is None else max(price, a.vwap)
-        #print(f"in _parse_min_price_in_window min_price: {min_price}. trade_pair {trade_pair.trade_pair_id}")
-        return float(price) if price else None
-
-
     def _update_open_position_returns_and_persist_to_disk(self, hotkey, open_position, signal_closing_prices) -> Position:
         """
         Setting the latest returns and persisting to disk for accurate MDD calculation and logging in get_positions
@@ -189,7 +140,7 @@ class MDDChecker(CacheController):
         being called. But that's ok as we will process such new positions the next round.
         """
         trade_pair_id = open_position.trade_pair.trade_pair_id
-        realtime_price = self._parse_price_from_closing_prices(signal_closing_prices, open_position.trade_pair)
+        realtime_price = LivePriceFetcher.parse_price_from_closing_prices(signal_closing_prices, open_position.trade_pair)
         if realtime_price is None:  # market closed. Don't update return
             return open_position
 
@@ -250,7 +201,7 @@ class MDDChecker(CacheController):
 
             #bt.logging.success(f"current return with fees for [{open_position.position_uuid}] is [{open_position.return_at_close}]")
             parse_min = open_position.position_type == OrderType.LONG
-            candle_price = self._parse_extreme_price_in_window(signal_closing_prices, open_position, parse_min=parse_min)
+            candle_price = LivePriceFetcher.parse_extreme_price_in_window(signal_closing_prices, open_position, parse_min=parse_min, filter_min_timestamp=False)
             if candle_price is None:  # Market closed for this trade pair. keep return the same
                 unrealized_return_with_fees = open_position.return_at_close
             else:

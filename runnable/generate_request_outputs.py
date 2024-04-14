@@ -2,6 +2,7 @@ import json
 import traceback
 import uuid
 import time
+from json import JSONDecodeError
 
 from time_util.time_util import TimeUtil
 from vali_config import ValiConfig
@@ -236,6 +237,8 @@ if __name__ == "__main__":
             generate_request_outputs()
             logger.info(f"Checkpoint created in {time.time() - t0} s")
             time.sleep(15)
+    except JSONDecodeError as e:
+        logger.error(f"JSONDecodeError: positions likely being written to simultaneously... retying.")
     except Exception:
         logger.error("error occurred trying generate request outputs.")
         logger.info(traceback.format_exc())

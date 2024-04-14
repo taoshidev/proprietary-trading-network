@@ -52,6 +52,7 @@ POLY_WEBSOCKET_THREADS = {
 
 def handle_msg(msgs: List[CurrencyAgg | EquityAgg]):
     global LOCK, n_events_global, closed_market_prices, latest_websocket_prices, last_websocket_ping_time_s, trade_pair_to_price_history
+    m = None
     with LOCK:
         try:
             for m in msgs:
@@ -63,7 +64,7 @@ def handle_msg(msgs: List[CurrencyAgg | EquityAgg]):
                     tp = PolygonDataService.symbol_to_trade_pair(m.pair)
                 else:
                     raise ValueError(f"Unknown message in POLY websocket: {m}")
-                price = float(m.vwap)
+                price = float(m.vwap) if m.vwap else float(m.close)
                 latest_websocket_prices[tp] = price
                 last_websocket_ping_time_s[tp] = time.time()
                 # Reset the closed market price, indicating that a new close should be fetched after the current day's close
@@ -78,7 +79,7 @@ def handle_msg(msgs: List[CurrencyAgg | EquityAgg]):
                 bt.logging.info("History Size: " + str(history_size))
                 bt.logging.info(f"n_events_global: {n_events_global}")
         except Exception as e:
-            bt.logging.error(f"Failed to handle POLY websocket message with error: {e}")
+            bt.logging.error(f"Failed to handle POLY websocket message with error: {e} message: {m}")
 
 
 def main_forex():
@@ -353,7 +354,7 @@ class PolygonDataService:
         # start 7 days ago
         end_time_ms = TimeUtil.now_in_millis()
         start_time_ms = TimeUtil.now_in_millis() - 1000 * 60 * 60 * 24 * 7
-        candles = self.get_candles_for_trade_pair(trade_pair, start_time_ms, end_time_ms)
+        candles = self.get_candles_for_trade_pair(trade_pair, start_time_ms, end_time_ms, timespan='day')
         if len(candles) == 0:
             msg = f"Failed to fetch market close for {trade_pair.trade_pair}"
             raise ValueError(msg)
@@ -463,7 +464,7 @@ class PolygonDataService:
             prev_timestamp = epoch_miliseconds
 
         bt.logging.info(f"Polygon: smallest delta ms: {smallest_delta_ms}, trade_pair: {trade_pair.trade_pair}, n_responses: "
-                        f"{n_responses}, timespan: {timespan}, price: {corresponding_price}, time: {TimeUtil.timestamp_ms_to_eastern_time_str(price_time)}")
+                        f"{n_responses}, timespan: {timespan}, price: {corresponding_price}")
         if smallest_delta_ms is not None and smallest_delta_ms > allowed_delta_multiplier * self.timespan_to_ms['second']:
             bt.logging.info(f"    time delta too high. ignoring this price")
             return None
@@ -475,14 +476,14 @@ class PolygonDataService:
         closes = [(d['datetime'], float(d["close"])) for d in response]
         return closes
 
-    def get_candles(self, trade_pairs, start_time_ms, end_time_ms):
+    def get_candles(self, trade_pairs, start_time_ms, end_time_ms, timespan, strict_time_bounds=False):
         # Dictionary to store the minimum prices for each trade pair
         ret = {}
 
         # Create a ThreadPoolExecutor with a maximum of 5 threads
         with ThreadPoolExecutor(max_workers=5) as executor:
             # Future objects dictionary to hold the ongoing computations
-            futures = {executor.submit(self.get_candles_for_trade_pair, tp, start_time_ms, end_time_ms): tp for tp in trade_pairs}
+            futures = {executor.submit(self.get_candles_for_trade_pair, tp, start_time_ms, end_time_ms, timespan, strict_time_bounds=strict_time_bounds): tp for tp in trade_pairs}
 
             # Retrieve the results as they complete
             for future in as_completed(futures):
@@ -501,22 +502,10 @@ class PolygonDataService:
         self,
         trade_pair: TradePair,
         start_timestamp_ms: int,
-        end_timestamp_ms: int
+        end_timestamp_ms: int,
+        timespan: str,
+        strict_time_bounds=False
     ) -> list | None:
-
-        delta_time_ms = end_timestamp_ms - start_timestamp_ms
-        delta_time_seconds = delta_time_ms / 1000
-        delta_time_minutes = delta_time_seconds / 60
-        delta_time_hours = delta_time_minutes / 60
-
-        if delta_time_seconds < 70:
-            timespan = "second"
-        elif delta_time_minutes < 70:
-            timespan = "minute"
-        elif delta_time_hours < 70:
-            timespan = "hour"
-        else:
-            timespan = "day"
 
         polygon_ticker = self.trade_pair_to_polygon_ticker(trade_pair)
 
@@ -531,9 +520,10 @@ class PolygonDataService:
         )):
             epoch_miliseconds = a.timestamp
             assert prev_timestamp is None or epoch_miliseconds >= prev_timestamp, ('candles not sorted', prev_timestamp, epoch_miliseconds)
-            #formatted_date = TimeUtil.millis_to_formatted_date_str(epoch_miliseconds)
-            #if i != -1:
-                #print('        agg:', a.low, formatted_date, trade_pair.trade_pair_id, timespan)
+            # filter out candles that are outside the time bounds
+            if strict_time_bounds and (epoch_miliseconds < start_timestamp_ms or epoch_miliseconds > end_timestamp_ms - self.timespan_to_ms[timespan]):
+                continue
+
             aggs.append(a)
             prev_timestamp = epoch_miliseconds
         if not aggs:

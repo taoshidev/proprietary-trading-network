@@ -19,14 +19,16 @@ from vali_objects.exceptions.corrupt_data_exception import ValiBkpCorruptDataExc
 from vali_objects.exceptions.vali_bkp_file_missing_exception import ValiFileMissingException
 from vali_objects.exceptions.vali_records_misalignment_exception import ValiRecordsMisalignmentException
 from vali_objects.position import Position
+from vali_objects.utils.live_price_fetcher import LivePriceFetcher
 from vali_objects.utils.position_lock import PositionLocks
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
-from vali_objects.vali_dataclasses.order import OrderStatus, Order
+from vali_objects.vali_dataclasses.order import OrderStatus
 from vali_objects.utils.position_utils import PositionUtils
 
-
 class PositionManager(CacheController):
-    def __init__(self, config=None, metagraph=None, running_unit_tests=False, perform_price_adjustment=False, live_price_fetcher=None, perform_order_corrections=False, perform_fee_structure_update=False):
+    def __init__(self, config=None, metagraph=None, running_unit_tests=False, perform_price_adjustment=False,
+                 live_price_fetcher=None, perform_order_corrections=False, perform_fee_structure_update=False,
+                 replay_candle_mdd=False):
         super().__init__(config=config, metagraph=metagraph, running_unit_tests=running_unit_tests)
         self.init_cache_files()
         self.position_locks = PositionLocks()
@@ -41,6 +43,8 @@ class PositionManager(CacheController):
                 bt.logging.error(f"Error applying order corrections: {e}")
         if perform_fee_structure_update:
             self.ensure_latest_fee_structure_applied()
+        if replay_candle_mdd:
+            self.replay_candle_mdd()
 
 
 
@@ -225,8 +229,7 @@ class PositionManager(CacheController):
             timestamp_ms = o.processed_ms
             new_orders.append(o)
             # After the implementation of websocket prices
-            # @@@@@@ REMOVE ME @@@@@@@@
-            if 1 or timestamp_ms > 1711947988000:
+            if timestamp_ms > 1711947988000:
                 continue
             old_price = o.price
             new_price = self.live_price_fetcher.get_close_at_date(tp, timestamp_ms)
@@ -243,39 +246,7 @@ class PositionManager(CacheController):
                     deltas.append((old_price, new_price))
                     new_orders[-1].price = new_price
 
-        hotkey_to_worst_naive_drawdown = {}
-        for i in range(len(position.orders)):
-            orders = new_orders[:i+1]
-            disposable_clone.orders = orders
-            disposable_clone.position_type = None
-            disposable_clone._update_position()
-            if disposable_clone.orders[0].leverage < 0:
-                order_type = OrderType.SHORT
-            else:
-                order_type = OrderType.LONG
-            if len(orders) > 1:
-                prev_order = orders[-2]
-                o = orders[-1]
-                window_start_ms = prev_order.processed_ms
-                window_end_ms = o.processed_ms
-                candles = self.live_price_fetcher.get_candles([tp], window_start_ms,
-                                                              window_end_ms) if window_start_ms else None
-                fs = TimeUtil.millis_to_formatted_date_str(window_start_ms)
-                fe = TimeUtil.millis_to_formatted_date_str(window_end_ms)
-                if tp in candles and candles[tp] and isinstance(candles[tp], list):
-                    min_price_seen = min([x.low for x in candles[tp]])
-                    max_price_seen = max([x.high for x in candles[tp]])
-                    unrealized_return = disposable_clone.calculate_unrealized_pnl(min_price_seen if order_type == OrderType.LONG else max_price_seen)
-                    unrealized_return_with_fees = disposable_clone.calculate_return_with_fees(unrealized_return)
-                    drawdown = self.calculate_drawdown(unrealized_return_with_fees, 1.0)
-                    #bt.logging.warning(f"Drawdown is {drawdown} for hotkey {hotkey} trade pair {tp.trade_pair_id}. Between time: {fs} and {fe}. p1: {prev_order.price} p2: {o.price}, min: {min_price_seen}.")
-                    if drawdown < ValiConfig.MAX_TOTAL_DRAWDOWN:
-                        hotkey_to_worst_naive_drawdown[hotkey] = max(hotkey_to_worst_naive_drawdown.get(hotkey, 0), drawdown)
-        if hotkey in hotkey_to_worst_naive_drawdown:
-            bt.logging.error(f"Drawdown is {hotkey_to_worst_naive_drawdown[hotkey]} for hotkey {hotkey} trade pair {tp.trade_pair_id}")
 
-        ## @@@@@ REMOVE ME @@@@@@
-        return position.return_at_close
         assert len(disposable_clone.orders) == len(position.orders)
         if any_changes:
             disposable_clone = deepcopy(position)
@@ -291,6 +262,205 @@ class PositionManager(CacheController):
         else:
             return position.return_at_close
 
+
+    def replay_candle_mdd(self):
+
+        def is_position_closed(position, current_time):
+            # Determines if the position is closed at the given current time
+            last_order_timestamp = position.orders[-1].processed_ms
+            return last_order_timestamp <= current_time
+
+        def is_position_open(position:Position, current_time:int):
+            # Determines if the position is open at the given current time
+            is_open = len(position.orders) == 1 and position.orders[0].processed_ms == current_time
+            for cur_order, next_order in zip(position.orders[:-1], position.orders[1:]):
+                if cur_order.processed_ms <= current_time < next_order.processed_ms:
+                    is_open = True
+                    break
+            return is_open
+
+        def get_active_orders(position, current_time):
+            # Fetches all orders that have been processed on or before the current time
+            return [order for order in position.orders if order.processed_ms <= current_time]
+
+        def extract_timestamps(positions):
+            # Extracts and sorts all unique processed timestamps from orders in all positions
+            timestamps = set()
+            for position in positions:
+                for order in position.orders:
+                    assert order.processed_ms, order
+                    timestamps.add(order.processed_ms)
+            return sorted(list(timestamps))
+
+        def calculate_return_with_candle_drawdown(position_uuid_to_position, status_tracker, position_uuids_updated,
+                                                  open_position_uuid_to_orders, open_position_uuid_to_rac, current_time_ms):
+            assert current_time_ms, current_time_ms
+            closed_positions = []
+            open_positions = []
+            ret = 1.0
+            position_debug = {}
+
+
+            for position_uuid in status_tracker:
+                if status_tracker[position_uuid] == "closed":
+                    closed_positions.append(position_uuid_to_position[position_uuid])
+                elif status_tracker[position_uuid] == "open":
+                    open_positions.append(position_uuid_to_position[position_uuid])
+
+            for position in closed_positions:
+                position_debug[position.trade_pair.trade_pair_id] = {'return': position.return_at_close}
+                ret *= position.return_at_close
+
+            closed_position_return = ret
+
+            price_debug = {}
+            for position in open_positions:
+                if position.position_uuid in position_uuids_updated and len(open_position_uuid_to_orders[position.position_uuid]) == 1:
+                    realtime_price = position.orders[0].price
+                    disposible_clone = deepcopy(position)
+                    disposible_clone.orders = [position.orders[0]]
+                    disposible_clone.rebuild_position_with_updated_orders()
+                    realtime_return = position.calculate_unrealized_pnl(realtime_price)
+                    realtime_return_with_fees = position.calculate_return_with_fees(realtime_return)
+                    ret *= realtime_return_with_fees
+                    open_position_uuid_to_rac[position.position_uuid] = realtime_return_with_fees
+                    position_debug[position.trade_pair.trade_pair_id] = {'return': open_position_uuid_to_rac[position.position_uuid]}
+                    price_debug[position.trade_pair.trade_pair_id] = {'realtime_price': realtime_price,
+                                                                      'current_time_utc': TimeUtil.millis_to_formatted_date_str(
+                                                                          current_time_ms)}
+
+                elif position.position_uuid not in position_uuids_updated:
+                    realtime_price = self.live_price_fetcher.get_close_at_date(position.trade_pair, current_time_ms)
+                    using_prev_price = False
+                    if not realtime_price:
+                        realtime_price = position.orders[-1].price
+                        using_prev_price = True
+
+                    realtime_return = position.calculate_unrealized_pnl(realtime_price)
+                    realtime_return_with_fees = position.calculate_return_with_fees(realtime_return)
+                    ret *= realtime_return_with_fees
+                    open_position_uuid_to_rac[position.position_uuid] = realtime_return_with_fees
+                    position_debug[position.trade_pair.trade_pair_id] = {'return': open_position_uuid_to_rac[position.position_uuid]}
+                    price_debug[position.trade_pair.trade_pair_id] = {'realtime_price': realtime_price, 'current_time_utc': TimeUtil.millis_to_formatted_date_str(current_time_ms)}
+                    if using_prev_price:
+                        price_debug[position.trade_pair.trade_pair_id]['using_prev_price'] = True
+
+                else:
+                    disposible_clone = deepcopy(position)
+                    disposible_clone.orders = open_position_uuid_to_orders[position.position_uuid][:-1]
+                    disposible_clone.rebuild_position_with_updated_orders()
+                    window_start_ms = disposible_clone.orders[-1].processed_ms
+                    window_end_ms = open_position_uuid_to_orders[position.position_uuid][-1].processed_ms
+                    candles = self.live_price_fetcher.get_candles([position.trade_pair], window_start_ms, window_end_ms, fallback_to_live_price=False)
+                    if candles[position.trade_pair]:
+                        extreme_price = LivePriceFetcher.parse_extreme_price_in_window(candles, disposible_clone, parse_min=position.position_type == OrderType.LONG)
+                        price_debug[position.trade_pair.trade_pair_id] = {'extreme_price': extreme_price, 'window_start_utc': TimeUtil.millis_to_formatted_date_str(window_start_ms), 'window_end_utc': TimeUtil.millis_to_formatted_date_str(window_end_ms)}
+                        unrealized_return = disposible_clone.calculate_unrealized_pnl(extreme_price)
+                        unrealized_return_with_fees = disposible_clone.calculate_return_with_fees(unrealized_return)
+                        open_position_uuid_to_rac[position.position_uuid] = unrealized_return_with_fees
+                        ret *= open_position_uuid_to_rac[position.position_uuid]
+                    else:
+                        ret *= open_position_uuid_to_rac[position.position_uuid]
+                    position_debug[position.trade_pair.trade_pair_id] = {'return': open_position_uuid_to_rac[position.position_uuid]}
+
+            return_with_all_positions = ret
+            return return_with_all_positions, closed_position_return, {'price_debug': price_debug, 'position_debug': position_debug}
+
+        def replay_positions(positions, hotkey):
+            nonlocal hotkey_to_elimination_info
+
+            position_uuid_to_position = {position.position_uuid: position for position in positions}
+            # Initializes the tracking of each position's status as "not seen yet"
+            status_tracker = {position.position_uuid: "not seen yet" for position in positions}
+            open_position_uuid_to_orders = {}
+            open_position_uuid_to_rac = {}
+
+            max_portfolio_return = 1.0
+
+            for i, current_time in enumerate(extract_timestamps(positions)):
+                assert current_time, current_time
+                position_uuids_updated = []
+                if hotkey in hotkey_to_elimination_info:
+                    break
+
+                for position in positions:
+                    if is_position_open(position, current_time):
+                        # Position is open
+                        #bt.logging.info(f"Position is open {position.position_uuid}, time_itr {i}")
+                        if status_tracker[position.position_uuid] == "not seen yet":
+                            status_tracker[position.position_uuid] = "open"
+                            open_position_uuid_to_rac[position.position_uuid] = 1.0
+                            open_position_uuid_to_orders[position.position_uuid] = []
+
+                        active_orders = get_active_orders(position, current_time)
+                        #bt.logging.error(f"hotkey {hotkey} status_tracker {status_tracker} position {position}")
+                        assert active_orders
+
+                        # Check if the active orders have changed, and update if they have
+                        if active_orders != open_position_uuid_to_orders[position.position_uuid]:
+                            position_uuids_updated.append(position.position_uuid)
+                            open_position_uuid_to_orders[position.position_uuid] = active_orders
+                    elif status_tracker[position.position_uuid] != "closed" and is_position_closed(position, current_time):
+                        #bt.logging.info(f"Position is closed {position.position_uuid}, time_itr {i}")
+                        # If position is closed, update status and remove it from the open orders if it exists
+                        status_tracker[position.position_uuid] = "closed"
+                        del open_position_uuid_to_orders[position.position_uuid]
+                        del open_position_uuid_to_rac[position.position_uuid]
+
+                # A recently updated posiiton will have its last order ignored for the purpose of candle calculation. perfectly replaying candles until the flat.
+                return_with_all_positions, closed_position_return, price_debug = calculate_return_with_candle_drawdown(position_uuid_to_position,
+                          status_tracker, position_uuids_updated, open_position_uuid_to_orders, open_position_uuid_to_rac, current_time)
+
+                max_portfolio_return = max(max_portfolio_return, closed_position_return)
+                drawdown = self.calculate_drawdown(return_with_all_positions, max_portfolio_return)
+                mdd_failure = self.is_drawdown_beyond_mdd(drawdown, time_now=TimeUtil.millis_to_datetime(1713102534971)) # Never check for daily failure of 5%. only 10%
+                if mdd_failure:
+                    open_positions_trade_pairs = set()
+                    for k, v in status_tracker.items():
+                        if v == "open":
+                            open_positions_trade_pairs.add(position_uuid_to_position[k].trade_pair.trade_pair_id)
+                    closed_positions_trade_pairs = set()
+                    for k, v in status_tracker.items():
+                        if v == "closed":
+                            closed_positions_trade_pairs.add(position_uuid_to_position[k].trade_pair.trade_pair_id)
+                    payload = {
+                        'price_debug': price_debug,
+                        'drawdown': drawdown,
+                        'hotkey': hotkey,
+                        'rough_time_of_elimination_UTC': TimeUtil.millis_to_formatted_date_str(current_time),
+                        'open_positions': open_positions_trade_pairs,
+                        'closed_positions': closed_positions_trade_pairs
+                    }
+
+                    if hotkey in hotkey_to_elimination_info and drawdown < hotkey_to_elimination_info[hotkey][1]:
+                        hotkey_to_elimination_info[hotkey] = payload
+                    elif hotkey not in hotkey_to_elimination_info:
+                        hotkey_to_elimination_info[hotkey] = payload
+                    break
+
+
+
+        all_positions = self.get_all_disk_positions_for_all_miners(sort_positions=True, only_open_positions=False)
+        eliminations = self.get_miner_eliminations_from_disk()
+        eliminated_hotkeys = set(x['hotkey'] for x in eliminations)
+        skipped_eliminated = 0
+        n_positions_total = 0
+        hotkey_to_elimination_info = {}  # hotkey -> (msg, dd)
+        for hotkey, positions in all_positions.items():
+            n_positions_total += len(positions)
+
+            if len(positions) == 0:
+                continue
+
+            if hotkey in eliminated_hotkeys:
+                skipped_eliminated += len(positions)
+                continue
+
+            replay_positions(positions, hotkey)
+
+        print(f"hotkey_to_elimination_info:")
+        for k, v in hotkey_to_elimination_info.items():
+            print(f"    {v}\n\n")
 
     def get_all_disk_positions_for_all_miners(self, **args):
         all_miner_hotkeys: list = ValiBkpUtils.get_directories_in_dir(

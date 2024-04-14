@@ -1,6 +1,7 @@
 import json
 import threading
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List
 
 from time_util.time_util import TimeUtil
@@ -47,6 +48,9 @@ class TwelveDataService:
         self.trade_pair_to_longest_seen_lag = {}
         self.trade_pair_category_to_longest_allowed_lag = {TradePairCategory.CRYPTO: 10, TradePairCategory.FOREX: 10,
                                                            TradePairCategory.INDICES: 10}
+
+        self.timespan_to_ms = {'1min': 1000 * 60, '1h': 1000 * 60 * 60, '1day': 1000 * 60 * 60 * 24}
+
         for trade_pair in TradePair:
             assert trade_pair.trade_pair_category in self.trade_pair_category_to_longest_allowed_lag, \
                 f"Trade pair {trade_pair} has no allowed lag time"
@@ -352,11 +356,58 @@ class TwelveDataService:
         return price
 
 
-    def get_range_of_closes(self, trade_pair, start_date: str, end_date: str):
-        ts = self.td.time_series(symbol=trade_pair, interval='1min', start_date=start_date, end_date=end_date, outputsize=5000)
+    def get_candles_at_timespan(self, trade_pairs, start_time_ms, end_time_ms, timespan):
+        # Dictionary to store the minimum prices for each trade pair
+        ret = {}
+
+        # Create a ThreadPoolExecutor with a maximum of 5 threads
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            # Future objects dictionary to hold the ongoing computations
+            futures = {executor.submit(self.get_range_of_closes, tp, start_time_ms, end_time_ms, timespan): tp for tp in trade_pairs}
+
+            # Retrieve the results as they complete
+            for future in as_completed(futures):
+                trade_pair = futures[future]
+                try:
+                    # Collect the result from future
+                    result = future.result()
+                    ret[trade_pair] = result
+                except Exception as exc:
+                    print(f'{trade_pair} get_min_prices_in_window generated an exception: {exc}')
+
+        # Return the collected results
+        return ret
+
+    def get_range_of_closes(self, trade_pair, input_start_timestamp: int, input_end_timestamp: int, timespan:str):
+        symbol = trade_pair.trade_pair
+        date_start = TimeUtil.millis_to_formatted_date_str(input_start_timestamp)
+        date_end = TimeUtil.millis_to_formatted_date_str(input_end_timestamp)
+        ts = self.td.time_series(symbol=symbol, interval=timespan, start_date=date_start,
+                                 end_date=date_end, outputsize=5000)
         response = ts.as_json()
-        closes = [(d['datetime'], float(d["close"])) for d in response]
-        return closes
+        ret = []
+        for x in response:
+            x['timestamp'] = TimeUtil.formatted_date_str_to_millis(x['datetime'])
+            if x['timestamp'] < input_start_timestamp or x['timestamp'] > input_end_timestamp - self.timespan_to_ms[timespan]:
+                continue
+            x['low'] = float(x['low'])
+            x['high'] = float(x['high'])
+            x['open'] = float(x['open'])
+            x['close'] = float(x['close'])
+            ret.append(x)
+
+        if ret:
+            ret_min_date = ret[0]['datetime']
+            ret_max_date = ret[-1]['datetime']
+            returned_timestamp_start = TimeUtil.formatted_date_str_to_millis(ret_min_date)
+            returned_timestamp_end = TimeUtil.formatted_date_str_to_millis(ret_max_date)
+            assert returned_timestamp_start >= input_start_timestamp, f"Input start time {date_start} is before returned start time {ret_max_date}"
+            assert returned_timestamp_end <= input_end_timestamp, f"Input end time {date_end} is after returned end time {ret_min_date}"
+
+        bt.logging.info(f"Receieved {len(ret)} TD candles for {symbol} from "
+                        f"{date_start} to "
+                        f"{date_end}")
+        return ret
 
 
 if __name__ == "__main__":
@@ -366,7 +417,8 @@ if __name__ == "__main__":
     twelve_data = TwelveDataService(api_key=secrets['twelvedata_apikey'])
 
     #time.sleep(12)
-    print(twelve_data.get_close_at_date(TradePair.CADJPY, 1712746241334))
+    for x in twelve_data.get_range_of_closes(TradePair.EURUSD, '2024-04-10 11:53:11', '2024-04-10 12:26:35'):
+        print(x)
     #print(twelve_data.get_close_at_date(TradePair.CADJPY, 1712746241174))
     assert 0
 
