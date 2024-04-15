@@ -102,6 +102,10 @@ class PropNetOrderPlacer:
         Manages retry attempts and employs exponential backoff for failed attempts.
         """
         signal_data = self.load_signal_data(signal_file_path)
+        hotkey_to_v_trust = {neuron.hotkey: neuron.validator_trust for neuron in self.metagraph.neurons}
+        axons_to_try = self.metagraph.axons
+        axons_to_try.sort(key=lambda validator: hotkey_to_v_trust[validator.hotkey], reverse=True)
+
         retry_status = {
             signal_file_path: {
                 'retry_attempts': 0,
@@ -164,6 +168,9 @@ class PropNetOrderPlacer:
                 else:
                     # Do not retry if the validator has 0 trust and is not in the recently acked list. Maybe another miner or inactive hotkey.
                     pass
+
+        # Sort the new list of axons needing retry by trust, highest to lowest to reduce possible lag
+        new_validators_to_retry.sort(key=lambda validator: hotkey_to_v_trust[validator.hotkey], reverse=True)
 
         retry_status[signal_file_path]['validators_needing_retry'] = new_validators_to_retry
 
