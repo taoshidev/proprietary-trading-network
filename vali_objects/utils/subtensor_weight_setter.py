@@ -120,8 +120,8 @@ class SubtensorWeightSetter(CacheController):
             current_time - first_closed_position_ms
         ) < grace_period_duration_ms
 
-        if grace_period:
-            return False
+        # if grace_period:
+        #     return False
 
         # have to have a min number of closed positions, remove open
         closed_positions = len(
