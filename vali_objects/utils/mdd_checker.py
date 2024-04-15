@@ -141,7 +141,7 @@ class MDDChecker(CacheController):
             # Market is closed for this trade pair
             return None
         if isinstance(dat, float) or isinstance(dat, int):
-            # From TwelveData
+            # From live price fallback
             return float(dat)
 
         # Get the newest price in the window
@@ -161,7 +161,7 @@ class MDDChecker(CacheController):
             # Market is closed for this trade pair
             return None
         if isinstance(dat, float) or isinstance(dat, int):
-            # From TwelveData
+            # From live price fallback
             return float(dat)
         # Handle the case where an order gets placed in between MDD checks.
         min_allowed_timestamp_ms = open_position.orders[-1].processed_ms

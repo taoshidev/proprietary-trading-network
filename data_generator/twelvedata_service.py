@@ -293,17 +293,17 @@ class TwelveDataService:
         bt.logging.info(f"Using TD websocket data for {trade_pair.trade_pair}")
         return ans
 
-    def get_closes(self, trade_pairs: List[TradePair]):
+    def get_closes(self, trade_pairs: List[TradePair], websocket_only=False):
         closes = self.get_closes_websocket(trade_pairs)
         missing_trade_pairs = []
         for tp in trade_pairs:
             if tp not in closes:
                 missing_trade_pairs.append(tp)
-        if closes:
-            debug = {k.trade_pair: v for k, v in closes.items()}
-            bt.logging.info(f"Received TD websocket data: {debug}")
 
-        if missing_trade_pairs:
+        debug = {k.trade_pair: v for k, v in closes.items()}
+        bt.logging.info(f"Received TD websocket data: {debug}")
+
+        if missing_trade_pairs and not websocket_only:
             rest_closes = self.get_closes_rest(missing_trade_pairs)
             debug = {k.trade_pair: v for k, v in rest_closes.items()}
             bt.logging.info(f"Received TD stale/websocket-less data using REST: {debug}")

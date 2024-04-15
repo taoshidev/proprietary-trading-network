@@ -386,17 +386,17 @@ class PolygonDataService:
             bt.logging.info(f"Using POLY websocket data for {trade_pair.trade_pair}")
         return ans
 
-    def get_closes(self, trade_pairs: List[TradePair]) -> dict:
+    def get_closes(self, trade_pairs: List[TradePair], websocket_only=False) -> dict:
         closes = self.get_closes_websocket(trade_pairs)
         missing_trade_pairs = []
         for tp in trade_pairs:
             if tp not in closes or closes[tp] is None:
                 missing_trade_pairs.append(tp)
-        if closes:
-            debug = {k.trade_pair: v for k, v in closes.items()}
-            bt.logging.info(f"Received POLY websocket data: {debug}")
 
-        if missing_trade_pairs:
+        debug = {k.trade_pair: v for k, v in closes.items()}
+        bt.logging.info(f"Received POLY websocket data: {debug}")
+
+        if missing_trade_pairs and not websocket_only:
             rest_closes = self.get_closes_rest(missing_trade_pairs)
             debug = {k.trade_pair: v for k, v in rest_closes.items()}
             bt.logging.info(f"Received stale/websocket-less data using POLY REST: {debug}")
@@ -617,7 +617,12 @@ if __name__ == "__main__":
     polygon_data_provider = PolygonDataService(api_key=secrets['polygon_apikey'])
 
     #time.sleep(12)
-    print(polygon_data_provider.get_close_at_date_second(TradePair.CADJPY, 1712746241174))
+    for tp in [TradePair.SPX]:
+        print('getting candles for', tp.trade_pair_id)
+        candles = polygon_data_provider.get_candles_for_trade_pair(tp, 1713206962000, 1713207000000)
+        for c in candles[:10]:
+            print('    ', c)
+    #print(polygon_data_provider.get_close_at_date_second(TradePair.CADJPY, 1712746241174))
     assert 0
 
 

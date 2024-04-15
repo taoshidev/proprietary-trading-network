@@ -61,16 +61,23 @@ class LivePriceFetcher():
         ans = {}
         if self.polygon_available:
             ans = self.polygon_data_provider.get_candles(trade_pairs=trade_pairs, start_time_ms=start_time_ms, end_time_ms=end_time_ms)
+            trade_pairs_no_candles = [k for k in trade_pairs if k not in ans or not ans[k]]
+            live_prices = self.polygon_data_provider.get_closes(trade_pairs=trade_pairs_no_candles, websocket_only=True)
+            ans.update(live_prices)
             if isinstance(ans, dict) and len(ans) > 0:
-                debug = {k.trade_pair: len(v) for k, v in ans.items() if v and isinstance(v, list) and len(v) > 0}
+                debug = {k.trade_pair: '[' + str(len(v)) + ']' if v and isinstance(v, list) else v for k, v in ans.items() }
             bt.logging.info(f"Fetched candles from Polygon for {debug} from"
                             f" {TimeUtil.millis_to_formatted_date_str(start_time_ms)} to "
                             f"{TimeUtil.millis_to_formatted_date_str(end_time_ms)}")
-        # If Polygon has any missing keys, it is intentional and corresponds to a closed market. We don't want to use twelvedata for this
-        if self.twelvedata_available and len(ans) == 0:
-            bt.logging.info(f"Fetching candles from TD for {[x.trade_pair for x in trade_pairs]} from {start_time_ms} to {end_time_ms}")
-            closes = self.twelve_data.get_closes(trade_pairs=trade_pairs)
-            ans.update(closes)
+
+        # Figure out which trade pairs are miss
+        missing_trade_pairs = [k for k in trade_pairs if k not in ans or not ans[k]]
+        # Use TD websocket to fill remaining gas. No rest candles.
+        if self.twelvedata_available and missing_trade_pairs:
+            bt.logging.info(f"Fetching TD websocket data for {missing_trade_pairs}")
+            live_prices = self.twelve_data.get_closes(trade_pairs=missing_trade_pairs)
+            #closes = self.twelve_data.get_closes(trade_pairs=trade_pairs)
+            ans.update(live_prices)
         return ans
 
     def get_close_at_date(self, trade_pair, timestamp_ms):
