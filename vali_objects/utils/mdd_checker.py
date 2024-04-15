@@ -202,6 +202,7 @@ class MDDChecker(CacheController):
             # Log return before calling set_returns
             #bt.logging.info(f"current return with fees for open position with trade pair[{open_position.trade_pair.trade_pair_id}] is [{open_position.return_at_close}]. Position: {position}")
             if position.is_open_position:
+                position.close_ms = None
                 position.set_returns(realtime_price)
                 self.position_manager.save_miner_position_to_disk(position)
 
