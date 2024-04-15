@@ -2,7 +2,7 @@ import json
 import traceback
 import uuid
 import time
-
+from json import JSONDecodeError
 from time_util.time_util import TimeUtil
 from vali_config import ValiConfig
 from vali_objects.decoders.generalized_json_decoder import GeneralizedJSONDecoder
@@ -172,7 +172,7 @@ def generate_request_outputs():
         positions = data['positions']
         n_positions_new += sum([len(p['orders']) for p in positions])
 
-    logger.info(f"n_orders_original: {n_orders_original}, n_positions_new: {n_positions_new}")
+    #logger.debug(f"n_orders_original: {n_orders_original}, n_positions_new: {n_positions_new}")
     assert n_orders_original == n_positions_new, f"n_orders_original: {n_orders_original}, n_positions_new: {n_positions_new}"
 
     now_ms = TimeUtil.now_in_millis()
@@ -209,7 +209,7 @@ def generate_request_outputs():
     }
 
     output_file_path = ValiBkpUtils.get_vali_outputs_dir() + "validator_checkpoint.json"
-    logger.info("Writing to output_file_path:" + output_file_path)
+    #logger.debug("Writing to output_file_path:" + output_file_path)
     ValiBkpUtils.write_file(
         output_file_path,
         final_dict,
@@ -221,8 +221,6 @@ def generate_request_outputs():
         legacy_output_file_path,
         ord_dict_hotkey_position_map,
     )
-
-    logger.info("successfully outputted request output.")
 
 
 
@@ -236,6 +234,8 @@ if __name__ == "__main__":
             generate_request_outputs()
             logger.info(f"Checkpoint created in {time.time() - t0} s")
             time.sleep(15)
+    except JSONDecodeError:
+        logger.error("error occurred trying to decode position json. Probably being written to simultaneously.")
     except Exception:
         logger.error("error occurred trying generate request outputs.")
-        logger.info(traceback.format_exc())
+        #logger.debug(traceback.format_exc())

@@ -77,9 +77,11 @@ class PositionManager(CacheController):
 
         miner couldn't close position due to temporary bug. deleted position completely.
 
+        # 4/15/23 Verified high lag on order price using Twelve Data
+
         """
 
-        def correct_for_tp(positions, idx, prices, tp, timestamp_ms=None):
+        def correct_for_tp(positions: List[Position], idx, prices, tp, timestamp_ms=None):
             nonlocal n_attempts, n_corrections, unique_corrections
             n_attempts += 1
             pos = None
@@ -110,10 +112,15 @@ class PositionManager(CacheController):
 
             elif i == idx and pos and len(prices) == len(pos.orders):
                 self.delete_position_from_disk(pos)
+                new_orders = []
                 for i, o in enumerate(pos.orders):
                     o.price = prices[i]
+                    new_orders.append(o)
+                pos.orders = new_orders
+                old_return = pos.return_at_close
                 pos.rebuild_position_with_updated_orders()
                 self.save_miner_position_to_disk(pos)
+                bt.logging.info(f"Corrected position for trade pair {tp.trade_pair_id}. Old return {old_return}, New return: {pos.return_at_close}")
                 unique_corrections.add(pos.position_uuid)
                 n_corrections += 1
                 return
@@ -161,11 +168,15 @@ class PositionManager(CacheController):
                 correct_for_tp(positions, 0, [151.727, 151.858, 153.0370, 153.0560, 153.0720, 153.2400, 153.2280, 153.2400], TradePair.USDJPY)
             if miner_hotkey == '5DfhKZckZwjCqEcBUsW7jwzA5APCdj5SgZbfK6zzS9bMPuHn':
                 correct_for_tp(positions, 0, [111.599, 111.55999756, 111.622], TradePair.CADJPY)
-            """
+                
             if miner_hotkey == '5C5dGkAZ8P58Rcm7abWwsKRv91h8aqTsvVak2ogJ6wpxSZPw':
                 correct_for_tp(positions, 0, [151.73, 151.862, 153.047, 153.051, 153.071, 153.241, 153.225, 153.235], TradePair.USDJPY)
             if miner_hotkey == '5HCJ6okRkmCsu7iLEWotBxgcZy11RhbxSzs8MXT4Dei9osUx':
                 correct_for_tp(positions, 0, None, TradePair.ETHUSD, timestamp_ms=1713102534971)
+            """
+            if miner_hotkey == '5G3ys2356ovgUivX3endMP7f37LPEjRkzDAM3Km8CxQnErCw':
+                correct_for_tp(positions, 1, [100.192, 100.711, 100.379], TradePair.AUDJPY)
+
 
         bt.logging.warning(f"Applied {n_corrections} order corrections out of {n_attempts} attempts. unique positions corrected: {len(unique_corrections)}")
 
