@@ -39,8 +39,8 @@ class PositionManager(CacheController):
                 self.apply_order_corrections()
             except Exception as e:
                 bt.logging.error(f"Error applying order corrections: {e}")
-        if perform_fee_structure_update:
-            self.ensure_latest_fee_structure_applied()
+        #if perform_fee_structure_update:
+        #    self.ensure_latest_fee_structure_applied()
 
 
 
@@ -176,6 +176,7 @@ class PositionManager(CacheController):
             """
             if miner_hotkey == '5G3ys2356ovgUivX3endMP7f37LPEjRkzDAM3Km8CxQnErCw':
                 correct_for_tp(positions, 1, [100.192, 100.711, 100.379], TradePair.AUDJPY)
+                correct_for_tp(positions, 1, None, TradePair.GBPJPY, timestamp_ms=1712624748605)
 
 
         bt.logging.warning(f"Applied {n_corrections} order corrections out of {n_attempts} attempts. unique positions corrected: {len(unique_corrections)}")
@@ -197,7 +198,7 @@ class PositionManager(CacheController):
                 n_positions_seen += 1
                 # Ensure this position is using the latest fee structure. If not, recalculate and persist the new return to disk
                 old_return_at_close = position.return_at_close
-                new_return_at_close = position.calculate_return_with_fees(position.current_return)
+                new_return_at_close = position.calculate_return_with_fees(position.current_return, timestamp_ms=position.close_ms)
                 if old_return_at_close != new_return_at_close:
                     n_positions_updated += 1
                     if abs(old_return_at_close - new_return_at_close) / old_return_at_close > 0.03:
@@ -275,7 +276,7 @@ class PositionManager(CacheController):
                     min_price_seen = min([x.low for x in candles[tp]])
                     max_price_seen = max([x.high for x in candles[tp]])
                     unrealized_return = disposable_clone.calculate_unrealized_pnl(min_price_seen if order_type == OrderType.LONG else max_price_seen)
-                    unrealized_return_with_fees = disposable_clone.calculate_return_with_fees(unrealized_return)
+                    unrealized_return_with_fees = disposable_clone.calculate_return_with_fees(unrealized_return, timestamp_ms=window_end_ms)
                     drawdown = self.calculate_drawdown(unrealized_return_with_fees, 1.0)
                     bt.logging.warning(f"Drawdown is {drawdown} for hotkey {hotkey} trade pair {tp.trade_pair_id}. Between time: {fs} and {fe}. p1: {prev_order.price} p2: {o.price}, min: {min_price_seen}.")
                     if drawdown < ValiConfig.MAX_TOTAL_DRAWDOWN:
@@ -575,6 +576,7 @@ class PositionManager(CacheController):
     def get_miner_position_from_disk(self, file) -> Position:
         # wrapping here to allow simpler error handling & original for other error handling
         # Note one position always corresponds to one file.
+        file_string = None
         try:
             file_string = ValiBkpUtils.get_file(file)
             ans = Position.parse_raw(file_string)
@@ -582,8 +584,8 @@ class PositionManager(CacheController):
             return ans
         except FileNotFoundError:
             raise ValiFileMissingException("Vali position file is missing")
-        except UnpicklingError:
-            raise ValiBkpCorruptDataException("position data is not pickled")
+        except UnpicklingError as e:
+            raise ValiBkpCorruptDataException(f"file_string is {file_string}, {e}")
         except UnicodeDecodeError as e:
             raise ValiBkpCorruptDataException(f" Error {e} You may be running an old version of the software. Confirm with the team if you should delete your cache.")
 

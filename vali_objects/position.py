@@ -226,16 +226,50 @@ class Position(BaseModel):
                 max_leverage = abs(current_leverage)
         return max_leverage
 
+    def cumulative_leverage(self):
+        current_leverage = 0.0
+        cumulative_leverage = 0.0
+        for order in self.orders:
+            # Explicit flat
+            if order.order_type == OrderType.FLAT:
+                cumulative_leverage += abs(current_leverage)
+                break
+
+            prev_leverage = current_leverage
+
+            # Clamp
+            if current_leverage + order.leverage > self.trade_pair.max_leverage:
+                current_leverage = self.trade_pair.max_leverage
+            elif current_leverage + order.leverage < -self.trade_pair.max_leverage:
+                current_leverage = -self.trade_pair.max_leverage
+            else:
+                current_leverage += order.leverage
+
+            # Implicit FLAT
+            if current_leverage == 0.0 or self._leverage_flipped(prev_leverage, current_leverage):
+                cumulative_leverage += abs(prev_leverage)
+                break
+            else:
+                cumulative_leverage += abs(current_leverage - prev_leverage)
+
+        return cumulative_leverage
+
     def _handle_liquidation(self, time_ms):
         self._position_log("position liquidated. Trade pair: " + str(self.trade_pair.trade_pair_id))
 
         self.close_out_position(time_ms)
 
-    def calculate_return_with_fees(self, current_return_no_fees):
+    def calculate_return_with_fees(self, current_return_no_fees, timestamp_ms=None):
+        if timestamp_ms is None:
+            timestamp_ms = TimeUtil.now_in_millis()
         # Note: Closed positions will have static returns. This method is only called for open positions.
         # V2 fee calculation. Crypto fee lowered from .003 to .002. Multiply fee by leverage for crypto pairs.
         # V3 calculation. All fees scaled by leverage. Updated forex and indices fees.
-        fee = self.trade_pair.fees * self.max_leverage_seen()
+        # V4 calculation. Fees are now based on cumulative leverage
+        if timestamp_ms < 1713194041000:  # PR merged
+            fee = self.trade_pair.fees * self.max_leverage_seen()
+        else:
+            fee = self.trade_pair.fees * self.cumulative_leverage() / 2.0
         return current_return_no_fees * (1.0 - fee)
 
 
@@ -245,7 +279,7 @@ class Position(BaseModel):
         # We used to multiple trade_pair.fees by net_leverage. Eventually we will
         # Update this calculation to approximate actual exchange fees.
         self.current_return = self.calculate_unrealized_pnl(realtime_price)
-        self.return_at_close = self.calculate_return_with_fees(self.current_return)
+        self.return_at_close = self.calculate_return_with_fees(self.current_return, timestamp_ms=time_ms)
 
         if self.current_return < 0:
             raise ValueError(f"current return must be positive {self.current_return}")
