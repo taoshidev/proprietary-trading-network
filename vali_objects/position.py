@@ -128,7 +128,16 @@ class Position(BaseModel):
         return self.net_leverage
 
     def rebuild_position_with_updated_orders(self):
+        self.current_return = 1.0
+        self.close_ms = None
+        self.return_at_close = 1.0
+        self.net_leverage = 0.0
+        self.average_entry_price = 0.0
+        self.initial_entry_price = 0.0
         self.position_type = None
+        self.is_closed_position = False
+        self.position_type = None
+
         self._update_position()
 
     def log_position_status(self):
