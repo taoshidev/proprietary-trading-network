@@ -1,6 +1,6 @@
 # developer: jbonilla
 # Copyright © 2024 Taoshi Inc
-
+import copy
 import time
 from typing import List
 
@@ -138,22 +138,24 @@ class SubtensorWeightSetter(CacheController):
         """
         Filter out positions that are not within the lookback range.
         """
+
         filtered_positions = []
         for position in positions:
-            if position.is_open_position:
+            c_pos = copy.deepcopy(position)
+            if c_pos.is_open_position:
                 if closed_only:
                     continue
                 # set to now for all calcs
-                position.close_ms = TimeUtil.now_in_millis()
+                c_pos.close_ms = TimeUtil.now_in_millis()
 
             if (
-                position.is_closed_position
-                and position.close_ms - position.open_ms
+                c_pos.is_closed_position
+                and c_pos.close_ms - c_pos.open_ms
                 < ValiConfig.SET_WEIGHT_MINIMUM_POSITION_DURATION_MS
             ):
                 continue
 
-            filtered_positions.append(position)
+            filtered_positions.append(c_pos)
         return filtered_positions
 
     def _set_subtensor_weights(self, filtered_results: list[tuple[str, float]]):
