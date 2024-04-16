@@ -15,7 +15,7 @@ from vali_objects.utils.position_utils import PositionUtils
 from vali_objects.vali_dataclasses.order import Order
 from vali_objects.scoring.scoring import Scoring
 
-def generate_request_outputs():
+def generate_request_outputs(write_legacy:bool, write_validator_checkpoint:bool):
     position_manager = PositionManager(
         config=None,
         metagraph=None,
@@ -208,34 +208,58 @@ def generate_request_outputs():
         'positions': ord_dict_hotkey_position_map,
     }
 
-    output_file_path = ValiBkpUtils.get_vali_outputs_dir() + "validator_checkpoint.json"
-    #logger.debug("Writing to output_file_path:" + output_file_path)
-    ValiBkpUtils.write_file(
-        output_file_path,
-        final_dict,
-    )
+    if write_validator_checkpoint:
+        output_file_path = ValiBkpUtils.get_vali_outputs_dir() + "validator_checkpoint.json"
+        #logger.debug("Writing to output_file_path:" + output_file_path)
+        ValiBkpUtils.write_file(
+            output_file_path,
+            final_dict,
+        )
 
-    # Support for legacy output file
-    legacy_output_file_path = ValiConfig.BASE_DIR + "/validation/outputs/output.json"
-    ValiBkpUtils.write_file(
-        legacy_output_file_path,
-        ord_dict_hotkey_position_map,
-    )
-
-
+    if write_legacy:
+        # Support for legacy output file
+        legacy_output_file_path = ValiConfig.BASE_DIR + "/validation/outputs/output.json"
+        ValiBkpUtils.write_file(
+            legacy_output_file_path,
+            ord_dict_hotkey_position_map,
+        )
 
 if __name__ == "__main__":
     logger = LoggerUtils.init_logger("generate_request_outputs")
+    last_legacy_write_time = time.time()
+    last_validator_checkpoint_time = time.time()
     try:
-        logger.info("generate request outputs")
         while True:
-            t0 = time.time()
-            logger.info(f"Creating validator checkpoint...")
-            generate_request_outputs()
-            logger.info(f"Checkpoint created in {time.time() - t0} s")
-            time.sleep(180)
+            current_time = time.time()
+            write_legacy = False
+            write_validator_checkpoint = False
+            msg = ""
+            # Check if it's time to write the legacy output
+            if current_time - last_legacy_write_time >= 15:
+                msg += "Writing output.json. "
+                write_legacy = True
+
+            # Check if it's time to write the validator checkpoint
+            if current_time - last_validator_checkpoint_time >= 180:
+                msg += "Writing validator validator_checkpoint.json. "
+                write_validator_checkpoint = True
+
+            if write_legacy or write_validator_checkpoint:
+                logger.info(msg)
+                # Generate the request outputs
+                generate_request_outputs(write_legacy=write_legacy, write_validator_checkpoint=write_validator_checkpoint)
+
+            if write_legacy:
+                last_legacy_write_time = current_time
+            if write_validator_checkpoint:
+                last_validator_checkpoint_time = current_time
+
+            # Log completion duration
+            if write_legacy or write_validator_checkpoint:
+                logger.info("Completed writing outputs in " + str(time.time() - current_time) + " seconds.")
     except JSONDecodeError:
         logger.error("error occurred trying to decode position json. Probably being written to simultaneously.")
-    except Exception:
-        logger.error("error occurred trying generate request outputs.")
-        #logger.debug(traceback.format_exc())
+    except Exception as e:
+        logger.error(f"An error occurred: {str(e)}")
+    # Sleep for a short time to prevent tight looping, adjust as necessary
+    time.sleep(1)
