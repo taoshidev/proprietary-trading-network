@@ -233,7 +233,7 @@ if __name__ == "__main__":
             logger.info(f"Creating validator checkpoint...")
             generate_request_outputs()
             logger.info(f"Checkpoint created in {time.time() - t0} s")
-            time.sleep(15)
+            time.sleep(180)
     except JSONDecodeError:
         logger.error("error occurred trying to decode position json. Probably being written to simultaneously.")
     except Exception:
