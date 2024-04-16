@@ -108,7 +108,8 @@ class Validator:
         # Attach determines which functions are called when servicing a request.
         bt.logging.info(f"Attaching forward function to axon.")
 
-        self.rate_limiter = RateLimiter()
+        self.order_rate_limiter = RateLimiter()
+        self.position_inspector_rate_limiter = RateLimiter(max_requests_per_window=1, rate_limit_window_duration_seconds = 60 * 4)
 
         def rs_blacklist_fn(synapse: template.protocol.SendSignal) -> Tuple[bool, str]:
             return Validator.blacklist_fn(synapse, self.metagraph)
@@ -356,10 +357,14 @@ class Validator:
                 )
         return open_position
 
-    def should_fail_early(self, synapse: template.protocol.SendSignal | template.protocol.GetPositions, signal=None) -> bool:
+    def should_fail_early(self, synapse: template.protocol.SendSignal | template.protocol.GetPositions, is_pi, signal=None) -> bool:
         miner_hotkey = synapse.dendrite.hotkey
         # Don't allow miners to send too many signals in a short period of time
-        allowed, wait_time = self.rate_limiter.is_allowed(miner_hotkey)
+        if is_pi:
+            allowed, wait_time = self.position_inspector_rate_limiter.is_allowed(miner_hotkey)
+        else:
+            allowed, wait_time = self.order_rate_limiter.is_allowed(miner_hotkey)
+
         if not allowed:
             msg = f"Rate limited. Please wait {wait_time} seconds before sending another signal."
             bt.logging.trace(msg)
@@ -434,7 +439,7 @@ class Validator:
         miner_hotkey = synapse.dendrite.hotkey
         signal = synapse.signal
         bt.logging.info(f"received signal [{signal}] from miner_hotkey [{miner_hotkey}].")
-        if self.should_fail_early(synapse, signal=signal):
+        if self.should_fail_early(synapse, False, signal=signal):
             return synapse
 
         # error message to send back to miners in case of a problem so they can fix and resend
@@ -476,7 +481,7 @@ class Validator:
 
     def get_positions(self, synapse: template.protocol.GetPositions,
                       ) -> template.protocol.GetPositions:
-        if self.should_fail_early(synapse):
+        if self.should_fail_early(synapse, True):
             return synapse
 
         miner_hotkey = synapse.dendrite.hotkey
