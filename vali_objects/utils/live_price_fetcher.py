@@ -1,3 +1,6 @@
+import time
+from typing import List, Tuple, Dict
+
 from data_generator.twelvedata_service import TwelveDataService
 from data_generator.polygon_data_service import PolygonDataService
 from time_util.time_util import TimeUtil
@@ -7,73 +10,124 @@ from vali_objects.utils.vali_utils import ValiUtils
 from shared_objects.retry import retry
 import bittensor as bt
 
+from vali_objects.vali_dataclasses.price_source import PriceSource
+
+
 class LivePriceFetcher():
     def __init__(self, secrets):
         if "twelvedata_apikey" in secrets:
-            self.twelve_data = TwelveDataService(api_key=secrets["twelvedata_apikey"])
+            self.twelve_data_service = TwelveDataService(api_key=secrets["twelvedata_apikey"])
         else:
-            self.twelve_data = None
+            raise Exception("TwelveData API key not found in secrets.json")
         if "polygon_apikey" in secrets:
-            self.polygon_data_provider = PolygonDataService(api_key=secrets["polygon_apikey"])
+            self.polygon_data_service = PolygonDataService(api_key=secrets["polygon_apikey"])
         else:
-            self.polygon_data_provider = None
+            raise Exception("TwelveData API key not found in secrets.json")
 
-        assert self.twelvedata_available or self.polygon_available, \
-            "No data provider available. Make sure your API keys are correctly configured in secrets.json"
+    def determine_best_price(self, price_events: List[PriceSource | None], current_time_ms: int, filter_recent_only=True) -> Tuple:
+        """
+        Determines the best price from a list of price events based on their recency and validity.
+        """
+        valid_events = [event for event in price_events if event]
+        if not valid_events:
+            return None, None
 
-    @property
-    def twelvedata_available(self):
-        return self.twelve_data is not None
+        best_event = PriceSource.get_winning_event(valid_events, current_time_ms)
+        if not best_event:
+            return None, None
 
-    @property
-    def polygon_available(self):
-        return self.polygon_data_provider is not None
+        if filter_recent_only and best_event.time_delta_from_now_ms(current_time_ms) > 2000:
+            return None, None
+
+        return best_event.parse_best_price(current_time_ms), PriceSource.non_null_events_sorted(valid_events, current_time_ms)
+
+    def fetch_prices(self, tps: List[TradePair], trade_pair_to_last_order_time_ms) -> (
+            dict[str: Tuple[float, List[PriceSource]]] | dict[str: Tuple[None, None]]):
+        """
+        Fetches data using WebSockets first; uses REST APIs if WebSocket data is outdated or missing.
+        """
+        websocket_prices_polygon = self.polygon_data_service.get_closes_websocket(trade_pairs=tps, trade_pair_to_last_order_time_ms=trade_pair_to_last_order_time_ms)
+        websocket_prices_twelve_data = self.twelve_data_service.get_closes_websocket(trade_pairs=tps, trade_pair_to_last_order_time_ms=trade_pair_to_last_order_time_ms)
+        trade_pairs_needing_rest_data = []
+
+        results = {}
+
+        # Initial check using WebSocket data
+        for trade_pair in tps:
+            current_time_ms = trade_pair_to_last_order_time_ms[trade_pair]
+            events = [websocket_prices_polygon.get(trade_pair), websocket_prices_twelve_data.get(trade_pair)]
+            price, sources = self.determine_best_price(events, current_time_ms)
+            if price:
+                results[trade_pair] = (price, sources)
+            else:
+                trade_pairs_needing_rest_data.append(trade_pair)
+
+        # Fetch from REST APIs if needed
+        if not trade_pairs_needing_rest_data:
+            return results
+
+        rest_prices_polygon = self.polygon_data_service.get_closes_rest(trade_pairs_needing_rest_data)
+        rest_prices_twelve_data = self.twelve_data_service.get_closes_rest(trade_pairs_needing_rest_data)
+
+        for trade_pair in trade_pairs_needing_rest_data:
+            current_time_ms = trade_pair_to_last_order_time_ms[trade_pair]
+            events = [
+                websocket_prices_polygon.get(trade_pair),
+                websocket_prices_twelve_data.get(trade_pair),
+                rest_prices_polygon.get(trade_pair),
+                rest_prices_twelve_data.get(trade_pair)
+            ]
+            results[trade_pair] = self.determine_best_price(events, current_time_ms, filter_recent_only=False)
+
+        return results
 
     @retry(tries=2, delay=5, backoff=2)
-    def get_close(self, trade_pair):
-        if self.polygon_available:
-            ans = self.polygon_data_provider.get_close(trade_pair=trade_pair)
-            if ans:
-                return ans
-        if self.twelvedata_available:
-            return self.twelve_data.get_close(trade_pair=trade_pair)
+    def get_latest_price(self, trade_pair: TradePair, time_ms=None) -> Tuple[float, List[PriceSource]] | Tuple[None, None]:
+        """
+        Gets the latest price for a single trade pair by utilizing WebSocket and possibly REST data sources.
+        Tries to get the price as close to time_ms as possible.
+        """
+        if not time_ms:
+            time_ms = TimeUtil.now_in_millis()
+        return self.fetch_prices([trade_pair], {trade_pair: time_ms})[trade_pair]
 
     @retry(tries=2, delay=5, backoff=2)
-    def get_closes(self, trade_pairs: list):
-        ans = {}
-        if self.polygon_available:
-            ans = self.polygon_data_provider.get_closes(trade_pairs=trade_pairs)
-            invalid_closes = {k: v for k, v in ans.items() if v is None}
-            if ans and len(invalid_closes) == 0:
-                return ans
-        if self.twelvedata_available:
-            td_closes = self.twelve_data.get_closes(trade_pairs=list(set(trade_pairs) - set(ans.keys())))
-            ans.update(td_closes)
-        return ans
+    def get_latest_prices(self, trade_pairs: List[TradePair], trade_pair_to_last_order_time_ms: Dict[TradePair, int]=None) -> Dict:
+        """
+        Retrieves the latest prices for multiple trade pairs, leveraging both WebSocket and REST APIs as needed.
+        """
+        if not trade_pair_to_last_order_time_ms:
+            current_time_ms = TimeUtil.now_in_millis()
+            trade_pair_to_last_order_time_ms = {tp: current_time_ms for tp in trade_pairs}
+        return self.fetch_prices(trade_pairs, trade_pair_to_last_order_time_ms)
 
-    def time_since_last_ping_s(self, trade_pair: TradePair) -> float | None:
-        if self.polygon_available:
-            return self.polygon_data_provider.get_websocket_lag_for_trade_pair_s(trade_pair=trade_pair)
-        # Don't want to use twelvedata for this
-        return None
+    def time_since_last_ws_ping_s(self, trade_pair: TradePair) -> float | None:
+        if trade_pair in self.polygon_data_service.UNSUPPORTED_TRADE_PAIRS:
+            return None
+        now_ms = TimeUtil.now_in_millis()
+        t1 = self.polygon_data_service.get_websocket_lag_for_trade_pair_s(tp=trade_pair.trade_pair, now_ms=now_ms)
+        t2 = self.twelve_data_service.get_websocket_lag_for_trade_pair_s(tp=trade_pair.trade_pair, now_ms=now_ms)
+        return max([x for x in (t1, t2) if x])
 
     def get_candles(self, trade_pairs, start_time_ms, end_time_ms) -> dict:
         ans = {}
-        if self.polygon_available:
-            ans = self.polygon_data_provider.get_candles(trade_pairs=trade_pairs, start_time_ms=start_time_ms, end_time_ms=end_time_ms)
-            if isinstance(ans, dict) and len(ans) > 0:
-                debug = {k.trade_pair: len(v) for k, v in ans.items() if v and isinstance(v, list) and len(v) > 0}
-            bt.logging.info(f"Fetched candles from Polygon for {debug} from"
-                            f" {TimeUtil.millis_to_formatted_date_str(start_time_ms)} to "
-                            f"{TimeUtil.millis_to_formatted_date_str(end_time_ms)}")
-        # If Polygon has any missing keys, it is intentional and corresponds to a closed market. We don't want to use twelvedata for this
-        if self.twelvedata_available and len(ans) == 0:
-            bt.logging.info(f"Fetching candles from TD for {[x.trade_pair for x in trade_pairs]} from {start_time_ms} to {end_time_ms}")
-            closes = self.twelve_data.get_closes(trade_pairs=trade_pairs)
-            ans.update(closes)
+        debug = None
+        ans.update(self.polygon_data_service.get_candles(trade_pairs=trade_pairs, start_time_ms=start_time_ms, end_time_ms=end_time_ms))
+        if isinstance(ans, dict) and len(ans) > 0:
+            debug = {k.trade_pair: '[' + str(len(v)) + ']' for k, v in ans.items() if v and isinstance(v, list) and len(v) > 0}
+        bt.logging.info(f"Fetched candles from Polygon for {debug} from"
+                        f" {TimeUtil.millis_to_formatted_date_str(start_time_ms)} to "
+                        f"{TimeUtil.millis_to_formatted_date_str(end_time_ms)}")
+
+        # If Polygon has any missing keys, it is intentional and corresponds to a closed market. We don't want to use twelvedata for this TODO: fall back to live price from TD/POLY.
+        #if self.twelvedata_available and len(ans) == 0:
+        #    bt.logging.info(f"Fetching candles from TD for {[x.trade_pair for x in trade_pairs]} from {start_time_ms} to {end_time_ms}")
+        #    closes = self.twelve_data.get_closes(trade_pairs=trade_pairs)
+        #    ans.update(closes)
         return ans
 
     def get_close_at_date(self, trade_pair, timestamp_ms):
+        # TODO: this is only used for price recal which isn't currently used. Can fix this later.
         ans = self.polygon_data_provider.get_close_at_date_second(trade_pair=trade_pair, timestamp_ms=timestamp_ms)
         if ans is None:
             ans = self.twelve_data.get_close_at_date(trade_pair=trade_pair, timestamp_ms=timestamp_ms)
@@ -97,17 +151,17 @@ class LivePriceFetcher():
 
         return ans
 
-    def is_market_closed_for_trade_pair(self, trade_pair):
-        return self.twelve_data.trade_pair_market_likely_closed(trade_pair)
-
-
 
 if __name__ == "__main__":
     secrets = ValiUtils.get_secrets()
     live_price_fetcher = LivePriceFetcher(secrets)
-    trade_pairs = [TradePair.BTCUSD, TradePair.ETHUSD]
-    ans = live_price_fetcher.get_closes(trade_pairs)
-    for k, v in ans.items():
-        print(f"{k.trade_pair_id}: {v}")
-    print("Done")
+    trade_pairs = [TradePair.BTCUSD, TradePair.ETHUSD,]
+    while True:
+        for tp in TradePair:
+            print(f"{tp.trade_pair}: {live_price_fetcher.get_close(tp)}")
+        time.sleep(10)
+    #ans = live_price_fetcher.get_closes(trade_pairs)
+    #for k, v in ans.items():
+    #    print(f"{k.trade_pair_id}: {v}")
+    #print("Done")
 

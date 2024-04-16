@@ -5,6 +5,7 @@ import time
 from shared_objects.cache_controller import CacheController
 from tests.shared_objects.mock_classes import MockMetagraph, MockMDDChecker
 from tests.vali_tests.base_objects.test_base import TestBase
+from time_util.time_util import TimeUtil
 from vali_config import TradePair, ValiConfig
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.position import Position
@@ -19,12 +20,14 @@ class TestMDDChecker(TestBase):
 
     def setUp(self):
         super().setUp()
+        secrets = ValiUtils.get_secrets()
         self.MINER_HOTKEY = "test_miner"
         self.mock_metagraph = MockMetagraph([self.MINER_HOTKEY])
         self.position_manager = PositionManager(metagraph=self.mock_metagraph, running_unit_tests=True)
-        self.mdd_checker = MockMDDChecker(self.mock_metagraph, self.position_manager)
+        self.live_price_fetcher = LivePriceFetcher(secrets=secrets)
+        self.mdd_checker = MockMDDChecker(self.mock_metagraph, self.position_manager, self.live_price_fetcher)
         self.DEFAULT_TEST_POSITION_UUID = "test_position"
-        self.DEFAULT_OPEN_MS = 1000
+        self.DEFAULT_OPEN_MS = TimeUtil.now_in_millis()
         self.trade_pair_to_default_position = {x: Position(
             miner_hotkey=self.MINER_HOTKEY,
             position_uuid=self.DEFAULT_TEST_POSITION_UUID + str(x.trade_pair_id),
@@ -35,9 +38,8 @@ class TestMDDChecker(TestBase):
         self.mdd_checker.init_cache_files()
         self.mdd_checker.clear_eliminations_from_disk()
         self.position_manager.clear_all_miner_positions_from_disk()
-        secrets = ValiUtils.get_secrets()
         #secrets["twelvedata_apikey"] = secrets["twelvedata_apikey2"]
-        self.live_price_fetcher = LivePriceFetcher(secrets=secrets)
+        self.mdd_checker.price_correction_enabled = False
 
     def verify_elimination_data_in_memory_and_disk(self, expected_eliminations):
         self.mdd_checker._refresh_eliminations_in_memory_and_disk()
@@ -78,10 +80,12 @@ class TestMDDChecker(TestBase):
                 leverage=1.0,
                 price=1000,
                 trade_pair=TradePair.BTCUSD,
-                processed_ms=111111111,
+                processed_ms=TimeUtil.now_in_millis(),
                 order_uuid="1000")
 
         relevant_position = self.trade_pair_to_default_position[TradePair.BTCUSD]
+        self.mdd_checker.last_price_fetch_time_ms = TimeUtil.now_in_millis()
+        time.sleep(5)
         self.mdd_checker.mdd_check()
         # Running mdd_check with no positions should not cause any eliminations but it should write an empty list to disk
         self.verify_elimination_data_in_memory_and_disk([])
@@ -94,16 +98,50 @@ class TestMDDChecker(TestBase):
         self.verify_elimination_data_in_memory_and_disk([failure_row])
         self.verify_positions_on_disk([relevant_position], assert_all_closed=True)
 
+    def test_get_live_prices(self):
+        time.sleep(5)
+        live_price, price_sources = self.live_price_fetcher.get_latest_price(trade_pair=TradePair.BTCUSD, time_ms=TimeUtil.now_in_millis() - 1000 * 180)
+        for i in range(len(price_sources)):
+            print('%%%%', price_sources[i], '%%%%')
+        self.assertTrue(live_price > 0)
+        self.assertTrue(price_sources)
+        self.assertTrue(all([x.close > 0 for x in price_sources]))
+
+    def test_mdd_price_correction(self):
+        self.mdd_checker.price_correction_enabled = True
+        self.verify_elimination_data_in_memory_and_disk([])
+        o1 = Order(order_type=OrderType.SHORT,
+                leverage=1.0,
+                price=1000,
+                trade_pair=TradePair.BTCUSD,
+                processed_ms=TimeUtil.now_in_millis(),
+                order_uuid="1000")
+
+        relevant_position = self.trade_pair_to_default_position[TradePair.BTCUSD]
+        self.mdd_checker.last_price_fetch_time_ms = TimeUtil.now_in_millis() - 1000 * 30
+        self.mdd_checker.mdd_check()
+        # Running mdd_check with no positions should not cause any eliminations but it should write an empty list to disk
+        self.verify_elimination_data_in_memory_and_disk([])
+
+        self.add_order_to_position_and_save_to_disk(relevant_position, o1)
+        self.assertFalse(relevant_position.is_closed_position)
+        self.verify_positions_on_disk([relevant_position], assert_all_open=True)
+        self.mdd_checker.last_price_fetch_time_ms = TimeUtil.now_in_millis() - 1000 * 30
+        self.mdd_checker.mdd_check()
+        self.verify_elimination_data_in_memory_and_disk([])
+        self.verify_positions_on_disk([relevant_position], assert_all_open=True)
+
 
     def test_mdd_failure_with_closed_position_daily_drawdown(self):
         self.verify_elimination_data_in_memory_and_disk([])
-        live_price = self.live_price_fetcher.get_close(trade_pair=TradePair.BTCUSD)
+        live_price, price_sources = self.live_price_fetcher.get_latest_price(trade_pair=TradePair.BTCUSD)
         o1 = Order(order_type=OrderType.SHORT,
                 leverage=1.0,
                 price=live_price,
                 trade_pair=TradePair.BTCUSD,
                 processed_ms=1000,
-                order_uuid="1000")
+                order_uuid="1000",
+                price_sources=price_sources)
 
         # o2 has the timestamp used for determining if this is a daily failure
         o2 = Order(order_type=OrderType.FLAT,
@@ -112,6 +150,9 @@ class TestMDDChecker(TestBase):
                 trade_pair=TradePair.BTCUSD,
                 processed_ms=2000,
                 order_uuid="2000")
+
+        self.mdd_checker.last_price_fetch_time_ms = TimeUtil.now_in_millis()
+        time.sleep(5)
 
         relevant_position = self.trade_pair_to_default_position[TradePair.BTCUSD]
         self.mdd_checker.mdd_check()
@@ -134,7 +175,7 @@ class TestMDDChecker(TestBase):
 
     def test_mdd_failure_with_closed_position_total_drawdown(self):
         self.verify_elimination_data_in_memory_and_disk([])
-        live_price = self.live_price_fetcher.get_close(trade_pair=TradePair.BTCUSD)
+        live_price, _ = self.live_price_fetcher.get_latest_price(trade_pair=TradePair.BTCUSD)
         o1 = Order(order_type=OrderType.SHORT,
                 leverage=1.0,
                 price=live_price,
@@ -149,6 +190,9 @@ class TestMDDChecker(TestBase):
                 trade_pair=TradePair.BTCUSD,
                 processed_ms=11111111,
                 order_uuid="2000")
+
+        self.mdd_checker.last_price_fetch_time_ms = TimeUtil.now_in_millis()
+        time.sleep(5)
 
         relevant_position = self.trade_pair_to_default_position[TradePair.BTCUSD]
         self.mdd_checker.mdd_check()
@@ -178,8 +222,8 @@ class TestMDDChecker(TestBase):
         position_eth.position_uuid = self.DEFAULT_TEST_POSITION_UUID + '_eth'
         position_btc.position_uuid = self.DEFAULT_TEST_POSITION_UUID + '_btc'
 
-        live_btc_price = self.live_price_fetcher.get_close(trade_pair=TradePair.BTCUSD)
-        live_eth_price = self.live_price_fetcher.get_close(trade_pair=TradePair.ETHUSD)
+        live_btc_price, _ = self.live_price_fetcher.get_latest_price(trade_pair=TradePair.BTCUSD)
+        live_eth_price, _ = self.live_price_fetcher.get_latest_price(trade_pair=TradePair.ETHUSD)
 
         o1 = Order(order_type=OrderType.LONG,
                 leverage=1.0,
@@ -194,6 +238,9 @@ class TestMDDChecker(TestBase):
                 trade_pair=TradePair.ETHUSD,
                 processed_ms=2000,
                 order_uuid="2000")
+
+        self.mdd_checker.last_price_fetch_time_ms = TimeUtil.now_in_millis()
+        time.sleep(5)
 
         self.mdd_checker.mdd_check()
         # Running mdd_check with no positions should not cause any eliminations but it should write an empty list to disk
@@ -214,7 +261,7 @@ class TestMDDChecker(TestBase):
     def test_no_mdd_failures(self):
         self.verify_elimination_data_in_memory_and_disk([])
         self.position = self.trade_pair_to_default_position[TradePair.BTCUSD]
-        live_price = self.live_price_fetcher.get_close(trade_pair=TradePair.BTCUSD)
+        live_price, _ = self.live_price_fetcher.get_latest_price(trade_pair=TradePair.BTCUSD)
         o1 = Order(order_type=OrderType.SHORT,
                 leverage=1.0,
                 price=live_price,
@@ -228,6 +275,9 @@ class TestMDDChecker(TestBase):
                 trade_pair=TradePair.BTCUSD,
                 processed_ms=2000,
                 order_uuid="2000")
+
+        self.mdd_checker.last_price_fetch_time_ms = TimeUtil.now_in_millis()
+        time.sleep(5)
 
         relevant_position = self.trade_pair_to_default_position[TradePair.BTCUSD]
         self.mdd_checker.mdd_check()
@@ -250,13 +300,16 @@ class TestMDDChecker(TestBase):
     def test_no_mdd_failures_high_leverage_one_order(self):
         self.verify_elimination_data_in_memory_and_disk([])
         position_btc = self.trade_pair_to_default_position[TradePair.BTCUSD]
-        live_btc_price = self.live_price_fetcher.get_close(trade_pair=TradePair.BTCUSD)
+        live_btc_price, _ = self.live_price_fetcher.get_latest_price(trade_pair=TradePair.BTCUSD)
         o1 = Order(order_type=OrderType.LONG,
                 leverage=20.0,
                 price=live_btc_price *1.001, # Down 0.1%
                 trade_pair=TradePair.BTCUSD,
                 processed_ms=1000,
                 order_uuid="1000")
+
+        self.mdd_checker.last_price_fetch_time_ms = TimeUtil.now_in_millis()
+        time.sleep(5)
 
 
         self.mdd_checker.mdd_check()
@@ -277,7 +330,7 @@ class TestMDDChecker(TestBase):
 
         print("Adding ETH position")
         position_eth = self.trade_pair_to_default_position[TradePair.ETHUSD]
-        live_eth_price = self.live_price_fetcher.get_close(trade_pair=TradePair.ETHUSD)
+        live_eth_price, price_sources = self.live_price_fetcher.get_latest_price(trade_pair=TradePair.ETHUSD)
         o2 = Order(order_type=OrderType.LONG,
                    leverage=20.0,
                    price=live_eth_price * 1.001,  # Down 0.1%
