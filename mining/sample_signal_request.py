@@ -37,7 +37,7 @@ if __name__ == "__main__":
 
     # Define the JSON data to be sent in the request
     data = {
-        'trade_pair': TradePair.CADCHF,
+        'trade_pair': TradePair.USDCNY,
         'order_type': OrderType.LONG,
         'leverage': 0.02,
         'api_key': 'xxxx'

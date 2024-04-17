@@ -131,7 +131,7 @@ class BaseDataService():
         # Log the prices
         formatted_prices = {tp: f"{price_source.close:.2f}" for tp, price_source in
                             self.latest_websocket_events.items()}
-        bt.logging.warning(f"{self.provider_name} Latest websocket prices: {formatted_prices}")
+        #bt.logging.warning(f"{self.provider_name} Latest websocket prices: {formatted_prices}")
         bt.logging.info(f'{self.provider_name} websocket n_events_global: {self.n_events_global}')
         if self.provider_name == POLYGON_PROVIDER_NAME:
             # Log which trade pairs are likely in closed markets

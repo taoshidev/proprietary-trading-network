@@ -1,17 +1,14 @@
 # developer: jbonilla
 # Copyright © 2024 Taoshi Inc
-import traceback
 import time
-from typing import List, Tuple
+from typing import List, Tuple, Dict
 
-from data_generator.twelvedata_service import TwelveDataService
 from time_util.time_util import TimeUtil
 from vali_config import ValiConfig, TradePair
 from shared_objects.cache_controller import CacheController
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.position import Position
 from vali_objects.utils.live_price_fetcher import LivePriceFetcher
-from vali_objects.utils.position_manager import PositionManager
 from vali_objects.utils.recent_event_tracker import RecentEventTracker
 
 from vali_objects.utils.vali_utils import ValiUtils
@@ -75,7 +72,7 @@ class MDDChecker(CacheController):
         return trade_pair_to_price_sources
 
 
-    def get_candle_data(self, hotkey_positions) -> Tuple[dict, dict]:
+    def get_candle_data(self, hotkey_positions) -> Dict[TradePair, List[PriceSource]]:
         required_trade_pairs_for_candles = set()
         trade_pair_to_last_order_time_ms = {}
         for sorted_positions in hotkey_positions.values():
@@ -85,8 +82,6 @@ class MDDChecker(CacheController):
                     required_trade_pairs_for_candles.add(position.trade_pair)
 
         now = TimeUtil.now_in_millis()
-        # If we're going to use candles, we need at least 2 seconds to have elapsed.
-
         candle_data = self.live_price_fetcher.get_candles(trade_pairs=list(required_trade_pairs_for_candles),
                                                   start_time_ms=self.last_price_fetch_time_ms if self.last_price_fetch_time_ms else now,
                                                   end_time_ms=now)
@@ -151,33 +146,21 @@ class MDDChecker(CacheController):
         # Replay of closed positions complete.
         return False, cuml_return, max_cuml_return_so_far
 
-    def _parse_price_from_candle_data(self, candle_data, trade_pair):
+    def _parse_price_from_candle_data(self, data: List[PriceSource]):
+        if not data or len(data) == 0:
+            # Market is closed for this trade pair
+            return None
+
+        # Data by timestamp in descending order so that the largest timestamp is first
+        return data[0].close
+
+    def _parse_extreme_price_in_window(self, candle_data: Dict[TradePair, List[PriceSource]], open_position, parse_min=True):
+        trade_pair = open_position.trade_pair
         dat = candle_data.get(trade_pair)
         if dat is None:
             # Market is closed for this trade pair
             return None
-        if isinstance(dat, float) or isinstance(dat, int):
-            return float(dat)
 
-        # Get the newest price in the window
-        price = None
-        for a in dat:
-            #bt.logging.info(f"in _parse_price_from_closing_prices. timestamp: {a.timestamp}, close: {a.close}")
-            if a.close is not None:
-                price = a.close
-
-        #bt.logging.info(f"in _parse_price_from_closing_prices. price: {price}. trade pair {trade_pair.trade_pair_id}")
-        return price
-
-    def _parse_extreme_price_in_window(self, signal_closing_prices, open_position, parse_min=True):
-        trade_pair = open_position.trade_pair
-        dat = signal_closing_prices.get(trade_pair)
-        if dat is None:
-            # Market is closed for this trade pair
-            return None
-        if isinstance(dat, float) or isinstance(dat, int):
-            # From TwelveData
-            return float(dat)
         # Handle the case where an order gets placed in between MDD checks.
         min_allowed_timestamp_ms = open_position.orders[-1].processed_ms
         price = None
@@ -196,64 +179,64 @@ class MDDChecker(CacheController):
         return float(price) if price else None
 
 
-    def _update_position_returns_and_persist_to_disk(self, hotkey, position, trade_pair_to_price_sources, candle_data) -> Position:
+    def _update_position_returns_and_persist_to_disk(self, hotkey, position, candle_data_dict) -> Position:
         """
         Setting the latest returns and persisting to disk for accurate MDD calculation and logging in get_positions
 
         Won't account for a position that was added in the time between mdd_check being called and this function
         being called. But that's ok as we will process such new positions the next round.
         """
-        trade_pair_id = position.trade_pair.trade_pair_id
-        realtime_price = self._parse_price_from_candle_data(candle_data, position.trade_pair)
-        if realtime_price is None:  # market closed. Don't update return
-            # TODO: fall back to any high resolution WS data that may exist? Resolve spikes in Poly WS data here. Utilize price correction data in MDD?
-            return position
 
-        attempt_retro_price_update = True
-        order_uuid_before_refresh = position.orders[-1].order_uuid
+        def _get_sources_for_order(order, trade_pair, is_last_order):
+            # Only fall back to REST if the order is the latest. Don't want to get slowed down
+            # By a flurry of recent orders.
+            ws_only = not is_last_order
+            sources = self.live_price_fetcher.fetch_prices([trade_pair],
+                                                        {trade_pair: order.processed_ms},
+                                                        ws_only=ws_only).get(trade_pair, (None, None))[1]
+            return sources
+
+        trade_pair = position.trade_pair
+        trade_pair_id = trade_pair.trade_pair_id
+        orig_return = position.return_at_close
+        now_ms = TimeUtil.now_in_millis()
         with self.position_manager.position_locks.get_lock(hotkey, trade_pair_id):
             # Position could have updated in the time between mdd_check being called and this function being called
             position = self.position_manager.get_miner_position_from_disk_using_position_in_memory(position)
-            if position.orders[-1].order_uuid != order_uuid_before_refresh:
-                # Position has changed since we last refreshed it. Don't try to retro update price
-                attempt_retro_price_update = False
-            changed = False
             n_orders_updated = 0
-            for order in position.orders:
-                if not attempt_retro_price_update:
+            for i, order in enumerate(reversed(position.orders)):
+                if not self.price_correction_enabled:
                     break
-                order_age = order.get_order_age(order)
-                if order_age <= RecentEventTracker.OLDEST_ALLOWED_RECORD_MS:
-                    temp = trade_pair_to_price_sources.get(position.trade_pair, (None, None))
-                    new_sources = temp[1]
-                    orig_price = order.price
-                    orig_return = position.return_at_close
-                    if self.price_correction_enabled and new_sources:
-                        updated = PriceSource.update_order_with_newest_price_sources(order, new_sources, hotkey,
-                                                                                     position.trade_pair.trade_pair)
-                        if updated:
-                            changed = True
-                            n_orders_updated += 1
-                            bt.logging.warning(
-                                f"Retroactively updated order price for {position.miner_hotkey} {position.trade_pair.trade_pair} from "
-                                f"{orig_price} to {order.price} rac b/a {orig_return:.8f}/{position.return_at_close:.8f}")
 
+                order_age = now_ms - order.processed_ms
+                if order_age > RecentEventTracker.OLDEST_ALLOWED_RECORD_MS:
+                    break  # No need to check older records
 
+                sources = _get_sources_for_order(order, position.trade_pair, is_last_order=i == 0)
+                if not sources:
+                    bt.logging.error(f"Unexpectedly could not find any new price sources for order"
+                                     f" {order.order_uuid} in {hotkey} {position.trade_pair.trade_pair}. If this"
+                                     f"issue persist, alert the team.")
+                    continue
+                if PriceSource.update_order_with_newest_price_sources(order, sources, hotkey, position.trade_pair.trade_pair):
+                    n_orders_updated += 1
 
             # Rebuild the position with the newest price
-            if changed:
+            if n_orders_updated:
                 position.rebuild_position_with_updated_orders()
-                bt.logging.warning( f"Retroactively updated {n_orders_updated} order prices for {position.miner_hotkey} {position.trade_pair.trade_pair}  "
+                bt.logging.warning(f"Retroactively updated {n_orders_updated} order prices for {position.miner_hotkey} {position.trade_pair.trade_pair}  "
                                     f"return_at_close changed from {orig_return:.8f} to {position.return_at_close:.8f}")
 
             # Log return before calling set_returns
             #bt.logging.info(f"current return with fees for open position with trade pair[{open_position.trade_pair.trade_pair_id}] is [{open_position.return_at_close}]. Position: {position}")
-            if position.is_open_position:
+            realtime_price = self._parse_price_from_candle_data(candle_data_dict.get(trade_pair))
+            if position.is_open_position and realtime_price is not None:
                 orig_return = position.return_at_close
                 position.set_returns(realtime_price)
-                changed |= orig_return != position.return_at_close
-            if changed:
-                self.position_manager.save_miner_position_to_disk(position, delete_open_position_if_exists=False)
+                n_orders_updated += orig_return != position.return_at_close
+            if n_orders_updated:
+                is_liquidated = position.current_return == 0
+                self.position_manager.save_miner_position_to_disk(position, delete_open_position_if_exists=is_liquidated)
 
             #bt.logging.info(f"updated return with fees for open position with trade pair[{open_position.trade_pair.trade_pair_id}] is [{position.return_at_close}]. position: {position}")
             return position
@@ -273,11 +256,10 @@ class MDDChecker(CacheController):
         self.n_miners_mdd_checked += 1
         open_positions = []
         closed_positions = []
-        trade_pair_to_price_sources = self.get_price_correction_data(sorted_positions)
         for position in sorted_positions:
             # Perform needed updates
             if position.is_open_position or position.newest_order_age_ms <= RecentEventTracker.OLDEST_ALLOWED_RECORD_MS:
-                position = self._update_position_returns_and_persist_to_disk(hotkey, position, trade_pair_to_price_sources, candle_data)
+                position = self._update_position_returns_and_persist_to_disk(hotkey, position, candle_data)
 
             if position.is_closed_position:
                 closed_positions.append(position)

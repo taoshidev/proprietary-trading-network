@@ -496,7 +496,7 @@ class PolygonDataService(BaseDataService):
         closes = [(d['datetime'], float(d["close"])) for d in response]
         return closes
 
-    def get_candles(self, trade_pairs, start_time_ms, end_time_ms):
+    def get_candles(self, trade_pairs: List[TradePair], start_time_ms:int, end_time_ms:int):
         # Dictionary to store the minimum prices for each trade pair
         ret = {}
 
@@ -513,7 +513,7 @@ class PolygonDataService(BaseDataService):
                     result = future.result()
                     ret[trade_pair] = result
                 except Exception as exc:
-                    print(f'{trade_pair} get_min_prices_in_window generated an exception: {exc}')
+                    print(f'{trade_pair} get_candles_for_trade_pair generated an exception: {exc}')
 
         # Return the collected results
         return ret
@@ -567,13 +567,12 @@ class PolygonDataService(BaseDataService):
             price_source = self.agg_to_price_source(a, now_ms, timespan, attempting_prev_close=attempting_prev_close)
             aggs.append(price_source)
             prev_timestamp = epoch_miliseconds
+
         if not aggs:
             bt.logging.trace(f"{POLYGON_PROVIDER_NAME} failed to fetch candle data for {trade_pair.trade_pair}. "
                              f" Perhaps this trade pair was closed during the specified window.")
-            return None
-        else:
-            #print('found aggs:', aggs, 'date', formatted_date)
-            return aggs
+
+        return aggs
 
 
 

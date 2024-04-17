@@ -591,6 +591,8 @@ class PositionManager(CacheController):
             raise ValiBkpCorruptDataException(f"file_string is {file_string}, {e}")
         except UnicodeDecodeError as e:
             raise ValiBkpCorruptDataException(f" Error {e} You may be running an old version of the software. Confirm with the team if you should delete your cache. ")
+        except Exception as e:
+            raise ValiBkpCorruptDataException(f"Error {e} file_path {file} file_string: {file_string}")
 
     def get_recently_updated_miner_hotkeys(self):
         """
