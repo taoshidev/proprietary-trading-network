@@ -109,7 +109,6 @@ class MDDChecker(CacheController):
             eliminations=self.eliminations
         )
         candle_data = self.get_candle_data(hotkey_to_positions)
-
         any_eliminations = False
         for hotkey, sorted_positions in hotkey_to_positions.items():
             self.reset_debug_counters(reset_global_counters=False)
@@ -175,7 +174,7 @@ class MDDChecker(CacheController):
 
     def _parse_extreme_price_in_window(self, signal_closing_prices, open_position, parse_min=True):
         trade_pair = open_position.trade_pair
-        dat = signal_closing_prices[trade_pair]
+        dat = signal_closing_prices.get(trade_pair)
         if dat is None:
             # Market is closed for this trade pair
             return None
