@@ -152,10 +152,7 @@ class MDDChecker(CacheController):
         return False, cuml_return, max_cuml_return_so_far
 
     def _parse_price_from_candle_data(self, candle_data, trade_pair):
-        if trade_pair not in candle_data:
-            raise ValueError(f"Trade pair [{trade_pair}] not in candle data. Candle data keys: {candle_data.keys()}")
-
-        dat = candle_data[trade_pair]
+        dat = candle_data.get(trade_pair)
         if dat is None:
             # Market is closed for this trade pair
             return None
