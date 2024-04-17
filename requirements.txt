@@ -9,3 +9,4 @@ twelvedata
 flask
 waitress
 matplotlib
+sortedcontainers

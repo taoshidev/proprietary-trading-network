@@ -94,6 +94,10 @@ class Position(BaseModel):
     def is_open_position(self):
         return not self.is_closed_position
 
+    @property
+    def newest_order_age_ms(self):
+        return TimeUtil.now_in_millis() - self.orders[-1].processed_ms
+
     def __str__(self):
         return self.to_json_string()
 
