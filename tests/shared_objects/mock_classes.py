@@ -6,9 +6,10 @@ from vali_objects.utils.position_manager import PositionManager
 
 
 class MockMDDChecker(MDDChecker):
-    def __init__(self, metagraph, position_manager):
+    def __init__(self, metagraph, position_manager, live_price_fetcher):
         lock = threading.Lock()
-        super().__init__(None, metagraph, position_manager, lock, running_unit_tests=True)
+        super().__init__(None, metagraph, position_manager, lock, running_unit_tests=True,
+                         live_price_fetcher=live_price_fetcher)
 
     # Lets us bypass the wait period in MDDChecker
     def get_last_update_time_ms(self):

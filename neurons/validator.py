@@ -301,8 +301,8 @@ class Validator:
         signal_leverage = signal["leverage"]
         bt.logging.info(f"Parsed leverage from signal: {signal_leverage}")
 
-        bt.logging.info("Attempting to get closing price for trade pair: " + trade_pair.trade_pair_id)
-        live_closing_price = self.live_price_fetcher.get_close(trade_pair=trade_pair)
+        bt.logging.info("Attempting to get live price for trade pair: " + trade_pair.trade_pair_id)
+        live_closing_price, price_sources = self.live_price_fetcher.get_latest_price(trade_pair=trade_pair)
 
         order = Order(
             trade_pair=trade_pair,
@@ -311,6 +311,7 @@ class Validator:
             price=live_closing_price,
             processed_ms=TimeUtil.now_in_millis(),
             order_uuid=str(uuid.uuid4()),
+            price_sources=price_sources
         )
         bt.logging.success(f"Converted signal to order: {order}")
         return order
@@ -386,7 +387,7 @@ class Validator:
 
         if signal:
             tp = self.parse_trade_pair_from_signal(signal)
-            if tp and self.live_price_fetcher.is_market_closed_for_trade_pair(tp):
+            if tp and not self.live_price_fetcher.polygon_data_service.is_market_open(tp):
                 msg = (f"Market for trade pair [{tp.trade_pair_id}] is likely closed or this validator is"
                        f" having issues fetching live price. Please try again later.")
                 bt.logging.error(msg)
@@ -394,7 +395,7 @@ class Validator:
                 synapse.error_message = msg
                 return True
 
-            if tp and tp in (TradePair.GDAXI, TradePair.FTSE):
+            if tp and tp in self.live_price_fetcher.polygon_data_service.UNSUPPORTED_TRADE_PAIRS:
                 msg = (f"Trade pair [{tp.trade_pair_id}] has been temporarily halted. "
                        f"Please try again with a different trade pair.")
                 bt.logging.error(msg)
@@ -417,7 +418,7 @@ class Validator:
         if time_since_last_order_ms >= ValiConfig.ORDER_COOLDOWN_MS:
             return
 
-        lag_time_ms = self.live_price_fetcher.time_since_last_ping_s(order.trade_pair) * 1000
+        lag_time_ms = self.live_price_fetcher.time_since_last_ws_ping_s(order.trade_pair) * 1000
         if lag_time_ms is not None and lag_time_ms < time_since_last_order_ms:
             #  We received a new websocket price since the last order. Allow the order to go through.
             bt.logging.info(f"Allowing order to bypass order cooldown for trade pair [{order.trade_pair.trade_pair_id}] trade_pair_lag_time_ms: {lag_time_ms} time_since_last_order_ms: {time_since_last_order_ms}")

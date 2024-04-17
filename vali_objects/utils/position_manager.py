@@ -77,7 +77,9 @@ class PositionManager(CacheController):
 
         miner couldn't close position due to temporary bug. deleted position completely.
 
-        # 4/15/23 Verified high lag on order price using Twelve Data
+        # 4/15/24 Verified high lag on order price using Twelve Data
+
+        # 4/17/24 Verified duplicate order sent due to a miner.py script. deleting entire position.
 
         """
 
@@ -177,6 +179,7 @@ class PositionManager(CacheController):
             if miner_hotkey == '5G3ys2356ovgUivX3endMP7f37LPEjRkzDAM3Km8CxQnErCw':
                 correct_for_tp(positions, 1, [100.192, 100.711, 100.379], TradePair.AUDJPY)
                 correct_for_tp(positions, 1, None, TradePair.GBPJPY, timestamp_ms=1712624748605)
+                correct_for_tp(positions, 2, None, TradePair.AUDCAD, timestamp_ms=1712839053529)
 
 
         bt.logging.warning(f"Applied {n_corrections} order corrections out of {n_attempts} attempts. unique positions corrected: {len(unique_corrections)}")
