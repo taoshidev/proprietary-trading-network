@@ -13,8 +13,8 @@ class TradePairCategory(str, Enum):
 
 class TradePair(Enum):
     # crypto
-    BTCUSD = ["BTCUSD", "BTC/USD", 0.002, 0.001, 20, TradePairCategory.CRYPTO]
-    ETHUSD = ["ETHUSD", "ETH/USD", 0.002, 0.001, 20, TradePairCategory.CRYPTO]
+    BTCUSD = ["BTCUSD", "BTC/USD", 0.001, 0.001, 20, TradePairCategory.CRYPTO]
+    ETHUSD = ["ETHUSD", "ETH/USD", 0.001, 0.001, 20, TradePairCategory.CRYPTO]
 
     # forex
     AUDCAD = ["AUDCAD", "AUD/CAD", 0.00007, 0.001, 500, TradePairCategory.FOREX]
@@ -134,6 +134,15 @@ class TradePair(Enum):
     
     def __dict__(self):
         return self.__json__()
+
+    def debug_dict(self):
+        return {
+            "trade_pair_id": self.trade_pair_id,
+            "trade_pair": self.trade_pair,
+            "fees": self.fees,
+            "min_leverage": self.min_leverage,
+            "max_leverage": self.max_leverage,
+        }
 
     @staticmethod
     def get_latest_trade_pair_from_trade_pair_id(trade_pair_id):

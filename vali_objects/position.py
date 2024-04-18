@@ -270,7 +270,8 @@ class Position(BaseModel):
         # V2 fee calculation. Crypto fee lowered from .003 to .002. Multiply fee by leverage for crypto pairs.
         # V3 calculation. All fees scaled by leverage. Updated forex and indices fees.
         # V4 calculation. Fees are now based on cumulative leverage
-        if timestamp_ms < 1713198680000:  # PR merged
+        # V5 Crypto fees cut in half
+        if timestamp_ms < 1713198680000:  # V4 PR merged
             fee = self.trade_pair.fees * self.max_leverage_seen()
         else:
             fee = self.trade_pair.fees * self.cumulative_leverage() / 2.0
