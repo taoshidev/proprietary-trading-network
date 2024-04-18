@@ -20,6 +20,7 @@ class TradePair(Enum):
     AUDCAD = ["AUDCAD", "AUD/CAD", 0.00007, 0.001, 500, TradePairCategory.FOREX]
     AUDUSD = ["AUDUSD", "AUD/USD", 0.00007, 0.001, 500, TradePairCategory.FOREX]
     AUDJPY = ["AUDJPY", "AUD/JPY", 0.00007, 0.001, 500, TradePairCategory.FOREX]
+    AUDNZD = ["AUDNZD", "AUD/NZD", 0.00007, 0.001, 500, TradePairCategory.FOREX]
     CADCHF = ["CADCHF", "CAD/CHF", 0.00007, 0.001, 500, TradePairCategory.FOREX]
     CADJPY = ["CADJPY", "CAD/JPY", 0.00007, 0.001, 500, TradePairCategory.FOREX]
     CHFJPY = ["CHFJPY", "CHF/JPY", 0.00007, 0.001, 500, TradePairCategory.FOREX]
@@ -37,12 +38,14 @@ class TradePair(Enum):
     USDCAD = ["USDCAD", "USD/CAD", 0.00007, 0.001, 500, TradePairCategory.FOREX]
     USDCHF = ["USDCHF", "USD/CHF", 0.00007, 0.001, 500, TradePairCategory.FOREX]
     USDJPY = ["USDJPY", "USD/JPY", 0.00007, 0.001, 500, TradePairCategory.FOREX]
+    USDMXN = ["USDMXN", "USD/MXN", 0.00007, 0.001, 500, TradePairCategory.FOREX]
 
     # indices
     SPX = ["SPX", "SPX", 0.00009, 0.001, 500, TradePairCategory.INDICES]
     DJI = ["DJI", "DJI", 0.00009, 0.001, 500, TradePairCategory.INDICES]
     FTSE = ["FTSE", "FTSE", 0.00009, 0.001, 500, TradePairCategory.INDICES]
     GDAXI = ["GDAXI", "GDAXI", 0.00009, 0.001, 500, TradePairCategory.INDICES]
+    NDX = ["NDX", "NDX", 0.00009, 0.001, 500, TradePairCategory.INDICES]
 
     @property
     def trade_pair_id(self):

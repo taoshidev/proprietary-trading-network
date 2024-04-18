@@ -346,7 +346,7 @@ class Validator:
             if signal_to_order.order_type == OrderType.FLAT:
                 raise SignalException(
                     f"miner [{miner_hotkey}] sent a "
-                    f"FLAT order with no existing position."
+                    f"FLAT order for {trade_pair.trade_pair} with no existing position."
                 )
             else:
                 # if a position doesn't exist, then make a new one
@@ -367,7 +367,8 @@ class Validator:
             allowed, wait_time = self.order_rate_limiter.is_allowed(miner_hotkey)
 
         if not allowed:
-            msg = f"Rate limited. Please wait {wait_time} seconds before sending another signal."
+            msg = (f"Rate limited. Please wait {wait_time} seconds before sending another signal. "
+                   f"{'GetPositions' if is_pi else 'SendSignal'}")
             bt.logging.trace(msg)
             synapse.successfully_processed = False
             synapse.error_message = msg
@@ -459,7 +460,7 @@ class Validator:
                 open_position.add_order(signal_to_order)
                 self.position_manager.save_miner_position_to_disk(open_position)
                 # Log the open position for the miner
-                bt.logging.info(f"Position for miner [{miner_hotkey}] updated: {open_position.trade_pair.trade_pair_id}")
+                bt.logging.info(f"Position {open_position.trade_pair.trade_pair_id} for miner [{miner_hotkey}] updated.")
                 open_position.log_position_status()
             # self.plagiarism_detector.check_plagiarism(open_position, signal_to_order)
 

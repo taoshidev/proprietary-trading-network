@@ -18,6 +18,28 @@ class PriceSource(BaseModel):
     lag_ms: int = 0
     volume: Optional[float] = 0.0
 
+    def __eq__(self, other):
+        if not isinstance(other, PriceSource):
+            return NotImplemented
+        return (self.source == other.source and
+                self.start_ms == other.start_ms and
+                self.timespan_ms == other.timespan_ms and
+                self.open == other.open and
+                self.close == other.close and
+                self.high == other.high and
+                self.low == other.low)
+
+
+
+    def __hash__(self):
+        return hash((self.source,
+                    self.start_ms,
+                    self.timespan_ms,
+                    self.open,
+                    self.close,
+                    self.high,
+                    self.low))
+
     @property
     def end_ms(self):
         if self.websocket:
@@ -43,7 +65,6 @@ class PriceSource(BaseModel):
 
     @staticmethod
     def update_order_with_newest_price_sources(order, candidate_price_sources, hotkey, trade_pair_str):
-        orig_price = order.price
         order_time_ms = order.processed_ms
         existing_dict = {ps.source: ps for ps in order.price_sources}
         candidates_dict = {ps.source: ps for ps in candidate_price_sources}
