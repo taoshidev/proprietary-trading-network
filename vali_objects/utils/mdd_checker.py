@@ -50,27 +50,6 @@ class MDDChecker(CacheController):
             self.max_portfolio_value_seen = 0
             self.min_portfolio_value_seen = float("inf")
 
-    def get_price_correction_data(self, sorted_positions: List[Position]):
-        required_trade_pairs_for_price_corrections = set()
-        trade_pair_to_last_order_time_ms = {}
-        for position in sorted_positions:
-            # Fresh orders need to attempt price corrections
-            if position.newest_order_age_ms < RecentEventTracker.OLDEST_ALLOWED_RECORD_MS:
-                trade_pair_to_last_order_time_ms[position.trade_pair] = position.orders[-1].processed_ms
-                required_trade_pairs_for_price_corrections.add(position.trade_pair)
-
-        trade_pair_to_price_sources = (
-            self.live_price_fetcher.get_latest_prices(trade_pairs=list(required_trade_pairs_for_price_corrections),
-                                                      trade_pair_to_last_order_time_ms=trade_pair_to_last_order_time_ms))
-
-        debug = {}
-        for k, v in trade_pair_to_price_sources.items():
-            if v is not None and v[1]:
-                debug[k.trade_pair_id] = str([x.debug_str(trade_pair_to_last_order_time_ms[k]) for x in v[1]])
-        if debug:
-            bt.logging.info(f"mdd checker successfully retrieved price correction data: {debug}")
-        return trade_pair_to_price_sources
-
 
     def get_candle_data(self, hotkey_positions) -> Dict[TradePair, List[PriceSource]]:
         required_trade_pairs_for_candles = set()
@@ -139,45 +118,12 @@ class MDDChecker(CacheController):
             mdd_failure = self.is_drawdown_beyond_mdd(drawdown, time_now=TimeUtil.millis_to_datetime(position.close_ms))
 
             if mdd_failure:
-                self.position_manager.close_open_positions_for_miner(hotkey)
+                self.position_manager.handle_eliminated_miner(hotkey, {})
                 self.append_elimination_row(hotkey, drawdown, mdd_failure)
                 return True, position_return, max_cuml_return_so_far
 
         # Replay of closed positions complete.
         return False, cuml_return, max_cuml_return_so_far
-
-    def _parse_price_from_candle_data(self, data: List[PriceSource]):
-        if not data or len(data) == 0:
-            # Market is closed for this trade pair
-            return None
-
-        # Data by timestamp in descending order so that the largest timestamp is first
-        return data[0].close
-
-    def _parse_extreme_price_in_window(self, candle_data: Dict[TradePair, List[PriceSource]], open_position, parse_min=True):
-        trade_pair = open_position.trade_pair
-        dat = candle_data.get(trade_pair)
-        if dat is None:
-            # Market is closed for this trade pair
-            return None
-
-        # Handle the case where an order gets placed in between MDD checks.
-        min_allowed_timestamp_ms = open_position.orders[-1].processed_ms
-        price = None
-        for a in dat:
-            candle_epoch_ms = a.end_ms
-            if candle_epoch_ms < min_allowed_timestamp_ms:
-                continue
-            #bt.logging.info(f"in _parse_min_price_in_window. timestamp: {a.timestamp}, close: {a.close}")
-            if parse_min:
-                if a.low is not None:
-                    price = a.low if price is None else min(price, a.low)
-            else:
-                if a.high is not None:
-                    price = a.high if price is None else max(price, a.high)
-        #print(f"in _parse_min_price_in_window min_price: {min_price}. trade_pair {trade_pair.trade_pair_id}")
-        return float(price) if price else None
-
 
     def _update_position_returns_and_persist_to_disk(self, hotkey, position, candle_data_dict) -> Position:
         """
@@ -199,6 +145,8 @@ class MDDChecker(CacheController):
         trade_pair = position.trade_pair
         trade_pair_id = trade_pair.trade_pair_id
         orig_return = position.return_at_close
+        orig_avg_price = position.average_entry_price
+        orig_iep = position.initial_entry_price
         now_ms = TimeUtil.now_in_millis()
         with self.position_manager.position_locks.get_lock(hotkey, trade_pair_id):
             # Position could have updated in the time between mdd_check being called and this function being called
@@ -225,11 +173,13 @@ class MDDChecker(CacheController):
             if n_orders_updated:
                 position.rebuild_position_with_updated_orders()
                 bt.logging.warning(f"Retroactively updated {n_orders_updated} order prices for {position.miner_hotkey} {position.trade_pair.trade_pair}  "
-                                    f"return_at_close changed from {orig_return:.8f} to {position.return_at_close:.8f}")
+                                    f"return_at_close changed from {orig_return:.8f} to {position.return_at_close:.8f} "
+                                    f"avg_price changed from {orig_avg_price:.8f} to {position.average_entry_price:.8f} "
+                                   f"initial_entry_price changed from {orig_iep:.8f} to {position.initial_entry_price:.8f}")
 
             # Log return before calling set_returns
             #bt.logging.info(f"current return with fees for open position with trade pair[{open_position.trade_pair.trade_pair_id}] is [{open_position.return_at_close}]. Position: {position}")
-            realtime_price = self._parse_price_from_candle_data(candle_data_dict.get(trade_pair))
+            realtime_price = self.live_price_fetcher.parse_price_from_candle_data(candle_data_dict.get(trade_pair), trade_pair)
             if position.is_open_position and realtime_price is not None:
                 orig_return = position.return_at_close
                 position.set_returns(realtime_price)
@@ -273,6 +223,8 @@ class MDDChecker(CacheController):
         # Enforce only one open position per trade pair
         seen_trade_pairs = set()
         return_with_open_positions = return_with_closed_positions
+        trade_pair_to_price_source_used_for_elimination_check = {}
+        open_position_trade_pairs = []
         for open_position in open_positions:
             #bt.logging.info(f"current return with fees for open position with trade pair[{open_position.trade_pair.trade_pair_id}] is [{open_position.return_at_close}]")
             if open_position.trade_pair.trade_pair_id in seen_trade_pairs:
@@ -280,13 +232,15 @@ class MDDChecker(CacheController):
                 raise ValueError(f"Miner [{hotkey}] has multiple open positions for trade pair [{open_position.trade_pair}]. Please restore cache. Affected positions: {debug_positions}")
             else:
                 seen_trade_pairs.add(open_position.trade_pair.trade_pair_id)
+                open_position_trade_pairs.append(open_position.trade_pair)
 
             #bt.logging.success(f"current return with fees for [{open_position.position_uuid}] is [{open_position.return_at_close}]")
             parse_min = open_position.position_type == OrderType.LONG
-            candle_price = self._parse_extreme_price_in_window(candle_data, open_position, parse_min=parse_min)
+            candle_price, corresponding_source = self.live_price_fetcher.parse_extreme_price_in_window(candle_data, open_position, parse_min=parse_min)
             if candle_price is None:  # Market closed for this trade pair. keep return the same
                 unrealized_return_with_fees = open_position.return_at_close
             else:
+                trade_pair_to_price_source_used_for_elimination_check[open_position.trade_pair] = corresponding_source
                 unrealized_return = open_position.calculate_unrealized_pnl(candle_price)
                 unrealized_return_with_fees = open_position.calculate_return_with_fees(unrealized_return)
             return_with_open_positions *= unrealized_return_with_fees
@@ -303,7 +257,7 @@ class MDDChecker(CacheController):
 
         mdd_failure = self.is_drawdown_beyond_mdd(dd_with_open_positions)
         if mdd_failure:
-            self.position_manager.close_open_positions_for_miner(hotkey)
+            self.position_manager.handle_eliminated_miner(hotkey, trade_pair_to_price_source_used_for_elimination_check, open_position_trade_pairs=open_position_trade_pairs)
             self.append_elimination_row(hotkey, dd_with_open_positions, mdd_failure)
 
         return bool(mdd_failure)

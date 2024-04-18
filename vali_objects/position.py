@@ -356,7 +356,7 @@ class Position(BaseModel):
 
     def _update_position(self):
         self.net_leverage = 0.0
-        bt.logging.trace(f"Updating position with n orders: {len(self.orders)}")
+        bt.logging.trace(f"Updating position {self.trade_pair.trade_pair_id} with n orders: {len(self.orders)}")
         for order in self.orders:
             if self.position_type is None:
                 self.initialize_position_from_first_order(order)

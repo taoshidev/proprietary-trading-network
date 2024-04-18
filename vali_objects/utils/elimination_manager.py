@@ -43,7 +43,7 @@ class EliminationManager(CacheController):
             if self._hotkey_in_eliminations(miner_hotkey):
                 continue
             if current_plagiarism_score > ValiConfig.MAX_MINER_PLAGIARISM_SCORE:
-                self.position_manager.close_open_positions_for_miner(miner_hotkey)
+                self.position_manager.handle_eliminated_miner(miner_hotkey, {})
                 self.append_elimination_row(miner_hotkey, -1, 'plagiarism')
                 bt.logging.info(
                     f"miner eliminated with hotkey [{miner_hotkey}] with plagiarism score of [{current_plagiarism_score}]")

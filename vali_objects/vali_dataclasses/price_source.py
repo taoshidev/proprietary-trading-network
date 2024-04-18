@@ -65,7 +65,6 @@ class PriceSource(BaseModel):
 
     @staticmethod
     def update_order_with_newest_price_sources(order, candidate_price_sources, hotkey, trade_pair_str):
-        orig_price = order.price
         order_time_ms = order.processed_ms
         existing_dict = {ps.source: ps for ps in order.price_sources}
         candidates_dict = {ps.source: ps for ps in candidate_price_sources}

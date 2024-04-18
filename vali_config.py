@@ -38,6 +38,7 @@ class TradePair(Enum):
     USDCAD = ["USDCAD", "USD/CAD", 0.00007, 0.001, 500, TradePairCategory.FOREX]
     USDCHF = ["USDCHF", "USD/CHF", 0.00007, 0.001, 500, TradePairCategory.FOREX]
     USDJPY = ["USDJPY", "USD/JPY", 0.00007, 0.001, 500, TradePairCategory.FOREX]
+    USDMXN = ["USDMXN", "USD/MXN", 0.00007, 0.001, 500, TradePairCategory.FOREX]
 
     # indices
     SPX = ["SPX", "SPX", 0.00009, 0.001, 500, TradePairCategory.INDICES]

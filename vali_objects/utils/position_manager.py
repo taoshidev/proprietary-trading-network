@@ -23,6 +23,7 @@ from vali_objects.utils.position_lock import PositionLocks
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.vali_dataclasses.order import OrderStatus, Order
 from vali_objects.utils.position_utils import PositionUtils
+from vali_objects.vali_dataclasses.price_source import PriceSource
 
 
 class PositionManager(CacheController):
@@ -216,17 +217,27 @@ class PositionManager(CacheController):
         bt.logging.info(f"Updated {n_positions_updated} positions. {n_positions_updated_significantly} positions "
                         f"were updated significantly. {n_positions_stayed_the_same} stayed the same. {n_positions_seen} positions were seen in total. Significant deltas: {significant_deltas}")
 
-    def close_open_position_for_miner(self, hotkey: str, trade_pair: TradePair):
-        with self.position_locks.get_lock(hotkey, trade_pair.trade_pair_id):
-            open_position = self.get_open_position_for_a_miner_trade_pair(hotkey, trade_pair.trade_pair_id)
-            if open_position:
-                bt.logging.info(f"Closing open position for hotkey: {hotkey} and trade_pair: {trade_pair.trade_pair_id}")
-                open_position.close_out_position(TimeUtil.now_in_millis())
-                self.save_miner_position_to_disk(open_position)
+    def handle_eliminated_miner(self, hotkey: str,
+                                trade_pair_to_price_source_used_for_elimination_check: Dict[TradePair, PriceSource],
+                                open_position_trade_pairs=None):
 
-    def close_open_positions_for_miner(self, hotkey: str):
-        for trade_pair in TradePair:
-            self.close_open_position_for_miner(hotkey, trade_pair)
+        tps_to_iterate_over = open_position_trade_pairs if open_position_trade_pairs else TradePair
+        for trade_pair in tps_to_iterate_over:
+            now_ms = TimeUtil.now_in_millis()
+            with self.position_locks.get_lock(hotkey, trade_pair.trade_pair_id):
+                open_position = self.get_open_position_for_a_miner_trade_pair(hotkey, trade_pair.trade_pair_id)
+                source_for_elimination = trade_pair_to_price_source_used_for_elimination_check.get(trade_pair)
+                if source_for_elimination:
+                    source_for_elimination.source += '[elim]'
+                    source_for_elimination.lag_ms = source_for_elimination.time_delta_from_now_ms(now_ms)
+                if open_position:
+                    bt.logging.info(
+                        f"Closing open position for hotkey: {hotkey} and trade_pair: {trade_pair.trade_pair_id}. "
+                        f"Source for elimination {source_for_elimination}")
+                    open_position.close_out_position(TimeUtil.now_in_millis())
+                    if source_for_elimination:
+                        open_position.orders[-1].price_sources.append(source_for_elimination)
+                    self.save_miner_position_to_disk(open_position)
 
     def recalculate_return_at_close_and_write_corrected_position_to_disk(self, position: Position, hotkey:str):
         # TODO LOCK and how to handle open positions?
@@ -320,7 +331,7 @@ class PositionManager(CacheController):
                 if position.trade_pair in tps_to_eliminate:
                     bt.logging.info(
                         f"Position {position.position_uuid} for hotkey {hotkey} and trade pair {position.trade_pair.trade_pair_id} has been closed")
-                    self.close_open_position_for_miner(hotkey, position.trade_pair)
+                    self.handle_eliminated_miner(hotkey, position.trade_pair, {})
 
     def perform_price_recalibration(self, time_per_batch_s=90):
         try:
