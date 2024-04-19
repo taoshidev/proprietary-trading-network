@@ -60,7 +60,7 @@ class PositionManager(CacheController):
         eliminations = self.get_miner_eliminations_from_disk()
         new_eliminations = []
         for e in eliminations:
-            if e['hotkey'] == '':
+            if e['hotkey'] in ('5Ct1J2jNxb9zeHpsj547BR1nZk4ZD51Bb599tzEWnxyEr4WR', '5DX8tSyGrx1QuoR1wL99TWDusvmmWgQW5su3ik2Sc8y8Mqu3'):
                 bt.logging.warning('Removed elimination for hotkey ', e['hotkey'])
             else:
                 new_eliminations.append(e)
