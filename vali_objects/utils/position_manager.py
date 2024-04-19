@@ -5,6 +5,7 @@ import shutil
 import time
 import traceback
 import uuid
+from collections import defaultdict
 from pickle import UnpicklingError
 from typing import List, Dict, Union
 import bittensor as bt
@@ -27,7 +28,9 @@ from vali_objects.vali_dataclasses.price_source import PriceSource
 
 
 class PositionManager(CacheController):
-    def __init__(self, config=None, metagraph=None, running_unit_tests=False, perform_price_adjustment=False, live_price_fetcher=None, perform_order_corrections=False, perform_fee_structure_update=False):
+    def __init__(self, config=None, metagraph=None, running_unit_tests=False, perform_price_adjustment=False,
+                 live_price_fetcher=None, perform_order_corrections=False, perform_fee_structure_update=False,
+                 generate_correction_templates=False, apply_corrections_template=False):
         super().__init__(config=config, metagraph=metagraph, running_unit_tests=running_unit_tests)
         self.init_cache_files()
         self.position_locks = PositionLocks()
@@ -40,8 +43,15 @@ class PositionManager(CacheController):
                 self.apply_order_corrections()
             except Exception as e:
                 bt.logging.error(f"Error applying order corrections: {e}")
-        #if perform_fee_structure_update:
-        #    self.ensure_latest_fee_structure_applied()
+        if generate_correction_templates:
+            self.generate_correction_templates()
+        if apply_corrections_template:
+            self.apply_corrections_from_price_audit()
+
+        if perform_fee_structure_update:
+            self.ensure_latest_fee_structure_applied()
+
+
 
 
 
@@ -56,6 +66,55 @@ class PositionManager(CacheController):
                 new_eliminations.append(e)
 
         self.write_eliminations_to_disk(new_eliminations)
+
+    def correct_for_tp(self, positions: List[Position], idx, prices, tp, timestamp_ms=None, n_attempts=0, n_corrections=0, unique_corrections=None, pos=None):
+        n_attempts += 1
+        i = -1
+
+        if pos:
+            i = idx
+        else:
+            for p in positions:
+                if p.trade_pair == tp:
+                    pos = p
+                    i += 1
+                    if i == idx:
+                        break
+
+            if i != idx:
+                bt.logging.warning(f"Could not find position for trade pair {tp.trade_pair_id} at index {idx}. i {i}")
+                return n_attempts, n_corrections
+
+        if pos and timestamp_ms:
+            # check if the timestamp_ms is outside of 5 minutes of the position's open_ms
+            delta_time_min = abs(timestamp_ms - pos.open_ms) / 1000.0 / 60.0
+            if delta_time_min > 5.0:
+                bt.logging.warning(
+                    f"Timestamp ms: {timestamp_ms} is more than 5 minutes away from position open ms: {pos.open_ms}. delta_time_min {delta_time_min}")
+                return n_attempts, n_corrections
+
+        if not prices:
+            # del position
+            if pos:
+                self.delete_position_from_disk(pos)
+                unique_corrections.add(pos.position_uuid)
+                n_corrections += 1
+                return n_attempts, n_corrections
+
+        elif i == idx and pos and len(prices) <= len(pos.orders):
+            self.delete_position_from_disk(pos)
+            for i in range(len(prices)):
+                pos.orders[i].price = prices[i]
+
+            old_return = pos.return_at_close
+            pos.rebuild_position_with_updated_orders()
+            self.save_miner_position_to_disk(pos, delete_open_position_if_exists=False)
+            unique_corrections.add(pos.position_uuid)
+            n_corrections += 1
+            return n_attempts, n_corrections
+        else:
+            bt.logging.warning(f"Could not correct position for trade pair {tp.trade_pair_id}. i {i}, idx {idx}, len(prices) {len(prices)}, len(pos.orders) {len(pos.orders)}")
+        return n_attempts, n_corrections
 
     def apply_order_corrections(self):
         """
@@ -82,51 +141,10 @@ class PositionManager(CacheController):
 
         # 4/17/24 Verified duplicate order sent due to a miner.py script. deleting entire position.
 
+        # 4/19/24 Verified bug on old version of miner.py that delayed order significantly. The PR to reduce miner lag went
+         live April 14th and this trade was April 9th
+
         """
-
-        def correct_for_tp(positions: List[Position], idx, prices, tp, timestamp_ms=None):
-            nonlocal n_attempts, n_corrections, unique_corrections
-            n_attempts += 1
-            pos = None
-            i = -1
-
-            for p in positions:
-                if p.trade_pair == tp:
-                    pos = p
-                    i += 1
-                    if i == idx:
-                        break
-
-            if pos and timestamp_ms:
-                # check if the timestamp_ms is outside of 5 minutes of the position's open_ms
-                delta_time_min = abs(timestamp_ms - pos.open_ms) / 1000.0 / 60.0
-                if delta_time_min > 5.0:
-                    bt.logging.warning(
-                        f"Timestamp ms: {timestamp_ms} is more than 5 minutes away from position open ms: {pos.open_ms}. delta_time_min {delta_time_min}")
-                    return
-
-            if not prices:
-                # del position
-                if pos:
-                    self.delete_position_from_disk(pos)
-                    unique_corrections.add(pos.position_uuid)
-                    n_corrections += 1
-                    return
-
-            elif i == idx and pos and len(prices) == len(pos.orders):
-                self.delete_position_from_disk(pos)
-                new_orders = []
-                for i, o in enumerate(pos.orders):
-                    o.price = prices[i]
-                    new_orders.append(o)
-                pos.orders = new_orders
-                old_return = pos.return_at_close
-                pos.rebuild_position_with_updated_orders()
-                self.save_miner_position_to_disk(pos)
-                bt.logging.info(f"Corrected position for trade pair {tp.trade_pair_id}. Old return {old_return}, New return: {pos.return_at_close}")
-                unique_corrections.add(pos.position_uuid)
-                n_corrections += 1
-                return
 
 
         self.give_erronously_eliminated_miners_another_shot()
@@ -176,11 +194,14 @@ class PositionManager(CacheController):
                 correct_for_tp(positions, 0, [151.73, 151.862, 153.047, 153.051, 153.071, 153.241, 153.225, 153.235], TradePair.USDJPY)
             if miner_hotkey == '5HCJ6okRkmCsu7iLEWotBxgcZy11RhbxSzs8MXT4Dei9osUx':
                 correct_for_tp(positions, 0, None, TradePair.ETHUSD, timestamp_ms=1713102534971)
-            """
+            
             if miner_hotkey == '5G3ys2356ovgUivX3endMP7f37LPEjRkzDAM3Km8CxQnErCw':
                 correct_for_tp(positions, 1, [100.192, 100.711, 100.379], TradePair.AUDJPY)
                 correct_for_tp(positions, 1, None, TradePair.GBPJPY, timestamp_ms=1712624748605)
                 correct_for_tp(positions, 2, None, TradePair.AUDCAD, timestamp_ms=1712839053529)
+            """
+            if miner_hotkey == '5GhCxfBcA7Ur5iiAS343xwvrYHTUfBjBi4JimiL5LhujRT9t':
+                n_attempts, n_corrections = self.correct_for_tp(positions, 1, None, TradePair.BTCUSD, timestamp_ms=1712671378202, n_attempts=n_attempts, n_corrections=n_corrections, unique_corrections=unique_corrections)
 
 
         bt.logging.warning(f"Applied {n_corrections} order corrections out of {n_attempts} attempts. unique positions corrected: {len(unique_corrections)}")
@@ -188,16 +209,24 @@ class PositionManager(CacheController):
 
     def ensure_latest_fee_structure_applied(self):
         hotkey_to_positions = self.get_all_disk_positions_for_all_miners(only_open_positions=False, sort_positions=True)
+        eliminated_miners = self.get_miner_eliminations_from_disk()
+        eliminated_hotkeys = set([e['hotkey'] for e in eliminated_miners])
         n_positions_seen = 0
         n_positions_updated = 0
         n_positions_updated_significantly = 0
+        n_positions_flipped_to_positive = 0
+        n_positions_flipped_negative = 0
         n_positions_stayed_the_same = 0
         significant_deltas = []
         for hotkey, positions in hotkey_to_positions.items():
+            if hotkey in eliminated_hotkeys:
+                continue
             for position in positions:
                 # skip open positions as their returns will be updated in the next MDD check.
                 # Also once positions closes, it will make it past this check next validator boot
                 if position.is_open_position:
+                    continue
+                if not position.trade_pair.is_crypto:
                     continue
                 n_positions_seen += 1
                 # Ensure this position is using the latest fee structure. If not, recalculate and persist the new return to disk
@@ -205,9 +234,13 @@ class PositionManager(CacheController):
                 new_return_at_close = position.calculate_return_with_fees(position.current_return, timestamp_ms=position.close_ms)
                 if old_return_at_close != new_return_at_close:
                     n_positions_updated += 1
+                    if old_return_at_close < 1.0 and new_return_at_close > 1.0:
+                        n_positions_flipped_to_positive += 1
+                    elif old_return_at_close > 1.0 and new_return_at_close < 1.0:
+                        n_positions_flipped_negative += 1
                     if abs(old_return_at_close - new_return_at_close) / old_return_at_close > 0.03:
                         n_positions_updated_significantly += 1
-                        bt.logging.info(f"Updating return_at_close for position {position.position_uuid} trade pair "
+                        print(f"Updating return_at_close for position {position.position_uuid} trade pair "
                                         f"{position.trade_pair.trade_pair_id} from {old_return_at_close} to {new_return_at_close}")
                         #significant_deltas.append((old_return_at_close, new_return_at_close, position.to_json_string()))
                     position.return_at_close = new_return_at_close
@@ -215,7 +248,10 @@ class PositionManager(CacheController):
                 else:
                     n_positions_stayed_the_same += 1
         bt.logging.info(f"Updated {n_positions_updated} positions. {n_positions_updated_significantly} positions "
-                        f"were updated significantly. {n_positions_stayed_the_same} stayed the same. {n_positions_seen} positions were seen in total. Significant deltas: {significant_deltas}")
+                        f"were updated significantly. {n_positions_stayed_the_same} stayed the same. {n_positions_seen} "
+                        f"positions were seen in total. Significant deltas: {significant_deltas} "
+                        f"n_positions_flipped_to_positive: {n_positions_flipped_to_positive}"
+                        f" n_positions_flipped_negative: {n_positions_flipped_negative}")
 
     def handle_eliminated_miner(self, hotkey: str,
                                 trade_pair_to_price_source_used_for_elimination_check: Dict[TradePair, PriceSource],
@@ -409,9 +445,11 @@ class PositionManager(CacheController):
                 for p in positions:
                     return_as_shown_on_dash *= p.return_at_close
                 hotkeys_eliminated_to_current_return[hotkey] = return_as_shown_on_dash
-                bt.logging.warning(
+                msg =(
                     f"MDD failure occurred at position {most_recent_elimination_idx} out of {len(positions)} positions for hotkey "
                     f"{hotkey}. Drawdown: {dd_to_log}. MDD failure: {mdd_failure}. Portfolio return: {return_with_open_positions}. ")
+                bt.logging.warning(msg)
+
 
 
         bt.logging.info(f"Found n= {len(hotkeys_eliminated_to_current_return)} hotkeys to eliminate. After modifying returns for n = {len(hotkeys_with_return_modified)} hotkeys.")
@@ -754,3 +792,226 @@ class PositionManager(CacheController):
         os.remove(filepath)
         bt.logging.info(f"Deleted position from disk: {filepath}")
 
+
+    def check_elimination(self, positions, miner_hotkey, orig_portfolio_return, ALL_MSGS, ELIM_MSGS):
+        max_portfolio_return = 1.0
+        cur_portfolio_return = 1.0
+        dd_to_log = None
+        most_recent_elimination_idx = None
+        n_positions_flipped_to_loss = 0
+        n_positions_flipped_to_gain = 0
+        for i, position in enumerate(positions):
+            orig_return = position.return_at_close
+            position.rebuild_position_with_updated_orders()
+
+            new_return = position.return_at_close
+            if new_return < 1.0 and orig_return >= 1.0:
+                n_positions_flipped_to_loss += 1
+            elif new_return >= 1.0 and orig_return < 1.0:
+                n_positions_flipped_to_gain += 1
+
+            if position.is_open_position:
+                continue
+
+            cur_portfolio_return *= new_return
+            max_portfolio_return = max(max_portfolio_return, cur_portfolio_return)
+            drawdown = self.calculate_drawdown(cur_portfolio_return, max_portfolio_return)
+            mdd_failure = self.is_drawdown_beyond_mdd(drawdown,
+                                                      time_now=TimeUtil.millis_to_datetime(position.close_ms))
+            if mdd_failure:
+                dd_to_log = drawdown
+                most_recent_elimination_idx = i
+
+        if most_recent_elimination_idx is not None:
+            msg = (
+                f"MDD failure occurred at position {most_recent_elimination_idx} out of {len(positions)} positions for hotkey "
+                f"{miner_hotkey}. Drawdown: {dd_to_log}. MDD failure: {mdd_failure}. Portfolio return: {cur_portfolio_return}. ")
+            ELIM_MSGS.append(msg)
+            bt.logging.warning(msg)
+        msg = (f"hotkey: {miner_hotkey}. unrealized return as shown on dash: {orig_portfolio_return} new realized return (excludes open positions): {cur_portfolio_return}"
+              f" n_positions_flipped_to_loss: {n_positions_flipped_to_loss} n_positions_flipped_to_gain: {n_positions_flipped_to_gain}")
+        ALL_MSGS.append(msg)
+        print(msg)
+
+
+    def apply_corrections_from_price_audit(self):
+        f_path = ValiConfig.BASE_DIR + '/price_audits/price_audit_4-18-24.txt'
+
+        trade_pair_str_to_n_times_seen_per_hk = {}
+        position_to_corrections_per_hk = {}
+        hotkey_to_positions = self.get_all_disk_positions_for_all_miners(sort_positions=True, only_open_positions=False)
+
+        order_timestamp_to_position = {}
+        for hotkey, positions in hotkey_to_positions.items():
+            for i, position in enumerate(positions):
+                for o in position.orders:
+                    assert o.processed_ms not in order_timestamp_to_position
+                    order_timestamp_to_position[o.processed_ms] = position
+
+        with open(f_path, 'r') as f:
+            miner_hotkey = None
+            position = None
+            for line in f:
+                line = line.strip()
+                if line.startswith('trade_pair'):  # Ignore header
+                    continue
+
+                parts = line.split('	')
+                if len(line) == 48:  # Assuming the hotkey is always 48 characters long
+                    if position is not None and miner_hotkey is not None:
+                        trade_pair_str_to_n_times_seen_per_hk[miner_hotkey][position.trade_pair.trade_pair] += 1
+
+                    miner_hotkey = line
+                    if miner_hotkey not in position_to_corrections_per_hk:
+                        position_to_corrections_per_hk[miner_hotkey] = defaultdict(list)
+                        trade_pair_str_to_n_times_seen_per_hk[miner_hotkey] = defaultdict(int)
+
+                elif len(parts) == 10:
+                    trade_pair = parts[0]
+                    timestamp_ms = int(parts[2])
+                    original_price = float(parts[3])
+                    corrected_price = float(parts[4]) if parts[4] != '?' else None
+                    correction_status = parts[6]
+                    if timestamp_ms not in order_timestamp_to_position:
+                        bt.logging.warning(f'Ignoring correction from missing order miner {miner_hotkey}')
+                        position = None
+                        continue
+                    assert miner_hotkey in hotkey_to_positions, f"Hotkey {miner_hotkey} not found in positions."
+                    position = order_timestamp_to_position[timestamp_ms]
+                    idx = trade_pair_str_to_n_times_seen_per_hk[miner_hotkey][trade_pair]
+                    position_to_corrections_per_hk[miner_hotkey][position.position_uuid].append(
+                        (trade_pair, timestamp_ms, original_price, corrected_price, correction_status, idx))
+                else:
+                    print('BREAKING AT LINE ', line)
+                    break  # Done
+
+                #print(f"Hotkey: {miner_hotkey}, Order Info: {order_info}")
+
+        n_attempts = 0
+        n_corrections = 0
+        n_positions_grew_since_last_audit = 0
+        unique_corrections = set()
+        for hotkey, positions in hotkey_to_positions.items():
+            position_to_corrections = position_to_corrections_per_hk.get(hotkey)
+            if not position_to_corrections:
+                continue
+
+            for position in positions:
+                assert position.position_uuid not in unique_corrections
+                corrections = position_to_corrections.get(position.position_uuid, [])
+                if not corrections:
+                    continue
+
+                new_order_prices = []
+                any_price_corrections = False
+                idx = None
+                for correction in corrections:
+                    trade_pair_str, timestamp_ms, original_price, corrected_price, correction_status, i = correction
+                    trade_pair = TradePair.get_latest_tade_pair_from_trade_pair_str(trade_pair_str)
+                    if idx is None:
+                        idx = i
+                    else:
+                        assert idx == correction[-1]
+
+                    if correction_status in ('price already accurate'):
+                        new_order_prices.append(original_price)
+                    elif corrected_price is None:
+                        new_order_prices.append(original_price)
+                    else:
+                        new_order_prices.append(corrected_price)
+                        any_price_corrections = True
+
+                if not any_price_corrections:
+                    continue
+
+                if len(new_order_prices) == 0:
+                    raise Exception(f"len(new_order_prices) == 0")
+                elif len(new_order_prices) < len(position.orders):
+                    n_positions_grew_since_last_audit += 1
+                elif len(new_order_prices) > len(position.orders):
+                    raise Exception(f"len(new_order_prices) {len(new_order_prices)} > len(position.orders) {len(position.orders)}")
+                elif not new_order_prices:
+                    raise Exception(f"len(new_order_prices) {len(new_order_prices)}")
+
+                #bt.logging.error(f"Hotkey: {hotkey}, Position: {position.position_uuid}, Trade Pair: {position.trade_pair.trade_pair_id},")
+                prev_n_attempts, prev_n_corrections = n_attempts, n_corrections
+                n_attempts, n_corrections = self.correct_for_tp(positions, idx, new_order_prices,
+                    trade_pair, n_attempts=n_attempts, n_corrections=n_corrections,
+                    unique_corrections=unique_corrections, pos=position)
+                if n_corrections == prev_n_corrections:
+                    print(f"Failed to correct for hotkey {hotkey} trade pair {trade_pair.trade_pair_id} at idx {idx}")
+        print(f"n_attempts: {n_attempts}, n_corrections: {n_corrections}, n_positions_corrected: {len(unique_corrections)},"
+              f"n_positions_grew_since_last_audit: {n_positions_grew_since_last_audit}")
+        assert n_corrections == n_attempts, f"n_corrections {n_corrections} != n_attempts {n_attempts}"
+
+
+
+
+    def generate_correction_templates(self):
+        f = open('/Users/jbonilla/Documents/price_audit_4-18-24.txt', 'w')
+        ALL_MSGS = []
+        ELIM_MSGS = []
+
+        eliminations = self.get_miner_eliminations_from_disk()
+        eliminated_hotkeys = set(x['hotkey'] for x in eliminations)
+
+        template = ', '.join(['trade_pair', 'order_date_utc', 'order_timestamp', 'price_on_dash', 'corrected_price', 'percent_change', 'automated', 'price_freshness_ms', 'current position return', 'new position return'])
+        f.write(template + '\n')
+        hotkey_to_positions = self.get_all_disk_positions_for_all_miners(sort_positions=True, only_open_positions=False)
+        for miner_hotkey, positions in hotkey_to_positions.items():
+            if miner_hotkey in eliminated_hotkeys:
+                continue
+            msg = f'Processing hotkey {miner_hotkey}'
+            f.write(miner_hotkey + '\n')
+            print(msg)
+            orig_return = 1.0
+
+            for position in positions:
+                pending_rows = []
+                orig_return *= position.return_at_close
+                for order in position.orders:
+                    order_already_calibrated = bool(order.price_sources)
+                    date_utc = TimeUtil.millis_to_formatted_date_str(order.processed_ms)
+                    closest_price, smallest_delta_ms = self.live_price_fetcher.get_close_at_date(position.trade_pair, order.processed_ms)
+                    automated = 'needs human edit'
+                    corrected_price = '?'
+                    original_price = order.price
+                    if order_already_calibrated:
+                        automated = 'price already accurate'
+                        corrected_price = original_price
+                        delta_ms = order.price_sources[0].lag_ms
+                    elif smallest_delta_ms <= 1000:
+                        automated = 'automatically corrected'
+                        corrected_price = closest_price
+                        delta_ms = smallest_delta_ms
+                        order.price = corrected_price
+                    else:
+                        delta_ms = smallest_delta_ms
+                    if corrected_price != '?' and corrected_price != original_price:
+                        percent_change = f"{(corrected_price - original_price) / original_price * 100:.2f}%"
+                    else:
+                        percent_change = 'N/A'
+                    pending_rows.append([position.trade_pair.trade_pair, date_utc, order.processed_ms, original_price, corrected_price, percent_change, automated, delta_ms, position.return_at_close])
+
+                temp = deepcopy(position)
+                temp.rebuild_position_with_updated_orders()
+                if position.is_closed_position:
+                    new_return = temp.return_at_close
+                else:
+                    new_return = 'depends on live price'
+                for row in pending_rows:
+                    row.append(new_return)
+                    f.write(', '.join([str(x) for x in row]))
+                    f.write('\n')
+
+            self.check_elimination(positions, miner_hotkey, orig_return, ALL_MSGS, ELIM_MSGS)
+
+        for x in ALL_MSGS:
+            print(x)
+            f.write(str(x) + '\n')
+
+        for x in ELIM_MSGS:
+            print(x)
+            f.write(str(x) + '\n')
+
+        f.close()

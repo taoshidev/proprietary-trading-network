@@ -78,8 +78,10 @@ class Validator:
         self.position_manager = PositionManager(metagraph=self.metagraph, config=self.config,
                                                 perform_price_adjustment=False,
                                                 live_price_fetcher=self.live_price_fetcher,
-                                                perform_fee_structure_update=False,
-                                                perform_order_corrections=True)
+                                                perform_fee_structure_update=True,
+                                                perform_order_corrections=True,
+                                                apply_corrections_template=True)
+
 
         self.metagraph_updater = MetagraphUpdater(self.config, self.metagraph, wallet.hotkey.ss58_address,
                                                   False, position_manager=self.position_manager)

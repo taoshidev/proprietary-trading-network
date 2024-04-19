@@ -25,7 +25,6 @@ class SubtensorWeightSetter(CacheController):
 
     def set_weights(self):
         if not self.refresh_allowed(ValiConfig.SET_WEIGHT_REFRESH_TIME_MS):
-            time.sleep(1)
             return
 
         bt.logging.info("running set weights")

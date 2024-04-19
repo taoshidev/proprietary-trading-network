@@ -1,7 +1,7 @@
 import json
 import threading
 from collections import defaultdict
-from typing import List
+from typing import List, Tuple
 import matplotlib.pyplot as plt
 
 from data_generator.base_data_service import BaseDataService, TWELVEDATA_PROVIDER_NAME
@@ -256,14 +256,14 @@ class TwelveDataService(BaseDataService):
         return event
 
 
-    def get_close_at_date(self, trade_pair: TradePair, timestamp_ms: int) -> PriceSource | None:
+    def get_close_at_date(self, trade_pair: TradePair, timestamp_ms: int) -> Tuple[float, int] | Tuple[None, None]:
 
         input_time_formatted = TimeUtil.millis_to_formatted_date_str(timestamp_ms)
         timespan = '1min'
         events_dict = self._fetch_data_rest(trade_pair.trade_pair, interval=timespan, output_size=1, date_str=input_time_formatted)
         if not events_dict:
             return None
-        print(f'Response:', events_dict)
+        #print(f'Response:', events_dict)
         events = events_dict.get(trade_pair.trade_pair)
         if not events:
             return None
@@ -288,11 +288,9 @@ class TwelveDataService(BaseDataService):
         #print(f"Input time: {input_time_formatted}, Response time: {t_str}")
 
         smallest_delta_s = smallest_delta_ms / 1000 if smallest_delta_ms is not None else None
-        print('TD Delta time in s: ', smallest_delta_s, 'Reported time', corresponding_date, 'Input date', input_time_formatted)
-        if abs(smallest_delta_s) > 60:
-            return None
+        #print('TD Delta time in s: ', smallest_delta_s, 'Reported time', corresponding_date, 'Input date', input_time_formatted)
 
-        return price
+        return price, smallest_delta_ms
 
 
     def get_range_of_closes(self, trade_pair: str, start_date: str, end_date: str):

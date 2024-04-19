@@ -167,7 +167,7 @@ class PolygonDataService(BaseDataService):
                         vwap=m.vwap,
                         high=m.high,
                         low=m.low,
-                        start_ms=end_timestamp,
+                        start_ms=end_timestamp - 1,  # prioritize a new candle's open over a previous candle's close
                         websocket=True,
                         lag_ms=now_ms - end_timestamp,
                         volume=m.volume
@@ -364,8 +364,8 @@ class PolygonDataService(BaseDataService):
     def get_close_in_past_hour_fallback(self, trade_pair: TradePair, timestamp_ms: int):
         polygon_ticker = self.trade_pair_to_polygon_ticker(trade_pair)
 
-        if not self.is_market_open(trade_pair):
-            return self.get_event_before_market_close(trade_pair)
+        #if not self.is_market_open(trade_pair):
+        #    return self.get_event_before_market_close(trade_pair)
 
         prev_timestamp = None
         smallest_delta = None
@@ -400,7 +400,7 @@ class PolygonDataService(BaseDataService):
             assert prev_timestamp is None or prev_timestamp < epoch_miliseconds
             prev_timestamp = epoch_miliseconds
 
-        print(f"hourly fallback smallest delta s: {smallest_delta / 1000 if smallest_delta else None}, input_timestamp: {timestamp_ms}, candle_start_time_ms: {start_time}, candle: {candle}, n_responses: {n_responses}")
+        #print(f"hourly fallback smallest delta s: {smallest_delta / 1000 if smallest_delta else None}, input_timestamp: {timestamp_ms}, candle_start_time_ms: {start_time}, candle: {candle}, n_responses: {n_responses}")
         return corresponding_price
 
 
@@ -408,8 +408,8 @@ class PolygonDataService(BaseDataService):
     def get_close_at_date_minute_fallback(self, trade_pair: TradePair, timestamp_ms: int):
         polygon_ticker = self.trade_pair_to_polygon_ticker(trade_pair)
 
-        if not self.is_market_open(trade_pair):
-            return self.get_event_before_market_close(trade_pair)
+        #if not self.is_market_open(trade_pair):
+        #    return self.get_event_before_market_close(trade_pair)
 
         prev_timestamp = None
         smallest_delta = None
@@ -422,7 +422,7 @@ class PolygonDataService(BaseDataService):
         def try_updating_found_price(t, p):
             nonlocal smallest_delta, corresponding_price, start_time, candle
             time_delta_ms = abs(t - timestamp_ms)
-            if smallest_delta is None or time_delta_ms < smallest_delta:
+            if smallest_delta is None or time_delta_ms <= smallest_delta:
                 smallest_delta = time_delta_ms
                 corresponding_price = p
                 start_time = epoch_miliseconds
@@ -444,51 +444,46 @@ class PolygonDataService(BaseDataService):
             assert prev_timestamp is None or prev_timestamp < epoch_miliseconds
             prev_timestamp = epoch_miliseconds
 
-        print(f"minute fallback smallest delta ms: {smallest_delta}, input_timestamp: {timestamp_ms}, candle_start_time_ms: {start_time}, candle: {candle}, n_responses: {n_responses}")
+        #print(f"minute fallback smallest delta ms: {smallest_delta}, input_timestamp: {timestamp_ms}, candle_start_time_ms: {start_time}, candle: {candle}, n_responses: {n_responses}")
         return corresponding_price
 
-    def get_close_at_date_second(self, trade_pair: TradePair, timestamp_ms: int):
+    def get_close_at_date_second(self, trade_pair: TradePair, target_timestamp_ms: int):
         polygon_ticker = self.trade_pair_to_polygon_ticker(trade_pair)
 
-        if not self.is_market_open(trade_pair):
-            return self.get_event_before_market_close(trade_pair)
+        #if not self.is_market_open(trade_pair):
+        #    return self.get_event_before_market_close(trade_pair)
 
         prev_timestamp = None
         smallest_delta = None
         corresponding_price = None
-        start_time = None
         n_responses = 0
-        candle = None
         timespan = "second"
 
         def try_updating_found_price(t, p):
-            nonlocal smallest_delta, corresponding_price, start_time, candle
-            time_delta_ms = abs(t - timestamp_ms)
-            if smallest_delta is None or time_delta_ms < smallest_delta:
+            nonlocal smallest_delta, corresponding_price, target_timestamp_ms
+            time_delta_ms = abs(t - target_timestamp_ms)
+            if smallest_delta is None or time_delta_ms <= smallest_delta:
+                #print('Updated best answer', time_delta_ms, smallest_delta, t, p)
                 smallest_delta = time_delta_ms
                 corresponding_price = p
-                start_time = epoch_miliseconds
-                candle = a
 
         for a in self.POLYGON_CLIENT.list_aggs(
                 polygon_ticker,
                 1,
                 timespan,
-                timestamp_ms - 1000 * 8,
-                timestamp_ms + 1000 * 8
+                target_timestamp_ms - 1000 * 8,
+                target_timestamp_ms + 1000 * 8
         ):
-            print('agg', a)
+            print('agg', a, 'dt', target_timestamp_ms - a.timestamp, 'ms')
             n_responses += 1
-            epoch_miliseconds = a.timestamp
+            try_updating_found_price(a.timestamp, a.open)
+            try_updating_found_price(a.timestamp + self.timespan_to_ms[timespan], a.close)
 
-            try_updating_found_price(epoch_miliseconds, a.open)
-            try_updating_found_price(epoch_miliseconds + self.timespan_to_ms[timespan], a.close)
+            assert prev_timestamp is None or prev_timestamp < a.timestamp
+            prev_timestamp = a.timestamp
 
-            assert prev_timestamp is None or prev_timestamp < epoch_miliseconds
-            prev_timestamp = epoch_miliseconds
-
-        print(f"smallest delta ms: {smallest_delta}, input_timestamp: {timestamp_ms}, candle_start_time_ms: {start_time}, candle: {candle}, n_responses: {n_responses}")
-        return corresponding_price
+        #print(f"smallest delta ms: {smallest_delta}, input_timestamp: {timestamp_ms}, candle_start_time_ms: {start_time}, candle: {candle}, n_responses: {n_responses}")
+        return corresponding_price, smallest_delta
 
     def get_range_of_closes(self, trade_pair, start_date: str, end_date: str):
         ts = self.td.time_series(symbol=trade_pair, interval='1min', start_date=start_date, end_date=end_date, outputsize=5000)
@@ -582,6 +577,21 @@ if __name__ == "__main__":
     # Initialize client
     polygon_data_provider = PolygonDataService(api_key=secrets['polygon_apikey'])
 
+    #price, time_delta = polygon_data_provider.get_close_at_date_second(trade_pair=TradePair.BTCUSD, target_timestamp_ms=1712671378202)
+
+    trades = polygon_data_provider.POLYGON_CLIENT.list_trades(ticker='X:BTC-USD', params={
+        "timestamp.gte": 1712671370202000000 - 1000 * 1000000,
+        "timestamp.lte": 1712671370202000000 + 1000 * 1000000
+    })
+    exchange_to_name = {1: 'Coinbase', 23: 'Kraken', 2: 'Bitfinex'}
+    for trade in trades:
+        participant_timestamp_ms = trade.participant_timestamp / 1000000.0
+        format_date = TimeUtil.millis_to_formatted_date_str(participant_timestamp_ms)
+        print(format_date, exchange_to_name[trade.exchange], trade.price)
+
+    print(price, time_delta)
+    assert 0
+
     trade_pairs = [TradePair.BTCUSD, TradePair.ETHUSD, TradePair.SPX, TradePair.GBPUSD, TradePair.DJI]
     print("-----------------REST-----------------")
     ans_rest = polygon_data_provider.get_closes_rest(trade_pairs)
@@ -600,7 +610,7 @@ if __name__ == "__main__":
         time.sleep(10)
 
     #time.sleep(12)
-    print(polygon_data_provider.get_close_at_date_second(TradePair.BTCUSD, 1713273884000))
+    print(polygon_data_provider.get_close_at_date_second(TradePair.BTCUSD, 1712671378202))
     assert 0
 
 
@@ -645,10 +655,6 @@ if __name__ == "__main__":
         print(f'market is open for {tp}: ', is_open)
         print('PRICE BEFORE MARKET CLOSE: ', polygon_data_provider.get_event_before_market_close(tp))
         print('getting close for', tp.trade_pair_id, ':', polygon_data_provider.get_close_rest(tp)[tp])
-
-
-
-
 
 
     trade_pairs = [TradePair.BTCUSD, TradePair.ETHUSD, TradePair.SPX, TradePair.GBPUSD, TradePair.DJI]

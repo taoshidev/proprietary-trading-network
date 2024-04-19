@@ -45,7 +45,10 @@ class PriceSource(BaseModel):
         if self.websocket:
             return self.start_ms
         else:
-            return self.start_ms + self.timespan_ms
+            return self.start_ms + self.timespan_ms - 1  # Always prioritize a new candle over the previous one
+
+    def get_start_time_ms(self):
+        return self.start_ms
 
     def time_delta_from_now_ms(self, now_ms: int) -> int:
         if self.websocket:
@@ -74,7 +77,7 @@ class PriceSource(BaseModel):
         for k, candidate_ps in candidates_dict.items():
             if k in existing_dict:
                 existing_ps = existing_dict[k]
-                if candidate_ps.time_delta_from_now_ms(order_time_ms) < existing_ps.time_delta_from_now_ms(order_time_ms):
+                if candidate_ps.time_delta_from_now_ms(order_time_ms) < existing_ps.time_delta_from_now_ms(order_time_ms):  # Prefer the ws price in the past rather than the future
                     bt.logging.warning(f"Found a better price source for {hotkey} {trade_pair_str}! Replacing {existing_ps.debug_str(order_time_ms)} with {candidate_ps.debug_str(order_time_ms)}")
                     new_price_sources.append(candidate_ps)
                     any_changes = True

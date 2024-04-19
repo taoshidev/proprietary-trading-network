@@ -61,6 +61,12 @@ class TimeUtil:
         return temp.strftime("%Y-%m-%d %H:%M:%S")
 
     @staticmethod
+    def millis_to_verbose_formatted_date_str(millis: int) -> str:
+        temp = TimeUtil.millis_to_datetime(millis)
+        # Include milliseconds in the format. The `[:-3]` trims the microseconds to milliseconds.
+        return temp.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+
+    @staticmethod
     def formatted_date_str_to_millis(date_string: str) -> int:
         date_format = '%Y-%m-%d %H:%M:%S'
         # Parse the string as a UTC datetime object
