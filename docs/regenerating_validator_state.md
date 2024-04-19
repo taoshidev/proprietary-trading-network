@@ -8,7 +8,7 @@ The script detailed below regenerates the `validation/*` directory by fetching t
 
 ## Steps Automatic
 1. **Stop Validator**: Temporarily halt your validator with PM2 using `pm2 stop sn8 ptn`.
-2. Within the `proprietary-trading-network` directory, execute:
+2. Within the `proprietary-trading-network` directory with your venv activated, execute:
 
     ```bash
     curl https://dashboard.taoshi.io/api/validator-checkpoint -o validator_checkpoint.json && sed -i 's/^{"checkpoint"://' validator_checkpoint.json && sed -i 's/}$//' validator_checkpoint.json && python3 restore_validator_from_backup.py
