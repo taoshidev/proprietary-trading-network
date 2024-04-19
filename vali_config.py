@@ -13,8 +13,8 @@ class TradePairCategory(str, Enum):
 
 class TradePair(Enum):
     # crypto
-    BTCUSD = ["BTCUSD", "BTC/USD", 0.002, 0.001, 20, TradePairCategory.CRYPTO]
-    ETHUSD = ["ETHUSD", "ETH/USD", 0.002, 0.001, 20, TradePairCategory.CRYPTO]
+    BTCUSD = ["BTCUSD", "BTC/USD", 0.001, 0.001, 20, TradePairCategory.CRYPTO]
+    ETHUSD = ["ETHUSD", "ETH/USD", 0.001, 0.001, 20, TradePairCategory.CRYPTO]
 
     # forex
     AUDCAD = ["AUDCAD", "AUD/CAD", 0.00007, 0.001, 500, TradePairCategory.FOREX]

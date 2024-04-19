@@ -40,8 +40,8 @@ class PositionManager(CacheController):
                 self.apply_order_corrections()
             except Exception as e:
                 bt.logging.error(f"Error applying order corrections: {e}")
-        #if perform_fee_structure_update:
-        #    self.ensure_latest_fee_structure_applied()
+        if perform_fee_structure_update:
+            self.ensure_latest_fee_structure_applied()
 
 
 
@@ -191,6 +191,8 @@ class PositionManager(CacheController):
         n_positions_seen = 0
         n_positions_updated = 0
         n_positions_updated_significantly = 0
+        n_positions_flipped_to_positive = 0
+        n_positions_flipped_negative = 0
         n_positions_stayed_the_same = 0
         significant_deltas = []
         for hotkey, positions in hotkey_to_positions.items():
@@ -199,12 +201,20 @@ class PositionManager(CacheController):
                 # Also once positions closes, it will make it past this check next validator boot
                 if position.is_open_position:
                     continue
+                if not position.trade_pair.is_crypto:
+                    continue
                 n_positions_seen += 1
                 # Ensure this position is using the latest fee structure. If not, recalculate and persist the new return to disk
                 old_return_at_close = position.return_at_close
                 new_return_at_close = position.calculate_return_with_fees(position.current_return, timestamp_ms=position.close_ms)
+                if hotkey == '5GhCxfBcA7Ur5iiAS343xwvrYHTUfBjBi4JimiL5LhujRT9t':
+                    bt.logging.info(f"{position.trade_pair.trade_pair} Old return: {old_return_at_close}, new return: {new_return_at_close}")
                 if old_return_at_close != new_return_at_close:
                     n_positions_updated += 1
+                    if old_return_at_close < 1.0 and new_return_at_close > 1.0:
+                        n_positions_flipped_to_positive += 1
+                    elif old_return_at_close > 1.0 and new_return_at_close < 1.0:
+                        n_positions_flipped_negative += 1
                     if abs(old_return_at_close - new_return_at_close) / old_return_at_close > 0.03:
                         n_positions_updated_significantly += 1
                         bt.logging.info(f"Updating return_at_close for position {position.position_uuid} trade pair "
@@ -215,7 +225,10 @@ class PositionManager(CacheController):
                 else:
                     n_positions_stayed_the_same += 1
         bt.logging.info(f"Updated {n_positions_updated} positions. {n_positions_updated_significantly} positions "
-                        f"were updated significantly. {n_positions_stayed_the_same} stayed the same. {n_positions_seen} positions were seen in total. Significant deltas: {significant_deltas}")
+                        f"were updated significantly. {n_positions_stayed_the_same} stayed the same. {n_positions_seen} "
+                        f"positions were seen in total. Significant deltas: {significant_deltas} "
+                        f"n_positions_flipped_to_positive: {n_positions_flipped_to_positive}"
+                        f" n_positions_flipped_negative: {n_positions_flipped_negative}")
 
     def handle_eliminated_miner(self, hotkey: str,
                                 trade_pair_to_price_source_used_for_elimination_check: Dict[TradePair, PriceSource],
