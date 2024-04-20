@@ -32,7 +32,7 @@ Your incentive mechanisms running on the mainnet are open to anyone. They emit r
 
 # System Requirements
 
-- Requires **Python 3.10 or higher.**
+- Requires **Python 3.10.**
 - [Bittensor](https://github.com/opentensor/bittensor#install)
 
 Below are the prerequisites for validators. You may be able to make a validator work off lesser specs but it is not recommended.
@@ -254,5 +254,6 @@ Note this won't launch the autoupdater. To launch with the autoupdater, use the 
 
 1. When running a validator in certain cloud environments such as Runpod, you may not have your Bittensor default port open (8091). This will cause your validator to be unable to communicate with miners and thus have a low VTRUST as your validator isn't receiving the latest orders. In order to correct this issue, explicitly open a tcp port, and pass this as an arugment with `--axon.port <YOUR_OPEN_PORT>`
 
+2. Do not use share API keys across multiple validators/scripts. Each API key corresponds to one allowed websocket connection. Using the API keys across multiple scripts will lead to rate limits and failures on your validator. 
 
-2. If you see an a ```JSONDecodeError``` exception when running your validator, ensure you secrets.json file is correctly formatted with proper commas.  
+3. If you see an a ```JSONDecodeError``` exception when running your validator, ensure you secrets.json file is correctly formatted with proper commas.  
