@@ -2,9 +2,14 @@
 # Copyright © 2024 Taoshi Inc
 import os
 import datetime
+from pickle import UnpicklingError
+from typing import List, Dict
 
 from time_util.time_util import TimeUtil
 from vali_config import ValiConfig
+from vali_objects.exceptions.corrupt_data_exception import ValiBkpCorruptDataException
+from vali_objects.exceptions.vali_bkp_file_missing_exception import ValiFileMissingException
+from vali_objects.position import Position
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.utils.vali_utils import ValiUtils
 from pathlib import Path
@@ -201,6 +206,7 @@ class CacheController:
         # Ex we went from return of 1 to 0.9. Drawdown is -10% or in this case -0.1. Return 1 - 0.1 = 0.9
         # Ex we went from return of 0.9 to 1. Drawdown is +10% or in this case 0.1. Return 1 + 0.1 = 1.1 (not really a drawdown)
         return 1.0 + ((float(final) - float(initial)) / float(initial))
+
     def is_drawdown_beyond_mdd(self, dd, time_now=None) -> str | bool:
         if time_now is None:
             time_now = TimeUtil.generate_start_timestamp(0)
@@ -210,3 +216,74 @@ class CacheController:
             return CacheController.MAX_TOTAL_DRAWDOWN
         else:
             return False
+
+    def get_all_disk_positions_for_all_miners(self, **args):
+        all_miner_hotkeys: list = ValiBkpUtils.get_directories_in_dir(
+            ValiBkpUtils.get_miner_dir()
+        )
+        return self.get_all_miner_positions_by_hotkey(all_miner_hotkeys, **args)
+
+
+    def get_miner_position_from_disk(self, file) -> Position:
+        # wrapping here to allow simpler error handling & original for other error handling
+        # Note one position always corresponds to one file.
+        file_string = None
+        try:
+            file_string = ValiBkpUtils.get_file(file)
+            ans = Position.parse_raw(file_string)
+            #bt.logging.info(f"vali_utils get_miner_position: {ans}")
+            return ans
+        except FileNotFoundError:
+            raise ValiFileMissingException("Vali position file is missing")
+        except UnpicklingError as e:
+            raise ValiBkpCorruptDataException(f"file_string is {file_string}, {e}")
+        except UnicodeDecodeError as e:
+            raise ValiBkpCorruptDataException(f" Error {e} You may be running an old version of the software. Confirm with the team if you should delete your cache. ")
+        except Exception as e:
+            raise ValiBkpCorruptDataException(f"Error {e} file_path {file} file_string: {file_string}")
+
+    def sort_by_close_ms(self, _position):
+        return (
+            _position.close_ms if _position.is_closed_position else float("inf")
+        )
+
+    def get_all_miner_positions(self,
+                                miner_hotkey: str,
+                                only_open_positions: bool = False,
+                                sort_positions: bool = False,
+                                acceptable_position_end_ms: int = None
+                                ) -> List[Position]:
+
+        miner_dir = ValiBkpUtils.get_miner_all_positions_dir(miner_hotkey, running_unit_tests=self.running_unit_tests)
+        all_files = ValiBkpUtils.get_all_files_in_dir(miner_dir)
+
+        positions = [self.get_miner_position_from_disk(file) for file in all_files]
+        if len(positions):
+            bt.logging.trace(f"miner_dir: {miner_dir}, n_positions: {len(positions)}")
+
+        if acceptable_position_end_ms is not None:
+            positions = [
+                position
+                for position in positions
+                if position.open_ms > acceptable_position_end_ms
+            ]
+
+        if only_open_positions:
+            positions = [
+                position for position in positions if position.is_open_position
+            ]
+
+        if sort_positions:
+            positions = sorted(positions, key=self.sort_by_close_ms)
+
+        return positions
+
+    def get_all_miner_positions_by_hotkey(self, hotkeys: List[str], eliminations: List = None, **args) -> Dict[
+        str, List[Position]]:
+        eliminated_hotkeys = set(x['hotkey'] for x in eliminations) if eliminations is not None else set()
+
+        return {
+            hotkey: self.get_all_miner_positions(hotkey, **args)
+            for hotkey in hotkeys
+            if hotkey not in eliminated_hotkeys
+        }

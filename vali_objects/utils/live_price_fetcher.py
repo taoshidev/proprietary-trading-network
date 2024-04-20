@@ -18,13 +18,13 @@ from statistics import median
 
 
 class LivePriceFetcher():
-    def __init__(self, secrets):
+    def __init__(self, secrets, disable_ws=False):
         if "twelvedata_apikey" in secrets:
-            self.twelve_data_service = TwelveDataService(api_key=secrets["twelvedata_apikey"])
+            self.twelve_data_service = TwelveDataService(api_key=secrets["twelvedata_apikey"], disable_ws=disable_ws)
         else:
             raise Exception("TwelveData API key not found in secrets.json")
         if "polygon_apikey" in secrets:
-            self.polygon_data_service = PolygonDataService(api_key=secrets["polygon_apikey"])
+            self.polygon_data_service = PolygonDataService(api_key=secrets["polygon_apikey"], disable_ws=disable_ws)
         else:
             raise Exception("TwelveData API key not found in secrets.json")
 

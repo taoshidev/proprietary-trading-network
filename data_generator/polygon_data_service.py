@@ -27,9 +27,10 @@ DEBUG = 0
 
 class PolygonDataService(BaseDataService):
 
-    def __init__(self, api_key):
+    def __init__(self, api_key, disable_ws=False):
         self.init_time = time.time()
         self._api_key = api_key
+        self.disable_ws = disable_ws
         timespan_to_ms = {'second': 1000, 'minute': 1000 * 60, 'hour': 1000 * 60 * 60, 'day': 1000 * 60 * 60 * 24}
 
 
@@ -59,9 +60,10 @@ class PolygonDataService(BaseDataService):
         }
 
         # Start thread to refresh market status
-        self.websocket_manager_thread = threading.Thread(target=self.websocket_manager, daemon=True)
-        self.websocket_manager_thread.start()
-        time.sleep(3) # Let the websocket_manager_thread start
+        if not disable_ws:
+            self.websocket_manager_thread = threading.Thread(target=self.websocket_manager, daemon=True)
+            self.websocket_manager_thread.start()
+            time.sleep(3) # Let the websocket_manager_thread start
 
     def main_forex(self):
         self.POLY_WEBSOCKETS[Market.Forex].run(self.handle_msg)
@@ -513,12 +515,32 @@ class PolygonDataService(BaseDataService):
         # Return the collected results
         return ret
 
+    def get_candles_for_trade_pair_simple(self, trade_pair: TradePair, start_timestamp_ms: int, end_timestamp_ms: int):
+        polygon_ticker = self.trade_pair_to_polygon_ticker(trade_pair)
+        ans = {}
+        ub = 0
+        lb = float('inf')
+        for a in self.POLYGON_CLIENT.list_aggs(
+                polygon_ticker,
+                1,
+                "second",
+                start_timestamp_ms,
+                end_timestamp_ms,
+                limit=50000
+        ):
+            ans[a.timestamp // 1000] = a.close
+            ub = max(ub, a.timestamp)
+            lb = min(lb, a.timestamp)
+        return ans, lb, ub
+
+
     def get_candles_for_trade_pair(
         self,
         trade_pair: TradePair,
         start_timestamp_ms: int,
         end_timestamp_ms: int,
-        attempting_prev_close: bool = False
+        attempting_prev_close: bool = False,
+        force_second: bool = False
     ) -> list[PriceSource] | None:
         """
         agg Agg(open=111.91, high=111.91, low=111.902, close=111.909, volume=3, vwap=111.907,
@@ -541,6 +563,9 @@ class PolygonDataService(BaseDataService):
             timespan = "hour"
         else:
             timespan = "day"
+
+        if force_second:
+            timespan = "second"
 
         polygon_ticker = self.trade_pair_to_polygon_ticker(trade_pair)
 

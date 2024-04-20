@@ -12,6 +12,8 @@ from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 import bittensor as bt
 
 from vali_objects.utils.vali_utils import ValiUtils
+from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
+
 DEBUG = 0
 
 def backup_validation_directory():
@@ -133,6 +135,10 @@ def regenerate_miner_positions(perform_backup=True):
 
     bt.logging.info(f"regenerating {len(data['eliminations'])} eliminations")
     position_manager.write_eliminations_to_disk(data['eliminations'])
+
+    perf_ledgers = data.get('perf_ledgers', {})
+    bt.logging.info(f"regenerating {len(perf_ledgers)} perf ledgers")
+    PerfLedgerManager.save_perf_ledgers_to_disk(perf_ledgers)
 
     bt.logging.info(f"regenerating {len(data['plagiarism'])} plagiarism scores")
     position_manager.write_plagiarism_scores_to_disk(data['plagiarism'])

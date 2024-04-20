@@ -76,7 +76,7 @@ class SubtensorWeightSetter(CacheController):
         current_time: int = None,
         eliminations: List[str] = None,
         log: bool = False,
-    ) -> None:
+    ):
         """
         Runs a screening process to elminate miners who didn't pass the challenge period.
         """
@@ -112,9 +112,11 @@ class SubtensorWeightSetter(CacheController):
             
             if challenge_check_logic == False:
                 challengeperiod_eliminations.append(hotkey)
-                bt.logging.info(
-                    f"Miner {hotkey} failed the challenge period - weight will be set to 0."
-                )
+
+        if challengeperiod_eliminations:
+            bt.logging.info(
+                f"Miners {challengeperiod_eliminations} failed the challenge period - weight will be set to 0."
+            )
 
         # update for new eliminations due to challenge period
         return {

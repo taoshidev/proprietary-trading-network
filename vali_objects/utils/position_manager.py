@@ -164,7 +164,7 @@ class PositionManager(CacheController):
         """
 
 
-        self.give_erronously_eliminated_miners_another_shot()
+        #self.give_erronously_eliminated_miners_another_shot()
         n_corrections = 0
         n_attempts = 0
         unique_corrections = set()
@@ -224,11 +224,14 @@ class PositionManager(CacheController):
                 n_attempts, n_corrections = self.correct_for_tp(positions, 3, [1.36936, 1.36975], TradePair.USDCAD, n_attempts=n_attempts,
                                                                 n_corrections=n_corrections,
                                                                 unique_corrections=unique_corrections)
-            """
+                                                                
             if miner_hotkey == '5Dxqzduahnqw8q3XSUfTcEZGU7xmAsfJubhHZwvXVLN9fSjR':
                 self.reopen_force_closed_positions(positions)
                 n_corrections += 1
                 n_attempts += 1
+            """
+            pass
+
 
 
         bt.logging.warning(f"Applied {n_corrections} order corrections out of {n_attempts} attempts. unique positions corrected: {len(unique_corrections)}")
@@ -300,7 +303,7 @@ class PositionManager(CacheController):
                     open_position.close_out_position(TimeUtil.now_in_millis())
                     if source_for_elimination:
                         open_position.orders[-1].price_sources.append(source_for_elimination)
-                    self.save_miner_position_to_disk(open_position)
+                    self.save_miner_position_to_disk(open_position, delete_open_position_if_exists=False)
 
     def recalculate_return_at_close_and_write_corrected_position_to_disk(self, position: Position, hotkey:str):
         # TODO LOCK and how to handle open positions?
@@ -371,15 +374,10 @@ class PositionManager(CacheController):
 
         return disposable_clone.return_at_close
 
-
-    def get_all_disk_positions_for_all_miners(self, **args):
-        all_miner_hotkeys: list = ValiBkpUtils.get_directories_in_dir(
-            ValiBkpUtils.get_miner_dir()
-        )
-        return self.get_all_miner_positions_by_hotkey(all_miner_hotkeys, **args)
-
     def close_open_orders_for_suspended_trade_pairs(self):
         tps_to_eliminate = []
+        if not tps_to_eliminate:
+            return
         all_positions = self.get_all_disk_positions_for_all_miners(sort_positions=True, only_open_positions=False)
         eliminations = self.get_miner_eliminations_from_disk()
         eliminated_hotkeys = set(x['hotkey'] for x in eliminations)
@@ -394,7 +392,7 @@ class PositionManager(CacheController):
                 if position.trade_pair in tps_to_eliminate:
                     bt.logging.info(
                         f"Position {position.position_uuid} for hotkey {hotkey} and trade pair {position.trade_pair.trade_pair_id} has been closed")
-                    self.handle_eliminated_miner(hotkey, position.trade_pair, {})
+            self.handle_eliminated_miner(hotkey, {}, tps_to_eliminate)
 
     def perform_price_recalibration(self, time_per_batch_s=90):
         try:
@@ -490,11 +488,6 @@ class PositionManager(CacheController):
             bt.logging.info(f"hotkey: {k}. return as shown on dash: {v}")
         return hotkeys_eliminated_to_current_return
 
-    def sort_by_close_ms(self, _position):
-        return (
-            _position.close_ms if _position.is_closed_position else float("inf")
-        )
-
     def get_return_per_closed_position(self, positions: List[Position]) -> List[float]:
         if len(positions) == 0:
             return []
@@ -568,47 +561,6 @@ class PositionManager(CacheController):
 
         return [ x * consistency_penalty for x in closed_position_returns ]
 
-    def get_all_miner_positions(self,
-                                miner_hotkey: str,
-                                only_open_positions: bool = False,
-                                sort_positions: bool = False,
-                                acceptable_position_end_ms: int = None
-                                ) -> List[Position]:
-
-        miner_dir = ValiBkpUtils.get_miner_all_positions_dir(miner_hotkey, running_unit_tests=self.running_unit_tests)
-        all_files = ValiBkpUtils.get_all_files_in_dir(miner_dir)
-
-        positions = [self.get_miner_position_from_disk(file) for file in all_files]
-        if len(positions):
-            bt.logging.trace(f"miner_dir: {miner_dir}, n_positions: {len(positions)}")
-
-        if acceptable_position_end_ms is not None:
-            positions = [
-                position
-                for position in positions
-                if position.open_ms > acceptable_position_end_ms
-            ]
-
-        if only_open_positions:
-            positions = [
-                position for position in positions if position.is_open_position
-            ]
-
-        if sort_positions:
-            positions = sorted(positions, key=self.sort_by_close_ms)
-
-        return positions
-
-    def get_all_miner_positions_by_hotkey(self, hotkeys: List[str], eliminations: List = None, **args) -> Dict[
-        str, List[Position]]:
-        eliminated_hotkeys = set(x['hotkey'] for x in eliminations) if eliminations is not None else set()
-
-        return {
-            hotkey: self.get_all_miner_positions(hotkey, **args)
-            for hotkey in hotkeys
-            if hotkey not in eliminated_hotkeys
-        }
-
     @staticmethod
     def positions_are_the_same(position1: Position, position2: Position | dict) -> (bool, str):
         # Iterate through all the attributes of position1 and compare them to position2.
@@ -651,24 +603,6 @@ class PositionManager(CacheController):
                 return self.get_miner_position_from_disk(fp)
             else:
                 raise e
-
-    def get_miner_position_from_disk(self, file) -> Position:
-        # wrapping here to allow simpler error handling & original for other error handling
-        # Note one position always corresponds to one file.
-        file_string = None
-        try:
-            file_string = ValiBkpUtils.get_file(file)
-            ans = Position.parse_raw(file_string)
-            #bt.logging.info(f"vali_utils get_miner_position: {ans}")
-            return ans
-        except FileNotFoundError:
-            raise ValiFileMissingException("Vali position file is missing")
-        except UnpicklingError as e:
-            raise ValiBkpCorruptDataException(f"file_string is {file_string}, {e}")
-        except UnicodeDecodeError as e:
-            raise ValiBkpCorruptDataException(f" Error {e} You may be running an old version of the software. Confirm with the team if you should delete your cache. ")
-        except Exception as e:
-            raise ValiBkpCorruptDataException(f"Error {e} file_path {file} file_string: {file_string}")
 
     def get_recently_updated_miner_hotkeys(self):
         """
