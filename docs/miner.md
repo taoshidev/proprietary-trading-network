@@ -191,7 +191,7 @@ Run the subnet miner:
 python neurons/miner.py --netuid 8  --wallet.name miner --wallet.hotkey default --logging.debug
 ```
 
-To run your miner on the testnet add the `--subtensor.network test` flag and `--netuid 116` flag.
+To run your miner on the testnet add the `--subtensor.network test` flag and override the netuuid flag to `--netuid 116`.
 
 You will see the below terminal output:
 
