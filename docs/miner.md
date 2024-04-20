@@ -57,7 +57,7 @@ The simplest way to get a miner to submit orders to validators is by manually ru
 
 # System Requirements
 
-- Requires **Python 3.10 or higher.**
+- Requires **Python 3.10.**
 - [Bittensor](https://github.com/opentensor/bittensor#install)
 
 Below are the prerequisites for miners. You may be able to make a miner work off lesser specs but it is not recommended.
