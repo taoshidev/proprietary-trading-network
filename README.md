@@ -60,11 +60,11 @@ Subnets are decentralized networks of machines that collaborate to train and ser
 
 ### Miners
 
-Miners run machine learning models. They fulfill requests from the Validators.
+Miners run machine learning models. They send signals to the Validators.
 
 ### Validators
 
-Validators query and prompt the Miners. Validators also validate miner requests. Validators are also storefronts for data.
+Validators recieve trade signals from Miners. Validators ensure trades are valid, store them, and track portfolio returns. 
 
 </details>
 
@@ -85,6 +85,7 @@ most complete trading signals across a variety of asset classes.
 📈&nbsp;Higher Payouts<br>
 📉&nbsp;Lower Registration Fees<br>
 💪&nbsp;Superior Cryptocurrency Infrastructure<br>
+🔎&nbsp;<a href="https://dashboard.taoshi.io/">Trading Visualization Dashboard</a>
 
 ## How does it work?
 
@@ -148,6 +149,11 @@ After elimination, miners are not immediately deregistered from the network. The
 
 
 # Get Started
+
+### Mainnet Trade Dashboard
+Take a look at the current competition <a href="https://dashboard.taoshi.io/">Dashboard</a>
+
+### Validator Installation
 
 Please see our [Validator Installation](https://github.com/taoshidev//proprietary-trading-network/blob/main/docs/validator.md) guide.
 
