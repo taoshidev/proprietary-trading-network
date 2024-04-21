@@ -125,13 +125,13 @@ In the Proprietary Trading Network, the performance of each miner's portfolio is
 
 ### Maximum Drawdown (MDD) Eliminations
 
-1. **Daily MDD Limit**: If a miner's portfolio experiences more than a **5% drawdown** on a daily close (UTC), the miner will be eliminated.
+1. **Daily MDD Limit**: If, on a daily close (UTC), a miner's portfolio experiences more than a **5% drawdown** when compared to its realized all-time high , the miner will be eliminated.
 2. **Anytime MDD Limit**: Similarly, if at any point, the miner's portfolio undergoes a **10% drawdown**, the miner will be eliminated.
 
 - **Open Position Treatment**: Open positions across different trade pairs are considered together for MDD calculations. For example, if multiple open positions across different pairs collectively result in a return that doesn't breach the MDD threshold, the miner remains active. Conversely, a single poor-performing open position can result in elimination.
 
 ### Drawdown Calculation
-When monitoring a miner's portfolio, validators calculate "drawdown". This drawdown value is calculated by comparing the instantaneous value of the portfolio to its maximum all time realized return. All portfolios start at a value of 1x or 100%. Thus, after the first closed trade, if the portfolio goes up by 10%, the drawdown is taken as (1.1 - 1.1) / 1.1 = 0%. The portfolio has no drawdown because it has been increasingly in value only.
+When monitoring a miner's portfolio, validators calculate "drawdown". This drawdown value is calculated by comparing the instantaneous value of the portfolio to its all-time high realized return. All portfolios start at a value of 1x or 100%. Thus, after the first closed trade, if the portfolio goes up by 10%, the drawdown is taken as (1.1 - 1.1) / 1.1 = 0%. The portfolio has no drawdown because it has been increasingly in value only.
 
 Another example - if the first position, open or closed, results in a portfolio drop of 6%, the miner has a drawdown of (.94 - 1) / 1 = 6%
 
