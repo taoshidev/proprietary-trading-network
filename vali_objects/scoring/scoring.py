@@ -38,9 +38,9 @@ class Scoring:
         ]
 
         scoring_function_weights = [
-            0.4,
-            0.4,
-            0.2
+            0.0,
+            0.6,
+            0.4
         ]
 
         ## split into grace period miners and non-grace period miners
@@ -61,7 +61,7 @@ class Scoring:
 
         miner_scores_list: list[list[tuple[str,float]]] = []
         debug_miners_not_reach_minimum_positions = []
-        for scoring_function in scoring_functions:
+        for c,scoring_function in enumerate(scoring_functions):
             miner_scoring_function_scores = []
             for miner, returns in non_grace_period_miners:
                 if len(returns) < int(ValiConfig.SET_WEIGHT_MINIMUM_POSITIONS):
@@ -87,9 +87,10 @@ class Scoring:
         for c,weighted_score in enumerate(weighted_scores):
             for miner, score in weighted_score:
                 if miner not in combined_scores:
-                    combined_scores[miner] = 0
+                    combined_scores[miner] = 1
 
-                combined_scores[miner] += score * scoring_function_weights[c]
+                combined_scores[miner] *= score * (1 + scoring_function_weights[c])
+
         # this finishes the non-grace period miners
         normalized_scores = Scoring.normalize_scores(combined_scores)
         grace_period_miner_ids = [ x[0] for x in grace_period_miners ]

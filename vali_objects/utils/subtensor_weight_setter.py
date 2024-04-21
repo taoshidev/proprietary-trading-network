@@ -134,28 +134,19 @@ class SubtensorWeightSetter(CacheController):
         # check that the position
         return False
 
-    def _filter_positions(self, positions: list[Position], closed_only: bool = False):
+    def _filter_positions(self, positions: list[Position]):
         """
         Filter out positions that are not within the lookback range.
         """
-
         filtered_positions = []
         for position in positions:
-            c_pos = copy.deepcopy(position)
-            if c_pos.is_open_position:
-                if closed_only:
-                    continue
-                # set to now for all calcs
-                c_pos.close_ms = TimeUtil.now_in_millis()
-
-            if (
-                c_pos.is_closed_position
-                and c_pos.close_ms - c_pos.open_ms
-                < ValiConfig.SET_WEIGHT_MINIMUM_POSITION_DURATION_MS
-            ):
+            if not position.is_closed_position:
                 continue
 
-            filtered_positions.append(c_pos)
+            if position.close_ms - position.open_ms < ValiConfig.SET_WEIGHT_MINIMUM_POSITION_DURATION_MS:
+                continue
+
+            filtered_positions.append(position)
         return filtered_positions
 
     def _set_subtensor_weights(self, filtered_results: list[tuple[str, float]]):

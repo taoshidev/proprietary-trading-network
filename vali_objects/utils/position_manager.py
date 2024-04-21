@@ -465,6 +465,8 @@ class PositionManager(CacheController):
         t0 = None
         closed_position_returns = []
 
+        print()
+        print(f"Position hotkey: {positions[0].miner_hotkey}")
         for position in positions:
             # if bool on for closed only
             if position.is_open_position and closed_only:

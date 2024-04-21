@@ -4,6 +4,7 @@ import numpy as np
 
 from vali_objects.position import Position
 from vali_config import ValiConfig
+from time_util.time_util import TimeUtil
 
 from vali_objects.scoring.historical_scoring import HistoricalScoring
 
@@ -61,7 +62,10 @@ class PositionUtils:
             evaluation_time_ms
         )
 
-        return HistoricalScoring.historical_decay_return(return_value, lookback_fraction)
+        decayed_value = HistoricalScoring.historical_decay_return(return_value, lookback_fraction)
+
+        print(f"return_value: {return_value}, lookback fraction: {lookback_fraction}, position open: {TimeUtil.millis_to_formatted_date_str(position_open_ms)}, position close: {TimeUtil.millis_to_formatted_date_str(position_close_ms)}, decay percent: {round(decayed_value / return_value, 5)}")
+        return decayed_value
     
     @staticmethod
     def compute_consistency_penalty(
