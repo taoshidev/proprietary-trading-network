@@ -520,7 +520,7 @@ class PositionManager(CacheController):
                 raise ValueError("evaluation_time_ms must be provided if augmented is True")
 
             dampened_return_at_close = PositionUtils.dampen_return(
-                logged_return_at_close, 
+                logged_return_at_close,
                 position.open_ms, 
                 position.close_ms, 
                 evaluation_time_ms
@@ -576,6 +576,7 @@ class PositionManager(CacheController):
     def get_all_miner_positions_by_hotkey(self, hotkeys: List[str], eliminations: List = None, **args) -> Dict[
         str, List[Position]]:
         eliminated_hotkeys = set(x['hotkey'] for x in eliminations) if eliminations is not None else set()
+
         return {
             hotkey: self.get_all_miner_positions(hotkey, **args)
             for hotkey in hotkeys

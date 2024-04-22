@@ -2,7 +2,8 @@
 # Copyright © 2024 Taoshi Inc
 import copy
 import time
-from typing import List
+from typing import List, Union
+import numpy as np
 
 import bittensor as bt
 
@@ -10,6 +11,7 @@ from time_util.time_util import TimeUtil
 from vali_config import ValiConfig
 from shared_objects.cache_controller import CacheController
 from vali_objects.utils.position_manager import PositionManager
+from vali_objects.utils.position_utils import PositionUtils
 from vali_objects.position import Position
 from vali_objects.scoring.scoring import Scoring
 
@@ -28,8 +30,23 @@ class SubtensorWeightSetter(CacheController):
             return
 
         bt.logging.info("running set weights")
+        ## First run the challenge period miner filtering
+        current_time = TimeUtil.now_in_millis()
+
+        ## we want to do this first because we will add to the eliminations list
         self._refresh_eliminations_in_memory()
-        returns_per_netuid = self.calculate_return_per_netuid()
+        challengeperiod_resultdict = self.challenge_period_screening(
+            current_time = current_time
+        )
+
+        challengeperiod_miners = challengeperiod_resultdict["challengeperiod_miners"]
+        challengeperiod_elimination_hotkeys = challengeperiod_resultdict["challengeperiod_eliminations"]
+
+        returns_per_netuid = self.calculate_return_per_netuid(
+            omitted_miners = challengeperiod_miners + challengeperiod_elimination_hotkeys,
+            eliminations = self.eliminations
+        )
+
         bt.logging.trace(f"return per uid [{returns_per_netuid}]")
         bt.logging.info(f"number of returns for uid: {len(returns_per_netuid)}")
         if len(returns_per_netuid) == 0:
@@ -43,14 +60,72 @@ class SubtensorWeightSetter(CacheController):
             bt.logging.info(
                 f"sorted results for weight setting: [{sorted(scaled_transformed_list, key=lambda x: x[1], reverse=True)}]"
             )
-            self._set_subtensor_weights(scaled_transformed_list)
+
+            challengeperiod_weights = [ (x, ValiConfig.SET_WEIGHT_MINER_GRACE_PERIOD_VALUE) for x in challengeperiod_miners ]
+            transformed_list = scaled_transformed_list + challengeperiod_weights
+            bt.logging.info(f"transformed list: {transformed_list}")
+
+            self._set_subtensor_weights(transformed_list)
         self.set_last_update_time()
+
+    def challenge_period_screening(
+        self,
+        hotkeys: List[str] = None,
+        current_time: int = None,
+        eliminations: List[str] = None,
+        log: bool = False,
+    ) -> None:
+        """
+        Runs a screening process to elminate miners who didn't pass the challenge period.
+        """
+        if hotkeys is None:
+            hotkeys = self.metagraph.hotkeys
+
+        if current_time is None:
+            current_time = TimeUtil.now_in_millis()
+
+        if eliminations is not None:
+            self.eliminations = eliminations
+
+        # Get all possible positions, even beyond the lookback range
+        full_hotkey_positions = self.position_manager.get_all_miner_positions_by_hotkey(
+            hotkeys,
+            sort_positions=True,
+            eliminations=self.eliminations,
+            acceptable_position_end_ms=None,
+        )
+
+        challengeperiod_miners = []
+        challengeperiod_eliminations = []
+
+        for hotkey, positions in full_hotkey_positions.items():
+            challenge_check_logic = self._challengeperiod_check(
+                positions, 
+                current_time,
+                log=log
+            )
+            if challenge_check_logic is None:
+                challengeperiod_miners.append(hotkey)
+                continue
+            
+            if challenge_check_logic == False:
+                challengeperiod_eliminations.append(hotkey)
+                bt.logging.info(
+                    f"Miner {hotkey} failed the challenge period - weight will be set to 0."
+                )
+
+        # update for new eliminations due to challenge period
+        return {
+            "challengeperiod_miners": challengeperiod_miners,
+            "challengeperiod_eliminations": challengeperiod_eliminations,
+        }
 
     def calculate_return_per_netuid(
         self,
         local: bool = False,
         hotkeys: List[str] = None,
         eliminations: List[str] = None,
+        omitted_miners: List[str] = None,
     ) -> dict[str, list[float]]:
         """
         Calculate all returns for the .
@@ -78,7 +153,12 @@ class SubtensorWeightSetter(CacheController):
         # have to have a minimum number of positions during the period
         # this removes anyone who got lucky on a couple trades
         current_time = TimeUtil.now_in_millis()
+
         for hotkey, positions in hotkey_positions.items():
+            if omitted_miners is not None and hotkey in omitted_miners:
+                continue
+
+            # check if the miner passed the initial screening for the challenge period
             filtered_positions = self._filter_positions(positions)
             filter_miner_logic = self._filter_miner(filtered_positions, current_time)
             if filter_miner_logic:
@@ -99,10 +179,103 @@ class SubtensorWeightSetter(CacheController):
             return_per_netuid[netuid] = per_position_return
 
         return return_per_netuid
+    
+    def _challengeperiod_returns_logic(
+            self, 
+            challengeperiod_subset_positions: list[Position],
+            log:bool = False
+        ) -> bool:
+        challengeperiod_returns = [ np.log(x.return_at_close) for x in challengeperiod_subset_positions ]
+        minimum_return = ValiConfig.SET_WEIGHT_MINER_CHALLENGE_PERIOD_RETURN
+        minimum_nreturns = ValiConfig.SET_WEIGHT_MINER_CHALLENGE_PERIOD_NRETURNS
+        minimum_total_position_duration = ValiConfig.SET_WEIGHT_MINER_CHALLENGE_PERIOD_TOTAL_POSITION_DURATION
+        minimum_mrad = ValiConfig.SET_WEIGHT_MINER_CHALLENGE_PERIOD_COEFFICIENT_OF_VARIATION
+
+        challengeperiod_nreturns = len(challengeperiod_subset_positions)
+        challengeperiod_return = Scoring.total_return(challengeperiod_returns)
+        challengeperiod_total_position_duration = PositionUtils.compute_total_position_duration(challengeperiod_subset_positions)
+        challengeperiod_mrad = Scoring.mad_variation(challengeperiod_returns)
+
+        return_logic = challengeperiod_return >= minimum_return
+        nreturns_logic = challengeperiod_nreturns >= minimum_nreturns
+        total_position_duration_logic = challengeperiod_total_position_duration >= minimum_total_position_duration
+        coefficient_of_variation_logic = challengeperiod_mrad <= minimum_mrad
+
+        challengeperiod_passing = (
+            coefficient_of_variation_logic and return_logic and nreturns_logic and total_position_duration_logic
+        )
+
+        if log:
+            bt.logging.info(f"Miner {challengeperiod_subset_positions[0].miner_hotkey} challenge period - {challengeperiod_passing}.")
+            bt.logging.info(f"Return Logic:\t\t\t{return_logic} - {round(challengeperiod_return, 3)} >= {minimum_return}")
+            bt.logging.info(f"N Returns Logic:\t\t\t{nreturns_logic} - {challengeperiod_nreturns} >= {minimum_nreturns}")
+            bt.logging.info(f"Total Position Duration Logic:\t{total_position_duration_logic} - {round(challengeperiod_total_position_duration / 1e9, 3)} >= {round(minimum_total_position_duration / 1e9, 3)}")
+            bt.logging.info(f"MRAD Logic:\t\t\t{coefficient_of_variation_logic} - {round(challengeperiod_mrad, 3)} <= {minimum_mrad}\n")
+
+        return challengeperiod_passing
+    
+    def _challengeperiod_check(
+            self, 
+            positions: list[Position], 
+            current_time: int,
+            log: bool = False
+        ) -> Union[bool, None]:
+        """
+        Check if the miner is within the grace period:
+        - positions: list[Position] - the list of positions
+        - current_time: int - the current time of evaluation in milliseconds
+        """
+        if len(positions) == 0:
+            return False
+
+        # check for the first closed position
+        first_position_time = current_time
+        challengeperiod_time_ms = ValiConfig.SET_WEIGHT_CHALLENGE_PERIOD_MS
+        challengeperiod_minimum_positions = ValiConfig.SET_WEIGHT_MINIMUM_POSITIONS
+                
+        for i in range(len(positions)):
+            # capture the moment the first position was opened
+            first_position_time = min(first_position_time, positions[i].open_ms)
+
+        time_criteria = (current_time - first_position_time) < challengeperiod_time_ms
+        if log:
+            bt.logging.info(f"Miner {positions[0].miner_hotkey} first position opened at {TimeUtil.millis_to_timestamp(first_position_time)}.")
+            bt.logging.info(f"Miner {positions[0].miner_hotkey} challenge period ends at {TimeUtil.millis_to_timestamp(first_position_time + challengeperiod_time_ms)}.")
+            bt.logging.info(f"Miner {positions[0].miner_hotkey} time criteria: {time_criteria} - {round((current_time - first_position_time) / 1e9, 3)} < {round(challengeperiod_time_ms / 1e9, 3)}.\n")
+
+        challengeperiod_positions = []
+        challengeperiod_start = first_position_time
+        challengeperiod_end = first_position_time + challengeperiod_time_ms
+
+        for position in positions:
+            if position.is_closed_position and (challengeperiod_start <= position.close_ms < challengeperiod_end) and position.return_at_close > 0.0:
+                challengeperiod_positions.append(position)
+
+        # check if the miner has enough positions to potentially pass the challenge period, if not just put them in challengeperiod now
+        if len(challengeperiod_positions) < challengeperiod_minimum_positions and time_criteria:
+            return None
+
+        for i in range(challengeperiod_minimum_positions, len(challengeperiod_positions) + 1):
+            challengeperiod_subset_positions = challengeperiod_positions[:i]
+            challengeperiod_passing = self._challengeperiod_returns_logic(
+                challengeperiod_subset_positions=challengeperiod_subset_positions,
+                log=log
+            )
+
+            if challengeperiod_passing:
+                # if at any point the miner is passing the competition, they are good to go
+                return True
+        
+        # If they don't have a passing position but the challenge period is not over, return None - they are still in the challenge period
+        if time_criteria:
+            return None
+        
+        # if they have not passed the challenge period, return False
+        return False
 
     def _filter_miner(self, positions: list[Position], current_time: int):
         """
-        Filter out miners who don't have enough positions to be considered for setting weights
+        Filter out miners who don't have enough positions to be considered for setting weights - True means that we want to filter the miner out
         """
         if len(positions) == 0:
             return True
@@ -114,15 +287,6 @@ class SubtensorWeightSetter(CacheController):
                 first_closed_position_ms, positions[i].close_ms
             )
 
-        grace_period_duration_ms = ValiConfig.SET_WEIGHT_MINER_GRACE_PERIOD_MS
-        grace_period = (
-            current_time - first_closed_position_ms
-        ) < grace_period_duration_ms
-
-        # if grace_period:
-        #     return False
-
-        # have to have a min number of closed positions, remove open
         closed_positions = len(
             [position for position in positions if position.is_closed_position]
         )

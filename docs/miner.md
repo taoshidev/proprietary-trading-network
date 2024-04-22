@@ -1,7 +1,11 @@
 # Miner
 
 Basic Rules:
-1. Miner must have a minimum of 10 trades. Before they reach 10 trades, the miner will be in the grace period for the first month. In this month, they will receive a small amount of TAO that will help them avoid getting deregistered.
+1. Your miner will start in the challenge period upon entry. This 30 day period will require your miner to demonstrate consistent performance, after which they will be released from the challenge period, which may happen before 30 days has expired. In this month, they will receive a small amount of TAO that will help them avoid getting deregistered. The requirements to pass the challenge period:
+  - 2% Total Return
+  - 0.05 Median Sharpe
+  - 10 Closed Positions
+  - 50 Cumulative Hours of Positions
 2. Miner will be penalized if they are not providing consistent predictions to the system. The details of this may be found [here](https://github.com/taoshidev/proprietary-trading-network/blob/main/vali_objects/utils/position_utils.py).
 3. Positions must be open for a minimum of one minute.
 4. A miner can have a maximum of 200 positions open.

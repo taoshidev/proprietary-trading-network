@@ -161,7 +161,7 @@ TRADE_PAIR_STR_TO_TRADE_PAIR = {x.trade_pair: x for x in TradePair}
 
 class ValiConfig:
     ## versioning
-    VERSION = "2.2.1"
+    VERSION = "2.2.2"
 
     # fees take into account exiting and entering a position, liquidity, and futures fees
     MDD_CHECK_REFRESH_TIME_MS = 15 * 1000  # 15 seconds
@@ -191,6 +191,8 @@ class ValiConfig:
 
     OMEGA_MINIMUM_DENOMINATOR = 1e-6
     PROBABILISTIC_SHARPE_RATIO_MIN_STD_DEV = 1e-6
+    MIN_STD_DEV = 1e-6
+    MIN_MEDIAN = 1e-6
 
     SET_WEIGHT_MINIMUM_POSITIONS = 10 # mimumum number of positions over the lookback range
     SET_WEIGHT_MINIMUM_POSITION_DURATION_MS = 1 * 60 * 1000  # 1 minutes
@@ -199,6 +201,13 @@ class ValiConfig:
     SET_WEIGHT_MINER_GRACE_PERIOD_VALUE = 5.4e-06 # essentially nothing
     SET_WEIGHT_MINER_GRACE_PERIOD_EQUIVALENT_PERCENTILE = 2 # two pence for their troubles
     MIN_LEVERAGE_CONSITENCY_PENALTY = 0.01
+
+    SET_WEIGHT_CHALLENGE_PERIOD_MS = 30 * 24 * 60 * 60 * 1000  # 30 days
+    SET_WEIGHT_MINER_CHALLENGE_PERIOD_SHARPE = 1.10
+    SET_WEIGHT_MINER_CHALLENGE_PERIOD_RETURN = 1.02
+    SET_WEIGHT_MINER_CHALLENGE_PERIOD_NRETURNS = 10
+    SET_WEIGHT_MINER_CHALLENGE_PERIOD_TOTAL_POSITION_DURATION = 50 * 60 * 60 * 1000 # 50 hours
+    SET_WEIGHT_MINER_CHALLENGE_PERIOD_COEFFICIENT_OF_VARIATION = 20
 
     ORDER_SIMILARITY_WINDOW_MS = TimeUtil.hours_in_millis(24)
 
@@ -213,4 +222,4 @@ class ValiConfig:
 
     MAX_MINER_PLAGIARISM_SCORE = 0.9 # want to make sure we're filtering out the bad actors
     TOP_MINER_BENEFIT = 0.6
-    TOP_MINER_PERCENT = 0.4
+    TOP_MINER_PERCENT = 0.4 
