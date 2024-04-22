@@ -235,8 +235,8 @@ class TestWeights(TestBase):
         ## if omega is being prioritized, then miner1 should have the higer result
         transformed_minernames = [ x[0] for x in scaled_transformed_list ]
 
-        ## miner 1 should be listed first
-        self.assertEqual(transformed_minernames, ['miner1', 'miner0'])
+        ## miner 1 should be listed first if omega is prioritized, otherwise miner 0 should be listed first
+        self.assertEqual(transformed_minernames, ['miner0', 'miner1'])
 
         ## the score (miner 1) should be higher than the score (miner 0)
         transformed_minervalues = [ x[1] for x in scaled_transformed_list ]

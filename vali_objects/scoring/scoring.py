@@ -38,8 +38,8 @@ class Scoring:
         ]
 
         scoring_function_weights = [
-            0.4,
-            0.4,
+            0.0,
+            0.8,
             0.2
         ]
 
