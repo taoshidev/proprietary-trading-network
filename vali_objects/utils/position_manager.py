@@ -494,8 +494,7 @@ class PositionManager(CacheController):
     def get_return_per_closed_position_augmented(
             self, 
             positions: List[Position], 
-            evaluation_time_ms: Union[None, int] = None,
-            closed_only: bool = False
+            evaluation_time_ms: Union[None, int] = None
         ) -> List[float]:
         if len(positions) == 0:
             return []
@@ -505,7 +504,7 @@ class PositionManager(CacheController):
 
         for position in positions:
             # if bool on for closed only
-            if position.is_open_position and closed_only:
+            if position.is_open_position:
                 continue
 
             elif t0 and position.close_ms < t0:
