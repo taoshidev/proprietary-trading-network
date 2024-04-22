@@ -78,7 +78,7 @@ class PropNetOrderPlacer:
         """
         self.recently_acked_validators = recently_acked_validators
         signals, signal_file_names, n_files_being_suppressed_this_round = self.get_all_files_in_dir_no_duplicate_trade_pairs()
-        self.order_cooldown_check(signals)
+        #self.order_cooldown_check(signals)
         if len(signals) == 0 and n_files_being_suppressed_this_round == 0 and int(time.time()) % 180 == 0:
             bt.logging.info(f"No signals found... will continue trying every second.")
         elif len(signals) > 0 or n_files_being_suppressed_this_round > 0:
@@ -109,6 +109,9 @@ class PropNetOrderPlacer:
         axons_to_try = self.metagraph.axons
         axons_to_try.sort(key=lambda validator: hotkey_to_v_trust[validator.hotkey], reverse=True)
 
+        # Track the high-trust validators for special checking after processing
+        high_trust_validators = self.get_high_trust_validators(axons_to_try, hotkey_to_v_trust)
+
         retry_status = {
             signal_file_path: {
                 'retry_attempts': 0,
@@ -119,14 +122,29 @@ class PropNetOrderPlacer:
 
         # Continue retrying until the max number of retries is reached or no validators need retrying
         while retry_status[signal_file_path]['retry_attempts'] < self.MAX_RETRIES and retry_status[signal_file_path]['validators_needing_retry']:
-            self.attempt_to_send_signal(signal_data, signal_file_path, retry_status)
+            self.attempt_to_send_signal(signal_data, signal_file_path, retry_status, high_trust_validators)
+
+        # After retries, check if all high-trust validators have processed the signal successfully
+        # This requires checking the current state of trust and response success
+        high_trust_processed = True
+        n_high_trust_validators = len(high_trust_validators)
+        n_high_trust_validators_that_failed = 0
+        for validator in high_trust_validators:
+            if validator in retry_status[signal_file_path]['validators_needing_retry']:
+                high_trust_processed = False
+                n_high_trust_validators_that_failed += 1
 
         # If there were validators that failed to process the signal, we move the file to the failed directory
         info = retry_status[signal_file_path]
-
-        all_failure = len(info['validators_needing_retry']) == len(self.metagraph.axons)
+        if high_trust_processed:
+            self.move_signal_to_processed_directory(signal_file_path)
         # If there is a validator that hasn't received our order after the max number of retries.
-        if all_failure or (info['validators_needing_retry'] and self.config.write_failed_signal_logs):
+        elif self.config.write_failed_signal_logs:
+            v_trust_floor = min([hotkey_to_v_trust[validator.hotkey] for validator in high_trust_validators])
+            bt.logging.error(f"Signal file {signal_file_path} was not successfully processed by "
+                 f"{n_high_trust_validators_that_failed}/{n_high_trust_validators} high-trust validators. (floor {v_trust_floor})"
+                 f" Consider re-sending the signal if this is your first time seeing this error. If this error"
+                 f" persists, there is likely an issue with the relevant validator(s) and their vtrust should drop soon.")
             self.move_signal_to_failure_directory(signal_file_path, info['validators_needing_retry'])
         else:
             self.move_signal_to_processed_directory(signal_file_path)
@@ -137,7 +155,13 @@ class PropNetOrderPlacer:
         """Loads the signal data from a file."""
         return json.loads(ValiBkpUtils.get_file(signal_file_path), cls=GeneralizedJSONDecoder)
 
-    def attempt_to_send_signal(self, signal_data: object, signal_file_path: str, retry_status: dict):
+    def get_high_trust_validators(self, axons, hotkey_to_v_trust):
+        """Returns a list of high-trust validators."""
+        high_trust_validators = [ax for ax in axons if hotkey_to_v_trust[ax.hotkey] > .70]
+        return high_trust_validators
+
+
+    def attempt_to_send_signal(self, signal_data: object, signal_file_path: str, retry_status: dict, high_trust_validators: list):
         """
         Attempts to send a signal to the validators that need retrying, applying exponential backoff for each retry attempt.
         Logs the retry attempt number, and the number of validators that successfully responded out of the total number of original validators.
@@ -157,11 +181,14 @@ class PropNetOrderPlacer:
 
         # Filtering validators for the next retry based on the current response.
         new_validators_to_retry = []
+        all_high_trust_validators_succeeded = True
         for validator, response in zip(retry_status[signal_file_path]['validators_needing_retry'], validator_responses):
             eliminated = "has been eliminated" in response.error_message
             if not response.successfully_processed:
+                if validator in high_trust_validators:
+                    all_high_trust_validators_succeeded = False
                 if response.error_message:
-                    bt.logging.error(f"Error sending order to {validator}. Error message: {response.error_message}")
+                    bt.logging.warning(f"Error sending order to {validator}. Error message: {response.error_message}")
                 if eliminated:
                     continue
                 if hotkey_to_v_trust[validator.hotkey] > 0:
@@ -171,6 +198,14 @@ class PropNetOrderPlacer:
                 else:
                     # Do not retry if the validator has 0 trust and is not in the recently acked list. Maybe another miner or inactive hotkey.
                     pass
+
+
+        if all_high_trust_validators_succeeded:
+            v_trust_floor = min([hotkey_to_v_trust[validator.hotkey] for validator in high_trust_validators])
+            n_high_trust_validators = len(high_trust_validators)
+            bt.logging.success(f"Signal file {signal_file_path} was successfully processed by"
+                               f" {n_high_trust_validators}/{n_high_trust_validators} high-trust validators with "
+                               f"min v_trust {v_trust_floor}.")
 
         # Sort the new list of axons needing retry by trust, highest to lowest to reduce possible lag
         new_validators_to_retry.sort(key=lambda validator: hotkey_to_v_trust[validator.hotkey], reverse=True)
