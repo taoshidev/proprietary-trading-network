@@ -79,18 +79,21 @@ class PropNetOrderPlacer:
         self.recently_acked_validators = recently_acked_validators
         signals, signal_file_names, n_files_being_suppressed_this_round = self.get_all_files_in_dir_no_duplicate_trade_pairs()
         self.order_cooldown_check(signals)
-        bt.logging.info(f"Total new signals to send this round: {len(signals)}. n signals waiting for next round: "
-                        f"{n_files_being_suppressed_this_round}")
+        if len(signals) == 0 and n_files_being_suppressed_this_round == 0 and int(time.time()) % 180 == 0:
+            bt.logging.info(f"No signals found... will continue trying every second.")
+        elif len(signals) > 0 or n_files_being_suppressed_this_round > 0:
+            bt.logging.info(f"Total new signals to send this round: {len(signals)}. n signals waiting for next round: "
+                            f"{n_files_being_suppressed_this_round}")
 
-        # Use ThreadPoolExecutor to process signals in parallel
-        with ThreadPoolExecutor() as executor:
-            # Schedule the processing of each signal file
-            futures = [executor.submit(self.process_each_signal, signal_file_path) for signal_file_path in
-                       signal_file_names]
-            # as_completed() is used to handle the results as they become available
-            for future in as_completed(futures):
-                # Logging the completion of signal processing
-                bt.logging.info(f"Signal processing completed for: {future.result()}")
+            # Use ThreadPoolExecutor to process signals in parallel
+            with ThreadPoolExecutor() as executor:
+                # Schedule the processing of each signal file
+                futures = [executor.submit(self.process_each_signal, signal_file_path) for signal_file_path in
+                           signal_file_names]
+                # as_completed() is used to handle the results as they become available
+                for future in as_completed(futures):
+                    # Logging the completion of signal processing
+                    bt.logging.info(f"Signal processing completed for: {future.result()}")
 
         # Wait before the next batch if no signals are found, to avoid busy looping
         if len(signals) == 0:

@@ -16,6 +16,19 @@ class PositionInspector:
         self.config = config
         self.last_update_time = 0
         self.recently_acked_validators = []
+        self.stop_requested = False  # Flag to control the loop
+
+    def run_update_loop(self):
+        while not self.stop_requested:
+            try:
+                self.log_validator_positions()
+            except Exception as e:
+                # Handle exceptions or log errors
+                bt.logging.error(f"Error during position inspector update: {e}. Please alert a team member ASAP!")
+            time.sleep(1)  # Don't busy loop
+
+    def stop_update_loop(self):
+        self.stop_requested = True
 
     def get_recently_acked_validators(self):
         return self.recently_acked_validators

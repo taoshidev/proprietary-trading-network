@@ -23,8 +23,11 @@ class Miner:
         bt.logging.info(f"Running miner on uid: {self.my_subnet_uid}")
 
         # Start the metagraph updater loop in its own thread
-        self.updater_thread = threading.Thread(target=self.metagraph_updater.run_update_loop, daemon=True)
-        self.updater_thread.start()
+        self.metagraph_updater_thread = threading.Thread(target=self.metagraph_updater.run_update_loop, daemon=True)
+        self.metagraph_updater_thread.start()
+        # Start position inspector loop in its own thread
+        self.position_inspector_thread = threading.Thread(target=self.position_inspector.run_update_loop, daemon=True)
+        self.position_inspector_thread.start()
 
     def setup_logging_directory(self):
         if not os.path.exists(self.config.full_path):
@@ -92,12 +95,13 @@ class Miner:
             try:
                 self.prop_net_order_placer.send_signals(recently_acked_validators=
                                                         self.position_inspector.get_recently_acked_validators())
-                self.position_inspector.log_validator_positions()
             # If someone intentionally stops the miner, it'll safely terminate operations.
             except KeyboardInterrupt:
                 bt.logging.success("Miner killed by keyboard interrupt.")
                 self.metagraph_updater.stop_update_loop()
-                self.updater_thread.join()
+                self.metagraph_updater_thread.join()
+                self.position_inspector.stop_update_loop()
+                self.position_inspector_thread.join()
                 break
             # In case of unforeseen errors, the miner will log the error and continue operations.
             except Exception:
