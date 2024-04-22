@@ -88,8 +88,9 @@ def regenerate_miner_positions(perform_backup=True):
         bt.logging.error(f"Please re-pull the backup file before restoring. Backup {formatted_backup_creation_time} appears to be older than the disk {formatted_disk_date_largest}.")
         return False
     elif smallest_disk_ms < smallest_backup_ms:
-        bt.logging.error("Your local filesystem has older orders than the backup. Please reach out to the team ASAP before regenerating. You may be holding irrecoverable data!")
-        return False
+        #bt.logging.error("Your local filesystem has older orders than the backup. Please reach out to the team ASAP before regenerating. You may be holding irrecoverable data!")
+        #return False
+        pass  # Deregistered miners can trip this check. We will allow the regeneration to proceed.
     else:
         bt.logging.error("Problem with backup file detected. Please reach out to the team ASAP")
         return False
@@ -112,7 +113,8 @@ def regenerate_miner_positions(perform_backup=True):
         # sort positions by close_ms otherwise, writing a closed position after an open position for the same
         # trade pair will delete the open position
         positions = [Position(**json_positions_dict) for json_positions_dict in json_positions['positions']]
-        assert len(positions) > 0, f"no positions for hotkey {hotkey}"
+        if len(positions) == 0:
+            bt.logging.warning(f"no positions for hotkey {hotkey}. Ensure this corresponds to a deregistered miner.")
         positions.sort(key=position_manager.sort_by_close_ms)
         ValiBkpUtils.make_dir(ValiBkpUtils.get_miner_all_positions_dir(hotkey))
         for p_obj in positions:
