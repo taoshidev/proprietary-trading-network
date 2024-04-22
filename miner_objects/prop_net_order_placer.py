@@ -78,7 +78,7 @@ class PropNetOrderPlacer:
         """
         self.recently_acked_validators = recently_acked_validators
         signals, signal_file_names, n_files_being_suppressed_this_round = self.get_all_files_in_dir_no_duplicate_trade_pairs()
-        self.order_cooldown_check(signals)
+        #self.order_cooldown_check(signals)
         if len(signals) == 0 and n_files_being_suppressed_this_round == 0 and int(time.time()) % 180 == 0:
             bt.logging.info(f"No signals found... will continue trying every second.")
         elif len(signals) > 0 or n_files_being_suppressed_this_round > 0:
