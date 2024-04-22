@@ -113,8 +113,7 @@ def regenerate_miner_positions(perform_backup=True):
         # sort positions by close_ms otherwise, writing a closed position after an open position for the same
         # trade pair will delete the open position
         positions = [Position(**json_positions_dict) for json_positions_dict in json_positions['positions']]
-        if len(positions) == 0:
-            bt.logging.warning(f"no positions for hotkey {hotkey}. Ensure this corresponds to a deregistered miner.")
+        assert len(positions) > 0, f"no positions for hotkey {hotkey}"
         positions.sort(key=position_manager.sort_by_close_ms)
         ValiBkpUtils.make_dir(ValiBkpUtils.get_miner_all_positions_dir(hotkey))
         for p_obj in positions:

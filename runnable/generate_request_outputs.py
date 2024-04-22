@@ -45,13 +45,13 @@ def generate_request_outputs(write_legacy:bool, write_validator_checkpoint:bool)
 
     hotkey_positions = position_manager.get_all_miner_positions_by_hotkey(
         all_miner_hotkeys,
-        sort_positions=True,
-        acceptable_position_end_ms=TimeUtil.timestamp_to_millis(
-            TimeUtil.generate_start_timestamp(
-                ValiConfig.SET_WEIGHT_LOOKBACK_RANGE_DAYS
-            )
-        ),
+        sort_positions=True
     )
+
+    acceptable_position_end_ms = TimeUtil.timestamp_to_millis(
+        TimeUtil.generate_start_timestamp(
+            ValiConfig.SET_WEIGHT_LOOKBACK_RANGE_DAYS
+        ))
 
     time_now = TimeUtil.now_in_millis()
     dict_hotkey_position_map = {}
@@ -65,12 +65,17 @@ def generate_request_outputs(write_legacy:bool, write_validator_checkpoint:bool)
             "positions": [],
             "thirty_day_returns": 1.0,
         }
+        positions_30_days = [
+            position
+            for position in original_positions
+            if position.open_ms > acceptable_position_end_ms
+        ]
 
         if k not in eliminated_hotkeys:
-            ps = subtensor_weight_setter._filter_positions(original_positions)
-            filter_miner_boolean = subtensor_weight_setter._filter_miner(ps, time_now)
+            ps_30_days = subtensor_weight_setter._filter_positions(positions_30_days)
+            filter_miner_boolean = subtensor_weight_setter._filter_miner(ps_30_days, time_now)
 
-            return_per_position = position_manager.get_return_per_closed_position(ps)
+            return_per_position = position_manager.get_return_per_closed_position(ps_30_days)
             if len(return_per_position) > 0:
                 curr_return = return_per_position[len(return_per_position) - 1]
                 dict_hotkey_position_map[k]["thirty_day_returns"] = curr_return
@@ -78,7 +83,7 @@ def generate_request_outputs(write_legacy:bool, write_validator_checkpoint:bool)
             if not filter_miner_boolean:
                 ## also get the augmented returns
                 return_per_position_augmented: list[float] = position_manager.get_return_per_closed_position_augmented(
-                    ps,
+                    ps_30_days,
                     evaluation_time_ms=TimeUtil.now_in_millis(),
                 )
 
@@ -90,7 +95,7 @@ def generate_request_outputs(write_legacy:bool, write_validator_checkpoint:bool)
 
                 if len(return_per_position_augmented) > 0:
                     consistency_penalty = PositionUtils.compute_consistency_penalty(
-                        ps, time_now
+                        ps_30_days, time_now
                     )
                     consistency_penalties[k] = consistency_penalty
 
@@ -102,30 +107,6 @@ def generate_request_outputs(write_legacy:bool, write_validator_checkpoint:bool)
                                               min(p.orders, key=lambda o: o.processed_ms).processed_ms)
             oldest_order_processed_ms = max(oldest_order_processed_ms,
                                             max(p.orders, key=lambda o: o.processed_ms).processed_ms)
-
-            if k in eliminated_hotkeys:
-                if p.is_open_position:
-                    logger.warning(
-                        "This should not happen anymore. Please alert the team if you see this."
-                        "position was not closed. Will check last order and "
-                        "see if its closed. If not, will note and add."
-                    )
-                    if p.orders[len(p.orders) - 1].order_type != OrderType.FLAT:
-                        logger.warning("order was not closed. Will add close.")
-                        # price shouldn't matter, the miner already added to elims
-                        # price is only used for return purposes which would be irrelevant
-                        p.orders.append(
-                            Order(
-                                order_type=OrderType.FLAT,
-                                leverage=0.0,
-                                price=0.0,
-                                trade_pair=p.trade_pair,
-                                processed_ms=TimeUtil.now_in_millis(),
-                                order_uuid=str(uuid.uuid4()),
-                            )
-
-                        )
-
             if p.close_ms is None:
                 p.close_ms = 0
             dict_hotkey_position_map[k]["positions"].append(
@@ -172,7 +153,6 @@ def generate_request_outputs(write_legacy:bool, write_validator_checkpoint:bool)
         positions = data['positions']
         n_positions_new += sum([len(p['orders']) for p in positions])
 
-    #logger.debug(f"n_orders_original: {n_orders_original}, n_positions_new: {n_positions_new}")
     assert n_orders_original == n_positions_new, f"n_orders_original: {n_orders_original}, n_positions_new: {n_positions_new}"
 
     now_ms = TimeUtil.now_in_millis()
