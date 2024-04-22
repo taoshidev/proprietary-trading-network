@@ -40,6 +40,8 @@ class SubtensorWeightSetter(CacheController):
         )
 
         challengeperiod_miners = challengeperiod_resultdict["challengeperiod_miners"]
+        challengeperiod_miners_netuid = [ self.metagraph.hotkeys.index(x) for x in challengeperiod_miners ]
+
         challengeperiod_elimination_hotkeys = challengeperiod_resultdict["challengeperiod_eliminations"]
 
         returns_per_netuid = self.calculate_return_per_netuid(
@@ -61,7 +63,7 @@ class SubtensorWeightSetter(CacheController):
                 f"sorted results for weight setting: [{sorted(scaled_transformed_list, key=lambda x: x[1], reverse=True)}]"
             )
 
-            challengeperiod_weights = [ (x, ValiConfig.SET_WEIGHT_MINER_GRACE_PERIOD_VALUE) for x in challengeperiod_miners ]
+            challengeperiod_weights = [ (x, ValiConfig.SET_WEIGHT_MINER_GRACE_PERIOD_VALUE) for x in challengeperiod_miners_netuid ]
             transformed_list = scaled_transformed_list + challengeperiod_weights
             bt.logging.info(f"transformed list: {transformed_list}")
 
