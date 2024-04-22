@@ -5,6 +5,8 @@ import numpy as np
 from vali_objects.position import Position
 from vali_config import ValiConfig
 
+import bittensor as bt
+
 from vali_objects.scoring.historical_scoring import HistoricalScoring
 
 class PositionUtils:    
@@ -40,6 +42,59 @@ class PositionUtils:
         time_fraction = time_since_closed / lookback_period
         time_fraction = np.clip(time_fraction, 0, 1)
         return time_fraction
+    
+    @staticmethod
+    def compute_average_leverage(positions: list[Position]) -> float:
+        """
+        Computes the time-weighted average leverage of a list of positions.
+
+        Args:
+            positions: list[Position] - the list of positions
+
+        Returns:
+            float - the time-weighted average leverage
+        """
+        if not positions:
+            return 0.0
+
+        total_time = 0
+        total_timeleverage = 0
+
+        for position in positions:
+            if len(position.orders) < 2:
+                continue
+
+            last_time = position.orders[0].processed_ms
+            running_leverage = position.orders[0].leverage
+
+            for i in range(1, len(position.orders)):
+                current_time = position.orders[i].processed_ms
+                time_delta = current_time - last_time
+                total_time += time_delta
+                total_timeleverage += time_delta * abs(running_leverage)
+                last_time = current_time
+                running_leverage += position.orders[i].leverage
+
+        if total_time == 0:
+            return 0.0
+
+        return total_timeleverage / total_time
+    
+    @staticmethod
+    def compute_total_position_duration(
+        positions: list[Position]
+    ) -> int:
+        """
+        Args:
+            positions: list[Position] - the list of positions
+        """
+        time_deltas = []
+
+        for position in positions:
+            if position.is_closed_position:
+                time_deltas.append( position.close_ms - position.open_ms )
+
+        return sum(time_deltas)
     
     @staticmethod
     def dampen_return(

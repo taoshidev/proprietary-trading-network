@@ -43,39 +43,18 @@ class Scoring:
             0.2
         ]
 
-        ## split into grace period miners and non-grace period miners
-        grace_period_value = float(ValiConfig.SET_WEIGHT_MINER_GRACE_PERIOD_VALUE)
-        grace_period_miners = []
-        non_grace_period_miners = []
-        debug_miners_in_grace_period = []
-        debug_miners_no_returns = []
-        for miner, returns in filtered_results:
-            if len(returns) < ValiConfig.SET_WEIGHT_MINIMUM_POSITIONS:
-                debug_miners_in_grace_period.append(miner)
-                if len(returns) == 0:
-                    debug_miners_no_returns.append(miner)
-                    continue
-                grace_period_miners.append((miner, returns))
-            else:
-                non_grace_period_miners.append((miner, returns))
-
         miner_scores_list: list[list[tuple[str,float]]] = []
-        debug_miners_not_reach_minimum_positions = []
         for scoring_function in scoring_functions:
             miner_scoring_function_scores = []
-            for miner, returns in non_grace_period_miners:
+            for miner, returns in filtered_results:
                 if len(returns) < int(ValiConfig.SET_WEIGHT_MINIMUM_POSITIONS):
-                    debug_miners_not_reach_minimum_positions.append(miner)
+                    bt.logging.debug(f"Miner {miner} does not have enough positions to reach the minimum positions for scoring")
                     continue
 
                 score = scoring_function(returns)
                 miner_scoring_function_scores.append((miner, score))
             
             miner_scores_list.append(miner_scoring_function_scores)
-
-        # bt.logging.info(f"Grace period miners skipped due to no returns: {debug_miners_no_returns}. "
-        #                 f"Miners in grace period: {debug_miners_in_grace_period}"
-        #                 f"Miners not reaching minimum positions for scoring: {debug_miners_not_reach_minimum_positions}")
 
         # Combine the scores from the different scoring functions
         weighted_scores: list[list[str, float]] = []
@@ -90,25 +69,16 @@ class Scoring:
                     combined_scores[miner] = 0
 
                 combined_scores[miner] += score * scoring_function_weights[c]
+
+        ## Force good performance of all error metrics
+        combined_weighed = Scoring.weigh_miner_scores(list(combined_scores.items()))
+        combined_scoresdict = dict(combined_weighed)
+
         # this finishes the non-grace period miners
-        normalized_scores = Scoring.normalize_scores(combined_scores)
-        grace_period_miner_ids = [ x[0] for x in grace_period_miners ]
-        grace_period_miner_scores = [ float(grace_period_value) for _ in grace_period_miners ]
+        normalized_scores = Scoring.normalize_scores(combined_scoresdict)
 
-        grace_period_scores = dict(
-            zip(grace_period_miner_ids, grace_period_miner_scores)
-        )
-
-        total_score_dict = {
-            **normalized_scores, 
-            **grace_period_scores
-        }
-
-        total_scores = list(total_score_dict.items())
+        total_scores = list(normalized_scores.items())
         total_scores = sorted(total_scores, key=lambda x: x[1], reverse=True)
-
-        # bt.logging.info(f"Max miner weight for round: {max([x[1] for x in total_scores])}. "
-        #                 f"Transformed results sum: {sum([x[1] for x in total_scores])}")
 
         return total_scores
     
@@ -158,6 +128,24 @@ class Scoring:
 
         sum_below = max(abs(sum_below), omega_minimum_denominator)
         return sum_above / sum_below
+    
+    @staticmethod
+    def mad_variation(returns: list[float]) -> float:
+        """
+        Args: returns: list[float] - the variance of the miner returns
+        """
+        if len(returns) == 0:
+            return 0
+
+        median = np.median(returns)
+
+        if median == 0:
+            median = ValiConfig.MIN_MEDIAN
+
+        mad = np.mean(np.abs(returns - median))
+        mrad = mad / median
+        
+        return mrad
     
     @staticmethod
     def total_return(returns: list[float]) -> float:

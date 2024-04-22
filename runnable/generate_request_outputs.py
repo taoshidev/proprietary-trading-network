@@ -16,6 +16,9 @@ from vali_objects.vali_dataclasses.order import Order
 from vali_objects.scoring.scoring import Scoring
 
 def generate_request_outputs(write_legacy:bool, write_validator_checkpoint:bool):
+    # let's set the time first to try and make it as close as possible to the original
+    time_now = TimeUtil.now_in_millis()
+
     position_manager = PositionManager(
         config=None,
         metagraph=None,
@@ -42,7 +45,26 @@ def generate_request_outputs(write_legacy:bool, write_validator_checkpoint:bool)
             f"directory for miners doesn't exist "
             f"[{ValiBkpUtils.get_miner_dir()}]. Skip run for now."
         )
+    
+    # This one is retroactive, so we aren't modifying the eliminations on disk in the outputs file
+    challengeperiod_miners = []
+    challengeperiod_eliminations = []
 
+    full_hotkey_positions = position_manager.get_all_miner_positions_by_hotkey(
+        all_miner_hotkeys,
+        sort_positions=True,
+        eliminations=eliminations,
+        acceptable_position_end_ms=None,
+    )
+
+    for original_hotkey, original_positions in full_hotkey_positions.items():
+        challenge_check_logic = subtensor_weight_setter._challengeperiod_check(original_positions, time_now)
+        if challenge_check_logic is False:
+            challengeperiod_eliminations.append(original_hotkey)
+        if challenge_check_logic is None:
+            challengeperiod_miners.append(original_hotkey)
+
+    # we won't be able to query for eliminated hotkeys from challenge period
     hotkey_positions = position_manager.get_all_miner_positions_by_hotkey(
         all_miner_hotkeys,
         sort_positions=True
@@ -55,7 +77,6 @@ def generate_request_outputs(write_legacy:bool, write_validator_checkpoint:bool)
 
     time_now = TimeUtil.now_in_millis()
     dict_hotkey_position_map = {}
-    graceperiod_miners = set()
     consistency_penalties = {}
 
     youngest_order_processed_ms = float("inf")
@@ -84,7 +105,7 @@ def generate_request_outputs(write_legacy:bool, write_validator_checkpoint:bool)
                 ## also get the augmented returns
                 return_per_position_augmented: list[float] = position_manager.get_return_per_closed_position_augmented(
                     ps_30_days,
-                    evaluation_time_ms=TimeUtil.now_in_millis(),
+                    evaluation_time_ms=time_now,
                 )
 
                 if len(return_per_position_augmented) > 0:
@@ -98,9 +119,6 @@ def generate_request_outputs(write_legacy:bool, write_validator_checkpoint:bool)
                         ps_30_days, time_now
                     )
                     consistency_penalties[k] = consistency_penalty
-
-                if len(return_per_position_augmented) < ValiConfig.SET_WEIGHT_MINIMUM_POSITIONS:
-                    graceperiod_miners.add(k)
 
         for p in original_positions:
             youngest_order_processed_ms = min(youngest_order_processed_ms,
@@ -116,7 +134,10 @@ def generate_request_outputs(write_legacy:bool, write_validator_checkpoint:bool)
     miner_finalscores = {
         k: v['thirty_day_returns_augmented']
         for k, v in dict_hotkey_position_map.items()
-        if 'thirty_day_returns_augmented' in v
+        if 'thirty_day_returns_augmented' in v and
+        k not in eliminated_hotkeys and
+        k not in challengeperiod_eliminations and
+        k not in challengeperiod_miners
     }
 
     filtered_results = list(miner_finalscores.items())
@@ -135,7 +156,13 @@ def generate_request_outputs(write_legacy:bool, write_validator_checkpoint:bool)
         sharpe_ratio_list[miner_id] = Scoring.sharpe_ratio(returns)
         probabilistic_sharpe_ratio_list[miner_id] = Scoring.probabilistic_sharpe_ratio(returns)
 
-    scaled_transformed_list = dict(Scoring.transform_and_scale_results(filtered_results))
+    scaled_transformed_list = Scoring.transform_and_scale_results(filtered_results)
+    challengeperiod_weights = [ (x, ValiConfig.SET_WEIGHT_MINER_GRACE_PERIOD_VALUE) for x in challengeperiod_miners ]
+
+    # going to just overwrite the computed weights with the challengeperiod weights
+    transformed_list =  scaled_transformed_list + challengeperiod_weights
+    transformed_dict = dict(transformed_list)
+
     ord_dict_hotkey_position_map = dict(
         sorted(
             dict_hotkey_position_map.items(),
@@ -155,12 +182,12 @@ def generate_request_outputs(write_legacy:bool, write_validator_checkpoint:bool)
 
     assert n_orders_original == n_positions_new, f"n_orders_original: {n_orders_original}, n_positions_new: {n_positions_new}"
 
-    now_ms = TimeUtil.now_in_millis()
+    now_ms = time_now
     final_dict = {
         'version': ValiConfig.VERSION,
         'created_timestamp_ms': now_ms,
         'created_date': TimeUtil.millis_to_formatted_date_str(now_ms),
-        'weights': scaled_transformed_list,
+        'weights': transformed_dict,
         'consistency_penalties': consistency_penalties,
         "metrics": {
             "omega": omega_list,
@@ -180,7 +207,7 @@ def generate_request_outputs(write_legacy:bool, write_validator_checkpoint:bool)
             "max_total_drawdown": ValiConfig.MAX_TOTAL_DRAWDOWN,
             "max_daily_drawdown": ValiConfig.MAX_DAILY_DRAWDOWN,
         },
-        'graceperiod_miners': list(graceperiod_miners),
+        'challengeperiod_miners': challengeperiod_miners,
         'eliminations': eliminations,
         'plagiarism': plagiarism,
         'youngest_order_processed_ms': youngest_order_processed_ms,
@@ -195,6 +222,7 @@ def generate_request_outputs(write_legacy:bool, write_validator_checkpoint:bool)
             output_file_path,
             final_dict,
         )
+        logger.info(f"backed up validator checkpoint to {output_file_path}")
 
     if write_legacy:
         # Support for legacy output file

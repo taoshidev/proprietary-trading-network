@@ -3,14 +3,19 @@
 from tests.vali_tests.base_objects.test_base import TestBase
 from vali_objects.scoring.scoring import Scoring
 from vali_objects.position import Position
+from vali_objects.utils.position_utils import PositionUtils
+
+from vali_objects.vali_dataclasses.order import Order
+from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.utils.subtensor_weight_setter import SubtensorWeightSetter
 
 from vali_config import TradePair
-
 from vali_config import ValiConfig
 
 import numpy as np
 import random
+
+from tests.shared_objects.test_utilities import get_time_in_range, order_generator, position_generator
 
 class TestWeights(TestBase):
 
@@ -190,9 +195,9 @@ class TestWeights(TestBase):
         """Test that the transform and scale results works as expected with empty returns"""
         sample_returns = [
             ('miner0', []),
-            ('miner1', [ np.log(x) for x in [1.5, 0.5, 1.1, 0.6, 1.2] ]), # yolo miner
-            ('miner2', [ np.log(x) for x in [1.01, 1.00, 1.02, 1.01, 0.99] ]), # decent miner
-            ('miner3', [ np.log(x) for x in [1.03, 1.03, 1.01, 1.04, 1.01] ]), # consistently great miner
+            ('miner1', [ np.log(x) for x in [1.0001, 0.9999, 1.002, 1.0002, 1.4, 0.999, 1.0001, 1.0001, 1.001, 0.999] ]), # yolo miner
+            ('miner2', [ np.log(x) for x in [1.01, 1.00, 1.02, 1.01, 0.99, 1.05, 1.04, 1.03, 1.06, 0.98] ]), # decent miner
+            ('miner3', [ np.log(x) for x in [1.03, 1.03, 1.01, 1.04, 1.01, 1.05, 1.08, 1.05, 1.03, 1.08] ]), # consistently great miner
         ]
 
         scaled_transformed_list = Scoring.transform_and_scale_results(sample_returns)
@@ -200,12 +205,12 @@ class TestWeights(TestBase):
 
         self.assertEqual(
             transformed_minernames, 
-            ['miner1', 'miner2', 'miner3'] 
+            ['miner3','miner1', 'miner2'] 
         )
 
     def test_transform_and_scale_results(self):
         sample_returns = [
-            ('miner0', [ np.log(x) for x in [1.15, 0.95, 1.20, 0.90, 1.10, 1.05, 0.85] ]),
+            ('miner0', [ np.log(x) for x in [1.15, 0.95, 1.20, 0.90, 1.10, 1.05, 0.85, 0.88, 0.92, 1.2] ]),
             ('miner1', [ np.log(x) for x in [1.05, 1.02, 0.98, 1.03, 1.01, 0.99, 1.04, 1.00, 1.02, 0.97] ]),
         ]
 
@@ -246,16 +251,9 @@ class TestWeights(TestBase):
 
         ## the transformation should be some kind of average of the two
         scaled_transformed_list = Scoring.transform_and_scale_results(sample_returns)
+        miner_scores_hotkeys = [ x[0] for x in scaled_transformed_list ]
 
-        minimum_miner_benefit = ValiConfig.SET_WEIGHT_MINER_GRACE_PERIOD_VALUE
-        
-        miner_scores_dict = dict(scaled_transformed_list)
-        graceperiod_miner_score = miner_scores_dict['miner0']
-
-        self.assertGreater(graceperiod_miner_score, 0)
-        self.assertGreaterEqual(graceperiod_miner_score, minimum_miner_benefit)
-
-        self.assertGreater(miner_scores_dict['miner1'], miner_scores_dict['miner0'])
+        self.assertNotIn('miner0', miner_scores_hotkeys)
 
     def test_transform_and_scale_results_grace_period_no_positions(self):
         """Test that the transform and scale results works as expected with a grace period"""
@@ -274,7 +272,7 @@ class TestWeights(TestBase):
 
         self.assertEqual(graceperiod_miner_score, None)
 
-    def test_miner_filter_graceperiod(self):
+    def test_miner_filter_challengeperiod(self):
         """Test that the miner filter function works as expected"""
 
         # this should be around 2.59e9 for one month
@@ -297,7 +295,7 @@ class TestWeights(TestBase):
                 orders=[],
                 current_return=1.0,
                 return_at_close=1.0,
-                net_leverage=0.0,
+                net_leverage=0.1,
                 average_entry_price=0.0,
                 initial_entry_price=0.0,
                 position_type=None,
@@ -308,9 +306,9 @@ class TestWeights(TestBase):
 
         ## should be filtered out
         filter_miner_logic = self.subtensor_weight_setter._filter_miner(example_miner, current_time)
-        self.assertFalse(filter_miner_logic)
+        self.assertTrue(filter_miner_logic)
 
-    def test_miner_filter_older_than_graceperiod(self):
+    def test_miner_filter_older_than_challengeperiod(self):
         """Test that the miner filter function works as expected"""
 
         # this should be around 2.59e9 for one month
@@ -334,7 +332,7 @@ class TestWeights(TestBase):
                 orders=[],
                 current_return=1.0,
                 return_at_close=1.0,
-                net_leverage=0.0,
+                net_leverage=0.1,
                 average_entry_price=0.0,
                 initial_entry_price=0.0,
                 position_type=None,
@@ -348,7 +346,7 @@ class TestWeights(TestBase):
         self.assertTrue(filter_miner_logic)
 
 
-    def test_miner_filter_graceperiod_no_positions(self):
+    def test_miner_filter_challengeperiod_no_positions(self):
         """Test that the miner filter function works as expected with no positions"""
         current_time = int(4.1e9)
 
@@ -358,6 +356,392 @@ class TestWeights(TestBase):
         filter_miner_logic = self.subtensor_weight_setter._filter_miner(example_miner, current_time)
         self.assertTrue(filter_miner_logic)
 
+
+    def test_challengeperiod_screening_onepass(self):
+        """Test that challengeperiod screening passes all miners who meet the criteria"""
+        ## some sample positions and their orders, want to make sure we return
+
+        # criteria for passing
+        # 1. total time duration
+        # 2. total number of positions
+        # 3. average leverage
+        # 4. total return
+        # 5. sharpe
+
+        start_time = 0
+        end_time = ValiConfig.SET_WEIGHT_CHALLENGE_PERIOD_MS - 10
+        n_positions = 20
+        order_leverage = 1.5
+
+        ## we are going to have a sample miner who is incredible
+        start_times = sorted([ get_time_in_range(x, start_time, end_time) for x in np.random.rand(n_positions) ])
+        end_times = sorted([ get_time_in_range(x, start_times[c], end_time) for c,x in enumerate(np.random.rand(n_positions)) ])
+
+        # to make it simple, each of the positions will only have two orders, open and close with the same time as the position open and close
+
+        order_opens = []
+        order_closes = []
+
+        for i in range(len(start_times)):
+            order_opens.append(
+                order_generator(
+                    order_type=OrderType.LONG,
+                    processed_ms=start_times[i],
+                    leverage=order_leverage,
+                    n_orders=1
+                )[0]
+            )
+            order_closes.append(
+                order_generator(
+                    order_type=OrderType.FLAT,
+                    processed_ms=end_times[i],
+                    leverage=0.1,
+                    n_orders=1
+                )[0]
+            )
+
+        # each postions has str
+        positions = []
+        for i in range(len(order_opens)):
+            sample_position = position_generator(
+                open_time_ms=start_times[i],
+                close_time_ms=end_times[i],
+                trade_pair=TradePair.BTCUSD,
+                orders=[ order_opens[i], order_closes[i] ],
+                return_at_close=1.05
+            )
+            positions.append(sample_position)
+
+        current_time = ValiConfig.SET_WEIGHT_CHALLENGE_PERIOD_MS + 100
+        chellengeperiod_logic = self.subtensor_weight_setter._challengeperiod_check(
+            positions,
+            current_time
+        )
+
+        self.assertEqual(chellengeperiod_logic, True)
+
+    def test_challengeperiod_screening_challengeperiod_onechallenge(self):
+        start_time = 0
+        end_time = ValiConfig.SET_WEIGHT_CHALLENGE_PERIOD_MS / 2
+
+        # not enough positions to pass
+        n_positions = 2
+        order_leverage = 1.5
+
+        ## we are going to have a sample miner who is incredible
+        start_times = sorted([ get_time_in_range(x, start_time, end_time) for x in np.random.rand(n_positions) ])
+        end_times = sorted([ get_time_in_range(x, start_times[c], end_time) for c,x in enumerate(np.random.rand(n_positions)) ])
+
+        # to make it simple, each of the positions will only have two orders, open and close with the same time as the position open and close
+
+        order_opens = []
+        order_closes = []
+
+        for i in range(len(start_times)):
+            order_opens.append(
+                order_generator(
+                    order_type=OrderType.LONG,
+                    leverage=order_leverage,
+                    n_orders=1
+                )[0]
+            )
+            order_closes.append(
+                order_generator(
+                    order_type=OrderType.FLAT,
+                    leverage=0.1,
+                    n_orders=1
+                )[0]
+            )
+
+        # each postions has str
+        positions = []
+        for i in range(len(order_opens)):
+            sample_position = position_generator(
+                miner_hotkey='miner0',
+                open_time_ms=start_times[i],
+                close_time_ms=end_times[i],
+                trade_pair=TradePair.BTCUSD,
+                orders=[ order_opens[i], order_closes[i] ],
+                return_at_close=1.05
+            )
+            positions.append(sample_position)
+
+        current_time = ValiConfig.SET_WEIGHT_CHALLENGE_PERIOD_MS + 100
+        chellengeperiod_logic = self.subtensor_weight_setter._challengeperiod_check(
+            positions,
+            current_time
+        )
+
+        self.assertEqual(chellengeperiod_logic, None)
+
+    def test_challengeperiod_screening_challengeperiod_one_elimination(self):
+        start_time = 0
+        end_time = ValiConfig.SET_WEIGHT_CHALLENGE_PERIOD_MS + 100
+
+        # not enough positions to pass
+        n_positions = 4
+        order_leverage = 1.5
+
+        ## we are going to have a sample miner who is incredible
+        start_times = sorted([ start_time for x in np.random.rand(n_positions) ])
+        end_times = sorted([ get_time_in_range(x, start_times[c], end_time) for c,x in enumerate(np.random.rand(n_positions)) ])
+
+        # to make it simple, each of the positions will only have two orders, open and close with the same time as the position open and close
+
+        order_opens = []
+        order_closes = []
+
+        for i in range(len(start_times)):
+            order_opens.append(
+                order_generator(
+                    order_type=OrderType.LONG,
+                    processed_ms=start_times[i],
+                    leverage=order_leverage,
+                    n_orders=1
+                )[0]
+            )
+            order_closes.append(
+                order_generator(
+                    order_type=OrderType.FLAT,
+                    processed_ms=end_times[i],
+                    leverage=0.1,
+                    n_orders=1
+                )[0]
+            )
+    
+        # each postions has str
+        positions = []
+        for i in range(n_positions):
+            sample_position = position_generator(
+                miner_hotkey='miner0',
+                open_time_ms=start_times[i],
+                close_time_ms=end_times[i],
+                trade_pair=TradePair.BTCUSD,
+                orders=[ order_opens[i], order_closes[i] ],
+                return_at_close=1.05
+            )
+            positions.append(sample_position)
+
+        current_time = ValiConfig.SET_WEIGHT_CHALLENGE_PERIOD_MS + 100
+        chellengeperiod_logic = self.subtensor_weight_setter._challengeperiod_check(
+            positions,
+            current_time
+        )
+
+        self.assertEqual(chellengeperiod_logic, False)
+
+    def test_challengeperiod_screening_challengeperiod_set_miners(self):
+        start_time = 0
+        end_time = ValiConfig.SET_WEIGHT_CHALLENGE_PERIOD_MS * (9 / 10)
+        current_time = ValiConfig.SET_WEIGHT_CHALLENGE_PERIOD_MS + 100
+
+        # not enough positions to pass
+        n_positions = 20
+        order_leverage = 1.1
+        return_at_close = 1.05
+
+        ## we are going to have a sample miner who is incredible
+        start_times = sorted([ get_time_in_range(x, start_time, end_time) for x in np.random.rand(n_positions) ])
+        end_times = sorted([ get_time_in_range(x, start_times[c], end_time) for c,x in enumerate(np.random.rand(n_positions)) ])
+
+        # to make it simple, each of the positions will only have two orders, open and close with the same time as the position open and close
+
+        order_opens = []
+        order_closes = []
+
+        for i in range(len(start_times)):
+            order_opens.append(
+                order_generator(
+                    order_type=OrderType.LONG,
+                    processed_ms=start_times[i],
+                    leverage=order_leverage,
+                    n_orders=1
+                )[0]
+            )
+            order_closes.append(
+                order_generator(
+                    order_type=OrderType.FLAT,
+                    processed_ms=end_times[i],
+                    leverage=0.1,
+                    n_orders=1
+                )[0]
+            )
+
+        # each postions has str
+        positions = []
+        for i in range(len(order_opens)):
+            sample_position = position_generator(
+                miner_hotkey='miner0',
+                open_time_ms=start_times[i],
+                close_time_ms=end_times[i],
+                trade_pair=TradePair.BTCUSD,
+                orders=[ order_opens[i], order_closes[i] ],
+                return_at_close=return_at_close
+            )
+            positions.append(sample_position)
+
+
+        challengeperiod_logic = self.subtensor_weight_setter._challengeperiod_returns_logic(positions)
+        self.assertEqual(challengeperiod_logic, True)
+
+    def test_total_position_duration(self):
+        """Test that the total position duration function works as expected"""
+        start_time = 0
+        end_time = 1000
+        n_positions = 4
+
+        start_times = sorted([ get_time_in_range(x, start_time, end_time) for x in [0.2,0.4,0.6,0.7] ])
+        end_times = sorted([ get_time_in_range(x, start_times[c], end_time) for c,x in enumerate([0.3,0.3,0.3,0.3]) ])
+
+        # position start and end times
+        # 1. 200 to 200 + (1000-200)*0.3 = 200 to 240
+        # 2. 400 to 400 + (1000-400)*0.3 = 400 to 580
+        # 3. 600 to 600 + (1000-600)*0.3 = 600 to 720
+        # 4. 700 to 700 + (1000-700)*0.3 = 700 to 790
+
+        total_handcomputed_time = (440 - 200) + (580 - 400) + (720 - 600) + (790 - 700)
+        positions = [
+            position_generator(
+                open_time_ms=start_times[i],
+                close_time_ms=end_times[i],
+                trade_pair=TradePair.BTCUSD,
+                return_at_close=1.0,
+                orders=[]
+            )
+            for i in range(n_positions)
+        ]
+
+        total_position_duration = PositionUtils.compute_total_position_duration(positions)
+        self.assertEqual(total_position_duration, total_handcomputed_time)
+
+    def test_average_leverage(self):
+        """Test that the average leverage function is working correctly"""
+        start_time = 0
+        end_time = 1000
+        n_positions = 4
+
+        start_times = [start_time] * n_positions
+
+        # each of the end times will be 1/4th of the way through the total time, so the final order will have the most influence in the leverage time calculation
+        end_times = [ end_time * (i / n_positions)**2 for i in range(1, n_positions + 1) ]
+        leverages = [ 1.1, 0.2, 0.5, 0.2 ] # these are modifications as if new orders -> so 1.1 to 1.3 to 1.8
+
+        hand_computed_average_leverage = 0
+        total_time = 0
+
+        time_leverages = []
+        deltas = []
+
+        for i in range(1, n_positions):
+            time_delta = end_times[i] - end_times[i-1]
+            deltas.append(time_delta)
+            total_time += time_delta
+            running_leverage = sum(leverages[:i])
+            time_leverage = running_leverage * (time_delta)
+            time_leverages.append(time_leverage)
+            hand_computed_average_leverage += time_leverage
+
+        hand_computed_average_leverage /= total_time
+
+        orders = [ order_generator(
+                processed_ms=end_times[i],
+                leverage=leverages[i],
+                n_orders=1
+            )[0] for i in range(n_positions) ]
+
+        positions = [
+            position_generator(
+                open_time_ms=start_times[i],
+                close_time_ms=end_times[i],
+                trade_pair=TradePair.BTCUSD,
+                return_at_close=1.0,
+                orders=orders
+            )
+            for i in range(n_positions)
+        ]
+
+        average_leverage_calculation = PositionUtils.compute_average_leverage(positions)
+        self.assertAlmostEqual(average_leverage_calculation, hand_computed_average_leverage, places=3)
+
+    def test_yolo_challenge_fail(self):
+        """Test that hte yolo miner fails the challenge as expected"""
+        start_time = 0
+        end_time = ValiConfig.SET_WEIGHT_CHALLENGE_PERIOD_MS - 10
+
+        # enough positions to pass
+        n_positions = 19
+        yolo_leverage = 20
+        small_leverage = 0.01
+
+        ## we are going to have a sample miner who is incredible
+        start_times = sorted([ get_time_in_range(x, start_time, end_time) for x in np.random.rand(n_positions) ])
+        end_times = sorted([ get_time_in_range(x, start_times[c], end_time) for c,x in enumerate(np.random.rand(n_positions)) ])
+        random_returns = (np.random.rand(n_positions) - 0.5) / 100
+
+        # to make it simple, each of the positions will only have two orders, open and close with the same time as the position open and close
+
+        order_opens = [ 
+            order_generator(
+                processed_ms=x,
+                leverage=small_leverage,
+                n_orders=1
+            )[0] for x in start_times 
+        ]
+
+        order_closes = [ 
+            order_generator(
+                processed_ms=x,
+                leverage=0.1,
+                n_orders=1
+            )[0] for x in end_times 
+        ]
+
+        # each postions has str
+        tiny_positions = []
+        for i in range(len(order_opens)):
+            sample_position = position_generator(
+                miner_hotkey='miner0',
+                open_time_ms=start_times[i],
+                close_time_ms=end_times[i],
+                trade_pair=TradePair.BTCUSD,
+                orders=[ order_opens[i], order_closes[i] ],
+                return_at_close=random_returns[i]
+            )
+            tiny_positions.append(sample_position)
+
+        yolo_order_start = order_generator(
+            processed_ms=start_time,
+            leverage=yolo_leverage,
+            n_orders=1
+        )[0]
+
+        yolo_order_end = order_generator(
+            processed_ms=end_time,
+            leverage=1.0,
+            n_orders=1
+        )[0]
+
+        yolo_position = position_generator(
+            miner_hotkey='miner0',
+            open_time_ms=start_time,
+            close_time_ms=end_time,
+            trade_pair=TradePair.BTCUSD,
+            orders=[ yolo_order_start, yolo_order_end ],
+            return_at_close=1.3 # some crazy positive return
+        )
+
+        all_positions = tiny_positions + [ yolo_position ]
+
+        # want to make sure that we are now running evaluation
+        current_time = ValiConfig.SET_WEIGHT_CHALLENGE_PERIOD_MS + 100
+        chellengeperiod_logic = self.subtensor_weight_setter._challengeperiod_check(
+            all_positions,
+            current_time
+        )
+
+        self.assertEqual(chellengeperiod_logic, False)
+
+    
 
 
 
