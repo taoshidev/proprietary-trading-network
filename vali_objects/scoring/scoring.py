@@ -145,7 +145,7 @@ class Scoring:
         mad = np.mean(np.abs(returns - median))
         mrad = mad / median
         
-        return mrad
+        return abs(mrad)
     
     @staticmethod
     def total_return(returns: list[float]) -> float:
