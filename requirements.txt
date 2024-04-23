@@ -7,6 +7,6 @@ scikit-learn
 pandas
 twelvedata
 flask
-waitress
+waitress == 2.1.2
 matplotlib
 sortedcontainers

@@ -2,15 +2,20 @@
 # Copyright © 2024 Yuma Rao
 # developer: Taoshidev
 # Copyright © 2024 Taoshi Inc
+import json
 import os
 import argparse
 import threading
 import traceback
 import time
 import bittensor as bt
+
+from miner_config import MinerConfig
 from miner_objects.prop_net_order_placer import PropNetOrderPlacer
 from miner_objects.position_inspector import PositionInspector
 from shared_objects.metagraph_updater import MetagraphUpdater
+from vali_objects.decoders.generalized_json_decoder import GeneralizedJSONDecoder
+from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 
 
 class Miner:
@@ -36,10 +41,9 @@ class Miner:
     def initialize_bittensor_objects(self):
         self.wallet = bt.wallet(config=self.config)
         self.subtensor = bt.subtensor(config=self.config)
-        self.dendrite = bt.dendrite(wallet=self.wallet)
         self.metagraph = self.subtensor.metagraph(self.config.netuid)
-        self.prop_net_order_placer = PropNetOrderPlacer(self.dendrite, self.metagraph, self.config)
-        self.position_inspector = PositionInspector(self.dendrite, self.metagraph, self.config)
+        self.prop_net_order_placer = PropNetOrderPlacer(self.wallet, self.metagraph, self.config)
+        self.position_inspector = PositionInspector(self.wallet, self.metagraph, self.config)
         self.metagraph_updater = MetagraphUpdater(self.config, self.metagraph, self.wallet.hotkey.ss58_address,
                                                   True, position_inspector=self.position_inspector)
 
@@ -48,6 +52,40 @@ class Miner:
         if self.wallet.hotkey.ss58_address not in self.metagraph.hotkeys:
             bt.logging.error("Your miner is not registered. Please register and try again.")
             exit()
+
+    def load_signal_data(self, signal_file_path: str):
+        """Loads the signal data from a file."""
+        try:
+            data = ValiBkpUtils.get_file(signal_file_path)
+            return json.loads(data, cls=GeneralizedJSONDecoder)
+        except json.JSONDecodeError as e:
+            bt.logging.error(f"Failed to decode JSON from {signal_file_path}: {e}")
+            return None  # Or handle the error as needed
+
+    def get_all_files_in_dir_no_duplicate_trade_pairs(self):
+        # If there are duplicate trade pairs, only the most recent signal for that trade pair will be sent this round.
+        all_files = ValiBkpUtils.get_all_files_in_dir(MinerConfig.get_miner_received_signals_dir())
+        signals_dict = {}
+        files_to_delete = []
+        for f_name in all_files:
+            try:
+                bt.logging.info(f"Reading signal file {f_name}")
+                signal = self.load_signal_data(f_name)
+                trade_pair_id = signal['trade_pair']['trade_pair_id']
+                time_of_signal_file = os.path.getmtime(f_name)
+                if trade_pair_id not in signals_dict or signals_dict[trade_pair_id][2] < time_of_signal_file:
+                    signals_dict[trade_pair_id] = (signal, f_name, time_of_signal_file)
+                    files_to_delete.append(f_name)
+            except json.JSONDecodeError as e:
+                bt.logging.error(f"Error decoding JSON from file {f_name}: {e}")
+
+        # Delete files to prevent duplicate reading and conflicts
+        for f_name in files_to_delete:
+            bt.logging.info(f"Deleting signal file {f_name}")
+            os.remove(f_name)
+
+        # Return all signals as a list
+        return [x[0] for x in signals_dict.values()], [x[1] for x in signals_dict.values()]
 
     @staticmethod
     def get_config():
@@ -93,8 +131,11 @@ class Miner:
 
         while True:
             try:
-                self.prop_net_order_placer.send_signals(recently_acked_validators=
+                bt.logging.info("Checking for signals.")
+                signals, signal_file_names = self.get_all_files_in_dir_no_duplicate_trade_pairs()
+                self.prop_net_order_placer.send_signals(signals, signal_file_names, recently_acked_validators=
                                                         self.position_inspector.get_recently_acked_validators())
+                time.sleep(1)
             # If someone intentionally stops the miner, it'll safely terminate operations.
             except KeyboardInterrupt:
                 bt.logging.success("Miner killed by keyboard interrupt.")

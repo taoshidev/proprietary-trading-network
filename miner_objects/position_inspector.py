@@ -10,8 +10,8 @@ class PositionInspector:
     INITIAL_RETRY_DELAY = 3  # seconds
     UPDATE_INTERVAL_S = 5 * 60  # 5 minutes
 
-    def __init__(self, dendrite, metagraph, config):
-        self.dendrite = dendrite
+    def __init__(self, wallet, metagraph, config):
+        self.wallet = wallet
         self.metagraph = metagraph
         self.config = config
         self.last_update_time = 0
@@ -40,7 +40,7 @@ class PositionInspector:
 
     def query_positions(self, validators, hotkey_to_positions):
         remaining_validators_to_query = [v for v in validators if v.hotkey not in hotkey_to_positions]
-        responses = self.dendrite.query(remaining_validators_to_query, GetPositions(), deserialize=True)
+        responses = bt.dendrite(wallet=self.wallet).query(remaining_validators_to_query, GetPositions(), deserialize=True)
         ret = []
         for validator, response in zip(remaining_validators_to_query, responses):
             if response.error_message:
