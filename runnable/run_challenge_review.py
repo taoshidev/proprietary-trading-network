@@ -39,27 +39,3 @@ if __name__ == "__main__":
     logger.info(f"{len(challengeperiod_miners)} challengeperiod_miners [{challengeperiod_miners}]")
     logger.info(f"{len(challengeperiod_eliminations)} challengeperiod_eliminations [{challengeperiod_eliminations}]")
     logger.info(f"{len(list(existing_positions))} challenge period pass [{list(existing_positions)}]")
-
-    # returns_per_netuid = subtensor_weight_setter.calculate_return_per_netuid(
-    #     local=True, hotkeys=hotkeys, eliminations=eliminations_json
-    # )
-    # filtered_results = [(k, v) for k, v in returns_per_netuid.items()]
-    # scaled_transformed_list = Scoring.transform_and_scale_results(filtered_results)
-
-    # sorted_data = sorted(scaled_transformed_list, key=lambda x: x[1], reverse=True)
-
-    # y_values = [item[1] for item in sorted_data]
-
-    # top_miners = [hotkeys[x[0]] for x in sorted_data]
-
-
-    # # Add names for each value
-    # for x in range(len(y_values)):
-    #     plt.text(x, y_values[x], f"({top_miners[x]}, {y_values[x]})", ha="left")
-
-    # plt.plot([x for x in range(len(y_values))], y_values, marker="o", linestyle="-")
-    # plt.xlabel("X-axis")
-    # plt.ylabel("Y-axis")
-    # plt.title("Top Miners Incentive")
-    # plt.grid(True)
-    # plt.show()
