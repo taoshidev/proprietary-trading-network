@@ -14,6 +14,7 @@ import traceback
 import time
 import bittensor as bt
 
+from runnable.restart_sn8 import restart_sn8
 from shared_objects.rate_limiter import RateLimiter
 from time_util.time_util import TimeUtil
 from vali_config import TradePair
@@ -31,9 +32,9 @@ from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.utils.vali_utils import ValiUtils
 from vali_config import ValiConfig
 
-
 class Validator:
     def __init__(self):
+        restart_sn8()
         self.config = self.get_config()
         self.is_mainnet = self.config.netuid == 8
         # Ensure the directory for logging exists, else create one.
@@ -90,13 +91,15 @@ class Validator:
         self.updater_thread = threading.Thread(target=self.metagraph_updater.run_update_loop, daemon=True)
         self.updater_thread.start()
 
-
         if wallet.hotkey.ss58_address not in self.metagraph.hotkeys:
             bt.logging.error(
                 f"\nYour validator: {wallet} is not registered to chain "
                 f"connection: {subtensor} \nRun btcli register and try again. "
             )
             exit()
+
+        # Disable for now
+        #ValiUtils.force_validator_to_restore_from_checkpoint(wallet.hotkey.ss58_address, self.metagraph, self.config, self.secrets)
 
         # Build and link vali functions to the axon.
         # The axon handles request processing, allowing validators to send this process requests.
