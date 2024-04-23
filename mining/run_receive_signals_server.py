@@ -30,6 +30,9 @@ else:
 # Endpoint to handle JSON POST requests
 @app.route("/api/receive-signal", methods=["POST"])
 def handle_data():
+    if not request.is_json:
+        return jsonify({"error": "Request must be JSON"}), 400
+
     # Check if 'Authorization' header is provided
     data = request.json
 
@@ -64,9 +67,11 @@ def handle_data():
         ValiBkpUtils.make_dir(MinerConfig.get_miner_received_signals_dir())
         # store miner signal
         signal_file_uuid = str(uuid.uuid4())
-        ValiBkpUtils.write_file(
-            MinerConfig.get_miner_received_signals_dir() + signal_file_uuid, dict(signal)
-        )
+        signal_path = os.path.join(MinerConfig.get_miner_received_signals_dir(), signal_file_uuid)
+        ValiBkpUtils.write_file(signal_path, dict(signal))
+    except IOError as e:
+        print(traceback.format_exc())
+        return jsonify({"error": f"Error writing signal to file: {e}"}), 500
     except ValueError as e:
         print(traceback.format_exc())
         return jsonify({"error": f"improperly formatted signal received. {e}"}), 400
@@ -80,5 +85,5 @@ def handle_data():
     )
 
 if __name__ == "__main__":
-    waitress.serve(app, host="0.0.0.0", port=80)
+    waitress.serve(app, host="0.0.0.0", port=80, connection_limit=1000)
     print('Successfully started run_receive_signals_server.')
