@@ -22,8 +22,9 @@ class RecentEventTracker:
     def _cleanup_old_events(self):
         # Don't lock here, as this method is called from within a lock
         current_time_ms = TimeUtil.now_in_millis()
-        # Remove events older than 5 minutes
-        while self.events and current_time_ms - self.events[0][0] > self.OLDEST_ALLOWED_RECORD_MS:
+        # Calculate the oldest valid time once, outside the loop
+        oldest_valid_time_ms = current_time_ms - self.OLDEST_ALLOWED_RECORD_MS
+        while self.events and self.events[0][0] < oldest_valid_time_ms:
             self.events.pop(0)
 
     def get_events_in_range(self, start_time_ms, end_time_ms):

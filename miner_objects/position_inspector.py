@@ -41,10 +41,12 @@ class PositionInspector:
     def query_positions(self, validators, hotkey_to_positions):
         remaining_validators_to_query = [v for v in validators if v.hotkey not in hotkey_to_positions]
         responses = bt.dendrite(wallet=self.wallet).query(remaining_validators_to_query, GetPositions(), deserialize=True)
+        hotkey_to_v_trust = {neuron.hotkey: neuron.validator_trust for neuron in self.metagraph.neurons}
         ret = []
         for validator, response in zip(remaining_validators_to_query, responses):
+            v_trust = hotkey_to_v_trust.get(validator.hotkey, 0)
             if response.error_message:
-                bt.logging.warning(f"Error getting positions from {validator}. Error message: {response.error_message}")
+                bt.logging.warning(f"Error getting positions from {validator}. v_trust {v_trust} Error message: {response.error_message}")
             if response.successfully_processed:
                 ret.append((validator, response.positions))
 
