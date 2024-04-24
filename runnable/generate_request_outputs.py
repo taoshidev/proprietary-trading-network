@@ -1,4 +1,5 @@
 import json
+import os
 import traceback
 import uuid
 import time
@@ -216,7 +217,7 @@ def generate_request_outputs(write_legacy:bool, write_validator_checkpoint:bool)
     }
 
     if write_validator_checkpoint:
-        output_file_path = ValiBkpUtils.get_vali_outputs_dir() + "validator_checkpoint.json"
+        output_file_path = ValiBkpUtils.get_vali_outputs_dir() + f"validator_checkpoint_{int(time.time())}.json"
         #logger.debug("Writing to output_file_path:" + output_file_path)
         ValiBkpUtils.write_file(
             output_file_path,
@@ -232,42 +233,69 @@ def generate_request_outputs(write_legacy:bool, write_validator_checkpoint:bool)
             ord_dict_hotkey_position_map,
         )
 
+
+def manage_checkpoint_files(base_dir, current_time):
+    checkpoint_dir = ValiBkpUtils.get_vali_outputs_dir()
+
+    twenty_four_hours_ago = current_time - 86400
+    forty_eight_hours_ago = current_time - 172800
+
+    checkpoint_files = [
+        f for f in os.listdir(checkpoint_dir) if f.startswith("validator_checkpoint_")
+    ]
+
+    newest_valid_checkpoint = None
+    newest_valid_time = 0
+    for filename in checkpoint_files:
+        filepath = os.path.join(checkpoint_dir, filename)
+        filetime = int(filename.split("_")[-1].split(".")[0])
+
+        if filetime < forty_eight_hours_ago:
+            os.remove(filepath)
+        elif filetime < twenty_four_hours_ago and filetime > newest_valid_time:
+            newest_valid_checkpoint = filepath
+            newest_valid_time = filetime
+
+    if newest_valid_checkpoint:
+        main_checkpoint_path = os.path.join(base_dir, "validator_checkpoint.json")
+        with open(newest_valid_checkpoint, 'r') as new_file, open(main_checkpoint_path, 'w') as main_file:
+            json_data = json.load(new_file)
+            json.dump(json_data, main_file)
+
+
 if __name__ == "__main__":
-    logger = LoggerUtils.init_logger("generate_request_outputs")
+    base_dir = ValiConfig.BASE_DIR
     last_legacy_write_time = time.time()
     last_validator_checkpoint_time = time.time()
+    logger = LoggerUtils.init_logger("generate_request_outputs")
     try:
         while True:
             current_time = time.time()
             write_legacy = False
             write_validator_checkpoint = False
             msg = ""
-            # Check if it's time to write the legacy output
+
             if current_time - last_legacy_write_time >= 15:
                 msg += "Writing output.json. "
                 write_legacy = True
 
-            # Check if it's time to write the validator checkpoint
             if current_time - last_validator_checkpoint_time >= 180:
                 msg += "Writing validator validator_checkpoint.json. "
                 write_validator_checkpoint = True
 
             if write_legacy or write_validator_checkpoint:
                 logger.info(msg)
-                # Generate the request outputs
-                generate_request_outputs(write_legacy=write_legacy, write_validator_checkpoint=write_validator_checkpoint)
+                generate_request_outputs(write_legacy, write_validator_checkpoint)
+
+            manage_checkpoint_files(base_dir, current_time)
 
             if write_legacy:
                 last_legacy_write_time = current_time
             if write_validator_checkpoint:
                 last_validator_checkpoint_time = current_time
 
-            # Log completion duration
-            if write_legacy or write_validator_checkpoint:
-                logger.info("Completed writing outputs in " + str(time.time() - current_time) + " seconds.")
-    except JSONDecodeError:
-        logger.error("error occurred trying to decode position json. Probably being written to simultaneously.")
+            logger.info("Completed writing outputs in " + str(time.time() - current_time) + " seconds.")
+            time.sleep(1)
     except Exception as e:
         logger.error(f"An error occurred: {str(e)}")
-    # Sleep for a short time to prevent tight looping, adjust as necessary
-    time.sleep(1)
+        time.sleep(1)
