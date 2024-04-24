@@ -9,10 +9,15 @@ from vali_config import ValiConfig
 
 import bittensor as bt
 
+from vali_objects.position import Position
+from vali_objects.vali_dataclasses.order import Order
+from vali_config import ValiConfig
+from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.scoring.historical_scoring import HistoricalScoring
 from vali_objects.vali_dataclasses.perf_ledger import PerfCheckpoint
+from time_util.time_util import TimeUtil
 
-class PositionUtils:    
+class PositionUtils:
     @staticmethod
     def log_transform(
         return_value: float,
@@ -61,6 +66,39 @@ class PositionUtils:
         time_fraction = time_since_closed / lookback_period
         time_fraction = np.clip(time_fraction, 0, 1)
         return time_fraction
+    
+    @staticmethod
+    def translate_current_leverage(
+        positions: list[Position],
+        evaluation_time_ms: int = None
+    ) -> list[Position]:
+        """
+        Adjusts the leverage of each position based on order types and adds a new order with the final leverage at the end.
+        """
+        if evaluation_time_ms is None:
+            evaluation_time_ms = TimeUtil.now_in_millis()
+
+        for position in positions:
+            running_leverage = 0
+            new_orders = []
+            for order in position.orders:
+                running_leverage += order.leverage
+
+                if order.order_type == OrderType.FLAT:
+                    running_leverage = 0  # Reset leverage if order type is FLAT
+
+                order.leverage = running_leverage
+
+            # Create and append a new order with the final running leverage
+            new_order = copy.deepcopy(position.orders[-1])
+            new_order.processed_ms = evaluation_time_ms
+            new_order.leverage = running_leverage
+            if new_order.order_type != OrderType.FLAT:
+                new_orders.append(new_order)
+
+            position.orders.extend(new_orders)  # Append all new orders after the loop
+
+        return positions
     
     @staticmethod
     def compute_average_leverage(positions: list[Position]) -> float:
@@ -404,3 +442,96 @@ class PositionUtils:
             return 0.1
                 
         return 0.1
+    
+    @staticmethod
+    def flatten_positions(
+        positions: dict[str, list[Position]]
+    ) -> list[Position]:
+        """
+        Args:
+            positions: list[Position] - the positions
+        """
+        positions_list = []
+        for minerkey, minerpositions in positions.items():
+            for position in minerpositions:
+                positions_list.append(position)
+
+        return positions_list
+    
+    @staticmethod
+    def running_leverage_computation(
+        positions: list[Position]
+    ) -> list[Position]:
+        """
+        Args:
+            positions: list[Position] - the positions
+        """
+        positions_copy = copy.deepcopy(positions)
+        for position in positions_copy:
+            for order in position.orders:
+                order.leverage = np.clip(order.leverage, 0, 1)
+        
+        return positions
+    
+    @staticmethod
+    def to_state_list(
+        positions: list[Position],
+        current_time: int,
+        constrain_lookback: bool = True
+    ) -> tuple:
+        """
+        Args:
+            positions: list[Position] - the positions
+            return: list[dict] - the order list
+        """
+        order_list = []
+
+        miners = set()
+        trade_pairs = set()
+
+        if constrain_lookback:
+            start_time = current_time - ValiConfig.PLAGIARISM_LOOKBACK_RANGE_MS
+        else:
+            start_time = 0
+
+        for position in positions:
+            order_start = 0
+            order_end = 0
+            order_leverage = 0
+            order_tradepair = None
+            order_minerid = position.miner_hotkey
+
+            if len(position.orders) == 0:
+                continue
+            
+            for order_number, order in enumerate(position.orders):
+                if order_number == 0:
+                    order_start = order.processed_ms
+                    order_leverage = order.leverage
+                    order_tradepair = order.trade_pair.trade_pair_id
+                    order_orderid = order.order_uuid
+                    continue
+
+                order_end = order.processed_ms
+
+                if order_start >= start_time:
+                    miners.add(order_minerid)
+                    trade_pairs.add(order_tradepair)
+                    order_list.append({
+                        "miner_id": order_minerid,
+                        "trade_pair": order_tradepair,
+                        "leverage": order_leverage,
+                        "start": order_start,
+                        "end": order_end,
+                        "order_id": order_orderid
+                    })
+
+                order_start = order_end
+                order_leverage = order.leverage
+                order_orderid = order.order_uuid
+
+        return (
+            sorted(list(miners)), 
+            sorted(list(trade_pairs)), 
+            order_list
+        )
