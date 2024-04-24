@@ -3,7 +3,7 @@ import json
 import os
 import traceback
 
-FLAG_FILE_PATH = 'restart_sn8_flag.txt'
+FLAG_FILE_PATH = 'restart_sn8_flag2.txt'
 
 def find_pm2_process_by_name(process_name):
     try:
