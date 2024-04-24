@@ -126,6 +126,17 @@ read_version_value() {
     jq -r $version "$version_location"
 }
 
+check_package_installed "jq"
+if [ "$?" -ne 1 ]; then
+    echo "Missing 'jq'. Please install it first."
+    exit 1
+fi
+
+if [ ! -d "./.git" ]; then
+    echo "This installation does not seem to be a Git repository. Please install from source."
+    exit 1
+fi
+
 # Loop through all command line arguments
 # Similar logic to handle script arguments; adjust as necessary
 
@@ -205,47 +216,41 @@ fi
 
 # Continuous checking and updating logic
 while true; do
-    # Check for package installation and git updates as before
-    # Ensure jq is installed
-    check_package_installed "jq"
-    if [ "$?" -eq 1 ]; then
-        if [ -d "./.git" ]; then
-            latest_version=$(check_variable_value_on_github "taoshidev/proprietary-trading-network" $version_location $version $branch)
-            # Wait for latest_version to be available
-            while [ -z "$latest_version" ]; do
-                echo "Waiting for latest version to be set..."
-                sleep 1
-            done
+    # Check if current minute is divisible by 30
+    current_minute=$(date +'%M')
+    if [[ "$current_minute" != "7" && "$current_minute" != "37" ]]; then
+        sleep 1 # Sleep for one second and check again
+        continue
+    fi
 
-            echo "Latest version: $latest_version"
-            latest_version="${latest_version#"${latest_version%%[![:space:]]*}"}"
-            current_version="${current_version#"${current_version%%[![:space:]]*}"}"
+    # Proceed with checks only at the 30-minute mark
+    latest_version=$(check_variable_value_on_github "taoshidev/proprietary-trading-network" $version_location $version $branch)
 
-            if [ -n "$latest_version" ] && ! echo "$latest_version" | grep -q "Error"; then
-                if version_less_than $current_version $latest_version; then
-                    echo "Updating due to version mismatch. Current: $current_version, Latest: $latest_version"
-                    if git pull origin $branch; then
-                        echo "New version published. Updating the local copy."
-                        pip install -e .
-                        check_and_restart_pm2 "$proc_name" "$script" args[@]
-                        if [ "$start_generate" = true ]; then
-                            check_and_restart_pm2 "$generate_proc_name" "$generate_script" generate_args[@]
-                        fi
-                        current_version=$(read_version_value)
-                        echo "Update completed. Continuing monitoring..."
-                    else
-                        echo "Please stash your changes using git stash."
-                    fi
-                else
-                    echo "You are up-to-date with the latest version."
-                fi
+    while [ -z "$latest_version" ]; do
+        echo "Waiting for latest version to be set..."
+        sleep 1
+    done
+
+    echo "Latest version: $latest_version"
+    latest_version="${latest_version#"${latest_version%%[![:space:]]*}"}"
+    current_version="${current_version#"${current_version%%[![:space:]]*}"}"
+
+    if [ -n "$latest_version" ] && ! echo "$latest_version" | grep -q "Error" && version_less_than $current_version $latest_version; then
+        echo "Updating due to version mismatch. Current: $current_version, Latest: $latest_version"
+        if git pull origin $branch; then
+            echo "New version published. Updating the local copy."
+            pip install -e .
+            check_and_restart_pm2 "$proc_name" "$script" args[@]
+            if [ "$start_generate" = true ]; then
+                check_and_restart_pm2 "$generate_proc_name" "$generate_script" generate_args[@]
             fi
+            current_version=$(read_version_value)
+            echo "Update completed. Continuing monitoring..."
         else
-            echo "This installation does not seem to be a Git repository. Please install from source."
+            echo "Please stash your changes using git stash."
         fi
     else
-        echo "Missing 'jq'. Please install it first."
-        break
+        echo "You are up-to-date with the latest version."
     fi
-    sleep 1800 # Wait for 30 minutes before checking again
+    sleep 300
 done

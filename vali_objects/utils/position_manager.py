@@ -60,7 +60,7 @@ class PositionManager(CacheController):
         eliminations = self.get_miner_eliminations_from_disk()
         new_eliminations = []
         for e in eliminations:
-            if e['hotkey'] in ('5Ct1J2jNxb9zeHpsj547BR1nZk4ZD51Bb599tzEWnxyEr4WR', '5DX8tSyGrx1QuoR1wL99TWDusvmmWgQW5su3ik2Sc8y8Mqu3'):
+            if e['hotkey'] in ():
                 bt.logging.warning('Removed elimination for hotkey ', e['hotkey'])
             else:
                 new_eliminations.append(e)
@@ -144,10 +144,13 @@ class PositionManager(CacheController):
         # 4/19/24 Verified bug on old version of miner.py that delayed order significantly. The PR to reduce miner lag went
          live April 14th and this trade was April 9th
 
+         4/23/24 - position price source flipped from polygon to TD. Need to be consistent within a position.
+          Fix coming in next update.
+
         """
 
 
-        self.give_erronously_eliminated_miners_another_shot()
+        #self.give_erronously_eliminated_miners_another_shot()
         n_corrections = 0
         n_attempts = 0
         unique_corrections = set()
@@ -199,10 +202,15 @@ class PositionManager(CacheController):
                 correct_for_tp(positions, 1, [100.192, 100.711, 100.379], TradePair.AUDJPY)
                 correct_for_tp(positions, 1, None, TradePair.GBPJPY, timestamp_ms=1712624748605)
                 correct_for_tp(positions, 2, None, TradePair.AUDCAD, timestamp_ms=1712839053529)
-            """
+                
             if miner_hotkey == '5GhCxfBcA7Ur5iiAS343xwvrYHTUfBjBi4JimiL5LhujRT9t':
                 n_attempts, n_corrections = self.correct_for_tp(positions, 1, None, TradePair.BTCUSD, timestamp_ms=1712671378202, n_attempts=n_attempts, n_corrections=n_corrections, unique_corrections=unique_corrections)
 
+            """
+            if miner_hotkey == '5G3ys2356ovgUivX3endMP7f37LPEjRkzDAM3Km8CxQnErCw':
+                n_attempts, n_corrections = self.correct_for_tp(positions, 3, [1.36936, 1.36975], TradePair.USDCAD, n_attempts=n_attempts,
+                                                                n_corrections=n_corrections,
+                                                                unique_corrections=unique_corrections)
 
         bt.logging.warning(f"Applied {n_corrections} order corrections out of {n_attempts} attempts. unique positions corrected: {len(unique_corrections)}")
 
