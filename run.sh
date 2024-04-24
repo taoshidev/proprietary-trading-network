@@ -218,7 +218,7 @@ fi
 while true; do
     # Check if current minute is divisible by 30
     current_minute=$(date +'%M')
-    if [[ "$current_minute" != "7" && "$current_minute" != "37" ]]; then
+    if [[ "$current_minute" != "07" && "$current_minute" != "37" ]]; then
         sleep 1 # Sleep for one second and check again
         continue
     fi
