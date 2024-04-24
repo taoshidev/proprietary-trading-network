@@ -35,6 +35,13 @@ from vali_config import ValiConfig
 class Validator:
     def __init__(self):
         restart_sn8()
+        # Try to read the file meta/meta.json and print it out
+        try:
+            with open("meta/meta.json", "r") as f:
+                bt.logging.info(f"Found meta.json file {f.read()}")
+        except Exception as e:
+            bt.logging.error(f"Error reading meta/meta.json: {e}")
+
         self.config = self.get_config()
         self.is_mainnet = self.config.netuid == 8
         # Ensure the directory for logging exists, else create one.
