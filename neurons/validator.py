@@ -80,7 +80,7 @@ class Validator:
                                                 perform_price_adjustment=False,
                                                 live_price_fetcher=self.live_price_fetcher,
                                                 perform_fee_structure_update=False,
-                                                perform_order_corrections=False,
+                                                perform_order_corrections=True,
                                                 apply_corrections_template=False)
 
 
