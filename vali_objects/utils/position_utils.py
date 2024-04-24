@@ -1,9 +1,11 @@
 # developer: trdougherty
 # Copyright © 2024 Taoshi Inc
 import numpy as np
+import copy
 
 from vali_objects.position import Position
 from vali_config import ValiConfig
+from vali_objects.enums.order_type_enum import OrderType
 
 import bittensor as bt
 
@@ -42,6 +44,29 @@ class PositionUtils:
         time_fraction = time_since_closed / lookback_period
         time_fraction = np.clip(time_fraction, 0, 1)
         return time_fraction
+    
+    @staticmethod
+    def translate_current_leverage(
+        positions: list[Position]
+    ) -> list[Position]:
+        """
+        Args:
+            position: Position - the position
+            evaluation_time_ms: int - the evaluation time
+        """
+        for position in positions:
+            running_leverage = 0
+            for order in position.orders:
+                running_leverage += order.leverage
+
+                if order.order_type == OrderType.FLAT:
+                    running_leverage = 0
+                    order.leverage = running_leverage
+                    continue
+                else:
+                    order.leverage = running_leverage
+
+        return positions
     
     @staticmethod
     def compute_average_leverage(positions: list[Position]) -> float:
