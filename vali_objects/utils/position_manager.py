@@ -60,7 +60,7 @@ class PositionManager(CacheController):
         eliminations = self.get_miner_eliminations_from_disk()
         new_eliminations = []
         for e in eliminations:
-            if e['hotkey'] in ():
+            if e['hotkey'] in ('5Dxqzduahnqw8q3XSUfTcEZGU7xmAsfJubhHZwvXVLN9fSjR'):
                 bt.logging.warning('Removed elimination for hotkey ', e['hotkey'])
             else:
                 new_eliminations.append(e)
@@ -116,6 +116,17 @@ class PositionManager(CacheController):
             bt.logging.warning(f"Could not correct position for trade pair {tp.trade_pair_id}. i {i}, idx {idx}, len(prices) {len(prices)}, len(pos.orders) {len(pos.orders)}")
         return n_attempts, n_corrections
 
+    def reopen_force_closed_positions(self, positions):
+        for position in positions:
+            if position.is_closed_position and abs(position.net_leverage) > 0:
+                print(f"Deleting position {position.position_uuid} for trade pair {position.trade_pair.trade_pair_id} nl {position.net_leverage}")
+                self.delete_position_from_disk(position)
+                position.reopen_position()
+                self.save_miner_position_to_disk(position, delete_open_position_if_exists=False)
+                print(f"Reopened position {position.position_uuid} for trade pair {position.trade_pair.trade_pair_id}")
+
+
+
     def apply_order_corrections(self):
         """
         This is our mechanism for manually synchronizing validator orders in situations where a bug prevented an
@@ -147,10 +158,13 @@ class PositionManager(CacheController):
          4/23/24 - position price source flipped from polygon to TD. Need to be consistent within a position.
           Fix coming in next update.
 
+          4/26/24 - extreme price parsing is giving outliers from bad websocket data. Patch the function and manually correct
+          elimination.
+
         """
 
 
-        #self.give_erronously_eliminated_miners_another_shot()
+        self.give_erronously_eliminated_miners_another_shot()
         n_corrections = 0
         n_attempts = 0
         unique_corrections = set()
@@ -206,11 +220,16 @@ class PositionManager(CacheController):
             if miner_hotkey == '5GhCxfBcA7Ur5iiAS343xwvrYHTUfBjBi4JimiL5LhujRT9t':
                 n_attempts, n_corrections = self.correct_for_tp(positions, 1, None, TradePair.BTCUSD, timestamp_ms=1712671378202, n_attempts=n_attempts, n_corrections=n_corrections, unique_corrections=unique_corrections)
 
-            """
             if miner_hotkey == '5G3ys2356ovgUivX3endMP7f37LPEjRkzDAM3Km8CxQnErCw':
                 n_attempts, n_corrections = self.correct_for_tp(positions, 3, [1.36936, 1.36975], TradePair.USDCAD, n_attempts=n_attempts,
                                                                 n_corrections=n_corrections,
                                                                 unique_corrections=unique_corrections)
+            """
+            if miner_hotkey == '5Dxqzduahnqw8q3XSUfTcEZGU7xmAsfJubhHZwvXVLN9fSjR':
+                self.reopen_force_closed_positions(positions)
+                n_corrections += 1
+                n_attempts += 1
+
 
         bt.logging.warning(f"Applied {n_corrections} order corrections out of {n_attempts} attempts. unique positions corrected: {len(unique_corrections)}")
 

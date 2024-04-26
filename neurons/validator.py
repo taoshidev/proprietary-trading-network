@@ -14,7 +14,6 @@ import traceback
 import time
 import bittensor as bt
 
-from runnable.restart_sn8 import restart_sn8
 from shared_objects.rate_limiter import RateLimiter
 from time_util.time_util import TimeUtil
 from vali_config import TradePair
@@ -34,7 +33,6 @@ from vali_config import ValiConfig
 
 class Validator:
     def __init__(self):
-        restart_sn8()
         # Try to read the file meta/meta.json and print it out
         try:
             with open("meta/meta.json", "r") as f:

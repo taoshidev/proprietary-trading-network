@@ -14,6 +14,7 @@ from shared_objects.retry import retry
 import bittensor as bt
 
 from vali_objects.vali_dataclasses.price_source import PriceSource
+from statistics import median
 
 
 class LivePriceFetcher():
@@ -176,30 +177,35 @@ class LivePriceFetcher():
         dat = candle_data.get(trade_pair)
         if dat is None:
             # Market is closed for this trade pair
-            return None
-
-        # Handle the case where an order gets placed in between MDD checks.
-        min_allowed_timestamp_ms = open_position.orders[-1].processed_ms
-        price = None
-        corresponding_source = None
-        for a in dat:
-            candle_epoch_ms = a.end_ms
-            if candle_epoch_ms < min_allowed_timestamp_ms:
-                continue
-            # bt.logging.info(f"in _parse_min_price_in_window. timestamp: {a.timestamp}, close: {a.close}")
-            if parse_min:
-                if a.low is not None and (price is None or a.low < price):
-                    price = a.low
-                    corresponding_source = a
-            else:
-                if a.high is not None and (price is None or a.high > price):
-                    price = a.high
-                    corresponding_source = a
-        # print(f"in _parse_min_price_in_window min_price: {min_price}. trade_pair {trade_pair.trade_pair_id}")
-        if price:
-            return price, corresponding_source
-        else:
             return None, None
+
+        min_allowed_timestamp_ms = open_position.orders[-1].processed_ms
+        prices = []
+        corresponding_sources = []
+
+        for a in dat:
+            if a.end_ms < min_allowed_timestamp_ms:
+                continue
+            price = a.low if parse_min else a.high
+            if price is not None:
+                prices.append(price)
+                corresponding_sources.append(a)
+
+        if not prices:
+            return None, None
+
+        if len(prices) % 2 == 1:
+            med_price = median(prices)  # Direct median if the list is odd
+        else:
+            # If even, choose the lower middle element to ensure it exists in the list
+            sorted_prices = sorted(prices)
+            middle_index = len(sorted_prices) // 2 - 1
+            med_price = sorted_prices[middle_index]
+
+        med_index = prices.index(med_price)
+        med_source = corresponding_sources[med_index]
+
+        return med_price, med_source
 
     def get_candles(self, trade_pairs, start_time_ms, end_time_ms) -> dict:
         ans = {}
