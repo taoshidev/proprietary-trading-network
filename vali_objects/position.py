@@ -339,10 +339,10 @@ class Position(BaseModel):
         self.is_closed_position = True
         self.close_ms = close_ms
 
-    def reopen_position(self, order_type: OrderType):
+    def reopen_position(self):
+        self.position_type = self.orders[0].order_type
         self.is_closed_position = False
         self.close_ms = None
-        self.position_type = order_type
 
     def _clamp_leverage(self, order):
         proposed_leverage = self.net_leverage + order.leverage

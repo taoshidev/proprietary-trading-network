@@ -50,7 +50,7 @@ def regenerate_miner_positions(perform_backup=True):
         live_price_fetcher = LivePriceFetcher(secrets=secrets)
         position_manager = PositionManager(live_price_fetcher=live_price_fetcher, perform_price_adjustment=False,
                                            perform_order_corrections=True, generate_correction_templates=False,
-                                           apply_corrections_template=True, perform_fee_structure_update=True)
+                                           apply_corrections_template=False, perform_fee_structure_update=False)
         #position_manager.perform_price_recalibration(time_per_batch_s=10000000)
     else:
         position_manager = PositionManager()
