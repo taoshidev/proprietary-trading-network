@@ -19,16 +19,17 @@ from vali_objects.decoders.generalized_json_decoder import GeneralizedJSONDecode
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 
 class PropNetOrderPlacer:
-    # Constants for retry logic with exponential backoff. After trying 3 times, there will be a delay of ~ 2 minutes.
+    # Constants for retry logic with exponential backoff. After trying 3 times, there will be a delay of ~ 3 minutes.
     # This time is sufficient for validators to go offline, update, and come back online.
     MAX_RETRIES = 3
-    INITIAL_RETRY_DELAY_SECONDS = 15
+    INITIAL_RETRY_DELAY_SECONDS = 20
 
-    def __init__(self, wallet, metagraph, config):
+    def __init__(self, wallet, metagraph, config, is_testnet):
         self.wallet = wallet
         self.metagraph = metagraph
         self.config = config
         self.recently_acked_validators = []
+        self.is_testnet = is_testnet
         self.trade_pair_id_to_last_order_send = {tp.trade_pair_id: 0 for tp in TradePair}
 
     def send_signals(self, signals, signal_file_names, recently_acked_validators: list[str]):
@@ -116,8 +117,13 @@ class PropNetOrderPlacer:
 
     def get_high_trust_validators(self, axons, hotkey_to_v_trust):
         """Returns a list of high-trust validators."""
-        high_trust_validators = [ax for ax in axons if hotkey_to_v_trust[ax.hotkey] > .70]
-        return high_trust_validators
+        high_trust_validators = [ax for ax in axons if hotkey_to_v_trust[ax.hotkey] >= MinerConfig.HIGH_V_TRUST_THRESHOLD]
+        if not high_trust_validators:
+            if not self.is_testnet:
+                bt.logging.error("No high-trust validators found. This is unexpected in mainnet. Please report to the team ASAP.")
+            return axons
+        else:
+            return high_trust_validators
 
 
     async def attempt_to_send_signal(self, signal_data: object, retry_status: dict, high_trust_validators: list):
