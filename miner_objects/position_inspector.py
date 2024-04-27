@@ -2,6 +2,8 @@ from collections import defaultdict
 
 import bittensor as bt
 import time
+
+from miner_config import MinerConfig
 from template.protocol import GetPositions
 
 
@@ -45,7 +47,7 @@ class PositionInspector:
         ret = []
         for validator, response in zip(remaining_validators_to_query, responses):
             v_trust = hotkey_to_v_trust.get(validator.hotkey, 0)
-            if response.error_message:
+            if response.error_message and v_trust >= MinerConfig.HIGH_V_TRUST_THRESHOLD:
                 bt.logging.warning(f"Error getting positions from {validator}. v_trust {v_trust} Error message: {response.error_message}")
             if response.successfully_processed:
                 ret.append((validator, response.positions))

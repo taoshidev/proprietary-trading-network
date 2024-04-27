@@ -21,6 +21,7 @@ from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 class Miner:
     def __init__(self):
         self.config = self.get_config()
+        self.is_testnet = self.config.subtensor.network == "test"
         self.setup_logging_directory()
         self.initialize_bittensor_objects()
         self.check_miner_registration()
@@ -42,7 +43,7 @@ class Miner:
         self.wallet = bt.wallet(config=self.config)
         self.subtensor = bt.subtensor(config=self.config)
         self.metagraph = self.subtensor.metagraph(self.config.netuid)
-        self.prop_net_order_placer = PropNetOrderPlacer(self.wallet, self.metagraph, self.config)
+        self.prop_net_order_placer = PropNetOrderPlacer(self.wallet, self.metagraph, self.config, self.is_testnet)
         self.position_inspector = PositionInspector(self.wallet, self.metagraph, self.config)
         self.metagraph_updater = MetagraphUpdater(self.config, self.metagraph, self.wallet.hotkey.ss58_address,
                                                   True, position_inspector=self.position_inspector)
