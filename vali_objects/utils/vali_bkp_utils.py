@@ -5,6 +5,7 @@ import json
 import os
 import pickle
 import bittensor as bt
+from pydantic import BaseModel
 
 from vali_config import ValiConfig
 from vali_objects.position import Position
@@ -16,6 +17,8 @@ class CustomEncoder(json.JSONEncoder):
     def default(self, obj):
         if isinstance(obj, TradePair) or isinstance(obj, OrderType):
             return obj.__json__()
+        elif isinstance(obj, BaseModel):
+            return obj.dict()
         return json.JSONEncoder.default(self, obj)
 
 class ValiBkpUtils:
@@ -32,6 +35,11 @@ class ValiBkpUtils:
     def get_eliminations_dir(running_unit_tests=False) -> str:
         suffix = "/tests" if running_unit_tests else ""
         return ValiConfig.BASE_DIR + f"{suffix}/validation/eliminations.json"
+
+    @staticmethod
+    def get_perf_ledgers_path(running_unit_tests=False) -> str:
+        suffix = "/tests" if running_unit_tests else ""
+        return ValiConfig.BASE_DIR + f"{suffix}/validation/perf_ledgers.json"
 
     @staticmethod
     def get_plagiarism_scores_file_location(running_unit_tests=False) -> str:

@@ -20,23 +20,24 @@ DEBUG = 0
 
 class TwelveDataService(BaseDataService):
 
-    def __init__(self, api_key):
+    def __init__(self, api_key, disable_ws=False):
         trade_pair_category_to_longest_allowed_lag_s = {TradePairCategory.CRYPTO: 60, TradePairCategory.FOREX: 60,
                                                              TradePairCategory.INDICES: 60}
         timespan_to_ms = {'1min': 1000 * 60, '1h': 1000 * 60 * 60, '1day': 1000 * 60 * 60 * 24}
         super().__init__(trade_pair_category_to_longest_allowed_lag_s=trade_pair_category_to_longest_allowed_lag_s,
                          timespan_to_ms=timespan_to_ms, provider_name=TWELVEDATA_PROVIDER_NAME)
         self.WS = None
-
+        self.disable_ws = disable_ws
         self.n_resets = 0
         self.init_time_ms = TimeUtil.now_in_millis()
         self._api_key = api_key
         self.td = TDClient(apikey=self._api_key)
 
-        self._reset_websocket()
-        self._heartbeat_thread = threading.Thread(target=self._websocket_heartbeat)
-        self._heartbeat_thread.daemon = True
-        self._heartbeat_thread.start()
+        if not disable_ws:
+            self._reset_websocket()
+            self._heartbeat_thread = threading.Thread(target=self._websocket_heartbeat)
+            self._heartbeat_thread.daemon = True
+            self._heartbeat_thread.start()
 
         self.trade_pair_to_longest_seen_lag_s = {}
 

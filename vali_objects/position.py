@@ -277,6 +277,9 @@ class Position(BaseModel):
             fee = self.trade_pair.fees * self.cumulative_leverage() / 2.0
         return current_return_no_fees * (1.0 - fee)
 
+    def get_open_position_return_with_fees(self, realtime_price, time_ms):
+        current_return = self.calculate_unrealized_pnl(realtime_price)
+        return self.calculate_return_with_fees(current_return, timestamp_ms=time_ms)
 
     def set_returns(self, realtime_price, time_ms=None):
         if time_ms is None:

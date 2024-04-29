@@ -7,6 +7,7 @@ from time_util.time_util import TimeUtil
 from vali_config import ValiConfig
 from vali_objects.decoders.generalized_json_decoder import GeneralizedJSONDecoder
 from vali_objects.enums.order_type_enum import OrderType
+from vali_objects.exceptions.corrupt_data_exception import ValiBkpCorruptDataException
 from vali_objects.utils.logger_utils import LoggerUtils
 from vali_objects.utils.position_manager import PositionManager
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
@@ -14,6 +15,8 @@ from vali_objects.utils.subtensor_weight_setter import SubtensorWeightSetter
 from vali_objects.utils.position_utils import PositionUtils
 from vali_objects.vali_dataclasses.order import Order
 from vali_objects.scoring.scoring import Scoring
+from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
+
 
 def generate_request_outputs(write_legacy:bool, write_validator_checkpoint:bool):
     # let's set the time first to try and make it as close as possible to the original
@@ -181,7 +184,7 @@ def generate_request_outputs(write_legacy:bool, write_validator_checkpoint:bool)
         n_positions_new += sum([len(p['orders']) for p in positions])
 
     assert n_orders_original == n_positions_new, f"n_orders_original: {n_orders_original}, n_positions_new: {n_positions_new}"
-
+    perf_ledgers = PerfLedgerManager.load_perf_ledgers_from_disk() if write_validator_checkpoint else {}
     now_ms = time_now
     final_dict = {
         'version': ValiConfig.VERSION,
@@ -213,6 +216,7 @@ def generate_request_outputs(write_legacy:bool, write_validator_checkpoint:bool)
         'youngest_order_processed_ms': youngest_order_processed_ms,
         'oldest_order_processed_ms': oldest_order_processed_ms,
         'positions': ord_dict_hotkey_position_map,
+        'perf_ledgers': perf_ledgers
     }
 
     if write_validator_checkpoint:
@@ -265,7 +269,7 @@ if __name__ == "__main__":
             # Log completion duration
             if write_legacy or write_validator_checkpoint:
                 logger.info("Completed writing outputs in " + str(time.time() - current_time) + " seconds.")
-    except JSONDecodeError:
+    except (JSONDecodeError, ValiBkpCorruptDataException) as e:
         logger.error("error occurred trying to decode position json. Probably being written to simultaneously.")
     except Exception as e:
         logger.error(f"An error occurred: {str(e)}")

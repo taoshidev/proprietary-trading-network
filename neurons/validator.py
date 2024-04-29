@@ -23,6 +23,7 @@ from vali_objects.utils.elimination_manager import EliminationManager
 from vali_objects.utils.live_price_fetcher import LivePriceFetcher
 from vali_objects.utils.subtensor_weight_setter import SubtensorWeightSetter
 from vali_objects.utils.mdd_checker import MDDChecker
+from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
 from vali_objects.utils.plagiarism_detector import PlagiarismDetector
 from vali_objects.utils.position_manager import PositionManager
 from vali_objects.vali_dataclasses.order import Order
@@ -93,8 +94,8 @@ class Validator:
                                                   False, position_manager=self.position_manager)
 
         # Start the metagraph updater loop in its own thread
-        self.updater_thread = threading.Thread(target=self.metagraph_updater.run_update_loop, daemon=True)
-        self.updater_thread.start()
+        self.metagraph_updater_thread = threading.Thread(target=self.metagraph_updater.run_update_loop, daemon=True)
+        self.metagraph_updater_thread.start()
 
         if wallet.hotkey.ss58_address not in self.metagraph.hotkeys:
             bt.logging.error(
@@ -102,6 +103,12 @@ class Validator:
                 f"connection: {subtensor} \nRun btcli register and try again. "
             )
             exit()
+
+        self.perf_ledger_manager = PerfLedgerManager(self.metagraph, live_price_fetcher=self.live_price_fetcher)
+        # Start the perf ledger updater loop in its own thread
+        self.perf_ledger_updater_thread = threading.Thread(target=self.perf_ledger_manager.run_update_loop, daemon=True)
+        self.perf_ledger_updater_thread.start()
+
 
         # Disable for now
         #ValiUtils.force_validator_to_restore_from_checkpoint(wallet.hotkey.ss58_address, self.metagraph, self.config, self.secrets)
@@ -271,7 +278,9 @@ class Validator:
                 self.axon.stop()
                 bt.logging.success("Validator killed by keyboard interrupt.")
                 self.metagraph_updater.stop_update_loop()
-                self.updater_thread.join()
+                self.perf_ledger_manager.stop_update_loop()
+                self.metagraph_updater_thread.join()
+                self.perf_ledger_updater_thread.join()
                 break
             # In case of unforeseen errors, the miner will log the error and continue operations.
             except Exception:
