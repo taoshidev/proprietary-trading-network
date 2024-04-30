@@ -161,7 +161,7 @@ TRADE_PAIR_STR_TO_TRADE_PAIR = {x.trade_pair: x for x in TradePair}
 
 class ValiConfig:
     ## versioning
-    VERSION = "2.4.5"
+    VERSION = "2.4.8"
 
     # fees take into account exiting and entering a position, liquidity, and futures fees
     PERF_LEDGER_REFRESH_TIME_MS = 1000 * 60 * 5 # 5 minutes
