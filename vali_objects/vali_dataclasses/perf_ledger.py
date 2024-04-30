@@ -386,6 +386,9 @@ class PerfLedgerManager(CacheController):
                 #print(f"Done processing order {order}. perf ledger {perf_ledger}")
 
             # We have processed all orders. Need to catch up to now_ms
+            if realtime_position_to_pop:
+                symbol = realtime_position_to_pop.trade_pair.trade_pair
+                tp_to_historical_positions[symbol][-1] = realtime_position_to_pop
             if now_ms > perf_ledger.last_update_ms:
                 self.build_perf_ledger(perf_ledger, tp_to_historical_positions, perf_ledger.last_update_ms, now_ms, hotkey)
 
