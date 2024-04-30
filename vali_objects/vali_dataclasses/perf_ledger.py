@@ -305,7 +305,7 @@ class PerfLedgerManager(CacheController):
                     opr = historical_position.get_open_position_return_with_fees(price_at_t_s, t_ms)
                     historical_position.return_at_close = opr
                 portfolio_return *= opr
-                #assert portfolio_return > 0, f"Portfolio value is {portfolio_return} for miner {miner_hotkey} at {t_s}. perf ledger {perf_ledger}. opr {opr} rtp {price_at_t_s}, historical position {historical_position}"
+                #assert portfolio_return > 0, f"Portfolio value is {portfolio_return} for miner {miner_hotkey} at {t_s}. opr {opr} rtp {price_at_t_s}, historical position {historical_position}"
         return portfolio_return, any_open
 
     def build_perf_ledger(self, perf_ledger:PerfLedger, tp_to_historical_positions: dict[str: Position], start_time_ms, end_time_ms, miner_hotkey):
@@ -326,7 +326,7 @@ class PerfLedgerManager(CacheController):
         for t_ms in range(start_time_ms, end_time_ms, 1000):
             assert t_ms >= perf_ledger.last_update_ms, f"t_ms: {t_ms}, last_update_ms: {perf_ledger.last_update_ms}, delta_s: {(t_ms - perf_ledger.last_update_ms) // 1000} s. perf ledger {perf_ledger}"
             portfolio_return, any_open = self.positions_to_portfolio_return(tp_to_historical_positions, t_ms, trade_pair_to_price_info, miner_hotkey, end_time_ms)
-            #portfolio_return > 0, f"Portfolio value is {portfolio_return} for miner {miner_hotkey} at {t_ms // 1000}. perf ledger {perf_ledger}"
+            assert portfolio_return > 0, f"Portfolio value is {portfolio_return} for miner {miner_hotkey} at {t_ms // 1000}. perf ledger {perf_ledger}"
             perf_ledger.update(portfolio_return, t_ms, miner_hotkey, any_open)
             any_update = True
 
@@ -429,22 +429,27 @@ class PerfLedgerManager(CacheController):
                 [testing_one_hotkey], sort_positions=True
             )
         else:
-            eliminated_hotkeys = set(x['hotkey'] for x in self.eliminations) if self.eliminations is not None else set()
             hotkey_to_positions = self.get_all_miner_positions_by_hotkey(
                 self.metagraph.hotkeys, sort_positions=True,
                 eliminations=self.eliminations
             )
-            for k in eliminated_hotkeys:
-                if k in hotkey_to_positions:
-                    del hotkey_to_positions[k]
+            hotkeys_with_no_positions = set()
+            for k, positions in hotkey_to_positions.items():
+                if len(positions) == 0:
+                    hotkeys_with_no_positions.add(k)
+            for k in hotkeys_with_no_positions:
+                del hotkey_to_positions[k]
+
         return hotkey_to_positions
 
     def update(self, testing_one_hotkey=None):
         perf_ledgers = PerfLedgerManager.load_perf_ledgers_from_disk()
         self._refresh_eliminations_in_memory()
+        t_ms = TimeUtil.now_in_millis() - 600000  # 10 minutes ago
+        if t_ms < 1714438182000 + 1000 * 60 * 60 * 1:  # Rebuild after bug fix
+            perf_ledgers = {}
         hotkey_to_positions = self.get_positions_with_retry(testing_one_hotkey=testing_one_hotkey)
         # Time in the past to start updating the perf ledgers
-        t_ms = TimeUtil.now_in_millis() - 600000  # 10 minutes ago
         self.update_all_perf_ledgers(hotkey_to_positions, perf_ledgers, t_ms)
 
     @staticmethod
@@ -464,3 +469,4 @@ class PerfLedgerManager(CacheController):
 
 if __name__ == "__main__":
     perf_ledger_manager = PerfLedgerManager(metagraph=None, running_unit_tests=False)
+
