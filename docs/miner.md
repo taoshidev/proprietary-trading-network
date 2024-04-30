@@ -7,16 +7,27 @@ Basic Rules:
   - 10 Closed Positions
   - 50 Cumulative Hours of Positions
 2. Miner will be penalized if they are not providing consistent predictions to the system. The details of this may be found [here](https://github.com/taoshidev/proprietary-trading-network/blob/main/vali_objects/utils/position_utils.py).
-3. Positions must be open for a minimum of one minute.
-4. A miner can have a maximum of 200 positions open.
-5. A miner's order will be ignored if placing a trade outside of market hours
-6. A miner's order will be ignored if they are rate limited (maliciously sending too many requests)
-7. A portfolio that falls more than 10% of the maximum value will be eliminated.
-8. A portfolio that falls more than 5% in a single day from a daily max will be eliminated.
+3. A miner can have a maximum of 200 positions open.
+4. A miner's order will be ignored if placing a trade outside of market hours.
+5. A miner's order will be ignored if they are rate limited (maliciously sending too many requests)
+6. A portfolio that falls more than 10% of the maximum value will be eliminated.
+7. A portfolio that falls more than 5% in a single day from a daily max will be eliminated.
+
+The open positions held by miners will be continuously evaluated based on their value changes. Any measured positive movement on the asset while tracked in a position will count as a gain for the miner. Any negative movements will be tracked as losses. Risk is defined as the sum volume of millisecond negative value change overseen during a position. Given that the price of assets fluctuates so quickly and has some level of noise, it is virtually impossible for an investment strategy to have zero risk. This is normal. An asset with zero return through the course of the day will still carry risk, although the gains and losses result in a product of 1.0. A higher leverage trade will increase the intensity of losses and of gains, but in this scenario the product sum will still be 1.0 as a return. With this increased leverage, there will be a higher volume of losses, and thus risk.
+
+We will use two scoring metrics to evaluate miners based on their mid trade scores: **Omega** and **Time Adjusted Sortino**. Omega will evaluate the magnitude of the positive asset changes over the magnitude of negative asset changes. Any score above 1 will indicate that the miner experienced a net gain through the course of their position. A higher omega value will result from:
+
+- Higher magnitude positive value change
+- Pure positive value change
+
+Sortino measures the pure volume of losses, and will be divided by the total time duration of investments. That is, how much loss is the miner likely exposing per unit of time. A lower sortino value indicates a more effective risk mitigation strategy. This will result from:
+
+- Less leverage utilization
+- Pure positive value change
 
 The goal of the miner is to make a consistently competitive trading strategy. We track the returns for each miner over the past 30 days, and use this information to build a score for them. If you have a few great trades on the morning, you could be pushed to the top of the rankings that same day. We use a historical decay to discourage miners from sitting on a single good trade, that decay dampens prior positive returns but also dampens losses, giving miners a new chance to participate on bad returns. The historical decay function used can be found [here](https://github.com/taoshidev/proprietary-trading-network/blob/main/vali_objects/scoring/historical_scoring.py).
 
-We then rank the miners based on their augmented historical return, and distribute emissions based on an exponential decay function, giving significant priority to the top miners. Details of both scoring functions can be found [here](https://github.com/taoshidev/proprietary-trading-network/tree/main/vali_objects/scoring). The best way to get emissions is to have a consistently great trading strategy, which makes multiple transactions each week (the more the better).
+We then rank the miners based on historically augmented return checkpoints, and distribute emissions based on an exponential decay function, giving significant priority to the top miners. Details of both scoring functions can be found [here](https://github.com/taoshidev/proprietary-trading-network/tree/main/vali_objects/scoring). The best way to get emissions is to have a consistently great trading strategy, which makes multiple transactions each week (the more the better).
 
 On the mining side we've setup some helpful infrastructure for you to send in signals to the network. The script `mining/run_receive_signals_server.py` will launch a flask server to receive order signals.
 

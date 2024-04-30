@@ -1,5 +1,9 @@
 # developer: trdougherty
-# Copyright © 2024 Taoshi Inc
+import math
+import numpy as np
+import random
+import copy
+
 from tests.vali_tests.base_objects.test_base import TestBase
 from vali_objects.scoring.scoring import Scoring
 from vali_objects.position import Position
@@ -8,14 +12,12 @@ from vali_objects.utils.position_utils import PositionUtils
 from vali_objects.vali_dataclasses.order import Order
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.utils.subtensor_weight_setter import SubtensorWeightSetter
+from vali_objects.vali_dataclasses.perf_ledger import PerfCheckpoint
 
 from vali_config import TradePair
 from vali_config import ValiConfig
 
-import numpy as np
-import random
-
-from tests.shared_objects.test_utilities import get_time_in_range, order_generator, position_generator
+from tests.shared_objects.test_utilities import get_time_in_range, order_generator, position_generator, ledger_generator, checkpoint_generator
 
 class TestWeights(TestBase):
 
@@ -30,21 +32,186 @@ class TestWeights(TestBase):
         self.n_miners = n_miners
 
         miner_names = [ 'miner'+str(x) for x in range(n_miners) ]
-
         n_returns = np.random.randint(5, 100, n_miners)
-        miner_returns = []
-        for n_return in list(n_returns):
-            returns = np.random.uniform(
-                low=0.9,
-                high=1.5,
+        start_time = 0
+        end_time = ValiConfig.SET_WEIGHT_LOOKBACK_RANGE_MS
+
+        ## each of the miners should be hitting the filtering criteria except for the bad miner
+        ledger_dict = {}
+        for c,n_return in enumerate(list(n_returns)):
+            checkpoint_times = np.linspace(start_time, end_time, n_return, dtype=int).tolist()
+            position_time_accumulation = np.diff(checkpoint_times, prepend=0)
+            miner_checkpoints = []
+            gains = np.random.uniform(
+                low=0.0,
+                high=0.05,
                 size=n_return
             ).tolist()
-            miner_returns.append(returns)
+            losses = np.random.uniform(
+                low=-0.05,
+                high=0.0,
+                size=n_return
+            ).tolist()
 
-        returns = dict(zip(miner_names, miner_returns))
-        returns['miner0'] = [0.7,0.8,0.7,0.6,0.9] # this is going to be the outlier - the one which should get filtered if filtering happens
+            for i in range(n_return):
+                miner_checkpoints.append(
+                    PerfCheckpoint(
+                        last_update_ms=checkpoint_times[i],
+                        gain=gains[i],
+                        loss=losses[i],
+                        prev_portfolio_ret=1.0,
+                        open_ms=position_time_accumulation[i]
+                    )
+                )
 
-        self.returns: list[str, list[float]] = list(returns.items())
+            ledger_dict[miner_names[c]] = ledger_generator(checkpoints=miner_checkpoints)
+
+        ## Losing miner
+        bad_checkpoint_list = []
+        n_bad_checkpoints = 5
+        bad_checkpoint_times = np.linspace(start_time, end_time, n_bad_checkpoints, dtype=int).tolist()
+        bad_checkpoint_time_accumulation = np.diff(bad_checkpoint_times, prepend=0)
+        for i in range(n_bad_checkpoints):
+            bad_checkpoint_list.append(
+                PerfCheckpoint(
+                    last_update_ms=bad_checkpoint_times[i],
+                    gain=0.0,
+                    loss=-0.2,
+                    prev_portfolio_ret=1.0,
+                    open_ms=bad_checkpoint_time_accumulation[i]
+                )
+            )
+
+        ledger_dict['bad'] = ledger_generator(
+            checkpoints=bad_checkpoint_list
+        )
+
+        ## Winning miner
+        good_checkpoint_list = []
+        n_good_checkpoints = 5
+        good_checkpoint_times = np.linspace(start_time, end_time, n_good_checkpoints, dtype=int).tolist()
+        good_checkpoint_time_accumulation = np.diff(good_checkpoint_times, prepend=0)
+        for i in range(n_good_checkpoints):
+            good_checkpoint_list.append(
+                PerfCheckpoint(
+                    last_update_ms=good_checkpoint_times[i],
+                    gain=0.2,
+                    loss=-0.001,
+                    prev_portfolio_ret=1.0,
+                    open_ms=good_checkpoint_time_accumulation[i]
+                )
+            )
+        
+        ledger_dict['good'] = ledger_generator(
+            checkpoints=good_checkpoint_list
+        )
+
+
+        ## for both of the swings miner, we want the positive to be a proportion higher than the negative
+        value_augment = 1.1
+
+        ## High Swings Miner
+        high_swing_checkpoint_list = []
+
+        highswings_value = 0.3
+        n_high_swing_checkpoints = 15
+        high_swing_checkpoint_times = np.linspace(start_time, end_time, n_high_swing_checkpoints, dtype=int).tolist()
+        high_swing_checkpoint_time_accumulation = np.diff(high_swing_checkpoint_times, prepend=0)
+        for i in range(n_high_swing_checkpoints):
+            high_swing_checkpoint_list.append(
+                PerfCheckpoint(
+                    last_update_ms=high_swing_checkpoint_times[i],
+                    gain=highswings_value*value_augment,
+                    loss=-highswings_value,
+                    prev_portfolio_ret=1.0,
+                    open_ms=high_swing_checkpoint_time_accumulation[i]
+                )
+            )
+        
+        ledger_dict['highswings'] = ledger_generator(
+            checkpoints=high_swing_checkpoint_list
+        )
+
+        ## Low Swings Miner
+        low_swing_checkpoint_list = []
+        lowswings_value = 0.001
+        n_low_swing_checkpoints = 15
+        low_swing_checkpoint_times = np.linspace(start_time, end_time, n_low_swing_checkpoints, dtype=int).tolist()
+        low_swing_checkpoint_time_accumulation = np.diff(low_swing_checkpoint_times, prepend=0)
+        for i in range(n_low_swing_checkpoints):
+            low_swing_checkpoint_list.append(
+                PerfCheckpoint(
+                    last_update_ms=low_swing_checkpoint_times[i],
+                    gain=lowswings_value*value_augment,
+                    loss=-lowswings_value,
+                    prev_portfolio_ret=1.0,
+                    open_ms=low_swing_checkpoint_time_accumulation[i]
+                )
+            )
+
+        ledger_dict['lowswings'] = ledger_generator(
+            checkpoints=low_swing_checkpoint_list
+        )
+
+        ## also want to mock the scenario where two identical miners diverge on a position - the miner who makes the additional transaction should benefit
+
+        highswings_copy = copy.deepcopy(high_swing_checkpoint_list)
+        highswings_copy[-1].gain = highswings_copy[-1].gain * 1.1
+        highswings_copy[-1].loss = highswings_copy[-1].loss
+        ledger_dict['highswingsactive'] = ledger_generator(
+            checkpoints=highswings_copy
+        )
+
+        highswings_inactive_copy = copy.deepcopy(high_swing_checkpoint_list)
+        highswings_inactive_copy[-1].gain = 0.0
+        highswings_inactive_copy[-1].loss = 0.0
+        highswings_inactive_copy[-1].open_ms = 0
+        ledger_dict['highswingsinactive'] = ledger_generator(
+            checkpoints=highswings_inactive_copy
+        )
+
+        lowswings_copy = copy.deepcopy(low_swing_checkpoint_list)
+        lowswings_copy[-1].gain = lowswings_copy[-1].gain * 1.1
+        lowswings_copy[-1].loss = lowswings_copy[-1].loss
+        ledger_dict['lowswingsactive'] = ledger_generator(
+            checkpoints=lowswings_copy
+        )
+
+        lowswings_inactive_copy = copy.deepcopy(low_swing_checkpoint_list)
+        lowswings_inactive_copy[-1].gain = 0.0
+        lowswings_inactive_copy[-1].loss = 0.0
+        lowswings_inactive_copy[-1].open_ms = 0
+        ledger_dict['lowswingsinactive'] = ledger_generator(
+            checkpoints=lowswings_inactive_copy
+        )
+
+        ## not enough time to be considered, should be filtered
+        time_constrained_checkpoint_list = []
+        n_time_constrained = 5
+
+        time_constrained_end = max(ValiConfig.SET_WEIGHT_MINIMUM_TOTAL_CHECKPOINT_DURATION_MS - 100, 100)
+        time_constrained_times = np.linspace(start_time, time_constrained_end, n_time_constrained, dtype=int).tolist()
+        time_constrained_time_accumulation = np.diff(time_constrained_times, prepend=0)
+
+        for i in range(n_time_constrained):
+            time_constrained_checkpoint_list.append(
+                PerfCheckpoint(
+                    last_update_ms=time_constrained_times[i],
+                    gain=0.1,
+                    loss=-0.05,
+                    prev_portfolio_ret=1.0,
+                    open_ms=time_constrained_time_accumulation[i]
+                )
+            )
+
+        ledger_dict['timeconstrained'] = ledger_generator(
+            checkpoints=time_constrained_checkpoint_list
+        )
+
+        ## no positions miner
+        ledger_dict['nopositions'] = ledger_generator(checkpoints=[])
+
+        self.ledger_dict: list[str, list[float]] = ledger_dict
         self.subtensor_weight_setter = SubtensorWeightSetter(
             config=None,
             wallet=None,
@@ -56,29 +223,29 @@ class TestWeights(TestBase):
         """
         Test that the miner filtering works as expected when there are no miners
         """
-        returns = []
-        filtered_results = Scoring.transform_and_scale_results(returns)
+        ledger_dict = {}
+        filtered_results = Scoring.compute_results_checkpoint(ledger_dict)
         self.assertEqual(filtered_results, [])
 
     def test_miner_scoring_one_miner(self):
         """
         Test that the miner filtering works as expected when there is only one miner
         """
-        returns = [('miner0', 1.1)]
-        filtered_results = Scoring.transform_and_scale_results(returns)
+        ledger_dict = { 'miner0': ledger_generator(checkpoints=[checkpoint_generator(gain=0.1, loss=-0.05)]) }
+        filtered_results = Scoring.compute_results_checkpoint(ledger_dict)
         filtered_netuids = [ x[0] for x in filtered_results ]
         filtered_values = [ x[1] for x in filtered_results ]
 
-        original_netuids = [ x[0] for x in returns ]
-        original_values = [ x[1] for x in returns ]
+        original_netuids = ledger_dict.keys()
+        original_values = ledger_dict['miner0'].get_product_of_gains() + ledger_dict['miner0'].get_product_of_loss()
 
         self.assertEqual(sorted(filtered_netuids), sorted(original_netuids))
-        self.assertNotEqual(sorted(filtered_values), sorted(original_values))
+        self.assertNotEqual(filtered_values[0], original_values)
         self.assertEqual(filtered_results, [('miner0', 1.0)])
-
+ 
     def test_transform_and_scale_results_defaults(self):
         """Test that the transform and scale results works as expected"""
-        scaled_transformed_list: list[tuple[str, float]] = Scoring.transform_and_scale_results(self.returns)
+        scaled_transformed_list: list[tuple[str, float]] = Scoring.compute_results_checkpoint(self.ledger_dict)
 
         # Check that the result is a list of tuples with string and float elements
         self.assertIsInstance(scaled_transformed_list, list)
@@ -96,27 +263,88 @@ class TestWeights(TestBase):
 
     def test_positive_omega(self):
         """Test that the omega function works as expected for only positive returns"""
-        sample_returns = [1.4, 1.1, 1.2, 1.3, 1.4, 1.2]
-        risk_free_rate = ValiConfig.OMEGA_LOG_RATIO_THRESHOLD
+        sample_gains = [0.4, 0.1, 0.2, 0.3, 0.4, 0.2]
+        sample_losses = [0.0, 0.0, 0.0, -0.1, -0.3, 0.0] # contains losses
+        sample_n_updates = [ 1, 1, 1, 1, 1, 1 ]
+        sample_open_ms = [ 100, 200, 300, 400, 500, 600 ]
 
-        sample_returns = [ np.log(x) - risk_free_rate for x in sample_returns ]
-        omega_positive = Scoring.omega(sample_returns)
+        omega_positive = Scoring.omega_cps(
+            gains=sample_gains,
+            losses=sample_losses,
+            n_updates=sample_n_updates,
+            open_ms=sample_open_ms,
+        )
 
-        ## omega_minimum_denominator should kick in
-        omega_minimum_denominator = ValiConfig.OMEGA_MINIMUM_DENOMINATOR
-        no_loss_benefit = 1 / omega_minimum_denominator
-
-        self.assertGreaterEqual(omega_positive, no_loss_benefit)
+        self.assertGreaterEqual(omega_positive, 0.0) # should always be greater than 0
+        self.assertGreaterEqual(omega_positive, 1.0)
 
     def test_negative_omega(self):
         """Test that the omega function works as expected for all negative returns"""
-        sample_returns = [0.9, 0.8, 0.7, 0.6, 0.5, 0.4]
+        sample_gains = [0.0, 0.1, 0.0, 0.1, 0.0, 0.0]
+        sample_losses = [0.0, -0.05, -0.1, -0.1, -0.3, 0.0]
+        sample_n_updates = [ 1, 1, 1, 1, 1, 1 ]
+        sample_open_ms = [ 100, 200, 300, 400, 500, 600 ]
 
-        sample_returns = [ np.log(x) for x in sample_returns ]
-        omega_negative = Scoring.omega(sample_returns)
+        omega_negative = Scoring.omega_cps(
+            gains=sample_gains,
+            losses=sample_losses,
+            n_updates=sample_n_updates,
+            open_ms=sample_open_ms,
+        )
 
-        # sum above threshold should be 0
-        self.assertEqual(omega_negative, 0.0)
+        # Omega should be less than 1
+        self.assertLessEqual(omega_negative, 1.0)
+        self.assertGreaterEqual(omega_negative, 0.0)
+
+    def test_omega_cps_handcalculation(self):
+        """Test that the omega function works as expected"""
+        sample_gains = [0.0, 0.1, 0.0, 0.1, 0.0, 0.0]
+        sample_losses = [0.0, -0.05, -0.1, -0.1, -0.3, 0.0]
+        sample_n_updates = [ 1, 1, 1, 1, 1, 1 ]
+        sample_open_ms = [ 100, 200, 300, 400, 500, 600 ]
+
+        ## returns - ( 1 + threshold ) -> we're ignoring threshold for internal calculations
+        ## positive returns should be [ 1.1, 1.2, 1.3, 1.4, 1.2 ] -> [ 0.1, 0.2, 0.3, 0.4, 0.2 ]
+        ## negative returns should be [ 0.9, 0.7 ] -> [ -0.1, -0.3 ]
+        hand_computed_omega = sum(sample_gains) / abs(sum(sample_losses))
+
+        ## omega should be [ 1.1 + 1.2 + 1.3 + 1.4 + 1.2 ] / [ 0.9 + 0.7 ]
+        omega = Scoring.omega_cps(
+            gains=sample_gains,
+            losses=sample_losses,
+            n_updates=sample_n_updates,
+            open_ms=sample_open_ms,
+        )
+        self.assertEqual(omega, hand_computed_omega)
+
+    def test_omega_cps(self):
+        """Test inverted sortino function works as expected"""
+        omega_scores = {}
+        for miner, minerledger in self.ledger_dict.items():
+            gains = [ cp.gain for cp in minerledger.cps ]
+            losses = [ cp.loss for cp in minerledger.cps ]
+            n_updates = [ cp.n_updates for cp in minerledger.cps ]
+            open_ms = [ cp.open_ms for cp in minerledger.cps ]
+
+            score = Scoring.omega_cps(
+                gains=gains,
+                losses=losses,
+                n_updates=n_updates,
+                open_ms=open_ms
+            )
+
+            omega_scores[miner] = score
+
+        ## the good miner should have the highest score
+        self.assertGreater(omega_scores['good'], omega_scores['bad'])
+
+        ## Good miner should be better than the average miner
+        self.assertGreater(omega_scores['good'], omega_scores['miner0'])
+
+        ## High swings miner will likely be better than the lowswings miner for omega
+        self.assertGreater(omega_scores['highswings'], omega_scores['lowswings'])
+        self.assertGreater(omega_scores['highswingsactive'], omega_scores['highswingsinactive'])
+        self.assertGreater(omega_scores['lowswingsactive'], omega_scores['lowswingsinactive'])
 
     def test_omega(self):
         """Test that the omega function works as expected"""
@@ -136,10 +364,111 @@ class TestWeights(TestBase):
 
     def test_omega_zero_length_returns(self):
         """Test that the omega function works as expected with zero length returns"""
-        sample_returns = []
-        omega = Scoring.omega(sample_returns)
+        omega = Scoring.omega_cps(
+            gains=[],
+            losses=[],
+            n_updates=[],
+            open_ms=[]
+        )
 
         self.assertEqual(omega, 0.0)
+
+    def test_omega_zero_loss(self):
+        """Test that the omega function works as expected with zero loss"""
+        sample_gains = [0.1, 0.2, 0.3, 0.4, 0.2]
+        sample_losses = [0.0, 0.0, 0.0, 0.0, 0.0]
+        sample_n_updates = [ 1, 1, 1, 1, 1 ]
+        sample_open_ms = [ 100, 200, 300, 400, 500 ]
+
+        omega = Scoring.omega_cps(
+            gains=sample_gains,
+            losses=sample_losses,
+            n_updates=sample_n_updates,
+            open_ms=sample_open_ms
+        )
+
+        ## omega_minimum_denominator should kick in
+        omega_minimum_denominator = ValiConfig.OMEGA_MINIMUM_DENOMINATOR
+        no_loss_benefit = 1 / omega_minimum_denominator
+
+        self.assertGreaterEqual(omega, no_loss_benefit)
+        self.assertGreaterEqual(omega, 0.0) # should always be greater than 0
+        self.assertGreaterEqual(omega, 1.0)
+
+    def test_sortino_zero_length(self):
+        """Test that the sortino function works as expected with zero length returns"""        
+        sortino = Scoring.inverted_sortino_cps(
+            gains=[],
+            losses=[],
+            n_updates=[],
+            open_ms=[]
+        )
+
+        self.assertEqual(sortino, 0.0)
+
+    def test_sortino_zero_loss(self):
+        """Test that the sortino function works as expected with zero loss"""
+        sample_gains = [0.1, 0.2, 0.3, 0.4, 0.2]
+        sample_losses = [0.0, 0.0, 0.0, 0.0, 0.0]
+        sample_n_updates = [ 1, 1, 1, 1, 1 ]
+        sample_open_ms = [ 100, 200, 300, 400, 500 ]
+
+        inverted_sortino = Scoring.inverted_sortino_cps(
+            gains=sample_gains,
+            losses=sample_losses,
+            n_updates=sample_n_updates,
+            open_ms=sample_open_ms
+        )
+
+        self.assertEqual(inverted_sortino, 1 / ValiConfig.SORTINO_MIN_DENOMINATOR)
+
+    def test_inverted_sortino_cps(self):
+        """Test inverted sortino function works as expected"""
+        sortino_scores = {}
+        for miner, minerledger in self.ledger_dict.items():
+            gains = [ cp.gain for cp in minerledger.cps ]
+            losses = [ cp.loss for cp in minerledger.cps ]
+            n_updates = [ cp.n_updates for cp in minerledger.cps ]
+            open_ms = [ cp.open_ms for cp in minerledger.cps ]
+
+            score = Scoring.inverted_sortino_cps(
+                gains=gains,
+                losses=losses,
+                n_updates=n_updates,
+                open_ms=open_ms
+            )
+
+            sortino_scores[miner] = score
+
+        ## the good miner should have the highest score
+        self.assertGreater(sortino_scores['good'], sortino_scores['bad'])
+
+        ## Good miner should be better than the average miner
+        self.assertGreater(sortino_scores['good'], sortino_scores['miner0'])
+
+        ## High swings miner should be worse than the low swings miner for sortino
+        self.assertGreater(sortino_scores['lowswings'], sortino_scores['highswings'])
+
+        ## Check that the active highswings miner is better than the inactive highswings miner
+        self.assertAlmostEqual(
+            sortino_scores['highswingsactive'], 
+            sortino_scores['highswings']
+        )
+
+        self.assertAlmostEqual(
+            sortino_scores['lowswingsactive'],
+            sortino_scores['lowswings']
+        )
+
+        self.assertAlmostEqual(
+            sortino_scores['highswingsactive'],
+            sortino_scores['highswingsinactive']
+        )
+
+        self.assertAlmostEqual(
+            sortino_scores['lowswingsactive'],
+            sortino_scores['lowswingsinactive']
+        )
 
     def test_total_return(self):
         """Test that the total return function works as expected"""
@@ -191,86 +520,18 @@ class TestWeights(TestBase):
 
         self.assertEqual(total_return, 0.0)
 
-    def test_transform_and_scale_results_empty_returns_one(self):
-        """Test that the transform and scale results works as expected with empty returns"""
-        sample_returns = [
-            ('miner0', []),
-            ('miner1', [ np.log(x) for x in [1.0001, 0.9999, 1.002, 1.0002, 1.4, 0.999, 1.0001, 1.0001, 1.001, 0.999] ]), # yolo miner
-            ('miner2', [ np.log(x) for x in [1.01, 1.00, 1.02, 1.01, 0.99, 1.05, 1.04, 1.03, 1.06, 0.98] ]), # decent miner
-            ('miner3', [ np.log(x) for x in [1.03, 1.03, 1.01, 1.04, 1.01, 1.05, 1.08, 1.05, 1.03, 1.08] ]), # consistently great miner
-        ]
-
-        scaled_transformed_list = Scoring.transform_and_scale_results(sample_returns)
-        transformed_minernames = [ x[0] for x in scaled_transformed_list ]
-
-        self.assertEqual(
-            transformed_minernames, 
-            ['miner3','miner1', 'miner2'] 
-        )
-
-    def test_transform_and_scale_results(self):
-        sample_returns = [
-            ('miner0', [ np.log(x) for x in [1.15, 0.95, 1.20, 0.90, 1.10, 1.05, 0.85, 0.88, 0.92, 1.2] ]),
-            ('miner1', [ np.log(x) for x in [1.05, 1.02, 0.98, 1.03, 1.01, 0.99, 1.04, 1.00, 1.02, 0.97] ]),
-        ]
-
-        ## miner1 has a higher return, but lower omega
-        m0_return = Scoring.total_return(sample_returns[0][1])
-        m1_return = Scoring.total_return(sample_returns[1][1])
-        self.assertGreater(
-            m0_return, 
-            m1_return
-        )
-
-        m0_omega = Scoring.omega(sample_returns[0][1])
-        m1_omega = Scoring.omega(sample_returns[1][1])
-        self.assertGreater(
-            m1_omega, 
-            m0_omega
-        )
-
-        ## the transformation should be some kind of average of the two
-        scaled_transformed_list = Scoring.transform_and_scale_results(sample_returns)
-
-        ## if omega is being prioritized, then miner1 should have the higer result
-        transformed_minernames = [ x[0] for x in scaled_transformed_list ]
-
-        ## miner 1 should be listed first if omega is prioritized, otherwise miner 0 should be listed first
-        self.assertEqual(transformed_minernames, ['miner0', 'miner1'])
-
-        ## the score (miner 1) should be higher than the score (miner 0)
-        transformed_minervalues = [ x[1] for x in scaled_transformed_list ]
-        self.assertGreater(transformed_minervalues[0], transformed_minervalues[1])
-
-    def test_transform_and_scale_results_grace_period(self):
+    def test_filter_position_duration(self):
         """Test that the transform and scale results works as expected with a grace period"""
-        sample_returns = [
-            ('miner0', [ np.log(x) for x in [1.15, 0.95, 1.20, 0.90, 1.10, 1.05, 0.85] ]), # grace period miner, should return almost 0
-            ('miner1', [ np.log(x) for x in [1.05, 1.02, 0.98, 1.03, 1.01, 0.99, 1.04, 1.00, 1.02, 0.97, 1.04] ]),
-        ]
-
         ## the transformation should be some kind of average of the two
-        scaled_transformed_list = Scoring.transform_and_scale_results(sample_returns)
-        miner_scores_hotkeys = [ x[0] for x in scaled_transformed_list ]
+        nonpassing_miners = [ 'nopositions', 'timeconstrained' ]
+        flagged_miners = []
 
-        self.assertNotIn('miner0', miner_scores_hotkeys)
+        for miner, minerledger in self.ledger_dict.items():
+            checkpoint_meets_criteria = self.subtensor_weight_setter._filter_checkpoint_list(minerledger.cps)
+            if not checkpoint_meets_criteria:
+                flagged_miners.append(miner)
 
-    def test_transform_and_scale_results_grace_period_no_positions(self):
-        """Test that the transform and scale results works as expected with a grace period"""
-        sample_returns = [
-            ('miner0', []),
-            ('miner1', [ np.log(x) for x in [1.05, 1.02, 0.98, 1.03, 1.01, 0.99, 1.04, 1.00, 1.02, 0.97, 1.04] ]),
-            ('miner2', [ np.log(x) for x in [1.05, 1.02, 0.98, 1.03, 1.01, 0.99, 1.04, 1.00, 1.02, 0.97, 1.08] ]),
-        ]
-
-        ## the transformation should be some kind of average of the two
-        scaled_transformed_list = Scoring.transform_and_scale_results(sample_returns)        
-        miner_scores_dict = dict(scaled_transformed_list)
-
-        # should not exist in the returned dict
-        graceperiod_miner_score = miner_scores_dict.get('miner0', None)
-
-        self.assertEqual(graceperiod_miner_score, None)
+        self.assertEqual(sorted(flagged_miners), sorted(nonpassing_miners))
 
     def test_miner_filter_challengeperiod(self):
         """Test that the miner filter function works as expected"""

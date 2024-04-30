@@ -14,14 +14,13 @@ from vali_objects.utils.position_manager import PositionManager
 from vali_objects.utils.position_utils import PositionUtils
 from vali_objects.position import Position
 from vali_objects.scoring.scoring import Scoring
-
+from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager, PerfCheckpoint, PerfLedger
 
 class SubtensorWeightSetter(CacheController):
     def __init__(self, config, wallet, metagraph, running_unit_tests=False):
         super().__init__(config, metagraph, running_unit_tests=running_unit_tests)
-        self.position_manager = PositionManager(
-            metagraph=metagraph, running_unit_tests=running_unit_tests
-        )
+        self.position_manager = PositionManager(metagraph=metagraph, running_unit_tests=running_unit_tests)
+        self.perf_manager = PerfLedgerManager(metagraph=metagraph, running_unit_tests=running_unit_tests)
         self.wallet = wallet
         self.subnet_version = 200
 
@@ -40,31 +39,44 @@ class SubtensorWeightSetter(CacheController):
         )
 
         challengeperiod_miners = challengeperiod_resultdict["challengeperiod_miners"]
-        challengeperiod_miners_netuid = [ self.metagraph.hotkeys.index(x) for x in challengeperiod_miners ]
-
         challengeperiod_elimination_hotkeys = challengeperiod_resultdict["challengeperiod_eliminations"]
 
-        returns_per_netuid = self.calculate_return_per_netuid(
+        # augmented ledger should have the gain, loss, n_updates, and time_duration
+        augmented_ledger = self.augmented_ledger(
             omitted_miners = challengeperiod_miners + challengeperiod_elimination_hotkeys,
             eliminations = self.eliminations
         )
 
-        bt.logging.trace(f"return per uid [{returns_per_netuid}]")
-        bt.logging.info(f"number of returns for uid: {len(returns_per_netuid)}")
-        if len(returns_per_netuid) == 0:
+        bt.logging.trace(f"return per uid [{augmented_ledger}]")
+        bt.logging.info(f"number of returns for uid: {len(augmented_ledger)}")
+        if len(augmented_ledger) == 0:
             bt.logging.info("no returns to set weights with. Do nothing for now.")
         else:
             bt.logging.info("calculating new subtensor weights...")
-            filtered_results = [(k, v) for k, v in returns_per_netuid.items()]
-            scaled_transformed_list = Scoring.transform_and_scale_results(
-                filtered_results
-            )
-            bt.logging.info(
-                f"sorted results for weight setting: [{sorted(scaled_transformed_list, key=lambda x: x[1], reverse=True)}]"
-            )
+            checkpoint_results = Scoring.compute_results_checkpoint(augmented_ledger)
+            bt.logging.info(f"sorted results for weight setting: [{sorted(checkpoint_results, key=lambda x: x[1], reverse=True)}]")
 
-            challengeperiod_weights = [ (x, ValiConfig.SET_WEIGHT_MINER_GRACE_PERIOD_VALUE) for x in challengeperiod_miners_netuid ]
-            transformed_list = scaled_transformed_list + challengeperiod_weights
+            checkpoint_netuid_weights = []
+            for miner, score in checkpoint_results:
+                if miner in self.metagraph.hotkeys:
+                    checkpoint_netuid_weights.append((
+                        self.metagraph.hotkeys.index(miner),
+                        score
+                    ))
+                else:
+                    bt.logging.error(f"Miner {miner} not found in the metagraph.")
+
+            challengeperiod_weights = []
+            for miner in challengeperiod_miners:
+                if miner in self.metagraph.hotkeys:
+                    challengeperiod_weights.append((
+                        self.metagraph.hotkeys.index(miner),
+                        ValiConfig.SET_WEIGHT_MINER_CHALLENGE_PERIOD_WEIGHT
+                    ))
+                else:
+                    bt.logging.error(f"Challengeperiod miner {miner} not found in the metagraph.")
+
+            transformed_list = checkpoint_netuid_weights + challengeperiod_weights
             bt.logging.info(f"transformed list: {transformed_list}")
 
             self._set_subtensor_weights(transformed_list)
@@ -124,66 +136,50 @@ class SubtensorWeightSetter(CacheController):
             "challengeperiod_eliminations": challengeperiod_eliminations,
         }
 
-    def calculate_return_per_netuid(
+    def augmented_ledger(
         self,
         local: bool = False,
         hotkeys: List[str] = None,
         eliminations: List[str] = None,
         omitted_miners: List[str] = None,
-    ) -> dict[str, list[float]]:
+        evaluation_time_ms: int = None,
+    ) -> PerfLedger:
         """
         Calculate all returns for the .
         """
-        return_per_netuid = {}
-
         if hotkeys is None:
             hotkeys = self.metagraph.hotkeys
 
-        if eliminations is not None:
-            self.eliminations = eliminations
+        if eliminations is None:
+            eliminations = self.eliminations
+
+        if evaluation_time_ms is None:
+            evaluation_time_ms = TimeUtil.now_in_millis()
 
         # Note, eliminated miners will not appear in the dict below
-        hotkey_positions = self.position_manager.get_all_miner_positions_by_hotkey(
-            hotkeys,
-            sort_positions=True,
-            eliminations=self.eliminations,
-            acceptable_position_end_ms=TimeUtil.timestamp_to_millis(
-                TimeUtil.generate_start_timestamp(
-                    ValiConfig.SET_WEIGHT_LOOKBACK_RANGE_DAYS
-                )
-            ),
-        )
+        eliminated_hotkeys = set(x['hotkey'] for x in eliminations) if eliminations is not None else set()
+        ledger = self.perf_manager.load_perf_ledgers_from_disk()
 
-        # have to have a minimum number of positions during the period
-        # this removes anyone who got lucky on a couple trades
-        current_time = TimeUtil.now_in_millis()
-
-        for hotkey, positions in hotkey_positions.items():
+        augmented_ledger = {}
+        for hotkey, miner_ledger in ledger.items():
             if omitted_miners is not None and hotkey in omitted_miners:
                 continue
 
-            # check if the miner passed the initial screening for the challenge period
-            filtered_positions = self._filter_positions(positions)
-            filter_miner_logic = self._filter_miner(filtered_positions, current_time)
-            if filter_miner_logic:
+            if hotkey in eliminated_hotkeys:
                 continue
 
-            # compute the augmented returns for internal calculation
-            per_position_return = (
-                self.position_manager.get_return_per_closed_position_augmented(
-                    filtered_positions, evaluation_time_ms=current_time
-                )
+            checkpoint_meets_criteria = self._filter_checkpoint_list(miner_ledger.cps)
+            if not checkpoint_meets_criteria:
+                continue
+
+            augmented_ledger[hotkey] = miner_ledger
+            augmented_ledger[hotkey].cps = self.position_manager.augment_perf_checkpoint(
+                miner_ledger.cps,
+                evaluation_time_ms
             )
 
-            if local:
-                netuid = hotkeys.index(hotkey)
-            else:
-                # last_positional_return = per_position_return[-1]
-                netuid = self.metagraph.hotkeys.index(hotkey)
-            return_per_netuid[netuid] = per_position_return
-
-        return return_per_netuid
-    
+        return augmented_ledger
+        
     def _challengeperiod_returns_logic(
             self, 
             challengeperiod_subset_positions: list[Position],
@@ -276,6 +272,23 @@ class SubtensorWeightSetter(CacheController):
         
         # if they have not passed the challenge period, return False
         return False
+    
+    def _filter_checkpoint_list(self, checkpoints: list[PerfCheckpoint]):
+        """
+        Filter out miners based on a minimum total duration of interaction with the system.
+        """
+        if len(checkpoints) == 0:
+            return False
+        
+        total_checkpoint_duration = 0
+
+        for checkpoint in checkpoints:
+            total_checkpoint_duration += checkpoint.open_ms
+
+        if total_checkpoint_duration < ValiConfig.SET_WEIGHT_MINIMUM_TOTAL_CHECKPOINT_DURATION_MS:
+            return False
+
+        return True
 
     def _filter_miner(self, positions: list[Position], current_time: int):
         """

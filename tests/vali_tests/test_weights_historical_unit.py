@@ -6,6 +6,8 @@ from vali_objects.position import Position
 import pickle
 import uuid
 import hashlib
+import math
+import copy
 from vali_objects.vali_dataclasses.order import Order
 from vali_objects.enums.order_type_enum import OrderType
 from vali_config import ValiConfig, TradePair
@@ -15,66 +17,9 @@ from vali_objects.scoring.historical_scoring import HistoricalScoring
 import numpy as np
 import random
 
-def get_time_in_range(percent, start, end):
-    return int(start + ((end - start) * percent))
-
-def hash_object(obj):
-    serialized_obj = pickle.dumps(obj)
-    hash_obj = hashlib.sha256()
-    hash_obj.update(serialized_obj)
-    hashed_str = hash_obj.hexdigest()
-    return hashed_str[:10]
-
-def order_generator(
-    leverage = 1.0,
-    n_orders:int = 10
-) -> list[Order]:
-    order_list = []
-    for _ in range(n_orders):
-        leverage = np.random.rand() * 2 + 1
-        sample_order = Order(
-            order_type = OrderType.LONG,
-            leverage = leverage,
-            price = 3000,
-            trade_pair = TradePair.BTCUSD,
-            processed_ms = 1710521764446,
-            order_uuid = "1000"
-        )
-        
-        order_list.append(sample_order)
-
-    return order_list
-
-def position_generator(
-    open_time_ms, 
-    close_time_ms,
-    trade_pair,
-    net_leverage = 1.0,
-    return_at_close = 1.0
-):
-    n_orders = np.random.randint(1, 10)
-    generated_position = Position(
-        miner_hotkey='miner0',
-        position_uuid=hash_object((
-            open_time_ms,
-            close_time_ms,
-            return_at_close,
-            trade_pair
-        )),
-        orders=order_generator(n_orders=n_orders),
-        net_leverage=net_leverage,
-        open_ms=open_time_ms,
-        trade_pair=trade_pair,
-    )
-
-    generated_position.close_out_position(
-        close_ms = close_time_ms
-    )
-    generated_position.return_at_close = return_at_close
-    return generated_position
+from tests.shared_objects.test_utilities import get_time_in_range, hash_object, order_generator, position_generator, ledger_generator, checkpoint_generator
 
 class TestWeights(TestBase):
-
     def setUp(self):
         super().setUp()
 
@@ -93,21 +38,25 @@ class TestWeights(TestBase):
         self.start_times = sorted([ get_time_in_range(x, self.start_time, self.end_time) for x in np.random.rand(n_positions) ])
         self.end_times = sorted([ get_time_in_range(x, self.start_times[c], self.end_time) for c,x in enumerate(np.random.rand(n_positions)) ])
 
-        self.returns_at_close = [ 1 + (np.random.rand() - 0.5) * 0.1 for x in range(n_positions) ]
+        self.returns_at_close = [ 1 + (np.random.rand() - 0.5) * 0.1 for _ in range(n_positions) ]
+        self.log_returns_at_close = [ math.log(x) for x in self.returns_at_close ]
 
-        mock_positions = []
-        for position in range(n_positions):
-            mock_positions.append(
-                position_generator(
-                    open_time_ms=self.start_times[position],
-                    close_time_ms=self.end_times[position],
-                    trade_pair=TradePair.BTCUSD,
-                    return_at_close=self.returns_at_close[position],
-                )
-            )
+        self.gains = [ x if x > 0 else 0 for x in self.returns_at_close ]
+        self.losses = [ x if x < 0 else 0 for x in self.returns_at_close ]
+
+        ## Standard checkpoint list
+        self.standard_checkpoints = [
+            checkpoint_generator(
+                last_update_ms=self.start_times[c],
+                open_ms=self.end_times[c]-self.start_times[c],
+                n_updates=2,
+                gain=self.gains[c],
+                loss=self.losses[c],
+            ) for c in range(n_positions)
+        ]
 
         ## positions in the last 80% of the time range
-        imbalanced_position_close_times = sorted([
+        imbalanced_checkpoint_close_times = sorted([
             get_time_in_range(
                 x, 
                 self.start_time + ((self.end_time - self.start_time) * 0.8), 
@@ -116,39 +65,17 @@ class TestWeights(TestBase):
         ])
 
         ## this should score much lower
-        self.imbalanced_positions = [
-            position_generator(
-                open_time_ms=self.start_time,
-                close_time_ms=imbalanced_position_close_times[c],
-                trade_pair=TradePair.BTCUSD,
-                net_leverage = 1.0,
-                return_at_close=1.1,
+        self.imbalanced_checkpoints = [
+            checkpoint_generator(
+                last_update_ms=imbalanced_checkpoint_close_times[c],
+                open_ms=self.start_times[c] - imbalanced_checkpoint_close_times[c],
+                n_updates=2,
+                gain=self.gains[c],
+                loss=self.losses[c],
             ) for c in range(n_positions)
         ]
 
-        ## this should score well in balance
-        self.balanced_positions = [
-            position_generator(
-                open_time_ms=self.start_times[c],
-                close_time_ms=self.end_times[c],
-                trade_pair=TradePair.BTCUSD,
-                net_leverage = 1.0,
-                return_at_close=1.1,
-            ) for c in range(n_positions)
-        ]
-
-        ## this should score well in balance
-        self.balanced_positions_no_leverage = [
-            position_generator(
-                open_time_ms=self.start_times[c],
-                close_time_ms=self.end_times[c],
-                trade_pair=TradePair.BTCUSD,
-                net_leverage = 0.0,
-                return_at_close=1.1,
-            ) for c in range(n_positions)
-        ]
-
-        self.mock_positions = mock_positions
+        self.empty_checkpoints = []
 
     def test_compute_consistency_penalty(self):
         """
@@ -156,9 +83,8 @@ class TestWeights(TestBase):
         """
         evaluation_time = self.end_time
 
-
-        penalty = PositionUtils.compute_consistency_penalty(
-            self.mock_positions, 
+        penalty = PositionUtils.compute_consistency_penalty_cps(
+            self.standard_checkpoints, 
             evaluation_time
         )
         self.assertGreaterEqual(penalty, 0)
@@ -168,9 +94,11 @@ class TestWeights(TestBase):
         """
         Test that the consistency penalty works as expected when the close times are empty
         """
-        close_times = []
         evaluation_time = self.end_time
-        penalty = PositionUtils.compute_consistency_penalty(close_times, evaluation_time)
+        penalty = PositionUtils.compute_consistency_penalty_cps(
+            self.empty_checkpoints, 
+            evaluation_time
+        )
         self.assertEqual(penalty, 0) # if no score then we multiply everything by zero
 
     def test_compute_consistency_penalty_single(self):
@@ -178,31 +106,13 @@ class TestWeights(TestBase):
         Test that the consistency penalty works as expected when there is only one position
         """
         evaluation_time = self.end_time
-        penalty = PositionUtils.compute_consistency_penalty(
-            [self.mock_positions[0]], 
+        penalty = PositionUtils.compute_consistency_penalty_cps(
+            [self.standard_checkpoints[0]], 
             evaluation_time
         )
 
         self.assertGreater(penalty, 0)
         self.assertLessEqual(penalty, 0.8)
-
-    def test_compute_consistency_penalty_single_no_leverage(self):
-        """
-        Test that the consistency penalty works as expected when there is only one position
-        """
-        evaluation_time = self.end_time
-        penalty = PositionUtils.compute_consistency_penalty(
-            self.balanced_positions, 
-            evaluation_time
-        )
-
-        no_leverage_penalty = PositionUtils.compute_consistency_penalty(
-            self.balanced_positions_no_leverage, 
-            evaluation_time
-        )
-
-        self.assertGreater(penalty, 0)
-        self.assertLessEqual(no_leverage_penalty, penalty)
 
     def test_compute_consistency_penalty_known(self):
         """
@@ -210,13 +120,13 @@ class TestWeights(TestBase):
         """
         evaluation_time = self.end_time
 
-        imbalanced_penalty = PositionUtils.compute_consistency_penalty(
-            self.imbalanced_positions, 
+        imbalanced_penalty = PositionUtils.compute_consistency_penalty_cps(
+            self.imbalanced_checkpoints, 
             evaluation_time
         )
 
-        balanced_penalty = PositionUtils.compute_consistency_penalty(
-            self.balanced_positions, 
+        balanced_penalty = PositionUtils.compute_consistency_penalty_cps(
+            self.standard_checkpoints, 
             evaluation_time
         )
 
@@ -227,77 +137,62 @@ class TestWeights(TestBase):
         """
         Test that the consistency penalty works as expected when there is only one position
         """
+        n_positions = 100
+        balanced_checkpoint_measured = np.ones(n_positions, dtype=bool)
 
-        percentage_windowed = [ 0.1, 0.3, 0.5, 0.7, 0.9 ] # balanced
-        imbalanced_percentage_windowed = [ 0.02, 0.1, 0.3, 0.35, 0.38, 0.42 ] # imbalanced
+        imbalanced_checkpoint_measured = copy.deepcopy(balanced_checkpoint_measured)
+        imbalanced_checkpoint_measured[0:70] = False # Miner did not record duration for the first 70% of checkpoints
+
+        balanced_gains = np.ones(n_positions) * 0.05
+        balanced_losses = np.ones(n_positions) * -0.04
+        balanced_times = np.ones(n_positions, dtype=int) * 1000
+
+        imbalanced_gains = balanced_gains * imbalanced_checkpoint_measured
+        imbalanced_losses = balanced_losses * imbalanced_checkpoint_measured
+        imbalanced_times = balanced_times * imbalanced_checkpoint_measured
+
+        update_times = np.linspace(self.start_time, self.end_time, n_positions, dtype=int)
         evaluation_time = self.end_time
 
-        close_times = [ int(self.start_time + (self.end_time - self.start_time) * x) for x in percentage_windowed ]
-        imbalanced_close_times = [ int(self.start_time + (self.end_time - self.start_time) * x) for x in imbalanced_percentage_windowed ]
-
-        balanced_positions = [
-            Position(
-                miner_hotkey='miner0',
-                position_uuid='balanced',
-                open_ms=self.start_time,
-                close_ms=x,
-                orders = order_generator(n_orders=10),
-                trade_pair=TradePair.BTCUSD,
-                net_leverage = 1.0,
-                is_closed_position=True
-            ) for x in close_times
+        balanced_checkpoints = [
+            checkpoint_generator(
+                last_update_ms=update_times[c],
+                open_ms=balanced_times[c],
+                n_updates=2,
+                gain=balanced_gains[c],
+                loss=balanced_losses[c],
+            ) for c in range(n_positions)
         ]
 
-        imbalanced_positions = [
-            Position(
-                miner_hotkey='miner0',
-                position_uuid='imbalanced',
-                open_ms=self.start_time,
-                close_ms=x,
-                net_leverage = 1.0,
-                orders = order_generator(n_orders=10),
-                trade_pair=TradePair.BTCUSD,
-                is_closed_position=True
-            ) for x in imbalanced_close_times
+        imbalanced_checkpoints = [
+            checkpoint_generator(
+                last_update_ms=update_times[c],
+                open_ms=imbalanced_times[c],
+                n_updates=2,
+                gain=imbalanced_gains[c],
+                loss=imbalanced_losses[c],
+            ) for c in range(n_positions)
         ]
 
-        penalty = PositionUtils.compute_consistency_penalty(
-            balanced_positions, 
+        standard_penalty = PositionUtils.compute_consistency_penalty_cps(
+            balanced_checkpoints, 
             evaluation_time
         )
 
-        imbalanced_penalty = PositionUtils.compute_consistency_penalty(
-            imbalanced_positions, 
+        imbalanced_penalty = PositionUtils.compute_consistency_penalty_cps(
+            imbalanced_checkpoints, 
             evaluation_time
         )
 
-        self.assertLess(imbalanced_penalty, penalty)
-
-
-    def test_log_transform(self):
-        """
-        Test that the log transform works as expected
-        """
-        for position in self.mock_positions:
-            return_value = position.return_at_close
-            log_return = PositionUtils.log_transform(return_value)
-            self.assertAlmostEqual(np.exp(log_return), return_value, places=5)
-
-    def test_exp_transform(self):
-        """
-        Test that the exp transform works as expected
-        """
-        for position in self.mock_positions:
-            return_value = position.return_at_close
-            exp_return = PositionUtils.exp_transform(return_value)
-            self.assertAlmostEqual(np.log(exp_return), return_value, places=5)
+        # want to make sure that the imbalanced penalty will multiply returns with a lower value
+        self.assertLess(imbalanced_penalty, standard_penalty)
 
     def test_compute_lookback_fraction(self):
         """
         Test that the compute lookback fraction works as expected
         """
         # check the first position manually
-        position = self.mock_positions[0]
+        checkpoint = self.standard_checkpoints[0]
 
         evaluation_time = 1710523564446
         time_delta = ValiConfig.SET_WEIGHT_LOOKBACK_RANGE_MS
@@ -308,9 +203,9 @@ class TestWeights(TestBase):
         lookback_fraction = PositionUtils.compute_lookback_fraction(open_time, close_time, evaluation_time)
         self.assertAlmostEqual(lookback_fraction, 0.7, places=5)
 
-        for position in self.mock_positions[1:]:
-            open_time = position.open_ms
-            close_time = position.close_ms
+        for checkpoint in self.standard_checkpoints[1:]:
+            open_time = 0
+            close_time = checkpoint.last_update_ms
             evaluation_time = self.end_time
             lookback_fraction = PositionUtils.compute_lookback_fraction(open_time, close_time, evaluation_time)
             self.assertGreaterEqual(lookback_fraction, 0)
@@ -376,12 +271,11 @@ class TestWeights(TestBase):
         Test that the dampen return works as expected
         """
         ## want to hand check the first position
-        logged_returns = [ PositionUtils.log_transform(x) for x in self.returns_at_close ]
-        for c,position in enumerate(self.mock_positions):
-            open_time = position.open_ms
-            close_time = position.close_ms
+        for c,checkpoint in enumerate(self.standard_checkpoints):
+            open_time = 0
+            close_time = checkpoint.last_update_ms
             evaluation_time = self.end_time
-            return_value = logged_returns[c]
+            return_value = self.log_returns_at_close[c]
             dampened_return = PositionUtils.dampen_return(
                 return_value, 
                 open_time, 
