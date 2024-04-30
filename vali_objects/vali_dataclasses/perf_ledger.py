@@ -226,7 +226,7 @@ class PerfLedgerManager(CacheController):
         time_sorted_orders.sort(key=lambda x: x[0].processed_ms)
         return time_sorted_orders
 
-    def _can_shortcut(self, tp_to_historical_positions: dict[str: Position], start_time_ms, end_time_ms):
+    def _can_shortcut(self, tp_to_historical_positions: dict[str: Position]):
         n_positions = 0
         n_closed_positions = 0
         n_positions_newly_opened = 0
@@ -240,7 +240,12 @@ class PerfLedgerManager(CacheController):
                 elif len(historical_position.orders) == 0:
                     n_positions_newly_opened += 1
 
-        ans = (n_positions == n_closed_positions + n_positions_newly_opened) and (n_positions_newly_opened == 1)
+        # When building from orders, we will always have at least one open position. When opening a position after a
+        # period of all closed positions, we can shortcut by identifying that the new position is the only open position
+        # and all other positions are closed. The time before this period, we have only closed positions.
+        # Alternatively, we can be attempting to build the ledger after all orders have been accounted for. In this
+        # case, we simply need to check if all positions are closed.
+        ans = (n_positions == n_closed_positions + n_positions_newly_opened) and (n_positions_newly_opened <= 1)
         #if ans:
         #    window_s = (end_time_ms - start_time_ms) // 1000
         #    #print(f"Shortcutting. n_positions: {n_positions}, n_closed_positions: {n_closed_positions}, n_positions_newly_opened: {n_positions_newly_opened}, window_s: {window_s}")
@@ -315,8 +320,8 @@ class PerfLedgerManager(CacheController):
             return
         if start_time_ms == end_time_ms:  # No new orders since last update. Shouldn't happen
             return
-        # "Shortcut" All positions closed and one newly open position.
-        can_shortcut, portfolio_return = self._can_shortcut(tp_to_historical_positions, start_time_ms, end_time_ms)
+        # "Shortcut" All positions closed and one newly open position OR all closed positions (all orders accounted for).
+        can_shortcut, portfolio_return = self._can_shortcut(tp_to_historical_positions)
         if can_shortcut:
             perf_ledger.update(portfolio_return, end_time_ms, miner_hotkey, False)
             return
@@ -394,8 +399,11 @@ class PerfLedgerManager(CacheController):
 
             PerfLedgerManager.save_perf_ledgers_to_disk(existing_perf_ledgers)
             lag = (TimeUtil.now_in_millis() - perf_ledger.last_update_ms) // 1000
+            total_product = perf_ledger.get_total_product()
+            last_portfolio_value = perf_ledger.prev_portfolio_ret
             bt.logging.info(
-                f"Done updating perf ledger for {hotkey} {hotkey_i}/ {len(hotkey_to_positions)} in {time.time() - t0} (s). Lag: {lag} (s)")
+                f"Done updating perf ledger for {hotkey} {hotkey_i}/{len(hotkey_to_positions)} in {time.time() - t0} "
+                f"(s). Lag: {lag} (s). Total product: {total_product}. Last portfolio value: {last_portfolio_value}")
 
         bt.logging.info(f"Done updating perf ledger for all hotkeys in {time.time() - t_init} s")
 
