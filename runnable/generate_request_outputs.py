@@ -2,6 +2,7 @@ import json
 import traceback
 import uuid
 import time
+import copy
 from json import JSONDecodeError
 from time_util.time_util import TimeUtil
 from vali_config import ValiConfig
@@ -67,6 +68,65 @@ def generate_request_outputs(write_legacy:bool, write_validator_checkpoint:bool)
         if challenge_check_logic is None:
             challengeperiod_miners.append(original_hotkey)
 
+    omitted_miners = challengeperiod_miners + challengeperiod_eliminations
+
+    # Perf Ledger Calculations
+    perf_ledgers = PerfLedgerManager.load_perf_ledgers_from_disk() if write_validator_checkpoint else {}
+    ledger = copy.deepcopy(perf_ledgers)
+
+    omega_cps = {}
+    inverted_sortino_cps = {}
+    consistency_penalties = {}
+    augmented_ledger = {}
+    for hotkey, miner_ledger in ledger.items():
+        if omitted_miners is not None and hotkey in omitted_miners:
+            continue
+
+        if hotkey in eliminated_hotkeys:
+            continue
+
+        checkpoint_meets_criteria = subtensor_weight_setter._filter_checkpoint_list(miner_ledger.cps)
+        if not checkpoint_meets_criteria:
+            continue
+
+        augmented_ledger[hotkey] = miner_ledger
+        augmented_ledger[hotkey].cps = position_manager.augment_perf_checkpoint(
+            miner_ledger.cps,
+            time_now
+        )
+
+        # Consistency penalty
+        consistency_penalty = PositionUtils.compute_consistency_penalty_cps(
+            miner_ledger.cps,
+            time_now
+        )
+        consistency_penalties[hotkey] = consistency_penalty
+
+        gains = [cp.gain for cp in augmented_ledger[hotkey].cps]
+        losses = [cp.loss for cp in augmented_ledger[hotkey].cps]
+        n_updates = [cp.n_updates for cp in augmented_ledger[hotkey].cps]
+        open_durations = [cp.open_ms for cp in augmented_ledger[hotkey].cps]
+
+        # Omega
+        omega_cps[hotkey] = Scoring.omega_cps(
+            gains,
+            losses,
+            n_updates,
+            open_durations
+        )
+
+        # Inverted Sortino
+        inverted_sortino_cps[hotkey] = Scoring.inverted_sortino_cps(
+            gains,
+            losses,
+            n_updates,
+            open_durations
+        )
+
+    checkpoint_results = Scoring.compute_results_checkpoint(augmented_ledger)
+    challengeperiod_scores = [ (x, ValiConfig.SET_WEIGHT_MINER_CHALLENGE_PERIOD_WEIGHT) for x in challengeperiod_miners ]
+    scoring_results = checkpoint_results + challengeperiod_scores
+
     # we won't be able to query for eliminated hotkeys from challenge period
     hotkey_positions = position_manager.get_all_miner_positions_by_hotkey(
         all_miner_hotkeys,
@@ -80,7 +140,6 @@ def generate_request_outputs(write_legacy:bool, write_validator_checkpoint:bool)
 
     time_now = TimeUtil.now_in_millis()
     dict_hotkey_position_map = {}
-    consistency_penalties = {}
 
     youngest_order_processed_ms = float("inf")
     oldest_order_processed_ms = 0
@@ -116,12 +175,6 @@ def generate_request_outputs(write_legacy:bool, write_validator_checkpoint:bool)
                     dict_hotkey_position_map[k][
                         "thirty_day_returns_augmented"
                     ] = curr_return_augmented
-
-                if len(return_per_position_augmented) > 0:
-                    consistency_penalty = PositionUtils.compute_consistency_penalty(
-                        ps_30_days, time_now
-                    )
-                    consistency_penalties[k] = consistency_penalty
 
         for p in original_positions:
             youngest_order_processed_ms = min(youngest_order_processed_ms,
@@ -159,13 +212,6 @@ def generate_request_outputs(write_legacy:bool, write_validator_checkpoint:bool)
         sharpe_ratio_list[miner_id] = Scoring.sharpe_ratio(returns)
         probabilistic_sharpe_ratio_list[miner_id] = Scoring.probabilistic_sharpe_ratio(returns)
 
-    scaled_transformed_list = Scoring.transform_and_scale_results(filtered_results)
-    challengeperiod_weights = [ (x, ValiConfig.SET_WEIGHT_MINER_GRACE_PERIOD_VALUE) for x in challengeperiod_miners ]
-
-    # going to just overwrite the computed weights with the challengeperiod weights
-    transformed_list =  scaled_transformed_list + challengeperiod_weights
-    transformed_dict = dict(transformed_list)
-
     ord_dict_hotkey_position_map = dict(
         sorted(
             dict_hotkey_position_map.items(),
@@ -184,19 +230,20 @@ def generate_request_outputs(write_legacy:bool, write_validator_checkpoint:bool)
         n_positions_new += sum([len(p['orders']) for p in positions])
 
     assert n_orders_original == n_positions_new, f"n_orders_original: {n_orders_original}, n_positions_new: {n_positions_new}"
-    perf_ledgers = PerfLedgerManager.load_perf_ledgers_from_disk() if write_validator_checkpoint else {}
     now_ms = time_now
     final_dict = {
         'version': ValiConfig.VERSION,
         'created_timestamp_ms': now_ms,
         'created_date': TimeUtil.millis_to_formatted_date_str(now_ms),
-        'weights': transformed_dict,
+        'weights': dict(scoring_results),
         'consistency_penalties': consistency_penalties,
         "metrics": {
             "omega": omega_list,
             "augmented_return": augmented_return_list,
             "sharpe_ratio": sharpe_ratio_list,
             "probabilistic_sharpe_ratio": probabilistic_sharpe_ratio_list,
+            "omega_cps": omega_cps,
+            "inverted_sortino_cps": inverted_sortino_cps,
         },
         "constants":{
             "set_weight_lookback_range_days": ValiConfig.SET_WEIGHT_LOOKBACK_RANGE_DAYS,
