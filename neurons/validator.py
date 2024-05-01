@@ -322,7 +322,7 @@ class Validator:
 
         bt.logging.info("Attempting to get live price for trade pair: " + trade_pair.trade_pair_id)
         live_closing_price, price_sources = self.live_price_fetcher.get_latest_price(trade_pair=trade_pair,
-                                                                                     now_ms=now_ms)
+                                                                                     time_ms=now_ms)
 
         order = Order(
             trade_pair=trade_pair,
