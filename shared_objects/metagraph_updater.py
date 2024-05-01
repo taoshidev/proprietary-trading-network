@@ -10,7 +10,7 @@ import bittensor as bt
 
 
 class MetagraphUpdater(CacheController):
-    def __init__(self, config, metagraph, hotkey, is_miner, position_inspector=None, position_manager=None):
+    def __init__(self, config, metagraph, hotkey, is_miner, position_inspector=None, position_manager=None, shutdown_dict=None):
         super().__init__(config, metagraph)
         # Initialize likely validators and miners with empty dictionaries. This maps hotkey to timestamp.
         self.likely_validators = {}
@@ -23,7 +23,7 @@ class MetagraphUpdater(CacheController):
         self.is_miner = is_miner
         self.position_inspector = position_inspector
         self.position_manager = position_manager
-        self.stop_requested = False  # Flag to control the loop
+        self.shutdown_dict = shutdown_dict  # Flag to control the loop
 
     def _current_timestamp(self):
         return time.time()
@@ -41,16 +41,13 @@ class MetagraphUpdater(CacheController):
         return len(hotkeys_with_v_trust.union(set(self.likely_validators.keys())))
 
     def run_update_loop(self):
-        while not self.stop_requested:
+        while not self.shutdown_dict:
             try:
                 self.update_metagraph()
             except Exception as e:
                 # Handle exceptions or log errors
                 bt.logging.error(f"Error during metagraph update: {e}. Please alert a team member ASAP!")
-            time.sleep(1) # Don't busy loop
-
-    def stop_update_loop(self):
-        self.stop_requested = True
+            time.sleep(1)  # Don't busy loop
 
     def estimate_number_of_miners(self):
         # Filter out expired miners

@@ -174,9 +174,9 @@ class PerfLedger(BaseModel):
 
 
 class PerfLedgerManager(CacheController):
-    def __init__(self, metagraph, live_price_fetcher=None, running_unit_tests=False):
+    def __init__(self, metagraph, live_price_fetcher=None, running_unit_tests=False, shutdown_dict=None):
         super().__init__(metagraph=metagraph, running_unit_tests=running_unit_tests)
-        self.stop_requested = False
+        self.shutdown_dict = shutdown_dict
         if live_price_fetcher is None:
             secrets = ValiUtils.get_secrets()
             live_price_fetcher = LivePriceFetcher(secrets, disable_ws=True)
@@ -185,7 +185,7 @@ class PerfLedgerManager(CacheController):
             self.pds = live_price_fetcher.polygon_data_service
 
     def run_update_loop(self):
-        while not self.stop_requested:
+        while not self.shutdown_dict:
             try:
                 if self.refresh_allowed(ValiConfig.PERF_LEDGER_REFRESH_TIME_MS):
                     self.update()
@@ -196,9 +196,6 @@ class PerfLedgerManager(CacheController):
                 bt.logging.error(f"Error during perf ledger update: {e}. Please alert a team member ASAP!")
                 bt.logging.error(traceback.format_exc())
             time.sleep(1)
-
-    def stop_update_loop(self):
-        self.stop_requested = True
 
     def get_historical_position(self, position:Position, timestamp_ms:int):
         new_orders = []
@@ -329,6 +326,8 @@ class PerfLedgerManager(CacheController):
         trade_pair_to_price_info = {}
         any_update = any_open = False
         for t_ms in range(start_time_ms, end_time_ms, 1000):
+            if self.shutdown_dict:
+                return
             assert t_ms >= perf_ledger.last_update_ms, f"t_ms: {t_ms}, last_update_ms: {perf_ledger.last_update_ms}, delta_s: {(t_ms - perf_ledger.last_update_ms) // 1000} s. perf ledger {perf_ledger}"
             portfolio_return, any_open = self.positions_to_portfolio_return(tp_to_historical_positions, t_ms, trade_pair_to_price_info, miner_hotkey, end_time_ms)
             assert portfolio_return > 0, f"Portfolio value is {portfolio_return} for miner {miner_hotkey} at {t_ms // 1000}. perf ledger {perf_ledger}"
@@ -342,6 +341,8 @@ class PerfLedgerManager(CacheController):
     def update_all_perf_ledgers(self, hotkey_to_positions: dict[str, List[Position]], existing_perf_ledgers: dict[str, PerfLedger], now_ms: int):
         t_init = time.time()
         for hotkey_i, (hotkey, positions) in enumerate(hotkey_to_positions.items()):
+            if self.shutdown_dict:
+                break
             t0 = time.time()
             perf_ledger = existing_perf_ledgers.get(hotkey, PerfLedger())
             existing_perf_ledgers[hotkey] = perf_ledger
@@ -397,6 +398,8 @@ class PerfLedgerManager(CacheController):
             if now_ms > perf_ledger.last_update_ms:
                 self.build_perf_ledger(perf_ledger, tp_to_historical_positions, perf_ledger.last_update_ms, now_ms, hotkey)
 
+            if self.shutdown_dict:
+                break
             PerfLedgerManager.save_perf_ledgers_to_disk(existing_perf_ledgers)
             lag = (TimeUtil.now_in_millis() - perf_ledger.last_update_ms) // 1000
             total_product = perf_ledger.get_total_product()
@@ -457,8 +460,8 @@ class PerfLedgerManager(CacheController):
         perf_ledgers = PerfLedgerManager.load_perf_ledgers_from_disk()
         self._refresh_eliminations_in_memory()
         t_ms = TimeUtil.now_in_millis() - 600000  # 10 minutes ago
-        if t_ms < 1714546760000 + 1000 * 60 * 60 * 1:  # Rebuild after bug fix
-            perf_ledgers = {}
+        #if t_ms < 1714546760000 + 1000 * 60 * 60 * 1:  # Rebuild after bug fix
+        #    perf_ledgers = {}
         hotkey_to_positions = self.get_positions_with_retry(testing_one_hotkey=testing_one_hotkey)
 
         # Remove keys from perf ledgers if they aren't in the metagraph anymore
