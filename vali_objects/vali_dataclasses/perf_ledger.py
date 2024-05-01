@@ -457,8 +457,8 @@ class PerfLedgerManager(CacheController):
         perf_ledgers = PerfLedgerManager.load_perf_ledgers_from_disk()
         self._refresh_eliminations_in_memory()
         t_ms = TimeUtil.now_in_millis() - 600000  # 10 minutes ago
-        #if t_ms < 1714438182000 + 1000 * 60 * 60 * 1:  # Rebuild after bug fix
-        #    perf_ledgers = {}
+        if t_ms < 1714546760000 + 1000 * 60 * 60 * 1:  # Rebuild after bug fix
+            perf_ledgers = {}
         hotkey_to_positions = self.get_positions_with_retry(testing_one_hotkey=testing_one_hotkey)
 
         # Remove keys from perf ledgers if they aren't in the metagraph anymore

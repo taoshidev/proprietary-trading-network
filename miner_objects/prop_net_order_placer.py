@@ -187,7 +187,7 @@ class PropNetOrderPlacer:
 
     def write_signal_to_processed_directory(self, signal_data, signal_file_path: str):
         """Moves a processed signal file to the processed directory."""
-        self.write_signal_to_directory(MinerConfig.get_miner_processed_signals_dir(), signal_file_path, signal_data)
+        self.write_signal_to_directory(MinerConfig.get_miner_processed_signals_dir(), signal_file_path, signal_data, True)
 
     def write_signal_to_failure_directory(self, signal_data, signal_file_path: str, validators_needing_retry: list):
         # Append the failure information to the signal data.
@@ -198,16 +198,21 @@ class PropNetOrderPlacer:
                     'validators_needing_retry': json_validator_data}
 
         # Move signal file to the failed directory
-        self.write_signal_to_directory(MinerConfig.get_miner_failed_signals_dir(), signal_file_path, signal_data)
+        self.write_signal_to_directory(MinerConfig.get_miner_failed_signals_dir(), signal_file_path, signal_data, False)
 
         # Overwrite the file we just moved with the new data
         new_file_path = os.path.join(MinerConfig.get_miner_failed_signals_dir(), os.path.basename(signal_file_path))
         ValiBkpUtils.write_file(new_file_path, json.dumps(new_data))
         bt.logging.info(f"Signal file modified to include failure information: {new_file_path}")
 
-    def write_signal_to_directory(self, directory: str, signal_file_path, signal_data):
+    def write_signal_to_directory(self, directory: str, signal_file_path, signal_data, success):
         ValiBkpUtils.make_dir(directory)
         new_path = os.path.join(directory, os.path.basename(signal_file_path))
         with open(new_path, 'w') as f:
             f.write(json.dumps(signal_data))
-        bt.logging.info(f"Signal file {signal_file_path} has been written to {directory} ")
+        msg = f"Signal file {signal_file_path} has been written to {directory} "
+        if success:
+            bt.logging.success(msg)
+        else:
+            bt.logging.error(msg)
+
