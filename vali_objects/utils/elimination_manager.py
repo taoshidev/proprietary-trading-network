@@ -19,10 +19,11 @@ class EliminationManager(CacheController):
     would already be cleared and their weight would be calculated as normal.
     """
 
-    def __init__(self, metagraph, position_manager, eliminations_lock, running_unit_tests=False):
+    def __init__(self, metagraph, position_manager, eliminations_lock, running_unit_tests=False, shutdown_dict=None):
         super().__init__(metagraph=metagraph)
         self.position_manager = position_manager
         self.eliminations_lock = eliminations_lock
+        self.shutdown_dict = shutdown_dict
         assert running_unit_tests == self.position_manager.running_unit_tests
 
     def process_eliminations(self):
@@ -37,9 +38,13 @@ class EliminationManager(CacheController):
 
     def _handle_plagiarism_eliminations(self):
         bt.logging.debug("checking plagiarism.")
+        if self.shutdown_dict:
+            return
         self._refresh_plagiarism_scores_in_memory_and_disk()
         # miner_copying_json[miner_hotkey] = current_hotkey_mc
         for miner_hotkey, current_plagiarism_score in self.miner_plagiarism_scores.items():
+            if self.shutdown_dict:
+                return
             if self._hotkey_in_eliminations(miner_hotkey):
                 continue
             if current_plagiarism_score > ValiConfig.MAX_MINER_PLAGIARISM_SCORE:
@@ -54,6 +59,8 @@ class EliminationManager(CacheController):
         eliminated_hotkeys = set()
         # self.eliminations were just refreshed in process_eliminations
         for x in self.eliminations:
+            if self.shutdown_dict:
+                return
             hotkey = x['hotkey']
             elimination_initiated_time_ms = x['elimination_initiated_time_ms']
             # Don't delete this miner until it hits the minimum elimination time.
@@ -82,6 +89,8 @@ class EliminationManager(CacheController):
 
         all_miners_dir = ValiBkpUtils.get_miner_dir(running_unit_tests=self.running_unit_tests)
         for hotkey in self.get_directory_names(all_miners_dir):
+            if self.shutdown_dict:
+                return
             miner_dir = all_miners_dir + hotkey
             if self.is_zombie_hotkey(hotkey):
                 try:
