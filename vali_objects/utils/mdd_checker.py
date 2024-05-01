@@ -213,6 +213,8 @@ class MDDChecker(CacheController):
         open_positions = []
         closed_positions = []
         for position in sorted_positions:
+            if self.shutdown_dict:
+                return False
             # Perform needed updates
             if position.is_open_position or position.newest_order_age_ms <= RecentEventTracker.OLDEST_ALLOWED_RECORD_MS:
                 position = self._update_position_returns_and_persist_to_disk(hotkey, position, candle_data)

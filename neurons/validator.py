@@ -469,11 +469,7 @@ class Validator:
         if time_since_last_order_ms >= ValiConfig.ORDER_COOLDOWN_MS:
             return
 
-        lag_time_ms = self.live_price_fetcher.time_since_last_ws_ping_s(order.trade_pair) * 1000
-        if lag_time_ms is not None and lag_time_ms < time_since_last_order_ms:
-            #  We received a new websocket price since the last order. Allow the order to go through.
-            bt.logging.info(f"Allowing order to bypass order cooldown for trade pair [{order.trade_pair.trade_pair_id}] trade_pair_lag_time_ms: {lag_time_ms} time_since_last_order_ms: {time_since_last_order_ms}")
-            return
+        #lag_time_ms = self.live_price_fetcher.time_since_last_ws_ping_s(order.trade_pair) * 1000
 
         previous_order_time = TimeUtil.millis_to_formatted_date_str(last_order.processed_ms)
         current_time = TimeUtil.millis_to_formatted_date_str(order.processed_ms)
