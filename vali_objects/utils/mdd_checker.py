@@ -20,7 +20,8 @@ from vali_objects.vali_dataclasses.price_source import PriceSource
 
 class MDDChecker(CacheController):
 
-    def __init__(self, config, metagraph, position_manager, eliminations_lock, running_unit_tests=False, live_price_fetcher=None):
+    def __init__(self, config, metagraph, position_manager, eliminations_lock, running_unit_tests=False,
+                 live_price_fetcher=None, shutdown_dict=None):
         super().__init__(config, metagraph, running_unit_tests=running_unit_tests)
         self.last_price_fetch_time_ms = None
         self.n_miners_skipped_already_eliminated = 0
@@ -39,6 +40,7 @@ class MDDChecker(CacheController):
             self.live_price_fetcher = live_price_fetcher
         self.eliminations_lock = eliminations_lock
         self.reset_debug_counters()
+        self.shutdown_dict = shutdown_dict
 
     def reset_debug_counters(self, reset_global_counters=True):
         self.portfolio_max_dd_closed_positions = 0
@@ -74,6 +76,8 @@ class MDDChecker(CacheController):
             time.sleep(1)
             return
 
+        if self.shutdown_dict:
+            return
         bt.logging.info("running mdd checker")
         self.reset_debug_counters()
         self._refresh_eliminations_in_memory()
@@ -85,6 +89,8 @@ class MDDChecker(CacheController):
         candle_data = self.get_candle_data(hotkey_to_positions)
         any_eliminations = False
         for hotkey, sorted_positions in hotkey_to_positions.items():
+            if self.shutdown_dict:
+                return
             self.reset_debug_counters(reset_global_counters=False)
             if self._search_for_miner_dd_failures(hotkey, sorted_positions, candle_data):
                 any_eliminations = True
@@ -207,6 +213,8 @@ class MDDChecker(CacheController):
         open_positions = []
         closed_positions = []
         for position in sorted_positions:
+            if self.shutdown_dict:
+                return False
             # Perform needed updates
             if position.is_open_position or position.newest_order_age_ms <= RecentEventTracker.OLDEST_ALLOWED_RECORD_MS:
                 position = self._update_position_returns_and_persist_to_disk(hotkey, position, candle_data)
@@ -226,6 +234,8 @@ class MDDChecker(CacheController):
         trade_pair_to_price_source_used_for_elimination_check = {}
         open_position_trade_pairs = []
         for open_position in open_positions:
+            if self.shutdown_dict:
+                return False
             #bt.logging.info(f"current return with fees for open position with trade pair[{open_position.trade_pair.trade_pair_id}] is [{open_position.return_at_close}]")
             if open_position.trade_pair.trade_pair_id in seen_trade_pairs:
                 debug_positions = [p for p in open_positions if p.trade_pair.trade_pair_id == open_position.trade_pair.trade_pair_id]

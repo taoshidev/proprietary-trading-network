@@ -5,6 +5,7 @@
 
 import os
 import threading
+import signal
 import uuid
 from typing import Tuple
 
@@ -31,6 +32,23 @@ from vali_objects.position import Position
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.utils.vali_utils import ValiUtils
 from vali_config import ValiConfig
+
+# Global flag used to indicate shutdown
+shutdown_dict = {}
+
+def signal_handler(signum, frame):
+    global shutdown_dict
+    if signum == signal.SIGINT:
+        bt.logging.error("Handling SIGINT")
+    elif signum == signal.SIGTERM:
+        bt.logging.error("Handling SIGTERM")
+
+    bt.logging.error("Shutdown signal received")
+    shutdown_dict[True] = True
+
+# Set up signal handling
+signal.signal(signal.SIGTERM, signal_handler)
+signal.signal(signal.SIGINT, signal_handler)
 
 class Validator:
     def __init__(self):
@@ -91,7 +109,8 @@ class Validator:
 
 
         self.metagraph_updater = MetagraphUpdater(self.config, self.metagraph, wallet.hotkey.ss58_address,
-                                                  False, position_manager=self.position_manager)
+                                                  False, position_manager=self.position_manager,
+                                                  shutdown_dict=shutdown_dict)
 
         # Start the metagraph updater loop in its own thread
         self.metagraph_updater_thread = threading.Thread(target=self.metagraph_updater.run_update_loop, daemon=True)
@@ -104,7 +123,8 @@ class Validator:
             )
             exit()
 
-        self.perf_ledger_manager = PerfLedgerManager(self.metagraph, live_price_fetcher=self.live_price_fetcher)
+        self.perf_ledger_manager = PerfLedgerManager(self.metagraph, live_price_fetcher=self.live_price_fetcher,
+                                                     shutdown_dict=shutdown_dict)
         # Start the perf ledger updater loop in its own thread
         self.perf_ledger_updater_thread = threading.Thread(target=self.perf_ledger_manager.run_update_loop, daemon=True)
         self.perf_ledger_updater_thread.start()
@@ -177,7 +197,7 @@ class Validator:
         self.eliminations_lock = threading.Lock()
         # self.plagiarism_detector = PlagiarismDetector(self.config, self.metagraph)
         self.mdd_checker = MDDChecker(self.config, self.metagraph, self.position_manager, self.eliminations_lock,
-                                      live_price_fetcher=self.live_price_fetcher)
+                                      live_price_fetcher=self.live_price_fetcher, shutdown_dict=shutdown_dict)
         self.weight_setter = SubtensorWeightSetter(self.config, wallet, self.metagraph)
         self.elimination_manager = EliminationManager(self.metagraph, self.position_manager, self.eliminations_lock)
 
@@ -262,31 +282,34 @@ class Validator:
         )
         return config
 
+    def check_shutdown(self):
+        global shutdown_dict
+        if not shutdown_dict:
+            return
+        # Handle shutdown gracefully
+        bt.logging.warning("Performing graceful exit...")
+        self.axon.stop()
+        self.metagraph_updater_thread.join()
+        self.perf_ledger_updater_thread.join()
+
+
     # Main takes the config and starts the miner.
     def main(self):
+        global shutdown_dict
         # Keep the vali alive. This loop maintains the vali's operations until intentionally stopped.
         bt.logging.info(f"Starting main loop")
-        while True:
+        while not shutdown_dict:
             try:
                 self.mdd_checker.mdd_check()
                 self.weight_setter.set_weights()
                 self.elimination_manager.process_eliminations()
                 self.position_manager.position_locks.cleanup_locks(self.metagraph.hotkeys)
-
-            # If someone intentionally stops the miner, it'll safely terminate operations.
-            except KeyboardInterrupt:
-                self.axon.stop()
-                bt.logging.success("Validator killed by keyboard interrupt.")
-                self.metagraph_updater.stop_update_loop()
-                self.perf_ledger_manager.stop_update_loop()
-                self.metagraph_updater_thread.join()
-                self.perf_ledger_updater_thread.join()
-                break
             # In case of unforeseen errors, the miner will log the error and continue operations.
             except Exception:
                 bt.logging.error(traceback.format_exc())
                 time.sleep(10)
 
+        self.check_shutdown()
 
     def parse_trade_pair_from_signal(self, signal) -> TradePair | None:
         if not signal or not isinstance(signal, dict):
@@ -379,6 +402,13 @@ class Validator:
         return open_position
 
     def should_fail_early(self, synapse: template.protocol.SendSignal | template.protocol.GetPositions, is_pi, signal=None) -> bool:
+        global shutdown_dict
+        if shutdown_dict:
+            synapse.successfully_processed = False
+            synapse.error_message = "Validator is restarting due to update. Please try again later."
+            bt.logging.trace(synapse.error_message)
+            return True
+
         miner_hotkey = synapse.dendrite.hotkey
         # Don't allow miners to send too many signals in a short period of time
         if is_pi:
@@ -439,11 +469,7 @@ class Validator:
         if time_since_last_order_ms >= ValiConfig.ORDER_COOLDOWN_MS:
             return
 
-        lag_time_ms = self.live_price_fetcher.time_since_last_ws_ping_s(order.trade_pair) * 1000
-        if lag_time_ms is not None and lag_time_ms < time_since_last_order_ms:
-            #  We received a new websocket price since the last order. Allow the order to go through.
-            bt.logging.info(f"Allowing order to bypass order cooldown for trade pair [{order.trade_pair.trade_pair_id}] trade_pair_lag_time_ms: {lag_time_ms} time_since_last_order_ms: {time_since_last_order_ms}")
-            return
+        #lag_time_ms = self.live_price_fetcher.time_since_last_ws_ping_s(order.trade_pair) * 1000
 
         previous_order_time = TimeUtil.millis_to_formatted_date_str(last_order.processed_ms)
         current_time = TimeUtil.millis_to_formatted_date_str(order.processed_ms)
