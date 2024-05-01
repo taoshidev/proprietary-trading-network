@@ -300,7 +300,7 @@ class Validator:
         trade_pair = TradePair.from_trade_pair_id(string_trade_pair)
         return trade_pair
 
-    def convert_signal_to_order(self, signal, hotkey) -> Order:
+    def convert_signal_to_order(self, signal, hotkey, now_ms) -> Order:
         """
         Example input signal
           {'trade_pair': {'trade_pair_id': 'BTCUSD', 'trade_pair': 'BTC/USD', 'fees': 0.003, 'min_leverage': 0.0001, 'max_leverage': 20},
@@ -321,14 +321,15 @@ class Validator:
         bt.logging.info(f"Parsed leverage from signal: {signal_leverage}")
 
         bt.logging.info("Attempting to get live price for trade pair: " + trade_pair.trade_pair_id)
-        live_closing_price, price_sources = self.live_price_fetcher.get_latest_price(trade_pair=trade_pair)
+        live_closing_price, price_sources = self.live_price_fetcher.get_latest_price(trade_pair=trade_pair,
+                                                                                     now_ms=now_ms)
 
         order = Order(
             trade_pair=trade_pair,
             order_type=signal_order_type,
             leverage=signal_leverage,
             price=live_closing_price,
-            processed_ms=TimeUtil.now_in_millis(),
+            processed_ms=now_ms,
             order_uuid=str(uuid.uuid4()),
             price_sources=price_sources
         )
@@ -457,6 +458,7 @@ class Validator:
     def receive_signal(self, synapse: template.protocol.SendSignal,
                        ) -> template.protocol.SendSignal:
         # pull miner hotkey to reference in various activities
+        now_ms = TimeUtil.now_in_millis()
         miner_hotkey = synapse.dendrite.hotkey
         signal = synapse.signal
         bt.logging.info(f"received signal [{signal}] from miner_hotkey [{miner_hotkey}].")
@@ -466,7 +468,7 @@ class Validator:
         # error message to send back to miners in case of a problem so they can fix and resend
         error_message = ""
         try:
-            signal_to_order = self.convert_signal_to_order(signal, miner_hotkey)
+            signal_to_order = self.convert_signal_to_order(signal, miner_hotkey, now_ms)
             # Multiple threads can run receive_signal at once. Don't allow two threads to trample each other.
             with self.position_manager.position_locks.get_lock(miner_hotkey, signal_to_order.trade_pair.trade_pair_id):
                 # gather open positions and see which trade pairs have an open position
