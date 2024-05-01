@@ -292,6 +292,8 @@ class PerfLedgerManager(CacheController):
         any_open = False
         for tp, historical_positions in tp_to_historical_positions.items():  # TODO: multithread over trade pairs?
             for historical_position in historical_positions:
+                if self.shutdown_dict:
+                    return portfolio_return, any_open
                 if len(historical_position.orders) == 0:  # Just opened an order. We will revisit this on the next event as there is no history to replay
                     continue
                 if historical_position.is_closed_position:  # We want to process just-closed positions. wont be closed if we are on the corresponding event
