@@ -283,3 +283,41 @@ class TestWeights(TestBase):
                 evaluation_time
             )
             self.assertLessEqual(abs(dampened_return), abs(return_value))
+
+    def test_augment_benefit_nochange(self):
+        """
+        Test that the augment benefit works as expected
+        """
+        no_augmentation_coefficient = 1.0
+        lookback_fraction = 0.5
+        augmented_benefit = PositionUtils.augment_benefit(
+            no_augmentation_coefficient, 
+            lookback_fraction
+        )
+
+        self.assertAlmostEqual(augmented_benefit, no_augmentation_coefficient, places=5)
+
+    def test_augment_benefit_zero(self):
+        """
+        Test that the augment benefit works as expected when the augmentation coefficient is zero
+        """
+        no_augmentation_coefficient = 0.0
+        lookback_fraction = 0.5
+        augmented_benefit = PositionUtils.augment_benefit(
+            no_augmentation_coefficient, 
+            lookback_fraction
+        )
+
+        self.assertAlmostEqual(augmented_benefit, 0.0, places=5)
+
+    def test_augment_benefit_typical(self):
+        """
+        Test that the augment benefit works as expected
+        """
+        augmentation_coefficient = 0.95
+        lookback_fraction = 0.5
+        augmented_benefit = PositionUtils.augment_benefit(
+            augmentation_coefficient, 
+            lookback_fraction
+        )
+        self.assertEqual(augmented_benefit, 0.975)

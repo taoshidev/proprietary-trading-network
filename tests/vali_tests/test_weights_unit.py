@@ -533,6 +533,33 @@ class TestWeights(TestBase):
 
         self.assertEqual(sorted(flagged_miners), sorted(nonpassing_miners))
 
+    def test_filter_single_checkpoint(self):
+        """Test that the filter checkpoint function works as expected"""
+        ## the transformation should be some kind of average of the two
+        minimum_passing_checkpoint_time = ValiConfig.SET_WEIGHT_MINIMUM_SINGLE_CHECKPOINT_DURATION_MS
+        passing_checkpoint = checkpoint_generator(
+            gain=0.1,
+            loss=-0.05,
+            open_ms=minimum_passing_checkpoint_time
+        )
+
+        nonpassing_checkpoint = checkpoint_generator(
+            gain=0.1,
+            loss=-0.05,
+            open_ms=minimum_passing_checkpoint_time - 10
+        )
+
+        passing_checkpoint_list = self.subtensor_weight_setter._filter_checkpoint_elements(
+            [ passing_checkpoint ]
+        )
+
+        nonpassing_checkpoint_list = self.subtensor_weight_setter._filter_checkpoint_elements(
+            [ nonpassing_checkpoint ]
+        )
+
+        self.assertEqual(passing_checkpoint_list, [ passing_checkpoint ])
+        self.assertEqual(nonpassing_checkpoint_list, [])
+
     def test_miner_filter_challengeperiod(self):
         """Test that the miner filter function works as expected"""
 
@@ -1001,6 +1028,32 @@ class TestWeights(TestBase):
         )
 
         self.assertEqual(chellengeperiod_logic, False)
+
+    def test_dampen_value(self):
+        """Test that the dampen value function works as expected"""
+        dampen_value = 0.5
+        lookback_fraction1 = 0.1
+        lookback_fraction2 = 0.9
+        lookback_fraction3 = 0.5
+
+        dampened_one = PositionUtils.dampen_value(
+            dampen_value,
+            lookback_fraction=lookback_fraction1
+        )
+
+        dampened_two = PositionUtils.dampen_value(
+            dampen_value,
+            lookback_fraction=lookback_fraction2
+        )
+
+        dampened_three = PositionUtils.dampen_value(
+            dampen_value,
+            lookback_fraction=lookback_fraction3
+        )
+
+        self.assertAlmostEqual(dampened_one, dampen_value - dampen_value / 10)
+        self.assertAlmostEqual(dampened_two, dampen_value / 10)
+        self.assertAlmostEqual(dampened_three, dampen_value / 2)
 
     
 

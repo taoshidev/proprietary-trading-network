@@ -85,7 +85,9 @@ def generate_request_outputs(write_legacy:bool, write_validator_checkpoint:bool)
         if hotkey in eliminated_hotkeys:
             continue
 
-        checkpoint_meets_criteria = subtensor_weight_setter._filter_checkpoint_list(miner_ledger.cps)
+        miner_checkpoints = copy.deepcopy(miner_ledger.cps)
+        miner_checkpoints_filtered = subtensor_weight_setter._filter_checkpoint_elements(miner_checkpoints)
+        checkpoint_meets_criteria = subtensor_weight_setter._filter_checkpoint_list(miner_checkpoints_filtered)
         if not checkpoint_meets_criteria:
             continue
 

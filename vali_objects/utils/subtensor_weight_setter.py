@@ -168,13 +168,15 @@ class SubtensorWeightSetter(CacheController):
             if hotkey in eliminated_hotkeys:
                 continue
 
-            checkpoint_meets_criteria = self._filter_checkpoint_list(miner_ledger.cps)
+            miner_checkpoints = copy.deepcopy(miner_ledger.cps)
+            miner_checkpoints_filtered = self._filter_checkpoint_elements(miner_checkpoints)
+            checkpoint_meets_criteria = self._filter_checkpoint_list(miner_checkpoints_filtered)
             if not checkpoint_meets_criteria:
                 continue
 
             augmented_ledger[hotkey] = miner_ledger
             augmented_ledger[hotkey].cps = self.position_manager.augment_perf_checkpoint(
-                miner_ledger.cps,
+                miner_checkpoints_filtered,
                 evaluation_time_ms
             )
 
@@ -272,6 +274,19 @@ class SubtensorWeightSetter(CacheController):
         
         # if they have not passed the challenge period, return False
         return False
+    
+    def _filter_checkpoint_elements(self, checkpoints: list[PerfCheckpoint]) -> list[PerfCheckpoint]:
+        """
+        Filter checkpoint elements if they don't meet minimum evaluation criteria.
+        """
+        checkpoint_filtered = []
+
+        for checkpoint in checkpoints:
+            if checkpoint.open_ms >= ValiConfig.SET_WEIGHT_MINIMUM_SINGLE_CHECKPOINT_DURATION_MS:
+                checkpoint_filtered.append(checkpoint)
+
+        return checkpoint_filtered
+
     
     def _filter_checkpoint_list(self, checkpoints: list[PerfCheckpoint]):
         """

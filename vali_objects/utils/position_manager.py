@@ -519,6 +519,9 @@ class PositionManager(CacheController):
         if len(cps) == 0:
             return []
         
+        gain_augmentation_coefficient = ValiConfig.HISTORICAL_DECAY_GAIN_COEFFICIENT
+        loss_augmentation_coefficient = ValiConfig.HISTORICAL_DECAY_LOSS_COEFFICIENT
+        
         consistency_penalty = PositionUtils.compute_consistency_penalty_cps(
             cps, 
             evaluation_time_ms
@@ -527,18 +530,37 @@ class PositionManager(CacheController):
         cps_augmented = []
         for cp in cps:
             cp_copy = copy.deepcopy(cp)
-            cp_copy.gain = consistency_penalty * PositionUtils.dampen_return(
+            lookback_fraction = PositionUtils.compute_lookback_fraction(
+                cp.last_update_ms,
+                cp.last_update_ms,
+                evaluation_time_ms
+            )
+
+            historical_gain_augmentation_coefficient = PositionUtils.augment_benefit(
+                gain_augmentation_coefficient,
+                lookback_fraction
+            )
+
+            historical_loss_augmentation_coefficient = PositionUtils.augment_benefit(
+                loss_augmentation_coefficient,
+                lookback_fraction
+            )
+            
+            cp_copy.gain = consistency_penalty * historical_gain_augmentation_coefficient * PositionUtils.dampen_value(
                 cp.gain,
-                cp.last_update_ms,
-                cp.last_update_ms,
-                evaluation_time_ms
+                lookback_fraction
             )
-            cp_copy.loss = consistency_penalty * PositionUtils.dampen_return(
+
+            cp_copy.loss = consistency_penalty * historical_loss_augmentation_coefficient * PositionUtils.dampen_value(
                 cp.loss,
-                cp.last_update_ms,
-                cp.last_update_ms,
-                evaluation_time_ms
+                lookback_fraction
             )
+
+            cp_copy.open_ms = PositionUtils.dampen_value(
+                cp.open_ms,
+                lookback_fraction
+            )
+
             cps_augmented.append(cp_copy)
         return cps_augmented
     

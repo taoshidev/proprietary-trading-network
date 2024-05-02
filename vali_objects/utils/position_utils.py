@@ -33,6 +33,22 @@ class PositionUtils:
         return np.exp(return_value)
     
     @staticmethod
+    def augment_benefit(
+        coefficient_of_augmentation: float,
+        lookback_fraction: float,
+    ) -> float:
+        """
+        Args:
+            coefficient_of_augmentation: float - the coefficient of augmentation
+            lookback_fraction: float - the fraction of the lookback period since the position was closed.
+        """
+        coefficient_of_augmentation = np.clip(coefficient_of_augmentation, 0, 1)
+        lookback_fraction = np.clip(lookback_fraction, 0, 1)
+
+        resulting_augmentation = (coefficient_of_augmentation - 1) * lookback_fraction + 1
+        return np.clip(resulting_augmentation, 0, 1)
+    
+    @staticmethod
     def compute_lookback_fraction(
         position_open_ms: int, 
         position_close_ms: int, 
@@ -117,6 +133,18 @@ class PositionUtils:
             evaluation_time_ms
         )
 
+        return HistoricalScoring.historical_decay_return(return_value, lookback_fraction)
+    
+    @staticmethod
+    def dampen_value(
+        return_value: float,
+        lookback_fraction: float,
+    ) -> float:
+        """
+        Args:
+            return_value: float - the return of the miner
+            lookback_fraction: float - the fraction of the lookback period since the position was closed.
+        """
         return HistoricalScoring.historical_decay_return(return_value, lookback_fraction)
     
     @staticmethod
