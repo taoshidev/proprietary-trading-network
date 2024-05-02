@@ -3,6 +3,7 @@
 import os
 import shutil
 import time
+import copy
 import traceback
 import uuid
 from collections import defaultdict
@@ -25,7 +26,7 @@ from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.vali_dataclasses.order import OrderStatus, Order
 from vali_objects.utils.position_utils import PositionUtils
 from vali_objects.vali_dataclasses.price_source import PriceSource
-
+from vali_objects.vali_dataclasses.perf_ledger import PerfCheckpoint
 
 class PositionManager(CacheController):
     def __init__(self, config=None, metagraph=None, running_unit_tests=False, perform_price_adjustment=False,
@@ -50,10 +51,6 @@ class PositionManager(CacheController):
 
         if perform_fee_structure_update:
             self.ensure_latest_fee_structure_applied()
-
-
-
-
 
     def give_erronously_eliminated_miners_another_shot(self):
         # The MDD Checker will immediately eliminate miners if they exceed the maximum drawdown
@@ -510,6 +507,62 @@ class PositionManager(CacheController):
             cumulative_return *= value
             per_position_return.append(cumulative_return)
         return per_position_return
+    
+    def augment_perf_checkpoint(
+            self,
+            cps: list[PerfCheckpoint],
+            evaluation_time_ms: int
+        ) -> list[PerfCheckpoint]:
+        """
+        Returns the return at each performance checkpoint, augmented with historical decay.
+        """
+        if len(cps) == 0:
+            return []
+        
+        gain_augmentation_coefficient = ValiConfig.HISTORICAL_DECAY_GAIN_COEFFICIENT
+        loss_augmentation_coefficient = ValiConfig.HISTORICAL_DECAY_LOSS_COEFFICIENT
+        
+        consistency_penalty = PositionUtils.compute_consistency_penalty_cps(
+            cps, 
+            evaluation_time_ms
+        )
+        
+        cps_augmented = []
+        for cp in cps:
+            cp_copy = copy.deepcopy(cp)
+            lookback_fraction = PositionUtils.compute_lookback_fraction(
+                cp.last_update_ms,
+                cp.last_update_ms,
+                evaluation_time_ms
+            )
+
+            historical_gain_augmentation_coefficient = PositionUtils.augment_benefit(
+                gain_augmentation_coefficient,
+                lookback_fraction
+            )
+
+            historical_loss_augmentation_coefficient = PositionUtils.augment_benefit(
+                loss_augmentation_coefficient,
+                lookback_fraction
+            )
+            
+            cp_copy.gain = consistency_penalty * historical_gain_augmentation_coefficient * PositionUtils.dampen_value(
+                cp.gain,
+                lookback_fraction
+            )
+
+            cp_copy.loss = historical_loss_augmentation_coefficient * PositionUtils.dampen_value(
+                cp.loss,
+                lookback_fraction
+            )
+
+            cp_copy.open_ms = PositionUtils.dampen_value(
+                cp.open_ms,
+                lookback_fraction
+            )
+
+            cps_augmented.append(cp_copy)
+        return cps_augmented
     
     def get_return_per_closed_position_augmented(
             self, 

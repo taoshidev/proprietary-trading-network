@@ -11,64 +11,65 @@ from vali_objects.exceptions.incorrect_prediction_size_error import IncorrectPre
 from vali_objects.exceptions.min_responses_exception import MinResponsesException
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.utils.vali_utils import ValiUtils
+from vali_objects.vali_dataclasses.perf_ledger import PerfCheckpoint, PerfLedger
 
 import bittensor as bt
 
 class Scoring:
     @staticmethod
-    def transform_and_scale_results(
-        filtered_results: list[tuple[str, list[float]]]
-    ) -> list[tuple[str, float]]:
+    def compute_results_checkpoint(
+        ledger_dict: dict[str, PerfLedger]
+    ) -> list[tuple[str, list[float]]]:
         """
-        Args: filtered_results: list[tuple[str, list[float]]] - takes a list of dampened returns for each miner and computes their risk adjusted returns, weighing them against the competition. It then averages the weights assigned for each of these tasks and returns the final weights for each miner which are normalized to sum to 1.
+        Args: ledger: PerfLedger - the ledger of the miner returns
         """
-
-        if len(filtered_results) == 0:
-            bt.logging.debug(f"No results to transform and scale, returning empty list")
+        if len(ledger_dict) == 0:
+            bt.logging.debug(f"No results to compute, returning empty list")
             return []
         
-        if len(filtered_results) == 1:
-            bt.logging.debug(f"Only one miner, returning 1.0 for the solo miner weight")
-            return [(filtered_results[0][0], 1.0)]
-
+        if len(ledger_dict) == 1:
+            miner = list(ledger_dict.keys())[0]
+            bt.logging.debug(f"Only one miner: {miner}, returning 1.0 for the solo miner weight")
+            return [(miner, 1.0)]
+        
         scoring_functions = [
-            Scoring.omega,
-            Scoring.total_return,
-            Scoring.sharpe_ratio
+            Scoring.return_cps,
+            Scoring.omega_cps,
+            Scoring.inverted_sortino_cps,
         ]
 
         scoring_function_weights = [
-            0.0,
-            0.8,
-            0.2
+            0.50,
+            1.00,
+            1.00
         ]
+        
+        miner_scores_list: list[list[tuple[str, float]]] = [[] for _ in scoring_functions]
 
-        miner_scores_list: list[list[tuple[str,float]]] = []
-        for scoring_function in scoring_functions:
-            miner_scoring_function_scores = []
-            for miner, returns in filtered_results:
-                if len(returns) < int(ValiConfig.SET_WEIGHT_MINIMUM_POSITIONS):
-                    bt.logging.debug(f"Miner {miner} does not have enough positions to reach the minimum positions for scoring")
-                    continue
+        for scoring_index, scoring_function in enumerate(scoring_functions):
+            for miner, minerledger in ledger_dict.items():
+                gains = [cp.gain for cp in minerledger.cps]
+                losses = [cp.loss for cp in minerledger.cps]
+                n_updates = [cp.n_updates for cp in minerledger.cps]
+                open_ms = [cp.open_ms for cp in minerledger.cps]
 
-                score = scoring_function(returns)
-                miner_scoring_function_scores.append((miner, score))
-            
-            miner_scores_list.append(miner_scoring_function_scores)
+                score = scoring_function(gains=gains, losses=losses, n_updates=n_updates, open_ms=open_ms)
+                miner_scores_list[scoring_index].append((miner, score))
 
         # Combine the scores from the different scoring functions
         weighted_scores: list[list[str, float]] = []
+
         for miner_score_list in miner_scores_list:
             weighted_scores.append(Scoring.weigh_miner_scores(miner_score_list))
-        
+
         # Combine the weighted scores from the different scoring functions
         combined_scores: dict[str, float] = {}
         for c,weighted_score in enumerate(weighted_scores):
             for miner, score in weighted_score:
                 if miner not in combined_scores:
-                    combined_scores[miner] = 0
+                    combined_scores[miner] = 1
 
-                combined_scores[miner] += score * scoring_function_weights[c]
+                combined_scores[miner] *= scoring_function_weights[c] * score + (1 - scoring_function_weights[c])
 
         ## Force good performance of all error metrics
         combined_weighed = Scoring.weigh_miner_scores(list(combined_scores.items()))
@@ -81,6 +82,7 @@ class Scoring:
         total_scores = sorted(total_scores, key=lambda x: x[1], reverse=True)
 
         return total_scores
+    
     
     @staticmethod
     def normalize_scores(scores: dict[str, float]) -> dict[str, float]:
@@ -102,6 +104,86 @@ class Scoring:
         }
         # normalized_scores = sorted(normalized_scores, key=lambda x: x[1], reverse=True)
         return normalized_scores
+    
+    @staticmethod
+    def return_cps(
+        gains: list[float],
+        losses: list[float],
+        n_updates: list[int],
+        open_ms: list[int]
+    ) -> float:
+        """
+        Args:
+            gains: list[float] - the gains for each miner
+            losses: list[float] - the losses for each miner
+            n_updates: list[int] - the number of updates for each miner
+            open_ms: list[int] - the open time for each miner
+        """
+        if len(gains) == 0 or len(losses) == 0:
+            # won't happen because we need a minimum number of trades, but would kick them to a bad return (bottom of the list)
+            return -1
+
+        total_gain = sum(gains)
+        total_loss = sum(losses)
+        total_return = total_gain + total_loss
+
+        return total_return
+    
+    @staticmethod
+    def omega_cps(
+        gains: list[float], 
+        losses: list[float],
+        n_updates: list[int],
+        open_ms: list[int]
+    ) -> float:
+        """
+        Args:
+            gains: list[float] - the gains for each miner
+            losses: list[float] - the losses for each miner
+            n_updates: list[int] - the number of updates for each miner
+            open_ms: list[int] - the open time for each miner
+        """
+        if len(gains) == 0 or len(losses) == 0:
+            # won't happen because we need a minimum number of trades, but would kick them to 0 weight (bottom of the list)
+            return 0
+
+        omega_minimum_denominator = ValiConfig.OMEGA_MINIMUM_DENOMINATOR
+
+        sum_above = sum(gains)
+        sum_below = sum(losses)
+
+        sum_below = max(abs(sum_below), omega_minimum_denominator)
+        return sum_above / sum_below
+    
+    @staticmethod
+    def inverted_sortino_cps(
+        gains: list[float], 
+        losses: list[float],
+        n_updates: list[int],
+        open_ms: list[int]
+    ) -> float:
+        """
+        Args:
+            gains: list[float] - the gains for each miner
+            losses: list[float] - the losses for each miner
+            n_updates: list[int] - the number of updates for each miner
+            open_ms: list[int] - the open time for each miner
+        """
+        if len(gains) == 0 or len(losses) == 0:
+            # won't happen because we need a minimum number of trades, but would kick them to 0 weight (bottom of the list)
+            return 0
+        
+        total_loss = sum(losses)
+        total_position_active_time = sum(open_ms)
+
+        if total_position_active_time == 0:
+            return 0
+        
+        if total_loss == 0:
+            return 1 / ValiConfig.SORTINO_MIN_DENOMINATOR
+        
+        typical_absolute_loss = abs(total_loss / total_position_active_time)
+        return -typical_absolute_loss
 
     @staticmethod
     def omega(returns: list[float]) -> float:
@@ -261,27 +343,22 @@ class Scoring:
 
     @staticmethod
     def weigh_miner_scores(returns: list[tuple[str, float]]) -> list[tuple[str, float]]:
-        ## Assign weights to the returns based on their relative position
-        if len(returns) == 0:
-            bt.logging.debug(f"No returns to score, returning empty list")
+        """
+        Assign weights to the returns based on their relative position.
+        """
+        if not returns:
+            bt.logging.debug("No returns to score, returning empty list")
             return []
+
         if len(returns) == 1:
-            bt.logging.info(f"Only one miner, returning 1.0 for the solo miner weight")
+            bt.logging.info("Only one miner, returning 1.0 for the solo miner weight")
             return [(returns[0][0], 1.0)]
 
-        # Sort the returns in descending order
         sorted_returns = sorted(returns, key=lambda x: x[1], reverse=True)
-
         n_miners = len(sorted_returns)
-        miner_names = [x[0] for x in sorted_returns]
         decayed_returns = Scoring.exponential_decay_returns(n_miners)
 
-        # Create a dictionary to map miner names to their decayed returns
-        miner_decay_returns_dict = dict(zip(miner_names, decayed_returns))
-
-        # Assign the decayed returns to the sorted miner names
-        weighted_returns = [(miner, miner_decay_returns_dict[miner]) for miner, _ in sorted_returns]
-
+        weighted_returns = [(miner, decayed_returns[i]) for i, (miner, _) in enumerate(sorted_returns)]
         return weighted_returns
 
     @staticmethod

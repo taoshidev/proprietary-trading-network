@@ -161,7 +161,7 @@ TRADE_PAIR_STR_TO_TRADE_PAIR = {x.trade_pair: x for x in TradePair}
 
 class ValiConfig:
     ## versioning
-    VERSION = "2.2.11"
+    VERSION = "2.4.8"
 
     # fees take into account exiting and entering a position, liquidity, and futures fees
     PERF_LEDGER_REFRESH_TIME_MS = 1000 * 60 * 5 # 5 minutes
@@ -190,17 +190,21 @@ class ValiConfig:
     # to compare the magnitude of gains and losses internally for our scoring function
     OMEGA_LOG_RATIO_THRESHOLD = 0.0 # np.log(1 + OMEGA_RATIO_THRESHOLD) -> 0
 
-
+    SORTINO_MIN_DENOMINATOR = 1e-6
     OMEGA_MINIMUM_DENOMINATOR = 1e-6
     PROBABILISTIC_SHARPE_RATIO_MIN_STD_DEV = 1e-6
     MIN_STD_DEV = 1e-6
     MIN_MEDIAN = 1e-6
+    HISTORICAL_DECAY_GAIN_COEFFICIENT = 1.00
+    HISTORICAL_DECAY_LOSS_COEFFICIENT = 1.00
 
+    SET_WEIGHT_MINIMUM_SINGLE_CHECKPOINT_DURATION_MS = 1 * 15 * 60 * 1000  # 15 minutes
+    SET_WEIGHT_MINIMUM_TOTAL_CHECKPOINT_DURATION_MS = 50 * 60 * 60 * 1000  # 50 hours
     SET_WEIGHT_MINIMUM_POSITIONS = 10 # mimumum number of positions over the lookback range
     SET_WEIGHT_MINIMUM_POSITION_DURATION_MS = 1 * 60 * 1000  # 1 minutes
     SET_WEIGHT_MINIMUM_POSITION_DURATION_TOTAL_MS = SET_WEIGHT_MINIMUM_POSITION_DURATION_MS * SET_WEIGHT_MINIMUM_POSITIONS
     SET_WEIGHT_MINER_GRACE_PERIOD_MS = 30 * 24 * 60 * 60 * 1000  # 30 days
-    SET_WEIGHT_MINER_GRACE_PERIOD_VALUE = 5.4e-06 # essentially nothing
+    SET_WEIGHT_MINER_CHALLENGE_PERIOD_WEIGHT = 5.4e-06 # essentially nothing
     SET_WEIGHT_MINER_GRACE_PERIOD_EQUIVALENT_PERCENTILE = 2 # two pence for their troubles
     MIN_LEVERAGE_CONSITENCY_PENALTY = 0.01
 

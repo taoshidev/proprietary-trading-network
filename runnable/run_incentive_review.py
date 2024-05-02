@@ -6,6 +6,7 @@ from vali_objects.utils.subtensor_weight_setter import SubtensorWeightSetter
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.utils.vali_utils import ValiUtils
 from time_util.time_util import TimeUtil
+from vali_config import ValiConfig
 
 if __name__ == "__main__":
     logger = LoggerUtils.init_logger("run incentive review")
@@ -19,26 +20,36 @@ if __name__ == "__main__":
         ValiBkpUtils.get_eliminations_dir()
     )["eliminations"]
 
+    logger.info(f"Testing hotkeys: {hotkeys}")
+
     challengeperiod_resultdict = subtensor_weight_setter.challenge_period_screening(
-        hotkeys=hotkeys,
-        eliminations=eliminations_json,
+        hotkeys = hotkeys,
+        eliminations = eliminations_json,
         current_time = current_time
     )
 
     challengeperiod_miners = challengeperiod_resultdict["challengeperiod_miners"]
     challengeperiod_elimination_hotkeys = challengeperiod_resultdict["challengeperiod_eliminations"]
 
-    returns_per_netuid = subtensor_weight_setter.calculate_return_per_netuid(
-        local=True, hotkeys=hotkeys, eliminations=eliminations_json, omitted_miners=challengeperiod_elimination_hotkeys + challengeperiod_miners
+    logger.info(f"Challenge period miners [{challengeperiod_miners}]")
+    logger.info(f"Challenge period eliminations [{challengeperiod_elimination_hotkeys}]")
+
+    # augmented ledger should have the gain, loss, n_updates, and time_duration
+    augmented_ledger = subtensor_weight_setter.augmented_ledger(
+        hotkeys = hotkeys,
+        omitted_miners = challengeperiod_miners + challengeperiod_elimination_hotkeys,
+        eliminations = eliminations_json
     )
-    filtered_results = [(k, v) for k, v in returns_per_netuid.items()]
-    scaled_transformed_list = Scoring.transform_and_scale_results(filtered_results)
 
-    sorted_data = sorted(scaled_transformed_list, key=lambda x: x[1], reverse=True)
+    checkpoint_results = Scoring.compute_results_checkpoint(augmented_ledger)
+    challengeperiod_results = [ (x, ValiConfig.SET_WEIGHT_MINER_CHALLENGE_PERIOD_WEIGHT) for x in challengeperiod_miners ]
 
-    y_values = [item[1] for item in sorted_data]
+    sorted_data = checkpoint_results + challengeperiod_results
 
-    top_miners = [hotkeys[x[0]] for x in sorted_data]
+    logger.info(f"Challenge period results [{challengeperiod_results}]")
+
+    y_values = [x[1] for x in sorted_data]
+    top_miners = [x[0] for x in sorted_data]
 
     logger.info(f"top miners [{top_miners}]")
     logger.info(f"top miners scores [{y_values}]")

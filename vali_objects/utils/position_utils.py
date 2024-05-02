@@ -8,6 +8,7 @@ from vali_config import ValiConfig
 import bittensor as bt
 
 from vali_objects.scoring.historical_scoring import HistoricalScoring
+from vali_objects.vali_dataclasses.perf_ledger import PerfCheckpoint
 
 class PositionUtils:    
     @staticmethod
@@ -30,6 +31,22 @@ class PositionUtils:
             return_value: float - the return of the miner
         """
         return np.exp(return_value)
+    
+    @staticmethod
+    def augment_benefit(
+        coefficient_of_augmentation: float,
+        lookback_fraction: float,
+    ) -> float:
+        """
+        Args:
+            coefficient_of_augmentation: float - the coefficient of augmentation
+            lookback_fraction: float - the fraction of the lookback period since the position was closed.
+        """
+        coefficient_of_augmentation = np.clip(coefficient_of_augmentation, 0, 1)
+        lookback_fraction = np.clip(lookback_fraction, 0, 1)
+
+        resulting_augmentation = (coefficient_of_augmentation - 1) * lookback_fraction + 1
+        return np.clip(resulting_augmentation, 0, 1)
     
     @staticmethod
     def compute_lookback_fraction(
@@ -119,20 +136,53 @@ class PositionUtils:
         return HistoricalScoring.historical_decay_return(return_value, lookback_fraction)
     
     @staticmethod
+    def dampen_value(
+        return_value: float,
+        lookback_fraction: float,
+    ) -> float:
+        """
+        Args:
+            return_value: float - the return of the miner
+            lookback_fraction: float - the fraction of the lookback period since the position was closed.
+        """
+        return HistoricalScoring.historical_decay_return(return_value, lookback_fraction)
+    
+    @staticmethod
+    def compute_consistency_penalty_cps(
+        checkpoints: list[PerfCheckpoint],
+        evaluation_time_ms: int
+    ) -> float:
+        """
+        Args:
+            checkpoints: list[PerfCheckpoint] - the list of checkpoints
+            evaluation_time_ms: int - the evaluation time
+        """
+        filtered_checkpoints = [ checkpoint for checkpoint in checkpoints if checkpoint.open_ms > 0 ]
+        lookback_fractions = [
+            PositionUtils.compute_lookback_fraction(
+                checkpoint.last_update_ms,
+                checkpoint.last_update_ms,
+                evaluation_time_ms
+            ) for checkpoint in filtered_checkpoints
+        ]
+
+        # Sort the lookback fractions in ascending order
+        lookback_fractions = sorted(lookback_fractions)
+        consistency_penalties = PositionUtils.compute_consistency(lookback_fractions)
+        return consistency_penalties
+    
+    @staticmethod
     def compute_consistency_penalty(
         positions: list[Position],
         evaluation_time_ms: int
     ) -> float:
         """
         Args:
-            close_ms_list: list[int] - the list of close times for the positions
+            positions: list[Position] - the list of positions
             evaluation_time_ms: int - the evaluation time
         """
         if len(positions) == 0:
             return 0
-        
-        window_size = ValiConfig.HISTORICAL_PENALTY_WINDOW
-        stride = ValiConfig.HISTORICAL_PENALTY_STRIDE
         
         lookback_fractions = [
             PositionUtils.compute_lookback_fraction(
@@ -145,6 +195,46 @@ class PositionUtils:
 
         # Sort the lookback fractions in ascending order
         lookback_fractions = sorted(lookback_fractions)
+        consistency_penalties = PositionUtils.compute_consistency(lookback_fractions)
+        return consistency_penalties
+    
+    @staticmethod
+    def compute_consistency_penalty_positions(
+        positions: list[Position],
+        evaluation_time_ms: int
+    ) -> float:
+        """
+        Args:
+            positions: list[Position] - the list of positions
+            evaluation_time_ms: int - the evaluation time
+        """
+        lookback_fractions = [
+            PositionUtils.compute_lookback_fraction(
+                position.open_ms,
+                position.close_ms,
+                evaluation_time_ms
+            ) for position in positions
+            if position.is_closed_position and position.max_leverage_seen() >= ValiConfig.MIN_LEVERAGE_CONSITENCY_PENALTY
+        ]
+
+        # Sort the lookback fractions in ascending order
+        lookback_fractions = sorted(lookback_fractions)
+        consistency_penalties = PositionUtils.compute_consistency(lookback_fractions)
+        return consistency_penalties
+    
+    @staticmethod
+    def compute_consistency(
+        lookback_fractions: list[Position]
+    ) -> float:
+        """
+        Args:
+            close_ms_list: list[int] - the list of close times for the positions
+        """
+        if len(lookback_fractions) == 0:
+            return 0
+        
+        window_size = ValiConfig.HISTORICAL_PENALTY_WINDOW
+        stride = ValiConfig.HISTORICAL_PENALTY_STRIDE
         
         # Initialize variables
         total_windows = int((1 - window_size) / stride) + 1
