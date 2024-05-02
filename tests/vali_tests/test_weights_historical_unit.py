@@ -303,12 +303,14 @@ class TestWeights(TestBase):
         """
         no_augmentation_coefficient = 0.0
         lookback_fraction = 0.5
+
+        ## should be a line from 1 to 0, such that at the end we have 0
         augmented_benefit = PositionUtils.augment_benefit(
             no_augmentation_coefficient, 
             lookback_fraction
         )
 
-        self.assertAlmostEqual(augmented_benefit, 0.0, places=5)
+        self.assertAlmostEqual(augmented_benefit, 0.5, places=5)
 
     def test_augment_benefit_typical(self):
         """

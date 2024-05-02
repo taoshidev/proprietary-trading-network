@@ -551,7 +551,7 @@ class PositionManager(CacheController):
                 lookback_fraction
             )
 
-            cp_copy.loss = consistency_penalty * historical_loss_augmentation_coefficient * PositionUtils.dampen_value(
+            cp_copy.loss = historical_loss_augmentation_coefficient * PositionUtils.dampen_value(
                 cp.loss,
                 lookback_fraction
             )

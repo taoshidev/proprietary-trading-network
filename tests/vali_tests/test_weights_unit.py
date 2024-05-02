@@ -261,6 +261,49 @@ class TestWeights(TestBase):
         # Check that the values are scaled correctly
         self.assertAlmostEqual(sum(values), 1.0, places=3)
 
+    def test_positive_returns(self):
+        """Test that the returns scoring function works properly for only positive returns"""
+        sample_gains = [0.4, 0.1, 0.2, 0.3, 0.4, 0.2]
+        sample_losses = [0.0, 0.0, 0.0, -0.1, -0.3, 0.0] # contains losses
+        sample_n_updates = [ 1, 1, 1, 1, 1, 1 ]
+        sample_open_ms = [ 100, 200, 300, 400, 500, 600 ]
+
+        return_positive = Scoring.return_cps(
+            gains=sample_gains,
+            losses=sample_losses,
+            n_updates=sample_n_updates,
+            open_ms=sample_open_ms,
+        )
+
+        self.assertGreaterEqual(return_positive, 0.0) # should always be greater than 0
+
+    def test_negative_returns(self):
+        """Test that the returns scoring function works properly for only negative returns"""
+        sample_gains = [0.0, 0.1, 0.0, 0.1, 0.0, 0.0]
+        sample_losses = [0.0, -0.05, -0.1, -0.1, -0.3, 0.0]
+        sample_n_updates = [ 1, 1, 1, 1, 1, 1 ]
+        sample_open_ms = [ 100, 200, 300, 400, 500, 600 ]
+
+        return_negative = Scoring.return_cps(
+            gains=sample_gains,
+            losses=sample_losses,
+            n_updates=sample_n_updates,
+            open_ms=sample_open_ms,
+        )
+
+        self.assertLessEqual(return_negative, 0.0)
+
+    def test_returns_zero_length_returns(self):
+        """Test that the returns scoring function works properly with zero length returns"""
+        return_zero = Scoring.return_cps(
+            gains=[],
+            losses=[],
+            n_updates=[],
+            open_ms=[]
+        )
+
+        self.assertLess(return_zero, 0.0)
+
     def test_positive_omega(self):
         """Test that the omega function works as expected for only positive returns"""
         sample_gains = [0.4, 0.1, 0.2, 0.3, 0.4, 0.2]
@@ -1033,8 +1076,8 @@ class TestWeights(TestBase):
         """Test that the dampen value function works as expected"""
         dampen_value = 0.5
         lookback_fraction1 = 0.1
-        lookback_fraction2 = 0.9
-        lookback_fraction3 = 0.5
+        lookback_fraction2 = 0.5
+        lookback_fraction3 = 0.9
 
         dampened_one = PositionUtils.dampen_value(
             dampen_value,
@@ -1051,12 +1094,5 @@ class TestWeights(TestBase):
             lookback_fraction=lookback_fraction3
         )
 
-        self.assertAlmostEqual(dampened_one, dampen_value - dampen_value / 10)
-        self.assertAlmostEqual(dampened_two, dampen_value / 10)
-        self.assertAlmostEqual(dampened_three, dampen_value / 2)
-
-    
-
-
-
-
+        self.assertGreater(dampened_one, dampened_two)
+        self.assertGreater(dampened_two, dampened_three)

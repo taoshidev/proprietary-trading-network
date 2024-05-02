@@ -33,13 +33,15 @@ class Scoring:
             return [(miner, 1.0)]
         
         scoring_functions = [
+            Scoring.return_cps,
             Scoring.omega_cps,
-            Scoring.inverted_sortino_cps
+            Scoring.inverted_sortino_cps,
         ]
 
         scoring_function_weights = [
-            0.5,
-            0.5
+            0.50,
+            1.00,
+            1.00
         ]
         
         miner_scores_list: list[list[tuple[str, float]]] = [[] for _ in scoring_functions]
@@ -102,6 +104,30 @@ class Scoring:
         }
         # normalized_scores = sorted(normalized_scores, key=lambda x: x[1], reverse=True)
         return normalized_scores
+    
+    @staticmethod
+    def return_cps(
+        gains: list[float],
+        losses: list[float],
+        n_updates: list[int],
+        open_ms: list[int]
+    ) -> float:
+        """
+        Args:
+            gains: list[float] - the gains for each miner
+            losses: list[float] - the losses for each miner
+            n_updates: list[int] - the number of updates for each miner
+            open_ms: list[int] - the open time for each miner
+        """
+        if len(gains) == 0 or len(losses) == 0:
+            # won't happen because we need a minimum number of trades, but would kick them to a bad return (bottom of the list)
+            return -1
+
+        total_gain = sum(gains)
+        total_loss = sum(losses)
+        total_return = total_gain + total_loss
+
+        return total_return
     
     @staticmethod
     def omega_cps(

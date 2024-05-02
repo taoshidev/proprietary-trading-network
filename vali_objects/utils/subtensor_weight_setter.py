@@ -162,6 +162,9 @@ class SubtensorWeightSetter(CacheController):
 
         augmented_ledger = {}
         for hotkey, miner_ledger in ledger.items():
+            if hotkey not in hotkeys:
+                continue
+
             if omitted_miners is not None and hotkey in omitted_miners:
                 continue
 

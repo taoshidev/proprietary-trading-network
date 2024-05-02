@@ -76,6 +76,7 @@ def generate_request_outputs(write_legacy:bool, write_validator_checkpoint:bool)
 
     omega_cps = {}
     inverted_sortino_cps = {}
+    return_cps = {}
     consistency_penalties = {}
     augmented_ledger = {}
     for hotkey, miner_ledger in ledger.items():
@@ -119,6 +120,14 @@ def generate_request_outputs(write_legacy:bool, write_validator_checkpoint:bool)
 
         # Inverted Sortino
         inverted_sortino_cps[hotkey] = Scoring.inverted_sortino_cps(
+            gains,
+            losses,
+            n_updates,
+            open_durations
+        )
+
+        # Return
+        return_cps[hotkey] = Scoring.return_cps(
             gains,
             losses,
             n_updates,
@@ -246,6 +255,7 @@ def generate_request_outputs(write_legacy:bool, write_validator_checkpoint:bool)
             "probabilistic_sharpe_ratio": probabilistic_sharpe_ratio_list,
             "omega_cps": omega_cps,
             "inverted_sortino_cps": inverted_sortino_cps,
+            "return_cps": return_cps,
         },
         "constants":{
             "set_weight_lookback_range_days": ValiConfig.SET_WEIGHT_LOOKBACK_RANGE_DAYS,
