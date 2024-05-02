@@ -465,13 +465,16 @@ class PerfLedgerManager(CacheController):
         #if t_ms < 1714546760000 + 1000 * 60 * 60 * 1:  # Rebuild after bug fix
         #    perf_ledgers = {}
         hotkey_to_positions = self.get_positions_with_retry(testing_one_hotkey=testing_one_hotkey)
+        eliminated_hotkeys = self.get_eliminated_hotkeys()
 
         # Remove keys from perf ledgers if they aren't in the metagraph anymore
         metagraph_hotkeys = set(self.metagraph.hotkeys)
-        hotkeys_to_delete = []
+        hotkeys_to_delete = set()
         for hotkey in perf_ledgers:
             if hotkey not in metagraph_hotkeys:
-                hotkeys_to_delete.append(hotkey)
+                hotkeys_to_delete.add(hotkey)
+            elif hotkey in eliminated_hotkeys:
+                hotkeys_to_delete.add(hotkey)
         for hotkey in hotkeys_to_delete:
             del perf_ledgers[hotkey]
             
@@ -481,8 +484,7 @@ class PerfLedgerManager(CacheController):
     @staticmethod
     def save_perf_ledgers_to_disk(perf_ledgers: dict[str, PerfLedger]):
         file_path = ValiBkpUtils.get_perf_ledgers_path()
-        with open(file_path, 'w') as f:
-            json.dump(perf_ledgers, f, cls=CustomEncoder)
+        ValiBkpUtils.write_to_dir(file_path, perf_ledgers)
 
     def print_perf_ledgers_on_disk(self):
         perf_ledgers = self.load_perf_ledgers_from_disk()

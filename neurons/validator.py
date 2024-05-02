@@ -24,6 +24,7 @@ from vali_objects.utils.elimination_manager import EliminationManager
 from vali_objects.utils.live_price_fetcher import LivePriceFetcher
 from vali_objects.utils.subtensor_weight_setter import SubtensorWeightSetter
 from vali_objects.utils.mdd_checker import MDDChecker
+from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
 from vali_objects.utils.plagiarism_detector import PlagiarismDetector
 from vali_objects.utils.position_manager import PositionManager
@@ -58,6 +59,8 @@ class Validator:
                 bt.logging.info(f"Found meta.json file {f.read()}")
         except Exception as e:
             bt.logging.error(f"Error reading meta/meta.json: {e}")
+
+        ValiBkpUtils.clear_tmp_dir()
 
         self.config = self.get_config()
         self.is_mainnet = self.config.netuid == 8

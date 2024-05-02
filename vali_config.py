@@ -164,7 +164,7 @@ class ValiConfig:
     VERSION = "2.4.8"
 
     # fees take into account exiting and entering a position, liquidity, and futures fees
-    PERF_LEDGER_REFRESH_TIME_MS = 1000 * 60 * 5 # 5 minutes
+    PERF_LEDGER_REFRESH_TIME_MS = 1000 * 60 * 10  # 10 minutes
     MDD_CHECK_REFRESH_TIME_MS = 15 * 1000  # 15 seconds
     MAX_DAILY_DRAWDOWN = 0.95  # Portfolio should never fall below .95 x of initial value when measured day to day
     MAX_TOTAL_DRAWDOWN = 0.9  # Portfolio should never fall below .90 x of initial value when measured at any instant
