@@ -416,14 +416,14 @@ class PerfLedgerManager(CacheController):
 
             if self.shutdown_dict:
                 break
-            PerfLedgerManager.save_perf_ledgers_to_disk(existing_perf_ledgers)
             lag = (TimeUtil.now_in_millis() - perf_ledger.last_update_ms) // 1000
             total_product = perf_ledger.get_total_product()
             last_portfolio_value = perf_ledger.prev_portfolio_ret
             bt.logging.info(
-                f"Done updating perf ledger for {hotkey} {hotkey_i}/{len(hotkey_to_positions)} in {time.time() - t0} "
+                f"Done updating perf ledger for {hotkey} {hotkey_i+1}/{len(hotkey_to_positions)} in {time.time() - t0} "
                 f"(s). Lag: {lag} (s). Total product: {total_product}. Last portfolio value: {last_portfolio_value}")
 
+        PerfLedgerManager.save_perf_ledgers_to_disk(existing_perf_ledgers)
         bt.logging.info(f"Done updating perf ledger for all hotkeys in {time.time() - t_init} s")
 
 
@@ -495,18 +495,24 @@ class PerfLedgerManager(CacheController):
                 hotkeys_to_delete.add(hotkey)
             elif hotkey in eliminated_hotkeys:
                 hotkeys_to_delete.add(hotkey)
+            elif not len(hotkey_to_positions.get(hotkey, [])):
+                hotkeys_to_delete.add(hotkey)
             elif not rss_modified and hotkey not in self.random_security_screenings:
                 rss_modified = True
                 self.random_security_screenings.add(hotkey)
+                bt.logging.info(f"perf ledger PLM added {hotkey} with {len(hotkey_to_positions.get(hotkey, []))} positions to rss.")
                 hotkeys_to_delete.add(hotkey)
 
         # Start over again
         if not rss_modified:
             self.random_security_screenings = set()
 
-        for hotkey in hotkeys_to_delete:
-            del perf_ledgers[hotkey]
-            
+        perf_ledgers = {k: v for k, v in perf_ledgers.items() if k not in hotkeys_to_delete}
+        hk_to_last_update_date = {k: TimeUtil.millis_to_formatted_date_str(v.last_update_ms)
+                                    if v.last_update_ms else 'N/A' for k, v in perf_ledgers.items()}
+
+        bt.logging.info(f"perf ledger PLM hotkeys to delete: {hotkeys_to_delete}. rss: {self.random_security_screenings}. hk_to_last_update_date: {hk_to_last_update_date}")
+
         # Time in the past to start updating the perf ledgers
         self.update_all_perf_ledgers(hotkey_to_positions, perf_ledgers, t_ms)
 

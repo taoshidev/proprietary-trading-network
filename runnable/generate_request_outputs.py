@@ -278,6 +278,7 @@ def generate_request_outputs(write_legacy:bool, write_validator_checkpoint:bool)
         'perf_ledgers': perf_ledgers
     }
 
+    paths = []
     if write_validator_checkpoint:
         output_file_path = ValiBkpUtils.get_vali_outputs_dir() + "validator_checkpoint.json"
         #logger.debug("Writing to output_file_path:" + output_file_path)
@@ -285,7 +286,7 @@ def generate_request_outputs(write_legacy:bool, write_validator_checkpoint:bool)
             output_file_path,
             final_dict,
         )
-        logger.info(f"backed up validator checkpoint to {output_file_path}")
+        paths.append(output_file_path)
 
     if write_legacy:
         # Support for legacy output file
@@ -294,31 +295,29 @@ def generate_request_outputs(write_legacy:bool, write_validator_checkpoint:bool)
             legacy_output_file_path,
             ord_dict_hotkey_position_map,
         )
+        paths.append(legacy_output_file_path)
+
+    #logger.info(f"backed up data to {paths}")
+
 
 if __name__ == "__main__":
     logger = LoggerUtils.init_logger("generate_request_outputs")
-    last_legacy_write_time = time.time()
-    last_validator_checkpoint_time = time.time()
+    last_write_time = time.time()
+    n_updates = 0
     try:
         while True:
             current_time = time.time()
             write_legacy = False
             write_validator_checkpoint = False
-            msg = ""
             # Check if it's time to write the legacy output
-            if current_time - last_legacy_write_time >= 15:
-                msg += "Writing output.json. "
+            if current_time - last_write_time >= 15:
                 write_legacy = True
-
-            # Check if it's time to write the validator checkpoint
-            if current_time - last_validator_checkpoint_time >= 15:
-                msg += "Writing validator validator_checkpoint.json. "
                 write_validator_checkpoint = True
 
             if write_legacy or write_validator_checkpoint:
-                logger.info(msg)
                 # Generate the request outputs
-                generate_request_outputs(write_legacy=write_legacy, write_validator_checkpoint=write_validator_checkpoint)
+                generate_request_outputs(write_legacy=write_legacy,
+                                         write_validator_checkpoint=write_validator_checkpoint)
 
             if write_legacy:
                 last_legacy_write_time = current_time
@@ -327,7 +326,9 @@ if __name__ == "__main__":
 
             # Log completion duration
             if write_legacy or write_validator_checkpoint:
-                logger.info("Completed writing outputs in " + str(time.time() - current_time) + " seconds.")
+                n_updates += 1
+                if n_updates % 10 == 0:
+                    logger.info("Completed writing outputs in " + str(time.time() - current_time) + " seconds. n_updates: " + str(n_updates))
     except (JSONDecodeError, ValiBkpCorruptDataException) as e:
         logger.error("error occurred trying to decode position json. Probably being written to simultaneously.")
     except Exception as e:
