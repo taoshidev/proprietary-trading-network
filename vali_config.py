@@ -46,6 +46,7 @@ class TradePair(Enum):
     FTSE = ["FTSE", "FTSE", 0.00009, 0.001, 500, TradePairCategory.INDICES]
     GDAXI = ["GDAXI", "GDAXI", 0.00009, 0.001, 500, TradePairCategory.INDICES]
     NDX = ["NDX", "NDX", 0.00009, 0.001, 500, TradePairCategory.INDICES]
+    VIX = ["VIX", "VIX", 0.00009, 0.001, 500, TradePairCategory.INDICES]
 
     @property
     def trade_pair_id(self):
