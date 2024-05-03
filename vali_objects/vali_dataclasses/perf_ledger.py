@@ -223,11 +223,21 @@ class PerfLedgerManager(CacheController):
         time_sorted_orders.sort(key=lambda x: x[0].processed_ms)
         return time_sorted_orders
 
-    def _can_shortcut(self, tp_to_historical_positions: dict[str: Position]):
+    def _can_shortcut(self, tp_to_historical_positions: dict[str: Position], end_time_ms:int,
+                      realtime_position_to_pop: Position | None):
+        portfolio_value = 1.0
+        if end_time_ms < TimeUtil.now_in_millis() - ValiConfig.SET_WEIGHT_LOOKBACK_RANGE_MS:
+            for tp, historical_positions in tp_to_historical_positions.items():
+                for i, historical_position in enumerate(historical_positions):
+                    if i == len(historical_positions) - 1 and realtime_position_to_pop:
+                        historical_position = realtime_position_to_pop
+                    portfolio_value *= historical_position.return_at_close
+            # Since this window would be purged anyways, we can skip by using the instantaneous portfolio return.
+            return True, portfolio_value
+
         n_positions = 0
         n_closed_positions = 0
         n_positions_newly_opened = 0
-        portfolio_value = 1.0
         for tp, historical_positions in tp_to_historical_positions.items():
             for historical_position in historical_positions:
                 n_positions += 1
@@ -312,7 +322,7 @@ class PerfLedgerManager(CacheController):
                 #assert portfolio_return > 0, f"Portfolio value is {portfolio_return} for miner {miner_hotkey} at {t_s}. opr {opr} rtp {price_at_t_s}, historical position {historical_position}"
         return portfolio_return, any_open
 
-    def build_perf_ledger(self, perf_ledger:PerfLedger, tp_to_historical_positions: dict[str: Position], start_time_ms, end_time_ms, miner_hotkey):
+    def build_perf_ledger(self, perf_ledger:PerfLedger, tp_to_historical_positions: dict[str: Position], start_time_ms, end_time_ms, miner_hotkey, realtime_position_to_pop):
         #print(f"Building perf ledger for {miner_hotkey} from {start_time_ms} to {end_time_ms} ({(end_time_ms - start_time_ms) // 1000} s) order {order}")
         if start_time_ms == 0:  # This ledger is being initialized. First order received.
             perf_ledger.init_with_first_order(end_time_ms)
@@ -320,7 +330,8 @@ class PerfLedgerManager(CacheController):
         if start_time_ms == end_time_ms:  # No new orders since last update. Shouldn't happen
             return
         # "Shortcut" All positions closed and one newly open position OR all closed positions (all orders accounted for).
-        can_shortcut, portfolio_return = self._can_shortcut(tp_to_historical_positions)
+        can_shortcut, portfolio_return = \
+            self._can_shortcut(tp_to_historical_positions, end_time_ms, realtime_position_to_pop)
         if can_shortcut:
             perf_ledger.update(portfolio_return, end_time_ms, miner_hotkey, False)
             return
@@ -390,7 +401,7 @@ class PerfLedgerManager(CacheController):
                 if order.processed_ms < perf_ledger.last_update_ms:
                     continue
                 # Need to catch up from perf_ledger.last_update_ms to order.processed_ms
-                self.build_perf_ledger(perf_ledger, tp_to_historical_positions, perf_ledger.last_update_ms, order.processed_ms, hotkey)
+                self.build_perf_ledger(perf_ledger, tp_to_historical_positions, perf_ledger.last_update_ms, order.processed_ms, hotkey, realtime_position_to_pop)
                 #print(f"Done processing order {order}. perf ledger {perf_ledger}")
 
             # We have processed all orders. Need to catch up to now_ms
@@ -398,7 +409,7 @@ class PerfLedgerManager(CacheController):
                 symbol = realtime_position_to_pop.trade_pair.trade_pair
                 tp_to_historical_positions[symbol][-1] = realtime_position_to_pop
             if now_ms > perf_ledger.last_update_ms:
-                self.build_perf_ledger(perf_ledger, tp_to_historical_positions, perf_ledger.last_update_ms, now_ms, hotkey)
+                self.build_perf_ledger(perf_ledger, tp_to_historical_positions, perf_ledger.last_update_ms, now_ms, hotkey, None)
 
             if self.shutdown_dict:
                 break
@@ -449,6 +460,7 @@ class PerfLedgerManager(CacheController):
                 self.metagraph.hotkeys, sort_positions=True,
                 eliminations=self.eliminations
             )
+            # Keep only hotkeys with positions
             hotkeys_with_no_positions = set()
             for k, positions in hotkey_to_positions.items():
                 if len(positions) == 0:
