@@ -162,7 +162,10 @@ class PositionUtils:
             checkpoints: list[PerfCheckpoint] - the list of checkpoints
             evaluation_time_ms: int - the evaluation time
         """
-        filtered_checkpoints = [ checkpoint for checkpoint in checkpoints if checkpoint.open_ms > 0 ]
+
+        activity_threshold = ValiConfig.SET_WEIGHT_MINER_CHALLENGE_PERIOD_TOTAL_ACTIVITY
+        filtered_checkpoints = [ checkpoint for checkpoint in checkpoints if checkpoint.gain + abs(checkpoint.loss) > activity_threshold ]
+
         lookback_fractions = [
             PositionUtils.compute_lookback_fraction(
                 checkpoint.last_update_ms,

@@ -28,6 +28,7 @@ from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
 from vali_objects.utils.plagiarism_detector import PlagiarismDetector
 from vali_objects.utils.position_manager import PositionManager
+from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
 from vali_objects.vali_dataclasses.order import Order
 from vali_objects.position import Position
 from vali_objects.enums.order_type_enum import OrderType
@@ -202,6 +203,8 @@ class Validator:
         self.mdd_checker = MDDChecker(self.config, self.metagraph, self.position_manager, self.eliminations_lock,
                                       live_price_fetcher=self.live_price_fetcher, shutdown_dict=shutdown_dict)
         self.weight_setter = SubtensorWeightSetter(self.config, wallet, self.metagraph)
+        self.challengeperiod_manager = ChallengePeriodManager(self.config, self.metagraph)
+
         self.elimination_manager = EliminationManager(self.metagraph, self.position_manager, self.eliminations_lock)
 
         # Validators on mainnet net to be syned for the first time or after interruption need to resync their
@@ -303,8 +306,10 @@ class Validator:
         bt.logging.info(f"Starting main loop")
         while not shutdown_dict:
             try:
+                current_time = TimeUtil.now_in_millis()
                 self.mdd_checker.mdd_check()
-                self.weight_setter.set_weights()
+                self.challengeperiod_manager.refresh(current_time=current_time)
+                self.weight_setter.set_weights(current_time=current_time)
                 self.elimination_manager.process_eliminations()
                 self.position_manager.position_locks.cleanup_locks(self.metagraph.hotkeys)
             # In case of unforeseen errors, the miner will log the error and continue operations.

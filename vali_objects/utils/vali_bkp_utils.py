@@ -51,7 +51,12 @@ class ValiBkpUtils:
     def get_plagiarism_scores_file_location(running_unit_tests=False) -> str:
         suffix = "/tests" if running_unit_tests else ""
         return ValiConfig.BASE_DIR + f"{suffix}/validation/plagiarism.json"
-
+    
+    @staticmethod
+    def get_challengeperiod_file_location(running_unit_tests=False) -> str:
+        suffix = "/tests" if running_unit_tests else ""
+        return ValiConfig.BASE_DIR + f"{suffix}/validation/challengeperiod.json"
+    
     @staticmethod
     def get_secrets_dir():
         return ValiConfig.BASE_DIR + f"/secrets.json"
