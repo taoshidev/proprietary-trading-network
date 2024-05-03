@@ -228,7 +228,7 @@ class PerfLedgerManager(CacheController):
     def _can_shortcut(self, tp_to_historical_positions: dict[str: Position], end_time_ms:int,
                       realtime_position_to_pop: Position | None):
         portfolio_value = 1.0
-        if end_time_ms < TimeUtil.now_in_millis() - ValiConfig.SET_WEIGHT_LOOKBACK_RANGE_MS:
+        if end_time_ms < TimeUtil.now_in_millis() - TARGET_LEDGER_WINDOW_MS:
             for tp, historical_positions in tp_to_historical_positions.items():
                 for i, historical_position in enumerate(historical_positions):
                     if i == len(historical_positions) - 1 and realtime_position_to_pop:
@@ -273,12 +273,13 @@ class PerfLedgerManager(CacheController):
         #    print('11111', tp.trade_pair, trade_pair_to_price_info.keys())
 
         start_time_s = t_s
-        #end_time_s = end_time_ms // 1000
-        #requested_seconds = end_time_s - start_time_s
+
+        end_time_s = end_time_ms // 1000
+        requested_seconds = end_time_s - start_time_s
+        if requested_seconds > 49999:  # Polygon limit
+            end_time_s = start_time_s + 49999
         # Always fetch the max number of candles possible to minimize number of fetches
-        #if requested_seconds > 50000:  # Polygon limit
-        #    end_time_s = start_time_s + 50000
-        end_time_s = start_time_s + 49999
+        #end_time_s = start_time_s + 49999
         start_time_ms = start_time_s * 1000
         end_time_ms = end_time_s * 1000
 
@@ -500,7 +501,7 @@ class PerfLedgerManager(CacheController):
             elif not rss_modified and hotkey not in self.random_security_screenings:
                 rss_modified = True
                 self.random_security_screenings.add(hotkey)
-                bt.logging.info(f"perf ledger PLM added {hotkey} with {len(hotkey_to_positions.get(hotkey, []))} positions to rss.")
+                #bt.logging.info(f"perf ledger PLM added {hotkey} with {len(hotkey_to_positions.get(hotkey, []))} positions to rss.")
                 hotkeys_to_delete.add(hotkey)
 
         # Start over again
@@ -508,10 +509,10 @@ class PerfLedgerManager(CacheController):
             self.random_security_screenings = set()
 
         perf_ledgers = {k: v for k, v in perf_ledgers.items() if k not in hotkeys_to_delete}
-        hk_to_last_update_date = {k: TimeUtil.millis_to_formatted_date_str(v.last_update_ms)
-                                    if v.last_update_ms else 'N/A' for k, v in perf_ledgers.items()}
+        #hk_to_last_update_date = {k: TimeUtil.millis_to_formatted_date_str(v.last_update_ms)
+        #                            if v.last_update_ms else 'N/A' for k, v in perf_ledgers.items()}
 
-        bt.logging.info(f"perf ledger PLM hotkeys to delete: {hotkeys_to_delete}. rss: {self.random_security_screenings}. hk_to_last_update_date: {hk_to_last_update_date}")
+        bt.logging.info(f"perf ledger PLM hotkeys to delete: {hotkeys_to_delete}. rss: {self.random_security_screenings}")
 
         # Time in the past to start updating the perf ledgers
         self.update_all_perf_ledgers(hotkey_to_positions, perf_ledgers, t_ms)
