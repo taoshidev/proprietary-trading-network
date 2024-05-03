@@ -114,9 +114,9 @@ class PolygonDataService(BaseDataService):
                 prev_n_events = self.n_events_global
 
             if now - last_market_status_update_s > 60:
-                self.MARKET_STATUS = self.POLYGON_CLIENT.get_market_status()
-                if not isinstance(self.MARKET_STATUS, MarketStatus):
-                    bt.logging.error(f"Failed to fetch market status. Received: {self.MARKET_STATUS}")
+                #self.MARKET_STATUS = self.POLYGON_CLIENT.get_market_status()
+                #if not isinstance(self.MARKET_STATUS, MarketStatus):
+                #    bt.logging.error(f"Failed to fetch market status. Received: {self.MARKET_STATUS}")
                 last_market_status_update_s = now
                 self.debug_log()
 
@@ -207,7 +207,7 @@ class PolygonDataService(BaseDataService):
             else:
                 raise ValueError(f"Unknown trade pair category: {tp.trade_pair_category}")
 
-    def is_market_open(self, trade_pair: TradePair) -> bool:
+    def is_market_open_old(self, trade_pair: TradePair) -> bool:
         if self.MARKET_STATUS is None:
             return False
         if not isinstance(self.MARKET_STATUS, MarketStatus):

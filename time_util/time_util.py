@@ -1,14 +1,158 @@
 # developer: Taoshidev
 # Copyright © 2024 Taoshi Inc
-
+import time
 from datetime import datetime, timedelta, timezone
 from typing import List, Tuple
+from functools import lru_cache
 
+import pandas as pd
+pd.set_option('future.no_silent_downcasting', True)
+from pandas.tseries.holiday import USFederalHolidayCalendar
+
+import pandas_market_calendars as mcal
+
+class ForexHolidayCalendar(USFederalHolidayCalendar):
+
+    def __init__(self):
+        # Call to the superclass constructor
+        super().__init__()
+
+        # Cache to store holiday lists by year
+        self.holidays_cache = {}
+
+    def get_holidays(self, timestamp):
+        # Check if the holidays for the given year are already cached
+        if timestamp.year not in self.holidays_cache:
+            # If not cached, calculate and cache them
+            # Get the first and last day of this year
+            start_date = pd.Timestamp(datetime(timestamp.year, 1, 1))
+            end_date = pd.Timestamp(datetime(timestamp.year, 12, 31))
+            #print('start_date', start_date, 'end_date', end_date, 'rules', self.rules)
+
+            self.holidays_cache[timestamp.year] = self.holidays(start=start_date, end=end_date)
+            #print('holidays_cache', self.holidays_cache)
+        return self.holidays_cache[timestamp.year]
+
+    def is_forex_market_open(self, ms_timestamp):
+        # Convert millisecond timestamp to pandas Timestamp and localize to UTC if needed
+        timestamp = pd.Timestamp(ms_timestamp, unit='ms', tz='UTC')
+        #print('found timestamp:', timestamp)
+
+        # Check if the day is a weekend
+        if timestamp.weekday() == 5:  # Saturday all day
+            return False
+        if timestamp.weekday() == 4 and timestamp.hour >= 21:
+            return False
+        if timestamp.weekday() == 6 and timestamp.hour < 21:
+            return False
+
+        # Check if the day is a holiday (assuming holiday impacts the full day)
+        holidays = self.get_holidays(timestamp)
+        timestamp_normalized = timestamp.strftime('%Y-%m-%d')
+        #print('holidays', holidays, 'tsn', timestamp_normalized)
+        if timestamp_normalized in holidays:
+            return False
+
+        return True
+
+
+class IndicesMarketCalendar:
+    def __init__(self):
+        # Create market calendars for NYSE, NASDAQ, and CBOE
+        self.nyse_calendar = mcal.get_calendar('NYSE')
+        self.nasdaq_calendar = mcal.get_calendar('NASDAQ')
+        self.cboe_calendar = mcal.get_calendar('CBOE_Index_Options')  # For VIX
+
+
+    def get_market_calendar(self, ticker):
+        # Return the appropriate calendar based on the ticker
+        if ticker.upper() in ['SPX', 'DJI']:  # S&P 500 and Dow Jones are on the NYSE
+            return self.nyse_calendar
+        elif ticker.upper() == 'NDX':  # NASDAQ 100 is on the NASDAQ
+            return self.nasdaq_calendar
+        elif ticker.upper() == 'VIX':  # Volatility Index is derived from CBOE
+            return self.cboe_calendar
+        else:
+            raise ValueError(f"Ticker not supported {ticker}. Supported tickers are: SPX, NDX, DJI, VIX")
+
+    @lru_cache(maxsize=3000)
+    def schedule_from_cache(self, tsn, market_name):
+        # Normalize the timestamp to ensure cache consistency
+        if market_name == 'CBOE_Index_Options':
+            market_calendar = self.cboe_calendar
+        elif market_name == 'NYSE':
+            market_calendar = self.nyse_calendar
+        elif market_name == 'NASDAQ':
+            market_calendar = self.nasdaq_calendar
+        else:
+            raise ValueError(f"Market calendar not supported {market_name}")
+        start_date = tsn - timedelta(days=5)
+        end_date = tsn + timedelta(days=5)
+        schedule = market_calendar.schedule(start_date=start_date, end_date=end_date)
+        return schedule
+
+
+    def is_market_open(self, ticker, timestamp_ms):
+        # Convert millisecond timestamp to pandas Timestamp and localize to UTC if needed
+        timestamp = pd.Timestamp(timestamp_ms, unit='ms')
+        if timestamp.tzinfo is None:  # If no timezone information, localize to UTC
+            timestamp = timestamp.tz_localize('UTC')
+        else:  # If there is timezone information, convert to UTC
+            timestamp = timestamp.tz_convert('UTC')
+
+        if ticker in ['GDAXI', 'FTSE']:
+            return False
+
+        # Get the market calendar for the given ticker
+        market_calendar = self.get_market_calendar(ticker)
+
+        # Calculate the start and end dates for the schedule
+        schedule = self.schedule_from_cache(timestamp.normalize(), market_calendar.name)
+
+        if schedule.empty:
+            return False
+        #print('schedule', schedule, 'ts', timestamp, 'ts_m', timestamp_ms)
+
+        # Check if the timestamp is within trading hours
+        market_open = market_calendar.open_at_time(schedule, timestamp, include_close=False)
+        return market_open
+
+
+
+class UnifiedMarketCalendar:
+    def __init__(self):
+        # Initialize both market calendars
+        self.indices_calendar = IndicesMarketCalendar()
+        self.forex_calendar = ForexHolidayCalendar()
+
+    def is_market_open(self, trade_pair, timestamp_ms:int):
+        #t0 = time.time()
+        if not trade_pair:
+            raise ValueError("Trade pair is required")
+        if trade_pair.is_crypto:
+            # Crypto markets are assumed to be always open
+            return True
+        elif trade_pair.is_forex:
+            ans = self.forex_calendar.is_forex_market_open(timestamp_ms)
+            #tf = time.time()
+            #print(f"found forex {trade_pair.trade_pair_id} in {tf - t0}")
+            # Check if the Forex market is open using the Forex calendar
+            return ans
+        elif trade_pair.is_indices:
+            ticker = trade_pair.trade_pair_id  # Use the trade_pair_id as the ticker
+            ans = self.indices_calendar.is_market_open(ticker, timestamp_ms)
+            #tf = time.time()
+            #print(f"found index {ticker} in {tf - t0}")
+            # Check if the index market is open using the indices calendar
+            return ans
+        else:
+            raise ValueError("Unsupported trade pair category")
 
 class TimeUtil:
 
     @staticmethod
-    def generate_range_timestamps(start_date: datetime, end_date_days: int, print_timestamps=False) -> List[Tuple[datetime, datetime]]:
+    def generate_range_timestamps(start_date: datetime, end_date_days: int, print_timestamps=False) -> List[
+        Tuple[datetime, datetime]]:
         end_date = start_date + timedelta(days=end_date_days)
 
         timestamps = []
@@ -19,7 +163,8 @@ class TimeUtil:
             end_timestamp = current_date.replace(hour=23, minute=59, second=59, microsecond=999999)
             if end_timestamp > end_date:
                 end_timestamp = end_date
-            timestamps.append((start_timestamp.replace(tzinfo=timezone.utc), end_timestamp.replace(tzinfo=timezone.utc)))
+            timestamps.append(
+                (start_timestamp.replace(tzinfo=timezone.utc), end_timestamp.replace(tzinfo=timezone.utc)))
             current_date += timedelta(days=1)
 
         if print_timestamps:

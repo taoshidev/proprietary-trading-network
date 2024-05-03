@@ -1,7 +1,6 @@
 import json
 import math
 import os
-import random
 import time
 import traceback
 from collections import defaultdict
@@ -14,7 +13,7 @@ from pydantic import BaseModel
 
 from shared_objects.cache_controller import CacheController
 from shared_objects.retry import retry
-from time_util.time_util import TimeUtil
+from time_util.time_util import TimeUtil, UnifiedMarketCalendar
 from vali_config import ValiConfig
 from vali_objects.position import Position
 from vali_objects.utils.live_price_fetcher import LivePriceFetcher
@@ -185,6 +184,7 @@ class PerfLedgerManager(CacheController):
             self.pds = live_price_fetcher.polygon_data_service
         # Every update, pick a hotkey to rebuild in case polygon 1s candle data changed.
         self.random_security_screenings = set()
+        self.market_calendar = UnifiedMarketCalendar()
 
     def run_update_loop(self):
         while not self.shutdown_dict:
@@ -313,6 +313,10 @@ class PerfLedgerManager(CacheController):
                 if historical_position.is_closed_position:  # We want to process just-closed positions. wont be closed if we are on the corresponding event
                     portfolio_return *= historical_position.return_at_close
                     continue
+                if not self.market_calendar.is_market_open(historical_position.trade_pair, t_ms):
+                    portfolio_return *= historical_position.return_at_close
+                    continue
+
                 any_open = True
                 self.refresh_price_info(trade_pair_to_price_info, t_ms, end_time_ms, historical_position.trade_pair)
                 price_at_t_s = trade_pair_to_price_info[tp].get(t_s)
@@ -424,8 +428,9 @@ class PerfLedgerManager(CacheController):
                 f"Done updating perf ledger for {hotkey} {hotkey_i+1}/{len(hotkey_to_positions)} in {time.time() - t0} "
                 f"(s). Lag: {lag} (s). Total product: {total_product}. Last portfolio value: {last_portfolio_value}")
 
-        PerfLedgerManager.save_perf_ledgers_to_disk(existing_perf_ledgers)
-        bt.logging.info(f"Done updating perf ledger for all hotkeys in {time.time() - t_init} s")
+        if not self.shutdown_dict:
+            PerfLedgerManager.save_perf_ledgers_to_disk(existing_perf_ledgers)
+            bt.logging.info(f"Done updating perf ledger for all hotkeys in {time.time() - t_init} s")
 
 
 
@@ -489,8 +494,7 @@ class PerfLedgerManager(CacheController):
         rss_modified = False
 
         # Determine which hotkeys to remove from the perf ledger
-        hotkeys_to_iterate = list(perf_ledgers.keys())
-        random.shuffle(hotkeys_to_iterate)
+        hotkeys_to_iterate = sorted(list(perf_ledgers.keys()))
         for hotkey in hotkeys_to_iterate:
             if hotkey not in metagraph_hotkeys:
                 hotkeys_to_delete.add(hotkey)
