@@ -311,7 +311,7 @@ if __name__ == "__main__":
                 write_legacy = True
 
             # Check if it's time to write the validator checkpoint
-            if current_time - last_validator_checkpoint_time >= 180:
+            if current_time - last_validator_checkpoint_time >= 15:
                 msg += "Writing validator validator_checkpoint.json. "
                 write_validator_checkpoint = True
 
