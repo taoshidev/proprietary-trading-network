@@ -273,11 +273,12 @@ class PerfLedgerManager(CacheController):
         #    print('11111', tp.trade_pair, trade_pair_to_price_info.keys())
 
         start_time_s = t_s
-        end_time_s = end_time_ms // 1000
-        requested_seconds = end_time_s - start_time_s
-        if requested_seconds > 50000:  # Polygon limit
-            end_time_s = start_time_s + 50000
-
+        #end_time_s = end_time_ms // 1000
+        #requested_seconds = end_time_s - start_time_s
+        # Always fetch the max number of candles possible to minimize number of fetches
+        #if requested_seconds > 50000:  # Polygon limit
+        #    end_time_s = start_time_s + 50000
+        end_time_s = start_time_s + 49999
         start_time_ms = start_time_s * 1000
         end_time_ms = end_time_s * 1000
 
