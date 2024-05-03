@@ -26,10 +26,10 @@ class Scoring:
         if len(ledger_dict) == 0:
             bt.logging.debug("No results to compute, returning empty list")
             return []
-        
+
         if len(ledger_dict) == 1:
             miner = list(ledger_dict.keys())[0]
-            bt.logging.debug(f"Only one miner: {miner}, returning 1.0 for the solo miner weight")
+            bt.logging.info(f"Only one miner: {miner}, returning 1.0 for the solo miner weight")
             return [(miner, 1.0)]
         
         if evaluation_time_ms is None:
@@ -95,8 +95,8 @@ class Scoring:
         normalized_scores = Scoring.normalize_scores(combined_scores)
         total_scores = sorted(normalized_scores.items(), key=lambda x: x[1], reverse=True)
 
+        total_scores = sorted(list(normalized_scores.items()), key=lambda x: x[1], reverse=True)
         return total_scores
-    
     
     @staticmethod
     def normalize_scores(scores: dict[str, float]) -> dict[str, float]:
