@@ -1,11 +1,11 @@
 import json
 import math
 import os
+import random
 import time
 import traceback
 from collections import defaultdict
 from copy import deepcopy
-from json import JSONDecodeError
 from typing import List
 
 import bittensor as bt
@@ -183,6 +183,8 @@ class PerfLedgerManager(CacheController):
             self.pds = live_price_fetcher.polygon_data_service
         else:
             self.pds = live_price_fetcher.polygon_data_service
+        # Every update, pick a hotkey to rebuild in case polygon 1s candle data changed.
+        self.random_security_screenings = set()
 
     def run_update_loop(self):
         while not self.shutdown_dict:
@@ -482,11 +484,25 @@ class PerfLedgerManager(CacheController):
         # Remove keys from perf ledgers if they aren't in the metagraph anymore
         metagraph_hotkeys = set(self.metagraph.hotkeys)
         hotkeys_to_delete = set()
-        for hotkey in perf_ledgers:
+        rss_modified = False
+
+        # Determine which hotkeys to remove from the perf ledger
+        hotkeys_to_iterate = list(perf_ledgers.keys())
+        random.shuffle(hotkeys_to_iterate)
+        for hotkey in hotkeys_to_iterate:
             if hotkey not in metagraph_hotkeys:
                 hotkeys_to_delete.add(hotkey)
             elif hotkey in eliminated_hotkeys:
                 hotkeys_to_delete.add(hotkey)
+            elif not rss_modified and hotkey not in self.random_security_screenings:
+                rss_modified = True
+                self.random_security_screenings.add(hotkey)
+                hotkeys_to_delete.add(hotkey)
+
+        # Start over again
+        if not rss_modified:
+            self.random_security_screenings = set()
+
         for hotkey in hotkeys_to_delete:
             del perf_ledgers[hotkey]
             
