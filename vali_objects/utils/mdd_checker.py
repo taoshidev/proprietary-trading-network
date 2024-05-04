@@ -41,6 +41,7 @@ class MDDChecker(CacheController):
         self.eliminations_lock = eliminations_lock
         self.reset_debug_counters()
         self.shutdown_dict = shutdown_dict
+        self.n_poly_api_requests = 0
 
     def reset_debug_counters(self, reset_global_counters=True):
         self.portfolio_max_dd_closed_positions = 0
@@ -66,12 +67,14 @@ class MDDChecker(CacheController):
         candle_data = self.live_price_fetcher.get_candles(trade_pairs=list(required_trade_pairs_for_candles),
                                                   start_time_ms=self.last_price_fetch_time_ms if self.last_price_fetch_time_ms else now,
                                                   end_time_ms=now)
+        self.n_poly_api_requests += len(required_trade_pairs_for_candles)
 
         self.last_price_fetch_time_ms = now
         return candle_data
 
     
     def mdd_check(self):
+        self.n_poly_api_requests = 0
         if not self.refresh_allowed(ValiConfig.MDD_CHECK_REFRESH_TIME_MS):
             time.sleep(1)
             return
@@ -102,7 +105,7 @@ class MDDChecker(CacheController):
 
         bt.logging.info(f"mdd checker completed for {self.n_miners_mdd_checked} miners. n_eliminations_this_round: "
                         f"{self.n_eliminations_this_round}. Max portfolio value seen: {self.max_portfolio_value_seen}. "
-                        f"Min portfolio value seen: {self.min_portfolio_value_seen}. ")
+                        f"Min portfolio value seen: {self.min_portfolio_value_seen}. n_poly_api_requests: {self.n_poly_api_requests}")
         self.set_last_update_time(skip_message=True)
 
     def _replay_all_closed_positions(self, hotkey: str, sorted_closed_positions: List[Position]) -> (bool, float):
@@ -143,6 +146,7 @@ class MDDChecker(CacheController):
             # Only fall back to REST if the order is the latest. Don't want to get slowed down
             # By a flurry of recent orders.
             ws_only = not is_last_order
+            self.n_poly_api_requests += 0 if ws_only else 1
             sources = self.live_price_fetcher.fetch_prices([trade_pair],
                                                         {trade_pair: order.processed_ms},
                                                         ws_only=ws_only).get(trade_pair, (None, None))[1]
