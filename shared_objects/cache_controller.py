@@ -92,6 +92,9 @@ class CacheController:
     def _refresh_eliminations_in_memory(self):
         self.eliminations = self.get_eliminations_from_disk()
 
+    def get_eliminated_hotkeys(self):
+        return set([x['hotkey'] for x in self.eliminations]) if self.eliminations else set()
+
     def get_filtered_eliminations_from_disk(self):
         # Filters out miners that have already been deregistered. (Not in the metagraph)
         # This allows the miner to participate again once they re-register

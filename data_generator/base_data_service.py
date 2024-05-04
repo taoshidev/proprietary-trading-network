@@ -4,7 +4,7 @@ from collections import defaultdict
 from typing import List
 
 import bittensor as bt
-from time_util.time_util import TimeUtil
+from time_util.time_util import TimeUtil, UnifiedMarketCalendar
 from vali_config import TradePair
 from vali_objects.vali_dataclasses.recent_event_tracker import RecentEventTracker
 from vali_objects.vali_dataclasses.price_source import PriceSource
@@ -26,6 +26,7 @@ class BaseDataService():
         self.timespan_to_ms = timespan_to_ms
         self.trade_pair_lookup = {pair.trade_pair: pair for pair in TradePair}
         self.trade_pair_to_longest_seen_lag_s = {}
+        self.market_calendar = UnifiedMarketCalendar()
 
         for trade_pair in TradePair:
             assert trade_pair.trade_pair_category in self.trade_pair_category_to_longest_allowed_lag_s, \
@@ -36,6 +37,9 @@ class BaseDataService():
             trade_pair: TradePair
     ) -> PriceSource | None:
         pass
+
+    def is_market_open(self, trade_pair: TradePair) -> bool:
+        return self.market_calendar.is_market_open(trade_pair, TimeUtil.now_in_millis())
 
     def get_close(self, trade_pair: TradePair) -> PriceSource | None:
         event = self.get_websocket_event(trade_pair)
@@ -143,9 +147,6 @@ class BaseDataService():
             bt.logging.info(f"{self.provider_name} Market closed with closing prices for {closed_trade_pairs}")
 
     def get_price_before_market_close(self, trade_pair: TradePair) -> float | None:
-        pass
-
-    def is_market_open(self, trade_pair: TradePair) -> bool:
         pass
 
     def get_websocket_event(self, trade_pair: TradePair) -> PriceSource | None:

@@ -4,6 +4,8 @@
 import json
 import os
 import pickle
+import uuid
+
 import bittensor as bt
 from pydantic import BaseModel
 
@@ -26,6 +28,10 @@ class ValiBkpUtils:
     def get_miner_dir(running_unit_tests=False) -> str:
         suffix = "/tests" if running_unit_tests else ""
         return ValiConfig.BASE_DIR + f"{suffix}/validation/miners/"
+
+    @staticmethod
+    def get_temp_file_path():
+        return ValiConfig.BASE_DIR + f"/validation/tmp/"
 
     @staticmethod
     def get_miner_all_positions_dir(miner_hotkey, running_unit_tests=False) -> str:
@@ -105,18 +111,31 @@ class ValiBkpUtils:
         return "rb" if is_pickle else "r"
 
     @staticmethod
+    def clear_tmp_dir():
+        temp_dir = ValiBkpUtils.get_temp_file_path()
+        if os.path.exists(temp_dir):
+            for file in os.listdir(temp_dir):
+                os.remove(os.path.join(temp_dir, file))
+
+    @staticmethod
     def write_to_dir(
         vali_file: str, vali_data: dict | object, is_pickle: bool = False
     ) -> None:
+        temp_dir = ValiBkpUtils.get_temp_file_path()
         os.makedirs(os.path.dirname(vali_file), exist_ok=True)
-        with open(vali_file, ValiBkpUtils.get_write_type(is_pickle)) as f:
+        os.makedirs(os.path.dirname(temp_dir), exist_ok=True)
+        # Create uuid file name
+        temp_file_path = temp_dir + str(uuid.uuid4())
+        # Write to temp file first
+        with open(temp_file_path, ValiBkpUtils.get_write_type(is_pickle)) as f:
             if isinstance(vali_data, Position):
                 f.write(vali_data.to_json_string())
             elif is_pickle:
                 pickle.dump(vali_data, f)
             else:
                 f.write(json.dumps(vali_data, cls=CustomEncoder, indent=4))
-        f.close()
+        # Move the file from temp to the final location
+        os.replace(temp_file_path, vali_file)
 
     @staticmethod
     def write_file(
