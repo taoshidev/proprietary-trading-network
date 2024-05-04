@@ -185,6 +185,7 @@ class PerfLedgerManager(CacheController):
         # Every update, pick a hotkey to rebuild in case polygon 1s candle data changed.
         self.random_security_screenings = set()
         self.market_calendar = UnifiedMarketCalendar()
+        self.n_api_calls = 0
 
     def run_update_loop(self):
         while not self.shutdown_dict:
@@ -296,6 +297,7 @@ class PerfLedgerManager(CacheController):
         trade_pair_to_price_info[tp.trade_pair] = price_info
         trade_pair_to_price_info[tp.trade_pair]['lb_s'] = start_time_s
         trade_pair_to_price_info[tp.trade_pair]['ub_s'] = end_time_s
+        self.n_api_calls += 1
         #print(f'Fetched {requested_seconds} s of candles for tp {tp.trade_pair} in {time.time() - t0}s')
         #print('22222', tp.trade_pair, trade_pair_to_price_info.keys())
 
@@ -362,6 +364,7 @@ class PerfLedgerManager(CacheController):
     def update_all_perf_ledgers(self, hotkey_to_positions: dict[str, List[Position]], existing_perf_ledgers: dict[str, PerfLedger], now_ms: int):
         t_init = time.time()
         for hotkey_i, (hotkey, positions) in enumerate(hotkey_to_positions.items()):
+            self.n_api_calls = 0
             if self.shutdown_dict:
                 break
             t0 = time.time()
@@ -426,7 +429,7 @@ class PerfLedgerManager(CacheController):
             last_portfolio_value = perf_ledger.prev_portfolio_ret
             bt.logging.info(
                 f"Done updating perf ledger for {hotkey} {hotkey_i+1}/{len(hotkey_to_positions)} in {time.time() - t0} "
-                f"(s). Lag: {lag} (s). Total product: {total_product}. Last portfolio value: {last_portfolio_value}")
+                f"(s). Lag: {lag} (s). Total product: {total_product}. Last portfolio value: {last_portfolio_value}. n_api_calls: {self.n_api_calls}")
 
         if not self.shutdown_dict:
             PerfLedgerManager.save_perf_ledgers_to_disk(existing_perf_ledgers)
