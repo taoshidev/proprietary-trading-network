@@ -72,61 +72,48 @@ def generate_request_outputs(write_legacy:bool, write_validator_checkpoint:bool)
 
     # Perf Ledger Calculations
     perf_ledgers = PerfLedgerManager.load_perf_ledgers_from_disk() if write_validator_checkpoint else {}
-    ledger = copy.deepcopy(perf_ledgers)
 
     omega_cps = {}
     inverted_sortino_cps = {}
     return_cps = {}
     consistency_penalties = {}
-    augmented_ledger = {}
-    for hotkey, miner_ledger in ledger.items():
-        if omitted_miners is not None and hotkey in omitted_miners:
-            continue
 
-        if hotkey in eliminated_hotkeys:
-            continue
+    filtered_ledger = subtensor_weight_setter.filtered_ledger(
+        hotkeys=all_miner_hotkeys,
+        omitted_miners=omitted_miners,
+        eliminations=eliminations,
+    )
 
-        miner_checkpoints = copy.deepcopy(miner_ledger.cps)
-        miner_checkpoints_filtered = subtensor_weight_setter._filter_checkpoint_elements(miner_checkpoints)
-        checkpoint_meets_criteria = subtensor_weight_setter._filter_checkpoint_list(miner_checkpoints_filtered)
-        if not checkpoint_meets_criteria:
-            continue
+    return_decay_coefficient = ValiConfig.HISTORICAL_DECAY_COEFFICIENT_RETURNS
+    risk_adjusted_decay_coefficient = ValiConfig.HISTORICAL_DECAY_COEFFICIENT_RISKMETRIC
 
-        augmented_ledger[hotkey] = miner_ledger
-        augmented_ledger[hotkey].cps = position_manager.augment_perf_checkpoint(
-            miner_ledger.cps,
-            time_now
-        )
-
-        # Consistency penalty
+    ## consistency penalties
+    consistency_penalties = {}
+    for hotkey, hotkey_ledger in filtered_ledger.items():
         consistency_penalty = PositionUtils.compute_consistency_penalty_cps(
-            miner_ledger.cps,
+            hotkey_ledger.cps,
             time_now
         )
         consistency_penalties[hotkey] = consistency_penalty
 
-        gains = [cp.gain for cp in augmented_ledger[hotkey].cps]
-        losses = [cp.loss for cp in augmented_ledger[hotkey].cps]
-        n_updates = [cp.n_updates for cp in augmented_ledger[hotkey].cps]
-        open_durations = [cp.open_ms for cp in augmented_ledger[hotkey].cps]
+    returns_ledger = PositionManager.augment_perf_ledger(
+        ledger=filtered_ledger,
+        evaluation_time_ms=time_now,
+        decay_coefficient=return_decay_coefficient
+    )
 
-        # Omega
-        omega_cps[hotkey] = Scoring.omega_cps(
-            gains,
-            losses,
-            n_updates,
-            open_durations
-        )
+    risk_adjusted_ledger = PositionManager.augment_perf_ledger(
+        ledger=filtered_ledger,
+        evaluation_time_ms=time_now,
+        decay_coefficient=risk_adjusted_decay_coefficient
+    )
 
-        # Inverted Sortino
-        inverted_sortino_cps[hotkey] = Scoring.inverted_sortino_cps(
-            gains,
-            losses,
-            n_updates,
-            open_durations
-        )
+    for hotkey, miner_ledger in returns_ledger.items():
+        gains = [ cp.gain for cp in miner_ledger.cps ]
+        losses = [ cp.loss for cp in miner_ledger.cps ]
+        n_updates = [ cp.n_updates for cp in miner_ledger.cps ]
+        open_durations = [ cp.open_ms for cp in miner_ledger.cps ]
 
-        # Return
         return_cps[hotkey] = Scoring.return_cps(
             gains,
             losses,
@@ -134,7 +121,27 @@ def generate_request_outputs(write_legacy:bool, write_validator_checkpoint:bool)
             open_durations
         )
 
-    checkpoint_results = Scoring.compute_results_checkpoint(augmented_ledger)
+    for hotkey, miner_ledger in risk_adjusted_ledger.items():
+        gains = [ cp.gain for cp in miner_ledger.cps ]
+        losses = [ cp.loss for cp in miner_ledger.cps ]
+        n_updates = [ cp.n_updates for cp in miner_ledger.cps ]
+        open_durations = [ cp.open_ms for cp in miner_ledger.cps ]
+
+        omega_cps[hotkey] = Scoring.omega_cps(
+            gains,
+            losses,
+            n_updates,
+            open_durations
+        )
+
+        inverted_sortino_cps[hotkey] = Scoring.inverted_sortino_cps(
+            gains,
+            losses,
+            n_updates,
+            open_durations
+        )
+
+    checkpoint_results = Scoring.compute_results_checkpoint(filtered_ledger, evaluation_time_ms=time_now)
     challengeperiod_scores = [ (x, ValiConfig.SET_WEIGHT_MINER_CHALLENGE_PERIOD_WEIGHT) for x in challengeperiod_miners ]
     scoring_results = checkpoint_results + challengeperiod_scores
 

@@ -139,13 +139,18 @@ class PositionUtils:
     def dampen_value(
         return_value: float,
         lookback_fraction: float,
+        time_intensity_coefficient: float = None
     ) -> float:
         """
         Args:
             return_value: float - the return of the miner
             lookback_fraction: float - the fraction of the lookback period since the position was closed.
         """
-        return HistoricalScoring.historical_decay_return(return_value, lookback_fraction)
+        return HistoricalScoring.historical_decay_return(
+            return_value, 
+            lookback_fraction,
+            time_intensity_coefficient=time_intensity_coefficient
+        )
     
     @staticmethod
     def compute_consistency_penalty_cps(

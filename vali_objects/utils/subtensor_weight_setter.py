@@ -42,18 +42,21 @@ class SubtensorWeightSetter(CacheController):
         challengeperiod_elimination_hotkeys = challengeperiod_resultdict["challengeperiod_eliminations"]
 
         # augmented ledger should have the gain, loss, n_updates, and time_duration
-        augmented_ledger = self.augmented_ledger(
+        filtered_ledger = self.filtered_ledger(
             omitted_miners = challengeperiod_miners + challengeperiod_elimination_hotkeys,
             eliminations = self.eliminations
         )
 
-        bt.logging.trace(f"return per uid [{augmented_ledger}]")
-        bt.logging.info(f"number of returns for uid: {len(augmented_ledger)}")
-        if len(augmented_ledger) == 0:
+        bt.logging.trace(f"return per uid [{filtered_ledger}]")
+        bt.logging.info(f"number of returns for uid: {len(filtered_ledger)}")
+        if len(filtered_ledger) == 0:
             bt.logging.info("no returns to set weights with. Do nothing for now.")
         else:
             bt.logging.info("calculating new subtensor weights...")
-            checkpoint_results = Scoring.compute_results_checkpoint(augmented_ledger)
+            checkpoint_results = Scoring.compute_results_checkpoint(
+                filtered_ledger,
+                evaluation_time_ms=current_time
+            )
             bt.logging.info(f"sorted results for weight setting: [{sorted(checkpoint_results, key=lambda x: x[1], reverse=True)}]")
 
             checkpoint_netuid_weights = []
@@ -136,7 +139,7 @@ class SubtensorWeightSetter(CacheController):
             "challengeperiod_eliminations": challengeperiod_eliminations,
         }
 
-    def augmented_ledger(
+    def filtered_ledger(
         self,
         local: bool = False,
         hotkeys: List[str] = None,
@@ -178,10 +181,6 @@ class SubtensorWeightSetter(CacheController):
                 continue
 
             augmented_ledger[hotkey] = miner_ledger
-            augmented_ledger[hotkey].cps = self.position_manager.augment_perf_checkpoint(
-                miner_checkpoints_filtered,
-                evaluation_time_ms
-            )
 
         return augmented_ledger
         

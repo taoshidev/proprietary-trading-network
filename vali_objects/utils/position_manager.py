@@ -26,7 +26,7 @@ from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.vali_dataclasses.order import OrderStatus, Order
 from vali_objects.utils.position_utils import PositionUtils
 from vali_objects.vali_dataclasses.price_source import PriceSource
-from vali_objects.vali_dataclasses.perf_ledger import PerfCheckpoint
+from vali_objects.vali_dataclasses.perf_ledger import PerfCheckpoint, PerfLedger
 
 class PositionManager(CacheController):
     def __init__(self, config=None, metagraph=None, running_unit_tests=False, perform_price_adjustment=False,
@@ -508,19 +508,56 @@ class PositionManager(CacheController):
             per_position_return.append(cumulative_return)
         return per_position_return
     
+    @staticmethod
+    def augment_perf_ledger(
+        ledger: dict[str, PerfLedger],
+        evaluation_time_ms: int,
+        decay_coefficient: float = None,
+        time_decay_coefficient: float = None
+    ) -> dict[str, PerfLedger]:
+        """
+        Augments the entire perf ledger, augmented with historical decay.
+        """
+        if not ledger:
+            return ledger
+        
+        if decay_coefficient is None:
+            decay_coefficient = ValiConfig.HISTORICAL_DECAY_COEFFICIENT_RETURNS
+
+        if time_decay_coefficient is None:
+            time_decay_coefficient = ValiConfig.HISTORICAL_DECAY_TIME_INTENSITY_COEFFICIENT
+        
+        augmented_ledger = copy.deepcopy(ledger)
+        for miner, minerledger in augmented_ledger.items():
+            augmented_ledger[miner].cps = PositionManager.augment_perf_checkpoint(
+                minerledger.cps,
+                evaluation_time_ms,
+                gain_augmentation_coefficient=decay_coefficient,
+                loss_augmentation_coefficient=decay_coefficient,
+                time_decay_coefficient=time_decay_coefficient
+            )
+
+        return augmented_ledger
+    
+    @staticmethod
     def augment_perf_checkpoint(
-            self,
-            cps: list[PerfCheckpoint],
-            evaluation_time_ms: int
-        ) -> list[PerfCheckpoint]:
+        cps: list[PerfCheckpoint],
+        evaluation_time_ms: int,
+        gain_augmentation_coefficient: float = None,
+        loss_augmentation_coefficient: float = None,
+        time_decay_coefficient: float = None
+    ) -> list[PerfCheckpoint]:
         """
         Returns the return at each performance checkpoint, augmented with historical decay.
         """
         if len(cps) == 0:
             return []
         
-        gain_augmentation_coefficient = ValiConfig.HISTORICAL_DECAY_GAIN_COEFFICIENT
-        loss_augmentation_coefficient = ValiConfig.HISTORICAL_DECAY_LOSS_COEFFICIENT
+        if gain_augmentation_coefficient is None:
+            gain_augmentation_coefficient = ValiConfig.HISTORICAL_DECAY_GAIN_COEFFICIENT
+
+        if loss_augmentation_coefficient is None:
+            loss_augmentation_coefficient = ValiConfig.HISTORICAL_DECAY_LOSS_COEFFICIENT
         
         consistency_penalty = PositionUtils.compute_consistency_penalty_cps(
             cps, 
@@ -548,17 +585,20 @@ class PositionManager(CacheController):
             
             cp_copy.gain = consistency_penalty * historical_gain_augmentation_coefficient * PositionUtils.dampen_value(
                 cp.gain,
-                lookback_fraction
+                lookback_fraction,
+                time_decay_coefficient
             )
 
             cp_copy.loss = historical_loss_augmentation_coefficient * PositionUtils.dampen_value(
                 cp.loss,
-                lookback_fraction
+                lookback_fraction,
+                time_decay_coefficient
             )
 
             cp_copy.open_ms = PositionUtils.dampen_value(
                 cp.open_ms,
-                lookback_fraction
+                lookback_fraction,
+                time_decay_coefficient
             )
 
             cps_augmented.append(cp_copy)
