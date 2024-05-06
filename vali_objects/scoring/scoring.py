@@ -39,9 +39,9 @@ class Scoring:
         ]
 
         scoring_function_weights = [
-            0.50,
-            1.00,
-            1.00
+            0.90,
+            0.75,
+            0.60
         ]
         
         miner_scores_list: list[list[tuple[str, float]]] = [[] for _ in scoring_functions]
