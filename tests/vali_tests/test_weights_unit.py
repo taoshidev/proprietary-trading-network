@@ -667,10 +667,6 @@ class TestWeights(TestBase):
 
         self.assertEqual(sorted(flagged_miners), sorted(nonpassing_miners))
 
-    def test_differential_augmentation(self):
-        """Test that the historical augmentation on a ledger works as expected for different time coefficients"""
-
-
     def test_filter_single_checkpoint(self):
         """Test that the filter checkpoint function works as expected"""
         ## the transformation should be some kind of average of the two
