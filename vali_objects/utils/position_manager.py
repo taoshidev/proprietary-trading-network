@@ -300,7 +300,7 @@ class PositionManager(CacheController):
                     open_position.close_out_position(TimeUtil.now_in_millis())
                     if source_for_elimination:
                         open_position.orders[-1].price_sources.append(source_for_elimination)
-                    self.save_miner_position_to_disk(open_position, delete_open_position_if_exists=False)
+                    self.save_miner_position_to_disk(open_position)
 
     def recalculate_return_at_close_and_write_corrected_position_to_disk(self, position: Position, hotkey:str):
         # TODO LOCK and how to handle open positions?
