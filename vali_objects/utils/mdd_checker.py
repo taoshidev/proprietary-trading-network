@@ -271,7 +271,8 @@ class MDDChecker(CacheController):
 
         mdd_failure = self.is_drawdown_beyond_mdd(dd_with_open_positions)
         if mdd_failure:
-            self.position_manager.handle_eliminated_miner(hotkey, trade_pair_to_price_source_used_for_elimination_check, open_position_trade_pairs=open_position_trade_pairs)
+            self.position_manager.handle_eliminated_miner(hotkey, trade_pair_to_price_source_used_for_elimination_check,
+                                                          open_position_trade_pairs=open_position_trade_pairs)
             self.append_elimination_row(hotkey, dd_with_open_positions, mdd_failure)
 
         return bool(mdd_failure)
