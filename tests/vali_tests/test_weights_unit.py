@@ -13,6 +13,7 @@ from vali_objects.vali_dataclasses.order import Order
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.utils.subtensor_weight_setter import SubtensorWeightSetter
 from vali_objects.vali_dataclasses.perf_ledger import PerfCheckpoint
+from vali_objects.utils.position_manager import PositionManager
 
 from vali_config import TradePair
 from vali_config import ValiConfig
@@ -35,6 +36,7 @@ class TestWeights(TestBase):
         n_returns = np.random.randint(5, 100, n_miners)
         start_time = 0
         end_time = ValiConfig.SET_WEIGHT_LOOKBACK_RANGE_MS
+        self.end_time = end_time
 
         ## each of the miners should be hitting the filtering criteria except for the bad miner
         ledger_dict = {}
@@ -217,6 +219,95 @@ class TestWeights(TestBase):
             wallet=None,
             metagraph=None,
             running_unit_tests=True
+        )
+
+        ## now to test scenarios to make sure the variable decay is working properly on the ledger
+        ## miner whose consistency decreases over time
+        n_good_checkpoints = 20
+        good_checkpoint_times = np.linspace(start_time, end_time, n_good_checkpoints, dtype=int).tolist()
+        good_checkpoint_time_accumulation = np.diff(good_checkpoint_times, prepend=0)
+
+        increasing_gains = np.linspace(0.1, 0.2, n_good_checkpoints).tolist()
+        increasing_losses = np.linspace(-0.09, -0.19, n_good_checkpoints).tolist()
+
+        decreasing_gains = increasing_gains[::-1]
+        decreasing_losses = increasing_losses[::-1]
+
+        increasing_list = []
+        decreasing_list = []
+
+        for i in range(n_good_checkpoints):
+            increasing_list.append(
+                PerfCheckpoint(
+                    last_update_ms=good_checkpoint_times[i],
+                    gain=increasing_gains[i],
+                    loss=increasing_losses[i],
+                    prev_portfolio_ret=1.0,
+                    open_ms=good_checkpoint_time_accumulation[i]
+                )
+            )
+        
+        ledger_dict['increasing'] = ledger_generator(
+            checkpoints=increasing_list
+        )
+
+        for i in range(n_good_checkpoints):
+            decreasing_list.append(
+                PerfCheckpoint(
+                    last_update_ms=good_checkpoint_times[i],
+                    gain=decreasing_gains[i],
+                    loss=decreasing_losses[i],
+                    prev_portfolio_ret=1.0,
+                    open_ms=good_checkpoint_time_accumulation[i]
+                )
+            )
+        
+        ledger_dict['decreasing'] = ledger_generator(
+            checkpoints=decreasing_list
+        )
+
+
+        ## miner whose consistency increases over time
+        increasing_gains = np.zeros(n_good_checkpoints)
+        increasing_losses = np.zeros(n_good_checkpoints)
+
+        increasing_gains[int(len(increasing_gains)*3/4)] = 0.1
+        increasing_losses[int(len(increasing_losses)*3/4)] = -0.05
+
+        decreasing_gains = increasing_gains[::-1]
+        decreasing_losses = increasing_losses[::-1]
+
+        increasing_list = []
+        decreasing_list = []
+
+        for i in range(n_good_checkpoints):
+            increasing_list.append(
+                PerfCheckpoint(
+                    last_update_ms=good_checkpoint_times[i],
+                    gain=increasing_gains[i],
+                    loss=increasing_losses[i],
+                    prev_portfolio_ret=1.0,
+                    open_ms=good_checkpoint_time_accumulation[i]
+                )
+            )
+        
+        ledger_dict['increasing_singular'] = ledger_generator(
+            checkpoints=increasing_list
+        )
+
+        for i in range(n_good_checkpoints):
+            decreasing_list.append(
+                PerfCheckpoint(
+                    last_update_ms=good_checkpoint_times[i],
+                    gain=decreasing_gains[i],
+                    loss=decreasing_losses[i],
+                    prev_portfolio_ret=1.0,
+                    open_ms=good_checkpoint_time_accumulation[i]
+                )
+            )
+        
+        ledger_dict['decreasing_singular'] = ledger_generator(
+            checkpoints=decreasing_list
         )
 
     def test_miner_scoring_no_miners(self):
@@ -463,7 +554,7 @@ class TestWeights(TestBase):
             open_ms=sample_open_ms
         )
 
-        self.assertEqual(inverted_sortino, 1 / ValiConfig.SORTINO_MIN_DENOMINATOR)
+        self.assertEqual(inverted_sortino, 0)
 
     def test_inverted_sortino_cps(self):
         """Test inverted sortino function works as expected"""
@@ -1096,3 +1187,139 @@ class TestWeights(TestBase):
 
         self.assertGreater(dampened_one, dampened_two)
         self.assertGreater(dampened_two, dampened_three)
+
+    def test_augment_ledger_increasing(self):
+        """Test that the augment ledger function works as expected, increasing position will score better with more decay (more recent consideration)"""
+        highdecay = PositionManager.augment_perf_ledger(
+            self.ledger_dict,
+            evaluation_time_ms=self.end_time,
+            time_decay_coefficient=0.2
+        )['increasing']
+
+        lowdecay = PositionManager.augment_perf_ledger(
+            self.ledger_dict,
+            evaluation_time_ms=self.end_time,
+            time_decay_coefficient=0.8
+        )['increasing']
+
+        ## with higher amount of historical decay, the sortino will be lower as the losses were lower initially, which will now weigh more heavily. The returns should also be lower.
+        highdecay_return = Scoring.return_cps(
+            gains = [ cp.gain for cp in highdecay.cps ],
+            losses = [ cp.loss for cp in highdecay.cps ],
+            n_updates = [ cp.n_updates for cp in highdecay.cps ],
+            open_ms = [ cp.open_ms for cp in highdecay.cps ]
+        )
+
+        lowdecay_return = Scoring.return_cps(
+            gains = [ cp.gain for cp in lowdecay.cps ],
+            losses = [ cp.loss for cp in lowdecay.cps ],
+            n_updates = [ cp.n_updates for cp in lowdecay.cps ],
+            open_ms = [ cp.open_ms for cp in lowdecay.cps ]
+        )
+
+        self.assertGreater(lowdecay_return, highdecay_return)
+
+        highdecay_sortino = Scoring.inverted_sortino_cps(
+            gains = [ cp.gain for cp in highdecay.cps ],
+            losses = [ cp.loss for cp in highdecay.cps ],
+            n_updates = [ cp.n_updates for cp in highdecay.cps ],
+            open_ms = [ cp.open_ms for cp in highdecay.cps ]
+        )
+
+        lowdecay_sortino = Scoring.inverted_sortino_cps(
+            gains = [ cp.gain for cp in lowdecay.cps ],
+            losses = [ cp.loss for cp in lowdecay.cps ],
+            n_updates = [ cp.n_updates for cp in lowdecay.cps ],
+            open_ms = [ cp.open_ms for cp in lowdecay.cps ]
+        )
+
+        self.assertGreater(lowdecay_sortino, highdecay_sortino)
+
+    def test_augment_ledger_decreasing(self):
+        """Test that the augment ledger function works as expected, increasing position will score better with more decay (more recent consideration)"""
+        highdecay = PositionManager.augment_perf_ledger(
+            self.ledger_dict,
+            evaluation_time_ms=self.end_time,
+            time_decay_coefficient=0.45
+        )['decreasing_singular']
+
+        lowdecay = PositionManager.augment_perf_ledger(
+            self.ledger_dict,
+            evaluation_time_ms=self.end_time,
+            time_decay_coefficient=1.0
+        )['decreasing_singular']
+
+        highdecay_sortino = Scoring.inverted_sortino_cps(
+            gains = [ cp.gain for cp in highdecay.cps ],
+            losses = [ cp.loss for cp in highdecay.cps ],
+            n_updates = [ cp.n_updates for cp in highdecay.cps ],
+            open_ms = [ cp.open_ms for cp in highdecay.cps ]
+        )
+
+        lowdecay_sortino = Scoring.inverted_sortino_cps(
+            gains = [ cp.gain for cp in lowdecay.cps ],
+            losses = [ cp.loss for cp in lowdecay.cps ],
+            n_updates = [ cp.n_updates for cp in lowdecay.cps ],
+            open_ms = [ cp.open_ms for cp in lowdecay.cps ]
+        )
+
+        self.assertGreater(highdecay_sortino, lowdecay_sortino)
+
+    def test_augment_sortino(self):
+        """Test that sortino is working as expected"""
+        gains = [0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0]
+        losses = np.ones(10) * -0.1
+        open_ms = (np.ones(10) * 100).tolist()
+
+        increasing_losses = copy.deepcopy(losses)
+        increasing_losses[:5] = 0
+
+        decreasing_losses = copy.deepcopy(losses)
+        decreasing_losses[5:] = 0
+
+        increasing_sortino = Scoring.inverted_sortino_cps(
+            gains=gains,
+            losses=increasing_losses,
+            n_updates=[1] * 10,
+            open_ms=open_ms
+        )
+
+        decreasing_sortino = Scoring.inverted_sortino_cps(
+            gains=gains,
+            losses=decreasing_losses,
+            n_updates=[1] * 10,
+            open_ms=open_ms
+        )
+
+        self.assertEqual(decreasing_sortino, increasing_sortino)
+
+    def test_augment_checkpoint(self):
+        """Test that the checkpoint augmentation works as expected"""
+        increasing_cps_highdecay = PositionManager.augment_perf_checkpoint(
+            self.ledger_dict['increasing'].cps,
+            evaluation_time_ms=self.end_time,
+            time_decay_coefficient=0.2
+        )
+
+        increasing_cps_lowdecay = PositionManager.augment_perf_checkpoint(
+            self.ledger_dict['increasing'].cps,
+            evaluation_time_ms=self.end_time,
+            time_decay_coefficient=0.9
+        )
+
+        self.assertGreater(
+            increasing_cps_lowdecay[len(increasing_cps_lowdecay)//2].gain, # low decay should have higher historical
+            increasing_cps_highdecay[len(increasing_cps_highdecay)//2].gain,
+        )
+
+        self.assertLess(
+            increasing_cps_lowdecay[len(increasing_cps_lowdecay)//2].loss,
+            increasing_cps_highdecay[len(increasing_cps_highdecay)//2].loss,
+        )
+
+        self.assertGreater(
+            increasing_cps_lowdecay[len(increasing_cps_lowdecay)//2].open_ms,
+            increasing_cps_highdecay[len(increasing_cps_highdecay)//2].open_ms,
+        )
+
+

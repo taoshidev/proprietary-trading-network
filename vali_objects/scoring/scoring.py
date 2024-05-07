@@ -12,19 +12,19 @@ from vali_objects.exceptions.min_responses_exception import MinResponsesExceptio
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.utils.vali_utils import ValiUtils
 from vali_objects.vali_dataclasses.perf_ledger import PerfCheckpoint, PerfLedger
+from vali_objects.utils.position_manager import PositionManager
+from time_util.time_util import TimeUtil
 
 import bittensor as bt
 
 class Scoring:
     @staticmethod
     def compute_results_checkpoint(
-        ledger_dict: dict[str, PerfLedger]
-    ) -> list[tuple[str, list[float]]]:
-        """
-        Args: ledger: PerfLedger - the ledger of the miner returns
-        """
+        ledger_dict: Dict[str, PerfLedger],
+        evaluation_time_ms: int = None
+    ) -> List[Tuple[str, float]]:
         if len(ledger_dict) == 0:
-            bt.logging.debug(f"No results to compute, returning empty list")
+            bt.logging.debug("No results to compute, returning empty list")
             return []
         
         if len(ledger_dict) == 1:
@@ -32,54 +32,68 @@ class Scoring:
             bt.logging.debug(f"Only one miner: {miner}, returning 1.0 for the solo miner weight")
             return [(miner, 1.0)]
         
-        scoring_functions = [
-            Scoring.return_cps,
-            Scoring.omega_cps,
-            Scoring.inverted_sortino_cps,
-        ]
-
-        scoring_function_weights = [
-            0.90,
-            0.75,
-            0.60
-        ]
+        if evaluation_time_ms is None:
+            evaluation_time_ms = TimeUtil.now_in_millis()
         
-        miner_scores_list: list[list[tuple[str, float]]] = [[] for _ in scoring_functions]
+        return_decay_coefficient = ValiConfig.HISTORICAL_DECAY_COEFFICIENT_RETURNS
+        risk_adjusted_decay_coefficient = ValiConfig.HISTORICAL_DECAY_COEFFICIENT_RISKMETRIC
 
-        for scoring_index, scoring_function in enumerate(scoring_functions):
-            for miner, minerledger in ledger_dict.items():
+        returns_ledger = PositionManager.augment_perf_ledger(
+            ledger_dict,
+            evaluation_time_ms=evaluation_time_ms,
+            time_decay_coefficient=return_decay_coefficient,
+        )
+
+        risk_adjusted_ledger = PositionManager.augment_perf_ledger(
+            ledger_dict,
+            evaluation_time_ms=evaluation_time_ms,
+            time_decay_coefficient=risk_adjusted_decay_coefficient,
+        )
+
+        scoring_config = {
+            'return_cps': {
+                'function': Scoring.return_cps,
+                'weight': 0.90,
+                'ledger': returns_ledger,
+            },
+            'omega_cps': {
+                'function': Scoring.omega_cps,
+                'weight': 0.75,
+                'ledger': risk_adjusted_ledger,
+            },
+            'inverted_sortino_cps': {
+                'function': Scoring.inverted_sortino_cps,
+                'weight': 0.60,
+                'ledger': risk_adjusted_ledger,
+            },
+        }
+
+        combined_scores = {}
+
+        for config in scoring_config.values():
+            miner_scores = []
+            for miner, minerledger in config['ledger'].items():
                 gains = [cp.gain for cp in minerledger.cps]
                 losses = [cp.loss for cp in minerledger.cps]
                 n_updates = [cp.n_updates for cp in minerledger.cps]
                 open_ms = [cp.open_ms for cp in minerledger.cps]
 
-                score = scoring_function(gains=gains, losses=losses, n_updates=n_updates, open_ms=open_ms)
-                miner_scores_list[scoring_index].append((miner, score))
-
-        # Combine the scores from the different scoring functions
-        weighted_scores: list[list[str, float]] = []
-
-        for miner_score_list in miner_scores_list:
-            weighted_scores.append(Scoring.weigh_miner_scores(miner_score_list))
-
-        # Combine the weighted scores from the different scoring functions
-        combined_scores: dict[str, float] = {}
-        for c,weighted_score in enumerate(weighted_scores):
-            for miner, score in weighted_score:
+                score = config['function'](gains=gains, losses=losses, n_updates=n_updates, open_ms=open_ms)
+                miner_scores.append((miner, score))
+            
+            weighted_scores = Scoring.weigh_miner_scores(miner_scores)
+            
+            for miner, score in weighted_scores:
                 if miner not in combined_scores:
                     combined_scores[miner] = 1
+                combined_scores[miner] *= config['weight'] * score + (1 - config['weight'])
 
-                combined_scores[miner] *= scoring_function_weights[c] * score + (1 - scoring_function_weights[c])
-
-        ## Force good performance of all error metrics
+        # ## Force good performance of all error metrics
         combined_weighed = Scoring.weigh_miner_scores(list(combined_scores.items()))
-        combined_scoresdict = dict(combined_weighed)
+        combined_scores = dict(combined_weighed)
 
-        # this finishes the non-grace period miners
-        normalized_scores = Scoring.normalize_scores(combined_scoresdict)
-
-        total_scores = list(normalized_scores.items())
-        total_scores = sorted(total_scores, key=lambda x: x[1], reverse=True)
+        normalized_scores = Scoring.normalize_scores(combined_scores)
+        total_scores = sorted(normalized_scores.items(), key=lambda x: x[1], reverse=True)
 
         return total_scores
     
@@ -174,16 +188,14 @@ class Scoring:
             return 0
         
         total_loss = sum(losses)
+        total_loss = np.clip(total_loss, a_min=None, a_max=0)
+
         total_position_active_time = sum(open_ms)
 
         if total_position_active_time == 0:
-            return 0
-        
-        if total_loss == 0:
-            return 1 / ValiConfig.SORTINO_MIN_DENOMINATOR
-        
-        typical_absolute_loss = abs(total_loss / total_position_active_time)
-        return -typical_absolute_loss
+            return -1 / ValiConfig.SORTINO_MIN_DENOMINATOR # this will be quite large
+                
+        return total_loss / total_position_active_time
 
     @staticmethod
     def omega(returns: list[float]) -> float:

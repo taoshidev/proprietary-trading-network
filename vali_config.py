@@ -162,7 +162,7 @@ TRADE_PAIR_STR_TO_TRADE_PAIR = {x.trade_pair: x for x in TradePair}
 
 class ValiConfig:
     ## versioning
-    VERSION = "2.5.2"
+    VERSION = "2.5.3"
 
     # fees take into account exiting and entering a position, liquidity, and futures fees
     PERF_LEDGER_REFRESH_TIME_MS = 1000 * 60 * 15  # minutes
@@ -198,6 +198,8 @@ class ValiConfig:
     MIN_MEDIAN = 1e-6
     HISTORICAL_DECAY_GAIN_COEFFICIENT = 1.00
     HISTORICAL_DECAY_LOSS_COEFFICIENT = 1.00
+    HISTORICAL_DECAY_COEFFICIENT_RETURNS = 0.18
+    HISTORICAL_DECAY_COEFFICIENT_RISKMETRIC = 2.5
 
     SET_WEIGHT_MINIMUM_SINGLE_CHECKPOINT_DURATION_MS = 1 * 15 * 60 * 1000  # 15 minutes
     SET_WEIGHT_MINIMUM_TOTAL_CHECKPOINT_DURATION_MS = 5 * 60 * 60 * 1000  # 50 hours
