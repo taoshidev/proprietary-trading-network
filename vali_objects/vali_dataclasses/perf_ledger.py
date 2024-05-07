@@ -183,9 +183,15 @@ class PerfLedgerManager(CacheController):
         else:
             self.pds = live_price_fetcher.polygon_data_service
         # Every update, pick a hotkey to rebuild in case polygon 1s candle data changed.
+        self.trade_pair_to_price_info = {}
+
         self.random_security_screenings = set()
         self.market_calendar = UnifiedMarketCalendar()
         self.n_api_calls = 0
+        self.POLYGON_MAX_CANDLE_LIMIT = 49999
+        self.UPDATE_LOOKBACK_MS = 600000  # 10 minutes ago. Want to give Polygon time to create candles on the backend.
+        self.UPDATE_LOOKBACK_S = self.UPDATE_LOOKBACK_MS // 1000
+        self.now_ms = 0  # The largest timestamp we want to buffer candles for. time.time() - UPDATE_LOOKBACK_S
 
     def run_update_loop(self):
         while not self.shutdown_dict:
@@ -263,12 +269,23 @@ class PerfLedgerManager(CacheController):
 
 
 
-    def refresh_price_info(self, trade_pair_to_price_info, t_ms, end_time_ms, tp):
+    def new_window_intersects_old_window(self, start_time_s, end_time_s, existing_lb_s, existing_ub_s):
+        # Check if new window intersects with the old window
+        # An intersection occurs if the start of the new window is before the end of the old window,
+        # and the end of the new window is after the start of the old window
+        return start_time_s <= existing_ub_s and end_time_s >= existing_lb_s
+
+    def refresh_price_info(self, t_ms, end_time_ms, tp):
         t_s = t_ms // 1000
-        if tp.trade_pair in trade_pair_to_price_info:
-            price_info = trade_pair_to_price_info[tp.trade_pair]
-            assert t_s >= price_info['lb_s'], (t_s, price_info['lb_s'])
-            if t_s <= price_info['ub_s']:  # No refresh needed
+        existing_lb_s = None
+        existing_ub_s = None
+        existing_window_s = None
+        if tp.trade_pair in self.trade_pair_to_price_info:
+            price_info = self.trade_pair_to_price_info[tp.trade_pair]
+            existing_ub_s = price_info['ub_s']
+            existing_lb_s = price_info['lb_s']
+            existing_window_s = existing_ub_s - existing_lb_s
+            if existing_lb_s <= t_s <= existing_ub_s:  # No refresh needed
                 return
         #else:
         #    print('11111', tp.trade_pair, trade_pair_to_price_info.keys())
@@ -277,10 +294,12 @@ class PerfLedgerManager(CacheController):
 
         end_time_s = end_time_ms // 1000
         requested_seconds = end_time_s - start_time_s
-        if requested_seconds > 49999:  # Polygon limit
-            end_time_s = start_time_s + 49999
+        if requested_seconds > self.POLYGON_MAX_CANDLE_LIMIT:  # Polygon limit
+            end_time_s = start_time_s + self.POLYGON_MAX_CANDLE_LIMIT
+        elif requested_seconds < 3600:  # Get a batch of candles to minimize number of fetches
+            end_time_s = min(start_time_s + 3600, self.now_ms // 1000)
         # Always fetch the max number of candles possible to minimize number of fetches
-        #end_time_s = start_time_s + 49999
+        #end_time_s = start_time_s + self.POLYGON_MAX_CANDLE_LIMIT
         start_time_ms = start_time_s * 1000
         end_time_ms = end_time_s * 1000
 
@@ -288,20 +307,33 @@ class PerfLedgerManager(CacheController):
         #print(f"Starting #{requested_seconds} candle fetch for {tp.trade_pair}")
         price_info, lb_ms, ub_ms = self.pds.get_candles_for_trade_pair_simple(
             trade_pair=tp, start_timestamp_ms=start_time_ms, end_timestamp_ms=end_time_ms)
+        self.n_api_calls += 1
 
         #print(f'Got {len(price_info)} candles after request of {requested_seconds} candles for tp {tp.trade_pair} in {time.time() - t0}s')
 
         assert lb_ms >= start_time_ms, (lb_ms, start_time_ms)
         assert ub_ms <= end_time_ms, (ub_ms, end_time_ms)
+        # Can we build on top of existing data or should we wipe?
+        perform_wipe = True
+        if tp.trade_pair in self.trade_pair_to_price_info:
+            new_window_size = end_time_s - start_time_s
+            if new_window_size + existing_window_s < self.POLYGON_MAX_CANDLE_LIMIT and \
+                    self.new_window_intersects_old_window(start_time_s, end_time_s, existing_lb_s, existing_ub_s):
+                perform_wipe = False
+                self.trade_pair_to_price_info[tp.trade_pair]['ub_s'] = max(existing_ub_s, end_time_s)
+                self.trade_pair_to_price_info[tp.trade_pair]['lb_s'] = min(existing_lb_s, start_time_s)
+                for k, v in price_info.items():
+                    self.trade_pair_to_price_info[tp.trade_pair][k] = v
 
-        trade_pair_to_price_info[tp.trade_pair] = price_info
-        trade_pair_to_price_info[tp.trade_pair]['lb_s'] = start_time_s
-        trade_pair_to_price_info[tp.trade_pair]['ub_s'] = end_time_s
-        self.n_api_calls += 1
+        if perform_wipe:
+            self.trade_pair_to_price_info[tp.trade_pair] = price_info
+            self.trade_pair_to_price_info[tp.trade_pair]['lb_s'] = start_time_s
+            self.trade_pair_to_price_info[tp.trade_pair]['ub_s'] = end_time_s
+
         #print(f'Fetched {requested_seconds} s of candles for tp {tp.trade_pair} in {time.time() - t0}s')
         #print('22222', tp.trade_pair, trade_pair_to_price_info.keys())
 
-    def positions_to_portfolio_return(self, tp_to_historical_positions: dict[str: Position], t_ms, trade_pair_to_price_info, miner_hotkey, end_time_ms):
+    def positions_to_portfolio_return(self, tp_to_historical_positions: dict[str: Position], t_ms, miner_hotkey, end_time_ms):
         # What is the portfolio return at this time t_ms?
         portfolio_return = 1.0
         t_s = t_ms // 1000
@@ -320,8 +352,8 @@ class PerfLedgerManager(CacheController):
                     continue
 
                 any_open = True
-                self.refresh_price_info(trade_pair_to_price_info, t_ms, end_time_ms, historical_position.trade_pair)
-                price_at_t_s = trade_pair_to_price_info[tp].get(t_s)
+                self.refresh_price_info(t_ms, end_time_ms, historical_position.trade_pair)
+                price_at_t_s = self.trade_pair_to_price_info[tp].get(t_s)
                 if price_at_t_s is None:
                     # Use the last portfolio return
                     opr = historical_position.return_at_close
@@ -346,13 +378,12 @@ class PerfLedgerManager(CacheController):
             perf_ledger.update(portfolio_return, end_time_ms, miner_hotkey, False)
             return
 
-        trade_pair_to_price_info = {}
         any_update = any_open = False
         for t_ms in range(start_time_ms, end_time_ms, 1000):
             if self.shutdown_dict:
                 return
             assert t_ms >= perf_ledger.last_update_ms, f"t_ms: {t_ms}, last_update_ms: {perf_ledger.last_update_ms}, delta_s: {(t_ms - perf_ledger.last_update_ms) // 1000} s. perf ledger {perf_ledger}"
-            portfolio_return, any_open = self.positions_to_portfolio_return(tp_to_historical_positions, t_ms, trade_pair_to_price_info, miner_hotkey, end_time_ms)
+            portfolio_return, any_open = self.positions_to_portfolio_return(tp_to_historical_positions, t_ms, miner_hotkey, end_time_ms)
             assert portfolio_return > 0, f"Portfolio value is {portfolio_return} for miner {miner_hotkey} at {t_ms // 1000}. perf ledger {perf_ledger}"
             perf_ledger.update(portfolio_return, t_ms, miner_hotkey, any_open)
             any_update = True
@@ -363,6 +394,7 @@ class PerfLedgerManager(CacheController):
 
     def update_all_perf_ledgers(self, hotkey_to_positions: dict[str, List[Position]], existing_perf_ledgers: dict[str, PerfLedger], now_ms: int):
         t_init = time.time()
+        self.now_ms = now_ms
         for hotkey_i, (hotkey, positions) in enumerate(hotkey_to_positions.items()):
             self.n_api_calls = 0
             if self.shutdown_dict:
@@ -485,7 +517,7 @@ class PerfLedgerManager(CacheController):
     def update(self, testing_one_hotkey=None):
         perf_ledgers = PerfLedgerManager.load_perf_ledgers_from_disk()
         self._refresh_eliminations_in_memory()
-        t_ms = TimeUtil.now_in_millis() - 600000  # 10 minutes ago
+        t_ms = TimeUtil.now_in_millis() - self.UPDATE_LOOKBACK_MS
         #if t_ms < 1714546760000 + 1000 * 60 * 60 * 1:  # Rebuild after bug fix
         #    perf_ledgers = {}
         hotkey_to_positions = self.get_positions_with_retry(testing_one_hotkey=testing_one_hotkey)
