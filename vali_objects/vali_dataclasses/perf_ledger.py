@@ -533,8 +533,8 @@ class PerfLedgerManager(CacheController):
         for hotkey in hotkeys_to_iterate:
             if hotkey not in metagraph_hotkeys:
                 hotkeys_to_delete.add(hotkey)
-            elif hotkey in eliminated_hotkeys:
-                hotkeys_to_delete.add(hotkey)
+            elif hotkey in eliminated_hotkeys: # eliminated hotkeys won't be in positions so they will stop updating. We will keep them in perf ledger for visualizing metrics in the dashboard.
+                pass  # Don't want to rebuild. Use this pass statement to avoid rss logic.
             elif not len(hotkey_to_positions.get(hotkey, [])):
                 hotkeys_to_delete.add(hotkey)
             elif not rss_modified and hotkey not in self.random_security_screenings:
