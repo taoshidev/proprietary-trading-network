@@ -54,7 +54,7 @@ class PositionManager(CacheController):
 
     def give_erronously_eliminated_miners_another_shot(self, hotkey_to_positions):
         time_now_ms = TimeUtil.now_in_millis()
-        if time_now_ms > 1715290051000 + 1000 * 60 * 60:
+        if time_now_ms > 1715290051000 + 2000 * 60 * 60:
             return
         # The MDD Checker will immediately eliminate miners if they exceed the maximum drawdown
         eliminations = self.get_miner_eliminations_from_disk()
@@ -122,9 +122,12 @@ class PositionManager(CacheController):
     def reopen_force_closed_positions(self, positions):
         for position in positions:
             if position.is_closed_position and abs(position.net_leverage) > 0:
+                print('rac1:', position.return_at_close)
                 print(f"Deleting position {position.position_uuid} for trade pair {position.trade_pair.trade_pair_id} nl {position.net_leverage}")
                 self.delete_position_from_disk(position)
                 position.reopen_position()
+                position.rebuild_position_with_updated_orders()
+                print('rac2:', position.return_at_close)
                 self.save_miner_position_to_disk(position, delete_open_position_if_exists=False)
                 print(f"Reopened position {position.position_uuid} for trade pair {position.trade_pair.trade_pair_id}")
 
