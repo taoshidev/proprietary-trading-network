@@ -33,6 +33,7 @@ class CacheController:
         self._last_update_time_ms = 0
         self.eliminations = []
         self.miner_plagiarism_scores = {}
+        self.DD_V2_TIME = TimeUtil.millis_to_datetime(1715359820000 + 1000 * 60 * 60 * 2)  # 5/10/24 TODO: Update before mainnet release
 
     def get_last_update_time_ms(self):
         return self._last_update_time_ms
@@ -211,14 +212,19 @@ class CacheController:
         return 1.0 + ((float(final) - float(initial)) / float(initial))
 
     def is_drawdown_beyond_mdd(self, dd, time_now=None) -> str | bool:
+        # DD V2 5/10/24 - remove daily DD. Make anytime DD limit 95%.
         if time_now is None:
             time_now = TimeUtil.generate_start_timestamp(0)
-        if (dd < ValiConfig.MAX_DAILY_DRAWDOWN and time_now.hour == 0 and time_now.minute < 5):
-            return CacheController.MAX_DAILY_DRAWDOWN
-        elif (dd < ValiConfig.MAX_TOTAL_DRAWDOWN):
-            return CacheController.MAX_TOTAL_DRAWDOWN
+        if time_now < self.DD_V2_TIME:
+            if dd < ValiConfig.MAX_DAILY_DRAWDOWN and time_now.hour == 0 and time_now.minute < 5:
+                return CacheController.MAX_DAILY_DRAWDOWN
+            elif dd < ValiConfig.MAX_TOTAL_DRAWDOWN:
+                return CacheController.MAX_TOTAL_DRAWDOWN
         else:
-            return False
+            if dd < ValiConfig.MAX_TOTAL_DRAWDOWN_V2:
+                return CacheController.MAX_TOTAL_DRAWDOWN
+
+        return False
 
     def get_all_disk_positions_for_all_miners(self, **args):
         all_miner_hotkeys: list = ValiBkpUtils.get_directories_in_dir(
