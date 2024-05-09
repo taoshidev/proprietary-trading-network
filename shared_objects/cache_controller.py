@@ -14,6 +14,7 @@ from vali_objects.position import Position
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.utils.vali_utils import ValiUtils
 from pathlib import Path
+from datetime import timezone
 
 import bittensor as bt
 
@@ -36,6 +37,7 @@ class CacheController:
         self.challengeperiod_testing = {}
         self.challengeperiod_success = {}
         self.miner_plagiarism_scores = {}
+        self.DD_V2_TIME = TimeUtil.millis_to_datetime(1715299898000)  # 5/9/24 TODO: Update before mainnet release
 
     def get_last_update_time_ms(self):
         return self._last_update_time_ms
@@ -316,11 +318,15 @@ class CacheController:
         return 1.0 + ((float(final) - float(initial)) / float(initial))
 
     def is_drawdown_beyond_mdd(self, dd, time_now=None) -> str | bool:
+        # DD V2 5/9/24 - remove daily DD. Make anytime DD limit 95%.
         if time_now is None:
             time_now = TimeUtil.generate_start_timestamp(0)
-        if (dd < ValiConfig.MAX_DAILY_DRAWDOWN and time_now.hour == 0 and time_now.minute < 5):
-            return CacheController.MAX_DAILY_DRAWDOWN
-        elif (dd < ValiConfig.MAX_TOTAL_DRAWDOWN):
+        if time_now < self.DD_V2_TIME and dd < ValiConfig.MAX_TOTAL_DRAWDOWN:
+            return CacheController.MAX_TOTAL_DRAWDOWN
+        # Check if the timestamp is after the
+        #if (dd < ValiConfig.MAX_DAILY_DRAWDOWN and time_now.hour == 0 and time_now.minute < 5):
+        #    return CacheController.MAX_DAILY_DRAWDOWN
+        if dd < ValiConfig.MAX_TOTAL_DRAWDOWN_V2:
             return CacheController.MAX_TOTAL_DRAWDOWN
         else:
             return False

@@ -168,7 +168,8 @@ class ValiConfig:
     PERF_LEDGER_REFRESH_TIME_MS = 1000 * 60 * 15  # minutes
     MDD_CHECK_REFRESH_TIME_MS = 15 * 1000  # 15 seconds
     MAX_DAILY_DRAWDOWN = 0.95  # Portfolio should never fall below .95 x of initial value when measured day to day
-    MAX_TOTAL_DRAWDOWN = 0.9  # Portfolio should never fall below .90 x of initial value when measured at any instant
+    MAX_TOTAL_DRAWDOWN = 0.90  # Portfolio should never fall below .90 x of initial value when measured at any instant
+    MAX_TOTAL_DRAWDOWN_V2 = 0.95
     MAX_OPEN_ORDERS_PER_HOTKEY = 200
     ORDER_COOLDOWN_MS = 10000  # 10 seconds
 
