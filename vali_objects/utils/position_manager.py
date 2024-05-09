@@ -52,13 +52,19 @@ class PositionManager(CacheController):
         if perform_fee_structure_update:
             self.ensure_latest_fee_structure_applied()
 
-    def give_erronously_eliminated_miners_another_shot(self):
+    def give_erronously_eliminated_miners_another_shot(self, hotkey_to_positions):
+        time_now_ms = TimeUtil.now_in_millis()
+        if time_now_ms > 1715290051000 + 1000 * 60 * 60:
+            return
         # The MDD Checker will immediately eliminate miners if they exceed the maximum drawdown
         eliminations = self.get_miner_eliminations_from_disk()
         new_eliminations = []
         for e in eliminations:
-            if e['hotkey'] in ('5Dxqzduahnqw8q3XSUfTcEZGU7xmAsfJubhHZwvXVLN9fSjR'):
+            if e['hotkey'] in ('5D7ZcGnnzT3yzwkZd94oGYXdHbCkrkrn7XELaXdR5dDHrtJX'):
                 bt.logging.warning('Removed elimination for hotkey ', e['hotkey'])
+                positions = hotkey_to_positions.get(e['hotkey'])
+                if positions:
+                    self.reopen_force_closed_positions(positions)
             else:
                 new_eliminations.append(e)
 
@@ -155,17 +161,16 @@ class PositionManager(CacheController):
          4/23/24 - position price source flipped from polygon to TD. Need to be consistent within a position.
           Fix coming in next update.
 
-          4/26/24 - extreme price parsing is giving outliers from bad websocket data. Patch the function and manually correct
+          4/26/24, 5/9/24 - extreme price parsing is giving outliers from bad websocket data. Patch the function and manually correct
           elimination.
 
         """
 
-
-        #self.give_erronously_eliminated_miners_another_shot()
+        hotkey_to_positions = self.get_all_disk_positions_for_all_miners(sort_positions=True, only_open_positions=False)
+        self.give_erronously_eliminated_miners_another_shot(hotkey_to_positions)
         n_corrections = 0
         n_attempts = 0
         unique_corrections = set()
-        hotkey_to_positions = self.get_all_disk_positions_for_all_miners(sort_positions=True, only_open_positions=False)
         for miner_hotkey, positions in hotkey_to_positions.items():
             """
                     

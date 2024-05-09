@@ -600,7 +600,10 @@ if __name__ == "__main__":
     secrets = ValiUtils.get_secrets()
 
     # Initialize client
-    polygon_data_provider = PolygonDataService(api_key=secrets['polygon_apikey'])
+    polygon_data_provider = PolygonDataService(api_key=secrets['polygon_apikey'], disable_ws=True)
+
+    print(polygon_data_provider.get_close_at_date_second(TradePair.CADJPY, 1715288502999))
+    assert 0
 
     #price, time_delta = polygon_data_provider.get_close_at_date_second(trade_pair=TradePair.BTCUSD, target_timestamp_ms=1712671378202)
 
