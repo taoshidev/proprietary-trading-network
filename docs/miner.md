@@ -1,11 +1,11 @@
 # Miner
 
 Basic Rules:
-1. Your miner will start in the challenge period upon entry. This 30 day period will require your miner to demonstrate consistent performance, after which they will be released from the challenge period, which may happen before 30 days has expired. In this month, they will receive a small amount of TAO that will help them avoid getting deregistered. The requirements to pass the challenge period:
-  - 2% Total Return
-  - 0.05 Median Sharpe
-  - 10 Closed Positions
-  - 50 Cumulative Hours of Positions
+1. Your miner will start in the challenge period upon entry. This 30 day period will require your miner to demonstrate consistent performance, after which they will be released from the challenge period, which may happen before 30 days has expired. In this month, they will receive a small amount of TAO that will help them avoid getting deregistered. The minimum requirements to pass the challenge period:
+  - 3.25% Total Return
+  - -1.58E-8 Time Averaged Sortino
+  - 1.0015 Omega
+  - 12 Volume Minimum Checkpoints
 2. Miner will be penalized if they are not providing consistent predictions to the system. The details of this may be found [here](https://github.com/taoshidev/proprietary-trading-network/blob/main/vali_objects/utils/position_utils.py).
 3. A miner can have a maximum of 200 positions open.
 4. A miner's order will be ignored if placing a trade outside of market hours.
@@ -13,7 +13,11 @@ Basic Rules:
 6. A portfolio that falls more than 10% of the maximum value will be eliminated.
 7. A portfolio that falls more than 5% in a single day from a daily max will be eliminated.
 
+### Scoring Details
+
 The open positions held by miners will be continuously evaluated based on their value changes. Any measured positive movement on the asset while tracked in a position will count as a gain for the miner. Any negative movements will be tracked as losses. Risk is defined as the sum volume of millisecond negative value change overseen during a position. Given that the price of assets fluctuates so quickly and has some level of noise, it is virtually impossible for an investment strategy to have zero risk. This is normal. An asset with zero return through the course of the day will still carry risk, although the gains and losses result in a product of 1.0. A higher leverage trade will increase the intensity of losses and of gains, but in this scenario the product sum will still be 1.0 as a return. With this increased leverage, there will be a higher volume of losses, and thus risk. You may augment the risk for a position by placing an order on the position, which might increase or decrease the leverage utilization. Please note that there is a 10 second cooldown period between orders. Additionally, we are requiring miners to hold positions for a minimum of 15 minutes on each 6 hour interval to qualify for scoring in that round.
+
+In order to capture information at such a high resolution, we utilize checkpoints which track a miner's behavior over time. Each checkpoint has a target duration of 6 hours, after which the checkpoint is closed and a new checkpoint is opened. The checkpoint contains the aggregate of all gains and losses, as well as information on the duration of open positions held in the checkpoint and number of updates seen.
 
 We will use three scoring metrics to evaluate miners based on their mid trade scores: **Returns**, **Omega**, **Time Adjusted Sortino**.
 
@@ -33,9 +37,19 @@ Sortino measures the pure volume of losses, and will be divided by the total tim
 
 The total score will result from the product of the Omega and Sortino, so the top miners in our system must perform well in both metrics to receive substantial incentive.
 
-In order to incentivize more recent activity, historical gains and losses are dampened. The historical decay function used can be found [here](https://github.com/taoshidev/proprietary-trading-network/blob/main/vali_objects/scoring/historical_scoring.py). Returns are dampened at a more aggressive pace than the risk adjusted metrics, meaning that more recent returns will exert a greater influence on the current score. By dampening the risk adjusted metrics at a lower rate, we are permitting miners with historically better risk adjusted metrics to take larger risks and benefit. The potency of raw return will decrease by about 50% in 18 hours, while the potency of gains and losses used to calculate the risk metrics will decay by 50% in around 22 days.
+### Challenge Period Details
+
+There are four primary requirements for a miner to pass the challenge period: Returns, Omega, Sortino, and Volume Minimum Checkpoints. All of these metrics were set to be reasonably competitive with our currently successful miners' median values, such that by passing the challenge period the miner will be in a decently competitive stance. The checkpoint files used for the challenge period will also be used to score the miner against other successful miners after passing. The first three metrics are described above in the scoring details section.
+
+The volume minimum checkpoint is defined as a checkpoint which meets a certain threshold of raw gains and losses. The threshold value for inclusion of the checkpoint as valid is 0.1. This means that a checkpoint with a gain of 0.05 and a loss of -0.05 would have an absolute sum of 0.1 and qualify. We are requiring 12 of these valid checkpoints to have been observed in order for the miner to pass the checkpoint qualifications.
+
+### Historic Decay
+
+In order to incentivize more recent activity, historical gains and losses are dampened after the miner passes teh challenge period. The historical decay function used can be found [here](https://github.com/taoshidev/proprietary-trading-network/blob/main/vali_objects/scoring/historical_scoring.py). Returns are dampened at a more aggressive pace than the risk adjusted metrics, meaning that more recent returns will exert a greater influence on the current score. By dampening the risk adjusted metrics at a lower rate, we are permitting miners with historically better risk adjusted metrics to take larger risks and benefit. The potency of raw return will decrease by about 50% in 18 hours, while the potency of gains and losses used to calculate the risk metrics will decay by 50% in around 22 days.
 
 We then rank the miners based on historically augmented return checkpoints, and distribute emissions based on an exponential decay function, giving significant priority to the top miners. Details of both scoring functions can be found [here](https://github.com/taoshidev/proprietary-trading-network/tree/main/vali_objects/scoring). The best way to get emissions is to have a consistently great trading strategy, which makes multiple transactions each week (the more the better). Capturing upside through timing and proper leverage utilization will yield the highest score in our system.
+
+## Mining Infrastructure
 
 On the mining side we've setup some helpful infrastructure for you to send in signals to the network. The script `mining/run_receive_signals_server.py` will launch a flask server to receive order signals.
 
