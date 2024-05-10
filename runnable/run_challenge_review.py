@@ -7,35 +7,46 @@ from vali_objects.utils.subtensor_weight_setter import SubtensorWeightSetter
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.utils.vali_utils import ValiUtils
 from time_util.time_util import TimeUtil
+from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
 
 if __name__ == "__main__":
-    logger = LoggerUtils.init_logger("run incentive review")
-
-    subtensor_weight_setter = SubtensorWeightSetter(None, None, None)
-
-    hotkeys = ValiBkpUtils.get_directories_in_dir(ValiBkpUtils.get_miner_dir())
-
-    eliminations_json = ValiUtils.get_vali_json_file(
-        ValiBkpUtils.get_eliminations_dir()
-    )["eliminations"]
+    logger = LoggerUtils.init_logger("run challenge review")
 
     current_time = TimeUtil.now_in_millis()
+    subtensor_weight_setter = SubtensorWeightSetter(None, None, None)
+    challengeperiod_manager = ChallengePeriodManager(None, None, None)
+
+    ## Collect the ledger
+    ledger = subtensor_weight_setter.perf_manager.load_perf_ledgers_from_disk()
+
+    ## Check the current testing miners for different scenarios
+    subtensor_weight_setter._refresh_eliminations_in_memory()
+    subtensor_weight_setter._refresh_challengeperiod_in_memory()
+
+    inspection_hotkeys_dict = subtensor_weight_setter.challengeperiod_success
+    print(f"Testing hotkeys: {inspection_hotkeys_dict}")
+
+    ## filter the ledger for the miners that passed the challenge period
+    success_hotkeys = list(inspection_hotkeys_dict.keys())
+    filtered_ledger = subtensor_weight_setter.filtered_ledger(hotkeys=success_hotkeys)
+
+    print(f"Filtered ledger: {filtered_ledger}")
 
     # Get all possible positions, even beyond the lookback range
-    challengeperiod_results = subtensor_weight_setter.challenge_period_screening(
-        hotkeys,
+    success, eliminations = challengeperiod_manager.inspect(
+        ledger=filtered_ledger,
+        inspection_hotkeys=inspection_hotkeys_dict,
         current_time=current_time,
-        eliminations=eliminations_json,
-        log=True,
+        log=True
     )
 
-    eliminated_keys = [ x['hotkey'] for x in eliminations_json ]
+    prior_challengeperiod_miners = set(inspection_hotkeys_dict.keys())
+    success_miners = set(success)
+    eliminations = set(eliminations)
 
-    challengeperiod_miners = challengeperiod_results['challengeperiod_miners']
-    challengeperiod_eliminations = challengeperiod_results['challengeperiod_eliminations']
-    existing_positions = set(hotkeys) - set(challengeperiod_miners) - set(challengeperiod_eliminations) - set(eliminated_keys)
+    post_challengeperiod_miners = prior_challengeperiod_miners - eliminations - success_miners
 
-    time.sleep(1)
-    logger.info(f"{len(challengeperiod_miners)} challengeperiod_miners [{challengeperiod_miners}]")
-    logger.info(f"{len(challengeperiod_eliminations)} challengeperiod_eliminations [{challengeperiod_eliminations}]")
-    logger.info(f"{len(list(existing_positions))} challenge period pass [{list(existing_positions)}]")
+    logger.info(f"{len(prior_challengeperiod_miners)} prior_challengeperiod_miners [{prior_challengeperiod_miners}]")
+    logger.info(f"{len(success_miners)} success_miners [{success_miners}]")
+    logger.info(f"{len(eliminations)} challengeperiod_eliminations [{eliminations}]")
+    logger.info(f"{len(post_challengeperiod_miners)} challenge period remaining [{post_challengeperiod_miners}]")

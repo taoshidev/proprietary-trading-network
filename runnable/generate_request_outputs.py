@@ -17,6 +17,7 @@ from vali_objects.utils.position_utils import PositionUtils
 from vali_objects.vali_dataclasses.order import Order
 from vali_objects.scoring.scoring import Scoring
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
+from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
 
 
 def generate_request_outputs(write_legacy:bool, write_validator_checkpoint:bool):
@@ -40,6 +41,18 @@ def generate_request_outputs(write_legacy:bool, write_validator_checkpoint:bool)
     eliminated_hotkeys = set(x['hotkey'] for x in eliminations)
     plagiarism = position_manager.get_plagiarism_scores_from_disk()
 
+    ## Collect information from the disk and populate variables in memory
+    subtensor_weight_setter._refresh_eliminations_in_memory()
+    subtensor_weight_setter._refresh_challengeperiod_in_memory()
+
+    challengeperiod_testing_dictionary = subtensor_weight_setter.challengeperiod_testing
+    challengeperiod_testing_hotkeys = list(challengeperiod_testing_dictionary.keys())
+
+    challengeperiod_success_dictionary = subtensor_weight_setter.challengeperiod_success
+    challengeperiod_success_hotkeys = list(challengeperiod_success_dictionary.keys())
+    
+    challengeperiod_eliminated_hotkeys = [ x['hotkey'] for x in subtensor_weight_setter.eliminations ]
+
     try:
         all_miner_hotkeys:list = ValiBkpUtils.get_directories_in_dir(
             ValiBkpUtils.get_miner_dir()
@@ -50,26 +63,6 @@ def generate_request_outputs(write_legacy:bool, write_validator_checkpoint:bool)
             f"[{ValiBkpUtils.get_miner_dir()}]. Skip run for now."
         )
     
-    # This one is retroactive, so we aren't modifying the eliminations on disk in the outputs file
-    challengeperiod_miners = []
-    challengeperiod_eliminations = []
-
-    full_hotkey_positions = position_manager.get_all_miner_positions_by_hotkey(
-        all_miner_hotkeys,
-        sort_positions=True,
-        eliminations=eliminations,
-        acceptable_position_end_ms=None,
-    )
-
-    for original_hotkey, original_positions in full_hotkey_positions.items():
-        challenge_check_logic = subtensor_weight_setter._challengeperiod_check(original_positions, time_now)
-        if challenge_check_logic is False:
-            challengeperiod_eliminations.append(original_hotkey)
-        if challenge_check_logic is None:
-            challengeperiod_miners.append(original_hotkey)
-
-    omitted_miners = challengeperiod_miners + challengeperiod_eliminations
-
     # Perf Ledger Calculations
     perf_ledgers = PerfLedgerManager.load_perf_ledgers_from_disk() if write_validator_checkpoint else {}
 
@@ -78,11 +71,7 @@ def generate_request_outputs(write_legacy:bool, write_validator_checkpoint:bool)
     return_cps = {}
     consistency_penalties = {}
 
-    filtered_ledger = subtensor_weight_setter.filtered_ledger(
-        hotkeys=all_miner_hotkeys,
-        omitted_miners=omitted_miners,
-        eliminations=eliminations,
-    )
+    filtered_ledger = subtensor_weight_setter.filtered_ledger(hotkeys=challengeperiod_success_hotkeys)
 
     return_decay_coefficient = ValiConfig.HISTORICAL_DECAY_COEFFICIENT_RETURNS
     risk_adjusted_decay_coefficient = ValiConfig.HISTORICAL_DECAY_COEFFICIENT_RISKMETRIC
@@ -142,7 +131,7 @@ def generate_request_outputs(write_legacy:bool, write_validator_checkpoint:bool)
         )
 
     checkpoint_results = Scoring.compute_results_checkpoint(filtered_ledger, evaluation_time_ms=time_now)
-    challengeperiod_scores = [ (x, ValiConfig.SET_WEIGHT_MINER_CHALLENGE_PERIOD_WEIGHT) for x in challengeperiod_miners ]
+    challengeperiod_scores = [ (x, ValiConfig.SET_WEIGHT_MINER_CHALLENGE_PERIOD_WEIGHT) for x in challengeperiod_testing_hotkeys ]
     scoring_results = checkpoint_results + challengeperiod_scores
 
     # we won't be able to query for eliminated hotkeys from challenge period
@@ -210,8 +199,8 @@ def generate_request_outputs(write_legacy:bool, write_validator_checkpoint:bool)
         for k, v in dict_hotkey_position_map.items()
         if 'thirty_day_returns_augmented' in v and
         k not in eliminated_hotkeys and
-        k not in challengeperiod_eliminations and
-        k not in challengeperiod_miners
+        k not in challengeperiod_eliminated_hotkeys and
+        k not in challengeperiod_success_hotkeys
     }
 
     filtered_results = list(miner_finalscores.items())
@@ -262,7 +251,7 @@ def generate_request_outputs(write_legacy:bool, write_validator_checkpoint:bool)
             "probabilistic_sharpe_ratio": probabilistic_sharpe_ratio_list,
             "omega_cps": omega_cps,
             "inverted_sortino_cps": inverted_sortino_cps,
-            "return_cps": return_cps,
+            "return_cps": return_cps
         },
         "constants":{
             "set_weight_lookback_range_days": ValiConfig.SET_WEIGHT_LOOKBACK_RANGE_DAYS,
@@ -276,7 +265,10 @@ def generate_request_outputs(write_legacy:bool, write_validator_checkpoint:bool)
             "max_total_drawdown": ValiConfig.MAX_TOTAL_DRAWDOWN,
             "max_daily_drawdown": ValiConfig.MAX_DAILY_DRAWDOWN,
         },
-        'challengeperiod_miners': challengeperiod_miners,
+        'challengeperiod': {
+            "testing": challengeperiod_testing_dictionary,
+            "success": challengeperiod_success_dictionary
+        },
         'eliminations': eliminations,
         'plagiarism': plagiarism,
         'youngest_order_processed_ms': youngest_order_processed_ms,

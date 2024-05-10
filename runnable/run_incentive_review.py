@@ -6,6 +6,7 @@ from vali_objects.utils.subtensor_weight_setter import SubtensorWeightSetter
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.utils.vali_utils import ValiUtils
 from vali_objects.utils.position_manager import PositionManager
+from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
 from time_util.time_util import TimeUtil
 from vali_config import ValiConfig
 
@@ -14,6 +15,7 @@ if __name__ == "__main__":
 
     current_time = TimeUtil.now_in_millis()
     subtensor_weight_setter = SubtensorWeightSetter(None, None, None)
+    challengeperiod_manager = ChallengePeriodManager(None, None)
 
     hotkeys = ValiBkpUtils.get_directories_in_dir(ValiBkpUtils.get_miner_dir())
 
@@ -21,23 +23,18 @@ if __name__ == "__main__":
         ValiBkpUtils.get_eliminations_dir()
     )["eliminations"]
 
+    subtensor_weight_setter._refresh_eliminations_in_memory()
+    subtensor_weight_setter._refresh_challengeperiod_in_memory()
     logger.info(f"Testing hotkeys: {hotkeys}")
 
-    challengeperiod_resultdict = subtensor_weight_setter.challenge_period_screening(
-        hotkeys = hotkeys,
-        eliminations = eliminations_json,
-        current_time = current_time
-    )
+    challengeperiod_miners = subtensor_weight_setter.challengeperiod_testing
+    challengeperiod_passing = subtensor_weight_setter.challengeperiod_success
 
-    challengeperiod_miners = challengeperiod_resultdict["challengeperiod_miners"]
-    challengeperiod_elimination_hotkeys = challengeperiod_resultdict["challengeperiod_eliminations"]
+    passing_hotkeys = list(challengeperiod_passing.keys())
+    logger.info(f"Passing hotkeys: {passing_hotkeys}")
 
     # augmented ledger should have the gain, loss, n_updates, and time_duration
-    filtered_ledger = subtensor_weight_setter.filtered_ledger(
-        hotkeys = hotkeys,
-        omitted_miners = challengeperiod_miners + challengeperiod_elimination_hotkeys,
-        eliminations = eliminations_json
-    )
+    filtered_ledger = subtensor_weight_setter.filtered_ledger(hotkeys=passing_hotkeys)
 
     return_decay_coefficient = ValiConfig.HISTORICAL_DECAY_COEFFICIENT_RETURNS
     risk_adjusted_decay_coefficient = ValiConfig.HISTORICAL_DECAY_COEFFICIENT_RISKMETRIC
@@ -108,6 +105,7 @@ if __name__ == "__main__":
 
     normalized_scores = Scoring.normalize_scores(combined_scores)
     checkpoint_results = sorted(normalized_scores.items(), key=lambda x: x[1], reverse=True)
+    logger.info(f"Sorted results for weight setting: [{checkpoint_results}]")
 
     # Print rankings and original scores for each metric
     for metric, ranks in rankings.items():
@@ -124,6 +122,8 @@ if __name__ == "__main__":
 
 
     challengeperiod_results = [ (x, ValiConfig.SET_WEIGHT_MINER_CHALLENGE_PERIOD_WEIGHT) for x in challengeperiod_miners ]
+
+    logger.info(f"Checkpoint results [{[ x[0] for x in checkpoint_results]}]")
 
     sorted_data = checkpoint_results + challengeperiod_results
 

@@ -8,6 +8,7 @@ from time_util.time_util import TimeUtil
 from vali_objects.position import Position
 from vali_objects.utils.live_price_fetcher import LivePriceFetcher
 from vali_objects.utils.position_manager import PositionManager
+from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 import bittensor as bt
 
@@ -57,6 +58,8 @@ def regenerate_miner_positions(perform_backup=True):
     else:
         position_manager = PositionManager()
         position_manager.init_cache_files()
+
+    challengeperiod_manager = ChallengePeriodManager(config=None, metagraph=None)
     # We want to get the smallest processed_ms timestamp across all positions in the backup and then compare this to
     # the smallest processed_ms timestamp across all orders on the local filesystem. If the backup smallest timestamp is
     # older than the local smallest timestamp, we will not regenerate the positions. Similarly for the oldest timestamp.
@@ -142,6 +145,13 @@ def regenerate_miner_positions(perform_backup=True):
 
     bt.logging.info(f"regenerating {len(data['plagiarism'])} plagiarism scores")
     position_manager.write_plagiarism_scores_to_disk(data['plagiarism'])
+
+    ## Now sync challenge period with the disk
+    challengeperiod = data.get('challengeperiod', {})
+    challengeperiod_manager.challengeperiod_testing = challengeperiod.get('testing', {})  
+    challengeperiod_manager.challengeperiod_success = challengeperiod.get('success', {})
+
+    challengeperiod_manager._write_challengeperiod_from_memory_to_disk()
     return True
 
 if __name__ == "__main__":

@@ -4,6 +4,7 @@ import os
 import datetime
 from pickle import UnpicklingError
 from typing import List, Dict
+import copy
 
 from time_util.time_util import TimeUtil
 from vali_config import ValiConfig
@@ -32,6 +33,8 @@ class CacheController:
         self.metagraph = metagraph  # Refreshes happen on validator
         self._last_update_time_ms = 0
         self.eliminations = []
+        self.challengeperiod_testing = {}
+        self.challengeperiod_success = {}
         self.miner_plagiarism_scores = {}
         self.DD_V2_TIME = TimeUtil.millis_to_datetime(1715359820000 + 1000 * 60 * 60 * 2)  # 5/10/24 TODO: Update before mainnet release
 
@@ -161,6 +164,106 @@ class CacheController:
             ValiBkpUtils.get_plagiarism_scores_file_location(running_unit_tests=self.running_unit_tests))
         self.miner_plagiarism_scores = {mch: mc for mch, mc in cached_miner_plagiarism.items()}
 
+    def get_challengeperiod_testing(self):
+        return ValiUtils.get_vali_json_file_dict(
+            ValiBkpUtils.get_challengeperiod_file_location(running_unit_tests=self.running_unit_tests)
+        ).get('testing', {})
+    
+    def get_challengeperiod_success(self):
+        return ValiUtils.get_vali_json_file_dict(
+            ValiBkpUtils.get_challengeperiod_file_location(running_unit_tests=self.running_unit_tests)
+        ).get('success', {})
+
+    ## Challenge period functions
+    def _refresh_challengeperiod_in_memory(self, eliminations: list[dict] = []):
+        if len(eliminations) == 0:
+            eliminations = self.eliminations
+
+        eliminations_hotkeys = set([ x['hotkey'] for x in eliminations ])
+
+        location = ValiBkpUtils.get_challengeperiod_file_location(running_unit_tests=self.running_unit_tests)
+        existing_challengeperiod = ValiUtils.get_vali_json_file_dict(location)
+        existing_challengeperiod_testing = existing_challengeperiod.get('testing', {})
+        existing_challengeperiod_success = existing_challengeperiod.get('success', {})
+
+        self.challengeperiod_testing = { k: v for k, v in existing_challengeperiod_testing.items() if k not in eliminations_hotkeys }
+        self.challengeperiod_success = { k: v for k, v in existing_challengeperiod_success.items() if k not in eliminations_hotkeys }
+    
+    def _refresh_challengeperiod_in_memory_and_disk(self, eliminations: list[str] = []):
+        self._refresh_challengeperiod_in_memory(eliminations=eliminations)
+        self._write_challengeperiod_from_memory_to_disk()
+
+    def clear_challengeperiod_from_disk(self):
+        ValiBkpUtils.write_file(ValiBkpUtils.get_challengeperiod_file_location(
+            running_unit_tests=self.running_unit_tests), 
+            {"testing": {}, "success": {}}
+        )
+
+    def _clear_challengeperiod_in_memory_and_disk(self):
+        self.challengeperiod_testing = {}
+        self.challengeperiod_success = {}
+        self.clear_challengeperiod_from_disk()
+
+    def _promote_challengeperiod_in_memory(self, hotkeys: list[str], current_time: int):
+        new_success = { hotkey: current_time for hotkey in hotkeys }
+        self.challengeperiod_success = {
+            **self.challengeperiod_success, 
+            **new_success
+        }
+
+        for hotkey in hotkeys:
+            if hotkey in self.challengeperiod_testing:
+                self.challengeperiod_testing.pop(hotkey)
+            else:
+                bt.logging.error(f"Hotkey {hotkey} was not in challengeperiod_testing but promotion to success was attempted.")
+
+    def _demote_challengeperiod_in_memory(self, hotkeys: list[str]):
+        for hotkey in hotkeys:
+            if hotkey in self.challengeperiod_testing:
+                self.challengeperiod_testing.pop(hotkey)
+            else:
+                bt.logging.error(f"Hotkey {hotkey} was not in challengeperiod_testing but demotion to failure was attempted.")
+
+        for hotkey in hotkeys:
+            self.append_elimination_row(hotkey, -1, 'FAILED_CHALLENGE_PERIOD')
+
+    def _write_challengeperiod_from_memory_to_disk(self):
+        challengeperiod_data = { 
+            "testing": self.challengeperiod_testing, 
+            "success": self.challengeperiod_success 
+        }
+        ValiBkpUtils.write_file(
+            ValiBkpUtils.get_challengeperiod_file_location(
+                running_unit_tests=self.running_unit_tests
+            ), 
+            challengeperiod_data
+        )
+
+    def _add_challengeperiod_testing_in_memory_and_disk(
+        self, 
+        new_hotkeys: list[str], 
+        eliminations: list[dict] = None,
+        current_time: int = None
+    ):
+        if current_time is None:
+            current_time = TimeUtil.now_in_millis()
+
+        if eliminations is None:
+            eliminations = self.eliminations
+
+        elimination_hotkeys = [ x['hotkey'] for x in eliminations ]
+
+        ## check all hotkeys which have at least one position
+        miners_with_positions = self.get_all_miner_hotkeys_with_at_least_one_position()
+
+        for hotkey in new_hotkeys:
+            if hotkey in miners_with_positions:
+                if hotkey not in elimination_hotkeys:
+                    if hotkey not in self.challengeperiod_testing:
+                        if hotkey not in self.challengeperiod_success:
+                            self.challengeperiod_testing[hotkey] = current_time
+
+        self._write_challengeperiod_from_memory_to_disk()
 
     def init_cache_files(self) -> None:
         ValiBkpUtils.make_dir(ValiBkpUtils.get_vali_dir(running_unit_tests=self.running_unit_tests))
@@ -175,6 +278,12 @@ class CacheController:
             miner_copying_file = {hotkey: 0 for hotkey in hotkeys}
             ValiBkpUtils.write_file(
                 ValiBkpUtils.get_plagiarism_scores_file_location(running_unit_tests=self.running_unit_tests), miner_copying_file
+            )
+
+        if len(self.get_challengeperiod_testing()) == 0 and len(self.get_challengeperiod_success()) == 0:
+            ValiBkpUtils.write_file(
+                ValiBkpUtils.get_challengeperiod_file_location(running_unit_tests=self.running_unit_tests),
+                {"testing": {},"success": {}}
             )
 
         # Check if the get_miner_dir directory exists. If not, create it
@@ -296,3 +405,16 @@ class CacheController:
             for hotkey in hotkeys
             if hotkey not in eliminated_hotkeys
         }
+    
+    def get_all_miner_hotkeys_with_at_least_one_position(self) -> set[str]:
+        all_miner_hotkeys: list = ValiBkpUtils.get_directories_in_dir(
+            ValiBkpUtils.get_miner_dir()
+        )
+        positions_dict = self.get_all_miner_positions_by_hotkey(all_miner_hotkeys)
+
+        miner_nonzero_positions = set()
+        for k, v in positions_dict.items():
+            if len(v) > 0:
+                miner_nonzero_positions.add(k)
+
+        return miner_nonzero_positions

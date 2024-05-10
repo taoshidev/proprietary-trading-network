@@ -26,10 +26,10 @@ class Scoring:
         if len(ledger_dict) == 0:
             bt.logging.debug("No results to compute, returning empty list")
             return []
-        
+
         if len(ledger_dict) == 1:
             miner = list(ledger_dict.keys())[0]
-            bt.logging.debug(f"Only one miner: {miner}, returning 1.0 for the solo miner weight")
+            bt.logging.info(f"Only one miner: {miner}, returning 1.0 for the solo miner weight")
             return [(miner, 1.0)]
         
         if evaluation_time_ms is None:
@@ -95,8 +95,8 @@ class Scoring:
         normalized_scores = Scoring.normalize_scores(combined_scores)
         total_scores = sorted(normalized_scores.items(), key=lambda x: x[1], reverse=True)
 
+        total_scores = sorted(list(normalized_scores.items()), key=lambda x: x[1], reverse=True)
         return total_scores
-    
     
     @staticmethod
     def normalize_scores(scores: dict[str, float]) -> dict[str, float]:
@@ -196,6 +196,29 @@ class Scoring:
             return -1 / ValiConfig.SORTINO_MIN_DENOMINATOR # this will be quite large
                 
         return total_loss / total_position_active_time
+    
+    @staticmethod
+    def checkpoint_volume_threshold_count(
+        gains: list[float],
+        losses: list[float],
+        n_updates: list[int],
+        open_ms: list[int]
+    ) -> float:
+        """
+        Args:
+            gains: list[float] - the gains for each miner
+            losses: list[float] - the losses for each miner
+            n_updates: list[int] - the number of updates for each miner
+            open_ms: list[int] - the open time for each miner
+        """
+        if len(gains) == 0 or len(losses) == 0:
+            # won't happen because we need a minimum number of trades, but would kick them to 0 weight (bottom of the list)
+            return 0
+        
+        checkpoint_volume_threshold = ValiConfig.CHECKPOINT_VOLUME_THRESHOLD
+        volume_arr = np.array(gains) + np.abs(np.array(losses))
+
+        return np.sum(volume_arr >= checkpoint_volume_threshold)
 
     @staticmethod
     def omega(returns: list[float]) -> float:

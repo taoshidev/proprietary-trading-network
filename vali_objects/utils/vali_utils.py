@@ -22,7 +22,32 @@ class ValiUtils:
         except FileNotFoundError:
             raise ValiFileMissingException("Vali secrets file is missing")
 
-
+    @staticmethod
+    def get_vali_json_file(vali_dir: str, key: str = None) -> List | Dict:
+        # wrapping here to allow simpler error handling & original for other error handling
+        try:
+            secrets = ValiBkpUtils.get_file(vali_dir)
+            if key is not None:
+                return json.loads(secrets)[key]
+            else:
+                return json.loads(secrets)
+        except FileNotFoundError:
+            print(f"no vali json file [{dir}], continuing")
+            return []
+        
+    @staticmethod
+    def get_vali_json_file_dict(vali_dir: str, key: str = None) -> Dict:
+        # wrapping here to allow simpler error handling & original for other error handling
+        try:
+            secrets = ValiBkpUtils.get_file(vali_dir)
+            if key is not None:
+                return json.loads(secrets)[key]
+            else:
+                return json.loads(secrets)
+        except FileNotFoundError:
+            print(f"no vali json file [{dir}], continuing")
+            return {}
+        
     @staticmethod
     def get_vali_json_file(vali_dir: str, key: str = None) -> List | Dict:
         # wrapping here to allow simpler error handling & original for other error handling
