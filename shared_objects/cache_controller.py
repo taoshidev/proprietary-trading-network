@@ -252,11 +252,15 @@ class CacheController:
 
         elimination_hotkeys = [ x['hotkey'] for x in eliminations ]
 
+        ## check all hotkeys which have at least one position
+        miners_with_positions = self.get_all_miner_hotkeys_with_at_least_one_position()
+
         for hotkey in new_hotkeys:
-            if hotkey not in elimination_hotkeys:
-                if hotkey not in self.challengeperiod_testing:
-                    if hotkey not in self.challengeperiod_success:
-                        self.challengeperiod_testing[hotkey] = current_time
+            if hotkey in miners_with_positions:
+                if hotkey not in elimination_hotkeys:
+                    if hotkey not in self.challengeperiod_testing:
+                        if hotkey not in self.challengeperiod_success:
+                            self.challengeperiod_testing[hotkey] = current_time
 
         self._write_challengeperiod_from_memory_to_disk()
 
@@ -395,3 +399,16 @@ class CacheController:
             for hotkey in hotkeys
             if hotkey not in eliminated_hotkeys
         }
+    
+    def get_all_miner_hotkeys_with_at_least_one_position(self) -> set[str]:
+        all_miner_hotkeys: list = ValiBkpUtils.get_directories_in_dir(
+            ValiBkpUtils.get_miner_dir()
+        )
+        positions_dict = self.get_all_miner_positions_by_hotkey(all_miner_hotkeys)
+
+        miner_nonzero_positions = set()
+        for k, v in positions_dict.items():
+            if len(v) > 0:
+                miner_nonzero_positions.add(k)
+
+        return miner_nonzero_positions

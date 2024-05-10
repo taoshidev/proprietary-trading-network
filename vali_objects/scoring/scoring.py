@@ -196,6 +196,29 @@ class Scoring:
             return -1 / ValiConfig.SORTINO_MIN_DENOMINATOR # this will be quite large
                 
         return total_loss / total_position_active_time
+    
+    @staticmethod
+    def checkpoint_volume_threshold_count(
+        gains: list[float],
+        losses: list[float],
+        n_updates: list[int],
+        open_ms: list[int]
+    ) -> float:
+        """
+        Args:
+            gains: list[float] - the gains for each miner
+            losses: list[float] - the losses for each miner
+            n_updates: list[int] - the number of updates for each miner
+            open_ms: list[int] - the open time for each miner
+        """
+        if len(gains) == 0 or len(losses) == 0:
+            # won't happen because we need a minimum number of trades, but would kick them to 0 weight (bottom of the list)
+            return 0
+        
+        checkpoint_volume_threshold = ValiConfig.CHECKPOINT_VOLUME_THRESHOLD
+        volume_arr = np.array(gains) + np.abs(np.array(losses))
+
+        return np.sum(volume_arr >= checkpoint_volume_threshold)
 
     @staticmethod
     def omega(returns: list[float]) -> float:

@@ -786,7 +786,7 @@ class TestWeights(TestBase):
         minimum_checkpoint_duration = ValiConfig.SET_WEIGHT_MINIMUM_TOTAL_CHECKPOINT_DURATION_MS
         typical_checkpoint_duration = minimum_checkpoint_duration // 5
 
-        checkpoints = [ checkpoint_generator(gain=0.1, loss=-0.05, open_ms=typical_checkpoint_duration) ] * 10
+        checkpoints = [ checkpoint_generator(gain=0.1, loss=-0.05, open_ms=typical_checkpoint_duration) ] * 20
         sample_ledger = ledger_generator(checkpoints=checkpoints)
 
         ledger_logic = self.challengeperiod_manager.screen_ledger(sample_ledger)
@@ -950,5 +950,56 @@ class TestWeights(TestBase):
             increasing_cps_lowdecay[len(increasing_cps_lowdecay)//2].open_ms,
             increasing_cps_highdecay[len(increasing_cps_highdecay)//2].open_ms,
         )
+
+    def test_volume_criteria_positive(self):
+        """Test that the volume criteria function works as expected"""
+        ## some sample positions and their orders, want to make sure we return
+        gains = [0.1, 0.2, 0.3, 0.4, 0.2]
+        losses = [0.0, 0.0, 0.0, 0.0, 0.0]
+        n_updates = [ 1, 1, 1, 1, 1 ]
+        open_ms = [ 100, 200, 300, 400, 500 ]
+
+        n_volume = Scoring.checkpoint_volume_threshold_count(
+            gains=gains,
+            losses=losses,
+            n_updates=n_updates,
+            open_ms=open_ms
+        )
+
+        self.assertEqual( n_volume, len(gains) )
+
+    def test_volume_criteria_negative(self):
+        """Test that the volume criteria function works as expected"""
+        ## some sample positions and their orders, want to make sure we return
+        gains = [0.0, 0.0, 0.0, 0.0, 0.0]
+        losses = [-0.1, -0.2, -0.3, -0.4, -0.2]
+        n_updates = [ 1, 1, 1, 1, 1 ]
+        open_ms = [ 100, 200, 300, 400, 500 ]
+
+        n_volume = Scoring.checkpoint_volume_threshold_count(
+            gains=gains,
+            losses=losses,
+            n_updates=n_updates,
+            open_ms=open_ms
+        )
+
+        self.assertEqual( n_volume, len(losses) )
+
+    def test_volume_criteria_mixed(self):
+        """Test that the volume criteria function works as expected"""
+        ## some sample positions and their orders, want to make sure we return
+        gains = [0.1, 0.2, 0.3, 0.4, 0.2]
+        losses = [-0.1, -0.2, -0.3, -0.4, -0.2] # all are matching but should qualify
+        n_updates = [ 1, 1, 1, 1, 1 ]
+        open_ms = [ 100, 200, 300, 400, 500 ]
+
+        n_volume = Scoring.checkpoint_volume_threshold_count(
+            gains=gains,
+            losses=losses,
+            n_updates=n_updates,
+            open_ms=open_ms
+        )
+
+        self.assertTrue( n_volume == len(gains) )
 
 

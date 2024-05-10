@@ -69,7 +69,6 @@ def generate_request_outputs(write_legacy:bool, write_validator_checkpoint:bool)
     omega_cps = {}
     inverted_sortino_cps = {}
     return_cps = {}
-    duration_cps = {}
     consistency_penalties = {}
 
     filtered_ledger = subtensor_weight_setter.filtered_ledger(hotkeys=challengeperiod_success_hotkeys)
@@ -252,8 +251,7 @@ def generate_request_outputs(write_legacy:bool, write_validator_checkpoint:bool)
             "probabilistic_sharpe_ratio": probabilistic_sharpe_ratio_list,
             "omega_cps": omega_cps,
             "inverted_sortino_cps": inverted_sortino_cps,
-            "return_cps": return_cps,
-            "duration_cps": duration_cps
+            "return_cps": return_cps
         },
         "constants":{
             "set_weight_lookback_range_days": ValiConfig.SET_WEIGHT_LOOKBACK_RANGE_DAYS,
