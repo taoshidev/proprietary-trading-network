@@ -99,21 +99,20 @@ those that provide the most returns, while never exceeding certain drawdown limi
 1. Miners can submit LONG, SHORT, or FLAT signal for Forex, Crypto, and Indices trade pairs into the network.
 2. Orders outside of market hours are ignored. 
 3. Miners can only open 1 position per trade pair/symbol at a time.
-4. Miners must have a minimum of 10 closed positions within the past 30 days to be evaluated for the scoring system. If they have between 1 and 10 positions closed, they will be provided an incredibly small amount of TAO each round for the first month as they get onboarded to help avoid eliminations.
-5. Positions are uni-directional. Meaning, if a position starts LONG (the first order it receives is LONG), 
+4. Positions are uni-directional. Meaning, if a position starts LONG (the first order it receives is LONG), 
 it can't flip SHORT. If you try and have it flip SHORT (using more leverage SHORT than exists LONG) it will close out 
 the position. You'll then need to open a second position which is SHORT with the difference.
-6. Position leverage is bound per trade_pair. If an order would cause the position's leverage to exceed the boundary, the position leverage will be clamped.
-7. You can take profit on an open position using LONG and SHORT. Say you have an open LONG position with .75x 
+5. Position leverage is bound per trade_pair. If an order would cause the position's leverage to exceed the boundary, the position leverage will be clamped.
+6. You can take profit on an open position using LONG and SHORT. Say you have an open LONG position with .75x 
 leverage and you want to reduce it to a .5x leverage position to start taking profit on it. You would send in a SHORT signal
 of size .25x leverage to reduce the size of the position. LONG and SHORT signals can be thought of working in opposite 
 directions in this way.
-8. You can explicitly close out a position by sending in a FLAT signal. 
-9. Miners are eliminated if their portfolio return falls below certain thresholds or if they they are detected as plagiarising other miners. (more info in  the "Eliminations" section).
-10. There is a fee per trade pair position. The fee scales with leverage. e.x a 10x leveraged position will have a 10x higher fee.
-11. There is a minimum registration fee of 5 TAO on the mainnet subnet.
-12. There is an immunity period of 9 days to help miners submit orders to become competitive with existing miners.
-13. Based on portfolio metrics such as omega score and total portfolio return, weights/incentive get set to reward the best miners. This is based on both open and closed positions.
+7. Miners can explicitly close out a position by sending in a FLAT signal. 
+8. Miners are eliminated if their portfolio return falls below certain thresholds or if they they are detected as plagiarising other miners. (more info in  the "Eliminations" section).
+9. There is a fee per trade pair position. The fee scales with leverage. e.x a 10x leveraged position will have a 10x higher fee.
+10. There is a minimum registration fee of 5 TAO on the mainnet subnet.
+11. There is an immunity period of 9 days to help miners submit orders to become competitive with existing miners. Eliminated miners do not benefit from being in the immunity period.
+12. Based on portfolio metrics such as omega score and total portfolio return, weights/incentive get set to reward the best miners. This is based on both open and closed positions.
 
 With this system only the world's best traders & deep learning / quant based trading systems can compete.
 
@@ -125,8 +124,7 @@ In the Proprietary Trading Network, the performance of each miner's portfolio is
 
 ### Maximum Drawdown (MDD) Eliminations
 
-1. **Daily MDD Limit**: If, on a daily close (UTC), a miner's portfolio experiences more than a **5% drawdown** when compared to its realized all-time high , the miner will be eliminated.
-2. **Anytime MDD Limit**: Similarly, if at any point, the miner's portfolio undergoes a **10% drawdown**, the miner will be eliminated.
+- **Anytime MDD Limit**: If, at any time, a miner's portfolio experiences more than a **5% drawdown** when compared to its realized all-time high , the miner will be eliminated.
 
 - **Open Position Treatment**: Open positions across different trade pairs are considered together for MDD calculations. For example, if multiple open positions across different pairs collectively result in a return that doesn't breach the MDD threshold, the miner remains active. Conversely, a single poor-performing open position can result in elimination.
 
