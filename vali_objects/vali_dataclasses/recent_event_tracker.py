@@ -11,13 +11,19 @@ class RecentEventTracker:
     def __init__(self):
         self.events = SortedList(key=lambda x: x[0])  # Assuming each event is a tuple (timestamp, event_data)
         self.lock = threading.Lock()
+        self.timestamps = set()
 
     def add_event(self, event):
         with self.lock:
             event_time_ms = event.start_ms
             self.events.add((event_time_ms, event))
+            self.timestamps.add(event_time_ms)
             #print(f"Added event at {TimeUtil.millis_to_formatted_date_str(event_time_ms)}")
             self._cleanup_old_events()
+
+    def event_exists(self, timestamp_ms):
+        with self.lock:
+            return timestamp_ms in self.timestamps  # Check in set
 
     def _cleanup_old_events(self):
         # Don't lock here, as this method is called from within a lock
@@ -25,7 +31,8 @@ class RecentEventTracker:
         # Calculate the oldest valid time once, outside the loop
         oldest_valid_time_ms = current_time_ms - self.OLDEST_ALLOWED_RECORD_MS
         while self.events and self.events[0][0] < oldest_valid_time_ms:
-            self.events.pop(0)
+            removed_event = self.events.pop(0)
+            self.timestamps.remove(removed_event[0])
 
     def get_events_in_range(self, start_time_ms, end_time_ms):
         """

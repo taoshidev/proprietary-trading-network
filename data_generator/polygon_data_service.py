@@ -1,12 +1,12 @@
 import threading
 import traceback
+from collections import Counter
 
 import matplotlib.pyplot as plt
 
 from typing import List
-
-from polygon.rest.models import MarketStatus
-from polygon.websocket import WebSocketClient, Market, EquityAgg, CurrencyAgg
+from polygon.rest.models import MarketStatus, Agg
+from polygon.websocket import WebSocketClient, Market, EquityAgg, CurrencyAgg, ForexQuote
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from data_generator.base_data_service import BaseDataService, POLYGON_PROVIDER_NAME
@@ -32,6 +32,7 @@ class PolygonDataService(BaseDataService):
         self._api_key = api_key
         self.disable_ws = disable_ws
         timespan_to_ms = {'second': 1000, 'minute': 1000 * 60, 'hour': 1000 * 60 * 60, 'day': 1000 * 60 * 60 * 24}
+        self.N_CANDLES_LIMIT = 50000
 
 
         trade_pair_category_to_longest_allowed_lag_s = {TradePairCategory.CRYPTO: 30, TradePairCategory.FOREX: 30,
@@ -122,7 +123,31 @@ class PolygonDataService(BaseDataService):
 
             time.sleep(1)
 
-    def handle_msg(self, msgs: List[CurrencyAgg | EquityAgg]):
+    def parse_price_for_forex(self, m, stats=None, is_ws=False):
+        # Polygon only disguises agg price as bid price. It seems their data provider doesn't price
+        # last trade price.so we will improve that by calculating the midpoint from the quote data.
+        midpoint_price = (m.bid_price + m.ask_price) / 2.0
+        t_ms = m.timestamp if is_ws else m.participant_timestamp // 1000000
+        delta = abs(m.bid_price - m.ask_price) / m.bid_price * 100.0
+        if stats:
+            stats['n'] += 1
+            stats['sum_deltas'] += delta
+            stats['avg_delta'] = stats['sum_deltas'] / (stats['n'])
+            stats['max_delta'] = max(stats['max_delta'], delta)
+        if delta > .20:  # Wonky
+            if stats:
+                stats['n_skipped'] += 1
+                if stats['n'] % 1000 == 0:
+                    bt.logging.warning(f"Ignoring unusual Forex price data bid: {m.bid_price:.4f}, ask: {m.ask_price:.4f}, "
+                                   f"{delta:.4f} mp {midpoint_price:.4f} dlvp {abs(stats['lvp'] - midpoint_price) / midpoint_price * 100.0:.4f}"
+                                   f" dt_lvp (s) {(t_ms - stats['t_vlp']) // 1000} time {TimeUtil.millis_to_formatted_date_str(t_ms // 1000000)}")
+            return None
+        elif stats:
+            stats['lvp'] = midpoint_price
+            stats['t_vlp'] = t_ms
+        return midpoint_price
+
+    def handle_msg(self, msgs: List[ForexQuote | CurrencyAgg | EquityAgg]):
         """
         received message: CurrencyAgg(event_type='CAS', pair='USD/CHF', open=0.91313, close=0.91317, high=0.91318,
         low=0.91313, volume=3, vwap=None, start_timestamp=1713273701000, end_timestamp=1713273702000,
@@ -131,55 +156,95 @@ class PolygonDataService(BaseDataService):
          CurrencyAgg(event_type='XAS', pair='ETH-USD', open=3084.37, close=3084.24, high=3084.37, low=3084.08,
          volume=0.99917426, vwap=3084.1452, start_timestamp=1713273981000, end_timestamp=1713273982000, avg_trade_size=0)
         """
+        def msg_to_price_sources(m, tp):
+            now_ms = TimeUtil.now_in_millis()
+            symbol = tp.trade_pair
+            if tp.is_forex:
+                open = close = vwap = high = low = self.parse_price_for_forex(m, is_ws=True)
+                if open is None:
+                    return None, None
+                t_ms = m.timestamp
+                if symbol in self.trade_pair_to_recent_events and self.trade_pair_to_recent_events[symbol].event_exists(t_ms + 999):
+                    return None, None  # Received two messages already
+                elif symbol in self.trade_pair_to_recent_events and self.trade_pair_to_recent_events[symbol].event_exists(t_ms):
+                    start_timestamp = end_timestamp = t_ms + 999  # This is the second message for this timestamp
+                else:
+                    start_timestamp = end_timestamp = t_ms
+                timespan_ms = 0
+                volume = None
+            else:
+                start_timestamp = m.start_timestamp
+                end_timestamp = m.end_timestamp
+                timespan_ms = end_timestamp - start_timestamp
+                open = m.open
+                close = m.close
+                vwap = m.vwap
+                high = m.high
+                low = m.low
+                volume = m.volume
+
+            price1 = PriceSource(
+                source=f'{POLYGON_PROVIDER_NAME}_ws',
+                timespan_ms=timespan_ms,
+                open=open,
+                close=open,
+                vwap=vwap,
+                high=high,
+                low=low,
+                start_ms=start_timestamp,
+                websocket=True,
+                lag_ms=now_ms - start_timestamp,
+                volume=volume
+            )
+            if tp.is_forex:
+                return price1, None
+
+            price2 = PriceSource(
+                source=f'{POLYGON_PROVIDER_NAME}_ws',
+                timespan_ms=timespan_ms,
+                open=close,
+                close=close,
+                vwap=vwap,
+                high=high,
+                low=low,
+                start_ms=end_timestamp - 1,  # prioritize a new candle's open over a previous candle's close
+                websocket=True,
+                lag_ms=now_ms - end_timestamp,
+                volume=volume
+            )
+            return price1, price2
+
         with self.LOCK:
             try:
                 for m in msgs:
+                    self.n_events_global += 1
                     # bt.logging.info(f"Received price event: {event}")
                     # print('received message:', m, type(m))
                     if isinstance(m, EquityAgg):
                         tp = self.symbol_to_trade_pair(m.symbol[2:])  # I:SPX -> SPX
                     elif isinstance(m, CurrencyAgg):
                         tp = self.symbol_to_trade_pair(m.pair)
+                    elif isinstance(m, ForexQuote):
+                        tp = self.symbol_to_trade_pair(m.pair)
                     else:
                         raise ValueError(f"Unknown message in POLY websocket: {m}")
-                    start_timestamp = m.start_timestamp
-                    end_timestamp = m.end_timestamp
-                    timespan_ms = end_timestamp - start_timestamp
-                    now_ms = TimeUtil.now_in_millis()
+
+                    # This could be a candle so we can make 2 prices, one for the open and one for the close
                     symbol = tp.trade_pair
-                    # This is a candle so we can make 2 prices, one for the open and one for the close
-                    price1 = PriceSource(
-                        source=f'{POLYGON_PROVIDER_NAME}_ws',
-                        timespan_ms=timespan_ms,
-                        open=m.open,
-                        close=m.open,
-                        vwap=m.vwap,
-                        high=m.high,
-                        low=m.low,
-                        start_ms=start_timestamp,
-                        websocket=True,
-                        lag_ms=now_ms - start_timestamp,
-                        volume=m.volume
-                    )
-                    price2 = PriceSource(
-                        source=f'{POLYGON_PROVIDER_NAME}_ws',
-                        timespan_ms=timespan_ms,
-                        open=m.close,
-                        close=m.close,
-                        vwap=m.vwap,
-                        high=m.high,
-                        low=m.low,
-                        start_ms=end_timestamp - 1,  # prioritize a new candle's open over a previous candle's close
-                        websocket=True,
-                        lag_ms=now_ms - end_timestamp,
-                        volume=m.volume
-                    )
-                    self.latest_websocket_events[symbol] = price2
-                    self.trade_pair_to_recent_events[symbol].add_event(price1)
-                    self.trade_pair_to_recent_events[symbol].add_event(price2)
+                    price1, price2 = msg_to_price_sources(m, tp)
+                    if price1 is None and price2 is None:
+                        continue
+
                     # Reset the closed market price, indicating that a new close should be fetched after the current day's close
                     self.closed_market_prices[tp] = None
-                    self.n_events_global += 1
+                    if price1:
+                        self.latest_websocket_events[symbol] = price1
+                        self.trade_pair_to_recent_events[symbol].add_event(price1)
+
+                    if price2:
+                        self.latest_websocket_events[symbol] = price2
+                        self.trade_pair_to_recent_events[symbol].add_event(price2)
+
                     if DEBUG:
                         formatted_time = TimeUtil.millis_to_formatted_date_str(TimeUtil.now_in_millis())
                         self.trade_pair_to_price_history[tp].append((formatted_time, price))
@@ -199,7 +264,7 @@ class PolygonDataService(BaseDataService):
                 symbol = "XAS." + tp.trade_pair.replace('/', '-')
                 self.POLY_WEBSOCKETS[Market.Crypto].subscribe(symbol)
             elif tp.is_forex:
-                symbol = "CAS." + tp.trade_pair
+                symbol = "C." + tp.trade_pair
                 self.POLY_WEBSOCKETS[Market.Forex].subscribe(symbol)
             elif tp.is_indices:
                 symbol = "A.I:" + tp.trade_pair
@@ -294,13 +359,8 @@ class PolygonDataService(BaseDataService):
         prev_timestamp = None
         final_agg = None
         timespan = "second"
-        for a in self.POLYGON_CLIENT.list_aggs(
-                polygon_ticker,
-                1,
-                timespan,
-                now_ms - 10000,
-                now_ms + 2000
-        ):
+        raw = self.unified_candle_fetcher(trade_pair, now_ms - 10000, now_ms + 2000, timespan)
+        for a in raw:
             #print('agg:', a)
             """
                     agg Agg(open=111.91, high=111.91, low=111.902, close=111.909, volume=3, vwap=111.907,
@@ -386,13 +446,8 @@ class PolygonDataService(BaseDataService):
                 start_time = epoch_miliseconds
                 candle = a
 
-        for a in self.POLYGON_CLIENT.list_aggs(
-                polygon_ticker,
-                1,
-                timespan,
-                timestamp_ms - 1000 * 60 * 60 * 48,
-                timestamp_ms + 1000 * 60 * 30
-        ):
+        raw = self.unified_candle_fetcher(trade_pair, timestamp_ms - 1000 * 60 * 60 * 48, timestamp_ms + 1000 * 60 * 30, timespan)
+        for a in raw:
             n_responses += 1
             epoch_miliseconds = a.timestamp
 
@@ -430,13 +485,8 @@ class PolygonDataService(BaseDataService):
                 start_time = epoch_miliseconds
                 candle = a
 
-        for a in self.POLYGON_CLIENT.list_aggs(
-                polygon_ticker,
-                1,
-                timespan,
-                timestamp_ms - 1000 * 60 * 30,
-                timestamp_ms + 1000 * 60 * 30
-        ):
+        raw = self.unified_candle_fetcher(trade_pair, timestamp_ms - 1000 * 60 * 30, timestamp_ms + 1000 * 60 * 30, timespan)
+        for a in raw:
             n_responses += 1
             epoch_miliseconds = a.timestamp
 
@@ -449,8 +499,7 @@ class PolygonDataService(BaseDataService):
         #print(f"minute fallback smallest delta ms: {smallest_delta}, input_timestamp: {timestamp_ms}, candle_start_time_ms: {start_time}, candle: {candle}, n_responses: {n_responses}")
         return corresponding_price
 
-    def get_close_at_date_second(self, trade_pair: TradePair, target_timestamp_ms: int):
-        polygon_ticker = self.trade_pair_to_polygon_ticker(trade_pair)
+    def get_close_at_date_second(self, trade_pair: TradePair, target_timestamp_ms: int, return_aggs=False):
 
         #if not self.is_market_open(trade_pair):
         #    return self.get_event_before_market_close(trade_pair)
@@ -460,7 +509,7 @@ class PolygonDataService(BaseDataService):
         corresponding_price = None
         n_responses = 0
         timespan = "second"
-
+        aggs = []
         def try_updating_found_price(t, p):
             nonlocal smallest_delta, corresponding_price, target_timestamp_ms
             time_delta_ms = abs(t - target_timestamp_ms)
@@ -469,22 +518,21 @@ class PolygonDataService(BaseDataService):
                 smallest_delta = time_delta_ms
                 corresponding_price = p
 
-        for a in self.POLYGON_CLIENT.list_aggs(
-                polygon_ticker,
-                1,
-                timespan,
-                target_timestamp_ms - 1000 * 8,
-                target_timestamp_ms + 1000 * 8
-        ):
+        raw = self.unified_candle_fetcher(trade_pair, target_timestamp_ms - 1000 * 10, target_timestamp_ms + 1000 * 10, timespan)
+        for a in raw:
+            if return_aggs:
+                aggs.append(a)
             print('agg', a, 'dt', target_timestamp_ms - a.timestamp, 'ms')
             n_responses += 1
             try_updating_found_price(a.timestamp, a.open)
             try_updating_found_price(a.timestamp + self.timespan_to_ms[timespan], a.close)
 
-            assert prev_timestamp is None or prev_timestamp < a.timestamp
+            assert prev_timestamp is None or prev_timestamp < a.timestamp, raw
             prev_timestamp = a.timestamp
 
         #print(f"smallest delta ms: {smallest_delta}, input_timestamp: {timestamp_ms}, candle_start_time_ms: {start_time}, candle: {candle}, n_responses: {n_responses}")
+        if return_aggs:
+            return aggs
         return corresponding_price, smallest_delta
 
     def get_range_of_closes(self, trade_pair, start_date: str, end_date: str):
@@ -516,23 +564,83 @@ class PolygonDataService(BaseDataService):
         return ret
 
     def get_candles_for_trade_pair_simple(self, trade_pair: TradePair, start_timestamp_ms: int, end_timestamp_ms: int):
-        polygon_ticker = self.trade_pair_to_polygon_ticker(trade_pair)
         ans = {}
         ub = 0
         lb = float('inf')
-        for a in self.POLYGON_CLIENT.list_aggs(
-                polygon_ticker,
-                1,
-                "second",
-                start_timestamp_ms,
-                end_timestamp_ms,
-                limit=50000
-        ):
+        raw = self.unified_candle_fetcher(trade_pair, start_timestamp_ms, end_timestamp_ms, "second")
+        for a in raw:
             ans[a.timestamp // 1000] = a.close
             ub = max(ub, a.timestamp)
             lb = min(lb, a.timestamp)
         return ans, lb, ub
 
+    def unified_candle_fetcher(self, trade_pair: TradePair, start_timestamp_ms: int, end_timestamp_ms: int, timespan: str=None):
+        def build_quotes(start_timestamp_ms, end_timestamp_ms, ans=None):
+            nonlocal stats
+            if ans is None:
+                ans = []
+                prev_t_ms = None
+            else:
+                prev_t_ms = ans[-1].timestamp
+
+            raw = self.POLYGON_CLIENT.list_quotes(ticker=polygon_ticker,
+                                                                   timestamp_gte=start_timestamp_ms * 1000000,
+                                                                   timestamp_lte=end_timestamp_ms * 1000000,
+                                                                   sort='participant_timestamp',
+                                                                   order='asc',
+                                                                   limit=self.N_CANDLES_LIMIT)
+            n = 0
+            for r in raw:
+                n += 1
+                midpoint_price = self.parse_price_for_forex(r, stats=stats)
+                if midpoint_price is None:
+                    continue
+                else:
+                    t_ms = r.participant_timestamp // 1000000
+                    if t_ms == prev_t_ms:
+                        ans[-1].volume += 1
+                        ans[-1].close = midpoint_price
+                        ans[-1].low = min(ans[-1].low, midpoint_price)
+                        ans[-1].high = max(ans[-1].high, midpoint_price)
+                    else:
+                        ans.append(Agg(open=midpoint_price,
+                                       close=midpoint_price,
+                                       high=midpoint_price,
+                                       low=midpoint_price,
+                                       volume=1,
+                                       vwap=None,
+                                       timestamp=t_ms))
+                    prev_t_ms = t_ms
+            return ans, n
+
+
+        polygon_ticker = self.trade_pair_to_polygon_ticker(trade_pair)
+        if trade_pair.is_forex and timespan == 'second':
+            stats = {'sum_deltas': 0, 'n_skipped': 0, 'avg_delta': None, 'max_delta':-float('inf'), 'n': 0}
+            ans, n = build_quotes(start_timestamp_ms, end_timestamp_ms)
+            c = Counter(x.volume for x in ans)
+            stats['counter'] = c
+            stats['n_ret'] = n
+            #while n == self.N_CANDLES_LIMIT:
+            #    ans, n = build_quotes(ans[-1].timestamp + 1000, end_timestamp_ms, ans=ans)
+            #    bt.logging.warning(f'Double fetching quotes due to limit being hit. (n {n},'
+            #                       f' start_timestamp_ms{start_timestamp_ms}, end_timestamp_ms{end_timestamp_ms},'
+            #                       f' trade_pair.trade_pair_id{trade_pair.trade_pair_id})')
+            stats.pop('sum_deltas')
+            print('stats for tp ', trade_pair.trade_pair_id)
+            for k, v in stats.items():
+                print('   ', k, v)
+
+            return ans
+        else:
+            return self.POLYGON_CLIENT.list_aggs(
+                polygon_ticker,
+                1,
+                timespan,
+                start_timestamp_ms,
+                end_timestamp_ms,
+                limit=self.N_CANDLES_LIMIT
+            )
 
     def get_candles_for_trade_pair(
         self,
@@ -567,18 +675,11 @@ class PolygonDataService(BaseDataService):
         if force_second:
             timespan = "second"
 
-        polygon_ticker = self.trade_pair_to_polygon_ticker(trade_pair)
-
         aggs = []
         prev_timestamp = None
         now_ms = TimeUtil.now_in_millis()
-        for i, a in enumerate(self.POLYGON_CLIENT.list_aggs(
-                polygon_ticker,
-                1,
-                timespan,
-                start_timestamp_ms,
-                end_timestamp_ms
-        )):
+        raw = self.unified_candle_fetcher(trade_pair, start_timestamp_ms, end_timestamp_ms, timespan)
+        for i, a in enumerate(raw):
             epoch_miliseconds = a.timestamp
             assert prev_timestamp is None or epoch_miliseconds >= prev_timestamp, ('candles not sorted', prev_timestamp, epoch_miliseconds)
             #formatted_date = TimeUtil.millis_to_formatted_date_str(epoch_miliseconds)
@@ -598,24 +699,46 @@ class PolygonDataService(BaseDataService):
 
 if __name__ == "__main__":
     secrets = ValiUtils.get_secrets()
-
-    # Initialize client
     polygon_data_provider = PolygonDataService(api_key=secrets['polygon_apikey'], disable_ws=True)
+    target_timestamp_ms = 1715288502999
 
-    print(polygon_data_provider.get_close_at_date_second(TradePair.CADJPY, 1715288502999))
+    tp = TradePair.GBPUSD
+    # Initialize client
+    #aggs = polygon_data_provider.get_close_at_date_second(tp, target_timestamp_ms, return_aggs=True)
+
+    #uu = {a.timestamp: [a] for a in aggs}
+    for tp in [x for x in TradePair if x.is_forex]:
+        quotes = polygon_data_provider.unified_candle_fetcher(tp,
+                                                              target_timestamp_ms - 1000 * 250000,
+                                                              target_timestamp_ms + 1000 * 250000,
+                                                              "second")
+    print(len(quotes))
+
+    ##trades = polygon_data_provider.POLYGON_CLIENT.list_trades(ticker='C:CAD-JPY',
+    #                                                         timestamp_gt=target_timestamp_ms * 1000000 - 1000 * 1000000 * 10,
+    #                                                         timestamp_lt=target_timestamp_ms * 1000000 + 1000 * 1000000 * 10)
+    #for trade in trades:
+    #    print('trade', trade)
+
     assert 0
 
-    #price, time_delta = polygon_data_provider.get_close_at_date_second(trade_pair=TradePair.BTCUSD, target_timestamp_ms=1712671378202)
-
-    trades = polygon_data_provider.POLYGON_CLIENT.list_trades(ticker='X:BTC-USD', params={
-        "timestamp.gte": 1712671370202000000 - 1000 * 1000000,
-        "timestamp.lte": 1712671370202000000 + 1000 * 1000000
+    # 'X:BTC-USD'
+    trades = polygon_data_provider.POLYGON_CLIENT.list_trades(
+        ticker='C:CAD-CHF',
+        params={
+        "timestamp.gte": target_timestamp_ms * 1000 - 1000 * 1000000,
+        "timestamp.lte": target_timestamp_ms * 1000 + 1000 * 1000000
     })
     exchange_to_name = {1: 'Coinbase', 23: 'Kraken', 2: 'Bitfinex'}
     for trade in trades:
         participant_timestamp_ms = trade.participant_timestamp / 1000000.0
         format_date = TimeUtil.millis_to_formatted_date_str(participant_timestamp_ms)
-        print(format_date, exchange_to_name[trade.exchange], trade.price)
+        print(format_date, exchange_to_name.get(trade.exchange), trade.price)
+
+
+
+    #price, time_delta = polygon_data_provider.get_close_at_date_second(trade_pair=TradePair.BTCUSD, target_timestamp_ms=1712671378202)
+
 
     print(price, time_delta)
     assert 0
