@@ -15,7 +15,7 @@ from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.utils.subtensor_weight_setter import SubtensorWeightSetter
 from vali_objects.utils.position_utils import PositionUtils
 from vali_objects.vali_dataclasses.order import Order
-from vali_objects.scoring.scoring import Scoring
+from vali_objects.scoring.scoring import Scoring, ScoringUnit
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
 from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
 
@@ -98,37 +98,13 @@ def generate_request_outputs(write_legacy:bool, write_validator_checkpoint:bool)
     )
 
     for hotkey, miner_ledger in returns_ledger.items():
-        gains = [ cp.gain for cp in miner_ledger.cps ]
-        losses = [ cp.loss for cp in miner_ledger.cps ]
-        n_updates = [ cp.n_updates for cp in miner_ledger.cps ]
-        open_durations = [ cp.open_ms for cp in miner_ledger.cps ]
-
-        return_cps[hotkey] = Scoring.return_cps(
-            gains,
-            losses,
-            n_updates,
-            open_durations
-        )
+        scoringunit = ScoringUnit.from_perf_ledger(miner_ledger)
+        return_cps[hotkey] = Scoring.return_cps(scoringunit)
 
     for hotkey, miner_ledger in risk_adjusted_ledger.items():
-        gains = [ cp.gain for cp in miner_ledger.cps ]
-        losses = [ cp.loss for cp in miner_ledger.cps ]
-        n_updates = [ cp.n_updates for cp in miner_ledger.cps ]
-        open_durations = [ cp.open_ms for cp in miner_ledger.cps ]
-
-        omega_cps[hotkey] = Scoring.omega_cps(
-            gains,
-            losses,
-            n_updates,
-            open_durations
-        )
-
-        inverted_sortino_cps[hotkey] = Scoring.inverted_sortino_cps(
-            gains,
-            losses,
-            n_updates,
-            open_durations
-        )
+        scoringunit = ScoringUnit.from_perf_ledger(miner_ledger)
+        omega_cps[hotkey] = Scoring.omega_cps(scoringunit)
+        inverted_sortino_cps[hotkey] = Scoring.inverted_sortino_cps(scoringunit)
 
     checkpoint_results = Scoring.compute_results_checkpoint(filtered_ledger, evaluation_time_ms=time_now)
     challengeperiod_scores = [ (x, ValiConfig.SET_WEIGHT_MINER_CHALLENGE_PERIOD_WEIGHT) for x in challengeperiod_testing_hotkeys ]

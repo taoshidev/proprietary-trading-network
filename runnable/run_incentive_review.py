@@ -1,6 +1,6 @@
 from matplotlib import pyplot as plt
 
-from vali_objects.scoring.scoring import Scoring
+from vali_objects.scoring.scoring import Scoring, ScoringUnit
 from vali_objects.utils.logger_utils import LoggerUtils
 from vali_objects.utils.subtensor_weight_setter import SubtensorWeightSetter
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
@@ -78,12 +78,8 @@ if __name__ == "__main__":
     for metric_name, config in scoring_config.items():
         miner_scores = []
         for miner, minerledger in config['ledger'].items():
-            gains = [cp.gain for cp in minerledger.cps]
-            losses = [cp.loss for cp in minerledger.cps]
-            n_updates = [cp.n_updates for cp in minerledger.cps]
-            open_ms = [cp.open_ms for cp in minerledger.cps]
-
-            score = config['function'](gains=gains, losses=losses, n_updates=n_updates, open_ms=open_ms)
+            scoringunit = ScoringUnit.from_perf_ledger(minerledger)
+            score = config['function'](scoringunit=scoringunit)
             miner_scores.append((miner, score))
         
         # Save original scores for printout

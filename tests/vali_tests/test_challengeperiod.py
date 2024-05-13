@@ -64,8 +64,8 @@ class TestChallengePriod(TestBase):
 
         self.start_time = 0
         self.end_time = 10 * 24 * 60 * 60 * 1000 # 5 days
-        self.midpoint_time = (self.end_time - self.start_time) // 2
-        self.midpoint_time_end = (self.end_time - self.midpoint_time) // 2
+        self.midpoint_time = self.start_time + (self.end_time - self.start_time) // 2
+        self.midpoint_time_end = self.midpoint_time + (self.end_time - self.midpoint_time) // 2
         self.current_time = ValiConfig.SET_WEIGHT_CHALLENGE_PERIOD_MS
         self.elimination_time = ValiConfig.SET_WEIGHT_CHALLENGE_PERIOD_MS + 1
 

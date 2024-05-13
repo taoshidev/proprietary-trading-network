@@ -205,6 +205,9 @@ class CacheController:
         self.clear_challengeperiod_from_disk()
 
     def _promote_challengeperiod_in_memory(self, hotkeys: list[str], current_time: int):
+        if len(hotkeys) > 0:
+            bt.logging.info(f"Promoting hotkeys {hotkeys} to challengeperiod success.")
+        
         new_success = { hotkey: current_time for hotkey in hotkeys }
         self.challengeperiod_success = {
             **self.challengeperiod_success, 
@@ -219,12 +222,14 @@ class CacheController:
 
     def _demote_challengeperiod_in_memory(self, hotkeys: list[str]):
         for hotkey in hotkeys:
+            bt.logging.info(f"Removing hotkeys {hotkey} from challenge period.")
             if hotkey in self.challengeperiod_testing:
                 self.challengeperiod_testing.pop(hotkey)
             else:
                 bt.logging.error(f"Hotkey {hotkey} was not in challengeperiod_testing but demotion to failure was attempted.")
 
         for hotkey in hotkeys:
+            bt.logging.info(f"Eliminating hotkey {hotkey}.")
             self.append_elimination_row(hotkey, -1, 'FAILED_CHALLENGE_PERIOD')
 
     def _write_challengeperiod_from_memory_to_disk(self):
@@ -261,6 +266,7 @@ class CacheController:
                 if hotkey not in elimination_hotkeys:
                     if hotkey not in self.challengeperiod_testing:
                         if hotkey not in self.challengeperiod_success:
+                            bt.logging.info(f"Adding hotkey {hotkey} to challengeperiod miners.")
                             self.challengeperiod_testing[hotkey] = current_time
 
         self._write_challengeperiod_from_memory_to_disk()

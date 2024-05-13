@@ -17,6 +17,42 @@ from time_util.time_util import TimeUtil
 
 import bittensor as bt
 
+from pydantic import BaseModel, validator
+
+class ScoringUnit(BaseModel):
+    gains: list[float]
+    losses: list[float]
+    n_updates: list[int]
+    open_ms: list[int]
+
+    @validator('gains', 'n_updates', 'open_ms', each_item=False, pre=True)
+    def check_non_negative(cls, v):
+        if any(x < 0 for x in (v or [])):  # Simplified check
+            raise ValueError("All values must be non-negative")
+        return v
+
+    @validator('losses', each_item=False, pre=True)
+    def check_non_positive(cls, v):
+        if any(x > 0 for x in (v or [])):  # Simplified check
+            raise ValueError("All values must be non-negative")
+        return v
+
+    @classmethod
+    def from_perf_ledger(cls, perf_ledger: PerfLedger):
+        # Extract the required fields from the list of PerfCheckpoint in the PerfLedger
+        gains = []
+        losses = []
+        n_updates = []
+        open_ms = []
+
+        for cp in perf_ledger.cps:
+            gains.append(cp.gain)
+            losses.append(cp.loss)
+            n_updates.append(cp.n_updates)
+            open_ms.append(cp.open_ms)
+
+        return cls(gains=gains, losses=losses, n_updates=n_updates, open_ms=open_ms)
+    
 class Scoring:
     @staticmethod
     def compute_results_checkpoint(
@@ -73,12 +109,8 @@ class Scoring:
         for config in scoring_config.values():
             miner_scores = []
             for miner, minerledger in config['ledger'].items():
-                gains = [cp.gain for cp in minerledger.cps]
-                losses = [cp.loss for cp in minerledger.cps]
-                n_updates = [cp.n_updates for cp in minerledger.cps]
-                open_ms = [cp.open_ms for cp in minerledger.cps]
-
-                score = config['function'](gains=gains, losses=losses, n_updates=n_updates, open_ms=open_ms)
+                scoringunit = ScoringUnit.from_perf_ledger(minerledger)
+                score = config['function'](scoringunit=scoringunit)
                 miner_scores.append((miner, score))
             
             weighted_scores = Scoring.weigh_miner_scores(miner_scores)
@@ -120,19 +152,14 @@ class Scoring:
         return normalized_scores
     
     @staticmethod
-    def return_cps(
-        gains: list[float],
-        losses: list[float],
-        n_updates: list[int],
-        open_ms: list[int]
-    ) -> float:
+    def return_cps(scoringunit: ScoringUnit) -> float:
         """
         Args:
-            gains: list[float] - the gains for each miner
-            losses: list[float] - the losses for each miner
-            n_updates: list[int] - the number of updates for each miner
-            open_ms: list[int] - the open time for each miner
+            scoringunit: ScoringUnit - the scoring unit for the miner
         """
+        gains = scoringunit.gains
+        losses = scoringunit.losses
+
         if len(gains) == 0 or len(losses) == 0:
             # won't happen because we need a minimum number of trades, but would kick them to a bad return (bottom of the list)
             return -1
@@ -144,19 +171,14 @@ class Scoring:
         return total_return
     
     @staticmethod
-    def omega_cps(
-        gains: list[float], 
-        losses: list[float],
-        n_updates: list[int],
-        open_ms: list[int]
-    ) -> float:
+    def omega_cps(scoringunit: ScoringUnit) -> float:
         """
         Args:
-            gains: list[float] - the gains for each miner
-            losses: list[float] - the losses for each miner
-            n_updates: list[int] - the number of updates for each miner
-            open_ms: list[int] - the open time for each miner
+            scoringunit: ScoringUnit - the scoring unit for the miner
         """
+        gains = scoringunit.gains
+        losses = scoringunit.losses
+
         if len(gains) == 0 or len(losses) == 0:
             # won't happen because we need a minimum number of trades, but would kick them to 0 weight (bottom of the list)
             return 0
@@ -170,19 +192,15 @@ class Scoring:
         return sum_above / sum_below
     
     @staticmethod
-    def inverted_sortino_cps(
-        gains: list[float], 
-        losses: list[float],
-        n_updates: list[int],
-        open_ms: list[int]
-    ) -> float:
+    def inverted_sortino_cps(scoringunit: ScoringUnit) -> float:
         """
         Args:
-            gains: list[float] - the gains for each miner
-            losses: list[float] - the losses for each miner
-            n_updates: list[int] - the number of updates for each miner
-            open_ms: list[int] - the open time for each miner
+            scoringunit: ScoringUnit - the scoring unit for the miner
         """
+        gains = scoringunit.gains
+        losses = scoringunit.losses
+        open_ms = scoringunit.open_ms
+
         if len(gains) == 0 or len(losses) == 0:
             # won't happen because we need a minimum number of trades, but would kick them to 0 weight (bottom of the list)
             return 0
@@ -198,19 +216,13 @@ class Scoring:
         return total_loss / total_position_active_time
     
     @staticmethod
-    def checkpoint_volume_threshold_count(
-        gains: list[float],
-        losses: list[float],
-        n_updates: list[int],
-        open_ms: list[int]
-    ) -> float:
+    def checkpoint_volume_threshold_count(scoringunit: ScoringUnit) -> float:
         """
         Args:
-            gains: list[float] - the gains for each miner
-            losses: list[float] - the losses for each miner
-            n_updates: list[int] - the number of updates for each miner
-            open_ms: list[int] - the open time for each miner
+            scoringunit: ScoringUnit - the scoring unit for the miner
         """
+        gains = scoringunit.gains
+        losses = scoringunit.losses
         if len(gains) == 0 or len(losses) == 0:
             # won't happen because we need a minimum number of trades, but would kick them to 0 weight (bottom of the list)
             return 0

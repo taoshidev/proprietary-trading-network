@@ -6,7 +6,7 @@ import copy
 import bittensor as bt
 
 from tests.vali_tests.base_objects.test_base import TestBase
-from vali_objects.scoring.scoring import Scoring
+from vali_objects.scoring.scoring import Scoring, ScoringUnit
 from vali_objects.position import Position
 from vali_objects.utils.position_utils import PositionUtils
 
@@ -370,13 +370,14 @@ class TestWeights(TestBase):
         sample_n_updates = [ 1, 1, 1, 1, 1, 1 ]
         sample_open_ms = [ 100, 200, 300, 400, 500, 600 ]
 
-        return_positive = Scoring.return_cps(
+        scoringunit = ScoringUnit(
             gains=sample_gains,
             losses=sample_losses,
             n_updates=sample_n_updates,
-            open_ms=sample_open_ms,
+            open_ms=sample_open_ms
         )
 
+        return_positive = Scoring.return_cps(scoringunit)
         self.assertGreaterEqual(return_positive, 0.0) # should always be greater than 0
 
     def test_negative_returns(self):
@@ -386,24 +387,26 @@ class TestWeights(TestBase):
         sample_n_updates = [ 1, 1, 1, 1, 1, 1 ]
         sample_open_ms = [ 100, 200, 300, 400, 500, 600 ]
 
-        return_negative = Scoring.return_cps(
+        scoringunit = ScoringUnit(
             gains=sample_gains,
             losses=sample_losses,
             n_updates=sample_n_updates,
-            open_ms=sample_open_ms,
+            open_ms=sample_open_ms
         )
 
+        return_negative = Scoring.return_cps(scoringunit)
         self.assertLessEqual(return_negative, 0.0)
 
     def test_returns_zero_length_returns(self):
         """Test that the returns scoring function works properly with zero length returns"""
-        return_zero = Scoring.return_cps(
+        scoringunit = ScoringUnit(
             gains=[],
             losses=[],
             n_updates=[],
             open_ms=[]
         )
 
+        return_zero = Scoring.return_cps(scoringunit)
         self.assertLess(return_zero, 0.0)
 
     def test_positive_omega(self):
@@ -413,12 +416,14 @@ class TestWeights(TestBase):
         sample_n_updates = [ 1, 1, 1, 1, 1, 1 ]
         sample_open_ms = [ 100, 200, 300, 400, 500, 600 ]
 
-        omega_positive = Scoring.omega_cps(
+        scoringunit = ScoringUnit(
             gains=sample_gains,
             losses=sample_losses,
             n_updates=sample_n_updates,
-            open_ms=sample_open_ms,
+            open_ms=sample_open_ms
         )
+
+        omega_positive = Scoring.omega_cps(scoringunit)
 
         self.assertGreaterEqual(omega_positive, 0.0) # should always be greater than 0
         self.assertGreaterEqual(omega_positive, 1.0)
@@ -430,12 +435,14 @@ class TestWeights(TestBase):
         sample_n_updates = [ 1, 1, 1, 1, 1, 1 ]
         sample_open_ms = [ 100, 200, 300, 400, 500, 600 ]
 
-        omega_negative = Scoring.omega_cps(
+        scoringunit = ScoringUnit(
             gains=sample_gains,
             losses=sample_losses,
             n_updates=sample_n_updates,
-            open_ms=sample_open_ms,
+            open_ms=sample_open_ms
         )
+
+        omega_negative = Scoring.omega_cps(scoringunit)
 
         # Omega should be less than 1
         self.assertLessEqual(omega_negative, 1.0)
@@ -448,35 +455,28 @@ class TestWeights(TestBase):
         sample_n_updates = [ 1, 1, 1, 1, 1, 1 ]
         sample_open_ms = [ 100, 200, 300, 400, 500, 600 ]
 
+        scoringunit = ScoringUnit(
+            gains=sample_gains,
+            losses=sample_losses,
+            n_updates=sample_n_updates,
+            open_ms=sample_open_ms
+        )
+
         ## returns - ( 1 + threshold ) -> we're ignoring threshold for internal calculations
         ## positive returns should be [ 1.1, 1.2, 1.3, 1.4, 1.2 ] -> [ 0.1, 0.2, 0.3, 0.4, 0.2 ]
         ## negative returns should be [ 0.9, 0.7 ] -> [ -0.1, -0.3 ]
         hand_computed_omega = sum(sample_gains) / abs(sum(sample_losses))
 
         ## omega should be [ 1.1 + 1.2 + 1.3 + 1.4 + 1.2 ] / [ 0.9 + 0.7 ]
-        omega = Scoring.omega_cps(
-            gains=sample_gains,
-            losses=sample_losses,
-            n_updates=sample_n_updates,
-            open_ms=sample_open_ms,
-        )
+        omega = Scoring.omega_cps(scoringunit)
         self.assertEqual(omega, hand_computed_omega)
 
     def test_omega_cps(self):
         """Test inverted sortino function works as expected"""
         omega_scores = {}
         for miner, minerledger in self.ledger_dict.items():
-            gains = [ cp.gain for cp in minerledger.cps ]
-            losses = [ cp.loss for cp in minerledger.cps ]
-            n_updates = [ cp.n_updates for cp in minerledger.cps ]
-            open_ms = [ cp.open_ms for cp in minerledger.cps ]
-
-            score = Scoring.omega_cps(
-                gains=gains,
-                losses=losses,
-                n_updates=n_updates,
-                open_ms=open_ms
-            )
+            scoringunit = ScoringUnit.from_perf_ledger(minerledger)
+            score = Scoring.omega_cps(scoringunit)
 
             omega_scores[miner] = score
 
@@ -509,13 +509,14 @@ class TestWeights(TestBase):
 
     def test_omega_zero_length_returns(self):
         """Test that the omega function works as expected with zero length returns"""
-        omega = Scoring.omega_cps(
+        scoringunit = ScoringUnit(
             gains=[],
             losses=[],
             n_updates=[],
             open_ms=[]
         )
 
+        omega = Scoring.omega_cps(scoringunit)
         self.assertEqual(omega, 0.0)
 
     def test_omega_zero_loss(self):
@@ -525,12 +526,14 @@ class TestWeights(TestBase):
         sample_n_updates = [ 1, 1, 1, 1, 1 ]
         sample_open_ms = [ 100, 200, 300, 400, 500 ]
 
-        omega = Scoring.omega_cps(
+        scoringunit = ScoringUnit(
             gains=sample_gains,
             losses=sample_losses,
             n_updates=sample_n_updates,
             open_ms=sample_open_ms
         )
+
+        omega = Scoring.omega_cps(scoringunit)
 
         ## omega_minimum_denominator should kick in
         omega_minimum_denominator = ValiConfig.OMEGA_MINIMUM_DENOMINATOR
@@ -541,14 +544,15 @@ class TestWeights(TestBase):
         self.assertGreaterEqual(omega, 1.0)
 
     def test_sortino_zero_length(self):
-        """Test that the sortino function works as expected with zero length returns"""        
-        sortino = Scoring.inverted_sortino_cps(
+        """Test that the sortino function works as expected with zero length returns"""
+        scoringunit = ScoringUnit(
             gains=[],
             losses=[],
             n_updates=[],
             open_ms=[]
         )
 
+        sortino = Scoring.inverted_sortino_cps(scoringunit)
         self.assertEqual(sortino, 0.0)
 
     def test_sortino_zero_loss(self):
@@ -558,30 +562,22 @@ class TestWeights(TestBase):
         sample_n_updates = [ 1, 1, 1, 1, 1 ]
         sample_open_ms = [ 100, 200, 300, 400, 500 ]
 
-        inverted_sortino = Scoring.inverted_sortino_cps(
+        scoringunit = ScoringUnit(
             gains=sample_gains,
             losses=sample_losses,
             n_updates=sample_n_updates,
             open_ms=sample_open_ms
         )
 
+        inverted_sortino = Scoring.inverted_sortino_cps(scoringunit)
         self.assertEqual(inverted_sortino, 0)
 
     def test_inverted_sortino_cps(self):
         """Test inverted sortino function works as expected"""
         sortino_scores = {}
         for miner, minerledger in self.ledger_dict.items():
-            gains = [ cp.gain for cp in minerledger.cps ]
-            losses = [ cp.loss for cp in minerledger.cps ]
-            n_updates = [ cp.n_updates for cp in minerledger.cps ]
-            open_ms = [ cp.open_ms for cp in minerledger.cps ]
-
-            score = Scoring.inverted_sortino_cps(
-                gains=gains,
-                losses=losses,
-                n_updates=n_updates,
-                open_ms=open_ms
-            )
+            scoringunit = ScoringUnit.from_perf_ledger(minerledger)
+            score = Scoring.inverted_sortino_cps(scoringunit)
 
             sortino_scores[miner] = score
 
@@ -832,35 +828,16 @@ class TestWeights(TestBase):
         )['increasing']
 
         ## with higher amount of historical decay, the sortino will be lower as the losses were lower initially, which will now weigh more heavily. The returns should also be lower.
-        highdecay_return = Scoring.return_cps(
-            gains = [ cp.gain for cp in highdecay.cps ],
-            losses = [ cp.loss for cp in highdecay.cps ],
-            n_updates = [ cp.n_updates for cp in highdecay.cps ],
-            open_ms = [ cp.open_ms for cp in highdecay.cps ]
-        )
+        highdecay_scoringunit = ScoringUnit.from_perf_ledger(highdecay)
+        lowdecay_scoringunit = ScoringUnit.from_perf_ledger(lowdecay)
 
-        lowdecay_return = Scoring.return_cps(
-            gains = [ cp.gain for cp in lowdecay.cps ],
-            losses = [ cp.loss for cp in lowdecay.cps ],
-            n_updates = [ cp.n_updates for cp in lowdecay.cps ],
-            open_ms = [ cp.open_ms for cp in lowdecay.cps ]
-        )
+        highdecay_return = Scoring.return_cps(highdecay_scoringunit)
+        lowdecay_return = Scoring.return_cps(lowdecay_scoringunit)
 
         self.assertGreater(lowdecay_return, highdecay_return)
 
-        highdecay_sortino = Scoring.inverted_sortino_cps(
-            gains = [ cp.gain for cp in highdecay.cps ],
-            losses = [ cp.loss for cp in highdecay.cps ],
-            n_updates = [ cp.n_updates for cp in highdecay.cps ],
-            open_ms = [ cp.open_ms for cp in highdecay.cps ]
-        )
-
-        lowdecay_sortino = Scoring.inverted_sortino_cps(
-            gains = [ cp.gain for cp in lowdecay.cps ],
-            losses = [ cp.loss for cp in lowdecay.cps ],
-            n_updates = [ cp.n_updates for cp in lowdecay.cps ],
-            open_ms = [ cp.open_ms for cp in lowdecay.cps ]
-        )
+        highdecay_sortino = Scoring.inverted_sortino_cps(highdecay_scoringunit)
+        lowdecay_sortino = Scoring.inverted_sortino_cps(lowdecay_scoringunit)
 
         self.assertGreater(lowdecay_sortino, highdecay_sortino)
 
@@ -878,19 +855,11 @@ class TestWeights(TestBase):
             time_decay_coefficient=1.0
         )['decreasing_singular']
 
-        highdecay_sortino = Scoring.inverted_sortino_cps(
-            gains = [ cp.gain for cp in highdecay.cps ],
-            losses = [ cp.loss for cp in highdecay.cps ],
-            n_updates = [ cp.n_updates for cp in highdecay.cps ],
-            open_ms = [ cp.open_ms for cp in highdecay.cps ]
-        )
+        highdecay_scoringunit = ScoringUnit.from_perf_ledger(highdecay)
+        lowdecay_scoringunit = ScoringUnit.from_perf_ledger(lowdecay)
 
-        lowdecay_sortino = Scoring.inverted_sortino_cps(
-            gains = [ cp.gain for cp in lowdecay.cps ],
-            losses = [ cp.loss for cp in lowdecay.cps ],
-            n_updates = [ cp.n_updates for cp in lowdecay.cps ],
-            open_ms = [ cp.open_ms for cp in lowdecay.cps ]
-        )
+        highdecay_sortino = Scoring.inverted_sortino_cps(highdecay_scoringunit)
+        lowdecay_sortino = Scoring.inverted_sortino_cps(lowdecay_scoringunit)
 
         self.assertGreaterEqual(highdecay_sortino, lowdecay_sortino)
 
@@ -906,19 +875,22 @@ class TestWeights(TestBase):
         decreasing_losses = copy.deepcopy(losses)
         decreasing_losses[5:] = 0
 
-        increasing_sortino = Scoring.inverted_sortino_cps(
-            gains=gains,
-            losses=increasing_losses,
+        increasing_scoringunit = ScoringUnit(
+            gains=list(gains),
+            losses=list(increasing_losses),
             n_updates=[1] * 10,
             open_ms=open_ms
         )
 
-        decreasing_sortino = Scoring.inverted_sortino_cps(
-            gains=gains,
-            losses=decreasing_losses,
+        decreasing_scoringunit = ScoringUnit(
+            gains=list(gains),
+            losses=list(decreasing_losses),
             n_updates=[1] * 10,
             open_ms=open_ms
         )
+
+        increasing_sortino = Scoring.inverted_sortino_cps(increasing_scoringunit)
+        decreasing_sortino = Scoring.inverted_sortino_cps(decreasing_scoringunit)
 
         self.assertEqual(decreasing_sortino, increasing_sortino)
 
@@ -959,13 +931,14 @@ class TestWeights(TestBase):
         n_updates = [ 1, 1, 1, 1, 1 ]
         open_ms = [ 100, 200, 300, 400, 500 ]
 
-        n_volume = Scoring.checkpoint_volume_threshold_count(
+        scoringunit = ScoringUnit(
             gains=gains,
             losses=losses,
             n_updates=n_updates,
             open_ms=open_ms
         )
 
+        n_volume = Scoring.checkpoint_volume_threshold_count(scoringunit)
         self.assertEqual( n_volume, len(gains) )
 
     def test_volume_criteria_negative(self):
@@ -976,13 +949,14 @@ class TestWeights(TestBase):
         n_updates = [ 1, 1, 1, 1, 1 ]
         open_ms = [ 100, 200, 300, 400, 500 ]
 
-        n_volume = Scoring.checkpoint_volume_threshold_count(
+        scoringunit = ScoringUnit(
             gains=gains,
             losses=losses,
             n_updates=n_updates,
             open_ms=open_ms
         )
 
+        n_volume = Scoring.checkpoint_volume_threshold_count(scoringunit)
         self.assertEqual( n_volume, len(losses) )
 
     def test_volume_criteria_mixed(self):
@@ -993,13 +967,14 @@ class TestWeights(TestBase):
         n_updates = [ 1, 1, 1, 1, 1 ]
         open_ms = [ 100, 200, 300, 400, 500 ]
 
-        n_volume = Scoring.checkpoint_volume_threshold_count(
+        scoringunit = ScoringUnit(
             gains=gains,
             losses=losses,
             n_updates=n_updates,
             open_ms=open_ms
         )
 
+        n_volume = Scoring.checkpoint_volume_threshold_count(scoringunit)
         self.assertTrue( n_volume == len(gains) )
 
 
