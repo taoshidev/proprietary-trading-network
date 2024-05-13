@@ -6,7 +6,6 @@ import traceback
 from collections import defaultdict
 from copy import deepcopy
 from typing import List
-
 import bittensor as bt
 
 from pydantic import BaseModel
@@ -184,6 +183,7 @@ class PerfLedgerManager(CacheController):
             self.pds = live_price_fetcher.polygon_data_service
         # Every update, pick a hotkey to rebuild in case polygon 1s candle data changed.
         self.trade_pair_to_price_info = {}
+        self.trade_pair_to_position_ret = {}
 
         self.random_security_screenings = set()
         self.market_calendar = UnifiedMarketCalendar()
@@ -192,6 +192,8 @@ class PerfLedgerManager(CacheController):
         self.UPDATE_LOOKBACK_MS = 600000  # 10 minutes ago. Want to give Polygon time to create candles on the backend.
         self.UPDATE_LOOKBACK_S = self.UPDATE_LOOKBACK_MS // 1000
         self.now_ms = 0  # The largest timestamp we want to buffer candles for. time.time() - UPDATE_LOOKBACK_S
+        self.base_dd_stats = {'worst_dd':1.0, 'last_dd':0, 'mrpv':1.0, 'n_closed_pos':0, 'n_checks':0, 'min_portfolio_return': float('inf'), 'max_portfolio_return': 0}
+        self.hk_to_dd_stats = defaultdict(lambda: deepcopy(self.base_dd_stats))
 
     def run_update_loop(self):
         while not self.shutdown_dict:
@@ -232,16 +234,43 @@ class PerfLedgerManager(CacheController):
         time_sorted_orders.sort(key=lambda x: x[0].processed_ms)
         return time_sorted_orders
 
+    def _update_portfolio_debug_counters(self, portfolio_ret):
+        self.max_portfolio_value_seen = max(self.max_portfolio_value_seen, portfolio_ret)
+        self.min_portfolio_value_seen = min(self.min_portfolio_value_seen, portfolio_ret)
+
+    def replay_all_closed_positions(self,miner_hotkey, tp_to_historical_positions: dict[str:Position]) -> (bool, float):
+        max_cuml_return_so_far = 1.0
+        cuml_return = 1.0
+        n_closed_positions = 0
+
+        # Already sorted
+        for _, positions in tp_to_historical_positions.items():
+            for position in positions:
+                if position.is_open_position:
+                    continue
+                cuml_return *= position.return_at_close
+                n_closed_positions += 1
+                max_cuml_return_so_far = max(cuml_return, max_cuml_return_so_far)
+
+        # Replay of closed positions complete.
+        stats = self.hk_to_dd_stats[miner_hotkey]
+        stats['mrpv'] = max_cuml_return_so_far
+        stats['n_closed_pos'] = n_closed_positions
+        return max_cuml_return_so_far
+
     def _can_shortcut(self, tp_to_historical_positions: dict[str: Position], end_time_ms:int,
                       realtime_position_to_pop: Position | None):
         portfolio_value = 1.0
+        n_open_positions = 0
         if end_time_ms < TimeUtil.now_in_millis() - TARGET_LEDGER_WINDOW_MS:
             for tp, historical_positions in tp_to_historical_positions.items():
                 for i, historical_position in enumerate(historical_positions):
-                    if i == len(historical_positions) - 1 and realtime_position_to_pop:
+                    if tp == realtime_position_to_pop.trade_pair.trade_pair and i == len(historical_positions) - 1 and realtime_position_to_pop:
                         historical_position = realtime_position_to_pop
                     portfolio_value *= historical_position.return_at_close
+                    n_open_positions += historical_position.is_open_position
             # Since this window would be purged anyways, we can skip by using the instantaneous portfolio return.
+            #print(f'skipping with {n_open_positions} open positions')
             return True, portfolio_value
 
         n_positions = 0
@@ -255,13 +284,17 @@ class PerfLedgerManager(CacheController):
                     n_closed_positions += 1
                 elif len(historical_position.orders) == 0:
                     n_positions_newly_opened += 1
+                n_open_positions += historical_position.is_open_position
 
         # When building from orders, we will always have at least one open position. When opening a position after a
         # period of all closed positions, we can shortcut by identifying that the new position is the only open position
         # and all other positions are closed. The time before this period, we have only closed positions.
         # Alternatively, we can be attempting to build the ledger after all orders have been accounted for. In this
         # case, we simply need to check if all positions are closed.
-        ans = (n_positions == n_closed_positions + n_positions_newly_opened) and (n_positions_newly_opened <= 1)
+        ans = (n_positions == n_closed_positions + n_positions_newly_opened) and (n_positions_newly_opened == 1)
+        ans |= (n_positions == n_closed_positions)
+        #if ans:
+        #    print(f'skipping with {n_open_positions} open positions')
         #if ans:
         #    window_s = (end_time_ms - start_time_ms) // 1000
         #    #print(f"Shortcutting. n_positions: {n_positions}, n_closed_positions: {n_closed_positions}, n_positions_newly_opened: {n_positions_newly_opened}, window_s: {window_s}")
@@ -297,7 +330,10 @@ class PerfLedgerManager(CacheController):
         if requested_seconds > self.POLYGON_MAX_CANDLE_LIMIT:  # Polygon limit
             end_time_s = start_time_s + self.POLYGON_MAX_CANDLE_LIMIT
         elif requested_seconds < 3600:  # Get a batch of candles to minimize number of fetches
-            end_time_s = min(start_time_s + 3600, self.now_ms // 1000)
+            end_time_s = start_time_s + 3600
+
+        end_time_s = min(self.now_ms // 1000, end_time_s)  # Don't fetch candles beyond check time or will fill in null.
+
         # Always fetch the max number of candles possible to minimize number of fetches
         #end_time_s = start_time_s + self.POLYGON_MAX_CANDLE_LIMIT
         start_time_ms = start_time_s * 1000
@@ -308,7 +344,7 @@ class PerfLedgerManager(CacheController):
         price_info, lb_ms, ub_ms = self.pds.get_candles_for_trade_pair_simple(
             trade_pair=tp, start_timestamp_ms=start_time_ms, end_timestamp_ms=end_time_ms)
         self.n_api_calls += 1
-
+        #print(f'Fetched candles for tp {tp.trade_pair} for window {TimeUtil.millis_to_formatted_date_str(start_time_ms)} to {TimeUtil.millis_to_formatted_date_str(end_time_ms)}')
         #print(f'Got {len(price_info)} candles after request of {requested_seconds} candles for tp {tp.trade_pair} in {time.time() - t0}s')
 
         assert lb_ms >= start_time_ms, (lb_ms, start_time_ms)
@@ -358,32 +394,73 @@ class PerfLedgerManager(CacheController):
                     # Use the last portfolio return
                     opr = historical_position.return_at_close
                 else:
+                    self.tp_to_last_price[tp] = price_at_t_s
                     opr = historical_position.get_open_position_return_with_fees(price_at_t_s, t_ms)
                     historical_position.return_at_close = opr
+                    self.trade_pair_to_position_ret[tp] = opr
+
                 portfolio_return *= opr
                 #assert portfolio_return > 0, f"Portfolio value is {portfolio_return} for miner {miner_hotkey} at {t_s}. opr {opr} rtp {price_at_t_s}, historical position {historical_position}"
         return portfolio_return, any_open
 
-    def build_perf_ledger(self, perf_ledger:PerfLedger, tp_to_historical_positions: dict[str: Position], start_time_ms, end_time_ms, miner_hotkey, realtime_position_to_pop):
+    def check_elimination(self, miner_hotkey, portfolio_return, t_ms, max_realized_portfolio_return):
+        dd = self.calculate_drawdown(portfolio_return, max_realized_portfolio_return)
+        mdd_failure = self.is_drawdown_beyond_mdd(dd, time_now=TimeUtil.millis_to_datetime(t_ms))
+        stats = self.hk_to_dd_stats[miner_hotkey]
+        if dd < stats['worst_dd']:
+            stats['worst_dd'] = dd
+        stats['last_dd'] = dd
+        stats['n_checks'] += 1
+        stats['min_portfolio_return'] = min(stats['min_portfolio_return'], portfolio_return)
+        stats['max_portfolio_return'] = max(stats['max_portfolio_return'], portfolio_return)
+
+        if mdd_failure:
+            bt.logging.warning(f"Drawdown failure for miner {miner_hotkey} at {t_ms}. Portfolio return: {portfolio_return}, max realized portfolio return: {max_realized_portfolio_return}, drawdown: {dd}")
+            self.append_elimination_row(miner_hotkey, dd, mdd_failure, t_ms=t_ms, price_info=self.tp_to_last_price,
+                                        return_info=self.trade_pair_to_position_ret)
+            stats['eliminated'] = True
+            return True
+        return False
+
+    def init_tp_to_last_price(self, tp_to_historical_positions: dict[str: Position]):
+        self.tp_to_last_price = {}
+        for k, v in tp_to_historical_positions.items():
+            last_pos = v[-1]
+            if not last_pos:
+                continue
+            orders = last_pos.orders
+            if not orders:
+                continue
+            last_order_price = orders[-1].price
+            self.tp_to_last_price[k] = last_order_price
+
+
+    def build_perf_ledger(self, perf_ledger:PerfLedger, tp_to_historical_positions: dict[str: Position], start_time_ms, end_time_ms, miner_hotkey, realtime_position_to_pop) -> bool:
         #print(f"Building perf ledger for {miner_hotkey} from {start_time_ms} to {end_time_ms} ({(end_time_ms - start_time_ms) // 1000} s) order {order}")
         if start_time_ms == 0:  # This ledger is being initialized. First order received.
             perf_ledger.init_with_first_order(end_time_ms)
-            return
+            return False
         if start_time_ms == end_time_ms:  # No new orders since last update. Shouldn't happen
-            return
+            return False
+
         # "Shortcut" All positions closed and one newly open position OR all closed positions (all orders accounted for).
         can_shortcut, portfolio_return = \
             self._can_shortcut(tp_to_historical_positions, end_time_ms, realtime_position_to_pop)
         if can_shortcut:
             perf_ledger.update(portfolio_return, end_time_ms, miner_hotkey, False)
-            return
+            return False
 
+        max_realized_portfolio_return = self.replay_all_closed_positions(miner_hotkey, tp_to_historical_positions)
         any_update = any_open = False
+        self.init_tp_to_last_price(tp_to_historical_positions)
+
         for t_ms in range(start_time_ms, end_time_ms, 1000):
             if self.shutdown_dict:
-                return
+                return False
             assert t_ms >= perf_ledger.last_update_ms, f"t_ms: {t_ms}, last_update_ms: {perf_ledger.last_update_ms}, delta_s: {(t_ms - perf_ledger.last_update_ms) // 1000} s. perf ledger {perf_ledger}"
             portfolio_return, any_open = self.positions_to_portfolio_return(tp_to_historical_positions, t_ms, miner_hotkey, end_time_ms)
+            if self.check_elimination(miner_hotkey, portfolio_return, t_ms, max_realized_portfolio_return):
+                return True
             assert portfolio_return > 0, f"Portfolio value is {portfolio_return} for miner {miner_hotkey} at {t_ms // 1000}. perf ledger {perf_ledger}"
             perf_ledger.update(portfolio_return, t_ms, miner_hotkey, any_open)
             any_update = True
@@ -391,11 +468,13 @@ class PerfLedgerManager(CacheController):
         # Get last sliver of time
         if any_update and perf_ledger.last_update_ms != end_time_ms:
             perf_ledger.update(portfolio_return, end_time_ms, miner_hotkey, any_open)
+        return False
 
     def update_all_perf_ledgers(self, hotkey_to_positions: dict[str, List[Position]], existing_perf_ledgers: dict[str, PerfLedger], now_ms: int):
         t_init = time.time()
         self.now_ms = now_ms
         for hotkey_i, (hotkey, positions) in enumerate(hotkey_to_positions.items()):
+            eliminated = False
             self.n_api_calls = 0
             if self.shutdown_dict:
                 break
@@ -417,11 +496,10 @@ class PerfLedgerManager(CacheController):
                     symbol = realtime_position_to_pop.trade_pair.trade_pair
                     tp_to_historical_positions[symbol][-1] = realtime_position_to_pop
 
-
                 order, position = event
-                #print(f"Processing order {order}")
                 symbol = position.trade_pair.trade_pair
                 pos, realtime_position_to_pop = self.get_historical_position(position, order.processed_ms)
+
                 if (symbol in tp_to_historical_positions and
                         pos.position_uuid == tp_to_historical_positions[symbol][-1].position_uuid):
                    tp_to_historical_positions[symbol][-1] = pos
@@ -444,9 +522,13 @@ class PerfLedgerManager(CacheController):
                 if order.processed_ms < perf_ledger.last_update_ms:
                     continue
                 # Need to catch up from perf_ledger.last_update_ms to order.processed_ms
-                self.build_perf_ledger(perf_ledger, tp_to_historical_positions, perf_ledger.last_update_ms, order.processed_ms, hotkey, realtime_position_to_pop)
+                eliminated = self.build_perf_ledger(perf_ledger, tp_to_historical_positions, perf_ledger.last_update_ms, order.processed_ms, hotkey, realtime_position_to_pop)
+                if eliminated:
+                    break
                 #print(f"Done processing order {order}. perf ledger {perf_ledger}")
 
+            if eliminated:
+                continue
             # We have processed all orders. Need to catch up to now_ms
             if realtime_position_to_pop:
                 symbol = realtime_position_to_pop.trade_pair.trade_pair
@@ -461,12 +543,13 @@ class PerfLedgerManager(CacheController):
             last_portfolio_value = perf_ledger.prev_portfolio_ret
             bt.logging.info(
                 f"Done updating perf ledger for {hotkey} {hotkey_i+1}/{len(hotkey_to_positions)} in {time.time() - t0} "
-                f"(s). Lag: {lag} (s). Total product: {total_product}. Last portfolio value: {last_portfolio_value}. n_api_calls: {self.n_api_calls}")
+                f"(s). Lag: {lag} (s). Total product: {total_product}. Last portfolio value: {last_portfolio_value}."
+                f" n_api_calls: {self.n_api_calls} dd stats {self.hk_to_dd_stats[hotkey]}")
 
         if not self.shutdown_dict:
             PerfLedgerManager.save_perf_ledgers_to_disk(existing_perf_ledgers)
             bt.logging.info(f"Done updating perf ledger for all hotkeys in {time.time() - t_init} s")
-
+            self.write_perf_ledger_eliminations_to_disk([x for x in self.eliminations if 'price_info' in x and x['price_info'] is not None])
 
 
     @staticmethod
@@ -489,8 +572,7 @@ class PerfLedgerManager(CacheController):
 
         return perf_ledgers
 
-    @retry(tries=10, delay=1, backoff=1)
-    def get_positions_with_retry(self, testing_one_hotkey=None):
+    def get_positions_perf_ledger(self, testing_one_hotkey=None):
         """
         Since we are running in our own thread, we need to retry in case positions are being written to simultaneously.
         """
@@ -520,7 +602,7 @@ class PerfLedgerManager(CacheController):
         t_ms = TimeUtil.now_in_millis() - self.UPDATE_LOOKBACK_MS
         #if t_ms < 1714546760000 + 1000 * 60 * 60 * 1:  # Rebuild after bug fix
         #    perf_ledgers = {}
-        hotkey_to_positions = self.get_positions_with_retry(testing_one_hotkey=testing_one_hotkey)
+        hotkey_to_positions = self.get_positions_perf_ledger(testing_one_hotkey=testing_one_hotkey)
         eliminated_hotkeys = self.get_eliminated_hotkeys()
 
         # Remove keys from perf ledgers if they aren't in the metagraph anymore
@@ -570,6 +652,14 @@ class PerfLedgerManager(CacheController):
             print('    total product', perf_ledger.get_total_product())
 
 
+class MockMetagraph():
+    def __init__(self, hotkeys):
+        self.hotkeys = hotkeys
+
 if __name__ == "__main__":
-    perf_ledger_manager = PerfLedgerManager(metagraph=None, running_unit_tests=False)
+    all_miners_dir = ValiBkpUtils.get_miner_dir(running_unit_tests=False)
+    all_hotkeys_on_disk = CacheController.get_directory_names(all_miners_dir)
+    mmg = MockMetagraph(hotkeys=all_hotkeys_on_disk)
+    perf_ledger_manager = PerfLedgerManager(metagraph=mmg, running_unit_tests=False)
+    perf_ledger_manager.run_update_loop()
 

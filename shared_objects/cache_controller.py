@@ -45,8 +45,15 @@ class CacheController:
         return any(hotkey == x['hotkey'] for x in self.eliminations)
 
     @staticmethod
-    def generate_elimination_row(hotkey, dd, reason):
-        return {'hotkey': hotkey, 'elimination_initiated_time_ms': TimeUtil.now_in_millis(), 'dd': dd, 'reason': reason}
+    def generate_elimination_row(hotkey, dd, reason, t_ms=None, price_info=None, return_info=None):
+        if t_ms is None:
+            t_ms = TimeUtil.now_in_millis()
+        ans = {'hotkey': hotkey, 'elimination_initiated_time_ms': t_ms, 'dd': dd, 'reason': reason}
+        if price_info:
+            ans['price_info'] = price_info
+        if return_info:
+            ans['return_info'] = return_info
+        return ans
 
     def refresh_allowed(self, refresh_interval_ms):
         return TimeUtil.now_in_millis() - self.get_last_update_time_ms() > refresh_interval_ms
@@ -57,7 +64,8 @@ class CacheController:
             bt.logging.success(f"Finished updating class {self.__class__.__name__}")
         self._last_update_time_ms = TimeUtil.now_in_millis()
 
-    def get_directory_names(self, query_dir):
+    @staticmethod
+    def get_directory_names(query_dir):
         """
         Returns a list of directory names contained in the specified directory.
 
@@ -75,6 +83,11 @@ class CacheController:
         bt.logging.trace(f"Writing [{len(eliminations)}] eliminations from memory to disk: {vali_eliminations}")
         output_location = ValiBkpUtils.get_eliminations_dir(running_unit_tests=self.running_unit_tests)
         ValiBkpUtils.write_file(output_location, vali_eliminations)
+
+    def write_perf_ledger_eliminations_to_disk(self, eliminations):
+        bt.logging.trace(f"Writing [{len(eliminations)}] eliminations from memory to disk: {eliminations}")
+        output_location = ValiBkpUtils.get_perf_ledger_eliminations_dir(running_unit_tests=self.running_unit_tests)
+        ValiBkpUtils.write_file(output_location, eliminations)
 
     def clear_eliminations_from_disk(self):
         ValiBkpUtils.write_file(ValiBkpUtils.get_eliminations_dir(running_unit_tests=self.running_unit_tests), {CacheController.ELIMINATIONS: []})
@@ -125,6 +138,12 @@ class CacheController:
     def get_eliminations_from_disk(self):
         location = ValiBkpUtils.get_eliminations_dir(running_unit_tests=self.running_unit_tests)
         cached_eliminations = ValiUtils.get_vali_json_file(location, CacheController.ELIMINATIONS)
+        bt.logging.trace(f"Loaded [{len(cached_eliminations)}] eliminations from disk. Dir: {location}")
+        return cached_eliminations
+
+    def get_perf_ledger_eliminations_from_disk(self):
+        location = ValiBkpUtils.get_perf_ledger_eliminations_dir(running_unit_tests=self.running_unit_tests)
+        cached_eliminations = ValiUtils.get_vali_json_file(location)
         bt.logging.trace(f"Loaded [{len(cached_eliminations)}] eliminations from disk. Dir: {location}")
         return cached_eliminations
 
@@ -316,8 +335,8 @@ class CacheController:
             print(f"The directory {directory_path} was not found.")
             return None
 
-    def append_elimination_row(self, hotkey, current_dd, mdd_failure):
-        r = self.generate_elimination_row(hotkey, current_dd, mdd_failure)
+    def append_elimination_row(self, hotkey, current_dd, mdd_failure, t_ms=None, price_info=None, return_info=None):
+        r = self.generate_elimination_row(hotkey, current_dd, mdd_failure, t_ms=t_ms, price_info=price_info, return_info=return_info)
         bt.logging.info(f"Created and appended elimination row: {r}")
         self.eliminations.append(r)
 

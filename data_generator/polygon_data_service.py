@@ -616,20 +616,23 @@ class PolygonDataService(BaseDataService):
 
         polygon_ticker = self.trade_pair_to_polygon_ticker(trade_pair)
         if trade_pair.is_forex and timespan == 'second':
-            stats = {'sum_deltas': 0, 'n_skipped': 0, 'avg_delta': None, 'max_delta':-float('inf'), 'n': 0}
+            stats = None#{'sum_deltas': 0, 'n_skipped': 0, 'avg_delta': None, 'max_delta':-float('inf'), 'n': 0}
             ans, n = build_quotes(start_timestamp_ms, end_timestamp_ms)
-            c = Counter(x.volume for x in ans)
-            stats['counter'] = c
-            stats['n_ret'] = n
+            if stats:
+                c = Counter(x.volume for x in ans)
+                stats['counter'] = c
+                stats['n_ret'] = n
+                stats.pop('sum_deltas')
+                print('stats for tp ', trade_pair.trade_pair_id)
+                for k, v in stats.items():
+                    print('   ', k, v)
+
             #while n == self.N_CANDLES_LIMIT:
             #    ans, n = build_quotes(ans[-1].timestamp + 1000, end_timestamp_ms, ans=ans)
             #    bt.logging.warning(f'Double fetching quotes due to limit being hit. (n {n},'
             #                       f' start_timestamp_ms{start_timestamp_ms}, end_timestamp_ms{end_timestamp_ms},'
             #                       f' trade_pair.trade_pair_id{trade_pair.trade_pair_id})')
-            stats.pop('sum_deltas')
-            print('stats for tp ', trade_pair.trade_pair_id)
-            for k, v in stats.items():
-                print('   ', k, v)
+
 
             return ans
         else:
