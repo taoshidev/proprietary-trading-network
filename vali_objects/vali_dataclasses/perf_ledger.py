@@ -192,8 +192,9 @@ class PerfLedgerManager(CacheController):
         self.UPDATE_LOOKBACK_MS = 600000  # 10 minutes ago. Want to give Polygon time to create candles on the backend.
         self.UPDATE_LOOKBACK_S = self.UPDATE_LOOKBACK_MS // 1000
         self.now_ms = 0  # The largest timestamp we want to buffer candles for. time.time() - UPDATE_LOOKBACK_S
-        self.base_dd_stats = {'worst_dd':1.0, 'last_dd':0, 'mrpv':1.0, 'n_closed_pos':0, 'n_checks':0, 'min_portfolio_return': float('inf'), 'max_portfolio_return': 0}
+        self.base_dd_stats = {'worst_dd':1.0, 'last_dd':0, 'mrpv':1.0, 'n_closed_pos':0, 'n_checks':0, 'current_portfolio_return': 1.0}
         self.hk_to_dd_stats = defaultdict(lambda: deepcopy(self.base_dd_stats))
+        self.n_price_corrections = 0
 
     def run_update_loop(self):
         while not self.shutdown_dict:
@@ -395,6 +396,12 @@ class PerfLedgerManager(CacheController):
                     opr = historical_position.return_at_close
                 else:
                     self.tp_to_last_price[tp] = price_at_t_s
+                    # We are retoractively updating the last order's price if it is the same as the candle price. This is a retro fix for forex bid price propagation as well as nondeterministic failed price filling.
+                    if t_ms == historical_position.orders[-1].processed_ms and historical_position.orders[-1].price != price_at_t_s:
+                        self.n_price_corrections += 1
+                        #bt.logging.warning(f"Price at t_s {t_s} {historical_position.trade_pair.trade_pair} is the same as the last order processed time. Changing price from {historical_position.orders[-1].price} to {price_at_t_s}")
+                        historical_position.orders[-1].price = price_at_t_s
+                        historical_position.rebuild_position_with_updated_orders()
                     opr = historical_position.get_open_position_return_with_fees(price_at_t_s, t_ms)
                     historical_position.return_at_close = opr
                     self.trade_pair_to_position_ret[tp] = opr
@@ -411,13 +418,12 @@ class PerfLedgerManager(CacheController):
             stats['worst_dd'] = dd
         stats['last_dd'] = dd
         stats['n_checks'] += 1
-        stats['min_portfolio_return'] = min(stats['min_portfolio_return'], portfolio_return)
-        stats['max_portfolio_return'] = max(stats['max_portfolio_return'], portfolio_return)
+        stats['current_portfolio_return'] = portfolio_return
 
         if mdd_failure:
             bt.logging.warning(f"Drawdown failure for miner {miner_hotkey} at {t_ms}. Portfolio return: {portfolio_return}, max realized portfolio return: {max_realized_portfolio_return}, drawdown: {dd}")
             self.append_elimination_row(miner_hotkey, dd, mdd_failure, t_ms=t_ms, price_info=self.tp_to_last_price,
-                                        return_info=self.trade_pair_to_position_ret)
+                                        return_info={'dd_stats':stats, 'returns': self.trade_pair_to_position_ret})
             stats['eliminated'] = True
             return True
         return False
@@ -481,6 +487,11 @@ class PerfLedgerManager(CacheController):
             t0 = time.time()
             perf_ledger = existing_perf_ledgers.get(hotkey, PerfLedger())
             existing_perf_ledgers[hotkey] = perf_ledger
+            self.trade_pair_to_position_ret = {}
+            if hotkey in self.hk_to_dd_stats:
+                del self.hk_to_dd_stats[hotkey]
+            self.n_price_corrections = 0
+
             tp_to_historical_positions = defaultdict(list)
             sorted_timeline = self.generate_order_timeline(positions, now_ms)  # Enforces our "now_ms" constraint
             last_event_time = sorted_timeline[-1][0].processed_ms if sorted_timeline else 0
@@ -544,7 +555,7 @@ class PerfLedgerManager(CacheController):
             bt.logging.info(
                 f"Done updating perf ledger for {hotkey} {hotkey_i+1}/{len(hotkey_to_positions)} in {time.time() - t0} "
                 f"(s). Lag: {lag} (s). Total product: {total_product}. Last portfolio value: {last_portfolio_value}."
-                f" n_api_calls: {self.n_api_calls} dd stats {self.hk_to_dd_stats[hotkey]}")
+                f" n_api_calls: {self.n_api_calls} dd stats {self.hk_to_dd_stats[hotkey]}. n_price_corrections {self.n_price_corrections}")
 
         if not self.shutdown_dict:
             PerfLedgerManager.save_perf_ledgers_to_disk(existing_perf_ledgers)
