@@ -89,17 +89,17 @@ class Scoring:
         scoring_config = {
             'return_cps': {
                 'function': Scoring.return_cps,
-                'weight': 0.90,
+                'weight': ValiConfig.SCORING_RETURN_CPS_WEIGHT,
                 'ledger': returns_ledger,
             },
             'omega_cps': {
                 'function': Scoring.omega_cps,
-                'weight': 0.75,
+                'weight': ValiConfig.SCORING_OMEGA_CPS_WEIGHT,
                 'ledger': risk_adjusted_ledger,
             },
             'inverted_sortino_cps': {
                 'function': Scoring.inverted_sortino_cps,
-                'weight': 0.60,
+                'weight': ValiConfig.SCORING_SORTINO_CPS_WEIGHT,
                 'ledger': risk_adjusted_ledger,
             },
         }

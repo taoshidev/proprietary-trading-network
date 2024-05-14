@@ -37,7 +37,7 @@ Sortino measures the pure volume of losses, and will be divided by the total tim
 - Less leverage utilization
 - Pure positive value change
 
-The total score will result from the product of the Omega and Sortino, so the top miners in our system must perform well in both metrics to receive substantial incentive.
+The total score will result from the product of the Return, Omega, and Sortino, so the top miners in our system must perform well in both metrics to receive substantial incentive. The relative weight of each term in the product sum is Returns: 0.95, Omega: 0.35, Sortino: 0.2. The terms used to calculate the product are defined by ranking each metric against the other miners. As a simple example, if a miner is first place in returns and last place in Omega, their total score would start at 1, multiply by 1 due to first place in returns. It would then multiply by (1 - 0.35) as they are the last place in Omega, so their final score would be 0.65.
 
 ### Challenge Period Details
 
