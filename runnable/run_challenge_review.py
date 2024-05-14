@@ -24,13 +24,10 @@ if __name__ == "__main__":
     subtensor_weight_setter._refresh_challengeperiod_in_memory()
 
     inspection_hotkeys_dict = subtensor_weight_setter.challengeperiod_success
-    print(f"Testing hotkeys: {inspection_hotkeys_dict}")
 
     ## filter the ledger for the miners that passed the challenge period
     success_hotkeys = list(inspection_hotkeys_dict.keys())
     filtered_ledger = subtensor_weight_setter.filtered_ledger(hotkeys=success_hotkeys)
-
-    print(f"Filtered ledger: {filtered_ledger}")
 
     # Get all possible positions, even beyond the lookback range
     success, eliminations = challengeperiod_manager.inspect(

@@ -521,7 +521,8 @@ class PositionManager(CacheController):
         ledger: dict[str, PerfLedger],
         evaluation_time_ms: int,
         decay_coefficient: float = None,
-        time_decay_coefficient: float = None
+        time_decay_coefficient: float = None,
+        baseline_gain_rate: float = None
     ) -> dict[str, PerfLedger]:
         """
         Augments the entire perf ledger, augmented with historical decay.
@@ -534,6 +535,9 @@ class PositionManager(CacheController):
 
         if time_decay_coefficient is None:
             time_decay_coefficient = ValiConfig.HISTORICAL_DECAY_TIME_INTENSITY_COEFFICIENT
+
+        if baseline_gain_rate is None:
+            baseline_gain_rate = ValiConfig.BASELINE_ANNUAL_LOG_RETURN_MS
         
         augmented_ledger = copy.deepcopy(ledger)
         for miner, minerledger in augmented_ledger.items():
@@ -542,7 +546,8 @@ class PositionManager(CacheController):
                 evaluation_time_ms,
                 gain_augmentation_coefficient=decay_coefficient,
                 loss_augmentation_coefficient=decay_coefficient,
-                time_decay_coefficient=time_decay_coefficient
+                time_decay_coefficient=time_decay_coefficient,
+                baseline_gain_rate=baseline_gain_rate
             )
 
         return augmented_ledger
@@ -553,7 +558,8 @@ class PositionManager(CacheController):
         evaluation_time_ms: int,
         gain_augmentation_coefficient: float = None,
         loss_augmentation_coefficient: float = None,
-        time_decay_coefficient: float = None
+        time_decay_coefficient: float = None,
+        baseline_gain_rate: float = None
     ) -> list[PerfCheckpoint]:
         """
         Returns the return at each performance checkpoint, augmented with historical decay.
@@ -566,6 +572,9 @@ class PositionManager(CacheController):
 
         if loss_augmentation_coefficient is None:
             loss_augmentation_coefficient = ValiConfig.HISTORICAL_DECAY_LOSS_COEFFICIENT
+
+        if baseline_gain_rate is None:
+            baseline_gain_rate = ValiConfig.BASELINE_ANNUAL_LOG_RETURN_MS
         
         consistency_penalty = PositionUtils.compute_consistency_penalty_cps(
             cps, 
@@ -575,6 +584,7 @@ class PositionManager(CacheController):
         cps_augmented = []
         for cp in cps:
             cp_copy = copy.deepcopy(cp)
+            baseline_gain = baseline_gain_rate * cp.accum_ms
             lookback_fraction = PositionUtils.compute_lookback_fraction(
                 cp.last_update_ms,
                 cp.last_update_ms,
@@ -598,7 +608,7 @@ class PositionManager(CacheController):
             )
 
             cp_copy.loss = historical_loss_augmentation_coefficient * PositionUtils.dampen_value(
-                cp.loss,
+                cp.loss - baseline_gain, # tbill augmentation
                 lookback_fraction,
                 time_decay_coefficient
             )

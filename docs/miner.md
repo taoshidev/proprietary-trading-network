@@ -19,6 +19,8 @@ The open positions held by miners will be continuously evaluated based on their 
 
 In order to capture information at such a high resolution, we utilize checkpoints which track a miner's behavior over time. Each checkpoint has a target duration of 6 hours, after which the checkpoint is closed and a new checkpoint is opened. The checkpoint contains the aggregate of all gains and losses, as well as information on the duration of open positions held in the checkpoint and number of updates seen.
 
+Each miner is compared to a baseline, the annual return rate of American Treasury Bills. This will consistently add a small amount of loss for the miner every millisecond. If the miner's Omega is less than 1 and log return less than 0, they were unable to beat the growth rate of treasury bills.
+
 We will use three scoring metrics to evaluate miners based on their mid trade scores: **Returns**, **Omega**, **Time Adjusted Sortino**.
 
 Returns measure the pure value change that the miner experienced through the course of their positions. This will be similar to the prior position based system, although open positions will now also be evaluated. A higher return value will result from:

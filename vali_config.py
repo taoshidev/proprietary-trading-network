@@ -162,7 +162,7 @@ TRADE_PAIR_STR_TO_TRADE_PAIR = {x.trade_pair: x for x in TradePair}
 
 class ValiConfig:
     ## versioning
-    VERSION = "2.5.7"
+    VERSION = "2.5.8"
 
     # fees take into account exiting and entering a position, liquidity, and futures fees
     PERF_LEDGER_REFRESH_TIME_MS = 1000 * 60 * 15  # minutes
@@ -172,7 +172,6 @@ class ValiConfig:
     MAX_TOTAL_DRAWDOWN_V2 = 0.95
     MAX_OPEN_ORDERS_PER_HOTKEY = 200
     ORDER_COOLDOWN_MS = 10000  # 10 seconds
-
 
     SET_WEIGHT_REFRESH_TIME_MS = 60 * 5 * 1000  # 5 minutes
     SET_WEIGHT_LOOKBACK_RANGE_DAYS = 30
@@ -192,6 +191,8 @@ class ValiConfig:
     # to compare the magnitude of gains and losses internally for our scoring function
     OMEGA_LOG_RATIO_THRESHOLD = 0.0 # np.log(1 + OMEGA_RATIO_THRESHOLD) -> 0
 
+    BASELINE_ANNUAL_LOG_RETURN = 0.05 # around 5.12% annual return, baseline comes from current annual tbill rate
+    BASELINE_ANNUAL_LOG_RETURN_MS = BASELINE_ANNUAL_LOG_RETURN / (DAYS_IN_YEAR * 24 * 60 * 60 * 1000)
     SORTINO_MIN_DENOMINATOR = 1e-6
     OMEGA_MINIMUM_DENOMINATOR = 1e-6
     PROBABILISTIC_SHARPE_RATIO_MIN_STD_DEV = 1e-6
