@@ -126,7 +126,7 @@ class PolygonDataService(BaseDataService):
     def parse_price_for_forex(self, m, stats=None, is_ws=False):
         # Polygon only disguises agg price as bid price. It seems their data provider doesn't price
         # last trade price.so we will improve that by calculating the midpoint from the quote data.
-        midpoint_price = (m.bid_price + m.ask_price) / 2.0
+        #midpoint_price = (m.bid_price + m.ask_price) / 2.0
         t_ms = m.timestamp if is_ws else m.participant_timestamp // 1000000
         delta = abs(m.bid_price - m.ask_price) / m.bid_price * 100.0
         if stats:
@@ -139,13 +139,12 @@ class PolygonDataService(BaseDataService):
                 stats['n_skipped'] += 1
                 if stats['n'] % 1000 == 0:
                     bt.logging.warning(f"Ignoring unusual Forex price data bid: {m.bid_price:.4f}, ask: {m.ask_price:.4f}, "
-                                   f"{delta:.4f} mp {midpoint_price:.4f} dlvp {abs(stats['lvp'] - midpoint_price) / midpoint_price * 100.0:.4f}"
-                                   f" dt_lvp (s) {(t_ms - stats['t_vlp']) // 1000} time {TimeUtil.millis_to_formatted_date_str(t_ms // 1000000)}")
-            return None
-        elif stats:
-            stats['lvp'] = midpoint_price
-            stats['t_vlp'] = t_ms
-        return midpoint_price
+                                   f"{delta:.4f} time {TimeUtil.millis_to_formatted_date_str(t_ms // 1000000)}")
+            return None, None
+        #elif stats:
+        #    stats['lvp'] = midpoint_price
+        #    stats['t_vlp'] = t_ms
+        return m.bid_price, delta
 
     def handle_msg(self, msgs: List[ForexQuote | CurrencyAgg | EquityAgg]):
         """
@@ -160,7 +159,8 @@ class PolygonDataService(BaseDataService):
             now_ms = TimeUtil.now_in_millis()
             symbol = tp.trade_pair
             if tp.is_forex:
-                open = close = vwap = high = low = self.parse_price_for_forex(m, is_ws=True)
+                price, delta_ba = self.parse_price_for_forex(m, is_ws=True)
+                open = close = vwap = high = low = price
                 if open is None:
                     return None, None
                 t_ms = m.timestamp
@@ -575,13 +575,11 @@ class PolygonDataService(BaseDataService):
         return ans, lb, ub
 
     def unified_candle_fetcher(self, trade_pair: TradePair, start_timestamp_ms: int, end_timestamp_ms: int, timespan: str=None):
-        def build_quotes(start_timestamp_ms, end_timestamp_ms, ans=None):
+        def build_quotes(start_timestamp_ms, end_timestamp_ms):
             nonlocal stats
-            if ans is None:
-                ans = []
-                prev_t_ms = None
-            else:
-                prev_t_ms = ans[-1].timestamp
+
+            ans = []
+            prev_t_ms = None
 
             raw = self.POLYGON_CLIENT.list_quotes(ticker=polygon_ticker,
                                                                    timestamp_gte=start_timestamp_ms * 1000000,
@@ -589,29 +587,35 @@ class PolygonDataService(BaseDataService):
                                                                    sort='participant_timestamp',
                                                                    order='asc',
                                                                    limit=self.N_CANDLES_LIMIT)
-            n = 0
+            n_quotes = 0
+            best_delta = float('inf')
             for r in raw:
-                n += 1
-                midpoint_price = self.parse_price_for_forex(r, stats=stats)
-                if midpoint_price is None:
+                t_ms = r.participant_timestamp // 1000000
+                if t_ms != prev_t_ms:
+                    best_delta = float('inf')
+                n_quotes += 1
+                price, current_delta = self.parse_price_for_forex(r, stats=stats)
+                if price is None:
                     continue
-                else:
-                    t_ms = r.participant_timestamp // 1000000
-                    if t_ms == prev_t_ms:
-                        ans[-1].volume += 1
-                        ans[-1].close = midpoint_price
-                        ans[-1].low = min(ans[-1].low, midpoint_price)
-                        ans[-1].high = max(ans[-1].high, midpoint_price)
-                    else:
-                        ans.append(Agg(open=midpoint_price,
-                                       close=midpoint_price,
-                                       high=midpoint_price,
-                                       low=midpoint_price,
-                                       volume=1,
-                                       vwap=None,
-                                       timestamp=t_ms))
-                    prev_t_ms = t_ms
-            return ans, n
+
+
+                if best_delta == float('inf'):
+                    best_delta = current_delta
+                    ans.append(Agg(open=price,
+                                   close=price,
+                                   high=price,
+                                   low=price,
+                                   volume=0,
+                                   vwap=None,
+                                   timestamp=t_ms))
+                elif current_delta < best_delta:
+                    best_delta = current_delta
+                    ans[-1].open = ans[-1].close = ans[-1].low = ans[-1].high = price
+
+                ans[-1].volume += 1
+                prev_t_ms = t_ms
+
+            return ans, n_quotes
 
 
         polygon_ticker = self.trade_pair_to_polygon_ticker(trade_pair)

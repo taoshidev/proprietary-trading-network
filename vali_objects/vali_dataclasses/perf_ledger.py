@@ -13,7 +13,7 @@ from pydantic import BaseModel
 from shared_objects.cache_controller import CacheController
 from shared_objects.retry import retry
 from time_util.time_util import TimeUtil, UnifiedMarketCalendar
-from vali_config import ValiConfig
+from vali_config import ValiConfig, TradePair
 from vali_objects.position import Position
 from vali_objects.utils.live_price_fetcher import LivePriceFetcher
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils, CustomEncoder
@@ -371,12 +371,20 @@ class PerfLedgerManager(CacheController):
         #print('22222', tp.trade_pair, trade_pair_to_price_info.keys())
 
     def positions_to_portfolio_return(self, tp_to_historical_positions: dict[str: Position], t_ms, miner_hotkey, end_time_ms):
-        # What is the portfolio return at this time t_ms?
+        # Answers "What is the portfolio return at this time t_ms?"
         portfolio_return = 1.0
         t_s = t_ms // 1000
         any_open = False
+        if miner_hotkey.endswith('9osUx') and abs(t_ms - end_time_ms) < 1000:
+            print('------------------')
+
         for tp, historical_positions in tp_to_historical_positions.items():  # TODO: multithread over trade pairs?
             for historical_position in historical_positions:
+                if miner_hotkey.endswith('9osUx') and abs(t_ms - end_time_ms) < 1000:
+                    print(f"time {TimeUtil.millis_to_formatted_date_str(t_ms)} hk {miner_hotkey[-5:]} {historical_position.trade_pair.trade_pair} n_orders {len(historical_position.orders)} return {historical_position.current_return} return_at_close {historical_position.return_at_close} closed@{'NA' if historical_position.is_open_position else TimeUtil.millis_to_formatted_date_str(historical_position.orders[-1].processed_ms)}")
+                    if historical_position.trade_pair == TradePair.USDCAD:
+                        for i, order in enumerate(historical_position.orders):
+                            print(f"    {historical_position.trade_pair.trade_pair} order price {order.price} leverage {order.leverage}")
                 if self.shutdown_dict:
                     return portfolio_return, any_open
                 if len(historical_position.orders) == 0:  # Just opened an order. We will revisit this on the next event as there is no history to replay
@@ -391,10 +399,7 @@ class PerfLedgerManager(CacheController):
                 any_open = True
                 self.refresh_price_info(t_ms, end_time_ms, historical_position.trade_pair)
                 price_at_t_s = self.trade_pair_to_price_info[tp].get(t_s)
-                if price_at_t_s is None:
-                    # Use the last portfolio return
-                    opr = historical_position.return_at_close
-                else:
+                if price_at_t_s is not None:
                     self.tp_to_last_price[tp] = price_at_t_s
                     # We are retoractively updating the last order's price if it is the same as the candle price. This is a retro fix for forex bid price propagation as well as nondeterministic failed price filling.
                     if t_ms == historical_position.orders[-1].processed_ms and historical_position.orders[-1].price != price_at_t_s:
@@ -402,11 +407,10 @@ class PerfLedgerManager(CacheController):
                         #bt.logging.warning(f"Price at t_s {t_s} {historical_position.trade_pair.trade_pair} is the same as the last order processed time. Changing price from {historical_position.orders[-1].price} to {price_at_t_s}")
                         historical_position.orders[-1].price = price_at_t_s
                         historical_position.rebuild_position_with_updated_orders()
-                    opr = historical_position.get_open_position_return_with_fees(price_at_t_s, t_ms)
-                    historical_position.return_at_close = opr
-                    self.trade_pair_to_position_ret[tp] = opr
+                    historical_position.set_returns(price_at_t_s, time_ms=t_ms)
+                    self.trade_pair_to_position_ret[tp] = historical_position.return_at_close
 
-                portfolio_return *= opr
+                portfolio_return *= historical_position.return_at_close
                 #assert portfolio_return > 0, f"Portfolio value is {portfolio_return} for miner {miner_hotkey} at {t_s}. opr {opr} rtp {price_at_t_s}, historical position {historical_position}"
         return portfolio_return, any_open
 
@@ -466,6 +470,11 @@ class PerfLedgerManager(CacheController):
             assert t_ms >= perf_ledger.last_update_ms, f"t_ms: {t_ms}, last_update_ms: {perf_ledger.last_update_ms}, delta_s: {(t_ms - perf_ledger.last_update_ms) // 1000} s. perf ledger {perf_ledger}"
             portfolio_return, any_open = self.positions_to_portfolio_return(tp_to_historical_positions, t_ms, miner_hotkey, end_time_ms)
             if self.check_elimination(miner_hotkey, portfolio_return, t_ms, max_realized_portfolio_return):
+                print(f'eliminated. Highest portfolio realized return {self.hk_to_dd_stats[miner_hotkey]}. current return {portfolio_return}')
+                for _, v in tp_to_historical_positions.items():
+                    for pos in v:
+                        print(
+                            f"    time {TimeUtil.millis_to_formatted_date_str(t_ms)} hk {miner_hotkey[-5:]} {pos.trade_pair.trade_pair} return {pos.current_return} return_at_close {pos.return_at_close} closed@{'NA' if pos.is_open_position else TimeUtil.millis_to_formatted_date_str(pos.orders[-1].processed_ms)}")
                 return True
             assert portfolio_return > 0, f"Portfolio value is {portfolio_return} for miner {miner_hotkey} at {t_ms // 1000}. perf ledger {perf_ledger}"
             perf_ledger.update(portfolio_return, t_ms, miner_hotkey, any_open)
