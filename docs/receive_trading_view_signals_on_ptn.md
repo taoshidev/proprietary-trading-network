@@ -1,3 +1,5 @@
+# How to Receive Trading View Signals on PTN
+
 PTN is a data science competition in which you contribute algorithmic or manual trading signals to predict various financial markets, creating actionable signals for third parties.
 
 We have a comprehensive Readme and a user-friendly home page that provides all the necessary information. Additionally, you can join our active and supportive Taoshi Community Hub on Discord, where our team and fellow participants are always ready to guide and assist you.
@@ -36,7 +38,7 @@ Next, configure your VM. As always, set it up as you'd like; however, the recom
 3. Select a **Basic Shared CPU**
 4. Select "**Password**" as your authentication method
 
-![How to Create a Virtual Machine for Taoshi's Proprietary Trading Network](https://www.youtube.com/watch?v=2udT5aRMCZ8)
+[![](https://i.imgur.com/C1CUYXN.png)](https://www.youtube.com/watch?v=2udT5aRMCZ8)
 
 ### 3. Install Taoshi's Proprietary Trading Network (PTN).
 
@@ -45,74 +47,73 @@ Next, configure your VM. As always, set it up as you'd like; however, the recom
 1. **Go to your droplet click access and Launch Droplet Console.**
    A new window will pop up. This is direct access to your VM machine through the command line.
 
-   ![How to Launch a Droplet Console to access Taoshi's Proprietary Trading Network](https://youtu.be/o2gYL9gML3I?si=WnKXMTDISXezsd53)
+   [![](https://i.imgur.com/K8z8wTr.png)](https://youtu.be/o2gYL9gML3I?si=WnKXMTDISXezsd53)
 
    **NOTE**: This can also be done in the terminal on your machine.
 
-2. **Update your system and add development dependancies.**
-   Update the local package index
+2. Update your system and add development dependancies. Update the local package index
 
 ```bash
 apt update
 ```
 
-3. **Upgrades installed packages to their latest available versions.**
+3. Upgrade installed packages to their latest available versions.
 
 ```
 apt upgrade
 ```
 
-4. **Install necessary dependencies**
+4. Install necessary dependencies
 
 ```
 apt install build-essential python3.12-venv
 ```
 
-![Updating Your Droplet for Proprietary Trading Network](https://www.youtube.com/watch?v=HsdN92LyawQ)
+[![](https://i.imgur.com/MVKZEuX.png)](https://www.youtube.com/watch?v=HsdN92LyawQ)
 
-5. **Clone the PTN repository to your virtual machine.**
+5. Clone the PTN repository to your virtual machine.
 
 ```
 git clone https://github.com/taoshidev/proprietary-trading-network.git
 ```
 
-4. **Change directory**
+4. Change directory
 
 ```
 cd proprietary-trading-network
 ```
 
-5. **Create Virtual Environment**
+5. Create Virtual Environment
 
 ```
 python3 -m venv venv
 ```
 
-6. **Activate the Virtual Environment**
+6. Activate the Virtual Environment
 
 ```
 . venv/bin/activate
 ```
 
-7.  **Disable pip cache**
+7.  Disable pip cache
 
 ```
 export PIP_NO_CACHE_DIR=1
 ```
 
-8. **Install dependencies**
+8. Install dependencies
 
 ```
 pip install -r requirements.txt
 ```
 
-9. **Create a local and editable installation**
+9. Create a local and editable installation
 
 ```
 python3 -m pip install -e .
 ```
 
-10. **Create Miner Secrets**
+10. Create Miner Secrets
     Create `mining/miner_secrets.json` and replace xxxx with your API key. This API key is created by you and used for interaction verification between systems.
 
 ```js
@@ -121,7 +122,7 @@ python3 -m pip install -e .
 }
 ```
 
-![How to Install Taoshi's Proprietary Trading Network](https://youtu.be/tujYrGgMuK4)
+[![](https://i.imgur.com/gchGxvg.png)](https://youtu.be/tujYrGgMuK4)
 
 Congrats, you've configured your miner. Let's get your Bittensor wallets set up.
 
@@ -131,7 +132,7 @@ Congrats, you've configured your miner. Let's get your Bittensor wallets set up.
 
 Your previously configured miner must be paired with a Bittensor address. To do so, follow these steps.
 
-While still in your active virtual environment (venv) and in the `/proprietary-trading-network directory`, create a coldkey and hotkey for your miner wallet.
+While still in your active virtual environment `(venv)` and in the `/proprietary-trading-network directory`, create a coldkey and hotkey for your miner wallet.
 
 ```bash
 btcli wallet new_coldkey --wallet.name miner
@@ -143,7 +144,7 @@ Next create a hotkey.
 btcli wallet new_hotkey --wallet.name miner --wallet.hotkey default
 ```
 
-![How to Create a Bittensor Wallet for Your PTN Miner](https://youtu.be/lsAzEBmAn_8?si=Jb4hkFPGEq8qXMWJ)
+[![](https://i.imgur.com/6FuNY5G.png)](https://youtu.be/lsAzEBmAn_8?si=Jb4hkFPGEq8qXMWJ)
 
 **Important:** Attach the flag `--subtensor.network test` and `--netuid 116` on your `btcli` commands to target the testnet.
 
@@ -161,7 +162,7 @@ Finally, check to see that your keys are successfully registered.
 btcli wallet overview --wallet.name miner
 ```
 
-![How to Register Your Bittensor Wallet for Your PTN Miner](https://youtu.be/jxMi76ME-R4?si=YgmXcbAlvyXF-p0_)
+[![](https://i.imgur.com/nDMe4vj.png)](https://youtu.be/jxMi76ME-R4?si=YgmXcbAlvyXF-p0_)
 
 **Important:** Attach the flag `--subtensor.network test` and `--netuid 116` on your `btcli` commands to target the testnet.
 
@@ -173,7 +174,7 @@ Run your newly created miner
 python neurons/miner.py  --wallet.name miner --wallet.hotkey default --logging.debug
 ```
 
-![How to Run a Miner on Taoshi's Proprietary Trading Network](https://youtu.be/cqJJmT9zszA?si=sbIFSE4Axph1eVl0)
+[![](https://i.imgur.com/54T0mL3.png)](https://youtu.be/cqJJmT9zszA?si=sbIFSE4Axph1eVl0)
 
 **Important:** Attach the flag `--subtensor.network test` and `--netuid 116` on your `btcli` commands to target the testnet.
 
@@ -187,7 +188,7 @@ Use our signal server script.
 sh run_receive_signals_server.sh
 ```
 
-![How to Run a Signals Server to Receive Trading View Signals](https://youtu.be/rNLHZLz6M-8?si=lkVrdxRvnjmUAuXN)
+[![](https://i.imgur.com/JK3VHfl.png)](https://youtu.be/rNLHZLz6M-8?si=lkVrdxRvnjmUAuXN)
 
 Test your set up by sending a sample signal. Launch a new **Droplet Console**, and within the PTN directory let’s ensure connect a test server to your recently created signals server.
 
@@ -203,7 +204,7 @@ Run the following command
 python3 sample_signal_request.py
 ```
 
-![Send a Sample Signal to Proprietary Trading Network](https://youtu.be/FgWi0q0lMcg?si=vSwfnbFgr9_vIYKg)
+[![](https://i.imgur.com/PgwaSaj.png)](https://youtu.be/FgWi0q0lMcg?si=vSwfnbFgr9_vIYKg)
 
 ### 8. Create a TradingView Signal Alert
 
@@ -228,6 +229,12 @@ Once signed in, create a new alert. Paste in the following data, remembering to 
 
 In the Notifications tab, create a webhook and paste in your Public IP address. Ensure you prepend http and prepend port `80`.
 
-![How to Send Trading View Signals to Proprietary Trading Network](https://youtu.be/TPEjATuDMEg?si=uxC50wnG8uMf0P0H)
+[![](https://i.imgur.com/3Cvk8PW.png)](https://youtu.be/TPEjATuDMEg?si=uxC50wnG8uMf0P0H)
 
 Congratulations, you’ve successfully set up a TradingView alert to PTN
+
+## Live Example
+
+Once your criteria is met, Trading View will send a signal to your webhook.
+
+[![](https://i.imgur.com/ccc5FD6.png)](https://youtu.be/ZEDE_oKFH44?si=sQ6NcyD_xO2R4ymh)
