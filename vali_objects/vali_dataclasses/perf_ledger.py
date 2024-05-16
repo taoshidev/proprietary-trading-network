@@ -375,16 +375,16 @@ class PerfLedgerManager(CacheController):
         portfolio_return = 1.0
         t_s = t_ms // 1000
         any_open = False
-        if miner_hotkey.endswith('9osUx') and abs(t_ms - end_time_ms) < 1000:
-            print('------------------')
+        #if miner_hotkey.endswith('9osUx') and abs(t_ms - end_time_ms) < 1000:
+        #    print('------------------')
 
         for tp, historical_positions in tp_to_historical_positions.items():  # TODO: multithread over trade pairs?
             for historical_position in historical_positions:
-                if miner_hotkey.endswith('9osUx') and abs(t_ms - end_time_ms) < 1000:
-                    print(f"time {TimeUtil.millis_to_formatted_date_str(t_ms)} hk {miner_hotkey[-5:]} {historical_position.trade_pair.trade_pair} n_orders {len(historical_position.orders)} return {historical_position.current_return} return_at_close {historical_position.return_at_close} closed@{'NA' if historical_position.is_open_position else TimeUtil.millis_to_formatted_date_str(historical_position.orders[-1].processed_ms)}")
-                    if historical_position.trade_pair == TradePair.USDCAD:
-                        for i, order in enumerate(historical_position.orders):
-                            print(f"    {historical_position.trade_pair.trade_pair} order price {order.price} leverage {order.leverage}")
+                #if miner_hotkey.endswith('9osUx') and abs(t_ms - end_time_ms) < 1000:
+                #    print(f"time {TimeUtil.millis_to_formatted_date_str(t_ms)} hk {miner_hotkey[-5:]} {historical_position.trade_pair.trade_pair} n_orders {len(historical_position.orders)} return {historical_position.current_return} return_at_close {historical_position.return_at_close} closed@{'NA' if historical_position.is_open_position else TimeUtil.millis_to_formatted_date_str(historical_position.orders[-1].processed_ms)}")
+                #    if historical_position.trade_pair == TradePair.USDCAD:
+                #        for i, order in enumerate(historical_position.orders):
+                #            print(f"    {historical_position.trade_pair.trade_pair} order price {order.price} leverage {order.leverage}")
                 if self.shutdown_dict:
                     return portfolio_return, any_open
                 if len(historical_position.orders) == 0:  # Just opened an order. We will revisit this on the next event as there is no history to replay
@@ -414,7 +414,7 @@ class PerfLedgerManager(CacheController):
                 #assert portfolio_return > 0, f"Portfolio value is {portfolio_return} for miner {miner_hotkey} at {t_s}. opr {opr} rtp {price_at_t_s}, historical position {historical_position}"
         return portfolio_return, any_open
 
-    def check_elimination(self, miner_hotkey, portfolio_return, t_ms, max_realized_portfolio_return):
+    def check_elimination(self, miner_hotkey, portfolio_return, t_ms, max_realized_portfolio_return, tp_to_historical_positions):
         dd = self.calculate_drawdown(portfolio_return, max_realized_portfolio_return)
         mdd_failure = self.is_drawdown_beyond_mdd(dd, time_now=TimeUtil.millis_to_datetime(t_ms))
         stats = self.hk_to_dd_stats[miner_hotkey]
@@ -429,6 +429,10 @@ class PerfLedgerManager(CacheController):
             self.append_elimination_row(miner_hotkey, dd, mdd_failure, t_ms=t_ms, price_info=self.tp_to_last_price,
                                         return_info={'dd_stats':stats, 'returns': self.trade_pair_to_position_ret})
             stats['eliminated'] = True
+            print(f'eliminated. Highest portfolio realized return {self.hk_to_dd_stats[miner_hotkey]}. current return {portfolio_return}')
+            for _, v in tp_to_historical_positions.items():
+                for pos in v:
+                    print(f"    time {TimeUtil.millis_to_formatted_date_str(t_ms)} hk {miner_hotkey[-5:]} {pos.trade_pair.trade_pair} return {pos.current_return} return_at_close {pos.return_at_close} closed@{'NA' if pos.is_open_position else TimeUtil.millis_to_formatted_date_str(pos.orders[-1].processed_ms)}")
             return True
         return False
 
@@ -469,12 +473,7 @@ class PerfLedgerManager(CacheController):
                 return False
             assert t_ms >= perf_ledger.last_update_ms, f"t_ms: {t_ms}, last_update_ms: {perf_ledger.last_update_ms}, delta_s: {(t_ms - perf_ledger.last_update_ms) // 1000} s. perf ledger {perf_ledger}"
             portfolio_return, any_open = self.positions_to_portfolio_return(tp_to_historical_positions, t_ms, miner_hotkey, end_time_ms)
-            if self.check_elimination(miner_hotkey, portfolio_return, t_ms, max_realized_portfolio_return):
-                print(f'eliminated. Highest portfolio realized return {self.hk_to_dd_stats[miner_hotkey]}. current return {portfolio_return}')
-                for _, v in tp_to_historical_positions.items():
-                    for pos in v:
-                        print(
-                            f"    time {TimeUtil.millis_to_formatted_date_str(t_ms)} hk {miner_hotkey[-5:]} {pos.trade_pair.trade_pair} return {pos.current_return} return_at_close {pos.return_at_close} closed@{'NA' if pos.is_open_position else TimeUtil.millis_to_formatted_date_str(pos.orders[-1].processed_ms)}")
+            if t_ms > 1715910011000 and self.check_elimination(miner_hotkey, portfolio_return, t_ms, max_realized_portfolio_return, tp_to_historical_positions):
                 return True
             assert portfolio_return > 0, f"Portfolio value is {portfolio_return} for miner {miner_hotkey} at {t_ms // 1000}. perf ledger {perf_ledger}"
             perf_ledger.update(portfolio_return, t_ms, miner_hotkey, any_open)

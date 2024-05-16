@@ -19,7 +19,7 @@ import bittensor as bt
 from polygon import RESTClient
 
 from vali_objects.vali_dataclasses.price_source import PriceSource
-
+from vali_objects.vali_dataclasses.recent_event_tracker import RecentEventTracker
 
 DEBUG = 0
 
@@ -124,9 +124,6 @@ class PolygonDataService(BaseDataService):
             time.sleep(1)
 
     def parse_price_for_forex(self, m, stats=None, is_ws=False):
-        # Polygon only disguises agg price as bid price. It seems their data provider doesn't price
-        # last trade price.so we will improve that by calculating the midpoint from the quote data.
-        #midpoint_price = (m.bid_price + m.ask_price) / 2.0
         t_ms = m.timestamp if is_ws else m.participant_timestamp // 1000000
         delta = abs(m.bid_price - m.ask_price) / m.bid_price * 100.0
         if stats:
@@ -137,7 +134,7 @@ class PolygonDataService(BaseDataService):
         if delta > .20:  # Wonky
             if stats:
                 stats['n_skipped'] += 1
-                if stats['n'] % 1000 == 0:
+                if stats['n'] % 10 == 0:
                     bt.logging.warning(f"Ignoring unusual Forex price data bid: {m.bid_price:.4f}, ask: {m.ask_price:.4f}, "
                                    f"{delta:.4f} time {TimeUtil.millis_to_formatted_date_str(t_ms // 1000000)}")
             return None, None
@@ -159,33 +156,35 @@ class PolygonDataService(BaseDataService):
             now_ms = TimeUtil.now_in_millis()
             symbol = tp.trade_pair
             if tp.is_forex:
-                price, delta_ba = self.parse_price_for_forex(m, is_ws=True)
-                open = close = vwap = high = low = price
-                if open is None:
+                new_price, delta_ba = self.parse_price_for_forex(m, is_ws=True)
+                if new_price is None:
                     return None, None
-                t_ms = m.timestamp
-                if symbol in self.trade_pair_to_recent_events and self.trade_pair_to_recent_events[symbol].event_exists(t_ms + 999):
-                    return None, None  # Received two messages already
-                elif symbol in self.trade_pair_to_recent_events and self.trade_pair_to_recent_events[symbol].event_exists(t_ms):
-                    start_timestamp = end_timestamp = t_ms + 999  # This is the second message for this timestamp
+                start_timestamp = m.timestamp
+                #print(f'Received forex message {symbol} price {new_price} time {TimeUtil.millis_to_formatted_date_str(start_timestamp)}')
+                end_timestamp = start_timestamp + 999
+                if symbol in self.trade_pair_to_recent_events and self.trade_pair_to_recent_events[symbol].timestamp_exists(start_timestamp):
+                    self.trade_pair_to_recent_events[symbol].update_prices_for_median(start_timestamp, new_price)
+                    self.trade_pair_to_recent_events[symbol].update_prices_for_median(start_timestamp + 999, new_price)
+                    return None, None
                 else:
-                    start_timestamp = end_timestamp = t_ms
-                timespan_ms = 0
-                volume = None
+                    open = close = vwap = high = low = new_price
+
+                volume = 1
             else:
                 start_timestamp = m.start_timestamp
-                end_timestamp = m.end_timestamp
-                timespan_ms = end_timestamp - start_timestamp
+                end_timestamp = m.end_timestamp - 1   # prioritize a new candle's open over a previous candle's close
                 open = m.open
                 close = m.close
                 vwap = m.vwap
                 high = m.high
                 low = m.low
                 volume = m.volume
+                #print(f'Received message {symbol} price {close} time {TimeUtil.millis_to_formatted_date_str(start_timestamp)}')
 
-            price1 = PriceSource(
+
+            price_source1 = PriceSource(
                 source=f'{POLYGON_PROVIDER_NAME}_ws',
-                timespan_ms=timespan_ms,
+                timespan_ms=0,
                 open=open,
                 close=open,
                 vwap=vwap,
@@ -196,23 +195,21 @@ class PolygonDataService(BaseDataService):
                 lag_ms=now_ms - start_timestamp,
                 volume=volume
             )
-            if tp.is_forex:
-                return price1, None
 
-            price2 = PriceSource(
+            price_source2 = PriceSource(
                 source=f'{POLYGON_PROVIDER_NAME}_ws',
-                timespan_ms=timespan_ms,
+                timespan_ms=0,
                 open=close,
                 close=close,
                 vwap=vwap,
                 high=high,
                 low=low,
-                start_ms=end_timestamp - 1,  # prioritize a new candle's open over a previous candle's close
+                start_ms=end_timestamp,
                 websocket=True,
                 lag_ms=now_ms - end_timestamp,
                 volume=volume
             )
-            return price1, price2
+            return price_source1, price_source2
 
         with self.LOCK:
             try:
@@ -231,19 +228,19 @@ class PolygonDataService(BaseDataService):
 
                     # This could be a candle so we can make 2 prices, one for the open and one for the close
                     symbol = tp.trade_pair
-                    price1, price2 = msg_to_price_sources(m, tp)
-                    if price1 is None and price2 is None:
+                    ps1, ps2 = msg_to_price_sources(m, tp)
+                    if ps1 is None and ps2 is None:
                         continue
 
                     # Reset the closed market price, indicating that a new close should be fetched after the current day's close
                     self.closed_market_prices[tp] = None
-                    if price1:
-                        self.latest_websocket_events[symbol] = price1
-                        self.trade_pair_to_recent_events[symbol].add_event(price1)
+                    if ps1:
+                        self.latest_websocket_events[symbol] = ps1
+                        self.trade_pair_to_recent_events[symbol].add_event(ps1, tp.is_forex)
 
-                    if price2:
-                        self.latest_websocket_events[symbol] = price2
-                        self.trade_pair_to_recent_events[symbol].add_event(price2)
+                    if ps2:
+                        self.latest_websocket_events[symbol] = ps2
+                        self.trade_pair_to_recent_events[symbol].add_event(ps2, tp.is_forex)
 
                     if DEBUG:
                         formatted_time = TimeUtil.millis_to_formatted_date_str(TimeUtil.now_in_millis())
@@ -574,6 +571,7 @@ class PolygonDataService(BaseDataService):
             lb = min(lb, a.timestamp)
         return ans, lb, ub
 
+
     def unified_candle_fetcher(self, trade_pair: TradePair, start_timestamp_ms: int, end_timestamp_ms: int, timespan: str=None):
         def build_quotes(start_timestamp_ms, end_timestamp_ms):
             nonlocal stats
@@ -593,6 +591,8 @@ class PolygonDataService(BaseDataService):
                 t_ms = r.participant_timestamp // 1000000
                 if t_ms != prev_t_ms:
                     best_delta = float('inf')
+                    if ans and hasattr(ans[-1], 'temp'):
+                        del ans[-1].temp
                 n_quotes += 1
                 price, current_delta = self.parse_price_for_forex(r, stats=stats)
                 if price is None:
@@ -608,9 +608,16 @@ class PolygonDataService(BaseDataService):
                                    volume=0,
                                    vwap=None,
                                    timestamp=t_ms))
-                elif current_delta < best_delta:
+                    ans[-1].temp = [price]
+                else:
                     best_delta = current_delta
-                    ans[-1].open = ans[-1].close = ans[-1].low = ans[-1].high = price
+                    arr = ans[-1].temp
+                    arr.append(price)
+                    arr.sort()
+
+                    # Get the median value if the length is odd. Otherwise, average the two middle values
+                    median_price = RecentEventTracker.forex_median_price(arr)
+                    ans[-1].open = ans[-1].close = ans[-1].low = ans[-1].high = median_price
 
                 ans[-1].volume += 1
                 prev_t_ms = t_ms
@@ -706,7 +713,9 @@ class PolygonDataService(BaseDataService):
 
 if __name__ == "__main__":
     secrets = ValiUtils.get_secrets()
-    polygon_data_provider = PolygonDataService(api_key=secrets['polygon_apikey'], disable_ws=True)
+    polygon_data_provider = PolygonDataService(api_key=secrets['polygon_apikey'], disable_ws=False)
+    time.sleep(100000)
+    assert 0
     target_timestamp_ms = 1715288502999
 
     tp = TradePair.GBPUSD

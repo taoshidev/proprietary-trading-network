@@ -157,7 +157,7 @@ class LivePriceFetcher():
         #                 high_lower_bound <= x.high <= high_upper_bound and
         #                 low_lower_bound <= x.low <= low_upper_bound]
 
-        # Sort the data by timestamp in descending order
+        # Sort the data by timestamp in ascending order
         filtered_data.sort(key=lambda x: x.start_ms, reverse=True)
         return filtered_data
 
@@ -167,7 +167,7 @@ class LivePriceFetcher():
             bt.logging.trace(f"No ps data to parse for realtime price for trade pair {trade_pair.trade_pair_id}. data: {data}")
             return None
 
-        # Data by timestamp in descending order so that the largest timestamp is first
+        # Data by timestamp in ascending order so that the largest timestamp is first
         return data[0].close
 
     def parse_extreme_price_in_window(self, candle_data: Dict[TradePair, List[PriceSource]],

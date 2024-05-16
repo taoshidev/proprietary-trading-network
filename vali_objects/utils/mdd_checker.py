@@ -80,7 +80,7 @@ class MDDChecker(CacheController):
             if e['hotkey'] in eliminated_hotkeys:
                 continue
 
-            eliminated_hotkeys.append(e['hotkey'])
+            eliminated_hotkeys.add(e['hotkey'])
             price_info = e['price_info']
             trade_pair_to_price_source_used_for_elimination_check = {}
             for k, v in price_info.items():
@@ -124,10 +124,10 @@ class MDDChecker(CacheController):
             # Only fall back to REST if the order is the latest. Don't want to get slowed down
             # By a flurry of recent orders.
             ws_only = not is_last_order
-            self.n_poly_api_requests += 0 if ws_only else 1
+            self.n_poly_api_requests += 1#0 if ws_only else 1
             sources = self.live_price_fetcher.fetch_prices([trade_pair],
                                                         {trade_pair: order.processed_ms},
-                                                        ws_only=ws_only).get(trade_pair, (None, None))[1]
+                                                        ws_only=False).get(trade_pair, (None, None))[1]
             return sources
 
         trade_pair = position.trade_pair
@@ -171,7 +171,7 @@ class MDDChecker(CacheController):
             if position.is_open_position and realtime_price is not None:
                 orig_return = position.return_at_close
                 position.set_returns(realtime_price)
-                n_orders_updated += orig_return != position.return_at_close
+
             if n_orders_updated:
                 is_liquidated = position.current_return == 0
                 self.position_manager.save_miner_position_to_disk(position, delete_open_position_if_exists=is_liquidated)
