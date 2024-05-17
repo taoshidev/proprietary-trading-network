@@ -8,7 +8,7 @@ from vali_config import TradePair
 from pydantic import validator
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.vali_dataclasses.price_source import PriceSource
-from vali_objects.vali_dataclasses.signal import Signal
+from vali_objects.vali_dataclasses.order_signal import Signal
 from enum import Enum, auto
 
 class Order(Signal):

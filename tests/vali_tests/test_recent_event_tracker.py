@@ -4,7 +4,7 @@ from unittest.mock import patch
 
 from sortedcontainers import SortedList
 
-from vali_objects.utils.recent_event_tracker import RecentEventTracker
+from vali_objects.vali_dataclasses.recent_event_tracker import RecentEventTracker
 from vali_objects.vali_dataclasses.price_source import PriceSource
 from time_util.time_util import TimeUtil
 
@@ -18,7 +18,10 @@ class TestRecentEventTracker(unittest.TestCase):
         # First event added
         mock_time.return_value = 10000000  # Mock time set for the first event
         event = PriceSource(start_ms=mock_time.return_value, open=100.0, close=105.0)
-        self.tracker.add_event(event)
+        self.tracker.add_event(event, is_poly_forex=True)
+        existing_event = self.tracker.get_event_by_timestamp(mock_time.return_value)
+        self.assertEqual(existing_event[0], event)
+        self.assertEqual(existing_event[1], [event.close])
 
         # Assert the first event is added correctly
         self.assertEqual(len(self.tracker.events), 1)

@@ -32,7 +32,7 @@ class ValiUtils:
             else:
                 return json.loads(secrets)
         except FileNotFoundError:
-            print(f"no vali json file [{dir}], continuing")
+            print(f"no vali json file [{vali_dir}], continuing")
             return []
         
     @staticmethod
@@ -45,7 +45,7 @@ class ValiUtils:
             else:
                 return json.loads(secrets)
         except FileNotFoundError:
-            print(f"no vali json file [{dir}], continuing")
+            print(f"no vali json file [{vali_dir}], continuing")
             return {}
         
     @staticmethod
@@ -58,7 +58,7 @@ class ValiUtils:
             else:
                 return json.loads(secrets)
         except FileNotFoundError:
-            print(f"no vali json file [{dir}], continuing")
+            print(f"no vali json file [{vali_dir}], continuing")
             return []
 
     @staticmethod

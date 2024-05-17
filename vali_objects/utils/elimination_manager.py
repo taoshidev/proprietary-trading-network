@@ -88,7 +88,7 @@ class EliminationManager(CacheController):
             self.set_last_update_time()
 
         all_miners_dir = ValiBkpUtils.get_miner_dir(running_unit_tests=self.running_unit_tests)
-        for hotkey in self.get_directory_names(all_miners_dir):
+        for hotkey in CacheController.get_directory_names(all_miners_dir):
             if self.shutdown_dict:
                 return
             miner_dir = all_miners_dir + hotkey

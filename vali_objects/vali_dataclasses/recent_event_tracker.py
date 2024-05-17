@@ -2,7 +2,6 @@ import threading
 import time
 
 from sortedcontainers import SortedList
-
 from time_util.time_util import TimeUtil
 from vali_objects.vali_dataclasses.price_source import PriceSource
 
@@ -11,13 +10,36 @@ class RecentEventTracker:
     def __init__(self):
         self.events = SortedList(key=lambda x: x[0])  # Assuming each event is a tuple (timestamp, event_data)
         self.lock = threading.Lock()
+        self.timestamp_to_event = {}
 
-    def add_event(self, event):
+    def add_event(self, event, is_poly_forex=False):
         with self.lock:
             event_time_ms = event.start_ms
             self.events.add((event_time_ms, event))
+            self.timestamp_to_event[event_time_ms] = (event, [event.close] if is_poly_forex else None)
             #print(f"Added event at {TimeUtil.millis_to_formatted_date_str(event_time_ms)}")
             self._cleanup_old_events()
+
+    def get_event_by_timestamp(self, timestamp_ms):
+        # Already locked by caller
+        return self.timestamp_to_event.get(timestamp_ms, (None, None))
+
+    def timestamp_exists(self, timestamp_ms):
+        return timestamp_ms in self.timestamp_to_event
+
+    @staticmethod
+    def forex_median_price(arr):
+        median_price = arr[len(arr) // 2] if len(arr) % 2 == 1 else (arr[len(arr) // 2] + arr[len(arr) // 2 - 1]) / 2.0
+        return median_price
+
+    def update_prices_for_median(self, t_ms, new_price):
+        with self.lock:
+            existing_event, prices = self.get_event_by_timestamp(t_ms)
+            if prices:
+                prices.append(new_price)
+                prices.sort()
+                median_price = self.forex_median_price(prices)
+                existing_event.open = existing_event.close = existing_event.high = existing_event.low = median_price
 
     def _cleanup_old_events(self):
         # Don't lock here, as this method is called from within a lock
@@ -25,7 +47,8 @@ class RecentEventTracker:
         # Calculate the oldest valid time once, outside the loop
         oldest_valid_time_ms = current_time_ms - self.OLDEST_ALLOWED_RECORD_MS
         while self.events and self.events[0][0] < oldest_valid_time_ms:
-            self.events.pop(0)
+            removed_event = self.events.pop(0)
+            del self.timestamp_to_event[removed_event[0]]
 
     def get_events_in_range(self, start_time_ms, end_time_ms):
         """

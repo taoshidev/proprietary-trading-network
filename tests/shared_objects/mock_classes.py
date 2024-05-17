@@ -2,7 +2,6 @@ import threading
 
 from vali_objects.utils.mdd_checker import MDDChecker
 from vali_objects.utils.plagiarism_detector import PlagiarismDetector
-from vali_objects.utils.position_manager import PositionManager
 from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
 
 class MockMDDChecker(MDDChecker):

@@ -294,13 +294,9 @@ class PositionManager(CacheController):
 
         tps_to_iterate_over = open_position_trade_pairs if open_position_trade_pairs else TradePair
         for trade_pair in tps_to_iterate_over:
-            now_ms = TimeUtil.now_in_millis()
             with self.position_locks.get_lock(hotkey, trade_pair.trade_pair_id):
                 open_position = self.get_open_position_for_a_miner_trade_pair(hotkey, trade_pair.trade_pair_id)
                 source_for_elimination = trade_pair_to_price_source_used_for_elimination_check.get(trade_pair)
-                if source_for_elimination:
-                    source_for_elimination.source += '[elim]'
-                    source_for_elimination.lag_ms = source_for_elimination.time_delta_from_now_ms(now_ms)
                 if open_position:
                     bt.logging.info(
                         f"Closing open position for hotkey: {hotkey} and trade_pair: {trade_pair.trade_pair_id}. "
@@ -726,7 +722,7 @@ class PositionManager(CacheController):
         # List of directories updated in the last 24 hours
         updated_directory_names = []
         # Get the names of all directories in query_dir
-        directory_names = self.get_directory_names(query_dir)
+        directory_names = CacheController.get_directory_names(query_dir)
         # Loop through each directory name
         for item in directory_names:
             item_path = Path(query_dir) / item  # Construct the full path
