@@ -169,13 +169,14 @@ class MDDChecker(CacheController):
             # Log return before calling set_returns
             #bt.logging.info(f"current return with fees for open position with trade pair[{open_position.trade_pair.trade_pair_id}] is [{open_position.return_at_close}]. Position: {position}")
             temp = candle_data_dict.get(trade_pair, (None, None))
-            print(f'realtime price {trade_pair.trade_pair_id}:', temp[0])
             realtime_price = temp[0]
+            ret_changed = False
             if position.is_open_position and realtime_price is not None:
                 orig_return = position.return_at_close
                 position.set_returns(realtime_price)
+                ret_changed = orig_return != position.return_at_close
 
-            if n_orders_updated:
+            if n_orders_updated or ret_changed:
                 is_liquidated = position.current_return == 0
                 self.position_manager.save_miner_position_to_disk(position, delete_open_position_if_exists=is_liquidated)
                 self.n_orders_corrected += n_orders_updated
