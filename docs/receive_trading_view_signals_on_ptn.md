@@ -1,8 +1,8 @@
-# How to Receive Trading View Signals on PTN
+# How to Compete on PTN Using TradingView Signals (For By Hand Traders or Strategies)
 
 PTN is a data science competition in which you contribute algorithmic or manual trading signals to predict various financial markets, creating actionable signals for third parties.
 
-We have a comprehensive Readme and a user-friendly home page that provides all the necessary information. Additionally, you can join our active and supportive Taoshi Community Hub on Discord, where our team and fellow participants are always ready to guide and assist you.
+We have a comprehensive [README](https://github.com/taoshidev/proprietary-trading-network) and a user-friendly [home page](https://www.taoshi.io/ptn) that provides all the necessary information. Additionally, you can join our active and supportive Taoshi Community Hub on Discord, where our team and fellow participants are always ready to guide and assist you.
 
 ## Quick Start Guide
 
