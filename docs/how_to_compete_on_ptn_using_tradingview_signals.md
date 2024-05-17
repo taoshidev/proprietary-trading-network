@@ -6,7 +6,7 @@ We have a comprehensive [README](https://github.com/taoshidev/proprietary-tradin
 
 ## Quick Start Guide
 
-Ready to dive in? Our quick start guide is designed to get you up and running with the Trading View signals in no time. Follow these simple steps, and you'll receive your first signal before you know it.
+Ready to dive in? Our quick start guide is designed to get you up and running with the TradingView signals in no time. Follow these simple steps, and you'll receive your first signal before you know it.
 
 1. **Sign up for a Digital Ocean account.** Though no payment will be taken you will need to add a payment method.
 2. **Deploy a Virtual Machine (Droplet or VM).** Once you sign up, you'll land on your Control Panel. You'll want to select "Deploy a virtual machine."
@@ -15,7 +15,7 @@ Ready to dive in? Our quick start guide is designed to get you up and running w
    **Note:** If you are familiar with the command line, you can install PTN through your terminal or by launching a Droplet Console.
 
 4. After installation, you'll want to **Run a Signals Server** and test that your miner can receive signals by sending a **Sample Signal**.
-5. Now that your miner is ready to receive signals, you can send **Trading View signals** to your server using your server's endpoint and custom API key.
+5. Now that your miner is ready to receive signals, you can send **TradingView signals** to your server using your server's endpoint and custom API key.
 
 Need more? Check below for more in-depth steps.
 
@@ -208,7 +208,7 @@ python3 sample_signal_request.py
 
 ### 8. Create a TradingView Signal Alert
 
-To send a signal from Trading View to PTN you will first need to get your Droplet public IP address.
+To send a signal from TradingView to PTN you will first need to get your Droplet public IP address.
 
 1. Within Digital Ocean to go to your newly created Droplet.
 2. Click on “Networking” located in the menu on the left.
@@ -233,8 +233,8 @@ In the Notifications tab, create a webhook and paste in your Public IP address. 
 
 Congratulations, you’ve successfully set up a TradingView alert to PTN
 
-## Live Example
+## TradingView to PTN Example
 
-Once your criteria is met, Trading View will send a signal to your webhook.
+Once your criteria is met, TradingView will send a signal to your webhook.
 
 [![](https://i.imgur.com/ccc5FD6.png)](https://youtu.be/ZEDE_oKFH44?si=sQ6NcyD_xO2R4ymh)
