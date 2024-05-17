@@ -100,8 +100,7 @@ class SubtensorWeightSetter(CacheController):
                 continue
 
             miner_checkpoints = copy.deepcopy(miner_ledger.cps)
-            miner_checkpoints_filtered = self._filter_checkpoint_elements(miner_checkpoints)
-            checkpoint_meets_criteria = self._filter_checkpoint_list(miner_checkpoints_filtered)
+            checkpoint_meets_criteria = self._filter_checkpoint_list(miner_checkpoints)
             if not checkpoint_meets_criteria:
                 continue
 
@@ -145,8 +144,7 @@ class SubtensorWeightSetter(CacheController):
                 continue
 
             miner_checkpoints = copy.deepcopy(miner_ledger.cps)
-            miner_checkpoints_filtered = self._filter_checkpoint_elements(miner_checkpoints)
-            checkpoint_meets_criteria = self._filter_checkpoint_list(miner_checkpoints_filtered)
+            checkpoint_meets_criteria = self._filter_checkpoint_list(miner_checkpoints)
             if not checkpoint_meets_criteria:
                 continue
 
@@ -161,8 +159,8 @@ class SubtensorWeightSetter(CacheController):
         checkpoint_filtered = []
 
         for checkpoint in checkpoints:
-            if checkpoint.open_ms >= ValiConfig.SET_WEIGHT_MINIMUM_SINGLE_CHECKPOINT_DURATION_MS:
-                checkpoint_filtered.append(checkpoint)
+            # if checkpoint.open_ms >= ValiConfig.SET_WEIGHT_MINIMUM_SINGLE_CHECKPOINT_DURATION_MS:
+            checkpoint_filtered.append(checkpoint)
 
         return checkpoint_filtered
 
@@ -172,14 +170,6 @@ class SubtensorWeightSetter(CacheController):
         Filter out miners based on a minimum total duration of interaction with the system.
         """
         if len(checkpoints) == 0:
-            return False
-        
-        total_checkpoint_duration = 0
-
-        for checkpoint in checkpoints:
-            total_checkpoint_duration += checkpoint.open_ms
-
-        if total_checkpoint_duration < ValiConfig.SET_WEIGHT_MINIMUM_TOTAL_CHECKPOINT_DURATION_MS:
             return False
 
         return True
