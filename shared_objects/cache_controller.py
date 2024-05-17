@@ -53,6 +53,7 @@ class CacheController:
             ans['price_info'] = price_info
         if return_info:
             ans['return_info'] = return_info
+        bt.logging.info(f"Created elimination row: {ans}")
         return ans
 
     def refresh_allowed(self, refresh_interval_ms):
@@ -336,9 +337,8 @@ class CacheController:
             return None
 
     def append_elimination_row(self, hotkey, current_dd, mdd_failure, t_ms=None, price_info=None, return_info=None):
-        r = self.generate_elimination_row(hotkey, current_dd, mdd_failure, t_ms=t_ms, price_info=price_info, return_info=return_info)
-        bt.logging.info(f"Created and appended elimination row: {r}")
-        self.eliminations.append(r)
+        elimination_row = self.generate_elimination_row(hotkey, current_dd, mdd_failure, t_ms=t_ms, price_info=price_info, return_info=return_info)
+        self.eliminations.append(elimination_row)
 
     def calculate_drawdown(self, final, initial):
         # Ex we went from return of 1 to 0.9. Drawdown is -10% or in this case -0.1. Return 1 - 0.1 = 0.9

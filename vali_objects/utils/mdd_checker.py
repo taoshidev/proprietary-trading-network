@@ -54,10 +54,11 @@ class MDDChecker(CacheController):
                     required_trade_pairs_for_candles.add(position.trade_pair)
 
         now = TimeUtil.now_in_millis()
-        candle_data = self.live_price_fetcher.get_candles(trade_pairs=list(required_trade_pairs_for_candles),
-                                                  start_time_ms=self.last_price_fetch_time_ms if self.last_price_fetch_time_ms else now,
-                                                  end_time_ms=now)
-        self.n_poly_api_requests += len(required_trade_pairs_for_candles)
+        candle_data = self.live_price_fetcher.get_latest_prices(list(required_trade_pairs_for_candles))
+        for tp, price_and_sources in candle_data.items():
+            sources = price_and_sources[1]
+            if any(not x.websocket for x in sources):
+                self.n_poly_api_requests += 1
 
         self.last_price_fetch_time_ms = now
         return candle_data
@@ -123,7 +124,7 @@ class MDDChecker(CacheController):
         def _get_sources_for_order(order, trade_pair, is_last_order):
             # Only fall back to REST if the order is the latest. Don't want to get slowed down
             # By a flurry of recent orders.
-            ws_only = not is_last_order
+            #ws_only = not is_last_order
             self.n_poly_api_requests += 1#0 if ws_only else 1
             sources = self.live_price_fetcher.fetch_prices([trade_pair],
                                                         {trade_pair: order.processed_ms},
@@ -167,7 +168,9 @@ class MDDChecker(CacheController):
 
             # Log return before calling set_returns
             #bt.logging.info(f"current return with fees for open position with trade pair[{open_position.trade_pair.trade_pair_id}] is [{open_position.return_at_close}]. Position: {position}")
-            realtime_price = self.live_price_fetcher.parse_price_from_candle_data(candle_data_dict.get(trade_pair), trade_pair)
+            temp = candle_data_dict.get(trade_pair, (None, None))
+            print(f'realtime price {trade_pair.trade_pair_id}:', temp[0])
+            realtime_price = temp[0]
             if position.is_open_position and realtime_price is not None:
                 orig_return = position.return_at_close
                 position.set_returns(realtime_price)

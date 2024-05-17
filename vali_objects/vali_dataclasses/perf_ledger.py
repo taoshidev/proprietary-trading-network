@@ -195,6 +195,7 @@ class PerfLedgerManager(CacheController):
         self.base_dd_stats = {'worst_dd':1.0, 'last_dd':0, 'mrpv':1.0, 'n_closed_pos':0, 'n_checks':0, 'current_portfolio_return': 1.0}
         self.hk_to_dd_stats = defaultdict(lambda: deepcopy(self.base_dd_stats))
         self.n_price_corrections = 0
+        self.elimination_rows = []
 
     def run_update_loop(self):
         while not self.shutdown_dict:
@@ -426,8 +427,10 @@ class PerfLedgerManager(CacheController):
 
         if mdd_failure:
             bt.logging.warning(f"Drawdown failure for miner {miner_hotkey} at {t_ms}. Portfolio return: {portfolio_return}, max realized portfolio return: {max_realized_portfolio_return}, drawdown: {dd}")
-            self.append_elimination_row(miner_hotkey, dd, mdd_failure, t_ms=t_ms, price_info=self.tp_to_last_price,
+            elimination_row = self.generate_elimination_row(miner_hotkey, dd, mdd_failure, t_ms=t_ms,
+                                        price_info=self.tp_to_last_price,
                                         return_info={'dd_stats':stats, 'returns': self.trade_pair_to_position_ret})
+            self.elimination_rows.append(elimination_row)
             stats['eliminated'] = True
             print(f'eliminated. Highest portfolio realized return {self.hk_to_dd_stats[miner_hotkey]}. current return {portfolio_return}')
             for _, v in tp_to_historical_positions.items():
@@ -487,6 +490,7 @@ class PerfLedgerManager(CacheController):
     def update_all_perf_ledgers(self, hotkey_to_positions: dict[str, List[Position]], existing_perf_ledgers: dict[str, PerfLedger], now_ms: int):
         t_init = time.time()
         self.now_ms = now_ms
+        self.elimination_rows = []
         for hotkey_i, (hotkey, positions) in enumerate(hotkey_to_positions.items()):
             eliminated = False
             self.n_api_calls = 0
@@ -568,7 +572,7 @@ class PerfLedgerManager(CacheController):
         if not self.shutdown_dict:
             PerfLedgerManager.save_perf_ledgers_to_disk(existing_perf_ledgers)
             bt.logging.info(f"Done updating perf ledger for all hotkeys in {time.time() - t_init} s")
-            self.write_perf_ledger_eliminations_to_disk([x for x in self.eliminations if 'price_info' in x and x['price_info'] is not None])
+            self.write_perf_ledger_eliminations_to_disk(self.elimination_rows)
 
 
     @staticmethod
