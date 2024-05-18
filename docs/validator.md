@@ -159,11 +159,13 @@ validator  default  197    True   0.00000  0.00000  0.00000    0.00000    0.0000
 
 ## 6. Running a Validator
 
-### Using Provided Scripts
+### Overview
 
-These validators run and update themselves automatically.
+This guide provides instructions for running the validator either through a script or manually. It also introduces the optional `--start-generate` flag, which enables the generation of JSON files corresponding to trade data. These files can be sold to customers using the Request Network (further instructions pending).
 
-To run a validator, follow these steps:
+### Prerequisites
+
+Before running a validator, follow these steps:
 
 1. Ensure PTN is [installed](#getting-started).
 2. Install [pm2](https://pm2.io) and the [jq](https://jqlang.github.io/jq/) package on your system.
@@ -179,39 +181,28 @@ To run a validator, follow these steps:
 - Obtain API keys by signing up at data providers' websites.
 - Be careful to format your file as shown above or errors will be thrown when running your validator. Don't forget the comma!
 
-4. Run the `run.sh` script, which will run your validator and pull the latest updates as they are issued.
+### Using `run.sh` Script
 
-mainnet:
-```bash
-$ pm2 start run.sh --name sn8 -- --wallet.name <wallet> --wallet.hotkey <hotkey> --netuid 8
-```
-testnet:
-```bash
-$ pm2 start run.sh --name sn8 -- --wallet.name <wallet> --wallet.hotkey <hotkey> --netuid 116 --subtensor.network test
-```
+1. **Mainnet Execution**: Run the validator on the mainnet by executing the following command. Include the `[--start-generate]` flag if you wish to generate trade data:
+    ```bash
+    $ pm2 start run.sh --name sn8 -- --wallet.name <wallet> --wallet.hotkey <hotkey> --netuid 8 [--start-generate]
+    ```
+   
+2. **Testnet Execution**: For testnet operations with optional data generation, use this command:
+    ```bash
+    $ pm2 start run.sh --name sn8 -- --wallet.name <wallet> --wallet.hotkey <hotkey> --netuid 116 --subtensor.network test [--start-generate]
+    ```
 
-This will run two PM2 process:
-
-1. A process for the validator, called `ptn` by default (you can change this in run.sh)
-2. A process for the autoupdated script called `sn8`. The script will check for updates every 30 minutes, if there is an update, it will pull, install, restart tsps, and restart itself.
-
-### Manually
-
-If there are any issues with the run script or you choose not to use it, run a validator manually.
-
-```bash
-python neurons/validator.py --netuid 8 --wallet.name <wallet> --wallet.hotkey <hotkey>
-
-```
+These commands initialize two PM2 processes:
+   - **Validator Process**: Default name `ptn`
+   - **Autoupdate Process**: Named `sn8`, which checks for and applies updates every 30 minutes.
 
 
-You can also run your script in the background. Logs are stored in `nohup.out`.
 
-```bash
-nohup python neurons/validator.py --netuid 8 --wallet.name <wallet> --wallet.hotkey <hotkey> &
-```
+### Pitfalls
 
-To run your validator on the testnet add the `--subtensor.network test` flag and `--netuid 116` flag.
+- When running on the testnet, it is crucial to include the `--subtensor.network test` and `--netuid 116` flags to ensure proper configuration.
+- Details on how to sell the generated trade data via the Request Network will be provided when available.
 
 ### Synchronizing your validator
 
