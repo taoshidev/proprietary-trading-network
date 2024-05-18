@@ -232,6 +232,40 @@ To set your weights on testnet `--subtensor.network test` flag.
 
 To stop your validator, press CTRL + C in the terminal where the validator is running.
 
+## 9. Relaunching run.sh
+
+You will need to do this if you want to change any runtime configuration to run.sh such as adding or removing the `--start-generate` flag. Prepare your new `pm2 start run.sh ...` command before proceeding to minimize downtime.
+
+Login to validator and cd into the PTN repo
+```bash
+cd proprietary-trading-network/
+```
+Active venv
+```bash
+. venv/bin/activate
+```
+Stop + Delete running pm2 processes
+```bash
+pm2 stop sn8 ptn
+```
+```bash
+pm2 delete sn8 ptn
+```
+Run new run.sh command (USE YOUR OWN COMMAND)
+```bash
+pm2 start run.sh ...
+```
+Save configs
+```bash
+pm2 save
+```
+Verify that the ptn and sn8 pm2 processes have status "online" and are running smoothly
+```
+pm2 status
+```
+```
+pm2 log
+```
 # Testing
 
 You can begin testing PTN on the testnet with netuid 116. You can do this by using running:
@@ -241,7 +275,7 @@ python neurons/validator.py --netuid 116 --subtensor.network test --wallet.name 
 ```
 Note this won't launch the autoupdater. To launch with the autoupdater, use the run.sh command.
 
-## 9. Pitfall Prevention
+## 10. Pitfall Prevention
 
 1. When running a validator in certain cloud environments such as Runpod, you may not have your Bittensor default port open (8091). This will cause your validator to be unable to communicate with miners and thus have a low VTRUST as your validator isn't receiving the latest orders. In order to correct this issue, explicitly open a tcp port, and pass this as an arugment with `--axon.port <YOUR_OPEN_PORT>`
 
