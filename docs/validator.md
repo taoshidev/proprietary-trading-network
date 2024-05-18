@@ -161,7 +161,7 @@ validator  default  197    True   0.00000  0.00000  0.00000    0.00000    0.0000
 
 ### Overview
 
-This guide provides instructions for running the validator either through a script or manually. It also introduces the optional `--start-generate` flag, which enables the generation of JSON files corresponding to trade data. These files can be sold to customers using the Request Network (further instructions pending).
+This guide provides instructions for running the validator using our automatic updater script, `run.sh`. It also introduces the optional `--start-generate` flag, which enables the generation of JSON files corresponding to trade data. These files can be sold to customers using the Request Network (further instructions pending).
 
 ### Prerequisites
 
