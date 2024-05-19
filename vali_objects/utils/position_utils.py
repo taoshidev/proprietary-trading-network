@@ -190,9 +190,7 @@ class PositionUtils:
         if margins_volume <= 0:
             return 0
 
-        margins_consistency = (max(checkpoint_margins) / margins_volume)
-
-        # print(f"max discrepancy: {max_discrepancy}")
+        margins_consistency = max(checkpoint_margins) / margins_volume
         consistency_value = PositionUtils.consistency_sigmoid(margins_consistency)
 
         if len(checkpoints) < length_threshold:
