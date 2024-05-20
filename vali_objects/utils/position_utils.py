@@ -179,10 +179,17 @@ class PositionUtils:
         if len(checkpoints) <= 0:
             return 0
 
-        median_minimum = ValiConfig.MIN_MEDIAN
         length_threshold = ValiConfig.CHECKPOINT_LENGTH_THRESHOLD
+        duration_threshold = ValiConfig.CHECKPOINT_DURATION_THRESHOLD
 
-        checkpoint_margins = [ abs(checkpoint.gain + checkpoint.loss) / max(checkpoint.accum_ms, median_minimum) for checkpoint in checkpoints ]
+        checkpoint_length_augmentation = 1
+        checkpoint_duration_augmentation = 1
+
+        nonzero_checkpoints = [ checkpoint for checkpoint in checkpoints if checkpoint.open_ms > 0 ]
+        if len(nonzero_checkpoints) <= 0:
+            return 0
+    
+        checkpoint_margins = [ abs(checkpoint.gain + checkpoint.loss) / checkpoint.open_ms for checkpoint in nonzero_checkpoints ]
 
         characteristic_behavior = np.median(checkpoint_margins)
         margins_volume = characteristic_behavior * len(checkpoint_margins)
@@ -193,12 +200,16 @@ class PositionUtils:
         margins_consistency = max(checkpoint_margins) / margins_volume
         consistency_value = PositionUtils.consistency_sigmoid(margins_consistency)
 
-        if len(checkpoints) < length_threshold:
-            checkpoint_duration_augmentation = (len(checkpoints) / length_threshold)**2
-        else:
-            checkpoint_duration_augmentation = 1
+        # ## Compute the duration of the checkpoints
+        checkpoint_duration = sum([checkpoint.open_ms for checkpoint in nonzero_checkpoints])
+        if checkpoint_duration < duration_threshold:
+            checkpoint_duration_augmentation = (checkpoint_duration / duration_threshold)**2
 
-        return consistency_value * checkpoint_duration_augmentation
+        ## Check the length penalty of the checkpoints
+        if len(nonzero_checkpoints) < length_threshold:
+            checkpoint_length_augmentation = (len(nonzero_checkpoints) / length_threshold)**2
+
+        return consistency_value * checkpoint_length_augmentation * checkpoint_duration_augmentation
     
     @staticmethod
     def compute_consistency_penalty(

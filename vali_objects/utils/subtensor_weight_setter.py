@@ -152,19 +152,6 @@ class SubtensorWeightSetter(CacheController):
 
         return augmented_ledger
     
-    def _filter_checkpoint_elements(self, checkpoints: list[PerfCheckpoint]) -> list[PerfCheckpoint]:
-        """
-        Filter checkpoint elements if they don't meet minimum evaluation criteria.
-        """
-        checkpoint_filtered = []
-
-        for checkpoint in checkpoints:
-            # if checkpoint.open_ms >= ValiConfig.SET_WEIGHT_MINIMUM_SINGLE_CHECKPOINT_DURATION_MS:
-            checkpoint_filtered.append(checkpoint)
-
-        return checkpoint_filtered
-
-    
     def _filter_checkpoint_list(self, checkpoints: list[PerfCheckpoint]):
         """
         Filter out miners based on a minimum total duration of interaction with the system.

@@ -21,6 +21,10 @@ In order to capture information at such a high resolution, we utilize checkpoint
 
 Each miner is compared to a baseline, the annual return rate of American Treasury Bills. This will consistently add a small amount of loss for the miner every millisecond. If the miner's Omega is less than 1 and log return less than 0, they were unable to beat the growth rate of treasury bills.
 
+We also penalize miners who cannot deliver consistent performance over each 30 day period. To fully mitigate penalties associated with consistency, your miner should achieve the following metrics:
+- Minimum of 18 days of open positions, of any volume.
+- Max returns in a checkpoint period should not exceed 90x the median behavior of other checkpoints.
+
 We will use three scoring metrics to evaluate miners based on their mid trade scores: **Returns**, **Omega**, **Time Adjusted Sortino**.
 
 Returns measure the pure value change that the miner experienced through the course of their positions. This will be similar to the prior position based system, although open positions will now also be evaluated. A higher return value will result from:

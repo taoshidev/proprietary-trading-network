@@ -162,7 +162,7 @@ TRADE_PAIR_STR_TO_TRADE_PAIR = {x.trade_pair: x for x in TradePair}
 
 class ValiConfig:
     ## versioning
-    VERSION = "2.5.9"
+    VERSION = "2.6.1"
 
     # fees take into account exiting and entering a position, liquidity, and futures fees
     PERF_LEDGER_REFRESH_TIME_MS = 1000 * 60 * 15  # minutes
@@ -200,7 +200,7 @@ class ValiConfig:
     MIN_MEDIAN = 1e-6
     HISTORICAL_DECAY_GAIN_COEFFICIENT = 1.0
     HISTORICAL_DECAY_LOSS_COEFFICIENT = 1.0
-    HISTORICAL_DECAY_COEFFICIENT_RETURNS = 0.15
+    HISTORICAL_DECAY_COEFFICIENT_RETURNS = 0.18
     HISTORICAL_DECAY_COEFFICIENT_RISKMETRIC = 2.5
 
     SET_WEIGHT_MINIMUM_SINGLE_CHECKPOINT_DURATION_MINUTES = 15
@@ -217,7 +217,8 @@ class ValiConfig:
     SET_WEIGHT_MINER_CHALLENGE_PERIOD_WEIGHT = 5.4e-06 # essentially nothing
     SET_WEIGHT_MINER_GRACE_PERIOD_EQUIVALENT_PERCENTILE = 2 # two pence for their troubles
     MIN_LEVERAGE_CONSITENCY_PENALTY = 0.01
-    CHECKPOINT_LENGTH_THRESHOLD = 4 * 21 # three weeks
+    CHECKPOINT_LENGTH_THRESHOLD = 70 # 2.5 weeks
+    CHECKPOINT_DURATION_THRESHOLD = 1.25e9
 
     ## Scoring weights
     SCORING_RETURN_CPS_WEIGHT = 0.95
