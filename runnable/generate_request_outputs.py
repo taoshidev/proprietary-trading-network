@@ -79,10 +79,7 @@ def generate_request_outputs(write_legacy:bool, write_validator_checkpoint:bool)
     ## consistency penalties
     consistency_penalties = {}
     for hotkey, hotkey_ledger in filtered_ledger.items():
-        consistency_penalty = PositionUtils.compute_consistency_penalty_cps(
-            hotkey_ledger.cps,
-            time_now
-        )
+        consistency_penalty = PositionUtils.compute_consistency_penalty_cps(hotkey_ledger.cps)
         consistency_penalties[hotkey] = consistency_penalty
 
     returns_ledger = PositionManager.augment_perf_ledger(

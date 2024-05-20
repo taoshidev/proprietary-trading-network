@@ -1,5 +1,6 @@
 # developer: trdougherty
 # Copyright © 2024 Taoshi Inc
+import math
 import numpy as np
 
 from vali_objects.position import Position
@@ -153,31 +154,62 @@ class PositionUtils:
         )
     
     @staticmethod
-    def compute_consistency_penalty_cps(
-        checkpoints: list[PerfCheckpoint],
-        evaluation_time_ms: int
-    ) -> float:
+    def consistency_sigmoid(delta_discrepancy: float) -> float:
+        ## Convert a max delta term into a consistency penalty
+        consistency_displacement = ValiConfig.SET_WEIGHT_MINER_CHECKPOINT_CONSISTENCY_DISPLACEMENT
+        consistency_taper = ValiConfig.SET_WEIGHT_CHECKPOINT_CONSISTENCY_TAPER
+        lower_bound = ValiConfig.SET_WEIGHT_CHECKPOINT_CONSISTENCY_LOWER_BOUND
+
+        exp_term = np.clip(consistency_taper * delta_discrepancy - consistency_displacement, -50, 50)
+        return ((1-lower_bound)*(1 + (np.exp(exp_term)))**-1) + lower_bound
+    
+    ## just looking at the consistency penalties
+    def compute_consistency_penalty_cps(checkpoints: list[PerfCheckpoint]) -> float:
         """
         Args:
             checkpoints: list[PerfCheckpoint] - the list of checkpoints
             evaluation_time_ms: int - the evaluation time
         """
 
-        activity_threshold = ValiConfig.SET_WEIGHT_MINER_CHALLENGE_PERIOD_TOTAL_ACTIVITY
-        filtered_checkpoints = [ checkpoint for checkpoint in checkpoints if checkpoint.gain + abs(checkpoint.loss) > activity_threshold ]
+        # activity_threshold = ValiConfig.SET_WEIGHT_MINER_CHALLENGE_PERIOD_TOTAL_ACTIVITY
 
-        lookback_fractions = [
-            PositionUtils.compute_lookback_fraction(
-                checkpoint.last_update_ms,
-                checkpoint.last_update_ms,
-                evaluation_time_ms
-            ) for checkpoint in filtered_checkpoints
-        ]
+        # checkpoint_consistency_threshold = ValiConfig.SET_WEIGHT_MINER_CHALLENGE_PERIOD_CHECKPOINT_CONSISTENCY_THRESHOLD
+        # checkpoint_consistency_ratio = ValiConfig.SET_WEIGHT_MINER_CHALLENGE_PERIOD_CHECKPOINT_CONSISTENCY_RATIO
 
-        # Sort the lookback fractions in ascending order
-        lookback_fractions = sorted(lookback_fractions)
-        consistency_penalties = PositionUtils.compute_consistency(lookback_fractions)
-        return consistency_penalties
+        if len(checkpoints) <= 0:
+            return 0
+
+        length_threshold = ValiConfig.CHECKPOINT_LENGTH_THRESHOLD
+        duration_threshold = ValiConfig.CHECKPOINT_DURATION_THRESHOLD
+
+        checkpoint_length_augmentation = 1
+        checkpoint_duration_augmentation = 1
+
+        nonzero_checkpoints = [ checkpoint for checkpoint in checkpoints if checkpoint.open_ms > 0 ]
+        if len(nonzero_checkpoints) <= 0:
+            return 0
+    
+        checkpoint_margins = [ abs(checkpoint.gain + checkpoint.loss) / checkpoint.open_ms for checkpoint in nonzero_checkpoints ]
+
+        characteristic_behavior = np.median(checkpoint_margins)
+        margins_volume = characteristic_behavior * len(checkpoint_margins)
+
+        if margins_volume <= 0:
+            return 0
+
+        margins_consistency = max(checkpoint_margins) / margins_volume
+        consistency_value = PositionUtils.consistency_sigmoid(margins_consistency)
+
+        # ## Compute the duration of the checkpoints
+        checkpoint_duration = sum([checkpoint.open_ms for checkpoint in nonzero_checkpoints])
+        if checkpoint_duration < duration_threshold:
+            checkpoint_duration_augmentation = (checkpoint_duration / duration_threshold)**2
+
+        ## Check the length penalty of the checkpoints
+        if len(nonzero_checkpoints) < length_threshold:
+            checkpoint_length_augmentation = (len(nonzero_checkpoints) / length_threshold)**2
+
+        return consistency_value * checkpoint_length_augmentation * checkpoint_duration_augmentation
     
     @staticmethod
     def compute_consistency_penalty(

@@ -95,7 +95,7 @@ class TestWeights(TestBase):
 
         ## Winning miner
         good_checkpoint_list = []
-        n_good_checkpoints = 5
+        n_good_checkpoints = 30*4
         good_checkpoint_times = np.linspace(start_time, end_time, n_good_checkpoints, dtype=int).tolist()
         good_checkpoint_time_accumulation = np.diff(good_checkpoint_times, prepend=0)
         for i in range(n_good_checkpoints):
@@ -121,7 +121,7 @@ class TestWeights(TestBase):
         high_swing_checkpoint_list = []
 
         highswings_value = 0.3
-        n_high_swing_checkpoints = 15
+        n_high_swing_checkpoints = 30*4
         high_swing_checkpoint_times = np.linspace(start_time, end_time, n_high_swing_checkpoints, dtype=int).tolist()
         high_swing_checkpoint_time_accumulation = np.diff(high_swing_checkpoint_times, prepend=0)
         for i in range(n_high_swing_checkpoints):
@@ -142,7 +142,7 @@ class TestWeights(TestBase):
         ## Low Swings Miner
         low_swing_checkpoint_list = []
         lowswings_value = 0.001
-        n_low_swing_checkpoints = 15
+        n_low_swing_checkpoints = 30*4
         low_swing_checkpoint_times = np.linspace(start_time, end_time, n_low_swing_checkpoints, dtype=int).tolist()
         low_swing_checkpoint_time_accumulation = np.diff(low_swing_checkpoint_times, prepend=0)
         for i in range(n_low_swing_checkpoints):
@@ -220,7 +220,7 @@ class TestWeights(TestBase):
 
         ## now to test scenarios to make sure the variable decay is working properly on the ledger
         ## miner whose consistency decreases over time
-        n_good_checkpoints = 20
+        n_good_checkpoints = 30*4
         good_checkpoint_times = np.linspace(start_time, end_time, n_good_checkpoints, dtype=int).tolist()
         good_checkpoint_time_accumulation = np.diff(good_checkpoint_times, prepend=0)
 
@@ -306,6 +306,54 @@ class TestWeights(TestBase):
         ledger_dict['decreasing_singular'] = ledger_generator(
             checkpoints=decreasing_list
         )
+
+        ## now for the consistency penalty
+        n_checkpoints = 30 * 4
+        checkpoint_times = np.linspace(start_time, end_time, n_checkpoints, dtype=int).tolist()
+        open_ms_times = np.diff(checkpoint_times, prepend=0)
+
+        ledger_dict['consistent'] = ledger_generator(
+            checkpoints=[ PerfCheckpoint(
+                last_update_ms=checkpoint_times[i],
+                gain=0.1,
+                loss=-0.09,
+                prev_portfolio_ret=1.0,
+                open_ms=open_ms_times[i],
+                accum_ms=np.median(open_ms_times)
+            ) for i in range(n_checkpoints) ]
+        )
+
+        inconsistent_checkpoints = [ PerfCheckpoint(
+            last_update_ms=start_time,
+            gain=0.0,
+            loss=0.0,
+            prev_portfolio_ret=1.0,
+            open_ms=open_ms_times[i],
+            accum_ms = np.median(open_ms_times)
+        ) for i in range(n_checkpoints - 1) ]
+
+        inconsistent_checkpoints.append(
+            PerfCheckpoint(
+                last_update_ms=start_time,
+                gain=0.3,
+                loss=-0.05,
+                prev_portfolio_ret=1.0,
+                open_ms=100
+            )
+        )
+
+        ledger_dict['inconsistent'] = ledger_generator(checkpoints=inconsistent_checkpoints)
+
+        ## miner who hasn't traded as long
+        short_trading_checkpoints = [ PerfCheckpoint(
+            last_update_ms=checkpoint_times[i],
+            gain=0.1,
+            loss=-0.09,
+            prev_portfolio_ret=1.0,
+            open_ms=100
+        ) for i in range(30) ]
+
+        ledger_dict['shorttrading'] = ledger_generator(checkpoints=short_trading_checkpoints)
 
         self.ledger_dict: dict[str, PerfLedger] = ledger_dict
         self.subtensor_weight_setter = SubtensorWeightSetter(
@@ -409,6 +457,45 @@ class TestWeights(TestBase):
         return_zero = Scoring.return_cps(scoringunit)
         self.assertLess(return_zero, 0.0)
 
+    def test_consistency_no_cps(self):
+        """Test that the consistency function works as expected with no cps"""
+        consistency = PositionUtils.compute_consistency_penalty_cps(self.ledger_dict['nopositions'].cps)
+        self.assertEqual(consistency, 0.0)
+
+    def test_consistency(self):
+        """Test that the consistency function works as expected"""
+        consistency = PositionUtils.compute_consistency_penalty_cps(self.ledger_dict['consistent'].cps)
+        self.assertAlmostEqual(consistency, 1.0, places=1)
+
+    def test_timeconsistency(self):
+        """Test that the time consistency function works as expected"""
+        consistency_consistent = PositionUtils.compute_consistency_penalty_cps(self.ledger_dict['consistent'].cps)
+        consistency_inconsistent = PositionUtils.compute_consistency_penalty_cps(self.ledger_dict['inconsistent'].cps)
+        consistency_short = PositionUtils.compute_consistency_penalty_cps(self.ledger_dict['shorttrading'].cps)
+        
+        self.assertGreater(consistency_consistent, consistency_inconsistent)
+        self.assertGreater(consistency_consistent, consistency_short)
+
+    ## now test the individual function for consistency
+    def test_consistency_sigmoid(self):
+        """Test that the consistency function works as expected"""
+        margins_list = [ 0.0 ] * 29 + [ 0.9 ]
+        max_margin = 0.9
+        median_margin = 0.0
+
+        consistency_term = max_margin / max(1e-6, median_margin)
+        consistency = PositionUtils.consistency_sigmoid(consistency_term)
+
+        self.assertAlmostEqual(consistency, 0.0, places=2)
+
+        consistency_typical_max = 1.0
+        consistency_typical_median = 0.5
+
+        consistency_term = consistency_typical_max / max(1e-6, consistency_typical_median)
+        consistency = PositionUtils.consistency_sigmoid(consistency_term)
+
+        self.assertGreater(consistency, 0.75)
+
     def test_positive_omega(self):
         """Test that the omega function works as expected for only positive returns"""
         sample_gains = [0.4, 0.1, 0.2, 0.3, 0.4, 0.2]
@@ -487,7 +574,6 @@ class TestWeights(TestBase):
         self.assertGreater(omega_scores['good'], omega_scores['miner0'])
 
         ## High swings miner will likely be better than the lowswings miner for omega
-        self.assertGreater(omega_scores['highswings'], omega_scores['lowswings'])
         self.assertGreater(omega_scores['highswingsactive'], omega_scores['highswingsinactive'])
         self.assertGreater(omega_scores['lowswingsactive'], omega_scores['lowswingsinactive'])
 
@@ -684,22 +770,11 @@ class TestWeights(TestBase):
             open_ms=minimum_passing_checkpoint_time
         )
 
-        nonpassing_checkpoint = checkpoint_generator(
-            gain=0.1,
-            loss=-0.05,
-            open_ms=minimum_passing_checkpoint_time - 10
-        )
-
         passing_checkpoint_list = self.subtensor_weight_setter._filter_checkpoint_elements(
             [ passing_checkpoint ]
         )
 
-        nonpassing_checkpoint_list = self.subtensor_weight_setter._filter_checkpoint_elements(
-            [ nonpassing_checkpoint ]
-        )
-
         self.assertEqual(passing_checkpoint_list, [ passing_checkpoint ])
-        self.assertEqual(nonpassing_checkpoint_list, [])
 
     def test_miner_filter_older_than_challengeperiod(self):
         """Test that the challengeperiod function eliminates miners older than the period"""

@@ -32,14 +32,11 @@ if __name__ == "__main__":
 
     subtensor_weight_setter._refresh_eliminations_in_memory()
     subtensor_weight_setter._refresh_challengeperiod_in_memory()
-    logger.info(f"Testing hotkeys: {hotkeys}")
 
     challengeperiod_miners = subtensor_weight_setter.challengeperiod_testing
     challengeperiod_passing = subtensor_weight_setter.challengeperiod_success
 
     passing_hotkeys = list(challengeperiod_passing.keys())
-    logger.info(f"Passing hotkeys: {passing_hotkeys}")
-
     filtered_ledger = subtensor_weight_setter.filtered_ledger(hotkeys=passing_hotkeys)
 
     return_decay_coefficient = ValiConfig.HISTORICAL_DECAY_COEFFICIENT_RETURNS
@@ -60,21 +57,38 @@ if __name__ == "__main__":
     scoring_config = {
         'return_cps': {
             'function': Scoring.return_cps,
-            'weight': 0.90,
+            'weight': ValiConfig.SCORING_RETURN_CPS_WEIGHT,
             'ledger': returns_ledger,
         },
         'omega_cps': {
             'function': Scoring.omega_cps,
-            'weight': 0.75,
+            'weight': ValiConfig.SCORING_OMEGA_CPS_WEIGHT,
             'ledger': risk_adjusted_ledger,
         },
         'inverted_sortino_cps': {
             'function': Scoring.inverted_sortino_cps,
-            'weight': 0.60,
+            'weight': ValiConfig.SCORING_SORTINO_CPS_WEIGHT,
             'ledger': risk_adjusted_ledger,
         },
     }
 
+    scoring_config_for_printing = {
+        'return_cps': {
+            'function': Scoring.return_cps,
+            'weight': ValiConfig.SCORING_RETURN_CPS_WEIGHT
+        },
+        'omega_cps': {
+            'function': Scoring.omega_cps,
+            'weight': ValiConfig.SCORING_OMEGA_CPS_WEIGHT
+        },
+        'inverted_sortino_cps': {
+            'function': Scoring.inverted_sortino_cps,
+            'weight': ValiConfig.SCORING_SORTINO_CPS_WEIGHT
+        }
+    }
+
+    # Print the scoring configuration without the 'ledger' elements
+    print(f"Scoring configuration: {scoring_config_for_printing}")
     combined_scores = {}
 
     # Store rankings and original scores
@@ -107,7 +121,6 @@ if __name__ == "__main__":
 
     normalized_scores = Scoring.normalize_scores(combined_scores)
     checkpoint_results = sorted(normalized_scores.items(), key=lambda x: x[1], reverse=True)
-    logger.info(f"Sorted results for weight setting: [{checkpoint_results}]")
 
     # Prepare data for DataFrame
     combined_data = {}
@@ -147,12 +160,7 @@ if __name__ == "__main__":
         print(f"Output saved to {args.output}")
 
     challengeperiod_results = [(x, ValiConfig.SET_WEIGHT_MINER_CHALLENGE_PERIOD_WEIGHT) for x in challengeperiod_miners]
-
-    logger.info(f"Checkpoint results [{[x[0] for x in checkpoint_results]}]")
-
     sorted_data = checkpoint_results + challengeperiod_results
-
-    logger.info(f"Challenge period results [{challengeperiod_results}]")
 
     if args.plot:
         y_values = [x[1] for x in sorted_data]

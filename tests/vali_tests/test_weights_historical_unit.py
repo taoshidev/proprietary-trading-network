@@ -29,7 +29,7 @@ class TestWeights(TestBase):
         np.random.seed(0)
         random.seed(0)
 
-        n_positions = 50
+        n_positions = 150
         self.n_positions = n_positions
 
         self.start_time = 1710521764446
@@ -52,6 +52,7 @@ class TestWeights(TestBase):
                 n_updates=2,
                 gain=self.gains[c],
                 loss=self.losses[c],
+                accum_ms=100
             ) for c in range(n_positions)
         ]
 
@@ -72,120 +73,11 @@ class TestWeights(TestBase):
                 n_updates=2,
                 gain=self.gains[c],
                 loss=self.losses[c],
+                accum_ms=100
             ) for c in range(n_positions)
         ]
 
         self.empty_checkpoints = []
-
-    def test_compute_consistency_penalty(self):
-        """
-        Test that the consistency penalty works as expected
-        """
-        evaluation_time = self.end_time
-
-        penalty = PositionUtils.compute_consistency_penalty_cps(
-            self.standard_checkpoints, 
-            evaluation_time
-        )
-        self.assertGreaterEqual(penalty, 0)
-        self.assertLessEqual(penalty, 1)
-
-    def test_compute_consistency_penalty_empty(self):
-        """
-        Test that the consistency penalty works as expected when the close times are empty
-        """
-        evaluation_time = self.end_time
-        penalty = PositionUtils.compute_consistency_penalty_cps(
-            self.empty_checkpoints, 
-            evaluation_time
-        )
-        self.assertEqual(penalty, 0) # if no score then we multiply everything by zero
-
-    def test_compute_consistency_penalty_single(self):
-        """
-        Test that the consistency penalty works as expected when there is only one position
-        """
-        evaluation_time = self.end_time
-        penalty = PositionUtils.compute_consistency_penalty_cps(
-            [self.standard_checkpoints[0]], 
-            evaluation_time
-        )
-
-        self.assertGreater(penalty, 0)
-        self.assertLessEqual(penalty, 0.8)
-
-    def test_compute_consistency_penalty_known(self):
-        """
-        Test that the consistency penalty works as expected when there is only one position
-        """
-        evaluation_time = self.end_time
-
-        imbalanced_penalty = PositionUtils.compute_consistency_penalty_cps(
-            self.imbalanced_checkpoints, 
-            evaluation_time
-        )
-
-        balanced_penalty = PositionUtils.compute_consistency_penalty_cps(
-            self.standard_checkpoints, 
-            evaluation_time
-        )
-
-        # want to make sure that the imbalanced penalty will multiply returns with a lower value
-        self.assertLess(imbalanced_penalty, balanced_penalty)
-
-    def test_compute_consistency_hand_check(self):
-        """
-        Test that the consistency penalty works as expected when there is only one position
-        """
-        n_positions = 100
-        balanced_checkpoint_measured = np.ones(n_positions, dtype=bool)
-
-        imbalanced_checkpoint_measured = copy.deepcopy(balanced_checkpoint_measured)
-        imbalanced_checkpoint_measured[0:70] = False # Miner did not record duration for the first 70% of checkpoints
-
-        balanced_gains = np.ones(n_positions) * 0.05
-        balanced_losses = np.ones(n_positions) * -0.04
-        balanced_times = np.ones(n_positions, dtype=int) * 1000
-
-        imbalanced_gains = balanced_gains * imbalanced_checkpoint_measured
-        imbalanced_losses = balanced_losses * imbalanced_checkpoint_measured
-        imbalanced_times = balanced_times * imbalanced_checkpoint_measured
-
-        update_times = np.linspace(self.start_time, self.end_time, n_positions, dtype=int)
-        evaluation_time = self.end_time
-
-        balanced_checkpoints = [
-            checkpoint_generator(
-                last_update_ms=update_times[c],
-                open_ms=balanced_times[c],
-                n_updates=2,
-                gain=balanced_gains[c],
-                loss=balanced_losses[c],
-            ) for c in range(n_positions)
-        ]
-
-        imbalanced_checkpoints = [
-            checkpoint_generator(
-                last_update_ms=update_times[c],
-                open_ms=imbalanced_times[c],
-                n_updates=2,
-                gain=imbalanced_gains[c],
-                loss=imbalanced_losses[c],
-            ) for c in range(n_positions)
-        ]
-
-        standard_penalty = PositionUtils.compute_consistency_penalty_cps(
-            balanced_checkpoints, 
-            evaluation_time
-        )
-
-        imbalanced_penalty = PositionUtils.compute_consistency_penalty_cps(
-            imbalanced_checkpoints, 
-            evaluation_time
-        )
-
-        # want to make sure that the imbalanced penalty will multiply returns with a lower value
-        self.assertLess(imbalanced_penalty, standard_penalty)
 
     def test_compute_lookback_fraction(self):
         """
