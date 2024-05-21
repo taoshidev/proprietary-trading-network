@@ -1,5 +1,6 @@
 # developer: jbonilla
 # Copyright © 2024 Taoshi Inc
+import json
 import os
 import shutil
 import time
@@ -16,18 +17,19 @@ from copy import deepcopy
 from shared_objects.cache_controller import CacheController
 from time_util.time_util import TimeUtil
 from vali_config import TradePair, ValiConfig
+from vali_objects.decoders.generalized_json_decoder import GeneralizedJSONDecoder
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.exceptions.corrupt_data_exception import ValiBkpCorruptDataException
 from vali_objects.exceptions.vali_bkp_file_missing_exception import ValiFileMissingException
 from vali_objects.exceptions.vali_records_misalignment_exception import ValiRecordsMisalignmentException
 from vali_objects.position import Position
 from vali_objects.utils.position_lock import PositionLocks
-from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
+from vali_objects.utils.vali_bkp_utils import ValiBkpUtils, CustomEncoder
 from vali_objects.vali_dataclasses.order import OrderStatus, Order
 from vali_objects.utils.position_utils import PositionUtils
 from vali_objects.vali_dataclasses.price_source import PriceSource
 from vali_objects.vali_dataclasses.perf_ledger import PerfCheckpoint, PerfLedger
-
+TARGET_MS = 1716326955000 + 1000 * 60 * 60 * 2
 class PositionManager(CacheController):
     def __init__(self, config=None, metagraph=None, running_unit_tests=False, perform_price_adjustment=False,
                  live_price_fetcher=None, perform_order_corrections=False, perform_fee_structure_update=False,
@@ -44,6 +46,7 @@ class PositionManager(CacheController):
                 self.apply_order_corrections()
             except Exception as e:
                 bt.logging.error(f"Error applying order corrections: {e}")
+                traceback.print_exc()
         if generate_correction_templates:
             self.generate_correction_templates()
         if apply_corrections_template:
@@ -54,13 +57,13 @@ class PositionManager(CacheController):
 
     def give_erronously_eliminated_miners_another_shot(self, hotkey_to_positions):
         time_now_ms = TimeUtil.now_in_millis()
-        if time_now_ms > 1715290051000 + 2000 * 60 * 60:
+        if time_now_ms > TARGET_MS:
             return
         # The MDD Checker will immediately eliminate miners if they exceed the maximum drawdown
         eliminations = self.get_miner_eliminations_from_disk()
         new_eliminations = []
         for e in eliminations:
-            if e['hotkey'] in ('5D7ZcGnnzT3yzwkZd94oGYXdHbCkrkrn7XELaXdR5dDHrtJX'):
+            if e['hotkey'] in ('5Dxqzduahnqw8q3XSUfTcEZGU7xmAsfJubhHZwvXVLN9fSjR'):
                 bt.logging.warning('Removed elimination for hotkey ', e['hotkey'])
                 positions = hotkey_to_positions.get(e['hotkey'])
                 if positions:
@@ -235,12 +238,32 @@ class PositionManager(CacheController):
                 n_corrections += 1
                 n_attempts += 1
             """
-            pass
+            if miner_hotkey == '5Dxqzduahnqw8q3XSUfTcEZGU7xmAsfJubhHZwvXVLN9fSjR':
+                #with open(ValiBkpUtils.get_positions_override_dir() + miner_hotkey + '.json', 'w') as f:
+                #    dat = [p.to_json_string() for p in positions]
+                #    f.write(json.dumps(dat, cls=CustomEncoder))
+
+                time_now_ms = TimeUtil.now_in_millis()
+                if time_now_ms > TARGET_MS:
+                    return
+                n_attempts += 1
+                self.restore_from_position_override(miner_hotkey)
+                n_corrections += 1
+
 
 
 
         bt.logging.warning(f"Applied {n_corrections} order corrections out of {n_attempts} attempts. unique positions corrected: {len(unique_corrections)}")
 
+
+    def restore_from_position_override(self, miner_hotkey):
+        self.clear_all_miner_positions_from_disk(target_hotkey=miner_hotkey)
+        with open(ValiBkpUtils.get_positions_override_dir() + miner_hotkey + '.json', 'r') as f:
+            positions = json.loads(f.read(), cls=GeneralizedJSONDecoder)
+            for pos in positions:
+                position = Position(**pos)
+                ValiBkpUtils.make_dir(ValiBkpUtils.get_miner_all_positions_dir(miner_hotkey))
+                self.save_miner_position_to_disk(position, delete_open_position_if_exists=False)
 
     def ensure_latest_fee_structure_applied(self):
         hotkey_to_positions = self.get_all_disk_positions_for_all_miners(only_open_positions=False, sort_positions=True)
@@ -786,10 +809,12 @@ class PositionManager(CacheController):
 
         ValiBkpUtils.write_file(miner_dir + position.position_uuid, position)
 
-    def clear_all_miner_positions_from_disk(self):
+    def clear_all_miner_positions_from_disk(self, target_hotkey=None):
         # Clear all files and directories in the directory specified by dir
         dir = ValiBkpUtils.get_miner_dir(running_unit_tests=self.running_unit_tests)
         for file in os.listdir(dir):
+            if target_hotkey and file != target_hotkey:
+                continue
             file_path = os.path.join(dir, file)
             if os.path.isfile(file_path):
                 os.unlink(file_path)

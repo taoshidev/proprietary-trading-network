@@ -545,7 +545,8 @@ class Validator:
         error_message = ""
         try:
             hotkey = synapse.dendrite.hotkey
-            positions = self.position_manager.get_all_miner_positions(hotkey, sort_positions=True)
+            # Return the last n positions
+            positions = self.position_manager.get_all_miner_positions(hotkey, sort_positions=True)[-30:]
             synapse.positions = [position.to_dict() for position in positions]
             bt.logging.info(f"Sending {len(positions)} positions back to miner: " + hotkey)
         except Exception as e:

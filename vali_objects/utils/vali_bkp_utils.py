@@ -34,6 +34,11 @@ class ValiBkpUtils:
         return ValiConfig.BASE_DIR + f"/validation/tmp/"
 
     @staticmethod
+    def get_positions_override_dir(running_unit_tests=False) -> str:
+        suffix = "/tests" if running_unit_tests else ""
+        return ValiConfig.BASE_DIR + f"{suffix}/data/positions_overrides/"
+
+    @staticmethod
     def get_miner_all_positions_dir(miner_hotkey, running_unit_tests=False) -> str:
         return f"{ValiBkpUtils.get_miner_dir(running_unit_tests=running_unit_tests)}{miner_hotkey}/positions/"
 

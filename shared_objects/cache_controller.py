@@ -391,13 +391,16 @@ class CacheController:
             _position.close_ms if _position.is_closed_position else float("inf")
         )
 
+    @retry(tries=5, delay=1, backoff=1)
     def get_all_miner_positions(self,
                                 miner_hotkey: str,
                                 only_open_positions: bool = False,
                                 sort_positions: bool = False,
                                 acceptable_position_end_ms: int = None
                                 ) -> List[Position]:
-
+        """
+        Retry due to a race condition where an open position is deleted and the file is not found.
+        """
         miner_dir = ValiBkpUtils.get_miner_all_positions_dir(miner_hotkey, running_unit_tests=self.running_unit_tests)
         all_files = ValiBkpUtils.get_all_files_in_dir(miner_dir)
 
