@@ -11,7 +11,7 @@ import bittensor as bt
 from pydantic import BaseModel
 
 from shared_objects.cache_controller import CacheController
-from shared_objects.retry import retry
+from shared_objects.retry import retry, periodic_heartbeat
 from time_util.time_util import TimeUtil, UnifiedMarketCalendar
 from vali_config import ValiConfig, TradePair
 from vali_objects.position import Position
@@ -205,6 +205,7 @@ class PerfLedgerManager(CacheController):
         self.n_price_corrections = 0
         self.elimination_rows = []
 
+    @periodic_heartbeat(interval=600, message="perf ledger run_update_loop still running...")
     def run_update_loop(self):
         while not self.shutdown_dict:
             try:
@@ -318,6 +319,7 @@ class PerfLedgerManager(CacheController):
         # and the end of the new window is after the start of the old window
         return start_time_s <= existing_ub_s and end_time_s >= existing_lb_s
 
+    @periodic_heartbeat(interval=600, message="perf ledger refresh_price_info still running...")
     def refresh_price_info(self, t_ms, end_time_ms, tp):
         t_s = t_ms // 1000
         existing_lb_s = None
