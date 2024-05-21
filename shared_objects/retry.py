@@ -1,3 +1,4 @@
+import threading
 import time
 from functools import wraps
 import bittensor as bt
@@ -32,3 +33,26 @@ def retry(tries=5, delay=5, backoff=1):
             return f(*args, **kwargs)  # Last attempt
         return f_retry
     return deco_retry
+
+
+
+def periodic_heartbeat(interval=5, message="Heartbeat..."):
+    def decorator(func):
+        def wrapped(*args, **kwargs):
+            def heartbeat():
+                while not stop_event.is_set():
+                    print(message)
+                    time.sleep(interval)
+
+            stop_event = threading.Event()
+            heartbeat_thread = threading.Thread(target=heartbeat)
+            heartbeat_thread.start()
+
+            try:
+                return func(*args, **kwargs)
+            finally:
+                stop_event.set()
+                heartbeat_thread.join()
+
+        return wrapped
+    return decorator
