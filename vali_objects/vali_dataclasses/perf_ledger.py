@@ -11,7 +11,7 @@ import bittensor as bt
 from pydantic import BaseModel
 
 from shared_objects.cache_controller import CacheController
-from shared_objects.retry import retry, periodic_heartbeat
+from shared_objects.retry import retry, periodic_heartbeat, retry_with_timeout
 from time_util.time_util import TimeUtil, UnifiedMarketCalendar
 from vali_config import ValiConfig, TradePair
 from vali_objects.position import Position
@@ -319,7 +319,7 @@ class PerfLedgerManager(CacheController):
         # and the end of the new window is after the start of the old window
         return start_time_s <= existing_ub_s and end_time_s >= existing_lb_s
 
-    @periodic_heartbeat(interval=600, message="perf ledger refresh_price_info still running...")
+
     def refresh_price_info(self, t_ms, end_time_ms, tp):
         t_s = t_ms // 1000
         existing_lb_s = None
@@ -408,7 +408,7 @@ class PerfLedgerManager(CacheController):
                     continue
 
                 any_open = True
-                self.refresh_price_info(t_ms, end_time_ms, historical_position.trade_pair)
+                retry_with_timeout(self.refresh_price_info, 30, t_ms, end_time_ms, historical_position.trade_pair)
                 price_at_t_s = self.trade_pair_to_price_info[tp].get(t_s)
                 if price_at_t_s is not None:
                     self.tp_to_last_price[tp] = price_at_t_s
@@ -582,6 +582,7 @@ class PerfLedgerManager(CacheController):
                 f"Done updating perf ledger for {hotkey} {hotkey_i+1}/{len(hotkey_to_positions)} in {time.time() - t0} "
                 f"(s). Lag: {lag} (s). Total product: {total_product}. Last portfolio value: {last_portfolio_value}."
                 f" n_api_calls: {self.n_api_calls} dd stats {self.hk_to_dd_stats[hotkey]}. n_price_corrections {self.n_price_corrections}")
+            PerfLedgerManager.save_perf_ledgers_to_disk(existing_perf_ledgers) # @@@@@@@@@ TEMP REMOVE ME!!!!! @@@@@@@@@@@
 
         if not self.shutdown_dict:
             PerfLedgerManager.save_perf_ledgers_to_disk(existing_perf_ledgers)
