@@ -6,6 +6,7 @@ from pickle import UnpicklingError
 from typing import List, Dict
 import copy
 
+from shared_objects.retry import retry
 from time_util.time_util import TimeUtil
 from vali_config import ValiConfig
 from vali_objects.exceptions.corrupt_data_exception import ValiBkpCorruptDataException
@@ -421,8 +422,12 @@ class CacheController:
 
         return positions
 
+    @retry(tries=5, delay=1, backoff=1)
     def get_all_miner_positions_by_hotkey(self, hotkeys: List[str], eliminations: List = None, **args) -> Dict[
         str, List[Position]]:
+        """
+        Retry due to a race condition where an open position is deleted and the file is not found.
+        """
         eliminated_hotkeys = set(x['hotkey'] for x in eliminations) if eliminations is not None else set()
 
         return {

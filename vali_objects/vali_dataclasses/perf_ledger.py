@@ -426,17 +426,17 @@ class PerfLedgerManager(CacheController):
         return portfolio_return, any_open
 
     def check_elimination(self, miner_hotkey, portfolio_return, t_ms, max_realized_portfolio_return, tp_to_historical_positions):
-        if t_ms < 1715910011000:  # Before new Polygon forex price filling
-            return False
         dd = self.calculate_drawdown(portfolio_return, max_realized_portfolio_return)
-        mdd_failure = self.is_drawdown_beyond_mdd(dd, time_now=TimeUtil.millis_to_datetime(t_ms))
         stats = self.hk_to_dd_stats[miner_hotkey]
         if dd < stats['worst_dd']:
             stats['worst_dd'] = dd
         stats['last_dd'] = dd
         stats['n_checks'] += 1
         stats['current_portfolio_return'] = portfolio_return
+        if t_ms < 1715910011000:  # Before new Polygon forex price filling
+            return False
 
+        mdd_failure = self.is_drawdown_beyond_mdd(dd, time_now=TimeUtil.millis_to_datetime(t_ms))
         if mdd_failure:
             bt.logging.warning(f"Drawdown failure for miner {miner_hotkey} at {t_ms}. Portfolio return: {portfolio_return}, max realized portfolio return: {max_realized_portfolio_return}, drawdown: {dd}")
             elimination_row = self.generate_elimination_row(miner_hotkey, dd, mdd_failure, t_ms=t_ms,
