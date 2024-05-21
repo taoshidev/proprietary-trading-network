@@ -1,6 +1,7 @@
 # developer: trdougherty
 # Copyright © 2024 Taoshi Inc
 import numpy as np
+import time
 import bittensor as bt
 from vali_config import ValiConfig
 from vali_objects.position import Position
@@ -17,6 +18,10 @@ class ChallengePeriodManager(CacheController):
         self.perf_manager = PerfLedgerManager(metagraph=metagraph, running_unit_tests=running_unit_tests)
 
     def refresh(self, current_time: int = None):
+        if not self.refresh_allowed(ValiConfig.CHALLENGE_PERIOD_REFRESH_TIME_MS):
+            time.sleep(1)
+            return
+
         # The refresh should just read the current eliminations
         self.eliminations = self.get_filtered_eliminations_from_disk()
 
