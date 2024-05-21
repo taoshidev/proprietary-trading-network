@@ -135,16 +135,16 @@ class BaseDataService():
         # Log the prices
         formatted_prices = {tp: f"{price_source.close:.2f}" for tp, price_source in
                             self.latest_websocket_events.items()}
-        bt.logging.info(f"{self.provider_name} Latest websocket prices: {formatted_prices}")
+        #bt.logging.info(f"{self.provider_name} Latest websocket prices: {formatted_prices}")
         bt.logging.info(f'{self.provider_name} websocket n_events_global: {self.n_events_global}')
-        if self.provider_name == POLYGON_PROVIDER_NAME:
-            # Log which trade pairs are likely in closed markets
-            closed_trade_pairs = {}
-            for trade_pair in TradePair:
-                if not self.is_market_open(trade_pair):
-                    closed_trade_pairs[trade_pair.trade_pair] = self.closed_market_prices[trade_pair]
-
-            bt.logging.info(f"{self.provider_name} Market closed with closing prices for {closed_trade_pairs}")
+        #if self.provider_name == POLYGON_PROVIDER_NAME:
+        #    # Log which trade pairs are likely in closed markets
+        #    closed_trade_pairs = {}
+        #    for trade_pair in TradePair:
+        #        if not self.is_market_open(trade_pair):
+        #            closed_trade_pairs[trade_pair.trade_pair] = self.closed_market_prices[trade_pair]
+        #
+        #    bt.logging.info(f"{self.provider_name} Market closed with closing prices for {closed_trade_pairs}")
 
     def get_price_before_market_close(self, trade_pair: TradePair) -> float | None:
         pass
