@@ -46,7 +46,7 @@ class PolygonDataService(BaseDataService):
         self.UNSUPPORTED_TRADE_PAIRS = (TradePair.FTSE, TradePair.GDAXI)
 
 
-        self.POLYGON_CLIENT = RESTClient(api_key=self._api_key)
+        self.POLYGON_CLIENT = RESTClient(api_key=self._api_key, num_pools=20)
 
         self.POLY_WEBSOCKETS = {
             Market.Crypto: None,
