@@ -76,7 +76,7 @@ class PerfLedger(BaseModel):
             return 0
         return self.cps[0].last_update_ms
 
-    def create_cps_to_fill_void(self, time_since_last_update_ms: int, now_ms:int, mdd:float):
+    def create_cps_to_fill_void(self, time_since_last_update_ms: int, now_ms:int, point_in_time_dd:float):
         original_accum_time = self.cps[-1].accum_ms
         delta_accum_time_ms = self.target_cp_duration_ms - original_accum_time
         self.cps[-1].accum_ms += delta_accum_time_ms
@@ -87,7 +87,7 @@ class PerfLedger(BaseModel):
             new_cp = PerfCheckpoint(last_update_ms=self.cps[-1].last_update_ms + self.target_cp_duration_ms,
                                     prev_portfolio_ret=self.cps[-1].prev_portfolio_ret,
                                     accum_ms=self.target_cp_duration_ms,
-                                    mdd=mdd)
+                                    mdd=self.cps[-1].mdd)
             assert new_cp.last_update_ms < now_ms, (self.cps, (now_ms - new_cp.last_update_ms))
             self.cps.append(new_cp)
             time_since_last_update_ms -= self.target_cp_duration_ms
@@ -95,7 +95,7 @@ class PerfLedger(BaseModel):
         assert time_since_last_update_ms >= 0
         new_cp = PerfCheckpoint(last_update_ms=self.cps[-1].last_update_ms,
                                 prev_portfolio_ret=self.cps[-1].prev_portfolio_ret,
-                                mdd=mdd)
+                                mdd=point_in_time_dd)
         assert new_cp.last_update_ms <= now_ms, self.cps
         self.cps.append(new_cp)
 
@@ -111,13 +111,13 @@ class PerfLedger(BaseModel):
             self.init_with_first_order(now_ms, point_in_time_dd)
             return self.cps[-1]
 
-        mdd = min(self.cps[-1].mdd, point_in_time_dd)
         time_since_last_update_ms = now_ms - self.cps[-1].last_update_ms
         assert time_since_last_update_ms >= 0, self.cps
         if time_since_last_update_ms + self.cps[-1].accum_ms >= self.target_cp_duration_ms:
-            self.create_cps_to_fill_void(time_since_last_update_ms, now_ms, mdd)
+            self.create_cps_to_fill_void(time_since_last_update_ms, now_ms, point_in_time_dd)
+        else:
+            self.cps[-1].mdd = min(self.cps[-1].mdd, point_in_time_dd)
 
-        self.cps[-1].mdd = min(self.cps[-1].mdd, mdd)
         return self.cps[-1]
 
     def update_accumulated_time(self, cp: PerfCheckpoint, now_ms: int, miner_hotkey:str, any_open:bool):
@@ -582,7 +582,6 @@ class PerfLedgerManager(CacheController):
                 f"Done updating perf ledger for {hotkey} {hotkey_i+1}/{len(hotkey_to_positions)} in {time.time() - t0} "
                 f"(s). Lag: {lag} (s). Total product: {total_product}. Last portfolio value: {last_portfolio_value}."
                 f" n_api_calls: {self.n_api_calls} dd stats {self.hk_to_dd_stats[hotkey]}. n_price_corrections {self.n_price_corrections}")
-            PerfLedgerManager.save_perf_ledgers_to_disk(existing_perf_ledgers) # @@@@@@@@@ TEMP REMOVE ME!!!!! @@@@@@@@@@@
 
         if not self.shutdown_dict:
             PerfLedgerManager.save_perf_ledgers_to_disk(existing_perf_ledgers)
