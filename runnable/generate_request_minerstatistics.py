@@ -21,6 +21,25 @@ from vali_objects.scoring.scoring import Scoring, ScoringUnit
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
 from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
 
+def rank_dictionary(d, ascending=False):
+    """
+    Rank the values in a dictionary. Higher values get lower ranks by default.
+    
+    Args:
+    d (dict): The dictionary to rank.
+    ascending (bool): If True, ranks in ascending order. Default is False.
+    
+    Returns:
+    dict: A dictionary with the same keys and ranked values.
+    """
+    # Sort the dictionary by value
+    sorted_items = sorted(d.items(), key=lambda item: item[1], reverse=not ascending)
+    
+    # Assign ranks
+    ranks = {item[0]: rank + 1 for rank, item in enumerate(sorted_items)}
+    
+    return ranks
+
 
 def generate_request_minerstatistics(time_now:int):
     time_now = TimeUtil.now_in_millis()
@@ -127,32 +146,108 @@ def generate_request_minerstatistics(time_now:int):
     checkpoint_results = Scoring.compute_results_checkpoint(successful_ledger, evaluation_time_ms=time_now)
     challengeperiod_scores = [ (x, ValiConfig.SET_WEIGHT_MINER_CHALLENGE_PERIOD_WEIGHT) for x in challengeperiod_testing_hotkeys ]
     scoring_results = checkpoint_results + challengeperiod_scores
+    weights = dict(scoring_results)
+
+    ## now also ranking each of the miners
+    weights_rank = rank_dictionary(weights)
+
+    # standard terms
+    omega_rank = rank_dictionary(omega_cps)
+    inverted_sortino_rank = rank_dictionary(inverted_sortino_cps)
+    return_rank = rank_dictionary(return_cps)
+
+    # now the augmented terms
+    augmented_omega_rank = rank_dictionary(augmented_omega_cps)
+    augmented_inverted_sortino_rank = rank_dictionary(augmented_inverted_sortino_cps)
+    augmented_return_rank = rank_dictionary(augmented_return_cps)
+
+    ## Here is the full list of data in frontend format
+    combined_data = []
+    for miner_id in all_miner_hotkeys:
+        ## challenge period specific data
+        challengeperiod_specific = {}
+
+        if miner_id in sorted_challengeperiod_testing:
+            challengeperiod_testing_time = sorted_challengeperiod_testing[miner_id]
+            chellengeperiod_end_time = challengeperiod_testing_time + ValiConfig.SET_WEIGHT_CHALLENGE_PERIOD_MS
+            remaining_time = chellengeperiod_end_time - time_now
+            challengeperiod_specific = {
+                "status": "testing",
+                "start_time_ms": challengeperiod_testing_time,
+                "remaining_time_ms": remaining_time,
+            }
+
+        elif miner_id in sorted_challengeperiod_success:
+            challengeperiod_success_time = sorted_challengeperiod_success[miner_id]
+            challengeperiod_specific = {
+                "status": "success",
+                "start_time": challengeperiod_success_time,
+            }
+
+        ## checkpoint specific data
+        miner_standard_ledger = filtered_ledger.get(miner_id)
+        miner_returns_ledger = returns_ledger.get(miner_id)
+        miner_risk_ledger = risk_adjusted_ledger.get(miner_id)
+
+        if miner_standard_ledger is None or miner_returns_ledger is None or miner_risk_ledger is None:
+            continue
+
+        miner_data = {
+            "hotkey": miner_id,
+            "weight": {
+                "value": weights.get(miner_id),
+                "rank": weights_rank.get(miner_id),
+            },
+            "challengeperiod": challengeperiod_specific,
+            "penalties": {
+                "consistency": consistency_penalties.get(miner_id),
+            },
+            "scores":{
+                "omega": {
+                    "value": omega_cps.get(miner_id),
+                    "rank": omega_rank.get(miner_id),
+                },
+                "inverted_sortino_cps": {
+                    "value": inverted_sortino_cps.get(miner_id),
+                    "rank": inverted_sortino_rank.get(miner_id),
+                },
+                "return_cps": {
+                    "value": return_cps.get(miner_id),
+                    "rank": return_rank.get(miner_id),
+                }
+            },
+            "augmented_scores":{
+                "omega": {
+                    "value": augmented_omega_cps.get(miner_id),
+                    "rank": augmented_omega_rank.get(miner_id),
+                },
+                "inverted_sortino_cps": {
+                    "value": augmented_inverted_sortino_cps.get(miner_id),
+                    "rank": augmented_inverted_sortino_rank.get(miner_id),
+                },
+                "return_cps": {
+                    "value": augmented_return_cps.get(miner_id),
+                    "rank": augmented_return_rank.get(miner_id),
+                }
+            },
+            "engagement": {
+                "n_checkpoints": n_checkpoints.get(miner_id),
+                "checkpoint_durations": checkpoint_durations.get(miner_id),
+                "volume_threshold_count": volume_threshold_count.get(miner_id),
+            },
+            "plagiarism": plagiarism.get(miner_id),
+            "checkpoints": {
+                "standard": miner_standard_ledger.cps,
+                "returns_augmented": miner_returns_ledger.cps,
+                "risk_augmented": miner_risk_ledger.cps,
+            }
+        }
+        combined_data.append(miner_data)
     
     final_dict = {
         'version': ValiConfig.VERSION,
         'created_timestamp_ms': time_now,
         'created_date': TimeUtil.millis_to_formatted_date_str(time_now),
-        'weights': dict(scoring_results),
-        'challengeperiod': {
-            "testing": challengeperiod_testing_readable,
-            "success": challengeperiod_success_readable
-        },
-        'penalties': {
-            "consistency": consistency_penalties,
-        },
-        "metrics": {
-            "omega_cps": omega_cps,
-            "inverted_sortino_cps": inverted_sortino_cps,
-            "return_cps": return_cps,
-            "n_checkpoints": n_checkpoints,
-            "checkpoint_durations": checkpoint_durations,
-            "volume_threshold_count": volume_threshold_count,
-        },
-        "augmented_metrics": {
-            "augmented_omega_cps": augmented_omega_cps,
-            "augmented_inverted_sortino_cps": augmented_inverted_sortino_cps,
-            "augmented_return_cps": augmented_return_cps
-        },
         "constants":{
             "return_cps_weight": ValiConfig.SCORING_RETURN_CPS_WEIGHT,
             "omega_cps_weight": ValiConfig.SCORING_OMEGA_CPS_WEIGHT,
@@ -171,8 +266,12 @@ def generate_request_minerstatistics(time_now:int):
             "checkpoint_duration_threshold": ValiConfig.CHECKPOINT_DURATION_THRESHOLD,
             "challengeperiod_volume_checkpoints": ValiConfig.SET_WEIGHT_MINER_CHALLENGE_PERIOD_VOLUME_CHECKPOINTS,
             "challengeperiod_volume_threshold": ValiConfig.CHECKPOINT_VOLUME_THRESHOLD,
+            "challengeperiod_gracevalue": ValiConfig.SET_WEIGHT_MINER_CHALLENGE_PERIOD_WEIGHT,
+            "challengeperiod_return_minimum": ValiConfig.SET_WEIGHT_MINER_CHALLENGE_PERIOD_RETURN_CPS_PERCENT,
+            "challengeperiod_omega_minimum": ValiConfig.SET_WEIGHT_MINER_CHALLENGE_PERIOD_OMEGA_CPS,
+            "challengeperiod_sortino_minimum": ValiConfig.SET_WEIGHT_MINER_CHALLENGE_PERIOD_SORTINO_CPS,
         },
-        'plagiarism': plagiarism,
+        "data": combined_data,
     }
 
     output_file_path = ValiBkpUtils.get_vali_outputs_dir() + "minerstatistics.json"

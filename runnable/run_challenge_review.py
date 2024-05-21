@@ -23,7 +23,7 @@ if __name__ == "__main__":
     subtensor_weight_setter._refresh_eliminations_in_memory()
     subtensor_weight_setter._refresh_challengeperiod_in_memory()
 
-    inspection_hotkeys_dict = subtensor_weight_setter.challengeperiod_success
+    inspection_hotkeys_dict = subtensor_weight_setter.challengeperiod_testing
 
     ## filter the ledger for the miners that passed the challenge period
     success_hotkeys = list(inspection_hotkeys_dict.keys())
