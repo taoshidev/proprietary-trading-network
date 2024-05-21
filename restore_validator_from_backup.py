@@ -103,9 +103,7 @@ def regenerate_miner_positions(perform_backup=True):
 
     n_existing_position = position_manager.get_number_of_miners_with_any_positions()
     n_existing_eliminations = position_manager.get_number_of_eliminations()
-    n_existing_plagiarism_scores = position_manager.get_number_of_plagiarism_scores()
-    msg = (f"Detected {n_existing_position} hotkeys with positions, {n_existing_eliminations} eliminations, "
-           f"and {n_existing_plagiarism_scores} plagiarism scores.")
+    msg = (f"Detected {n_existing_position} hotkeys with positions, {n_existing_eliminations} eliminations")
     bt.logging.info(msg)
 
     bt.logging.info("Backing up and overwriting all existing positions, eliminations, and plagiarism scores.")
@@ -142,9 +140,6 @@ def regenerate_miner_positions(perform_backup=True):
     perf_ledgers = data.get('perf_ledgers', {})
     bt.logging.info(f"regenerating {len(perf_ledgers)} perf ledgers")
     PerfLedgerManager.save_perf_ledgers_to_disk(perf_ledgers)
-
-    bt.logging.info(f"regenerating {len(data['plagiarism'])} plagiarism scores")
-    position_manager.write_plagiarism_scores_to_disk(data['plagiarism'])
 
     ## Now sync challenge period with the disk
     challengeperiod = data.get('challengeperiod', {})

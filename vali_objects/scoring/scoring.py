@@ -216,7 +216,7 @@ class Scoring:
         return total_loss / total_position_active_time
     
     @staticmethod
-    def checkpoint_volume_threshold_count(scoringunit: ScoringUnit) -> float:
+    def checkpoint_volume_threshold_count(scoringunit: ScoringUnit) -> int:
         """
         Args:
             scoringunit: ScoringUnit - the scoring unit for the miner
@@ -230,7 +230,7 @@ class Scoring:
         checkpoint_volume_threshold = ValiConfig.CHECKPOINT_VOLUME_THRESHOLD
         volume_arr = np.array(gains) + np.abs(np.array(losses))
 
-        return np.sum(volume_arr >= checkpoint_volume_threshold)
+        return int(np.sum(volume_arr >= checkpoint_volume_threshold))
 
     @staticmethod
     def omega(returns: list[float]) -> float:
