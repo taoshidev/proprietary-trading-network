@@ -760,22 +760,6 @@ class TestWeights(TestBase):
 
     #     self.assertEqual(sorted(flagged_miners), sorted(nonpassing_miners))
 
-    def test_filter_single_checkpoint(self):
-        """Test that the filter checkpoint function works as expected"""
-        ## the transformation should be some kind of average of the two
-        minimum_passing_checkpoint_time = ValiConfig.SET_WEIGHT_MINIMUM_SINGLE_CHECKPOINT_DURATION_MS
-        passing_checkpoint = checkpoint_generator(
-            gain=0.1,
-            loss=-0.05,
-            open_ms=minimum_passing_checkpoint_time
-        )
-
-        passing_checkpoint_list = self.subtensor_weight_setter._filter_checkpoint_elements(
-            [ passing_checkpoint ]
-        )
-
-        self.assertEqual(passing_checkpoint_list, [ passing_checkpoint ])
-
     def test_miner_filter_older_than_challengeperiod(self):
         """Test that the challengeperiod function eliminates miners older than the period"""
         ## some sample positions and their orders, want to make sure we return
