@@ -21,9 +21,7 @@ In order to capture information at such a high resolution, we utilize checkpoint
 
 Each miner is compared to a baseline, the annual return rate of American Treasury Bills. This will consistently add a small amount of loss for the miner every millisecond. If the miner's Omega is less than 1 and log return less than 0, they were unable to beat the growth rate of treasury bills.
 
-We also penalize miners who cannot deliver consistent performance over each 30 day period. To fully mitigate penalties associated with consistency, your miner should achieve the following metrics:
-- Minimum of 18 days of open positions, of any volume.
-- Max returns in a checkpoint period should not exceed 90x the median behavior of other checkpoints.
+#### Scoring Metrics
 
 We will use three scoring metrics to evaluate miners based on their mid trade scores: **Returns**, **Omega**, **Time Adjusted Sortino**.
 
@@ -42,6 +40,25 @@ Sortino measures the pure volume of losses, and will be divided by the total tim
 - Pure positive value change
 
 The total score will result from the product of the Return, Omega, and Sortino, so the top miners in our system must perform well in both metrics to receive substantial incentive. The relative weight of each term in the product sum is Returns: 0.95, Omega: 0.35, Sortino: 0.2. The terms used to calculate the product are defined by ranking each metric against the other miners. As a simple example, if a miner is first place in returns and last place in Omega, their total score would start at 1, multiply by 1 due to first place in returns. It would then multiply by (1 - 0.35) as they are the last place in Omega, so their final score would be 0.65.
+
+#### Scoring Penalties
+
+There are two primary penalties in place for each miner: Consistency and Drawdown.
+
+The consistency penalty is meant to discourage miners who cannot deliver consistent performance over each 30 day period. To fully mitigate penalties associated with consistency, your miner should achieve the following metrics:
+- Minimum of 18 days of open positions, of any volume.
+- Max returns in a checkpoint period should not exceed 90x the median behavior of other checkpoints.
+
+The drawdown penalty is meant to disengage the influence of miners in drawdown, to both discourage risk that a miner may be eliminated due to MDD and to hedge risks assocated with this miner for the system. We will look at the max drawdown seen over the past two weeks to determine your penalty, and drawdown below 2.5% will not count negatively towards your score. The drawdown penalty becomes exponentially greater closer to the MDD limit, with the following targets:
+
+| MDD  | Penalty |
+|------|---------|
+| 0%   | 0%      |
+| 1%   | 0%      |
+| 2%   | 0%      |
+| 3%   | 5%      |
+| 4%   | 25%     |
+| 5%   | 100%    |
 
 ### Challenge Period Details
 

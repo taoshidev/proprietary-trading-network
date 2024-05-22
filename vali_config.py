@@ -162,7 +162,7 @@ TRADE_PAIR_STR_TO_TRADE_PAIR = {x.trade_pair: x for x in TradePair}
 
 class ValiConfig:
     ## versioning
-    VERSION = "2.6.1"
+    VERSION = "2.6.8"
 
     # fees take into account exiting and entering a position, liquidity, and futures fees
     PERF_LEDGER_REFRESH_TIME_MS = 1000 * 60 * 15  # minutes
@@ -224,7 +224,13 @@ class ValiConfig:
     ## Scoring weights
     SCORING_RETURN_CPS_WEIGHT = 0.95
     SCORING_OMEGA_CPS_WEIGHT = 0.20
-    SCORING_SORTINO_CPS_WEIGHT = 0.15
+    SCORING_SORTINO_CPS_WEIGHT = 0.00
+
+    ## MDD penalty calculation
+    MDD_PENALTY_COEFFICIENT = 150
+    DRAWDOWN_NTERMS = 4 * 14 # two weeks
+    DRAWDOWN_MAXVALUE = 0.95
+    DRAWDOWN_MINVALUE = 0.975
 
     ## Challenge period for setting weights, depreciated in favor of the new challenge period
     SET_WEIGHT_MINER_CHALLENGE_PERIOD_SHARPE = 1.10
