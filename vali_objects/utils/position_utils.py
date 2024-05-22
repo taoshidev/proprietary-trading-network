@@ -163,6 +163,29 @@ class PositionUtils:
         exp_term = np.clip(consistency_taper * delta_discrepancy - consistency_displacement, -50, 50)
         return ((1-lower_bound)*(1 + (np.exp(exp_term)))**-1) + lower_bound
     
+    def compute_drawdown_penalty_cps(checkpoints: list[PerfCheckpoint]) -> float:
+        """
+        Args:
+            checkpoints: list[PerfCheckpoint] - the list of checkpoints
+            evaluation_time_ms: int - the evaluation time
+        """
+        if len(checkpoints) <= 0:
+            return 0
+
+        drawdown_coefficient = ValiConfig.MDD_PENALTY_COEFFICIENT
+        drawdown_threshold = ValiConfig.MAX_TOTAL_DRAWDOWN_V2
+
+        ## Compute the drawdown of the checkpoints
+        drawdowns = [ checkpoint.mdd for checkpoint in checkpoints ]
+        recent_drawdown = drawdowns[-1]
+
+        recent_drawdown = np.clip(recent_drawdown, drawdown_threshold, 1.0)
+
+        drawdown_penalty = 1 - np.exp(-drawdown_coefficient*(recent_drawdown-drawdown_threshold))
+        drawdown_penalty = np.clip(drawdown_penalty, 0, 1)
+
+        return drawdown_penalty
+    
     ## just looking at the consistency penalties
     def compute_consistency_penalty_cps(checkpoints: list[PerfCheckpoint]) -> float:
         """
