@@ -29,7 +29,7 @@ from vali_objects.vali_dataclasses.order import OrderStatus, Order
 from vali_objects.utils.position_utils import PositionUtils
 from vali_objects.vali_dataclasses.price_source import PriceSource
 from vali_objects.vali_dataclasses.perf_ledger import PerfCheckpoint, PerfLedger
-TARGET_MS = 1716326955000 + 1000 * 60 * 60 * 2
+TARGET_MS = 1716398491000 + 1000 * 60 * 60 * 2
 class PositionManager(CacheController):
     def __init__(self, config=None, metagraph=None, running_unit_tests=False, perform_price_adjustment=False,
                  live_price_fetcher=None, perform_order_corrections=False, perform_fee_structure_update=False,
@@ -63,7 +63,7 @@ class PositionManager(CacheController):
         eliminations = self.get_miner_eliminations_from_disk()
         new_eliminations = []
         for e in eliminations:
-            if e['hotkey'] in ('5Dxqzduahnqw8q3XSUfTcEZGU7xmAsfJubhHZwvXVLN9fSjR'):
+            if e['hotkey'] in ():
                 bt.logging.warning('Removed elimination for hotkey ', e['hotkey'])
                 positions = hotkey_to_positions.get(e['hotkey'])
                 if positions:
@@ -238,7 +238,7 @@ class PositionManager(CacheController):
                 n_corrections += 1
                 n_attempts += 1
             """
-            if miner_hotkey == '5Dxqzduahnqw8q3XSUfTcEZGU7xmAsfJubhHZwvXVLN9fSjR':
+            if miner_hotkey == '5CALivVcJBTjYJFMsAkqhppQgq5U2PYW4HejCajHMvTMUgkC':
                 #with open(ValiBkpUtils.get_positions_override_dir() + miner_hotkey + '.json', 'w') as f:
                 #    dat = [p.to_json_string() for p in positions]
                 #    f.write(json.dumps(dat, cls=CustomEncoder))
