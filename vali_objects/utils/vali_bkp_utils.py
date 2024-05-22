@@ -206,6 +206,8 @@ class ValiBkpUtils:
         all_files = []
         for dirpath, dirnames, filenames in os.walk(vali_dir):
             for filename in filenames:
+                if filename == '.DS_Store':
+                    continue  # Skip .DS_Store files
                 filepath = os.path.join(dirpath, filename)
                 all_files.append(filepath)
         return all_files
