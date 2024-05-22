@@ -136,8 +136,14 @@ def generate_request_core(time_now:int):
         'perf_ledgers': perf_ledgers
     }
 
-    output_file_path = ValiBkpUtils.get_vali_outputs_dir() + "validator_checkpoint.json"
+    vcp_output_file_path = ValiBkpUtils.get_vali_outputs_dir() + "validator_checkpoint.json"
     ValiBkpUtils.write_file(
-        output_file_path,
+        vcp_output_file_path,
         final_dict,
+    )
+
+    miner_positions_output_file_path = ValiConfig.BASE_DIR + "/validation/outputs/output.json"
+    ValiBkpUtils.write_file(
+        miner_positions_output_file_path,
+        ord_dict_hotkey_position_map,
     )
