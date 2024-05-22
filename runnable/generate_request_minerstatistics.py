@@ -62,10 +62,6 @@ def generate_request_minerstatistics(time_now:int):
     sorted_challengeperiod_testing = dict(sorted(challengeperiod_testing_dictionary.items(), key=lambda item: item[1]))
     sorted_challengeperiod_success = dict(sorted(challengeperiod_success_dictionary.items(), key=lambda item: item[1]))
 
-    # Convert to readable format
-    challengeperiod_testing_readable = {k: TimeUtil.millis_to_formatted_date_str(v) for k, v in sorted_challengeperiod_testing.items()}
-    challengeperiod_success_readable = {k: TimeUtil.millis_to_formatted_date_str(v) for k, v in sorted_challengeperiod_success.items()}
-
     challengeperiod_testing_hotkeys = list(challengeperiod_testing_dictionary.keys())
     challengeperiod_success_hotkeys = list(challengeperiod_success_dictionary.keys())
 
@@ -97,9 +93,12 @@ def generate_request_minerstatistics(time_now:int):
 
     ## Penalties
     consistency_penalties = {}
+    drawdown_penalties = {}
     for hotkey, hotkey_ledger in filtered_ledger.items():
         consistency_penalty = PositionUtils.compute_consistency_penalty_cps(hotkey_ledger.cps)
+        drawdown_penalty = PositionUtils.compute_drawdown_penalty_cps(hotkey_ledger.cps)
         consistency_penalties[hotkey] = consistency_penalty
+        drawdown_penalties[hotkey] = drawdown_penalty
 
     ## Non-augmented values for everything
     for hotkey, miner_ledger in filtered_ledger.items():
@@ -201,6 +200,7 @@ def generate_request_minerstatistics(time_now:int):
             "challengeperiod": challengeperiod_specific,
             "penalties": {
                 "consistency": consistency_penalties.get(miner_id),
+                "drawdown": drawdown_penalties.get(miner_id),
             },
             "scores":{
                 "omega": {
