@@ -251,7 +251,11 @@ class PolygonDataService(BaseDataService):
                     bt.logging.info("History Size: " + str(history_size))
                     bt.logging.info(f"n_events_global: {self.n_events_global}")
             except Exception as e:
-                bt.logging.error(f"Failed to handle POLY websocket message with error: {e}")
+                full_traceback = traceback.format_exc()
+                # Slice the last 1000 characters of the traceback
+                limited_traceback = full_traceback[-1000:]
+                bt.logging.error(f"Failed to handle POLY websocket message with error: {e}, "
+                                 f"type: {type(e).__name__}, traceback: {limited_traceback}")
 
     def subscribe_websockets(self):
         for tp in TradePair:
