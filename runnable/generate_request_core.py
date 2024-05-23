@@ -70,10 +70,12 @@ def generate_request_core(time_now:int):
         ))
 
     time_now = TimeUtil.now_in_millis()
+    one_week_ago_ms = time_now - 1000 * 60 * 60 * 24 * 7
     dict_hotkey_position_map = {}
 
     youngest_order_processed_ms = float("inf")
     oldest_order_processed_ms = 0
+
     for k, original_positions in hotkey_positions.items():
         dict_hotkey_position_map[k] = {
             "positions": [],
@@ -99,6 +101,12 @@ def generate_request_core(time_now:int):
                                             max(p.orders, key=lambda o: o.processed_ms).processed_ms)
             if p.close_ms is None:
                 p.close_ms = 0
+
+            # Remove price sources (debug info) for old data to make the checkpoint smaller.
+            if p.is_closed_position and p.close_ms < one_week_ago_ms:
+                for o in p.orders:
+                    o.price_sources = []
+
             dict_hotkey_position_map[k]["positions"].append(
                 json.loads(str(p), cls=GeneralizedJSONDecoder)
             )
