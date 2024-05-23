@@ -44,6 +44,7 @@ class PerfCheckpoint(BaseModel):
 
 
 class PerfLedger(BaseModel):
+    max_return: float = 1.0
     target_cp_duration_ms: int = TARGET_CHECKPOINT_DURATION_MS
     target_ledger_window_ms: int = TARGET_LEDGER_WINDOW_MS
     cps: list[PerfCheckpoint] = []
@@ -156,7 +157,6 @@ class PerfLedger(BaseModel):
         self.update_returns(current_cp, current_portfolio_value)
         self.update_accumulated_time(current_cp, now_ms, miner_hotkey, any_open)
         self.purge_old_cps()
-
 
     def count_events(self):
         # Return the number of events currently stored
@@ -408,7 +408,7 @@ class PerfLedgerManager(CacheController):
                     continue
 
                 any_open = True
-                retry_with_timeout(self.refresh_price_info, 30, t_ms, end_time_ms, historical_position.trade_pair)
+                self.refresh_price_info(t_ms, end_time_ms, historical_position.trade_pair)
                 price_at_t_s = self.trade_pair_to_price_info[tp].get(t_s)
                 if price_at_t_s is not None:
                     self.tp_to_last_price[tp] = price_at_t_s
@@ -425,18 +425,17 @@ class PerfLedgerManager(CacheController):
                 #assert portfolio_return > 0, f"Portfolio value is {portfolio_return} for miner {miner_hotkey} at {t_s}. opr {opr} rtp {price_at_t_s}, historical position {historical_position}"
         return portfolio_return, any_open
 
-    def check_elimination(self, miner_hotkey, portfolio_return, t_ms, max_realized_portfolio_return, tp_to_historical_positions):
-        dd = self.calculate_drawdown(portfolio_return, max_realized_portfolio_return)
+    def update_mdd(self, miner_hotkey, portfolio_return, t_ms, tp_to_historical_positions, perf_ledger):
+        perf_ledger.max_return = max(perf_ledger.max_return, portfolio_return)
+        dd = self.calculate_drawdown(portfolio_return, perf_ledger.max_return)
         stats = self.hk_to_dd_stats[miner_hotkey]
         if dd < stats['worst_dd']:
             stats['worst_dd'] = dd
         stats['last_dd'] = dd
         stats['n_checks'] += 1
         stats['current_portfolio_return'] = portfolio_return
-        if t_ms < 1715910011000:  # Before new Polygon forex price filling
-            return False
 
-        mdd_failure = self.is_drawdown_beyond_mdd(dd, time_now=TimeUtil.millis_to_datetime(t_ms))
+        mdd_failure = False#self.is_drawdown_beyond_mdd(dd, time_now=TimeUtil.millis_to_datetime(t_ms))
         if mdd_failure:
             bt.logging.warning(f"Drawdown failure for miner {miner_hotkey} at {t_ms}. Portfolio return: {portfolio_return}, max realized portfolio return: {max_realized_portfolio_return}, drawdown: {dd}")
             elimination_row = self.generate_elimination_row(miner_hotkey, dd, mdd_failure, t_ms=t_ms,
@@ -479,7 +478,6 @@ class PerfLedgerManager(CacheController):
             perf_ledger.update(portfolio_return, end_time_ms, miner_hotkey, False, point_in_time_dd=None)
             return False
 
-        max_realized_portfolio_return = self.replay_all_closed_positions(miner_hotkey, tp_to_historical_positions)
         any_update = any_open = False
         last_dd = None
         self.init_tp_to_last_price(tp_to_historical_positions)
@@ -489,8 +487,7 @@ class PerfLedgerManager(CacheController):
                 return False
             assert t_ms >= perf_ledger.last_update_ms, f"t_ms: {t_ms}, last_update_ms: {perf_ledger.last_update_ms}, delta_s: {(t_ms - perf_ledger.last_update_ms) // 1000} s. perf ledger {perf_ledger}"
             portfolio_return, any_open = self.positions_to_portfolio_return(tp_to_historical_positions, t_ms, miner_hotkey, end_time_ms)
-            if self.check_elimination(miner_hotkey, portfolio_return, t_ms, max_realized_portfolio_return, tp_to_historical_positions):
-                return True
+            self.update_mdd(miner_hotkey, portfolio_return, t_ms, tp_to_historical_positions, perf_ledger)
             assert portfolio_return > 0, f"Portfolio value is {portfolio_return} for miner {miner_hotkey} at {t_ms // 1000}. perf ledger {perf_ledger}"
             last_dd = self.hk_to_dd_stats[miner_hotkey]['last_dd']
             perf_ledger.update(portfolio_return, t_ms, miner_hotkey, any_open, last_dd)
