@@ -355,6 +355,63 @@ class TestWeights(TestBase):
 
         ledger_dict['shorttrading'] = ledger_generator(checkpoints=short_trading_checkpoints)
 
+        ## now for the checkpoints for the mdd calculation
+        # mdd first
+        mdd_base_checkpoints = [ PerfCheckpoint(
+            last_update_ms=checkpoint_times[i],
+            gain=0.1,
+            loss=-0.09,
+            prev_portfolio_ret=1.0,
+            open_ms=open_ms_times[i],
+            mdd=1.0
+        ) for i in range(n_checkpoints-1) ]
+
+        mdd_first_checkpoints = [ PerfCheckpoint(
+            last_update_ms=0,
+            gain=0.1,
+            loss=-0.09,
+            prev_portfolio_ret=1.0,
+            open_ms=100,
+            mdd=ValiConfig.DRAWDOWN_MAXVALUE
+        ) ] + mdd_base_checkpoints
+
+        # mdd last
+        mdd_last_checkpoints = mdd_base_checkpoints + [ PerfCheckpoint(
+            last_update_ms=0,
+            gain=0.1,
+            loss=-0.09,
+            prev_portfolio_ret=1.0,
+            open_ms=100,
+            mdd=ValiConfig.DRAWDOWN_MAXVALUE
+        ) ]
+
+        # mdd smaller last
+        mdd_last_smaller_checkpoints = mdd_base_checkpoints + [ PerfCheckpoint(
+            last_update_ms=0,
+            gain=0.1,
+            loss=-0.09,
+            prev_portfolio_ret=1.0,
+            open_ms=100,
+            mdd=(ValiConfig.DRAWDOWN_MAXVALUE + 1) /2
+        ) ]
+
+        # Create a list of checkpoints with fewer elements than drawdown_nterms
+        nterms = ValiConfig.DRAWDOWN_NTERMS
+        fewer_checkpoints = [PerfCheckpoint(
+            last_update_ms=0,
+            gain=0.05,
+            loss=-0.04,
+            prev_portfolio_ret=1.0,
+            open_ms=100,
+            mdd=ValiConfig.DRAWDOWN_MAXVALUE * (i / nterms)
+        ) for i in range(nterms - 2)]  # Less than drawdown_nterms
+
+        # Create the ledger with fewer checkpoints
+        ledger_dict['mdd_fewer'] = ledger_generator(checkpoints=fewer_checkpoints)
+        ledger_dict['mdd_first'] = ledger_generator(checkpoints=mdd_first_checkpoints)
+        ledger_dict['mdd_last_large'] = ledger_generator(checkpoints=mdd_last_checkpoints)
+        ledger_dict['mdd_last_small'] = ledger_generator(checkpoints=mdd_last_smaller_checkpoints)
+
         self.ledger_dict: dict[str, PerfLedger] = ledger_dict
         self.subtensor_weight_setter = SubtensorWeightSetter(
             config=None,
@@ -417,12 +474,14 @@ class TestWeights(TestBase):
         sample_losses = [0.0, 0.0, 0.0, -0.1, -0.3, 0.0] # contains losses
         sample_n_updates = [ 1, 1, 1, 1, 1, 1 ]
         sample_open_ms = [ 100, 200, 300, 400, 500, 600 ]
+        sample_dd = [ 1.0, 1.0, 1.0, 1.0, 1.0, 1.0 ]
 
         scoringunit = ScoringUnit(
             gains=sample_gains,
             losses=sample_losses,
             n_updates=sample_n_updates,
-            open_ms=sample_open_ms
+            open_ms=sample_open_ms,
+            mdd=sample_dd
         )
 
         return_positive = Scoring.return_cps(scoringunit)
@@ -434,12 +493,14 @@ class TestWeights(TestBase):
         sample_losses = [0.0, -0.05, -0.1, -0.1, -0.3, 0.0]
         sample_n_updates = [ 1, 1, 1, 1, 1, 1 ]
         sample_open_ms = [ 100, 200, 300, 400, 500, 600 ]
+        sample_dd = [ 1.0, 1.0, 1.0, 1.0, 1.0, 1.0 ]
 
         scoringunit = ScoringUnit(
             gains=sample_gains,
             losses=sample_losses,
             n_updates=sample_n_updates,
-            open_ms=sample_open_ms
+            open_ms=sample_open_ms,
+            mdd=sample_dd
         )
 
         return_negative = Scoring.return_cps(scoringunit)
@@ -451,7 +512,8 @@ class TestWeights(TestBase):
             gains=[],
             losses=[],
             n_updates=[],
-            open_ms=[]
+            open_ms=[],
+            mdd=[]
         )
 
         return_zero = Scoring.return_cps(scoringunit)
@@ -502,12 +564,14 @@ class TestWeights(TestBase):
         sample_losses = [0.0, 0.0, 0.0, -0.1, -0.3, 0.0] # contains losses
         sample_n_updates = [ 1, 1, 1, 1, 1, 1 ]
         sample_open_ms = [ 100, 200, 300, 400, 500, 600 ]
+        sample_mdd = [ 1.0, 1.0, 1.0, 1.0, 1.0, 1.0 ]
 
         scoringunit = ScoringUnit(
             gains=sample_gains,
             losses=sample_losses,
             n_updates=sample_n_updates,
-            open_ms=sample_open_ms
+            open_ms=sample_open_ms,
+            mdd=sample_mdd
         )
 
         omega_positive = Scoring.omega_cps(scoringunit)
@@ -521,12 +585,14 @@ class TestWeights(TestBase):
         sample_losses = [0.0, -0.05, -0.1, -0.1, -0.3, 0.0]
         sample_n_updates = [ 1, 1, 1, 1, 1, 1 ]
         sample_open_ms = [ 100, 200, 300, 400, 500, 600 ]
+        sample_mdd = [ 1.0, 1.0, 1.0, 1.0, 1.0, 1.0 ]
 
         scoringunit = ScoringUnit(
             gains=sample_gains,
             losses=sample_losses,
             n_updates=sample_n_updates,
-            open_ms=sample_open_ms
+            open_ms=sample_open_ms,
+            mdd=sample_mdd
         )
 
         omega_negative = Scoring.omega_cps(scoringunit)
@@ -541,12 +607,14 @@ class TestWeights(TestBase):
         sample_losses = [0.0, -0.05, -0.1, -0.1, -0.3, 0.0]
         sample_n_updates = [ 1, 1, 1, 1, 1, 1 ]
         sample_open_ms = [ 100, 200, 300, 400, 500, 600 ]
+        sample_mdd = [ 1.0, 1.0, 1.0, 1.0, 1.0, 1.0 ]
 
         scoringunit = ScoringUnit(
             gains=sample_gains,
             losses=sample_losses,
             n_updates=sample_n_updates,
-            open_ms=sample_open_ms
+            open_ms=sample_open_ms,
+            mdd=sample_mdd
         )
 
         ## returns - ( 1 + threshold ) -> we're ignoring threshold for internal calculations
@@ -599,7 +667,8 @@ class TestWeights(TestBase):
             gains=[],
             losses=[],
             n_updates=[],
-            open_ms=[]
+            open_ms=[],
+            mdd=[]
         )
 
         omega = Scoring.omega_cps(scoringunit)
@@ -611,12 +680,14 @@ class TestWeights(TestBase):
         sample_losses = [0.0, 0.0, 0.0, 0.0, 0.0]
         sample_n_updates = [ 1, 1, 1, 1, 1 ]
         sample_open_ms = [ 100, 200, 300, 400, 500 ]
+        sample_mdd = [ 1.0, 1.0, 1.0, 1.0, 1.0 ]
 
         scoringunit = ScoringUnit(
             gains=sample_gains,
             losses=sample_losses,
             n_updates=sample_n_updates,
-            open_ms=sample_open_ms
+            open_ms=sample_open_ms,
+            mdd=sample_mdd
         )
 
         omega = Scoring.omega_cps(scoringunit)
@@ -635,7 +706,8 @@ class TestWeights(TestBase):
             gains=[],
             losses=[],
             n_updates=[],
-            open_ms=[]
+            open_ms=[],
+            mdd=[]
         )
 
         sortino = Scoring.inverted_sortino_cps(scoringunit)
@@ -647,12 +719,14 @@ class TestWeights(TestBase):
         sample_losses = [0.0, 0.0, 0.0, 0.0, 0.0]
         sample_n_updates = [ 1, 1, 1, 1, 1 ]
         sample_open_ms = [ 100, 200, 300, 400, 500 ]
+        sample_mdd = [ 1.0, 1.0, 1.0, 1.0, 1.0 ]
 
         scoringunit = ScoringUnit(
             gains=sample_gains,
             losses=sample_losses,
             n_updates=sample_n_updates,
-            open_ms=sample_open_ms
+            open_ms=sample_open_ms,
+            mdd=sample_mdd
         )
 
         inverted_sortino = Scoring.inverted_sortino_cps(scoringunit)
@@ -927,6 +1001,7 @@ class TestWeights(TestBase):
         gains = [0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0]
         losses = np.ones(10) * -0.1
         open_ms = (np.ones(10) * 100).tolist()
+        mdd = list(np.ones(10))
 
         increasing_losses = copy.deepcopy(losses)
         increasing_losses[:5] = 0
@@ -938,14 +1013,16 @@ class TestWeights(TestBase):
             gains=list(gains),
             losses=list(increasing_losses),
             n_updates=[1] * 10,
-            open_ms=open_ms
+            open_ms=open_ms,
+            mdd = mdd
         )
 
         decreasing_scoringunit = ScoringUnit(
             gains=list(gains),
             losses=list(decreasing_losses),
             n_updates=[1] * 10,
-            open_ms=open_ms
+            open_ms=open_ms,
+            mdd = mdd
         )
 
         increasing_sortino = Scoring.inverted_sortino_cps(increasing_scoringunit)
@@ -989,12 +1066,14 @@ class TestWeights(TestBase):
         losses = [0.0, 0.0, 0.0, 0.0, 0.0]
         n_updates = [ 1, 1, 1, 1, 1 ]
         open_ms = [ 100, 200, 300, 400, 500 ]
+        sample_dd = [ 1.0, 1.0, 1.0, 1.0, 1.0 ]
 
         scoringunit = ScoringUnit(
             gains=gains,
             losses=losses,
             n_updates=n_updates,
-            open_ms=open_ms
+            open_ms=open_ms,
+            mdd = sample_dd
         )
 
         n_volume = Scoring.checkpoint_volume_threshold_count(scoringunit)
@@ -1007,12 +1086,14 @@ class TestWeights(TestBase):
         losses = [-0.1, -0.2, -0.3, -0.4, -0.2]
         n_updates = [ 1, 1, 1, 1, 1 ]
         open_ms = [ 100, 200, 300, 400, 500 ]
+        mdd = [ 1.0, 1.0, 1.0, 1.0, 1.0 ]
 
         scoringunit = ScoringUnit(
             gains=gains,
             losses=losses,
             n_updates=n_updates,
-            open_ms=open_ms
+            open_ms=open_ms,
+            mdd=mdd
         )
 
         n_volume = Scoring.checkpoint_volume_threshold_count(scoringunit)
@@ -1025,15 +1106,45 @@ class TestWeights(TestBase):
         losses = [-0.1, -0.2, -0.3, -0.4, -0.2] # all are matching but should qualify
         n_updates = [ 1, 1, 1, 1, 1 ]
         open_ms = [ 100, 200, 300, 400, 500 ]
+        mdd = [ 1.0, 1.0, 1.0, 1.0, 1.0 ]
 
         scoringunit = ScoringUnit(
             gains=gains,
             losses=losses,
             n_updates=n_updates,
-            open_ms=open_ms
+            open_ms=open_ms,
+            mdd=mdd
         )
 
         n_volume = Scoring.checkpoint_volume_threshold_count(scoringunit)
         self.assertTrue( n_volume == len(gains) )
+
+    def test_mdd_penalty(self):
+        """Test that the volume criteria function works as expected"""
+        ## some sample positions and their orders, want to make sure we return
+        drawdown_penalty = PositionUtils.compute_drawdown_penalty_cps(self.ledger_dict['mdd_last_large'].cps)
+        self.assertAlmostEquals( drawdown_penalty, 0, places=2 )
+
+    def test_mdd_penalty_history_value(self):
+        """Test that the volume criteria function works as expected"""
+        ## some sample positions and their orders, want to make sure we return
+        drawdown_penalty = PositionUtils.compute_drawdown_penalty_cps(self.ledger_dict['mdd_first'].cps)
+        self.assertAlmostEquals( drawdown_penalty, 1.0, places=2 )
+
+    def test_mdd_penalty_history_monotomic(self):
+        """Test that the volume criteria function works as expected"""
+        ## some sample positions and their orders, want to make sure we return
+        penalty1 = PositionUtils.compute_drawdown_penalty_cps(self.ledger_dict['mdd_last_large'].cps)
+        penalty2 = PositionUtils.compute_drawdown_penalty_cps(self.ledger_dict['mdd_last_small'].cps)
+
+        self.assertGreater( penalty2, penalty1 )
+
+    def test_mdd_fewer_checkpoints(self):
+        """Test that the volume criteria function works as expected"""
+        ## some sample positions and their orders, want to make sure we return
+        drawdown_penalty = PositionUtils.compute_drawdown_penalty_cps(self.ledger_dict['mdd_fewer'].cps)
+
+        self.assertGreaterEqual( drawdown_penalty, 0 )
+        self.assertLess( drawdown_penalty, 1.0 )
 
 

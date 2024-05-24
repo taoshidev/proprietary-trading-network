@@ -24,6 +24,7 @@ class ScoringUnit(BaseModel):
     losses: list[float]
     n_updates: list[int]
     open_ms: list[int]
+    mdd: list[float]
 
     @validator('gains', 'n_updates', 'open_ms', each_item=False, pre=True)
     def check_non_negative(cls, v):
@@ -44,14 +45,16 @@ class ScoringUnit(BaseModel):
         losses = []
         n_updates = []
         open_ms = []
+        mdd = []
 
         for cp in perf_ledger.cps:
             gains.append(cp.gain)
             losses.append(cp.loss)
             n_updates.append(cp.n_updates)
             open_ms.append(cp.open_ms)
+            mdd.append(cp.mdd)
 
-        return cls(gains=gains, losses=losses, n_updates=n_updates, open_ms=open_ms)
+        return cls(gains=gains, losses=losses, n_updates=n_updates, open_ms=open_ms, mdd=mdd)
     
 class Scoring:
     @staticmethod
@@ -95,11 +98,6 @@ class Scoring:
             'omega_cps': {
                 'function': Scoring.omega_cps,
                 'weight': ValiConfig.SCORING_OMEGA_CPS_WEIGHT,
-                'ledger': risk_adjusted_ledger,
-            },
-            'inverted_sortino_cps': {
-                'function': Scoring.inverted_sortino_cps,
-                'weight': ValiConfig.SCORING_SORTINO_CPS_WEIGHT,
                 'ledger': risk_adjusted_ledger,
             },
         }
@@ -365,7 +363,7 @@ class Scoring:
         kurtosis = fourth_moment / (std_dev**4)
 
         return skewness, kurtosis
-
+    
     @staticmethod
     def exponential_decay_returns(scale: int) -> np.ndarray:
         """
