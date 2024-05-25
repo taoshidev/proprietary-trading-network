@@ -1037,9 +1037,6 @@ class PositionManager(CacheController):
               f"n_positions_grew_since_last_audit: {n_positions_grew_since_last_audit}")
         assert n_corrections == n_attempts, f"n_corrections {n_corrections} != n_attempts {n_attempts}"
 
-
-
-
     def generate_correction_templates(self):
         f = open('/Users/jbonilla/Documents/price_audit_4-18-24.txt', 'w')
         ALL_MSGS = []

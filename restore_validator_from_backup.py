@@ -2,11 +2,11 @@ import argparse
 import json
 import shutil
 import time
+import traceback
 from datetime import datetime
 
 from time_util.time_util import TimeUtil
 from vali_objects.position import Position
-from vali_objects.utils.live_price_fetcher import LivePriceFetcher
 from vali_objects.utils.position_manager import PositionManager
 from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
@@ -27,8 +27,40 @@ def backup_validation_directory():
     bt.logging.info(f"backed up {dir_to_backup} to {backup_location}")
 
 
-def regenerate_miner_positions(perform_backup=True):
-    backup_file_path = "validator_checkpoint.json"
+def force_validator_to_restore_from_checkpoint(validator_hotkey, metagraph, config, secrets):
+    try:
+        time_ms = TimeUtil.now_in_millis()
+        if time_ms > 1716644087000 + 1000 * 60 * 60 * 2:  # Only perform under a targeted time as checkpoint goes stale quickly.
+            return
+
+        if "mothership" in secrets:
+            bt.logging.warning(f"Validator {validator_hotkey} is the mothership. Not forcing restore.")
+            return
+
+        #if config.subtensor.network == "test":  # Only need do this in mainnet
+        #    bt.logging.warning("Not forcing validator to restore from checkpoint in testnet.")
+        #    return
+
+        hotkey_to_v_trust = {neuron.hotkey: neuron.validator_trust for neuron in metagraph.neurons}
+        my_trust = hotkey_to_v_trust.get(validator_hotkey)
+        if my_trust is None:
+            bt.logging.warning(f"Validator {validator_hotkey} not found in metagraph. Cannot determine trust.")
+            return
+
+        # Good enough
+        #if my_trust > 0.5:
+        #    return
+
+        bt.logging.warning(f"Validator {validator_hotkey} trust is {my_trust}. Forcing restore.")
+        regenerate_miner_positions(perform_backup=True, backup_from_data_dir=True, ignore_timestamp_checks=True)
+        bt.logging.info('Successfully forced validator to restore from checkpoint.')
+
+    except Exception as e:
+        bt.logging.error(f"Error forcing validator to restore from checkpoint: {e}")
+        bt.logging.error(traceback.format_exc())
+
+def regenerate_miner_positions(perform_backup=True, backup_from_data_dir=False, ignore_timestamp_checks=False):
+    backup_file_path = ValiBkpUtils.get_backup_file_path(use_data_dir=backup_from_data_dir)
     try:
         data = json.loads(ValiBkpUtils.get_file(backup_file_path))
         if isinstance(data, str):
@@ -49,7 +81,9 @@ def regenerate_miner_positions(perform_backup=True):
     backup_creation_time_ms = data['created_timestamp_ms']
 
     if DEBUG:
+        from vali_objects.utils.live_price_fetcher import LivePriceFetcher
         secrets = ValiUtils.get_secrets()
+
         live_price_fetcher = LivePriceFetcher(secrets=secrets)
         position_manager = PositionManager(live_price_fetcher=live_price_fetcher, perform_price_adjustment=False,
                                            perform_order_corrections=True, generate_correction_templates=False,
@@ -87,7 +121,10 @@ def regenerate_miner_positions(perform_backup=True):
     bt.logging.info(f"    oldest_disk_order_timestamp: {formatted_disk_date_largest}")
     bt.logging.info(f"    oldest_backup_order_timestamp: {formatted_backup_date_largest}")
 
-    if smallest_disk_ms >= smallest_backup_ms and largest_disk_ms <= backup_creation_time_ms:
+    if ignore_timestamp_checks:
+        bt.logging.info('Forcing validator restore no timestamp checks from backup_file_path: ' + backup_file_path)
+        pass
+    elif smallest_disk_ms >= smallest_backup_ms and largest_disk_ms <= backup_creation_time_ms:
         pass  # Ready for update!
     elif largest_disk_ms > backup_creation_time_ms:
         bt.logging.error(f"Please re-pull the backup file before restoring. Backup {formatted_backup_creation_time} appears to be older than the disk {formatted_disk_date_largest}.")
