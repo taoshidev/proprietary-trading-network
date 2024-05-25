@@ -108,38 +108,24 @@ leverage and you want to reduce it to a .5x leverage position to start taking pr
 of size .25x leverage to reduce the size of the position. LONG and SHORT signals can be thought of working in opposite 
 directions in this way.
 7. Miners can explicitly close out a position by sending in a FLAT signal. 
-8. Miners are eliminated if their portfolio return falls below certain thresholds or if they they are detected as plagiarising other miners. (more info in  the "Eliminations" section).
+8. Miners are eliminated if they are detected as plagiarising other miners. (more info in  the "Eliminations" section).
 9. There is a fee per trade pair position. The fee scales with leverage. e.x a 10x leveraged position will have a 10x higher fee.
 10. There is a minimum registration fee of 5 TAO on the mainnet subnet.
 11. There is an immunity period of 9 days to help miners submit orders to become competitive with existing miners. Eliminated miners do not benefit from being in the immunity period.
-12. Based on portfolio metrics such as omega score and total portfolio return, weights/incentive get set to reward the best miners. This is based on both open and closed positions.
+12. Based on portfolio metrics such as omega score and total portfolio return, weights/incentive get set to reward the best miners.
 
 With this system only the world's best traders & deep learning / quant based trading systems can compete.
 
 
 # Eliminations
 
-In the Proprietary Trading Network, the performance of each miner's portfolio is constantly monitored to ensure competitiveness and integrity within the network. Eliminations are a crucial part of maintaining the network's quality, and they occur under two circumstances MDD, and Plagiarism.
+In the Proprietary Trading Network, Eliminations occur for miners that commit Plagiarism.
 
-
-### Maximum Drawdown (MDD) Eliminations
-
-- **Anytime MDD Limit**: If, at any time, a miner's portfolio experiences more than a **5% drawdown** when compared to its realized all-time high , the miner will be eliminated.
-
-- **Open Position Treatment**: Open positions across different trade pairs are considered together for MDD calculations. For example, if multiple open positions across different pairs collectively result in a return that doesn't breach the MDD threshold, the miner remains active. Conversely, a single poor-performing open position can result in elimination.
-
-### Drawdown Calculation
-When monitoring a miner's portfolio, validators calculate "drawdown". This drawdown value is calculated by comparing the instantaneous value of the portfolio to its all-time high realized return. All portfolios start at a value of 1x or 100%. Thus, after the first closed trade, if the portfolio goes up by 10%, the drawdown is taken as (1.1 - 1.1) / 1.1 = 0%. The portfolio has no drawdown because it has been increasingly in value only.
-
-Another example - if the first position, open or closed, results in a portfolio drop of 6%, the miner has a drawdown of (.94 - 1) / 1 = 6%
-
-Another example - if the first two closed positions result in a portfolio drop of 6% each, the miner has a drawdown of (.94 * .94 - 1) / 1 = 11.64%
-
-Another example - If the first closed position results in a portfolio gain of 50% and the second position, open or closed, results in a portfolio drop of 6%, the miner has a drawdown of (1.41 - 1.5) / 1.5 = 6%
 
 ### Plagiarism Eliminations
 
 Miners who repeatedly copy another miner's trades will be eliminated. Our system analyzes the uniqueness of each submitted order. If an order is found to be a copy (plagiarized), it triggers the miner's elimination.
+
 ### Post-Elimination
 
 After elimination, miners are not immediately deregistered from the network. They will undergo a waiting period, determined by registration timelines and the network's immunity policy, before official deregistration. Upon official deregistration, the miner forfeits registration fees paid.
