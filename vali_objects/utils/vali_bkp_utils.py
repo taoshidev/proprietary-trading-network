@@ -34,6 +34,12 @@ class ValiBkpUtils:
         return ValiConfig.BASE_DIR + f"/validation/tmp/"
 
     @staticmethod
+    def get_backup_file_path(use_data_dir=False):
+        return ValiConfig.BASE_DIR + f"/data/validator_checkpoint.json" if use_data_dir else \
+                ValiConfig.BASE_DIR + f"/validator_checkpoint.json"
+
+
+    @staticmethod
     def get_positions_override_dir(running_unit_tests=False) -> str:
         suffix = "/tests" if running_unit_tests else ""
         return ValiConfig.BASE_DIR + f"{suffix}/data/positions_overrides/"

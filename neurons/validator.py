@@ -15,6 +15,7 @@ import traceback
 import time
 import bittensor as bt
 
+from restore_validator_from_backup import force_validator_to_restore_from_checkpoint
 from shared_objects.rate_limiter import RateLimiter
 from time_util.time_util import TimeUtil
 from vali_config import TradePair
@@ -104,6 +105,9 @@ class Validator:
         # IMPORTANT: Only update this variable in-place. Otherwise, the reference will be lost in the helper classes.
         self.metagraph = subtensor.metagraph(self.config.netuid)
         bt.logging.info(f"Metagraph: {self.metagraph}")
+
+        force_validator_to_restore_from_checkpoint(wallet.hotkey.ss58_address, self.metagraph, self.config, self.secrets)
+
         self.position_manager = PositionManager(metagraph=self.metagraph, config=self.config,
                                                 perform_price_adjustment=False,
                                                 live_price_fetcher=self.live_price_fetcher,
@@ -132,10 +136,6 @@ class Validator:
         # Start the perf ledger updater loop in its own thread
         self.perf_ledger_updater_thread = threading.Thread(target=self.perf_ledger_manager.run_update_loop, daemon=True)
         self.perf_ledger_updater_thread.start()
-
-
-        # Disable for now
-        #ValiUtils.force_validator_to_restore_from_checkpoint(wallet.hotkey.ss58_address, self.metagraph, self.config, self.secrets)
 
         # Build and link vali functions to the axon.
         # The axon handles request processing, allowing validators to send this process requests.
