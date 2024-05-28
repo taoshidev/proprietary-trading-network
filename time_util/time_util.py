@@ -4,17 +4,31 @@ import time
 from datetime import datetime, timedelta, timezone
 from typing import List, Tuple
 from functools import lru_cache
+from zoneinfo import ZoneInfo  # Make sure to use Python 3.9 or later
 
 import pandas as pd
 pd.set_option('future.no_silent_downcasting', True)
 from pandas.tseries.holiday import USFederalHolidayCalendar
 
 import pandas_market_calendars as mcal
+from pandas.tseries.holiday import AbstractHolidayCalendar, Holiday, nearest_workday, EasterMonday, GoodFriday
+
 
 class ForexHolidayCalendar(USFederalHolidayCalendar):
+    """
+    Calendar for global Forex trading holidays.
+    """
+    rules = [
+        Holiday("New Year's Day", month=1, day=1, observance=nearest_workday),
+        GoodFriday,
+        EasterMonday,
+        Holiday("Christmas Day", month=12, day=25, observance=nearest_workday),
+        Holiday("Boxing Day", month=12, day=26, observance=nearest_workday)
+    ]
 
     def __init__(self):
         # Call to the superclass constructor
+        self.rules = ForexHolidayCalendar.rules
         super().__init__()
 
         # Cache to store holiday lists by year
@@ -24,33 +38,32 @@ class ForexHolidayCalendar(USFederalHolidayCalendar):
         # Check if the holidays for the given year are already cached
         if timestamp.year not in self.holidays_cache:
             # If not cached, calculate and cache them
-            # Get the first and last day of this year
-            start_date = pd.Timestamp(datetime(timestamp.year, 1, 1))
-            end_date = pd.Timestamp(datetime(timestamp.year, 12, 31))
-            #print('start_date', start_date, 'end_date', end_date, 'rules', self.rules)
+            start_date = pd.Timestamp(f"{timestamp.year}-01-01")
+            end_date = pd.Timestamp(f"{timestamp.year}-12-31")
 
             self.holidays_cache[timestamp.year] = self.holidays(start=start_date, end=end_date)
-            #print('holidays_cache', self.holidays_cache)
         return self.holidays_cache[timestamp.year]
 
     def is_forex_market_open(self, ms_timestamp):
-        # Convert millisecond timestamp to pandas Timestamp and localize to UTC if needed
+        # Convert millisecond timestamp to pandas Timestamp in UTC
         timestamp = pd.Timestamp(ms_timestamp, unit='ms', tz='UTC')
-        #print('found timestamp:', timestamp)
 
-        # Check if the day is a weekend
-        if timestamp.weekday() == 5:  # Saturday all day
+        # Convert timestamp to New York time using zoneinfo
+        ny_timezone = ZoneInfo('America/New_York')
+        ny_timestamp = timestamp.astimezone(ny_timezone)
+
+        # Check if the day is a weekend in New York time
+        if ny_timestamp.weekday() == 5:  # Saturday all day
             return False
-        if timestamp.weekday() == 4 and timestamp.hour >= 21:
+        if ny_timestamp.weekday() == 4 and ny_timestamp.hour >= 17:  # Market closes at 5 PM Friday NY time
             return False
-        if timestamp.weekday() == 6 and timestamp.hour < 21:
+        if ny_timestamp.weekday() == 6 and ny_timestamp.hour < 17:  # Market opens at 5 PM Sunday NY time
             return False
 
         # Check if the day is a holiday (assuming holiday impacts the full day)
-        holidays = self.get_holidays(timestamp)
-        timestamp_normalized = timestamp.strftime('%Y-%m-%d')
-        #print('holidays', holidays, 'tsn', timestamp_normalized)
-        if timestamp_normalized in holidays:
+        # Ensure get_holidays function is aware of local dates
+        holidays = self.get_holidays(ny_timestamp)
+        if ny_timestamp.strftime('%Y-%m-%d') in holidays:
             return False
 
         return True
