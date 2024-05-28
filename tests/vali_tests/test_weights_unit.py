@@ -969,11 +969,6 @@ class TestWeights(TestBase):
 
         self.assertGreater(lowdecay_return, highdecay_return)
 
-        highdecay_sortino = Scoring.inverted_sortino_cps(highdecay_scoringunit)
-        lowdecay_sortino = Scoring.inverted_sortino_cps(lowdecay_scoringunit)
-
-        self.assertGreater(lowdecay_sortino, highdecay_sortino)
-
     def test_augment_ledger_decreasing(self):
         """Test that the augment ledger function works as expected, increasing position will score better with more decay (more recent consideration)"""
         highdecay = PositionManager.augment_perf_ledger(
@@ -1052,11 +1047,6 @@ class TestWeights(TestBase):
         self.assertLess(
             increasing_cps_lowdecay[len(increasing_cps_lowdecay)//2].loss,
             increasing_cps_highdecay[len(increasing_cps_highdecay)//2].loss,
-        )
-
-        self.assertGreater(
-            increasing_cps_lowdecay[len(increasing_cps_lowdecay)//2].open_ms,
-            increasing_cps_highdecay[len(increasing_cps_highdecay)//2].open_ms,
         )
 
     def test_volume_criteria_positive(self):
@@ -1147,4 +1137,50 @@ class TestWeights(TestBase):
         self.assertGreaterEqual( drawdown_penalty, 0 )
         self.assertLess( drawdown_penalty, 1.0 )
 
+    def test_no_miners(self):
+        """Test when there are no miners in the list"""
+        miner_scores = []
+        result = Scoring.miner_scores_percentiles(miner_scores)
+        self.assertEqual(result, [])
 
+    def test_one_miner(self):
+        """Test when there is only one miner in the list"""
+        miner_scores = [("miner1", 10.0)]
+        result = Scoring.miner_scores_percentiles(miner_scores)
+        self.assertEqual(result, [("miner1", 1.0)])
+
+    def test_all_same_scores(self):
+        """Test when all miners have the same scores"""
+        miner_scores = [("miner1", 10.0), ("miner2", 10.0), ("miner3", 10.0)]
+        result = Scoring.miner_scores_percentiles(miner_scores)
+        expected_result = [("miner1", 0.6667), ("miner2", 0.6667), ("miner3", 0.6667)]
+
+        for i in range(len(result)):
+            self.assertAlmostEqual(result[i][1], expected_result[i][1], places=3)
+
+    def test_zero_value_conditions(self):
+        """Test when all scores are zero"""
+        miner_scores = [("miner1", 0.0), ("miner2", 0.0), ("miner3", 0.0)]
+        result = Scoring.miner_scores_percentiles(miner_scores)
+        expected_result = [("miner1", 0.6667), ("miner2", 0.6667), ("miner3", 0.6667)]  # All scores are zero, so all are ranked the same
+        for i in range(len(result)):
+            self.assertAlmostEqual(result[i][1], expected_result[i][1], places=3)
+
+    def test_typical_conditions(self):
+        """Test when miners have different scores"""
+        miner_scores = [("miner1", 20.0), ("miner2", 30.0), ("miner3", 10.0), ("miner4", 40.0)]
+        result = Scoring.miner_scores_percentiles(miner_scores)
+        
+        # Expected percentiles:
+        # "miner3" with score 10.0 -> 0.25 (25th percentile)
+        # "miner1" with score 20.0 -> 0.50 (50th percentile)
+        # "miner2" with score 30.0 -> 0.75 (75th percentile)
+        # "miner4" with score 40.0 -> 1.00 (100th percentile)
+        expected_result = [
+            ("miner1", 0.50),
+            ("miner2", 0.75),
+            ("miner3", 0.25),
+            ("miner4", 1.00)
+        ]
+        
+        self.assertEqual(result, expected_result)

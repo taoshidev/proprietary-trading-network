@@ -184,35 +184,23 @@ class PositionUtils:
         return ((1-lower_bound)*(1 + (np.exp(exp_term)))**-1) + lower_bound
     
     @staticmethod
-    def buffer_drawdown_penalty(
-        drawdown: float,
-        penalty: float
-    ) -> float:
-        """
-        Args:
-            drawdown: float - the drawdown of the miner
-            penalty: float - the current penalty of the miner
-        """
-        drawdown_minvalue = ValiConfig.DRAWDOWN_MINVALUE
-
-        ## Indicates that the drawdown is less than the minimum threshold for penalty. Drawdown should be between 0 and 1, with 0 being 100% drawdown and 1 being no drawdown.
-        if drawdown > drawdown_minvalue:
-            return 1
-        else:
-            return penalty
-    
-    @staticmethod
     def mdd_sigmoid(recent_drawdown: float) -> float:
         """
         Args: mdd: float - the maximum drawdown of the miner
         """
         drawdown_coefficient = ValiConfig.MDD_PENALTY_COEFFICIENT
+        drawdown_minvalue = ValiConfig.DRAWDOWN_MINVALUE
         drawdown_maxvalue = ValiConfig.DRAWDOWN_MAXVALUE
 
-        drawdown_penalty = 1 - np.exp(-drawdown_coefficient*(recent_drawdown-drawdown_maxvalue))
-        drawdown_penalty = np.clip(drawdown_penalty, 0, 1)
+        if recent_drawdown >= drawdown_minvalue:
+            return 1
+        
+        if recent_drawdown <= drawdown_maxvalue:
+            return 0
 
-        return drawdown_penalty
+        drawdown_penalty = ((recent_drawdown - drawdown_maxvalue) / (drawdown_minvalue - drawdown_maxvalue))**drawdown_coefficient
+
+        return float(np.clip(drawdown_penalty, 0, 1))
     
     def compute_drawdown_penalty_cps(checkpoints: list[PerfCheckpoint]) -> float:
         """
@@ -224,8 +212,7 @@ class PositionUtils:
         
         recent_drawdown = PositionUtils.compute_recent_drawdown(checkpoints)
         drawdown_penalty = PositionUtils.mdd_sigmoid(recent_drawdown)
-        penalty_buffered = PositionUtils.buffer_drawdown_penalty(recent_drawdown, drawdown_penalty)
-        return penalty_buffered
+        return drawdown_penalty
     
     ## just looking at the consistency penalties
     def compute_consistency_penalty_cps(checkpoints: list[PerfCheckpoint]) -> float:
