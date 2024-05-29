@@ -22,20 +22,15 @@ Each miner is compared to a baseline, the annual return rate of American Treasur
 
 #### Scoring Metrics
 
-We will use three scoring metrics to evaluate miners based on their mid trade scores: **Returns**, **Omega**, **Time Adjusted Sortino**.
+We will use three scoring metrics to evaluate miners based on their mid trade scores: **Short Term Returns**, **Long Term Returns**, and **Omega**.
 
-Returns measure the pure value change that the miner experienced through the course of their positions. This will be similar to the prior position based system, although open positions will now also be evaluated. A higher return value will result from:
+Short term Returns measure the pure value change that the miner experienced through the course of their positions. This will be similar to the prior position based system, although open positions will now also be evaluated. These values have the highest time decay, with the potency of returns falling to 50% within 18 hours.
 
-- Higher magnitude gains
+Similar to the short term returns, long term returns are also going to measure the historical gains for a miner in determining their quality. The potency of the long term returns will fall to 50% after roughly 3 weeks:
 
 Omega will evaluate the magnitude of the positive asset changes over the magnitude of negative asset changes. Any score above 1 will indicate that the miner experienced a net gain through the course of their position. A higher omega value will result from:
 
 - Higher magnitude positive value change
-- Pure positive value change
-
-Sortino measures the pure volume of losses, and will be divided by the total time duration of investments. That is, how much loss is the miner likely exposing per unit of time. A lower sortino value indicates a more effective risk mitigation strategy. This will result from:
-
-- Less leverage utilization
 - Pure positive value change
 
 The total score will result from the product of the Return, Omega, and Sortino, so the top miners in our system must perform well in both metrics to receive substantial incentive. The relative weight of each term in the product sum is Returns: 0.95, Omega: 0.35, Sortino: 0.2. The terms used to calculate the product are defined by ranking each metric against the other miners. As a simple example, if a miner is first place in returns and last place in Omega, their total score would start at 1, multiply by 1 due to first place in returns. It would then multiply by (1 - 0.35) as they are the last place in Omega, so their final score would be 0.65.
@@ -48,15 +43,15 @@ The consistency penalty is meant to discourage miners who cannot deliver consist
 - Minimum of 18 days of open positions, of any volume.
 - Max returns in a checkpoint period should not exceed 90x the median behavior of other checkpoints.
 
-The drawdown penalty is meant to disengage the influence of miners in drawdown, to both discourage risk that a miner may be eliminated due to MDD and to hedge risks assocated with this miner for the system. We will look at the max drawdown seen over the past two weeks to determine your penalty, and drawdown below 2.5% will not count negatively towards your score. The drawdown penalty becomes exponentially greater closer to the MDD limit, with the following targets:
+The drawdown penalty is meant to disengage the influence of miners in drawdown, to both discourage risk that a miner may be eliminated due to MDD and to hedge risks assocated with this miner for the system. We will look at the max drawdown seen over the past two weeks to determine your penalty, and drawdown below 1.5% will not count negatively towards your score. The drawdown penalty becomes exponentially greater closer to the MDD limit, with the following targets:
 
 | MDD  | Penalty |
 |------|---------|
 | 0%   | 0%      |
 | 1%   | 0%      |
-| 2%   | 0%      |
-| 3%   | 5%      |
-| 4%   | 25%     |
+| 2%   | 30%     |
+| 3%   | 75%     |
+| 4%   | 95%     |
 | 5%   | 100%    |
 
 ### Challenge Period Details

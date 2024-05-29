@@ -43,7 +43,6 @@ def generate_request_core(time_now:int):
 
     challengeperiod_testing_dictionary = subtensor_weight_setter.challengeperiod_testing
     challengeperiod_success_dictionary = subtensor_weight_setter.challengeperiod_success
-    
 
     try:
         all_miner_hotkeys:list = ValiBkpUtils.get_directories_in_dir(
@@ -80,6 +79,9 @@ def generate_request_core(time_now:int):
         dict_hotkey_position_map[k] = {
             "positions": [],
             "thirty_day_returns": 1.0,
+            "all_time_returns": 1.0,
+            "n_positions": 0,
+            "percentage_profitable": 0.0
         }
         positions_30_days = [
             position
@@ -93,6 +95,14 @@ def generate_request_core(time_now:int):
             if len(return_per_position) > 0:
                 curr_return = return_per_position[len(return_per_position) - 1]
                 dict_hotkey_position_map[k]["thirty_day_returns"] = curr_return
+
+            ps_all_time = subtensor_weight_setter._filter_positions(original_positions)
+            return_per_position = position_manager.get_return_per_closed_position(ps_all_time)
+            if len(return_per_position) > 0:
+                curr_return = return_per_position[len(return_per_position) - 1]
+                dict_hotkey_position_map[k]["all_time_returns"] = curr_return
+                dict_hotkey_position_map[k]["n_positions"] = len(ps_all_time)
+                dict_hotkey_position_map[k]["percentage_profitable"] = position_manager.get_percent_profitable_positions(ps_all_time)
 
         for p in original_positions:
             youngest_order_processed_ms = min(youngest_order_processed_ms,

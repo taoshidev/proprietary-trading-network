@@ -7,6 +7,7 @@ import time
 import copy
 import traceback
 import uuid
+import math
 from collections import defaultdict
 from pickle import UnpicklingError
 from typing import List, Dict, Union
@@ -548,6 +549,26 @@ class PositionManager(CacheController):
             per_position_return.append(cumulative_return)
         return per_position_return
     
+    def get_percent_profitable_positions(self, positions: List[Position]) -> float:
+        if len(positions) == 0:
+            return 0.0
+
+        profitable_positions = 0
+        n_closed_positions = 0
+
+        for position in positions:
+            if position.is_open_position:
+                continue
+
+            n_closed_positions += 1
+            if position.return_at_close > 1.0:
+                profitable_positions += 1
+
+        if n_closed_positions == 0:
+            return 0.0
+        
+        return profitable_positions / n_closed_positions
+    
     @staticmethod
     def augment_perf_ledger(
         ledger: dict[str, PerfLedger],
@@ -563,7 +584,7 @@ class PositionManager(CacheController):
             return ledger
         
         if decay_coefficient is None:
-            decay_coefficient = ValiConfig.HISTORICAL_DECAY_COEFFICIENT_RETURNS
+            decay_coefficient = ValiConfig.HISTORICAL_GAIN_LOSS_COEFFICIENT
 
         if time_decay_coefficient is None:
             time_decay_coefficient = ValiConfig.HISTORICAL_DECAY_TIME_INTENSITY_COEFFICIENT
@@ -583,6 +604,31 @@ class PositionManager(CacheController):
             )
 
         return augmented_ledger
+    
+    @staticmethod
+    def cumulative_returns(ledger: dict[str, PerfLedger]) -> dict[int, float]:
+        """
+        Returns the cumulative return of the ledger.
+        """
+        cumulative_returns = {}
+        ledger_copy = copy.deepcopy(ledger)
+        for miner, minerledger in ledger_copy.items():
+            minerspecific_returns = []
+            returnoverall = 1.0
+            if len(minerledger.cps) == 0:
+                continue
+
+            for cp in minerledger.cps:
+                returnvalue = math.exp(cp.gain + cp.loss)
+                returnoverall *= returnvalue
+                minerspecific_returns.append({
+                    "last_update_ms": cp.last_update_ms,
+                    "overall_returns": returnoverall
+                })
+
+            cumulative_returns[miner] = minerspecific_returns
+
+        return cumulative_returns
     
     @staticmethod
     def augment_perf_checkpoint(
@@ -610,6 +656,7 @@ class PositionManager(CacheController):
         
         consistency_penalty = PositionUtils.compute_consistency_penalty_cps(cps)
         drawdown_penalty = PositionUtils.compute_drawdown_penalty_cps(cps)
+        overall_penalty = drawdown_penalty * consistency_penalty
         
         cps_augmented = []
         for cp in cps:
@@ -621,31 +668,15 @@ class PositionManager(CacheController):
                 cp.last_update_ms,
                 evaluation_time_ms
             )
-
-            historical_gain_augmentation_coefficient = PositionUtils.augment_benefit(
-                gain_augmentation_coefficient,
-                lookback_fraction
-            )
-
-            historical_loss_augmentation_coefficient = PositionUtils.augment_benefit(
-                loss_augmentation_coefficient,
-                lookback_fraction
-            )
             
-            cp_copy.gain = drawdown_penalty * consistency_penalty * historical_gain_augmentation_coefficient * PositionUtils.dampen_value(
+            cp_copy.gain = overall_penalty * PositionUtils.dampen_value(
                 cp.gain,
                 lookback_fraction,
                 time_decay_coefficient
             )
 
-            cp_copy.loss = historical_loss_augmentation_coefficient * PositionUtils.dampen_value(
+            cp_copy.loss = overall_penalty * PositionUtils.dampen_value(
                 cp.loss - baseline_gain, # tbill augmentation
-                lookback_fraction,
-                time_decay_coefficient
-            )
-
-            cp_copy.open_ms = PositionUtils.dampen_value(
-                cp.open_ms,
                 lookback_fraction,
                 time_decay_coefficient
             )
