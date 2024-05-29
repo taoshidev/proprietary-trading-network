@@ -209,14 +209,24 @@ class ValiBkpUtils:
 
     @staticmethod
     def get_all_files_in_dir(vali_dir: str) -> list[str]:
-        all_files = []
+        """
+        Put open positions first as they are prone to race conditions and we want to process them first.
+        """
+        open_files = []  # List to store file paths from "open" directories
+        closed_files = []  # List to store file paths from all other directories
+
         for dirpath, dirnames, filenames in os.walk(vali_dir):
             for filename in filenames:
                 if filename == '.DS_Store':
                     continue  # Skip .DS_Store files
                 filepath = os.path.join(dirpath, filename)
-                all_files.append(filepath)
-        return all_files
+                if '/open/' in filepath:  # Check if file is in an "open" subdirectory
+                    open_files.append(filepath)
+                else:
+                    closed_files.append(filepath)
+
+        # Concatenate "open" and other directory files without sorting
+        return open_files + closed_files
 
     @staticmethod
     def get_directories_in_dir(directory):
