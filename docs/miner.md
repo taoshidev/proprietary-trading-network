@@ -6,12 +6,11 @@ Basic Rules:
   - -1.58E-8 Time Averaged Sortino
   - 1.0015 Omega
   - 12 Volume Minimum Checkpoints
-2. Miner will be penalized if they are not providing consistent predictions to the system. The details of this may be found [here](https://github.com/taoshidev/proprietary-trading-network/blob/main/vali_objects/utils/position_utils.py).
+2. Miner will be penalized if they are not providing consistent predictions to the system or if their drawdown is too high. The details of this may be found [here](https://github.com/taoshidev/proprietary-trading-network/blob/main/vali_objects/utils/position_utils.py).
 3. A miner can have a maximum of 200 positions open.
 4. A miner's order will be ignored if placing a trade outside of market hours.
 5. A miner's order will be ignored if they are rate limited (maliciously sending too many requests)
-6. A portfolio that falls more than 10% of the maximum value will be eliminated.
-7. A portfolio that falls more than 5% in a single day from a daily max will be eliminated.
+
 
 ### Scoring Details
 
