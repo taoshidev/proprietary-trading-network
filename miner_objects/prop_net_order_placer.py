@@ -71,6 +71,12 @@ class PropNetOrderPlacer:
         axons_to_try = self.metagraph.axons
         axons_to_try.sort(key=lambda validator: hotkey_to_v_trust[validator.hotkey], reverse=True)
 
+        validator_hotkey_to_axon = {}
+        for axon in axons_to_try:
+            assert axon.hotkey not in validator_hotkey_to_axon, f"Duplicate hotkey {axon.hotkey} in axons"
+            validator_hotkey_to_axon[axon.hotkey] = axon
+
+
         retry_status = {
                 'retry_attempts': 0,
                 'retry_delay_seconds': self.INITIAL_RETRY_DELAY_SECONDS,
@@ -83,7 +89,7 @@ class PropNetOrderPlacer:
 
         # Continue retrying until the max number of retries is reached or no validators need retrying
         while retry_status['retry_attempts'] < self.MAX_RETRIES and retry_status['validators_needing_retry']:
-            await self.attempt_to_send_signal(send_signal_request, retry_status, high_trust_validators)
+            await self.attempt_to_send_signal(send_signal_request, retry_status, high_trust_validators, validator_hotkey_to_axon)
 
         # After retries, check if all high-trust validators have processed the signal successfully
         # This requires checking the current state of trust and response success
@@ -123,13 +129,13 @@ class PropNetOrderPlacer:
             return high_trust_validators
 
 
-    async def attempt_to_send_signal(self, send_signal_request: SendSignal, retry_status: dict, high_trust_validators: list):
+    async def attempt_to_send_signal(self, send_signal_request: SendSignal, retry_status: dict, high_trust_validators: list, validator_hotkey_to_axon: dict):
         """
         Attempts to send a signal to the validators that need retrying, applying exponential backoff for each retry attempt.
         Logs the retry attempt number, and the number of validators that successfully responded out of the total number of original validators.
         """
         # Total number of axons being pinged this round. Used for percentage calculation
-        total_n_validators_this_round = len(retry_status['validators_needing_retry'])
+        # total_n_validators_this_round = len(retry_status['validators_needing_retry'])
         hotkey_to_v_trust = {neuron.hotkey: neuron.validator_trust for neuron in self.metagraph.neurons}
 
         bt.logging.info(f"Attempt #{retry_status['retry_attempts']} for {send_signal_request.signal['trade_pair']['trade_pair_id']}."
@@ -146,13 +152,7 @@ class PropNetOrderPlacer:
 
         # Filtering validators for the next retry based on the current response.
         all_high_trust_validators_succeeded = True
-        validator_hotkey_to_axon = {}
-        for axon in retry_status['validators_needing_retry']:
-            hk = axon.hotkey
-            assert hk not in validator_hotkey_to_axon, f"Duplicate hotkey {hk} in axons"
-            validator_hotkey_to_axon[hk] = axon
 
-        assert len(validator_hotkey_to_axon) == len(retry_status['validators_needing_retry']), "Duplicate hotkeys in axons"
         success_validators = set([response.validator_hotkey for response in validator_responses if
                                   response.successfully_processed and response.validator_hotkey])
 
@@ -162,10 +162,11 @@ class PropNetOrderPlacer:
                 continue
 
             acked_axon = validator_hotkey_to_axon.get(response.validator_hotkey)
+            vtrust = hotkey_to_v_trust.get(response.validator_hotkey)
             if acked_axon in high_trust_validators:
                 all_high_trust_validators_succeeded = False
-            if response.error_message:
-                bt.logging.warning(f"Error sending order to {acked_axon}. Error message: {response.error_message}")
+                if response.error_message:
+                    bt.logging.warning(f"Error sending order to axon {acked_axon} with v_trust {vtrust}. Error message: {response.error_message}")
 
 
         if all_high_trust_validators_succeeded:

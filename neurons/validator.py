@@ -108,7 +108,7 @@ class Validator:
         self.metagraph = subtensor.metagraph(self.config.netuid)
         bt.logging.info(f"Metagraph: {self.metagraph}")
 
-        force_validator_to_restore_from_checkpoint(self.wallet.hotkey.ss58_address, self.metagraph, self.config, self.secrets)
+        #force_validator_to_restore_from_checkpoint(self.wallet.hotkey.ss58_address, self.metagraph, self.config, self.secrets)
 
         self.position_manager = PositionManager(metagraph=self.metagraph, config=self.config,
                                                 perform_price_adjustment=False,

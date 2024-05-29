@@ -29,7 +29,7 @@ from vali_objects.vali_dataclasses.order import OrderStatus, Order
 from vali_objects.utils.position_utils import PositionUtils
 from vali_objects.vali_dataclasses.price_source import PriceSource
 from vali_objects.vali_dataclasses.perf_ledger import PerfCheckpoint, PerfLedger
-TARGET_MS = 1716409875000 + 1000 * 60 * 60 * 2
+TARGET_MS = 1716961367000 + 1000 * 60 * 60 * 2
 class PositionManager(CacheController):
     def __init__(self, config=None, metagraph=None, running_unit_tests=False, perform_price_adjustment=False,
                  live_price_fetcher=None, perform_order_corrections=False, perform_fee_structure_update=False,
@@ -170,6 +170,8 @@ class PositionManager(CacheController):
           4/26/24, 5/9/24 - extreme price parsing is giving outliers from bad websocket data. Patch the function and manually correct
           elimination.
 
+          Bug in forex market close due to federal holiday logic 5/27/24. deleted position
+
         """
 
         hotkey_to_positions = self.get_all_disk_positions_for_all_miners(sort_positions=True, only_open_positions=False)
@@ -237,7 +239,7 @@ class PositionManager(CacheController):
                 self.reopen_force_closed_positions(positions)
                 n_corrections += 1
                 n_attempts += 1
-            """
+
             if miner_hotkey == '5GhCxfBcA7Ur5iiAS343xwvrYHTUfBjBi4JimiL5LhujRT9t':
                 #with open(ValiBkpUtils.get_positions_override_dir() + miner_hotkey + '.json', 'w') as f:
                 #    dat = [p.to_json_string() for p in positions]
@@ -250,9 +252,17 @@ class PositionManager(CacheController):
                 n_attempts += 1
                 self.restore_from_position_override(miner_hotkey)
                 n_corrections += 1
-
-
-
+        """
+            if miner_hotkey == "5G3ys2356ovgUivX3endMP7f37LPEjRkzDAM3Km8CxQnErCw":
+                time_now_ms = TimeUtil.now_in_millis()
+                if time_now_ms > TARGET_MS:
+                    return
+                position_to_delete = [x for x in positions if x.trade_pair == TradePair.GBPUSD][-1]
+                n_attempts, n_corrections = self.correct_for_tp(positions, None, None, TradePair.GBPUSD,
+                                                                timestamp_ms=1716531615037, n_attempts=n_attempts,
+                                                                n_corrections=n_corrections,
+                                                                unique_corrections=unique_corrections,
+                                                                pos=position_to_delete)
 
         bt.logging.warning(f"Applied {n_corrections} order corrections out of {n_attempts} attempts. unique positions corrected: {len(unique_corrections)}")
 
