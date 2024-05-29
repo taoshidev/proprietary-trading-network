@@ -33,7 +33,9 @@ class TwelveDataService(BaseDataService):
         self._api_key = api_key
         self.td = TDClient(apikey=self._api_key)
 
-        if not disable_ws:
+        if disable_ws:
+            self._heartbeat_thread = None
+        else:
             self._reset_websocket()
             self._heartbeat_thread = threading.Thread(target=self._websocket_heartbeat)
             self._heartbeat_thread.daemon = True
@@ -67,7 +69,7 @@ class TwelveDataService(BaseDataService):
                 self.latest_websocket_events[symbol] = PriceSource(source=TWELVEDATA_PROVIDER_NAME + '_ws', timespan_ms=0, open=price,
                                                               close=price, vwap=None, high=price, low=price, start_ms=timestamp_ms,
                                                               websocket=True, lag_ms=lag_time_ms, volume=None)
-                self.trade_pair_to_recent_events[symbol].add_event(self.latest_websocket_events[symbol], False)
+                self.trade_pair_to_recent_events[symbol].add_event(self.latest_websocket_events[symbol], False, f"{self.provider_name}:{symbol}")
             #else:
                 #formatted_disk_time = TimeUtil.millis_to_formatted_date_str(prev_event_time_ms)
                 #print(f"Received TD websocket data in the past {symbol}. Disk time {formatted_disk_time} "

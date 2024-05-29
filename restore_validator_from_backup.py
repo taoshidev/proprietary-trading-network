@@ -84,7 +84,7 @@ def regenerate_miner_positions(perform_backup=True, backup_from_data_dir=False, 
         from vali_objects.utils.live_price_fetcher import LivePriceFetcher
         secrets = ValiUtils.get_secrets()
 
-        live_price_fetcher = LivePriceFetcher(secrets=secrets)
+        live_price_fetcher = LivePriceFetcher(secrets=secrets, disable_ws=True)
         position_manager = PositionManager(live_price_fetcher=live_price_fetcher, perform_price_adjustment=False,
                                            perform_order_corrections=True, generate_correction_templates=False,
                                            apply_corrections_template=False, perform_fee_structure_update=False)

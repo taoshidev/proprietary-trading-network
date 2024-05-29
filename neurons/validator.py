@@ -17,6 +17,7 @@ import bittensor as bt
 
 from restore_validator_from_backup import force_validator_to_restore_from_checkpoint
 from shared_objects.rate_limiter import RateLimiter
+from vali_objects.uuid_tracker import UUIDTracker
 from time_util.time_util import TimeUtil
 from vali_config import TradePair
 from vali_objects.exceptions.signal_exception import SignalException
@@ -63,6 +64,7 @@ class Validator:
             bt.logging.error(f"Error reading meta/meta.json: {e}")
 
         ValiBkpUtils.clear_tmp_dir()
+        self.uuid_tracker = UUIDTracker()
 
         self.config = self.get_config()
         self.is_mainnet = self.config.netuid == 8
@@ -93,8 +95,8 @@ class Validator:
         bt.logging.info("Setting up bittensor objects.")
 
         # Wallet holds cryptographic information, ensuring secure transactions and communication.
-        wallet = bt.wallet(config=self.config)
-        bt.logging.info(f"Wallet: {wallet}")
+        self.wallet = bt.wallet(config=self.config)
+        bt.logging.info(f"Wallet: {self.wallet}")
 
         # subtensor manages the blockchain connection, facilitating interaction with the Bittensor blockchain.
         subtensor = bt.subtensor(config=self.config)
@@ -106,7 +108,7 @@ class Validator:
         self.metagraph = subtensor.metagraph(self.config.netuid)
         bt.logging.info(f"Metagraph: {self.metagraph}")
 
-        force_validator_to_restore_from_checkpoint(wallet.hotkey.ss58_address, self.metagraph, self.config, self.secrets)
+        #force_validator_to_restore_from_checkpoint(self.wallet.hotkey.ss58_address, self.metagraph, self.config, self.secrets)
 
         self.position_manager = PositionManager(metagraph=self.metagraph, config=self.config,
                                                 perform_price_adjustment=False,
@@ -116,7 +118,7 @@ class Validator:
                                                 apply_corrections_template=False)
 
 
-        self.metagraph_updater = MetagraphUpdater(self.config, self.metagraph, wallet.hotkey.ss58_address,
+        self.metagraph_updater = MetagraphUpdater(self.config, self.metagraph, self.wallet.hotkey.ss58_address,
                                                   False, position_manager=self.position_manager,
                                                   shutdown_dict=shutdown_dict)
 
@@ -124,9 +126,9 @@ class Validator:
         self.metagraph_updater_thread = threading.Thread(target=self.metagraph_updater.run_update_loop, daemon=True)
         self.metagraph_updater_thread.start()
 
-        if wallet.hotkey.ss58_address not in self.metagraph.hotkeys:
+        if self.wallet.hotkey.ss58_address not in self.metagraph.hotkeys:
             bt.logging.error(
-                f"\nYour validator: {wallet} is not registered to chain "
+                f"\nYour validator: {self.wallet} is not registered to chain "
                 f"connection: {subtensor} \nRun btcli register and try again. "
             )
             exit()
@@ -142,7 +144,7 @@ class Validator:
         bt.logging.info(f"setting port [{self.config.axon.port}]")
         bt.logging.info(f"setting external port [{self.config.axon.external_port}]")
         self.axon = bt.axon(
-            wallet=wallet, port=self.config.axon.port, external_port=self.config.axon.external_port
+            wallet=self.wallet, port=self.config.axon.port, external_port=self.config.axon.external_port
         )
         bt.logging.info(f"Axon {self.axon}")
 
@@ -190,8 +192,8 @@ class Validator:
         # see if cache files exist and if not set them to empty
         self.position_manager.init_cache_files()
 
-        # Each miner gets a unique identity (UID) in the network for differentiation.
-        my_subnet_uid = self.metagraph.hotkeys.index(wallet.hotkey.ss58_address)
+        # Each hotkey gets a unique identity (UID) in the network for differentiation.
+        my_subnet_uid = self.metagraph.hotkeys.index(self.wallet.hotkey.ss58_address)
         bt.logging.info(f"Running validator on uid: {my_subnet_uid}")
 
         # Eliminations are read in validator, elimination_manager, mdd_checker, weight setter.
@@ -202,7 +204,7 @@ class Validator:
         # self.plagiarism_detector = PlagiarismDetector(self.config, self.metagraph)
         self.mdd_checker = MDDChecker(self.config, self.metagraph, self.position_manager, self.eliminations_lock,
                                       live_price_fetcher=self.live_price_fetcher, shutdown_dict=shutdown_dict)
-        self.weight_setter = SubtensorWeightSetter(self.config, wallet, self.metagraph)
+        self.weight_setter = SubtensorWeightSetter(self.config, self.wallet, self.metagraph)
         self.challengeperiod_manager = ChallengePeriodManager(self.config, self.metagraph)
 
         self.elimination_manager = EliminationManager(self.metagraph, self.position_manager, self.eliminations_lock)
@@ -294,10 +296,14 @@ class Validator:
             return
         # Handle shutdown gracefully
         bt.logging.warning("Performing graceful exit...")
+        bt.logging.warning("Stopping axon...")
         self.axon.stop()
+        bt.logging.warning("Stopping metagrpah update...")
         self.metagraph_updater_thread.join()
+        bt.logging.warning("Stopping perf ledger...")
         self.perf_ledger_updater_thread.join()
-
+        bt.logging.warning("Stopping live price fetcher...")
+        self.live_price_fetcher.stop_all_threads()
 
     # Main takes the config and starts the miner.
     def main(self):
@@ -345,11 +351,8 @@ class Validator:
                 f"miner [{hotkey}] incorrectly sent trade pair. Raw signal: {signal}"
             )
 
-        bt.logging.info(f"Parsed trade pair from signal: {trade_pair}")
         signal_order_type = OrderType.from_string(signal["order_type"])
-        bt.logging.info(f"Parsed order type from signal: {signal_order_type}")
         signal_leverage = signal["leverage"]
-        bt.logging.info(f"Parsed leverage from signal: {signal_leverage}")
 
         bt.logging.info("Attempting to get live price for trade pair: " + trade_pair.trade_pair_id)
         live_closing_price, price_sources = self.live_price_fetcher.get_latest_price(trade_pair=trade_pair,
@@ -409,7 +412,8 @@ class Validator:
                 )
         return open_position
 
-    def should_fail_early(self, synapse: template.protocol.SendSignal | template.protocol.GetPositions, is_pi, signal=None) -> bool:
+    def should_fail_early(self, synapse: template.protocol.SendSignal | template.protocol.GetPositions, is_pi:bool,
+                          signal:dict=None) -> bool:
         global shutdown_dict
         if shutdown_dict:
             synapse.successfully_processed = False
@@ -462,6 +466,17 @@ class Validator:
                 synapse.error_message = msg
                 return True
 
+            order_uuid = synapse.miner_order_uuid
+            if order_uuid:
+                if self.uuid_tracker.exists(order_uuid):
+                    msg = (f"Order with uuid [{order_uuid}] has already been processed. "
+                           f"Please try again with a new order.")
+                    bt.logging.error(msg)
+                    synapse.successfully_processed = False
+                    synapse.error_message = msg
+                    return True
+
+
         return False
 
     def enforce_order_cooldown(self, order, open_position):
@@ -494,6 +509,7 @@ class Validator:
         # pull miner hotkey to reference in various activities
         now_ms = TimeUtil.now_in_millis()
         miner_hotkey = synapse.dendrite.hotkey
+        synapse.validator_hotkey = self.wallet.hotkey.ss58_address
         signal = synapse.signal
         bt.logging.info(f"received signal [{signal}] from miner_hotkey [{miner_hotkey}].")
         if self.should_fail_early(synapse, False, signal=signal):
@@ -514,6 +530,9 @@ class Validator:
                 self.enforce_order_cooldown(signal_to_order, open_position)
                 open_position.add_order(signal_to_order)
                 self.position_manager.save_miner_position_to_disk(open_position)
+                miner_order_uuid = synapse.miner_order_uuid
+                if miner_order_uuid:
+                    self.uuid_tracker.add(miner_order_uuid)
                 # Log the open position for the miner
                 bt.logging.info(f"Position {open_position.trade_pair.trade_pair_id} for miner [{miner_hotkey}] updated.")
                 open_position.log_position_status()

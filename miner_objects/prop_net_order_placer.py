@@ -5,17 +5,13 @@
 import asyncio
 import json
 import os
-import shutil
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from bittensor.dendrite import dendrite
+import uuid
 import bittensor as bt
 from miner_config import MinerConfig
 from template.protocol import SendSignal
-from time_util.time_util import TimeUtil
-from vali_config import TradePair, ValiConfig
-from vali_objects.decoders.generalized_json_decoder import GeneralizedJSONDecoder
+from vali_config import TradePair
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 
 class PropNetOrderPlacer:
@@ -75,6 +71,12 @@ class PropNetOrderPlacer:
         axons_to_try = self.metagraph.axons
         axons_to_try.sort(key=lambda validator: hotkey_to_v_trust[validator.hotkey], reverse=True)
 
+        validator_hotkey_to_axon = {}
+        for axon in axons_to_try:
+            assert axon.hotkey not in validator_hotkey_to_axon, f"Duplicate hotkey {axon.hotkey} in axons"
+            validator_hotkey_to_axon[axon.hotkey] = axon
+
+
         retry_status = {
                 'retry_attempts': 0,
                 'retry_delay_seconds': self.INITIAL_RETRY_DELAY_SECONDS,
@@ -83,10 +85,11 @@ class PropNetOrderPlacer:
 
         # Track the high-trust validators for special checking after processing
         high_trust_validators = self.get_high_trust_validators(axons_to_try, hotkey_to_v_trust)
+        send_signal_request = SendSignal(signal=signal_data, miner_order_uuid=str(uuid.uuid4()))
 
         # Continue retrying until the max number of retries is reached or no validators need retrying
         while retry_status['retry_attempts'] < self.MAX_RETRIES and retry_status['validators_needing_retry']:
-            await self.attempt_to_send_signal(signal_data, retry_status, high_trust_validators)
+            await self.attempt_to_send_signal(send_signal_request, retry_status, high_trust_validators, validator_hotkey_to_axon)
 
         # After retries, check if all high-trust validators have processed the signal successfully
         # This requires checking the current state of trust and response success
@@ -126,63 +129,70 @@ class PropNetOrderPlacer:
             return high_trust_validators
 
 
-    async def attempt_to_send_signal(self, signal_data: object, retry_status: dict, high_trust_validators: list):
+    async def attempt_to_send_signal(self, send_signal_request: SendSignal, retry_status: dict, high_trust_validators: list, validator_hotkey_to_axon: dict):
         """
         Attempts to send a signal to the validators that need retrying, applying exponential backoff for each retry attempt.
         Logs the retry attempt number, and the number of validators that successfully responded out of the total number of original validators.
         """
         # Total number of axons being pinged this round. Used for percentage calculation
-        total_n_validators_this_round = len(retry_status['validators_needing_retry'])
+        # total_n_validators_this_round = len(retry_status['validators_needing_retry'])
         hotkey_to_v_trust = {neuron.hotkey: neuron.validator_trust for neuron in self.metagraph.neurons}
 
-        bt.logging.info(f"Attempt #{retry_status['retry_attempts']} for {signal_data['trade_pair']['trade_pair_id']}."
+        bt.logging.info(f"Attempt #{retry_status['retry_attempts']} for {send_signal_request.signal['trade_pair']['trade_pair_id']}."
                         f" Sending order to {len(retry_status['validators_needing_retry'])} hotkeys...")
 
         if retry_status['retry_attempts'] != 0:  # Apply exponential backoff after the first attempt
             time.sleep(retry_status['retry_delay_seconds'])
             retry_status['retry_delay_seconds'] *= 2  # Double the delay for the next attempt
 
-        send_signal_request = SendSignal(signal=signal_data)
         dendrite = bt.dendrite(wallet=self.wallet)
         #validator_responses = self.dendrite.forward(retry_status[signal_file_path]['validators_needing_retry'],
         #                                          send_signal_request, deserialize=True)
         validator_responses = await dendrite(retry_status['validators_needing_retry'], send_signal_request)
 
         # Filtering validators for the next retry based on the current response.
-        new_validators_to_retry = []
         all_high_trust_validators_succeeded = True
-        for validator, response in zip(retry_status['validators_needing_retry'], validator_responses):
-            eliminated = "has been eliminated" in response.error_message
-            if not response.successfully_processed:
-                if validator in high_trust_validators:
-                    all_high_trust_validators_succeeded = False
+
+        success_validators = set([response.validator_hotkey for response in validator_responses if
+                                  response.successfully_processed and response.validator_hotkey])
+
+        # Loop through responses for error messaging
+        for response in validator_responses:
+            if response.successfully_processed:
+                continue
+
+            acked_axon = validator_hotkey_to_axon.get(response.validator_hotkey)
+            vtrust = hotkey_to_v_trust.get(response.validator_hotkey)
+            if acked_axon in high_trust_validators:
+                all_high_trust_validators_succeeded = False
                 if response.error_message:
-                    bt.logging.warning(f"Error sending order to {validator}. Error message: {response.error_message}")
-                if eliminated:
-                    continue
-                if hotkey_to_v_trust[validator.hotkey] > 0:
-                    new_validators_to_retry.append(validator)
-                elif validator.hotkey in self.recently_acked_validators:
-                    new_validators_to_retry.append(validator)
-                else:
-                    # Do not retry if the validator has 0 trust and is not in the recently acked list. Maybe another miner or inactive hotkey.
-                    pass
+                    bt.logging.warning(f"Error sending order to axon {acked_axon} with v_trust {vtrust}. Error message: {response.error_message}")
 
 
         if all_high_trust_validators_succeeded:
             v_trust_floor = min([hotkey_to_v_trust[validator.hotkey] for validator in high_trust_validators])
             n_high_trust_validators = len(high_trust_validators)
-            bt.logging.success(f"Signal file {signal_data} was successfully processed by"
+            bt.logging.success(f"Signal file {send_signal_request.signal} was successfully processed by"
                                f" {n_high_trust_validators}/{n_high_trust_validators} high-trust validators with "
                                f"min v_trust {v_trust_floor}.")
 
+        def _allow_retry(axon):
+            if axon.hotkey in success_validators:
+                return False
+            # Do not retry if the validator has 0 trust and is not in the recently acked list.
+            # Maybe another miner or inactive hotkey.
+            if axon.hotkey in self.recently_acked_validators:
+                return True
+            return hotkey_to_v_trust[axon.hotkey] > 0
+
+        new_validators_to_retry = [axon for axon in retry_status['validators_needing_retry'] if _allow_retry(axon)]
         # Sort the new list of axons needing retry by trust, highest to lowest to reduce possible lag
         new_validators_to_retry.sort(key=lambda validator: hotkey_to_v_trust[validator.hotkey], reverse=True)
 
         retry_status['validators_needing_retry'] = new_validators_to_retry
 
         # Calculating the number of successful responses
-        n_fails = len([response for response in validator_responses if not response.successfully_processed])
+        #n_fails = len([response for response in validator_responses if not response.successfully_processed])
         retry_status['retry_attempts'] += 1  # Update the retry attempt count for this signal file
 
     def write_signal_to_processed_directory(self, signal_data, signal_file_path: str):
