@@ -232,6 +232,11 @@ class PerfLedgerManager(CacheController):
         temp_pos.rebuild_position_with_updated_orders()
         temp_pos_to_pop.orders = new_orders
         temp_pos_to_pop.rebuild_position_with_updated_orders()
+        # Handle position that was forced closed due to realtime data (liquidated)
+        if len(new_orders) == len(position.orders) and position.return_at_close == 0:
+            temp_pos_to_pop.return_at_close = 0
+            temp_pos_to_pop.close_out_position(position.close_ms)
+
         return temp_pos, temp_pos_to_pop
 
     def generate_order_timeline(self, positions, now_ms) -> list[tuple]:
@@ -416,7 +421,8 @@ class PerfLedgerManager(CacheController):
                     # We are retoractively updating the last order's price if it is the same as the candle price. This is a retro fix for forex bid price propagation as well as nondeterministic failed price filling.
                     if t_ms == historical_position.orders[-1].processed_ms and historical_position.orders[-1].price != price_at_t_s:
                         self.n_price_corrections += 1
-                        #bt.logging.warning(f"Price at t_s {t_s} {historical_position.trade_pair.trade_pair} is the same as the last order processed time. Changing price from {historical_position.orders[-1].price} to {price_at_t_s}")
+                        #percent_change = (price_at_t_s - historical_position.orders[-1].price) / historical_position.orders[-1].price
+                        #bt.logging.warning(f"Price at t_s {TimeUtil.millis_to_formatted_date_str(t_ms)} {historical_position.trade_pair.trade_pair} is the same as the last order processed time. Changing price from {historical_position.orders[-1].price} to {price_at_t_s}. percent change {percent_change}")
                         historical_position.orders[-1].price = price_at_t_s
                         historical_position.rebuild_position_with_updated_orders()
                     historical_position.set_returns(price_at_t_s, time_ms=t_ms)
@@ -532,6 +538,10 @@ class PerfLedgerManager(CacheController):
                 if realtime_position_to_pop:
                     symbol = realtime_position_to_pop.trade_pair.trade_pair
                     tp_to_historical_positions[symbol][-1] = realtime_position_to_pop
+                    if realtime_position_to_pop.return_at_close == 0: # liquidated
+                        self.check_liquidated(hotkey, 0.0, realtime_position_to_pop.close_ms, tp_to_historical_positions, perf_ledger)
+                        eliminated = True
+                        break
 
                 order, position = event
                 symbol = position.trade_pair.trade_pair
@@ -613,7 +623,7 @@ class PerfLedgerManager(CacheController):
         """
         Since we are running in our own thread, we need to retry in case positions are being written to simultaneously.
         """
-        #testing_one_hotkey = '5FpypsPpSFUBpByFXMkJ34sV88PRjAKSSBkHkmGXMqFHR19Q'
+        #testing_one_hotkey = '5FqSBwa7KXvv8piHdMyVbcXQwNWvT9WjHZGHAQwtoGVQD3vo'
         if testing_one_hotkey:
             hotkey_to_positions = self.get_all_miner_positions_by_hotkey(
                 [testing_one_hotkey], sort_positions=True

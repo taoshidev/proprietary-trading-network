@@ -252,7 +252,6 @@ class PositionManager(CacheController):
                 n_attempts += 1
                 self.restore_from_position_override(miner_hotkey)
                 n_corrections += 1
-        """
             if miner_hotkey == "5G3ys2356ovgUivX3endMP7f37LPEjRkzDAM3Km8CxQnErCw":
                 time_now_ms = TimeUtil.now_in_millis()
                 if time_now_ms > TARGET_MS:
@@ -263,6 +262,9 @@ class PositionManager(CacheController):
                                                                 n_corrections=n_corrections,
                                                                 unique_corrections=unique_corrections,
                                                                 pos=position_to_delete)
+        """
+            pass
+
 
         bt.logging.warning(f"Applied {n_corrections} order corrections out of {n_attempts} attempts. unique positions corrected: {len(unique_corrections)}")
 
