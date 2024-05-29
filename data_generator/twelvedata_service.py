@@ -59,7 +59,7 @@ class TwelveDataService(BaseDataService):
             timestamp_ms = int(event['timestamp']) * 1000
             lag_time_ms = TimeUtil.now_in_millis() - timestamp_ms
             if lag_time_ms < 0:
-                bt.logging.error(f"Received TD websocket data in the future {symbol}. Ignoring this data.")
+                bt.logging.error(f"Received TD websocket data in the future {symbol}. lag_ms {lag_time_ms} Ignoring this data.")
                 return
             formatted_event_price = TimeUtil.millis_to_formatted_date_str(timestamp_ms)
             prev_event = self.latest_websocket_events.get(symbol)

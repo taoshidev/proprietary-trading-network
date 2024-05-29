@@ -136,14 +136,15 @@ class PerfLedger(BaseModel):
         return math.log(current_portfolio_value / prev_portfolio_value)
 
     def update_returns(self, current_cp: PerfCheckpoint, current_portfolio_value: float):
-        delta_return = self.compute_return_between_ticks(current_portfolio_value, current_cp.prev_portfolio_ret)
-        n_new_updates = 1
         if current_portfolio_value == current_cp.prev_portfolio_ret:
             n_new_updates = 0
-        elif delta_return > 0:
-            current_cp.gain += delta_return
         else:
-            current_cp.loss += delta_return
+            n_new_updates = 1
+            delta_return = self.compute_return_between_ticks(current_portfolio_value, current_cp.prev_portfolio_ret)
+            if delta_return > 0:
+                current_cp.gain += delta_return
+            else:
+                current_cp.loss += delta_return
         current_cp.prev_portfolio_ret = current_portfolio_value
         current_cp.n_updates += n_new_updates
 
@@ -435,18 +436,18 @@ class PerfLedgerManager(CacheController):
         stats['n_checks'] += 1
         stats['current_portfolio_return'] = portfolio_return
 
-        mdd_failure = False#self.is_drawdown_beyond_mdd(dd, time_now=TimeUtil.millis_to_datetime(t_ms))
-        if mdd_failure:
-            bt.logging.warning(f"Drawdown failure for miner {miner_hotkey} at {t_ms}. Portfolio return: {portfolio_return}, max realized portfolio return: {max_realized_portfolio_return}, drawdown: {dd}")
-            elimination_row = self.generate_elimination_row(miner_hotkey, dd, mdd_failure, t_ms=t_ms,
+    def check_liquidated(self, miner_hotkey, portfolio_return, t_ms, tp_to_historical_positions, perf_ledger):
+        if portfolio_return == 0:
+            bt.logging.warning(f"Portfolio value is {portfolio_return} for miner {miner_hotkey} at {t_ms}. Eliminating miner.")
+            elimination_row = self.generate_elimination_row(miner_hotkey, 0.0, 'LIQUIDATED', t_ms=t_ms,
                                         price_info=self.tp_to_last_price,
-                                        return_info={'dd_stats':stats, 'returns': self.trade_pair_to_position_ret})
+                                        return_info={'dd_stats':self.hk_to_dd_stats[miner_hotkey], 'returns': self.trade_pair_to_position_ret})
             self.elimination_rows.append(elimination_row)
-            stats['eliminated'] = True
-            print(f'eliminated. Highest portfolio realized return {self.hk_to_dd_stats[miner_hotkey]}. current return {portfolio_return}')
+            self.hk_to_dd_stats[miner_hotkey]['eliminated'] = True
             for _, v in tp_to_historical_positions.items():
                 for pos in v:
-                    print(f"    time {TimeUtil.millis_to_formatted_date_str(t_ms)} hk {miner_hotkey[-5:]} {pos.trade_pair.trade_pair} return {pos.current_return} return_at_close {pos.return_at_close} closed@{'NA' if pos.is_open_position else TimeUtil.millis_to_formatted_date_str(pos.orders[-1].processed_ms)}")
+                    print(
+                        f"    time {TimeUtil.millis_to_formatted_date_str(t_ms)} hk {miner_hotkey[-5:]} {pos.trade_pair.trade_pair} return {pos.current_return} return_at_close {pos.return_at_close} closed@{'NA' if pos.is_open_position else TimeUtil.millis_to_formatted_date_str(pos.orders[-1].processed_ms)}")
             return True
         return False
 
@@ -487,8 +488,10 @@ class PerfLedgerManager(CacheController):
                 return False
             assert t_ms >= perf_ledger.last_update_ms, f"t_ms: {t_ms}, last_update_ms: {perf_ledger.last_update_ms}, delta_s: {(t_ms - perf_ledger.last_update_ms) // 1000} s. perf ledger {perf_ledger}"
             portfolio_return, any_open = self.positions_to_portfolio_return(tp_to_historical_positions, t_ms, miner_hotkey, end_time_ms)
+            if self.check_liquidated(miner_hotkey, portfolio_return, t_ms, tp_to_historical_positions, perf_ledger):
+                return True
             self.update_mdd(miner_hotkey, portfolio_return, t_ms, tp_to_historical_positions, perf_ledger)
-            assert portfolio_return > 0, f"Portfolio value is {portfolio_return} for miner {miner_hotkey} at {t_ms // 1000}. perf ledger {perf_ledger}"
+            #assert portfolio_return > 0, f"Portfolio value is {portfolio_return} for miner {miner_hotkey} at {t_ms // 1000}. perf ledger {perf_ledger}"
             last_dd = self.hk_to_dd_stats[miner_hotkey]['last_dd']
             perf_ledger.update(portfolio_return, t_ms, miner_hotkey, any_open, last_dd)
             any_update = True
@@ -610,7 +613,7 @@ class PerfLedgerManager(CacheController):
         """
         Since we are running in our own thread, we need to retry in case positions are being written to simultaneously.
         """
-        # testing_one_hotkey = '5F1sxW5apTPEYfDJUoHTRG4kGaUmkb3YVi5hwt5A9Fu8Gi6a'
+        #testing_one_hotkey = '5FpypsPpSFUBpByFXMkJ34sV88PRjAKSSBkHkmGXMqFHR19Q'
         if testing_one_hotkey:
             hotkey_to_positions = self.get_all_miner_positions_by_hotkey(
                 [testing_one_hotkey], sort_positions=True

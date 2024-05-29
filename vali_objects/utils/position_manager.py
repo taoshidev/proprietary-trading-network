@@ -29,7 +29,7 @@ from vali_objects.vali_dataclasses.order import OrderStatus, Order
 from vali_objects.utils.position_utils import PositionUtils
 from vali_objects.vali_dataclasses.price_source import PriceSource
 from vali_objects.vali_dataclasses.perf_ledger import PerfCheckpoint, PerfLedger
-TARGET_MS = 1716961367000 + 1000 * 60 * 60 * 2
+TARGET_MS = 1716999198000 + 1000 * 60 * 60 * 1
 class PositionManager(CacheController):
     def __init__(self, config=None, metagraph=None, running_unit_tests=False, perform_price_adjustment=False,
                  live_price_fetcher=None, perform_order_corrections=False, perform_fee_structure_update=False,
@@ -259,7 +259,7 @@ class PositionManager(CacheController):
                     return
                 position_to_delete = [x for x in positions if x.trade_pair == TradePair.GBPUSD][-1]
                 n_attempts, n_corrections = self.correct_for_tp(positions, None, None, TradePair.GBPUSD,
-                                                                timestamp_ms=1716531615037, n_attempts=n_attempts,
+                                                                timestamp_ms=1716972282000, n_attempts=n_attempts,
                                                                 n_corrections=n_corrections,
                                                                 unique_corrections=unique_corrections,
                                                                 pos=position_to_delete)
