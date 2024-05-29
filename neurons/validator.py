@@ -17,6 +17,7 @@ import bittensor as bt
 
 from restore_validator_from_backup import force_validator_to_restore_from_checkpoint
 from shared_objects.rate_limiter import RateLimiter
+from vali_objects.uuid_tracker import UUIDTracker
 from time_util.time_util import TimeUtil
 from vali_config import TradePair
 from vali_objects.exceptions.signal_exception import SignalException
@@ -63,6 +64,7 @@ class Validator:
             bt.logging.error(f"Error reading meta/meta.json: {e}")
 
         ValiBkpUtils.clear_tmp_dir()
+        self.uuid_tracker = UUIDTracker()
 
         self.config = self.get_config()
         self.is_mainnet = self.config.netuid == 8
@@ -349,11 +351,8 @@ class Validator:
                 f"miner [{hotkey}] incorrectly sent trade pair. Raw signal: {signal}"
             )
 
-        bt.logging.info(f"Parsed trade pair from signal: {trade_pair}")
         signal_order_type = OrderType.from_string(signal["order_type"])
-        bt.logging.info(f"Parsed order type from signal: {signal_order_type}")
         signal_leverage = signal["leverage"]
-        bt.logging.info(f"Parsed leverage from signal: {signal_leverage}")
 
         bt.logging.info("Attempting to get live price for trade pair: " + trade_pair.trade_pair_id)
         live_closing_price, price_sources = self.live_price_fetcher.get_latest_price(trade_pair=trade_pair,
@@ -413,7 +412,8 @@ class Validator:
                 )
         return open_position
 
-    def should_fail_early(self, synapse: template.protocol.SendSignal | template.protocol.GetPositions, is_pi, signal=None) -> bool:
+    def should_fail_early(self, synapse: template.protocol.SendSignal | template.protocol.GetPositions, is_pi:bool,
+                          signal:dict=None) -> bool:
         global shutdown_dict
         if shutdown_dict:
             synapse.successfully_processed = False
@@ -465,6 +465,17 @@ class Validator:
                 synapse.successfully_processed = False
                 synapse.error_message = msg
                 return True
+
+            order_uuid = synapse.miner_order_uuid
+            if order_uuid:
+                if self.uuid_tracker.exists(order_uuid):
+                    msg = (f"Order with uuid [{order_uuid}] has already been processed. "
+                           f"Please try again with a new order.")
+                    bt.logging.error(msg)
+                    synapse.successfully_processed = False
+                    synapse.error_message = msg
+                    return True
+
 
         return False
 
@@ -519,6 +530,9 @@ class Validator:
                 self.enforce_order_cooldown(signal_to_order, open_position)
                 open_position.add_order(signal_to_order)
                 self.position_manager.save_miner_position_to_disk(open_position)
+                miner_order_uuid = synapse.miner_order_uuid
+                if miner_order_uuid:
+                    self.uuid_tracker.add(miner_order_uuid)
                 # Log the open position for the miner
                 bt.logging.info(f"Position {open_position.trade_pair.trade_pair_id} for miner [{miner_hotkey}] updated.")
                 open_position.log_position_status()
