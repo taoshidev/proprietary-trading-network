@@ -244,11 +244,11 @@ class PolygonDataService(BaseDataService):
                     self.closed_market_prices[tp] = None
                     if ps1:
                         self.latest_websocket_events[symbol] = ps1
-                        self.trade_pair_to_recent_events[symbol].add_event(ps1, tp.is_forex)
+                        self.trade_pair_to_recent_events[symbol].add_event(ps1, tp.is_forex, f"{self.provider_name}:{tp.trade_pair}")
 
                     if ps2:
                         self.latest_websocket_events[symbol] = ps2
-                        self.trade_pair_to_recent_events[symbol].add_event(ps2, tp.is_forex)
+                        self.trade_pair_to_recent_events[symbol].add_event(ps2, tp.is_forex, f"{self.provider_name}:{tp.trade_pair}")
 
                     if DEBUG:
                         formatted_time = TimeUtil.millis_to_formatted_date_str(TimeUtil.now_in_millis())
