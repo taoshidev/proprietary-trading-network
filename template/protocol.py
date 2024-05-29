@@ -13,7 +13,7 @@ class SendSignal(bt.Synapse):
     signal: typing.Dict = Field({}, title="Signal", allow_mutation=False)
     successfully_processed: bool = Field(False, title="Successfully Processed", allow_mutation=True)
     error_message: str = Field("", title="Error Message", allow_mutation=True)
-
+    validator_hotkey: str = Field("", title="Hotkey set by validator", allow_mutation=True)
 
 class GetPositions(bt.Synapse):
     positions: List[typing.Dict] = Field([], title="Positions", allow_mutation=True)

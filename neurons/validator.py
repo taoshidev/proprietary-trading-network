@@ -93,8 +93,8 @@ class Validator:
         bt.logging.info("Setting up bittensor objects.")
 
         # Wallet holds cryptographic information, ensuring secure transactions and communication.
-        wallet = bt.wallet(config=self.config)
-        bt.logging.info(f"Wallet: {wallet}")
+        self.wallet = bt.wallet(config=self.config)
+        bt.logging.info(f"Wallet: {self.wallet}")
 
         # subtensor manages the blockchain connection, facilitating interaction with the Bittensor blockchain.
         subtensor = bt.subtensor(config=self.config)
@@ -106,7 +106,7 @@ class Validator:
         self.metagraph = subtensor.metagraph(self.config.netuid)
         bt.logging.info(f"Metagraph: {self.metagraph}")
 
-        force_validator_to_restore_from_checkpoint(wallet.hotkey.ss58_address, self.metagraph, self.config, self.secrets)
+        force_validator_to_restore_from_checkpoint(self.wallet.hotkey.ss58_address, self.metagraph, self.config, self.secrets)
 
         self.position_manager = PositionManager(metagraph=self.metagraph, config=self.config,
                                                 perform_price_adjustment=False,
@@ -116,7 +116,7 @@ class Validator:
                                                 apply_corrections_template=False)
 
 
-        self.metagraph_updater = MetagraphUpdater(self.config, self.metagraph, wallet.hotkey.ss58_address,
+        self.metagraph_updater = MetagraphUpdater(self.config, self.metagraph, self.wallet.hotkey.ss58_address,
                                                   False, position_manager=self.position_manager,
                                                   shutdown_dict=shutdown_dict)
 
@@ -124,9 +124,9 @@ class Validator:
         self.metagraph_updater_thread = threading.Thread(target=self.metagraph_updater.run_update_loop, daemon=True)
         self.metagraph_updater_thread.start()
 
-        if wallet.hotkey.ss58_address not in self.metagraph.hotkeys:
+        if self.wallet.hotkey.ss58_address not in self.metagraph.hotkeys:
             bt.logging.error(
-                f"\nYour validator: {wallet} is not registered to chain "
+                f"\nYour validator: {self.wallet} is not registered to chain "
                 f"connection: {subtensor} \nRun btcli register and try again. "
             )
             exit()
@@ -142,7 +142,7 @@ class Validator:
         bt.logging.info(f"setting port [{self.config.axon.port}]")
         bt.logging.info(f"setting external port [{self.config.axon.external_port}]")
         self.axon = bt.axon(
-            wallet=wallet, port=self.config.axon.port, external_port=self.config.axon.external_port
+            wallet=self.wallet, port=self.config.axon.port, external_port=self.config.axon.external_port
         )
         bt.logging.info(f"Axon {self.axon}")
 
@@ -190,8 +190,8 @@ class Validator:
         # see if cache files exist and if not set them to empty
         self.position_manager.init_cache_files()
 
-        # Each miner gets a unique identity (UID) in the network for differentiation.
-        my_subnet_uid = self.metagraph.hotkeys.index(wallet.hotkey.ss58_address)
+        # Each hotkey gets a unique identity (UID) in the network for differentiation.
+        my_subnet_uid = self.metagraph.hotkeys.index(self.wallet.hotkey.ss58_address)
         bt.logging.info(f"Running validator on uid: {my_subnet_uid}")
 
         # Eliminations are read in validator, elimination_manager, mdd_checker, weight setter.
@@ -202,7 +202,7 @@ class Validator:
         # self.plagiarism_detector = PlagiarismDetector(self.config, self.metagraph)
         self.mdd_checker = MDDChecker(self.config, self.metagraph, self.position_manager, self.eliminations_lock,
                                       live_price_fetcher=self.live_price_fetcher, shutdown_dict=shutdown_dict)
-        self.weight_setter = SubtensorWeightSetter(self.config, wallet, self.metagraph)
+        self.weight_setter = SubtensorWeightSetter(self.config, self.wallet, self.metagraph)
         self.challengeperiod_manager = ChallengePeriodManager(self.config, self.metagraph)
 
         self.elimination_manager = EliminationManager(self.metagraph, self.position_manager, self.eliminations_lock)
@@ -294,10 +294,14 @@ class Validator:
             return
         # Handle shutdown gracefully
         bt.logging.warning("Performing graceful exit...")
+        bt.logging.warning("Stopping axon...")
         self.axon.stop()
+        bt.logging.warning("Stopping metagrpah update...")
         self.metagraph_updater_thread.join()
+        bt.logging.warning("Stopping perf ledger...")
         self.perf_ledger_updater_thread.join()
-
+        bt.logging.warning("Stopping live price fetcher...")
+        self.live_price_fetcher.stop_all_threads()
 
     # Main takes the config and starts the miner.
     def main(self):
@@ -494,6 +498,7 @@ class Validator:
         # pull miner hotkey to reference in various activities
         now_ms = TimeUtil.now_in_millis()
         miner_hotkey = synapse.dendrite.hotkey
+        synapse.validator_hotkey = self.wallet.hotkey.ss58_address
         signal = synapse.signal
         bt.logging.info(f"received signal [{signal}] from miner_hotkey [{miner_hotkey}].")
         if self.should_fail_early(synapse, False, signal=signal):

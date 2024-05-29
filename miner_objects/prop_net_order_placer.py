@@ -151,6 +151,8 @@ class PropNetOrderPlacer:
         # Filtering validators for the next retry based on the current response.
         new_validators_to_retry = []
         all_high_trust_validators_succeeded = True
+        print('1111', retry_status['validators_needing_retry'])
+        print('2222', [x for x in validator_responses if x.validator_hotkey])
         for validator, response in zip(retry_status['validators_needing_retry'], validator_responses):
             eliminated = "has been eliminated" in response.error_message
             if not response.successfully_processed:

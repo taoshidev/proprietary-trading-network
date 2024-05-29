@@ -33,7 +33,9 @@ class TwelveDataService(BaseDataService):
         self._api_key = api_key
         self.td = TDClient(apikey=self._api_key)
 
-        if not disable_ws:
+        if disable_ws:
+            self._heartbeat_thread = None
+        else:
             self._reset_websocket()
             self._heartbeat_thread = threading.Thread(target=self._websocket_heartbeat)
             self._heartbeat_thread.daemon = True
