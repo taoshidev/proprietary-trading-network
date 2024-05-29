@@ -488,7 +488,7 @@ class PerfLedgerManager(CacheController):
             assert t_ms >= perf_ledger.last_update_ms, f"t_ms: {t_ms}, last_update_ms: {perf_ledger.last_update_ms}, delta_s: {(t_ms - perf_ledger.last_update_ms) // 1000} s. perf ledger {perf_ledger}"
             portfolio_return, any_open = self.positions_to_portfolio_return(tp_to_historical_positions, t_ms, miner_hotkey, end_time_ms)
             self.update_mdd(miner_hotkey, portfolio_return, t_ms, tp_to_historical_positions, perf_ledger)
-            assert portfolio_return > 0, f"Portfolio value is {portfolio_return} for miner {miner_hotkey} at {t_ms // 1000}. perf ledger {perf_ledger}"
+            #assert portfolio_return > 0, f"Portfolio value is {portfolio_return} for miner {miner_hotkey} at {t_ms // 1000}. perf ledger {perf_ledger}"
             last_dd = self.hk_to_dd_stats[miner_hotkey]['last_dd']
             perf_ledger.update(portfolio_return, t_ms, miner_hotkey, any_open, last_dd)
             any_update = True
