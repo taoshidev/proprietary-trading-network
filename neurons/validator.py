@@ -15,7 +15,7 @@ import traceback
 import time
 import bittensor as bt
 
-from restore_validator_from_backup import force_validator_to_restore_from_checkpoint
+from restore_validator_from_backup import force_validator_to_restore_from_checkpoint, PositionSyncer
 from shared_objects.rate_limiter import RateLimiter
 from vali_objects.uuid_tracker import UUIDTracker
 from time_util.time_util import TimeUtil
@@ -65,6 +65,11 @@ class Validator:
 
         ValiBkpUtils.clear_tmp_dir()
         self.uuid_tracker = UUIDTracker()
+        # Lock to stop new signals from being processed while a validator is restoring
+        self.signal_sync_lock = threading.Lock()
+        self.signal_sync_condition = threading.Condition(self.signal_sync_lock)
+        self.n_orders_being_processed = 0
+        self.last_signal_sync_time_ms = 0
 
         self.config = self.get_config()
         self.is_mainnet = self.config.netuid == 8
@@ -115,7 +120,8 @@ class Validator:
                                                 live_price_fetcher=self.live_price_fetcher,
                                                 perform_fee_structure_update=False,
                                                 perform_order_corrections=True,
-                                                apply_corrections_template=False)
+                                                apply_corrections_template=False,
+                                                perform_compaction=True)
 
 
         self.metagraph_updater = MetagraphUpdater(self.config, self.metagraph, self.wallet.hotkey.ss58_address,
@@ -209,6 +215,7 @@ class Validator:
 
         self.elimination_manager = EliminationManager(self.metagraph, self.position_manager, self.eliminations_lock)
 
+        self.position_syncer = PositionSyncer()
         # Validators on mainnet net to be syned for the first time or after interruption need to resync their
         # positions. Assert there are existing orders that occurred > 24hrs in the past. Assert that the newest order
         # was placed within 24 hours.
@@ -229,6 +236,8 @@ class Validator:
                        f"blob/main/docs/regenerating_validator_state.md")
                 bt.logging.error(msg)
                 raise Exception(msg)
+                # TODO: add back self.position_syncer.sync_positions()
+
 
 
 
@@ -307,6 +316,26 @@ class Validator:
 
 
     # Main takes the config and starts the miner.
+
+    def validator_sync(self):
+        # Check if the time is right to sync signals
+        now_ms = TimeUtil.now_in_millis()
+        # Already performed a sync recently
+        if now_ms - self.last_signal_sync_time_ms < 1000 * 60 * 30:
+            return
+
+        # Check if we are between 6:01 AM and 6:04 AM UTC
+        datetime_now = TimeUtil.generate_start_timestamp(0)  # UTC
+        if not (datetime_now.hour == 6 and (10 < datetime_now.minute < 20)):
+            return
+
+        with self.signal_sync_lock:
+            while self.n_orders_being_processed > 0:
+                self.signal_sync_condition.wait()
+            # Ready to perform in-flight refueling
+            self.position_syncer.sync_positions()
+
+        self.last_signal_sync_time_ms = TimeUtil.now_in_millis()
     def main(self):
         global shutdown_dict
         # Keep the vali alive. This loop maintains the vali's operations until intentionally stopped.
@@ -318,7 +347,9 @@ class Validator:
                 self.challengeperiod_manager.refresh(current_time=current_time)
                 self.weight_setter.set_weights(current_time=current_time)
                 self.elimination_manager.process_eliminations()
+                #TODO: reenable self.validator_sync()
                 self.position_manager.position_locks.cleanup_locks(self.metagraph.hotkeys)
+
             # In case of unforeseen errors, the miner will log the error and continue operations.
             except Exception:
                 bt.logging.error(traceback.format_exc())
@@ -413,6 +444,16 @@ class Validator:
                 )
         return open_position
 
+    def enforce_no_duplicate_order(self, synapse: template.protocol.SendSignal):
+        order_uuid = synapse.miner_order_uuid
+        if order_uuid:
+            if self.uuid_tracker.exists(order_uuid):
+                msg = (f"Order with uuid [{order_uuid}] has already been processed. "
+                       f"Please try again with a new order.")
+                bt.logging.error(msg)
+                synapse.successfully_processed = False
+                synapse.error_message = msg
+
     def should_fail_early(self, synapse: template.protocol.SendSignal | template.protocol.GetPositions, is_pi:bool,
                           signal:dict=None) -> bool:
         global shutdown_dict
@@ -467,15 +508,9 @@ class Validator:
                 synapse.error_message = msg
                 return True
 
-            order_uuid = synapse.miner_order_uuid
-            if order_uuid:
-                if self.uuid_tracker.exists(order_uuid):
-                    msg = (f"Order with uuid [{order_uuid}] has already been processed. "
-                           f"Please try again with a new order.")
-                    bt.logging.error(msg)
-                    synapse.successfully_processed = False
-                    synapse.error_message = msg
-                    return True
+            self.enforce_no_duplicate_order(synapse)
+            if synapse.successfully_processed == False:
+                return True
 
 
         return False
@@ -521,6 +556,10 @@ class Validator:
         if self.should_fail_early(synapse, False, signal=signal):
             return synapse
 
+        with self.signal_sync_lock:
+            self.n_orders_being_processed += 1
+
+
         # error message to send back to miners in case of a problem so they can fix and resend
         error_message = ""
         try:
@@ -528,6 +567,9 @@ class Validator:
             signal_to_order = self.convert_signal_to_order(signal, miner_hotkey, now_ms, miner_order_uuid)
             # Multiple threads can run receive_signal at once. Don't allow two threads to trample each other.
             with self.position_manager.position_locks.get_lock(miner_hotkey, signal_to_order.trade_pair.trade_pair_id):
+                self.enforce_no_duplicate_order(synapse)
+                if synapse.successfully_processed == False:
+                    return synapse
                 # gather open positions and see which trade pairs have an open position
                 trade_pair_to_open_position = {position.trade_pair: position for position in
                                                self.position_manager.get_all_miner_positions(miner_hotkey,
@@ -559,6 +601,10 @@ class Validator:
 
         synapse.error_message = error_message
         bt.logging.success(f"Sending ack back to miner [{miner_hotkey}]")
+        with self.signal_sync_lock:
+            self.n_orders_being_processed -= 1
+            if self.n_orders_being_processed == 0:
+                self.signal_sync_condition.notify_all()
         return synapse
 
     def get_positions(self, synapse: template.protocol.GetPositions,
