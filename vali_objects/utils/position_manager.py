@@ -30,7 +30,7 @@ from vali_objects.vali_dataclasses.order import OrderStatus, Order
 from vali_objects.utils.position_utils import PositionUtils
 from vali_objects.vali_dataclasses.price_source import PriceSource
 from vali_objects.vali_dataclasses.perf_ledger import PerfCheckpoint, PerfLedger
-TARGET_MS = 1716999198000 + 1000 * 60 * 60 * 1
+TARGET_MS = 1717041517000 + 1000 * 60 * 60 * 1
 class PositionManager(CacheController):
     def __init__(self, config=None, metagraph=None, running_unit_tests=False, perform_price_adjustment=False,
                  live_price_fetcher=None, perform_order_corrections=False, perform_fee_structure_update=False,
@@ -173,10 +173,12 @@ class PositionManager(CacheController):
 
           Bug in forex market close due to federal holiday logic 5/27/24. deleted position
 
+          5/30/24 - duplicate order bug. miner.py script updated.
+
         """
 
         hotkey_to_positions = self.get_all_disk_positions_for_all_miners(sort_positions=True, only_open_positions=False)
-        self.give_erronously_eliminated_miners_another_shot(hotkey_to_positions)
+        #self.give_erronously_eliminated_miners_another_shot(hotkey_to_positions)
         n_corrections = 0
         n_attempts = 0
         unique_corrections = set()
@@ -253,18 +255,18 @@ class PositionManager(CacheController):
                 n_attempts += 1
                 self.restore_from_position_override(miner_hotkey)
                 n_corrections += 1
+
+        """
             if miner_hotkey == "5G3ys2356ovgUivX3endMP7f37LPEjRkzDAM3Km8CxQnErCw":
                 time_now_ms = TimeUtil.now_in_millis()
                 if time_now_ms > TARGET_MS:
                     return
-                position_to_delete = [x for x in positions if x.trade_pair == TradePair.GBPUSD][-1]
-                n_attempts, n_corrections = self.correct_for_tp(positions, None, None, TradePair.GBPUSD,
-                                                                timestamp_ms=1716972282000, n_attempts=n_attempts,
+                position_to_delete = [x for x in positions if x.trade_pair == TradePair.NZDUSD][-1]
+                n_attempts, n_corrections = self.correct_for_tp(positions, None, None, TradePair.NZDUSD,
+                                                                timestamp_ms=1716906327000, n_attempts=n_attempts,
                                                                 n_corrections=n_corrections,
                                                                 unique_corrections=unique_corrections,
                                                                 pos=position_to_delete)
-        """
-            pass
 
 
         bt.logging.warning(f"Applied {n_corrections} order corrections out of {n_attempts} attempts. unique positions corrected: {len(unique_corrections)}")
