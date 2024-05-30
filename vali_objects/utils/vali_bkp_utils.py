@@ -89,6 +89,14 @@ class ValiBkpUtils:
         return ValiConfig.BASE_DIR + "/runnable/"
 
     @staticmethod
+    def get_vcp_output_path() -> str:
+        return ValiBkpUtils.get_vali_outputs_dir() + "validator_checkpoint.json"
+
+    @staticmethod
+    def get_miner_positions_output_path() -> str:
+        return ValiConfig.BASE_DIR + "/validation/outputs/output.json"
+
+    @staticmethod
     def get_vali_weights_dir() -> str:
         return ValiConfig.BASE_DIR + "/validation/weights/"
 
@@ -153,7 +161,7 @@ class ValiBkpUtils:
             elif is_pickle:
                 pickle.dump(vali_data, f)
             else:
-                f.write(json.dumps(vali_data, cls=CustomEncoder, indent=4))
+                f.write(json.dumps(vali_data, cls=CustomEncoder))
         # Move the file from temp to the final location
         os.replace(temp_file_path, vali_file)
 

@@ -34,12 +34,19 @@ TARGET_MS = 1717185371000 + 1000 * 60 * 60 * 2
 class PositionManager(CacheController):
     def __init__(self, config=None, metagraph=None, running_unit_tests=False, perform_price_adjustment=False,
                  live_price_fetcher=None, perform_order_corrections=False, perform_fee_structure_update=False,
-                 generate_correction_templates=False, apply_corrections_template=False):
+                 generate_correction_templates=False, apply_corrections_template=False, perform_compaction=False):
         super().__init__(config=config, metagraph=metagraph, running_unit_tests=running_unit_tests)
         self.init_cache_files()
         self.position_locks = PositionLocks()
         self.live_price_fetcher = live_price_fetcher
         self.recalibrated_position_uuids = set()
+        if perform_compaction:
+            try:
+                self.perform_compaction()
+            except Exception as e:
+                bt.logging.error(f"Error performing compaction: {e}")
+                traceback.print_exc()
+
         if perform_price_adjustment:
             self.perform_price_recalibration()
         if perform_order_corrections:
@@ -87,6 +94,16 @@ class PositionManager(CacheController):
                 new_eliminations.append(e)
 
         self.write_eliminations_to_disk(new_eliminations)
+
+    def strip_old_price_sources(self, position: Position, time_now_ms: int) -> int:
+        n_removed = 0
+        one_week_ago_ms = time_now_ms - 1000 * 60 * 60 * 24 * 7
+        for o in position.orders:
+            if o.processed_ms < one_week_ago_ms:
+                if o.price_sources:
+                    o.price_sources = []
+                    n_removed += 1
+        return n_removed
 
     def correct_for_tp(self, positions: List[Position], idx, prices, tp, timestamp_ms=None, n_attempts=0, n_corrections=0, unique_corrections=None, pos=None):
         n_attempts += 1
@@ -149,7 +166,22 @@ class PositionManager(CacheController):
                 self.save_miner_position_to_disk(position, delete_open_position_if_exists=False)
                 print(f"Reopened position {position.position_uuid} for trade pair {position.trade_pair.trade_pair_id}")
 
+    def perform_compaction(self):
+        time_now = TimeUtil.now_in_millis()
+        n_price_sources_removed = 0
+        hotkey_to_positions = self.get_all_disk_positions_for_all_miners(only_open_positions=False, sort_positions=True)
+        eliminated_miners = self.get_miner_eliminations_from_disk()
+        eliminated_hotkeys = set([e['hotkey'] for e in eliminated_miners])
+        for hotkey, positions in hotkey_to_positions.items():
+            if hotkey in eliminated_hotkeys:
+                continue
+            for position in positions:
+                n = self.strip_old_price_sources(position, time_now)
+                if n:
+                    n_price_sources_removed += n
+                    self.save_miner_position_to_disk(position, delete_open_position_if_exists=False)
 
+        bt.logging.info(f'Removed {n_price_sources_removed} price sources from old data.')
 
     def apply_order_corrections(self):
         """
@@ -283,79 +315,7 @@ class PositionManager(CacheController):
                                                                 unique_corrections=unique_corrections,
                                                                 pos=position_to_delete)
         """
-            if miner_hotkey == '5GhCxfBcA7Ur5iiAS343xwvrYHTUfBjBi4JimiL5LhujRT9t':
-                five_minutes = 1000 * 60 * 5
-                required_position = [x for x in positions if
-                                              x.trade_pair == TradePair.BTCUSD and
-                                              1717171214607 - five_minutes < x.open_ms < 1717171214607 + five_minutes]
-
-                if required_position and len(required_position) == 1:
-                    # delete position from disk
-                    self.delete_position_from_disk(required_position[0])
-                    price_sources1 = [PriceSource(**x) for x in
-                                      [
-                                          {'source': 'Polygon_ws', 'timespan_ms': 0, 'open': 67150.2, 'close': 67150.2,
-                                           'vwap': 67136.4823, 'high': 67150.2, 'low': 67129.69,
-                                           'start_ms': 1717171214000,
-                                           'websocket': True, 'lag_ms': 273, 'volume': 0.00221519},
-                                          {'source': 'TwelveData_ws', 'timespan_ms': 0, 'open': 67138.7,
-                                           'close': 67138.7,
-                                           'vwap': None, 'high': 67138.7, 'low': 67138.7, 'start_ms': 1717171214000,
-                                           'websocket': True, 'lag_ms': 273, 'volume': None},
-                                          {'source': 'Polygon_rest', 'timespan_ms': 1000, 'open': 67141.42,
-                                           'close': 67140.2,
-                                           'vwap': 67267.8505, 'high': 67271.0, 'low': 67140.2,
-                                           'start_ms': 1717171211000,
-                                           'websocket': False, 'lag_ms': 2274, 'volume': 6.14820216},
-                                          {'source': 'TwelveData_rest', 'timespan_ms': 60000, 'open': 67214.71094,
-                                           'close': 67138.70312, 'vwap': None, 'high': 67235.70312, 'low': 67138.70312,
-                                           'start_ms': 1717171140000, 'websocket': False, 'lag_ms': 14274,
-                                           'volume': None}]
-                                    ]
-
-                    price_sources2 = [PriceSource(**x) for x in
-                                      [
-                                          {'source': 'Polygon_ws', 'timespan_ms': 0, 'open': 67714.6, 'close': 67714.6,
-                                           'vwap': 67629.3663, 'high': 67714.6, 'low': 67569.7,
-                                           'start_ms': 1717185615000,
-                                           'websocket': True, 'lag_ms': 285, 'volume': 1.22651998},
-                                          {'source': 'TwelveData_ws', 'timespan_ms': 0, 'open': 67559.7,
-                                           'close': 67559.7,
-                                           'vwap': None, 'high': 67559.7, 'low': 67559.7, 'start_ms': 1717185613000,
-                                           'websocket': True, 'lag_ms': 2285, 'volume': None},
-                                          {'source': 'Polygon_rest', 'timespan_ms': 1000, 'open': 67598.83,
-                                           'close': 67597.73,
-                                           'vwap': 67598.076, 'high': 67605.42, 'low': 67597.73,
-                                           'start_ms': 1717185612000,
-                                           'websocket': False, 'lag_ms': 2286, 'volume': 0.01698663},
-                                          {'source': 'TwelveData_rest', 'timespan_ms': 60000, 'open': 67792.67188,
-                                           'close': 67751.9375, 'vwap': None, 'high': 67818.78906, 'low': 67744.49219,
-                                           'start_ms': 1717185480000, 'websocket': False, 'lag_ms': 75286,
-                                           'volume': None}]
-                                      ]
-
-
-                    p = Position(**{'miner_hotkey': '5GhCxfBcA7Ur5iiAS343xwvrYHTUfBjBi4JimiL5LhujRT9t',
-                     'position_uuid': '42a28bc5-6a6e-4eb5-b66b-5df7ec1a9fb9', 'open_ms': 1717171218945,
-                     'trade_pair': TradePair.BTCUSD, 'orders':
-                         [Order(**x) for x in [
-                                                   {'order_type': 'LONG', 'leverage': 0.1, 'price': 67150.2,
-                                                    'processed_ms': 1717171214273,
-                                                    'order_uuid': '6f721af2-8458-499e-b044-5a172eacce22',
-                                                    'price_sources': price_sources1, 'trade_pair': TradePair.BTCUSD},
-                                                   {'order_type': 'FLAT', 'leverage': 0.0, 'price': 67714.6,
-                                                    'processed_ms': 1717185615285,
-                                                    'order_uuid': '97b7797c-d9a4-4232-8533-22c0138208ff',
-                                                    'price_sources': price_sources2, 'trade_pair': TradePair.BTCUSD}]
-                          ],
-                     'current_return': 1.0008405038257517, 'close_ms': 1717185615285,
-                     'return_at_close': 1.000740419775369, 'net_leverage': 0.0, 'average_entry_price': 67150.2,
-                     'initial_entry_price': 67150.2, 'position_type': 'FLAT', 'is_closed_position': True})
-
-
-                    self.save_miner_position_to_disk(p, delete_open_position_if_exists=False)
-                    n_corrections += 1
-                    n_attempts += 1
+            pass
 
 
         bt.logging.warning(f"Applied {n_corrections} order corrections out of {n_attempts} attempts. unique positions corrected: {len(unique_corrections)}")

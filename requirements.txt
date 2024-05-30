@@ -12,3 +12,4 @@ waitress == 2.1.2
 matplotlib
 sortedcontainers
 pandas-market-calendars
+google-cloud-storage
