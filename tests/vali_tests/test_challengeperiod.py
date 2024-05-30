@@ -1,25 +1,15 @@
 # developer: trdougherty
 # Copyright © 2024 Taoshi Inc
-import numpy as np
-import bittensor as bt
 import functools
 import random
 from copy import deepcopy
 
-from shared_objects.cache_controller import CacheController
-from tests.shared_objects.mock_classes import MockMetagraph, MockChallengePeriodManager
+from tests.shared_objects.mock_classes import MockMetagraph, MockChallengePeriodManager, MockPositionManager, MockPerfLedgerManager, MockCacheController
 from tests.vali_tests.base_objects.test_base import TestBase
 from tests.shared_objects.test_utilities import generate_ledger
 
 from vali_config import TradePair
-from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.position import Position
-from vali_objects.utils.position_manager import PositionManager
-
-from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager, PerfCheckpoint, PerfLedger
-from vali_objects.utils.vali_utils import ValiUtils
-from vali_objects.vali_dataclasses.order import Order
-from data_generator.twelvedata_service import TwelveDataService
 from vali_config import ValiConfig
 
 class TestChallengePriod(TestBase):
@@ -50,10 +40,10 @@ class TestChallengePriod(TestBase):
         self.miner_names = self.miner_success_names + self.miner_testing_names
 
         self.mock_metagraph = MockMetagraph(self.miner_names)
-        self.challengeperiod_manager = MockChallengePeriodManager(self.mock_metagraph)
-        self.position_manager = PositionManager(metagraph=self.mock_metagraph, running_unit_tests=True)
-        self.ledger_manager = PerfLedgerManager(metagraph=self.mock_metagraph, running_unit_tests=True)
-        self.cache_controller = CacheController(config=None, metagraph=self.mock_metagraph, running_unit_tests=True)
+        self.challengeperiod_manager = MockChallengePeriodManager(metagraph=self.mock_metagraph)
+        self.position_manager = MockPositionManager(metagraph=self.mock_metagraph)
+        self.ledger_manager = MockPerfLedgerManager(metagraph=self.mock_metagraph)
+        self.cache_controller = MockCacheController(metagraph=self.mock_metagraph)
 
         self.small_gain = 1e-3
         self.small_loss = -1e-3 + 1e-5
@@ -75,12 +65,12 @@ class TestChallengePriod(TestBase):
         self.challengeperiod_manager._clear_challengeperiod_in_memory_and_disk()
 
         # clear the ledger
-        PerfLedgerManager.save_perf_ledgers_to_disk({})
+        MockPerfLedgerManager.save_perf_ledgers_to_disk({})
 
     def tearDown(self) -> None:
         self.challengeperiod_manager.clear_eliminations_from_disk()
         self.challengeperiod_manager._clear_challengeperiod_in_memory_and_disk()
-        PerfLedgerManager.save_perf_ledgers_to_disk({})
+        MockPerfLedgerManager.save_perf_ledgers_to_disk({})
 
         del self.challengeperiod_manager
         del self.ledger_manager
@@ -103,13 +93,17 @@ class TestChallengePriod(TestBase):
             self.ledgers[miner] = generate_ledger(nterms=self.default_ledger_checkpoints, value=0.01, start_time=self.midpoint_time, end_time=self.midpoint_time_end, gain=self.small_gain, loss=self.small_loss) # not enough time to meet criteria, or to pass
 
         # All of these miners should be subject to elimination, as the time is expired
-        self.ledgers["test_miner1"] = generate_ledger(nterms=self.default_ledger_checkpoints, value=0.01, start_time=self.start_time, end_time=self.end_time, gain=2.2, loss=-2.1) # losing due to high sortino, eliminated
+        self.ledgers["test_miner1"] = generate_ledger(nterms=self.default_ledger_checkpoints, value=0.01, start_time=self.start_time, end_time=self.end_time, gain=2.2, loss=-2.1, mdd=0.8) # losing due to high mdd, eliminated
         self.ledgers["test_miner2"] = generate_ledger(nterms=self.default_ledger_checkpoints, value=0.01, start_time=self.start_time, end_time=self.end_time, gain=0.1, loss=-0.3) # losing due to high omega, eliminated
         self.ledgers["test_miner3"] = generate_ledger(nterms=self.default_ledger_checkpoints, value=0.01, start_time=self.start_time, end_time=self.end_time, gain=0.5, loss=-0.499) # losing due to not enough returns
+
+        copied_ledger = deepcopy(self.ledgers["test_miner4"])
+        copied_ledger.cps[-2].mdd = 0.8 # just one element which is failing
+        self.ledgers["test_miner4"] = copied_ledger
         # self.ledgers["test_miner4"] = generate_ledger(nterms=self.default_ledger_checkpoints, value=0.01, start_time=self.start_time, end_time=self.end_time, gain=0.5, loss=-0.4, open_ms=30 * 1000) # losing due to time duration condition
 
-        self.failing_miners = ["test_miner1", "test_miner2", "test_miner3"]
-        PerfLedgerManager.save_perf_ledgers_to_disk(self.ledgers)
+        self.failing_miners = ["test_miner1", "test_miner2", "test_miner3", "test_miner4"]
+        MockPerfLedgerManager.save_perf_ledgers_to_disk(self.ledgers)
 
         self.challengeperiod_manager.challengeperiod_success = {}
 
@@ -117,6 +111,7 @@ class TestChallengePriod(TestBase):
         miner_partial_starttimes = { minername: self.midpoint_time for minername in self.miner_testing_names }
 
         self.challengeperiod_manager.challengeperiod_testing = { **full_miner_starttimes, **miner_partial_starttimes }
+
         self.challengeperiod_manager._write_challengeperiod_from_memory_to_disk()
 
     def generate_positions(self):
@@ -149,7 +144,7 @@ class TestChallengePriod(TestBase):
             self.generate_positions()
             result = func(self, *args, **kwargs)
             # Clear ledger after creation
-            PerfLedgerManager.save_perf_ledgers_to_disk({})
+            MockPerfLedgerManager.save_perf_ledgers_to_disk({})
             self.challengeperiod_manager._clear_challengeperiod_in_memory_and_disk()
             self.position_manager.clear_all_miner_positions_from_disk()
             return result
@@ -192,22 +187,6 @@ class TestChallengePriod(TestBase):
 
         self.cache_controller.eliminations = []
         self.cache_controller.clear_eliminations_from_disk()
-
-    @setup_ledger
-    def test_failing_miner_criteria(self):
-        ## test that the miners are failing for the correct reasons
-        self.assertTrue(len(self.challengeperiod_manager.challengeperiod_testing) == len(self.miner_names))
-        self.assertTrue(len(self.challengeperiod_manager.challengeperiod_success) == 0)
-        self.assertTrue(len(self.challengeperiod_manager.eliminations) == 0)
-
-        self.challengeperiod_manager.refresh(current_time=self.current_time)
-        elimination_hotkeys = [ x['hotkey'] for x in self.challengeperiod_manager.eliminations ]
-
-        # check that all eliminations in memory are correct
-        for miner in self.failing_miners:
-            passing_criteria = self.challengeperiod_manager.screen_ledger(ledger_element=self.ledgers[miner])
-            self.assertIn(miner, elimination_hotkeys)
-            self.assertFalse(passing_criteria)
 
     @setup_ledger
     def test_promote_testing_miner(self):
@@ -383,3 +362,66 @@ class TestChallengePriod(TestBase):
         self.assertEqual(success_keys, [])
 
         self.challengeperiod_manager._clear_challengeperiod_in_memory_and_disk()
+
+    @setup_ledger
+    def test_failing_miner_criteria_with_drawdown(self):
+        """
+        Test that miners fail the challenge period due to drawdown criteria.
+        """
+        self.assertTrue(len(self.challengeperiod_manager.challengeperiod_testing) == len(self.miner_names))
+        self.assertTrue(len(self.challengeperiod_manager.challengeperiod_success) == 0)
+        self.assertTrue(len(self.challengeperiod_manager.eliminations) == 0)
+
+        failing_miner_times = { miner: self.challengeperiod_manager.challengeperiod_testing[miner] for miner in self.failing_miners }
+
+        self.challengeperiod_manager.refresh(current_time=self.current_time)
+        elimination_hotkeys = [x['hotkey'] for x in self.challengeperiod_manager.eliminations]
+
+        # check that all eliminations in memory are correct
+        for miner in self.failing_miners:
+            passing_criteria = self.challengeperiod_manager.screen_ledger(ledger_element=self.ledgers[miner])
+            drawdown_criteria = self.challengeperiod_manager.screen_ledger_drawdown(ledger_element=self.ledgers[miner])
+            time_criteria = self.current_time - failing_miner_times[miner] < ValiConfig.SET_WEIGHT_CHALLENGE_PERIOD_MS
+            self.assertIn(miner, elimination_hotkeys)
+            self.assertTrue(not drawdown_criteria or not time_criteria)
+
+    @setup_ledger
+    def test_passing_miner_criteria_with_drawdown(self):
+        """
+        Test that miners pass the challenge period meeting both passing and drawdown criteria.
+        """
+        self.assertTrue(len(self.challengeperiod_manager.challengeperiod_testing) == len(self.miner_names))
+        self.assertTrue(len(self.challengeperiod_manager.challengeperiod_success) == 0)
+        self.assertTrue(len(self.challengeperiod_manager.eliminations) == 0)
+
+        self.challengeperiod_manager.refresh(current_time=self.current_time)
+        passing_hotkeys = list(self.challengeperiod_manager.challengeperiod_success.keys())
+
+        # check that all passing miners are correct
+        for miner in passing_hotkeys:
+            passing_criteria = self.challengeperiod_manager.screen_ledger(ledger_element=self.ledgers[miner])
+            drawdown_criteria = self.challengeperiod_manager.screen_ledger_drawdown(ledger_element=self.ledgers[miner])
+            self.assertIn(miner, passing_hotkeys)
+            self.assertTrue(passing_criteria)
+            self.assertTrue(drawdown_criteria)
+
+    @setup_ledger
+    def test_miner_passing_with_all_criteria(self):
+        """
+        Test that miners pass the challenge period meeting all criteria.
+        """
+        self.assertTrue(len(self.challengeperiod_manager.challengeperiod_testing) == len(self.miner_names))
+        self.assertTrue(len(self.challengeperiod_manager.challengeperiod_success) == 0)
+        self.assertTrue(len(self.challengeperiod_manager.eliminations) == 0)
+
+        self.challengeperiod_manager.refresh(current_time=self.current_time)
+
+        for miner, inspection_time in self.challengeperiod_manager.challengeperiod_testing.items():
+            passing_criteria = self.challengeperiod_manager.screen_ledger(ledger_element=self.ledgers[miner])
+            drawdown_criteria = self.challengeperiod_manager.screen_ledger_drawdown(ledger_element=self.ledgers[miner])
+
+            if miner in self.failing_miners:
+                self.assertIn(miner, self.challengeperiod_manager.eliminations)
+                self.assertTrue(not passing_criteria or not drawdown_criteria)
+            else:
+                self.assertTrue(drawdown_criteria)

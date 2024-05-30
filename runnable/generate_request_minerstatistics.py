@@ -339,8 +339,7 @@ def generate_request_minerstatistics(time_now:int):
             "challengeperiod_volume_threshold": ValiConfig.CHECKPOINT_VOLUME_THRESHOLD,
             "challengeperiod_gracevalue": ValiConfig.SET_WEIGHT_MINER_CHALLENGE_PERIOD_WEIGHT,
             "challengeperiod_return_minimum": ValiConfig.SET_WEIGHT_MINER_CHALLENGE_PERIOD_RETURN_CPS_PERCENT,
-            "challengeperiod_omega_minimum": ValiConfig.SET_WEIGHT_MINER_CHALLENGE_PERIOD_OMEGA_CPS,
-            "challengeperiod_sortino_minimum": ValiConfig.SET_WEIGHT_MINER_CHALLENGE_PERIOD_SORTINO_CPS,
+            "challengeperiod_omega_minimum": ValiConfig.SET_WEIGHT_MINER_CHALLENGE_PERIOD_OMEGA_CPS
         },
         "data": combined_data,
     }
