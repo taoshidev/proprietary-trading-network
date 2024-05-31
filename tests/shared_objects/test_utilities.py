@@ -77,8 +77,7 @@ def generate_ledger(
         end_time=ValiConfig.SET_WEIGHT_MINIMUM_TOTAL_CHECKPOINT_DURATION_MS,
         gain=None,
         loss=None,
-        open_ms=None,
-        mdd=1.0
+        open_ms=None
     ):
 
     if gain is None and loss is None:
@@ -100,7 +99,6 @@ def generate_ledger(
                 last_update_ms=checkpoint_times[i],
                 gain=gain,
                 loss=loss,
-                mdd=mdd,
                 prev_portfolio_ret=1.0,
                 open_ms=checkpoint_open_ms
             )
@@ -126,8 +124,7 @@ def checkpoint_generator(
     open_ms: int = 0,
     n_updates: int = 0,
     gain: float = 0.0,
-    loss: float = 0.0,
-    mdd: float = 1.0
+    loss: float = 0.0
 ):
     return PerfCheckpoint(
         last_update_ms=last_update_ms,
@@ -136,6 +133,5 @@ def checkpoint_generator(
         open_ms=open_ms,
         n_updates=n_updates,
         gain=gain,
-        loss=loss,
-        mdd=mdd
+        loss=loss
     )
