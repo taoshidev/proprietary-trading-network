@@ -76,68 +76,27 @@ class ChallengePeriodManager(CacheController):
             ## Check the criteria for passing the challenge period
             if hotkey not in ledger:
                 passing_criteria = False
-                drawdown_criteria = True
             else:
                 if log:
                     print(f"Inspecting hotkey: {hotkey}")
-                ledger_element = ledger[hotkey]
                 passing_criteria = self.screen_ledger(
-                    ledger_element=ledger_element, 
-                    log=log
-                )
-                drawdown_criteria = self.screen_ledger_drawdown(
-                    ledger_element=ledger_element,
+                    ledger_element=ledger[hotkey], 
                     log=log
                 )
 
             time_criteria = current_time - inspection_time < ValiConfig.SET_WEIGHT_CHALLENGE_PERIOD_MS
-
-            # If the miner's drawdown is below the threshold at any time, they are added to the failing list
-            if not drawdown_criteria:
-                failing_miners.append(hotkey)
-                continue
 
             # if the miner meets the criteria for passing, they are added to the passing list
             if passing_criteria:
                 passing_miners.append(hotkey)
                 continue
 
-            # if the miner does not meet the criteria for passing within the time frame, they are added to the failing list
+            # if the miner does not meet the criteria for passing, they are added to the failing list
             if not time_criteria:
                 failing_miners.append(hotkey)
                 continue
 
         return passing_miners, failing_miners
-    
-    def screen_ledger_drawdown(
-        self,
-        ledger_element: PerfLedger,
-        log: bool = False
-    ) -> bool:
-        """
-        Runs a screening process to elminate miners who didn't pass the challenge period.
-        """
-        if ledger_element is None:
-            return False
-
-        if len(ledger_element.cps) == 0:
-            return False
-
-        minimum_drawdown = ValiConfig.SET_WEIGHT_MINER_CHALLENGE_PERIOD_DRAWDOWN
-
-        ## Create a scoring unit from the ledger element
-        if not ledger_element.cps or len(ledger_element.cps) == 0:
-            return True
-
-        minimum_drawdown_seen = min([ x.mdd for x in ledger_element.cps ])
-        if log:
-            print(f"Within Drawdown Criteria: {minimum_drawdown_seen:.4f} > {minimum_drawdown}: {minimum_drawdown_seen > minimum_drawdown}")
-            print()
-
-        if minimum_drawdown_seen <= minimum_drawdown:
-            return False
-
-        return True
     
     def screen_ledger(
         self, 
@@ -155,6 +114,7 @@ class ChallengePeriodManager(CacheController):
                 
         minimum_return = ValiConfig.SET_WEIGHT_MINER_CHALLENGE_PERIOD_RETURN_CPS_PERCENT
         minimum_omega = ValiConfig.SET_WEIGHT_MINER_CHALLENGE_PERIOD_OMEGA_CPS
+        minimum_sortino = ValiConfig.SET_WEIGHT_MINER_CHALLENGE_PERIOD_SORTINO_CPS
         minimum_duration = ValiConfig.SET_WEIGHT_MINER_CHALLENGE_PERIOD_TOTAL_POSITION_DURATION
         minimum_volume_checkpoints = ValiConfig.SET_WEIGHT_MINER_CHALLENGE_PERIOD_VOLUME_CHECKPOINTS
 
@@ -163,12 +123,14 @@ class ChallengePeriodManager(CacheController):
 
         ## Compute the criteria for passing the challenge period
         omega_cps = Scoring.omega_cps(scoringunit)
+        sortino_cps = Scoring.inverted_sortino_cps(scoringunit)
         return_cps = np.exp(Scoring.return_cps(scoringunit))
         position_duration = sum(scoringunit.open_ms)
         volume_cps = Scoring.checkpoint_volume_threshold_count(scoringunit)
 
         ## Criteria
         omega_criteria = omega_cps >= minimum_omega
+        sortino_criteria = sortino_cps >= minimum_sortino
         return_criteria = return_cps >= minimum_return
         duration_criteria = position_duration >= minimum_duration
         volume_crtieria = volume_cps >= minimum_volume_checkpoints
@@ -178,9 +140,11 @@ class ChallengePeriodManager(CacheController):
             viewable_return = 100 * (return_cps - 1)
             viewable_minimum_return = 100 * (minimum_return - 1)
             print(f"Omega: {omega_cps:.4f} >= {minimum_omega}: {omega_criteria}")
+            print(f"Sortino: {sortino_cps:.3e} >= {minimum_sortino}: {sortino_criteria}")
             print(f"Return: {viewable_return:.4f}% >= {viewable_minimum_return:.2f}%: {return_criteria}")
             print(f"Duration (Hours): {position_duration / dayhours:.2f} >= {minimum_duration / dayhours:.2f}: {duration_criteria}")
             print(f"Volume Checkpoints: {volume_cps} >= {minimum_volume_checkpoints}: {volume_crtieria}")
+            print()
 
-        return omega_criteria and return_criteria and duration_criteria and volume_crtieria
+        return omega_criteria and sortino_criteria and return_criteria and duration_criteria and volume_crtieria
 
