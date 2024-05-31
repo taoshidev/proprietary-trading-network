@@ -30,7 +30,7 @@ from vali_objects.vali_dataclasses.order import OrderStatus, Order
 from vali_objects.utils.position_utils import PositionUtils
 from vali_objects.vali_dataclasses.price_source import PriceSource
 from vali_objects.vali_dataclasses.perf_ledger import PerfCheckpoint, PerfLedger
-TARGET_MS = 1717114742000 + 1000 * 60 * 60 * 1
+TARGET_MS = 1717185371000 + 1000 * 60 * 60 * 2
 class PositionManager(CacheController):
     def __init__(self, config=None, metagraph=None, running_unit_tests=False, perform_price_adjustment=False,
                  live_price_fetcher=None, perform_order_corrections=False, perform_fee_structure_update=False,
@@ -189,10 +189,12 @@ class PositionManager(CacheController):
 
           5/30/24 - duplicate order bug. miner.py script updated.
 
+          5.31.24 - validator outage due to twlevedata thread error. add position if not exists.
+
         """
 
         hotkey_to_positions = self.get_all_disk_positions_for_all_miners(sort_positions=True, only_open_positions=False)
-        self.give_erronously_eliminated_miners_another_shot(hotkey_to_positions)
+        #self.give_erronously_eliminated_miners_another_shot(hotkey_to_positions)
         n_corrections = 0
         n_attempts = 0
         unique_corrections = set()
@@ -281,7 +283,33 @@ class PositionManager(CacheController):
                                                                 unique_corrections=unique_corrections,
                                                                 pos=position_to_delete)
         """
-            pass
+            if miner_hotkey == '5GhCxfBcA7Ur5iiAS343xwvrYHTUfBjBi4JimiL5LhujRT9t':
+                five_minutes = 1000 * 60 * 5
+                has_required_position = bool([x for x in positions if
+                                              x.trade_pair == TradePair.BTCUSD and
+                                              1717171214607 - five_minutes < x.open_ms < 1717171214607 + five_minutes])
+
+                if not has_required_position:
+                    price_sources = [PriceSource(**x) for x in
+                                     [{'source': 'Polygon_ws', 'timespan_ms': 0, 'open': 67150.2, 'close': 67150.2, 'vwap': 67136.4823, 'high': 67150.2, 'low': 67129.69, 'start_ms': 1717171214000, 'websocket': True, 'lag_ms': 224, 'volume': 0.00221519},
+                                      {'source': 'TwelveData_ws', 'timespan_ms': 0, 'open': 67138.7, 'close': 67138.7, 'vwap': None, 'high': 67138.7, 'low': 67138.7, 'start_ms': 1717171214000, 'websocket': True, 'lag_ms': 224, 'volume': None},
+                                      {'source': 'Polygon_rest', 'timespan_ms': 1000, 'open': 67141.42, 'close': 67140.2, 'vwap': 67267.8505, 'high': 67271.0, 'low': 67140.2, 'start_ms': 1717171211000, 'websocket': False, 'lag_ms': 2225, 'volume': 6.14820216},
+                                      {'source': 'TwelveData_rest', 'timespan_ms': 60000, 'open': 67214.71094, 'close': 67138.70312, 'vwap': None, 'high': 67235.70312, 'low': 67138.70312, 'start_ms': 1717171140000, 'websocket': False, 'lag_ms': 14225, 'volume': None}]
+                                    ]
+
+                    p = Position(**{'miner_hotkey': '5GhCxfBcA7Ur5iiAS343xwvrYHTUfBjBi4JimiL5LhujRT9t',
+                                    'position_uuid': '949a2253-d830-4edd-a065-25fb49520c60',
+                                    'open_ms': 1717171214607,
+                                    'trade_pair': TradePair.BTCUSD,
+                                    'orders': [Order(**{'order_type': 'LONG', 'leverage': 0.1, 'price': 67150.2, 'processed_ms': 1717171214224, 'order_uuid': 'ff0043ac-5118-4cfc-88c7-ddf8fac4a9ea',
+                                                        'price_sources': price_sources,
+                                                        'trade_pair': TradePair.BTCUSD,
+                                                        'current_return': 1.0000999252422182, 'close_ms': None, 'return_at_close': 1.000049920245956, 'net_leverage': 0.1, 'average_entry_price': 67150.2, 'initial_entry_price': 67150.2, 'position_type': 'LONG', 'is_closed_position': False})]
+                                    })
+                    self.save_miner_position_to_disk(p, delete_open_position_if_exists=False)
+                    n_corrections += 1
+                    n_attempts += 1
+
 
         bt.logging.warning(f"Applied {n_corrections} order corrections out of {n_attempts} attempts. unique positions corrected: {len(unique_corrections)}")
 
