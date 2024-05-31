@@ -300,10 +300,11 @@ class Validator:
         self.axon.stop()
         bt.logging.warning("Stopping metagrpah update...")
         self.metagraph_updater_thread.join()
-        bt.logging.warning("Stopping perf ledger...")
-        self.perf_ledger_updater_thread.join()
         bt.logging.warning("Stopping live price fetcher...")
         self.live_price_fetcher.stop_all_threads()
+        bt.logging.warning("Stopping perf ledger...")
+        self.perf_ledger_updater_thread.join()
+
 
     # Main takes the config and starts the miner.
     def main(self):
@@ -337,7 +338,7 @@ class Validator:
         trade_pair = TradePair.from_trade_pair_id(string_trade_pair)
         return trade_pair
 
-    def convert_signal_to_order(self, signal, hotkey, now_ms) -> Order:
+    def convert_signal_to_order(self, signal, hotkey, now_ms, miner_order_uuid) -> Order:
         """
         Example input signal
           {'trade_pair': {'trade_pair_id': 'BTCUSD', 'trade_pair': 'BTC/USD', 'fees': 0.003, 'min_leverage': 0.0001, 'max_leverage': 20},
@@ -364,7 +365,7 @@ class Validator:
             leverage=signal_leverage,
             price=live_closing_price,
             processed_ms=now_ms,
-            order_uuid=str(uuid.uuid4()),
+            order_uuid=miner_order_uuid if miner_order_uuid else str(uuid.uuid4()),
             price_sources=price_sources
         )
         bt.logging.success(f"Converted signal to order: {order}")
@@ -381,7 +382,7 @@ class Validator:
                     f"order [{signal_to_order}] is not a FLAT order."
                 )
 
-    def _get_or_create_open_position(self, signal_to_order: Order, miner_hotkey: str, trade_pair_to_open_position: dict):
+    def _get_or_create_open_position(self, signal_to_order: Order, miner_hotkey: str, trade_pair_to_open_position: dict, miner_order_uuid: str):
         trade_pair = signal_to_order.trade_pair
 
         # if a position already exists, add the order to it
@@ -406,7 +407,7 @@ class Validator:
                 # if a position doesn't exist, then make a new one
                 open_position = Position(
                     miner_hotkey=miner_hotkey,
-                    position_uuid=str(uuid.uuid4()),
+                    position_uuid=miner_order_uuid if miner_order_uuid else str(uuid.uuid4()),
                     open_ms=TimeUtil.now_in_millis(),
                     trade_pair=trade_pair
                 )
@@ -503,6 +504,11 @@ class Validator:
             f"Please wait {time_to_wait_in_s} seconds before placing another order."
         )
 
+    def parse_miner_uuid(self, synapse: template.protocol.SendSignal):
+        temp = synapse.miner_order_uuid
+        assert isinstance(temp, str), f"excepted string miner uuid but got {temp}"
+        return temp[:50]
+
     # This is the core validator function to receive a signal
     def receive_signal(self, synapse: template.protocol.SendSignal,
                        ) -> template.protocol.SendSignal:
@@ -518,7 +524,8 @@ class Validator:
         # error message to send back to miners in case of a problem so they can fix and resend
         error_message = ""
         try:
-            signal_to_order = self.convert_signal_to_order(signal, miner_hotkey, now_ms)
+            miner_order_uuid = self.parse_miner_uuid(synapse)
+            signal_to_order = self.convert_signal_to_order(signal, miner_hotkey, now_ms, miner_order_uuid)
             # Multiple threads can run receive_signal at once. Don't allow two threads to trample each other.
             with self.position_manager.position_locks.get_lock(miner_hotkey, signal_to_order.trade_pair.trade_pair_id):
                 # gather open positions and see which trade pairs have an open position
@@ -526,11 +533,10 @@ class Validator:
                                                self.position_manager.get_all_miner_positions(miner_hotkey,
                                                                                              only_open_positions=True)}
                 self._enforce_num_open_order_limit(trade_pair_to_open_position, signal_to_order)
-                open_position = self._get_or_create_open_position(signal_to_order, miner_hotkey, trade_pair_to_open_position)
+                open_position = self._get_or_create_open_position(signal_to_order, miner_hotkey, trade_pair_to_open_position, miner_order_uuid)
                 self.enforce_order_cooldown(signal_to_order, open_position)
                 open_position.add_order(signal_to_order)
                 self.position_manager.save_miner_position_to_disk(open_position)
-                miner_order_uuid = synapse.miner_order_uuid
                 if miner_order_uuid:
                     self.uuid_tracker.add(miner_order_uuid)
                 # Log the open position for the miner
