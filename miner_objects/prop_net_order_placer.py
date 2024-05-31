@@ -7,7 +7,6 @@ import json
 import os
 import threading
 import time
-import uuid
 import bittensor as bt
 from miner_config import MinerConfig
 from template.protocol import SendSignal
@@ -27,6 +26,7 @@ class PropNetOrderPlacer:
         self.recently_acked_validators = []
         self.is_testnet = is_testnet
         self.trade_pair_id_to_last_order_send = {tp.trade_pair_id: 0 for tp in TradePair}
+        self.used_miner_uuids = set()
 
     def send_signals(self, signals, signal_file_names, recently_acked_validators: list[str]):
         """
@@ -85,7 +85,10 @@ class PropNetOrderPlacer:
 
         # Track the high-trust validators for special checking after processing
         high_trust_validators = self.get_high_trust_validators(axons_to_try, hotkey_to_v_trust)
-        send_signal_request = SendSignal(signal=signal_data, miner_order_uuid=str(uuid.uuid4()))
+        miner_order_uuid = signal_file_path.split('/')[-1]
+        assert miner_order_uuid not in self.used_miner_uuids, f"Duplicate miner order uuid {miner_order_uuid}"
+        self.used_miner_uuids.add(miner_order_uuid)
+        send_signal_request = SendSignal(signal=signal_data, miner_order_uuid=miner_order_uuid)
 
         # Continue retrying until the max number of retries is reached or no validators need retrying
         while retry_status['retry_attempts'] < self.MAX_RETRIES and retry_status['validators_needing_retry']:
@@ -138,7 +141,7 @@ class PropNetOrderPlacer:
         # total_n_validators_this_round = len(retry_status['validators_needing_retry'])
         hotkey_to_v_trust = {neuron.hotkey: neuron.validator_trust for neuron in self.metagraph.neurons}
 
-        bt.logging.info(f"Attempt #{retry_status['retry_attempts']} for {send_signal_request.signal['trade_pair']['trade_pair_id']}."
+        bt.logging.info(f"Attempt #{retry_status['retry_attempts']} for {send_signal_request.signal['trade_pair']['trade_pair_id']} uuid {send_signal_request.miner_order_uuid}."
                         f" Sending order to {len(retry_status['validators_needing_retry'])} hotkeys...")
 
         if retry_status['retry_attempts'] != 0:  # Apply exponential backoff after the first attempt

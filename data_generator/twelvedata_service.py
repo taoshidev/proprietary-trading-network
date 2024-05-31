@@ -1,5 +1,6 @@
 import json
 import threading
+import traceback
 from collections import defaultdict
 from typing import List, Tuple
 import matplotlib.pyplot as plt
@@ -109,18 +110,25 @@ class TwelveDataService(BaseDataService):
         time_of_last_debug_log = 0
         time_of_last_heartbeat = 0
         while True:
-            now = time.time()
-            if self.WS and now - time_of_last_heartbeat >= 10:
-                self.WS.heartbeat()
-                time_of_last_heartbeat = now
-            if self._should_reset_websocket():
-                self._reset_websocket()
-            if time.time() - time_of_last_debug_log >= 60:
-                self.debug_log()
-                time_of_last_debug_log = time.time()
-            if DEBUG:
-                self.spill_price_history()
-            time.sleep(1) # avoid tight loop
+            try:
+                now = time.time()
+                if self.WS and now - time_of_last_heartbeat >= 10:
+                    self.WS.heartbeat()
+                    time_of_last_heartbeat = now
+                if self._should_reset_websocket():
+                    self._reset_websocket()
+                if time.time() - time_of_last_debug_log >= 60:
+                    self.debug_log()
+                    time_of_last_debug_log = time.time()
+                if DEBUG:
+                    self.spill_price_history()
+                time.sleep(1) # avoid tight loop
+            except Exception as e:
+                full_traceback = traceback.format_exc()
+                limited_traceback = full_traceback[-1000:]
+                bt.logging.error(f"Twelvedata _websocket_heartbeat failed with error: {e}, "
+                                 f"type: {type(e).__name__}, traceback: {limited_traceback}")
+                time.sleep(10)  # sleep before continuing the loop after an exception
 
 
     def _reset_websocket(self):
