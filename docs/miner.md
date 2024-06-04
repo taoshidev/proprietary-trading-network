@@ -41,18 +41,9 @@ There are two primary penalties in place for each miner: Consistency and Drawdow
 
 The consistency penalty is meant to discourage miners who cannot deliver consistent performance over each 30 day period. To fully mitigate penalties associated with consistency, your miner should achieve the following metrics:
 - Minimum of 18 days of open positions, of any volume.
-- Max returns in a checkpoint period should not exceed 90x the median behavior of other checkpoints.
+- Your portfolio value should change with every checkpoint. If the value change in your portfolio over one checkpoint is more than 30x the typical change, you will start to accrue consistency penalties.
 
-The drawdown penalty is meant to disengage the influence of miners in drawdown, to both discourage risk that a miner may be eliminated due to MDD and to hedge risks assocated with this miner for the system. We will look at the max drawdown seen over the past two weeks to determine your penalty, and drawdown below 1.5% will not count negatively towards your score. The drawdown penalty becomes exponentially greater closer to the MDD limit, with the following targets:
-
-| MDD  | Penalty |
-|------|---------|
-| 0%   | 0%      |
-| 1%   | 0%      |
-| 2%   | 30%     |
-| 3%   | 75%     |
-| 4%   | 95%     |
-| 5%   | 100%    |
+The drawdown penalty is meant to both discourage miners from taking too much drawdown and benefit miners with low drawdown. To do this, the drawdown penalty is defined as 1 / MDD of the miner. This enables miners with low risk tolerance to be competitive with higher risk miners. Between 0.25% MDD and 1.5% MDD the drawdown penalty is only designed to normalize the returns of your miner relative to the risk. We apply a penalty below 0.25% MDD and above 1.5%, with the upper penalty linearly tapering to 0 as it gets closer to 5% MDD.
 
 ### Challenge Period Details
 

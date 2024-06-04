@@ -35,6 +35,9 @@ class TestWeights(TestBase):
         n_miners = 50
         self.n_miners = n_miners
 
+        mdd_nopenalty = 0.997
+        self.mdd_nopenalty = mdd_nopenalty
+
         miner_names = [ 'miner'+str(x) for x in range(n_miners) ]
         n_returns = np.random.randint(5, 100, n_miners)
         start_time = 0
@@ -239,6 +242,7 @@ class TestWeights(TestBase):
                     last_update_ms=good_checkpoint_times[i],
                     gain=increasing_gains[i],
                     loss=increasing_losses[i],
+                    mdd=mdd_nopenalty,
                     prev_portfolio_ret=1.0,
                     open_ms=good_checkpoint_time_accumulation[i]
                 )
@@ -254,6 +258,7 @@ class TestWeights(TestBase):
                     last_update_ms=good_checkpoint_times[i],
                     gain=decreasing_gains[i],
                     loss=decreasing_losses[i],
+                    mdd=mdd_nopenalty,
                     prev_portfolio_ret=1.0,
                     open_ms=good_checkpoint_time_accumulation[i]
                 )
@@ -283,6 +288,7 @@ class TestWeights(TestBase):
                     last_update_ms=good_checkpoint_times[i],
                     gain=increasing_gains[i],
                     loss=increasing_losses[i],
+                    mdd=mdd_nopenalty,
                     prev_portfolio_ret=1.0,
                     open_ms=good_checkpoint_time_accumulation[i]
                 )
@@ -298,6 +304,7 @@ class TestWeights(TestBase):
                     last_update_ms=good_checkpoint_times[i],
                     gain=decreasing_gains[i],
                     loss=decreasing_losses[i],
+                    mdd=mdd_nopenalty,
                     prev_portfolio_ret=1.0,
                     open_ms=good_checkpoint_time_accumulation[i]
                 )
@@ -370,6 +377,7 @@ class TestWeights(TestBase):
             last_update_ms=0,
             gain=0.1,
             loss=-0.09,
+            n_updates=1000,
             prev_portfolio_ret=1.0,
             open_ms=100,
             mdd=ValiConfig.DRAWDOWN_MAXVALUE
@@ -493,7 +501,7 @@ class TestWeights(TestBase):
         sample_losses = [0.0, -0.05, -0.1, -0.1, -0.3, 0.0]
         sample_n_updates = [ 1, 1, 1, 1, 1, 1 ]
         sample_open_ms = [ 100, 200, 300, 400, 500, 600 ]
-        sample_dd = [ 1.0, 1.0, 1.0, 1.0, 1.0, 1.0 ]
+        sample_dd = [ self.mdd_nopenalty ] * 6
 
         scoringunit = ScoringUnit(
             gains=sample_gains,
@@ -1109,6 +1117,53 @@ class TestWeights(TestBase):
         n_volume = Scoring.checkpoint_volume_threshold_count(scoringunit)
         self.assertTrue( n_volume == len(gains) )
 
+    def test_consistency_sigmoid(self):
+        """Test the consistency sigmoid"""
+        ## Special numbers
+        PositionUtils.consistency_sigmoid(0.0)
+        PositionUtils.consistency_sigmoid(-1.0)
+        PositionUtils.consistency_sigmoid(1.0)
+        PositionUtils.consistency_sigmoid(100)
+        PositionUtils.consistency_sigmoid(0.5)
+
+        ## Linearly spaced numbers
+        normal_numbers = np.linspace(0, 1000, 100)
+        for number in normal_numbers:
+            self.assertGreaterEqual(PositionUtils.consistency_sigmoid(number), 0.0)
+            self.assertLessEqual(PositionUtils.consistency_sigmoid(number), 1.0)
+
+        ## Unusual numbers
+        unusual_numbers = np.linspace(-1000, 1000, 100)
+        for number in unusual_numbers:
+            self.assertGreaterEqual(PositionUtils.consistency_sigmoid(number), 0.0)
+            self.assertLessEqual(PositionUtils.consistency_sigmoid(number), 1.0)
+
+    def test_mdd_augmentation_range(self):
+        """Test that the mdd augmentation works for a range of numbers"""
+        ## Special numbers
+        PositionUtils.mdd_augmentation(0.0)
+        PositionUtils.mdd_augmentation(-1.0)
+        PositionUtils.mdd_augmentation(1.0)
+        PositionUtils.mdd_augmentation(1.1)
+        PositionUtils.mdd_augmentation(0.5)
+        PositionUtils.mdd_augmentation(ValiConfig.DRAWDOWN_MAXVALUE)
+        PositionUtils.mdd_augmentation(ValiConfig.DRAWDOWN_MINVALUE)
+
+        ## Linearly spaced numbers
+        normal_numbers = np.linspace(ValiConfig.DRAWDOWN_MINVALUE, ValiConfig.DRAWDOWN_MAXVALUE, 100)
+        for number in normal_numbers:
+            self.assertGreaterEqual(PositionUtils.mdd_augmentation(number), 0)
+
+        all_numbers = np.linspace(0, 1, 100)
+        for number in all_numbers:
+            self.assertGreaterEqual(PositionUtils.mdd_augmentation(number), 0)
+
+        ## testing small mdd values converging to 0
+        equivalent_minpercentage = (100 - ValiConfig.DRAWDOWN_MINVALUE_PERCENTAGE) / 100
+        tiny_mdds = np.linspace(1.0, equivalent_minpercentage, 100, endpoint=False)
+        for number in tiny_mdds:
+            self.assertAlmostEquals(PositionUtils.mdd_augmentation(number), 0.0, places=1)
+
     def test_mdd_penalty(self):
         """Test that the volume criteria function works as expected"""
         ## some sample positions and their orders, want to make sure we return
@@ -1117,9 +1172,9 @@ class TestWeights(TestBase):
 
     def test_mdd_penalty_history_value(self):
         """Test that the volume criteria function works as expected"""
-        ## some sample positions and their orders, want to make sure we return
+        ## some sample positions and their orders
         drawdown_penalty = PositionUtils.compute_drawdown_penalty_cps(self.ledger_dict['mdd_first'].cps)
-        self.assertAlmostEquals( drawdown_penalty, 1.0, places=2 )
+        self.assertEqual(drawdown_penalty, 0.0)
 
     def test_mdd_penalty_history_monotomic(self):
         """Test that the volume criteria function works as expected"""
