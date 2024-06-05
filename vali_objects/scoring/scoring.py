@@ -107,7 +107,7 @@ class Scoring:
                 'function': Scoring.return_cps,
                 'weight': ValiConfig.SCORING_RETURN_CPS_LONG_WEIGHT,
                 'ledger': returns_ledger_long,
-            },  
+            },
             'omega_cps': {
                 'function': Scoring.omega_cps,
                 'weight': ValiConfig.SCORING_OMEGA_CPS_WEIGHT,
