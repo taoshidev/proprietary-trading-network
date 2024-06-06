@@ -509,7 +509,7 @@ class Validator:
                 return True
 
             self.enforce_no_duplicate_order(synapse)
-            if synapse.successfully_processed == False:
+            if synapse.error_message:
                 return True
 
 
@@ -556,8 +556,8 @@ class Validator:
         if self.should_fail_early(synapse, False, signal=signal):
             return synapse
 
-        #with self.signal_sync_lock:
-        #    self.n_orders_being_processed += 1
+        with self.signal_sync_lock:
+            self.n_orders_being_processed += 1
 
 
         # error message to send back to miners in case of a problem so they can fix and resend
@@ -568,7 +568,7 @@ class Validator:
             # Multiple threads can run receive_signal at once. Don't allow two threads to trample each other.
             with self.position_manager.position_locks.get_lock(miner_hotkey, signal_to_order.trade_pair.trade_pair_id):
                 self.enforce_no_duplicate_order(synapse)
-                if synapse.successfully_processed == False:
+                if synapse.error_message:
                     return synapse
                 # gather open positions and see which trade pairs have an open position
                 trade_pair_to_open_position = {position.trade_pair: position for position in
@@ -601,10 +601,10 @@ class Validator:
 
         synapse.error_message = error_message
         bt.logging.success(f"Sending ack back to miner [{miner_hotkey}]")
-        #with self.signal_sync_lock:
-        #    self.n_orders_being_processed -= 1
-        #    if self.n_orders_being_processed == 0:
-        #        self.signal_sync_condition.notify_all()
+        with self.signal_sync_lock:
+            self.n_orders_being_processed -= 1
+            if self.n_orders_being_processed == 0:
+                self.signal_sync_condition.notify_all()
         return synapse
 
     def get_positions(self, synapse: template.protocol.GetPositions,
