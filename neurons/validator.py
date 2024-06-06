@@ -556,8 +556,8 @@ class Validator:
         if self.should_fail_early(synapse, False, signal=signal):
             return synapse
 
-        with self.signal_sync_lock:
-            self.n_orders_being_processed += 1
+        #with self.signal_sync_lock:
+        #    self.n_orders_being_processed += 1
 
 
         # error message to send back to miners in case of a problem so they can fix and resend
@@ -601,10 +601,10 @@ class Validator:
 
         synapse.error_message = error_message
         bt.logging.success(f"Sending ack back to miner [{miner_hotkey}]")
-        with self.signal_sync_lock:
-            self.n_orders_being_processed -= 1
-            if self.n_orders_being_processed == 0:
-                self.signal_sync_condition.notify_all()
+        #with self.signal_sync_lock:
+        #    self.n_orders_being_processed -= 1
+        #    if self.n_orders_being_processed == 0:
+        #        self.signal_sync_condition.notify_all()
         return synapse
 
     def get_positions(self, synapse: template.protocol.GetPositions,
