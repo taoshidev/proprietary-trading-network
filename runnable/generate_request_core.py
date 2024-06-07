@@ -29,7 +29,7 @@ def upload_checkpoint_to_gcloud(final_dict):
         return
 
     # check if file exists
-    KEY_PATH = 'gcloud.json'
+    KEY_PATH = ValiConfig.BASE_DIR + '/gcloud.json'
     if not os.path.exists(KEY_PATH):
         return
 
