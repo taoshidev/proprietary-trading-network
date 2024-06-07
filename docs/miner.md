@@ -2,9 +2,8 @@
 
 Basic Rules:
 1. Your miner will start in the challenge period upon entry. This 30 day period will require your miner to demonstrate consistent performance, after which they will be released from the challenge period, which may happen before 30 days has expired. In this month, they will receive a small amount of TAO that will help them avoid getting deregistered. The minimum requirements to pass the challenge period:
-  - 3.25% Total Return
-  - -1.58E-8 Time Averaged Sortino
-  - 1.0015 Omega
+  - 2% Total Return
+  - -3.08E-8 Time Averaged Sortino
   - 12 Volume Minimum Checkpoints
 2. Miner will be penalized if they are not providing consistent predictions to the system or if their drawdown is too high. The details of this may be found [here](https://github.com/taoshidev/proprietary-trading-network/blob/main/vali_objects/utils/position_utils.py).
 3. A miner can have a maximum of 200 positions open.
@@ -47,7 +46,7 @@ The drawdown penalty is meant to both discourage miners from taking too much dra
 
 ### Challenge Period Details
 
-There are four primary requirements for a miner to pass the challenge period: Returns, Omega, Sortino, and Volume Minimum Checkpoints. All of these metrics were set to be reasonably competitive with our currently successful miners' median values, such that by passing the challenge period the miner will be in a decently competitive stance. The checkpoint files used for the challenge period will also be used to score the miner against other successful miners after passing. The first three metrics are described above in the scoring details section.
+There are four primary requirements for a miner to pass the challenge period: Returns, Sortino and Volume Minimum Checkpoints. All of these metrics were set to be reasonably competitive with our currently successful miners' median values, such that by passing the challenge period the miner will be in a decently competitive stance. The checkpoint files used for the challenge period will also be used to score the miner against other successful miners after passing. The first three metrics are described above in the scoring details section.
 
 The volume minimum checkpoint is defined as a checkpoint which meets a certain threshold of raw gains and losses. The threshold value for inclusion of the checkpoint as valid is 0.1. This means that a checkpoint with a gain of 0.05 and a loss of -0.05 would have an absolute sum of 0.1 and qualify. We are requiring 12 of these valid checkpoints to have been observed in order for the miner to pass the checkpoint qualifications.
 

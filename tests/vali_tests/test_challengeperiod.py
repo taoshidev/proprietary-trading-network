@@ -108,7 +108,7 @@ class TestChallengePriod(TestBase):
         self.ledgers["test_miner3"] = generate_ledger(nterms=self.default_ledger_checkpoints, value=0.01, start_time=self.start_time, end_time=self.end_time, gain=0.5, loss=-0.499) # losing due to not enough returns
         # self.ledgers["test_miner4"] = generate_ledger(nterms=self.default_ledger_checkpoints, value=0.01, start_time=self.start_time, end_time=self.end_time, gain=0.5, loss=-0.4, open_ms=30 * 1000) # losing due to time duration condition
 
-        self.failing_miners = ["test_miner1", "test_miner2", "test_miner3"]
+        self.failing_miners = ["test_miner2", "test_miner3"]
         PerfLedgerManager.save_perf_ledgers_to_disk(self.ledgers)
 
         self.challengeperiod_manager.challengeperiod_success = {}

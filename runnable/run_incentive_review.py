@@ -37,8 +37,16 @@ if __name__ == "__main__":
     challengeperiod_passing = subtensor_weight_setter.challengeperiod_success
 
     passing_hotkeys = list(challengeperiod_passing.keys())
-    filtered_ledger = subtensor_weight_setter.filtered_ledger(hotkeys=passing_hotkeys)
+    testing_hotkeys = list(challengeperiod_miners.keys())
 
+    challenge_ledger = subtensor_weight_setter.filtered_ledger(hotkeys=passing_hotkeys + testing_hotkeys)
+    challengeperiod_success, challengeperiod_eliminations = challengeperiod_manager.inspect(
+        ledger = challenge_ledger,
+        inspection_hotkeys = subtensor_weight_setter.challengeperiod_testing,
+        current_time = current_time
+    )
+
+    filtered_ledger = subtensor_weight_setter.filtered_ledger(hotkeys=passing_hotkeys + challengeperiod_success)
     return_decay_coefficient_short = ValiConfig.HISTORICAL_DECAY_COEFFICIENT_RETURNS_SHORT
     return_decay_coefficient_long = ValiConfig.HISTORICAL_DECAY_COEFFICIENT_RETURNS_LONG
     risk_adjusted_decay_coefficient = ValiConfig.HISTORICAL_DECAY_COEFFICIENT_RISKMETRIC
