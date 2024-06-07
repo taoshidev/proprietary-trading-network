@@ -577,9 +577,9 @@ def regenerate_miner_positions(perform_backup=True, backup_from_data_dir=False, 
     return True
 
 if __name__ == "__main__":
-    position_syncer = PositionSyncer()
-    position_syncer.sync_positions()
-    assert 0
+    #position_syncer = PositionSyncer()
+    #position_syncer.sync_positions()
+    #assert 0
     t0 = time.time()
     # Check commandline arg "disable_backup" to disable backup.
     parser = argparse.ArgumentParser(description="Regenerate miner positions with optional backup disabling.")
