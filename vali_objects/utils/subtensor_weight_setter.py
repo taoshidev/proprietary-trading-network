@@ -99,12 +99,17 @@ class SubtensorWeightSetter(CacheController):
             if hotkey not in hotkeys:
                 continue
 
-            miner_checkpoints = copy.deepcopy(miner_ledger.cps)
-            checkpoint_meets_criteria = self._filter_checkpoint_list(miner_checkpoints)
+            ledger_copy = copy.deepcopy(miner_ledger)
+            if not ledger_copy.cps:
+                continue
+
+            checkpoint_filtered_elements = self._filter_checkpoint_elements(ledger_copy.cps)
+            checkpoint_meets_criteria = self._filter_checkpoint_list(checkpoint_filtered_elements)
             if not checkpoint_meets_criteria:
                 continue
 
-            augmented_ledger[hotkey] = miner_ledger
+            ledger_copy.cps = checkpoint_filtered_elements
+            augmented_ledger[hotkey] = ledger_copy
 
         return augmented_ledger
 
@@ -151,6 +156,18 @@ class SubtensorWeightSetter(CacheController):
             augmented_ledger[hotkey] = miner_ledger
 
         return augmented_ledger
+    
+    def _filter_checkpoint_elements(self, checkpoints: list[PerfCheckpoint]):
+        """
+        Filter out checkpoints that are not within the lookback range.
+        """
+        filtered_checkpoints = []
+        for checkpoint in checkpoints:
+            if checkpoint.n_updates < ValiConfig.SET_WEIGHT_MINIMUM_UPDATES:
+                continue
+
+            filtered_checkpoints.append(checkpoint)
+        return filtered_checkpoints
     
     def _filter_checkpoint_list(self, checkpoints: list[PerfCheckpoint]):
         """

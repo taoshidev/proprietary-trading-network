@@ -378,7 +378,7 @@ class CacheController:
             #bt.logging.info(f"vali_utils get_miner_position: {ans}")
             return ans
         except FileNotFoundError:
-            raise ValiFileMissingException("Vali position file is missing")
+            raise ValiFileMissingException(f"Vali position file is missing {file}")
         except UnpicklingError as e:
             raise ValiBkpCorruptDataException(f"file_string is {file_string}, {e}")
         except UnicodeDecodeError as e:

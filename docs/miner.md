@@ -6,12 +6,11 @@ Basic Rules:
   - -1.58E-8 Time Averaged Sortino
   - 1.0015 Omega
   - 12 Volume Minimum Checkpoints
-2. Miner will be penalized if they are not providing consistent predictions to the system. The details of this may be found [here](https://github.com/taoshidev/proprietary-trading-network/blob/main/vali_objects/utils/position_utils.py).
+2. Miner will be penalized if they are not providing consistent predictions to the system or if their drawdown is too high. The details of this may be found [here](https://github.com/taoshidev/proprietary-trading-network/blob/main/vali_objects/utils/position_utils.py).
 3. A miner can have a maximum of 200 positions open.
 4. A miner's order will be ignored if placing a trade outside of market hours.
 5. A miner's order will be ignored if they are rate limited (maliciously sending too many requests)
-6. A portfolio that falls more than 10% of the maximum value will be eliminated.
-7. A portfolio that falls more than 5% in a single day from a daily max will be eliminated.
+
 
 ### Scoring Details
 
@@ -21,27 +20,30 @@ In order to capture information at such a high resolution, we utilize checkpoint
 
 Each miner is compared to a baseline, the annual return rate of American Treasury Bills. This will consistently add a small amount of loss for the miner every millisecond. If the miner's Omega is less than 1 and log return less than 0, they were unable to beat the growth rate of treasury bills.
 
-We also penalize miners who cannot deliver consistent performance over each 30 day period. To fully mitigate penalties associated with consistency, your miner should achieve the following metrics:
-- Minimum of 18 days of open positions, of any volume.
-- Max returns in a checkpoint period should not exceed 90x the median behavior of other checkpoints.
+#### Scoring Metrics
 
-We will use three scoring metrics to evaluate miners based on their mid trade scores: **Returns**, **Omega**, **Time Adjusted Sortino**.
+We will use three scoring metrics to evaluate miners based on their mid trade scores: **Short Term Returns**, **Long Term Returns**, and **Omega**.
 
-Returns measure the pure value change that the miner experienced through the course of their positions. This will be similar to the prior position based system, although open positions will now also be evaluated. A higher return value will result from:
+Short term Returns measure the pure value change that the miner experienced through the course of their positions. This will be similar to the prior position based system, although open positions will now also be evaluated. These values have the highest time decay, with the potency of returns falling to 50% within 18 hours.
 
-- Higher magnitude gains
+Similar to the short term returns, long term returns are also going to measure the historical gains for a miner in determining their quality. The potency of the long term returns will fall to 50% after roughly 3 weeks:
 
 Omega will evaluate the magnitude of the positive asset changes over the magnitude of negative asset changes. Any score above 1 will indicate that the miner experienced a net gain through the course of their position. A higher omega value will result from:
 
 - Higher magnitude positive value change
 - Pure positive value change
 
-Sortino measures the pure volume of losses, and will be divided by the total time duration of investments. That is, how much loss is the miner likely exposing per unit of time. A lower sortino value indicates a more effective risk mitigation strategy. This will result from:
-
-- Less leverage utilization
-- Pure positive value change
-
 The total score will result from the product of the Return, Omega, and Sortino, so the top miners in our system must perform well in both metrics to receive substantial incentive. The relative weight of each term in the product sum is Returns: 0.95, Omega: 0.35, Sortino: 0.2. The terms used to calculate the product are defined by ranking each metric against the other miners. As a simple example, if a miner is first place in returns and last place in Omega, their total score would start at 1, multiply by 1 due to first place in returns. It would then multiply by (1 - 0.35) as they are the last place in Omega, so their final score would be 0.65.
+
+#### Scoring Penalties
+
+There are two primary penalties in place for each miner: Consistency and Drawdown.
+
+The consistency penalty is meant to discourage miners who cannot deliver consistent performance over each 30 day period. To fully mitigate penalties associated with consistency, your miner should achieve the following metrics:
+- Minimum of 18 days of open positions, of any volume.
+- Your portfolio value should change with every checkpoint. If the value change in your portfolio over one checkpoint is more than 30x the typical change, you will start to accrue consistency penalties.
+
+The drawdown penalty is meant to both discourage miners from taking too much drawdown and benefit miners with low drawdown. To do this, the drawdown penalty is defined as 1 / MDD of the miner. This enables miners with low risk tolerance to be competitive with higher risk miners. Between 0.25% MDD and 1.5% MDD the drawdown penalty is only designed to normalize the returns of your miner relative to the risk. We apply a penalty below 0.25% MDD and above 1.5%, with the upper penalty linearly tapering to 0 as it gets closer to 5% MDD.
 
 ### Challenge Period Details
 

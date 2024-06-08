@@ -12,9 +12,12 @@ class RecentEventTracker:
         self.lock = threading.Lock()
         self.timestamp_to_event = {}
 
-    def add_event(self, event, is_poly_forex=False):
+    def add_event(self, event, is_poly_forex=False, tp:str=None):
         with self.lock:
             event_time_ms = event.start_ms
+            if self.timestamp_exists(event_time_ms):
+                print(f'Duplicate timestamp {TimeUtil.millis_to_formatted_date_str(event_time_ms)} for tp {tp} ignored')
+                return
             self.events.add((event_time_ms, event))
             self.timestamp_to_event[event_time_ms] = (event, [event.close] if is_poly_forex else None)
             #print(f"Added event at {TimeUtil.millis_to_formatted_date_str(event_time_ms)}")

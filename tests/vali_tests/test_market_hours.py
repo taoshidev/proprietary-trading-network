@@ -26,10 +26,38 @@ class TestMarketHours(unittest.TestCase):
     def test_forex_fail_holiday_weekend(self):
         # Christmas, assuming forex markets are closed globally
         trade_pair = TradePair.EURUSD
-        timestamp = TimeUtil.timestamp_to_millis(datetime(2023, 12, 25, 12, 0, tzinfo=timezone.utc))
-        self.assertFalse(self.umc.is_market_open(trade_pair, timestamp))
-        timestamp = TimeUtil.timestamp_to_millis(datetime(2023, 7, 4, 15, 0, tzinfo=timezone.utc))
-        self.assertFalse(self.umc.is_market_open(trade_pair, timestamp))
+        # Days when the market should be closed
+        closed_days = [
+            (datetime(2023, 1, 1, 12, 0), "New Year's Day"),  # New Year's Day (or nearest workday)
+            (datetime(2023, 4, 7, 12, 0), "Good Friday"),  # Good Friday
+            (datetime(2023, 4, 10, 12, 0), "Easter Monday"),  # Easter Monday
+            (datetime(2023, 12, 25, 12, 0), "Christmas Day"),  # Christmas Day
+            (datetime(2023, 12, 26, 12, 0), "Boxing Day")  # Boxing Day
+        ]
+
+        for day, description in closed_days:
+            timestamp = TimeUtil.timestamp_to_millis(day.replace(tzinfo=timezone.utc))
+            with self.subTest(day=description):
+                self.assertFalse(self.umc.is_market_open(trade_pair, timestamp),
+                                 f"Market should be closed on {description}")
+
+    def test_forex_success_holidays(self):
+        # Christmas, assuming forex markets are closed globally
+        trade_pair = TradePair.EURUSD
+        # Days when the market should be open
+        open_days = [
+            (datetime(2023, 7, 4, 15, 0), "July 4th"),  # Independence Day
+            (datetime(2023, 10, 31, 12, 0), "Halloween"),  # Halloween is not a public holiday affecting markets
+            (datetime(2023, 2, 14, 12, 0), "Valentine's Day"),  # Valentine's Day
+            (datetime(2023, 3, 17, 12, 0), "St. Patrick's Day")  # St. Patrick's Day
+        ]
+
+        for day, description in open_days:
+            timestamp = TimeUtil.timestamp_to_millis(day.replace(tzinfo=timezone.utc))
+            with self.subTest(day=description):
+                self.assertTrue(self.umc.is_market_open(trade_pair, timestamp),
+                                f"Market should be open on {description}")
+
 
     def test_indices_fail_holiday_weekend(self):
         # July 4th, a US market holiday, assuming markets are closed
@@ -80,8 +108,8 @@ class TestMarketHours(unittest.TestCase):
         self.assertTrue(self.umc.is_market_open(trade_pair, before_christmas_close_forex))
 
     def test_forex_open_time_after_holiday(self):
-        # Test just after New Year's Day market re-opening for Forex
-        after_new_years_open_forex = TimeUtil.timestamp_to_millis(datetime(2024, 1, 2, 0, 1, tzinfo=timezone.utc))
+        # Assuming the market re-opens at 5:00 PM New York time, which is 22:00 UTC during Standard Time
+        after_new_years_open_forex = TimeUtil.timestamp_to_millis(datetime(2024, 1, 2, 22, 1, tzinfo=timezone.utc))
         trade_pair = TradePair.EURUSD
         self.assertTrue(self.umc.is_market_open(trade_pair, after_new_years_open_forex))
 

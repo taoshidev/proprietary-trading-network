@@ -5,6 +5,7 @@ import math
 from typing import List, Tuple, Dict
 
 import numpy as np
+from scipy.stats import percentileofscore
 
 from vali_config import ValiConfig
 from vali_objects.exceptions.incorrect_prediction_size_error import IncorrectPredictionSizeError
@@ -24,6 +25,7 @@ class ScoringUnit(BaseModel):
     losses: list[float]
     n_updates: list[int]
     open_ms: list[int]
+    mdd: list[float]
 
     @validator('gains', 'n_updates', 'open_ms', each_item=False, pre=True)
     def check_non_negative(cls, v):
@@ -44,14 +46,16 @@ class ScoringUnit(BaseModel):
         losses = []
         n_updates = []
         open_ms = []
+        mdd = []
 
         for cp in perf_ledger.cps:
             gains.append(cp.gain)
             losses.append(cp.loss)
             n_updates.append(cp.n_updates)
             open_ms.append(cp.open_ms)
+            mdd.append(cp.mdd)
 
-        return cls(gains=gains, losses=losses, n_updates=n_updates, open_ms=open_ms)
+        return cls(gains=gains, losses=losses, n_updates=n_updates, open_ms=open_ms, mdd=mdd)
     
 class Scoring:
     @staticmethod
@@ -71,13 +75,20 @@ class Scoring:
         if evaluation_time_ms is None:
             evaluation_time_ms = TimeUtil.now_in_millis()
         
-        return_decay_coefficient = ValiConfig.HISTORICAL_DECAY_COEFFICIENT_RETURNS
+        return_decay_coefficient_short = ValiConfig.HISTORICAL_DECAY_COEFFICIENT_RETURNS_SHORT
+        return_decay_coefficient_long = ValiConfig.HISTORICAL_DECAY_COEFFICIENT_RETURNS_LONG
         risk_adjusted_decay_coefficient = ValiConfig.HISTORICAL_DECAY_COEFFICIENT_RISKMETRIC
 
-        returns_ledger = PositionManager.augment_perf_ledger(
+        returns_ledger_short = PositionManager.augment_perf_ledger(
             ledger_dict,
             evaluation_time_ms=evaluation_time_ms,
-            time_decay_coefficient=return_decay_coefficient,
+            time_decay_coefficient=return_decay_coefficient_short,
+        )
+
+        returns_ledger_long = PositionManager.augment_perf_ledger(
+            ledger_dict,
+            evaluation_time_ms=evaluation_time_ms,
+            time_decay_coefficient=return_decay_coefficient_long,
         )
 
         risk_adjusted_ledger = PositionManager.augment_perf_ledger(
@@ -87,19 +98,19 @@ class Scoring:
         )
 
         scoring_config = {
-            'return_cps': {
+            'return_cps_short': {
                 'function': Scoring.return_cps,
-                'weight': ValiConfig.SCORING_RETURN_CPS_WEIGHT,
-                'ledger': returns_ledger,
+                'weight': ValiConfig.SCORING_RETURN_CPS_SHORT_WEIGHT,
+                'ledger': returns_ledger_short,
+            },
+            'return_cps_long': {
+                'function': Scoring.return_cps,
+                'weight': ValiConfig.SCORING_RETURN_CPS_LONG_WEIGHT,
+                'ledger': returns_ledger_long,
             },
             'omega_cps': {
                 'function': Scoring.omega_cps,
                 'weight': ValiConfig.SCORING_OMEGA_CPS_WEIGHT,
-                'ledger': risk_adjusted_ledger,
-            },
-            'inverted_sortino_cps': {
-                'function': Scoring.inverted_sortino_cps,
-                'weight': ValiConfig.SCORING_SORTINO_CPS_WEIGHT,
                 'ledger': risk_adjusted_ledger,
             },
         }
@@ -113,7 +124,7 @@ class Scoring:
                 score = config['function'](scoringunit=scoringunit)
                 miner_scores.append((miner, score))
             
-            weighted_scores = Scoring.weigh_miner_scores(miner_scores)
+            weighted_scores = Scoring.miner_scores_percentiles(miner_scores)
             
             for miner, score in weighted_scores:
                 if miner not in combined_scores:
@@ -365,7 +376,7 @@ class Scoring:
         kurtosis = fourth_moment / (std_dev**4)
 
         return skewness, kurtosis
-
+    
     @staticmethod
     def exponential_decay_returns(scale: int) -> np.ndarray:
         """
@@ -387,6 +398,33 @@ class Scoring:
 
         # Normalize the decayed_returns so that they sum up to 1
         return decayed_returns / np.sum(decayed_returns)
+    
+    @staticmethod
+    def miner_scores_percentiles(miner_scores: list[tuple[str, float]]) -> list[tuple[str, float]]:
+        """
+        Args: miner_scores: list[tuple[str, float]] - the scores of the miners
+        """
+        if len(miner_scores) == 0:
+            bt.logging.debug("No miner scores to compute percentiles, returning empty list")
+            return []
+        
+        if len(miner_scores) == 1:
+            miner, score = miner_scores[0]
+            bt.logging.info(f"Only one miner: {miner}, returning 1.0 for the solo miner weight")
+            return [(miner, 1.0)]
+        
+        minernames = []
+        scores = []
+
+        for miner, score in miner_scores:
+            minernames.append(miner)
+            scores.append(score)
+
+        percentiles = percentileofscore( scores, scores ) / 100
+        miner_percentiles = list(zip(minernames, percentiles))
+        
+        return miner_percentiles
+
 
     @staticmethod
     def weigh_miner_scores(returns: list[tuple[str, float]]) -> list[tuple[str, float]]:

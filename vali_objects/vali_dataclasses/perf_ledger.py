@@ -44,6 +44,7 @@ class PerfCheckpoint(BaseModel):
 
 
 class PerfLedger(BaseModel):
+    max_return: float = 1.0
     target_cp_duration_ms: int = TARGET_CHECKPOINT_DURATION_MS
     target_ledger_window_ms: int = TARGET_LEDGER_WINDOW_MS
     cps: list[PerfCheckpoint] = []
@@ -135,14 +136,15 @@ class PerfLedger(BaseModel):
         return math.log(current_portfolio_value / prev_portfolio_value)
 
     def update_returns(self, current_cp: PerfCheckpoint, current_portfolio_value: float):
-        delta_return = self.compute_return_between_ticks(current_portfolio_value, current_cp.prev_portfolio_ret)
-        n_new_updates = 1
         if current_portfolio_value == current_cp.prev_portfolio_ret:
             n_new_updates = 0
-        elif delta_return > 0:
-            current_cp.gain += delta_return
         else:
-            current_cp.loss += delta_return
+            n_new_updates = 1
+            delta_return = self.compute_return_between_ticks(current_portfolio_value, current_cp.prev_portfolio_ret)
+            if delta_return > 0:
+                current_cp.gain += delta_return
+            else:
+                current_cp.loss += delta_return
         current_cp.prev_portfolio_ret = current_portfolio_value
         current_cp.n_updates += n_new_updates
 
@@ -156,7 +158,6 @@ class PerfLedger(BaseModel):
         self.update_returns(current_cp, current_portfolio_value)
         self.update_accumulated_time(current_cp, now_ms, miner_hotkey, any_open)
         self.purge_old_cps()
-
 
     def count_events(self):
         # Return the number of events currently stored
@@ -231,6 +232,11 @@ class PerfLedgerManager(CacheController):
         temp_pos.rebuild_position_with_updated_orders()
         temp_pos_to_pop.orders = new_orders
         temp_pos_to_pop.rebuild_position_with_updated_orders()
+        # Handle position that was forced closed due to realtime data (liquidated)
+        if len(new_orders) == len(position.orders) and position.return_at_close == 0:
+            temp_pos_to_pop.return_at_close = 0
+            temp_pos_to_pop.close_out_position(position.close_ms)
+
         return temp_pos, temp_pos_to_pop
 
     def generate_order_timeline(self, positions, now_ms) -> list[tuple]:
@@ -408,14 +414,15 @@ class PerfLedgerManager(CacheController):
                     continue
 
                 any_open = True
-                retry_with_timeout(self.refresh_price_info, 30, t_ms, end_time_ms, historical_position.trade_pair)
+                self.refresh_price_info(t_ms, end_time_ms, historical_position.trade_pair)
                 price_at_t_s = self.trade_pair_to_price_info[tp].get(t_s)
                 if price_at_t_s is not None:
                     self.tp_to_last_price[tp] = price_at_t_s
                     # We are retoractively updating the last order's price if it is the same as the candle price. This is a retro fix for forex bid price propagation as well as nondeterministic failed price filling.
                     if t_ms == historical_position.orders[-1].processed_ms and historical_position.orders[-1].price != price_at_t_s:
                         self.n_price_corrections += 1
-                        #bt.logging.warning(f"Price at t_s {t_s} {historical_position.trade_pair.trade_pair} is the same as the last order processed time. Changing price from {historical_position.orders[-1].price} to {price_at_t_s}")
+                        #percent_change = (price_at_t_s - historical_position.orders[-1].price) / historical_position.orders[-1].price
+                        #bt.logging.warning(f"Price at t_s {TimeUtil.millis_to_formatted_date_str(t_ms)} {historical_position.trade_pair.trade_pair} is the same as the last order processed time. Changing price from {historical_position.orders[-1].price} to {price_at_t_s}. percent change {percent_change}")
                         historical_position.orders[-1].price = price_at_t_s
                         historical_position.rebuild_position_with_updated_orders()
                     historical_position.set_returns(price_at_t_s, time_ms=t_ms)
@@ -425,29 +432,28 @@ class PerfLedgerManager(CacheController):
                 #assert portfolio_return > 0, f"Portfolio value is {portfolio_return} for miner {miner_hotkey} at {t_s}. opr {opr} rtp {price_at_t_s}, historical position {historical_position}"
         return portfolio_return, any_open
 
-    def check_elimination(self, miner_hotkey, portfolio_return, t_ms, max_realized_portfolio_return, tp_to_historical_positions):
-        dd = self.calculate_drawdown(portfolio_return, max_realized_portfolio_return)
+    def update_mdd(self, miner_hotkey, portfolio_return, t_ms, tp_to_historical_positions, perf_ledger):
+        perf_ledger.max_return = max(perf_ledger.max_return, portfolio_return)
+        dd = self.calculate_drawdown(portfolio_return, perf_ledger.max_return)
         stats = self.hk_to_dd_stats[miner_hotkey]
         if dd < stats['worst_dd']:
             stats['worst_dd'] = dd
         stats['last_dd'] = dd
         stats['n_checks'] += 1
         stats['current_portfolio_return'] = portfolio_return
-        if t_ms < 1715910011000:  # Before new Polygon forex price filling
-            return False
 
-        mdd_failure = self.is_drawdown_beyond_mdd(dd, time_now=TimeUtil.millis_to_datetime(t_ms))
-        if mdd_failure:
-            bt.logging.warning(f"Drawdown failure for miner {miner_hotkey} at {t_ms}. Portfolio return: {portfolio_return}, max realized portfolio return: {max_realized_portfolio_return}, drawdown: {dd}")
-            elimination_row = self.generate_elimination_row(miner_hotkey, dd, mdd_failure, t_ms=t_ms,
+    def check_liquidated(self, miner_hotkey, portfolio_return, t_ms, tp_to_historical_positions, perf_ledger):
+        if portfolio_return == 0:
+            bt.logging.warning(f"Portfolio value is {portfolio_return} for miner {miner_hotkey} at {t_ms}. Eliminating miner.")
+            elimination_row = self.generate_elimination_row(miner_hotkey, 0.0, 'LIQUIDATED', t_ms=t_ms,
                                         price_info=self.tp_to_last_price,
-                                        return_info={'dd_stats':stats, 'returns': self.trade_pair_to_position_ret})
+                                        return_info={'dd_stats':self.hk_to_dd_stats[miner_hotkey], 'returns': self.trade_pair_to_position_ret})
             self.elimination_rows.append(elimination_row)
-            stats['eliminated'] = True
-            print(f'eliminated. Highest portfolio realized return {self.hk_to_dd_stats[miner_hotkey]}. current return {portfolio_return}')
+            self.hk_to_dd_stats[miner_hotkey]['eliminated'] = True
             for _, v in tp_to_historical_positions.items():
                 for pos in v:
-                    print(f"    time {TimeUtil.millis_to_formatted_date_str(t_ms)} hk {miner_hotkey[-5:]} {pos.trade_pair.trade_pair} return {pos.current_return} return_at_close {pos.return_at_close} closed@{'NA' if pos.is_open_position else TimeUtil.millis_to_formatted_date_str(pos.orders[-1].processed_ms)}")
+                    print(
+                        f"    time {TimeUtil.millis_to_formatted_date_str(t_ms)} hk {miner_hotkey[-5:]} {pos.trade_pair.trade_pair} return {pos.current_return} return_at_close {pos.return_at_close} closed@{'NA' if pos.is_open_position else TimeUtil.millis_to_formatted_date_str(pos.orders[-1].processed_ms)}")
             return True
         return False
 
@@ -479,7 +485,6 @@ class PerfLedgerManager(CacheController):
             perf_ledger.update(portfolio_return, end_time_ms, miner_hotkey, False, point_in_time_dd=None)
             return False
 
-        max_realized_portfolio_return = self.replay_all_closed_positions(miner_hotkey, tp_to_historical_positions)
         any_update = any_open = False
         last_dd = None
         self.init_tp_to_last_price(tp_to_historical_positions)
@@ -489,9 +494,10 @@ class PerfLedgerManager(CacheController):
                 return False
             assert t_ms >= perf_ledger.last_update_ms, f"t_ms: {t_ms}, last_update_ms: {perf_ledger.last_update_ms}, delta_s: {(t_ms - perf_ledger.last_update_ms) // 1000} s. perf ledger {perf_ledger}"
             portfolio_return, any_open = self.positions_to_portfolio_return(tp_to_historical_positions, t_ms, miner_hotkey, end_time_ms)
-            if self.check_elimination(miner_hotkey, portfolio_return, t_ms, max_realized_portfolio_return, tp_to_historical_positions):
+            if self.check_liquidated(miner_hotkey, portfolio_return, t_ms, tp_to_historical_positions, perf_ledger):
                 return True
-            assert portfolio_return > 0, f"Portfolio value is {portfolio_return} for miner {miner_hotkey} at {t_ms // 1000}. perf ledger {perf_ledger}"
+            self.update_mdd(miner_hotkey, portfolio_return, t_ms, tp_to_historical_positions, perf_ledger)
+            #assert portfolio_return > 0, f"Portfolio value is {portfolio_return} for miner {miner_hotkey} at {t_ms // 1000}. perf ledger {perf_ledger}"
             last_dd = self.hk_to_dd_stats[miner_hotkey]['last_dd']
             perf_ledger.update(portfolio_return, t_ms, miner_hotkey, any_open, last_dd)
             any_update = True
@@ -532,6 +538,10 @@ class PerfLedgerManager(CacheController):
                 if realtime_position_to_pop:
                     symbol = realtime_position_to_pop.trade_pair.trade_pair
                     tp_to_historical_positions[symbol][-1] = realtime_position_to_pop
+                    if realtime_position_to_pop.return_at_close == 0: # liquidated
+                        self.check_liquidated(hotkey, 0.0, realtime_position_to_pop.close_ms, tp_to_historical_positions, perf_ledger)
+                        eliminated = True
+                        break
 
                 order, position = event
                 symbol = position.trade_pair.trade_pair
@@ -613,7 +623,7 @@ class PerfLedgerManager(CacheController):
         """
         Since we are running in our own thread, we need to retry in case positions are being written to simultaneously.
         """
-        # testing_one_hotkey = '5F1sxW5apTPEYfDJUoHTRG4kGaUmkb3YVi5hwt5A9Fu8Gi6a'
+        #testing_one_hotkey = '5FqSBwa7KXvv8piHdMyVbcXQwNWvT9WjHZGHAQwtoGVQD3vo'
         if testing_one_hotkey:
             hotkey_to_positions = self.get_all_miner_positions_by_hotkey(
                 [testing_one_hotkey], sort_positions=True

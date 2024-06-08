@@ -39,13 +39,20 @@ if __name__ == "__main__":
     passing_hotkeys = list(challengeperiod_passing.keys())
     filtered_ledger = subtensor_weight_setter.filtered_ledger(hotkeys=passing_hotkeys)
 
-    return_decay_coefficient = ValiConfig.HISTORICAL_DECAY_COEFFICIENT_RETURNS
+    return_decay_coefficient_short = ValiConfig.HISTORICAL_DECAY_COEFFICIENT_RETURNS_SHORT
+    return_decay_coefficient_long = ValiConfig.HISTORICAL_DECAY_COEFFICIENT_RETURNS_LONG
     risk_adjusted_decay_coefficient = ValiConfig.HISTORICAL_DECAY_COEFFICIENT_RISKMETRIC
 
-    returns_ledger = PositionManager.augment_perf_ledger(
+    returns_ledger_short = PositionManager.augment_perf_ledger(
         filtered_ledger,
         evaluation_time_ms=current_time,
-        time_decay_coefficient=return_decay_coefficient,
+        time_decay_coefficient=return_decay_coefficient_short,
+    )
+
+    returns_ledger_long = PositionManager.augment_perf_ledger(
+        filtered_ledger,
+        evaluation_time_ms=current_time,
+        time_decay_coefficient=return_decay_coefficient_long,
     )
 
     risk_adjusted_ledger = PositionManager.augment_perf_ledger(
@@ -55,36 +62,36 @@ if __name__ == "__main__":
     )
 
     scoring_config = {
-        'return_cps': {
+        'return_cps_short': {
             'function': Scoring.return_cps,
-            'weight': ValiConfig.SCORING_RETURN_CPS_WEIGHT,
-            'ledger': returns_ledger,
+            'weight': ValiConfig.SCORING_RETURN_CPS_SHORT_WEIGHT,
+            'ledger': returns_ledger_short,
         },
+        'return_cps_long': {
+            'function': Scoring.return_cps,
+            'weight': ValiConfig.SCORING_RETURN_CPS_LONG_WEIGHT,
+            'ledger': returns_ledger_long,
+        },  
         'omega_cps': {
             'function': Scoring.omega_cps,
             'weight': ValiConfig.SCORING_OMEGA_CPS_WEIGHT,
             'ledger': risk_adjusted_ledger,
         },
-        'inverted_sortino_cps': {
-            'function': Scoring.inverted_sortino_cps,
-            'weight': ValiConfig.SCORING_SORTINO_CPS_WEIGHT,
-            'ledger': risk_adjusted_ledger,
-        },
     }
 
     scoring_config_for_printing = {
-        'return_cps': {
+        'return_cps_short': {
             'function': Scoring.return_cps,
-            'weight': ValiConfig.SCORING_RETURN_CPS_WEIGHT
+            'weight': ValiConfig.SCORING_RETURN_CPS_SHORT_WEIGHT
         },
+        'return_cps_long': {
+            'function': Scoring.return_cps,
+            'weight': ValiConfig.SCORING_RETURN_CPS_LONG_WEIGHT
+        },  
         'omega_cps': {
             'function': Scoring.omega_cps,
             'weight': ValiConfig.SCORING_OMEGA_CPS_WEIGHT
         },
-        'inverted_sortino_cps': {
-            'function': Scoring.inverted_sortino_cps,
-            'weight': ValiConfig.SCORING_SORTINO_CPS_WEIGHT
-        }
     }
 
     # Print the scoring configuration without the 'ledger' elements
@@ -106,7 +113,7 @@ if __name__ == "__main__":
         original_scores[metric_name] = {miner: score for miner, score in miner_scores}
 
         # Apply weight and calculate weighted scores
-        weighted_scores = Scoring.weigh_miner_scores(miner_scores)
+        weighted_scores = Scoring.miner_scores_percentiles(miner_scores)
         rankings[metric_name] = sorted(weighted_scores, key=lambda x: x[1], reverse=True)
 
         # Combine scores

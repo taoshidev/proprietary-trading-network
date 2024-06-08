@@ -28,6 +28,14 @@ class LivePriceFetcher():
         else:
             raise Exception("TwelveData API key not found in secrets.json")
 
+    def stop_all_threads(self):
+        if self.twelve_data_service._heartbeat_thread:
+            self.twelve_data_service._heartbeat_thread.join()
+        if self.polygon_data_service.websocket_manager_thread:
+            self.polygon_data_service.websocket_manager_thread.join()
+        self.polygon_data_service.close_websockets()
+        self.polygon_data_service.stop_threads()
+
     def determine_best_price(self, price_events: List[PriceSource | None], current_time_ms: int,
                              filter_recent_only=True) -> Tuple:
         """
