@@ -85,7 +85,7 @@ def map_signals(signals):
 
     if true_signals > 1:
         return 'FLAT'
-    if  true_signals==0 : 
+    elif  true_signals==0 : 
         return  'PASS'
     elif true_signals == 1:
         return Signal.from_value(true_keys[0]).name
