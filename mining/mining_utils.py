@@ -3,7 +3,7 @@ from mining.config import model_path
 from signals import (
     signals_long_entry,signals_long_exit,signals_short_entry,signals_short_exit,
     process_data_for_signals, calculate_signals, 
-    INDICATORS,BENCHMARKS)
+    INDICATORS,BENCHMARKS,LONG_ENTRY,LONG_EXIT)
 import pandas as pd 
 
 
@@ -44,8 +44,8 @@ def gen_signals_from_predictions(predictions, hist,modelname):
 def assess_signals(signals):
     
     results = {
-        'long_entry': signals_long_entry(signals) ,
-        'long_exit': signals_long_exit(signals),
+        'long_entry': signals_long_entry(signals,LONG_ENTRY=LONG_ENTRY),
+        'long_exit': signals_long_exit(signals,LONG_EXIT=LONG_EXIT),
         'short_entry': signals_short_entry(signals),
         'short_exit': signals_short_exit(signals) 
     }
