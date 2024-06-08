@@ -10,7 +10,7 @@ import mining_utils
 import pandas as pd
 from vali_objects.enums.order_type_enum import OrderType
 from vali_config import TradePair, TradePairCategory, ValiConfig
-
+from get_data import fetch_binance_data
 from datetime import datetime 
 import pickle
 import os
@@ -164,7 +164,7 @@ if __name__ == "__main__":
             
         
         # load live data
-        input = mining_utils.fetch_binance_data()
+        input = fetch_binance_data()
         
         if (btc.last_update is None) or (round_time_to_nearest_five_minutes(btc.last_update) < pd.to_datetime(input['ds'].tail(1).values[0])):            
             # feed into model to predict 
