@@ -61,7 +61,7 @@ def upload_checkpoint_to_gcloud(final_dict):
         for position in positions['positions']:
             new_orders = []
             for order in position['orders']:
-                if order.processed_ms < time_lag:
+                if order['processed_ms'] < time_lag:
                     new_orders.append(order)
             if len(new_orders):
                 position.orders = new_orders
