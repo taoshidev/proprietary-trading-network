@@ -15,6 +15,7 @@ from datetime import datetime
 import pickle
 import os
 from signals import process_data_for_predictions,LONG_ENTRY
+import bittensor as bt
 
 
 secrets_json_path = ValiConfig.BASE_DIR + "/mining/miner_secrets.json"
@@ -159,7 +160,8 @@ if __name__ == "__main__":
     last = None
     
     btc =  TradeHandler(pair='btcusd')
-    
+    bt.logging.info(f"Initialised trade handler.")
+
     while True:  
             
         
@@ -187,7 +189,8 @@ if __name__ == "__main__":
             if sum([old_position,new_position]) == 1 :  
                 
                 print('Order Triggered.')
-                
+                bt.logging.info(f"Order Triggered.")
+
                     
                 order_type = str_to_ordertype(btc.current_position)
                 
@@ -217,6 +220,7 @@ if __name__ == "__main__":
                 # Make the POST request with JSON data
                 response = requests.post(url, data=json_data, headers=headers)
                 print('Order Posted')
+                bt.logging.info(f"Order Posted")
 
             
 
@@ -233,4 +237,6 @@ if __name__ == "__main__":
                 
             else: 
                 print('No Change In Position')
+                bt.logging.info(f"No Change In Position")
+
                 time.sleep(60)
