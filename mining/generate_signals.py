@@ -243,3 +243,5 @@ if __name__ == "__main__":
                 bt.logging.info(f"No Change In Position")
 
                 time.sleep(60)
+                
+        time.sleep(60)
