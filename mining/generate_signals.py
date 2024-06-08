@@ -164,9 +164,12 @@ if __name__ == "__main__":
 
     while True:  
             
-        
+        bt.logging.info(f"Beginning loop.")
+
         # load live data
         input = fetch_binance_data()
+        bt.logging.info(f"Latest candle: {input['ds'].tail(1).values[0]}")
+
         input = process_data_for_predictions(input)
         
         if (btc.last_update is None) or (round_time_to_nearest_five_minutes(btc.last_update) < pd.to_datetime(input['ds'].tail(1).values[0])):            
