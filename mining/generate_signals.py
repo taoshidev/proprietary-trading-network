@@ -186,6 +186,8 @@ if __name__ == "__main__":
             
             if sum([old_position,new_position]) == 1 :  
                 
+                print('Order Triggered.')
+                
                     
                 order_type = str_to_ordertype(btc.current_position)
                 
@@ -201,6 +203,8 @@ if __name__ == "__main__":
                     'api_key':API_KEY,
                     } 
                 
+                print(f"order type: {order_type}")
+                
         
                 # Convert the Python dictionary to JSON format
                 json_data = json.dumps(data, cls=CustomEncoder)
@@ -212,7 +216,8 @@ if __name__ == "__main__":
 
                 # Make the POST request with JSON data
                 response = requests.post(url, data=json_data, headers=headers)
-                
+                print('Order Posted')
+
             
 
                 # Check if the request was successful (status code 200)
