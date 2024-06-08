@@ -6,13 +6,13 @@ def fetch_binance_data(symbol="BTCUSDT", interval='5m', start=None, end=None, li
     # Set default start and end times if none are provided
     if start is None:
         # Set start to two weeks before the current time
-        start = str(int(datetime.now().timestamp() * 1000) - 60000 * 60 * 24 * 7 * 2)
+        start = str(int(datetime.now().timestamp() * 1000) - 60000 * 60 * 24 * 7 )
     if end is None:
         # Set end to the current time
         end = str(int(datetime.now().timestamp() * 1000))
 
     # Construct the URL with the provided parameters
-    url = f'https://api.binance.com/api/v3/klines?symbol={symbol}&interval={interval}&startTime={start}&endTime={end}&limit={limit}'
+    url = f'https://api.binance.com/api/v3/klines?symbol={symbol}&interval={interval}&endTime={end}&limit={limit}'
 
     # Fetch the data
     response = requests.get(url)
