@@ -170,9 +170,8 @@ if __name__ == "__main__":
         input = fetch_binance_data()
         bt.logging.info(f"Latest candle: {input['ds'].tail(1).values[0]}")
         
-        bt.logging.info(f"Trade Pair: {btc.pair} | 
-                        Last Update: {round_time_to_nearest_five_minutes(btc.last_update) } | 
-                        Position: {btc.current_position}")
+        bt.logging.info(f"Trade Pair: {btc.pair} | Last Update: {round_time_to_nearest_five_minutes(btc.last_update) } | Position: {btc.current_position}")
+
 
         input = process_data_for_predictions(input)
         
