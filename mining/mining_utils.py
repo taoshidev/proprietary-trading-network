@@ -77,9 +77,10 @@ class Signal(Enum):
 @staticmethod
 def map_signals(signals):
     results = assess_signals(signals)
+    [print(value[0]) for key, value in signals.items()]
 
     true_signals = sum([value for key, value in signals.items()])
-    true_keys = [key for key, value in signals.items() if value]
+    true_keys = [key for key, value in signals.items() if value[0]]
 
 
     if true_signals > 1:
