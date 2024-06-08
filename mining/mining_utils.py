@@ -44,8 +44,8 @@ def gen_signals_from_predictions(predictions, hist,modelname):
 def assess_signals(signals):
     
     results = {
-        'long_entry': signals_long_entry(signals,LONG_ENTRY=LONG_ENTRY),
-        'long_exit': signals_long_exit(signals,LONG_EXIT=LONG_EXIT),
+        'long_entry': signals_long_entry(df=signals,LONG_ENTRY=LONG_ENTRY),
+        'long_exit': signals_long_exit(df=signals,LONG_EXIT=LONG_EXIT),
         'short_entry': signals_short_entry(signals),
         'short_exit': signals_short_exit(signals) 
     }
