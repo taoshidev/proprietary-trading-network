@@ -13,6 +13,6 @@ matplotlib
 sortedcontainers
 pandas-market-calendars
 google-cloud-storage
-neuralforecast==1.6.4
+neuralforecast
 numpy
 

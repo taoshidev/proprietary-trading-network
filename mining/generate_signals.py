@@ -8,12 +8,23 @@ from vali_objects.enums.order_type_enum import OrderType
 from vali_config import TradePair
 import mining_utils 
 import pandas as pd
-from secrets import apikey as key 
 from vali_objects.enums.order_type_enum import OrderType
-from vali_config import TradePair, TradePairCategory
+from vali_config import TradePair, TradePairCategory, ValiConfig
+
 from datetime import datetime 
 import pickle
 import os
+
+
+
+secrets_json_path = ValiConfig.BASE_DIR + "/mining/miner_secrets.json"
+# Define your API key
+if os.path.exists(secrets_json_path):
+    with open(secrets_json_path, "r") as file:
+        data = file.read()
+    API_KEY = json.loads(data)["api_key"]
+else:
+    raise Exception(f"{secrets_json_path} not found", 404)
 
 def round_time_to_nearest_five_minutes(dt):
     # Convert the datetime to seconds since epoch
@@ -171,7 +182,6 @@ if __name__ == "__main__":
             
             new_position = btc.position_open 
             
-
             
             if sum([old_position,new_position]) == 1 :  
                 
@@ -187,7 +197,7 @@ if __name__ == "__main__":
                     'trade_pair':trade_pair ,
                     'order_type': order_type,
                     'leverage': 1.0,
-                    'api_key': key ,
+                    'api_key':API_KEY,
                     } 
                 
         
