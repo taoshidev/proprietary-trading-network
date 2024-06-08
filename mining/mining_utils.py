@@ -80,7 +80,7 @@ def map_signals(signals):
     [print(value) for key, value in results.items()]
 
     true_signals = sum([value for key, value in results.items()])
-    true_keys = [key for key, value in results.items() if value.any()]
+    true_keys = [key for key, value in results.items() if value]
 
 
     if true_signals > 1:
