@@ -324,7 +324,7 @@ class Validator:
         if now_ms - self.last_signal_sync_time_ms < 1000 * 60 * 30:
             return
 
-        # Check if we are between 6:01 AM and 6:04 AM UTC
+        # Check if we are between 6:10 AM and 6:20 AM UTC
         datetime_now = TimeUtil.generate_start_timestamp(0)  # UTC
         if not (datetime_now.hour == 6 and (10 < datetime_now.minute < 20)):
             return
@@ -333,7 +333,11 @@ class Validator:
             while self.n_orders_being_processed > 0:
                 self.signal_sync_condition.wait()
             # Ready to perform in-flight refueling
-            self.position_syncer.sync_positions()
+            try:
+                self.position_syncer.sync_positions()
+            except Exception as e:
+                bt.logging.error(f"Error syncing positions: {e}")
+                bt.logging.error(traceback.format_exc())
 
         self.last_signal_sync_time_ms = TimeUtil.now_in_millis()
     def main(self):
@@ -347,7 +351,7 @@ class Validator:
                 self.challengeperiod_manager.refresh(current_time=current_time)
                 self.weight_setter.set_weights(current_time=current_time)
                 self.elimination_manager.process_eliminations()
-                #TODO: reenable self.validator_sync()
+                self.validator_sync()
                 self.position_manager.position_locks.cleanup_locks(self.metagraph.hotkeys)
 
             # In case of unforeseen errors, the miner will log the error and continue operations.

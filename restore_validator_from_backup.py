@@ -403,7 +403,7 @@ class PositionSyncer:
 
         if 'mothership' in ValiUtils.get_secrets():
             bt.logging.info(f"Mothership detected. Skipping position sync.")
-            return
+            # TODO: reenable return
 
         if disk_positions is None:
             disk_positions = self.position_manager.get_all_disk_positions_for_all_miners(only_open_positions=False,
@@ -429,7 +429,7 @@ class PositionSyncer:
             for trade_pair in existing_positions_by_trade_pair.keys():
                 candidate_positions = candidate_positions_by_trade_pair.get(trade_pair, [])
                 existing_positions = existing_positions_by_trade_pair[trade_pair]
-                # TODO: handle orders. dont need to return anything. just write.
+                # TODO: dont need to return anything. just write.
                 synced_positions = self.resolve_positions(candidate_positions, existing_positions, trade_pair, hotkey)
         # count sets
         self.global_stats['n_miners_positions_deleted'] = len(self.miners_with_position_deletion)
