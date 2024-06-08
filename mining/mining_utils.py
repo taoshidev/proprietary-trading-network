@@ -1,13 +1,10 @@
 from neuralforecast import NeuralForecast 
 from mining.config import model_path 
 from signals import (
-    signals_long_entry,signals_long_exit,signals_short_entry,signals_short_exit, 
+    signals_long_entry,signals_long_exit,signals_short_entry,signals_short_exit,
     process_data_for_signals, calculate_signals, 
     INDICATORS,BENCHMARKS)
 import pandas as pd 
-
-
-
 
 
 # Apply the function to each group
@@ -27,7 +24,7 @@ def multi_predict(model, input, n):
         pred_ds = df['ds'].tail(1).values[0]
         p = model.predict(df)
         p['pred_date'] = pred_ds
-        res.append(p.groupby('unique_id').tail(1))
+        res.append(p.groupby('unique_id').tail(1).reset_index())
         df = df.groupby('unique_id').apply(drop_last_row).reset_index(drop=True)
     
     # Concatenate the list and sort by date
