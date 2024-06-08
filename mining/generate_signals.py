@@ -14,7 +14,7 @@ from get_data import fetch_binance_data
 from datetime import datetime 
 import pickle
 import os
-
+from signals import process_data_for_predictions
 
 
 secrets_json_path = ValiConfig.BASE_DIR + "/mining/miner_secrets.json"
@@ -165,6 +165,7 @@ if __name__ == "__main__":
         
         # load live data
         input = fetch_binance_data()
+        input = process_data_for_predictions(input)
         
         if (btc.last_update is None) or (round_time_to_nearest_five_minutes(btc.last_update) < pd.to_datetime(input['ds'].tail(1).values[0])):            
             # feed into model to predict 
