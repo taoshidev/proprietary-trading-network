@@ -61,7 +61,9 @@ class PolygonDataService(BaseDataService):
         }
 
         # Start thread to refresh market status
-        if not disable_ws:
+        if disable_ws:
+            self.websocket_manager_thread = None
+        else:
             self.websocket_manager_thread = threading.Thread(target=self.websocket_manager, daemon=True)
             self.websocket_manager_thread.start()
             time.sleep(3) # Let the websocket_manager_thread start
@@ -75,20 +77,26 @@ class PolygonDataService(BaseDataService):
     def main_crypto(self):
         self.POLY_WEBSOCKETS[Market.Crypto].run(self.handle_msg)
 
-    def stop_start_websocket_threads(self):
-        if self.POLY_WEBSOCKETS[Market.Indices]:
-            self.POLY_WEBSOCKETS[Market.Indices].close()
-            self.POLY_WEBSOCKETS[Market.Forex].close()
-            self.POLY_WEBSOCKETS[Market.Crypto].close()
-        self.POLY_WEBSOCKETS[Market.Indices] = WebSocketClient(market=Market.Indices, api_key=self._api_key)
-        self.POLY_WEBSOCKETS[Market.Forex] = WebSocketClient(market=Market.Forex, api_key=self._api_key)
-        self.POLY_WEBSOCKETS[Market.Crypto] = WebSocketClient(market=Market.Crypto, api_key=self._api_key)
-        self.subscribe_websockets()
+    def stop_threads(self):
         if self.POLY_WEBSOCKET_THREADS[Market.Indices]:
             self.POLY_WEBSOCKET_THREADS[Market.Indices].join()
             self.POLY_WEBSOCKET_THREADS[Market.Forex].join()
             self.POLY_WEBSOCKET_THREADS[Market.Crypto].join()
-            time.sleep(5)
+
+    def close_websockets(self):
+        if self.POLY_WEBSOCKETS[Market.Indices]:
+            self.POLY_WEBSOCKETS[Market.Indices].close()
+            self.POLY_WEBSOCKETS[Market.Forex].close()
+            self.POLY_WEBSOCKETS[Market.Crypto].close()
+
+    def stop_start_websocket_threads(self):
+        self.close_websockets()
+        self.POLY_WEBSOCKETS[Market.Indices] = WebSocketClient(market=Market.Indices, api_key=self._api_key)
+        self.POLY_WEBSOCKETS[Market.Forex] = WebSocketClient(market=Market.Forex, api_key=self._api_key)
+        self.POLY_WEBSOCKETS[Market.Crypto] = WebSocketClient(market=Market.Crypto, api_key=self._api_key)
+        self.subscribe_websockets()
+        self.stop_threads()
+        time.sleep(5)
 
         self.LOCK = threading.Lock()
         self.POLY_WEBSOCKET_THREADS[Market.Indices] = threading.Thread(target=self.main_indices, daemon=True)
@@ -236,11 +244,11 @@ class PolygonDataService(BaseDataService):
                     self.closed_market_prices[tp] = None
                     if ps1:
                         self.latest_websocket_events[symbol] = ps1
-                        self.trade_pair_to_recent_events[symbol].add_event(ps1, tp.is_forex)
+                        self.trade_pair_to_recent_events[symbol].add_event(ps1, tp.is_forex, f"{self.provider_name}:{tp.trade_pair}")
 
                     if ps2:
                         self.latest_websocket_events[symbol] = ps2
-                        self.trade_pair_to_recent_events[symbol].add_event(ps2, tp.is_forex)
+                        self.trade_pair_to_recent_events[symbol].add_event(ps2, tp.is_forex, f"{self.provider_name}:{tp.trade_pair}")
 
                     if DEBUG:
                         formatted_time = TimeUtil.millis_to_formatted_date_str(TimeUtil.now_in_millis())

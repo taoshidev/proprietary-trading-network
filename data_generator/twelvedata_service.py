@@ -1,5 +1,6 @@
 import json
 import threading
+import traceback
 from collections import defaultdict
 from typing import List, Tuple
 import matplotlib.pyplot as plt
@@ -33,7 +34,9 @@ class TwelveDataService(BaseDataService):
         self._api_key = api_key
         self.td = TDClient(apikey=self._api_key)
 
-        if not disable_ws:
+        if disable_ws:
+            self._heartbeat_thread = None
+        else:
             self._reset_websocket()
             self._heartbeat_thread = threading.Thread(target=self._websocket_heartbeat)
             self._heartbeat_thread.daemon = True
@@ -57,7 +60,7 @@ class TwelveDataService(BaseDataService):
             timestamp_ms = int(event['timestamp']) * 1000
             lag_time_ms = TimeUtil.now_in_millis() - timestamp_ms
             if lag_time_ms < 0:
-                bt.logging.error(f"Received TD websocket data in the future {symbol}. Ignoring this data.")
+                bt.logging.error(f"Received TD websocket data in the future {symbol}. lag_ms {lag_time_ms} Ignoring this data.")
                 return
             formatted_event_price = TimeUtil.millis_to_formatted_date_str(timestamp_ms)
             prev_event = self.latest_websocket_events.get(symbol)
@@ -67,7 +70,7 @@ class TwelveDataService(BaseDataService):
                 self.latest_websocket_events[symbol] = PriceSource(source=TWELVEDATA_PROVIDER_NAME + '_ws', timespan_ms=0, open=price,
                                                               close=price, vwap=None, high=price, low=price, start_ms=timestamp_ms,
                                                               websocket=True, lag_ms=lag_time_ms, volume=None)
-                self.trade_pair_to_recent_events[symbol].add_event(self.latest_websocket_events[symbol], False)
+                self.trade_pair_to_recent_events[symbol].add_event(self.latest_websocket_events[symbol], False, f"{self.provider_name}:{symbol}")
             #else:
                 #formatted_disk_time = TimeUtil.millis_to_formatted_date_str(prev_event_time_ms)
                 #print(f"Received TD websocket data in the past {symbol}. Disk time {formatted_disk_time} "
@@ -107,18 +110,25 @@ class TwelveDataService(BaseDataService):
         time_of_last_debug_log = 0
         time_of_last_heartbeat = 0
         while True:
-            now = time.time()
-            if self.WS and now - time_of_last_heartbeat >= 10:
-                self.WS.heartbeat()
-                time_of_last_heartbeat = now
-            if self._should_reset_websocket():
-                self._reset_websocket()
-            if time.time() - time_of_last_debug_log >= 60:
-                self.debug_log()
-                time_of_last_debug_log = time.time()
-            if DEBUG:
-                self.spill_price_history()
-            time.sleep(1) # avoid tight loop
+            try:
+                now = time.time()
+                if self.WS and now - time_of_last_heartbeat >= 10:
+                    self.WS.heartbeat()
+                    time_of_last_heartbeat = now
+                if self._should_reset_websocket():
+                    self._reset_websocket()
+                if time.time() - time_of_last_debug_log >= 60:
+                    self.debug_log()
+                    time_of_last_debug_log = time.time()
+                if DEBUG:
+                    self.spill_price_history()
+                time.sleep(1) # avoid tight loop
+            except Exception as e:
+                full_traceback = traceback.format_exc()
+                limited_traceback = full_traceback[-1000:]
+                bt.logging.error(f"Twelvedata _websocket_heartbeat failed with error: {e}, "
+                                 f"type: {type(e).__name__}, traceback: {limited_traceback}")
+                time.sleep(10)  # sleep before continuing the loop after an exception
 
 
     def _reset_websocket(self):

@@ -4,7 +4,7 @@ When initiating a validator for the first time or recovering from unexpected dow
 
 ## Purpose
 
-The script detailed below regenerates the `validation/*` directory by fetching the latest positions, eliminations, and plagiarism scores from the mainnet, ensuring your validator remains in sync with the network.
+The steps detailed below regenerate the `validation/*` directory by fetching the latest trade data and metrics from the mainnet, ensuring your validator remains in sync with the network.
 
 
 ## Steps 

@@ -34,6 +34,12 @@ class ValiBkpUtils:
         return ValiConfig.BASE_DIR + f"/validation/tmp/"
 
     @staticmethod
+    def get_backup_file_path(use_data_dir=False):
+        return ValiConfig.BASE_DIR + f"/data/validator_checkpoint.json" if use_data_dir else \
+                ValiConfig.BASE_DIR + f"/validator_checkpoint.json"
+
+
+    @staticmethod
     def get_positions_override_dir(running_unit_tests=False) -> str:
         suffix = "/tests" if running_unit_tests else ""
         return ValiConfig.BASE_DIR + f"{suffix}/data/positions_overrides/"
@@ -81,6 +87,14 @@ class ValiBkpUtils:
     @staticmethod
     def get_vali_outputs_dir() -> str:
         return ValiConfig.BASE_DIR + "/runnable/"
+
+    @staticmethod
+    def get_vcp_output_path() -> str:
+        return ValiBkpUtils.get_vali_outputs_dir() + "validator_checkpoint.json"
+
+    @staticmethod
+    def get_miner_positions_output_path() -> str:
+        return ValiConfig.BASE_DIR + "/validation/outputs/output.json"
 
     @staticmethod
     def get_vali_weights_dir() -> str:
@@ -147,7 +161,7 @@ class ValiBkpUtils:
             elif is_pickle:
                 pickle.dump(vali_data, f)
             else:
-                f.write(json.dumps(vali_data, cls=CustomEncoder, indent=4))
+                f.write(json.dumps(vali_data, cls=CustomEncoder))
         # Move the file from temp to the final location
         os.replace(temp_file_path, vali_file)
 
@@ -203,14 +217,24 @@ class ValiBkpUtils:
 
     @staticmethod
     def get_all_files_in_dir(vali_dir: str) -> list[str]:
-        all_files = []
+        """
+        Put open positions first as they are prone to race conditions and we want to process them first.
+        """
+        open_files = []  # List to store file paths from "open" directories
+        closed_files = []  # List to store file paths from all other directories
+
         for dirpath, dirnames, filenames in os.walk(vali_dir):
             for filename in filenames:
                 if filename == '.DS_Store':
                     continue  # Skip .DS_Store files
                 filepath = os.path.join(dirpath, filename)
-                all_files.append(filepath)
-        return all_files
+                if '/open/' in filepath:  # Check if file is in an "open" subdirectory
+                    open_files.append(filepath)
+                else:
+                    closed_files.append(filepath)
+
+        # Concatenate "open" and other directory files without sorting
+        return open_files + closed_files
 
     @staticmethod
     def get_directories_in_dir(directory):

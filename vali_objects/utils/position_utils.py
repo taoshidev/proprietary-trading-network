@@ -2,6 +2,7 @@
 # Copyright © 2024 Taoshi Inc
 import math
 import numpy as np
+import copy
 
 from vali_objects.position import Position
 from vali_config import ValiConfig
@@ -154,6 +155,26 @@ class PositionUtils:
         )
     
     @staticmethod
+    def compute_recent_drawdown(checkpoints: list[PerfCheckpoint]) -> float:
+        """
+        Args:
+            checkpoints: list[PerfCheckpoint] - the list of checkpoints
+            evaluation_time_ms: int - the evaluation time
+        """
+        if len(checkpoints) <= 0:
+            return 0
+
+        drawdown_nterms = ValiConfig.DRAWDOWN_NTERMS
+
+        ## Compute the drawdown of the checkpoints
+        drawdowns = [ checkpoint.mdd for checkpoint in checkpoints ]
+
+        recent_drawdown = min(drawdowns)
+        recent_drawdown = np.clip(recent_drawdown, 0, 1.0)
+
+        return recent_drawdown
+    
+    @staticmethod
     def consistency_sigmoid(delta_discrepancy: float) -> float:
         ## Convert a max delta term into a consistency penalty
         consistency_displacement = ValiConfig.SET_WEIGHT_MINER_CHECKPOINT_CONSISTENCY_DISPLACEMENT
@@ -162,6 +183,81 @@ class PositionUtils:
 
         exp_term = np.clip(consistency_taper * delta_discrepancy - consistency_displacement, -50, 50)
         return ((1-lower_bound)*(1 + (np.exp(exp_term)))**-1) + lower_bound
+    
+    @staticmethod
+    def mdd_lower_augmentation(recent_drawdown_percentage: float) -> float:
+        """
+        Args: mdd: float - the maximum drawdown of the miner
+        """
+        drawdown_minvalue = ValiConfig.DRAWDOWN_MINVALUE_PERCENTAGE
+
+        ## Protect against division by zero
+        if drawdown_minvalue <= 0 or recent_drawdown_percentage <= 0:
+            return 1
+
+        ## Drawdown value
+        if recent_drawdown_percentage <= drawdown_minvalue:
+            return 0
+        
+        return 1
+    
+    @staticmethod
+    def mdd_upper_augmentation(recent_drawdown_percentage: float) -> float:
+        """
+        Args: mdd: float - the maximum drawdown of the miner
+        """
+        drawdown_maxvalue = ValiConfig.DRAWDOWN_MAXVALUE_PERCENTAGE
+        drawdown_scaling = ValiConfig.DRAWDOWN_UPPER_SCALING
+
+        if drawdown_maxvalue <= 0 or recent_drawdown_percentage <= 0:
+            return 1
+        
+        upper_penalty = (-recent_drawdown_percentage + drawdown_maxvalue) / drawdown_scaling
+        return float(np.clip(upper_penalty, 0, 1))
+    
+    @staticmethod
+    def mdd_base_augmentation(recent_drawdown_percentage: float) -> float:
+        """
+        Args: mdd: float - the maximum drawdown of the miner
+        """
+        if recent_drawdown_percentage <= 0:
+            return 1
+
+        return float(1 / recent_drawdown_percentage)
+    
+    @staticmethod
+    def mdd_augmentation(recent_drawdown: float) -> float:
+        """
+        Args: mdd: float - the maximum drawdown of the miner
+        """
+        if recent_drawdown <= 0 or recent_drawdown > 1:
+            return 0
+        
+        recent_drawdown_percentage = (1 - recent_drawdown) * 100
+        if recent_drawdown_percentage <= ValiConfig.DRAWDOWN_MINVALUE_PERCENTAGE:
+            return 0
+        
+        if recent_drawdown_percentage >= ValiConfig.DRAWDOWN_MAXVALUE_PERCENTAGE:
+            return 0
+
+        base_augmentation = PositionUtils.mdd_base_augmentation(recent_drawdown_percentage)
+        lower_augmentation = PositionUtils.mdd_lower_augmentation(recent_drawdown_percentage)
+        upper_augmentation = PositionUtils.mdd_upper_augmentation(recent_drawdown_percentage)
+
+        drawdown_penalty = base_augmentation * lower_augmentation * upper_augmentation
+        return float(drawdown_penalty)
+    
+    def compute_drawdown_penalty_cps(checkpoints: list[PerfCheckpoint]) -> float:
+        """
+        Args:
+            checkpoints: list[PerfCheckpoint] - the list of checkpoints
+        """
+        if len(checkpoints) <= 0:
+            return 0
+        
+        recent_drawdown = PositionUtils.compute_recent_drawdown(checkpoints)
+        drawdown_penalty = PositionUtils.mdd_augmentation(recent_drawdown)
+        return drawdown_penalty
     
     ## just looking at the consistency penalties
     def compute_consistency_penalty_cps(checkpoints: list[PerfCheckpoint]) -> float:
@@ -181,23 +277,23 @@ class PositionUtils:
 
         length_threshold = ValiConfig.CHECKPOINT_LENGTH_THRESHOLD
         duration_threshold = ValiConfig.CHECKPOINT_DURATION_THRESHOLD
+        min_median = ValiConfig.MIN_MEDIAN
 
         checkpoint_length_augmentation = 1
         checkpoint_duration_augmentation = 1
 
+        if len(checkpoints) < 1:
+            return 0
+        
         nonzero_checkpoints = [ checkpoint for checkpoint in checkpoints if checkpoint.open_ms > 0 ]
         if len(nonzero_checkpoints) <= 0:
             return 0
     
-        checkpoint_margins = [ abs(checkpoint.gain + checkpoint.loss) / checkpoint.open_ms for checkpoint in nonzero_checkpoints ]
+        checkpoint_margins = [ abs(checkpoint.gain + checkpoint.loss) for checkpoint in nonzero_checkpoints ]
 
-        characteristic_behavior = np.median(checkpoint_margins)
-        margins_volume = characteristic_behavior * len(checkpoint_margins)
+        margin_median = max(np.median(checkpoint_margins), min_median)
+        margins_consistency = max(checkpoint_margins) / margin_median
 
-        if margins_volume <= 0:
-            return 0
-
-        margins_consistency = max(checkpoint_margins) / margins_volume
         consistency_value = PositionUtils.consistency_sigmoid(margins_consistency)
 
         # ## Compute the duration of the checkpoints

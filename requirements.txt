@@ -4,6 +4,7 @@ polygon-api-client
 torch
 tensorflow
 scikit-learn
+scipy == 1.12.0
 pandas
 twelvedata
 flask
@@ -11,3 +12,4 @@ waitress == 2.1.2
 matplotlib
 sortedcontainers
 pandas-market-calendars
+google-cloud-storage

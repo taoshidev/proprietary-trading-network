@@ -7,6 +7,7 @@ import time
 import copy
 import traceback
 import uuid
+import math
 from collections import defaultdict
 from pickle import UnpicklingError
 from typing import List, Dict, Union
@@ -29,16 +30,23 @@ from vali_objects.vali_dataclasses.order import OrderStatus, Order
 from vali_objects.utils.position_utils import PositionUtils
 from vali_objects.vali_dataclasses.price_source import PriceSource
 from vali_objects.vali_dataclasses.perf_ledger import PerfCheckpoint, PerfLedger
-TARGET_MS = 1716409875000 + 1000 * 60 * 60 * 2
+TARGET_MS = 1717185371000 + 1000 * 60 * 60 * 2
 class PositionManager(CacheController):
     def __init__(self, config=None, metagraph=None, running_unit_tests=False, perform_price_adjustment=False,
                  live_price_fetcher=None, perform_order_corrections=False, perform_fee_structure_update=False,
-                 generate_correction_templates=False, apply_corrections_template=False):
+                 generate_correction_templates=False, apply_corrections_template=False, perform_compaction=False):
         super().__init__(config=config, metagraph=metagraph, running_unit_tests=running_unit_tests)
         self.init_cache_files()
         self.position_locks = PositionLocks()
         self.live_price_fetcher = live_price_fetcher
         self.recalibrated_position_uuids = set()
+        if perform_compaction:
+            try:
+                self.perform_compaction()
+            except Exception as e:
+                bt.logging.error(f"Error performing compaction: {e}")
+                traceback.print_exc()
+
         if perform_price_adjustment:
             self.perform_price_recalibration()
         if perform_order_corrections:
@@ -63,7 +71,21 @@ class PositionManager(CacheController):
         eliminations = self.get_miner_eliminations_from_disk()
         new_eliminations = []
         for e in eliminations:
-            if e['hotkey'] in ('5GhCxfBcA7Ur5iiAS343xwvrYHTUfBjBi4JimiL5LhujRT9t'):
+            if e['hotkey'] in ('5EUTaAo7vCGxvLDWRXRrEuqctPjt9fKZmgkaeFZocWECUe9X',
+                               '5E9Ppyn5DzHGaPQmsHVnkNJDjGd7DstqjHWZpQhWPMbqzNex',
+                               '5DoCFr2EoW1CGuYCEXhsuQdWRsgiUMuxGwNt4Xqb5TCptcBW',
+                               '5EHpm2UK3CyhH1zZiJmM6erGrzkmVAF9EnT1QLSPhMzQaQHG',
+                               '5GzYKUYSD5d7TJfK4jsawtmS2bZDgFuUYw8kdLdnEDxSykTU',
+                               '5CALivVcJBTjYJFMsAkqhppQgq5U2PYW4HejCajHMvTMUgkC',
+                               '5FTR8y26ap56vvahaxbB4PYxSkTQFpkQDqZN32uTVcW9cKjy',
+                               '5Et6DsfKyfe2PBziKo48XNsTCWst92q8xWLdcFy6hig427qH',
+                               '5HYRAnpjhcT45f6udFAbfJXwUmqqeaNvte4sTjuQvDxTaQB3',
+                               '5Cd9bVVja2KdgsTiR7rTAh7a4UKVfnAuYAW1bs8BiedUE9JN',
+                               '5FmvpMPvurA896m1X19fZXnct3NRXFrY57XVRcQLupb4sNZs',
+                               '5DXRG8rCuuF7Lkd46mMbkdDNq52kDdph5PbxrCLAhuKAwkdq',
+                               '5CcsBjaLAVfrjsAh6FyaTK4rBikkfQVanEmespwVpDGcE7jP',
+                               '5DqxA5rsR5FGCkoZQ2eDnpQu1dBrdqr6EU7ZFKqsnHQQvpVh',
+                               '5C5GANtAKokcPvJBGyLcFgY5fYuQaXC3MpVt75codZbLLZrZ'):
                 bt.logging.warning('Removed elimination for hotkey ', e['hotkey'])
                 positions = hotkey_to_positions.get(e['hotkey'])
                 if positions:
@@ -72,6 +94,16 @@ class PositionManager(CacheController):
                 new_eliminations.append(e)
 
         self.write_eliminations_to_disk(new_eliminations)
+
+    def strip_old_price_sources(self, position: Position, time_now_ms: int) -> int:
+        n_removed = 0
+        one_week_ago_ms = time_now_ms - 1000 * 60 * 60 * 24 * 7
+        for o in position.orders:
+            if o.processed_ms < one_week_ago_ms:
+                if o.price_sources:
+                    o.price_sources = []
+                    n_removed += 1
+        return n_removed
 
     def correct_for_tp(self, positions: List[Position], idx, prices, tp, timestamp_ms=None, n_attempts=0, n_corrections=0, unique_corrections=None, pos=None):
         n_attempts += 1
@@ -134,7 +166,22 @@ class PositionManager(CacheController):
                 self.save_miner_position_to_disk(position, delete_open_position_if_exists=False)
                 print(f"Reopened position {position.position_uuid} for trade pair {position.trade_pair.trade_pair_id}")
 
+    def perform_compaction(self):
+        time_now = TimeUtil.now_in_millis()
+        n_price_sources_removed = 0
+        hotkey_to_positions = self.get_all_disk_positions_for_all_miners(only_open_positions=False, sort_positions=True)
+        eliminated_miners = self.get_miner_eliminations_from_disk()
+        eliminated_hotkeys = set([e['hotkey'] for e in eliminated_miners])
+        for hotkey, positions in hotkey_to_positions.items():
+            if hotkey in eliminated_hotkeys:
+                continue
+            for position in positions:
+                n = self.strip_old_price_sources(position, time_now)
+                if n:
+                    n_price_sources_removed += n
+                    self.save_miner_position_to_disk(position, delete_open_position_if_exists=False)
 
+        bt.logging.info(f'Removed {n_price_sources_removed} price sources from old data.')
 
     def apply_order_corrections(self):
         """
@@ -170,10 +217,16 @@ class PositionManager(CacheController):
           4/26/24, 5/9/24 - extreme price parsing is giving outliers from bad websocket data. Patch the function and manually correct
           elimination.
 
+          Bug in forex market close due to federal holiday logic 5/27/24. deleted position
+
+          5/30/24 - duplicate order bug. miner.py script updated.
+
+          5.31.24 - validator outage due to twlevedata thread error. add position if not exists.
+
         """
 
         hotkey_to_positions = self.get_all_disk_positions_for_all_miners(sort_positions=True, only_open_positions=False)
-        self.give_erronously_eliminated_miners_another_shot(hotkey_to_positions)
+        #self.give_erronously_eliminated_miners_another_shot(hotkey_to_positions)
         n_corrections = 0
         n_attempts = 0
         unique_corrections = set()
@@ -237,7 +290,7 @@ class PositionManager(CacheController):
                 self.reopen_force_closed_positions(positions)
                 n_corrections += 1
                 n_attempts += 1
-            """
+
             if miner_hotkey == '5GhCxfBcA7Ur5iiAS343xwvrYHTUfBjBi4JimiL5LhujRT9t':
                 #with open(ValiBkpUtils.get_positions_override_dir() + miner_hotkey + '.json', 'w') as f:
                 #    dat = [p.to_json_string() for p in positions]
@@ -251,7 +304,18 @@ class PositionManager(CacheController):
                 self.restore_from_position_override(miner_hotkey)
                 n_corrections += 1
 
-
+            if miner_hotkey == "5G3ys2356ovgUivX3endMP7f37LPEjRkzDAM3Km8CxQnErCw":
+                time_now_ms = TimeUtil.now_in_millis()
+                if time_now_ms > TARGET_MS:
+                    return
+                position_to_delete = [x for x in positions if x.trade_pair == TradePair.NZDUSD][-1]
+                n_attempts, n_corrections = self.correct_for_tp(positions, None, None, TradePair.NZDUSD,
+                                                                timestamp_ms=1716906327000, n_attempts=n_attempts,
+                                                                n_corrections=n_corrections,
+                                                                unique_corrections=unique_corrections,
+                                                                pos=position_to_delete)
+        """
+            pass
 
 
         bt.logging.warning(f"Applied {n_corrections} order corrections out of {n_attempts} attempts. unique positions corrected: {len(unique_corrections)}")
@@ -536,6 +600,26 @@ class PositionManager(CacheController):
             per_position_return.append(cumulative_return)
         return per_position_return
     
+    def get_percent_profitable_positions(self, positions: List[Position]) -> float:
+        if len(positions) == 0:
+            return 0.0
+
+        profitable_positions = 0
+        n_closed_positions = 0
+
+        for position in positions:
+            if position.is_open_position:
+                continue
+
+            n_closed_positions += 1
+            if position.return_at_close > 1.0:
+                profitable_positions += 1
+
+        if n_closed_positions == 0:
+            return 0.0
+        
+        return profitable_positions / n_closed_positions
+    
     @staticmethod
     def augment_perf_ledger(
         ledger: dict[str, PerfLedger],
@@ -551,7 +635,7 @@ class PositionManager(CacheController):
             return ledger
         
         if decay_coefficient is None:
-            decay_coefficient = ValiConfig.HISTORICAL_DECAY_COEFFICIENT_RETURNS
+            decay_coefficient = ValiConfig.HISTORICAL_GAIN_LOSS_COEFFICIENT
 
         if time_decay_coefficient is None:
             time_decay_coefficient = ValiConfig.HISTORICAL_DECAY_TIME_INTENSITY_COEFFICIENT
@@ -571,6 +655,31 @@ class PositionManager(CacheController):
             )
 
         return augmented_ledger
+    
+    @staticmethod
+    def cumulative_returns(ledger: dict[str, PerfLedger]) -> dict[int, float]:
+        """
+        Returns the cumulative return of the ledger.
+        """
+        cumulative_returns = {}
+        ledger_copy = copy.deepcopy(ledger)
+        for miner, minerledger in ledger_copy.items():
+            minerspecific_returns = []
+            returnoverall = 1.0
+            if len(minerledger.cps) == 0:
+                continue
+
+            for cp in minerledger.cps:
+                returnvalue = math.exp(cp.gain + cp.loss)
+                returnoverall *= returnvalue
+                minerspecific_returns.append({
+                    "last_update_ms": cp.last_update_ms,
+                    "overall_returns": returnoverall
+                })
+
+            cumulative_returns[miner] = minerspecific_returns
+
+        return cumulative_returns
     
     @staticmethod
     def augment_perf_checkpoint(
@@ -597,6 +706,8 @@ class PositionManager(CacheController):
             baseline_gain_rate = ValiConfig.BASELINE_ANNUAL_LOG_RETURN_MS
         
         consistency_penalty = PositionUtils.compute_consistency_penalty_cps(cps)
+        drawdown_penalty = PositionUtils.compute_drawdown_penalty_cps(cps)
+        overall_penalty = drawdown_penalty * consistency_penalty
         
         cps_augmented = []
         for cp in cps:
@@ -608,31 +719,15 @@ class PositionManager(CacheController):
                 cp.last_update_ms,
                 evaluation_time_ms
             )
-
-            historical_gain_augmentation_coefficient = PositionUtils.augment_benefit(
-                gain_augmentation_coefficient,
-                lookback_fraction
-            )
-
-            historical_loss_augmentation_coefficient = PositionUtils.augment_benefit(
-                loss_augmentation_coefficient,
-                lookback_fraction
-            )
             
-            cp_copy.gain = consistency_penalty * historical_gain_augmentation_coefficient * PositionUtils.dampen_value(
+            cp_copy.gain = overall_penalty * PositionUtils.dampen_value(
                 cp.gain,
                 lookback_fraction,
                 time_decay_coefficient
             )
 
-            cp_copy.loss = historical_loss_augmentation_coefficient * PositionUtils.dampen_value(
+            cp_copy.loss = overall_penalty * PositionUtils.dampen_value(
                 cp.loss - baseline_gain, # tbill augmentation
-                lookback_fraction,
-                time_decay_coefficient
-            )
-
-            cp_copy.open_ms = PositionUtils.dampen_value(
-                cp.open_ms,
                 lookback_fraction,
                 time_decay_coefficient
             )
@@ -1035,9 +1130,6 @@ class PositionManager(CacheController):
         print(f"n_attempts: {n_attempts}, n_corrections: {n_corrections}, n_positions_corrected: {len(unique_corrections)},"
               f"n_positions_grew_since_last_audit: {n_positions_grew_since_last_audit}")
         assert n_corrections == n_attempts, f"n_corrections {n_corrections} != n_attempts {n_attempts}"
-
-
-
 
     def generate_correction_templates(self):
         f = open('/Users/jbonilla/Documents/price_audit_4-18-24.txt', 'w')

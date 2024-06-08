@@ -4,6 +4,7 @@ import uuid
 import time
 import copy
 import math
+from scipy.stats import percentileofscore
 
 from json import JSONDecodeError
 from time_util.time_util import TimeUtil
@@ -40,6 +41,26 @@ def rank_dictionary(d, ascending=False):
     
     return ranks
 
+def percentile_rank_dictionary(d, ascending=False) -> dict:
+    """
+    Rank the values in a dictionary as a percentile. Higher values get lower ranks by default.
+    
+    Args:
+    d (dict): The dictionary to rank.
+    ascending (bool): If True, ranks in ascending order. Default is False.
+    
+    Returns:
+    dict: A dictionary with the same keys and ranked values.
+    """
+    # Sort the dictionary by value
+    minernames = list(d.keys())
+    scores = list(d.values())
+
+    percentiles = percentileofscore( scores, scores ) / 100
+    miner_percentiles = dict(zip(minernames, percentiles))
+    
+    return miner_percentiles
+
 
 def generate_request_minerstatistics(time_now:int):
     time_now = TimeUtil.now_in_millis()
@@ -61,10 +82,6 @@ def generate_request_minerstatistics(time_now:int):
     # Sort dictionaries by value
     sorted_challengeperiod_testing = dict(sorted(challengeperiod_testing_dictionary.items(), key=lambda item: item[1]))
     sorted_challengeperiod_success = dict(sorted(challengeperiod_success_dictionary.items(), key=lambda item: item[1]))
-
-    # Convert to readable format
-    challengeperiod_testing_readable = {k: TimeUtil.millis_to_formatted_date_str(v) for k, v in sorted_challengeperiod_testing.items()}
-    challengeperiod_success_readable = {k: TimeUtil.millis_to_formatted_date_str(v) for k, v in sorted_challengeperiod_success.items()}
 
     challengeperiod_testing_hotkeys = list(challengeperiod_testing_dictionary.keys())
     challengeperiod_success_hotkeys = list(challengeperiod_success_dictionary.keys())
@@ -93,13 +110,21 @@ def generate_request_minerstatistics(time_now:int):
 
     ## full ledger of all miner hotkeys
     all_miner_hotkeys = challengeperiod_success_hotkeys + challengeperiod_testing_hotkeys
+
     filtered_ledger = subtensor_weight_setter.filtered_ledger(hotkeys=all_miner_hotkeys)
 
     ## Penalties
     consistency_penalties = {}
+    drawdown_penalties = {}
+    recent_drawdowns = {}
+
     for hotkey, hotkey_ledger in filtered_ledger.items():
+        recent_drawdown = PositionUtils.compute_recent_drawdown(hotkey_ledger.cps)
         consistency_penalty = PositionUtils.compute_consistency_penalty_cps(hotkey_ledger.cps)
+        drawdown_penalty = PositionUtils.compute_drawdown_penalty_cps(hotkey_ledger.cps)
+        recent_drawdowns[hotkey] = recent_drawdown
         consistency_penalties[hotkey] = consistency_penalty
+        drawdown_penalties[hotkey] = drawdown_penalty
 
     ## Non-augmented values for everything
     for hotkey, miner_ledger in filtered_ledger.items():
@@ -113,28 +138,41 @@ def generate_request_minerstatistics(time_now:int):
 
     ## Now all of the augmented terms
     # there are two augmented ledgers
-    return_decay_coefficient = ValiConfig.HISTORICAL_DECAY_COEFFICIENT_RETURNS
+    short_return_decay_coefficient = ValiConfig.HISTORICAL_DECAY_COEFFICIENT_RETURNS_SHORT
+    long_return_decay_coefficient = ValiConfig.HISTORICAL_DECAY_COEFFICIENT_RETURNS_LONG
     risk_adjusted_decay_coefficient = ValiConfig.HISTORICAL_DECAY_COEFFICIENT_RISKMETRIC
 
     augmented_omega_cps = {}
     augmented_inverted_sortino_cps = {}
-    augmented_return_cps = {}
+    augmented_return_short_cps = {}
+    augmented_return_long_cps = {}
 
-    returns_ledger = PositionManager.augment_perf_ledger(
+    cumulative_returns = PositionManager.cumulative_returns(filtered_ledger)
+    returns_ledger_short = PositionManager.augment_perf_ledger(
         ledger=filtered_ledger,
         evaluation_time_ms=time_now,
-        decay_coefficient=return_decay_coefficient
+        time_decay_coefficient=short_return_decay_coefficient
+    )
+
+    returns_ledger_long = PositionManager.augment_perf_ledger(
+        ledger=filtered_ledger,
+        evaluation_time_ms=time_now,
+        time_decay_coefficient=long_return_decay_coefficient
     )
 
     risk_adjusted_ledger = PositionManager.augment_perf_ledger(
         ledger=filtered_ledger,
         evaluation_time_ms=time_now,
-        decay_coefficient=risk_adjusted_decay_coefficient
+        time_decay_coefficient=risk_adjusted_decay_coefficient
     )
 
-    for hotkey, miner_ledger in returns_ledger.items():
+    for hotkey, miner_ledger in returns_ledger_short.items():
         scoringunit = ScoringUnit.from_perf_ledger(miner_ledger)
-        augmented_return_cps[hotkey] = Scoring.return_cps(scoringunit)
+        augmented_return_short_cps[hotkey] = math.exp(Scoring.return_cps(scoringunit))
+
+    for hotkey, miner_ledger in returns_ledger_long.items():
+        scoringunit = ScoringUnit.from_perf_ledger(miner_ledger)
+        augmented_return_long_cps[hotkey] = math.exp(Scoring.return_cps(scoringunit))
 
     for hotkey, miner_ledger in risk_adjusted_ledger.items():
         scoringunit = ScoringUnit.from_perf_ledger(miner_ledger)
@@ -150,16 +188,30 @@ def generate_request_minerstatistics(time_now:int):
 
     ## now also ranking each of the miners
     weights_rank = rank_dictionary(weights)
+    weights_percentile = percentile_rank_dictionary(weights)
 
     # standard terms
     omega_rank = rank_dictionary(omega_cps)
+    omega_percentile = percentile_rank_dictionary(omega_cps)
+
     inverted_sortino_rank = rank_dictionary(inverted_sortino_cps)
+    inverted_sortino_percentile = percentile_rank_dictionary(inverted_sortino_cps)
+
     return_rank = rank_dictionary(return_cps)
+    return_percentile = percentile_rank_dictionary(return_cps)
 
     # now the augmented terms
     augmented_omega_rank = rank_dictionary(augmented_omega_cps)
+    augmented_omega_percentile = percentile_rank_dictionary(augmented_omega_cps)
+
     augmented_inverted_sortino_rank = rank_dictionary(augmented_inverted_sortino_cps)
-    augmented_return_rank = rank_dictionary(augmented_return_cps)
+    augmented_inverted_sortino_percentile = percentile_rank_dictionary(augmented_inverted_sortino_cps)
+
+    augmented_return_short_rank = rank_dictionary(augmented_return_short_cps)
+    augmented_return_short_percentile = percentile_rank_dictionary(augmented_return_short_cps)
+
+    augmented_return_long_rank = rank_dictionary(augmented_return_long_cps)
+    augmented_return_long_percentile = percentile_rank_dictionary(augmented_return_long_cps)
 
     ## Here is the full list of data in frontend format
     combined_data = []
@@ -185,11 +237,13 @@ def generate_request_minerstatistics(time_now:int):
             }
 
         ## checkpoint specific data
+        miner_cumulative_returns = cumulative_returns.get(miner_id)
         miner_standard_ledger = filtered_ledger.get(miner_id)
-        miner_returns_ledger = returns_ledger.get(miner_id)
+        miner_returns_short_ledger = returns_ledger_short.get(miner_id)
+        miner_returns_long_ledger = returns_ledger_long.get(miner_id)
         miner_risk_ledger = risk_adjusted_ledger.get(miner_id)
 
-        if miner_standard_ledger is None or miner_returns_ledger is None or miner_risk_ledger is None:
+        if miner_standard_ledger is None or miner_returns_short_ledger is None or miner_returns_long_ledger is None or miner_risk_ledger is None:
             continue
 
         miner_data = {
@@ -197,37 +251,51 @@ def generate_request_minerstatistics(time_now:int):
             "weight": {
                 "value": weights.get(miner_id),
                 "rank": weights_rank.get(miner_id),
+                "percentile": weights_percentile.get(miner_id),
             },
             "challengeperiod": challengeperiod_specific,
+            "recent_drawdown": recent_drawdowns.get(miner_id),
             "penalties": {
                 "consistency": consistency_penalties.get(miner_id),
+                "drawdown": drawdown_penalties.get(miner_id),
             },
             "scores":{
                 "omega": {
                     "value": omega_cps.get(miner_id),
                     "rank": omega_rank.get(miner_id),
+                    "percentile": omega_percentile.get(miner_id),
                 },
                 "inverted_sortino_cps": {
                     "value": inverted_sortino_cps.get(miner_id),
                     "rank": inverted_sortino_rank.get(miner_id),
+                    "percentile": inverted_sortino_percentile.get(miner_id),
                 },
                 "return_cps": {
                     "value": return_cps.get(miner_id),
                     "rank": return_rank.get(miner_id),
+                    "percentile": return_percentile.get(miner_id),
                 }
             },
             "augmented_scores":{
                 "omega": {
                     "value": augmented_omega_cps.get(miner_id),
                     "rank": augmented_omega_rank.get(miner_id),
+                    "percentile": augmented_omega_percentile.get(miner_id),
                 },
                 "inverted_sortino_cps": {
                     "value": augmented_inverted_sortino_cps.get(miner_id),
                     "rank": augmented_inverted_sortino_rank.get(miner_id),
+                    "percentile": augmented_inverted_sortino_percentile.get(miner_id),
                 },
-                "return_cps": {
-                    "value": augmented_return_cps.get(miner_id),
-                    "rank": augmented_return_rank.get(miner_id),
+                "returns_short_cps": {
+                    "value": augmented_return_short_cps.get(miner_id),
+                    "rank": augmented_return_short_rank.get(miner_id),
+                    "percentile": augmented_return_short_percentile.get(miner_id),
+                },
+                "returns_long_cps": {
+                    "value": augmented_return_long_cps.get(miner_id),
+                    "rank": augmented_return_long_rank.get(miner_id),
+                    "percentile": augmented_return_long_percentile.get(miner_id),
                 }
             },
             "engagement": {
@@ -236,9 +304,11 @@ def generate_request_minerstatistics(time_now:int):
                 "volume_threshold_count": volume_threshold_count.get(miner_id),
             },
             "plagiarism": plagiarism.get(miner_id),
+            "cumulative": miner_cumulative_returns,
             "checkpoints": {
                 "standard": miner_standard_ledger.cps,
-                "returns_augmented": miner_returns_ledger.cps,
+                "returns_short_augmented": miner_returns_short_ledger.cps,
+                "returns_long_augmented": miner_returns_long_ledger.cps,
                 "risk_augmented": miner_risk_ledger.cps,
             }
         }
@@ -249,7 +319,8 @@ def generate_request_minerstatistics(time_now:int):
         'created_timestamp_ms': time_now,
         'created_date': TimeUtil.millis_to_formatted_date_str(time_now),
         "constants":{
-            "return_cps_weight": ValiConfig.SCORING_RETURN_CPS_WEIGHT,
+            "return_short_cps_weight": ValiConfig.SCORING_RETURN_CPS_SHORT_WEIGHT,
+            "return_long_cps_weight": ValiConfig.SCORING_RETURN_CPS_LONG_WEIGHT,
             "omega_cps_weight": ValiConfig.SCORING_OMEGA_CPS_WEIGHT,
             "inverted_sortino_cps_weight": ValiConfig.SCORING_SORTINO_CPS_WEIGHT,
             "set_weight_lookback_range_days": ValiConfig.SET_WEIGHT_LOOKBACK_RANGE_DAYS,
