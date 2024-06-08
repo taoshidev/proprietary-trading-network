@@ -174,10 +174,8 @@ if __name__ == "__main__":
             preds = mining_utils.multi_predict(model,input,2)
             modelname = str(model.models[0])
             output = mining_utils.gen_signals_from_predictions(predictions= preds, hist = input ,modelname=modelname ) 
-            print(output.columns)
-            print(output[LONG_ENTRY])
-            signals = mining_utils.assess_signals(output)
-            order= mining_utils.map_signals(signals)
+          #  signals = mining_utils.assess_signals(output)
+            order= mining_utils.map_signals(output)
             
             old_position = btc.position_open
                    

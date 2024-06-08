@@ -43,7 +43,6 @@ def gen_signals_from_predictions(predictions, hist,modelname):
  
 def assess_signals(signals):
     
-    print(f"signals inputted: {signals.columns}")
     
     results = {
         'long_entry': signals_long_entry(df=signals,LONG_ENTRY=LONG_ENTRY),
