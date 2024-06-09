@@ -198,9 +198,9 @@ if __name__ == "__main__":
                 bt.logging.info(f"Order Triggered.")
 
                     
-                order_type = str_to_ordertype(btc.current_position)
+                order_type = str_to_ordertype[btc.current_position]
                 
-                trade_pair = str_to_tradepair(btc.pair)       
+                trade_pair = str_to_tradepair[btc.pair]       
                 
                 
                 # Define the JSON data to be sent in the request
