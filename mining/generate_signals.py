@@ -16,7 +16,7 @@ import pickle
 import os
 from signals import process_data_for_predictions,LONG_ENTRY
 import bittensor as bt
-
+import duckdb
 
 secrets_json_path = ValiConfig.BASE_DIR + "/mining/miner_secrets.json"
 # Define your API key
@@ -41,9 +41,9 @@ def round_time_to_nearest_five_minutes(dt):
     return rounded_dt
 
 str_to_ordertype= { 
-             'long' : OrderType.LONG, 
-             'short': OrderType.SHORT ,
-             'flat' : OrderType.FLAT      
+             'LONG' : OrderType.LONG, 
+             'SHORT': OrderType.SHORT ,
+             'FLAT' : OrderType.FLAT      
                    }
      
 str_to_tradepair= { 
@@ -87,18 +87,24 @@ class TradeHandler:
 
     def set_position(self, new_position):
         if self.current_position == 'SHORT' and new_position == 'LONG':
+            self.last_update = datetime.now().isoformat()
+            self.save_trade_to_duckdb()
             print('Position changed from short to long, closing current position.')
             self.clear_trade()
             self.current_position = 'FLAT'
             self.last_update = datetime.now().isoformat()
 
         elif self.current_position == 'LONG' and new_position == 'SHORT':
+            self.last_update = datetime.now().isoformat()
+            self.save_trade_to_duckdb()
             print('Position changed from long to short, closing current position.')
             self.clear_trade()
             self.current_position = 'FLAT'
             self.last_update = datetime.now().isoformat()
   
         elif self.current_position in ['SHORT', 'LONG'] and new_position == 'FLAT':
+            self.last_update = datetime.now().isoformat()
+            self.save_trade_to_duckdb()
             print('Trade closed.')
             self.clear_trade()
             self.current_position = 'FLAT'
@@ -130,7 +136,32 @@ class TradeHandler:
         print(f'State loaded from {filename}')
         return obj
 
-     
+
+    def save_trade_to_duckdb(self, db_filename='trades.duckdb', table_name='trades'):
+        conn = duckdb.connect(db_filename)
+        try:
+            # Create the table if it does not exist
+            conn.execute(f"""
+                CREATE TABLE IF NOT EXISTS {table_name} (
+                    signal VARCHAR,
+                    last_update TIMESTAMP,
+                    pair VARCHAR,
+                    current_position VARCHAR,
+                    trade_opened TIMESTAMP,
+                    position_open BOOLEAN
+                )
+            """)
+
+            # Insert the current trade data into the table
+            conn.execute(f"""
+                INSERT INTO {table_name} (signal, last_update, pair, current_position, trade_opened, position_open)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (self.signal, self.last_update, self.pair, self.current_position, self.trade_opened, self.position_open))
+            
+            print(f"Trade saved to DuckDB table '{table_name}' in database '{db_filename}'")
+        finally:
+            conn.close()
+   
     
 
 class CustomEncoder(json.JSONEncoder):
@@ -185,61 +216,63 @@ if __name__ == "__main__":
           #  signals = mining_utils.assess_signals(output)
             order= mining_utils.map_signals(output)
             
-            old_position = btc.position_open
-                   
-            btc.set_position(order)
+            if order != 'PASS' : 
             
-            new_position = btc.position_open 
-            
-            
-            if sum([old_position,new_position]) == 1 :  
-                
-                print('Order Triggered.')
-                bt.logging.info(f"Order Triggered.")
-
+                old_position = btc.position_open
                     
-                order_type = str_to_ordertype[btc.current_position]
+                btc.set_position(order)
                 
-                trade_pair = str_to_tradepair[btc.pair]       
+                new_position = btc.position_open 
                 
                 
-                # Define the JSON data to be sent in the request
+                if sum([old_position,new_position]) == 1 :  
+                    
+                    print('Order Triggered.')
+                    bt.logging.info(f"Order Triggered.")
+
                         
-                data = {
-                    'trade_pair':trade_pair ,
-                    'order_type': order_type,
-                    'leverage': 1.0,
-                    'api_key':API_KEY,
-                    } 
-                
-                print(f"order type: {order_type}")
-                
-        
-                # Convert the Python dictionary to JSON format
-                json_data = json.dumps(data, cls=CustomEncoder)
-                print(json_data)
-                # Set the headers to specify that the content is in JSON format
-                headers = {
-                    'Content-Type': 'application/json',
-                }
-
-                # Make the POST request with JSON data
-                response = requests.post(url, data=json_data, headers=headers)
-                print('Order Posted')
-                bt.logging.info(f"Order Posted")
-
+                    order_type = str_to_ordertype[btc.current_position]
+                    
+                    trade_pair = str_to_tradepair[btc.pair]       
+                    
+                    
+                    # Define the JSON data to be sent in the request
+                            
+                    data = {
+                        'trade_pair':trade_pair ,
+                        'order_type': order_type,
+                        'leverage': 1.0,
+                        'api_key':API_KEY,
+                        } 
+                    
+                    print(f"order type: {order_type}")
+                    
             
+                    # Convert the Python dictionary to JSON format
+                    json_data = json.dumps(data, cls=CustomEncoder)
+                    print(json_data)
+                    # Set the headers to specify that the content is in JSON format
+                    headers = {
+                        'Content-Type': 'application/json',
+                    }
 
-                # Check if the request was successful (status code 200)
-                if response.status_code == 200:
-                    print("POST request was successful.")
-                    print("Response:")
-                    print(response.json())  # Print the response data
-                else:
-                    print(response.__dict__)
-                    print("POST request failed with status code:", response.status_code)
+                    # Make the POST request with JSON data
+                    response = requests.post(url, data=json_data, headers=headers)
+                    print('Order Posted')
+                    bt.logging.info(f"Order Posted")
+
                 
-                time.sleep(60)
+
+                    # Check if the request was successful (status code 200)
+                    if response.status_code == 200:
+                        print("POST request was successful.")
+                        print("Response:")
+                        print(response.json())  # Print the response data
+                    else:
+                        print(response.__dict__)
+                        print("POST request failed with status code:", response.status_code)
+                    
+                    time.sleep(60)
                 
             else: 
                 print('No Change In Position')

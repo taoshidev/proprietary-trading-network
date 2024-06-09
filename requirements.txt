@@ -15,4 +15,4 @@ pandas-market-calendars
 google-cloud-storage
 neuralforecast
 numpy
-
+duckdb

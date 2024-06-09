@@ -67,17 +67,17 @@ if __name__ == "__main__":
     
     last = None
     
-    order = 'flat'
+    order = 'FLAT'
 
 
-    for i in range(15):  
+    for i in range(0,15):  
         
     
         # feed into model to predict 
         if i in [0,3,6,9,12]: 
-            order ='long'
+            order ='LONG'
         else : 
-            order = 'flat'
+            order = 'FLAT'
 
         
         
