@@ -66,15 +66,17 @@ if __name__ == "__main__":
     url = f'{base_url}/api/receive-signal'
     
     last = None
+    
+    order = 'flat'
 
 
     for i in range(15):  
         
     
         # feed into model to predict 
-        if i in [0,5,10]: 
+        if i in [0,3,6,9,12]: 
             order ='long'
-        elif i in [2,8,12] : 
+        else : 
             order = 'flat'
 
         
