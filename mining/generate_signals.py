@@ -216,6 +216,8 @@ if __name__ == "__main__":
           #  signals = mining_utils.assess_signals(output)
             order= mining_utils.map_signals(output)
             
+            
+            
             if order != 'PASS' : 
             
                 old_position = btc.position_open
@@ -258,8 +260,8 @@ if __name__ == "__main__":
 
                     # Make the POST request with JSON data
                     response = requests.post(url, data=json_data, headers=headers)
-                    print('Order Posted')
                     bt.logging.info(f"Order Posted")
+                    bt.logging.info(f"Status: { response.status_code }")
 
                 
 
