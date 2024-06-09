@@ -70,7 +70,7 @@ if __name__ == "__main__":
     order = 'LONG'
 
 
-    for i in range(0,8):  
+    for i in range(0,4):  
         
         print(i)
         
@@ -81,52 +81,52 @@ if __name__ == "__main__":
         else : 
             order = 'FLAT'
 
-        
-            print('Order Triggered.')
-            bt.logging.info(f"Order Triggered.")
-
-                
-            order_type = str_to_ordertype[order]
-            
-            trade_pair = str_to_tradepair['btcusd']       
-            
-            
-            # Define the JSON data to be sent in the request
-                    
-            data = {
-                'trade_pair':trade_pair ,
-                'order_type': order_type,
-                'leverage': 1.0,
-                'api_key':API_KEY,
-                } 
-            
-            print(f"order type: {order_type}")
-            
     
-            # Convert the Python dictionary to JSON format
-            json_data = json.dumps(data, cls=CustomEncoder)
-            print(json_data)
-            # Set the headers to specify that the content is in JSON format
-            headers = {
-                'Content-Type': 'application/json',
-            }
+        print('Order Triggered.')
+        bt.logging.info(f"Order Triggered.")
 
-            # Make the POST request with JSON data
-            response = requests.post(url, data=json_data, headers=headers)
-            print('Order Posted')
-            bt.logging.info(f"Order Posted")
-            print(f"Status: { response.status_code }")
-
+            
+        order_type = str_to_ordertype[order]
+        
+        trade_pair = str_to_tradepair['btcusd']       
+        
+        
+        # Define the JSON data to be sent in the request
+                
+        data = {
+            'trade_pair':trade_pair ,
+            'order_type': order_type,
+            'leverage': 1.0,
+            'api_key':API_KEY,
+            } 
+        
+        print(f"order type: {order_type}")
         
 
-            # Check if the request was successful (status code 200)
-            if response.status_code == 200:
-                print("POST request was successful.")
-                print("Response:")
-                print(response.json())  # Print the response data
-            else:
-                print(response.__dict__)
-                print("POST request failed with status code:", response.status_code)
-            
-            time.sleep(10)
-            
+        # Convert the Python dictionary to JSON format
+        json_data = json.dumps(data, cls=CustomEncoder)
+        print(json_data)
+        # Set the headers to specify that the content is in JSON format
+        headers = {
+            'Content-Type': 'application/json',
+        }
+
+        # Make the POST request with JSON data
+        response = requests.post(url, data=json_data, headers=headers)
+        print('Order Posted')
+        bt.logging.info(f"Order Posted")
+        print(f"Status: { response.status_code }")
+
+    
+
+        # Check if the request was successful (status code 200)
+        if response.status_code == 200:
+            print("POST request was successful.")
+            print("Response:")
+            print(response.json())  # Print the response data
+        else:
+            print(response.__dict__)
+            print("POST request failed with status code:", response.status_code)
+        
+        time.sleep(10)
+        
