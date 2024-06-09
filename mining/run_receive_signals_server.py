@@ -14,6 +14,7 @@ from vali_config import TradePair, ValiConfig
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.vali_dataclasses.order_signal import Signal
+import bittensor as bt 
 
 app = Flask(__name__)
 
@@ -37,6 +38,7 @@ def handle_data():
     data = request.json
 
     print("received data:", data)
+    bt.logging.info(f"received data: {data}")
 
     if "api_key" in data:
         token = data["api_key"]
@@ -69,6 +71,8 @@ def handle_data():
         signal_file_uuid = str(uuid.uuid4())
         signal_path = os.path.join(MinerConfig.get_miner_received_signals_dir(), signal_file_uuid)
         ValiBkpUtils.write_file(signal_path, dict(signal))
+        bt.logging.info(f"Signals saved.")
+
     except IOError as e:
         print(traceback.format_exc())
         return jsonify({"error": f"Error writing signal to file: {e}"}), 500
@@ -86,4 +90,5 @@ def handle_data():
 
 if __name__ == "__main__":
     waitress.serve(app, host="0.0.0.0", port=80, connection_limit=1000)
-    print('Successfully started run_receive_signals_server.')
+   # print('Successfully started run_receive_signals_server.')
+    bt.logging.info(f"Signals Server Started")
