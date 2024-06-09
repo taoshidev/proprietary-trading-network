@@ -31,9 +31,9 @@ else:
     
 
 str_to_ordertype= { 
-             'long' : OrderType.LONG, 
-             'short': OrderType.SHORT ,
-             'flat' : OrderType.FLAT      
+             'LONG' : OrderType.LONG, 
+             'SHORT': OrderType.SHORT ,
+             'FLAT' : OrderType.FLAT      
                    }
      
 str_to_tradepair= { 
