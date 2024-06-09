@@ -67,10 +67,12 @@ if __name__ == "__main__":
     
     last = None
     
-    order = 'FLAT'
+    order = 'LONG'
 
 
-    for i in range(0,15):  
+    for i in range(0,8):  
+        
+        print(i)
         
     
         # feed into model to predict 
@@ -80,8 +82,6 @@ if __name__ == "__main__":
             order = 'FLAT'
 
         
-        
-            
             print('Order Triggered.')
             bt.logging.info(f"Order Triggered.")
 
