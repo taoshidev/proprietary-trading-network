@@ -115,7 +115,7 @@ if __name__ == "__main__":
             response = requests.post(url, data=json_data, headers=headers)
             print('Order Posted')
             bt.logging.info(f"Order Posted")
-            bt.logging.info(f"Status: { response.status_code }")
+            print(f"Status: { response.status_code }")
 
         
 
