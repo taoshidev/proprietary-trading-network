@@ -28,17 +28,21 @@ else:
     raise Exception(f"{secrets_json_path} not found", 404)
 
 def round_time_to_nearest_five_minutes(dt):
-    # Convert the datetime to seconds since epoch
-    dt = datetime.strptime(dt, '%Y-%m-%dT%H:%M:%S.%f')
-    timestamp = dt.timestamp()
-    # Number of seconds in 5 minutes
-    round_to = 5 * 60
-    # Perform the rounding
-    rounded_timestamp = round(timestamp / round_to) * round_to 
-    # Convert the timestamp back to a datetime object
-    rounded_dt = datetime.fromtimestamp(rounded_timestamp)
     
-    return rounded_dt
+    try: 
+        # Convert the datetime to seconds since epoch
+        dt = datetime.strptime(dt, '%Y-%m-%dT%H:%M:%S.%f')
+        timestamp = dt.timestamp()
+        # Number of seconds in 5 minutes
+        round_to = 5 * 60
+        # Perform the rounding
+        rounded_timestamp = round(timestamp / round_to) * round_to 
+        # Convert the timestamp back to a datetime object
+        rounded_dt = datetime.fromtimestamp(rounded_timestamp)
+
+        return rounded_dt
+    except: 
+        return None
 
 str_to_ordertype= { 
              'LONG' : OrderType.LONG, 
