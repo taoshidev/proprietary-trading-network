@@ -177,9 +177,13 @@ btcli wallet new_coldkey --wallet.name miner
 btcli wallet new_hotkey --wallet.name miner --wallet.hotkey default
 ```
 
-## 2a. (Optional) Getting faucet tokens
+## 2a. Getting Testnet TAO
 
-Faucet is disabled on the testnet. Hence, if you don't have sufficient faucet tokens, ask the Bittensor Discord community for faucet tokens.
+Please ask the Bittensor Discord community for testnet TAO. This will let you register your miner(s) on Testnet.
+
+Please request testnet TAO here: https://discord.com/channels/799672011265015819/1190048018184011867
+
+Bittensor -> help-forum -> requests for testnet tao
 
 ## 3. Register keys
 
