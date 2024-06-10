@@ -106,9 +106,13 @@ btcli wallet new_coldkey --wallet.name validator
 btcli wallet new_hotkey --wallet.name validator --wallet.hotkey default
 ```
 
-## 2a. (Optional) Getting faucet tokens
+## 2a. Getting Testnet TAO
 
-Faucet is disabled on the testnet. Hence, if you don't have sufficient faucet tokens, ask the Bittensor Discord community for faucet tokens. Bittensor -> help-forum -> Requests for Testnet TAO
+Please ask the Bittensor Discord community for testnet TAO. This will let you register your validators(s) on Testnet.
+
+Please request testnet TAO here: https://discord.com/channels/799672011265015819/1190048018184011867
+
+Bittensor -> help-forum -> requests for testnet tao
 
 ## 3. Register keys
 
