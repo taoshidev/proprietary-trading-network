@@ -1,13 +1,16 @@
 import io
 import json
 import time
+import traceback
 import zipfile
-
+from enum import Enum
 from collections import defaultdict
+from copy import deepcopy
 
 import requests
 
 from time_util.time_util import TimeUtil
+from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.position import Position
 from vali_objects.utils.position_manager import PositionManager
 import bittensor as bt
@@ -15,6 +18,18 @@ import bittensor as bt
 from vali_objects.utils.vali_utils import ValiUtils
 AUTO_SYNC_ORDER_LAG_MS = 1000 * 60 * 60 * 24
 
+# Make an enum class that represents how the position sync went. "Nothing", "Updated", "Deleted", "Inserted"
+class PositionSyncResult(Enum):
+    NOTHING = 0
+    UPDATED = 1
+    DELETED = 2
+    INSERTED = 3
+
+# Create a new type of exception PositionSyncResultException
+class PositionSyncResultException(Exception):
+    def __init__(self, message):
+        self.message = message
+        super().__init__(self.message)
 
 class PositionSyncer:
     def __init__(self, shutdown_dict=None):
@@ -39,13 +54,17 @@ class PositionSyncer:
         self.perf_ledger_hks_to_invalidate = {}  # {hk: timestamp_ms}
 
     def debug_print_pos(self, p):
-        print(f'    pos: open {TimeUtil.millis_to_formatted_date_str(p.open_ms)} close {TimeUtil.millis_to_formatted_date_str(p.close_ms) if p.close_ms else "N/A"} uuid {p.position_uuid}')
+        print(f'        pos: open {TimeUtil.millis_to_formatted_date_str(p.open_ms)} close {TimeUtil.millis_to_formatted_date_str(p.close_ms) if p.close_ms else "N/A"} uuid {p.position_uuid}')
         for o in p.orders:
             self.debug_print_order(o)
     def debug_print_order(self, o):
-        print( f'        order: type {o.order_type} lev {o.leverage} time {TimeUtil.millis_to_formatted_date_str(o.processed_ms)} uuid {o.order_uuid}')
+        print(f'        order: type {o.order_type} lev {o.leverage} time {TimeUtil.millis_to_formatted_date_str(o.processed_ms)} uuid {o.order_uuid}')
 
     def positions_aligned(self, p1, p2, timebound_ms=None):
+        p1_initial_position_type = p1.orders[0].order_type
+        p2_initial_position_type = p2.orders[0].order_type
+        if p1_initial_position_type != p2_initial_position_type:
+            return False
         if timebound_ms is None:
             timebound_ms = self.SYNC_LOOK_AROUND_MS
         if p1.is_closed_position and p2.is_closed_position:
@@ -152,8 +171,7 @@ class PositionSyncer:
             self.miners_with_order_matched.add(hk)
         if stats['kept']:
             self.global_stats['orders_kept'] += stats['kept']
-            self.miners_with_order_matched.add(hk)
-
+            self.miners_with_order_kept.add(hk)
 
         any_changes = stats['inserted'] + stats['deleted']
         if debug and any_changes:
@@ -178,43 +196,59 @@ class PositionSyncer:
                 print(f'  kept:')
                 for x in kept:
                     self.debug_print_order(x)
+            if matched:
+                print(f'  matched:')
+                print(f'  {len(matched)} matched orders')
+                #for x in matched:
+                #    self.debug_print_order(x)
 
         ans = ret
         ans.sort(key=lambda x: x.processed_ms)
         return ans, min_timestamp_of_order_change
 
     def resolve_positions(self, candidate_positions, existing_positions, trade_pair, hk, hard_snap_cutoff_ms):
-        # TODO actually write positions.
-        debug = 1
-        min_timestamp_of_change = float('inf')  # If this stays as float('inf), not changes happened
-
-        # Since candidates come with a lag, this could be expected.
-        if not candidate_positions:
-            return existing_positions, min_timestamp_of_change
-        if not existing_positions:
-            return candidate_positions, min_timestamp_of_change
+        debug = 0
+        min_timestamp_of_change = float('inf')  # If this stays as float('inf), no changes happened
 
         ret = []
         matched_candidates_by_uuid = set()
         matched_existing_by_uuid = set()
+        # Map position_uuid to syncStatus
+        position_to_sync_status = {}
         kept = list()
         inserted = list()
         deleted = list()
+        matched = list()
         stats = defaultdict(int)
+
+        # There should only be one open position at a time. We trust the candidate data to be correct. Therefore, if
+        # there is an open position in the candidate data, we will delete all open positions in the existing data.
+
+        open_postition_acked = False
         # First pass. Try to match 1:1 based on position_uuid
         for c in candidate_positions:
             if c.position_uuid in matched_candidates_by_uuid:
                 continue
             for e in existing_positions:
                 if e.position_uuid == c.position_uuid:
+                    # Block the match
+                    if open_postition_acked and e.is_open_position:
+                        continue
+
                     e.orders, min_timestamp_of_order_change = self.sync_orders(e, c, hk, trade_pair, hard_snap_cutoff_ms)
                     if min_timestamp_of_order_change != float('inf'):
                         e.rebuild_position_with_updated_orders()
                         min_timestamp_of_change = min(min_timestamp_of_change, min_timestamp_of_order_change)
+                        position_to_sync_status[e] = PositionSyncResult.UPDATED
+                    else:
+                        position_to_sync_status[e] = PositionSyncResult.NOTHING
+                    open_postition_acked |= e.is_open_position
                     ret.append(e)
+
                     matched_candidates_by_uuid |= {c.position_uuid}
                     matched_existing_by_uuid |= {e.position_uuid}
                     stats['matched'] += 1
+                    matched.append(e)
                     break
 
         # Second pass. Try to match 1:1 based on timestamps
@@ -225,13 +259,22 @@ class PositionSyncer:
                 if e.position_uuid in matched_existing_by_uuid:
                     continue
                 if self.positions_aligned(e, c):
+                    # Block the match
+                    if open_postition_acked and e.is_open_position:
+                        continue
+
                     e.orders, min_timestamp_of_order_change = self.sync_orders(e, c, hk, trade_pair, hard_snap_cutoff_ms)
                     if min_timestamp_of_order_change != float('inf'):
                         e.rebuild_position_with_updated_orders()
                         min(min_timestamp_of_change, min_timestamp_of_order_change)
+                        position_to_sync_status[e] = PositionSyncResult.UPDATED
+                    else:
+                        position_to_sync_status[e] = PositionSyncResult.NOTHING
+                    open_postition_acked |= e.is_open_position
                     matched_candidates_by_uuid |= {c.position_uuid}
                     matched_existing_by_uuid |= {e.position_uuid}
                     ret.append(e)
+                    matched.append(e)
                     stats['matched'] += 1
                     break
 
@@ -241,7 +284,13 @@ class PositionSyncer:
             if p.position_uuid in matched_candidates_by_uuid:
                 continue
 
+            # Block the insert
+            if open_postition_acked and p.is_open_position:
+                continue
+
             stats['inserted'] += 1
+            position_to_sync_status[p] = PositionSyncResult.INSERTED
+            open_postition_acked |= p.is_open_position
             min_timestamp_of_change = min(min_timestamp_of_change, p.open_ms)
             ret.append(p)
             inserted.append(p)
@@ -250,14 +299,21 @@ class PositionSyncer:
         for p in existing_positions:
             if p.position_uuid in matched_existing_by_uuid:
                 continue
-            if p.open_ms < hard_snap_cutoff_ms:
+            if p.open_ms < hard_snap_cutoff_ms and candidate_positions:
                 stats['deleted'] += 1
                 deleted.append(p)
+                position_to_sync_status[p] = PositionSyncResult.DELETED
                 min_timestamp_of_change = min(min_timestamp_of_change, p.open_ms)
             else:
+                # Block the insert
+                if open_postition_acked and p.is_open_position:
+                    continue
+
                 ret.append(p)
                 kept.append(p)
+                open_postition_acked |= p.is_open_position
                 stats['kept'] += 1
+                position_to_sync_status[p] = PositionSyncResult.NOTHING
 
 
         if stats['deleted']:
@@ -292,16 +348,20 @@ class PositionSyncer:
                 print(f'  deleted positions:')
                 for x in deleted:
                     self.debug_print_pos(x)
+            if matched:
+                print(f'  matched positions:')
+                print(f'  {len(matched)} matched positions')
+                #for x in matched:
+                #    self.debug_print_pos(x)
 
-        ret.sort(key=self.position_manager.sort_by_close_ms)
         n_open = len([p for p in ret if p.is_open_position])
         assert n_open < 2, f"n_open: {n_open}"
-        return ret, min_timestamp_of_change
+        return position_to_sync_status, min_timestamp_of_change, stats
 
     def partition_positions_by_trade_pair(self, positions: list[Position]) -> dict[str, list[Position]]:
         positions_by_trade_pair = defaultdict(list)
         for position in positions:
-            positions_by_trade_pair[position.trade_pair].append(position)
+            positions_by_trade_pair[position.trade_pair].append(deepcopy(position))
         return positions_by_trade_pair
 
     def read_validator_checkpoint_from_gcloud_zip(url):
@@ -335,10 +395,43 @@ class PositionSyncer:
             bt.logging.error(f"An unexpected error occurred: {e}")
         return None
 
+    def write_modifications(self, position_to_sync_status, stats, is_mothership):
+        # Ensure the enums align with the global stats
+        kept_and_matched = stats['kept'] + stats['matched']
+        deleted = stats['deleted']
+        inserted = stats['inserted']
+        for position, sync_status in position_to_sync_status.items():
+            if sync_status == PositionSyncResult.UPDATED:
+                if not is_mothership:
+                    if position.is_open_position:
+                        self.position_manager.delete_open_position_if_exists(position)
+                    self.position_manager.save_miner_position_to_disk(position, delete_open_position_if_exists=False)
+                kept_and_matched -= 1
+            elif sync_status == PositionSyncResult.DELETED:
+                deleted -= 1
+                if not is_mothership:
+                    self.position_manager.delete_position_from_disk(position)
+            elif sync_status == PositionSyncResult.INSERTED:
+                inserted -= 1
+                if not is_mothership:
+                    self.position_manager.save_miner_position_to_disk(position, delete_open_position_if_exists=False)
+            elif sync_status == PositionSyncResult.NOTHING:
+                kept_and_matched -= 1
+            else:
+                raise ValueError(f"Unrecognized sync status: {sync_status}")
+
+        if kept_and_matched != 0:
+            raise PositionSyncResultException(f"kept_and_matched: {kept_and_matched} stats {stats}")
+        if deleted != 0:
+            raise PositionSyncResultException(f"deleted: {deleted} stats {stats}")
+        if inserted != 0:
+            raise PositionSyncResultException(f"inserted: {inserted} stats {stats}")
+
 
     def sync_positions(self, candidate_data=None, disk_positions=None) -> dict[str: list[Position]]:
         t0 = time.time()
         self.init_data()
+        perf_ledger_hks_to_invalidate = {}
         if candidate_data is None:
             candidate_data = self.read_validator_checkpoint_from_gcloud_zip()
             if not candidate_data:
@@ -358,9 +451,9 @@ class PositionSyncer:
         bt.logging.info(
             f"Automated sync. hard_snap_cutoff_ms: {TimeUtil.millis_to_formatted_date_str(hard_snap_cutoff_ms)}")
 
-        if 'mothership' in ValiUtils.get_secrets():
-            bt.logging.info(f"Mothership detected. Skipping position sync.")
-            # TODO: reenable return
+        is_mothership = 'mothership' in ValiUtils.get_secrets()
+        if is_mothership:
+            bt.logging.info(f"Mothership detected")
 
         if disk_positions is None:
             disk_positions = self.position_manager.get_all_disk_positions_for_all_miners(only_open_positions=False,
@@ -375,7 +468,6 @@ class PositionSyncer:
         eliminations = candidate_data['eliminations']
         self.position_manager.write_eliminations_to_disk(eliminations)
         eliminated_hotkeys = set([e['hotkey'] for e in eliminations])
-
         # For a healthy validator, the existing positions will always be a superset of the candidate positions
         for hotkey, positions in candidate_hk_to_positions.items():
             if self.shutdown_dict:
@@ -386,17 +478,32 @@ class PositionSyncer:
             self.global_stats['n_miners_synced'] += 1
             candidate_positions_by_trade_pair = self.partition_positions_by_trade_pair(positions)
             existing_positions_by_trade_pair = self.partition_positions_by_trade_pair(disk_positions.get(hotkey, []))
-            for trade_pair in candidate_positions_by_trade_pair.keys():
+            unified_trade_pairs = set(candidate_positions_by_trade_pair.keys()) | set(existing_positions_by_trade_pair.keys())
+            for trade_pair in unified_trade_pairs:
                 if self.shutdown_dict:
                     return
                 candidate_positions = candidate_positions_by_trade_pair.get(trade_pair, [])
                 existing_positions = existing_positions_by_trade_pair.get(trade_pair, [])
-                # TODO: dont need to return anything. just write.
-                synced_positions, min_timestamp_of_change = self.resolve_positions(candidate_positions, existing_positions, trade_pair, hotkey, hard_snap_cutoff_ms)
-                if min_timestamp_of_change != float('inf'):
-                    self.perf_ledger_hks_to_invalidate[hotkey] = (
-                        min_timestamp_of_change) if hotkey not in self.perf_ledger_hks_to_invalidate else (
-                        min(self.perf_ledger_hks_to_invalidate[hotkey], min_timestamp_of_change))
+
+                try:
+                    position_to_sync_status, min_timestamp_of_change, stats = self.resolve_positions(candidate_positions, existing_positions, trade_pair, hotkey, hard_snap_cutoff_ms)
+                    if min_timestamp_of_change != float('inf'):
+                        perf_ledger_hks_to_invalidate[hotkey] = (
+                            min_timestamp_of_change) if hotkey not in perf_ledger_hks_to_invalidate else (
+                            min(perf_ledger_hks_to_invalidate[hotkey], min_timestamp_of_change))
+                        self.write_modifications(position_to_sync_status, stats, is_mothership)
+                except Exception as e:
+                    full_traceback = traceback.format_exc()
+                    # Slice the last 1000 characters of the traceback
+                    limited_traceback = full_traceback[-1000:]
+                    bt.logging.error(f"Error syncing positions for hotkey {hotkey} trade pair {trade_pair.trade_pair}. Error: {e} traceback: {limited_traceback}")
+                    # If this is PositionSyncResultException, throw it up. Otherwise, log the error and continue.
+                    if isinstance(e, PositionSyncResultException):
+                        raise e
+
+
+
+
         # count sets
         self.global_stats['n_miners_positions_deleted'] = len(self.miners_with_position_deletion)
         self.global_stats['n_miners_positions_inserted'] = len(self.miners_with_position_insertion)
@@ -408,6 +515,8 @@ class PositionSyncer:
         self.global_stats['n_miners_orders_matched'] = len(self.miners_with_order_matched)
         self.global_stats['n_miners_orders_kept'] = len(self.miners_with_order_kept)
 
+        # Write atomically to prevent race condition in perf ledger update.
+        self.perf_ledger_hks_to_invalidate = perf_ledger_hks_to_invalidate
         # Print self.global_stats
         bt.logging.info(f"Global stats:")
         for k, v in self.global_stats.items():

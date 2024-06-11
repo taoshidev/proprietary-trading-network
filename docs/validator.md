@@ -165,7 +165,10 @@ validator  default  197    True   0.00000  0.00000  0.00000    0.00000    0.0000
 
 ### Overview
 
-This guide provides instructions for running the validator using our automatic updater script, `run.sh`. It also introduces the optional `--start-generate` flag, which enables the generation of JSON files corresponding to trade data. These files can be sold to customers using the Request Network (further instructions pending).
+This guide provides instructions for running the validator using our automatic updater script, `run.sh`. It also introduces two optional flags
+
+1. The `--start-generate` flag, which enables the generation of JSON files corresponding to trade data. These files can be sold to customers using the Request Network (further instructions pending).
+2. The `--autosync` flag, which allows you to synchronize your data with a validator trusted by Taoshi (strong recommend enabling this flag to maintain validator consensus)
 
 ### Prerequisites
 
@@ -187,9 +190,9 @@ Before running a validator, follow these steps:
 
 ### Using `run.sh` Script
 
-1. **Mainnet Execution**: Run the validator on the mainnet by executing the following command. Include the `[--start-generate]` flag if you wish to generate trade data:
+1. **Mainnet Execution**: Run the validator on the mainnet by executing the following command. Include/exclude the `[--start-generate]` and `[--autosync]` flags as needed:
     ```bash
-    $ pm2 start run.sh --name sn8 -- --wallet.name <wallet> --wallet.hotkey <hotkey> --netuid 8 [--start-generate]
+    $ pm2 start run.sh --name sn8 -- --wallet.name <wallet> --wallet.hotkey <hotkey> --netuid 8 [--start-generate] [--autosync]
     ```
    
 2. **Testnet Execution**: For testnet operations with optional data generation, use this command:
@@ -210,9 +213,11 @@ These commands initialize two PM2 processes:
 
 ### Synchronizing your validator
 
-Once you confirmed that your validator is able to run, you will want to stop it to perform the manual synchronization procedure. This procedure should be used when your validator is starting for the first time or experiences unexpected downtime. After the procedure is complete, your validator will have the most update to date miner positions and will be able to maintain a high trust score.
+Using the `--autosync` flag will allow your validator to synchronize with a trusted validator automatically.
 
- Please follow the steps [here](https://github.com/taoshidev/proprietary-trading-network/blob/main/docs/regenerating_validator_state.md) for performing the synchronization.
+However, we understand some validators want strict control and the ability to scrutinize all data changes.
+In this case, we provide an alternative restore mechanism that essentially does a "nuke and force rebuild". 
+ To use this manual restore mechanism, please follow the steps [here](https://github.com/taoshidev/proprietary-trading-network/blob/main/docs/regenerating_validator_state.md) for performing the synchronization.
 
 ## 7. Get emissions flowing
 
@@ -238,7 +243,7 @@ To stop your validator, press CTRL + C in the terminal where the validator is ru
 
 ## 9. Relaunching run.sh
 
-You will need to do this if you want to change any runtime configuration to run.sh such as adding or removing the `--start-generate` flag. Prepare your new `pm2 start run.sh ...` command before proceeding to minimize downtime.
+You will need to do this if you want to change any runtime configuration to run.sh such as adding or removing the `--start-generate`/ `--autosync` flags. Prepare your new `pm2 start run.sh ...` command before proceeding to minimize downtime.
 
 Login to validator and cd into the PTN repo
 ```bash

@@ -663,7 +663,16 @@ class PerfLedgerManager(CacheController):
         #if t_ms < 1714546760000 + 1000 * 60 * 60 * 1:  # Rebuild after bug fix
         #    perf_ledgers = {}
         hotkey_to_positions = self.get_positions_perf_ledger(testing_one_hotkey=testing_one_hotkey)
-        hotkeys_ordered_by_last_trade = sorted(list(hotkey_to_positions.keys()), key=lambda x: hotkey_to_positions[x][-1].orders[-1].processed_ms, reverse=True)
+
+        def sort_key(x):
+            # Highest priority. Want to rebuild this hotkey first since it has an incorrect dd from a Polygon bug
+            if x == "5GzYKUYSD5d7TJfK4jsawtmS2bZDgFuUYw8kdLdnEDxSykTU":
+                return float('inf')
+            # Otherwise, sort by the last trade time
+            return hotkey_to_positions[x][-1].orders[-1].processed_ms
+
+        # Sort the keys with the custom sort key
+        hotkeys_ordered_by_last_trade = sorted(hotkey_to_positions.keys(), key=sort_key, reverse=True)
         eliminated_hotkeys = self.get_eliminated_hotkeys()
 
         # Remove keys from perf ledgers if they aren't in the metagraph anymore
@@ -686,6 +695,7 @@ class PerfLedgerManager(CacheController):
                 #bt.logging.info(f"perf ledger PLM added {hotkey} with {len(hotkey_to_positions.get(hotkey, []))} positions to rss.")
                 hotkeys_to_delete.add(hotkey)
 
+
         # Start over again
         if not rss_modified:
             self.random_security_screenings = set()
@@ -698,7 +708,8 @@ class PerfLedgerManager(CacheController):
 
 
         # Trim checkpoints if a hotkey was modified during position sync
-        if 0: # TODO: renable self.position_syncer:
+        attempting_invalidations = bool(self.position_syncer) and bool(self.position_syncer.perf_ledger_hks_to_invalidate)
+        if attempting_invalidations:
             for hk, t in self.position_syncer.perf_ledger_hks_to_invalidate.items():
                 perf_ledger = perf_ledgers.get(hk)
                 if perf_ledger:
@@ -708,8 +719,8 @@ class PerfLedgerManager(CacheController):
         # Time in the past to start updating the perf ledgers
         self.update_all_perf_ledgers(hotkey_to_positions, perf_ledgers, t_ms)
 
-        # Clear invalidations after successful update
-        if 0: # TODO: reenable after fortifying self.position_syncer:
+        # Clear invalidations after successful update. Prevent race condition by only clearing if we attempted invalidations.
+        if attempting_invalidations:
             self.position_syncer.perf_ledger_hks_to_invalidate = {}
 
     @staticmethod
