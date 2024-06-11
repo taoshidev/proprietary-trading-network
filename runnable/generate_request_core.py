@@ -3,12 +3,12 @@ import json
 import os
 import zipfile
 
-import bittensor as bt
 from google.cloud import storage
 
 from time_util.time_util import TimeUtil
 from vali_config import ValiConfig
 from vali_objects.decoders.generalized_json_decoder import GeneralizedJSONDecoder
+from vali_objects.position import Position
 from vali_objects.utils.position_manager import PositionManager
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils, CustomEncoder
 from vali_objects.utils.subtensor_weight_setter import SubtensorWeightSetter
@@ -58,10 +58,11 @@ def upload_checkpoint_to_gcloud(final_dict):
     max_allowed_t_ms = TimeUtil.now_in_millis() - AUTO_SYNC_ORDER_LAG_MS
     for hotkey, positions in positions.items():
         new_positions = []
-        for position in positions['positions']:
+        positions_deserialized = [Position(**json_positions_dict) for json_positions_dict in positions['positions']]
+        for position in positions_deserialized:
             new_orders = []
-            for order in position['orders']:
-                if order['processed_ms'] < max_allowed_t_ms:
+            for order in position.orders:
+                if order.processed_ms < max_allowed_t_ms:
                     new_orders.append(order)
             if len(new_orders):
                 position.orders = new_orders
@@ -70,15 +71,17 @@ def upload_checkpoint_to_gcloud(final_dict):
             else:
                 # if no orders are left, remove the position
                 pass
-        positions['positions'] = new_positions
 
-    str = json.dumps(final_dict, cls=CustomEncoder)
+        positions_serialized = [json.loads(str(p), cls=GeneralizedJSONDecoder) for p in new_positions]
+        positions['positions'] = positions_serialized
+
+    str_to_write = json.dumps(final_dict, cls=CustomEncoder)
 
     # Create a zip file in memory
     with io.BytesIO() as zip_buffer:
         with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
             # Add the json file to the zip file
-            zip_file.writestr('validator_checkpoint.json', str)
+            zip_file.writestr('validator_checkpoint.json', str_to_write)
             #zip_file.write(ValiBkpUtils.get_vcp_output_path(), arcname='validator_checkpoint.json')
 
         # Rewind the buffer's file pointer to the beginning so you can read its content
