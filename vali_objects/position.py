@@ -63,9 +63,24 @@ class Position(BaseModel):
                 
             updated_orders.append(order)
         values['orders'] = updated_orders
-
         values['trade_pair'] = trade_pair
         return values
+
+    def __hash__(self):
+        # Include specified fields in the hash, assuming trade_pair is accessible and immutable
+        return hash((self.miner_hotkey, self.position_uuid, self.open_ms, self.current_return,
+                     self.net_leverage, self.initial_entry_price, self.trade_pair.trade_pair))
+
+    def __eq__(self, other):
+        if not isinstance(other, Position):
+            return NotImplemented
+        return (self.miner_hotkey == other.miner_hotkey and
+                self.position_uuid == other.position_uuid and
+                self.open_ms == other.open_ms and
+                self.current_return == other.current_return and
+                self.net_leverage == other.net_leverage and
+                self.initial_entry_price == other.initial_entry_price and
+                self.trade_pair.trade_pair == other.trade_pair.trade_pair)
 
     def _handle_trade_pair_encoding(self, d):
         # Remove trade_pair from orders
