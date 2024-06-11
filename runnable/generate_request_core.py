@@ -13,17 +13,14 @@ from vali_objects.utils.position_manager import PositionManager
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils, CustomEncoder
 from vali_objects.utils.subtensor_weight_setter import SubtensorWeightSetter
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
-
-
+from vali_objects.utils.auto_sync import AUTO_SYNC_ORDER_LAG_MS
 def upload_checkpoint_to_gcloud(final_dict):
     """
     The idea is to upload a zipped, time lagged validator checkpoint to google cloud for auto restoration
     on other validators as well as transparency with the community.
 
     """
-    # Only upload the checkpoint at 5:09:00, 5:19:00, ... 5:59:00 UTC
     datetime_now = TimeUtil.generate_start_timestamp(0)  # UTC
-    #TODO: Reinstate original condition
     #if not (datetime_now.hour == 6 and datetime_now.minute < 9 and datetime_now.second < 30):
     if not (datetime_now.minute == 22 and datetime_now.second < 30):
         return
@@ -53,15 +50,18 @@ def upload_checkpoint_to_gcloud(final_dict):
     # Create a new blob and upload data
     blob = bucket.blob(blob_name)
 
+    """
+    candidate_data['positions'][hk]['positions'] = [json.loads(str(p), cls=GeneralizedJSONDecoder) for p in positions_orig]
+    """
     positions = final_dict['positions']
     # 24 hours in milliseconds
-    time_lag = 1000 * 60 * 60 * 24
+    max_allowed_t_ms = TimeUtil.now_in_millis() - AUTO_SYNC_ORDER_LAG_MS
     for hotkey, positions in positions.items():
         new_positions = []
         for position in positions['positions']:
             new_orders = []
             for order in position['orders']:
-                if order['processed_ms'] < time_lag:
+                if order['processed_ms'] < max_allowed_t_ms:
                     new_orders.append(order)
             if len(new_orders):
                 position.orders = new_orders
@@ -70,7 +70,7 @@ def upload_checkpoint_to_gcloud(final_dict):
             else:
                 # if no orders are left, remove the position
                 pass
-        positions[hotkey] = new_positions
+        positions['positions'] = new_positions
 
     str = json.dumps(final_dict, cls=CustomEncoder)
 

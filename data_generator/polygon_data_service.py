@@ -122,7 +122,7 @@ class PolygonDataService(BaseDataService):
                 last_ws_health_check_s = now
                 prev_n_events = self.n_events_global
 
-            if now - last_market_status_update_s > 60:
+            if now - last_market_status_update_s > 180:
                 #self.MARKET_STATUS = self.POLYGON_CLIENT.get_market_status()
                 #if not isinstance(self.MARKET_STATUS, MarketStatus):
                 #    bt.logging.error(f"Failed to fetch market status. Received: {self.MARKET_STATUS}")

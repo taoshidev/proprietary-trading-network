@@ -20,7 +20,7 @@ class TestPositions(TestBase):
         super().setUp()
         secrets = ValiUtils.get_secrets()
         secrets["twelvedata_apikey"] = secrets["twelvedata_apikey"]
-        self.live_price_fetcher = LivePriceFetcher(secrets=secrets)
+        self.live_price_fetcher = LivePriceFetcher(secrets=secrets, disable_ws=True)
         self.DEFAULT_MINER_HOTKEY = "test_miner"
         self.DEFAULT_POSITION_UUID = "test_position"
         self.DEFAULT_OPEN_MS = 1000

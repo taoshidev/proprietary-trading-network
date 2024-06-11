@@ -117,7 +117,7 @@ class TwelveDataService(BaseDataService):
                     time_of_last_heartbeat = now
                 if self._should_reset_websocket():
                     self._reset_websocket()
-                if time.time() - time_of_last_debug_log >= 60:
+                if time.time() - time_of_last_debug_log >= 180:
                     self.debug_log()
                     time_of_last_debug_log = time.time()
                 if DEBUG:
