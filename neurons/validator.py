@@ -15,7 +15,7 @@ import traceback
 import time
 import bittensor as bt
 
-from restore_validator_from_backup import force_validator_to_restore_from_checkpoint, PositionSyncer
+from vali_objects.utils.auto_sync import PositionSyncer
 from shared_objects.rate_limiter import RateLimiter
 from vali_objects.uuid_tracker import UUIDTracker
 from time_util.time_util import TimeUtil
@@ -139,8 +139,9 @@ class Validator:
             )
             exit()
 
+        self.position_syncer = PositionSyncer(shutdown_dict=shutdown_dict)
         self.perf_ledger_manager = PerfLedgerManager(self.metagraph, live_price_fetcher=self.live_price_fetcher,
-                                                     shutdown_dict=shutdown_dict)
+                                                     shutdown_dict=shutdown_dict, position_syncer=self.position_syncer)
         # Start the perf ledger updater loop in its own thread
         self.perf_ledger_updater_thread = threading.Thread(target=self.perf_ledger_manager.run_update_loop, daemon=True)
         self.perf_ledger_updater_thread.start()
@@ -215,7 +216,6 @@ class Validator:
 
         self.elimination_manager = EliminationManager(self.metagraph, self.position_manager, self.eliminations_lock)
 
-        self.position_syncer = PositionSyncer()
         # Validators on mainnet net to be syned for the first time or after interruption need to resync their
         # positions. Assert there are existing orders that occurred > 24hrs in the past. Assert that the newest order
         # was placed within 24 hours.
@@ -326,7 +326,7 @@ class Validator:
 
         # Check if we are between 6:10 AM and 6:20 AM UTC
         datetime_now = TimeUtil.generate_start_timestamp(0)  # UTC
-        if not (datetime_now.hour == 6 and (10 < datetime_now.minute < 20)):
+        if not (datetime_now.hour == 6 and (8 < datetime_now.minute < 20)):
             return
 
         with self.signal_sync_lock:
