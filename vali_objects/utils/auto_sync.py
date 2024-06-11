@@ -348,6 +348,9 @@ class PositionSyncer:
         bt.logging.info(f"Automated sync. Found backup creation time: {TimeUtil.millis_to_formatted_date_str(backup_creation_time_ms)}")
 
         candidate_hk_to_positions = {}
+        for hk, data in candidate_data['positions'].items():
+            positions = data['positions']
+            candidate_hk_to_positions[hk] = [Position(**p) for p in positions]
 
         # The candidate dataset is time lagged. We only delete non-matching data if they occured during the window of the candidate data.
         # We want to account for a few minutes difference of possible orders that came in after a retry.
