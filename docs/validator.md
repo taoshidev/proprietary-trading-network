@@ -237,11 +237,8 @@ btcli root weights
 
 To set your weights on testnet `--subtensor.network test` flag.
 
-## 8. Stopping your validator
 
-To stop your validator, press CTRL + C in the terminal where the validator is running.
-
-## 9. Relaunching run.sh
+## 8. Relaunching run.sh
 
 You will need to do this if you want to change any runtime configuration to run.sh such as adding or removing the `--start-generate`/ `--autosync` flags. Prepare your new `pm2 start run.sh ...` command before proceeding to minimize downtime.
 
@@ -284,7 +281,7 @@ python neurons/validator.py --netuid 116 --subtensor.network test --wallet.name 
 ```
 Note this won't launch the autoupdater. To launch with the autoupdater, use the run.sh command.
 
-## 10. Pitfall Prevention
+## 9. Pitfall Prevention
 
 1. When running a validator in certain cloud environments such as Runpod, you may not have your Bittensor default port open (8091). This will cause your validator to be unable to communicate with miners and thus have a low VTRUST as your validator isn't receiving the latest orders. In order to correct this issue, explicitly open a tcp port, and pass this as an arugment with `--axon.port <YOUR_OPEN_PORT>`
 
