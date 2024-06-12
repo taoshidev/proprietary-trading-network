@@ -237,8 +237,9 @@ class TestPositions(TestBase):
                 stats_str += f"{k}:{v}, "
 
             assert stats['n_miners_synced'] == 1, (i, stats_str)
-
-            assert stats['n_miners_positions_deleted'] == 0, (i, stats_str)
+            if i == 2:
+                assert stats['blocked_keep_open_position_acked'] == 1
+            assert stats['n_miners_positions_deleted'] == int(i == 2), (i, stats_str)
             assert stats['n_miners_positions_kept'] == int(i != 2), (i, stats_str)
             assert stats['n_miners_positions_matched'] == 0, (i, stats_str)
             assert stats['n_miners_positions_inserted'] == 1, (i, stats_str)
@@ -250,7 +251,7 @@ class TestPositions(TestBase):
 
             assert stats['positions_inserted'] == 1, (i, stats_str)
             assert stats['positions_matched'] == 0, (i, stats_str)
-            assert stats['positions_deleted'] == 0, (i, stats_str)
+            assert stats['positions_deleted'] == int(i == 2), (i, stats_str)
             assert stats['positions_kept'] == int(i != 2), (i, stats_str)
 
             assert stats['orders_inserted'] == 0, (i, stats_str)

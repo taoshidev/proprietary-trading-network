@@ -10,7 +10,6 @@ from copy import deepcopy
 import requests
 
 from time_util.time_util import TimeUtil
-from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.position import Position
 from vali_objects.utils.position_manager import PositionManager
 import bittensor as bt
@@ -54,7 +53,7 @@ class PositionSyncer:
         self.perf_ledger_hks_to_invalidate = {}  # {hk: timestamp_ms}
 
     def debug_print_pos(self, p):
-        print(f'        pos: open {TimeUtil.millis_to_formatted_date_str(p.open_ms)} close {TimeUtil.millis_to_formatted_date_str(p.close_ms) if p.close_ms else "N/A"} uuid {p.position_uuid}')
+        print(f'    pos: open {TimeUtil.millis_to_formatted_date_str(p.open_ms)} close {TimeUtil.millis_to_formatted_date_str(p.close_ms) if p.close_ms else "N/A"} uuid {p.position_uuid}')
         for o in p.orders:
             self.debug_print_order(o)
     def debug_print_order(self, o):
@@ -207,7 +206,7 @@ class PositionSyncer:
         return ans, min_timestamp_of_order_change
 
     def resolve_positions(self, candidate_positions, existing_positions, trade_pair, hk, hard_snap_cutoff_ms):
-        debug = 0
+        debug = 1
         min_timestamp_of_change = float('inf')  # If this stays as float('inf), no changes happened
 
         ret = []
@@ -230,6 +229,8 @@ class PositionSyncer:
             if c.position_uuid in matched_candidates_by_uuid:
                 continue
             for e in existing_positions:
+                if e.position_uuid in matched_existing_by_uuid:
+                    continue
                 if e.position_uuid == c.position_uuid:
                     # Block the match
                     if open_postition_acked and e.is_open_position:
@@ -286,6 +287,7 @@ class PositionSyncer:
 
             # Block the insert
             if open_postition_acked and p.is_open_position:
+                self.global_stats['blocked_insert_open_position_acked'] += 1
                 continue
 
             stats['inserted'] += 1
@@ -305,8 +307,13 @@ class PositionSyncer:
                 position_to_sync_status[p] = PositionSyncResult.DELETED
                 min_timestamp_of_change = min(min_timestamp_of_change, p.open_ms)
             else:
-                # Block the insert
+                # Block the keep and delete it
                 if open_postition_acked and p.is_open_position:
+                    stats['deleted'] += 1
+                    deleted.append(p)
+                    position_to_sync_status[p] = PositionSyncResult.DELETED
+                    min_timestamp_of_change = min(min_timestamp_of_change, p.open_ms)
+                    self.global_stats['blocked_keep_open_position_acked'] += 1
                     continue
 
                 ret.append(p)
@@ -350,9 +357,9 @@ class PositionSyncer:
                     self.debug_print_pos(x)
             if matched:
                 print(f'  matched positions:')
-                print(f'  {len(matched)} matched positions')
-                #for x in matched:
-                #    self.debug_print_pos(x)
+                #print(f'  {len(matched)} matched positions')
+                for x in matched:
+                    self.debug_print_pos(x)
 
         n_open = len([p for p in ret if p.is_open_position])
         assert n_open < 2, f"n_open: {n_open}"
@@ -400,6 +407,13 @@ class PositionSyncer:
         kept_and_matched = stats['kept'] + stats['matched']
         deleted = stats['deleted']
         inserted = stats['inserted']
+        # Deletions happen first
+        for position, sync_status in position_to_sync_status.items():
+            if sync_status == PositionSyncResult.DELETED:
+                deleted -= 1
+                if not is_mothership:
+                    self.position_manager.delete_position_from_disk(position)
+        # Updates happen next
         for position, sync_status in position_to_sync_status.items():
             if sync_status == PositionSyncResult.UPDATED:
                 if not is_mothership:
@@ -407,18 +421,16 @@ class PositionSyncer:
                         self.position_manager.delete_open_position_if_exists(position)
                     self.position_manager.save_miner_position_to_disk(position, delete_open_position_if_exists=False)
                 kept_and_matched -= 1
-            elif sync_status == PositionSyncResult.DELETED:
-                deleted -= 1
-                if not is_mothership:
-                    self.position_manager.delete_position_from_disk(position)
-            elif sync_status == PositionSyncResult.INSERTED:
+        # Insertions happen last so that there is no double open position issue
+        for position, sync_status in position_to_sync_status.items():
+            if sync_status == PositionSyncResult.INSERTED:
                 inserted -= 1
                 if not is_mothership:
                     self.position_manager.save_miner_position_to_disk(position, delete_open_position_if_exists=False)
-            elif sync_status == PositionSyncResult.NOTHING:
+        for position, sync_status in position_to_sync_status.items():
+            if sync_status == PositionSyncResult.NOTHING:
                 kept_and_matched -= 1
-            else:
-                raise ValueError(f"Unrecognized sync status: {sync_status}")
+
 
         if kept_and_matched != 0:
             raise PositionSyncResultException(f"kept_and_matched: {kept_and_matched} stats {stats}")
@@ -475,6 +487,7 @@ class PositionSyncer:
             if hotkey in eliminated_hotkeys:
                 self.global_stats['n_miners_skipped_eliminated'] += 1
                 continue
+            self.position_manager.dedupe_positions(positions, hotkey)
             self.global_stats['n_miners_synced'] += 1
             candidate_positions_by_trade_pair = self.partition_positions_by_trade_pair(positions)
             existing_positions_by_trade_pair = self.partition_positions_by_trade_pair(disk_positions.get(hotkey, []))
@@ -500,6 +513,8 @@ class PositionSyncer:
                     # If this is PositionSyncResultException, throw it up. Otherwise, log the error and continue.
                     if isinstance(e, PositionSyncResultException):
                         raise e
+                    else:
+                        self.global_stats['exceptions_seen'] += 1
 
 
 

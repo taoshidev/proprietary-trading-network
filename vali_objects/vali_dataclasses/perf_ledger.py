@@ -665,8 +665,8 @@ class PerfLedgerManager(CacheController):
         hotkey_to_positions = self.get_positions_perf_ledger(testing_one_hotkey=testing_one_hotkey)
 
         def sort_key(x):
-            # Highest priority. Want to rebuild this hotkey first since it has an incorrect dd from a Polygon bug
-            if x == "5GzYKUYSD5d7TJfK4jsawtmS2bZDgFuUYw8kdLdnEDxSykTU":
+            # Highest priority. Want to rebuild this hotkey first in case it has an incorrect dd from a Polygon bug
+            if x == "5Et6DsfKyfe2PBziKo48XNsTCWst92q8xWLdcFy6hig427qH":
                 return float('inf')
             # Otherwise, sort by the last trade time
             return hotkey_to_positions[x][-1].orders[-1].processed_ms
