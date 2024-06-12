@@ -204,7 +204,7 @@ if __name__ == "__main__":
     bt.logging.info("regenerating miner positions")
     if not perform_backup:
         bt.logging.warning("backup disabled")
-    passed = regenerate_miner_positions(perform_backup)
+    passed = regenerate_miner_positions(perform_backup, ignore_timestamp_checks=True)
     if passed:
         bt.logging.info("regeneration complete in %.2f seconds" % (time.time() - t0))
     else:
