@@ -10,6 +10,7 @@ from copy import deepcopy
 import requests
 
 from time_util.time_util import TimeUtil
+from vali_config import TradePair
 from vali_objects.position import Position
 from vali_objects.utils.position_manager import PositionManager
 import bittensor as bt
@@ -92,10 +93,10 @@ class PositionSyncer:
                 (o1.order_type == o2.order_type) and
                 abs(o1.processed_ms - o2.processed_ms) < timebound_ms)
 
-    def sync_orders(self, e, c, hk, trade_pair, hard_snap_cutoff_ms):
+    def sync_orders(self, ep, cp, hk, trade_pair, hard_snap_cutoff_ms):
         debug = 1
-        existing_orders = e.orders
-        candidate_orders = c.orders
+        existing_orders = ep.orders
+        candidate_orders = cp.orders
         min_timestamp_of_order_change = float('inf')
         # Positions are synonymous with an order
         assert existing_orders, existing_orders
@@ -113,6 +114,8 @@ class PositionSyncer:
             if c.order_uuid in matched_candidates_by_uuid:
                 continue
             for e in existing_orders:
+                if e.order_uuid in matched_existing_by_uuid:
+                    continue
                 if e.order_uuid == c.order_uuid:
                     ret.append(e)
                     matched_candidates_by_uuid |= {c.order_uuid}
@@ -208,7 +211,8 @@ class PositionSyncer:
     def resolve_positions(self, candidate_positions, existing_positions, trade_pair, hk, hard_snap_cutoff_ms):
         debug = 1
         min_timestamp_of_change = float('inf')  # If this stays as float('inf), no changes happened
-
+        candidate_positions_original = deepcopy(candidate_positions)
+        existing_positions_original = deepcopy(existing_positions)
         ret = []
         matched_candidates_by_uuid = set()
         matched_existing_by_uuid = set()
@@ -342,10 +346,10 @@ class PositionSyncer:
                   f' {len(existing_positions)} existing positions. stats {stats}')
 
             print(f'  existing positions:')
-            for x in existing_positions:
+            for x in candidate_positions_original:
                 self.debug_print_pos(x)
             print(f'  candidate positions:')
-            for x in candidate_positions:
+            for x in candidate_positions_original:
                 self.debug_print_pos(x)
             if inserted:
                 print(f'  inserted positions:')
@@ -413,13 +417,18 @@ class PositionSyncer:
                 deleted -= 1
                 if not is_mothership:
                     self.position_manager.delete_position_from_disk(position)
+
         # Updates happen next
+        # First close out contradicting positions that happen if a validator is left in a bad state
+        for position, sync_status in position_to_sync_status.items():
+            if sync_status == PositionSyncResult.UPDATED or sync_status == PositionSyncResult.NOTHING:
+                if not is_mothership:
+                    if position.is_closed_position:
+                        self.position_manager.delete_open_position_if_exists(position)
         for position, sync_status in position_to_sync_status.items():
             if sync_status == PositionSyncResult.UPDATED:
                 if not is_mothership:
-                    if position.is_open_position:
-                        self.position_manager.delete_open_position_if_exists(position)
-                    self.position_manager.save_miner_position_to_disk(position, delete_open_position_if_exists=False)
+                    self.position_manager.save_miner_position_to_disk(position, delete_open_position_if_exists=True)
                 kept_and_matched -= 1
         # Insertions happen last so that there is no double open position issue
         for position, sync_status in position_to_sync_status.items():
