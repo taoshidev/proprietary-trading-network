@@ -934,9 +934,10 @@ class PositionManager(CacheController):
                                                    f" {updated_position.trade_pair.trade_pair_id}. Please restore cache. Positions: {positions}")
         elif len(positions) == 1:
             if positions[0].position_uuid != updated_position.position_uuid:
-                raise ValiRecordsMisalignmentException(f"Open position for miner {updated_position.miner_hotkey} and trade_pair."
-                                                       f" {updated_position.trade_pair.trade_pair_id} does not match the updated position."
-                                                       f" Please restore cache. Position: {positions[0]} Updated position: {updated_position}")
+                msg = (f"Attempted to write open position {updated_position.position_uuid} for miner {updated_position.miner_hotkey} "
+                       f"and trade_pair {updated_position.trade_pair.trade_pair_id} but found an existing open"
+                       f" position with a different position_uuid {positions[0].position_uuid}.")
+                raise ValiRecordsMisalignmentException(msg)
 
     def save_miner_position_to_disk(self, position: Position, delete_open_position_if_exists=True) -> None:
         miner_dir = ValiBkpUtils.get_partitioned_miner_positions_dir(position.miner_hotkey,
