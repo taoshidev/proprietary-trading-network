@@ -149,13 +149,15 @@ Install dependencies
 pip install -r requirements.txt
 ```
 
+Note: You should disregard any warnings about updating Bittensor after this. We want to use the version specified in `requirements.txt`.
+
 Create a local and editable installation
 
 ```bash
 python3 -m pip install -e .
 ```
 
-Create `mining/miner_secrets.json` and replace xxxx with your API key.
+Create `mining/miner_secrets.json` and replace xxxx with your API key. The API key value is determined by you and needs to match the value in `mining/sample_signal_request.py`.
 
 ```json
 {
@@ -169,18 +171,28 @@ This step creates local coldkey and hotkey pairs for your miner.
 
 The miner will be registered to the subnet specified. This ensures that the miner can run the respective miner scripts.
 
-Create a coldkey and hotkey for your miner wallet.
+Create a coldkey and hotkey for your miner wallet. A coldkey can have multiple hotkeys, so if you already have an existing coldkey, you should create a new hotkey only. Be sure to save your mnemonics!
 
 ```bash
-btcli wallet new_coldkey --wallet.name miner
-btcli wallet new_hotkey --wallet.name miner --wallet.hotkey default
+btcli wallet new_coldkey --wallet.name <wallet>
+btcli wallet new_hotkey --wallet.name <wallet> --wallet.hotkey <miner>
+```
+
+You can list the local wallets on your machine with the following.
+
+```bash
+btcli wallet list
 ```
 
 ## 2a. Getting Testnet TAO
 
+### Discord ###
+
 Please ask the Bittensor Discord community for testnet TAO. This will let you register your miner(s) on Testnet.
 
-Please request testnet TAO here: https://discord.com/channels/799672011265015819/1190048018184011867
+Please first join the Bittensor Discord here: https://discord.com/invite/bittensor
+
+Then request testnet TAO here: https://discord.com/channels/799672011265015819/1190048018184011867
 
 Bittensor -> help-forum -> requests for testnet tao
 
@@ -189,15 +201,15 @@ Bittensor -> help-forum -> requests for testnet tao
 This step registers your subnet miner keys to the subnet, giving it the first slot on the subnet.
 
 ```bash
-btcli subnet register --wallet.name miner --wallet.hotkey default
+btcli subnet register --wallet.name <wallet> --wallet.hotkey <miner>
 ```
 
-To register your miner on the testnet add the `--subtensor.network test` flag.
+To register your miner on the testnet add the `--subtensor.network test` and `--netuid 116` flags.
 
 Follow the below prompts:
 
 ```bash
->> Enter netuid (0): # Enter the appropriate netuid for your environment
+>> Enter netuid (0): # Enter the appropriate netuid for your environment (8 for the mainnet)
 Your balance is: # Your wallet balance will be shown
 The cost to register by recycle is τ0.000000001 # Current registration costs
 >> Do you want to continue? [y/n] (n): # Enter y to continue
@@ -216,7 +228,7 @@ This step returns information about your registered keys.
 Check that your miner has been registered:
 
 ```bash
-btcli wallet overview --wallet.name miner
+btcli wallet overview --wallet.name <wallet>
 ```
 
 To check your miner on the testnet add the `--subtensor.network test` flag
@@ -226,7 +238,7 @@ The above command will display the below:
 ```bash
 Subnet: 8 # or 116 on testnet
 COLDKEY  HOTKEY   UID  ACTIVE  STAKE(τ)     RANK    TRUST  CONSENSUS  INCENTIVE  DIVIDENDS  EMISSION(ρ)   VTRUST  VPERMIT  UPDATED  AXON  HOTKEY_SS58
-miner    default  196    True   0.00000  0.00000  0.00000    0.00000    0.00000    0.00000            0  0.00000        *      134  none  5HRPpSSMD3TKkmgxfF7Bfu67sZRefUMNAcDofqRMb4zpU4S6
+wallet   miner    196    True   0.00000  0.00000  0.00000    0.00000    0.00000    0.00000            0  0.00000        *      134  none  5HRPpSSMD3TKkmgxfF7Bfu67sZRefUMNAcDofqRMb4zpU4S6
 1        1        1            τ0.00000  0.00000  0.00000    0.00000    0.00000    0.00000           ρ0  0.00000
                                                                                Wallet balance: τ4.998999856
 ```
@@ -236,7 +248,7 @@ miner    default  196    True   0.00000  0.00000  0.00000    0.00000    0.00000 
 Run the subnet miner:
 
 ```bash
-python neurons/miner.py --netuid 8  --wallet.name miner --wallet.hotkey default --logging.debug
+python neurons/miner.py --netuid 8  --wallet.name <wallet> --wallet.hotkey <miner> --logging.debug
 ```
 
 To run your miner on the testnet add the `--subtensor.network test` flag and override the netuuid flag to `--netuid 116`.
@@ -276,7 +288,7 @@ You may use multiple miners when testing if you pass a different port per regist
 You can run a second miner using the following example command:
 
 ```bash
-python neurons/miner.py --netuid 116 --subtensor.network test --wallet.name miner2 --wallet.hotkey default --logging.debug --axon.port 8095
+python neurons/miner.py --netuid 116 --subtensor.network test --wallet.name <wallet> --wallet.hotkey <miner2> --logging.debug --axon.port 8095
 ```
 
 # Issues?

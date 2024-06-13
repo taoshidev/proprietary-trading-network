@@ -87,6 +87,8 @@ Install dependencies
 pip install -r requirements.txt
 ```
 
+Note: You should disregard any warnings about updating Bittensor after this. We want to use the version specified in `requirements.txt`.
+
 Create a local and editable installation
 
 ```bash
@@ -99,16 +101,26 @@ This step creates local coldkey and hotkey pairs for your validator.
 
 The validator will be registered to the subnet specified. This ensures that the validator can run the respective validator scripts.
 
-Create a coldkey and hotkey for your validator wallet.
+Create a coldkey and hotkey for your validator wallet. A coldkey can have multiple hotkeys, so if you already have an existing coldkey, you should create a new hotkey only. Be sure to save your mnemonics!
 
 ```bash
-btcli wallet new_coldkey --wallet.name validator
-btcli wallet new_hotkey --wallet.name validator --wallet.hotkey default
+btcli wallet new_coldkey --wallet.name <wallet>
+btcli wallet new_hotkey --wallet.name <wallet> --wallet.hotkey <validator>
+```
+
+You can list the local wallets on your machine with the following.
+
+```bash
+btcli wallet list
 ```
 
 ## 2a. Getting Testnet TAO
 
+### Discord ###
+
 Please ask the Bittensor Discord community for testnet TAO. This will let you register your validators(s) on Testnet.
+
+Please first join the Bittensor Discord here: https://discord.com/invite/bittensor
 
 Please request testnet TAO here: https://discord.com/channels/799672011265015819/1190048018184011867
 
@@ -119,15 +131,15 @@ Bittensor -> help-forum -> requests for testnet tao
 This step registers your subnet validator keys to the subnet, giving it the first slot on the subnet.
 
 ```bash
-btcli subnet register --wallet.name validator --wallet.hotkey default
+btcli subnet register --wallet.name <wallet> --wallet.hotkey <validator>
 ```
 
-To register your validator on the testnet add the `--subtensor.network test` flag.
+To register your validator on the testnet add the `--subtensor.network test` and `--netuid 116` flags.
 
 Follow the below prompts:
 
 ```bash
->> Enter netuid (0): # Enter the appropriate netuid for your environment
+>> Enter netuid (0): # Enter the appropriate netuid for your environment (8 for the mainnet)
 Your balance is: # Your wallet balance will be shown
 The cost to register by recycle is τ0.000000001 # Current registration costs
 >> Do you want to continue? [y/n] (n): # Enter y to continue
@@ -146,7 +158,7 @@ This step returns information about your registered keys.
 Check that your validator key has been registered:
 
 ```bash
-btcli wallet overview --wallet.name validator
+btcli wallet overview --wallet.name <wallet>
 ```
 
 To check your validator on the testnet add the `--subtensor.network test` flag
@@ -155,9 +167,9 @@ The above command will display the below:
 
 ```bash
 Subnet: 8 # or 116 on testnet
-COLDKEY    HOTKEY   UID  ACTIVE  STAKE(τ)     RANK    TRUST  CONSENSUS  INCENTIVE  DIVIDENDS  EMISSION(ρ)   VTRUST  VPERMIT  UPDATED  AXON  HOTKEY_SS58
-validator  default  197    True   0.00000  0.00000  0.00000    0.00000    0.00000    0.00000            0  0.00000                56  none  5GKkQKmDLfsKaumnkD479RBoD5CsbN2yRbMpY88J8YeC5DT4
-1          1        1            τ0.00000  0.00000  0.00000    0.00000    0.00000    0.00000           ρ0  0.00000
+COLDKEY    HOTKEY    UID  ACTIVE  STAKE(τ)     RANK    TRUST  CONSENSUS  INCENTIVE  DIVIDENDS  EMISSION(ρ)   VTRUST  VPERMIT  UPDATED  AXON  HOTKEY_SS58
+wallet     validator 197    True   0.00000  0.00000  0.00000    0.00000    0.00000    0.00000            0  0.00000                56  none  5GKkQKmDLfsKaumnkD479RBoD5CsbN2yRbMpY88J8YeC5DT4
+1          1         1            τ0.00000  0.00000  0.00000    0.00000    0.00000    0.00000           ρ0  0.00000
                                                                                 Wallet balance: τ0.000999999
 ```
 
@@ -176,6 +188,14 @@ Before running a validator, follow these steps:
 
 1. Ensure PTN is [installed](#getting-started).
 2. Install [pm2](https://pm2.io) and the [jq](https://jqlang.github.io/jq/) package on your system.
+
+```bash
+npm install -g pm2
+```
+```bash
+brew install jq
+```
+
 3. Create a `secrets.json` file in the root level of the PTN repo to include your TwelveData API key as shown below:
 
 ```json
@@ -192,12 +212,12 @@ Before running a validator, follow these steps:
 
 1. **Mainnet Execution**: Run the validator on the mainnet by executing the following command. Include/exclude the `[--start-generate]` and `[--autosync]` flags as needed:
     ```bash
-    $ pm2 start run.sh --name sn8 -- --wallet.name <wallet> --wallet.hotkey <hotkey> --netuid 8 [--start-generate] [--autosync]
+    $ pm2 start run.sh --name sn8 -- --wallet.name <wallet> --wallet.hotkey <validator> --netuid 8 [--start-generate] [--autosync]
     ```
    
 2. **Testnet Execution**: For testnet operations with optional data generation, use this command:
     ```bash
-    $ pm2 start run.sh --name sn8 -- --wallet.name <wallet> --wallet.hotkey <hotkey> --netuid 116 --subtensor.network test [--start-generate]
+    $ pm2 start run.sh --name sn8 -- --wallet.name <wallet> --wallet.hotkey <validator> --netuid 116 --subtensor.network test [--start-generate]
     ```
 
 These commands initialize two PM2 processes:
@@ -277,7 +297,7 @@ pm2 log
 You can begin testing PTN on the testnet with netuid 116. You can do this by using running:
 
 ```bash
-python neurons/validator.py --netuid 116 --subtensor.network test --wallet.name miner --wallet.hotkey default
+python neurons/validator.py --netuid 116 --subtensor.network test --wallet.name <wallet> --wallet.hotkey <validator>
 ```
 Note this won't launch the autoupdater. To launch with the autoupdater, use the run.sh command.
 
