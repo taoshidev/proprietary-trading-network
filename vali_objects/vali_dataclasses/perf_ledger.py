@@ -700,20 +700,17 @@ class PerfLedgerManager(CacheController):
         if not rss_modified:
             self.random_security_screenings = set()
 
+        # Regenerate checkpoints if a hotkey was modified during position sync
+        attempting_invalidations = bool(self.position_syncer) and bool(self.position_syncer.perf_ledger_hks_to_invalidate)
+        if attempting_invalidations:
+            for hk, t in self.position_syncer.perf_ledger_hks_to_invalidate.items():
+                hotkeys_to_delete.add(hk)
+
         perf_ledgers = {k: v for k, v in perf_ledgers.items() if k not in hotkeys_to_delete}
         #hk_to_last_update_date = {k: TimeUtil.millis_to_formatted_date_str(v.last_update_ms)
         #                            if v.last_update_ms else 'N/A' for k, v in perf_ledgers.items()}
 
         bt.logging.info(f"perf ledger PLM hotkeys to delete: {hotkeys_to_delete}. rss: {self.random_security_screenings}")
-
-
-        # Trim checkpoints if a hotkey was modified during position sync
-        attempting_invalidations = bool(self.position_syncer) and bool(self.position_syncer.perf_ledger_hks_to_invalidate)
-        if attempting_invalidations:
-            for hk, t in self.position_syncer.perf_ledger_hks_to_invalidate.items():
-                perf_ledger = perf_ledgers.get(hk)
-                if perf_ledger:
-                    perf_ledger.trim_checkpoints(t)
 
 
         # Time in the past to start updating the perf ledgers
