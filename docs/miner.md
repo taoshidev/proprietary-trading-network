@@ -149,13 +149,15 @@ Install dependencies
 pip install -r requirements.txt
 ```
 
+Note: You should disregard any messages about updating Bittensor after this. We want to use the version specified in `requirements.txt`.
+
 Create a local and editable installation
 
 ```bash
 python3 -m pip install -e .
 ```
 
-Create `mining/miner_secrets.json` and replace xxxx with your API key.
+Create `mining/miner_secrets.json` and replace xxxx with your API key. The API key value is determined by you and needs to match the value in `mining/sample_signal_request.py`.
 
 ```json
 {
@@ -169,18 +171,28 @@ This step creates local coldkey and hotkey pairs for your miner.
 
 The miner will be registered to the subnet specified. This ensures that the miner can run the respective miner scripts.
 
-Create a coldkey and hotkey for your miner wallet.
+Create a coldkey and hotkey for your miner wallet. A coldkey can have multiple hotkeys, so if you already have an existing coldkey, you should create a new hotkey only. Be sure to save your mnemonics!
 
 ```bash
 btcli wallet new_coldkey --wallet.name miner
 btcli wallet new_hotkey --wallet.name miner --wallet.hotkey default
 ```
 
+You can list the local wallets on your machine with the following.
+
+```bash
+btcli wallet list
+```
+
 ## 2a. Getting Testnet TAO
+
+### Discord ###
 
 Please ask the Bittensor Discord community for testnet TAO. This will let you register your miner(s) on Testnet.
 
-Please request testnet TAO here: https://discord.com/channels/799672011265015819/1190048018184011867
+Please first join the Bittensor Discord here: https://discord.com/invite/bittensor
+
+Then request testnet TAO here: https://discord.com/channels/799672011265015819/1190048018184011867
 
 Bittensor -> help-forum -> requests for testnet tao
 
@@ -192,12 +204,12 @@ This step registers your subnet miner keys to the subnet, giving it the first sl
 btcli subnet register --wallet.name miner --wallet.hotkey default
 ```
 
-To register your miner on the testnet add the `--subtensor.network test` flag.
+To register your miner on the testnet add the `--subtensor.network test` and `--netuid 116` flags.
 
 Follow the below prompts:
 
 ```bash
->> Enter netuid (0): # Enter the appropriate netuid for your environment
+>> Enter netuid (0): # Enter the appropriate netuid for your environment (8 for the mainnet)
 Your balance is: # Your wallet balance will be shown
 The cost to register by recycle is τ0.000000001 # Current registration costs
 >> Do you want to continue? [y/n] (n): # Enter y to continue
