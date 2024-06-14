@@ -305,7 +305,7 @@ class PositionSyncer:
         for p in existing_positions:
             if p.position_uuid in matched_existing_by_uuid:
                 continue
-            if p.open_ms < hard_snap_cutoff_ms and candidate_positions:
+            if p.open_ms < hard_snap_cutoff_ms:
                 stats['deleted'] += 1
                 deleted.append(p)
                 position_to_sync_status[p] = PositionSyncResult.DELETED
@@ -346,7 +346,7 @@ class PositionSyncer:
                   f' {len(existing_positions)} existing positions. stats {stats}')
 
             print(f'  existing positions:')
-            for x in candidate_positions_original:
+            for x in existing_positions_original:
                 self.debug_print_pos(x)
             print(f'  candidate positions:')
             for x in candidate_positions_original:
@@ -363,6 +363,10 @@ class PositionSyncer:
                 print(f'  matched positions:')
                 #print(f'  {len(matched)} matched positions')
                 for x in matched:
+                    self.debug_print_pos(x)
+            if kept:
+                print(f'  kept positions:')
+                for x in kept:
                     self.debug_print_pos(x)
 
         n_open = len([p for p in ret if p.is_open_position])
