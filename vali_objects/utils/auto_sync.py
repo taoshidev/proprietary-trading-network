@@ -6,6 +6,7 @@ import zipfile
 from enum import Enum
 from collections import defaultdict
 from copy import deepcopy
+from typing import Dict
 
 import requests
 
@@ -16,6 +17,8 @@ from vali_objects.utils.position_manager import PositionManager
 import bittensor as bt
 
 from vali_objects.utils.vali_utils import ValiUtils
+from vali_objects.vali_dataclasses.perf_ledger import PerfLedger
+
 AUTO_SYNC_ORDER_LAG_MS = 1000 * 60 * 60 * 24
 
 # Make an enum class that represents how the position sync went. "Nothing", "Updated", "Deleted", "Inserted"
@@ -51,7 +54,8 @@ class PositionSyncer:
         self.miners_with_position_insertion = set()
         self.miners_with_position_matched = set()
         self.miners_with_position_kept = set()
-        self.perf_ledger_hks_to_invalidate = {}  # {hk: timestamp_ms}
+        self.perf_ledger_hks_to_invalidate = {}  # {hk: PerfLedger}
+        self.hk_to_min_timestamp_to_invalidate = {}  # {hk: int} for testing purposes
 
     def debug_print_pos(self, p):
         print(f'    pos: open {TimeUtil.millis_to_formatted_date_str(p.open_ms)} close {TimeUtil.millis_to_formatted_date_str(p.close_ms) if p.close_ms else "N/A"} uuid {p.position_uuid}')
@@ -463,6 +467,7 @@ class PositionSyncer:
                 bt.logging.error("Unable to read validator checkpoint file. Sync canceled")
                 return
         backup_creation_time_ms = candidate_data['created_timestamp_ms']
+        perf_ledgers = candidate_data.get('perf_ledgers', {})
         bt.logging.info(f"Automated sync. Found backup creation time: {TimeUtil.millis_to_formatted_date_str(backup_creation_time_ms)}")
 
         candidate_hk_to_positions = {}
@@ -505,6 +510,7 @@ class PositionSyncer:
             candidate_positions_by_trade_pair = self.partition_positions_by_trade_pair(positions)
             existing_positions_by_trade_pair = self.partition_positions_by_trade_pair(disk_positions.get(hotkey, []))
             unified_trade_pairs = set(candidate_positions_by_trade_pair.keys()) | set(existing_positions_by_trade_pair.keys())
+            global_min_timestamp_of_change = float('inf')
             for trade_pair in unified_trade_pairs:
                 if self.shutdown_dict:
                     return
@@ -512,11 +518,9 @@ class PositionSyncer:
                 existing_positions = existing_positions_by_trade_pair.get(trade_pair, [])
 
                 try:
-                    position_to_sync_status, min_timestamp_of_change, stats = self.resolve_positions(candidate_positions, existing_positions, trade_pair, hotkey, hard_snap_cutoff_ms)
-                    if min_timestamp_of_change != float('inf'):
-                        perf_ledger_hks_to_invalidate[hotkey] = (
-                            min_timestamp_of_change) if hotkey not in perf_ledger_hks_to_invalidate else (
-                            min(perf_ledger_hks_to_invalidate[hotkey], min_timestamp_of_change))
+                    position_to_sync_status, local_min_timestamp_of_change, stats = self.resolve_positions(candidate_positions, existing_positions, trade_pair, hotkey, hard_snap_cutoff_ms)
+                    if local_min_timestamp_of_change != float('inf'):
+                        global_min_timestamp_of_change = min(global_min_timestamp_of_change, local_min_timestamp_of_change)
                         self.write_modifications(position_to_sync_status, stats, is_mothership)
                 except Exception as e:
                     full_traceback = traceback.format_exc()
@@ -528,9 +532,7 @@ class PositionSyncer:
                         raise e
                     else:
                         self.global_stats['exceptions_seen'] += 1
-
-
-
+            self.update_perf_ledgers_to_invalidate(perf_ledger_hks_to_invalidate, hotkey, global_min_timestamp_of_change, perf_ledgers)
 
         # count sets
         self.global_stats['n_miners_positions_deleted'] = len(self.miners_with_position_deletion)
@@ -550,6 +552,29 @@ class PositionSyncer:
         for k, v in self.global_stats.items():
             bt.logging.info(f"  {k}: {v}")
         bt.logging.info(f"Position sync took {time.time() - t0} seconds")
+
+    def update_perf_ledgers_to_invalidate(self, perf_ledger_hks_to_invalidate: dict[str:PerfLedger],
+                                          hotkey:str, global_min_timestamp_of_change:int, candidate_perf_ledgers:dict):
+        if global_min_timestamp_of_change == float('inf'):
+            return
+
+        if hotkey in self.hk_to_min_timestamp_to_invalidate:
+            self.hk_to_min_timestamp_to_invalidate[hotkey] = min(global_min_timestamp_of_change,
+                                                                 self.hk_to_min_timestamp_to_invalidate[hotkey])
+        else:
+            self.hk_to_min_timestamp_to_invalidate[hotkey] = global_min_timestamp_of_change
+
+        ledger = perf_ledger_hks_to_invalidate.get(hotkey)
+        if ledger is None:
+            candidate_perf_ledger_json = candidate_perf_ledgers.get(hotkey)
+            if candidate_perf_ledger_json is None:
+                return
+            else:
+                ledger = PerfLedger(**candidate_perf_ledger_json)
+
+        ledger.trim_checkpoints(global_min_timestamp_of_change)
+        perf_ledger_hks_to_invalidate[hotkey] = ledger
+
 
 
 if __name__ == "__main__":

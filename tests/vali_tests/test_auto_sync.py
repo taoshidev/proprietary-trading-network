@@ -87,7 +87,7 @@ class TestPositions(TestBase):
         assert stats['n_miners_orders_deleted'] == 0
         assert stats['n_miners_orders_inserted'] == 0
         assert stats['n_miners_orders_matched'] == 1
-        assert len(self.position_syncer.perf_ledger_hks_to_invalidate) == 0
+        assert len(self.position_syncer.hk_to_min_timestamp_to_invalidate) == 0
 
         # When there are no existing positions, we should insert the new one.
         candidate_data = self.positions_to_candidate_data([self.default_position])
@@ -115,8 +115,8 @@ class TestPositions(TestBase):
         assert stats['orders_matched'] == 0, stats
         assert stats['orders_deleted'] == 0, stats
         assert stats['orders_kept'] == 0, stats
-        assert len(self.position_syncer.perf_ledger_hks_to_invalidate) == 1
-        assert self.position_syncer.perf_ledger_hks_to_invalidate[self.DEFAULT_MINER_HOTKEY] == self.DEFAULT_OPEN_MS
+        assert len(self.position_syncer.hk_to_min_timestamp_to_invalidate) == 1
+        assert self.position_syncer.hk_to_min_timestamp_to_invalidate[self.DEFAULT_MINER_HOTKEY] == self.DEFAULT_OPEN_MS
 
     def test_position_deletion(self):
         dp1 = deepcopy(self.default_closed_position)
@@ -167,8 +167,8 @@ class TestPositions(TestBase):
             assert stats['orders_deleted'] == 0, (i, stats_str)
             assert stats['orders_kept'] == 0, (i, stats_str)
 
-            assert len(self.position_syncer.perf_ledger_hks_to_invalidate) == 1
-            assert self.position_syncer.perf_ledger_hks_to_invalidate[self.DEFAULT_MINER_HOTKEY] == dp.open_ms
+            assert len(self.position_syncer.hk_to_min_timestamp_to_invalidate) == 1
+            assert self.position_syncer.hk_to_min_timestamp_to_invalidate[self.DEFAULT_MINER_HOTKEY] == dp.open_ms
 
 
         # Same thing just no more inserting. We keep the positions since there is no candidate.
@@ -204,7 +204,7 @@ class TestPositions(TestBase):
             assert stats['orders_deleted'] == 0, (i, stats_str)
             assert stats['orders_kept'] == 0, (i, stats_str)
 
-            assert len(self.position_syncer.perf_ledger_hks_to_invalidate) == 0
+            assert len(self.position_syncer.hk_to_min_timestamp_to_invalidate) == 0
 
 
 
@@ -259,8 +259,8 @@ class TestPositions(TestBase):
             assert stats['orders_deleted'] == 0, (i, stats_str)
             assert stats['orders_kept'] == 0, (i, stats_str)
 
-            assert len(self.position_syncer.perf_ledger_hks_to_invalidate) == 1
-            assert self.position_syncer.perf_ledger_hks_to_invalidate[self.DEFAULT_MINER_HOTKEY] == cd.open_ms
+            assert len(self.position_syncer.hk_to_min_timestamp_to_invalidate) == 1
+            assert self.position_syncer.hk_to_min_timestamp_to_invalidate[self.DEFAULT_MINER_HOTKEY] == cd.open_ms
 
     def test_validate_basic_order_sync_order_match_with_heuristic_insert_one(self):
         order1 = deepcopy(self.default_order)
@@ -299,8 +299,8 @@ class TestPositions(TestBase):
         assert stats['orders_deleted'] == 0, stats
         assert stats['orders_kept'] == 0, stats
 
-        assert len(self.position_syncer.perf_ledger_hks_to_invalidate) == 1
-        assert self.position_syncer.perf_ledger_hks_to_invalidate[self.DEFAULT_MINER_HOTKEY] == order2.processed_ms
+        assert len(self.position_syncer.hk_to_min_timestamp_to_invalidate) == 1
+        assert self.position_syncer.hk_to_min_timestamp_to_invalidate[self.DEFAULT_MINER_HOTKEY] == order2.processed_ms
 
     def test_validate_basic_order_sync_order_match_with_uuid_insert_one(self):
         order1 = deepcopy(self.default_order)
@@ -340,8 +340,8 @@ class TestPositions(TestBase):
         assert stats['orders_deleted'] == 0, stats
         assert stats['orders_kept'] == 0, stats
 
-        assert len(self.position_syncer.perf_ledger_hks_to_invalidate) == 1
-        assert self.position_syncer.perf_ledger_hks_to_invalidate[self.DEFAULT_MINER_HOTKEY] == order2.processed_ms
+        assert len(self.position_syncer.hk_to_min_timestamp_to_invalidate) == 1
+        assert self.position_syncer.hk_to_min_timestamp_to_invalidate[self.DEFAULT_MINER_HOTKEY] == order2.processed_ms
 
     def test_validate_basic_order_sync_no_matches_one_deletion(self):
         disk_positions = self.positions_to_disk_data([self.default_position])
@@ -389,8 +389,8 @@ class TestPositions(TestBase):
             assert stats['orders_deleted'] == 1, (i, stats_str)
             assert stats['orders_kept'] == 0, (i, stats_str)
 
-            assert len(self.position_syncer.perf_ledger_hks_to_invalidate) == 1
-            assert (self.position_syncer.perf_ledger_hks_to_invalidate[self.DEFAULT_MINER_HOTKEY] ==
+            assert len(self.position_syncer.hk_to_min_timestamp_to_invalidate) == 1
+            assert (self.position_syncer.hk_to_min_timestamp_to_invalidate[self.DEFAULT_MINER_HOTKEY] ==
                     min(order1.processed_ms, order2.processed_ms, self.default_order.processed_ms))
 
     def test_validate_order_sync_all_matches_heuristic(self):
@@ -436,7 +436,7 @@ class TestPositions(TestBase):
             assert stats['orders_deleted'] == 0, (i, stats_str)
             assert stats['orders_kept'] == 0, (i, stats_str)
 
-            assert len(self.position_syncer.perf_ledger_hks_to_invalidate) == 0
+            assert len(self.position_syncer.hk_to_min_timestamp_to_invalidate) == 0
 
         # Test fragmentation especially hard. May need to do a hard snap to candidates.
     def test_validate_order_sync_keep_recent_orders_one_insert(self):
@@ -481,8 +481,8 @@ class TestPositions(TestBase):
         assert stats['orders_deleted'] == 0, stats
         assert stats['orders_kept'] == 3, stats
 
-        assert len(self.position_syncer.perf_ledger_hks_to_invalidate) == 1
-        assert self.position_syncer.perf_ledger_hks_to_invalidate[self.DEFAULT_MINER_HOTKEY] == self.default_order.processed_ms
+        assert len(self.position_syncer.hk_to_min_timestamp_to_invalidate) == 1
+        assert self.position_syncer.hk_to_min_timestamp_to_invalidate[self.DEFAULT_MINER_HOTKEY] == self.default_order.processed_ms
 
     def test_validate_order_sync_keep_recent_orders_match_one_by_uuid(self):
         dp1 = deepcopy(self.default_position)
@@ -526,7 +526,7 @@ class TestPositions(TestBase):
         assert stats['orders_kept'] == 2, stats
 
 
-        assert len(self.position_syncer.perf_ledger_hks_to_invalidate) == 0
+        assert len(self.position_syncer.hk_to_min_timestamp_to_invalidate) == 0
 
     def test_validate_order_sync_one_of_each(self):
         dp1 = deepcopy(self.default_position)
@@ -586,8 +586,8 @@ class TestPositions(TestBase):
         assert stats['orders_deleted'] == 1, stats
         assert stats['orders_kept'] == 1, stats
 
-        assert len(self.position_syncer.perf_ledger_hks_to_invalidate) == 1
-        assert self.position_syncer.perf_ledger_hks_to_invalidate[self.DEFAULT_MINER_HOTKEY] == self.default_order.processed_ms - 1000 * 60 * 30
+        assert len(self.position_syncer.hk_to_min_timestamp_to_invalidate) == 1
+        assert self.position_syncer.hk_to_min_timestamp_to_invalidate[self.DEFAULT_MINER_HOTKEY] == self.default_order.processed_ms - 1000 * 60 * 30
 
     def test_validate_position_sync_one_of_each_uuid_match(self):
         dp_to_keep = deepcopy(self.default_closed_position)
@@ -646,8 +646,8 @@ class TestPositions(TestBase):
         assert stats['orders_deleted'] == 0, stats
         assert stats['orders_kept'] == 0, stats
 
-        assert len(self.position_syncer.perf_ledger_hks_to_invalidate) == 1
-        assert self.position_syncer.perf_ledger_hks_to_invalidate[
+        assert len(self.position_syncer.hk_to_min_timestamp_to_invalidate) == 1
+        assert self.position_syncer.hk_to_min_timestamp_to_invalidate[
                    self.DEFAULT_MINER_HOTKEY] == self.default_order.processed_ms - 1000 * 60 * 10
 
 
@@ -711,8 +711,8 @@ class TestPositions(TestBase):
         assert stats['orders_deleted'] == 0, stats
         assert stats['orders_kept'] == 0, stats
 
-        assert len(self.position_syncer.perf_ledger_hks_to_invalidate) == 1
-        assert self.position_syncer.perf_ledger_hks_to_invalidate[self.DEFAULT_MINER_HOTKEY] == self.default_order.processed_ms - 1000 * 60 * 10
+        assert len(self.position_syncer.hk_to_min_timestamp_to_invalidate) == 1
+        assert self.position_syncer.hk_to_min_timestamp_to_invalidate[self.DEFAULT_MINER_HOTKEY] == self.default_order.processed_ms - 1000 * 60 * 10
 
 
     def test_validate_order_sync_testing_hardsnap(self):
@@ -774,8 +774,8 @@ class TestPositions(TestBase):
         assert stats['orders_kept'] == 2, stats
 
 
-        assert len(self.position_syncer.perf_ledger_hks_to_invalidate) == 1
-        assert self.position_syncer.perf_ledger_hks_to_invalidate[self.DEFAULT_MINER_HOTKEY] == order_to_insert.processed_ms
+        assert len(self.position_syncer.hk_to_min_timestamp_to_invalidate) == 1
+        assert self.position_syncer.hk_to_min_timestamp_to_invalidate[self.DEFAULT_MINER_HOTKEY] == order_to_insert.processed_ms
 
 
 
