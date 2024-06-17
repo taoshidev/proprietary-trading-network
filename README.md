@@ -135,7 +135,10 @@ After elimination, miners are not immediately deregistered from the network. The
 # Get Started
 
 ### Mainnet Trade Dashboard
-Take a look at the current competition <a href="https://dashboard.taoshi.io/">Dashboard</a>
+Take a look at the top traders <a href="https://dashboard.taoshi.io/">Dashboard</a>
+
+### Subscribe to Realtime Trade Data
+https://request.taoshi.io/login 
 
 ### Validator Installation
 
