@@ -51,6 +51,9 @@ if __name__ == "__main__":
     return_decay_coefficient_long = ValiConfig.HISTORICAL_DECAY_COEFFICIENT_RETURNS_LONG
     risk_adjusted_decay_coefficient = ValiConfig.HISTORICAL_DECAY_COEFFICIENT_RISKMETRIC
 
+    # Compute miner penalties
+    miner_penalties = Scoring.miner_penalties(filtered_ledger)
+
     returns_ledger_short = PositionManager.augment_perf_ledger(
         filtered_ledger,
         evaluation_time_ms=current_time,
@@ -130,11 +133,16 @@ if __name__ == "__main__":
                 combined_scores[miner] = 1
             combined_scores[miner] *= config['weight'] * score + (1 - config['weight'])
 
-    # Calculate the final weighted score and normalize
+    # ## Force good performance of all error metrics
     combined_weighed = Scoring.weigh_miner_scores(list(combined_scores.items()))
     combined_scores = dict(combined_weighed)
 
-    normalized_scores = Scoring.normalize_scores(combined_scores)
+    ## Apply the penalties to each miner
+    combined_penalized_scores = { miner: score * miner_penalties.get(miner,0) for miner, score in combined_scores.items() }
+    combined_cutoff_scores = Scoring.top_miners_cutoff(combined_penalized_scores)
+
+    ## Normalize the scores
+    normalized_scores = Scoring.normalize_scores(combined_cutoff_scores)
     checkpoint_results = sorted(normalized_scores.items(), key=lambda x: x[1], reverse=True)
 
     # Prepare data for DataFrame

@@ -15,6 +15,7 @@ from vali_objects.utils.vali_utils import ValiUtils
 from vali_objects.vali_dataclasses.perf_ledger import PerfCheckpoint, PerfLedger
 from vali_objects.utils.position_manager import PositionManager
 from time_util.time_util import TimeUtil
+from vali_objects.utils.position_utils import PositionUtils
 
 import bittensor as bt
 
@@ -82,6 +83,10 @@ class Scoring:
         return_decay_coefficient_long = ValiConfig.HISTORICAL_DECAY_COEFFICIENT_RETURNS_LONG
         risk_adjusted_decay_coefficient = ValiConfig.HISTORICAL_DECAY_COEFFICIENT_RISKMETRIC
 
+        # Compute miner penalties
+        miner_penalties = Scoring.miner_penalties(ledger_dict)
+
+        # Augmented returns ledgers
         returns_ledger_short = PositionManager.augment_perf_ledger(
             ledger_dict,
             evaluation_time_ms=evaluation_time_ms,
@@ -138,11 +143,57 @@ class Scoring:
         combined_weighed = Scoring.weigh_miner_scores(list(combined_scores.items()))
         combined_scores = dict(combined_weighed)
 
-        normalized_scores = Scoring.normalize_scores(combined_scores)
-        total_scores = sorted(normalized_scores.items(), key=lambda x: x[1], reverse=True)
+        ## Apply the penalties to each miner
+        combined_penalized_scores = { miner: score * miner_penalties.get(miner,0) for miner, score in combined_scores.items() }
+        combined_cutoff_scores = Scoring.top_miners_cutoff(combined_penalized_scores)
 
-        total_scores = sorted(list(normalized_scores.items()), key=lambda x: x[1], reverse=True)
-        return total_scores
+        ## Normalize the scores
+        normalized_scores = Scoring.normalize_scores(combined_cutoff_scores)
+        return sorted(normalized_scores.items(), key=lambda x: x[1], reverse=True)
+    
+    @staticmethod
+    def top_miners_cutoff(scores, n = None):
+        """
+        Filters a dictionary to keep only the top N elements by value and sets others to 0.
+
+        Args:
+            data: A dictionary of elements.
+            n: The number of top elements to keep.
+
+        Returns:
+            A new dictionary with the filtered elements (others set to 0).
+        """
+        if n is None:
+            n = ValiConfig.TOP_MINERS_CUTOFF
+
+        if n <= 0:
+            raise ValueError("n must be a positive integer")
+        
+        if len(scores) == 0:
+            bt.logging.debug("No scores to cutoff, returning empty list")
+            return {}
+        
+        # Sort the items by value in descending order
+        sorted_data = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+        # Create a new dictionary with only the top N elements and set others to 0
+        filtered_dict = dict(sorted_data[:n])
+        filtered_weighted = dict(Scoring.weigh_miner_scores(list(filtered_dict.items())))
+
+        filtered_weighted.update((key, 0) for key in scores if key not in filtered_dict)
+        return filtered_weighted
+    
+    @staticmethod
+    def miner_penalties(ledger_dict: dict[str, PerfLedger]) -> dict[str, float]:
+        # Compute miner penalties
+        miner_penalties = {}
+        for miner, perfledger in ledger_dict.items():
+            ledgercps = perfledger.cps
+
+            consistency_penalty = PositionUtils.compute_consistency_penalty_cps(ledgercps)
+            drawdown_penalty = PositionUtils.compute_drawdown_penalty_cps(ledgercps)
+            miner_penalties[miner] = drawdown_penalty * consistency_penalty
+
+        return miner_penalties
     
     @staticmethod
     def normalize_scores(scores: dict[str, float]) -> dict[str, float]:
