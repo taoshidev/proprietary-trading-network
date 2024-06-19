@@ -78,7 +78,7 @@ class Validator:
         # Lock to stop new signals from being processed while a validator is restoring
         self.signal_sync_lock = threading.Lock()
         self.signal_sync_condition = threading.Condition(self.signal_sync_lock)
-        self.n_orders_being_processed = [0]  # Allow this to be updated across threads
+        self.n_orders_being_processed = [0]  # Allow this to be updated across threads by placing it in a list (mutable)
 
         self.config = self.get_config()
         # Use the getattr function to safely get the autosync attribute with a default of False if not found.
