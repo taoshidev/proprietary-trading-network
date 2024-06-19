@@ -32,11 +32,15 @@ class PositionSyncResultException(Exception):
         super().__init__(self.message)
 
 class PositionSyncer:
-    def __init__(self, shutdown_dict=None):
+    def __init__(self, shutdown_dict=None, signal_sync_lock=None, signal_sync_condition=None, n_orders_being_processed=None):
         self.SYNC_LOOK_AROUND_MS = 1000 * 60 * 3
         self.position_manager = PositionManager()
         self.position_manager.init_cache_files()
         self.shutdown_dict = shutdown_dict
+        self.last_signal_sync_time_ms = 0
+        self.signal_sync_lock = signal_sync_lock
+        self.signal_sync_condition = signal_sync_condition
+        self.n_orders_being_processed = n_orders_being_processed
         self.init_data()
 
     def init_data(self):
@@ -550,6 +554,32 @@ class PositionSyncer:
         for k, v in self.global_stats.items():
             bt.logging.info(f"  {k}: {v}")
         bt.logging.info(f"Position sync took {time.time() - t0} seconds")
+
+    def sync_positions_with_cooldown(self, auto_sync_enabled:bool):
+        # Check if the time is right to sync signals
+        if not auto_sync_enabled:
+            return
+        now_ms = TimeUtil.now_in_millis()
+        # Already performed a sync recently
+        if now_ms - self.last_signal_sync_time_ms < 1000 * 60 * 30:
+            return
+
+        # Check if we are between 6:09 AM and 6:19 AM UTC
+        datetime_now = TimeUtil.generate_start_timestamp(0)  # UTC
+        if not (datetime_now.hour == 6 and (8 < datetime_now.minute < 20)):
+            return
+
+        with self.signal_sync_lock:
+            while self.n_orders_being_processed[0] > 0:
+                self.signal_sync_condition.wait()
+            # Ready to perform in-flight refueling
+            try:
+                self.sync_positions()
+            except Exception as e:
+                bt.logging.error(f"Error syncing positions: {e}")
+                bt.logging.error(traceback.format_exc())
+
+        self.last_signal_sync_time_ms = TimeUtil.now_in_millis()
 
 
 if __name__ == "__main__":
