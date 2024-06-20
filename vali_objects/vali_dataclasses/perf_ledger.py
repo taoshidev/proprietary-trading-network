@@ -520,7 +520,7 @@ class PerfLedgerManager(CacheController):
             perf_ledger.update(portfolio_return, end_time_ms, miner_hotkey, any_open, last_dd)
         return False
 
-    def update_all_perf_ledgers(self, hotkey_to_positions: dict[str, List[Position]], existing_perf_ledgers: dict[str, PerfLedger], now_ms: int):
+    def update_all_perf_ledgers(self, hotkey_to_positions: dict[str, List[Position]], existing_perf_ledgers: dict[str, PerfLedger], now_ms: int, return_dict=False):
         t_init = time.time()
         self.now_ms = now_ms
         self.elimination_rows = []
@@ -606,10 +606,16 @@ class PerfLedgerManager(CacheController):
                 f"(s). Lag: {lag} (s). Total product: {total_product}. Last portfolio value: {last_portfolio_value}."
                 f" n_api_calls: {self.n_api_calls} dd stats {self.hk_to_dd_stats[hotkey]}. n_price_corrections {self.n_price_corrections}")
 
-        if not self.shutdown_dict:
+        bt.logging.info(f"Done updating perf ledger for all hotkeys in {time.time() - t_init} s")
+        self.write_perf_ledger_eliminations_to_disk(self.elimination_rows)
+
+        if self.shutdown_dict:
+            return
+
+        if return_dict:
+            return existing_perf_ledgers
+        else:
             PerfLedgerManager.save_perf_ledgers_to_disk(existing_perf_ledgers)
-            bt.logging.info(f"Done updating perf ledger for all hotkeys in {time.time() - t_init} s")
-            self.write_perf_ledger_eliminations_to_disk(self.elimination_rows)
 
 
     @staticmethod
@@ -655,6 +661,13 @@ class PerfLedgerManager(CacheController):
                 del hotkey_to_positions[k]
 
         return hotkey_to_positions
+
+    def generate_perf_ledgers_for_analysis(self, hotkey_to_positions: dict[str, List[Position]], t_ms: int = None):
+        if t_ms is None:
+            t_ms = TimeUtil.now_in_millis()  # Time to build the perf ledgers up to. Goes back 30 days from this time.
+        existing_perf_ledgers = {}
+        ans = self.update_all_perf_ledgers(hotkey_to_positions, existing_perf_ledgers, t_ms, return_dict=True)
+        return ans
 
     def update(self, testing_one_hotkey=None):
         perf_ledgers = PerfLedgerManager.load_perf_ledgers_from_disk()
