@@ -232,6 +232,7 @@ class PerfLedgerManager(CacheController):
                 # Handle exceptions or log errors
                 bt.logging.error(f"Error during perf ledger update: {e}. Please alert a team member ASAP!")
                 bt.logging.error(traceback.format_exc())
+                time.sleep(30)
             time.sleep(1)
 
     def get_historical_position(self, position:Position, timestamp_ms:int):
@@ -790,6 +791,7 @@ class MockMetagraph():
         self.hotkeys = hotkeys
 
 if __name__ == "__main__":
+    bt.logging.enable_default()
     all_miners_dir = ValiBkpUtils.get_miner_dir(running_unit_tests=False)
     all_hotkeys_on_disk = CacheController.get_directory_names(all_miners_dir)
     mmg = MockMetagraph(hotkeys=all_hotkeys_on_disk)

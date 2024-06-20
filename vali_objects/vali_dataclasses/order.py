@@ -1,11 +1,8 @@
 # developer: Taoshidev
 # Copyright © 2024 Taoshi Inc
 
-from dataclasses import dataclass
-
 from time_util.time_util import TimeUtil
-from vali_config import TradePair
-from pydantic import validator
+from pydantic import field_validator
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.vali_dataclasses.price_source import PriceSource
 from vali_objects.vali_dataclasses.order_signal import Signal
@@ -17,16 +14,22 @@ class Order(Signal):
     order_uuid: str
     price_sources: list[PriceSource] = []
 
-    @validator('price', 'processed_ms', 'leverage', pre=True, each_item=False)
-    def validate_values(cls, v, values, field):
-        if field.name == 'price' and v < 0:
+    @field_validator('price', 'processed_ms', 'leverage', mode='before')
+    def validate_values(cls, v, info):
+        if info.field_name == 'price' and v < 0:
             raise ValueError("Price must be greater than 0")
-        if field.name == 'processed_ms' and v < 0:
+        if info.field_name == 'processed_ms' and v < 0:
             raise ValueError("processed_ms must be greater than 0")
-        if field.name == 'leverage':
-            order_type = values.get('order_type')
+        if info.field_name == 'leverage':
+            order_type = info.data.get('order_type')
             if order_type == OrderType.LONG and v < 0:
                 raise ValueError("Leverage must be positive for LONG orders.")
+        return v
+
+    @field_validator('order_uuid', mode='before')
+    def ensure_order_uuid_is_string(cls, v):
+        if not isinstance(v, str):
+            v = str(v)
         return v
 
     # Using Pydantic's constructor instead of a custom from_dict method

@@ -18,7 +18,8 @@ from time_util.time_util import TimeUtil
 
 import bittensor as bt
 
-from pydantic import BaseModel, validator
+from pydantic import BaseModel, validator, field_validator
+
 
 class ScoringUnit(BaseModel):
     gains: list[float]
@@ -27,16 +28,16 @@ class ScoringUnit(BaseModel):
     open_ms: list[int]
     mdd: list[float]
 
-    @validator('gains', 'n_updates', 'open_ms', each_item=False, pre=True)
+    @field_validator('gains', 'n_updates', 'open_ms', mode='before')
     def check_non_negative(cls, v):
         if any(x < 0 for x in (v or [])):  # Simplified check
             raise ValueError("All values must be non-negative")
         return v
 
-    @validator('losses', each_item=False, pre=True)
+    @field_validator('losses', mode='before')
     def check_non_positive(cls, v):
         if any(x > 0 for x in (v or [])):  # Simplified check
-            raise ValueError("All values must be non-negative")
+            raise ValueError("All values must be non-positive")
         return v
 
     @classmethod

@@ -583,5 +583,6 @@ class PositionSyncer:
 
 
 if __name__ == "__main__":
+    bt.logging.enable_default()
     position_syncer = PositionSyncer()
     position_syncer.sync_positions()

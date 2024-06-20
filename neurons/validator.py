@@ -301,6 +301,12 @@ class Validator:
         # Activating the parser to read any command-line inputs.
         # To print help message, run python3 template/miner.py --help
         config = bt.config(parser)
+        bt.logging.enable_default()
+        if config.logging.debug:
+            bt.logging.enable_debug()
+        if config.logging.trace:
+            bt.logging.enable_trace()
+
 
         # Step 3: Set up logging directory
         # Logging captures events for diagnosis or understanding miner's behavior.
