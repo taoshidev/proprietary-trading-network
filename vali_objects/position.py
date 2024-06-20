@@ -2,7 +2,7 @@ import json
 import logging
 from copy import deepcopy
 from typing import Optional, List
-from pydantic import BaseModel, root_validator
+from pydantic import model_validator, BaseModel, Field
 
 from time_util.time_util import TimeUtil
 from vali_config import TradePair
@@ -36,7 +36,7 @@ class Position(BaseModel):
     position_uuid: str
     open_ms: int
     trade_pair: TradePair
-    orders: List[Order] = []
+    orders: List[Order] = Field(default_factory=list)
     current_return: float = 1.0
     close_ms: Optional[int] = None
     return_at_close: float = 1.0
@@ -46,7 +46,8 @@ class Position(BaseModel):
     position_type: Optional[OrderType] = None
     is_closed_position: bool = False
 
-    @root_validator(pre=True)
+    @model_validator(mode="before")
+    @classmethod
     def add_trade_pair_to_orders(cls, values):
         if isinstance(values['trade_pair'], TradePair):
             trade_pair_id = values['trade_pair'].trade_pair_id
