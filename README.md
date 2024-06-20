@@ -83,9 +83,8 @@ most complete trading signals across a variety of asset classes.
 🛠️&nbsp;Open Source Strategy Building Techniques (In Our Taoshi Community)<br>
 🫰&nbsp;Signals From a Variety of Asset Classes - Forex, Indices, Crypto<br>
 📈&nbsp;Higher Payouts<br>
-📉&nbsp;Lower Registration Fees<br>
-💪&nbsp;Superior Cryptocurrency Infrastructure<br>
-🔎&nbsp;<a href="https://dashboard.taoshi.io/">Trading Visualization Dashboard</a>
+💪&nbsp;Innovative Trader Performance Metrics that Identify the Best Traders<br>
+🔎&nbsp;<a href="https://dashboard.taoshi.io/">Trading + Metrics Visualization Dashboard</a>
 
 ## How does it work?
 
