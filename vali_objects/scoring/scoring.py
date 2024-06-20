@@ -61,7 +61,8 @@ class Scoring:
     @staticmethod
     def compute_results_checkpoint(
         ledger_dict: Dict[str, PerfLedger],
-        evaluation_time_ms: int = None
+        evaluation_time_ms: int = None,
+        verbose=True
     ) -> List[Tuple[str, float]]:
         if len(ledger_dict) == 0:
             bt.logging.debug("No results to compute, returning empty list")
@@ -69,7 +70,8 @@ class Scoring:
 
         if len(ledger_dict) == 1:
             miner = list(ledger_dict.keys())[0]
-            bt.logging.info(f"Only one miner: {miner}, returning 1.0 for the solo miner weight")
+            if verbose:
+                bt.logging.info(f"Only one miner: {miner}, returning 1.0 for the solo miner weight")
             return [(miner, 1.0)]
         
         if evaluation_time_ms is None:

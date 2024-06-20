@@ -382,7 +382,7 @@ class PolygonDataService(BaseDataService):
             final_agg = price_source
             prev_timestamp = epoch_miliseconds
         if not final_agg:
-            bt.logging.error(f"Polygon failed to fetch REST data for {trade_pair.trade_pair}. If you keep seeing this error, report it to the team ASAP")
+            bt.logging.warning(f"Polygon failed to fetch REST data for {trade_pair.trade_pair}. If you keep seeing this warning, report it to the team ASAP")
             final_agg = None
 
         return final_agg
