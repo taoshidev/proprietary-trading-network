@@ -78,8 +78,7 @@ class Validator:
         # Lock to stop new signals from being processed while a validator is restoring
         self.signal_sync_lock = threading.Lock()
         self.signal_sync_condition = threading.Condition(self.signal_sync_lock)
-        self.n_orders_being_processed = 0
-        self.last_signal_sync_time_ms = 0
+        self.n_orders_being_processed = [0]  # Allow this to be updated across threads by placing it in a list (mutable)
 
         self.config = self.get_config()
         # Use the getattr function to safely get the autosync attribute with a default of False if not found.
@@ -151,7 +150,9 @@ class Validator:
             )
             exit()
 
-        self.position_syncer = PositionSyncer(shutdown_dict=shutdown_dict)
+        self.position_syncer = PositionSyncer(shutdown_dict=shutdown_dict, signal_sync_lock=self.signal_sync_lock,
+                                              signal_sync_condition=self.signal_sync_condition,
+                                              n_orders_being_processed=self.n_orders_being_processed)
         self.perf_ledger_manager = PerfLedgerManager(self.metagraph, live_price_fetcher=self.live_price_fetcher,
                                                      shutdown_dict=shutdown_dict, position_syncer=self.position_syncer)
         # Start the perf ledger updater loop in its own thread
@@ -332,34 +333,6 @@ class Validator:
         print("Graceful shutdown completed")
         sys.exit(0)
 
-
-    # Main takes the config and starts the miner.
-
-    def validator_sync(self):
-        # Check if the time is right to sync signals
-        if not self.auto_sync:
-            return
-        now_ms = TimeUtil.now_in_millis()
-        # Already performed a sync recently
-        if now_ms - self.last_signal_sync_time_ms < 1000 * 60 * 30:
-            return
-
-        # Check if we are between 6:09 AM and 6:19 AM UTC
-        datetime_now = TimeUtil.generate_start_timestamp(0)  # UTC
-        if not (datetime_now.hour == 6 and (8 < datetime_now.minute < 20)):
-            return
-
-        with self.signal_sync_lock:
-            while self.n_orders_being_processed > 0:
-                self.signal_sync_condition.wait()
-            # Ready to perform in-flight refueling
-            try:
-                self.position_syncer.sync_positions()
-            except Exception as e:
-                bt.logging.error(f"Error syncing positions: {e}")
-                bt.logging.error(traceback.format_exc())
-
-        self.last_signal_sync_time_ms = TimeUtil.now_in_millis()
     def main(self):
         global shutdown_dict
         # Keep the vali alive. This loop maintains the vali's operations until intentionally stopped.
@@ -371,7 +344,7 @@ class Validator:
                 self.challengeperiod_manager.refresh(current_time=current_time)
                 self.weight_setter.set_weights(current_time=current_time)
                 self.elimination_manager.process_eliminations()
-                self.validator_sync()
+                self.position_syncer.sync_positions_with_cooldown(self.auto_sync)
                 self.position_manager.position_locks.cleanup_locks(self.metagraph.hotkeys)
 
             # In case of unforeseen errors, the miner will log the error and continue operations.
@@ -581,7 +554,7 @@ class Validator:
             return synapse
 
         with self.signal_sync_lock:
-            self.n_orders_being_processed += 1
+            self.n_orders_being_processed[0] += 1
 
 
         # error message to send back to miners in case of a problem so they can fix and resend
@@ -626,8 +599,8 @@ class Validator:
         synapse.error_message = error_message
         bt.logging.success(f"Sending ack back to miner [{miner_hotkey}]")
         with self.signal_sync_lock:
-            self.n_orders_being_processed -= 1
-            if self.n_orders_being_processed == 0:
+            self.n_orders_being_processed[0] -= 1
+            if self.n_orders_being_processed[0] == 0:
                 self.signal_sync_condition.notify_all()
         return synapse
 
