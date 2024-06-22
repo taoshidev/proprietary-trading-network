@@ -95,7 +95,7 @@ those that provide the most returns, while never exceeding certain drawdown limi
 
 ### Rules
 
-1. Miners can submit LONG, SHORT, or FLAT signal for Forex, Crypto, and Indices trade pairs into the network.
+1. Miners can submit LONG, SHORT, or FLAT signal for Forex, Crypto, and Indices trade pairs into the network. <a href="https://github.com/taoshidev/proprietary-trading-network/blob/main/vali_config.py#L14">Currently supported trade pairs</a>
 2. Orders outside of market hours are ignored. 
 3. Miners can only open 1 position per trade pair/symbol at a time.
 4. Positions are uni-directional. Meaning, if a position starts LONG (the first order it receives is LONG), 
