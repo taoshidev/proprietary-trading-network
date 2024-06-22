@@ -13,10 +13,10 @@ from pydantic import BaseModel
 from shared_objects.cache_controller import CacheController
 from shared_objects.retry import retry, periodic_heartbeat, retry_with_timeout
 from time_util.time_util import TimeUtil, UnifiedMarketCalendar
-from vali_config import ValiConfig, TradePair
+from vali_config import ValiConfig
 from vali_objects.position import Position
 from vali_objects.utils.live_price_fetcher import LivePriceFetcher
-from vali_objects.utils.vali_bkp_utils import ValiBkpUtils, CustomEncoder
+from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.utils.vali_utils import ValiUtils
 
 TARGET_CHECKPOINT_DURATION_MS = 21600000  # 6 hours
@@ -340,6 +340,7 @@ class PerfLedgerManager(CacheController):
         return start_time_s <= existing_ub_s and end_time_s >= existing_lb_s
 
 
+    @retry_with_timeout()
     def refresh_price_info(self, t_ms, end_time_ms, tp):
         t_s = t_ms // 1000
         existing_lb_s = None

@@ -35,22 +35,60 @@ def retry(tries=5, delay=5, backoff=1):
     return deco_retry
 
 
-@retry(tries=5, delay=5, backoff=2)
-def retry_with_timeout(func, timeout, *args, **kwargs):
-    with ThreadPoolExecutor(max_workers=1) as executor:
-        future = executor.submit(func, *args, **kwargs)
-        try:
-            result = future.result(timeout=timeout)
-            return result
-        except TimeoutError:
-            bt.logging.error(f"retry_with_timeout: {func.__name__} execution exceeded {timeout} seconds.")
-            future.cancel()
-            raise TimeoutError(f"retry_with_timeout: {func.__name__} execution exceeded the timeout limit.")
-        except Exception as e:
-            bt.logging.error(f"retry_with_timeout: {func.__name__} Unexpected exception {type(e).__name__} occurred: {e}")
-            future.cancel()
-            raise e  # Re-raise the exception to handle it in the retry logic.
+class TimeoutException(Exception):
+    pass
 
+
+def timeout(timeout_duration):
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            result = [None]
+            exception = [None]
+
+            def target():
+                try:
+                    result[0] = func(*args, **kwargs)
+                except Exception as e:
+                    exception[0] = e
+
+            thread = threading.Thread(target=target)
+            thread.start()
+            thread.join(timeout_duration)
+
+            if thread.is_alive():
+                raise TimeoutException(f"Function call timed out after {timeout_duration} seconds.")
+
+            if exception[0]:
+                raise exception[0]
+
+            return result[0]
+
+        return wrapper
+
+    return decorator
+
+
+def retry_with_timeout(retries=4, initial_delay=5, backoff_factor=2, timeout_duration=30):
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            delay = initial_delay
+            for attempt in range(1, retries + 1):
+                try:
+                    result = timeout(timeout_duration)(func)(*args, **kwargs)
+                    return result
+                except TimeoutException:
+                    print(f"Attempt {attempt}: perf ledger refresh_price timed out after {timeout_duration} seconds.")
+                except Exception as e:
+                    print(f"Attempt {attempt}: perf ledger refresh_price failed with error: {e}. Retrying in {delay} seconds.")
+                time.sleep(delay)
+                delay *= backoff_factor
+            raise Exception(f"Function failed after {retries} retries.")
+
+        return wrapper
+
+    return decorator
 
 
 def periodic_heartbeat(interval=5, message="Heartbeat..."):
