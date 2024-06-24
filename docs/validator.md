@@ -35,10 +35,10 @@ Your incentive mechanisms running on the mainnet are open to anyone. They emit r
 - Requires **Python 3.10.**
 - [Bittensor](https://github.com/opentensor/bittensor#install)
 
-Below are the prerequisites for validators. You may be able to make a validator work off lesser specs but it is not recommended.
-
+Below are the prerequisites for validators. 
 - 2 vCPU + 8 GB memory
 - 100 GB balanced persistent disk
+- 1000 TAO staked
 - A Twelvedata API account. (https://twelvedata.com/) with "Pro 610". The free tier is sufficient for testnet usage.
 <img src="https://github.com/taoshidev/proprietary-trading-network/assets/161871533/ab74b310-7d32-432e-aada-4e0da2cb7a04" width="300">
 
