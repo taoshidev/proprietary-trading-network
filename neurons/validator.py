@@ -596,7 +596,6 @@ class Validator:
     def receive_signal(self, synapse: template.protocol.SendSignal,
                        ) -> template.protocol.SendSignal:
         # pull miner hotkey to reference in various activities
-        print("RECV SIGNAL________")
         now_ms = TimeUtil.now_in_millis()
         miner_hotkey = synapse.dendrite.hotkey
         synapse.validator_hotkey = self.wallet.hotkey.ss58_address
@@ -658,7 +657,6 @@ class Validator:
 
     def get_positions(self, synapse: template.protocol.GetPositions,
                       ) -> template.protocol.GetPositions:
-        print("GET POSITIONS________")
         if self.should_fail_early(synapse, SynapseMethod.POSITION_INSPECTOR):
             return synapse
 
