@@ -599,6 +599,7 @@ class Validator:
     def receive_signal(self, synapse: template.protocol.SendSignal,
                        ) -> template.protocol.SendSignal:
         # pull miner hotkey to reference in various activities
+        print("RECV SIGNAL________")
         now_ms = TimeUtil.now_in_millis()
         miner_hotkey = synapse.dendrite.hotkey
         synapse.validator_hotkey = self.wallet.hotkey.ss58_address
@@ -660,6 +661,7 @@ class Validator:
 
     def get_positions(self, synapse: template.protocol.GetPositions,
                       ) -> template.protocol.GetPositions:
+        print("GET POSITIONS________")
         if self.should_fail_early(synapse, SynapseMethod.POSITION_INSPECTOR):
             return synapse
 
@@ -744,20 +746,22 @@ class Validator:
         compressed = gzip.compress(checkpoint_str.encode("utf-8"))
         encoded_checkpoint = base64.b64encode(compressed).decode("utf-8")
 
-        # create dendrite and transmit synapse
         validator_axons = self.metagraph.axons
-        checkpoint_synapse = template.protocol.ValidatorCheckpoint(checkpoint=encoded_checkpoint)
-        validator_responses = await dendrite(validator_axons, checkpoint_synapse)
 
-        if len(validator_responses) == 0:
+        if len(validator_axons) == 0:
             bt.logging.info(f"no valid validators found. skipping sending checkpoint")
         else:
+            # create dendrite and transmit synapse
+            checkpoint_synapse = template.protocol.ValidatorCheckpoint(checkpoint=encoded_checkpoint)
+            validator_responses = await dendrite.forward(axons=validator_axons, synapse=checkpoint_synapse)
+
             bt.logging.info(f"sending checkpoint from validator {self.wallet.hotkey.ss58_address}")
 
             successes = 0
             failures = 0
             for response in validator_responses:
                 if response.successfully_processed:
+                    print(f"successfully processed {response}")
                     successes += 1
                 else:
                     failures += 1
@@ -771,7 +775,7 @@ class Validator:
 
         #TODO: reset received after every sync cycle
         self.received_checkpoints += 1
-        bt.logging.info(f"validator {synapse.validator_receive_hotkey} received checkpoint {self.received_checkpoints} of {self.num_validators} from validator hotkey [{sender_hotkey}].")
+        bt.logging.info(f"validator {synapse.validator_receive_hotkey} received checkpoint from validator hotkey [{sender_hotkey}].")
         if self.should_fail_early(synapse, SynapseMethod.CHECKPOINT):
             return synapse
 
@@ -791,7 +795,7 @@ class Validator:
             print(recv_checkpoint.keys())
             print(json.dumps(recv_checkpoint, indent=4))
             print(recv_checkpoint["positions"])
-            self.position_syncer.add_checkpoint(recv_checkpoint, self.num_validators)
+            # self.position_syncer.add_checkpoint(recv_checkpoint, self.num_validators)
 
         except Exception as e:
             error_message = f"Error processing checkpoint {self.received_checkpoints} from [{sender_hotkey}] with error [{e}]"
