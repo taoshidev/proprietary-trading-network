@@ -141,10 +141,6 @@ class Validator:
         self.metagraph = subtensor.metagraph(self.config.netuid)
         bt.logging.info(f"Metagraph: {self.metagraph}")
 
-        # create the message sender
-        # self.is_testnet = self.config.subtensor.network == "test"
-        # self.prop_net_order_placer = PropNetOrderPlacer(self.wallet, self.metagraph, self.config, self.is_testnet)
-
         #force_validator_to_restore_from_checkpoint(self.wallet.hotkey.ss58_address, self.metagraph, self.config, self.secrets)
 
         self.position_manager = PositionManager(metagraph=self.metagraph, config=self.config,
