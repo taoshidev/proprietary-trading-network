@@ -3,6 +3,8 @@
 # developer: Taoshidev
 # Copyright © 2024 Taoshi Inc
 
+import asyncio
+import base64
 import os
 import sys
 import threading
@@ -38,8 +40,26 @@ from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.utils.vali_utils import ValiUtils
 from vali_config import ValiConfig
 
+from vali_objects.utils.auto_sync import AUTO_SYNC_ORDER_LAG_MS
+from vali_objects.decoders.generalized_json_decoder import GeneralizedJSONDecoder
+from runnable.generate_request_core import generate_request_core
+from vali_objects.utils.vali_bkp_utils import CustomEncoder
+import json
+import gzip
+import base64
+from enum import Enum
+# import random
+# from tabulate import tabulate
+
 # Global flag used to indicate shutdown
 shutdown_dict = {}
+
+# Enum class that represents the method associated with Synapse
+class SynapseMethod(Enum):
+    POSITION_INSPECTOR = "GetPositions"
+    SIGNAL = "SendSignal"
+    CHECKPOINT = "SendCheckpoint"
+
 
 def signal_handler(signum, frame):
     global shutdown_dict
@@ -79,6 +99,7 @@ class Validator:
         self.signal_sync_lock = threading.Lock()
         self.signal_sync_condition = threading.Condition(self.signal_sync_lock)
         self.n_orders_being_processed = [0]  # Allow this to be updated across threads by placing it in a list (mutable)
+        self.n_checkpoints_being_processed = [0]
 
         self.config = self.get_config()
         # Use the getattr function to safely get the autosync attribute with a default of False if not found.
@@ -124,6 +145,10 @@ class Validator:
         self.metagraph = subtensor.metagraph(self.config.netuid)
         bt.logging.info(f"Metagraph: {self.metagraph}")
 
+        # create the message sender
+        # self.is_testnet = self.config.subtensor.network == "test"
+        # self.prop_net_order_placer = PropNetOrderPlacer(self.wallet, self.metagraph, self.config, self.is_testnet)
+
         #force_validator_to_restore_from_checkpoint(self.wallet.hotkey.ss58_address, self.metagraph, self.config, self.secrets)
 
         self.position_manager = PositionManager(metagraph=self.metagraph, config=self.config,
@@ -142,6 +167,10 @@ class Validator:
         # Start the metagraph updater loop in its own thread
         self.metagraph_updater_thread = threading.Thread(target=self.metagraph_updater.run_update_loop, daemon=True)
         self.metagraph_updater_thread.start()
+
+        # keep track of values for checkpoint sync
+        self.num_validators = 0
+        self.received_checkpoints = 0
 
         if self.wallet.hotkey.ss58_address not in self.metagraph.hotkeys:
             bt.logging.error(
@@ -173,6 +202,7 @@ class Validator:
 
         self.order_rate_limiter = RateLimiter()
         self.position_inspector_rate_limiter = RateLimiter(max_requests_per_window=1, rate_limit_window_duration_seconds = 60 * 4)
+        self.checkpoint_rate_limiter = RateLimiter()
 
         def rs_blacklist_fn(synapse: template.protocol.SendSignal) -> Tuple[bool, str]:
             return Validator.blacklist_fn(synapse, self.metagraph)
@@ -186,6 +216,12 @@ class Validator:
         def gp_priority_fn(synapse: template.protocol.GetPositions) -> float:
             return Validator.priority_fn(synapse, self.metagraph)
 
+        def rc_blacklist_fn(synapse: template.protocol.ValidatorCheckpoint) -> Tuple[bool, str]:
+            return Validator.blacklist_fn(synapse, self.metagraph)
+
+        def rc_priority_fn(synapse: template.protocol.ValidatorCheckpoint) -> float:
+            return Validator.priority_fn(synapse, self.metagraph)
+
         self.axon.attach(
             forward_fn=self.receive_signal,
             blacklist_fn=rs_blacklist_fn,
@@ -195,6 +231,11 @@ class Validator:
             forward_fn=self.get_positions,
             blacklist_fn=gp_blacklist_fn,
             priority_fn=gp_priority_fn,
+        )
+        self.axon.attach(
+            forward_fn=self.receive_checkpoint,
+            blacklist_fn=rc_blacklist_fn,
+            priority_fn=rc_priority_fn,
         )
 
         # Serve passes the axon information to the network + netuid we are hosting on.
@@ -352,6 +393,8 @@ class Validator:
                 self.elimination_manager.process_eliminations()
                 self.position_syncer.sync_positions_with_cooldown(self.auto_sync)
                 self.position_manager.position_locks.cleanup_locks(self.metagraph.hotkeys)
+                # TODO: set the interval for checkpoints
+                self.checkpoint_thread()
 
             # In case of unforeseen errors, the miner will log the error and continue operations.
             except Exception:
@@ -457,7 +500,7 @@ class Validator:
                 synapse.successfully_processed = False
                 synapse.error_message = msg
 
-    def should_fail_early(self, synapse: template.protocol.SendSignal | template.protocol.GetPositions, is_pi:bool,
+    def should_fail_early(self, synapse: template.protocol.SendSignal | template.protocol.GetPositions | template.protocol.ValidatorCheckpoint, method:SynapseMethod,
                           signal:dict=None) -> bool:
         global shutdown_dict
         if shutdown_dict:
@@ -468,18 +511,23 @@ class Validator:
 
         miner_hotkey = synapse.dendrite.hotkey
         # Don't allow miners to send too many signals in a short period of time
-        if is_pi:
+        if method == SynapseMethod.POSITION_INSPECTOR:
             allowed, wait_time = self.position_inspector_rate_limiter.is_allowed(miner_hotkey)
-        else:
+        elif method == SynapseMethod.SIGNAL:
             allowed, wait_time = self.order_rate_limiter.is_allowed(miner_hotkey)
+        else:
+            allowed, wait_time = self.checkpoint_rate_limiter.is_allowed(miner_hotkey)
 
         if not allowed:
             msg = (f"Rate limited. Please wait {wait_time} seconds before sending another signal. "
-                   f"{'GetPositions' if is_pi else 'SendSignal'}")
+                   f"{method.value}")
             bt.logging.trace(msg)
             synapse.successfully_processed = False
             synapse.error_message = msg
             return True
+
+        if method == SynapseMethod.CHECKPOINT:
+            return False
 
         # don't process eliminated miners
         with self.eliminations_lock:
@@ -556,7 +604,7 @@ class Validator:
         synapse.validator_hotkey = self.wallet.hotkey.ss58_address
         signal = synapse.signal
         bt.logging.info(f"received signal [{signal}] from miner_hotkey [{miner_hotkey}].")
-        if self.should_fail_early(synapse, False, signal=signal):
+        if self.should_fail_early(synapse, SynapseMethod.SIGNAL, signal=signal):
             return synapse
 
         with self.signal_sync_lock:
@@ -612,7 +660,7 @@ class Validator:
 
     def get_positions(self, synapse: template.protocol.GetPositions,
                       ) -> template.protocol.GetPositions:
-        if self.should_fail_early(synapse, True):
+        if self.should_fail_early(synapse, SynapseMethod.POSITION_INSPECTOR):
             return synapse
 
         miner_hotkey = synapse.dendrite.hotkey
@@ -635,6 +683,132 @@ class Validator:
         synapse.error_message = error_message
         return synapse
 
+    # Enable validator <-> validator checkpoint sync
+    def checkpoint_thread(self):
+        """
+        set up event loop for asynchronous sending of checkpoints
+        """
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            bt.logging.info("calling send_checkpoint")
+            loop.run_until_complete(self.send_checkpoint())
+        finally:
+            loop.close()
+
+    async def send_checkpoint(self):
+        """
+        serializes checkpoint json and transmits to all validators via synapse
+        """
+        dendrite = bt.dendrite(wallet=self.wallet)
+
+        # for n in self.metagraph.neurons:
+        #     n.validator_trust = random.random()
+        #     n.stake = random.randrange(1500)
+        #
+        # table = [[n.uid for n in self.metagraph.neurons], [n.validator_trust for n in self.metagraph.neurons]]
+        # my_uid = self.metagraph.hotkeys.index(self.wallet.hotkey.ss58_address)
+        # bt.logging.info(f"my uid {my_uid}")
+        # print(tabulate(table, tablefmt="simple_grid"))
+        # bt.logging.info(f"stake {[n.stake for n in self.metagraph.neurons]}")
+
+        # get our current checkpoint
+        now_ms = TimeUtil.now_in_millis()
+        checkpoint_dict = generate_request_core(time_now=now_ms)
+
+        # serialize the position data
+        positions = checkpoint_dict['positions']
+        # 24 hours in milliseconds
+        max_allowed_t_ms = TimeUtil.now_in_millis() - AUTO_SYNC_ORDER_LAG_MS
+        for hotkey, positions in positions.items():
+            new_positions = []
+            positions_deserialized = [Position(**json_positions_dict) for json_positions_dict in positions['positions']]
+            for position in positions_deserialized:
+                new_orders = []
+                for order in position.orders:
+                    if order.processed_ms < max_allowed_t_ms:
+                        new_orders.append(order)
+                if len(new_orders):
+                    position.orders = new_orders
+                    position.rebuild_position_with_updated_orders()
+                    new_positions.append(position)
+                else:
+                    # if no orders are left, remove the position
+                    pass
+
+            positions_serialized = [json.loads(str(p), cls=GeneralizedJSONDecoder) for p in new_positions]
+            positions['positions'] = positions_serialized
+
+        # compress json and encode as base64 to keep as a string
+        checkpoint_str = json.dumps(checkpoint_dict, cls=CustomEncoder)
+        compressed = gzip.compress(checkpoint_str.encode("utf-8"))
+        encoded_checkpoint = base64.b64encode(compressed).decode("utf-8")
+
+        # create dendrite and transmit synapse
+        validator_axons = self.metagraph.axons
+        checkpoint_synapse = template.protocol.ValidatorCheckpoint(checkpoint=encoded_checkpoint)
+        validator_responses = await dendrite(validator_axons, checkpoint_synapse)
+
+        if len(validator_responses) == 0:
+            bt.logging.info(f"no valid validators found. skipping sending checkpoint")
+        else:
+            bt.logging.info(f"sending checkpoint from validator {self.wallet.hotkey.ss58_address}")
+
+            successes = 0
+            failures = 0
+            for response in validator_responses:
+                if response.successfully_processed:
+                    successes += 1
+                else:
+                    failures += 1
+
+            bt.logging.info(f"{successes} responses succeeded")
+            bt.logging.info(f"{failures} responses failed")
+
+    def receive_checkpoint(self, synapse: template.protocol.ValidatorCheckpoint) -> template.protocol.ValidatorCheckpoint:
+        sender_hotkey = synapse.dendrite.hotkey
+        synapse.validator_receive_hotkey = self.wallet.hotkey.ss58_address
+
+        #TODO: reset received after every sync cycle
+        self.received_checkpoints += 1
+        bt.logging.info(f"validator {synapse.validator_receive_hotkey} received checkpoint {self.received_checkpoints} of {self.num_validators} from validator hotkey [{sender_hotkey}].")
+        if self.should_fail_early(synapse, SynapseMethod.CHECKPOINT):
+            return synapse
+
+        with self.signal_sync_lock:
+            self.n_checkpoints_being_processed[0] += 1
+
+        error_message = ""
+        try:
+            # Decode from base64 and decompress back into json
+            decoded = base64.b64decode(synapse.checkpoint)
+            decompressed = gzip.decompress(decoded).decode('utf-8')
+            recv_checkpoint = json.loads(decompressed)
+
+            ## TODO: use the checkpoint received to build consensus
+            # print(recv_checkpoint)
+            print(type(recv_checkpoint))
+            print(recv_checkpoint.keys())
+            print(json.dumps(recv_checkpoint, indent=4))
+            print(recv_checkpoint["positions"])
+            self.position_syncer.add_checkpoint(recv_checkpoint, self.num_validators)
+
+        except Exception as e:
+            error_message = f"Error processing checkpoint {self.received_checkpoints} from [{sender_hotkey}] with error [{e}]"
+            bt.logging.error(traceback.format_exc())
+
+        if error_message == "":
+            synapse.successfully_processed = True
+        else:
+            bt.logging.error(error_message)
+            synapse.successfully_processed = False
+        synapse.error_message = error_message
+        bt.logging.success(f"Sending ack back to validator [{sender_hotkey}]")
+        with self.signal_sync_lock:
+            self.n_checkpoints_being_processed[0] -= 1
+            if self.n_checkpoints_being_processed[0] == 0:
+                self.signal_sync_condition.notify_all()
+        return synapse
 
 # This is the main function, which runs the miner.
 if __name__ == "__main__":
