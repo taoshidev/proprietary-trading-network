@@ -393,8 +393,9 @@ class Validator:
                 self.elimination_manager.process_eliminations()
                 self.position_syncer.sync_positions_with_cooldown(self.auto_sync)
                 self.position_manager.position_locks.cleanup_locks(self.metagraph.hotkeys)
-                # TODO: set the interval for checkpoints
-                self.checkpoint_thread()
+                # TODO: set the interval for checkpoints to be once daily
+                if not self.is_mainnet:
+                    self.checkpoint_thread()
 
             # In case of unforeseen errors, the miner will log the error and continue operations.
             except Exception:
@@ -685,7 +686,7 @@ class Validator:
         synapse.error_message = error_message
         return synapse
 
-    # Enable validator <-> validator checkpoint sync
+    # Enable validator <-> validator p2p checkpoint sync
     def checkpoint_thread(self):
         """
         set up event loop for asynchronous sending of checkpoints
@@ -702,18 +703,6 @@ class Validator:
         """
         serializes checkpoint json and transmits to all validators via synapse
         """
-        dendrite = bt.dendrite(wallet=self.wallet)
-
-        # for n in self.metagraph.neurons:
-        #     n.validator_trust = random.random()
-        #     n.stake = random.randrange(1500)
-        #
-        # table = [[n.uid for n in self.metagraph.neurons], [n.validator_trust for n in self.metagraph.neurons]]
-        # my_uid = self.metagraph.hotkeys.index(self.wallet.hotkey.ss58_address)
-        # bt.logging.info(f"my uid {my_uid}")
-        # print(tabulate(table, tablefmt="simple_grid"))
-        # bt.logging.info(f"stake {[n.stake for n in self.metagraph.neurons]}")
-
         # get our current checkpoint
         now_ms = TimeUtil.now_in_millis()
         checkpoint_dict = generate_request_core(time_now=now_ms)
@@ -746,6 +735,8 @@ class Validator:
         compressed = gzip.compress(checkpoint_str.encode("utf-8"))
         encoded_checkpoint = base64.b64encode(compressed).decode("utf-8")
 
+        # get axons to send checkpoints to
+        dendrite = bt.dendrite(wallet=self.wallet)
         validator_axons = self.metagraph.axons
 
         if len(validator_axons) == 0:
@@ -761,7 +752,7 @@ class Validator:
             failures = 0
             for response in validator_responses:
                 if response.successfully_processed:
-                    print(f"successfully processed {response}")
+                    print(f"successfully processed ack from {response.validator_receive_hotkey}")
                     successes += 1
                 else:
                     failures += 1
@@ -773,7 +764,7 @@ class Validator:
         sender_hotkey = synapse.dendrite.hotkey
         synapse.validator_receive_hotkey = self.wallet.hotkey.ss58_address
 
-        #TODO: reset received after every sync cycle
+        #TODO: count received checkpoints, reset received after every completed sync
         self.received_checkpoints += 1
         bt.logging.info(f"validator {synapse.validator_receive_hotkey} received checkpoint from validator hotkey [{sender_hotkey}].")
         if self.should_fail_early(synapse, SynapseMethod.CHECKPOINT):
@@ -791,10 +782,10 @@ class Validator:
 
             ## TODO: use the checkpoint received to build consensus
             # print(recv_checkpoint)
-            print(type(recv_checkpoint))
-            print(recv_checkpoint.keys())
-            print(json.dumps(recv_checkpoint, indent=4))
-            print(recv_checkpoint["positions"])
+            # print(type(recv_checkpoint))
+            # print(recv_checkpoint.keys())
+            # print(json.dumps(recv_checkpoint, indent=4))
+            # print(recv_checkpoint["positions"])
             # self.position_syncer.add_checkpoint(recv_checkpoint, self.num_validators)
 
         except Exception as e:
