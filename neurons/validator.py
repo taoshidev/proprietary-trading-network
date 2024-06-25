@@ -4,19 +4,22 @@
 # Copyright © 2024 Taoshi Inc
 
 import asyncio
-import base64
 import os
 import sys
 import threading
 import signal
 import uuid
 from typing import Tuple
+from enum import Enum
 
 import template
 import argparse
 import traceback
 import time
 import bittensor as bt
+import json
+import gzip
+import base64
 
 from vali_objects.utils.auto_sync import PositionSyncer
 from shared_objects.rate_limiter import RateLimiter
@@ -34,22 +37,15 @@ from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
 from vali_objects.utils.plagiarism_detector import PlagiarismDetector
 from vali_objects.utils.position_manager import PositionManager
 from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
+from vali_objects.utils.auto_sync import AUTO_SYNC_ORDER_LAG_MS
+from vali_objects.utils.vali_bkp_utils import CustomEncoder
+from vali_objects.decoders.generalized_json_decoder import GeneralizedJSONDecoder
 from vali_objects.vali_dataclasses.order import Order
 from vali_objects.position import Position
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.utils.vali_utils import ValiUtils
 from vali_config import ValiConfig
-
-from vali_objects.utils.auto_sync import AUTO_SYNC_ORDER_LAG_MS
-from vali_objects.decoders.generalized_json_decoder import GeneralizedJSONDecoder
 from runnable.generate_request_core import generate_request_core
-from vali_objects.utils.vali_bkp_utils import CustomEncoder
-import json
-import gzip
-import base64
-from enum import Enum
-# import random
-# from tabulate import tabulate
 
 # Global flag used to indicate shutdown
 shutdown_dict = {}
