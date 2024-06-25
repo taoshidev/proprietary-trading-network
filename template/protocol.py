@@ -32,7 +32,12 @@ class GetPositions(bt.Synapse):
     )
 
 class ValidatorCheckpoint(bt.Synapse):
-    checkpoint: str = Field("", title="Checkpoint", allow_mutation=False)
-    successfully_processed: bool = Field(False, title="Successfully Processed", allow_mutation=True)
-    error_message: str = Field("", title="Error Message", allow_mutation=True)
-    validator_receive_hotkey: str = Field("", title="Hotkey set by receiving validator", allow_mutation=True)
+    checkpoint: str = Field("", title="Checkpoint", frozen=False)
+    successfully_processed: bool = Field(False, title="Successfully Processed", frozen=False)
+    error_message: str = Field("", title="Error Message", frozen=False)
+    validator_receive_hotkey: str = Field("", title="Hotkey set by receiving validator", frozen=False)
+    required_hash_fields: List[str] = Field(
+        ["checkpoint"],
+        title="Required Hash Fields",
+        description="A list of fields required for the hash."
+    )
