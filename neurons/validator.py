@@ -12,6 +12,8 @@ import uuid
 from typing import Tuple
 from enum import Enum
 
+from tabulate import tabulate
+
 import template
 import argparse
 import traceback
@@ -161,7 +163,7 @@ class Validator:
         self.metagraph_updater_thread.start()
 
         # keep track of values for checkpoint sync
-        self.num_validators = 0
+        self.num_trusted_validators = len(self.get_trusted_validators())
         self.received_checkpoints = 0
 
         if self.wallet.hotkey.ss58_address not in self.metagraph.hotkeys:
@@ -386,7 +388,10 @@ class Validator:
                 self.position_syncer.sync_positions_with_cooldown(self.auto_sync)
                 self.position_manager.position_locks.cleanup_locks(self.metagraph.hotkeys)
                 # TODO: set the interval for checkpoints to be once daily
-                if not self.is_mainnet:
+                # TODO: get rid of mainnet case
+                # only trusted validators should send checkpoints
+                hotkey = self.wallet.hotkey.ss58_address
+                if not self.is_mainnet or hotkey in [axon.hotkey for axon in self.get_trusted_validators()]:
                     self.checkpoint_thread()
 
             # In case of unforeseen errors, the miner will log the error and continue operations.
@@ -727,73 +732,149 @@ class Validator:
 
         # get axons to send checkpoints to
         dendrite = bt.dendrite(wallet=self.wallet)
-        validator_axons = self.metagraph.axons
 
-        if len(validator_axons) == 0:
-            bt.logging.info(f"no valid validators found. skipping sending checkpoint")
+        # TODO: confirm value of testnet metagraph attributes, combine mainnet case
+        if self.is_mainnet:
+            validator_axons = self.get_validators()
         else:
+            validator_axons = self.metagraph.axons
+
+        try:
             # create dendrite and transmit synapse
             checkpoint_synapse = template.protocol.ValidatorCheckpoint(checkpoint=encoded_checkpoint)
             validator_responses = await dendrite.forward(axons=validator_axons, synapse=checkpoint_synapse)
 
-            bt.logging.info(f"sending checkpoint from validator {self.wallet.hotkey.ss58_address}")
+            bt.logging.info(f"Sending checkpoint from validator {self.wallet.hotkey.ss58_address}")
 
             successes = 0
             failures = 0
             for response in validator_responses:
                 if response.successfully_processed:
-                    print(f"successfully processed ack from {response.validator_receive_hotkey}")
+                    bt.logging.info(f"Successfully processed ack from {response.validator_receive_hotkey}")
                     successes += 1
                 else:
                     failures += 1
 
             bt.logging.info(f"{successes} responses succeeded")
             bt.logging.info(f"{failures} responses failed")
+        except Exception as e:
+            bt.logging.info(f"Error sending checkpoint with error [{e}]")
+
+    def get_validators(self):
+        """
+        get a list of all validators. defined as:
+        stake > 1000 and validator_trust > 0.5
+        """
+        neurons = self.metagraph.neurons
+        validator_neurons = [n for n in neurons if n.stake > bt.Balance(ValiConfig.STAKE_MIN)
+                             and n.validator_trust > ValiConfig.V_TRUST_MIN]
+
+        return [n.axon_info for n in validator_neurons if n.axon_info.ip != "0.0.0.0"]
+
+    def get_trusted_validators(self):
+        """
+        get a list of the trusted validators for checkpoint sending. defined as:
+        top 10 by stake OR validator_trust > 0.9
+        """
+        # TODO: filter min stake as well?
+        neurons = self.metagraph.neurons
+        # only validators with top 10 stake, or v_trust > 0.9 should send checkpoints
+        top_stake_neurons = sorted(neurons, key=lambda n: n.stake, reverse=True)
+        top_stake_axons = [n.axon_info for n in top_stake_neurons if n.stake > bt.Balance(ValiConfig.STAKE_MIN)
+                           and n.axon_info.ip != "0.0.0.0"][:ValiConfig.TOP_N]
+        high_v_trust_axons = [n.axon_info for n in neurons if n.validator_trust > ValiConfig.V_TRUST_THRESHOLD]
+
+        # axons could contain duplicates, create set based on axon hotkeys and then filter axons
+        axons = top_stake_axons + high_v_trust_axons
+        trusted_hotkeys = set(a.hotkey for a in axons)
+        trusted_axons = [a for a in axons if a.hotkey in trusted_hotkeys and a.ip != "0.0.0.0"]
+
+        return trusted_axons
 
     def receive_checkpoint(self, synapse: template.protocol.ValidatorCheckpoint) -> template.protocol.ValidatorCheckpoint:
+        """
+        receive checkpoint synapses, and ensure that only checkpoints received from trusted validators are integrated.
+        """
         sender_hotkey = synapse.dendrite.hotkey
-        synapse.validator_receive_hotkey = self.wallet.hotkey.ss58_address
 
-        #TODO: count received checkpoints, reset received after every completed sync
-        self.received_checkpoints += 1
-        bt.logging.info(f"validator {synapse.validator_receive_hotkey} received checkpoint from validator hotkey [{sender_hotkey}].")
-        if self.should_fail_early(synapse, SynapseMethod.CHECKPOINT):
-            return synapse
+        # only want to process and read checkpoints from trusted validators
+        # TODO: remove mainnet check
+        if not self.is_mainnet or sender_hotkey in [axon.hotkey for axon in self.get_trusted_validators()]:
+            synapse.validator_receive_hotkey = self.wallet.hotkey.ss58_address
 
-        with self.signal_sync_lock:
-            self.n_checkpoints_being_processed[0] += 1
+            # TODO: count received checkpoints, reset received after every completed sync
+            self.received_checkpoints += 1
+            bt.logging.info(
+                f"Received checkpoint from trusted validator hotkey [{sender_hotkey}].")
 
-        error_message = ""
-        try:
-            # Decode from base64 and decompress back into json
-            decoded = base64.b64decode(synapse.checkpoint)
-            decompressed = gzip.decompress(decoded).decode('utf-8')
-            recv_checkpoint = json.loads(decompressed)
+            if self.should_fail_early(synapse, SynapseMethod.CHECKPOINT):
+                return synapse
 
-            ## TODO: use the checkpoint received to build consensus
-            # print(recv_checkpoint)
-            # print(type(recv_checkpoint))
-            # print(recv_checkpoint.keys())
-            # print(json.dumps(recv_checkpoint, indent=4))
-            # print(recv_checkpoint["positions"])
-            # self.position_syncer.add_checkpoint(recv_checkpoint, self.num_validators)
+            with self.signal_sync_lock:
+                self.n_checkpoints_being_processed[0] += 1
 
-        except Exception as e:
-            error_message = f"Error processing checkpoint {self.received_checkpoints} from [{sender_hotkey}] with error [{e}]"
-            bt.logging.error(traceback.format_exc())
+            error_message = ""
+            try:
+                # Decode from base64 and decompress back into json
+                decoded = base64.b64decode(synapse.checkpoint)
+                decompressed = gzip.decompress(decoded).decode('utf-8')
+                recv_checkpoint = json.loads(decompressed)
 
-        if error_message == "":
-            synapse.successfully_processed = True
+                # TODO: use the checkpoint received to build consensus
+                # print(recv_checkpoint)
+                # print(type(recv_checkpoint))
+                # print(recv_checkpoint.keys())
+                # print(json.dumps(recv_checkpoint, indent=4))
+                # print(recv_checkpoint["positions"])
+                # self.position_syncer.add_checkpoint(recv_checkpoint, self.num_validators)
+
+            except Exception as e:
+                error_message = f"Error processing checkpoint from [{sender_hotkey}] with error [{e}]"
+                bt.logging.error(traceback.format_exc())
+
+            if error_message == "":
+                synapse.successfully_processed = True
+            else:
+                bt.logging.error(error_message)
+                synapse.successfully_processed = False
+            synapse.error_message = error_message
+            bt.logging.success(f"Sending ack back to validator [{sender_hotkey}]")
+            with self.signal_sync_lock:
+                self.n_checkpoints_being_processed[0] -= 1
+                if self.n_checkpoints_being_processed[0] == 0:
+                    self.signal_sync_condition.notify_all()
         else:
-            bt.logging.error(error_message)
+            bt.logging.info(f"Received a checkpoint from non-trusted validator [{sender_hotkey}]")
+            synapse.error_message = "Rejecting checkpoint from non-trusted validator"
             synapse.successfully_processed = False
-        synapse.error_message = error_message
-        bt.logging.success(f"Sending ack back to validator [{sender_hotkey}]")
-        with self.signal_sync_lock:
-            self.n_checkpoints_being_processed[0] -= 1
-            if self.n_checkpoints_being_processed[0] == 0:
-                self.signal_sync_condition.notify_all()
         return synapse
+
+    # temp test method to print out the metagraph state
+    def print_metagraph_attributes(self):
+        # for n in self.metagraph.neurons:
+        #     n.validator_trust = random.random()
+        #     n.stake = random.randrange(1500)
+
+        table = [[n.axon_info.hotkey[:4] for n in self.metagraph.neurons],
+                 [n.axon_info.ip for n in self.metagraph.neurons], [str(n.stake)[:7] for n in self.metagraph.neurons],
+                 [n.validator_trust for n in self.metagraph.neurons]]
+        # my_uid = self.metagraph.hotkeys.index(self.wallet.hotkey.ss58_address)
+        # bt.logging.info(f"my uid {my_uid}")
+        smalltable = [r[:20] for r in table]
+        print(tabulate(smalltable, tablefmt="simple_grid"))
+        smalltable = [r[20:40] for r in table]
+        print(tabulate(smalltable, tablefmt="simple_grid"))
+        smalltable = [r[40:60] for r in table]
+        print(tabulate(smalltable, tablefmt="simple_grid"))
+        smalltable = [r[60:80] for r in table]
+        print(tabulate(smalltable, tablefmt="simple_grid"))
+        smalltable = [r[80:100] for r in table]
+        print(tabulate(smalltable, tablefmt="simple_grid"))
+        # bt.logging.info(f"stake {[n.stake for n in self.metagraph.neurons]}")
+
+        print(self.num_trusted_validators, " trusted validators___________")
+        for a in self.get_trusted_validators():
+            print(a.hotkey)
 
 # This is the main function, which runs the miner.
 if __name__ == "__main__":

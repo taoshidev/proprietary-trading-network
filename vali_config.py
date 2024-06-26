@@ -274,3 +274,9 @@ class ValiConfig:
     MAX_MINER_PLAGIARISM_SCORE = 0.9 # want to make sure we're filtering out the bad actors
     TOP_MINER_BENEFIT = 0.90
     TOP_MINER_PERCENT = 0.40
+
+    ## Qualifications to be a trusted validator sending checkpoints
+    TOP_N = 10
+    V_TRUST_THRESHOLD = 0.9
+    STAKE_MIN = 1000.0
+    V_TRUST_MIN = 0.5
