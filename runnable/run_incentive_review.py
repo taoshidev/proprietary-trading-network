@@ -139,10 +139,11 @@ if __name__ == "__main__":
 
     ## Apply the penalties to each miner
     combined_penalized_scores = { miner: score * miner_penalties.get(miner,0) for miner, score in combined_scores.items() }
-    combined_cutoff_scores = Scoring.top_miners_cutoff(combined_penalized_scores)
 
     ## Normalize the scores
-    normalized_scores = Scoring.normalize_scores(combined_cutoff_scores)
+    normalized_scores = Scoring.normalize_scores(combined_penalized_scores)
+    print(f"Normalized scores: {normalized_scores}")
+
     checkpoint_results = sorted(normalized_scores.items(), key=lambda x: x[1], reverse=True)
 
     # Prepare data for DataFrame

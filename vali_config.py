@@ -237,7 +237,6 @@ class ValiConfig:
     SCORING_RETURN_CPS_LONG_WEIGHT = 0.5
     SCORING_OMEGA_CPS_WEIGHT = 0.15
     SCORING_SORTINO_CPS_WEIGHT = 0.00
-    TOP_MINERS_CUTOFF = 50
 
     ## MDD penalty calculation
     DRAWDOWN_NTERMS = 4 * 4 * 7 # four weeks
@@ -274,4 +273,4 @@ class ValiConfig:
 
     MAX_MINER_PLAGIARISM_SCORE = 0.9 # want to make sure we're filtering out the bad actors
     TOP_MINER_BENEFIT = 0.90
-    TOP_MINER_PERCENT = 0.15
+    TOP_MINER_PERCENT = 0.40

@@ -145,42 +145,10 @@ class Scoring:
 
         ## Apply the penalties to each miner
         combined_penalized_scores = { miner: score * miner_penalties.get(miner,0) for miner, score in combined_scores.items() }
-        combined_cutoff_scores = Scoring.top_miners_cutoff(combined_penalized_scores)
 
         ## Normalize the scores
-        normalized_scores = Scoring.normalize_scores(combined_cutoff_scores)
+        normalized_scores = Scoring.normalize_scores(combined_penalized_scores)
         return sorted(normalized_scores.items(), key=lambda x: x[1], reverse=True)
-    
-    @staticmethod
-    def top_miners_cutoff(scores, n = None):
-        """
-        Filters a dictionary to keep only the top N elements by value and sets others to 0.
-
-        Args:
-            data: A dictionary of elements.
-            n: The number of top elements to keep.
-
-        Returns:
-            A new dictionary with the filtered elements (others set to 0).
-        """
-        if n is None:
-            n = ValiConfig.TOP_MINERS_CUTOFF
-
-        if n <= 0:
-            raise ValueError("n must be a positive integer")
-        
-        if len(scores) == 0:
-            bt.logging.debug("No scores to cutoff, returning empty list")
-            return {}
-        
-        # Sort the items by value in descending order
-        sorted_data = sorted(scores.items(), key=lambda x: x[1], reverse=True)
-        # Create a new dictionary with only the top N elements and set others to 0
-        filtered_dict = dict(sorted_data[:n])
-        filtered_weighted = dict(Scoring.weigh_miner_scores(list(filtered_dict.items())))
-
-        filtered_weighted.update((key, 0) for key in scores if key not in filtered_dict)
-        return filtered_weighted
     
     @staticmethod
     def miner_penalties(ledger_dict: dict[str, PerfLedger]) -> dict[str, float]:
