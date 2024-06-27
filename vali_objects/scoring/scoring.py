@@ -130,7 +130,8 @@ class Scoring:
             for miner, minerledger in config['ledger'].items():
                 scoringunit = ScoringUnit.from_perf_ledger(minerledger)
                 score = config['function'](scoringunit=scoringunit)
-                miner_scores.append((miner, score))
+                score_riskadjusted = score * miner_penalties.get(miner, 0)
+                miner_scores.append((miner, score_riskadjusted))
             
             weighted_scores = Scoring.miner_scores_percentiles(miner_scores)
             
@@ -143,11 +144,8 @@ class Scoring:
         combined_weighed = Scoring.weigh_miner_scores(list(combined_scores.items()))
         combined_scores = dict(combined_weighed)
 
-        ## Apply the penalties to each miner
-        combined_penalized_scores = { miner: score * miner_penalties.get(miner,0) for miner, score in combined_scores.items() }
-
         ## Normalize the scores
-        normalized_scores = Scoring.normalize_scores(combined_penalized_scores)
+        normalized_scores = Scoring.normalize_scores(combined_scores)
         return sorted(normalized_scores.items(), key=lambda x: x[1], reverse=True)
     
     @staticmethod
