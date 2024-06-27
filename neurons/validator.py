@@ -770,13 +770,9 @@ class Validator:
             decompressed = gzip.decompress(decoded).decode('utf-8')
             recv_checkpoint = json.loads(decompressed)
 
-            ## TODO: use the checkpoint received to build consensus
-            # print(recv_checkpoint)
-            # print(type(recv_checkpoint))
-            # print(recv_checkpoint.keys())
             # print(json.dumps(recv_checkpoint, indent=4))
-            # print(recv_checkpoint["positions"])
-            # self.position_syncer.add_checkpoint(recv_checkpoint, self.num_validators)
+            # TODO: make sure I only count a checkpoint from a unique hotkey once per cycle
+            self.position_syncer.add_checkpoint(recv_checkpoint, self.num_validators)
 
         except Exception as e:
             error_message = f"Error processing checkpoint {self.received_checkpoints} from [{sender_hotkey}] with error [{e}]"

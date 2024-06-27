@@ -777,5 +777,121 @@ class TestPositions(TestBase):
         assert len(self.position_syncer.perf_ledger_hks_to_invalidate) == 1
         assert self.position_syncer.perf_ledger_hks_to_invalidate[self.DEFAULT_MINER_HOTKEY] == order_to_insert.processed_ms
 
+    def test_checkpoint_syncing_create_golden(self):
+        checkpoint1 = {
+            "positions": {
+                "minerA": {
+                    "positions": [
+                        {
+                            "position data": 0.1,
+                            "orders": [
+                                {
+                                    "price": 0.1,
+                                    "order_uuid": "order0"
+                                },
+                                {
+                                    "price": 0.4,
+                                    "order_uuid": "order2"
+                                }
+                            ],
+                            "position_uuid": "position1"
+                        },
+                        {
+                            "position data": 0.2,
+                            "orders": [
+                                {
+                                    "price": 0.1,
+                                    "order_uuid": "order3"
+                                },
+                                {
+                                    "price": 0.2,
+                                    "order_uuid": "order4"
+                                }
+                            ],
+                            "position_uuid": "position2"
+                        }
+                    ]
+                }
+            }
+        }
+        checkpoint2 = {
+            "positions": {
+                "minerA": {
+                    "positions": [
+                        {
+                            "position data": 0.1,
+                            "orders": [
+                                {
+                                    "price": 0.1,
+                                    "order_uuid": "order1"
+                                },
+                                {
+                                    "price": 0.2,
+                                    "order_uuid": "order2"
+                                }
+                            ],
+                            "position_uuid": "position1"
+                        },
+                        {
+                            "position data": 0.2,
+                            "orders": [
+                                {
+                                    "price": 0.1,
+                                    "order_uuid": "order3"
+                                },
+                                {
+                                    "price": 0.2,
+                                    "order_uuid": "order4"
+                                }
+                            ],
+                            "position_uuid": "position2"
+                        }
+                    ]
+                }
+            }
+        }
+        checkpoint3 = {
+            "positions": {
+                "minerA": {
+                    "positions": [
+                        {
+                            "position data": 0.1,
+                            "orders": [
+                                {
+                                    "price": 0.1,
+                                    "order_uuid": "order1"
+                                },
+                                {
+                                    "price": 0.2,
+                                    "order_uuid": "order5"
+                                }
+                            ],
+                            "position_uuid": "position1"
+                        },
+                        {
+                            "position data": 0.2,
+                            "orders": [
+                                {
+                                    "price": 0.1,
+                                    "order_uuid": "order3"
+                                },
+                                {
+                                    "price": 0.2,
+                                    "order_uuid": "order6"
+                                }
+                            ],
+                            "position_uuid": "position2"
+                        }
+                    ]
+                }
+            }
+        }
 
+        print("checkpoint sync test")
+
+        self.position_syncer.add_checkpoint(checkpoint1, 3)
+        self.position_syncer.add_checkpoint(checkpoint2, 3)
+        self.position_syncer.add_checkpoint(checkpoint3, 3)
+
+        print(json.dumps(self.position_syncer.golden, indent=4))
 

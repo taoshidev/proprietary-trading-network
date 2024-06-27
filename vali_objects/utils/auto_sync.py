@@ -6,6 +6,7 @@ import zipfile
 from enum import Enum
 from collections import defaultdict
 from copy import deepcopy
+from statistics import median
 
 import requests
 
@@ -42,6 +43,9 @@ class PositionSyncer:
         self.signal_sync_condition = signal_sync_condition
         self.n_orders_being_processed = n_orders_being_processed
         self.init_data()
+        self.checkpoints = []
+        self.num_checkpoints_received = 0
+        self.golden = {}
 
     def init_data(self):
         self.global_stats = defaultdict(int)
@@ -580,6 +584,117 @@ class PositionSyncer:
                 bt.logging.error(traceback.format_exc())
 
         self.last_signal_sync_time_ms = TimeUtil.now_in_millis()
+
+    def add_checkpoint(self, received_checkpoint: json, total_checkpoints):
+        """
+        takes parameter that has all the data that I need to resolve to create checkpoint
+        list[list of all positions on 1 validator] return a single validator checkpoint as a python dict
+
+        -in prod get positions from validators separately
+        -combine and call function
+
+        i need to create a wrapper function that takes all the checkpoints received from the validators, and
+        combines them into a single list before passing them onto the create golden function.
+
+        unit test-10 positions slightly diff->expect golden to have 1 position with that same uuid.
+        """
+        self.checkpoints.append(received_checkpoint)
+        self.num_checkpoints_received += 1
+
+        if self.num_checkpoints_received == total_checkpoints:
+            self.golden = self.create_golden(self.checkpoints)
+
+            # TODO: reset num checkpoints at end of cycle
+            self.num_checkpoints_received = 0
+
+    def create_golden(self, trusted_checkpoints: list[json]) -> dict:
+        """
+        Simple majority approach (preferred to start)
+            If a position’s uuid exists on the majority of validators, that position is kept.
+            If an order uuid exists in the majority of positions, that order is kept.
+                Choose the order with the median price.
+        """
+        position_counts = defaultdict(int)                      # {position_uuid: count}
+        position_data = defaultdict(list)                       # {position_uuid: [{position}]}
+        position_orders = defaultdict(set)                      # {position_uuid: {order_uuid}}
+        order_counts = defaultdict(lambda: defaultdict(int))    # {position_uuid: {order_uuid: count}}
+        order_data = defaultdict(list)                          # {order_uuid: [{order}]}
+
+        # simple majority
+        # TODO: separate threshold for orders
+        threshold = len(trusted_checkpoints) / 2
+
+        # parse each checkpoint to count occurrences of each position and order
+        for checkpoint in trusted_checkpoints:
+            # get positions for each miner
+            for miner_positions in checkpoint["positions"].values():
+                for position in miner_positions["positions"]:
+                    position_uuid = position["position_uuid"]
+                    position_counts[position_uuid] += 1
+                    position_data[position_uuid].append(dict(position, orders=[]))
+
+                    for order in position["orders"]:
+                        order_uuid = order["order_uuid"]
+                        order_counts[position_uuid][order_uuid] += 1
+                        order_data[order_uuid].append(dict(order))
+
+                        position_orders[position_uuid].add(order_uuid)
+
+        # get the set of majority positions
+        majority_positions = {position_uuid for position_uuid, count in position_counts.items()
+                              if count > threshold}
+
+        golden = defaultdict(lambda: defaultdict(list))
+
+        for checkpoint in trusted_checkpoints:
+            for miner_hotkey, miner_positions in checkpoint["positions"].items():
+                for position in miner_positions["positions"]:
+                    position_uuid = position["position_uuid"]
+                    # position exists on majority of validators
+                    if position_uuid in majority_positions:
+                        # create a single combined position, and delete uuid to avoid duplicates
+                        combined_position = self.combine_positions(position_data[position_uuid])
+                        majority_positions.remove(position_uuid)
+
+                        # get the set of majority orders on a position_uuid
+                        majority_orders = {order_uuid for order_uuid, count in order_counts[position_uuid].items()
+                                           if count > threshold}
+
+                        # order exists in the majority of positions
+                        for order_uuid in position_orders[position_uuid]:
+                            if order_uuid in majority_orders:
+
+                                combined_order = self.combine_orders(order_data[order_uuid])
+                                majority_orders.remove(order_uuid)
+
+                                # TODO: sort orders by "processed_ms" time
+                                combined_position["orders"].append(combined_order)
+
+                        golden[miner_hotkey]["positions"].append(combined_position)
+
+        # Convert defaultdict to regular dict
+        golden = {miner: dict(golden[miner]) for miner in golden}
+        # print(json.dumps(golden, indent=4))
+        return golden
+
+    def combine_positions(self, positions):
+        """
+        combine a list of positions with the same position_uuid into one.
+        """
+        return positions[0]
+
+    def combine_orders(self, orders):
+        """
+        combine a list of orders with the same order_uuid into one
+        sets the order price to the median price
+        """
+        if len(orders) == 1:
+            return orders[0]
+
+        # get the median price
+        median_price = median([order["price"] for order in orders])
+        orders[0]["price"] = median_price
+        return orders[0]
 
 
 if __name__ == "__main__":
