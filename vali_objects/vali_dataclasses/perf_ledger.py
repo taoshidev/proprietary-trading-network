@@ -22,14 +22,62 @@ from vali_objects.utils.vali_utils import ValiUtils
 TARGET_CHECKPOINT_DURATION_MS = 21600000  # 6 hours
 TARGET_LEDGER_WINDOW_MS = 2592000000  # 30 days
 
+class FeeCache():
+    def __init__(self):
+        self.spread_fee: float = 1.0
+        self.spread_fee_last_order_processed_ms: int = 0
+
+        self.carry_fee_total: float = 1.0 # product of all individual interval fees.
+        self.carry_fee_last_update_time_ms: int = 0  # Ensure we don't go back in time
+        self.carry_fee_next_increase_time_ms: int = 0 # Compute fees based off the prior interval
+
+    def get_spread_fee(self, position: Position) -> float:
+        if position.orders[-1].processed_ms == self.spread_fee_last_order_processed_ms:
+            return self.spread_fee
+
+        self.spread_fee = 1.0 - position.get_spread_fee()
+        self.spread_fee_last_order_processed_ms = position.orders[-1].processed_ms
+        return self.spread_fee
+
+    def get_carry_fee(self, current_time_ms, position: Position) -> float:
+        # Calculate the number of times a new day occurred (UTC). If a position is opened at 23:59:58 and this function is
+        # called at 00:00:02, the carry fee will be calculated as if a day has passed. Another example: if a position is
+        # opened at 23:59:58 and this function is called at 23:59:59, the carry fee will be calculated as 0 days have passed
+        if position.is_closed_position and current_time_ms > position.close_ms:
+            current_time_ms = position.close_ms
+
+        if current_time_ms < self.carry_fee_last_update_time_ms:
+            raise Exception('Why are you requesting a position return before the last query')
+        elif current_time_ms < position.orders[-1].processed_ms:
+            raise Exception('Why are you requesting a position return before the last order was processed?')
+        self.carry_fee_last_update_time_ms = current_time_ms
+
+        # cache hit
+        if current_time_ms < self.carry_fee_next_increase_time_ms:
+            return self.carry_fee_total
+
+        # cache miss
+        carry_fee, next_update_time_ms = position.get_carry_fee(current_time_ms)
+        self.carry_fee_total = 1.0 - carry_fee
+        self.carry_fee_next_increase_time_ms = next_update_time_ms
+        return self.carry_fee_total
+
 class PerfCheckpoint(BaseModel):
     last_update_ms: int
     prev_portfolio_ret: float
+    prev_portfolio_spread_fee: float = 1.0
+    prev_portfolio_carry_fee: float = 1.0
+
+
     accum_ms: int = 0
     open_ms: int = 0
     n_updates: int = 0
     gain: float = 0.0
     loss: float = 0.0
+
+    spread_fee_loss: float = 0.0
+    carry_fee_loss: float = 0.0
+
     mdd: float = 1.0
 
     def __str__(self):
@@ -91,6 +139,8 @@ class PerfLedger(BaseModel):
         while time_since_last_update_ms > self.target_cp_duration_ms:
             new_cp = PerfCheckpoint(last_update_ms=self.cps[-1].last_update_ms + self.target_cp_duration_ms,
                                     prev_portfolio_ret=self.cps[-1].prev_portfolio_ret,
+                                    prev_portfolio_fee_spread=self.cps[-1].prev_portfolio_spread_fee,
+                                    prev_portfolio_carry=self.cps[-1].prev_portfolio_carry_fee,
                                     accum_ms=self.target_cp_duration_ms,
                                     mdd=self.cps[-1].mdd)
             assert new_cp.last_update_ms < now_ms, (self.cps, (now_ms - new_cp.last_update_ms))
@@ -100,6 +150,8 @@ class PerfLedger(BaseModel):
         assert time_since_last_update_ms >= 0
         new_cp = PerfCheckpoint(last_update_ms=self.cps[-1].last_update_ms,
                                 prev_portfolio_ret=self.cps[-1].prev_portfolio_ret,
+                                prev_portfolio_fee_spread=self.cps[-1].prev_portfolio_spread_fee,
+                                prev_portfolio_carry=self.cps[-1].prev_portfolio_carry_fee,
                                 mdd=point_in_time_dd)
         assert new_cp.last_update_ms <= now_ms, self.cps
         self.cps.append(new_cp)
@@ -136,20 +188,28 @@ class PerfLedger(BaseModel):
         if any_open:
             cp.open_ms += accumulated_time
 
-    def compute_return_between_ticks(self, current_portfolio_value: float, prev_portfolio_value: float):
-        return math.log(current_portfolio_value / prev_portfolio_value)
+    def compute_delta_between_ticks(self, cur: float, prev: float):
+        return math.log(cur / prev)
 
-    def update_returns(self, current_cp: PerfCheckpoint, current_portfolio_value: float):
+    def update_gains_losses(self, current_cp: PerfCheckpoint, current_portfolio_value: float, current_portfolio_fee_spread: float, current_portfolio_carry: float):
         if current_portfolio_value == current_cp.prev_portfolio_ret:
             n_new_updates = 0
         else:
             n_new_updates = 1
-            delta_return = self.compute_return_between_ticks(current_portfolio_value, current_cp.prev_portfolio_ret)
+            delta_return = self.compute_delta_between_ticks(current_portfolio_value, current_cp.prev_portfolio_ret)
             if delta_return > 0:
                 current_cp.gain += delta_return
             else:
                 current_cp.loss += delta_return
+
+        if current_cp.prev_portfolio_carry_fee and current_portfolio_carry:
+            current_cp.carry_fee_loss += self.compute_delta_between_ticks(current_portfolio_carry, current_cp.prev_portfolio_carry_fee)
+        if current_cp.prev_portfolio_spread_fee and current_portfolio_fee_spread:
+            current_cp.spread_fee_loss += self.compute_delta_between_ticks(current_portfolio_fee_spread, current_cp.prev_portfolio_spread_fee)
+
         current_cp.prev_portfolio_ret = current_portfolio_value
+        current_cp.prev_portfolio_spread_fee = current_portfolio_fee_spread
+        current_cp.prev_portfolio_carry_fee = current_portfolio_carry
         current_cp.n_updates += n_new_updates
 
     def purge_old_cps(self):
@@ -165,9 +225,10 @@ class PerfLedger(BaseModel):
             new_cps.append(cp)
         self.cps = new_cps
 
-    def update(self, current_portfolio_value:float, now_ms:int, miner_hotkey:str, any_open:bool, point_in_time_dd:float):
+    def update(self, current_portfolio_value:float, now_ms:int, miner_hotkey:str, any_open:bool,
+               point_in_time_dd:float | None, current_portfolio_fee_spread:float, current_portfolio_carry:float):
         current_cp = self.get_or_create_latest_cp_with_mdd(now_ms, point_in_time_dd)
-        self.update_returns(current_cp, current_portfolio_value)
+        self.update_gains_losses(current_cp, current_portfolio_value, current_portfolio_fee_spread, current_portfolio_carry)
         self.update_accumulated_time(current_cp, now_ms, miner_hotkey, any_open)
         self.purge_old_cps()
 
@@ -187,6 +248,22 @@ class PerfLedger(BaseModel):
         cumulative_gains = sum(cp.gain for cp in self.cps)
         cumulative_loss = sum(cp.loss for cp in self.cps)
         return math.exp(cumulative_gains + cumulative_loss)
+
+    def get_product_of_spread_fee_gains(self):
+        cumulative_gains = sum(cp.spread_fee_loss for cp in self.cps)
+        return math.exp(cumulative_gains)
+
+    def get_product_of_carry_fee_gains(self):
+        cumulative_gains = sum(cp.carry_fee_loss for cp in self.cps)
+        return math.exp(cumulative_gains)
+
+    def get_total_product_of_spread_fees(self):
+        cumulative_gains = sum(cp.spread_fee_loss for cp in self.cps)
+        return math.exp(cumulative_gains)
+
+    def get_total_product_of_carry_fees(self):
+        cumulative_gains = sum(cp.carry_fee_loss for cp in self.cps)
+        return math.exp(cumulative_gains)
 
     def get_total_ledger_duration_ms(self):
         return sum(cp.accum_ms for cp in self.cps)
@@ -219,6 +296,7 @@ class PerfLedgerManager(CacheController):
         self.n_price_corrections = 0
         self.elimination_rows = []
         self.hk_to_last_order_processed_ms = {}
+        self.position_uuid_to_cache = defaultdict(FeeCache)
 
     @periodic_heartbeat(interval=600, message="perf ledger run_update_loop still running...")
     def run_update_loop(self):
@@ -291,19 +369,24 @@ class PerfLedgerManager(CacheController):
         return max_cuml_return_so_far
 
     def _can_shortcut(self, tp_to_historical_positions: dict[str: Position], end_time_ms:int,
-                      realtime_position_to_pop: Position | None):
+                      realtime_position_to_pop: Position | None) -> (bool, float, float, float):
         portfolio_value = 1.0
+        portfolio_spread_fee = 1.0
+        portfolio_carry_fee = 1.0
         n_open_positions = 0
         if end_time_ms < TimeUtil.now_in_millis() - TARGET_LEDGER_WINDOW_MS:
             for tp, historical_positions in tp_to_historical_positions.items():
                 for i, historical_position in enumerate(historical_positions):
                     if tp == realtime_position_to_pop.trade_pair.trade_pair and i == len(historical_positions) - 1 and realtime_position_to_pop:
                         historical_position = realtime_position_to_pop
+                    # fee timeskip OK since we just need to update for the portfolio value.
+                    portfolio_spread_fee *= self.position_uuid_to_cache[historical_position.position_uuid].get_spread_fee(historical_position)
+                    portfolio_carry_fee *= self.position_uuid_to_cache[historical_position.position_uuid].get_carry_fee(end_time_ms, historical_position)
                     portfolio_value *= historical_position.return_at_close
                     n_open_positions += historical_position.is_open_position
             # Since this window would be purged anyways, we can skip by using the instantaneous portfolio return.
             #print(f'skipping with {n_open_positions} open positions')
-            return True, portfolio_value
+            return True, portfolio_value, portfolio_spread_fee, portfolio_carry_fee
 
         n_positions = 0
         n_closed_positions = 0
@@ -312,7 +395,11 @@ class PerfLedgerManager(CacheController):
             for historical_position in historical_positions:
                 n_positions += 1
                 if historical_position.is_closed_position:
+                    # fee timeskip OK since all positions would be closed
                     portfolio_value *= historical_position.return_at_close
+                    portfolio_spread_fee *= self.position_uuid_to_cache[historical_position.position_uuid].get_spread_fee(historical_position)
+                    portfolio_carry_fee *= self.position_uuid_to_cache[historical_position.position_uuid].get_carry_fee(end_time_ms, historical_position)
+
                     n_closed_positions += 1
                 elif len(historical_position.orders) == 0:
                     n_positions_newly_opened += 1
@@ -330,7 +417,7 @@ class PerfLedgerManager(CacheController):
         #if ans:
         #    window_s = (end_time_ms - start_time_ms) // 1000
         #    #print(f"Shortcutting. n_positions: {n_positions}, n_closed_positions: {n_closed_positions}, n_positions_newly_opened: {n_positions_newly_opened}, window_s: {window_s}")
-        return ans, portfolio_value
+        return ans, portfolio_value, portfolio_spread_fee, portfolio_carry_fee
 
 
 
@@ -407,6 +494,8 @@ class PerfLedgerManager(CacheController):
         portfolio_return = 1.0
         t_s = t_ms // 1000
         any_open = False
+        portfolio_spread_fee = 1.0
+        portfolio_carry_fee = 1.0
         #if miner_hotkey.endswith('9osUx') and abs(t_ms - end_time_ms) < 1000:
         #    print('------------------')
 
@@ -421,9 +510,13 @@ class PerfLedgerManager(CacheController):
                     return portfolio_return, any_open
                 if len(historical_position.orders) == 0:  # Just opened an order. We will revisit this on the next event as there is no history to replay
                     continue
+
+                portfolio_spread_fee *= self.position_uuid_to_cache[historical_position.position_uuid].get_spread_fee(historical_position)
+                portfolio_carry_fee *= self.position_uuid_to_cache[historical_position.position_uuid].get_carry_fee(t_ms, historical_position)
+
                 if historical_position.is_closed_position:  # We want to process just-closed positions. wont be closed if we are on the corresponding event
-                    portfolio_return *= historical_position.return_at_close
                     continue
+
                 if not self.market_calendar.is_market_open(historical_position.trade_pair, t_ms):
                     portfolio_return *= historical_position.return_at_close
                     continue
@@ -445,7 +538,7 @@ class PerfLedgerManager(CacheController):
 
                 portfolio_return *= historical_position.return_at_close
                 #assert portfolio_return > 0, f"Portfolio value is {portfolio_return} for miner {miner_hotkey} at {t_s}. opr {opr} rtp {price_at_t_s}, historical position {historical_position}"
-        return portfolio_return, any_open
+        return portfolio_return, any_open, portfolio_spread_fee, portfolio_carry_fee
 
     def update_mdd(self, miner_hotkey, portfolio_return, t_ms, tp_to_historical_positions, perf_ledger):
         perf_ledger.max_return = max(perf_ledger.max_return, portfolio_return)
@@ -494,10 +587,10 @@ class PerfLedgerManager(CacheController):
             return False
 
         # "Shortcut" All positions closed and one newly open position OR all closed positions (all orders accounted for).
-        can_shortcut, portfolio_return = \
+        can_shortcut, portfolio_return, portfolio_spread_fee, portfolio_carry_fee = \
             self._can_shortcut(tp_to_historical_positions, end_time_ms, realtime_position_to_pop)
         if can_shortcut:
-            perf_ledger.update(portfolio_return, end_time_ms, miner_hotkey, False, point_in_time_dd=None)
+            perf_ledger.update(portfolio_return, end_time_ms, miner_hotkey, False, None, portfolio_spread_fee, portfolio_carry_fee)
             return False
 
         any_update = any_open = False
@@ -508,18 +601,18 @@ class PerfLedgerManager(CacheController):
             if self.shutdown_dict:
                 return False
             assert t_ms >= perf_ledger.last_update_ms, f"t_ms: {t_ms}, last_update_ms: {perf_ledger.last_update_ms}, delta_s: {(t_ms - perf_ledger.last_update_ms) // 1000} s. perf ledger {perf_ledger}"
-            portfolio_return, any_open = self.positions_to_portfolio_return(tp_to_historical_positions, t_ms, miner_hotkey, end_time_ms)
+            portfolio_return, any_open, portfolio_spread_fee, portfolio_carry_fee = self.positions_to_portfolio_return(tp_to_historical_positions, t_ms, miner_hotkey, end_time_ms)
             if self.check_liquidated(miner_hotkey, portfolio_return, t_ms, tp_to_historical_positions, perf_ledger):
                 return True
             self.update_mdd(miner_hotkey, portfolio_return, t_ms, tp_to_historical_positions, perf_ledger)
             #assert portfolio_return > 0, f"Portfolio value is {portfolio_return} for miner {miner_hotkey} at {t_ms // 1000}. perf ledger {perf_ledger}"
             last_dd = self.hk_to_dd_stats[miner_hotkey]['last_dd']
-            perf_ledger.update(portfolio_return, t_ms, miner_hotkey, any_open, last_dd)
+            perf_ledger.update(portfolio_return, t_ms, miner_hotkey, any_open, last_dd, portfolio_spread_fee, portfolio_carry_fee)
             any_update = True
 
         # Get last sliver of time
         if any_update and perf_ledger.last_update_ms != end_time_ms:
-            perf_ledger.update(portfolio_return, end_time_ms, miner_hotkey, any_open, last_dd)
+            perf_ledger.update(portfolio_return, end_time_ms, miner_hotkey, any_open, last_dd, portfolio_spread_fee, portfolio_carry_fee)
         return False
 
     def update_all_perf_ledgers(self, hotkey_to_positions: dict[str, List[Position]], existing_perf_ledgers: dict[str, PerfLedger], now_ms: int, return_dict=False):

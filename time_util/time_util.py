@@ -12,6 +12,8 @@ from pandas.tseries.holiday import USFederalHolidayCalendar
 
 import pandas_market_calendars as mcal
 from pandas.tseries.holiday import AbstractHolidayCalendar, Holiday, nearest_workday, EasterMonday, GoodFriday
+MS_IN_8_HOURS =  28800000
+MS_IN_24_HOURS = 86400000
 
 
 class ForexHolidayCalendar(USFederalHolidayCalendar):
@@ -264,8 +266,11 @@ class TimeUtil:
         return datetime.utcfromtimestamp(seconds).replace(tzinfo=timezone.utc)
 
     @staticmethod
-    def millis_to_timestamp(millis: int) -> datetime:
-        return datetime.utcfromtimestamp(millis / 1000).replace(tzinfo=timezone.utc)
+    def millis_to_timestamp(millis: int, tzone=timezone.utc, change_timezone=True) -> datetime:
+        if change_timezone:
+            return datetime.utcfromtimestamp(millis / 1000).replace(tzinfo=tzone)
+        else:
+            return datetime.utcfromtimestamp(millis / 1000)
 
     @staticmethod
     def minute_in_millis(minutes: int) -> int:
@@ -275,3 +280,59 @@ class TimeUtil:
     def hours_in_millis(hours: int = 24) -> int:
         # standard is 1 day
         return 60000 * 60 * hours * 1 * 1
+
+
+    @staticmethod
+    def ms_at_start_of_day(dt: datetime) -> int:
+        return int(dt.replace(hour=0, minute=0, second=0, microsecond=0).timestamp() * 1000)
+
+    @staticmethod
+    def n_intervals_elapsed_crypto(start_ms:int, current_time_ms:int) -> Tuple[int, int]:
+        elapsed_ms = current_time_ms - start_ms
+
+        current_date_utc = TimeUtil.millis_to_timestamp(current_time_ms, change_timezone=False)
+        current_hour = current_date_utc.hour
+        # Calculate the start of the next day (UTC)
+        if current_hour < 4:
+            next_interval = current_date_utc.replace(hour=4, minute=0, second=0, microsecond=0)
+        elif current_hour < 12:
+            next_interval = current_date_utc.replace(hour=12, minute=0, second=0, microsecond=0)
+        elif current_hour < 20:
+            next_interval = current_date_utc.replace(hour=20, minute=0, second=0, microsecond=0)
+        elif current_hour < 24:
+            temp = current_date_utc + timedelta(days=1)
+            next_interval = temp.replace(hour=4, minute=0, second=0, microsecond=0)
+        else:
+            raise Exception(f'Unexpected hour: {current_hour}')
+
+        time_until_next_interval_ms = int((next_interval - current_date_utc).total_seconds() * 1000)
+        emi = elapsed_ms % MS_IN_8_HOURS
+        n_intervals = (elapsed_ms // MS_IN_8_HOURS) + int(emi and emi >= time_until_next_interval_ms % MS_IN_8_HOURS)
+        return n_intervals, time_until_next_interval_ms
+
+    @staticmethod
+    def n_intervals_elapsed_forex_indices(start_ms: int, current_time_ms: int) -> Tuple[int, int]:
+        elapsed_ms = current_time_ms - start_ms
+        current_date_utc = TimeUtil.millis_to_timestamp(current_time_ms, change_timezone=False)
+        current_hour = current_date_utc.hour
+        # Calculate the start of the next day (UTC)
+        if current_hour < 21:
+            next_interval = current_date_utc.replace(hour=21, minute=0, second=0, microsecond=0)
+        else:
+            temp = current_date_utc + timedelta(days=1)
+            next_interval = temp.replace(hour=21, minute=0, second=0, microsecond=0)
+
+        time_until_next_interval_ms = int((next_interval - current_date_utc).total_seconds() * 1000)
+        emi = elapsed_ms % MS_IN_24_HOURS
+        n_intervals = (elapsed_ms // MS_IN_24_HOURS) + int(emi and emi >= time_until_next_interval_ms % MS_IN_24_HOURS)
+        return n_intervals, time_until_next_interval_ms
+
+    @staticmethod
+    def get_day_of_week_from_timestamp(ms_timestamp: int) -> int:
+        # Convert the milliseconds timestamp to a datetime object in UTC
+        dt = datetime.fromtimestamp(ms_timestamp / 1000, tz=timezone.utc)
+
+        # Get the day of the week (0 = Monday, ..., 6 = Sunday)
+        day_of_week = dt.weekday()
+
+        return day_of_week

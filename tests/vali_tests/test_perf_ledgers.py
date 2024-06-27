@@ -4,6 +4,7 @@ from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.position import Position
 from vali_objects.vali_dataclasses.order import Order
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
+import pprint
 
 class TestPerfLedgers(TestBase):
 
@@ -30,5 +31,8 @@ class TestPerfLedgers(TestBase):
         perf_ledger_manager = PerfLedgerManager(metagraph=None, running_unit_tests=True)
         hotkey_to_positions = {self.DEFAULT_MINER_HOTKEY: [self.default_open_position]}
         ans = perf_ledger_manager.generate_perf_ledgers_for_analysis(hotkey_to_positions)
+        for x in ans[self.DEFAULT_MINER_HOTKEY].cps:
+            print(x)
+        #pprint.pp(ans)
         assert len(ans) == 1, ans
 
