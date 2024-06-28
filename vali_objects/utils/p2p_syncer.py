@@ -16,7 +16,7 @@ from vali_objects.utils.vali_bkp_utils import CustomEncoder
 
 
 class P2PSyncer:
-    def __init__(self, wallet, metagraph):
+    def __init__(self, wallet=None, metagraph=None):
         self.wallet = wallet
         self.metagraph = metagraph
         self.last_signal_sync_time_ms = 0
@@ -111,4 +111,4 @@ class P2PSyncer:
 if __name__ == "__main__":
     bt.logging.enable_default()
     position_syncer = P2PSyncer()
-    position_syncer.sync_positions()
+    asyncio.run(position_syncer.send_checkpoint())
