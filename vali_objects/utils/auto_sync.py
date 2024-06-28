@@ -17,6 +17,8 @@ from vali_objects.utils.position_manager import PositionManager
 import bittensor as bt
 
 from vali_objects.utils.vali_utils import ValiUtils
+from vali_objects.vali_dataclasses.order import Order
+
 AUTO_SYNC_ORDER_LAG_MS = 1000 * 60 * 60 * 24
 
 # Make an enum class that represents how the position sync went. "Nothing", "Updated", "Deleted", "Inserted"
@@ -587,16 +589,8 @@ class PositionSyncer:
 
     def add_checkpoint(self, received_checkpoint: json, total_checkpoints):
         """
-        takes parameter that has all the data that I need to resolve to create checkpoint
-        list[list of all positions on 1 validator] return a single validator checkpoint as a python dict
-
-        -in prod get positions from validators separately
-        -combine and call function
-
-        i need to create a wrapper function that takes all the checkpoints received from the validators, and
-        combines them into a single list before passing them onto the create golden function.
-
-        unit test-10 positions slightly diff->expect golden to have 1 position with that same uuid.
+        receives a checkpoint from a trusted validator, and appends to a list
+        when all checkpoints are received, build the golden.
         """
         self.checkpoints.append(received_checkpoint)
         self.num_checkpoints_received += 1
@@ -613,6 +607,8 @@ class PositionSyncer:
             If a position’s uuid exists on the majority of validators, that position is kept.
             If an order uuid exists in the majority of positions, that order is kept.
                 Choose the order with the median price.
+
+        return a single checkpoint dict
         """
         position_counts = defaultdict(int)                      # {position_uuid: count}
         position_data = defaultdict(list)                       # {position_uuid: [{position}]}
@@ -620,9 +616,9 @@ class PositionSyncer:
         order_counts = defaultdict(lambda: defaultdict(int))    # {position_uuid: {order_uuid: count}}
         order_data = defaultdict(list)                          # {order_uuid: [{order}]}
 
-        # simple majority
+        # simple majority of positions/number of checkpoints
         # TODO: separate threshold for orders
-        threshold = len(trusted_checkpoints) / 2
+        positions_threshold = len(trusted_checkpoints) / 2
 
         # parse each checkpoint to count occurrences of each position and order
         for checkpoint in trusted_checkpoints:
@@ -633,6 +629,7 @@ class PositionSyncer:
                     position_counts[position_uuid] += 1
                     position_data[position_uuid].append(dict(position, orders=[]))
 
+                    # count and save orders
                     for order in position["orders"]:
                         order_uuid = order["order_uuid"]
                         order_counts[position_uuid][order_uuid] += 1
@@ -642,7 +639,7 @@ class PositionSyncer:
 
         # get the set of majority positions
         majority_positions = {position_uuid for position_uuid, count in position_counts.items()
-                              if count > threshold}
+                              if count > positions_threshold}
 
         golden = defaultdict(lambda: defaultdict(list))
 
@@ -653,49 +650,53 @@ class PositionSyncer:
                     # position exists on majority of validators
                     if position_uuid in majority_positions:
                         # create a single combined position, and delete uuid to avoid duplicates
-                        combined_position = self.combine_positions(position_data[position_uuid])
+                        new_position = Position(miner_hotkey=miner_hotkey,
+                                                position_uuid=position_uuid,
+                                                open_ms=position["open_ms"],
+                                                trade_pair=position["trade_pair"],
+                                                orders=[])
+
                         majority_positions.remove(position_uuid)
+
+                        # simple majority of orders/positions they could appear in
+                        orders_threshold = position_counts[position_uuid] / 2
 
                         # get the set of majority orders on a position_uuid
                         majority_orders = {order_uuid for order_uuid, count in order_counts[position_uuid].items()
-                                           if count > threshold}
+                                           if count > orders_threshold}
 
                         # order exists in the majority of positions
                         for order_uuid in position_orders[position_uuid]:
                             if order_uuid in majority_orders:
-
-                                combined_order = self.combine_orders(order_data[order_uuid])
+                                trade_pair = TradePair.to_enum(position["trade_pair"][0])
+                                combined_order = self.get_median_order(order_data[order_uuid], trade_pair)
                                 majority_orders.remove(order_uuid)
 
                                 # TODO: sort orders by "processed_ms" time
-                                combined_position["orders"].append(combined_order)
-
-                        golden[miner_hotkey]["positions"].append(combined_position)
+                                new_position.add_order(combined_order)
+                                # combined_position["orders"].append(combined_order)
+                        new_position.rebuild_position_with_updated_orders()
+                        position_dict = json.loads(new_position.to_json_string())
+                        golden[miner_hotkey]["positions"].append(position_dict)
 
         # Convert defaultdict to regular dict
         golden = {miner: dict(golden[miner]) for miner in golden}
         # print(json.dumps(golden, indent=4))
         return golden
 
-    def combine_positions(self, positions):
+    def get_median_order(self, orders, trade_pair) -> Order:
         """
-        combine a list of positions with the same position_uuid into one.
+        select the order with the median price from a list of orders with the same order_uuid
         """
-        return positions[0]
-
-    def combine_orders(self, orders):
-        """
-        combine a list of orders with the same order_uuid into one
-        sets the order price to the median price
-        """
-        if len(orders) == 1:
-            return orders[0]
-
-        # get the median price
-        median_price = median([order["price"] for order in orders])
-        orders[0]["price"] = median_price
-        return orders[0]
-
+        sorted_orders = sorted(orders, key=lambda o: o["price"])
+        median_order = sorted_orders[len(orders)//2]
+        order = Order(trade_pair=trade_pair,
+                      order_type=median_order["order_type"],
+                      leverage=median_order["leverage"],
+                      price=median_order["price"],
+                      processed_ms=median_order["processed_ms"],
+                      order_uuid=median_order["order_uuid"])
+        return order
 
 if __name__ == "__main__":
     bt.logging.enable_default()
