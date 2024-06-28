@@ -1,3 +1,4 @@
+import gzip
 import io
 import json
 import time
@@ -10,7 +11,6 @@ from copy import deepcopy
 import requests
 
 from time_util.time_util import TimeUtil
-from vali_config import TradePair
 from vali_objects.position import Position
 from vali_objects.utils.position_manager import PositionManager
 import bittensor as bt
@@ -385,25 +385,22 @@ class PositionSyncer:
 
     def read_validator_checkpoint_from_gcloud_zip(url):
         # URL of the zip file
-        url = "https://storage.googleapis.com/validator_checkpoint/validator_checkpoint.zip"
+        url = "https://storage.googleapis.com/validator_checkpoint/validator_checkpoint.json.gz"
         try:
             # Send HTTP GET request to the URL
             response = requests.get(url)
             response.raise_for_status()  # Raises an HTTPError for bad responses
 
-            # Read the content of the zip file from the response
-            with io.BytesIO(response.content) as zip_buffer:
-                with zipfile.ZipFile(zip_buffer, 'r') as zip_file:
-                    # Ensure there is at least one file in the zip archive
-                    if zip_file.namelist():
-                        # Assume the JSON file is the first file in the list
-                        with zip_file.open(zip_file.namelist()[0]) as json_file:
-                            # Load JSON data from the file
-                            json_data = json.load(json_file)
-                            return json_data
-                    else:
-                        bt.logging.error("No files found in the zip archive.")
-                        return None
+            # Read the content of the gz file from the response
+            with gzip.GzipFile(fileobj=io.BytesIO(response.content)) as gz_file:
+                # Decode the gzip content to a string
+                json_bytes = gz_file.read()
+                json_str = json_bytes.decode('utf-8')
+
+                # Load JSON data from the string
+                json_data = json.loads(json_str)
+                return json_data
+
         except requests.HTTPError as e:
             bt.logging.error(f"HTTP Error: {e}")
         except zipfile.BadZipFile:
@@ -532,8 +529,6 @@ class PositionSyncer:
                         raise e
                     else:
                         self.global_stats['exceptions_seen'] += 1
-
-
 
 
         # count sets
