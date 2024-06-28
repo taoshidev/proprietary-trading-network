@@ -598,6 +598,9 @@ class PositionSyncer:
         if self.num_checkpoints_received == total_checkpoints:
             self.golden = self.create_golden(self.checkpoints)
 
+            bt.logging.info("successfully created golden checkpoint")
+            # print(json.dumps(self.golden, indent=4))
+
             # TODO: reset num checkpoints at end of cycle
             self.num_checkpoints_received = 0
 
@@ -681,7 +684,6 @@ class PositionSyncer:
 
         # Convert defaultdict to regular dict
         golden = {miner: dict(golden[miner]) for miner in golden}
-        # print(json.dumps(golden, indent=4))
         return golden
 
     def get_median_order(self, orders, trade_pair) -> Order:
