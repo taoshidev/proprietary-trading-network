@@ -832,14 +832,16 @@ class TestPositions(TestBase):
 
         checkpoint4 = {"positions": {self.DEFAULT_MINER_HOTKEY: {"positions": [json.loads(position.to_json_string())]}}}
 
-        print(checkpoint1)
-        print(json.dumps(checkpoint1, indent=4))
+        # print(json.dumps(checkpoint1, indent=4))
 
         self.position_syncer.add_checkpoint(checkpoint1, 4)
         self.position_syncer.add_checkpoint(checkpoint2, 4)
         self.position_syncer.add_checkpoint(checkpoint3, 4)
         self.position_syncer.add_checkpoint(checkpoint4, 4)
-        stats = self.position_syncer.global_stats
 
-        print(json.dumps(self.position_syncer.golden, indent=4))
+        # print(json.dumps(self.position_syncer.golden, indent=4))
+
+        assert len(self.position_syncer.golden[self.DEFAULT_MINER_HOTKEY]["positions"]) == 1
+        assert len(self.position_syncer.golden[self.DEFAULT_MINER_HOTKEY]["positions"][0]["orders"]) == 2
+        assert self.position_syncer.golden[self.DEFAULT_MINER_HOTKEY]["positions"][0]["orders"][0]["price"] == 2.0
 
