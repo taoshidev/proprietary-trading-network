@@ -3,7 +3,6 @@
 # developer: Taoshidev
 # Copyright © 2024 Taoshi Inc
 
-import asyncio
 import os
 import sys
 import threading
@@ -24,6 +23,7 @@ import gzip
 import base64
 
 from vali_objects.utils.auto_sync import PositionSyncer
+from vali_objects.utils.p2p_syncer import P2PSyncer
 from shared_objects.rate_limiter import RateLimiter
 from vali_objects.uuid_tracker import UUIDTracker
 from time_util.time_util import TimeUtil
@@ -39,15 +39,11 @@ from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
 from vali_objects.utils.plagiarism_detector import PlagiarismDetector
 from vali_objects.utils.position_manager import PositionManager
 from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
-from vali_objects.utils.auto_sync import AUTO_SYNC_ORDER_LAG_MS
-from vali_objects.utils.vali_bkp_utils import CustomEncoder
-from vali_objects.decoders.generalized_json_decoder import GeneralizedJSONDecoder
 from vali_objects.vali_dataclasses.order import Order
 from vali_objects.position import Position
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.utils.vali_utils import ValiUtils
 from vali_config import ValiConfig
-from runnable.generate_request_core import generate_request_core
 
 # Global flag used to indicate shutdown
 shutdown_dict = {}
@@ -57,7 +53,6 @@ class SynapseMethod(Enum):
     POSITION_INSPECTOR = "GetPositions"
     SIGNAL = "SendSignal"
     CHECKPOINT = "SendCheckpoint"
-
 
 def signal_handler(signum, frame):
     global shutdown_dict
@@ -97,11 +92,12 @@ class Validator:
         self.signal_sync_lock = threading.Lock()
         self.signal_sync_condition = threading.Condition(self.signal_sync_lock)
         self.n_orders_being_processed = [0]  # Allow this to be updated across threads by placing it in a list (mutable)
-        self.n_checkpoints_being_processed = [0]
 
         self.config = self.get_config()
         # Use the getattr function to safely get the autosync attribute with a default of False if not found.
         self.auto_sync = getattr(self.config, 'autosync', False)
+        # TODO: separate flag? do we want a flag at all?
+        self.auto_p2p_sync = self.auto_sync
         self.is_mainnet = self.config.netuid == 8
         # Ensure the directory for logging exists, else create one.
         if not os.path.exists(self.config.full_path):
@@ -163,8 +159,7 @@ class Validator:
         self.metagraph_updater_thread.start()
 
         # keep track of values for checkpoint sync
-        self.num_trusted_validators = len(self.get_trusted_validators())
-        self.received_checkpoints = 0
+        self.num_validators = 0
 
         if self.wallet.hotkey.ss58_address not in self.metagraph.hotkeys:
             bt.logging.error(
@@ -176,6 +171,9 @@ class Validator:
         self.position_syncer = PositionSyncer(shutdown_dict=shutdown_dict, signal_sync_lock=self.signal_sync_lock,
                                               signal_sync_condition=self.signal_sync_condition,
                                               n_orders_being_processed=self.n_orders_being_processed)
+        self.p2p_syncer = P2PSyncer(wallet=self.wallet,
+                                    metagraph=self.metagraph)
+
         self.perf_ledger_manager = PerfLedgerManager(self.metagraph, live_price_fetcher=self.live_price_fetcher,
                                                      shutdown_dict=shutdown_dict, position_syncer=self.position_syncer)
         # Start the perf ledger updater loop in its own thread
@@ -387,12 +385,7 @@ class Validator:
                 self.elimination_manager.process_eliminations()
                 self.position_syncer.sync_positions_with_cooldown(self.auto_sync)
                 self.position_manager.position_locks.cleanup_locks(self.metagraph.hotkeys)
-                # TODO: set the interval for checkpoints to be once daily
-                # TODO: get rid of mainnet case
-                # only trusted validators should send checkpoints
-                hotkey = self.wallet.hotkey.ss58_address
-                if not self.is_mainnet or hotkey in [axon.hotkey for axon in self.get_trusted_validators()]:
-                    self.checkpoint_thread()
+                self.p2p_syncer.sync_positions_with_cooldown(self.auto_p2p_sync, True)
 
             # In case of unforeseen errors, the miner will log the error and continue operations.
             except Exception:
@@ -681,144 +674,31 @@ class Validator:
         synapse.error_message = error_message
         return synapse
 
-    # Enable validator <-> validator p2p checkpoint sync
-    def checkpoint_thread(self):
-        """
-        set up event loop for asynchronous sending of checkpoints
-        """
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            bt.logging.info("calling send_checkpoint")
-            loop.run_until_complete(self.send_checkpoint())
-        finally:
-            loop.close()
-
-    async def send_checkpoint(self):
-        """
-        serializes checkpoint json and transmits to all validators via synapse
-        """
-        # get our current checkpoint
-        now_ms = TimeUtil.now_in_millis()
-        checkpoint_dict = generate_request_core(time_now=now_ms)
-
-        # serialize the position data
-        positions = checkpoint_dict['positions']
-        # 24 hours in milliseconds
-        max_allowed_t_ms = TimeUtil.now_in_millis() - AUTO_SYNC_ORDER_LAG_MS
-        for hotkey, positions in positions.items():
-            new_positions = []
-            positions_deserialized = [Position(**json_positions_dict) for json_positions_dict in positions['positions']]
-            for position in positions_deserialized:
-                new_orders = []
-                for order in position.orders:
-                    if order.processed_ms < max_allowed_t_ms:
-                        new_orders.append(order)
-                if len(new_orders):
-                    position.orders = new_orders
-                    position.rebuild_position_with_updated_orders()
-                    new_positions.append(position)
-                else:
-                    # if no orders are left, remove the position
-                    pass
-
-            positions_serialized = [json.loads(str(p), cls=GeneralizedJSONDecoder) for p in new_positions]
-            positions['positions'] = positions_serialized
-
-        # compress json and encode as base64 to keep as a string
-        checkpoint_str = json.dumps(checkpoint_dict, cls=CustomEncoder)
-        compressed = gzip.compress(checkpoint_str.encode("utf-8"))
-        encoded_checkpoint = base64.b64encode(compressed).decode("utf-8")
-
-        # get axons to send checkpoints to
-        dendrite = bt.dendrite(wallet=self.wallet)
-
-        # TODO: confirm value of testnet metagraph attributes, combine mainnet case
-        if self.is_mainnet:
-            validator_axons = self.get_validators()
-        else:
-            validator_axons = self.metagraph.axons
-
-        try:
-            # create dendrite and transmit synapse
-            checkpoint_synapse = template.protocol.ValidatorCheckpoint(checkpoint=encoded_checkpoint)
-            validator_responses = await dendrite.forward(axons=validator_axons, synapse=checkpoint_synapse)
-
-            bt.logging.info(f"Sending checkpoint from validator {self.wallet.hotkey.ss58_address}")
-
-            successes = 0
-            failures = 0
-            for response in validator_responses:
-                if response.successfully_processed:
-                    bt.logging.info(f"Successfully processed ack from {response.validator_receive_hotkey}")
-                    successes += 1
-                else:
-                    failures += 1
-
-            bt.logging.info(f"{successes} responses succeeded")
-            bt.logging.info(f"{failures} responses failed")
-        except Exception as e:
-            bt.logging.info(f"Error sending checkpoint with error [{e}]")
-
-    def get_validators(self):
-        """
-        get a list of all validators. defined as:
-        stake > 1000 and validator_trust > 0.5
-        """
-        neurons = self.metagraph.neurons
-        validator_neurons = [n for n in neurons if n.stake > bt.Balance(ValiConfig.STAKE_MIN)
-                             and n.validator_trust > ValiConfig.V_TRUST_MIN]
-
-        return [n.axon_info for n in validator_neurons if n.axon_info.ip != "0.0.0.0"]
-
-    def get_trusted_validators(self):
-        """
-        get a list of the trusted validators for checkpoint sending. defined as:
-        top 10 by stake OR validator_trust > 0.9
-        """
-        # TODO: filter min stake as well?
-        neurons = self.metagraph.neurons
-        # only validators with top 10 stake, or v_trust > 0.9 should send checkpoints
-        top_stake_neurons = sorted(neurons, key=lambda n: n.stake, reverse=True)
-        top_stake_axons = [n.axon_info for n in top_stake_neurons if n.stake > bt.Balance(ValiConfig.STAKE_MIN)
-                           and n.axon_info.ip != "0.0.0.0"][:ValiConfig.TOP_N]
-        high_v_trust_axons = [n.axon_info for n in neurons if n.validator_trust > ValiConfig.V_TRUST_THRESHOLD]
-
-        # axons could contain duplicates, create set based on axon hotkeys and then filter axons
-        axons = top_stake_axons + high_v_trust_axons
-        trusted_hotkeys = set(a.hotkey for a in axons)
-        trusted_axons = [a for a in axons if a.hotkey in trusted_hotkeys and a.ip != "0.0.0.0"]
-
-        return trusted_axons
-
     def receive_checkpoint(self, synapse: template.protocol.ValidatorCheckpoint) -> template.protocol.ValidatorCheckpoint:
         """
         receive checkpoint synapses, and ensure that only checkpoints received from trusted validators are integrated.
         """
         sender_hotkey = synapse.dendrite.hotkey
 
-        # only want to process and read checkpoints from trusted validators
-        # TODO: remove mainnet check
-        if not self.is_mainnet or sender_hotkey in [axon.hotkey for axon in self.get_trusted_validators()]:
-            synapse.validator_receive_hotkey = self.wallet.hotkey.ss58_address
+        #TODO: count received checkpoints, reset received after every completed sync
+        self.p2p_syncer.received_checkpoints += 1
+        bt.logging.info(f"validator {synapse.validator_receive_hotkey} received checkpoint from validator hotkey [{sender_hotkey}].")
+        if self.should_fail_early(synapse, SynapseMethod.CHECKPOINT):
+            return synapse
 
-            # TODO: count received checkpoints, reset received after every completed sync
-            self.received_checkpoints += 1
-            bt.logging.info(
-                f"Received checkpoint from trusted validator hotkey [{sender_hotkey}].")
-
-            if self.should_fail_early(synapse, SynapseMethod.CHECKPOINT):
-                return synapse
+        error_message = ""
+        try:
+            # Decode from base64 and decompress back into json
+            decoded = base64.b64decode(synapse.checkpoint)
+            decompressed = gzip.decompress(decoded).decode('utf-8')
+            recv_checkpoint = json.loads(decompressed)
 
             with self.signal_sync_lock:
                 self.n_checkpoints_being_processed[0] += 1
 
-            error_message = ""
-            try:
-                # Decode from base64 and decompress back into json
-                decoded = base64.b64decode(synapse.checkpoint)
-                decompressed = gzip.decompress(decoded).decode('utf-8')
-                recv_checkpoint = json.loads(decompressed)
+        except Exception as e:
+            error_message = f"Error processing checkpoint {self.p2p_syncer.received_checkpoints} from [{sender_hotkey}] with error [{e}]"
+            bt.logging.error(traceback.format_exc())
 
                 # TODO: use the checkpoint received to build consensus
                 # print(recv_checkpoint)
@@ -847,6 +727,9 @@ class Validator:
             bt.logging.info(f"Received a checkpoint from non-trusted validator [{sender_hotkey}]")
             synapse.error_message = "Rejecting checkpoint from non-trusted validator"
             synapse.successfully_processed = False
+        synapse.error_message = error_message
+        bt.logging.success(f"Sending ack back to validator [{sender_hotkey}]")
+
         return synapse
 
     # temp test method to print out the metagraph state
