@@ -158,8 +158,7 @@ class Validator:
         self.metagraph_updater_thread = threading.Thread(target=self.metagraph_updater.run_update_loop, daemon=True)
         self.metagraph_updater_thread.start()
 
-        # keep track of values for checkpoint sync
-        self.num_validators = 0
+
 
         if self.wallet.hotkey.ss58_address not in self.metagraph.hotkeys:
             bt.logging.error(
@@ -173,6 +172,9 @@ class Validator:
                                               n_orders_being_processed=self.n_orders_being_processed)
         self.p2p_syncer = P2PSyncer(wallet=self.wallet,
                                     metagraph=self.metagraph)
+        # keep track of values for checkpoint sync
+        self.num_trusted_validators = len(self.p2p_syncer.get_trusted_validators())
+        self.received_checkpoints = 0
 
         self.perf_ledger_manager = PerfLedgerManager(self.metagraph, live_price_fetcher=self.live_price_fetcher,
                                                      shutdown_dict=shutdown_dict, position_syncer=self.position_syncer)
@@ -680,18 +682,16 @@ class Validator:
         """
         sender_hotkey = synapse.dendrite.hotkey
 
-        #TODO: count received checkpoints, reset received after every completed sync
-        self.p2p_syncer.received_checkpoints += 1
-        bt.logging.info(f"validator {synapse.validator_receive_hotkey} received checkpoint from validator hotkey [{sender_hotkey}].")
-        if self.should_fail_early(synapse, SynapseMethod.CHECKPOINT):
-            return synapse
+        # only want to process and read checkpoints from trusted validators
+        # TODO: remove mainnet check
+        if not self.is_mainnet or sender_hotkey in [axon.hotkey for axon in self.p2p_syncer.get_trusted_validators()]:
+            synapse.validator_receive_hotkey = self.wallet.hotkey.ss58_address
 
-        error_message = ""
-        try:
-            # Decode from base64 and decompress back into json
-            decoded = base64.b64decode(synapse.checkpoint)
-            decompressed = gzip.decompress(decoded).decode('utf-8')
-            recv_checkpoint = json.loads(decompressed)
+            #TODO: count received checkpoints, reset received after every completed sync
+            self.p2p_syncer.received_checkpoints += 1
+            bt.logging.info(f"Received checkpoint from trusted validator hotkey [{sender_hotkey}].")
+            if self.should_fail_early(synapse, SynapseMethod.CHECKPOINT):
+                return synapse
 
             with self.signal_sync_lock:
                 self.n_checkpoints_being_processed[0] += 1
@@ -756,7 +756,7 @@ class Validator:
         # bt.logging.info(f"stake {[n.stake for n in self.metagraph.neurons]}")
 
         print(self.num_trusted_validators, " trusted validators___________")
-        for a in self.get_trusted_validators():
+        for a in self.p2p_syncer.get_trusted_validators():
             print(a.hotkey)
 
 # This is the main function, which runs the miner.
