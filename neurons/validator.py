@@ -11,8 +11,6 @@ import uuid
 from typing import Tuple
 from enum import Enum
 
-from tabulate import tabulate
-
 import template
 import argparse
 import traceback
