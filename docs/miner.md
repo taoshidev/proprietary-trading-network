@@ -2,9 +2,8 @@
 
 Basic Rules:
 1. Your miner will start in the challenge period upon entry. This 30 day period will require your miner to demonstrate consistent performance, after which they will be released from the challenge period, which may happen before 30 days has expired. In this month, they will receive a small amount of TAO that will help them avoid getting deregistered. The minimum requirements to pass the challenge period:
-  - 3.25% Total Return
-  - -1.58E-8 Time Averaged Sortino
-  - 1.0015 Omega
+  - 2% Total Return
+  - -3.08E-8 Time Averaged Sortino
   - 12 Volume Minimum Checkpoints
 2. Miner will be penalized if they are not providing consistent predictions to the system or if their drawdown is too high. The details of this may be found [here](https://github.com/taoshidev/proprietary-trading-network/blob/main/vali_objects/utils/position_utils.py).
 3. A miner can have a maximum of 200 positions open.
@@ -47,7 +46,7 @@ The drawdown penalty is meant to both discourage miners from taking too much dra
 
 ### Challenge Period Details
 
-There are four primary requirements for a miner to pass the challenge period: Returns, Omega, Sortino, and Volume Minimum Checkpoints. All of these metrics were set to be reasonably competitive with our currently successful miners' median values, such that by passing the challenge period the miner will be in a decently competitive stance. The checkpoint files used for the challenge period will also be used to score the miner against other successful miners after passing. The first three metrics are described above in the scoring details section.
+There are four primary requirements for a miner to pass the challenge period: Returns, Sortino and Volume Minimum Checkpoints. All of these metrics were set to be reasonably competitive with our currently successful miners' median values, such that by passing the challenge period the miner will be in a decently competitive stance. The checkpoint files used for the challenge period will also be used to score the miner against other successful miners after passing. The first three metrics are described above in the scoring details section.
 
 The volume minimum checkpoint is defined as a checkpoint which meets a certain threshold of raw gains and losses. The threshold value for inclusion of the checkpoint as valid is 0.1. This means that a checkpoint with a gain of 0.05 and a loss of -0.05 would have an absolute sum of 0.1 and qualify. We are requiring 12 of these valid checkpoints to have been observed in order for the miner to pass the checkpoint qualifications.
 
@@ -150,13 +149,15 @@ Install dependencies
 pip install -r requirements.txt
 ```
 
+Note: You should disregard any warnings about updating Bittensor after this. We want to use the version specified in `requirements.txt`.
+
 Create a local and editable installation
 
 ```bash
 python3 -m pip install -e .
 ```
 
-Create `mining/miner_secrets.json` and replace xxxx with your API key.
+Create `mining/miner_secrets.json` and replace xxxx with your API key. The API key value is determined by you and needs to match the value in `mining/sample_signal_request.py`.
 
 ```json
 {
@@ -170,31 +171,45 @@ This step creates local coldkey and hotkey pairs for your miner.
 
 The miner will be registered to the subnet specified. This ensures that the miner can run the respective miner scripts.
 
-Create a coldkey and hotkey for your miner wallet.
+Create a coldkey and hotkey for your miner wallet. A coldkey can have multiple hotkeys, so if you already have an existing coldkey, you should create a new hotkey only. Be sure to save your mnemonics!
 
 ```bash
-btcli wallet new_coldkey --wallet.name miner
-btcli wallet new_hotkey --wallet.name miner --wallet.hotkey default
+btcli wallet new_coldkey --wallet.name <wallet>
+btcli wallet new_hotkey --wallet.name <wallet> --wallet.hotkey <miner>
 ```
 
-## 2a. (Optional) Getting faucet tokens
+You can list the local wallets on your machine with the following.
 
-Faucet is disabled on the testnet. Hence, if you don't have sufficient faucet tokens, ask the Bittensor Discord community for faucet tokens.
+```bash
+btcli wallet list
+```
+
+## 2a. Getting Testnet TAO
+
+### Discord ###
+
+Please ask the Bittensor Discord community for testnet TAO. This will let you register your miner(s) on Testnet.
+
+Please first join the Bittensor Discord here: https://discord.com/invite/bittensor
+
+Then request testnet TAO here: https://discord.com/channels/799672011265015819/1190048018184011867
+
+Bittensor -> help-forum -> requests for testnet tao
 
 ## 3. Register keys
 
 This step registers your subnet miner keys to the subnet, giving it the first slot on the subnet.
 
 ```bash
-btcli subnet register --wallet.name miner --wallet.hotkey default
+btcli subnet register --wallet.name <wallet> --wallet.hotkey <miner>
 ```
 
-To register your miner on the testnet add the `--subtensor.network test` flag.
+To register your miner on the testnet add the `--subtensor.network test` and `--netuid 116` flags.
 
 Follow the below prompts:
 
 ```bash
->> Enter netuid (0): # Enter the appropriate netuid for your environment
+>> Enter netuid (0): # Enter the appropriate netuid for your environment (8 for the mainnet)
 Your balance is: # Your wallet balance will be shown
 The cost to register by recycle is τ0.000000001 # Current registration costs
 >> Do you want to continue? [y/n] (n): # Enter y to continue
@@ -213,7 +228,7 @@ This step returns information about your registered keys.
 Check that your miner has been registered:
 
 ```bash
-btcli wallet overview --wallet.name miner
+btcli wallet overview --wallet.name <wallet>
 ```
 
 To check your miner on the testnet add the `--subtensor.network test` flag
@@ -223,7 +238,7 @@ The above command will display the below:
 ```bash
 Subnet: 8 # or 116 on testnet
 COLDKEY  HOTKEY   UID  ACTIVE  STAKE(τ)     RANK    TRUST  CONSENSUS  INCENTIVE  DIVIDENDS  EMISSION(ρ)   VTRUST  VPERMIT  UPDATED  AXON  HOTKEY_SS58
-miner    default  196    True   0.00000  0.00000  0.00000    0.00000    0.00000    0.00000            0  0.00000        *      134  none  5HRPpSSMD3TKkmgxfF7Bfu67sZRefUMNAcDofqRMb4zpU4S6
+wallet   miner    196    True   0.00000  0.00000  0.00000    0.00000    0.00000    0.00000            0  0.00000        *      134  none  5HRPpSSMD3TKkmgxfF7Bfu67sZRefUMNAcDofqRMb4zpU4S6
 1        1        1            τ0.00000  0.00000  0.00000    0.00000    0.00000    0.00000           ρ0  0.00000
                                                                                Wallet balance: τ4.998999856
 ```
@@ -233,7 +248,7 @@ miner    default  196    True   0.00000  0.00000  0.00000    0.00000    0.00000 
 Run the subnet miner:
 
 ```bash
-python neurons/miner.py --netuid 8  --wallet.name miner --wallet.hotkey default --logging.debug
+python neurons/miner.py --netuid 8  --wallet.name <wallet> --wallet.hotkey <miner> --logging.debug
 ```
 
 To run your miner on the testnet add the `--subtensor.network test` flag and override the netuuid flag to `--netuid 116`.
@@ -273,7 +288,7 @@ You may use multiple miners when testing if you pass a different port per regist
 You can run a second miner using the following example command:
 
 ```bash
-python neurons/miner.py --netuid 116 --subtensor.network test --wallet.name miner2 --wallet.hotkey default --logging.debug --axon.port 8095
+python neurons/miner.py --netuid 116 --subtensor.network test --wallet.name <wallet> --wallet.hotkey <miner2> --logging.debug --axon.port 8095
 ```
 
 # Issues?

@@ -107,6 +107,11 @@ class Miner:
         # Parse the config (will take command-line arguments if provided)
         # To print help message, run python3 template/miner.py --help
         config = bt.config(parser)
+        bt.logging.enable_default()
+        if config.logging.debug:
+            bt.logging.enable_debug()
+        if config.logging.trace:
+            bt.logging.enable_trace()
 
         # Determine the default value for write_failed_signal_logs based on the subtensor.network,
         # but only if the user hasn't explicitly set it via command line.

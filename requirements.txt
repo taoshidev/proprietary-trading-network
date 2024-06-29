@@ -1,5 +1,5 @@
-pydantic<2.0
-bittensor == 6.9.3
+pydantic == 2.7.4
+bittensor == 7.1.0
 polygon-api-client
 torch
 tensorflow

@@ -181,7 +181,7 @@ def generate_request_minerstatistics(time_now:int):
 
     ## This is when we only want to look at the successful miners
     successful_ledger = subtensor_weight_setter.filtered_ledger(hotkeys=challengeperiod_success_hotkeys)
-    checkpoint_results = Scoring.compute_results_checkpoint(successful_ledger, evaluation_time_ms=time_now)
+    checkpoint_results = Scoring.compute_results_checkpoint(successful_ledger, evaluation_time_ms=time_now, verbose=False)
     challengeperiod_scores = [ (x, ValiConfig.SET_WEIGHT_MINER_CHALLENGE_PERIOD_WEIGHT) for x in challengeperiod_testing_hotkeys ]
     scoring_results = checkpoint_results + challengeperiod_scores
     weights = dict(scoring_results)

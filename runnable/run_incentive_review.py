@@ -37,11 +37,22 @@ if __name__ == "__main__":
     challengeperiod_passing = subtensor_weight_setter.challengeperiod_success
 
     passing_hotkeys = list(challengeperiod_passing.keys())
-    filtered_ledger = subtensor_weight_setter.filtered_ledger(hotkeys=passing_hotkeys)
+    testing_hotkeys = list(challengeperiod_miners.keys())
 
+    challenge_ledger = subtensor_weight_setter.filtered_ledger(hotkeys=passing_hotkeys + testing_hotkeys)
+    challengeperiod_success, challengeperiod_eliminations = challengeperiod_manager.inspect(
+        ledger = challenge_ledger,
+        inspection_hotkeys = subtensor_weight_setter.challengeperiod_testing,
+        current_time = current_time
+    )
+
+    filtered_ledger = subtensor_weight_setter.filtered_ledger(hotkeys=passing_hotkeys + challengeperiod_success)
     return_decay_coefficient_short = ValiConfig.HISTORICAL_DECAY_COEFFICIENT_RETURNS_SHORT
     return_decay_coefficient_long = ValiConfig.HISTORICAL_DECAY_COEFFICIENT_RETURNS_LONG
     risk_adjusted_decay_coefficient = ValiConfig.HISTORICAL_DECAY_COEFFICIENT_RISKMETRIC
+
+    # Compute miner penalties
+    miner_penalties = Scoring.miner_penalties(filtered_ledger)
 
     returns_ledger_short = PositionManager.augment_perf_ledger(
         filtered_ledger,
@@ -107,7 +118,8 @@ if __name__ == "__main__":
         for miner, minerledger in config['ledger'].items():
             scoringunit = ScoringUnit.from_perf_ledger(minerledger)
             score = config['function'](scoringunit=scoringunit)
-            miner_scores.append((miner, score))
+            score_riskadjusted = score * miner_penalties.get(miner, 0)
+            miner_scores.append((miner, score_riskadjusted))
         
         # Save original scores for printout
         original_scores[metric_name] = {miner: score for miner, score in miner_scores}
@@ -122,11 +134,14 @@ if __name__ == "__main__":
                 combined_scores[miner] = 1
             combined_scores[miner] *= config['weight'] * score + (1 - config['weight'])
 
-    # Calculate the final weighted score and normalize
+    # ## Force good performance of all error metrics
     combined_weighed = Scoring.weigh_miner_scores(list(combined_scores.items()))
     combined_scores = dict(combined_weighed)
 
+    ## Normalize the scores
     normalized_scores = Scoring.normalize_scores(combined_scores)
+    print(f"Normalized scores: {normalized_scores}")
+
     checkpoint_results = sorted(normalized_scores.items(), key=lambda x: x[1], reverse=True)
 
     # Prepare data for DataFrame

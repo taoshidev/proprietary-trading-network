@@ -2,7 +2,7 @@ import json
 import logging
 from copy import deepcopy
 from typing import Optional, List
-from pydantic import BaseModel, root_validator
+from pydantic import model_validator, BaseModel, Field
 
 from time_util.time_util import TimeUtil
 from vali_config import TradePair
@@ -36,7 +36,7 @@ class Position(BaseModel):
     position_uuid: str
     open_ms: int
     trade_pair: TradePair
-    orders: List[Order] = []
+    orders: List[Order] = Field(default_factory=list)
     current_return: float = 1.0
     close_ms: Optional[int] = None
     return_at_close: float = 1.0
@@ -46,7 +46,8 @@ class Position(BaseModel):
     position_type: Optional[OrderType] = None
     is_closed_position: bool = False
 
-    @root_validator(pre=True)
+    @model_validator(mode="before")
+    @classmethod
     def add_trade_pair_to_orders(cls, values):
         if isinstance(values['trade_pair'], TradePair):
             trade_pair_id = values['trade_pair'].trade_pair_id
@@ -63,9 +64,24 @@ class Position(BaseModel):
                 
             updated_orders.append(order)
         values['orders'] = updated_orders
-
         values['trade_pair'] = trade_pair
         return values
+
+    def __hash__(self):
+        # Include specified fields in the hash, assuming trade_pair is accessible and immutable
+        return hash((self.miner_hotkey, self.position_uuid, self.open_ms, self.current_return,
+                     self.net_leverage, self.initial_entry_price, self.trade_pair.trade_pair))
+
+    def __eq__(self, other):
+        if not isinstance(other, Position):
+            return NotImplemented
+        return (self.miner_hotkey == other.miner_hotkey and
+                self.position_uuid == other.position_uuid and
+                self.open_ms == other.open_ms and
+                self.current_return == other.current_return and
+                self.net_leverage == other.net_leverage and
+                self.initial_entry_price == other.initial_entry_price and
+                self.trade_pair.trade_pair == other.trade_pair.trade_pair)
 
     def _handle_trade_pair_encoding(self, d):
         # Remove trade_pair from orders

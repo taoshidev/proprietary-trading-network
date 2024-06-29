@@ -1,4 +1,5 @@
 import time
+import traceback
 
 from runnable.generate_request_core import generate_request_core
 from runnable.generate_request_minerstatistics import generate_request_minerstatistics
@@ -38,5 +39,8 @@ if __name__ == "__main__":
         logger.error("error occurred trying to decode position json. Probably being written to simultaneously.")
     except Exception as e:
         logger.error(f"An error occurred: {str(e)}")
+        # traceback
+        logger.error(traceback.format_exc())
+        time.sleep(10)
     # Sleep for a short time to prevent tight looping, adjust as necessary
     time.sleep(1)

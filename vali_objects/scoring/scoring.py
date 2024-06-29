@@ -15,10 +15,12 @@ from vali_objects.utils.vali_utils import ValiUtils
 from vali_objects.vali_dataclasses.perf_ledger import PerfCheckpoint, PerfLedger
 from vali_objects.utils.position_manager import PositionManager
 from time_util.time_util import TimeUtil
+from vali_objects.utils.position_utils import PositionUtils
 
 import bittensor as bt
 
-from pydantic import BaseModel, validator
+from pydantic import BaseModel, validator, field_validator
+
 
 class ScoringUnit(BaseModel):
     gains: list[float]
@@ -27,16 +29,16 @@ class ScoringUnit(BaseModel):
     open_ms: list[int]
     mdd: list[float]
 
-    @validator('gains', 'n_updates', 'open_ms', each_item=False, pre=True)
+    @field_validator('gains', 'n_updates', 'open_ms', mode='before')
     def check_non_negative(cls, v):
         if any(x < 0 for x in (v or [])):  # Simplified check
             raise ValueError("All values must be non-negative")
         return v
 
-    @validator('losses', each_item=False, pre=True)
+    @field_validator('losses', mode='before')
     def check_non_positive(cls, v):
         if any(x > 0 for x in (v or [])):  # Simplified check
-            raise ValueError("All values must be non-negative")
+            raise ValueError("All values must be non-positive")
         return v
 
     @classmethod
@@ -61,7 +63,8 @@ class Scoring:
     @staticmethod
     def compute_results_checkpoint(
         ledger_dict: Dict[str, PerfLedger],
-        evaluation_time_ms: int = None
+        evaluation_time_ms: int = None,
+        verbose=True
     ) -> List[Tuple[str, float]]:
         if len(ledger_dict) == 0:
             bt.logging.debug("No results to compute, returning empty list")
@@ -69,7 +72,8 @@ class Scoring:
 
         if len(ledger_dict) == 1:
             miner = list(ledger_dict.keys())[0]
-            bt.logging.info(f"Only one miner: {miner}, returning 1.0 for the solo miner weight")
+            if verbose:
+                bt.logging.info(f"Only one miner: {miner}, returning 1.0 for the solo miner weight")
             return [(miner, 1.0)]
         
         if evaluation_time_ms is None:
@@ -79,6 +83,10 @@ class Scoring:
         return_decay_coefficient_long = ValiConfig.HISTORICAL_DECAY_COEFFICIENT_RETURNS_LONG
         risk_adjusted_decay_coefficient = ValiConfig.HISTORICAL_DECAY_COEFFICIENT_RISKMETRIC
 
+        # Compute miner penalties
+        miner_penalties = Scoring.miner_penalties(ledger_dict)
+
+        # Augmented returns ledgers
         returns_ledger_short = PositionManager.augment_perf_ledger(
             ledger_dict,
             evaluation_time_ms=evaluation_time_ms,
@@ -122,7 +130,8 @@ class Scoring:
             for miner, minerledger in config['ledger'].items():
                 scoringunit = ScoringUnit.from_perf_ledger(minerledger)
                 score = config['function'](scoringunit=scoringunit)
-                miner_scores.append((miner, score))
+                score_riskadjusted = score * miner_penalties.get(miner, 0)
+                miner_scores.append((miner, score_riskadjusted))
             
             weighted_scores = Scoring.miner_scores_percentiles(miner_scores)
             
@@ -135,11 +144,22 @@ class Scoring:
         combined_weighed = Scoring.weigh_miner_scores(list(combined_scores.items()))
         combined_scores = dict(combined_weighed)
 
+        ## Normalize the scores
         normalized_scores = Scoring.normalize_scores(combined_scores)
-        total_scores = sorted(normalized_scores.items(), key=lambda x: x[1], reverse=True)
+        return sorted(normalized_scores.items(), key=lambda x: x[1], reverse=True)
+    
+    @staticmethod
+    def miner_penalties(ledger_dict: dict[str, PerfLedger]) -> dict[str, float]:
+        # Compute miner penalties
+        miner_penalties = {}
+        for miner, perfledger in ledger_dict.items():
+            ledgercps = perfledger.cps
 
-        total_scores = sorted(list(normalized_scores.items()), key=lambda x: x[1], reverse=True)
-        return total_scores
+            consistency_penalty = PositionUtils.compute_consistency_penalty_cps(ledgercps)
+            drawdown_penalty = PositionUtils.compute_drawdown_penalty_cps(ledgercps)
+            miner_penalties[miner] = drawdown_penalty * consistency_penalty
+
+        return miner_penalties
     
     @staticmethod
     def normalize_scores(scores: dict[str, float]) -> dict[str, float]:

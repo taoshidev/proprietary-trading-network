@@ -183,6 +183,50 @@ class PositionManager(CacheController):
 
         bt.logging.info(f'Removed {n_price_sources_removed} price sources from old data.')
 
+    def dedupe_positions(self, positions, miner_hotkey):
+        positions_by_trade_pair = defaultdict(list)
+        n_positions_deleted = 0
+        n_orders_deleted = 0
+        n_positions_rebuilt_with_new_orders = 0
+        for position in positions:
+            positions_by_trade_pair[position.trade_pair].append(deepcopy(position))
+
+        for trade_pair, positions in positions_by_trade_pair.items():
+            position_uuid_to_dedupe = {}
+            for p in positions:
+                if p.position_uuid in position_uuid_to_dedupe:
+                    # Replace if it has more orders
+                    if len(p.orders) > len(position_uuid_to_dedupe[p.position_uuid].orders):
+                        old_position = position_uuid_to_dedupe[p.position_uuid]
+                        self.delete_position_from_disk(old_position)
+                        position_uuid_to_dedupe[p.position_uuid] = p
+                        n_positions_deleted += 1
+                    else:
+                        self.delete_position_from_disk(p)
+                        n_positions_deleted += 1
+                else:
+                    position_uuid_to_dedupe[p.position_uuid] = p
+
+            for position in position_uuid_to_dedupe.values():
+                order_uuid_to_dedup = {}
+                new_orders = []
+                any_orders_deleted = False
+                for order in position.orders:
+                    if order.order_uuid in order_uuid_to_dedup:
+                        n_orders_deleted += 1
+                        any_orders_deleted = True
+                    else:
+                        new_orders.append(order)
+                        order_uuid_to_dedup[order.order_uuid] = order
+                if any_orders_deleted:
+                    position.orders = new_orders
+                    position.rebuild_position_with_updated_orders()
+                    self.save_miner_position_to_disk(position, delete_open_position_if_exists=False)
+                    n_positions_rebuilt_with_new_orders += 1
+        if n_positions_deleted or n_orders_deleted or n_positions_rebuilt_with_new_orders:
+            bt.logging.warning(f"Hotkey {miner_hotkey}: Deleted {n_positions_deleted} duplicate positions and {n_orders_deleted} "
+                           f"duplicate orders across {n_positions_rebuilt_with_new_orders} positions.")
+
     def apply_order_corrections(self):
         """
         This is our mechanism for manually synchronizing validator orders in situations where a bug prevented an
@@ -231,6 +275,7 @@ class PositionManager(CacheController):
         n_attempts = 0
         unique_corrections = set()
         for miner_hotkey, positions in hotkey_to_positions.items():
+            self.dedupe_positions(positions, miner_hotkey)
             """
                     
             if miner_hotkey == '5DX8tSyGrx1QuoR1wL99TWDusvmmWgQW5su3ik2Sc8y8Mqu3':
@@ -315,7 +360,7 @@ class PositionManager(CacheController):
                                                                 unique_corrections=unique_corrections,
                                                                 pos=position_to_delete)
         """
-            pass
+
 
 
         bt.logging.warning(f"Applied {n_corrections} order corrections out of {n_attempts} attempts. unique positions corrected: {len(unique_corrections)}")
@@ -705,10 +750,6 @@ class PositionManager(CacheController):
         if baseline_gain_rate is None:
             baseline_gain_rate = ValiConfig.BASELINE_ANNUAL_LOG_RETURN_MS
         
-        consistency_penalty = PositionUtils.compute_consistency_penalty_cps(cps)
-        drawdown_penalty = PositionUtils.compute_drawdown_penalty_cps(cps)
-        overall_penalty = drawdown_penalty * consistency_penalty
-        
         cps_augmented = []
         for cp in cps:
             cp_copy = copy.deepcopy(cp)
@@ -720,13 +761,13 @@ class PositionManager(CacheController):
                 evaluation_time_ms
             )
             
-            cp_copy.gain = overall_penalty * PositionUtils.dampen_value(
+            cp_copy.gain = PositionUtils.dampen_value(
                 cp.gain,
                 lookback_fraction,
                 time_decay_coefficient
             )
 
-            cp_copy.loss = overall_penalty * PositionUtils.dampen_value(
+            cp_copy.loss = PositionUtils.dampen_value(
                 cp.loss - baseline_gain, # tbill augmentation
                 lookback_fraction,
                 time_decay_coefficient
@@ -889,9 +930,10 @@ class PositionManager(CacheController):
                                                    f" {updated_position.trade_pair.trade_pair_id}. Please restore cache. Positions: {positions}")
         elif len(positions) == 1:
             if positions[0].position_uuid != updated_position.position_uuid:
-                raise ValiRecordsMisalignmentException(f"Open position for miner {updated_position.miner_hotkey} and trade_pair."
-                                                       f" {updated_position.trade_pair.trade_pair_id} does not match the updated position."
-                                                       f" Please restore cache. Position: {positions[0]} Updated position: {updated_position}")
+                msg = (f"Attempted to write open position {updated_position.position_uuid} for miner {updated_position.miner_hotkey} "
+                       f"and trade_pair {updated_position.trade_pair.trade_pair_id} but found an existing open"
+                       f" position with a different position_uuid {positions[0].position_uuid}.")
+                raise ValiRecordsMisalignmentException(msg)
 
     def save_miner_position_to_disk(self, position: Position, delete_open_position_if_exists=True) -> None:
         miner_dir = ValiBkpUtils.get_partitioned_miner_positions_dir(position.miner_hotkey,

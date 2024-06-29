@@ -4,6 +4,7 @@
 # Copyright © 2024 Taoshi Inc
 
 import os
+import sys
 import threading
 import signal
 import uuid
@@ -15,7 +16,7 @@ import traceback
 import time
 import bittensor as bt
 
-from restore_validator_from_backup import force_validator_to_restore_from_checkpoint, PositionSyncer
+from vali_objects.utils.auto_sync import PositionSyncer
 from shared_objects.rate_limiter import RateLimiter
 from vali_objects.uuid_tracker import UUIDTracker
 from time_util.time_util import TimeUtil
@@ -42,17 +43,26 @@ shutdown_dict = {}
 
 def signal_handler(signum, frame):
     global shutdown_dict
-    if signum == signal.SIGINT:
-        bt.logging.error("Handling SIGINT")
-    elif signum == signal.SIGTERM:
-        bt.logging.error("Handling SIGTERM")
 
-    bt.logging.error("Shutdown signal received")
-    shutdown_dict[True] = True
+    if shutdown_dict:
+        return  # Ignore if already in shutdown
+
+    if signum in (signal.SIGINT, signal.SIGTERM):
+        signal_message = "Handling SIGINT" if signum == signal.SIGINT else "Handling SIGTERM"
+        print(f"{signal_message} - Initiating graceful shutdown")
+
+        shutdown_dict[True] = True
+        # Set a 2-second alarm
+        signal.alarm(2)
+
+def alarm_handler(signum, frame):
+    print("Graceful shutdown failed, force killing the process")
+    sys.exit(1)  # Exit immediately
 
 # Set up signal handling
 signal.signal(signal.SIGTERM, signal_handler)
 signal.signal(signal.SIGINT, signal_handler)
+signal.signal(signal.SIGALRM, alarm_handler)
 
 class Validator:
     def __init__(self):
@@ -68,10 +78,11 @@ class Validator:
         # Lock to stop new signals from being processed while a validator is restoring
         self.signal_sync_lock = threading.Lock()
         self.signal_sync_condition = threading.Condition(self.signal_sync_lock)
-        self.n_orders_being_processed = 0
-        self.last_signal_sync_time_ms = 0
+        self.n_orders_being_processed = [0]  # Allow this to be updated across threads by placing it in a list (mutable)
 
         self.config = self.get_config()
+        # Use the getattr function to safely get the autosync attribute with a default of False if not found.
+        self.auto_sync = getattr(self.config, 'autosync', False)
         self.is_mainnet = self.config.netuid == 8
         # Ensure the directory for logging exists, else create one.
         if not os.path.exists(self.config.full_path):
@@ -88,7 +99,7 @@ class Validator:
         # Activating Bittensor's logging with the set configurations.
         bt.logging(config=self.config, logging_dir=self.config.full_path)
         bt.logging.info(
-            f"Running validator for subnet: {self.config.netuid} "
+            f"Running validator for subnet: {self.config.netuid} with autosync set to: {self.auto_sync} "
             f"on network: {self.config.subtensor.chain_endpoint} with config:"
         )
 
@@ -139,8 +150,11 @@ class Validator:
             )
             exit()
 
+        self.position_syncer = PositionSyncer(shutdown_dict=shutdown_dict, signal_sync_lock=self.signal_sync_lock,
+                                              signal_sync_condition=self.signal_sync_condition,
+                                              n_orders_being_processed=self.n_orders_being_processed)
         self.perf_ledger_manager = PerfLedgerManager(self.metagraph, live_price_fetcher=self.live_price_fetcher,
-                                                     shutdown_dict=shutdown_dict)
+                                                     shutdown_dict=shutdown_dict, position_syncer=self.position_syncer)
         # Start the perf ledger updater loop in its own thread
         self.perf_ledger_updater_thread = threading.Thread(target=self.perf_ledger_manager.run_update_loop, daemon=True)
         self.perf_ledger_updater_thread.start()
@@ -215,7 +229,6 @@ class Validator:
 
         self.elimination_manager = EliminationManager(self.metagraph, self.position_manager, self.eliminations_lock)
 
-        self.position_syncer = PositionSyncer()
         # Validators on mainnet net to be syned for the first time or after interruption need to resync their
         # positions. Assert there are existing orders that occurred > 24hrs in the past. Assert that the newest order
         # was placed within 24 hours.
@@ -234,9 +247,9 @@ class Validator:
                        f"before running the validator. More info here: "
                        f"https://github.com/taoshidev/proprietary-trading-network/"
                        f"blob/main/docs/regenerating_validator_state.md")
-                bt.logging.error(msg)
-                raise Exception(msg)
-                # TODO: add back self.position_syncer.sync_positions()
+                #bt.logging.error(msg)
+                #raise Exception(msg)
+                self.position_syncer.sync_positions()
 
 
 
@@ -271,7 +284,10 @@ class Validator:
         # This function initializes the necessary command-line arguments.
         # Using command-line arguments allows users to customize various miner settings.
         parser = argparse.ArgumentParser()
-        # TODO(developer): Adds your custom miner arguments to the parser.
+        # Set autosync to store true if flagged, otherwise defaults to False.
+        parser.add_argument("--autosync", action='store_true',
+                            help="Automatically sync order data with a validator trusted by Taoshi.")
+        # (developer): Adds your custom arguments to the parser.
         # Adds override arguments for network and netuid.
         parser.add_argument("--netuid", type=int, default=1, help="The chain subnet uid.")
         # Adds subtensor specific arguments i.e. --subtensor.chain_endpoint ... --subtensor.network ...
@@ -285,6 +301,12 @@ class Validator:
         # Activating the parser to read any command-line inputs.
         # To print help message, run python3 template/miner.py --help
         config = bt.config(parser)
+        bt.logging.enable_default()
+        if config.logging.debug:
+            bt.logging.enable_debug()
+        if config.logging.trace:
+            bt.logging.enable_trace()
+
 
         # Step 3: Set up logging directory
         # Logging captures events for diagnosis or understanding miner's behavior.
@@ -313,29 +335,10 @@ class Validator:
         self.live_price_fetcher.stop_all_threads()
         bt.logging.warning("Stopping perf ledger...")
         self.perf_ledger_updater_thread.join()
+        signal.alarm(0)
+        print("Graceful shutdown completed")
+        sys.exit(0)
 
-
-    # Main takes the config and starts the miner.
-
-    def validator_sync(self):
-        # Check if the time is right to sync signals
-        now_ms = TimeUtil.now_in_millis()
-        # Already performed a sync recently
-        if now_ms - self.last_signal_sync_time_ms < 1000 * 60 * 30:
-            return
-
-        # Check if we are between 6:01 AM and 6:04 AM UTC
-        datetime_now = TimeUtil.generate_start_timestamp(0)  # UTC
-        if not (datetime_now.hour == 6 and (10 < datetime_now.minute < 20)):
-            return
-
-        with self.signal_sync_lock:
-            while self.n_orders_being_processed > 0:
-                self.signal_sync_condition.wait()
-            # Ready to perform in-flight refueling
-            self.position_syncer.sync_positions()
-
-        self.last_signal_sync_time_ms = TimeUtil.now_in_millis()
     def main(self):
         global shutdown_dict
         # Keep the vali alive. This loop maintains the vali's operations until intentionally stopped.
@@ -347,7 +350,7 @@ class Validator:
                 self.challengeperiod_manager.refresh(current_time=current_time)
                 self.weight_setter.set_weights(current_time=current_time)
                 self.elimination_manager.process_eliminations()
-                #TODO: reenable self.validator_sync()
+                self.position_syncer.sync_positions_with_cooldown(self.auto_sync)
                 self.position_manager.position_locks.cleanup_locks(self.metagraph.hotkeys)
 
             # In case of unforeseen errors, the miner will log the error and continue operations.
@@ -557,7 +560,7 @@ class Validator:
             return synapse
 
         with self.signal_sync_lock:
-            self.n_orders_being_processed += 1
+            self.n_orders_being_processed[0] += 1
 
 
         # error message to send back to miners in case of a problem so they can fix and resend
@@ -602,8 +605,8 @@ class Validator:
         synapse.error_message = error_message
         bt.logging.success(f"Sending ack back to miner [{miner_hotkey}]")
         with self.signal_sync_lock:
-            self.n_orders_being_processed -= 1
-            if self.n_orders_being_processed == 0:
+            self.n_orders_being_processed[0] -= 1
+            if self.n_orders_being_processed[0] == 0:
                 self.signal_sync_condition.notify_all()
         return synapse
 

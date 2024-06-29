@@ -82,10 +82,9 @@ most complete trading signals across a variety of asset classes.
 
 🛠️&nbsp;Open Source Strategy Building Techniques (In Our Taoshi Community)<br>
 🫰&nbsp;Signals From a Variety of Asset Classes - Forex, Indices, Crypto<br>
-📈&nbsp;Higher Payouts<br>
-📉&nbsp;Lower Registration Fees<br>
-💪&nbsp;Superior Cryptocurrency Infrastructure<br>
-🔎&nbsp;<a href="https://dashboard.taoshi.io/">Trading Visualization Dashboard</a>
+📈&nbsp;Higher Payouts to Top Traders<br>
+💪&nbsp;Innovative Trader Performance Metrics that Identify the Best Traders<br>
+🔎&nbsp;<a href="https://dashboard.taoshi.io/">Trading + Metrics Visualization Dashboard</a>
 
 ## How does it work?
 
@@ -96,7 +95,7 @@ those that provide the most returns, while never exceeding certain drawdown limi
 
 ### Rules
 
-1. Miners can submit LONG, SHORT, or FLAT signal for Forex, Crypto, and Indices trade pairs into the network.
+1. Miners can submit LONG, SHORT, or FLAT signal for Forex, Crypto, and Indices trade pairs into the network. <a href="https://github.com/taoshidev/proprietary-trading-network/blob/main/vali_config.py#L14">Currently supported trade pairs</a>
 2. Orders outside of market hours are ignored. 
 3. Miners can only open 1 position per trade pair/symbol at a time.
 4. Positions are uni-directional. Meaning, if a position starts LONG (the first order it receives is LONG), 
@@ -135,7 +134,10 @@ After elimination, miners are not immediately deregistered from the network. The
 # Get Started
 
 ### Mainnet Trade Dashboard
-Take a look at the current competition <a href="https://dashboard.taoshi.io/">Dashboard</a>
+Take a look at the top traders <a href="https://dashboard.taoshi.io/">Dashboard</a>
+
+### Subscribe to Realtime Trade Data
+https://request.taoshi.io/login 
 
 ### Validator Installation
 

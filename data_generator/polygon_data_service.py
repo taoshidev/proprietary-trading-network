@@ -122,7 +122,7 @@ class PolygonDataService(BaseDataService):
                 last_ws_health_check_s = now
                 prev_n_events = self.n_events_global
 
-            if now - last_market_status_update_s > 60:
+            if now - last_market_status_update_s > 180:
                 #self.MARKET_STATUS = self.POLYGON_CLIENT.get_market_status()
                 #if not isinstance(self.MARKET_STATUS, MarketStatus):
                 #    bt.logging.error(f"Failed to fetch market status. Received: {self.MARKET_STATUS}")
@@ -382,7 +382,7 @@ class PolygonDataService(BaseDataService):
             final_agg = price_source
             prev_timestamp = epoch_miliseconds
         if not final_agg:
-            bt.logging.error(f"Polygon failed to fetch REST data for {trade_pair.trade_pair}. If you keep seeing this error, report it to the team ASAP")
+            bt.logging.warning(f"Polygon failed to fetch REST data for {trade_pair.trade_pair}. If you keep seeing this warning, report it to the team ASAP")
             final_agg = None
 
         return final_agg
