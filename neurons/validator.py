@@ -158,9 +158,7 @@ class Validator:
         self.metagraph_updater_thread = threading.Thread(target=self.metagraph_updater.run_update_loop, daemon=True)
         self.metagraph_updater_thread.start()
 
-        # keep track of values for checkpoint sync
-        self.num_trusted_validators = len(self.get_trusted_validators())
-        self.received_checkpoints = 0
+
 
         if self.wallet.hotkey.ss58_address not in self.metagraph.hotkeys:
             bt.logging.error(
@@ -174,6 +172,9 @@ class Validator:
                                               n_orders_being_processed=self.n_orders_being_processed)
         self.p2p_syncer = P2PSyncer(wallet=self.wallet,
                                     metagraph=self.metagraph)
+        # keep track of values for checkpoint sync
+        self.num_trusted_validators = len(self.p2p_syncer.get_trusted_validators())
+        self.received_checkpoints = 0
 
         self.perf_ledger_manager = PerfLedgerManager(self.metagraph, live_price_fetcher=self.live_price_fetcher,
                                                      shutdown_dict=shutdown_dict, position_syncer=self.position_syncer)
@@ -386,11 +387,7 @@ class Validator:
                 self.elimination_manager.process_eliminations()
                 self.position_syncer.sync_positions_with_cooldown(self.auto_sync)
                 self.position_manager.position_locks.cleanup_locks(self.metagraph.hotkeys)
-                # only trusted validators should send checkpoints
-                # TODO: get rid of mainnet case
-                hotkey = self.wallet.hotkey.ss58_address
-                if not self.is_mainnet or hotkey in [axon.hotkey for axon in self.get_trusted_validators()]:
-                    self.p2p_syncer.sync_positions_with_cooldown(self.auto_p2p_sync, True)
+                self.p2p_syncer.sync_positions_with_cooldown(self.auto_p2p_sync, True)
 
             # In case of unforeseen errors, the miner will log the error and continue operations.
             except Exception:
@@ -687,12 +684,12 @@ class Validator:
 
         # only want to process and read checkpoints from trusted validators
         # TODO: remove mainnet check
-        if not self.is_mainnet or sender_hotkey in [axon.hotkey for axon in self.get_trusted_validators()]:
+        if not self.is_mainnet or sender_hotkey in [axon.hotkey for axon in self.p2p_syncer.get_trusted_validators()]:
             synapse.validator_receive_hotkey = self.wallet.hotkey.ss58_address
 
             #TODO: count received checkpoints, reset received after every completed sync
             self.p2p_syncer.received_checkpoints += 1
-            bt.logging.info(f"validator {synapse.validator_receive_hotkey} received checkpoint from validator hotkey [{sender_hotkey}].")
+            bt.logging.info(f"Received checkpoint from trusted validator hotkey [{sender_hotkey}].")
             if self.should_fail_early(synapse, SynapseMethod.CHECKPOINT):
                 return synapse
 
@@ -752,7 +749,7 @@ class Validator:
         # bt.logging.info(f"stake {[n.stake for n in self.metagraph.neurons]}")
 
         print(self.num_trusted_validators, " trusted validators___________")
-        for a in self.get_trusted_validators():
+        for a in self.p2p_syncer.get_trusted_validators():
             print(a.hotkey)
 
 # This is the main function, which runs the miner.
