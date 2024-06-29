@@ -171,7 +171,8 @@ class Validator:
                                               signal_sync_condition=self.signal_sync_condition,
                                               n_orders_being_processed=self.n_orders_being_processed)
         self.p2p_syncer = P2PSyncer(wallet=self.wallet,
-                                    metagraph=self.metagraph)
+                                    metagraph=self.metagraph,
+                                    is_testnet=not self.is_mainnet)
         # keep track of values for checkpoint sync
         self.num_trusted_validators = len(self.p2p_syncer.get_trusted_validators())
         self.received_checkpoints = 0
@@ -683,8 +684,7 @@ class Validator:
         sender_hotkey = synapse.dendrite.hotkey
 
         # only want to process and read checkpoints from trusted validators
-        # TODO: remove mainnet check
-        if not self.is_mainnet or sender_hotkey in [axon.hotkey for axon in self.p2p_syncer.get_trusted_validators()]:
+        if sender_hotkey in [axon.hotkey for axon in self.p2p_syncer.get_trusted_validators()]:
             synapse.validator_receive_hotkey = self.wallet.hotkey.ss58_address
 
             #TODO: count received checkpoints, reset received after every completed sync
@@ -731,33 +731,6 @@ class Validator:
         bt.logging.success(f"Sending ack back to validator [{sender_hotkey}]")
 
         return synapse
-
-    # temp test method to print out the metagraph state
-    def print_metagraph_attributes(self):
-        # for n in self.metagraph.neurons:
-        #     n.validator_trust = random.random()
-        #     n.stake = random.randrange(1500)
-
-        table = [[n.axon_info.hotkey[:4] for n in self.metagraph.neurons],
-                 [n.axon_info.ip for n in self.metagraph.neurons], [str(n.stake)[:7] for n in self.metagraph.neurons],
-                 [n.validator_trust for n in self.metagraph.neurons]]
-        # my_uid = self.metagraph.hotkeys.index(self.wallet.hotkey.ss58_address)
-        # bt.logging.info(f"my uid {my_uid}")
-        smalltable = [r[:20] for r in table]
-        print(tabulate(smalltable, tablefmt="simple_grid"))
-        smalltable = [r[20:40] for r in table]
-        print(tabulate(smalltable, tablefmt="simple_grid"))
-        smalltable = [r[40:60] for r in table]
-        print(tabulate(smalltable, tablefmt="simple_grid"))
-        smalltable = [r[60:80] for r in table]
-        print(tabulate(smalltable, tablefmt="simple_grid"))
-        smalltable = [r[80:100] for r in table]
-        print(tabulate(smalltable, tablefmt="simple_grid"))
-        # bt.logging.info(f"stake {[n.stake for n in self.metagraph.neurons]}")
-
-        print(self.num_trusted_validators, " trusted validators___________")
-        for a in self.p2p_syncer.get_trusted_validators():
-            print(a.hotkey)
 
 # This is the main function, which runs the miner.
 if __name__ == "__main__":

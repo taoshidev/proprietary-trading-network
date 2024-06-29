@@ -277,6 +277,5 @@ class ValiConfig:
 
     ## Qualifications to be a trusted validator sending checkpoints
     TOP_N = 10
-    V_TRUST_THRESHOLD = 0.9
     STAKE_MIN = 1000.0
-    V_TRUST_MIN = 0.5
+    AXON_NO_IP = "0.0.0.0"

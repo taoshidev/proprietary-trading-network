@@ -2,9 +2,11 @@ import asyncio
 import base64
 import gzip
 import json
+# import random
 import traceback
 
 import bittensor as bt
+# from tabulate import tabulate
 
 import template
 from runnable.generate_request_core import generate_request_core
@@ -17,15 +19,15 @@ from vali_objects.utils.vali_bkp_utils import CustomEncoder
 
 
 class P2PSyncer:
-    def __init__(self, wallet=None, metagraph=None):
+    def __init__(self, wallet=None, metagraph=None, is_testnet=None):
         self.wallet = wallet
         self.metagraph = metagraph
         self.last_signal_sync_time_ms = 0
         self.received_checkpoints = 0
         self.hotkey = self.wallet.hotkey.ss58_address
 
-        # TODO: temp flag for testnet
-        self.testnet = True
+        # flag for testnet
+        self.is_testnet = is_testnet
 
     async def send_checkpoint(self):
         """
@@ -33,7 +35,7 @@ class P2PSyncer:
         """
         # only trusted validators should send checkpoints
         # TODO: remove testnet flag
-        if not self.testnet and self.hotkey not in [axon.hotkey for axon in self.get_trusted_validators()]:
+        if not self.is_testnet and self.hotkey not in [axon.hotkey for axon in self.get_trusted_validators()]:
             bt.logging.info("Aborting send_checkpoint; not a top trusted validator")
             return
 
@@ -94,39 +96,61 @@ class P2PSyncer:
         except Exception as e:
             bt.logging.info(f"Error sending checkpoint with error [{e}]")
 
-    def get_validators(self):
+    def get_validators(self, neurons=None):
         """
         get a list of all validators. defined as:
         stake > 1000 and validator_trust > 0.5
         """
         # TODO: remove testnet flag
-        if self.testnet:
-            return self.metagraph.axons
-        neurons = self.metagraph.neurons
-        validator_neurons = [n for n in neurons if n.stake > bt.Balance(ValiConfig.STAKE_MIN)
-                             and n.validator_trust > ValiConfig.V_TRUST_MIN]
-
-        return [n.axon_info for n in validator_neurons if n.axon_info.ip != "0.0.0.0"]
+        if self.is_testnet:
+            return [a for a in self.metagraph.axons if a.ip != ValiConfig.AXON_NO_IP]
+        if neurons is None:
+            neurons = self.metagraph.neurons
+        validator_axons = [n.axon_info for n in neurons
+                           if n.stake > bt.Balance(ValiConfig.STAKE_MIN)
+                           and n.axon_info.ip != ValiConfig.AXON_NO_IP]
+        return validator_axons
 
     def get_trusted_validators(self):
         """
-        get a list of the trusted validators for checkpoint sending. defined as:
-        top 10 by stake OR validator_trust > 0.9
+        get a list of the trusted validators for checkpoint sending
+        return top 10 neurons sorted by stake
         """
-        # TODO: filter min stake as well?
+        if self.is_testnet:
+            return self.get_validators()
         neurons = self.metagraph.neurons
-        # only validators with top 10 stake, or v_trust > 0.9 should send checkpoints
-        top_stake_neurons = sorted(neurons, key=lambda n: n.stake, reverse=True)
-        top_stake_axons = [n.axon_info for n in top_stake_neurons if n.stake > bt.Balance(ValiConfig.STAKE_MIN)
-                           and n.axon_info.ip != "0.0.0.0"][:ValiConfig.TOP_N]
-        high_v_trust_axons = [n.axon_info for n in neurons if n.validator_trust > ValiConfig.V_TRUST_THRESHOLD]
+        sorted_stake_neurons = sorted(neurons, key=lambda n: n.stake, reverse=True)
 
-        # axons could contain duplicates, create set based on axon hotkeys and then filter axons
-        axons = top_stake_axons + high_v_trust_axons
-        trusted_hotkeys = set(a.hotkey for a in axons)
-        trusted_axons = [a for a in axons if a.hotkey in trusted_hotkeys and a.ip != "0.0.0.0"]
+        return self.get_validators(sorted_stake_neurons)[:ValiConfig.TOP_N]
 
-        return trusted_axons
+    # # TODO: remove temp test method to print out the metagraph state
+    # def print_metagraph_attributes(self):
+    #     # for n in self.metagraph.neurons:
+    #     #     n.axon_info.ip = "1.1.1.1"
+    #     #     n.validator_trust = round(random.random(), 3)
+    #     #     n.stake = random.randrange(1500)
+    #
+    #     table = [[n.axon_info.hotkey[:4] for n in self.metagraph.neurons],
+    #              [n.axon_info.ip for n in self.metagraph.neurons],
+    #              [str(n.stake)[:7] for n in self.metagraph.neurons],
+    #              [n.validator_trust for n in self.metagraph.neurons]]
+    #     # my_uid = self.metagraph.hotkeys.index(self.wallet.hotkey.ss58_address)
+    #     # bt.logging.info(f"my uid {my_uid}")
+    #     smalltable = [r[:20] for r in table]
+    #     print(tabulate(smalltable, tablefmt="simple_grid"))
+    #     smalltable = [r[20:40] for r in table]
+    #     print(tabulate(smalltable, tablefmt="simple_grid"))
+    #     smalltable = [r[40:60] for r in table]
+    #     print(tabulate(smalltable, tablefmt="simple_grid"))
+    #     smalltable = [r[60:80] for r in table]
+    #     print(tabulate(smalltable, tablefmt="simple_grid"))
+    #     smalltable = [r[80:100] for r in table]
+    #     print(tabulate(smalltable, tablefmt="simple_grid"))
+    #     # bt.logging.info(f"stake {[n.stake for n in self.metagraph.neurons]}")
+    #
+    #     # print(self.num_trusted_validators, " trusted validators___________")
+    #     for a in self.get_trusted_validators():
+    #         print(a.hotkey)
 
     def sync_positions_with_cooldown(self, auto_sync_enabled:bool, run_more:bool):
         # Check if the time is right to sync signals
