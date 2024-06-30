@@ -146,7 +146,6 @@ class P2PSyncer:
         order_data = defaultdict(list)                          # {order_uuid: [{order}]}
 
         # simple majority of positions/number of checkpoints
-        # TODO: separate threshold for orders
         positions_threshold = len(trusted_checkpoints) / 2
 
         # parse each checkpoint to count occurrences of each position and order
@@ -166,7 +165,7 @@ class P2PSyncer:
 
                         position_orders[position_uuid].add(order_uuid)
 
-        # get the set of majority positions
+        # get the set of position_uuids that appear in the majority of checkpoints
         majority_positions = {position_uuid for position_uuid, count in position_counts.items()
                               if count > positions_threshold}
 
@@ -187,10 +186,10 @@ class P2PSyncer:
 
                         majority_positions.remove(position_uuid)
 
-                        # simple majority of orders/positions they could appear in
+                        # simple majority of orders out of the positions they could appear in
                         orders_threshold = position_counts[position_uuid] / 2
 
-                        # get the set of majority orders on a position_uuid
+                        # get the set of order_uuids that appear in the majority of positions for a position_uuid
                         majority_orders = {order_uuid for order_uuid, count in order_counts[position_uuid].items()
                                            if count > orders_threshold}
 
