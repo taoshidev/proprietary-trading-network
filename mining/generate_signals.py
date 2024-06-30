@@ -252,12 +252,14 @@ class TradeHandler:
                # print(result)
             else:
                 print("The table is empty.")
-                return pd.DataFrame({'trade_closed':True},index=[0])
                 conn.close()  
+                return False
+
         except: 
                 print("The table is empty.")
-                return pd.DataFrame({'trade_closed':True},index=[0])
                 conn.close()  
+                return False
+
             
     
             
@@ -309,21 +311,24 @@ if __name__ == "__main__":
             
             price = input['close'].tail(1).values[0]
             lasttrade = btc.check_last_trade()
+            
+            if  isinstance(lasttrade, pd.DataFrame): 
+                
+                 if lasttrade['trade_closed'].tail(1).isnull():
 
-            current_pnl = None
-            exit_long = False 
-            
-            if lasttrade['trade_closed'].tail(1).isnull():
-                
-                current_pnl = input['close'].tail(1).values[0] / lasttrade['open_price'].tail(1) - 1 
-                
-                if current_pnl > TP :  
-                    exit_long = True
-                
-            
-            if (current_pnl is not None)  or (exit_long is True) :
-                
-                 order = 'FLAT'
+                    current_pnl = None
+                    exit_long = False 
+                    
+                        
+                    current_pnl = input['close'].tail(1).values[0] / lasttrade['open_price'].tail(1) - 1 
+                        
+                    if current_pnl > TP :  
+                        exit_long = True
+                        
+                    
+                    if (current_pnl is not None)  or (exit_long is True) :
+                        
+                        order = 'FLAT'
                 
             else: 
                 preds = mining_utils.multi_predict(model,input,2)
