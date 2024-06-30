@@ -17,7 +17,7 @@ import os
 from signals import process_data_for_predictions,LONG_ENTRY
 import bittensor as bt
 import duckdb
-
+import numpy as np
 model = mining_utils.load_model()
 TP = 0.05 
 secrets_json_path = ValiConfig.BASE_DIR + "/mining/miner_secrets.json"
@@ -233,11 +233,11 @@ class TradeHandler:
                # print(result)
             else:
                 print("The table is empty.")
-                return pd.DataFrame({'none':None})
+                return pd.DataFrame({'trade_closed':np.nan},index=[0])
                 conn.close()  
         except: 
                 print("The table is empty.")
-                return pd.DataFrame({'none':None})
+                return pd.DataFrame({'trade_closed':np.nan},index=[0])
                 conn.close()  
             
     
