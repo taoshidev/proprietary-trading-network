@@ -233,6 +233,7 @@ class TradeHandler:
                # print(result)
             else:
                 print("The table is empty.")
+                return pd.DataFrame({'none':None})
                 conn.close()  
         finally:
             conn.close()    
