@@ -777,3 +777,5 @@ class TestPositions(TestBase):
         assert len(self.position_syncer.perf_ledger_hks_to_invalidate) == 1
         assert self.position_syncer.perf_ledger_hks_to_invalidate[self.DEFAULT_MINER_HOTKEY] == order_to_insert.processed_ms
 
+
+
