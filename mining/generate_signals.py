@@ -235,8 +235,12 @@ class TradeHandler:
                 print("The table is empty.")
                 return pd.DataFrame({'none':None})
                 conn.close()  
-        finally:
-            conn.close()    
+        except: 
+                print("The table is empty.")
+                return pd.DataFrame({'none':None})
+                conn.close()  
+            
+    
             
 
 class CustomEncoder(json.JSONEncoder):
