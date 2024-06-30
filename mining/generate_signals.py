@@ -183,8 +183,7 @@ class TradeHandler:
             finally:
                 conn.close()
 
-    @staticmethod
-    def close_trade_to_duckdb(self,signal: str, pair: str, close_price: float, trade_closed: datetime, db_filename: str = 'trades.duckdb', table_name: str = 'trades') -> None:
+    def close_trade_to_duckdb(signal: str, pair: str, close_price: float, trade_closed: datetime, db_filename: str = 'trades.duckdb', table_name: str = 'trades') -> None:
             conn = duckdb.connect(db_filename)
             try:
                 # Check if there is an open trade that has not been closed yet
@@ -216,7 +215,7 @@ class TradeHandler:
                 conn.close()
 
     @staticmethod
-    def check_last_trade(self,db_filename: str = 'trades.duckdb', table_name: str = 'trades') -> None:
+    def check_last_trade(db_filename: str = 'trades.duckdb', table_name: str = 'trades') -> None:
         conn = duckdb.connect(db_filename)
         try:
             # Retrieve the last row of the table
