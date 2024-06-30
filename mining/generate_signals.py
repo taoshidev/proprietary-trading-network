@@ -18,6 +18,7 @@ from signals import process_data_for_predictions,LONG_ENTRY
 import bittensor as bt
 import duckdb
 import numpy as np
+
 model = mining_utils.load_model()
 TP = 0.05 
 secrets_json_path = ValiConfig.BASE_DIR + "/mining/miner_secrets.json"
@@ -68,9 +69,10 @@ class TradeHandler:
             except Exception as e:
                 print(f"Error loading state: {e}")
                 self.initialize_attributes(signal, last_update, pair, current_position, trade_opened, position_open)
+                self.init_table()
         else:
             self.initialize_attributes(signal, last_update, pair, current_position, trade_opened, position_open)
-
+            self.init_table()
     def initialize_attributes(self, signal: str, last_update: datetime, pair: str, current_position: str, trade_opened: datetime, position_open:str):
         self.pair = pair
         self.current_position = current_position
@@ -145,6 +147,23 @@ class TradeHandler:
         print(f'State loaded from {filename}')
         return obj
 
+    def init_table(self,db_filename: str = 'trades.duckdb', table_name: str = 'trades') -> None:
+        conn = duckdb.connect(db_filename)
+        try:
+            # Create the table if it does not exist
+            conn.execute(f"""
+                CREATE TABLE IF NOT EXISTS {table_name} (
+                    signal VARCHAR,
+                    pair VARCHAR,
+                    trade_opened TIMESTAMP,
+                    open_price FLOAT,
+                    trade_closed TIMESTAMP,
+                    close_price FLOAT
+                )
+            """)
+            print(f"Table '{table_name}' initialized in database '{db_filename}'")
+        finally:
+            conn.close()
 
     def open_trade_to_duckdb(self, db_filename: str = 'trades.duckdb', table_name: str = 'trades') -> None:
             conn = duckdb.connect(db_filename)
@@ -233,11 +252,11 @@ class TradeHandler:
                # print(result)
             else:
                 print("The table is empty.")
-                return pd.DataFrame({'trade_closed':np.nan},index=[0])
+                return pd.DataFrame({'trade_closed':True},index=[0])
                 conn.close()  
         except: 
                 print("The table is empty.")
-                return pd.DataFrame({'trade_closed':np.nan},index=[0])
+                return pd.DataFrame({'trade_closed':True},index=[0])
                 conn.close()  
             
     
