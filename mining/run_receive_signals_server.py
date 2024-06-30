@@ -14,7 +14,7 @@ from vali_config import TradePair, ValiConfig
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.vali_dataclasses.order_signal import Signal
-
+import bittensor as bt
 
 app = Flask(__name__)
 
