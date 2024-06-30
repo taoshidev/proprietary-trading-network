@@ -6,7 +6,6 @@ import zipfile
 from enum import Enum
 from collections import defaultdict
 from copy import deepcopy
-from statistics import median
 
 import requests
 
@@ -17,8 +16,6 @@ from vali_objects.utils.position_manager import PositionManager
 import bittensor as bt
 
 from vali_objects.utils.vali_utils import ValiUtils
-from vali_objects.vali_dataclasses.order import Order
-
 AUTO_SYNC_ORDER_LAG_MS = 1000 * 60 * 60 * 24
 
 # Make an enum class that represents how the position sync went. "Nothing", "Updated", "Deleted", "Inserted"
@@ -45,9 +42,6 @@ class PositionSyncer:
         self.signal_sync_condition = signal_sync_condition
         self.n_orders_being_processed = n_orders_being_processed
         self.init_data()
-        self.checkpoints = []
-        self.num_checkpoints_received = 0
-        self.golden = {}
 
     def init_data(self):
         self.global_stats = defaultdict(int)
@@ -587,118 +581,6 @@ class PositionSyncer:
 
         self.last_signal_sync_time_ms = TimeUtil.now_in_millis()
 
-    def add_checkpoint(self, received_checkpoint: json, total_checkpoints):
-        """
-        receives a checkpoint from a trusted validator, and appends to a list
-        when all checkpoints are received, build the golden.
-        """
-        self.checkpoints.append(received_checkpoint)
-        self.num_checkpoints_received += 1
-
-        if self.num_checkpoints_received == total_checkpoints:
-            self.golden = self.create_golden(self.checkpoints)
-
-            bt.logging.info("successfully created golden checkpoint")
-            # print(json.dumps(self.golden, indent=4))
-
-            # TODO: reset num checkpoints at end of cycle
-            self.num_checkpoints_received = 0
-
-    def create_golden(self, trusted_checkpoints: list[json]) -> dict:
-        """
-        Simple majority approach (preferred to start)
-            If a position’s uuid exists on the majority of validators, that position is kept.
-            If an order uuid exists in the majority of positions, that order is kept.
-                Choose the order with the median price.
-
-        return a single checkpoint dict
-        """
-        position_counts = defaultdict(int)                      # {position_uuid: count}
-        position_data = defaultdict(list)                       # {position_uuid: [{position}]}
-        position_orders = defaultdict(set)                      # {position_uuid: {order_uuid}}
-        order_counts = defaultdict(lambda: defaultdict(int))    # {position_uuid: {order_uuid: count}}
-        order_data = defaultdict(list)                          # {order_uuid: [{order}]}
-
-        # simple majority of positions/number of checkpoints
-        # TODO: separate threshold for orders
-        positions_threshold = len(trusted_checkpoints) / 2
-
-        # parse each checkpoint to count occurrences of each position and order
-        for checkpoint in trusted_checkpoints:
-            # get positions for each miner
-            for miner_positions in checkpoint["positions"].values():
-                for position in miner_positions["positions"]:
-                    position_uuid = position["position_uuid"]
-                    position_counts[position_uuid] += 1
-                    position_data[position_uuid].append(dict(position, orders=[]))
-
-                    # count and save orders
-                    for order in position["orders"]:
-                        order_uuid = order["order_uuid"]
-                        order_counts[position_uuid][order_uuid] += 1
-                        order_data[order_uuid].append(dict(order))
-
-                        position_orders[position_uuid].add(order_uuid)
-
-        # get the set of majority positions
-        majority_positions = {position_uuid for position_uuid, count in position_counts.items()
-                              if count > positions_threshold}
-
-        golden = defaultdict(lambda: defaultdict(list))
-
-        for checkpoint in trusted_checkpoints:
-            for miner_hotkey, miner_positions in checkpoint["positions"].items():
-                for position in miner_positions["positions"]:
-                    position_uuid = position["position_uuid"]
-                    # position exists on majority of validators
-                    if position_uuid in majority_positions:
-                        # create a single combined position, and delete uuid to avoid duplicates
-                        new_position = Position(miner_hotkey=miner_hotkey,
-                                                position_uuid=position_uuid,
-                                                open_ms=position["open_ms"],
-                                                trade_pair=position["trade_pair"],
-                                                orders=[])
-
-                        majority_positions.remove(position_uuid)
-
-                        # simple majority of orders/positions they could appear in
-                        orders_threshold = position_counts[position_uuid] / 2
-
-                        # get the set of majority orders on a position_uuid
-                        majority_orders = {order_uuid for order_uuid, count in order_counts[position_uuid].items()
-                                           if count > orders_threshold}
-
-                        # order exists in the majority of positions
-                        for order_uuid in position_orders[position_uuid]:
-                            if order_uuid in majority_orders:
-                                trade_pair = TradePair.to_enum(position["trade_pair"][0])
-                                combined_order = self.get_median_order(order_data[order_uuid], trade_pair)
-                                majority_orders.remove(order_uuid)
-
-                                # TODO: sort orders by "processed_ms" time
-                                new_position.add_order(combined_order)
-                                # combined_position["orders"].append(combined_order)
-                        new_position.rebuild_position_with_updated_orders()
-                        position_dict = json.loads(new_position.to_json_string())
-                        golden[miner_hotkey]["positions"].append(position_dict)
-
-        # Convert defaultdict to regular dict
-        golden = {miner: dict(golden[miner]) for miner in golden}
-        return golden
-
-    def get_median_order(self, orders, trade_pair) -> Order:
-        """
-        select the order with the median price from a list of orders with the same order_uuid
-        """
-        sorted_orders = sorted(orders, key=lambda o: o["price"])
-        median_order = sorted_orders[len(orders)//2]
-        order = Order(trade_pair=trade_pair,
-                      order_type=median_order["order_type"],
-                      leverage=median_order["leverage"],
-                      price=median_order["price"],
-                      processed_ms=median_order["processed_ms"],
-                      order_uuid=median_order["order_uuid"])
-        return order
 
 if __name__ == "__main__":
     bt.logging.enable_default()
