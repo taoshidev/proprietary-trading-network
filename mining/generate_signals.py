@@ -18,6 +18,8 @@ from signals import process_data_for_predictions,LONG_ENTRY
 import bittensor as bt
 import duckdb
 
+model = mining_utils.load_model()
+TP = 0.05 
 secrets_json_path = ValiConfig.BASE_DIR + "/mining/miner_secrets.json"
 # Define your API key
 if os.path.exists(secrets_json_path):
@@ -56,7 +58,7 @@ str_to_tradepair= {
 
 
 class TradeHandler:
-    def __init__(self, signal=None, last_update=None, pair=None, current_position=None, trade_opened=None, position_open=False, filename='trade_handler_state.pkl'):
+    def __init__(self,price=None, signal=None, last_update=None, pair=None, current_position=None, trade_opened=None, position_open=False, filename='trade_handler_state.pkl'):
         self.filename = filename
         if os.path.exists(self.filename):
             try:
@@ -69,13 +71,14 @@ class TradeHandler:
         else:
             self.initialize_attributes(signal, last_update, pair, current_position, trade_opened, position_open)
 
-    def initialize_attributes(self, signal, last_update, pair, current_position, trade_opened, position_open):
+    def initialize_attributes(self, signal: str, last_update: datetime, pair: str, current_position: str, trade_opened: datetime, position_open:str):
         self.pair = pair
         self.current_position = current_position
         self.trade_opened = trade_opened
         self.position_open = position_open
         self.last_update = last_update
         self.signal = signal
+        self.price = price 
 
     def clear_trade(self):
         self.current_position = None
@@ -83,16 +86,17 @@ class TradeHandler:
         self.position_open = False
         self.last_update = None 
         self.signal = None
+        self.price=None
         self.save_to_file(self.filename)
         print('Trade cleared.')
 
     def check_position(self): 
         print(self.current_position)
 
-    def set_position(self, new_position):
+    def set_position(self, new_position: str):
         if self.current_position == 'SHORT' and new_position == 'LONG':
             self.last_update = datetime.now().isoformat()
-            self.save_trade_to_duckdb()
+            self.close_trade_to_duckdb(close_price=self.price, trade_closed= self.last_update,signal=self.signal, pair=self.pair)
             print('Position changed from short to long, closing current position.')
             self.clear_trade()
             self.current_position = 'FLAT'
@@ -100,7 +104,7 @@ class TradeHandler:
 
         elif self.current_position == 'LONG' and new_position == 'SHORT':
             self.last_update = datetime.now().isoformat()
-            self.save_trade_to_duckdb()
+            self.close_trade_to_duckdb(close_price=self.price, trade_closed= self.last_update,signal=self.signal, pair=self.pair)
             print('Position changed from long to short, closing current position.')
             self.clear_trade()
             self.current_position = 'FLAT'
@@ -108,7 +112,7 @@ class TradeHandler:
   
         elif self.current_position in ['SHORT', 'LONG'] and new_position == 'FLAT':
             self.last_update = datetime.now().isoformat()
-            self.save_trade_to_duckdb()
+            self.close_trade_to_duckdb(close_price=self.price, trade_closed= self.last_update,signal=self.signal, pair=self.pair)
             print('Trade closed.')
             self.clear_trade()
             self.current_position = 'FLAT'
@@ -122,51 +126,118 @@ class TradeHandler:
                 print(f'Trade opened at: {self.trade_opened}')
                 self.position_open = True
                 self.current_position = new_position
+                self.open_trade_to_duckdb()
             else:  
                 self.last_update = datetime.now().isoformat()
         
         # Save state to file after updating the position
         self.save_to_file(self.filename)
 
-    def save_to_file(self, filename):
+    def save_to_file(self, filename: str):
         with open(filename, 'wb') as f:
             pickle.dump(self, f)
         print(f'State saved to {filename}')
 
     @classmethod
-    def load_from_file(cls, filename):
+    def load_from_file(cls, filename: str):
         with open(filename, 'rb') as f:
             obj = pickle.load(f)
         print(f'State loaded from {filename}')
         return obj
 
 
-    def save_trade_to_duckdb(self, db_filename='trades.duckdb', table_name='trades'):
+    def open_trade_to_duckdb(self, db_filename: str = 'trades.duckdb', table_name: str = 'trades') -> None:
+            conn = duckdb.connect(db_filename)
+            try:
+                # Create the table if it does not exist
+                conn.execute(f"""
+                    CREATE TABLE IF NOT EXISTS {table_name} (
+                        signal VARCHAR,
+                        pair VARCHAR,
+                        trade_opened TIMESTAMP,
+                        open_price FLOAT,
+                        trade_closed TIMESTAMP,
+                        close_price FLOAT
+                    )
+                """)
+
+                # Check if the last trade is closed
+                result = conn.execute(f"""
+                    SELECT trade_closed
+                    FROM {table_name}
+                    WHERE signal = ? AND pair = ?
+                    ORDER BY trade_opened DESC
+                    LIMIT 1
+                """, (self.signal, self.pair)).fetchone()
+                
+                if result is not None and result[0] is None:
+                    print("Warning: The last trade is not closed yet.")
+
+                # Insert the current trade data into the table
+                conn.execute(f"""
+                    INSERT INTO {table_name} (signal, pair, trade_opened, open_price)
+                    VALUES (?, ?, ?, ?)
+                """, (self.signal, self.pair, self.trade_opened, self.price))
+                
+                print(f"Trade opened and saved to DuckDB table '{table_name}' in database '{db_filename}'")
+            finally:
+                conn.close()
+
+    @staticmethod
+    def close_trade_to_duckdb(self,signal: str, pair: str, close_price: float, trade_closed: datetime, db_filename: str = 'trades.duckdb', table_name: str = 'trades') -> None:
+            conn = duckdb.connect(db_filename)
+            try:
+                # Check if there is an open trade that has not been closed yet
+                result = conn.execute(f"""
+                    SELECT close_price, trade_closed
+                    FROM {table_name}
+                    WHERE signal = ? AND pair = ? AND trade_closed IS NULL
+                    ORDER BY trade_opened DESC
+                    LIMIT 1
+                """, (signal, pair)).fetchone()
+                
+                if result is None:
+                    raise Exception("No open trade found to close.")
+                
+                if result[0] is not None or result[1] is not None:
+                    raise Exception("The trade has already been closed.")
+                
+                # Update the close price and trade closed time for the last open trade
+                conn.execute(f"""
+                    UPDATE {table_name}
+                    SET close_price = ?, trade_closed = ?
+                    WHERE signal = ? AND pair = ? AND trade_closed IS NULL
+                    ORDER BY trade_opened DESC
+                    LIMIT 1
+                """, (close_price, trade_closed, signal, pair))
+                
+                print(f"Trade closed and updated in DuckDB table '{table_name}' in database '{db_filename}'")
+            finally:
+                conn.close()
+
+    @staticmethod
+    def check_last_trade(self,db_filename: str = 'trades.duckdb', table_name: str = 'trades') -> None:
         conn = duckdb.connect(db_filename)
         try:
-            # Create the table if it does not exist
-            conn.execute(f"""
-                CREATE TABLE IF NOT EXISTS {table_name} (
-                    signal VARCHAR,
-                    last_update TIMESTAMP,
-                    pair VARCHAR,
-                    current_position VARCHAR,
-                    trade_opened TIMESTAMP,
-                    position_open BOOLEAN
-                )
-            """)
+            # Retrieve the last row of the table
+            result = conn.execute(f"""
+                SELECT *
+                FROM {table_name}
+                ORDER BY trade_opened DESC
+                LIMIT 1
+            """).df()
 
-            # Insert the current trade data into the table
-            conn.execute(f"""
-                INSERT INTO {table_name} (signal, last_update, pair, current_position, trade_opened, position_open)
-                VALUES (?, ?, ?, ?, ?, ?)
-            """, (self.signal, self.last_update, self.pair, self.current_position, self.trade_opened, self.position_open))
-            
-            print(f"Trade saved to DuckDB table '{table_name}' in database '{db_filename}'")
+            if result:
+                conn.close()    
+                return result
+               #print("Last row in the table:")
+               # print(result)
+            else:
+                print("The table is empty.")
+                conn.close()  
         finally:
-            conn.close()
-   
-    
+            conn.close()    
+            
 
 class CustomEncoder(json.JSONEncoder):
     def default(self, obj):
@@ -205,7 +276,7 @@ if __name__ == "__main__":
         input = fetch_binance_data()
         bt.logging.info(f"Latest candle: {input['ds'].tail(1).values[0]}")
         
-        bt.logging.info(f"Trade Pair: {btc.pair} | Last Update: {round_time_to_nearest_five_minutes(btc.last_update) } | Position: {btc.current_position}")
+        bt.logging.info(f"Last Trade: {btc.check_last_trade()}")
 
 
         input = process_data_for_predictions(input)
@@ -213,14 +284,37 @@ if __name__ == "__main__":
         if (btc.last_update is None) or (round_time_to_nearest_five_minutes(btc.last_update) < pd.to_datetime(input['ds'].tail(1).values[0])):            
             # feed into model to predict 
             
-            model = mining_utils.load_model()
-            preds = mining_utils.multi_predict(model,input,2)
-            modelname = str(model.models[0])
-            output = mining_utils.gen_signals_from_predictions(predictions= preds, hist = input ,modelname=modelname ) 
-          #  signals = mining_utils.assess_signals(output)
-            order= mining_utils.map_signals(output)
+            price = input['close'].tail(1).values[0]
+            lasttrade = btc.check_last_trade()
+
+            current_pnl = None
+            exit_long = False 
+            
+            if lasttrade['trade_closed'].tail(1).isnull():
+                
+                current_pnl = input['close'].tail(1).values[0] / lasttrade['open_price'].tail(1) - 1 
+                
+                if current_pnl > TP :  
+                    exit_long = True
+                
+            
+            if (current_pnl is not None)  or (exit_long is True) :
+                
+                 order = 'FLAT'
+                
+            else: 
+                preds = mining_utils.multi_predict(model,input,2)
+                modelname = str(model.models[0])
+                output = mining_utils.gen_signals_from_predictions(predictions= preds, hist = input ,modelname=modelname ) 
+            #  signals = mining_utils.assess_signals(output)
+                order= mining_utils.map_signals(output)
+                
+              
             
             
+
+                
+          
             
             if order != 'PASS' : 
             
