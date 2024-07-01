@@ -77,7 +77,7 @@ class TestPositions(TestBase):
             'initial_entry_price': 100,
             'average_entry_price': 100,
             'close_ms': None,
-            'return_at_close': 0.998,
+            'return_at_close': 0.999,
             'current_return': 1.0,
             'miner_hotkey': self.DEFAULT_MINER_HOTKEY,
             'open_ms': self.DEFAULT_OPEN_MS,
@@ -94,7 +94,7 @@ class TestPositions(TestBase):
             'initial_entry_price': 100,
             'average_entry_price': 100,
             'close_ms': o2.processed_ms,
-            'return_at_close': 1.0978,
+            'return_at_close': 1.0989,
             'current_return': 1.1,
             'miner_hotkey': self.DEFAULT_MINER_HOTKEY,
             'open_ms': self.DEFAULT_OPEN_MS,
@@ -103,7 +103,7 @@ class TestPositions(TestBase):
         })
 
         self.assertEqual(position.max_leverage_seen(), 1.0)
-        self.assertEqual(position.cumulative_leverage(), 2.0)
+        self.assertEqual(position.get_cumulative_leverage(), 2.0)
 
     def test_simple_long_position_with_implicit_FLAT(self):
         position = deepcopy(self.default_position)
@@ -154,7 +154,7 @@ class TestPositions(TestBase):
             'position_uuid': self.DEFAULT_POSITION_UUID
         })
         self.assertEqual(position.max_leverage_seen(), 1.0)
-        self.assertEqual(position.cumulative_leverage(), 2.0)
+        self.assertEqual(position.get_cumulative_leverage(), 2.0)
 
     def test_simple_short_position_with_explicit_FLAT(self):
         position = deepcopy(self.default_position)
@@ -205,7 +205,7 @@ class TestPositions(TestBase):
             'position_uuid': self.DEFAULT_POSITION_UUID
         })
         self.assertEqual(position.max_leverage_seen(), 1.0)
-        self.assertEqual(position.cumulative_leverage(), 2.0)
+        self.assertEqual(position.get_cumulative_leverage(), 2.0)
 
     def test_liquidated_long_position_with_explicit_FLAT(self):
         position = deepcopy(self.default_position)
@@ -256,7 +256,7 @@ class TestPositions(TestBase):
             'position_uuid': self.DEFAULT_POSITION_UUID
         })
         self.assertEqual(position.max_leverage_seen(), 10.0)
-        self.assertEqual(position.cumulative_leverage(), 20.0)
+        self.assertEqual(position.get_cumulative_leverage(), 20.0)
     def test_liquidated_short_position_with_explicit_FLAT(self):
         position = deepcopy(self.default_position)
         o1 = Order(order_type=OrderType.SHORT,
@@ -306,7 +306,7 @@ class TestPositions(TestBase):
             'position_uuid': self.DEFAULT_POSITION_UUID
         })
         self.assertEqual(position.max_leverage_seen(), 1.0)
-        self.assertEqual(position.cumulative_leverage(), 2.0)
+        self.assertEqual(position.get_cumulative_leverage(), 2.0)
 
     def test_liquidated_short_position_with_no_FLAT(self):
         position = deepcopy(self.default_position)
@@ -381,7 +381,7 @@ class TestPositions(TestBase):
             'position_uuid': self.DEFAULT_POSITION_UUID
         })
         self.assertEqual(position.max_leverage_seen(), 1.0)
-        self.assertEqual(position.cumulative_leverage(), 1.1)
+        self.assertEqual(position.get_cumulative_leverage(), 1.1)
 
     def test_liquidated_long_position_with_no_FLAT(self):
         o1 = Order(order_type=OrderType.LONG,
@@ -457,7 +457,7 @@ class TestPositions(TestBase):
         })
 
         self.assertEqual(position.max_leverage_seen(), 10.0)
-        self.assertEqual(position.cumulative_leverage(), 10.1)
+        self.assertEqual(position.get_cumulative_leverage(), 10.1)
 
     def test_simple_short_position_with_implicit_FLAT(self):
         o1 = Order(order_type=OrderType.SHORT,
@@ -508,7 +508,7 @@ class TestPositions(TestBase):
             'position_uuid': self.DEFAULT_POSITION_UUID
         })
         self.assertEqual(position.max_leverage_seen(), 1.0)
-        self.assertEqual(position.cumulative_leverage(), 2.0)
+        self.assertEqual(position.get_cumulative_leverage(), 2.0)
 
     def test_invalid_leverage_order(self):
         position = deepcopy(self.default_position)
@@ -642,7 +642,7 @@ class TestPositions(TestBase):
             'position_uuid': self.DEFAULT_POSITION_UUID
         })
         self.assertEqual(position.max_leverage_seen(), 1.1)
-        self.assertEqual(position.cumulative_leverage(), 2.2)
+        self.assertEqual(position.get_cumulative_leverage(), 2.2)
 
     def test_two_orders_with_a_loss(self):
         o1 = Order(order_type=OrderType.LONG,
@@ -693,7 +693,7 @@ class TestPositions(TestBase):
             'position_uuid': self.DEFAULT_POSITION_UUID
         })
         self.assertEqual(position.max_leverage_seen(), 1.0)
-        self.assertEqual(position.cumulative_leverage(), 2.0)
+        self.assertEqual(position.get_cumulative_leverage(), 2.0)
 
     def test_three_orders_with_a_loss_and_then_a_gain(self):
             o1 = Order(order_type=OrderType.LONG,
@@ -768,7 +768,7 @@ class TestPositions(TestBase):
             })
 
             self.assertEqual(position.max_leverage_seen(), 1.1)
-            self.assertAlmostEquals(position.cumulative_leverage(), 1.2, 8)
+            self.assertAlmostEquals(position.get_cumulative_leverage(), 1.2, 8)
 
     def test_returns_on_large_price_increase(self):
         o1 = Order(order_type=OrderType.LONG,
@@ -826,7 +826,7 @@ class TestPositions(TestBase):
             'position_uuid': self.DEFAULT_POSITION_UUID
         })
         self.assertEqual(position.max_leverage_seen(), 1.12)
-        self.assertEqual(position.cumulative_leverage(), 2.24)
+        self.assertEqual(position.get_cumulative_leverage(), 2.24)
 
     def test_returns_on_many_shorts(self):
         o1 = Order(order_type=OrderType.SHORT,
@@ -884,7 +884,7 @@ class TestPositions(TestBase):
             'position_uuid': self.DEFAULT_POSITION_UUID
         })
         self.assertEqual(position.max_leverage_seen(), 1.12)
-        self.assertEqual(position.cumulative_leverage(), 2.24)
+        self.assertEqual(position.get_cumulative_leverage(), 2.24)
 
 
     def test_returns_on_alternating_long_short(self):
@@ -944,7 +944,7 @@ class TestPositions(TestBase):
         })
         self.assertEqual(position.max_leverage_seen(), 2.5)
         # -1 +.5 - 2.0 + 2.1 = 1.44 (abs 5.6) , (flat from -.4) -> 6.0
-        self.assertEqual(position.cumulative_leverage(), 6.0)
+        self.assertEqual(position.get_cumulative_leverage(), 6.0)
 
 
     def test_two_orders_with_a_loss(self):
@@ -996,7 +996,7 @@ class TestPositions(TestBase):
             'position_uuid': self.DEFAULT_POSITION_UUID
         })
         self.assertEqual(position.max_leverage_seen(), 1.0)
-        self.assertEqual(position.cumulative_leverage(), 2.0)
+        self.assertEqual(position.get_cumulative_leverage(), 2.0)
 
     def test_error_adding_mismatched_trade_pair(self):
         position = deepcopy(self.default_position)
@@ -1091,8 +1091,8 @@ class TestPositions(TestBase):
 
         self.assertEqual(position1.max_leverage_seen(), 0.4)
         self.assertEqual(position2.max_leverage_seen(), 0.4)
-        self.assertEqual(position1.cumulative_leverage(), 0.4)
-        self.assertEqual(position2.cumulative_leverage(), 0.4)
+        self.assertEqual(position1.get_cumulative_leverage(), 0.4)
+        self.assertEqual(position2.get_cumulative_leverage(), 0.4)
     def test_leverage_clamping_long(self):
         position = deepcopy(self.default_position)
         live_price = self.live_price_fetcher.get_close(trade_pair=TradePair.BTCUSD)
@@ -1133,7 +1133,7 @@ class TestPositions(TestBase):
         })
 
         self.assertEqual(position.max_leverage_seen(), 20.0)
-        self.assertEqual(position.cumulative_leverage(), 20.0)
+        self.assertEqual(position.get_cumulative_leverage(), 20.0)
 
 
     def test_leverage_clamping_skip_long_order(self):
@@ -1173,7 +1173,7 @@ class TestPositions(TestBase):
         })
 
         self.assertEqual(position.max_leverage_seen(), TradePair.BTCUSD.max_leverage)
-        self.assertEqual(position.cumulative_leverage(), TradePair.BTCUSD.max_leverage)
+        self.assertEqual(position.get_cumulative_leverage(), TradePair.BTCUSD.max_leverage)
 
     def test_leverage_clamping_short(self):
         position = deepcopy(self.default_position)
@@ -1214,7 +1214,7 @@ class TestPositions(TestBase):
             'position_uuid': self.DEFAULT_POSITION_UUID
         })
         self.assertEqual(position.max_leverage_seen(), 20.0)
-        self.assertEqual(position.cumulative_leverage(), 20.0)
+        self.assertEqual(position.get_cumulative_leverage(), 20.0)
 
     def test_leverage_clamping_skip_short_order(self):
         position = deepcopy(self.default_position)
@@ -1253,7 +1253,7 @@ class TestPositions(TestBase):
         })
 
         self.assertEqual(position.max_leverage_seen(), 20.0)
-        self.assertEqual(position.cumulative_leverage(), 20.0)
+        self.assertEqual(position.get_cumulative_leverage(), 20.0)
 
     def test_position_json(self):
         position = deepcopy(self.default_position)
