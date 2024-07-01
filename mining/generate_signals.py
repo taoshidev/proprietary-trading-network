@@ -403,8 +403,7 @@ if __name__ == "__main__":
             else: 
                 print('No Change In Position')
                 bt.logging.info(f"No Change In Position")
-                btc.log_update() 
+                
                 time.sleep(60)
         
-        btc.log_update()        
         time.sleep(60)
