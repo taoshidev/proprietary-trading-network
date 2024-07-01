@@ -358,7 +358,7 @@ if __name__ == "__main__":
             
                 old_position = btc.position_open
                     
-                btc.set_position(order,price=float(price) )
+                btc.set_position(new_position=order,price=float(price) )
                 
                 new_position = btc.position_open 
                 
