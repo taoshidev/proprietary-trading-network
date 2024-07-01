@@ -59,7 +59,7 @@ str_to_tradepair= {
 
 
 class TradeHandler:
-    def __init__(self,price=None, signal=None, last_update=None, pair=None, current_position=None, trade_opened=None, position_open=False, filename='trade_handler_state.pkl'):
+    def __init__(self,signal=None, last_update=None, pair=None, current_position=None, trade_opened=None, position_open=False, filename='trade_handler_state.pkl'):
         self.filename = filename
         if os.path.exists(self.filename):
             try:
@@ -81,7 +81,6 @@ class TradeHandler:
         self.position_open = position_open
         self.last_update = last_update
         self.signal = signal
-        self.price = price 
 
     def clear_trade(self):
         self.current_position = None
@@ -89,7 +88,6 @@ class TradeHandler:
         self.position_open = False
         self.last_update = None 
         self.signal = None
-        self.price = None
         self.save_to_file(self.filename)
         print('Trade cleared.')
 
