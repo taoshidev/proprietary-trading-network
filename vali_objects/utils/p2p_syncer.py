@@ -2,13 +2,16 @@ import asyncio
 import base64
 import gzip
 import json
+# import random
 import traceback
 
 import bittensor as bt
+# from tabulate import tabulate
 
 import template
 from runnable.generate_request_core import generate_request_core
 from time_util.time_util import TimeUtil
+from vali_config import ValiConfig
 from vali_objects.decoders.generalized_json_decoder import GeneralizedJSONDecoder
 from vali_objects.position import Position
 from vali_objects.utils.auto_sync import AUTO_SYNC_ORDER_LAG_MS
@@ -16,17 +19,27 @@ from vali_objects.utils.vali_bkp_utils import CustomEncoder
 
 
 class P2PSyncer:
-    def __init__(self, wallet=None, metagraph=None):
+    def __init__(self, wallet=None, metagraph=None, is_testnet=None):
         self.wallet = wallet
         self.metagraph = metagraph
         self.last_signal_sync_time_ms = 0
         self.received_checkpoints = 0
+        self.hotkey = self.wallet.hotkey.ss58_address
+
+        # flag for testnet
+        self.is_testnet = is_testnet
         self.received_hotkeys_checkpoints = {}
 
     async def send_checkpoint(self):
         """
         serializes checkpoint json and transmits to all validators via synapse
         """
+        # only trusted validators should send checkpoints
+        # TODO: remove testnet flag
+        if not self.is_testnet and self.hotkey not in [axon.hotkey for axon in self.get_trusted_validators()]:
+            bt.logging.info("Aborting send_checkpoint; not a top trusted validator")
+            return
+
         # get our current checkpoint
         now_ms = TimeUtil.now_in_millis()
         checkpoint_dict = generate_request_core(time_now=now_ms)
@@ -61,28 +74,85 @@ class P2PSyncer:
 
         # get axons to send checkpoints to
         dendrite = bt.dendrite(wallet=self.wallet)
-        validator_axons = self.metagraph.axons
+        validator_axons = self.get_validators()
 
-        if len(validator_axons) == 0:
-            bt.logging.info(f"no valid validators found. skipping sending checkpoint")
-        else:
+        try:
             # create dendrite and transmit synapse
             checkpoint_synapse = template.protocol.ValidatorCheckpoint(checkpoint=encoded_checkpoint)
             validator_responses = await dendrite.forward(axons=validator_axons, synapse=checkpoint_synapse)
 
-            bt.logging.info(f"sending checkpoint from validator {self.wallet.hotkey.ss58_address}")
+            bt.logging.info(f"Sending checkpoint from validator {self.wallet.hotkey.ss58_address}")
 
             successes = 0
             failures = 0
             for response in validator_responses:
                 if response.successfully_processed:
-                    print(f"successfully processed ack from {response.validator_receive_hotkey}")
+                    bt.logging.info(f"Successfully processed ack from {response.validator_receive_hotkey}")
                     successes += 1
                 else:
                     failures += 1
 
             bt.logging.info(f"{successes} responses succeeded")
             bt.logging.info(f"{failures} responses failed")
+        except Exception as e:
+            bt.logging.info(f"Error sending checkpoint with error [{e}]")
+
+    def get_validators(self, neurons=None):
+        """
+        get a list of all validators. defined as:
+        stake > 1000 and validator_trust > 0.5
+        """
+        # TODO: remove testnet flag
+        if self.is_testnet:
+            return self.metagraph.axons
+            # return [a for a in self.metagraph.axons if a.ip != ValiConfig.AXON_NO_IP]
+        if neurons is None:
+            neurons = self.metagraph.neurons
+        validator_axons = [n.axon_info for n in neurons
+                           if n.stake > bt.Balance(ValiConfig.STAKE_MIN)
+                           and n.axon_info.ip != ValiConfig.AXON_NO_IP]
+        return validator_axons
+
+    def get_trusted_validators(self):
+        """
+        get a list of the trusted validators for checkpoint sending
+        return top 10 neurons sorted by stake
+        """
+        if self.is_testnet:
+            return self.get_validators()
+        neurons = self.metagraph.neurons
+        sorted_stake_neurons = sorted(neurons, key=lambda n: n.stake, reverse=True)
+
+        return self.get_validators(sorted_stake_neurons)[:ValiConfig.TOP_N]
+
+    # # TODO: remove temp test method to print out the metagraph state
+    # def print_metagraph_attributes(self):
+    #     # for n in self.metagraph.neurons:
+    #     #     n.axon_info.ip = "1.1.1.1"
+    #     #     n.validator_trust = round(random.random(), 3)
+    #     #     n.stake = random.randrange(1500)
+    #
+    #     table = [[n.axon_info.hotkey[:4] for n in self.metagraph.neurons],
+    #              [n.axon_info.ip for n in self.metagraph.neurons],
+    #              [str(n.stake)[:7] for n in self.metagraph.neurons],
+    #              [n.validator_trust for n in self.metagraph.neurons]]
+    #     # my_uid = self.metagraph.hotkeys.index(self.wallet.hotkey.ss58_address)
+    #     # bt.logging.info(f"my uid {my_uid}")
+    #     smalltable = [r[:20] for r in table]
+    #     print(tabulate(smalltable, tablefmt="simple_grid"))
+    #     smalltable = [r[20:40] for r in table]
+    #     print(tabulate(smalltable, tablefmt="simple_grid"))
+    #     smalltable = [r[40:60] for r in table]
+    #     print(tabulate(smalltable, tablefmt="simple_grid"))
+    #     smalltable = [r[60:80] for r in table]
+    #     print(tabulate(smalltable, tablefmt="simple_grid"))
+    #     smalltable = [r[80:100] for r in table]
+    #     print(tabulate(smalltable, tablefmt="simple_grid"))
+    #     # bt.logging.info(f"stake {[n.stake for n in self.metagraph.neurons]}")
+    #
+    #     # print(self.num_trusted_validators, " trusted validators___________")
+    #     for a in self.get_trusted_validators():
+    #         print(a.hotkey)
 
     def sync_positions_with_cooldown(self, auto_sync_enabled:bool, run_more:bool):
         # Check if the time is right to sync signals
@@ -104,7 +174,7 @@ class P2PSyncer:
             bt.logging.info("calling send_checkpoint")
             asyncio.run(self.send_checkpoint())
         except Exception as e:
-            bt.logging.error(f"Error syncing positions: {e}")
+            bt.logging.error(f"Error sending checkpoint: {e}")
             bt.logging.error(traceback.format_exc())
 
         self.last_signal_sync_time_ms = TimeUtil.now_in_millis()

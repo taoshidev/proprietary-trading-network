@@ -156,8 +156,7 @@ class Validator:
         self.metagraph_updater_thread = threading.Thread(target=self.metagraph_updater.run_update_loop, daemon=True)
         self.metagraph_updater_thread.start()
 
-        # keep track of values for checkpoint sync
-        self.num_validators = 0
+
 
         if self.wallet.hotkey.ss58_address not in self.metagraph.hotkeys:
             bt.logging.error(
@@ -170,7 +169,11 @@ class Validator:
                                               signal_sync_condition=self.signal_sync_condition,
                                               n_orders_being_processed=self.n_orders_being_processed)
         self.p2p_syncer = P2PSyncer(wallet=self.wallet,
-                                    metagraph=self.metagraph)
+                                    metagraph=self.metagraph,
+                                    is_testnet=not self.is_mainnet)
+        # keep track of values for checkpoint sync
+        self.num_trusted_validators = len(self.p2p_syncer.get_trusted_validators())
+        self.received_checkpoints = 0
 
         self.perf_ledger_manager = PerfLedgerManager(self.metagraph, live_price_fetcher=self.live_price_fetcher,
                                                      shutdown_dict=shutdown_dict, position_syncer=self.position_syncer)
@@ -679,46 +682,55 @@ class Validator:
         return synapse
 
     def receive_checkpoint(self, synapse: template.protocol.ValidatorCheckpoint) -> template.protocol.ValidatorCheckpoint:
+        """
+        receive checkpoint synapses, and ensure that only checkpoints received from trusted validators are integrated.
+        """
         sender_hotkey = synapse.dendrite.hotkey
-        synapse.validator_receive_hotkey = self.wallet.hotkey.ss58_address
 
-        bt.logging.info(f"validator {synapse.validator_receive_hotkey} received checkpoint from validator hotkey [{sender_hotkey}].")
-        if self.should_fail_early(synapse, SynapseMethod.CHECKPOINT):
-            return synapse
+        # only want to process and read checkpoints from trusted validators
+        if sender_hotkey in [axon.hotkey for axon in self.p2p_syncer.get_trusted_validators()]:
+            synapse.validator_receive_hotkey = self.wallet.hotkey.ss58_address
 
-        if sender_hotkey in self.p2p_syncer.received_hotkeys_checkpoints:
-            synapse.successfully_processed = False
-            msg = f"Already received a checkpoint from validator hotkey {sender_hotkey}, ignoring request."
-            synapse.error_message = msg
-            return synapse
+            bt.logging.info(f"Received checkpoint from trusted validator hotkey [{sender_hotkey}].")
+            if self.should_fail_early(synapse, SynapseMethod.CHECKPOINT):
+                return synapse
 
-        error_message = ""
-        try:
-            # Decode from base64 and decompress back into json
-            decoded = base64.b64decode(synapse.checkpoint)
-            decompressed = gzip.decompress(decoded).decode('utf-8')
-            recv_checkpoint = json.loads(decompressed)
+            if sender_hotkey in self.p2p_syncer.received_hotkeys_checkpoints:
+                synapse.successfully_processed = False
+                msg = f"Already received a checkpoint from validator hotkey {sender_hotkey}, ignoring request."
+                synapse.error_message = msg
+                return synapse
 
-            ## TODO: use the checkpoint received to build consensus
-            # print(recv_checkpoint)
-            # print(type(recv_checkpoint))
-            # print(recv_checkpoint.keys())
-            # print(json.dumps(recv_checkpoint, indent=4))
-            # print(recv_checkpoint["positions"])
-            # self.position_syncer.add_checkpoint(recv_checkpoint, self.num_validators)
+            error_message = ""
+            try:
+                # Decode from base64 and decompress back into json
+                decoded = base64.b64decode(synapse.checkpoint)
+                decompressed = gzip.decompress(decoded).decode('utf-8')
+                recv_checkpoint = json.loads(decompressed)
 
-        except Exception as e:
-            error_message = f"Error processing checkpoint from [{sender_hotkey}] with error [{e}]"
-            bt.logging.error(traceback.format_exc())
+                # TODO: use the checkpoint received to build consensus
+                # print(recv_checkpoint)
+                # print(type(recv_checkpoint))
+                # print(recv_checkpoint.keys())
+                # print(json.dumps(recv_checkpoint, indent=4))
+                # print(recv_checkpoint["positions"])
+                # self.position_syncer.add_checkpoint(recv_checkpoint, self.num_validators)
 
-        if error_message == "":
-            synapse.successfully_processed = True
+            except Exception as e:
+                error_message = f"Error processing checkpoint from [{sender_hotkey}] with error [{e}]"
+                bt.logging.error(traceback.format_exc())
+
+            if error_message == "":
+                synapse.successfully_processed = True
+            else:
+                bt.logging.error(error_message)
+                synapse.successfully_processed = False
+            synapse.error_message = error_message
+            bt.logging.success(f"Sending ack back to validator [{sender_hotkey}]")
         else:
-            bt.logging.error(error_message)
+            bt.logging.info(f"Received a checkpoint from non-trusted validator [{sender_hotkey}]")
+            synapse.error_message = "Rejecting checkpoint from non-trusted validator"
             synapse.successfully_processed = False
-        synapse.error_message = error_message
-        bt.logging.success(f"Sending ack back to validator [{sender_hotkey}]")
-
         return synapse
 
 # This is the main function, which runs the miner.
