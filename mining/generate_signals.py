@@ -95,6 +95,9 @@ class TradeHandler:
 
     def check_position(self): 
         print(self.current_position)
+        
+    def log_update(self): 
+        self.last_update =  datetime.now().isoformat()
 
     def set_position(self,price:float, new_position: str):
         if self.current_position == 'SHORT' and new_position == 'LONG':
@@ -400,7 +403,8 @@ if __name__ == "__main__":
             else: 
                 print('No Change In Position')
                 bt.logging.info(f"No Change In Position")
-
+                btc.log_update() 
                 time.sleep(60)
-                
+        
+        btc.log_update()        
         time.sleep(60)
