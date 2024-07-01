@@ -102,25 +102,25 @@ class TradeHandler:
     def set_position(self,price:float, new_position: str):
         if self.current_position == 'SHORT' and new_position == 'LONG':
             self.last_update = datetime.now().isoformat()
-            self.close_trade_to_duckdb(close_price=self.price, trade_closed= self.last_update,signal=self.signal, pair=self.pair)
+            self.close_trade_to_duckdb(close_price=price, trade_closed= self.last_update,signal=new_position, pair=self.pair)
             print('Position changed from short to long, closing current position.')
-            self.clear_trade(close_price = price)
+            self.clear_trade()
             self.current_position = 'FLAT'
             self.last_update = datetime.now().isoformat()
 
         elif self.current_position == 'LONG' and new_position == 'SHORT':
             self.last_update = datetime.now().isoformat()
-            self.close_trade_to_duckdb(close_price=self.price, trade_closed= self.last_update,signal=self.signal, pair=self.pair)
+            self.close_trade_to_duckdb(close_price=price, trade_closed= self.last_update,signal=new_position, pair=self.pair)
             print('Position changed from long to short, closing current position.')
-            self.clear_trade(close_price = price)
+            self.clear_trade()
             self.current_position = 'FLAT'
             self.last_update = datetime.now().isoformat()
   
         elif self.current_position in ['SHORT', 'LONG'] and new_position == 'FLAT':
             self.last_update = datetime.now().isoformat()
-            self.close_trade_to_duckdb(close_price=self.price, trade_closed= self.last_update,signal=self.signal, pair=self.pair)
+            self.close_trade_to_duckdb(close_price=price, trade_closed= self.last_update,signal=new_position, pair=self.pair)
             print('Trade closed.')
-            self.clear_trade(close_price = price)
+            self.clear_trade()
             self.current_position = 'FLAT'
             self.last_update = datetime.now().isoformat()
             
@@ -133,6 +133,7 @@ class TradeHandler:
                 self.position_open = True
                 self.current_position = new_position
                 self.open_trade_to_duckdb()
+                self.price = None
             else:  
                 self.last_update = datetime.now().isoformat()
         
@@ -314,6 +315,7 @@ if __name__ == "__main__":
             # feed into model to predict 
             
             price = input['close'].tail(1).values[0]
+            bt.logging.info(f'{price}')
             lasttrade = btc.check_last_trade()
             
             if  isinstance(lasttrade, pd.DataFrame): 
@@ -346,7 +348,7 @@ if __name__ == "__main__":
             
                 old_position = btc.position_open
                     
-                btc.set_position(order,price=price )
+                btc.set_position(order,price=float(price) )
                 
                 new_position = btc.position_open 
                 
