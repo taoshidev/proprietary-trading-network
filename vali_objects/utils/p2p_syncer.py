@@ -23,7 +23,7 @@ class P2PSyncer:
         self.wallet = wallet
         self.metagraph = metagraph
         self.last_signal_sync_time_ms = 0
-        self.checkpoints = []
+        # self.checkpoints = []
         self.num_checkpoints_received = 0
         self.golden = {}
         self.received_hotkeys_checkpoints = {}
@@ -114,16 +114,17 @@ class P2PSyncer:
 
         self.last_signal_sync_time_ms = TimeUtil.now_in_millis()
 
-    def add_checkpoint(self, received_checkpoint: json, total_checkpoints):
+    def add_checkpoint(self, sender_hotkey: str, received_checkpoint: json, total_checkpoints):
         """
         receives a checkpoint from a trusted validator, and appends to a list
         when all checkpoints are received, build the golden.
         """
-        self.checkpoints.append(received_checkpoint)
+        self.received_hotkeys_checkpoints[sender_hotkey] = received_checkpoint
+        # self.checkpoints.append(received_checkpoint)
         self.num_checkpoints_received += 1
 
         if self.num_checkpoints_received == total_checkpoints:
-            self.golden = self.create_golden(self.checkpoints)
+            self.golden = self.create_golden(self.received_hotkeys_checkpoints)
 
             bt.logging.info("successfully created golden checkpoint")
             # print(json.dumps(self.golden, indent=4))
@@ -131,7 +132,7 @@ class P2PSyncer:
             # TODO: reset num checkpoints at end of cycle
             self.num_checkpoints_received = 0
 
-    def create_golden(self, trusted_checkpoints: list[json]) -> dict:
+    def create_golden(self, trusted_checkpoints: dict) -> dict:
         """
         Simple majority approach (preferred to start)
             If a position’s uuid exists on the majority of validators, that position is kept.
@@ -150,7 +151,7 @@ class P2PSyncer:
         positions_threshold = len(trusted_checkpoints) / 2
 
         # parse each checkpoint to count occurrences of each position and order
-        for checkpoint in trusted_checkpoints:
+        for checkpoint in trusted_checkpoints.values():
             # get positions for each miner
             for miner_positions in checkpoint["positions"].values():
                 for position in miner_positions["positions"]:
@@ -172,7 +173,7 @@ class P2PSyncer:
 
         golden = defaultdict(lambda: defaultdict(list))
 
-        for checkpoint in trusted_checkpoints:
+        for checkpoint in trusted_checkpoints.values():
             for miner_hotkey, miner_positions in checkpoint["positions"].items():
                 for position in miner_positions["positions"]:
                     position_uuid = position["position_uuid"]

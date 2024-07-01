@@ -699,9 +699,7 @@ class Validator:
             decompressed = gzip.decompress(decoded).decode('utf-8')
             recv_checkpoint = json.loads(decompressed)
 
-            # print(json.dumps(recv_checkpoint, indent=4))
-            # TODO: make sure I only count a checkpoint from a unique hotkey once per cycle
-            self.p2p_syncer.add_checkpoint(recv_checkpoint, self.num_validators)
+            self.p2p_syncer.add_checkpoint(sender_hotkey, recv_checkpoint, self.num_validators)
 
         except Exception as e:
             error_message = f"Error processing checkpoint from [{sender_hotkey}] with error [{e}]"

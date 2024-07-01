@@ -92,9 +92,9 @@ class TestPositions(TestBase):
 
         # print(json.dumps(checkpoint1, indent=4))
 
-        self.p2p_syncer.add_checkpoint(checkpoint1, 3)
-        self.p2p_syncer.add_checkpoint(checkpoint2, 3)
-        self.p2p_syncer.add_checkpoint(checkpoint3, 3)
+        self.p2p_syncer.add_checkpoint("test_validator1", checkpoint1, 3)
+        self.p2p_syncer.add_checkpoint("test_validator2", checkpoint2, 3)
+        self.p2p_syncer.add_checkpoint("test_validator3", checkpoint3, 3)
 
         # print(json.dumps(self.p2p_syncer.golden, indent=4))
 
@@ -136,9 +136,9 @@ class TestPositions(TestBase):
 
         checkpoint3 = {"positions": {self.DEFAULT_MINER_HOTKEY: {"positions": [json.loads(position.to_json_string())]}}}
 
-        self.p2p_syncer.add_checkpoint(checkpoint1, 3)
-        self.p2p_syncer.add_checkpoint(checkpoint2, 3)
-        self.p2p_syncer.add_checkpoint(checkpoint3, 3)
+        self.p2p_syncer.add_checkpoint("test_validator1", checkpoint1, 3)
+        self.p2p_syncer.add_checkpoint("test_validator2", checkpoint2, 3)
+        self.p2p_syncer.add_checkpoint("test_validator3", checkpoint3, 3)
 
         assert len(self.p2p_syncer.golden[self.DEFAULT_MINER_HOTKEY]["positions"]) == 1
         assert len(self.p2p_syncer.golden[self.DEFAULT_MINER_HOTKEY]["positions"][0]["orders"]) == 2
@@ -174,9 +174,9 @@ class TestPositions(TestBase):
 
         checkpoint3 = {"positions": {self.DEFAULT_MINER_HOTKEY: {"positions": [json.loads(position.to_json_string())]}}}
 
-        self.p2p_syncer.add_checkpoint(checkpoint1, 3)
-        self.p2p_syncer.add_checkpoint(checkpoint2, 3)
-        self.p2p_syncer.add_checkpoint(checkpoint3, 3)
+        self.p2p_syncer.add_checkpoint("test_validator1", checkpoint1, 3)
+        self.p2p_syncer.add_checkpoint("test_validator2", checkpoint2, 3)
+        self.p2p_syncer.add_checkpoint("test_validator3", checkpoint3, 3)
 
         assert len(self.p2p_syncer.golden[self.DEFAULT_MINER_HOTKEY]["positions"]) == 1
         assert len(self.p2p_syncer.golden[self.DEFAULT_MINER_HOTKEY]["positions"][0]["orders"]) == 1
