@@ -306,16 +306,18 @@ if __name__ == "__main__":
     btc =  TradeHandler(pair='btcusd')
     bt.logging.info(f"Initialised trade handler.")
     bt.logging.info(f"Beginning loop.")
-
+    order = None 
     while True:  
             
 
         # load live data
         input = fetch_binance_data()
         bt.logging.info(f"Latest candle: {input['ds'].tail(1).values[0]}")
-        
+        print(f"Latest candle: {input['ds'].tail(1).values[0]}")
+
         bt.logging.info(f"Last Trade: {btc.check_last_trade()}")
-        
+        print(f"Last Trade: {btc.check_last_trade()}")
+
         price = input['close'].tail(1).values[0]
         bt.logging.info(f'{price}')
         print(f'{price}')
@@ -347,7 +349,7 @@ if __name__ == "__main__":
                         
                         order = 'FLAT'
                 
-            else: 
+            if order != 'FLAT': 
                 preds = mining_utils.multi_predict(model,input,2)
                 modelname = str(model.models[0])
                 output = mining_utils.gen_signals_from_predictions(predictions= preds, hist = input ,modelname=modelname ) 
@@ -411,11 +413,14 @@ if __name__ == "__main__":
                         print(response.__dict__)
                         print("POST request failed with status code:", response.status_code)
                     
+                    order = None 
                     time.sleep(60)
                 
             else: 
                 print('No Change In Position')
                 bt.logging.info(f"No Change In Position")
+                order = None 
+
                 
                 time.sleep(60)
         
