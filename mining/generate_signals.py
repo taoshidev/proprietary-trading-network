@@ -329,7 +329,7 @@ if __name__ == "__main__":
 
             lasttrade = btc.check_last_trade()
             
-            if  isinstance(lasttrade, pd.DataFrame): 
+            if isinstance(lasttrade, pd.DataFrame) and not lasttrade.empty:
                 
                  if lasttrade['trade_closed'].tail(1).isnull():
 
