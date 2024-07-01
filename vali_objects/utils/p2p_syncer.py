@@ -104,7 +104,8 @@ class P2PSyncer:
         """
         # TODO: remove testnet flag
         if self.is_testnet:
-            return [a for a in self.metagraph.axons if a.ip != ValiConfig.AXON_NO_IP]
+            return self.metagraph.axons
+            # return [a for a in self.metagraph.axons if a.ip != ValiConfig.AXON_NO_IP]
         if neurons is None:
             neurons = self.metagraph.neurons
         validator_axons = [n.axon_info for n in neurons
