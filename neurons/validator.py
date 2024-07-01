@@ -498,14 +498,20 @@ class Validator:
             bt.logging.trace(synapse.error_message)
             return True
 
-        miner_hotkey = synapse.dendrite.hotkey
+        sender_hotkey = synapse.dendrite.hotkey
         # Don't allow miners to send too many signals in a short period of time
         if method == SynapseMethod.POSITION_INSPECTOR:
-            allowed, wait_time = self.position_inspector_rate_limiter.is_allowed(miner_hotkey)
+            allowed, wait_time = self.position_inspector_rate_limiter.is_allowed(sender_hotkey)
         elif method == SynapseMethod.SIGNAL:
-            allowed, wait_time = self.order_rate_limiter.is_allowed(miner_hotkey)
+            allowed, wait_time = self.order_rate_limiter.is_allowed(sender_hotkey)
+        elif method == SynapseMethod.CHECKPOINT:
+            allowed, wait_time = self.checkpoint_rate_limiter.is_allowed(sender_hotkey)
         else:
-            allowed, wait_time = self.checkpoint_rate_limiter.is_allowed(miner_hotkey)
+            msg = f"Received synapse does not match one of expected methods for: receive_signal, get_positions, or receive_checkpoint"
+            bt.logging.trace(msg)
+            synapse.successfully_processed = False
+            synapse.error_message = msg
+            return True
 
         if not allowed:
             msg = (f"Rate limited. Please wait {wait_time} seconds before sending another signal. "
@@ -676,10 +682,14 @@ class Validator:
         sender_hotkey = synapse.dendrite.hotkey
         synapse.validator_receive_hotkey = self.wallet.hotkey.ss58_address
 
-        #TODO: count received checkpoints, reset received after every completed sync
-        self.p2p_syncer.received_checkpoints += 1
         bt.logging.info(f"validator {synapse.validator_receive_hotkey} received checkpoint from validator hotkey [{sender_hotkey}].")
         if self.should_fail_early(synapse, SynapseMethod.CHECKPOINT):
+            return synapse
+
+        if sender_hotkey in self.p2p_syncer.received_hotkeys_checkpoints:
+            synapse.successfully_processed = False
+            msg = f"Already received a checkpoint from validator hotkey {sender_hotkey}, ignoring request."
+            synapse.error_message = msg
             return synapse
 
         error_message = ""
@@ -694,7 +704,7 @@ class Validator:
             self.p2p_syncer.add_checkpoint(recv_checkpoint, self.num_validators)
 
         except Exception as e:
-            error_message = f"Error processing checkpoint {self.p2p_syncer.received_checkpoints} from [{sender_hotkey}] with error [{e}]"
+            error_message = f"Error processing checkpoint from [{sender_hotkey}] with error [{e}]"
             bt.logging.error(traceback.format_exc())
 
         if error_message == "":

@@ -26,6 +26,7 @@ class P2PSyncer:
         self.checkpoints = []
         self.num_checkpoints_received = 0
         self.golden = {}
+        self.received_hotkeys_checkpoints = {}
 
     async def send_checkpoint(self):
         """
