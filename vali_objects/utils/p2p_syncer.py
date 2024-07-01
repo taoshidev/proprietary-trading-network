@@ -24,10 +24,7 @@ class P2PSyncer:
         self.metagraph = metagraph
         self.last_signal_sync_time_ms = 0
         self.received_checkpoints = 0
-        self.hotkey = self.wallet.hotkey.ss58_address
-
-        # flag for testnet
-        self.is_testnet = is_testnet
+        self.received_hotkeys_checkpoints = {}
 
     async def send_checkpoint(self):
         """
