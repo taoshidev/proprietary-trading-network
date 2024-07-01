@@ -128,11 +128,10 @@ class TradeHandler:
             if not self.position_open and new_position in ['LONG', 'SHORT']:
                 self.trade_opened = datetime.now().isoformat()
                 self.last_update = self.trade_opened 
-                self.price = price
                 print(f'Trade opened at: {self.trade_opened}')
                 self.position_open = True
                 self.current_position = new_position
-                self.open_trade_to_duckdb()
+                self.open_trade_to_duckdb(price=price)
                 self.price = None
             else:  
                 self.last_update = datetime.now().isoformat()
@@ -170,7 +169,7 @@ class TradeHandler:
         finally:
             conn.close()
 
-    def open_trade_to_duckdb(self, db_filename: str = 'trades.duckdb', table_name: str = 'trades') -> None:
+    def open_trade_to_duckdb(self,price:float, db_filename: str = 'trades.duckdb', table_name: str = 'trades') -> None:
             conn = duckdb.connect(db_filename)
             try:
                 # Create the table if it does not exist
@@ -201,7 +200,7 @@ class TradeHandler:
                 conn.execute(f"""
                     INSERT INTO {table_name} (signal, pair, trade_opened, open_price)
                     VALUES (?, ?, ?, ?)
-                """, (self.signal, self.pair, self.trade_opened, self.price))
+                """, (self.signal, self.pair, self.trade_opened, price))
                 
                 print(f"Trade opened and saved to DuckDB table '{table_name}' in database '{db_filename}'")
             finally:
@@ -307,15 +306,18 @@ if __name__ == "__main__":
         bt.logging.info(f"Latest candle: {input['ds'].tail(1).values[0]}")
         
         bt.logging.info(f"Last Trade: {btc.check_last_trade()}")
-
+        
+        price = input['close'].tail(1).values[0]
+        bt.logging.info(f'{price}')
+        print(f'{price}')
 
         input = process_data_for_predictions(input)
         
         if (btc.last_update is None) or (round_time_to_nearest_five_minutes(btc.last_update) < pd.to_datetime(input['ds'].tail(1).values[0])):            
             # feed into model to predict 
             
-            price = input['close'].tail(1).values[0]
-            bt.logging.info(f'{price}')
+      
+
             lasttrade = btc.check_last_trade()
             
             if  isinstance(lasttrade, pd.DataFrame): 
@@ -326,7 +328,7 @@ if __name__ == "__main__":
                     exit_long = False 
                     
                         
-                    current_pnl = input['close'].tail(1).values[0] / lasttrade['open_price'].tail(1) - 1 
+                    current_pnl = price / lasttrade['open_price'].tail(1) - 1 
                         
                     if current_pnl > TP :  
                         exit_long = True
