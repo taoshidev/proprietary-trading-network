@@ -708,7 +708,7 @@ class Validator:
                 decompressed = gzip.decompress(decoded).decode('utf-8')
                 recv_checkpoint = json.loads(decompressed)
 
-                self.p2p_syncer.add_checkpoint(sender_hotkey, recv_checkpoint, self.num_validators)
+                self.p2p_syncer.add_checkpoint(sender_hotkey, recv_checkpoint, self.num_trusted_validators)
 
             except Exception as e:
                 error_message = f"Error processing checkpoint from [{sender_hotkey}] with error [{e}]"
