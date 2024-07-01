@@ -58,6 +58,7 @@ str_to_tradepair= {
                    }
 
 
+
 class TradeHandler:
     def __init__(self,signal=None, last_update=None, pair=None, current_position=None, trade_opened=None, position_open=False, filename='trade_handler_state.pkl'):
         self.filename = filename
@@ -100,7 +101,7 @@ class TradeHandler:
     def set_position(self,price:float, new_position: str):
         if self.current_position == 'SHORT' and new_position == 'LONG':
             self.last_update = datetime.now().isoformat()
-            self.close_trade_to_duckdb(close_price=price, trade_closed= self.last_update,signal=new_position, pair=self.pair)
+            self.close_trade_to_duckdb(close_price=price, trade_closed= self.last_update,signal=self.current_position, pair=self.pair)
             print('Position changed from short to long, closing current position.')
             self.clear_trade()
             self.current_position = 'FLAT'
@@ -108,7 +109,7 @@ class TradeHandler:
 
         elif self.current_position == 'LONG' and new_position == 'SHORT':
             self.last_update = datetime.now().isoformat()
-            self.close_trade_to_duckdb(close_price=price, trade_closed= self.last_update,signal=new_position, pair=self.pair)
+            self.close_trade_to_duckdb(close_price=price, trade_closed= self.last_update,signal=self.current_position, pair=self.pair)
             print('Position changed from long to short, closing current position.')
             self.clear_trade()
             self.current_position = 'FLAT'
@@ -116,7 +117,7 @@ class TradeHandler:
   
         elif self.current_position in ['SHORT', 'LONG'] and new_position == 'FLAT':
             self.last_update = datetime.now().isoformat()
-            self.close_trade_to_duckdb(close_price=price, trade_closed= self.last_update,signal=new_position, pair=self.pair)
+            self.close_trade_to_duckdb(close_price=price, trade_closed= self.last_update,signal=self.current_position, pair=self.pair)
             print('Trade closed.')
             self.clear_trade()
             self.current_position = 'FLAT'
@@ -148,6 +149,7 @@ class TradeHandler:
             obj = pickle.load(f)
         print(f'State loaded from {filename}')
         return obj
+
 
     def init_table(self,db_filename: str = 'trades.duckdb', table_name: str = 'trades') -> None:
         conn = duckdb.connect(db_filename)
@@ -189,7 +191,7 @@ class TradeHandler:
                     WHERE signal = ? AND pair = ?
                     ORDER BY trade_opened DESC
                     LIMIT 1
-                """, (self.signal, self.pair)).fetchone()
+                """, (self.current_position, self.pair)).fetchone()
                 
                 if result is not None and result[0] is None:
                     print("Warning: The last trade is not closed yet.")
@@ -198,42 +200,49 @@ class TradeHandler:
                 conn.execute(f"""
                     INSERT INTO {table_name} (signal, pair, trade_opened, open_price)
                     VALUES (?, ?, ?, ?)
-                """, (self.signal, self.pair, self.trade_opened, price))
+                """, (self.current_position, self.pair, self.trade_opened, price))
                 
                 print(f"Trade opened and saved to DuckDB table '{table_name}' in database '{db_filename}'")
             finally:
                 conn.close()
 
-    def close_trade_to_duckdb(signal: str, pair: str, close_price: float, trade_closed: datetime, db_filename: str = 'trades.duckdb', table_name: str = 'trades') -> None:
-            conn = duckdb.connect(db_filename)
-            try:
-                # Check if there is an open trade that has not been closed yet
-                result = conn.execute(f"""
-                    SELECT close_price, trade_closed
-                    FROM {table_name}
-                    WHERE signal = ? AND pair = ? AND trade_closed IS NULL
-                    ORDER BY trade_opened DESC
-                    LIMIT 1
-                """, (signal, pair)).fetchone()
-                
-                if result is None:
-                    raise Exception("No open trade found to close.")
-                
-                if result[0] is not None or result[1] is not None:
-                    raise Exception("The trade has already been closed.")
-                
-                # Update the close price and trade closed time for the last open trade
-                conn.execute(f"""
-                    UPDATE {table_name}
-                    SET close_price = ?, trade_closed = ?
-                    WHERE signal = ? AND pair = ? AND trade_closed IS NULL
-                    ORDER BY trade_opened DESC
-                    LIMIT 1
-                """, (close_price, trade_closed, signal, pair))
-                
-                print(f"Trade closed and updated in DuckDB table '{table_name}' in database '{db_filename}'")
-            finally:
-                conn.close()
+    def close_trade_to_duckdb(self, signal: str, pair: str, close_price: float, trade_closed: datetime, db_filename: str = 'trades.duckdb', table_name: str = 'trades') -> None:
+        conn = duckdb.connect(db_filename)
+        try:
+            # Check if there is an open trade that has not been closed yet
+            result = conn.execute(f"""
+                SELECT close_price, trade_closed
+                FROM {table_name}
+                WHERE signal = ? AND pair = ? AND trade_closed IS NULL
+                ORDER BY trade_opened DESC
+                LIMIT 1
+            """, (signal, pair)).fetchone()
+
+            # Check if no open trade is found
+            if result is None:
+                raise Exception("No open trade found to close.")
+
+            # Check if the trade has already been closed
+            if result[0] is not None or result[1] is not None:
+                raise Exception("The trade has already been closed.")
+
+            # Update the close price and trade closed time for the last open trade
+            conn.execute(f"""
+                      WITH cte AS (
+                          SELECT trade_opened
+                          FROM {table_name}
+                          WHERE signal = ? AND pair = ? AND trade_closed IS NULL
+                          ORDER BY trade_opened DESC
+                          LIMIT 1
+                      )
+                      UPDATE {table_name}
+                      SET close_price = ?, trade_closed = ?
+                      WHERE trade_opened = (SELECT trade_opened FROM cte)
+                  """, (signal, pair, close_price, trade_closed))
+
+            print(f"Trade closed and updated in DuckDB table '{table_name}' in database '{db_filename}'")
+        finally:
+            conn.close()
 
     @staticmethod
     def check_last_trade(db_filename: str = 'trades.duckdb', table_name: str = 'trades') -> None:
@@ -247,7 +256,7 @@ class TradeHandler:
                 LIMIT 1
             """).df()
 
-            if result:
+            if isinstance(result, pd.DataFrame):
                 conn.close()    
                 return result
                #print("Last row in the table:")
@@ -261,6 +270,7 @@ class TradeHandler:
                 print("The table is empty.")
                 conn.close()  
                 return False
+
 
             
     
