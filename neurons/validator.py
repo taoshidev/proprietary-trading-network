@@ -711,13 +711,7 @@ class Validator:
             error_message = f"Error processing checkpoint from [{sender_hotkey}] with error [{e}]"
             bt.logging.error(traceback.format_exc())
 
-                # TODO: use the checkpoint received to build consensus
-                # print(recv_checkpoint)
-                # print(type(recv_checkpoint))
-                # print(recv_checkpoint.keys())
-                # print(json.dumps(recv_checkpoint, indent=4))
-                # print(recv_checkpoint["positions"])
-                # self.position_syncer.add_checkpoint(recv_checkpoint, self.num_validators)
+                self.p2p_syncer.add_checkpoint(sender_hotkey, recv_checkpoint, self.num_trusted_validators)
 
             except Exception as e:
                 error_message = f"Error processing checkpoint from [{sender_hotkey}] with error [{e}]"
