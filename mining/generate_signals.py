@@ -66,6 +66,7 @@ class TradeHandler:
             try:
                 loaded_instance = self.load_from_file(self.filename)
                 self.__dict__.update(loaded_instance.__dict__)
+                self.init_table()
                 print(f"State loaded from {self.filename}")
             except Exception as e:
                 print(f"Error loading state: {e}")
