@@ -28,6 +28,7 @@ class P2PSyncer:
 
         # flag for testnet
         self.is_testnet = is_testnet
+        self.received_hotkeys_checkpoints = {}
 
     async def send_checkpoint(self):
         """

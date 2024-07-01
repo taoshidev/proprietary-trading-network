@@ -501,14 +501,20 @@ class Validator:
             bt.logging.trace(synapse.error_message)
             return True
 
-        miner_hotkey = synapse.dendrite.hotkey
+        sender_hotkey = synapse.dendrite.hotkey
         # Don't allow miners to send too many signals in a short period of time
         if method == SynapseMethod.POSITION_INSPECTOR:
-            allowed, wait_time = self.position_inspector_rate_limiter.is_allowed(miner_hotkey)
+            allowed, wait_time = self.position_inspector_rate_limiter.is_allowed(sender_hotkey)
         elif method == SynapseMethod.SIGNAL:
-            allowed, wait_time = self.order_rate_limiter.is_allowed(miner_hotkey)
+            allowed, wait_time = self.order_rate_limiter.is_allowed(sender_hotkey)
+        elif method == SynapseMethod.CHECKPOINT:
+            allowed, wait_time = self.checkpoint_rate_limiter.is_allowed(sender_hotkey)
         else:
-            allowed, wait_time = self.checkpoint_rate_limiter.is_allowed(miner_hotkey)
+            msg = f"Received synapse does not match one of expected methods for: receive_signal, get_positions, or receive_checkpoint"
+            bt.logging.trace(msg)
+            synapse.successfully_processed = False
+            synapse.error_message = msg
+            return True
 
         if not allowed:
             msg = (f"Rate limited. Please wait {wait_time} seconds before sending another signal. "
@@ -685,10 +691,14 @@ class Validator:
         if sender_hotkey in [axon.hotkey for axon in self.p2p_syncer.get_trusted_validators()]:
             synapse.validator_receive_hotkey = self.wallet.hotkey.ss58_address
 
-            #TODO: count received checkpoints, reset received after every completed sync
-            self.p2p_syncer.received_checkpoints += 1
             bt.logging.info(f"Received checkpoint from trusted validator hotkey [{sender_hotkey}].")
             if self.should_fail_early(synapse, SynapseMethod.CHECKPOINT):
+                return synapse
+
+            if sender_hotkey in self.p2p_syncer.received_hotkeys_checkpoints:
+                synapse.successfully_processed = False
+                msg = f"Already received a checkpoint from validator hotkey {sender_hotkey}, ignoring request."
+                synapse.error_message = msg
                 return synapse
 
             error_message = ""
