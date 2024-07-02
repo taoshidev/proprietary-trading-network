@@ -279,3 +279,6 @@ class ValiConfig:
     TOP_N = 10
     STAKE_MIN = 1000.0
     AXON_NO_IP = "0.0.0.0"
+
+    # Require at least this many successful checkpoints before building golden
+    MIN_CHECKPOINTS_RECEIVED = 5

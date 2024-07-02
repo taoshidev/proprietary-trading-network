@@ -10,14 +10,10 @@ import bittensor as bt
 # from tabulate import tabulate
 
 import template
-from runnable.generate_request_core import generate_request_core
 from time_util.time_util import TimeUtil
 from vali_config import TradePair
 from vali_config import ValiConfig
-from vali_objects.decoders.generalized_json_decoder import GeneralizedJSONDecoder
 from vali_objects.position import Position
-from vali_objects.utils.auto_sync import AUTO_SYNC_ORDER_LAG_MS
-from vali_objects.utils.vali_bkp_utils import CustomEncoder
 from vali_objects.vali_dataclasses.order import Order
 
 
@@ -26,79 +22,63 @@ class P2PSyncer:
         self.wallet = wallet
         self.metagraph = metagraph
         self.last_signal_sync_time_ms = 0
-        # self.checkpoints = []
         self.num_checkpoints_received = 0
         self.golden = {}
-        self.hotkey = self.wallet.hotkey.ss58_address
+        if self.wallet is not None:
+            self.hotkey = self.wallet.hotkey.ss58_address
 
         # flag for testnet
         self.is_testnet = is_testnet
-        self.received_hotkeys_checkpoints = {}
 
-    async def send_checkpoint(self):
+    async def send_checkpoint_poke(self):
         """
         serializes checkpoint json and transmits to all validators via synapse
         """
-        # only trusted validators should send checkpoints
+        # only validators should request a checkpoint with a poke
         # TODO: remove testnet flag
-        if not self.is_testnet and self.hotkey not in [axon.hotkey for axon in self.get_trusted_validators()]:
-            bt.logging.info("Aborting send_checkpoint; not a top trusted validator")
+        if not self.is_testnet and self.hotkey not in [axon.hotkey for axon in self.get_validators()]:
+            bt.logging.info("Aborting send_checkpoint_poke; not a qualified validator")
             return
-
-        # get our current checkpoint
-        now_ms = TimeUtil.now_in_millis()
-        checkpoint_dict = generate_request_core(time_now=now_ms)
-
-        # serialize the position data
-        positions = checkpoint_dict['positions']
-        # 24 hours in milliseconds
-        max_allowed_t_ms = TimeUtil.now_in_millis() - AUTO_SYNC_ORDER_LAG_MS
-        for hotkey, positions in positions.items():
-            new_positions = []
-            positions_deserialized = [Position(**json_positions_dict) for json_positions_dict in positions['positions']]
-            for position in positions_deserialized:
-                new_orders = []
-                for order in position.orders:
-                    if order.processed_ms < max_allowed_t_ms:
-                        new_orders.append(order)
-                if len(new_orders):
-                    position.orders = new_orders
-                    position.rebuild_position_with_updated_orders()
-                    new_positions.append(position)
-                else:
-                    # if no orders are left, remove the position
-                    pass
-
-            positions_serialized = [json.loads(str(p), cls=GeneralizedJSONDecoder) for p in new_positions]
-            positions['positions'] = positions_serialized
-
-        # compress json and encode as base64 to keep as a string
-        checkpoint_str = json.dumps(checkpoint_dict, cls=CustomEncoder)
-        compressed = gzip.compress(checkpoint_str.encode("utf-8"))
-        encoded_checkpoint = base64.b64encode(compressed).decode("utf-8")
 
         # get axons to send checkpoints to
         dendrite = bt.dendrite(wallet=self.wallet)
-        validator_axons = self.get_validators()
+        validator_axons = self.get_trusted_validators()
 
         try:
             # create dendrite and transmit synapse
-            checkpoint_synapse = template.protocol.ValidatorCheckpoint(checkpoint=encoded_checkpoint)
-            validator_responses = await dendrite.forward(axons=validator_axons, synapse=checkpoint_synapse)
+            checkpoint_synapse = template.protocol.ValidatorCheckpoint()
+            validator_responses = await dendrite.forward(axons=validator_axons, synapse=checkpoint_synapse, timeout=10) # TODO: make sure this is blocking call, give it a timeout
 
             bt.logging.info(f"Sending checkpoint from validator {self.wallet.hotkey.ss58_address}")
 
-            successes = 0
             failures = 0
+            successful_checkpoints = 0
+            self.received_hotkeys_checkpoints = {}
+
             for response in validator_responses:
                 if response.successfully_processed:
-                    bt.logging.info(f"Successfully processed ack from {response.validator_receive_hotkey}")
-                    successes += 1
+                    # Decode from base64 and decompress back into json
+                    decoded = base64.b64decode(response.checkpoint)
+                    decompressed = gzip.decompress(decoded).decode('utf-8')
+                    recv_checkpoint = json.loads(decompressed)
+
+                    self.received_hotkeys_checkpoints[response.validator_receive_hotkey] = recv_checkpoint
+
+                    bt.logging.info(f"Successfully processed checkpoint from {response.validator_receive_hotkey}")
+                    successful_checkpoints += 1
                 else:
                     failures += 1
+                    bt.logging.info(f"Checkpoint poke to {response.axon.hotkey} failed")
 
-            bt.logging.info(f"{successes} responses succeeded")
+            bt.logging.info(f"{successful_checkpoints} responses succeeded")
             bt.logging.info(f"{failures} responses failed")
+
+            if successful_checkpoints >= ValiConfig.MIN_CHECKPOINTS_RECEIVED:
+                bt.logging.info("Received enough checkpoints, now creating golden.")
+                self.create_golden(self.received_hotkeys_checkpoints)
+            else:
+                bt.logging.info("Not enough checkpoints received to create a golden.")
+
         except Exception as e:
             bt.logging.info(f"Error sending checkpoint with error [{e}]")
 
@@ -159,10 +139,9 @@ class P2PSyncer:
     #     for a in self.get_trusted_validators():
     #         print(a.hotkey)
 
-    def sync_positions_with_cooldown(self, auto_sync_enabled:bool, run_more:bool):
+    def sync_positions_with_cooldown(self, auto_sync_enabled:bool):
         # Check if the time is right to sync signals
-        # TODO: run_more just to make it run constantly. remove when done.
-        if not run_more:
+        if not self.is_testnet:
             if not auto_sync_enabled:
                 return
             now_ms = TimeUtil.now_in_millis()
@@ -170,37 +149,19 @@ class P2PSyncer:
             if now_ms - self.last_signal_sync_time_ms < 1000 * 60 * 30:
                 return
 
-            # Check if we are between 6:09 AM and 6:19 AM UTC
+            # Check if we are between 7:09 AM and 7:19 AM UTC
             datetime_now = TimeUtil.generate_start_timestamp(0)  # UTC
-            if not (datetime_now.hour == 6 and (8 < datetime_now.minute < 20)):
+            if not (datetime_now.hour == 7 and (8 < datetime_now.minute < 20)):
                 return
 
         try:
-            bt.logging.info("calling send_checkpoint")
-            asyncio.run(self.send_checkpoint())
+            bt.logging.info("calling send_checkpoint_poke")
+            asyncio.run(self.send_checkpoint_poke())
         except Exception as e:
             bt.logging.error(f"Error sending checkpoint: {e}")
             bt.logging.error(traceback.format_exc())
 
         self.last_signal_sync_time_ms = TimeUtil.now_in_millis()
-
-    def add_checkpoint(self, sender_hotkey: str, received_checkpoint: json, total_checkpoints):
-        """
-        receives a checkpoint from a trusted validator, and appends to a list
-        when all checkpoints are received, build the golden.
-        """
-        self.received_hotkeys_checkpoints[sender_hotkey] = received_checkpoint
-        # self.checkpoints.append(received_checkpoint)
-        self.num_checkpoints_received += 1
-
-        if self.num_checkpoints_received == total_checkpoints:
-            self.golden = self.create_golden(self.received_hotkeys_checkpoints)
-
-            bt.logging.info("successfully created golden checkpoint")
-            # print(json.dumps(self.golden, indent=4))
-
-            # TODO: reset num checkpoints at end of cycle
-            self.num_checkpoints_received = 0
 
     def create_golden(self, trusted_checkpoints: dict) -> dict:
         """
@@ -274,14 +235,13 @@ class P2PSyncer:
 
                                 # TODO: sort orders by "processed_ms" time
                                 new_position.add_order(combined_order)
-                                # combined_position["orders"].append(combined_order)
                         new_position.rebuild_position_with_updated_orders()
                         position_dict = json.loads(new_position.to_json_string())
                         golden[miner_hotkey]["positions"].append(position_dict)
 
         # Convert defaultdict to regular dict
-        golden = {miner: dict(golden[miner]) for miner in golden}
-        return golden
+        self.golden = {miner: dict(golden[miner]) for miner in golden}
+        return self.golden
 
     def get_median_order(self, orders, trade_pair) -> Order:
         """
@@ -300,4 +260,4 @@ class P2PSyncer:
 if __name__ == "__main__":
     bt.logging.enable_default()
     position_syncer = P2PSyncer()
-    asyncio.run(position_syncer.send_checkpoint())
+    asyncio.run(position_syncer.send_checkpoint_poke())
