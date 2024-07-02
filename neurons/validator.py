@@ -20,7 +20,9 @@ import json
 import gzip
 import base64
 
-from vali_objects.utils.auto_sync import PositionSyncer
+from runnable.generate_request_core import generate_request_core
+from vali_objects.decoders.generalized_json_decoder import GeneralizedJSONDecoder
+from vali_objects.utils.auto_sync import PositionSyncer, AUTO_SYNC_ORDER_LAG_MS
 from vali_objects.utils.p2p_syncer import P2PSyncer
 from shared_objects.rate_limiter import RateLimiter
 from vali_objects.uuid_tracker import UUIDTracker
@@ -32,7 +34,7 @@ from vali_objects.utils.elimination_manager import EliminationManager
 from vali_objects.utils.live_price_fetcher import LivePriceFetcher
 from vali_objects.utils.subtensor_weight_setter import SubtensorWeightSetter
 from vali_objects.utils.mdd_checker import MDDChecker
-from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
+from vali_objects.utils.vali_bkp_utils import ValiBkpUtils, CustomEncoder
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
 from vali_objects.utils.plagiarism_detector import PlagiarismDetector
 from vali_objects.utils.position_manager import PositionManager
@@ -194,8 +196,8 @@ class Validator:
         bt.logging.info(f"Attaching forward function to axon.")
 
         self.order_rate_limiter = RateLimiter()
-        self.position_inspector_rate_limiter = RateLimiter(max_requests_per_window=1, rate_limit_window_duration_seconds = 60 * 4)
-        self.checkpoint_rate_limiter = RateLimiter()
+        self.position_inspector_rate_limiter = RateLimiter(max_requests_per_window=1, rate_limit_window_duration_seconds=60 * 4)
+        self.checkpoint_rate_limiter = RateLimiter(max_requests_per_window=1, rate_limit_window_duration_seconds=60 * 60 * 6)
 
         def rs_blacklist_fn(synapse: template.protocol.SendSignal) -> Tuple[bool, str]:
             return Validator.blacklist_fn(synapse, self.metagraph)
@@ -386,7 +388,7 @@ class Validator:
                 self.elimination_manager.process_eliminations()
                 self.position_syncer.sync_positions_with_cooldown(self.auto_sync)
                 self.position_manager.position_locks.cleanup_locks(self.metagraph.hotkeys)
-                self.p2p_syncer.sync_positions_with_cooldown(self.auto_p2p_sync, True)
+                self.p2p_syncer.sync_positions_with_cooldown(self.auto_p2p_sync)
 
             # In case of unforeseen errors, the miner will log the error and continue operations.
             except Exception:
@@ -687,34 +689,54 @@ class Validator:
         """
         sender_hotkey = synapse.dendrite.hotkey
 
-        bt.logging.info(f"validator {synapse.validator_receive_hotkey} received checkpoint from validator hotkey [{sender_hotkey}].")
-        if self.should_fail_early(synapse, SynapseMethod.CHECKPOINT):
-            return synapse
+        # validator responds to poke from validator and attaches their checkpoint
+        if sender_hotkey in [axon.hotkey for axon in self.p2p_syncer.get_validators()]:
+            synapse.validator_receive_hotkey = self.wallet.hotkey.ss58_address
 
-        if sender_hotkey in self.p2p_syncer.received_hotkeys_checkpoints:
-            synapse.successfully_processed = False
-            msg = f"Already received a checkpoint from validator hotkey {sender_hotkey}, ignoring request."
-            synapse.error_message = msg
-            return synapse
+            bt.logging.info(f"Received checkpoint request poke from validator hotkey [{sender_hotkey}].")
+            if self.should_fail_early(synapse, SynapseMethod.CHECKPOINT):
+                return synapse
 
-        error_message = ""
-        try:
-            # Decode from base64 and decompress back into json
-            decoded = base64.b64decode(synapse.checkpoint)
-            decompressed = gzip.decompress(decoded).decode('utf-8')
-            recv_checkpoint = json.loads(decompressed)
+            error_message = ""
+            try:
+                # get our current checkpoint
+                now_ms = TimeUtil.now_in_millis()
+                checkpoint_dict = generate_request_core(time_now=now_ms)
 
-            with self.signal_sync_lock:
-                self.n_checkpoints_being_processed[0] += 1
+                # serialize the position data
+                positions = checkpoint_dict['positions']
+                # 24 hours in milliseconds
+                max_allowed_t_ms = TimeUtil.now_in_millis() - AUTO_SYNC_ORDER_LAG_MS
+                for hotkey, positions in positions.items():
+                    new_positions = []
+                    positions_deserialized = [Position(**json_positions_dict) for json_positions_dict in positions['positions']]
+                    for position in positions_deserialized:
+                        new_orders = []
+                        for order in position.orders:
+                            if order.processed_ms < max_allowed_t_ms:
+                                new_orders.append(order)
+                        if len(new_orders):
+                            position.orders = new_orders
+                            position.rebuild_position_with_updated_orders()
+                            new_positions.append(position)
+                        else:
+                            # if no orders are left, remove the position
+                            pass
 
-        except Exception as e:
-            error_message = f"Error processing checkpoint from [{sender_hotkey}] with error [{e}]"
-            bt.logging.error(traceback.format_exc())
+                    positions_serialized = [json.loads(str(p), cls=GeneralizedJSONDecoder) for p in new_positions]
+                    positions['positions'] = positions_serialized
 
-                self.p2p_syncer.add_checkpoint(sender_hotkey, recv_checkpoint, self.num_trusted_validators)
+                # compress json and encode as base64 to keep as a string
+                checkpoint_str = json.dumps(checkpoint_dict, cls=CustomEncoder)
+                compressed = gzip.compress(checkpoint_str.encode("utf-8"))
+                encoded_checkpoint = base64.b64encode(compressed).decode("utf-8")
+
+                synapse.checkpoint = encoded_checkpoint
+
+                print("set synapse checkpoint")
 
             except Exception as e:
-                error_message = f"Error processing checkpoint from [{sender_hotkey}] with error [{e}]"
+                error_message = f"Error processing checkpoint request poke from [{sender_hotkey}] with error [{e}]"
                 bt.logging.error(traceback.format_exc())
 
             if error_message == "":
@@ -723,14 +745,10 @@ class Validator:
                 bt.logging.error(error_message)
                 synapse.successfully_processed = False
             synapse.error_message = error_message
-            bt.logging.success(f"Sending ack back to validator [{sender_hotkey}]")
-            with self.signal_sync_lock:
-                self.n_checkpoints_being_processed[0] -= 1
-                if self.n_checkpoints_being_processed[0] == 0:
-                    self.signal_sync_condition.notify_all()
+            bt.logging.success(f"Sending checkpoint back to validator [{sender_hotkey}]")
         else:
-            bt.logging.info(f"Received a checkpoint from non-trusted validator [{sender_hotkey}]")
-            synapse.error_message = "Rejecting checkpoint from non-trusted validator"
+            bt.logging.info(f"Received a checkpoint poke from non validator [{sender_hotkey}]")
+            synapse.error_message = "Rejecting checkpoint poke from non validator"
             synapse.successfully_processed = False
         synapse.error_message = error_message
         bt.logging.success(f"Sending ack back to validator [{sender_hotkey}]")
