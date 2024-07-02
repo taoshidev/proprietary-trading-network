@@ -2,8 +2,10 @@ import json
 import time
 from copy import deepcopy
 
+from bittensor import Balance
+
 from vali_objects.utils.auto_sync import PositionSyncer, AUTO_SYNC_ORDER_LAG_MS
-from tests.shared_objects.mock_classes import MockMetagraph
+from tests.shared_objects.mock_classes import MockMetagraph, MockNeuron, MockAxonInfo
 from tests.vali_tests.base_objects.test_base import TestBase
 from vali_config import TradePair
 from vali_objects.decoders.generalized_json_decoder import GeneralizedJSONDecoder
@@ -33,6 +35,10 @@ class TestPositions(TestBase):
             orders=[self.default_order],
             position_type=OrderType.LONG
         )
+
+        self.default_neuron = MockNeuron(axon_info=MockAxonInfo("0.0.0.0"),
+                                         stake=Balance(0.0))
+
         self.mock_metagraph = MockMetagraph([self.DEFAULT_MINER_HOTKEY])
         self.position_manager = PositionManager(metagraph=self.mock_metagraph, running_unit_tests=True)
         self.position_manager.init_cache_files()
@@ -58,6 +64,57 @@ class TestPositions(TestBase):
         self.default_closed_position.close_out_position(self.DEFAULT_OPEN_MS + 1000 * 60 * 60 * 6)
 
         self.p2p_syncer = P2PSyncer()
+
+    def test_get_validators(self):
+        neuron1 = deepcopy(self.default_neuron)
+        neuron1.stake = Balance(2000.0)
+        neuron1.axon_info = MockAxonInfo(ip="test_ip1")
+
+        neuron2 = deepcopy(self.default_neuron)
+        neuron2.stake = Balance(0.0)
+        neuron2.axon_info = MockAxonInfo(ip="test_ip2")
+
+        neuron3 = deepcopy(self.default_neuron)
+        neuron3.stake = Balance(2000.0)
+
+        neuron4 = deepcopy(self.default_neuron)
+        neuron4.stake = Balance(0.0)
+
+        self.neurons = [neuron1, neuron2, neuron3, neuron4]
+        self.mock_metagraph = MockMetagraph([self.DEFAULT_MINER_HOTKEY], self.neurons)
+        validator_axons = self.p2p_syncer.get_validators(self.mock_metagraph.neurons)
+
+        assert len(validator_axons) == 1
+
+    def test_get_trusted_validators(self):
+        neuron1 = deepcopy(self.default_neuron)
+        neuron1.stake = Balance(2000.0)
+        neuron1.axon_info = MockAxonInfo(ip="test_ip1")
+
+        neuron2 = deepcopy(self.default_neuron)
+        neuron2.stake = Balance(0.0)
+        neuron2.axon_info = MockAxonInfo(ip="test_ip2")
+
+        neuron3 = deepcopy(self.default_neuron)
+        neuron3.stake = Balance(2000.0)
+
+        neuron4 = deepcopy(self.default_neuron)
+        neuron4.stake = Balance(0.0)
+
+        neuron5 = deepcopy(self.default_neuron)
+        neuron5.stake = Balance(3000.0)
+        neuron5.axon_info = MockAxonInfo(ip="test_ip5")
+
+        neuron6 = deepcopy(self.default_neuron)
+        neuron6.stake = Balance(4000.0)
+        neuron6.axon_info = MockAxonInfo(ip="test_ip6")
+
+        self.neurons = [neuron1, neuron2, neuron3, neuron4, neuron5, neuron6]
+        self.mock_metagraph = MockMetagraph([self.DEFAULT_MINER_HOTKEY], self.neurons)
+        validator_axons = self.p2p_syncer.get_trusted_validators(2, self.mock_metagraph.neurons)
+
+        assert len(validator_axons) == 2
+        assert validator_axons[0].ip == "test_ip6"
 
     def test_checkpoint_syncing_order_with_median_price(self):
         order1 = deepcopy(self.default_order)

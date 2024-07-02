@@ -42,7 +42,7 @@ class P2PSyncer:
 
         # get axons to send checkpoints to
         dendrite = bt.dendrite(wallet=self.wallet)
-        validator_axons = self.get_trusted_validators()
+        validator_axons = self.get_trusted_validators(ValiConfig.TOP_N)
 
         try:
             # create dendrite and transmit synapse
@@ -53,7 +53,7 @@ class P2PSyncer:
 
             failures = 0
             successful_checkpoints = 0
-            self.received_hotkeys_checkpoints = {}
+            received_hotkeys_checkpoints = {}
 
             for response in validator_responses:
                 if response.successfully_processed:
@@ -62,7 +62,7 @@ class P2PSyncer:
                     decompressed = gzip.decompress(decoded).decode('utf-8')
                     recv_checkpoint = json.loads(decompressed)
 
-                    self.received_hotkeys_checkpoints[response.validator_receive_hotkey] = recv_checkpoint
+                    received_hotkeys_checkpoints[response.validator_receive_hotkey] = recv_checkpoint
 
                     bt.logging.info(f"Successfully processed checkpoint from {response.validator_receive_hotkey}")
                     successful_checkpoints += 1
@@ -75,7 +75,7 @@ class P2PSyncer:
 
             if successful_checkpoints >= ValiConfig.MIN_CHECKPOINTS_RECEIVED:
                 bt.logging.info("Received enough checkpoints, now creating golden.")
-                self.create_golden(self.received_hotkeys_checkpoints)
+                self.create_golden(received_hotkeys_checkpoints)
             else:
                 bt.logging.info("Not enough checkpoints received to create a golden.")
 
@@ -98,17 +98,18 @@ class P2PSyncer:
                            and n.axon_info.ip != ValiConfig.AXON_NO_IP]
         return validator_axons
 
-    def get_trusted_validators(self):
+    def get_trusted_validators(self, top_n_validators, neurons=None):
         """
         get a list of the trusted validators for checkpoint sending
         return top 10 neurons sorted by stake
         """
         if self.is_testnet:
             return self.get_validators()
-        neurons = self.metagraph.neurons
+        if neurons is None:
+            neurons = self.metagraph.neurons
         sorted_stake_neurons = sorted(neurons, key=lambda n: n.stake, reverse=True)
 
-        return self.get_validators(sorted_stake_neurons)[:ValiConfig.TOP_N]
+        return self.get_validators(sorted_stake_neurons)[:top_n_validators]
 
     # # TODO: remove temp test method to print out the metagraph state
     # def print_metagraph_attributes(self):

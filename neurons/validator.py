@@ -173,9 +173,6 @@ class Validator:
         self.p2p_syncer = P2PSyncer(wallet=self.wallet,
                                     metagraph=self.metagraph,
                                     is_testnet=not self.is_mainnet)
-        # keep track of values for checkpoint sync
-        self.num_trusted_validators = len(self.p2p_syncer.get_trusted_validators())
-        self.received_checkpoints = 0
 
         self.perf_ledger_manager = PerfLedgerManager(self.metagraph, live_price_fetcher=self.live_price_fetcher,
                                                      shutdown_dict=shutdown_dict, position_syncer=self.position_syncer)
