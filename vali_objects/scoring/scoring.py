@@ -79,30 +79,16 @@ class Scoring:
         if evaluation_time_ms is None:
             evaluation_time_ms = TimeUtil.now_in_millis()
         
-        return_decay_coefficient_short = ValiConfig.HISTORICAL_DECAY_COEFFICIENT_RETURNS_SHORT
-        return_decay_coefficient_long = ValiConfig.HISTORICAL_DECAY_COEFFICIENT_RETURNS_LONG
-        risk_adjusted_decay_coefficient = ValiConfig.HISTORICAL_DECAY_COEFFICIENT_RISKMETRIC
+        return_decay_short_lookback_time_ms = ValiConfig.RETURN_DECAY_SHORT_LOOKBACK_TIME_MS
 
         # Compute miner penalties
         miner_penalties = Scoring.miner_penalties(ledger_dict)
 
         # Augmented returns ledgers
-        returns_ledger_short = PositionManager.augment_perf_ledger(
+        returns_ledger_short = PositionManager.limit_perf_ledger(
             ledger_dict,
             evaluation_time_ms=evaluation_time_ms,
-            time_decay_coefficient=return_decay_coefficient_short,
-        )
-
-        returns_ledger_long = PositionManager.augment_perf_ledger(
-            ledger_dict,
-            evaluation_time_ms=evaluation_time_ms,
-            time_decay_coefficient=return_decay_coefficient_long,
-        )
-
-        risk_adjusted_ledger = PositionManager.augment_perf_ledger(
-            ledger_dict,
-            evaluation_time_ms=evaluation_time_ms,
-            time_decay_coefficient=risk_adjusted_decay_coefficient,
+            lookback_time_ms=return_decay_short_lookback_time_ms,
         )
 
         scoring_config = {
@@ -114,12 +100,12 @@ class Scoring:
             'return_cps_long': {
                 'function': Scoring.return_cps,
                 'weight': ValiConfig.SCORING_RETURN_CPS_LONG_WEIGHT,
-                'ledger': returns_ledger_long,
+                'ledger': ledger_dict,
             },
             'omega_cps': {
                 'function': Scoring.omega_cps,
                 'weight': ValiConfig.SCORING_OMEGA_CPS_WEIGHT,
-                'ledger': risk_adjusted_ledger,
+                'ledger': ledger_dict,
             },
         }
 
@@ -193,7 +179,7 @@ class Scoring:
 
         if len(gains) == 0 or len(losses) == 0:
             # won't happen because we need a minimum number of trades, but would kick them to a bad return (bottom of the list)
-            return -1
+            return 0 # should return 0, indicating a return of 1
 
         total_gain = sum(gains)
         total_loss = sum(losses)

@@ -22,6 +22,8 @@ from vali_objects.scoring.scoring import Scoring, ScoringUnit
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
 from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
 
+from vali_objects.vali_dataclasses.perf_ledger import TARGET_CHECKPOINT_DURATION_MS, TARGET_LEDGER_WINDOW_MS
+
 def rank_dictionary(d, ascending=False):
     """
     Rank the values in a dictionary. Higher values get lower ranks by default.
@@ -114,6 +116,7 @@ def generate_request_minerstatistics(time_now:int):
     filtered_ledger = subtensor_weight_setter.filtered_ledger(hotkeys=all_miner_hotkeys)
 
     ## Penalties
+    miner_penalties = Scoring.miner_penalties(filtered_ledger)
     consistency_penalties = {}
     drawdown_penalties = {}
     recent_drawdowns = {}
@@ -137,46 +140,32 @@ def generate_request_minerstatistics(time_now:int):
         volume_threshold_count[hotkey] = Scoring.checkpoint_volume_threshold_count(scoringunit)
 
     ## Now all of the augmented terms
-    # there are two augmented ledgers
-    short_return_decay_coefficient = ValiConfig.HISTORICAL_DECAY_COEFFICIENT_RETURNS_SHORT
-    long_return_decay_coefficient = ValiConfig.HISTORICAL_DECAY_COEFFICIENT_RETURNS_LONG
-    risk_adjusted_decay_coefficient = ValiConfig.HISTORICAL_DECAY_COEFFICIENT_RISKMETRIC
+    short_return_lookback = ValiConfig.RETURN_DECAY_SHORT_LOOKBACK_TIME_MS
 
     augmented_omega_cps = {}
     augmented_inverted_sortino_cps = {}
     augmented_return_short_cps = {}
     augmented_return_long_cps = {}
 
-    cumulative_returns = PositionManager.cumulative_returns(filtered_ledger)
-    returns_ledger_short = PositionManager.augment_perf_ledger(
-        ledger=filtered_ledger,
-        evaluation_time_ms=time_now,
-        time_decay_coefficient=short_return_decay_coefficient
-    )
+    cumulative_return_ledger = PositionManager.cumulative_ledger_append(filtered_ledger)
 
-    returns_ledger_long = PositionManager.augment_perf_ledger(
-        ledger=filtered_ledger,
+    ## Ledger for limited returns
+    returns_ledger_short = PositionManager.limit_perf_ledger(
+        filtered_ledger,
         evaluation_time_ms=time_now,
-        time_decay_coefficient=long_return_decay_coefficient
-    )
-
-    risk_adjusted_ledger = PositionManager.augment_perf_ledger(
-        ledger=filtered_ledger,
-        evaluation_time_ms=time_now,
-        time_decay_coefficient=risk_adjusted_decay_coefficient
+        lookback_time_ms=short_return_lookback,
     )
 
     for hotkey, miner_ledger in returns_ledger_short.items():
+        miner_penalty = miner_penalties.get(hotkey, 0.0)
         scoringunit = ScoringUnit.from_perf_ledger(miner_ledger)
-        augmented_return_short_cps[hotkey] = math.exp(Scoring.return_cps(scoringunit))
+        augmented_return_short_cps[hotkey] = math.exp(Scoring.return_cps(scoringunit) * miner_penalty)
 
-    for hotkey, miner_ledger in returns_ledger_long.items():
+    for hotkey, miner_ledger in filtered_ledger.items():
+        miner_penalty = miner_penalties.get(hotkey, 0.0)
         scoringunit = ScoringUnit.from_perf_ledger(miner_ledger)
-        augmented_return_long_cps[hotkey] = math.exp(Scoring.return_cps(scoringunit))
-
-    for hotkey, miner_ledger in risk_adjusted_ledger.items():
-        scoringunit = ScoringUnit.from_perf_ledger(miner_ledger)
-        augmented_omega_cps[hotkey] = Scoring.omega_cps(scoringunit)
+        augmented_return_long_cps[hotkey] = math.exp(Scoring.return_cps(scoringunit) * miner_penalty)
+        augmented_omega_cps[hotkey] = Scoring.omega_cps(scoringunit) * miner_penalty
         augmented_inverted_sortino_cps[hotkey] = Scoring.inverted_sortino_cps(scoringunit)
 
     ## This is when we only want to look at the successful miners
@@ -237,13 +226,11 @@ def generate_request_minerstatistics(time_now:int):
             }
 
         ## checkpoint specific data
-        miner_cumulative_returns = cumulative_returns.get(miner_id)
+        miner_cumulative_return_ledger = cumulative_return_ledger.get(miner_id)
         miner_standard_ledger = filtered_ledger.get(miner_id)
         miner_returns_short_ledger = returns_ledger_short.get(miner_id)
-        miner_returns_long_ledger = returns_ledger_long.get(miner_id)
-        miner_risk_ledger = risk_adjusted_ledger.get(miner_id)
 
-        if miner_standard_ledger is None or miner_returns_short_ledger is None or miner_returns_long_ledger is None or miner_risk_ledger is None:
+        if miner_standard_ledger is None or miner_returns_short_ledger is None:
             continue
 
         miner_data = {
@@ -258,6 +245,7 @@ def generate_request_minerstatistics(time_now:int):
             "penalties": {
                 "consistency": consistency_penalties.get(miner_id),
                 "drawdown": drawdown_penalties.get(miner_id),
+                "total": miner_penalties.get(miner_id, 0.0),
             },
             "scores":{
                 "omega": {
@@ -304,13 +292,7 @@ def generate_request_minerstatistics(time_now:int):
                 "volume_threshold_count": volume_threshold_count.get(miner_id),
             },
             "plagiarism": plagiarism.get(miner_id),
-            "cumulative": miner_cumulative_returns,
-            "checkpoints": {
-                "standard": miner_standard_ledger.cps,
-                "returns_short_augmented": miner_returns_short_ledger.cps,
-                "returns_long_augmented": miner_returns_long_ledger.cps,
-                "risk_augmented": miner_risk_ledger.cps,
-            }
+            "checkpoints": miner_cumulative_return_ledger.get('cps',[]),
         }
         combined_data.append(miner_data)
     
@@ -319,7 +301,10 @@ def generate_request_minerstatistics(time_now:int):
         'created_timestamp_ms': time_now,
         'created_date': TimeUtil.millis_to_formatted_date_str(time_now),
         "constants":{
+            "target_ledger_window_ms": TARGET_LEDGER_WINDOW_MS,
+            "target_checkpoint_duration_ms": TARGET_CHECKPOINT_DURATION_MS,
             "return_short_cps_weight": ValiConfig.SCORING_RETURN_CPS_SHORT_WEIGHT,
+            "return_short_lookback_range": ValiConfig.RETURN_DECAY_SHORT_LOOKBACK_TIME_MS,
             "return_long_cps_weight": ValiConfig.SCORING_RETURN_CPS_LONG_WEIGHT,
             "omega_cps_weight": ValiConfig.SCORING_OMEGA_CPS_WEIGHT,
             "inverted_sortino_cps_weight": ValiConfig.SCORING_SORTINO_CPS_WEIGHT,
@@ -342,7 +327,7 @@ def generate_request_minerstatistics(time_now:int):
             "challengeperiod_omega_minimum": ValiConfig.SET_WEIGHT_MINER_CHALLENGE_PERIOD_OMEGA_CPS,
             "challengeperiod_sortino_minimum": ValiConfig.SET_WEIGHT_MINER_CHALLENGE_PERIOD_SORTINO_CPS,
         },
-        "data": combined_data,
+        "data": sorted(combined_data, key=lambda x: x['weight']['rank']),
     }
 
     output_file_path = ValiBkpUtils.get_vali_outputs_dir() + "minerstatistics.json"

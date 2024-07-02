@@ -525,7 +525,7 @@ class TestWeights(TestBase):
         )
 
         return_zero = Scoring.return_cps(scoringunit)
-        self.assertLess(return_zero, 0.0)
+        self.assertEqual(return_zero, 0.0)
 
     def test_consistency_no_cps(self):
         """Test that the consistency function works as expected with no cps"""

@@ -705,29 +705,49 @@ class PositionManager(CacheController):
         return augmented_ledger
     
     @staticmethod
-    def cumulative_returns(ledger: dict[str, PerfLedger]) -> dict[int, float]:
+    def limit_perf_ledger(
+        ledger: dict[str, PerfLedger],
+        evaluation_time_ms: int,
+        lookback_time_ms: int = None
+    ) -> dict[str, PerfLedger]:
         """
-        Returns the cumulative return of the ledger.
+        Augments the entire perf ledger, augmented with historical decay.
         """
-        cumulative_returns = {}
-        ledger_copy = copy.deepcopy(ledger)
+        if not ledger:
+            return ledger
+        
+        if lookback_time_ms is None:
+            return ledger
+        
+        augmented_ledger = copy.deepcopy(ledger)
+        for miner, minerledger in augmented_ledger.items():
+            augmented_ledger[miner].cps = PositionManager.limit_perf_checkpoint(
+                minerledger.cps,
+                evaluation_time_ms,
+                lookback_time_ms
+            )
+
+        return augmented_ledger
+    
+    @staticmethod
+    def cumulative_ledger_append(ledger: dict[str, PerfLedger]) -> dict[str, dict]:
+        """
+        Adds the cumulative return of the ledger to each checkpoint.
+        """
+        ledger_dict = {k: v.to_dict() for k, v in ledger.items()}
+        ledger_copy = copy.deepcopy(ledger_dict)
+
         for miner, minerledger in ledger_copy.items():
-            minerspecific_returns = []
             returnoverall = 1.0
-            if len(minerledger.cps) == 0:
+            if len(minerledger['cps']) == 0:
                 continue
 
-            for cp in minerledger.cps:
-                returnvalue = math.exp(cp.gain + cp.loss)
+            for cp in minerledger['cps']:
+                returnvalue = math.exp(cp['gain'] + cp['loss'])
                 returnoverall *= returnvalue
-                minerspecific_returns.append({
-                    "last_update_ms": cp.last_update_ms,
-                    "overall_returns": returnoverall
-                })
+                cp['overall_returns'] = returnoverall
 
-            cumulative_returns[miner] = minerspecific_returns
-
-        return cumulative_returns
+        return ledger_copy
     
     @staticmethod
     def augment_perf_checkpoint(
@@ -777,6 +797,28 @@ class PositionManager(CacheController):
             )
 
             cps_augmented.append(cp_copy)
+        return cps_augmented
+    
+    @staticmethod
+    def limit_perf_checkpoint(
+        cps: list[PerfCheckpoint],
+        evaluation_time_ms: int,
+        lookback_time_ms: int
+    ) -> list[PerfCheckpoint]:
+        """
+        Returns the return at each performance checkpoint, augmented with historical decay.
+        """
+        if len(cps) == 0:
+            return []
+        
+        cps_augmented = []
+        for cp in cps:
+            cp_copy = copy.deepcopy(cp)
+            if cp.last_update_ms < evaluation_time_ms - lookback_time_ms:
+                continue
+
+            cps_augmented.append(cp_copy)
+
         return cps_augmented
     
     def get_return_per_closed_position_augmented(

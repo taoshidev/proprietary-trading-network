@@ -1,13 +1,14 @@
 from matplotlib import pyplot as plt
 import argparse
 import pandas as pd
+import math
 
 from vali_objects.scoring.scoring import Scoring, ScoringUnit
 from vali_objects.utils.logger_utils import LoggerUtils
 from vali_objects.utils.subtensor_weight_setter import SubtensorWeightSetter
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.utils.vali_utils import ValiUtils
-from vali_objects.utils.position_manager import PositionManager
+from vali_objects.utils.position_manager import PositionManager, PositionUtils
 from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
 from time_util.time_util import TimeUtil
 from vali_config import ValiConfig
@@ -50,26 +51,25 @@ if __name__ == "__main__":
     return_decay_coefficient_short = ValiConfig.HISTORICAL_DECAY_COEFFICIENT_RETURNS_SHORT
     return_decay_coefficient_long = ValiConfig.HISTORICAL_DECAY_COEFFICIENT_RETURNS_LONG
     risk_adjusted_decay_coefficient = ValiConfig.HISTORICAL_DECAY_COEFFICIENT_RISKMETRIC
+    return_decay_short_lookback_time_ms = ValiConfig.RETURN_DECAY_SHORT_LOOKBACK_TIME_MS
 
     # Compute miner penalties
     miner_penalties = Scoring.miner_penalties(filtered_ledger)
 
-    returns_ledger_short = PositionManager.augment_perf_ledger(
-        filtered_ledger,
-        evaluation_time_ms=current_time,
-        time_decay_coefficient=return_decay_coefficient_short,
-    )
+    ## Individual miner penalties
+    consistency_penalties = {}
+    drawdown_penalties = {}
 
-    returns_ledger_long = PositionManager.augment_perf_ledger(
-        filtered_ledger,
-        evaluation_time_ms=current_time,
-        time_decay_coefficient=return_decay_coefficient_long,
-    )
+    for miner, ledger in filtered_ledger.items():
+        minercps = ledger.cps
+        consistency_penalties[miner] = PositionUtils.compute_consistency_penalty_cps(minercps)
+        drawdown_penalties[miner] = PositionUtils.compute_drawdown_penalty_cps(minercps)
 
-    risk_adjusted_ledger = PositionManager.augment_perf_ledger(
+    # Augmented returns ledgers
+    returns_ledger_short = PositionManager.limit_perf_ledger(
         filtered_ledger,
         evaluation_time_ms=current_time,
-        time_decay_coefficient=risk_adjusted_decay_coefficient,
+        lookback_time_ms=return_decay_short_lookback_time_ms,
     )
 
     scoring_config = {
@@ -81,12 +81,12 @@ if __name__ == "__main__":
         'return_cps_long': {
             'function': Scoring.return_cps,
             'weight': ValiConfig.SCORING_RETURN_CPS_LONG_WEIGHT,
-            'ledger': returns_ledger_long,
-        },  
+            'ledger': filtered_ledger,
+        },
         'omega_cps': {
             'function': Scoring.omega_cps,
             'weight': ValiConfig.SCORING_OMEGA_CPS_WEIGHT,
-            'ledger': risk_adjusted_ledger,
+            'ledger': filtered_ledger,
         },
     }
 
@@ -112,6 +112,7 @@ if __name__ == "__main__":
     # Store rankings and original scores
     rankings = {}
     original_scores = {}
+    consistencies = {}
 
     for metric_name, config in scoring_config.items():
         miner_scores = []
@@ -140,8 +141,6 @@ if __name__ == "__main__":
 
     ## Normalize the scores
     normalized_scores = Scoring.normalize_scores(combined_scores)
-    print(f"Normalized scores: {normalized_scores}")
-
     checkpoint_results = sorted(normalized_scores.items(), key=lambda x: x[1], reverse=True)
 
     # Prepare data for DataFrame
@@ -160,8 +159,25 @@ if __name__ == "__main__":
             combined_data[miner] = {}
         combined_data[miner]['Final Normalized Score'] = score
         combined_data[miner]['Final Rank'] = rank
+        combined_data[miner]['Penalty'] = miner_penalties.get(miner, 0)
+        combined_data[miner]['Drawdown Penalty'] = drawdown_penalties.get(miner, 0)
+        combined_data[miner]['Consistency Penalty'] = consistency_penalties.get(miner, 0)
 
     df = pd.DataFrame.from_dict(combined_data, orient='index')
+
+    # printing_columns = [
+    #     'return_cps_short Weighted Score',
+    #     'return_cps_long Weighted Score',
+    #     'Final Normalized Score',
+    #     'Final Rank',
+    #     'Penalty',
+    #     'Drawdown Penalty',
+    #     'Consistency Penalty',
+    # ]
+
+    # df_subset = df[printing_columns].round(3)
+    # df_subset = df_subset.sort_values(by='Final Rank', ascending=True)
+    # # print(df_subset)
 
     # Print rankings and original scores for each metric
     for metric, ranks in rankings.items():
@@ -171,10 +187,14 @@ if __name__ == "__main__":
             print(f"{rank}. {miner} - Original Score: {original_score:.4e}, Weighted Score: {weighted_score:.2f}")
         print()
 
+    print(f"\nMiner Penalties:\n")
+    for miner, penalty in miner_penalties.items():
+        print(f"{miner}: {penalty:.2f}")
+
     # Print final rankings
     print("\nFinal Rankings:")
     for rank, (miner, score) in enumerate(checkpoint_results, start=1):
-        print(f"{rank}. {miner} - Normalized Score: {score:.2f}")
+        print(f"{rank}. {miner} - Normalized Score: {score:.2f} - Long Return: {(math.exp(original_scores['return_cps_long'][miner]) - 1)*100:.2f} - Short Return: {(math.exp(original_scores['return_cps_short'][miner]) - 1)*100:.2f}")
 
     # Save to CSV if the --output flag is set
     if args.output:
