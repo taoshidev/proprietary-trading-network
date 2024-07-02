@@ -134,7 +134,7 @@ def upload_checkpoint_to_gcloud(final_dict):
     blob.upload_from_string(zip_buffer)
     print(f'Uploaded {blob_name} to {bucket_name}')
 
-def generate_request_core(time_now:int):
+def generate_request_core(time_now:int) -> dict:
     position_manager = PositionManager(
         config=None,
         metagraph=None,
@@ -295,3 +295,4 @@ def generate_request_core(time_now:int):
 
     # Max filtering
     upload_checkpoint_to_gcloud(final_dict)
+    return final_dict
