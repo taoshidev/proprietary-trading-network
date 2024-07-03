@@ -355,6 +355,7 @@ if __name__ == "__main__":
                 output = mining_utils.gen_signals_from_predictions(predictions= preds, hist = input ,modelname=modelname ) 
             #  signals = mining_utils.assess_signals(output)
                 order= mining_utils.map_signals(output)
+                print(f'order is {order}')
                 
                           
             if order != 'PASS' : 
