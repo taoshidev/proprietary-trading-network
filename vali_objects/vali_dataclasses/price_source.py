@@ -11,8 +11,8 @@ class PriceSource(BaseModel):
     open: float = None
     close: float = None
     vwap: Optional[float] = None
-    high: float = None
-    low: float = None
+    high: Optional[float] = None
+    low: Optional[float] = None
     start_ms: int = 0
     websocket: bool = False
     lag_ms: int = 0

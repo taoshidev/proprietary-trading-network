@@ -721,9 +721,6 @@ class Validator:
             bt.logging.info(f"Received a checkpoint poke from non validator [{sender_hotkey}]")
             synapse.error_message = "Rejecting checkpoint poke from non validator"
             synapse.successfully_processed = False
-        synapse.error_message = error_message
-        bt.logging.success(f"Sending ack back to validator [{sender_hotkey}]")
-
         return synapse
 
 # This is the main function, which runs the miner.
