@@ -170,9 +170,11 @@ class Validator:
         self.position_syncer = PositionSyncer(shutdown_dict=shutdown_dict, signal_sync_lock=self.signal_sync_lock,
                                               signal_sync_condition=self.signal_sync_condition,
                                               n_orders_being_processed=self.n_orders_being_processed)
-        self.p2p_syncer = P2PSyncer(wallet=self.wallet,
-                                    metagraph=self.metagraph,
-                                    is_testnet=not self.is_mainnet)
+        self.p2p_syncer = P2PSyncer(wallet=self.wallet, metagraph=self.metagraph, is_testnet=not self.is_mainnet,
+                                    shutdown_dict=shutdown_dict, signal_sync_lock=self.signal_sync_lock,
+                                    signal_sync_condition=self.signal_sync_condition,
+                                    n_orders_being_processed=self.n_orders_being_processed
+                                    )
 
         self.perf_ledger_manager = PerfLedgerManager(self.metagraph, live_price_fetcher=self.live_price_fetcher,
                                                      shutdown_dict=shutdown_dict, position_syncer=self.position_syncer)
@@ -385,7 +387,7 @@ class Validator:
                 self.elimination_manager.process_eliminations()
                 self.position_syncer.sync_positions_with_cooldown(self.auto_sync)
                 self.position_manager.position_locks.cleanup_locks(self.metagraph.hotkeys)
-                self.p2p_syncer.sync_positions_with_cooldown(self.auto_p2p_sync)
+                self.p2p_syncer.sync_positions_with_cooldown()
 
             # In case of unforeseen errors, the miner will log the error and continue operations.
             except Exception:
