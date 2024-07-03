@@ -166,3 +166,6 @@ cython_debug/
 # Files generated when sending signals from miner
 mining/processed_signals/
 validation/miners/
+
+# macOS files
+.DS_Store
