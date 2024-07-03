@@ -14,6 +14,7 @@ from time_util.time_util import TimeUtil
 from vali_config import TradePair
 from vali_config import ValiConfig
 from vali_objects.position import Position
+from vali_objects.utils.position_manager import PositionManager
 from vali_objects.vali_dataclasses.order import Order
 from vali_objects.utils.validator_sync_base import ValidatorSyncBase
 
@@ -27,6 +28,7 @@ class P2PSyncer(ValidatorSyncBase):
             self.hotkey = self.wallet.hotkey.ss58_address
         # flag for testnet
         self.is_testnet = is_testnet
+        self.created_golden = False
 
     async def send_checkpoint_requests(self):
         """
@@ -72,8 +74,10 @@ class P2PSyncer(ValidatorSyncBase):
             if (n_successful_checkpoints > 0 and self.is_testnet) or n_successful_checkpoints >= ValiConfig.MIN_CHECKPOINTS_RECEIVED:
                 bt.logging.info("Received enough checkpoints, now creating golden.")
                 self.create_golden(hotkey_to_received_checkpoint)
+                self.created_golden = True
             else:
                 bt.logging.info("Not enough checkpoints received to create a golden.")
+                self.created_golden = False
 
         except Exception as e:
             bt.logging.info(f"Error sending checkpoint with error [{e}]")
@@ -155,26 +159,34 @@ class P2PSyncer(ValidatorSyncBase):
                 return
 
         try:
-            bt.logging.info("Calling send_checkpoint_poke")
+            bt.logging.info("Calling send_checkpoint_requests")
             self.golden = None
             asyncio.run(self.send_checkpoint_requests())
-            bt.logging.info("Calling apply_golden")
-            # TODO guard sync_positions with the signal lock once we move on from shadow mode
-            self.sync_positions(True, candidate_data=self.golden)
+            if self.created_golden:
+                bt.logging.info("Calling apply_golden")
+                # TODO guard sync_positions with the signal lock once we move on from shadow mode
+                self.sync_positions(True, candidate_data=self.golden)
         except Exception as e:
             bt.logging.error(f"Error sending checkpoint: {e}")
             bt.logging.error(traceback.format_exc())
 
         self.last_signal_sync_time_ms = TimeUtil.now_in_millis()
-    def create_golden(self, trusted_checkpoints: dict) -> dict:
+    def create_golden(self, trusted_checkpoints: dict):
         """
         Simple majority approach (preferred to start)
             If a position’s uuid exists on the majority of validators, that position is kept.
             If an order uuid exists in the majority of positions, that order is kept.
                 Choose the order with the median price.
-
-        return a single checkpoint dict
         """
+        time_now = TimeUtil.now_in_millis()
+
+        position_manager = PositionManager(
+            config=None,
+            metagraph=None,
+            running_unit_tests=False
+        )
+        eliminations = position_manager.get_eliminations_from_disk()
+
         position_counts = defaultdict(int)                      # {position_uuid: count}
         position_data = defaultdict(list)                       # {position_uuid: [{position}]}
         position_orders = defaultdict(set)                      # {position_uuid: {order_uuid}}
@@ -205,7 +217,7 @@ class P2PSyncer(ValidatorSyncBase):
         majority_positions = {position_uuid for position_uuid, count in position_counts.items()
                               if count > positions_threshold}
 
-        golden = defaultdict(lambda: defaultdict(list))
+        golden_positions = defaultdict(lambda: defaultdict(list))
 
         for checkpoint in trusted_checkpoints.values():
             for miner_hotkey, miner_positions in checkpoint["positions"].items():
@@ -239,13 +251,14 @@ class P2PSyncer(ValidatorSyncBase):
                         new_position.orders.sort(key=lambda o: o.processed_ms)
                         new_position.rebuild_position_with_updated_orders()
                         position_dict = json.loads(new_position.to_json_string())
-                        golden[miner_hotkey]["positions"].append(position_dict)
+                        golden_positions[miner_hotkey]["positions"].append(position_dict)
 
-        # Convert defaultdict to regular dict
-        self.golden = {"positions": {miner: dict(golden[miner]) for miner in golden}}
+        # Construct golden and convert defaultdict to dict
+        self.golden = {"created_timestamp_ms": time_now,
+                       "eliminations": eliminations,
+                       "positions": {miner: dict(golden_positions[miner]) for miner in golden_positions}}
         bt.logging.info("Created golden checkpoint:")
         bt.logging.info(json.dumps(self.golden))
-        return self.golden
 
     def get_median_order(self, orders, trade_pair) -> Order:
         """
