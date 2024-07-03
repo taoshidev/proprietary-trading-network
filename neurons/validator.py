@@ -22,7 +22,7 @@ import base64
 
 from runnable.generate_request_core import generate_request_core
 from vali_objects.decoders.generalized_json_decoder import GeneralizedJSONDecoder
-from vali_objects.utils.auto_sync import PositionSyncer, AUTO_SYNC_ORDER_LAG_MS
+from vali_objects.utils.auto_sync import PositionSyncer
 from vali_objects.utils.p2p_syncer import P2PSyncer
 from shared_objects.rate_limiter import RateLimiter
 from vali_objects.uuid_tracker import UUIDTracker
@@ -96,8 +96,6 @@ class Validator:
         self.config = self.get_config()
         # Use the getattr function to safely get the autosync attribute with a default of False if not found.
         self.auto_sync = getattr(self.config, 'autosync', False)
-        # TODO: separate flag? do we want a flag at all?
-        self.auto_p2p_sync = self.auto_sync
         self.is_mainnet = self.config.netuid == 8
         # Ensure the directory for logging exists, else create one.
         if not os.path.exists(self.config.full_path):
