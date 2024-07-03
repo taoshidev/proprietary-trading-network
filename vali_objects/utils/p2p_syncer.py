@@ -215,7 +215,7 @@ class P2PSyncer(ValidatorSyncBase):
 
         # get the set of position_uuids that appear in the majority of checkpoints
         majority_positions = {position_uuid for position_uuid, count in position_counts.items()
-                              if count > positions_threshold}
+                              if count >= positions_threshold}
 
         golden_positions = defaultdict(lambda: defaultdict(list))
 
@@ -239,7 +239,7 @@ class P2PSyncer(ValidatorSyncBase):
 
                         # get the set of order_uuids that appear in the majority of positions for a position_uuid
                         majority_orders = {order_uuid for order_uuid, count in order_counts[position_uuid].items()
-                                           if count > orders_threshold}
+                                           if count >= orders_threshold}
 
                         # order exists in the majority of positions
                         for order_uuid in position_orders[position_uuid]:
