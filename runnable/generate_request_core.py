@@ -128,30 +128,10 @@ def upload_checkpoint_to_gcloud(final_dict):
     # Create a new blob and upload data
     blob = bucket.blob(blob_name)
 
-    # Serialize position data
-    serialize_positions(final_dict['positions'])
-
-    str_to_write = json.dumps(final_dict, cls=CustomEncoder)
-
-    # Create a zip file in memory
-    with io.BytesIO() as zip_buffer:
-        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
-            # Add the json file to the zip file
-            zip_file.writestr('validator_checkpoint.json', str_to_write)
-            #zip_file.write(ValiBkpUtils.get_vcp_output_path(), arcname='validator_checkpoint.json')
-
-        # Rewind the buffer's file pointer to the beginning so you can read its content
-        zip_buffer.seek(0)
-
-        # Upload the content of the zip_buffer to Google Cloud Storage
-        blob.upload_from_file(zip_buffer)
-
-    print(f'Uploaded {blob_name} to {bucket_name}')
-
-def serialize_positions(positions):
     """
     candidate_data['positions'][hk]['positions'] = [json.loads(str(p), cls=GeneralizedJSONDecoder) for p in positions_orig]
     """
+    positions = final_dict['positions']
     # 24 hours in milliseconds
     max_allowed_t_ms = TimeUtil.now_in_millis() - AUTO_SYNC_ORDER_LAG_MS
     for hotkey, positions in positions.items():
@@ -172,6 +152,23 @@ def serialize_positions(positions):
 
         positions_serialized = [json.loads(str(p), cls=GeneralizedJSONDecoder) for p in new_positions]
         positions['positions'] = positions_serialized
+
+    str_to_write = json.dumps(final_dict, cls=CustomEncoder)
+
+    # Create a zip file in memory
+    with io.BytesIO() as zip_buffer:
+        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+            # Add the json file to the zip file
+            zip_file.writestr('validator_checkpoint.json', str_to_write)
+            #zip_file.write(ValiBkpUtils.get_vcp_output_path(), arcname='validator_checkpoint.json')
+
+        # Rewind the buffer's file pointer to the beginning so you can read its content
+        zip_buffer.seek(0)
+
+        # Upload the content of the zip_buffer to Google Cloud Storage
+        blob.upload_from_file(zip_buffer)
+
+    print(f'Uploaded {blob_name} to {bucket_name}')
 
 def generate_request_core(time_now:int) -> dict:
     position_manager = PositionManager(

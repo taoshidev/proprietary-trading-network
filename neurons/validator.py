@@ -20,7 +20,7 @@ import json
 import gzip
 import base64
 
-from runnable.generate_request_core import generate_request_core, serialize_positions
+from runnable.generate_request_core import generate_request_core
 from vali_objects.decoders.generalized_json_decoder import GeneralizedJSONDecoder
 from vali_objects.utils.auto_sync import PositionSyncer, AUTO_SYNC_ORDER_LAG_MS
 from vali_objects.utils.p2p_syncer import P2PSyncer
@@ -699,9 +699,6 @@ class Validator:
                 # get our current checkpoint
                 now_ms = TimeUtil.now_in_millis()
                 checkpoint_dict = generate_request_core(time_now=now_ms)
-
-                # serialize the position data
-                serialize_positions(checkpoint_dict["positions"])
 
                 # compress json and encode as base64 to keep as a string
                 checkpoint_str = json.dumps(checkpoint_dict, cls=CustomEncoder)
