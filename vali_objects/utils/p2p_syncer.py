@@ -154,8 +154,8 @@ class P2PSyncer(ValidatorSyncBase):
 
             # Check if we are between 7:09 AM and 7:19 AM UTC
             datetime_now = TimeUtil.generate_start_timestamp(0)  # UTC
-            # Temp change time to 19:00 UTC so we can see the effects in shadow mode ASAP
-            if not (datetime_now.hour == 19 and (8 < datetime_now.minute < 20)):
+            # Temp change time to 21:00 UTC so we can see the effects in shadow mode ASAP
+            if not (datetime_now.hour == 21 and (37 < datetime_now.minute < 47)):
                 return
 
         try:
@@ -257,8 +257,8 @@ class P2PSyncer(ValidatorSyncBase):
         self.golden = {"created_timestamp_ms": time_now,
                        "eliminations": eliminations,
                        "positions": {miner: dict(golden_positions[miner]) for miner in golden_positions}}
-        bt.logging.info("Created golden checkpoint:")
-        bt.logging.info(json.dumps(self.golden))
+        temp = {k: len(self.golden['positions'][k]) for k in self.golden['positions']}
+        bt.logging.info(f"Created golden checkpoint {temp}")
 
     def get_median_order(self, orders, trade_pair) -> Order:
         """
