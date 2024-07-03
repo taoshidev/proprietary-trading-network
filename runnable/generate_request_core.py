@@ -1,7 +1,7 @@
-import gzip
+import io
 import json
 import os
-import hashlib
+import zipfile
 
 from google.cloud import storage
 
@@ -14,89 +14,11 @@ from vali_objects.utils.vali_bkp_utils import ValiBkpUtils, CustomEncoder
 from vali_objects.utils.subtensor_weight_setter import SubtensorWeightSetter
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
 from vali_objects.utils.auto_sync import AUTO_SYNC_ORDER_LAG_MS
-
-# no filters,... , max filter
-PERCENT_NEW_POSITIONS_TIERS = [100, 50, 30, 0]
-assert sorted(PERCENT_NEW_POSITIONS_TIERS, reverse=True) == PERCENT_NEW_POSITIONS_TIERS, 'needs to be sorted for efficient pruning'
-
-def hash_string_to_int(s: str) -> int:
-    # Create a SHA-256 hash object
-    hash_object = hashlib.sha256()
-    # Update the hash object with the bytes of the string
-    hash_object.update(s.encode('utf-8'))
-    # Get the hexadecimal digest of the hash
-    hex_digest = hash_object.hexdigest()
-    # Convert the hexadecimal digest to an integer
-    hash_int = int(hex_digest, 16)
-    return hash_int
-
-def filter_new_positions_random_sample(percent_new_positions_keep: float, hotkey_to_positions: dict[str:[dict]], time_of_position_read_ms:int) -> None:
-    """
-    candidate_data['positions'][hk]['positions'] = [json.loads(str(p), cls=GeneralizedJSONDecoder) for p in positions_orig]
-    """
-    def filter_orders(p: Position) -> bool:
-        nonlocal stale_date_threshold_ms
-        if p.is_closed_position and p.close_ms < stale_date_threshold_ms:
-            return False
-        if p.is_open_position and p.orders[-1].processed_ms < stale_date_threshold_ms:
-            return False
-        if percent_new_positions_keep == 100:
-            return False
-        if percent_new_positions_keep and hash_string_to_int(p.position_uuid) % 100 < percent_new_positions_keep:
-            return False
-        return True
-
-    def truncate_position(position_to_truncate: Position) -> Position:
-        nonlocal stale_date_threshold_ms
-        # 24 hours in milliseconds
-
-        new_orders = []
-        for order in position_to_truncate.orders:
-            if order.processed_ms < stale_date_threshold_ms:
-                new_orders.append(order)
-
-        if len(new_orders):
-            position_to_truncate.orders = new_orders
-            position_to_truncate.rebuild_position_with_updated_orders()
-            return position
-        else:  # no orders left. erase position
-            return None
-
-    assert percent_new_positions_keep in PERCENT_NEW_POSITIONS_TIERS
-    stale_date_threshold_ms = time_of_position_read_ms - AUTO_SYNC_ORDER_LAG_MS
-    for hotkey, positions in hotkey_to_positions.items():
-        new_positions = []
-        positions_deserialized = [Position(**json_positions_dict) for json_positions_dict in positions['positions']]
-        for position in positions_deserialized:
-            if filter_orders(position):
-                truncated_position = truncate_position(position)
-                if truncated_position:
-                    new_positions.append(truncated_position)
-            else:
-                new_positions.append(position)
-
-        # Turn the positions back into json dicts. Note we are overwriting the original positions
-        positions['positions'] = [json.loads(str(p), cls=GeneralizedJSONDecoder) for p in new_positions]
-
-def compress_dict(data: dict) -> bytes:
-    str_to_write = json.dumps(data, cls=CustomEncoder)
-    # Encode the JSON string to bytes and then compress it using gzip
-    compressed = gzip.compress(str_to_write.encode("utf-8"))
-    return compressed
-
-def decompress_dict(compressed_data: bytes) -> dict:
-    # Decompress the compressed data
-    decompressed = gzip.decompress(compressed_data)
-    # Decode the decompressed data to a JSON string and then load it into a dictionary
-    data = json.loads(decompressed.decode("utf-8"))
-    return data
-
 def upload_checkpoint_to_gcloud(final_dict):
     """
     The idea is to upload a zipped, time lagged validator checkpoint to google cloud for auto restoration
     on other validators as well as transparency with the community.
 
-    Positions are already time-filtered from the code called before this function.
     """
     datetime_now = TimeUtil.generate_start_timestamp(0)  # UTC
     #if not (datetime_now.hour == 6 and datetime_now.minute < 9 and datetime_now.second < 30):
@@ -123,15 +45,51 @@ def upload_checkpoint_to_gcloud(final_dict):
 
     # Name for the new blob
     # blob_name = 'validator_checkpoint.json'
-    blob_name = 'validator_checkpoint.json.gz'
+    blob_name = 'validator_checkpoint.zip'
 
     # Create a new blob and upload data
     blob = bucket.blob(blob_name)
 
+    """
+    candidate_data['positions'][hk]['positions'] = [json.loads(str(p), cls=GeneralizedJSONDecoder) for p in positions_orig]
+    """
+    positions = final_dict['positions']
+    # 24 hours in milliseconds
+    max_allowed_t_ms = TimeUtil.now_in_millis() - AUTO_SYNC_ORDER_LAG_MS
+    for hotkey, positions in positions.items():
+        new_positions = []
+        positions_deserialized = [Position(**json_positions_dict) for json_positions_dict in positions['positions']]
+        for position in positions_deserialized:
+            new_orders = []
+            for order in position.orders:
+                if order.processed_ms < max_allowed_t_ms:
+                    new_orders.append(order)
+            if len(new_orders):
+                position.orders = new_orders
+                position.rebuild_position_with_updated_orders()
+                new_positions.append(position)
+            else:
+                # if no orders are left, remove the position
+                pass
+
+        positions_serialized = [json.loads(str(p), cls=GeneralizedJSONDecoder) for p in new_positions]
+        positions['positions'] = positions_serialized
+
+    str_to_write = json.dumps(final_dict, cls=CustomEncoder)
+
     # Create a zip file in memory
-    zip_buffer = compress_dict(final_dict)
-    # Upload the content of the zip_buffer to Google Cloud Storage
-    blob.upload_from_string(zip_buffer)
+    with io.BytesIO() as zip_buffer:
+        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+            # Add the json file to the zip file
+            zip_file.writestr('validator_checkpoint.json', str_to_write)
+            #zip_file.write(ValiBkpUtils.get_vcp_output_path(), arcname='validator_checkpoint.json')
+
+        # Rewind the buffer's file pointer to the beginning so you can read its content
+        zip_buffer.seek(0)
+
+        # Upload the content of the zip_buffer to Google Cloud Storage
+        blob.upload_from_file(zip_buffer)
+
     print(f'Uploaded {blob_name} to {bucket_name}')
 
 def generate_request_core(time_now:int) -> dict:
@@ -271,28 +229,11 @@ def generate_request_core(time_now:int) -> dict:
         final_dict,
     )
 
-    # Write positions data (sellable via RN) at the different tiers. Each iteration, the number of orders (possibly) decreases
-    for t in PERCENT_NEW_POSITIONS_TIERS:
-        if t == 100: #no filtering
-            # Write legacy location as well. no compression
-            ValiBkpUtils.write_file(
-                ValiBkpUtils.get_miner_positions_output_path(suffix_dir=None),
-                ord_dict_hotkey_position_map,
-            )
-        else:
-            filter_new_positions_random_sample(t, ord_dict_hotkey_position_map, time_now)
+    miner_positions_output_file_path = ValiBkpUtils.get_miner_positions_output_path()
+    ValiBkpUtils.write_file(
+        miner_positions_output_file_path,
+        ord_dict_hotkey_position_map,
+    )
 
-        # "v2" add a tier. compress the data. This is a location in a subdir
-        for hotkey, dat in ord_dict_hotkey_position_map.items():
-            dat['tier'] = t
-
-        compressed_positions = compress_dict(ord_dict_hotkey_position_map)
-        ValiBkpUtils.write_file(
-            ValiBkpUtils.get_miner_positions_output_path(suffix_dir=str(t)),
-            compressed_positions, is_binary=True
-        )
-
-
-    # Max filtering
     upload_checkpoint_to_gcloud(final_dict)
     return final_dict

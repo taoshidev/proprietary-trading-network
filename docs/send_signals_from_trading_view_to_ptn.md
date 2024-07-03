@@ -75,18 +75,3 @@ in setting up your alert.
 
 <img width="600" alt="Screenshot 2024-03-19 at 6 02 24 PM" src="https://github.com/taoshidev/proprietary-trading-network/assets/68529441/1b6a0198-a875-4881-a7d7-2056d3e02ac2">
 <img width="600" alt="Screenshot 2024-03-19 at 1 26 40 PM" src="https://github.com/taoshidev/proprietary-trading-network/assets/68529441/22cfa76f-7a8f-4db9-a9eb-ca5630c39f61">
-
-
-Note:
-You will want to silo access to your new PTN signals server on port 80 so that only TradingView can access it.
-
-See here for the latest <a href="https://www.tradingview.com/support/solutions/43000529348-about-webhooks/">IPv4 TradingView addresses</a>.
-
-At the time of writing, they can be whitelisted like this for example:
-
-```bash
-sudo ufw allow from 52.89.214.238 to any port 80;
-sudo ufw allow from 34.212.75.30 to any port 80;
-sudo ufw allow from 54.218.53.128 to any port 80;
-sudo ufw allow from 52.32.178.7 to any port 80;
-```

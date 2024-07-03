@@ -93,15 +93,8 @@ class ValiBkpUtils:
         return ValiBkpUtils.get_vali_outputs_dir() + "validator_checkpoint.json"
 
     @staticmethod
-    def get_miner_positions_output_path(suffix_dir: None | str = None) -> str:
-        if suffix_dir is None:
-            suffix = ''
-        else:
-            suffix = f"tiered_positions/{suffix_dir}/"
-        ans = ValiConfig.BASE_DIR + f"/validation/outputs/{suffix}output.json"
-        if suffix_dir is not None:
-            ans += '.gz'
-        return ans
+    def get_miner_positions_output_path() -> str:
+        return ValiConfig.BASE_DIR + "/validation/outputs/output.json"
 
     @staticmethod
     def get_vali_weights_dir() -> str:
@@ -138,8 +131,8 @@ class ValiBkpUtils:
             os.makedirs(vali_dir)
 
     @staticmethod
-    def get_write_type(is_pickle: bool, is_binary:bool) -> str:
-        return "wb" if is_pickle or is_binary else "w"
+    def get_write_type(is_pickle: bool) -> str:
+        return "wb" if is_pickle else "w"
 
     @staticmethod
     def get_read_type(is_pickle: bool) -> str:
@@ -154,7 +147,7 @@ class ValiBkpUtils:
 
     @staticmethod
     def write_to_dir(
-        vali_file: str, vali_data: dict | object, is_pickle: bool = False, is_binary:bool = False
+        vali_file: str, vali_data: dict | object, is_pickle: bool = False
     ) -> None:
         temp_dir = ValiBkpUtils.get_temp_file_path()
         os.makedirs(os.path.dirname(vali_file), exist_ok=True)
@@ -162,10 +155,8 @@ class ValiBkpUtils:
         # Create uuid file name
         temp_file_path = temp_dir + str(uuid.uuid4())
         # Write to temp file first
-        with open(temp_file_path, ValiBkpUtils.get_write_type(is_pickle, is_binary)) as f:
-            if is_binary:
-                f.write(vali_data)
-            elif isinstance(vali_data, Position):
+        with open(temp_file_path, ValiBkpUtils.get_write_type(is_pickle)) as f:
+            if isinstance(vali_data, Position):
                 f.write(vali_data.to_json_string())
             elif is_pickle:
                 pickle.dump(vali_data, f)
@@ -176,9 +167,9 @@ class ValiBkpUtils:
 
     @staticmethod
     def write_file(
-        vali_dir: str, vali_data: dict | object, is_pickle: bool = False, is_binary: bool = False
+        vali_dir: str, vali_data: dict | object, is_pickle: bool = False
     ) -> None:
-        ValiBkpUtils.write_to_dir(vali_dir, vali_data, is_pickle, is_binary=is_binary)
+        ValiBkpUtils.write_to_dir(vali_dir, vali_data, is_pickle)
 
     @staticmethod
     def get_file(vali_file: str, is_pickle: bool = False) -> str | object:

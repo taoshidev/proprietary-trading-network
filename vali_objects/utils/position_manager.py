@@ -750,6 +750,10 @@ class PositionManager(CacheController):
         if baseline_gain_rate is None:
             baseline_gain_rate = ValiConfig.BASELINE_ANNUAL_LOG_RETURN_MS
         
+        consistency_penalty = PositionUtils.compute_consistency_penalty_cps(cps)
+        drawdown_penalty = PositionUtils.compute_drawdown_penalty_cps(cps)
+        overall_penalty = drawdown_penalty * consistency_penalty
+        
         cps_augmented = []
         for cp in cps:
             cp_copy = copy.deepcopy(cp)
@@ -761,13 +765,13 @@ class PositionManager(CacheController):
                 evaluation_time_ms
             )
             
-            cp_copy.gain = PositionUtils.dampen_value(
+            cp_copy.gain = overall_penalty * PositionUtils.dampen_value(
                 cp.gain,
                 lookback_fraction,
                 time_decay_coefficient
             )
 
-            cp_copy.loss = PositionUtils.dampen_value(
+            cp_copy.loss = overall_penalty * PositionUtils.dampen_value(
                 cp.loss - baseline_gain, # tbill augmentation
                 lookback_fraction,
                 time_decay_coefficient

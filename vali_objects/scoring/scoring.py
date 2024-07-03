@@ -15,7 +15,6 @@ from vali_objects.utils.vali_utils import ValiUtils
 from vali_objects.vali_dataclasses.perf_ledger import PerfCheckpoint, PerfLedger
 from vali_objects.utils.position_manager import PositionManager
 from time_util.time_util import TimeUtil
-from vali_objects.utils.position_utils import PositionUtils
 
 import bittensor as bt
 
@@ -83,10 +82,6 @@ class Scoring:
         return_decay_coefficient_long = ValiConfig.HISTORICAL_DECAY_COEFFICIENT_RETURNS_LONG
         risk_adjusted_decay_coefficient = ValiConfig.HISTORICAL_DECAY_COEFFICIENT_RISKMETRIC
 
-        # Compute miner penalties
-        miner_penalties = Scoring.miner_penalties(ledger_dict)
-
-        # Augmented returns ledgers
         returns_ledger_short = PositionManager.augment_perf_ledger(
             ledger_dict,
             evaluation_time_ms=evaluation_time_ms,
@@ -130,8 +125,7 @@ class Scoring:
             for miner, minerledger in config['ledger'].items():
                 scoringunit = ScoringUnit.from_perf_ledger(minerledger)
                 score = config['function'](scoringunit=scoringunit)
-                score_riskadjusted = score * miner_penalties.get(miner, 0)
-                miner_scores.append((miner, score_riskadjusted))
+                miner_scores.append((miner, score))
             
             weighted_scores = Scoring.miner_scores_percentiles(miner_scores)
             
@@ -144,22 +138,11 @@ class Scoring:
         combined_weighed = Scoring.weigh_miner_scores(list(combined_scores.items()))
         combined_scores = dict(combined_weighed)
 
-        ## Normalize the scores
         normalized_scores = Scoring.normalize_scores(combined_scores)
-        return sorted(normalized_scores.items(), key=lambda x: x[1], reverse=True)
-    
-    @staticmethod
-    def miner_penalties(ledger_dict: dict[str, PerfLedger]) -> dict[str, float]:
-        # Compute miner penalties
-        miner_penalties = {}
-        for miner, perfledger in ledger_dict.items():
-            ledgercps = perfledger.cps
+        total_scores = sorted(normalized_scores.items(), key=lambda x: x[1], reverse=True)
 
-            consistency_penalty = PositionUtils.compute_consistency_penalty_cps(ledgercps)
-            drawdown_penalty = PositionUtils.compute_drawdown_penalty_cps(ledgercps)
-            miner_penalties[miner] = drawdown_penalty * consistency_penalty
-
-        return miner_penalties
+        total_scores = sorted(list(normalized_scores.items()), key=lambda x: x[1], reverse=True)
+        return total_scores
     
     @staticmethod
     def normalize_scores(scores: dict[str, float]) -> dict[str, float]:

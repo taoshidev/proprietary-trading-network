@@ -78,8 +78,7 @@ class PositionUtils:
         if evaluation_time_ms is None:
             evaluation_time_ms = TimeUtil.now_in_millis()
 
-        positions_copy = copy.deepcopy(positions)
-        for position in positions_copy:
+        for position in positions:
             running_leverage = 0
             new_orders = []
             for order in position.orders:
@@ -99,7 +98,7 @@ class PositionUtils:
 
             position.orders.extend(new_orders)  # Append all new orders after the loop
 
-        return positions_copy
+        return positions
     
     @staticmethod
     def compute_average_leverage(positions: list[Position]) -> float:
