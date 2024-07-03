@@ -1,4 +1,6 @@
 import threading
+from typing import List
+from bittensor import Balance
 
 from vali_objects.utils.mdd_checker import MDDChecker
 from vali_objects.utils.plagiarism_detector import PlagiarismDetector
@@ -26,6 +28,21 @@ class MockChallengePeriodManager(ChallengePeriodManager):
     def __init__(self, metagraph):
         super().__init__(None, metagraph, running_unit_tests=True)
 
+class MockAxonInfo:
+    ip: str
+    def __init__(self, ip: str):
+        self.ip = ip
+
+class MockNeuron:
+    axon_info: MockAxonInfo
+    stake: Balance
+    def __init__(self, axon_info: MockAxonInfo, stake: Balance):
+        self.axon_info = axon_info
+        self.stake = stake
+
 class MockMetagraph():
-    def __init__(self, hotkeys):
+    neurons: List[MockNeuron]
+    def __init__(self, hotkeys, neurons = None):
         self.hotkeys = hotkeys
+        self.neurons = neurons
+

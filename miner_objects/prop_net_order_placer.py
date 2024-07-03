@@ -68,7 +68,13 @@ class PropNetOrderPlacer:
         Manages retry attempts and employs exponential backoff for failed attempts.
         """
         hotkey_to_v_trust = {neuron.hotkey: neuron.validator_trust for neuron in self.metagraph.neurons}
-        axons_to_try = self.metagraph.axons
+        # TODO: combine testnet and mainnet cases
+        if not self.is_testnet:
+            axons_to_try = [n.axon_info for n in self.metagraph.neurons
+                            if n.stake > bt.Balance(MinerConfig.STAKE_MIN)
+                            and n.axon_info.ip != MinerConfig.AXON_NO_IP]
+        else:
+            axons_to_try = self.metagraph.axons
         axons_to_try.sort(key=lambda validator: hotkey_to_v_trust[validator.hotkey], reverse=True)
 
         validator_hotkey_to_axon = {}
