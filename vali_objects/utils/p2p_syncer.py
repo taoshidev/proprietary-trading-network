@@ -35,7 +35,6 @@ class P2PSyncer:
         serializes checkpoint json and transmits to all validators via synapse
         """
         # only validators should request a checkpoint with a poke
-        # TODO: remove testnet flag
         if not self.is_testnet and self.hotkey not in [axon.hotkey for axon in self.get_validators()]:
             bt.logging.info("Aborting send_checkpoint_poke; not a qualified validator")
             return
@@ -47,7 +46,7 @@ class P2PSyncer:
         try:
             # create dendrite and transmit synapse
             checkpoint_synapse = template.protocol.ValidatorCheckpoint()
-            validator_responses = await dendrite.forward(axons=validator_axons, synapse=checkpoint_synapse, timeout=60) # TODO: make sure this is blocking call, give it a timeout
+            validator_responses = await dendrite.forward(axons=validator_axons, synapse=checkpoint_synapse, timeout=60)
 
             bt.logging.info(f"Sending checkpoint from validator {self.wallet.hotkey.ss58_address}")
 
@@ -73,7 +72,7 @@ class P2PSyncer:
             bt.logging.info(f"{successful_checkpoints} responses succeeded")
             bt.logging.info(f"{failures} responses failed")
 
-            if successful_checkpoints >= ValiConfig.MIN_CHECKPOINTS_RECEIVED:
+            if (successful_checkpoints > 0 and self.is_testnet) or successful_checkpoints >= ValiConfig.MIN_CHECKPOINTS_RECEIVED:
                 bt.logging.info("Received enough checkpoints, now creating golden.")
                 self.create_golden(received_hotkeys_checkpoints)
             else:
@@ -87,7 +86,6 @@ class P2PSyncer:
         get a list of all validators. defined as:
         stake > 1000 and validator_trust > 0.5
         """
-        # TODO: remove testnet flag
         if self.is_testnet:
             return self.metagraph.axons
             # return [a for a in self.metagraph.axons if a.ip != ValiConfig.AXON_NO_IP]
@@ -156,7 +154,7 @@ class P2PSyncer:
                 return
 
         try:
-            bt.logging.info("calling send_checkpoint_poke")
+            bt.logging.info("Calling send_checkpoint_poke")
             asyncio.run(self.send_checkpoint_poke())
         except Exception as e:
             bt.logging.error(f"Error sending checkpoint: {e}")
@@ -180,7 +178,7 @@ class P2PSyncer:
         order_data = defaultdict(list)                          # {order_uuid: [{order}]}
 
         # simple majority of positions/number of checkpoints
-        positions_threshold = len(trusted_checkpoints) / 2
+        positions_threshold = len(trusted_checkpoints) // 2
 
         # parse each checkpoint to count occurrences of each position and order
         for checkpoint in trusted_checkpoints.values():
@@ -221,7 +219,7 @@ class P2PSyncer:
                         majority_positions.remove(position_uuid)
 
                         # simple majority of orders out of the positions they could appear in
-                        orders_threshold = position_counts[position_uuid] / 2
+                        orders_threshold = position_counts[position_uuid] // 2
 
                         # get the set of order_uuids that appear in the majority of positions for a position_uuid
                         majority_orders = {order_uuid for order_uuid, count in order_counts[position_uuid].items()
@@ -241,7 +239,9 @@ class P2PSyncer:
                         golden[miner_hotkey]["positions"].append(position_dict)
 
         # Convert defaultdict to regular dict
-        self.golden = {miner: dict(golden[miner]) for miner in golden}
+        self.golden = {"positions": {miner: dict(golden[miner]) for miner in golden}}
+        bt.logging.info("Created golden checkpoint:")
+        bt.logging.info(json.dumps(self.golden, indent=4))
         return self.golden
 
     def get_median_order(self, orders, trade_pair) -> Order:

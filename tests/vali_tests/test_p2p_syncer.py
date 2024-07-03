@@ -154,9 +154,9 @@ class TestPositions(TestBase):
 
         # print(json.dumps(self.p2p_syncer.golden, indent=4))
 
-        assert len(self.p2p_syncer.golden[self.DEFAULT_MINER_HOTKEY]["positions"]) == 1
-        assert len(self.p2p_syncer.golden[self.DEFAULT_MINER_HOTKEY]["positions"][0]["orders"]) == 1
-        assert self.p2p_syncer.golden[self.DEFAULT_MINER_HOTKEY]["positions"][0]["orders"][0]["price"] == 2.0
+        assert len(self.p2p_syncer.golden["positions"][self.DEFAULT_MINER_HOTKEY]["positions"]) == 1
+        assert len(self.p2p_syncer.golden["positions"][self.DEFAULT_MINER_HOTKEY]["positions"][0]["orders"]) == 1
+        assert self.p2p_syncer.golden["positions"][self.DEFAULT_MINER_HOTKEY]["positions"][0]["orders"][0]["price"] == 2.0
 
     def test_checkpoint_syncing_order_not_in_majority(self):
         order1 = deepcopy(self.default_order)
@@ -195,8 +195,8 @@ class TestPositions(TestBase):
         checkpoints = {"test_validator1": checkpoint1, "test_validator2": checkpoint2, "test_validator3": checkpoint3}
         self.p2p_syncer.create_golden(checkpoints)
 
-        assert len(self.p2p_syncer.golden[self.DEFAULT_MINER_HOTKEY]["positions"]) == 1
-        assert len(self.p2p_syncer.golden[self.DEFAULT_MINER_HOTKEY]["positions"][0]["orders"]) == 2
+        assert len(self.p2p_syncer.golden["positions"][self.DEFAULT_MINER_HOTKEY]["positions"]) == 1
+        assert len(self.p2p_syncer.golden["positions"][self.DEFAULT_MINER_HOTKEY]["positions"][0]["orders"]) == 2
 
     def test_checkpoint_syncing_position_not_in_majority(self):
         order1 = deepcopy(self.default_order)
@@ -232,5 +232,5 @@ class TestPositions(TestBase):
         checkpoints = {"test_validator1": checkpoint1, "test_validator2": checkpoint2, "test_validator3": checkpoint3}
         self.p2p_syncer.create_golden(checkpoints)
 
-        assert len(self.p2p_syncer.golden[self.DEFAULT_MINER_HOTKEY]["positions"]) == 1
-        assert len(self.p2p_syncer.golden[self.DEFAULT_MINER_HOTKEY]["positions"][0]["orders"]) == 1
+        assert len(self.p2p_syncer.golden["positions"][self.DEFAULT_MINER_HOTKEY]["positions"]) == 1
+        assert len(self.p2p_syncer.golden["positions"][self.DEFAULT_MINER_HOTKEY]["positions"][0]["orders"]) == 1

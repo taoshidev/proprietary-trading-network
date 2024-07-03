@@ -20,7 +20,7 @@ import json
 import gzip
 import base64
 
-from runnable.generate_request_core import generate_request_core
+from runnable.generate_request_core import generate_request_core, serialize_positions
 from vali_objects.decoders.generalized_json_decoder import GeneralizedJSONDecoder
 from vali_objects.utils.auto_sync import PositionSyncer, AUTO_SYNC_ORDER_LAG_MS
 from vali_objects.utils.p2p_syncer import P2PSyncer
@@ -701,27 +701,7 @@ class Validator:
                 checkpoint_dict = generate_request_core(time_now=now_ms)
 
                 # serialize the position data
-                positions = checkpoint_dict['positions']
-                # 24 hours in milliseconds
-                max_allowed_t_ms = TimeUtil.now_in_millis() - AUTO_SYNC_ORDER_LAG_MS
-                for hotkey, positions in positions.items():
-                    new_positions = []
-                    positions_deserialized = [Position(**json_positions_dict) for json_positions_dict in positions['positions']]
-                    for position in positions_deserialized:
-                        new_orders = []
-                        for order in position.orders:
-                            if order.processed_ms < max_allowed_t_ms:
-                                new_orders.append(order)
-                        if len(new_orders):
-                            position.orders = new_orders
-                            position.rebuild_position_with_updated_orders()
-                            new_positions.append(position)
-                        else:
-                            # if no orders are left, remove the position
-                            pass
-
-                    positions_serialized = [json.loads(str(p), cls=GeneralizedJSONDecoder) for p in new_positions]
-                    positions['positions'] = positions_serialized
+                serialize_positions(checkpoint_dict["positions"])
 
                 # compress json and encode as base64 to keep as a string
                 checkpoint_str = json.dumps(checkpoint_dict, cls=CustomEncoder)
@@ -729,9 +709,6 @@ class Validator:
                 encoded_checkpoint = base64.b64encode(compressed).decode("utf-8")
 
                 synapse.checkpoint = encoded_checkpoint
-
-                print("set synapse checkpoint")
-
             except Exception as e:
                 error_message = f"Error processing checkpoint request poke from [{sender_hotkey}] with error [{e}]"
                 bt.logging.error(traceback.format_exc())
