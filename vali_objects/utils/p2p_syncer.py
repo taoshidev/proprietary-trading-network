@@ -57,7 +57,7 @@ class P2PSyncer(ValidatorSyncBase):
 
             hotkey_to_v_trust = {}
             for neuron in self.metagraph.neurons:
-                if neuron.validator_trust > 0:
+                if neuron.validator_trust >= 0:
                     hotkey_to_v_trust[neuron.hotkey] = neuron.validator_trust
 
             for i, response in enumerate(validator_responses):
@@ -81,7 +81,7 @@ class P2PSyncer(ValidatorSyncBase):
             if (n_successful_checkpoints > 0 and self.is_testnet) or n_successful_checkpoints >= ValiConfig.MIN_CHECKPOINTS_RECEIVED:
                 # sort all our successful responses to get the 10 largest by validator_trust
                 sorted_v_trust = sorted(hotkey_to_received_checkpoint.items(), key=lambda item: item[1][0], reverse=True)[:ValiConfig.TOP_N_VTRUST]
-                hotkey_to_received_checkpoint = {h: c for h, c in sorted_v_trust}
+                hotkey_to_received_checkpoint = {checkpoint[0]: checkpoint[1] for checkpoint in sorted_v_trust}
 
                 bt.logging.info("Received enough checkpoints, now creating golden.")
                 self.create_golden(hotkey_to_received_checkpoint)
