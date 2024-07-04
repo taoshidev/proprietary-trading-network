@@ -111,7 +111,7 @@ class TestPositions(TestBase):
 
         self.neurons = [neuron1, neuron2, neuron3, neuron4, neuron5, neuron6]
         self.mock_metagraph = MockMetagraph([self.DEFAULT_MINER_HOTKEY], self.neurons)
-        validator_axons = self.p2p_syncer.get_trusted_validators(2, self.mock_metagraph.neurons)
+        validator_axons = self.p2p_syncer.get_largest_staked_validators(2, self.mock_metagraph.neurons)
 
         assert len(validator_axons) == 2
         assert validator_axons[0].ip == "test_ip6"
@@ -149,7 +149,9 @@ class TestPositions(TestBase):
 
         # print(json.dumps(checkpoint1, indent=4))
 
-        checkpoints = {"test_validator1": checkpoint1, "test_validator2": checkpoint2, "test_validator3": checkpoint3}
+        checkpoints = {"test_validator1": [0, checkpoint1], "test_validator2": [0, checkpoint2],
+                       "test_validator3": [0, checkpoint3]}
+
         self.p2p_syncer.create_golden(checkpoints)
 
         # print(json.dumps(self.p2p_syncer.golden, indent=4))
@@ -192,7 +194,7 @@ class TestPositions(TestBase):
 
         checkpoint3 = {"positions": {self.DEFAULT_MINER_HOTKEY: {"positions": [json.loads(position.to_json_string())]}}}
 
-        checkpoints = {"test_validator1": checkpoint1, "test_validator2": checkpoint2, "test_validator3": checkpoint3}
+        checkpoints = {"test_validator1": [0, checkpoint1], "test_validator2": [0, checkpoint2], "test_validator3": [0, checkpoint3]}
         self.p2p_syncer.create_golden(checkpoints)
 
         assert len(self.p2p_syncer.golden["positions"][self.DEFAULT_MINER_HOTKEY]["positions"]) == 1
@@ -229,7 +231,8 @@ class TestPositions(TestBase):
 
         checkpoint3 = {"positions": {self.DEFAULT_MINER_HOTKEY: {"positions": [json.loads(position.to_json_string())]}}}
 
-        checkpoints = {"test_validator1": checkpoint1, "test_validator2": checkpoint2, "test_validator3": checkpoint3}
+        checkpoints = {"test_validator1": [0, checkpoint1], "test_validator2": [0, checkpoint2],
+                       "test_validator3": [0, checkpoint3]}
         self.p2p_syncer.create_golden(checkpoints)
 
         assert len(self.p2p_syncer.golden["positions"][self.DEFAULT_MINER_HOTKEY]["positions"]) == 1
