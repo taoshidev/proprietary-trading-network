@@ -699,12 +699,12 @@ class Validator:
 
             error_message = ""
             try:
-                # reset checkpoint every 10 mins
-                if TimeUtil.now_in_millis() - self.last_checkpoint_time > 1000 * 60 * 10:
-                    self.encoded_checkpoint = ""
-                # only want to generate checkpoint once for all requests
-                if not self.encoded_checkpoint:
-                    with self.checkpoint_lock:
+                with self.checkpoint_lock:
+                    # reset checkpoint every 10 mins
+                    if TimeUtil.now_in_millis() - self.last_checkpoint_time > 1000 * 60 * 10:
+                        self.encoded_checkpoint = ""
+                    # only want to generate checkpoint once for all requests
+                    if not self.encoded_checkpoint:
                         # get our current checkpoint
                         self.last_checkpoint_time = TimeUtil.now_in_millis()
                         checkpoint_dict = generate_request_core(time_now=self.last_checkpoint_time)
@@ -714,7 +714,7 @@ class Validator:
                         compressed = gzip.compress(checkpoint_str.encode("utf-8"))
                         self.encoded_checkpoint = base64.b64encode(compressed).decode("utf-8")
 
-                synapse.checkpoint = self.encoded_checkpoint
+                    synapse.checkpoint = self.encoded_checkpoint
             except Exception as e:
                 error_message = f"Error processing checkpoint request poke from [{sender_hotkey}] with error [{e}]"
                 bt.logging.error(traceback.format_exc())
