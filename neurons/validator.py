@@ -173,6 +173,9 @@ class Validator:
                                     signal_sync_condition=self.signal_sync_condition,
                                     n_orders_being_processed=self.n_orders_being_processed
                                     )
+        self.checkpoint_lock = threading.Lock()
+        self.encoded_checkpoint = ""
+        self.last_checkpoint_time = 0
 
         self.perf_ledger_manager = PerfLedgerManager(self.metagraph, live_price_fetcher=self.live_price_fetcher,
                                                      shutdown_dict=shutdown_dict, position_syncer=self.position_syncer)
@@ -696,16 +699,22 @@ class Validator:
 
             error_message = ""
             try:
-                # get our current checkpoint
-                now_ms = TimeUtil.now_in_millis()
-                checkpoint_dict = generate_request_core(time_now=now_ms)
+                # reset checkpoint every 10 mins
+                if TimeUtil.now_in_millis() - self.last_checkpoint_time > 1000 * 60 * 10:
+                    self.encoded_checkpoint = ""
+                # only want to generate checkpoint once for all requests
+                if not self.encoded_checkpoint:
+                    with self.checkpoint_lock:
+                        # get our current checkpoint
+                        self.last_checkpoint_time = TimeUtil.now_in_millis()
+                        checkpoint_dict = generate_request_core(time_now=self.last_checkpoint_time)
 
-                # compress json and encode as base64 to keep as a string
-                checkpoint_str = json.dumps(checkpoint_dict, cls=CustomEncoder)
-                compressed = gzip.compress(checkpoint_str.encode("utf-8"))
-                encoded_checkpoint = base64.b64encode(compressed).decode("utf-8")
+                        # compress json and encode as base64 to keep as a string
+                        checkpoint_str = json.dumps(checkpoint_dict, cls=CustomEncoder)
+                        compressed = gzip.compress(checkpoint_str.encode("utf-8"))
+                        self.encoded_checkpoint = base64.b64encode(compressed).decode("utf-8")
 
-                synapse.checkpoint = encoded_checkpoint
+                synapse.checkpoint = self.encoded_checkpoint
             except Exception as e:
                 error_message = f"Error processing checkpoint request poke from [{sender_hotkey}] with error [{e}]"
                 bt.logging.error(traceback.format_exc())
