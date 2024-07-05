@@ -700,7 +700,7 @@ class Validator:
             error_message = ""
             try:
                 with self.checkpoint_lock:
-                    # reset checkpoint every 10 mins
+                    # reset checkpoint after 10 minutes
                     if TimeUtil.now_in_millis() - self.last_checkpoint_time > 1000 * 60 * 10:
                         self.encoded_checkpoint = ""
                     # only want to generate checkpoint once for all requests
