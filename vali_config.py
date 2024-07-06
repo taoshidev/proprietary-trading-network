@@ -276,7 +276,8 @@ class ValiConfig:
     TOP_MINER_PERCENT = 0.40
 
     ## Qualifications to be a trusted validator sending checkpoints
-    TOP_N = 10
+    TOP_N_VTRUST = 10
+    TOP_N_STAKE = 20
     STAKE_MIN = 1000.0
     AXON_NO_IP = "0.0.0.0"
 

@@ -2,12 +2,11 @@ import asyncio
 import base64
 import gzip
 import json
-# import random
+import math
 import traceback
 from collections import defaultdict
 
 import bittensor as bt
-# from tabulate import tabulate
 
 import template
 from time_util.time_util import TimeUtil
@@ -29,6 +28,7 @@ class P2PSyncer(ValidatorSyncBase):
         # flag for testnet
         self.is_testnet = is_testnet
         self.created_golden = False
+        self.last_signal_sync_time_ms = 0
 
     async def send_checkpoint_requests(self):
         """
@@ -41,18 +41,23 @@ class P2PSyncer(ValidatorSyncBase):
 
         # get axons to send checkpoints to
         dendrite = bt.dendrite(wallet=self.wallet)
-        validator_axons = self.get_trusted_validators(ValiConfig.TOP_N)
+        validator_axons = self.get_largest_staked_validators(ValiConfig.TOP_N_STAKE)
 
         try:
             # create dendrite and transmit synapse
             checkpoint_synapse = template.protocol.ValidatorCheckpoint()
             validator_responses = await dendrite.forward(axons=validator_axons, synapse=checkpoint_synapse, timeout=60)
 
-            bt.logging.info(f"Requesting checkpoints from validator {self.wallet.hotkey.ss58_address}")
+            bt.logging.info(f"Validator {self.wallet.hotkey.ss58_address} requesting checkpoints")
 
             n_failures = 0
             n_successful_checkpoints = 0
             hotkey_to_received_checkpoint = {}
+
+            hotkey_to_v_trust = {}
+            for neuron in self.metagraph.neurons:
+                if neuron.validator_trust >= 0:
+                    hotkey_to_v_trust[neuron.hotkey] = neuron.validator_trust
 
             for i, response in enumerate(validator_responses):
                 if response.successfully_processed:
@@ -61,17 +66,22 @@ class P2PSyncer(ValidatorSyncBase):
                     decompressed = gzip.decompress(decoded).decode('utf-8')
                     recv_checkpoint = json.loads(decompressed)
 
-                    hotkey_to_received_checkpoint[response.validator_receive_hotkey] = recv_checkpoint
+                    hotkey = response.validator_receive_hotkey
+                    hotkey_to_received_checkpoint[hotkey] = [hotkey_to_v_trust[hotkey], recv_checkpoint]
 
-                    bt.logging.info(f"Successfully processed checkpoint from axon [{i}/{len(validator_responses)}]: {response.validator_receive_hotkey}")
+                    bt.logging.info(f"Successfully processed checkpoint from axon [{i+1}/{len(validator_responses)}]: {response.validator_receive_hotkey}")
                     n_successful_checkpoints += 1
                 else:
                     n_failures += 1
-                    bt.logging.info(f"Checkpoint poke to axon [{i}/{len(validator_responses)}] {response.axon.hotkey} failed")
+                    bt.logging.info(f"Checkpoint poke to axon [{i+1}/{len(validator_responses)}] {response.axon.hotkey} failed")
 
             bt.logging.info(f"{n_successful_checkpoints} responses succeeded. {n_failures} responses failed")
 
             if (n_successful_checkpoints > 0 and self.is_testnet) or n_successful_checkpoints >= ValiConfig.MIN_CHECKPOINTS_RECEIVED:
+                # sort all our successful responses to get the 10 largest by validator_trust
+                sorted_v_trust = sorted(hotkey_to_received_checkpoint.items(), key=lambda item: item[1][0], reverse=True)[:ValiConfig.TOP_N_VTRUST]
+                hotkey_to_received_checkpoint = {checkpoint[0]: checkpoint[1] for checkpoint in sorted_v_trust}
+
                 bt.logging.info("Received enough checkpoints, now creating golden.")
                 self.create_golden(hotkey_to_received_checkpoint)
                 self.created_golden = True
@@ -89,7 +99,6 @@ class P2PSyncer(ValidatorSyncBase):
         """
         if self.is_testnet:
             return self.metagraph.axons
-            # return [a for a in self.metagraph.axons if a.ip != ValiConfig.AXON_NO_IP]
         if neurons is None:
             neurons = self.metagraph.neurons
         validator_axons = [n.axon_info for n in neurons
@@ -97,10 +106,10 @@ class P2PSyncer(ValidatorSyncBase):
                            and n.axon_info.ip != ValiConfig.AXON_NO_IP]
         return validator_axons
 
-    def get_trusted_validators(self, top_n_validators, neurons=None):
+    def get_largest_staked_validators(self, top_n_validators, neurons=None):
         """
         get a list of the trusted validators for checkpoint sending
-        return top 10 neurons sorted by stake
+        return top 20 neurons sorted by stake
         """
         if self.is_testnet:
             return self.get_validators()
@@ -110,52 +119,23 @@ class P2PSyncer(ValidatorSyncBase):
 
         return self.get_validators(sorted_stake_neurons)[:top_n_validators]
 
-    # # TODO: remove temp test method to print out the metagraph state
-    # def print_metagraph_attributes(self):
-    #     # for n in self.metagraph.neurons:
-    #     #     n.axon_info.ip = "1.1.1.1"
-    #     #     n.validator_trust = round(random.random(), 3)
-    #     #     n.stake = random.randrange(1500)
-    #
-    #     table = [[n.axon_info.hotkey[:4] for n in self.metagraph.neurons],
-    #              [n.axon_info.ip for n in self.metagraph.neurons],
-    #              [str(n.stake)[:7] for n in self.metagraph.neurons],
-    #              [n.validator_trust for n in self.metagraph.neurons]]
-    #     # my_uid = self.metagraph.hotkeys.index(self.wallet.hotkey.ss58_address)
-    #     # bt.logging.info(f"my uid {my_uid}")
-    #     smalltable = [r[:20] for r in table]
-    #     print(tabulate(smalltable, tablefmt="simple_grid"))
-    #     smalltable = [r[20:40] for r in table]
-    #     print(tabulate(smalltable, tablefmt="simple_grid"))
-    #     smalltable = [r[40:60] for r in table]
-    #     print(tabulate(smalltable, tablefmt="simple_grid"))
-    #     smalltable = [r[60:80] for r in table]
-    #     print(tabulate(smalltable, tablefmt="simple_grid"))
-    #     smalltable = [r[80:100] for r in table]
-    #     print(tabulate(smalltable, tablefmt="simple_grid"))
-    #     # bt.logging.info(f"stake {[n.stake for n in self.metagraph.neurons]}")
-    #
-    #     # print(self.num_trusted_validators, " trusted validators___________")
-    #     for a in self.get_trusted_validators():
-    #         print(a.hotkey)
-
     def sync_positions_with_cooldown(self):
+        now_ms = TimeUtil.now_in_millis()
+        # Already performed a sync recently
+        if now_ms - self.last_signal_sync_time_ms < 1000 * 60 * 30:
+            return
+
         # Check if the time is right to sync signals
         if self.is_testnet:
             datetime_now = TimeUtil.generate_start_timestamp(0)  # UTC
             # every hour in testnet
-            if not (47 < datetime_now.minute < 57):
+            if not (7 < datetime_now.minute < 17):
                 return
         else:
-            now_ms = TimeUtil.now_in_millis()
-            # Already performed a sync recently
-            if now_ms - self.last_signal_sync_time_ms < 1000 * 60 * 30:
-                return
-
             # Check if we are between 7:09 AM and 7:19 AM UTC
             datetime_now = TimeUtil.generate_start_timestamp(0)  # UTC
-            # Temp change time to 21:00 UTC so we can see the effects in shadow mode ASAP
-            if not (datetime_now.hour == 21 and (8 < datetime_now.minute < 20)):
+            # Temp change time to 7:00 UTC so we can see the effects in shadow mode ASAP
+            if not (datetime_now.hour == 7 and (8 < datetime_now.minute < 20)):
                 return
 
         try:
@@ -194,12 +174,12 @@ class P2PSyncer(ValidatorSyncBase):
         order_data = defaultdict(list)                          # {order_uuid: [{order}]}
 
         # simple majority of positions/number of checkpoints
-        positions_threshold = len(trusted_checkpoints) // 2
+        positions_threshold = math.ceil(len(trusted_checkpoints) / 2)
 
         # parse each checkpoint to count occurrences of each position and order
         for checkpoint in trusted_checkpoints.values():
             # get positions for each miner
-            for miner_positions in checkpoint["positions"].values():
+            for miner_positions in checkpoint[1]["positions"].values():
                 for position in miner_positions["positions"]:
                     position_uuid = position["position_uuid"]
                     position_counts[position_uuid] += 1
@@ -220,7 +200,7 @@ class P2PSyncer(ValidatorSyncBase):
         golden_positions = defaultdict(lambda: defaultdict(list))
 
         for checkpoint in trusted_checkpoints.values():
-            for miner_hotkey, miner_positions in checkpoint["positions"].items():
+            for miner_hotkey, miner_positions in checkpoint[1]["positions"].items():
                 for position in miner_positions["positions"]:
                     position_uuid = position["position_uuid"]
                     # position exists on majority of validators
@@ -235,7 +215,7 @@ class P2PSyncer(ValidatorSyncBase):
                         majority_positions.remove(position_uuid)
 
                         # simple majority of orders out of the positions they could appear in
-                        orders_threshold = position_counts[position_uuid] // 2
+                        orders_threshold = math.ceil(position_counts[position_uuid] / 2)
 
                         # get the set of order_uuids that appear in the majority of positions for a position_uuid
                         majority_orders = {order_uuid for order_uuid, count in order_counts[position_uuid].items()
