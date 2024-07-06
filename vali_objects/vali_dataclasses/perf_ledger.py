@@ -511,8 +511,10 @@ class PerfLedgerManager(CacheController):
                 if len(historical_position.orders) == 0:  # Just opened an order. We will revisit this on the next event as there is no history to replay
                     continue
 
-                portfolio_spread_fee *= self.position_uuid_to_cache[historical_position.position_uuid].get_spread_fee(historical_position)
-                portfolio_carry_fee *= self.position_uuid_to_cache[historical_position.position_uuid].get_carry_fee(t_ms, historical_position)
+                position_spread_fee = self.position_uuid_to_cache[historical_position.position_uuid].get_spread_fee(historical_position)
+                position_carry_fee = self.position_uuid_to_cache[historical_position.position_uuid].get_carry_fee(t_ms, historical_position)
+                portfolio_spread_fee *= position_spread_fee
+                portfolio_carry_fee *= position_carry_fee
 
                 if historical_position.is_closed_position:  # We want to process just-closed positions. wont be closed if we are on the corresponding event
                     continue
@@ -533,7 +535,7 @@ class PerfLedgerManager(CacheController):
                         #bt.logging.warning(f"Price at t_s {TimeUtil.millis_to_formatted_date_str(t_ms)} {historical_position.trade_pair.trade_pair} is the same as the last order processed time. Changing price from {historical_position.orders[-1].price} to {price_at_t_s}. percent change {percent_change}")
                         historical_position.orders[-1].price = price_at_t_s
                         historical_position.rebuild_position_with_updated_orders()
-                    historical_position.set_returns(price_at_t_s, time_ms=t_ms)
+                    historical_position.set_returns(price_at_t_s, time_ms=t_ms, total_fees=portfolio_spread_fee * portfolio_carry_fee)
                     self.trade_pair_to_position_ret[tp] = historical_position.return_at_close
 
                 portfolio_return *= historical_position.return_at_close

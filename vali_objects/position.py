@@ -428,26 +428,28 @@ class Position(BaseModel):
         else: # TODO UPDATE TO TIME OF PR
             fee = self.get_spread_fee()
         #else:
-        #    fee = (1.0 - self.get_carry_fee(timestamp_ms)[0]) * (1.0 - self.get_spread_fee())
+        #    fee = self.get_carry_fee(timestamp_ms)[0] * self.get_spread_fee()
         return current_return_no_fees * fee
 
     def get_open_position_return_with_fees(self, realtime_price, time_ms):
         current_return = self.calculate_unrealized_pnl(realtime_price)
         return self.calculate_return_with_fees(current_return, timestamp_ms=time_ms)
 
-    def set_returns(self, realtime_price, time_ms=None):
-        if time_ms is None:
-            time_ms = TimeUtil.now_in_millis()
+    def set_returns(self, realtime_price, time_ms=None, total_fees=None):
         # We used to multiple trade_pair.fees by net_leverage. Eventually we will
         # Update this calculation to approximate actual exchange fees.
         self.current_return = self.calculate_unrealized_pnl(realtime_price)
-        self.return_at_close = self.calculate_return_with_fees(self.current_return, timestamp_ms=time_ms)
+        if total_fees is None:
+            self.return_at_close = self.calculate_return_with_fees(self.current_return,
+                               timestamp_ms=TimeUtil.now_in_millis() if time_ms is None else time_ms)
+        else:
+            self.return_at_close = self.current_return * total_fees
 
         if self.current_return < 0:
             raise ValueError(f"current return must be positive {self.current_return}")
 
         if self.current_return == 0:
-            self._handle_liquidation(time_ms)
+            self._handle_liquidation(TimeUtil.now_in_millis() if time_ms is None else time_ms)
 
     def update_position_state_for_new_order(self, order, delta_leverage):
         """
