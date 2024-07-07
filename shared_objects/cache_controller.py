@@ -6,6 +6,7 @@ from collections import defaultdict
 from pickle import UnpicklingError
 from typing import List, Dict
 import copy
+import json
 
 from shared_objects.retry import retry
 from time_util.time_util import TimeUtil
@@ -376,7 +377,6 @@ class CacheController:
         try:
             file_string = ValiBkpUtils.get_file(file)
             ans = Position.model_validate_json(file_string)
-            #bt.logging.info(f"vali_utils get_miner_position: {ans}")
             return ans
         except FileNotFoundError:
             raise ValiFileMissingException(f"Vali position file is missing {file}")

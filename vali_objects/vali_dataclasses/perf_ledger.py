@@ -937,7 +937,7 @@ class PerfLedgerManager(CacheController):
 
         bt.logging.info(f"perf ledger PLM hotkeys to delete: {hotkeys_to_delete}. rss: {self.random_security_screenings}")
 
-        if regenerate_all_ledgers:
+        if regenerate_all_ledgers or testing_one_hotkey:
             bt.logging.info("Regenerating all perf ledgers")
             perf_ledgers = {}
 
@@ -953,7 +953,8 @@ class PerfLedgerManager(CacheController):
         if testing_one_hotkey:
             ledger = perf_ledgers[testing_one_hotkey]
             for x in ledger.cps:
-                print(x)
+                last_update_formated = TimeUtil.millis_to_timestamp(x.last_update_ms)
+                print(x, last_update_formated)
 
     @staticmethod
     def save_perf_ledgers_to_disk(perf_ledgers: dict[str, PerfLedgerData] | dict[str, dict], raw_json=False):
@@ -1007,6 +1008,6 @@ if __name__ == "__main__":
     all_hotkeys_on_disk = CacheController.get_directory_names(all_miners_dir)
     mmg = MockMetagraph(hotkeys=all_hotkeys_on_disk)
     perf_ledger_manager = PerfLedgerManager(metagraph=mmg, running_unit_tests=False)
-    #perf_ledger_manager.update(testing_one_hotkey='5CSHrvBiEJAFAAj7YAr5y8jzmpFajRsV9PahphPGi7P8PZrA')
-    perf_ledger_manager.update(regenerate_all_ledgers=True)
+    perf_ledger_manager.update(testing_one_hotkey='5GRFAJ3iwukm1CQpDTBsxTh2xjm227KtbVC1za8ukk6WqeyN')
+    #perf_ledger_manager.update(regenerate_all_ledgers=True)
 
