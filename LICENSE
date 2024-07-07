@@ -1,18 +1,15 @@
 License
 
-# License
-
 Copyright © 2024 Taoshi Inc
 
-```text
 Taoshi All rights reserved.
 Source code produced by Taoshi Inc may not be reproduced, modified, or distributed
 without the express permission of Taoshi Inc.
-```
 
-Bittensor source code in this repository is licensed under the MIT License.
 
-```text
+
+Separately, Bittensor source code in this repository is licensed under the MIT License.
+
 The MIT License (MIT)
 Copyright © 2024 Yuma Rao
 
@@ -29,4 +26,3 @@ THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRI
 THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
 OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
-```
