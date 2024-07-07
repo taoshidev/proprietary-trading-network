@@ -159,11 +159,12 @@ For instructions on how to contribute to Taoshi, see CONTRIBUTING.md and Taoshi'
 
 # License
 
-License
 Copyright © 2024 Taoshi Inc
 
+```text
 Taoshi All rights reserved.
 Source code produced by Taoshi Inc may not be reproduced, modified, or distributed
 without the express permission of Taoshi Inc.
+```
 
 Bittensor's source code in this repository is licensed under the MIT License.
