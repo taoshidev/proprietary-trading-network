@@ -13,40 +13,40 @@ class TradePairCategory(str, Enum):
 
 class TradePair(Enum):
     # crypto
-    BTCUSD = ["BTCUSD", "BTC/USD", 0.001, 0.001, 20, TradePairCategory.CRYPTO]
-    ETHUSD = ["ETHUSD", "ETH/USD", 0.001, 0.001, 20, TradePairCategory.CRYPTO]
+    BTCUSD = ["BTCUSD", "BTC/USD", 0.001, 0.025, 1, TradePairCategory.CRYPTO]
+    ETHUSD = ["ETHUSD", "ETH/USD", 0.001, 0.025, 1, TradePairCategory.CRYPTO]
 
     # forex
-    AUDCAD = ["AUDCAD", "AUD/CAD", 0.00007, 0.001, 500, TradePairCategory.FOREX]
-    AUDUSD = ["AUDUSD", "AUD/USD", 0.00007, 0.001, 500, TradePairCategory.FOREX]
-    AUDJPY = ["AUDJPY", "AUD/JPY", 0.00007, 0.001, 500, TradePairCategory.FOREX]
-    AUDNZD = ["AUDNZD", "AUD/NZD", 0.00007, 0.001, 500, TradePairCategory.FOREX]
-    CADCHF = ["CADCHF", "CAD/CHF", 0.00007, 0.001, 500, TradePairCategory.FOREX]
-    CADJPY = ["CADJPY", "CAD/JPY", 0.00007, 0.001, 500, TradePairCategory.FOREX]
-    CHFJPY = ["CHFJPY", "CHF/JPY", 0.00007, 0.001, 500, TradePairCategory.FOREX]
-    EURCAD = ["EURCAD", "EUR/CAD", 0.00007, 0.001, 500, TradePairCategory.FOREX]
-    EURUSD = ["EURUSD", "EUR/USD", 0.00007, 0.001, 500, TradePairCategory.FOREX]
-    EURCHF = ["EURCHF", "EUR/CHF", 0.00007, 0.001, 500, TradePairCategory.FOREX]
-    EURGBP = ["EURGBP", "EUR/GBP", 0.00007, 0.001, 500, TradePairCategory.FOREX]
-    EURJPY = ["EURJPY", "EUR/JPY", 0.00007, 0.001, 500, TradePairCategory.FOREX]
-    EURNZD = ["EURNZD", "EUR/NZD", 0.00007, 0.001, 500, TradePairCategory.FOREX]
-    NZDCAD = ["NZDCAD", "NZD/CAD", 0.00007, 0.001, 500, TradePairCategory.FOREX]
-    NZDJPY = ["NZDJPY", "NZD/JPY", 0.00007, 0.001, 500, TradePairCategory.FOREX]
-    NZDUSD = ["NZDUSD", "NZD/USD", 0.00007, 0.001, 500, TradePairCategory.FOREX]
-    GBPUSD = ["GBPUSD", "GBP/USD", 0.00007, 0.001, 500, TradePairCategory.FOREX]
-    GBPJPY = ["GBPJPY", "GBP/JPY", 0.00007, 0.001, 500, TradePairCategory.FOREX]
-    USDCAD = ["USDCAD", "USD/CAD", 0.00007, 0.001, 500, TradePairCategory.FOREX]
-    USDCHF = ["USDCHF", "USD/CHF", 0.00007, 0.001, 500, TradePairCategory.FOREX]
-    USDJPY = ["USDJPY", "USD/JPY", 0.00007, 0.001, 500, TradePairCategory.FOREX]
-    USDMXN = ["USDMXN", "USD/MXN", 0.00007, 0.001, 500, TradePairCategory.FOREX]
+    AUDCAD = ["AUDCAD", "AUD/CAD", 0.00007, 0.1, 5, TradePairCategory.FOREX]
+    AUDUSD = ["AUDUSD", "AUD/USD", 0.00007, 0.1, 5, TradePairCategory.FOREX]
+    AUDJPY = ["AUDJPY", "AUD/JPY", 0.00007, 0.1, 5, TradePairCategory.FOREX]
+    AUDNZD = ["AUDNZD", "AUD/NZD", 0.00007, 0.1, 5, TradePairCategory.FOREX]
+    CADCHF = ["CADCHF", "CAD/CHF", 0.00007, 0.1, 5, TradePairCategory.FOREX]
+    CADJPY = ["CADJPY", "CAD/JPY", 0.00007, 0.1, 5, TradePairCategory.FOREX]
+    CHFJPY = ["CHFJPY", "CHF/JPY", 0.00007, 0.1, 5, TradePairCategory.FOREX]
+    EURCAD = ["EURCAD", "EUR/CAD", 0.00007, 0.1, 5, TradePairCategory.FOREX]
+    EURUSD = ["EURUSD", "EUR/USD", 0.00007, 0.1, 5, TradePairCategory.FOREX]
+    EURCHF = ["EURCHF", "EUR/CHF", 0.00007, 0.1, 5, TradePairCategory.FOREX]
+    EURGBP = ["EURGBP", "EUR/GBP", 0.00007, 0.1, 5, TradePairCategory.FOREX]
+    EURJPY = ["EURJPY", "EUR/JPY", 0.00007, 0.1, 5, TradePairCategory.FOREX]
+    EURNZD = ["EURNZD", "EUR/NZD", 0.00007, 0.1, 5, TradePairCategory.FOREX]
+    NZDCAD = ["NZDCAD", "NZD/CAD", 0.00007, 0.1, 5, TradePairCategory.FOREX]
+    NZDJPY = ["NZDJPY", "NZD/JPY", 0.00007, 0.1, 5, TradePairCategory.FOREX]
+    NZDUSD = ["NZDUSD", "NZD/USD", 0.00007, 0.1, 5, TradePairCategory.FOREX]
+    GBPUSD = ["GBPUSD", "GBP/USD", 0.00007, 0.1, 5, TradePairCategory.FOREX]
+    GBPJPY = ["GBPJPY", "GBP/JPY", 0.00007, 0.1, 5, TradePairCategory.FOREX]
+    USDCAD = ["USDCAD", "USD/CAD", 0.00007, 0.1, 5, TradePairCategory.FOREX]
+    USDCHF = ["USDCHF", "USD/CHF", 0.00007, 0.1, 5, TradePairCategory.FOREX]
+    USDJPY = ["USDJPY", "USD/JPY", 0.00007, 0.1, 5, TradePairCategory.FOREX]
+    USDMXN = ["USDMXN", "USD/MXN", 0.00007, 0.1, 5, TradePairCategory.FOREX]
 
     # indices
-    SPX = ["SPX", "SPX", 0.00009, 0.001, 500, TradePairCategory.INDICES]
-    DJI = ["DJI", "DJI", 0.00009, 0.001, 500, TradePairCategory.INDICES]
-    FTSE = ["FTSE", "FTSE", 0.00009, 0.001, 500, TradePairCategory.INDICES]
-    GDAXI = ["GDAXI", "GDAXI", 0.00009, 0.001, 500, TradePairCategory.INDICES]
-    NDX = ["NDX", "NDX", 0.00009, 0.001, 500, TradePairCategory.INDICES]
-    VIX = ["VIX", "VIX", 0.00009, 0.001, 500, TradePairCategory.INDICES]
+    SPX = ["SPX", "SPX", 0.00009, 0.1, 5, TradePairCategory.INDICES]
+    DJI = ["DJI", "DJI", 0.00009, 0.1, 5, TradePairCategory.INDICES]
+    FTSE = ["FTSE", "FTSE", 0.00009, 0.1, 5, TradePairCategory.INDICES]
+    GDAXI = ["GDAXI", "GDAXI", 0.00009, 0.1, 5, TradePairCategory.INDICES]
+    NDX = ["NDX", "NDX", 0.00009, 0.1, 5, TradePairCategory.INDICES]
+    VIX = ["VIX", "VIX", 0.00009, 0.1, 5, TradePairCategory.INDICES]
 
     @property
     def trade_pair_id(self):
@@ -163,6 +163,13 @@ TRADE_PAIR_STR_TO_TRADE_PAIR = {x.trade_pair: x for x in TradePair}
 class ValiConfig:
     ## versioning
     VERSION = "3.0.9"
+    ## Leverages
+    CRYPTO_MIN_LEVERAGE = 0.025
+    CRYPTO_MAX_LEVERAGE = 1
+    FOREX_MIN_LEVERAGE = 0.1
+    FOREX_MAX_LEVERAGE = 5
+    INDICES_MIN_LEVERAGE = 0.1
+    INDICES_MAX_LEVERAGE = 5
 
     # fees take into account exiting and entering a position, liquidity, and futures fees
     PERF_LEDGER_REFRESH_TIME_MS = 1000 * 60 * 5  # minutes
