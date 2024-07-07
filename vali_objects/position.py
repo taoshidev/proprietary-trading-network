@@ -130,10 +130,9 @@ class Position(BaseModel):
         #print(f"start time {start_formatted}, end time {ct_formatted}, delta (days) {(current_time_ms - self.open_ms) / (1000 * 60 * 60 * 24)} final fee {final_fee}")
         return final_fee, current_time_ms + time_until_next_interval_ms
 
-    def forex_indices_carry_fee(self, current_time_ms: int) -> tuple[float, int]:
+    def forex_indices_carry_fee(self, current_time_ms: int) -> (float, int):
         # Fees M-F where W gets triple fee.
-        n_intervals_elapsed, time_until_next_interval_ms = TimeUtil.n_intervals_elapsed_forex_indices(self.open_ms,
-                                                                                               current_time_ms)
+        n_intervals_elapsed, time_until_next_interval_ms = TimeUtil.n_intervals_elapsed_forex_indices(self.open_ms, current_time_ms)
         fee_product = 1.0
         start_ms = self.open_ms
         end_ms = start_ms + time_until_next_interval_ms
@@ -160,7 +159,9 @@ class Position(BaseModel):
 
             fee_product *= fee
 
-        return fee_product, current_time_ms + time_until_next_interval_ms
+        next_update_time_ms = current_time_ms + time_until_next_interval_ms
+        assert next_update_time_ms > current_time_ms, (next_update_time_ms, current_time_ms, fee_product, n_intervals_elapsed, time_until_next_interval_ms)
+        return fee_product, next_update_time_ms
 
     def get_carry_fee(self, current_time_ms) -> (float, int):
         # Calculate the number of times a new day occurred (UTC). If a position is opened at 23:59:58 and this function is
@@ -177,6 +178,7 @@ class Position(BaseModel):
         else:
             raise Exception(f'Unexpected trade pair: {self.trade_pair.trade_pair_id}')
 
+        #print('haahahahahahahah', self.trade_pair.trade_pair_id, current_time_ms, next_update_time_ms, TimeUtil.millis_to_formatted_date_str(current_time_ms), TimeUtil.millis_to_formatted_date_str(next_update_time_ms))
         return carry_fee, next_update_time_ms
 
 
@@ -425,10 +427,10 @@ class Position(BaseModel):
         # V6 introduce "carry fee"
         if timestamp_ms < 1713198680000:  # V4 PR merged
             fee = 1.0 - self.trade_pair.fees * self.max_leverage_seen()
-        else: # TODO UPDATE TO TIME OF PR
-            fee = self.get_spread_fee()
-        #else:
-        #    fee = self.get_carry_fee(timestamp_ms)[0] * self.get_spread_fee()
+        #else: # TODO UPDATE TO TIME OF PR
+        #    fee = self.get_spread_fee()
+        else:
+            fee = self.get_carry_fee(timestamp_ms)[0] * self.get_spread_fee()
         return current_return_no_fees * fee
 
     def get_open_position_return_with_fees(self, realtime_price, time_ms):
