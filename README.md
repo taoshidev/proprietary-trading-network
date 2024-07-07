@@ -159,6 +159,11 @@ For instructions on how to contribute to Taoshi, see CONTRIBUTING.md and Taoshi'
 
 # License
 
-Refer to the <a href='?tab=MIT-1-ov-file'>License</a> page for information about Taoshi's licensing.
+License
+Copyright © 2024 Taoshi Inc
+
+Taoshi All rights reserved.
+Source code produced by Taoshi Inc may not be reproduced, modified, or distributed
+without the express permission of Taoshi Inc.
 
 Bittensor's source code in this repository is licensed under the MIT License.
