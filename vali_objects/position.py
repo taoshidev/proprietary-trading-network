@@ -427,8 +427,8 @@ class Position(BaseModel):
         # V6 introduce "carry fee"
         if timestamp_ms < 1713198680000:  # V4 PR merged
             fee = 1.0 - self.trade_pair.fees * self.max_leverage_seen()
-        #else: # TODO UPDATE TO TIME OF PR
-        #    fee = self.get_spread_fee()
+        elif self.open_ms < 1720449505000:  # V6 PR
+            fee = self.get_spread_fee()
         else:
             fee = self.get_carry_fee(timestamp_ms)[0] * self.get_spread_fee()
         return current_return_no_fees * fee
