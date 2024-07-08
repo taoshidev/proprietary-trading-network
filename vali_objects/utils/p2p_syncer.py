@@ -134,8 +134,8 @@ class P2PSyncer(ValidatorSyncBase):
         else:
             # Check if we are between 7:09 AM and 7:19 AM UTC
             datetime_now = TimeUtil.generate_start_timestamp(0)  # UTC
-            # Temp change time to 7:00 UTC so we can see the effects in shadow mode ASAP
-            if not (datetime_now.hour == 7 and (8 < datetime_now.minute < 20)):
+            # Temp change time to 20:00 UTC so we can see the effects in shadow mode ASAP
+            if not (datetime_now.hour == 20 and (8 < datetime_now.minute < 20)):
                 return
 
         try:
