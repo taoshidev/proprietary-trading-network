@@ -2,9 +2,9 @@
 # Copyright © 2024 Taoshi Inc
 import json
 import os
-from enum import Enum
-
 from time_util.time_util import TimeUtil
+
+from enum import Enum
 
 class TradePairCategory(str, Enum):
     CRYPTO = "crypto"
@@ -163,13 +163,6 @@ TRADE_PAIR_STR_TO_TRADE_PAIR = {x.trade_pair: x for x in TradePair}
 class ValiConfig:
     ## versioning
     VERSION = "3.0.9"
-    ## Leverages
-    CRYPTO_MIN_LEVERAGE = 0.025
-    CRYPTO_MAX_LEVERAGE = 1
-    FOREX_MIN_LEVERAGE = 0.1
-    FOREX_MAX_LEVERAGE = 5
-    INDICES_MIN_LEVERAGE = 0.1
-    INDICES_MAX_LEVERAGE = 5
 
     # fees take into account exiting and entering a position, liquidity, and futures fees
     PERF_LEDGER_REFRESH_TIME_MS = 1000 * 60 * 5  # minutes
@@ -180,6 +173,8 @@ class ValiConfig:
     MAX_TOTAL_DRAWDOWN_V2 = 0.95
     MAX_OPEN_ORDERS_PER_HOTKEY = 200
     ORDER_COOLDOWN_MS = 10000  # 10 seconds
+    ORDER_MIN_LEVERAGE = 0.001
+    ORDER_MAX_LEVERAGE = 500
 
     SET_WEIGHT_REFRESH_TIME_MS = 60 * 5 * 1000  # 5 minutes
     SET_WEIGHT_LOOKBACK_RANGE_DAYS = 30

@@ -5,6 +5,8 @@ from vali_config import TradePair
 from vali_objects.enums.order_type_enum import OrderType
 from pydantic import BaseModel, field_validator
 
+from vali_config import ValiConfig
+
 class Signal(BaseModel):
     trade_pair: TradePair
     order_type: OrderType
@@ -25,7 +27,7 @@ class Signal(BaseModel):
             trade_pair = info.data.get('trade_pair')
             order_type = info.data.get('order_type')
             is_flat_order = order_type == OrderType.FLAT
-            if not is_flat_order and trade_pair and not (trade_pair.min_leverage <= abs(v) <= trade_pair.max_leverage):
+            if not is_flat_order and trade_pair and not (ValiConfig.ORDER_MIN_LEVERAGE <= abs(v) <= ValiConfig.ORDER_MAX_LEVERAGE):
                 raise ValueError(
                     f"Leverage must be between {trade_pair.min_leverage} and {trade_pair.max_leverage}, provided - [{v}]")
         return v
