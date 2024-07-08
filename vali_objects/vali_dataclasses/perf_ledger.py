@@ -324,6 +324,11 @@ class PerfLedger(BaseModel, PerfLedgerData):
         return cls(max_return=data.max_return, target_cp_duration_ms=data.target_cp_duration_ms,
                    target_ledger_window_ms=data.target_ledger_window_ms, cps=cps)
 
+    @classmethod
+    def from_dict(self, data: dict):
+        return PerfLedger(max_return=data['max_return'], target_cp_duration_ms=data['target_cp_duration_ms'],
+                   target_ledger_window_ms=data['target_ledger_window_ms'], cps=data['cps'])
+
 class PerfLedgerManager(CacheController):
     def __init__(self, metagraph, live_price_fetcher=None, running_unit_tests=False, shutdown_dict=None, position_syncer=None):
         super().__init__(metagraph=metagraph, running_unit_tests=running_unit_tests)
@@ -689,7 +694,7 @@ class PerfLedgerManager(CacheController):
             perf_ledger.update(portfolio_return, end_time_ms, miner_hotkey, any_open, last_dd, portfolio_spread_fee, portfolio_carry_fee)
         return False
 
-    def update_all_perf_ledgers(self, hotkey_to_positions: dict[str, List[Position]], existing_perf_ledgers: dict[str, PerfLedgerData], now_ms: int, return_dict=False):
+    def update_all_perf_ledgers(self, hotkey_to_positions: dict[str, List[Position]], existing_perf_ledgers: dict[str, PerfLedgerData], now_ms: int, return_dict=False) -> None | dict[str, PerfLedgerData]:
         t_init = time.time()
         self.now_ms = now_ms
         self.elimination_rows = []
@@ -811,7 +816,7 @@ class PerfLedgerManager(CacheController):
 
     @staticmethod
     @retry(tries=10, delay=1, backoff=1)
-    def load_perf_ledgers_from_disk() -> dict[str, PerfLedgerData]:
+    def load_perf_ledgers_from_disk(read_as_pydantic=True) -> dict[str, PerfLedgerData]:
         file_path = ValiBkpUtils.get_perf_ledgers_path()
         # If the file doesn't exist, return a blank dictionary
         if not os.path.exists(file_path):
@@ -820,12 +825,17 @@ class PerfLedgerManager(CacheController):
         with open(file_path, 'r') as file:
             data = json.load(file)
 
-        # Convert the dictionary back to PerfLedger objects
         perf_ledgers = {}
+
+        # Convert the dictionary back to PerfLedger objects
         for key, ledger_data in data.items():
-            # Assuming 'cps' field needs to be parsed as a list of PerfCheckpoint
-            ledger_data['cps'] = [PerfCheckpointData(**cp) for cp in ledger_data['cps']]
-            perf_ledgers[key] = PerfLedgerData(**ledger_data)
+            if read_as_pydantic:
+                ledger_data['cps'] = [PerfCheckpoint(**cp) for cp in ledger_data['cps']]
+                perf_ledgers[key] = PerfLedger(**ledger_data)
+            else:
+                # Assuming 'cps' field needs to be parsed as a list of PerfCheckpoint
+                ledger_data['cps'] = [PerfCheckpointData(**cp) for cp in ledger_data['cps']]
+                perf_ledgers[key] = PerfLedgerData(**ledger_data)
 
         return perf_ledgers
 
@@ -853,15 +863,16 @@ class PerfLedgerManager(CacheController):
 
         return hotkey_to_positions
 
-    def generate_perf_ledgers_for_analysis(self, hotkey_to_positions: dict[str, List[Position]], t_ms: int = None):
+    def generate_perf_ledgers_for_analysis(self, hotkey_to_positions: dict[str, List[Position]], t_ms: int = None) -> dict[str, PerfLedger]:
         if t_ms is None:
             t_ms = TimeUtil.now_in_millis()  # Time to build the perf ledgers up to. Goes back 30 days from this time.
         existing_perf_ledgers = {}
-        ans = self.update_all_perf_ledgers(hotkey_to_positions, existing_perf_ledgers, t_ms, return_dict=True)
-        return ans
+        ans_data = self.update_all_perf_ledgers(hotkey_to_positions, existing_perf_ledgers, t_ms, return_dict=True)
+        ans_pydantic = {k: PerfLedger.from_data(v) for k, v in ans_data.items()}
+        return ans_pydantic
 
     def update(self, testing_one_hotkey=None, regenerate_all_ledgers=False):
-        perf_ledgers = PerfLedgerManager.load_perf_ledgers_from_disk()
+        perf_ledgers = PerfLedgerManager.load_perf_ledgers_from_disk(read_as_pydantic=False)
         self._refresh_eliminations_in_memory()
         t_ms = TimeUtil.now_in_millis() - self.UPDATE_LOOKBACK_MS
         #if t_ms < 1714546760000 + 1000 * 60 * 60 * 1:  # Rebuild after bug fix
@@ -935,9 +946,12 @@ class PerfLedgerManager(CacheController):
                 print(x)
 
     @staticmethod
-    def save_perf_ledgers_to_disk(perf_ledgers: dict[str, PerfLedgerData]):
+    def save_perf_ledgers_to_disk(perf_ledgers: dict[str, PerfLedgerData] | dict[str, dict], raw_json=False):
         # Convert to PerfLedger (pydantic validation)
-        pydantic_perf_ledgers = {key: PerfLedger.from_data(value) for key, value in perf_ledgers.items()}
+        if raw_json:
+            pydantic_perf_ledgers = {key: PerfLedger.from_dict(value) for key, value in perf_ledgers.items()}
+        else:
+            pydantic_perf_ledgers = {key: PerfLedger.from_data(value) for key, value in perf_ledgers.items()}
         file_path = ValiBkpUtils.get_perf_ledgers_path()
         ValiBkpUtils.write_to_dir(file_path, pydantic_perf_ledgers)
 
