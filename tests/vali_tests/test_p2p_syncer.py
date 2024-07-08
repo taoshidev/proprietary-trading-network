@@ -86,7 +86,7 @@ class TestPositions(TestBase):
 
         assert len(validator_axons) == 1
 
-    def test_get_trusted_validators(self):
+    def test_get_largest_staked_validators(self):
         neuron1 = deepcopy(self.default_neuron)
         neuron1.stake = Balance(2000.0)
         neuron1.axon_info = MockAxonInfo(ip="test_ip1")
