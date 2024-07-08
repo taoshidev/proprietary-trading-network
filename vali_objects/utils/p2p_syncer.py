@@ -46,7 +46,7 @@ class P2PSyncer(ValidatorSyncBase):
         try:
             # create dendrite and transmit synapse
             checkpoint_synapse = template.protocol.ValidatorCheckpoint()
-            validator_responses = await dendrite.forward(axons=validator_axons, synapse=checkpoint_synapse, timeout=60)
+            validator_responses = await dendrite.forward(axons=validator_axons, synapse=checkpoint_synapse, timeout=60 * 5)
 
             bt.logging.info(f"Validator {self.wallet.hotkey.ss58_address} requesting checkpoints")
 
@@ -73,7 +73,7 @@ class P2PSyncer(ValidatorSyncBase):
                     n_successful_checkpoints += 1
                 else:
                     n_failures += 1
-                    bt.logging.info(f"Checkpoint poke to axon [{i+1}/{len(validator_responses)}] {response.axon.hotkey} failed")
+                    bt.logging.info(f"Checkpoint poke to axon [{i+1}/{len(validator_responses)}] {response.axon.hotkey} failed with status code: {response.axon.status_code}")
 
             bt.logging.info(f"{n_successful_checkpoints} responses succeeded. {n_failures} responses failed")
 
@@ -134,8 +134,8 @@ class P2PSyncer(ValidatorSyncBase):
         else:
             # Check if we are between 7:09 AM and 7:19 AM UTC
             datetime_now = TimeUtil.generate_start_timestamp(0)  # UTC
-            # Temp change time to 7:00 UTC so we can see the effects in shadow mode ASAP
-            if not (datetime_now.hour == 7 and (8 < datetime_now.minute < 20)):
+            # Temp change time to 20:00 UTC so we can see the effects in shadow mode ASAP
+            if not (datetime_now.hour == 20 and (8 < datetime_now.minute < 20)):
                 return
 
         try:
