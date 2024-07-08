@@ -545,17 +545,14 @@ class PerfLedgerManager(CacheController):
         #print(f'Fetched {requested_seconds} s of candles for tp {tp.trade_pair} in {time.time() - t0}s')
         #print('22222', tp.trade_pair, trade_pair_to_price_info.keys())
 
-    def positions_to_portfolio_return(self, tp_to_historical_positions: dict[str: Position], t_ms, miner_hotkey, end_time_ms):
+    def positions_to_portfolio_return(self, tp_to_historical_positions_dense: dict[str: Position], t_ms, miner_hotkey, end_time_ms, portfolio_return, portfolio_spread_fee, portfolio_carry_fee):
         # Answers "What is the portfolio return at this time t_ms?"
-        portfolio_return = 1.0
         t_s = t_ms // 1000
         any_open = False
-        portfolio_spread_fee = 1.0
-        portfolio_carry_fee = 1.0
         #if miner_hotkey.endswith('9osUx') and abs(t_ms - end_time_ms) < 1000:
         #    print('------------------')
 
-        for tp, historical_positions in tp_to_historical_positions.items():  # TODO: multithread over trade pairs?
+        for tp, historical_positions in tp_to_historical_positions_dense.items():  # TODO: multithread over trade pairs?
             for historical_position in historical_positions:
                 #if miner_hotkey.endswith('9osUx') and abs(t_ms - end_time_ms) < 1000:
                 #    print(f"time {TimeUtil.millis_to_formatted_date_str(t_ms)} hk {miner_hotkey[-5:]} {historical_position.trade_pair.trade_pair} n_orders {len(historical_position.orders)} return {historical_position.current_return} return_at_close {historical_position.return_at_close} closed@{'NA' if historical_position.is_open_position else TimeUtil.millis_to_formatted_date_str(historical_position.orders[-1].processed_ms)}")
@@ -564,16 +561,16 @@ class PerfLedgerManager(CacheController):
                 #            print(f"    {historical_position.trade_pair.trade_pair} order price {order.price} leverage {order.leverage}")
                 if self.shutdown_dict:
                     return portfolio_return, any_open
-                if len(historical_position.orders) == 0:  # Just opened an order. We will revisit this on the next event as there is no history to replay
-                    continue
+                #if len(historical_position.orders) == 0:  # Just opened an order. We will revisit this on the next event as there is no history to replay
+                #    continue
 
                 position_spread_fee = self.position_uuid_to_cache[historical_position.position_uuid].get_spread_fee(historical_position)
                 position_carry_fee = self.position_uuid_to_cache[historical_position.position_uuid].get_carry_fee(t_ms, historical_position)
                 portfolio_spread_fee *= position_spread_fee
                 portfolio_carry_fee *= position_carry_fee
 
-                if historical_position.is_closed_position:  # We want to process just-closed positions. wont be closed if we are on the corresponding event
-                    continue
+                #if historical_position.is_closed_position:  # We want to process just-closed positions. wont be closed if we are on the corresponding event
+                #    continue
 
                 if not self.market_calendar.is_market_open(historical_position.trade_pair, t_ms):
                     portfolio_return *= historical_position.return_at_close
@@ -598,7 +595,7 @@ class PerfLedgerManager(CacheController):
                 #assert portfolio_return > 0, f"Portfolio value is {portfolio_return} for miner {miner_hotkey} at {t_s}. opr {opr} rtp {price_at_t_s}, historical position {historical_position}"
         return portfolio_return, any_open, portfolio_spread_fee, portfolio_carry_fee
 
-    def update_mdd(self, miner_hotkey, portfolio_return, t_ms, tp_to_historical_positions, perf_ledger):
+    def update_mdd(self, miner_hotkey, portfolio_return, perf_ledger):
         perf_ledger.max_return = max(perf_ledger.max_return, portfolio_return)
         dd = self.calculate_drawdown(portfolio_return, perf_ledger.max_return)
         stats = self.hk_to_dd_stats[miner_hotkey]
@@ -635,6 +632,25 @@ class PerfLedgerManager(CacheController):
             last_order_price = orders[-1].price
             self.tp_to_last_price[k] = last_order_price
 
+    def condense_positions(self, tp_to_historical_positions: dict[str: Position]) -> (float, float, float, dict[str: Position]):
+        portfolio_return = 1.0
+        portfolio_spread_fee = 1.0
+        portfolio_carry_fee = 1.0
+        tp_to_historical_positions_dense = {}
+        for tp, historical_positions in tp_to_historical_positions.items():
+            dense_positions = []
+            for historical_position in historical_positions:
+                if historical_position.is_closed_position:
+                    portfolio_return *= historical_position.return_at_close
+                    portfolio_spread_fee *= self.position_uuid_to_cache[historical_position.position_uuid].get_spread_fee(historical_position)
+                    portfolio_carry_fee *= self.position_uuid_to_cache[historical_position.position_uuid].get_carry_fee(historical_position.orders[-1].processed_ms, historical_position)
+                elif len(historical_position.orders) == 0:
+                    continue
+                else:
+                    dense_positions.append(historical_position)
+            tp_to_historical_positions_dense[tp] = dense_positions
+        return portfolio_return, portfolio_spread_fee, portfolio_carry_fee, tp_to_historical_positions_dense
+
 
     def build_perf_ledger(self, perf_ledger:PerfLedgerData, tp_to_historical_positions: dict[str: Position], start_time_ms, end_time_ms, miner_hotkey, realtime_position_to_pop) -> bool:
         #print(f"Building perf ledger for {miner_hotkey} from {start_time_ms} to {end_time_ms} ({(end_time_ms - start_time_ms) // 1000} s) order {order}")
@@ -654,15 +670,15 @@ class PerfLedgerManager(CacheController):
         any_update = any_open = False
         last_dd = None
         self.init_tp_to_last_price(tp_to_historical_positions)
-
+        initial_portfolio_return, initial_portfolio_spread_fee, initial_portfolio_carry_fee, tp_to_historical_positions_dense = self.condense_positions(tp_to_historical_positions)
         for t_ms in range(start_time_ms, end_time_ms, 1000):
             if self.shutdown_dict:
                 return False
             assert t_ms >= perf_ledger.last_update_ms, f"t_ms: {t_ms}, last_update_ms: {perf_ledger.last_update_ms}, delta_s: {(t_ms - perf_ledger.last_update_ms) // 1000} s. perf ledger {perf_ledger}"
-            portfolio_return, any_open, portfolio_spread_fee, portfolio_carry_fee = self.positions_to_portfolio_return(tp_to_historical_positions, t_ms, miner_hotkey, end_time_ms)
-            if self.check_liquidated(miner_hotkey, portfolio_return, t_ms, tp_to_historical_positions, perf_ledger):
+            portfolio_return, any_open, portfolio_spread_fee, portfolio_carry_fee = self.positions_to_portfolio_return(tp_to_historical_positions_dense, t_ms, miner_hotkey, end_time_ms, initial_portfolio_return, initial_portfolio_spread_fee, initial_portfolio_carry_fee)
+            if portfolio_return == 0 and self.check_liquidated(miner_hotkey, portfolio_return, t_ms, tp_to_historical_positions, perf_ledger):
                 return True
-            self.update_mdd(miner_hotkey, portfolio_return, t_ms, tp_to_historical_positions, perf_ledger)
+            self.update_mdd(miner_hotkey, portfolio_return, perf_ledger)
             #assert portfolio_return > 0, f"Portfolio value is {portfolio_return} for miner {miner_hotkey} at {t_ms // 1000}. perf ledger {perf_ledger}"
             last_dd = self.hk_to_dd_stats[miner_hotkey]['last_dd']
             perf_ledger.update(portfolio_return, t_ms, miner_hotkey, any_open, last_dd, portfolio_spread_fee, portfolio_carry_fee)
@@ -917,9 +933,6 @@ class PerfLedgerManager(CacheController):
             ledger = perf_ledgers[testing_one_hotkey]
             for x in ledger.cps:
                 print(x)
-            for k, v in self.position_uuid_to_cache.items():
-                print(k)
-                v.print_cache_stats()
 
     @staticmethod
     def save_perf_ledgers_to_disk(perf_ledgers: dict[str, PerfLedgerData]):

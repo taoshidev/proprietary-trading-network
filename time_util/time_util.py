@@ -36,6 +36,11 @@ class ForexHolidayCalendar(USFederalHolidayCalendar):
         # Cache to store holiday lists by year
         self.holidays_cache = {}
 
+        # Initialize cache attributes to zero
+        self.cache_valid_min_ms = 0
+        self.cache_valid_max_ms = 0
+        self.cache_valid_ans = False
+
     def get_holidays(self, timestamp):
         # Check if the holidays for the given year are already cached
         if timestamp.year not in self.holidays_cache:
@@ -47,6 +52,9 @@ class ForexHolidayCalendar(USFederalHolidayCalendar):
         return self.holidays_cache[timestamp.year]
 
     def is_forex_market_open(self, ms_timestamp):
+        # Check if our answer is cached. TODO: populate cache_valid_min_ms, cache_valid_max_ms, and cache_valid_ans
+        if self.cache_valid_min_ms <= ms_timestamp <= self.cache_valid_max_ms:
+            return self.cache_valid_ans
         # Convert millisecond timestamp to pandas Timestamp in UTC
         timestamp = pd.Timestamp(ms_timestamp, unit='ms', tz='UTC')
 
@@ -54,21 +62,41 @@ class ForexHolidayCalendar(USFederalHolidayCalendar):
         ny_timezone = ZoneInfo('America/New_York')
         ny_timestamp = timestamp.astimezone(ny_timezone)
 
+        ans = True
         # Check if the day is a weekend in New York time
-        if ny_timestamp.weekday() == 5:  # Saturday all day
-            return False
-        if ny_timestamp.weekday() == 4 and ny_timestamp.hour >= 17:  # Market closes at 5 PM Friday NY time
-            return False
-        if ny_timestamp.weekday() == 6 and ny_timestamp.hour < 17:  # Market opens at 5 PM Sunday NY time
-            return False
+        if ny_timestamp.weekday() < 4:  # Monday to Thursday
+            self.cache_valid_max_ms = ny_timestamp.replace(hour=23, minute=59, second=59).timestamp() * 1000
+        elif ny_timestamp.weekday() == 5:  # Saturday all day
+            self.cache_valid_max_ms = ny_timestamp.replace(hour=23, minute=59, second=59).timestamp() * 1000
+            ans = False
+        elif ny_timestamp.weekday() == 4:
+            if ny_timestamp.hour >= 17:  # Market closes at 5 PM Friday NY time
+                ans = False
+                self.cache_valid_max_ms = ny_timestamp.replace(hour=23, minute=59, second=59).timestamp() * 1000
+            else:
+                ans = True
+                self.cache_valid_max_ms = ny_timestamp.replace(hour=16, minute=59, second=59).timestamp() * 1000
+        elif ny_timestamp.weekday() == 6:
+            if ny_timestamp.hour < 17:  # Market opens at 5 PM Sunday NY time
+                ans = False
+                self.cache_valid_max_ms = ny_timestamp.replace(hour=16, minute=59, second=59).timestamp() * 100
+            else:
+                ans = True
+                self.cache_valid_max_ms = ny_timestamp.replace(hour=23, minute=59, second=59).timestamp() * 1000
+        else:
+            raise Exception(f"Unexpected weekday: {ny_timestamp.weekday()}")
 
-        # Check if the day is a holiday (assuming holiday impacts the full day)
-        # Ensure get_holidays function is aware of local dates
-        holidays = self.get_holidays(ny_timestamp)
-        if ny_timestamp.strftime('%Y-%m-%d') in holidays:
-            return False
+        if ans:
+            # Check if the day is a holiday (assuming holiday impacts the full day)
+            # Ensure get_holidays function is aware of local dates
+            holidays = self.get_holidays(ny_timestamp)
+            if ny_timestamp.strftime('%Y-%m-%d') in holidays:
+                ans = False
+                self.cache_valid_max_ms = ny_timestamp.replace(hour=23, minute=59, second=59).timestamp() * 1000
 
-        return True
+        self.cache_valid_min_ms = ms_timestamp
+        self.cache_valid_ans = ans
+        return ans
 
 
 class IndicesMarketCalendar:
