@@ -1,27 +1,21 @@
 # developer: trdougherty
-import math
 import numpy as np
 import random
 import copy
-import bittensor as bt
 
 from tests.vali_tests.base_objects.test_base import TestBase
 from vali_objects.scoring.scoring import Scoring, ScoringUnit
-from vali_objects.position import Position
 from vali_objects.utils.position_utils import PositionUtils
 
-from vali_objects.vali_dataclasses.order import Order
-from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.utils.subtensor_weight_setter import SubtensorWeightSetter
 from vali_objects.vali_dataclasses.perf_ledger import PerfCheckpoint
 from vali_objects.utils.position_manager import PositionManager
 from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedger
 
-from vali_config import TradePair
 from vali_config import ValiConfig
 
-from tests.shared_objects.test_utilities import get_time_in_range, order_generator, position_generator, ledger_generator, checkpoint_generator
+from tests.shared_objects.test_utilities import ledger_generator, checkpoint_generator
 
 class TestWeights(TestBase):
 

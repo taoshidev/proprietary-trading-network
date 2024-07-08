@@ -6,10 +6,8 @@ import shutil
 import time
 import copy
 import traceback
-import uuid
 import math
 from collections import defaultdict
-from pickle import UnpicklingError
 from typing import List, Dict, Union
 import bittensor as bt
 from pathlib import Path
@@ -20,13 +18,11 @@ from time_util.time_util import TimeUtil
 from vali_config import TradePair, ValiConfig
 from vali_objects.decoders.generalized_json_decoder import GeneralizedJSONDecoder
 from vali_objects.enums.order_type_enum import OrderType
-from vali_objects.exceptions.corrupt_data_exception import ValiBkpCorruptDataException
-from vali_objects.exceptions.vali_bkp_file_missing_exception import ValiFileMissingException
 from vali_objects.exceptions.vali_records_misalignment_exception import ValiRecordsMisalignmentException
 from vali_objects.position import Position
 from vali_objects.utils.position_lock import PositionLocks
-from vali_objects.utils.vali_bkp_utils import ValiBkpUtils, CustomEncoder
-from vali_objects.vali_dataclasses.order import OrderStatus, Order
+from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
+from vali_objects.vali_dataclasses.order import OrderStatus
 from vali_objects.utils.position_utils import PositionUtils
 from vali_objects.vali_dataclasses.price_source import PriceSource
 from vali_objects.vali_dataclasses.perf_ledger import PerfCheckpoint, PerfLedger
@@ -1216,7 +1212,7 @@ class PositionManager(CacheController):
                     continue
 
                 if len(new_order_prices) == 0:
-                    raise Exception(f"len(new_order_prices) == 0")
+                    raise Exception("len(new_order_prices) == 0")
                 elif len(new_order_prices) < len(position.orders):
                     n_positions_grew_since_last_audit += 1
                 elif len(new_order_prices) > len(position.orders):

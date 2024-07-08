@@ -21,7 +21,6 @@ import gzip
 import base64
 
 from runnable.generate_request_core import generate_request_core
-from vali_objects.decoders.generalized_json_decoder import GeneralizedJSONDecoder
 from vali_objects.utils.auto_sync import PositionSyncer
 from vali_objects.utils.p2p_syncer import P2PSyncer
 from shared_objects.rate_limiter import RateLimiter
@@ -37,7 +36,6 @@ from vali_objects.utils.subtensor_weight_setter import SubtensorWeightSetter
 from vali_objects.utils.mdd_checker import MDDChecker
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils, CustomEncoder
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
-from vali_objects.utils.plagiarism_detector import PlagiarismDetector
 from vali_objects.utils.position_manager import PositionManager
 from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
 from vali_objects.vali_dataclasses.order import Order
@@ -195,7 +193,7 @@ class Validator:
         bt.logging.info(f"Axon {self.axon}")
 
         # Attach determines which functions are called when servicing a request.
-        bt.logging.info(f"Attaching forward function to axon.")
+        bt.logging.info("Attaching forward function to axon.")
 
         self.order_rate_limiter = RateLimiter()
         self.position_inspector_rate_limiter = RateLimiter(max_requests_per_window=1, rate_limit_window_duration_seconds=60 * 4)
@@ -281,10 +279,10 @@ class Validator:
             if (n_positions_on_disk == 0 or
                     smallest_disk_ms > TimeUtil.timestamp_to_millis(TimeUtil.generate_start_timestamp(days=1)) or
                     largest_disk_ms < TimeUtil.timestamp_to_millis(TimeUtil.generate_start_timestamp(days=1))):
-                msg = (f"Validator data needs to be synced with mainnet. Please restore data from checkpoint "
-                       f"before running the validator. More info here: "
-                       f"https://github.com/taoshidev/proprietary-trading-network/"
-                       f"blob/main/docs/regenerating_validator_state.md")
+                msg = ("Validator data needs to be synced with mainnet. Please restore data from checkpoint "
+                       "before running the validator. More info here: "
+                       "https://github.com/taoshidev/proprietary-trading-network/"
+                       "blob/main/docs/regenerating_validator_state.md")
                 #bt.logging.error(msg)
                 #raise Exception(msg)
                 self.position_syncer.sync_positions(
@@ -381,7 +379,7 @@ class Validator:
     def main(self):
         global shutdown_dict
         # Keep the vali alive. This loop maintains the vali's operations until intentionally stopped.
-        bt.logging.info(f"Starting main loop")
+        bt.logging.info("Starting main loop")
         while not shutdown_dict:
             try:
                 current_time = TimeUtil.now_in_millis()
@@ -515,7 +513,7 @@ class Validator:
         elif method == SynapseMethod.CHECKPOINT:
             allowed, wait_time = self.checkpoint_rate_limiter.is_allowed(sender_hotkey)
         else:
-            msg = f"Received synapse does not match one of expected methods for: receive_signal, get_positions, or receive_checkpoint"
+            msg = "Received synapse does not match one of expected methods for: receive_signal, get_positions, or receive_checkpoint"
             bt.logging.trace(msg)
             synapse.successfully_processed = False
             synapse.error_message = msg

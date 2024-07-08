@@ -1,7 +1,7 @@
 # developer: Taoshidev
 # Copyright © 2024 Taoshi Inc
 import bittensor as bt
-from typing import Optional, List
+from typing import Optional
 from pydantic import BaseModel
 
 

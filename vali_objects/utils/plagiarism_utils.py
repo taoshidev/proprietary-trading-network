@@ -7,14 +7,9 @@ from scipy import sparse
 
 from sklearn.preprocessing import normalize
 from sklearn.metrics.pairwise import cosine_similarity
-import copy
 
 from vali_config import ValiConfig
 from vali_objects.position import Position
-from shared_objects.cache_controller import CacheController
-from vali_objects.utils.position_manager import PositionManager
-from vali_config import ValiConfig
-from vali_objects.vali_dataclasses.order import Order
 from vali_objects.utils.position_utils import PositionUtils
 
 class PlagiarismUtils:

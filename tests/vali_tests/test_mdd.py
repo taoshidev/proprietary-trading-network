@@ -14,7 +14,6 @@ from vali_objects.utils.mdd_checker import MDDChecker
 from vali_objects.utils.position_manager import PositionManager
 from vali_objects.utils.vali_utils import ValiUtils
 from vali_objects.vali_dataclasses.order import Order
-from data_generator.twelvedata_service import TwelveDataService
 
 class TestMDDChecker(TestBase):
 

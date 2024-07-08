@@ -1,11 +1,6 @@
-from matplotlib import pyplot as plt
-import time
 
-from vali_objects.scoring.scoring import Scoring
 from vali_objects.utils.logger_utils import LoggerUtils
 from vali_objects.utils.subtensor_weight_setter import SubtensorWeightSetter
-from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
-from vali_objects.utils.vali_utils import ValiUtils
 from time_util.time_util import TimeUtil
 from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
 

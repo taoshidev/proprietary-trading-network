@@ -6,7 +6,6 @@ from sortedcontainers import SortedList
 
 from vali_objects.vali_dataclasses.recent_event_tracker import RecentEventTracker
 from vali_objects.vali_dataclasses.price_source import PriceSource
-from time_util.time_util import TimeUtil
 
 class TestRecentEventTracker(unittest.TestCase):
 

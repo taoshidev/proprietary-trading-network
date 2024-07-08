@@ -31,12 +31,12 @@ class ValiBkpUtils:
 
     @staticmethod
     def get_temp_file_path():
-        return ValiConfig.BASE_DIR + f"/validation/tmp/"
+        return ValiConfig.BASE_DIR + "/validation/tmp/"
 
     @staticmethod
     def get_backup_file_path(use_data_dir=False):
-        return ValiConfig.BASE_DIR + f"/data/validator_checkpoint.json" if use_data_dir else \
-                ValiConfig.BASE_DIR + f"/validator_checkpoint.json"
+        return ValiConfig.BASE_DIR + "/data/validator_checkpoint.json" if use_data_dir else \
+                ValiConfig.BASE_DIR + "/validator_checkpoint.json"
 
 
     @staticmethod
@@ -79,11 +79,11 @@ class ValiBkpUtils:
 
     @staticmethod
     def get_secrets_dir():
-        return ValiConfig.BASE_DIR + f"/secrets.json"
+        return ValiConfig.BASE_DIR + "/secrets.json"
 
     @staticmethod
     def get_plagiarism_blocklist_file_location():
-        return ValiConfig.BASE_DIR + f"/miner_blocklist.json"
+        return ValiConfig.BASE_DIR + "/miner_blocklist.json"
     
     @staticmethod
     def get_vali_bkp_dir() -> str:

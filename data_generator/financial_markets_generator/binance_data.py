@@ -10,7 +10,6 @@ import time
 
 from data_generator.financial_markets_generator.base_financial_markets_generator.base_financial_markets_generator import \
     BaseFinancialMarketsGenerator
-from time_util.time_util import TimeUtil
 from vali_config import ValiConfig
 
 

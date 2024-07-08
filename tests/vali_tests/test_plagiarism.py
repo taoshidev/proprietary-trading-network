@@ -1,6 +1,5 @@
 # developer: jbonilla
 # Copyright © 2024 Taoshi Inc
-from shared_objects.cache_controller import CacheController
 from tests.shared_objects.mock_classes import MockMetagraph, MockPlagiarismDetector
 from tests.vali_tests.base_objects.test_base import TestBase
 from vali_config import TradePair

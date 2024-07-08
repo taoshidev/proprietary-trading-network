@@ -71,7 +71,7 @@ def regenerate_miner_positions(perform_backup=True, backup_from_data_dir=False, 
         bt.logging.error(f"Unable to read validator checkpoint file. {e}")
         return False
 
-    bt.logging.info(f"Found validator backup file with the following attributes:")
+    bt.logging.info("Found validator backup file with the following attributes:")
     # Log every key and value apir in the data except for positions, eliminations, and plagiarism scores
     for key, value in data.items():
         # Check is the value is of type dict or list. If so, print the size of the dict or list
@@ -116,7 +116,7 @@ def regenerate_miner_positions(perform_backup=True, backup_from_data_dir=False, 
         formatted_disk_date_smallest = smallest_disk_ms
         formatted_backup_date_smallest = smallest_backup_ms
 
-    bt.logging.info(f"Timestamp analysis of backup vs disk (UTC):")
+    bt.logging.info("Timestamp analysis of backup vs disk (UTC):")
     bt.logging.info(f"    backup_creation_time: {formatted_backup_creation_time}")
     bt.logging.info(f"    smallest_disk_order_timestamp: {formatted_disk_date_smallest}")
     bt.logging.info(f"    smallest_backup_order_timestamp: {formatted_backup_date_smallest}")

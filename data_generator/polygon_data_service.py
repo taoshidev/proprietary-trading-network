@@ -2,7 +2,6 @@ import threading
 import traceback
 from collections import Counter
 
-import matplotlib.pyplot as plt
 
 from typing import List
 from polygon.rest.models import MarketStatus, Agg

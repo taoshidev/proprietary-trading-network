@@ -1,26 +1,13 @@
-import json
-import traceback
-import uuid
-import time
-import copy
 import math
 from scipy.stats import percentileofscore
 
-from json import JSONDecodeError
 from time_util.time_util import TimeUtil
 from vali_config import ValiConfig
-from vali_objects.decoders.generalized_json_decoder import GeneralizedJSONDecoder
-from vali_objects.enums.order_type_enum import OrderType
-from vali_objects.exceptions.corrupt_data_exception import ValiBkpCorruptDataException
-from vali_objects.utils.logger_utils import LoggerUtils
 from vali_objects.utils.position_manager import PositionManager
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.utils.subtensor_weight_setter import SubtensorWeightSetter
 from vali_objects.utils.position_utils import PositionUtils
-from vali_objects.vali_dataclasses.order import Order
 from vali_objects.scoring.scoring import Scoring, ScoringUnit
-from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
-from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
 
 from vali_objects.vali_dataclasses.perf_ledger import TARGET_CHECKPOINT_DURATION_MS, TARGET_LEDGER_WINDOW_MS
 

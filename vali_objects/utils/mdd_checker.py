@@ -6,7 +6,6 @@ from typing import List, Dict
 from time_util.time_util import TimeUtil
 from vali_config import ValiConfig, TradePair
 from shared_objects.cache_controller import CacheController
-from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.position import Position
 from vali_objects.utils.live_price_fetcher import LivePriceFetcher
 from vali_objects.vali_dataclasses.recent_event_tracker import RecentEventTracker

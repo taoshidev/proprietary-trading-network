@@ -1,5 +1,4 @@
 import json
-import time
 from copy import deepcopy
 
 from vali_objects.utils.auto_sync import PositionSyncer

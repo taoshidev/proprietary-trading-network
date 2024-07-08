@@ -2,15 +2,11 @@
 # Copyright © 2024 Taoshi Inc
 import numpy as np
 import time
-import bittensor as bt
 from vali_config import ValiConfig
-from vali_objects.position import Position
 from shared_objects.cache_controller import CacheController
-from vali_objects.utils.position_manager import PositionManager
-from vali_objects.vali_dataclasses.order import Order
 from vali_objects.scoring.scoring import Scoring, ScoringUnit
 from time_util.time_util import TimeUtil
-from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager, PerfCheckpoint, PerfLedger
+from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager, PerfLedger
 
 class ChallengePeriodManager(CacheController):
     def __init__(self, config, metagraph, running_unit_tests=False):

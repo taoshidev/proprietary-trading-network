@@ -3,10 +3,8 @@
 
 from time_util.time_util import TimeUtil
 from vali_config import ValiConfig
-from vali_objects.position import Position
 from shared_objects.cache_controller import CacheController
 from vali_objects.utils.position_manager import PositionManager
-from vali_objects.vali_dataclasses.order import Order
 
 from vali_objects.utils.plagiarism_utils import PlagiarismUtils
 

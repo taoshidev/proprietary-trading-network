@@ -2,8 +2,6 @@
 # Copyright © 2024 Taoshi Inc
 
 import json
-import subprocess
-import traceback
 
 from typing import Dict, List
 
@@ -11,7 +9,6 @@ from vali_objects.exceptions.vali_bkp_file_missing_exception import (
     ValiFileMissingException,
 )
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
-import bittensor as bt
 
 class ValiUtils:
     @staticmethod

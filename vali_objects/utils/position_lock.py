@@ -1,5 +1,4 @@
 from threading import Lock
-import bittensor as bt
 
 class PositionLocks:
     """

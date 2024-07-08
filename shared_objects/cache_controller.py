@@ -5,8 +5,6 @@ import datetime
 from collections import defaultdict
 from pickle import UnpicklingError
 from typing import List, Dict
-import copy
-import json
 
 from shared_objects.retry import retry
 from time_util.time_util import TimeUtil

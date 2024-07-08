@@ -1,9 +1,7 @@
 # developer: jbonilla
 # Copyright © 2024 Taoshi Inc
 import copy
-import time
-from typing import List, Union
-import numpy as np
+from typing import List
 
 import bittensor as bt
 
@@ -11,8 +9,6 @@ from time_util.time_util import TimeUtil
 from vali_config import ValiConfig
 from shared_objects.cache_controller import CacheController
 from vali_objects.utils.position_manager import PositionManager
-from vali_objects.utils.position_utils import PositionUtils
-from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
 from vali_objects.position import Position
 from vali_objects.scoring.scoring import Scoring
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager, PerfCheckpoint, PerfLedger
