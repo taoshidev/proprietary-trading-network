@@ -174,7 +174,7 @@ class P2PSyncer(ValidatorSyncBase):
         order_data = defaultdict(list)                          # {order_uuid: [{order}]}
 
         # simple majority of positions/number of checkpoints
-        positions_threshold = math.ceil(len(trusted_checkpoints) / 2)
+        positions_threshold = 2#math.ceil(len(trusted_checkpoints) / 2)
 
         # parse each checkpoint to count occurrences of each position and order
         for checkpoint in trusted_checkpoints.values():
@@ -215,7 +215,7 @@ class P2PSyncer(ValidatorSyncBase):
                         majority_positions.remove(position_uuid)
 
                         # simple majority of orders out of the positions they could appear in
-                        orders_threshold = math.ceil(position_counts[position_uuid] / 2)
+                        orders_threshold = 2#math.ceil(position_counts[position_uuid] / 2)
 
                         # get the set of order_uuids that appear in the majority of positions for a position_uuid
                         majority_orders = {order_uuid for order_uuid, count in order_counts[position_uuid].items()
