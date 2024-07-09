@@ -285,7 +285,7 @@ class Validator:
                        f"blob/main/docs/regenerating_validator_state.md")
                 #bt.logging.error(msg)
                 #raise Exception(msg)
-                self.position_syncer.sync_positions()
+                self.position_syncer.sync_positions(False)
 
 
 
