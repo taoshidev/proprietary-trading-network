@@ -5,6 +5,7 @@ import datetime
 from pickle import UnpicklingError
 from typing import List, Dict
 import copy
+import json
 
 from shared_objects.retry import retry
 from time_util.time_util import TimeUtil
@@ -374,7 +375,17 @@ class CacheController:
         file_string = None
         try:
             file_string = ValiBkpUtils.get_file(file)
-            ans = Position.model_validate_json(file_string)
+            file_object = json.loads(file_string)
+            open_ms: int = file_object.get('open_ms', 0)
+
+            if open_ms < 1720488158196:
+                print(f"open_ms: {open_ms}, file: {file}, file_object: {file_object}")
+                bt.logging.info(f"open_ms: {open_ms}, file: {file}, file_object: {file_object}")
+                ans = Position.from_dict_without_validation(file_object)
+            else:
+                print(f"open_ms: {open_ms}, file: {file}, file_object: {file_object} - VALIDATION")
+                bt.logging.info(f"open_ms: {open_ms}, file: {file}, file_object: {file_object} - VALIDATION")
+                ans = Position.model_validate_json(file_string)
             #bt.logging.info(f"vali_utils get_miner_position: {ans}")
             return ans
         except FileNotFoundError:

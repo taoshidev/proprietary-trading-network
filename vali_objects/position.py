@@ -46,25 +46,65 @@ class Position(BaseModel):
     position_type: Optional[OrderType] = None
     is_closed_position: bool = False
 
-    @model_validator(mode="before")
     @classmethod
-    def validate_leverage(cls, values):
-        # Directly access values to perform necessary logic
+    def from_dict_without_validation(cls, data: dict):
+        # Create an instance without running validation
+        instance = cls.__new__(cls)
+        for key, value in data.items():
+            setattr(instance, key, value)
+        # Set the necessary pydantic attributes manually
+        instance.__pydantic_initialised__ = True
+        instance.__pydantic_fields_set__ = set(data.keys())
+        return instance
+
+    @field_validator('net_leverage', mode="before")
+    @classmethod
+    def validate_leverage(cls, v, values):
         if values.get('is_closed_position'):
-            return values
+            return v
         
         open_ms = values.get('open_ms')
         if open_ms and open_ms < 1720464933743:
-            values = Position._check_and_add_extra_order(values)
+            cls._check_and_add_extra_order(values)
 
         trade_pair = values.get('trade_pair')
-        net_leverage = values.get('net_leverage', 0.0)
-        if trade_pair and not (trade_pair.min_leverage <= abs(net_leverage) <= trade_pair.max_leverage):
-            raise ValueError(f"Net leverage must be between {trade_pair.min_leverage} and {trade_pair.max_leverage}, provided - [{net_leverage}]")
-        return values
-
-    @model_validator(mode="before")
+        if trade_pair and not (trade_pair.min_leverage <= abs(v) <= trade_pair.max_leverage):
+            raise ValueError(f"Net leverage must be between {trade_pair.min_leverage} and {trade_pair.max_leverage}, provided - [{v}]")
+        return v
+    
     @classmethod
+    def _check_and_add_extra_order(cls, values):
+        net_leverage = values.get('net_leverage', 0.0)
+        trade_pair = values.get('trade_pair')
+        position_type = values.get('position_type')
+
+        order_correction_processing_time_ms = TimeUtil.now_in_millis()
+
+        if abs(net_leverage) > trade_pair.max_leverage:
+            if position_type == OrderType.LONG:
+                updating_order_leverage = trade_pair.max_leverage - net_leverage
+            elif position_type == OrderType.SHORT:
+                updating_order_leverage = -trade_pair.max_leverage - net_leverage
+        elif abs(net_leverage) < trade_pair.min_leverage:
+            if position_type == OrderType.LONG:
+                updating_order_leverage = trade_pair.min_leverage - net_leverage
+            elif position_type == OrderType.SHORT:
+                updating_order_leverage = -trade_pair.min_leverage - net_leverage
+        else:
+            updating_order_leverage = 0.0
+
+        if updating_order_leverage != 0.0:
+            new_order = Order(
+                trade_pair=trade_pair,
+                leverage=updating_order_leverage,
+                order_type=position_type,
+                price=0,  # Placeholder for the price
+                processed_ms=order_correction_processing_time_ms
+            )
+            values['orders'].append(new_order)
+            values['net_leverage'] += updating_order_leverage
+
+    @model_validator(mode='before')
     def add_trade_pair_to_orders(cls, values):
         if isinstance(values['trade_pair'], TradePair):
             trade_pair_id = values['trade_pair'].trade_pair_id
@@ -295,42 +335,6 @@ class Position(BaseModel):
         self._position_log("position liquidated. Trade pair: " + str(self.trade_pair.trade_pair_id))
 
         self.close_out_position(time_ms)
-
-    @staticmethod
-    def _check_and_add_extra_order(values):
-        # Simulate creating an order correction
-        net_leverage = values.get('net_leverage', 0.0)
-        trade_pair = values.get('trade_pair')
-        position_type = values.get('position_type')
-
-        order_correction_processing_time_ms = TimeUtil.now_in_millis()
-        updating_order_leverage = 0.0
-
-        if abs(net_leverage) > trade_pair.max_leverage:
-            if position_type == OrderType.LONG:
-                updating_order_leverage = trade_pair.max_leverage - net_leverage
-            elif position_type == OrderType.SHORT:
-                updating_order_leverage = -trade_pair.max_leverage - net_leverage
-        elif abs(net_leverage) < trade_pair.min_leverage:
-            if position_type == OrderType.LONG:
-                updating_order_leverage = trade_pair.min_leverage - net_leverage
-            elif position_type == OrderType.SHORT:
-                updating_order_leverage = -trade_pair.min_leverage - net_leverage
-        else:
-            updating_order_leverage = 0.0
-
-        if updating_order_leverage != 0.0:
-            new_order = Order(
-                trade_pair=trade_pair,
-                leverage=updating_order_leverage,
-                order_type=position_type,
-                price=0,  # Placeholder for the price
-                processed_ms=order_correction_processing_time_ms
-            )
-            values['orders'].append(new_order)
-            values['net_leverage'] += updating_order_leverage
-
-        return values
 
     def calculate_return_with_fees(self, current_return_no_fees, timestamp_ms=None):
         if timestamp_ms is None:
