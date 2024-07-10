@@ -8,7 +8,6 @@ from vali_objects.position import CRYPTO_CARRY_FEE_PER_INTERVAL, FOREX_CARRY_FEE
 from tests.shared_objects.mock_classes import MockMetagraph
 from tests.vali_tests.base_objects.test_base import TestBase
 from vali_config import TradePair, ValiConfig
-from vali_objects.utils.leverage_utils import LEVERAGE_BOUNDS_V2_START_TIME_MS, get_position_leverage_bounds
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.position import Position, FEE_V6_TIME_MS
 from vali_objects.utils.live_price_fetcher import LivePriceFetcher
@@ -41,7 +40,8 @@ class TestPositions(TestBase):
         self.position_manager.clear_all_miner_positions_from_disk()
 
     def add_order_to_position_and_save_to_disk(self, position, order):
-        position.add_order(order)
+        position.add_order(order, self.position_manager.calculate_total_portfolio_leverage(self.DEFAULT_MINER_HOTKEY))
+        # print(self.position_manager.calculate_total_portfolio_leverage(self.DEFAULT_MINER_HOTKEY))
         self.position_manager.save_miner_position_to_disk(position)
 
     def _find_disk_position_from_memory_position(self, position):
@@ -799,7 +799,6 @@ class TestPositions(TestBase):
                    processed_ms=1000,
                    order_uuid="1000")
         with self.assertRaises(ValueError):
-            position.add_order(o1)
 
     def test_invalid_prices_negative(self):
         with self.assertRaises(ValueError):
@@ -1207,7 +1206,6 @@ class TestPositions(TestBase):
 
         for order in [o1, o2, o3]:
             with self.assertRaises(ValueError):
-                position.add_order(order)
 
     def test_two_positions_no_collisions(self):
         weekday_time_ms = FEE_V6_TIME_MS + 1000 * 60 * 60 * 24 * 3
@@ -1716,7 +1714,6 @@ class TestPositions(TestBase):
 
     def test_leverage_clamping_short_v2(self):
         position = deepcopy(self.default_position)
-        live_price = 4444
         o1 = Order(order_type=OrderType.SHORT,
                    leverage=-TradePair.BTCUSD.max_leverage * .80,
                    price=live_price,
@@ -1856,6 +1853,48 @@ class TestPositions(TestBase):
 
         self.assertEqual(position.max_leverage_seen(), TradePair.BTCUSD.max_leverage)
         self.assertEqual(position.get_cumulative_leverage(), TradePair.BTCUSD.max_leverage)
+
+    def test_long_order_leverage_exceed_portfolio_limit(self):
+        position = deepcopy(self.default_position)
+        o1 = Order(order_type=OrderType.LONG,
+                   leverage=TradePair.BTCUSD.max_leverage - 1,
+                   price=100,
+                   trade_pair=TradePair.BTCUSD,
+                   processed_ms=1000,
+                   order_uuid="1000")
+        o2 = Order(order_type=OrderType.LONG,
+                   leverage=2,
+                   price=100,
+                   trade_pair=TradePair.BTCUSD,
+                   processed_ms=2000,
+                   order_uuid="2000")
+
+        with self.assertLogs('root', level='DEBUG') as logger:
+            for order in [o1, o2]:
+                self.add_order_to_position_and_save_to_disk(position, order)
+            print(logger.output)
+            self.assertEqual([f"WARNING:root:Current portfolio leverage of {self.position_manager.calculate_total_portfolio_leverage(self.DEFAULT_MINER_HOTKEY)} already exceeds max leverage for portfolio of {ValiConfig.PORTFOLIO_LEVERAGE_CAP}. You can only lower leverage or close this position. Skipping order."], logger.output)
+
+    def test_short_order_leverage_exceed_portfolio_limit(self):
+        position = deepcopy(self.default_position)
+        o1 = Order(order_type=OrderType.SHORT,
+                   leverage=-(TradePair.BTCUSD.max_leverage - 1),
+                   price=100,
+                   trade_pair=TradePair.BTCUSD,
+                   processed_ms=1000,
+                   order_uuid="1000")
+        o2 = Order(order_type=OrderType.SHORT,
+                   leverage=-2,
+                   price=100,
+                   trade_pair=TradePair.BTCUSD,
+                   processed_ms=2000,
+                   order_uuid="2000")
+
+        with self.assertLogs('root', level='DEBUG') as logger:
+            for order in [o1, o2]:
+                self.add_order_to_position_and_save_to_disk(position, order)
+            print(logger.output)
+            self.assertEqual([f"WARNING:root:Current portfolio leverage of {self.position_manager.calculate_total_portfolio_leverage(self.DEFAULT_MINER_HOTKEY)} already exceeds max leverage for portfolio of {ValiConfig.PORTFOLIO_LEVERAGE_CAP}. You can only lower leverage or close this position. Skipping order."], logger.output)
 
     def test_position_json(self):
         position = deepcopy(self.default_position)
