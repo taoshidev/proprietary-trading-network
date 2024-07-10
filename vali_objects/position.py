@@ -12,10 +12,10 @@ from vali_objects.enums.order_type_enum import OrderType
 import bittensor as bt
 import math
 
-CRYPTO_CARRY_FEE_PER_INTERVAL = math.exp(math.log(1 - 0.08) / (365.0*3.0))  # 8% per year for 1x leverage. Each interval is 8 hrs
-FOREX_CARRY_FEE_PER_INTERVAL = math.exp(math.log(1 - .0175) / 365.0)  # 1.75% per year for 1x leverage. Each interval is 24 hrs
-INDICES_CARRY_FEE_PER_INTERVAL = math.exp(math.log(1 - .03) / 365.0)  # 3% per year for 1x leverage. Each interval is 24 hrs
-
+CRYPTO_CARRY_FEE_PER_INTERVAL = math.exp(math.log(1 - 0.1095) / (365.0*3.0))  # 10.95% per year for 1x leverage. Each interval is 8 hrs
+FOREX_CARRY_FEE_PER_INTERVAL = math.exp(math.log(1 - .03) / 365.0)  # 3% per year for 1x leverage. Each interval is 24 hrs
+INDICES_CARRY_FEE_PER_INTERVAL = math.exp(math.log(1 - .0525) / 365.0)  # 5.25% per year for 1x leverage. Each interval is 24 hrs
+FEE_V6_TIME_MS = 1720672756000  # V6 PR merged
 
 class Position(BaseModel):
     """Represents a position in a trading system.
@@ -79,6 +79,10 @@ class Position(BaseModel):
         values['trade_pair'] = trade_pair
         return values
 
+    @property
+    def start_carry_fee_accrual_ms(self):
+        return max(FEE_V6_TIME_MS, self.open_ms)
+
     def get_cumulative_leverage(self) -> float:
         current_leverage = 0.0
         cumulative_leverage = 0.0
@@ -113,9 +117,9 @@ class Position(BaseModel):
 
     def crypto_carry_fee(self, current_time_ms: int) -> (float, int):
         # Fees every 8 hrs. 4 UTC, 12 UTC, 20 UTC
-        n_intervals_elapsed, time_until_next_interval_ms = TimeUtil.n_intervals_elapsed_crypto(self.open_ms, current_time_ms)
+        n_intervals_elapsed, time_until_next_interval_ms = TimeUtil.n_intervals_elapsed_crypto(self.start_carry_fee_accrual_ms, current_time_ms)
         fee_product = 1.0
-        start_ms = self.open_ms
+        start_ms = self.start_carry_fee_accrual_ms
         end_ms = start_ms + time_until_next_interval_ms
         for n in range(n_intervals_elapsed):
             if n != 0:
@@ -132,9 +136,9 @@ class Position(BaseModel):
 
     def forex_indices_carry_fee(self, current_time_ms: int) -> (float, int):
         # Fees M-F where W gets triple fee.
-        n_intervals_elapsed, time_until_next_interval_ms = TimeUtil.n_intervals_elapsed_forex_indices(self.open_ms, current_time_ms)
+        n_intervals_elapsed, time_until_next_interval_ms = TimeUtil.n_intervals_elapsed_forex_indices(self.start_carry_fee_accrual_ms, current_time_ms)
         fee_product = 1.0
-        start_ms = self.open_ms
+        start_ms = self.start_carry_fee_accrual_ms
         end_ms = start_ms + time_until_next_interval_ms
         for n in range(n_intervals_elapsed):
             if n != 0:
@@ -169,8 +173,13 @@ class Position(BaseModel):
         # opened at 23:59:58 and this function is called at 23:59:59, the carry fee will be calculated as 0 days have passed
         # Recalculate and update cache
         assert current_time_ms
+
         if self.is_closed_position and current_time_ms > self.close_ms:
             current_time_ms = self.close_ms
+
+        if current_time_ms <= self.start_carry_fee_accrual_ms:
+            return 1.0, current_time_ms + MS_IN_8_HOURS
+
         if self.trade_pair.is_crypto:
             carry_fee, next_update_time_ms = self.crypto_carry_fee(current_time_ms)
         elif self.trade_pair.is_forex or self.trade_pair.is_indices:
@@ -427,8 +436,6 @@ class Position(BaseModel):
         # V6 introduce "carry fee"
         if timestamp_ms < 1713198680000:  # V4 PR merged
             fee = 1.0 - self.trade_pair.fees * self.max_leverage_seen()
-        elif self.open_ms < 1720449505000:  # V6 PR
-            fee = self.get_spread_fee()
         else:
             fee = self.get_carry_fee(timestamp_ms)[0] * self.get_spread_fee()
         return current_return_no_fees * fee
@@ -483,7 +490,7 @@ class Position(BaseModel):
 
     def initialize_position_from_first_order(self, order):
         self.open_ms = order.processed_ms
-        if order.price <= 0:
+        if self.initial_entry_price <= 0:
             raise ValueError("Initial entry price must be > 0")
         # Initialize the position type. It will stay the same until the position is closed.
         if order.leverage > 0:

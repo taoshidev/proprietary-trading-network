@@ -8,7 +8,7 @@ from tests.shared_objects.mock_classes import MockMetagraph
 from tests.vali_tests.base_objects.test_base import TestBase
 from vali_config import TradePair
 from vali_objects.enums.order_type_enum import OrderType
-from vali_objects.position import Position
+from vali_objects.position import Position, FEE_V6_TIME_MS
 from vali_objects.utils.live_price_fetcher import LivePriceFetcher
 from vali_objects.utils.position_manager import PositionManager
 from vali_objects.utils.vali_utils import ValiUtils
@@ -181,13 +181,13 @@ class TestPositions(TestBase):
                            leverage=1.0,
                            price=100,
                            trade_pair=TradePair.BTCUSD,
-                           processed_ms=1000,
+                           processed_ms=FEE_V6_TIME_MS,
                            order_uuid="1000")
                 o2 = Order(order_type=OrderType.FLAT,
                            leverage=0.0,
                            price=110,
                            trade_pair=TradePair.BTCUSD,
-                           processed_ms=MS_IN_8_HOURS + 1000,
+                           processed_ms=FEE_V6_TIME_MS + MS_IN_8_HOURS + 1000,
                            order_uuid="2000")
 
                 self.add_order_to_position_and_save_to_disk(position, o1)
@@ -199,10 +199,10 @@ class TestPositions(TestBase):
                     'initial_entry_price': 100,
                     'average_entry_price': 100,
                     'close_ms': None,
-                    'return_at_close': 0.999,
+                    'return_at_close': 0.9995,
                     'current_return': 1.0,
                     'miner_hotkey': self.DEFAULT_MINER_HOTKEY,
-                    'open_ms': self.DEFAULT_OPEN_MS,
+                    'open_ms': FEE_V6_TIME_MS,
                     'trade_pair': self.DEFAULT_TRADE_PAIR,
                     'position_uuid': self.DEFAULT_POSITION_UUID
                 })
@@ -216,10 +216,10 @@ class TestPositions(TestBase):
                     'initial_entry_price': 100,
                     'average_entry_price': 100,
                     'close_ms': o2.processed_ms,
-                    'return_at_close': 1.0989,
+                    'return_at_close': 1.0987836209351618,
                     'current_return': 1.1,
                     'miner_hotkey': self.DEFAULT_MINER_HOTKEY,
-                    'open_ms': self.DEFAULT_OPEN_MS,
+                    'open_ms': FEE_V6_TIME_MS,
                     'trade_pair': self.DEFAULT_TRADE_PAIR,
                     'position_uuid': self.DEFAULT_POSITION_UUID
                 })
@@ -236,13 +236,13 @@ class TestPositions(TestBase):
                    leverage=1.0,
                    price=500,
                    trade_pair=TradePair.BTCUSD,
-                   processed_ms=1000,
+                   processed_ms=FEE_V6_TIME_MS,
                    order_uuid="1000")
         o2 = Order(order_type=OrderType.SHORT,
                    leverage=2.0,
                    price=1000,
                    trade_pair=TradePair.BTCUSD,
-                   processed_ms= + 10 * MS_IN_8_HOURS,
+                   processed_ms=FEE_V6_TIME_MS + 10 * MS_IN_8_HOURS,
                    order_uuid="2000")
 
         self.add_order_to_position_and_save_to_disk(position, o1)
@@ -254,10 +254,10 @@ class TestPositions(TestBase):
             'initial_entry_price': 500,
             'average_entry_price': 500,
             'close_ms': None,
-            'return_at_close': 0.999,
+            'return_at_close': 0.9995,
             'current_return': 1.0,
             'miner_hotkey': self.DEFAULT_MINER_HOTKEY,
-            'open_ms': self.DEFAULT_OPEN_MS,
+            'open_ms': FEE_V6_TIME_MS,
             'trade_pair': self.DEFAULT_TRADE_PAIR,
             'position_uuid': self.DEFAULT_POSITION_UUID
         })
@@ -271,17 +271,17 @@ class TestPositions(TestBase):
             'initial_entry_price': 500,
             'average_entry_price': 500,
             'close_ms': o2.processed_ms,
-            'return_at_close': 1.998,
+            'return_at_close': 1.9958850251380311,
             'current_return': 2.0,
             'miner_hotkey': self.DEFAULT_MINER_HOTKEY,
-            'open_ms': self.DEFAULT_OPEN_MS,
+            'open_ms': FEE_V6_TIME_MS,
             'trade_pair': self.DEFAULT_TRADE_PAIR,
             'position_uuid': self.DEFAULT_POSITION_UUID
         })
         self.assertEqual(position.max_leverage_seen(), 1.0)
         self.assertEqual(position.get_cumulative_leverage(), 2.0)
 
-        self.assertAlmostEqual(position.get_carry_fee(o2.processed_ms)[0], 10 * CRYPTO_CARRY_FEE_PER_INTERVAL, 7)
+        self.assertAlmostEqual(position.get_carry_fee(o2.processed_ms)[0], CRYPTO_CARRY_FEE_PER_INTERVAL ** 10, 7)
 
     def test_simple_short_position_with_explicit_FLAT(self):
         position = deepcopy(self.default_position)
@@ -307,7 +307,7 @@ class TestPositions(TestBase):
             'initial_entry_price': 100,
             'average_entry_price': 100,
             'close_ms': None,
-            'return_at_close': 0.998,
+            'return_at_close': 0.999,
             'current_return': 1.0,
             'miner_hotkey': self.DEFAULT_MINER_HOTKEY,
             'open_ms': self.DEFAULT_OPEN_MS,
@@ -324,7 +324,7 @@ class TestPositions(TestBase):
             'initial_entry_price': 100,
             'average_entry_price': 100,
             'close_ms': o2.processed_ms,
-            'return_at_close': 1.0978,
+            'return_at_close': 1.0989,
             'current_return': 1.1,
             'miner_hotkey': self.DEFAULT_MINER_HOTKEY,
             'open_ms': self.DEFAULT_OPEN_MS,
@@ -333,6 +333,7 @@ class TestPositions(TestBase):
         })
         self.assertEqual(position.max_leverage_seen(), 1.0)
         self.assertEqual(position.get_cumulative_leverage(), 2.0)
+        self.assertAlmostEqual(position.get_carry_fee(o2.processed_ms)[0], 1.0)
 
     def test_liquidated_long_position_with_explicit_FLAT(self):
         position = deepcopy(self.default_position)
@@ -358,7 +359,7 @@ class TestPositions(TestBase):
             'initial_entry_price': 100,
             'average_entry_price': 100,
             'close_ms': None,
-            'return_at_close': 0.98,
+            'return_at_close': 0.99,
             'current_return': 1.0,
             'miner_hotkey': self.DEFAULT_MINER_HOTKEY,
             'open_ms': self.DEFAULT_OPEN_MS,
@@ -384,6 +385,8 @@ class TestPositions(TestBase):
         })
         self.assertEqual(position.max_leverage_seen(), 10.0)
         self.assertEqual(position.get_cumulative_leverage(), 20.0)
+        self.assertAlmostEqual(position.get_carry_fee(o2.processed_ms)[0], 1.0)
+
     def test_liquidated_short_position_with_explicit_FLAT(self):
         position = deepcopy(self.default_position)
         o1 = Order(order_type=OrderType.SHORT,
@@ -408,7 +411,7 @@ class TestPositions(TestBase):
             'initial_entry_price': 100,
             'average_entry_price': 100,
             'close_ms': None,
-            'return_at_close': .998,
+            'return_at_close': .999,
             'current_return': 1.0,
             'miner_hotkey': self.DEFAULT_MINER_HOTKEY,
             'open_ms': self.DEFAULT_OPEN_MS,
@@ -465,7 +468,7 @@ class TestPositions(TestBase):
             'initial_entry_price': 100,
             'average_entry_price': 100,
             'close_ms': None,
-            'return_at_close': .998,
+            'return_at_close': .999,
             'current_return': 1.0,
             'miner_hotkey': self.DEFAULT_MINER_HOTKEY,
             'open_ms': self.DEFAULT_OPEN_MS,
@@ -540,7 +543,7 @@ class TestPositions(TestBase):
             'initial_entry_price': 100,
             'average_entry_price': 100,
             'close_ms': None,
-            'return_at_close': 0.98,
+            'return_at_close': 0.99,
             'current_return': 1.0,
             'miner_hotkey': self.DEFAULT_MINER_HOTKEY,
             'open_ms': self.DEFAULT_OPEN_MS,
@@ -610,7 +613,7 @@ class TestPositions(TestBase):
             'initial_entry_price': 1000,
             'average_entry_price': 1000,
             'close_ms': None,
-            'return_at_close': .998,
+            'return_at_close': .999,
             'current_return': 1.0,
             'miner_hotkey': self.DEFAULT_MINER_HOTKEY,
             'open_ms': self.DEFAULT_OPEN_MS,
@@ -627,7 +630,7 @@ class TestPositions(TestBase):
             'initial_entry_price': 1000,
             'average_entry_price': 1000,
             'close_ms': o2.processed_ms,
-            'return_at_close': 1.4969999999999999,
+            'return_at_close': 1.4985,
             'current_return': 1.5,
             'miner_hotkey': self.DEFAULT_MINER_HOTKEY,
             'open_ms': self.DEFAULT_OPEN_MS,
@@ -727,7 +730,7 @@ class TestPositions(TestBase):
             'initial_entry_price': 1000,
             'average_entry_price': 1000,
             'close_ms': None,
-            'return_at_close': .998,
+            'return_at_close': .999,
             'current_return': 1.0,
             'miner_hotkey': self.DEFAULT_MINER_HOTKEY,
             'open_ms': self.DEFAULT_OPEN_MS,
@@ -744,7 +747,7 @@ class TestPositions(TestBase):
             'initial_entry_price': 1000,
             'average_entry_price': 1090.9090909090908,
             'close_ms': None,
-            'return_at_close': 1.9956,
+            'return_at_close': 1.9978,
             'current_return': 2.0,
             'miner_hotkey': self.DEFAULT_MINER_HOTKEY,
             'open_ms': self.DEFAULT_OPEN_MS,
@@ -761,7 +764,7 @@ class TestPositions(TestBase):
             'initial_entry_price': 1000,
             'average_entry_price': 1090.9090909090908,
             'close_ms': 5000,
-            'return_at_close': 1.9956,
+            'return_at_close': 1.9978,
             'current_return': 2.0,
             'miner_hotkey': self.DEFAULT_MINER_HOTKEY,
             'open_ms': self.DEFAULT_OPEN_MS,
@@ -776,13 +779,13 @@ class TestPositions(TestBase):
                 leverage=1.0,
                 price=1000,
                 trade_pair=TradePair.BTCUSD,
-                processed_ms=1000,
+                processed_ms=FEE_V6_TIME_MS - 1000 * 60 * 60 * 24,
                 order_uuid="1000")
         o2 = Order(order_type=OrderType.FLAT,
                 leverage=0.0,
                 price=500,
                 trade_pair=TradePair.BTCUSD,
-                processed_ms=2000,
+                processed_ms=FEE_V6_TIME_MS - 1000 * 60 * 60 * 12,
                 order_uuid="2000")
 
         position = deepcopy(self.default_position)
@@ -795,10 +798,10 @@ class TestPositions(TestBase):
             'initial_entry_price': 1000,
             'average_entry_price': 1000,
             'close_ms': None,
-            'return_at_close': .997,
+            'return_at_close': 0.9995,
             'current_return': 1.0,
             'miner_hotkey': self.DEFAULT_MINER_HOTKEY,
-            'open_ms': self.DEFAULT_OPEN_MS,
+            'open_ms': o1.processed_ms,
             'trade_pair': self.DEFAULT_TRADE_PAIR,
             'position_uuid': self.DEFAULT_POSITION_UUID
         })
@@ -811,35 +814,37 @@ class TestPositions(TestBase):
             'net_leverage': 0.0,
             'initial_entry_price': 1000,
             'average_entry_price': 1000,
-            'close_ms': 2000,
-            'return_at_close': 0.4985,
+            'close_ms': o2.processed_ms,
+            'return_at_close': 0.4995,
             'current_return': 0.5,
             'miner_hotkey': self.DEFAULT_MINER_HOTKEY,
-            'open_ms': self.DEFAULT_OPEN_MS,
+            'open_ms': o1.processed_ms,
             'trade_pair': self.DEFAULT_TRADE_PAIR,
             'position_uuid': self.DEFAULT_POSITION_UUID
         })
         self.assertEqual(position.max_leverage_seen(), 1.0)
         self.assertEqual(position.get_cumulative_leverage(), 2.0)
+        self.assertEqual(position.get_spread_fee(), 1.0 - position.trade_pair.fees)
+        self.assertEqual(position.get_carry_fee(o2.processed_ms)[0], 1.0)
 
     def test_three_orders_with_a_loss_and_then_a_gain(self):
             o1 = Order(order_type=OrderType.LONG,
                     leverage=1.0,
                     price=1000,
                     trade_pair=TradePair.BTCUSD,
-                    processed_ms=1000,
+                    processed_ms=FEE_V6_TIME_MS - 1000 * 60 * 60 * 24,
                     order_uuid="1000")
             o2 = Order(order_type=OrderType.LONG,
                     leverage=0.1,
                     price=500,
                     trade_pair=TradePair.BTCUSD,
-                    processed_ms=2000,
+                    processed_ms=FEE_V6_TIME_MS - 1000 * 60 * 60 * 12,
                     order_uuid="2000")
             o3 = Order(order_type=OrderType.SHORT,
                     leverage=0.1,
                     price=1000,
                     trade_pair=TradePair.BTCUSD,
-                    processed_ms=5000,
+                    processed_ms=FEE_V6_TIME_MS - 1000 * 60 * 60 * 4,
                     order_uuid="5000")
 
             position = deepcopy(self.default_position)
@@ -852,10 +857,10 @@ class TestPositions(TestBase):
                 'initial_entry_price': 1000,
                 'average_entry_price': 1000,
                 'close_ms': None,
-                'return_at_close': .998,
+                'return_at_close': 0.9995,
                 'current_return': 1.0,
                 'miner_hotkey': self.DEFAULT_MINER_HOTKEY,
-                'open_ms': self.DEFAULT_OPEN_MS,
+                'open_ms': o1.processed_ms,
                 'trade_pair': self.DEFAULT_TRADE_PAIR,
                 'position_uuid': self.DEFAULT_POSITION_UUID
             })
@@ -869,10 +874,10 @@ class TestPositions(TestBase):
                 'initial_entry_price': 1000,
                 'average_entry_price': 954.5454545454545,
                 'close_ms': None,
-                'return_at_close': 0.4989,
+                'return_at_close': 0.499725,
                 'current_return': 0.5,
                 'miner_hotkey': self.DEFAULT_MINER_HOTKEY,
-                'open_ms': self.DEFAULT_OPEN_MS,
+                'open_ms': o1.processed_ms,
                 'trade_pair': self.DEFAULT_TRADE_PAIR,
                 'position_uuid': self.DEFAULT_POSITION_UUID
             })
@@ -886,10 +891,10 @@ class TestPositions(TestBase):
                 'initial_entry_price': 1000,
                 'average_entry_price': 950.0,
                 'close_ms': None,
-                'return_at_close': 1.04769,
+                'return_at_close': 1.04937,
                 'current_return': 1.05,
                 'miner_hotkey': self.DEFAULT_MINER_HOTKEY,
-                'open_ms': self.DEFAULT_OPEN_MS,
+                'open_ms': o1.processed_ms,
                 'trade_pair': self.DEFAULT_TRADE_PAIR,
                 'position_uuid': self.DEFAULT_POSITION_UUID
             })
@@ -945,7 +950,7 @@ class TestPositions(TestBase):
             'initial_entry_price': 1000,
             'average_entry_price': 1776.7857142857142,
             'close_ms': 5000,
-            'return_at_close': 43.7118656,
+            'return_at_close': 43.7609328,
             'current_return': 43.81,
             'miner_hotkey': self.DEFAULT_MINER_HOTKEY,
             'open_ms': self.DEFAULT_OPEN_MS,
@@ -1003,7 +1008,7 @@ class TestPositions(TestBase):
             'initial_entry_price': 1000,
             'average_entry_price': 986.6071428571428,
             'close_ms': 5000,
-            'return_at_close': 1.4297900799999999,
+            'return_at_close': 1.4313950399999997,
             'current_return':  1.4329999999999998,
             'miner_hotkey': self.DEFAULT_MINER_HOTKEY,
             'open_ms': self.DEFAULT_OPEN_MS,
@@ -1062,7 +1067,7 @@ class TestPositions(TestBase):
             'initial_entry_price': 1000,
             'average_entry_price': 1700.0000000000005,
             'close_ms': 5000,
-            'return_at_close': 1.4327999999999999,
+            'return_at_close': 1.4364000000000001,
             'current_return':  1.44,
             'miner_hotkey': self.DEFAULT_MINER_HOTKEY,
             'open_ms': self.DEFAULT_OPEN_MS,
@@ -1074,56 +1079,6 @@ class TestPositions(TestBase):
         self.assertEqual(position.get_cumulative_leverage(), 6.0)
 
 
-    def test_two_orders_with_a_loss(self):
-        o1 = Order(order_type=OrderType.LONG,
-                leverage=1.0,
-                price=1000,
-                trade_pair=TradePair.BTCUSD,
-                processed_ms=1000,
-                order_uuid="1000")
-        o2 = Order(order_type=OrderType.FLAT,
-                leverage=0.0,
-                price=500,
-                trade_pair=TradePair.BTCUSD,
-                processed_ms=2000,
-                order_uuid="2000")
-
-        position = deepcopy(self.default_position)
-        self.add_order_to_position_and_save_to_disk(position, o1)
-        self.validate_intermediate_position_state(position, {
-            'orders': [o1],
-            'position_type': OrderType.LONG,
-            'is_closed_position': False,
-            'net_leverage': 1.0,
-            'initial_entry_price': 1000,
-            'average_entry_price': 1000,
-            'close_ms': None,
-            'return_at_close': .998,
-            'current_return': 1.0,
-            'miner_hotkey': self.DEFAULT_MINER_HOTKEY,
-            'open_ms': self.DEFAULT_OPEN_MS,
-            'trade_pair': self.DEFAULT_TRADE_PAIR,
-            'position_uuid': self.DEFAULT_POSITION_UUID
-        })
-
-        self.add_order_to_position_and_save_to_disk(position, o2)
-        self.validate_intermediate_position_state(position, {
-            'orders': [o1, o2],
-            'position_type': OrderType.FLAT,
-            'is_closed_position': True,
-            'net_leverage': 0.0,
-            'initial_entry_price': 1000,
-            'average_entry_price': 1000,
-            'close_ms': 2000,
-            'return_at_close': 0.499,
-            'current_return': 0.5,
-            'miner_hotkey': self.DEFAULT_MINER_HOTKEY,
-            'open_ms': self.DEFAULT_OPEN_MS,
-            'trade_pair': self.DEFAULT_TRADE_PAIR,
-            'position_uuid': self.DEFAULT_POSITION_UUID
-        })
-        self.assertEqual(position.max_leverage_seen(), 1.0)
-        self.assertEqual(position.get_cumulative_leverage(), 2.0)
 
     def test_error_adding_mismatched_trade_pair(self):
         position = deepcopy(self.default_position)
@@ -1156,7 +1111,7 @@ class TestPositions(TestBase):
         position1 = Position(
             miner_hotkey=hotkey1,
             position_uuid=self.DEFAULT_POSITION_UUID,
-            open_ms=self.DEFAULT_OPEN_MS,
+            open_ms=FEE_V6_TIME_MS,
             trade_pair=trade_pair1
         )
         trade_pair2 = TradePair.EURJPY
@@ -1164,7 +1119,7 @@ class TestPositions(TestBase):
         position2 = Position(
             miner_hotkey=hotkey2,
             position_uuid=self.DEFAULT_POSITION_UUID + '_2',
-            open_ms=self.DEFAULT_OPEN_MS,
+            open_ms=FEE_V6_TIME_MS,
             trade_pair=trade_pair2
         )
 
@@ -1172,13 +1127,13 @@ class TestPositions(TestBase):
                 leverage=0.4,
                 price=1000,
                 trade_pair=trade_pair1,
-                processed_ms=1000,
+                processed_ms=FEE_V6_TIME_MS,
                 order_uuid="1000")
         o2 = Order(order_type=OrderType.SHORT,
                 leverage=0.4,
                 price=500,
                 trade_pair=trade_pair2,
-                processed_ms=2000,
+                processed_ms=FEE_V6_TIME_MS,
                 order_uuid="2000")
 
 
@@ -1191,10 +1146,10 @@ class TestPositions(TestBase):
             'initial_entry_price': 1000,
             'average_entry_price': 1000,
             'close_ms': None,
-            'return_at_close': 0.999964,
+            'return_at_close': 0.999982,
             'current_return': 1.0,
             'miner_hotkey': position1.miner_hotkey,
-            'open_ms': self.DEFAULT_OPEN_MS,
+            'open_ms': FEE_V6_TIME_MS,
             'trade_pair': trade_pair1,
             'position_uuid': self.DEFAULT_POSITION_UUID
         })
@@ -1208,10 +1163,10 @@ class TestPositions(TestBase):
             'initial_entry_price': 500,
             'average_entry_price': 500,
             'close_ms': None,
-            'return_at_close': 0.999972,
+            'return_at_close': .999986,
             'current_return': 1.0,
             'miner_hotkey': position2.miner_hotkey,
-            'open_ms': o2.processed_ms,
+            'open_ms': FEE_V6_TIME_MS,
             'trade_pair': trade_pair2,
             'position_uuid': self.DEFAULT_POSITION_UUID + '_2'
         })
@@ -1221,13 +1176,13 @@ class TestPositions(TestBase):
         self.assertEqual(position1.get_cumulative_leverage(), 0.4)
         self.assertEqual(position2.get_cumulative_leverage(), 0.4)
 
-        self.assertEqual(position1.get_carry_fee(o1.processed_ms + MS_IN_24_HOURS)[0], INDICES_CARRY_FEE_PER_INTERVAL * position1.max_leverage_seen())
-        self.assertEqual(position2.get_carry_fee(o2.processed_ms + MS_IN_24_HOURS)[0], FOREX_CARRY_FEE_PER_INTERVAL * position2.max_leverage_seen())
+        self.assertEqual(position1.get_carry_fee(o1.processed_ms + MS_IN_24_HOURS)[0], INDICES_CARRY_FEE_PER_INTERVAL ** position1.max_leverage_seen())
+        self.assertEqual(position2.get_carry_fee(o2.processed_ms + MS_IN_24_HOURS)[0], FOREX_CARRY_FEE_PER_INTERVAL ** position2.max_leverage_seen())
 
 
     def test_leverage_clamping_long(self):
         position = deepcopy(self.default_position)
-        live_price = self.live_price_fetcher.get_close(trade_pair=TradePair.BTCUSD)
+        live_price = 69000
         o1 = Order(order_type=OrderType.LONG,
                    leverage=10.0,
                    price=live_price,
@@ -1270,7 +1225,7 @@ class TestPositions(TestBase):
 
     def test_leverage_clamping_skip_long_order(self):
         position = deepcopy(self.default_position)
-        live_price = self.live_price_fetcher.get_close(trade_pair=TradePair.BTCUSD)
+        live_price = 100000
         o1 = Order(order_type=OrderType.LONG,
                    leverage=TradePair.BTCUSD.max_leverage,
                    price=live_price,
@@ -1309,7 +1264,7 @@ class TestPositions(TestBase):
 
     def test_leverage_clamping_short(self):
         position = deepcopy(self.default_position)
-        live_price = self.live_price_fetcher.get_close(trade_pair=TradePair.BTCUSD)
+        live_price = 4444
         o1 = Order(order_type=OrderType.SHORT,
                    leverage=-10.0,
                    price=live_price,
@@ -1350,7 +1305,7 @@ class TestPositions(TestBase):
 
     def test_leverage_clamping_skip_short_order(self):
         position = deepcopy(self.default_position)
-        live_price = self.live_price_fetcher.get_close(trade_pair=TradePair.BTCUSD)
+        live_price = 999
         o1 = Order(order_type=OrderType.SHORT,
                    leverage=-self.DEFAULT_TRADE_PAIR.max_leverage,
                    price=live_price,

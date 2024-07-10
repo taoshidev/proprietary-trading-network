@@ -52,7 +52,7 @@ class ForexHolidayCalendar(USFederalHolidayCalendar):
         return self.holidays_cache[timestamp.year]
 
     def is_forex_market_open(self, ms_timestamp):
-        # Check if our answer is cached. TODO: populate cache_valid_min_ms, cache_valid_max_ms, and cache_valid_ans
+        # Check if our answer is cached.
         if self.cache_valid_min_ms <= ms_timestamp <= self.cache_valid_max_ms:
             return self.cache_valid_ans
         # Convert millisecond timestamp to pandas Timestamp in UTC

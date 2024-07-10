@@ -189,6 +189,7 @@ def regenerate_miner_positions(perform_backup=True, backup_from_data_dir=False, 
     return True
 
 if __name__ == "__main__":
+    bt.logging.enable_default()
     t0 = time.time()
     # Check commandline arg "disable_backup" to disable backup.
     parser = argparse.ArgumentParser(description="Regenerate miner positions with optional backup disabling.")
