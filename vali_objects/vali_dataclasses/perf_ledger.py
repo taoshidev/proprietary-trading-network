@@ -67,7 +67,7 @@ class FeeCache():
 
 class PerfCheckpointData:
     def __init__(self, last_update_ms, prev_portfolio_ret, prev_portfolio_spread_fee=1.0, prev_portfolio_carry_fee=1.0,
-                 accum_ms=0, open_ms=0, n_updates=0, gain=0.0, loss=0.0, spread_fee_gain=0.0, carry_fee_gain=0.0, mdd=1.0):
+                 accum_ms=0, open_ms=0, n_updates=0, gain=0.0, loss=0.0, spread_fee_loss=0.0, carry_fee_loss=0.0, mdd=1.0):
         self.last_update_ms = last_update_ms
         self.prev_portfolio_ret = prev_portfolio_ret
         self.prev_portfolio_spread_fee = prev_portfolio_spread_fee
@@ -77,8 +77,8 @@ class PerfCheckpointData:
         self.n_updates = n_updates
         self.gain = gain
         self.loss = loss
-        self.spread_fee_gain = spread_fee_gain
-        self.carry_fee_gain = carry_fee_gain
+        self.spread_fee_loss = spread_fee_loss
+        self.carry_fee_loss = carry_fee_loss
         self.mdd = mdd
 
     def __str__(self):
@@ -208,12 +208,10 @@ class PerfLedgerData:
             else:
                 current_cp.loss += delta_return
 
-        if current_cp.prev_portfolio_carry_fee != current_portfolio_carry and current_portfolio_carry and current_cp.prev_portfolio_carry_fee:
-            # print(f'found carry fee loss {current_cp.prev_portfolio_carry_fee} -> {current_portfolio_carry} cp: {current_cp}')
-            current_cp.carry_fee_gain += (1 - current_portfolio_carry) - (1 - current_cp.prev_portfolio_carry_fee)
-        if current_cp.prev_portfolio_spread_fee != current_portfolio_fee_spread and current_portfolio_fee_spread and current_cp.prev_portfolio_spread_fee:
-            # print(f'found spread fee loss {current_cp.prev_portfolio_spread_fee} -> {current_portfolio_fee_spread} cp: {current_cp}')
-            current_cp.spread_fee_gain += (1 - current_portfolio_fee_spread) - (1 - current_cp.prev_portfolio_spread_fee)
+        if current_cp.prev_portfolio_carry_fee != current_portfolio_carry:
+            current_cp.carry_fee_loss += self.compute_delta_between_ticks(current_portfolio_carry, current_cp.prev_portfolio_carry_fee)
+        if current_cp.prev_portfolio_spread_fee != current_portfolio_fee_spread:
+            current_cp.spread_fee_loss += self.compute_delta_between_ticks(current_portfolio_fee_spread, current_cp.prev_portfolio_spread_fee)
 
         current_cp.prev_portfolio_ret = current_portfolio_value
         current_cp.prev_portfolio_spread_fee = current_portfolio_fee_spread
@@ -259,12 +257,6 @@ class PerfLedgerData:
         cumulative_loss = sum(cp.loss for cp in self.cps)
         return math.exp(cumulative_gains + cumulative_loss)
 
-    def get_sum_of_spread_fee_gains(self):
-        return sum(cp.spread_fee_gain for cp in self.cps)
-
-    def get_sum_of_carry_fee_gains(self):
-        return sum(cp.carry_fee_gain for cp in self.cps)
-
     def get_total_ledger_duration_ms(self):
         return sum(cp.accum_ms for cp in self.cps)
 
@@ -282,8 +274,8 @@ class PerfCheckpoint(BaseModel, PerfCheckpointData):
     gain: float = 0.0
     loss: float = 0.0
 
-    spread_fee_gain: float = 0.0
-    carry_fee_gain: float = 0.0
+    spread_fee_loss: float = 0.0
+    carry_fee_loss: float = 0.0
 
     mdd: float = 1.0
 
@@ -565,7 +557,7 @@ class PerfLedgerManager(CacheController):
                 #        for i, order in enumerate(historical_position.orders):
                 #            print(f"    {historical_position.trade_pair.trade_pair} order price {order.price} leverage {order.leverage}")
                 if self.shutdown_dict:
-                    return portfolio_return, any_open
+                    return portfolio_return, any_open, portfolio_spread_fee, portfolio_carry_fee
                 #if len(historical_position.orders) == 0:  # Just opened an order. We will revisit this on the next event as there is no history to replay
                 #    continue
 
