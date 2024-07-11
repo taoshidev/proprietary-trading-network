@@ -124,7 +124,7 @@ class P2PSyncer(ValidatorSyncBase):
     def sync_positions_with_cooldown(self):
         now_ms = TimeUtil.now_in_millis()
         # Already performed a sync recently
-        if now_ms - self.last_signal_sync_time_ms < 1000 * 60 * 5:
+        if now_ms - self.last_signal_sync_time_ms < 1000 * 60 * 15:
             return
 
         # Check if the time is right to sync signals
