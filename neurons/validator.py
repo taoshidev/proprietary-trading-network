@@ -686,7 +686,7 @@ class Validator:
 
     def receive_checkpoint(self, synapse: template.protocol.ValidatorCheckpoint) -> template.protocol.ValidatorCheckpoint:
         """
-        receive checkpoint synapses, and ensure that only checkpoints received from trusted validators are integrated.
+        receive checkpoint request, and ensure that only requests received from valid validators are processed.
         """
         sender_hotkey = synapse.dendrite.hotkey
 

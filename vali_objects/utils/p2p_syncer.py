@@ -5,10 +5,12 @@ import json
 import math
 import traceback
 from collections import defaultdict
+from copy import deepcopy
 
 import bittensor as bt
 
 import template
+from runnable.generate_request_core import generate_request_core
 from time_util.time_util import TimeUtil
 from vali_config import TradePair
 from vali_config import ValiConfig
@@ -131,6 +133,8 @@ class P2PSyncer(ValidatorSyncBase):
             # every hour in testnet
             if not (7 < datetime_now.minute < 17):
                 return
+            # if datetime_now.minute % 5 != 0:
+            #     return
         else:
             # Check if we are between 7:09 AM and 7:19 AM UTC
             datetime_now = TimeUtil.generate_start_timestamp(0)  # UTC
@@ -151,13 +155,27 @@ class P2PSyncer(ValidatorSyncBase):
             bt.logging.error(traceback.format_exc())
 
         self.last_signal_sync_time_ms = TimeUtil.now_in_millis()
+
     def create_golden(self, trusted_checkpoints: dict):
         """
-        Simple majority approach (preferred to start)
+        Simple majority approach
             If a position’s uuid exists on the majority of validators, that position is kept.
             If an order uuid exists in the majority of positions, that order is kept.
                 Choose the order with the median price.
         """
+        # temp = {k: len(trusted_checkpoints['temp_hotkey'][1]['positions'][k]['positions']) for k in trusted_checkpoints['temp_hotkey'][1]['positions']}
+        bt.logging.info("--------dumping summarized checkpoint data--------")
+        for chk in trusted_checkpoints.values():
+            temp = {}
+            for m in chk[1]['positions']:
+                orders = 0
+                for pos in chk[1]['positions'][m]['positions']:
+                    orders += len(pos["orders"])
+                pos_orders = [len(chk[1]['positions'][m]['positions']), orders]
+                temp[m] = pos_orders
+            bt.logging.info(f"{temp}")
+            bt.logging.info("--------------------------------------------------")
+
         time_now = TimeUtil.now_in_millis()
 
         position_manager = PositionManager(
@@ -169,17 +187,17 @@ class P2PSyncer(ValidatorSyncBase):
 
         position_counts = defaultdict(int)                      # {position_uuid: count}
         position_data = defaultdict(list)                       # {position_uuid: [{position}]}
-        position_orders = defaultdict(set)                      # {position_uuid: {order_uuid}}
         order_counts = defaultdict(lambda: defaultdict(int))    # {position_uuid: {order_uuid: count}}
         order_data = defaultdict(list)                          # {order_uuid: [{order}]}
 
         # simple majority of positions/number of checkpoints
-        positions_threshold = 2#math.ceil(len(trusted_checkpoints) / 2)
+        positions_threshold = math.ceil(len(trusted_checkpoints) / 2)
 
         # parse each checkpoint to count occurrences of each position and order
         for checkpoint in trusted_checkpoints.values():
             # get positions for each miner
-            for miner_positions in checkpoint[1]["positions"].values():
+            positions = checkpoint[1]["positions"]
+            for miner_positions in positions.values():
                 for position in miner_positions["positions"]:
                     position_uuid = position["position_uuid"]
                     position_counts[position_uuid] += 1
@@ -191,16 +209,18 @@ class P2PSyncer(ValidatorSyncBase):
                         order_counts[position_uuid][order_uuid] += 1
                         order_data[order_uuid].append(dict(order))
 
-                        position_orders[position_uuid].add(order_uuid)
-
         # get the set of position_uuids that appear in the majority of checkpoints
         majority_positions = {position_uuid for position_uuid, count in position_counts.items()
                               if count >= positions_threshold}
 
         golden_positions = defaultdict(lambda: defaultdict(list))
 
+        seen_positions = set()
+        seen_orders = set()
+
         for checkpoint in trusted_checkpoints.values():
-            for miner_hotkey, miner_positions in checkpoint[1]["positions"].items():
+            positions = checkpoint[1]["positions"]
+            for miner_hotkey, miner_positions in positions.items():
                 for position in miner_positions["positions"]:
                     position_uuid = position["position_uuid"]
                     # position exists on majority of validators
@@ -212,32 +232,50 @@ class P2PSyncer(ValidatorSyncBase):
                                                 trade_pair=position["trade_pair"],
                                                 orders=[])
 
+                        # mark a position as seen, so we don't add it multiple times
                         majority_positions.remove(position_uuid)
+                        seen_positions.add(position_uuid)
 
                         # simple majority of orders out of the positions they could appear in
-                        orders_threshold = 2#math.ceil(position_counts[position_uuid] / 2)
+                        orders_threshold = math.ceil(position_counts[position_uuid] / 2)
 
                         # get the set of order_uuids that appear in the majority of positions for a position_uuid
                         majority_orders = {order_uuid for order_uuid, count in order_counts[position_uuid].items()
                                            if count >= orders_threshold}
 
                         # order exists in the majority of positions
-                        for order_uuid in position_orders[position_uuid]:
+                        for order_uuid in order_counts[position_uuid].keys():
                             if order_uuid in majority_orders:
                                 trade_pair = TradePair.to_enum(position["trade_pair"][0])
                                 combined_order = self.get_median_order(order_data[order_uuid], trade_pair)
-                                majority_orders.remove(order_uuid)
                                 new_position.orders.append(combined_order)
+
+                                # mark order_uuid as seen, so we don't add it multiple times
+                                majority_orders.remove(order_uuid)
+                                seen_orders.add(order_uuid)
+                            elif order_uuid not in seen_orders:
+                                bt.logging.info(f"Order {order_uuid} with Position {position_uuid} only appeared [{order_counts[position_uuid][order_uuid]}/{position_counts[position_uuid]}] times on miner {miner_hotkey}. Skipping")
+
                         new_position.orders.sort(key=lambda o: o.processed_ms)
                         new_position.rebuild_position_with_updated_orders()
                         position_dict = json.loads(new_position.to_json_string())
                         golden_positions[miner_hotkey]["positions"].append(position_dict)
+                    elif position_uuid not in seen_positions:
+                        bt.logging.info(f"Position {position_uuid} only appeared [{position_counts[position_uuid]}/{len(trusted_checkpoints)}] times on miner {miner_hotkey}. Skipping")
 
         # Construct golden and convert defaultdict to dict
         self.golden = {"created_timestamp_ms": time_now,
                        "eliminations": eliminations,
                        "positions": {miner: dict(golden_positions[miner]) for miner in golden_positions}}
-        temp = {k: len(self.golden['positions'][k]) for k in self.golden['positions']}
+        # temp = {k: len(self.golden['positions'][k]['positions']) for k in self.golden['positions']}  # log the {miner hotkey: number of positions}
+        bt.logging.info("-----------dumping summarized golden data-------------")
+        temp = {}
+        for miner in self.golden['positions']:
+            orders = 0
+            for pos in self.golden['positions'][miner]['positions']:
+                orders += len(pos["orders"])
+            num_pos_orders = [len(self.golden['positions'][miner]['positions']), orders]
+            temp[miner] = num_pos_orders
         bt.logging.info(f"Created golden checkpoint {temp}")
 
     def get_median_order(self, orders, trade_pair) -> Order:
@@ -258,3 +296,5 @@ if __name__ == "__main__":
     bt.logging.enable_default()
     position_syncer = P2PSyncer(is_testnet=True)
     asyncio.run(position_syncer.send_checkpoint_requests())
+    if position_syncer.created_golden:
+        position_syncer.sync_positions(True, candidate_data=position_syncer.golden)
