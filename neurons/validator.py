@@ -197,7 +197,7 @@ class Validator:
 
         self.order_rate_limiter = RateLimiter()
         self.position_inspector_rate_limiter = RateLimiter(max_requests_per_window=1, rate_limit_window_duration_seconds=60 * 4)
-        self.checkpoint_rate_limiter = RateLimiter(max_requests_per_window=1, rate_limit_window_duration_seconds=60 * 60 * 6)
+        self.checkpoint_rate_limiter = RateLimiter(max_requests_per_window=1, rate_limit_window_duration_seconds=60 * 60)
 
         def rs_blacklist_fn(synapse: template.protocol.SendSignal) -> Tuple[bool, str]:
             return Validator.blacklist_fn(synapse, self.metagraph)

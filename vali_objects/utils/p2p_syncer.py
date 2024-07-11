@@ -124,22 +124,22 @@ class P2PSyncer(ValidatorSyncBase):
     def sync_positions_with_cooldown(self):
         now_ms = TimeUtil.now_in_millis()
         # Already performed a sync recently
-        if now_ms - self.last_signal_sync_time_ms < 1000 * 60 * 30:
+        if now_ms - self.last_signal_sync_time_ms < 1000 * 60 * 5:
             return
 
         # Check if the time is right to sync signals
         if self.is_testnet:
             datetime_now = TimeUtil.generate_start_timestamp(0)  # UTC
             # every hour in testnet
-            if not (7 < datetime_now.minute < 17):
+            if not (27 < datetime_now.minute < 37):
                 return
             # if datetime_now.minute % 5 != 0:
             #     return
         else:
             # Check if we are between 7:09 AM and 7:19 AM UTC
             datetime_now = TimeUtil.generate_start_timestamp(0)  # UTC
-            # Temp change time to 20:00 UTC so we can see the effects in shadow mode ASAP
-            if not (datetime_now.hour == 20 and (8 < datetime_now.minute < 20)):
+            # Temp change time to 21:00 UTC so we can see the effects in shadow mode ASAP
+            if not (datetime_now.hour == 21 and (8 < datetime_now.minute < 20)):
                 return
 
         try:
