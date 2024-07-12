@@ -689,8 +689,9 @@ class PerfLedgerManager(CacheController):
         perf_ledgers = PerfLedgerManager.load_perf_ledgers_from_disk()
         self._refresh_eliminations_in_memory()
         t_ms = TimeUtil.now_in_millis() - self.UPDATE_LOOKBACK_MS
-        #if t_ms < 1714546760000 + 1000 * 60 * 60 * 1:  # Rebuild after bug fix
-        #    perf_ledgers = {}
+        if t_ms < 1720761852000 + 1000 * 60 * 60 * 1:  # Rebuild after bug fix
+            for ledger in perf_ledgers.values():
+                ledger.trim_checkpoints(1720721575000)  #  Thursday, July 11, 2024 2:12:55 PM
         hotkey_to_positions = self.get_positions_perf_ledger(testing_one_hotkey=testing_one_hotkey)
 
         def sort_key(x):
