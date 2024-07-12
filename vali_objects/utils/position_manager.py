@@ -833,8 +833,7 @@ class PositionManager(CacheController):
         comparing_to_dict = isinstance(position2, dict)
         for attr in dir(position1):
             attr_is_property = isinstance(getattr(type(position1), attr, None), property)
-            if attr.startswith("_") or callable(getattr(position1, attr)) or (comparing_to_dict and attr_is_property) \
-                or (attr in ('model_computed_fields', 'model_config', 'model_fields')):
+            if attr.startswith("_") or callable(getattr(position1, attr)) or (comparing_to_dict and attr_is_property):
                 continue
 
             value1 = getattr(position1, attr)

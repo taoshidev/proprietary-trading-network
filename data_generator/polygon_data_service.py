@@ -586,7 +586,7 @@ class PolygonDataService(BaseDataService):
 
     def unified_candle_fetcher(self, trade_pair: TradePair, start_timestamp_ms: int, end_timestamp_ms: int, timespan: str=None):
         def build_quotes(start_timestamp_ms, end_timestamp_ms):
-            #nonlocal stats
+            nonlocal stats
 
             ans = []
             prev_t_ms = None
@@ -606,7 +606,7 @@ class PolygonDataService(BaseDataService):
                     if ans and hasattr(ans[-1], 'temp'):
                         del ans[-1].temp
                 n_quotes += 1
-                price, current_delta = self.parse_price_for_forex(r, stats=None)
+                price, current_delta = self.parse_price_for_forex(r, stats=stats)
                 if price is None:
                     continue
 
@@ -639,16 +639,16 @@ class PolygonDataService(BaseDataService):
 
         polygon_ticker = self.trade_pair_to_polygon_ticker(trade_pair)
         if trade_pair.is_forex and timespan == 'second':
-            #stats = None#{'sum_deltas': 0, 'n_skipped': 0, 'avg_delta': None, 'max_delta':-float('inf'), 'n': 0}
+            stats = None#{'sum_deltas': 0, 'n_skipped': 0, 'avg_delta': None, 'max_delta':-float('inf'), 'n': 0}
             ans, n = build_quotes(start_timestamp_ms, end_timestamp_ms)
-            #if stats:
-            #    c = Counter(x.volume for x in ans)
-            #    stats['counter'] = c
-            #    stats['n_ret'] = n
-            #    stats.pop('sum_deltas')
-            #    print('stats for tp ', trade_pair.trade_pair_id)
-            #    for k, v in stats.items():
-            #        print('   ', k, v)
+            if stats:
+                c = Counter(x.volume for x in ans)
+                stats['counter'] = c
+                stats['n_ret'] = n
+                stats.pop('sum_deltas')
+                print('stats for tp ', trade_pair.trade_pair_id)
+                for k, v in stats.items():
+                    print('   ', k, v)
 
             #while n == self.N_CANDLES_LIMIT:
             #    ans, n = build_quotes(ans[-1].timestamp + 1000, end_timestamp_ms, ans=ans)
