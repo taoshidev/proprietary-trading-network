@@ -136,10 +136,10 @@ class P2PSyncer(ValidatorSyncBase):
         if self.is_testnet:
             datetime_now = TimeUtil.generate_start_timestamp(0)  # UTC
             # every hour in testnet
-            if not (27 < datetime_now.minute < 37):
-                return
-            # if datetime_now.minute % 5 != 0:
+            # if not (27 < datetime_now.minute < 37):
             #     return
+            if datetime_now.minute % 15 != 0:
+                return
         else:
             # Check if we are between 7:09 AM and 7:19 AM UTC
             datetime_now = TimeUtil.generate_start_timestamp(0)  # UTC
@@ -170,7 +170,7 @@ class P2PSyncer(ValidatorSyncBase):
         """
         # temp = {k: len(trusted_checkpoints['temp_hotkey'][1]['positions'][k]['positions']) for k in trusted_checkpoints['temp_hotkey'][1]['positions']}
         bt.logging.info("--------dumping summarized checkpoint data--------")
-        for chk in trusted_checkpoints.values():
+        for hotkey, chk in trusted_checkpoints.items():
             temp = {}
             for m in chk[1]['positions']:
                 orders = 0
@@ -178,7 +178,7 @@ class P2PSyncer(ValidatorSyncBase):
                     orders += len(pos["orders"])
                 pos_orders = [len(chk[1]['positions'][m]['positions']), orders]
                 temp[m] = pos_orders
-            bt.logging.info(f"{temp}")
+            bt.logging.info(f"{hotkey} sent checkpoint {temp}")
             bt.logging.info("--------------------------------------------------")
 
         time_now = TimeUtil.now_in_millis()
@@ -197,7 +197,7 @@ class P2PSyncer(ValidatorSyncBase):
         num_valid_checkpoints = 0
 
         # parse each checkpoint to count occurrences of each position and order
-        for checkpoint in trusted_checkpoints.values():
+        for hotkey, checkpoint in trusted_checkpoints.items():
             # determine the latest order on each validator, and skip stale checkpoints
             latest_order_ms = 0
 
@@ -230,6 +230,8 @@ class P2PSyncer(ValidatorSyncBase):
                         order_data[order_uuid].extend(checkpoint_order_data[order_uuid])
 
                 num_valid_checkpoints += 1
+            else:
+                bt.logging.info(f"Checkpoint from validator {hotkey} is stale, Skipping.")
 
         # get the set of position_uuids that appear in the majority of checkpoints
         positions_threshold = math.ceil(num_valid_checkpoints / 2)
@@ -281,8 +283,9 @@ class P2PSyncer(ValidatorSyncBase):
                         new_position.rebuild_position_with_updated_orders()
                         position_dict = json.loads(new_position.to_json_string())
                         golden_positions[miner_hotkey]["positions"].append(position_dict)
-                    elif position_uuid not in seen_positions:
-                        bt.logging.info(f"Position {position_uuid} only appeared [{position_counts[position_uuid]}/{len(trusted_checkpoints)}] times on miner {miner_hotkey}. Skipping")
+                    elif (position_uuid not in seen_positions
+                          and position_counts[position_uuid] != 0):
+                        bt.logging.info(f"Position {position_uuid} only appeared [{position_counts[position_uuid]}/{num_valid_checkpoints}] times on miner {miner_hotkey}. Skipping")
 
         # Construct golden and convert defaultdict to dict
         self.golden = {"created_timestamp_ms": time_now,

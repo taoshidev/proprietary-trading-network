@@ -721,9 +721,7 @@ class Validator:
 
                     # if we haven't received any signals, parse our miner dirs to get the last updated order
                     if self.last_received_order_time_ms == 0:
-                        recently_updated_dirs = self.position_manager.get_recently_updated_miner_hotkeys()
-                        for miner in recently_updated_dirs:
-                            self.last_received_order_time_ms = max(self.last_received_order_time_ms, self.position_manager.get_last_modified_time_miner_directory(miner))
+                        self.last_received_order_time_ms = max(self.last_received_order_time_ms, self.position_manager.get_latest_file_mod_time_s() * 1000)
 
                     # only send a checkpoint if we are an up-to-date validator
                     if TimeUtil.now_in_millis() - self.last_received_order_time_ms < 1000 * 60 * 60 * 24 * 2:  # 2 days
