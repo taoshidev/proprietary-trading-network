@@ -727,7 +727,7 @@ class Validator:
                     if TimeUtil.now_in_millis() - self.last_received_order_time_ms < 1000 * 60 * 60 * 24 * 2:  # 2 days
                         synapse.checkpoint = self.encoded_checkpoint
                     else:
-                        error_message = "Validator is stale, no orders received in 48 hrs"
+                        error_message = f"Validator is stale, no orders received in 48 hrs, last order timestamp {self.last_received_order_time_ms}, {TimeUtil.now_in_millis() - self.last_received_order_time_ms} ms ago"
             except Exception as e:
                 error_message = f"Error processing checkpoint request poke from [{sender_hotkey}] with error [{e}]"
                 bt.logging.error(traceback.format_exc())

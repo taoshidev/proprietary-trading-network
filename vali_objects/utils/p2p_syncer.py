@@ -231,10 +231,10 @@ class P2PSyncer(ValidatorSyncBase):
 
                 num_valid_checkpoints += 1
             else:
-                bt.logging.info(f"Checkpoint from validator {hotkey} is stale, Skipping.")
+                bt.logging.info(f"Checkpoint from validator {hotkey} is stale with last order timestamp {latest_order_ms}, {TimeUtil.now_in_millis() - latest_order_ms} ms ago, Skipping.")
 
         # get the set of position_uuids that appear in the majority of checkpoints
-        positions_threshold = math.ceil(num_valid_checkpoints / 2)
+        positions_threshold = 3  # math.ceil(num_valid_checkpoints / 2)
         majority_positions = {position_uuid for position_uuid, count in position_counts.items()
                               if count >= positions_threshold}
 
@@ -262,7 +262,7 @@ class P2PSyncer(ValidatorSyncBase):
                         seen_positions.add(position_uuid)
 
                         # get the set of order_uuids that appear in the majority of positions for a position_uuid
-                        orders_threshold = math.ceil(position_counts[position_uuid] / 2)
+                        orders_threshold = 3  # math.ceil(position_counts[position_uuid] / 2)
                         majority_orders = {order_uuid for order_uuid, count in order_counts[position_uuid].items()
                                            if count >= orders_threshold}
 
