@@ -42,7 +42,6 @@ class Position(BaseModel):
     return_at_close: float = 1.0
     net_leverage: float = 0.0
     average_entry_price: float = 0.0
-    initial_entry_price: float = 0.0
     position_type: Optional[OrderType] = None
     is_closed_position: bool = False
 
@@ -66,6 +65,12 @@ class Position(BaseModel):
         values['orders'] = updated_orders
         values['trade_pair'] = trade_pair
         return values
+
+    @property
+    def initial_entry_price(self) -> float:
+        if not self.orders or len(self.orders) == 0:
+            return 0.0
+        return self.orders[0].price
 
     def __hash__(self):
         # Include specified fields in the hash, assuming trade_pair is accessible and immutable
@@ -153,7 +158,6 @@ class Position(BaseModel):
         self.return_at_close = 1.0
         self.net_leverage = 0.0
         self.average_entry_price = 0.0
-        self.initial_entry_price = 0.0
         self.position_type = None
         self.is_closed_position = False
         self.position_type = None
@@ -207,11 +211,6 @@ class Position(BaseModel):
         if self.initial_entry_price == 0 or self.average_entry_price is None:
             return 1
 
-        bt.logging.trace(
-            f"trade_pair: {self.trade_pair.trade_pair_id} current price: {current_price},"
-            f" average entry price: {self.average_entry_price}, net leverage: {self.net_leverage}, "
-            f"initial entry price: {self.initial_entry_price}"
-        )
         gain = (
             (current_price - self.average_entry_price)
             * self.net_leverage
@@ -340,7 +339,7 @@ class Position(BaseModel):
             self.net_leverage = new_net_leverage
 
     def initialize_position_from_first_order(self, order):
-        self.initial_entry_price = order.price
+        self.open_ms = order.processed_ms
         if self.initial_entry_price <= 0:
             raise ValueError("Initial entry price must be > 0")
         # Initialize the position type. It will stay the same until the position is closed.
