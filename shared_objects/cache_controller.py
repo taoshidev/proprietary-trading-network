@@ -374,7 +374,7 @@ class CacheController:
         file_string = None
         try:
             file_string = ValiBkpUtils.get_file(file)
-            ans = Position.model_validate_json(file_string)
+            ans = Position.parse_raw(file_string)
             #bt.logging.info(f"vali_utils get_miner_position: {ans}")
             return ans
         except FileNotFoundError:
