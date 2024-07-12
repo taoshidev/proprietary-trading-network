@@ -15,7 +15,7 @@ import math
 CRYPTO_CARRY_FEE_PER_INTERVAL = math.exp(math.log(1 - 0.1095) / (365.0*3.0))  # 10.95% per year for 1x leverage. Each interval is 8 hrs
 FOREX_CARRY_FEE_PER_INTERVAL = math.exp(math.log(1 - .03) / 365.0)  # 3% per year for 1x leverage. Each interval is 24 hrs
 INDICES_CARRY_FEE_PER_INTERVAL = math.exp(math.log(1 - .0525) / 365.0)  # 5.25% per year for 1x leverage. Each interval is 24 hrs
-FEE_V6_TIME_MS = 1720672756000  # V6 PR merged
+FEE_V6_TIME_MS = 1720755991000  # V6 PR merged
 
 class Position(BaseModel):
     """Represents a position in a trading system.
