@@ -4,6 +4,7 @@ from copy import deepcopy
 
 from bittensor import Balance
 
+from time_util.time_util import TimeUtil
 from vali_objects.utils.auto_sync import PositionSyncer
 from tests.shared_objects.mock_classes import MockMetagraph, MockNeuron, MockAxonInfo
 from tests.vali_tests.base_objects.test_base import TestBase
@@ -23,7 +24,7 @@ class TestPositions(TestBase):
         self.DEFAULT_MINER_HOTKEY = "test_miner"
         self.DEFAULT_POSITION_UUID = "test_position"
         self.DEFAULT_ORDER_UUID = "test_order"
-        self.DEFAULT_OPEN_MS = 1718071209000
+        self.DEFAULT_OPEN_MS = TimeUtil.now_in_millis()  # 1718071209000
         self.DEFAULT_TRADE_PAIR = TradePair.BTCUSD
         self.default_order = Order(price=1, processed_ms=self.DEFAULT_OPEN_MS, order_uuid=self.DEFAULT_ORDER_UUID, trade_pair=self.DEFAULT_TRADE_PAIR,
                                      order_type=OrderType.LONG, leverage=1)
@@ -365,7 +366,7 @@ class TestPositions(TestBase):
         checkpoints = {"test_validator1": [0, checkpoint1], "test_validator2": [0, checkpoint2]}
         self.p2p_syncer.create_golden(checkpoints)
 
-        print(json.dumps(self.p2p_syncer.golden, indent=4))
+        # print(json.dumps(self.p2p_syncer.golden, indent=4))
 
         assert len(self.p2p_syncer.golden["positions"]) == 2
         assert len(self.p2p_syncer.golden["positions"][self.DEFAULT_MINER_HOTKEY]["positions"]) == 1
@@ -408,7 +409,7 @@ class TestPositions(TestBase):
                        "test_validator3": [0, checkpoint3]}
         self.p2p_syncer.create_golden(checkpoints)
 
-        print(json.dumps(self.p2p_syncer.golden, indent=4))
+        # print(json.dumps(self.p2p_syncer.golden, indent=4))
 
         assert len(self.p2p_syncer.golden["positions"]) == 1
         assert len(self.p2p_syncer.golden["positions"][self.DEFAULT_MINER_HOTKEY]["positions"]) == 1

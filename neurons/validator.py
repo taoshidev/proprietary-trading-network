@@ -176,6 +176,7 @@ class Validator:
         self.checkpoint_lock = threading.Lock()
         self.encoded_checkpoint = ""
         self.last_checkpoint_time = 0
+        self.last_received_order_time_ms = 0
 
         self.perf_ledger_manager = PerfLedgerManager(self.metagraph, live_price_fetcher=self.live_price_fetcher,
                                                      shutdown_dict=shutdown_dict, position_syncer=self.position_syncer)
@@ -633,6 +634,9 @@ class Validator:
                 self.position_manager.save_miner_position_to_disk(open_position)
                 if miner_order_uuid:
                     self.uuid_tracker.add(miner_order_uuid)
+                # Update the last received order time
+                self.last_received_order_time_ms = max(self.last_received_order_time_ms, signal_to_order.processed_ms)
+
                 # Log the open position for the miner
                 bt.logging.info(f"Position {open_position.trade_pair.trade_pair_id} for miner [{miner_hotkey}] updated.")
                 open_position.log_position_status()
@@ -704,7 +708,7 @@ class Validator:
                     # reset checkpoint after 10 minutes
                     if TimeUtil.now_in_millis() - self.last_checkpoint_time > 1000 * 60 * 10:
                         self.encoded_checkpoint = ""
-                    # only want to generate checkpoint once for all requests
+                    # save checkpoint so we only generate it once for all requests
                     if not self.encoded_checkpoint:
                         # get our current checkpoint
                         self.last_checkpoint_time = TimeUtil.now_in_millis()
@@ -715,7 +719,17 @@ class Validator:
                         compressed = gzip.compress(checkpoint_str.encode("utf-8"))
                         self.encoded_checkpoint = base64.b64encode(compressed).decode("utf-8")
 
-                    synapse.checkpoint = self.encoded_checkpoint
+                    # if we haven't received any signals, parse our miner dirs to get the last updated order
+                    if self.last_received_order_time_ms == 0:
+                        recently_updated_dirs = self.position_manager.get_recently_updated_miner_hotkeys()
+                        for miner in recently_updated_dirs:
+                            self.last_received_order_time_ms = max(self.last_received_order_time_ms, self.position_manager.get_last_modified_time_miner_directory(miner))
+
+                    # only send a checkpoint if we are an up-to-date validator
+                    if TimeUtil.now_in_millis() - self.last_received_order_time_ms < 1000 * 60 * 60 * 24 * 2:  # 2 days
+                        synapse.checkpoint = self.encoded_checkpoint
+                    else:
+                        error_message = "Validator is stale, no orders received in 48 hrs"
             except Exception as e:
                 error_message = f"Error processing checkpoint request poke from [{sender_hotkey}] with error [{e}]"
                 bt.logging.error(traceback.format_exc())

@@ -75,7 +75,12 @@ class P2PSyncer(ValidatorSyncBase):
                     n_successful_checkpoints += 1
                 else:
                     n_failures += 1
-                    bt.logging.info(f"Checkpoint poke to axon [{i+1}/{len(validator_responses)}] {response.axon.hotkey} failed with status code: {response.axon.status_code}")
+                    if response.error_message:
+                        bt.logging.info(
+                            f"Checkpoint poke to axon [{i + 1}/{len(validator_responses)}] {response.axon.hotkey} errored: {response.error_message}")
+                    else:
+                        bt.logging.info(
+                            f"Checkpoint poke to axon [{i + 1}/{len(validator_responses)}] {response.axon.hotkey} failed with status code: {response.axon.status_code}")
 
             bt.logging.info(f"{n_successful_checkpoints} responses succeeded. {n_failures} responses failed")
 
@@ -186,30 +191,48 @@ class P2PSyncer(ValidatorSyncBase):
         eliminations = position_manager.get_eliminations_from_disk()
 
         position_counts = defaultdict(int)                      # {position_uuid: count}
-        position_data = defaultdict(list)                       # {position_uuid: [{position}]}
         order_counts = defaultdict(lambda: defaultdict(int))    # {position_uuid: {order_uuid: count}}
         order_data = defaultdict(list)                          # {order_uuid: [{order}]}
 
-        # simple majority of positions/number of checkpoints
-        positions_threshold = math.ceil(len(trusted_checkpoints) / 2)
+        num_valid_checkpoints = 0
 
         # parse each checkpoint to count occurrences of each position and order
         for checkpoint in trusted_checkpoints.values():
+            # determine the latest order on each validator, and skip stale checkpoints
+            latest_order_ms = 0
+
+            checkpoint_position_counts = defaultdict(int)
+            checkpoint_order_counts = defaultdict(lambda: defaultdict(int))
+            checkpoint_order_data = defaultdict(list)
+
             # get positions for each miner
             positions = checkpoint[1]["positions"]
             for miner_positions in positions.values():
                 for position in miner_positions["positions"]:
                     position_uuid = position["position_uuid"]
-                    position_counts[position_uuid] += 1
-                    position_data[position_uuid].append(dict(position, orders=[]))
+                    checkpoint_position_counts[position_uuid] += 1
 
                     # count and save orders
                     for order in position["orders"]:
                         order_uuid = order["order_uuid"]
-                        order_counts[position_uuid][order_uuid] += 1
-                        order_data[order_uuid].append(dict(order))
+                        checkpoint_order_counts[position_uuid][order_uuid] += 1
+                        checkpoint_order_data[order_uuid].append(dict(order))
+
+                        latest_order_ms = max(latest_order_ms, order["processed_ms"])
+
+            # add this checkpoint's data if the checkpoint is up-to-date
+            if TimeUtil.now_in_millis() - latest_order_ms < 1000 * 60 * 60 * 24 * 2:
+                for position_uuid in checkpoint_position_counts:
+                    position_counts[position_uuid] += checkpoint_position_counts[position_uuid]
+
+                    for order_uuid, count in checkpoint_order_counts[position_uuid].items():
+                        order_counts[position_uuid][order_uuid] += count
+                        order_data[order_uuid].extend(checkpoint_order_data[order_uuid])
+
+                num_valid_checkpoints += 1
 
         # get the set of position_uuids that appear in the majority of checkpoints
+        positions_threshold = math.ceil(num_valid_checkpoints / 2)
         majority_positions = {position_uuid for position_uuid, count in position_counts.items()
                               if count >= positions_threshold}
 
@@ -228,7 +251,7 @@ class P2PSyncer(ValidatorSyncBase):
                         # create a single combined position, and delete uuid to avoid duplicates
                         new_position = Position(miner_hotkey=miner_hotkey,
                                                 position_uuid=position_uuid,
-                                                open_ms=position["open_ms"],
+                                                open_ms=0,  # position["open_ms"],
                                                 trade_pair=position["trade_pair"],
                                                 orders=[])
 
@@ -236,17 +259,15 @@ class P2PSyncer(ValidatorSyncBase):
                         majority_positions.remove(position_uuid)
                         seen_positions.add(position_uuid)
 
-                        # simple majority of orders out of the positions they could appear in
-                        orders_threshold = math.ceil(position_counts[position_uuid] / 2)
-
                         # get the set of order_uuids that appear in the majority of positions for a position_uuid
+                        orders_threshold = math.ceil(position_counts[position_uuid] / 2)
                         majority_orders = {order_uuid for order_uuid, count in order_counts[position_uuid].items()
                                            if count >= orders_threshold}
 
                         # order exists in the majority of positions
                         for order_uuid in order_counts[position_uuid].keys():
                             if order_uuid in majority_orders:
-                                trade_pair = TradePair.to_enum(position["trade_pair"][0])
+                                trade_pair = TradePair.from_trade_pair_id(position["trade_pair"][0])
                                 combined_order = self.get_median_order(order_data[order_uuid], trade_pair)
                                 new_position.orders.append(combined_order)
 
