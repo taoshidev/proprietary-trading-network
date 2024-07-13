@@ -37,6 +37,7 @@ if __name__ == "__main__":
                     logger.info("Completed writing outputs in " + str(time.time() - current_time) + " seconds. n_updates: " + str(n_updates))
     except (JSONDecodeError, ValiBkpCorruptDataException) as e:
         logger.error("error occurred trying to decode position json. Probably being written to simultaneously.")
+        logger.error(traceback.format_exc())
     except Exception as e:
         logger.error(f"An error occurred: {str(e)}")
         # traceback
