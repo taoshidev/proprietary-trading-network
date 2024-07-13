@@ -46,11 +46,10 @@ class FeeCache():
         if position.is_closed_position:
             current_time_ms = min(current_time_ms, position.close_ms)
         # cache hit?
-        start_time_cache_hit = self.carry_fee_next_increase_time_ms
         if position.trade_pair.is_crypto:
-            start_time_cache_hit -= MS_IN_8_HOURS
+            start_time_cache_hit = self.carry_fee_next_increase_time_ms - MS_IN_8_HOURS
         elif position.trade_pair.is_forex or position.trade_pair.is_indices:
-            start_time_cache_hit -= MS_IN_24_HOURS
+            start_time_cache_hit = self.carry_fee_next_increase_time_ms - MS_IN_24_HOURS
         else:
             raise Exception(f"Unknown trade pair type: {position.trade_pair}")
         if start_time_cache_hit <= current_time_ms < self.carry_fee_next_increase_time_ms:
@@ -566,6 +565,15 @@ class PerfLedgerManager(CacheController):
                 portfolio_spread_fee *= position_spread_fee
                 portfolio_carry_fee *= position_carry_fee
 
+                #if t_ms > 1720749609000:
+                #    man = historical_position.get_carry_fee(t_ms)
+                #    cache_valid_til_time = self.position_uuid_to_cache[historical_position.position_uuid].carry_fee_next_increase_time_ms
+                #    cache_valid_til_time_formatted = TimeUtil.millis_to_formatted_date_str(cache_valid_til_time)
+                #    fee_accural_time = TimeUtil.millis_to_formatted_date_str(historical_position.start_carry_fee_accrual_ms)
+                #    position_open_ms = historical_position.open_ms
+                #    assert position_carry_fee == man[0], \
+                #        f"@@@@ cache value/expiry: {position_carry_fee}/{cache_valid_til_time_formatted} manual value: {man}, t_ms: {t_ms}/{TimeUtil.millis_to_formatted_date_str(t_ms)}). Fee accrural time {fee_accural_time}. open_ms {position_open_ms}"
+
                 #if historical_position.is_closed_position:  # We want to process just-closed positions. wont be closed if we are on the corresponding event
                 #    continue
 
@@ -693,11 +701,7 @@ class PerfLedgerManager(CacheController):
         hk_to_last_order_processed_ms = {}
         #hit_target = False
         for hotkey_i, (hotkey, positions) in enumerate(hotkey_to_positions.items()):
-            #if hit_target:
-            #    pass
-            #else:
-            #    if hotkey == '5Cd9bVVja2KdgsTiR7rTAh7a4UKVfnAuYAW1bs8BiedUE9JN':
-            #        hit_target = True
+            #if hotkey != '5GhCxfBcA7Ur5iiAS343xwvrYHTUfBjBi4JimiL5LhujRT9t':
             #    continue
 
             eliminated = False
@@ -791,7 +795,8 @@ class PerfLedgerManager(CacheController):
                 bt.logging.info(
                     f"Done updating perf ledger for {hotkey} {hotkey_i+1}/{len(hotkey_to_positions)} in {time.time() - t0} "
                     f"(s). Lag: {lag} (s). Total product: {total_product}. Last portfolio value: {last_portfolio_value}."
-                    f" n_api_calls: {self.n_api_calls} dd stats {self.hk_to_dd_stats[hotkey]}. n_price_corrections {self.n_price_corrections}")
+                    f" n_api_calls: {self.n_api_calls} dd stats {self.hk_to_dd_stats[hotkey]}. n_price_corrections {self.n_price_corrections}"
+                    f" last cp {perf_ledger.cps[-1]}")
 
         bt.logging.info(f"Done updating perf ledger for all hotkeys in {time.time() - t_init} s")
         self.write_perf_ledger_eliminations_to_disk(self.elimination_rows)
@@ -909,7 +914,7 @@ class PerfLedgerManager(CacheController):
             self.random_security_screenings = set()
 
         # Regenerate checkpoints if a hotkey was modified during position sync
-        attempting_invalidations = bool(self.position_syncer) and bool(self.position_syncer.perf_ledger_hks_to_invalidate)
+        attempting_invalidations = False#bool(self.position_syncer) and bool(self.position_syncer.perf_ledger_hks_to_invalidate)
         if attempting_invalidations:
             for hk, t in self.position_syncer.perf_ledger_hks_to_invalidate.items():
                 hotkeys_to_delete.add(hk)

@@ -1,4 +1,5 @@
 from tests.vali_tests.base_objects.test_base import TestBase
+from time_util.time_util import TimeUtil
 from vali_config import TradePair
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.position import Position
@@ -31,7 +32,8 @@ class TestPerfLedgers(TestBase):
         hotkey_to_positions = {self.DEFAULT_MINER_HOTKEY: [self.default_open_position]}
         ans = perf_ledger_manager.generate_perf_ledgers_for_analysis(hotkey_to_positions)
         for x in ans[self.DEFAULT_MINER_HOTKEY].cps:
-            print(x, )
+            last_update_formated = TimeUtil.millis_to_timestamp(x.last_update_ms)
+            print(x, last_update_formated)
         #pprint.pp(ans)
         assert len(ans) == 1, ans
 

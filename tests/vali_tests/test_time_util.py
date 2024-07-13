@@ -60,7 +60,6 @@ class TestTimeUtil(TestBase):
                        processed_ms=1719843816000 + i * MS_IN_8_HOURS + i,
                        order_uuid="2000")
 
-
             position.orders = [o1, o2]
             position.rebuild_position_with_updated_orders()
 
@@ -74,6 +73,20 @@ class TestTimeUtil(TestBase):
             prev_delta = delta
 
             self.assertEqual(n_intervals, i, f"n_intervals: {n_intervals}, i: {i}")
+
+    def test_crypto_edge_case(self):
+        t_ms = 1720756395630
+        position = deepcopy(self.default_position)
+        o1 = Order(order_type=OrderType.LONG,
+                   leverage=1.0,
+                   price=100,
+                   trade_pair=TradePair.BTCUSD,
+                   processed_ms=1719596222703,
+                   order_uuid="1000")
+        position.orders = [o1]
+        position.rebuild_position_with_updated_orders()
+        n_intervals, time_until_next_interval_ms = TimeUtil.n_intervals_elapsed_crypto(position.start_carry_fee_accrual_ms, t_ms)
+        assert n_intervals == 0, f"n_intervals: {n_intervals}, time_until_next_interval_ms: {time_until_next_interval_ms}"
 
     def test_n_forex_intervals(self):
         prev_delta = None

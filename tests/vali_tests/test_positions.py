@@ -289,16 +289,18 @@ class TestPositions(TestBase):
                    leverage=1.0,
                    price=100,
                    trade_pair=TradePair.BTCUSD,
-                   processed_ms=1000,
+                   processed_ms=FEE_V6_TIME_MS + 1,
                    order_uuid="1000")
         o2 = Order(order_type=OrderType.FLAT,
                    leverage=0.0,
                    price=90,
                    trade_pair=TradePair.BTCUSD,
-                   processed_ms=2000,
+                   processed_ms=FEE_V6_TIME_MS + 3 * MS_IN_8_HOURS + 1000,
                    order_uuid="2000")
 
         self.add_order_to_position_and_save_to_disk(position, o1)
+        self.assertAlmostEqual(position.get_carry_fee(o1.processed_ms)[0], 1.0)
+
         self.validate_intermediate_position_state(position, {
             'orders': [o1],
             'position_type': OrderType.SHORT,
@@ -307,10 +309,10 @@ class TestPositions(TestBase):
             'initial_entry_price': 100,
             'average_entry_price': 100,
             'close_ms': None,
-            'return_at_close': 0.999,
+            'return_at_close': 0.9995,
             'current_return': 1.0,
             'miner_hotkey': self.DEFAULT_MINER_HOTKEY,
-            'open_ms': self.DEFAULT_OPEN_MS,
+            'open_ms': o1.processed_ms,
             'trade_pair': self.DEFAULT_TRADE_PAIR,
             'position_uuid': self.DEFAULT_POSITION_UUID
         })
@@ -324,16 +326,16 @@ class TestPositions(TestBase):
             'initial_entry_price': 100,
             'average_entry_price': 100,
             'close_ms': o2.processed_ms,
-            'return_at_close': 1.0989,
+            'return_at_close': 1.0985508997795737,
             'current_return': 1.1,
             'miner_hotkey': self.DEFAULT_MINER_HOTKEY,
-            'open_ms': self.DEFAULT_OPEN_MS,
+            'open_ms': o1.processed_ms,
             'trade_pair': self.DEFAULT_TRADE_PAIR,
             'position_uuid': self.DEFAULT_POSITION_UUID
         })
         self.assertEqual(position.max_leverage_seen(), 1.0)
         self.assertEqual(position.get_cumulative_leverage(), 2.0)
-        self.assertAlmostEqual(position.get_carry_fee(o2.processed_ms)[0], 1.0)
+        self.assertAlmostEqual(position.get_carry_fee(o2.processed_ms)[0], CRYPTO_CARRY_FEE_PER_INTERVAL**3)
 
     def test_liquidated_long_position_with_explicit_FLAT(self):
         position = deepcopy(self.default_position)

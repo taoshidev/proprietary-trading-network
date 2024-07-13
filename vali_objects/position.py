@@ -4,7 +4,7 @@ from copy import deepcopy
 from typing import Optional, List
 from pydantic import model_validator, BaseModel, Field, model_serializer, root_validator
 
-from time_util.time_util import TimeUtil, MS_IN_8_HOURS
+from time_util.time_util import TimeUtil, MS_IN_8_HOURS, MS_IN_24_HOURS
 from vali_config import TradePair
 from vali_objects.vali_dataclasses.order import Order
 from vali_objects.enums.order_type_enum import OrderType
@@ -15,7 +15,7 @@ import math
 CRYPTO_CARRY_FEE_PER_INTERVAL = math.exp(math.log(1 - 0.1095) / (365.0*3.0))  # 10.95% per year for 1x leverage. Each interval is 8 hrs
 FOREX_CARRY_FEE_PER_INTERVAL = math.exp(math.log(1 - .03) / 365.0)  # 3% per year for 1x leverage. Each interval is 24 hrs
 INDICES_CARRY_FEE_PER_INTERVAL = math.exp(math.log(1 - .0525) / 365.0)  # 5.25% per year for 1x leverage. Each interval is 24 hrs
-FEE_V6_TIME_MS = 1720755991000  # V6 PR merged
+FEE_V6_TIME_MS = 1720843707000  # V6 PR merged
 
 class Position(BaseModel):
     """Represents a position in a trading system.
@@ -116,6 +116,7 @@ class Position(BaseModel):
         return 1.0 - (self.get_cumulative_leverage() * self.trade_pair.fees * 0.5)
 
     def crypto_carry_fee(self, current_time_ms: int) -> (float, int):
+        #print(f'accrual time {TimeUtil.millis_to_formatted_date_str(self.start_carry_fee_accrual_ms)} now {TimeUtil.millis_to_formatted_date_str(current_time_ms)}')
         # Fees every 8 hrs. 4 UTC, 12 UTC, 20 UTC
         n_intervals_elapsed, time_until_next_interval_ms = TimeUtil.n_intervals_elapsed_crypto(self.start_carry_fee_accrual_ms, current_time_ms)
         fee_product = 1.0
@@ -125,6 +126,7 @@ class Position(BaseModel):
             if n != 0:
                 start_ms = end_ms
                 end_ms = start_ms + MS_IN_8_HOURS
+
             max_lev = self.max_leverage_seen_in_interval(start_ms, end_ms)
             fee_product *= CRYPTO_CARRY_FEE_PER_INTERVAL ** max_lev
 
@@ -177,8 +179,9 @@ class Position(BaseModel):
         if self.is_closed_position and current_time_ms > self.close_ms:
             current_time_ms = self.close_ms
 
-        if current_time_ms <= self.start_carry_fee_accrual_ms:
-            return 1.0, current_time_ms + MS_IN_8_HOURS
+        if current_time_ms < self.start_carry_fee_accrual_ms:
+            delta = MS_IN_8_HOURS if self.trade_pair.is_crypto else MS_IN_24_HOURS
+            return 1.0, min(current_time_ms + delta, self.start_carry_fee_accrual_ms)
 
         if self.trade_pair.is_crypto:
             carry_fee, next_update_time_ms = self.crypto_carry_fee(current_time_ms)
@@ -351,6 +354,9 @@ class Position(BaseModel):
         return prev_leverage * cur_leverage < 0 or prev_leverage != 0 and cur_leverage == 0
 
     def max_leverage_seen_in_interval(self, start_ms: int, end_ms: int) -> float:
+        #print(f"Seeking max leverage between {TimeUtil.millis_to_formatted_date_str(start_ms)} and {TimeUtil.millis_to_formatted_date_str(end_ms)}")
+        #for x in self.orders:
+        #    print(f"    Found order at time {TimeUtil.millis_to_formatted_date_str(x.processed_ms)}")
         """
         Returns the max leverage seen in the interval [start_ms, end_ms] (inclusive). If no orders are in the interval,
         raise an exception
@@ -375,7 +381,7 @@ class Position(BaseModel):
 
         if interval_data['max_leverage'] == -float('inf'):
             raise ValueError('Unable to find max leverage in interval')
-        assert interval_data['max_leverage'] > 0, interval_data['max_leverage']
+        assert interval_data['max_leverage'] > 0, (interval_data['max_leverage'], self.orders)
         return interval_data['max_leverage']
 
     def max_leverage_seen(self, interval_data=None):
@@ -408,16 +414,21 @@ class Position(BaseModel):
             if interval_data:
                 if order.processed_ms < interval_data['start_ms']:
                     pass
-                elif order.processed_ms <= interval_data['end_ms']:
+                elif order.processed_ms == interval_data['start_ms']:
                     interval_data['max_leverage'] = max(abs(current_leverage), interval_data['max_leverage'])
+                elif order.processed_ms <= interval_data['end_ms']:
+                    interval_data['max_leverage'] = max(abs(current_leverage), interval_data['max_leverage'], abs(prev_leverage))
+
                 # An order passes the interval for the first time
                 elif order.processed_ms > interval_data['end_ms']:
                     interval_data['max_leverage'] = max(abs(prev_leverage), interval_data['max_leverage'])
                     stop_signaled = True
 
-        # The position's last order is way before the interval start. Use the last known position leverage
-        if interval_data and interval_data['max_leverage'] == -float('inf'):
-            interval_data['max_leverage'] = abs(current_leverage)
+        if interval_data:
+            # The position's last order is way before the interval start. Use the last known position leverage
+            if interval_data['max_leverage'] == -float('inf'):
+                interval_data['max_leverage'] = abs(current_leverage)
+
         return max_leverage
 
     def _handle_liquidation(self, time_ms):
