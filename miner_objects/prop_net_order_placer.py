@@ -19,7 +19,7 @@ class PropNetOrderPlacer:
     MAX_RETRIES = 3
     INITIAL_RETRY_DELAY_SECONDS = 20
 
-    def __init__(self, wallet, metagraph, config, is_testnet):
+    def __init__(self, wallet, metagraph, config, is_testnet, position_inspector=None):
         self.wallet = wallet
         self.metagraph = metagraph
         self.config = config
@@ -27,6 +27,7 @@ class PropNetOrderPlacer:
         self.is_testnet = is_testnet
         self.trade_pair_id_to_last_order_send = {tp.trade_pair_id: 0 for tp in TradePair}
         self.used_miner_uuids = set()
+        self.position_inspector = position_inspector
 
     def send_signals(self, signals, signal_file_names, recently_acked_validators: list[str]):
         """
@@ -68,12 +69,7 @@ class PropNetOrderPlacer:
         Manages retry attempts and employs exponential backoff for failed attempts.
         """
         hotkey_to_v_trust = {neuron.hotkey: neuron.validator_trust for neuron in self.metagraph.neurons}
-        if not self.is_testnet:
-            axons_to_try = [n.axon_info for n in self.metagraph.neurons
-                            if n.stake > bt.Balance(MinerConfig.STAKE_MIN)
-                            and n.axon_info.ip != MinerConfig.AXON_NO_IP]
-        else:
-            axons_to_try = self.metagraph.axons
+        axons_to_try = self.position_inspector.get_possible_validators()
         axons_to_try.sort(key=lambda validator: hotkey_to_v_trust[validator.hotkey], reverse=True)
 
         validator_hotkey_to_axon = {}
