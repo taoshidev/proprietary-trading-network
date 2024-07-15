@@ -135,7 +135,7 @@ class P2PSyncer(ValidatorSyncBase):
         # Check if the time is right to sync signals
         if self.is_testnet:
             # every hour in testnet
-            if not (47 < datetime_now.minute < 57):
+            if not (7 < datetime_now.minute < 17):
                 return
             # if datetime_now.minute % 15 != 0:
             #     return

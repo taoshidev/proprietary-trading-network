@@ -305,7 +305,7 @@ class CacheController:
         )
 
     def get_last_order_timestamp(self):
-        return ValiUtils.get_vali_json_file(
+        return ValiUtils.get_vali_json_file_dict(
             ValiBkpUtils.get_last_order_timestamp_file_location(running_unit_tests=self.running_unit_tests)
         ).get("timestamp", -1)
 
