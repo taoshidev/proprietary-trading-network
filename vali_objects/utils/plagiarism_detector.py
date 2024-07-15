@@ -21,7 +21,7 @@ class PlagiarismDetector(CacheController):
         Kick off the plagiarism detection process.
         """
 
-        current_time = TimeUtil.now_in_millis()
+        current_time = TimeUtil.now_in_millis()  # noqa: F841
         if hotkeys is None:
             hotkeys = self.metagraph.hotkeys
 
@@ -36,7 +36,7 @@ class PlagiarismDetector(CacheController):
             ),
         )
 
-        elimination_mapping: dict[str, bool] = PlagiarismUtils.generate_elimination_mapping(
+        elimination_mapping: dict[str, bool] = PlagiarismUtils.generate_elimination_mapping(  # noqa: F841
             hotkey_positions
         )
 

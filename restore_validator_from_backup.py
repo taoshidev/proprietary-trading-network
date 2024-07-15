@@ -109,7 +109,7 @@ def regenerate_miner_positions(perform_backup=True, backup_from_data_dir=False, 
         formatted_backup_date_largest = TimeUtil.millis_to_formatted_date_str(largest_backup_ms)
         formatted_disk_date_smallest = TimeUtil.millis_to_formatted_date_str(smallest_disk_ms)
         formatted_backup_date_smallest = TimeUtil.millis_to_formatted_date_str(smallest_backup_ms)
-    except:
+    except:  # noqa: E722
         formatted_backup_creation_time = backup_creation_time_ms
         formatted_disk_date_largest = largest_disk_ms
         formatted_backup_date_largest = largest_backup_ms

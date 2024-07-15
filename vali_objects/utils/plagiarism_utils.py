@@ -75,7 +75,7 @@ class PlagiarismUtils:
         Args:
             state_similarities: ndarray - the state similarities matrix
         """
-        similarity_condition = state_similarities_booleans == True
+        similarity_condition = state_similarities_booleans == True  # noqa: E712
         victims, plagiarisers, condition = sparse.find(similarity_condition)
 
         victims_cosine_similarities = state_similarities_snapshot[
@@ -367,7 +367,7 @@ class PlagiarismUtils:
             threshold: float - the threshold for similarity
         """
         # Axis of 1 is the new miners axis
-        similarities_percentile = np.percentile(state_similarities_matrix, 80, axis=1)
+        similarities_percentile = np.percentile(state_similarities_matrix, 80, axis=1)  # noqa: F841
         return state_similarities_matrix
     
     @staticmethod

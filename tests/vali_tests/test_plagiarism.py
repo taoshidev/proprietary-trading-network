@@ -74,7 +74,7 @@ class TestPlagiarism(TestBase):
         self.plagiarism_detector.check_plagiarism(self.eth_position2, o1)
         self.assertEqual({self.MINER_HOTKEY1: 0, self.MINER_HOTKEY2: 0}, self.plagiarism_detector.miner_plagiarism_scores)
 
-        o2 = Order(order_type=OrderType.SHORT,
+        o2 = Order(order_type=OrderType.SHORT,  # noqa: F841
                 leverage=1.0,
                 price=1000,
                 trade_pair=TradePair.ETHUSD,

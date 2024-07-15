@@ -143,7 +143,7 @@ class PositionManager(CacheController):
             for i in range(len(prices)):
                 pos.orders[i].price = prices[i]
 
-            old_return = pos.return_at_close
+            old_return = pos.return_at_close  # noqa: F841
             pos.rebuild_position_with_updated_orders()
             self.save_miner_position_to_disk(pos, delete_open_position_if_exists=False)
             unique_corrections.add(pos.position_uuid)
@@ -1221,7 +1221,7 @@ class PositionManager(CacheController):
                     raise Exception(f"len(new_order_prices) {len(new_order_prices)}")
 
                 #bt.logging.error(f"Hotkey: {hotkey}, Position: {position.position_uuid}, Trade Pair: {position.trade_pair.trade_pair_id},")
-                prev_n_attempts, prev_n_corrections = n_attempts, n_corrections
+                prev_n_attempts, prev_n_corrections = n_attempts, n_corrections  # noqa: F841
                 n_attempts, n_corrections = self.correct_for_tp(positions, idx, new_order_prices,
                     trade_pair, n_attempts=n_attempts, n_corrections=n_corrections,
                     unique_corrections=unique_corrections, pos=position)

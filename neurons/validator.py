@@ -279,7 +279,7 @@ class Validator:
             if (n_positions_on_disk == 0 or
                     smallest_disk_ms > TimeUtil.timestamp_to_millis(TimeUtil.generate_start_timestamp(days=1)) or
                     largest_disk_ms < TimeUtil.timestamp_to_millis(TimeUtil.generate_start_timestamp(days=1))):
-                msg = ("Validator data needs to be synced with mainnet. Please restore data from checkpoint "
+                msg = ("Validator data needs to be synced with mainnet. Please restore data from checkpoint "  # noqa: F841
                        "before running the validator. More info here: "
                        "https://github.com/taoshidev/proprietary-trading-network/"
                        "blob/main/docs/regenerating_validator_state.md")

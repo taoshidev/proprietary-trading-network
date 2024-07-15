@@ -117,7 +117,7 @@ class ChallengePeriodManager(CacheController):
         scoringunit = ScoringUnit.from_perf_ledger(ledger_element)
 
         ## Compute the criteria for passing the challenge period
-        omega_cps = Scoring.omega_cps(scoringunit)
+        omega_cps = Scoring.omega_cps(scoringunit)  # noqa: F841
         sortino_cps = Scoring.inverted_sortino_cps(scoringunit)
         return_cps = np.exp(Scoring.return_cps(scoringunit))
         position_duration = sum(scoringunit.open_ms)

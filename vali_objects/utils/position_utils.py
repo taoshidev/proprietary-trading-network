@@ -198,7 +198,7 @@ class PositionUtils:
         if len(checkpoints) <= 0:
             return 0
 
-        drawdown_nterms = ValiConfig.DRAWDOWN_NTERMS
+        drawdown_nterms = ValiConfig.DRAWDOWN_NTERMS  # noqa: F841
 
         ## Compute the drawdown of the checkpoints
         drawdowns = [ checkpoint.mdd for checkpoint in checkpoints ]

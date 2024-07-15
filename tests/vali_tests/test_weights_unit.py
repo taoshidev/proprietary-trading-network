@@ -541,9 +541,9 @@ class TestWeights(TestBase):
         self.assertGreater(consistency_consistent, consistency_short)
 
     ## now test the individual function for consistency
-    def test_consistency_sigmoid(self):
+    def test_consistency_sigmoid_function(self):
         """Test that the consistency function works as expected"""
-        margins_list = [ 0.0 ] * 29 + [ 0.9 ]
+        margins_list = [ 0.0 ] * 29 + [ 0.9 ]  # noqa: F841
         max_margin = 0.9
         median_margin = 0.0
 

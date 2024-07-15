@@ -15,7 +15,7 @@ class TestWeights(TestBase):
     def setUp(self):
         super().setUp()
 
-        possible_tradepairs = list(TradePair.__members__)    
+        possible_tradepairs = list(TradePair.__members__)  # noqa: F841
 
         ## seeding
         np.random.seed(0)

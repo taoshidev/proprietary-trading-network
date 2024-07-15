@@ -31,7 +31,7 @@ class BinanceData(BaseFinancialMarketsGenerator):
                  limit=1000,
                  retries=0) -> Response:
 
-        if type(interval) == int:
+        if type(interval) == int:  # noqa: E721
             binance_interval = self._tf[interval]
         else:
             raise Exception("no mapping for binance interval")
