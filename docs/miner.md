@@ -32,7 +32,7 @@ Omega will evaluate the magnitude of the positive asset changes over the magnitu
 - Higher magnitude positive value change
 - Pure positive value change
 
-The total score will result from the product of the Long Term Returns, Short Term Returns, and Omega, so the top miners in our system must perform well in all three metrics to receive substantial incentive. The relative weight of each term in the product sum is Long Term Returns: 0.98, Short Term Returns: 0.25, Omega: 0.05. The terms used to calculate the product are defined by ranking each metric against the other miners. As a simple example, if a miner is first place in both returns and last place in Omega, their total score would start at 1, multiply by 1 due to first place in long term returns and 1 due to short term returns. It would then multiply by (1 - 0.05) as they are the last place in Omega, so their final score would be 0.95.
+The total score will result from the product of the Long Term Returns, Short Term Returns, and Omega, so the top miners in our system must perform well in all three metrics to receive substantial incentive. The relative weight of each term in the product sum is Long Term Returns: 1.0, Short Term Returns: 0.25, Omega: 0.05. The terms used to calculate the product are defined by ranking each metric against the other miners. As a simple example, if a miner is first place in both returns and last place in Omega, their total score would start at 1, multiply by 1 due to first place in long term returns and 1 due to short term returns. It would then multiply by (1 - 0.05) as they are the last place in Omega, so their final score would be 0.95.
 
 #### Scoring Penalties
 

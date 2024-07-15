@@ -117,6 +117,8 @@ def generate_request_minerstatistics(time_now:int):
 
     ## Penalties
     miner_penalties = Scoring.miner_penalties(filtered_ledger)
+    fullpenalty_miners: list[tuple[str, float]] = [ ( miner, 0 ) for miner, penalty in miner_penalties.items() if penalty == 0 ]
+
     consistency_penalties = {}
     drawdown_penalties = {}
     recent_drawdowns = {}
@@ -171,6 +173,7 @@ def generate_request_minerstatistics(time_now:int):
     ## This is when we only want to look at the successful miners
     successful_ledger = subtensor_weight_setter.filtered_ledger(hotkeys=challengeperiod_success_hotkeys)
     checkpoint_results = Scoring.compute_results_checkpoint(successful_ledger, evaluation_time_ms=time_now, verbose=False)
+
     challengeperiod_scores = [ (x, ValiConfig.SET_WEIGHT_MINER_CHALLENGE_PERIOD_WEIGHT) for x in challengeperiod_testing_hotkeys ]
     scoring_results = checkpoint_results + challengeperiod_scores
     weights = dict(scoring_results)
@@ -294,6 +297,7 @@ def generate_request_minerstatistics(time_now:int):
             "plagiarism": plagiarism.get(miner_id),
             "checkpoints": miner_cumulative_return_ledger.get('cps',[]),
         }
+
         combined_data.append(miner_data)
     
     final_dict = {

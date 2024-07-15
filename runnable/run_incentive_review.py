@@ -56,6 +56,10 @@ if __name__ == "__main__":
     # Compute miner penalties
     miner_penalties = Scoring.miner_penalties(filtered_ledger)
 
+    ## Miners with full penalty
+    fullpenalty_miner_scores: list[tuple[str, float]] = [ ( miner, 0 ) for miner, penalty in miner_penalties.items() if penalty == 0 ]
+    fullpenalty_miners = set([ x[0] for x in fullpenalty_miner_scores ])
+
     ## Individual miner penalties
     consistency_penalties = {}
     drawdown_penalties = {}
@@ -125,8 +129,11 @@ if __name__ == "__main__":
         # Save original scores for printout
         original_scores[metric_name] = {miner: score for miner, score in miner_scores}
 
+        # Now filter out miners with full penalties
+        filtered_miner_scores = [ x for x in miner_scores if x[0] not in fullpenalty_miners ]
+
         # Apply weight and calculate weighted scores
-        weighted_scores = Scoring.miner_scores_percentiles(miner_scores)
+        weighted_scores = Scoring.miner_scores_percentiles(filtered_miner_scores)
         rankings[metric_name] = sorted(weighted_scores, key=lambda x: x[1], reverse=True)
 
         # Combine scores
@@ -135,8 +142,7 @@ if __name__ == "__main__":
                 combined_scores[miner] = 1
             combined_scores[miner] *= config['weight'] * score + (1 - config['weight'])
 
-    # ## Force good performance of all error metrics
-    combined_weighed = Scoring.weigh_miner_scores(list(combined_scores.items()))
+    combined_weighed = Scoring.weigh_miner_scores(list(combined_scores.items())) + fullpenalty_miner_scores
     combined_scores = dict(combined_weighed)
 
     ## Normalize the scores

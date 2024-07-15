@@ -84,6 +84,10 @@ class Scoring:
         # Compute miner penalties
         miner_penalties = Scoring.miner_penalties(ledger_dict)
 
+        ## Miners with full penalty
+        fullpenalty_miner_scores: list[tuple[str, float]] = [ ( miner, 0 ) for miner, penalty in miner_penalties.items() if penalty == 0 ]
+        fullpenalty_miners = set([ x[0] for x in fullpenalty_miner_scores ])
+
         # Augmented returns ledgers
         returns_ledger_short = PositionManager.limit_perf_ledger(
             ledger_dict,
@@ -111,23 +115,26 @@ class Scoring:
 
         combined_scores = {}
 
-        for config in scoring_config.values():
+        for config_name, config in scoring_config.items():
             miner_scores = []
             for miner, minerledger in config['ledger'].items():
+                # Check if the miner has full penalty - if not include them in the scoring competition
+                if miner in fullpenalty_miners:
+                    continue
+
                 scoringunit = ScoringUnit.from_perf_ledger(minerledger)
                 score = config['function'](scoringunit=scoringunit)
                 score_riskadjusted = score * miner_penalties.get(miner, 0)
                 miner_scores.append((miner, score_riskadjusted))
             
             weighted_scores = Scoring.miner_scores_percentiles(miner_scores)
-            
             for miner, score in weighted_scores:
                 if miner not in combined_scores:
                     combined_scores[miner] = 1
                 combined_scores[miner] *= config['weight'] * score + (1 - config['weight'])
 
         # ## Force good performance of all error metrics
-        combined_weighed = Scoring.weigh_miner_scores(list(combined_scores.items()))
+        combined_weighed = Scoring.weigh_miner_scores(list(combined_scores.items())) + fullpenalty_miner_scores
         combined_scores = dict(combined_weighed)
 
         ## Normalize the scores
