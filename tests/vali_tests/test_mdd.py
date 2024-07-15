@@ -265,7 +265,7 @@ class TestMDDChecker(TestBase):
                 leverage=1.0,
                 price=live_price,
                 trade_pair=TradePair.BTCUSD,
-                processed_ms=live_price,
+                processed_ms=1000,
                 order_uuid="1000")
 
         o2 = Order(order_type=OrderType.LONG,
