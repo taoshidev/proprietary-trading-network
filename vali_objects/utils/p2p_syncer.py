@@ -20,7 +20,7 @@ from vali_objects.vali_dataclasses.order import Order
 from vali_objects.utils.validator_sync_base import ValidatorSyncBase
 
 class P2PSyncer(ValidatorSyncBase):
-    def __init__(self, wallet=None, metagraph=None, is_testnet=None, shutdown_dict=None, signal_sync_lock=None, signal_sync_condition=None, n_orders_being_processed=None):
+    def __init__(self, wallet=None, metagraph=None, is_testnet=None, shutdown_dict=None, signal_sync_lock=None, signal_sync_condition=None, n_orders_being_processed=None, is_mothership=None):
         super().__init__(shutdown_dict, signal_sync_lock, signal_sync_condition, n_orders_being_processed)
         self.wallet = wallet
         self.metagraph = metagraph
@@ -31,6 +31,7 @@ class P2PSyncer(ValidatorSyncBase):
         self.is_testnet = is_testnet
         self.created_golden = False
         self.last_signal_sync_time_ms = 0
+        self.is_mothership = is_mothership
 
     async def send_checkpoint_requests(self):
         """
@@ -150,6 +151,7 @@ class P2PSyncer(ValidatorSyncBase):
         try:
             bt.logging.info("Calling send_checkpoint_requests")
             self.golden = None
+            # if not self.is_mothership: # TODO: uncomment
             asyncio.run(self.send_checkpoint_requests())
             if self.created_golden:
                 bt.logging.info("Calling apply_golden")

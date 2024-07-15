@@ -168,10 +168,12 @@ class Validator:
         self.position_syncer = PositionSyncer(shutdown_dict=shutdown_dict, signal_sync_lock=self.signal_sync_lock,
                                               signal_sync_condition=self.signal_sync_condition,
                                               n_orders_being_processed=self.n_orders_being_processed)
+        is_mothership = 'mothership' in ValiUtils.get_secrets()
         self.p2p_syncer = P2PSyncer(wallet=self.wallet, metagraph=self.metagraph, is_testnet=not self.is_mainnet,
                                     shutdown_dict=shutdown_dict, signal_sync_lock=self.signal_sync_lock,
                                     signal_sync_condition=self.signal_sync_condition,
-                                    n_orders_being_processed=self.n_orders_being_processed
+                                    n_orders_being_processed=self.n_orders_being_processed,
+                                    is_mothership=is_mothership
                                     )
         self.checkpoint_lock = threading.Lock()
         self.encoded_checkpoint = ""
