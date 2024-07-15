@@ -293,6 +293,22 @@ class CacheController:
 
         self._write_challengeperiod_from_memory_to_disk()
 
+    def write_last_order_timestamp_from_memory_to_disk(self, timestamp):
+        timestamp_data = {
+            "timestamp": timestamp
+        }
+        ValiBkpUtils.write_file(
+            ValiBkpUtils.get_last_order_timestamp_file_location(
+                running_unit_tests=self.running_unit_tests
+            ),
+            timestamp_data
+        )
+
+    def get_last_order_timestamp(self):
+        return ValiUtils.get_vali_json_file(
+            ValiBkpUtils.get_last_order_timestamp_file_location(running_unit_tests=self.running_unit_tests)
+        ).get("timestamp", -1)
+
     def init_cache_files(self) -> None:
         ValiBkpUtils.make_dir(ValiBkpUtils.get_vali_dir(running_unit_tests=self.running_unit_tests))
 

@@ -221,7 +221,7 @@ class P2PSyncer(ValidatorSyncBase):
                         latest_order_ms = max(latest_order_ms, order["processed_ms"])
 
             # add this checkpoint's data if the checkpoint is up-to-date
-            if TimeUtil.now_in_millis() - latest_order_ms < 1000 * 60 * 60 * 24 * 2:
+            if TimeUtil.now_in_millis() - latest_order_ms < 1000 * 60 * 60 * 24:  # 24 hrs
                 for position_uuid in checkpoint_position_counts:
                     position_counts[position_uuid] += checkpoint_position_counts[position_uuid]
 

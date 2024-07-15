@@ -197,8 +197,9 @@ class Validator:
         bt.logging.info(f"Attaching forward function to axon.")
 
         self.order_rate_limiter = RateLimiter()
+        self.timestamp_write_rate_limiter = RateLimiter(max_requests_per_window=1, rate_limit_window_duration_seconds=60 * 60)
         self.position_inspector_rate_limiter = RateLimiter(max_requests_per_window=1, rate_limit_window_duration_seconds=60 * 4)
-        self.checkpoint_rate_limiter = RateLimiter(max_requests_per_window=1, rate_limit_window_duration_seconds=60 * 60)
+        self.checkpoint_rate_limiter = RateLimiter(max_requests_per_window=1, rate_limit_window_duration_seconds=60 * 60 * 6)
 
         def rs_blacklist_fn(synapse: template.protocol.SendSignal) -> Tuple[bool, str]:
             return Validator.blacklist_fn(synapse, self.metagraph)
@@ -636,6 +637,9 @@ class Validator:
                     self.uuid_tracker.add(miner_order_uuid)
                 # Update the last received order time
                 self.last_received_order_time_ms = max(self.last_received_order_time_ms, signal_to_order.processed_ms)
+                allowed, wait_time = self.timestamp_write_rate_limiter.is_allowed(self.wallet.hotkey.ss58_address)
+                if allowed:
+                    self.position_manager.write_last_order_timestamp_from_memory_to_disk(self.last_received_order_time_ms)
 
                 # Log the open position for the miner
                 bt.logging.info(f"Position {open_position.trade_pair.trade_pair_id} for miner [{miner_hotkey}] updated.")
@@ -719,15 +723,15 @@ class Validator:
                         compressed = gzip.compress(checkpoint_str.encode("utf-8"))
                         self.encoded_checkpoint = base64.b64encode(compressed).decode("utf-8")
 
-                    # if we haven't received any signals, parse our miner dirs to get the last updated order
+                    # if we haven't received any signals, read our timestamp file to get the last order received
                     if self.last_received_order_time_ms == 0:
-                        self.last_received_order_time_ms = max(self.last_received_order_time_ms, self.position_manager.get_latest_file_mod_time_s() * 1000)
+                        self.last_received_order_time_ms = self.position_manager.get_last_order_timestamp()
 
                     # only send a checkpoint if we are an up-to-date validator
-                    if TimeUtil.now_in_millis() - self.last_received_order_time_ms < 1000 * 60 * 60 * 24 * 2:  # 2 days
+                    if TimeUtil.now_in_millis() - self.last_received_order_time_ms < 1000 * 60 * 60 * 24:  # 24 hrs
                         synapse.checkpoint = self.encoded_checkpoint
                     else:
-                        error_message = f"Validator is stale, no orders received in 48 hrs, last order timestamp {self.last_received_order_time_ms}, {TimeUtil.now_in_millis() - self.last_received_order_time_ms} ms ago"
+                        error_message = f"Validator is stale, no orders received in 24 hrs, last order timestamp {self.last_received_order_time_ms}, {TimeUtil.now_in_millis() - self.last_received_order_time_ms} ms ago"
             except Exception as e:
                 error_message = f"Error processing checkpoint request poke from [{sender_hotkey}] with error [{e}]"
                 bt.logging.error(traceback.format_exc())

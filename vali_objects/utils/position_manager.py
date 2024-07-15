@@ -907,23 +907,6 @@ class PositionManager(CacheController):
 
         return latest_mod_time_s
 
-    def get_latest_file_mod_time_s(self):
-        """
-        get the last file modification time from all directories
-        """
-        # Define the path to the directory containing the directories to check
-        query_dir = ValiBkpUtils.get_miner_dir(running_unit_tests=self.running_unit_tests)
-        # Get the names of all directories in query_dir
-        directory_names = CacheController.get_directory_names(query_dir)
-
-        latest_modification_time_s = 0
-        # Loop through each directory name
-        for item in directory_names:
-            item_path = Path(query_dir) / item  # Construct the full path
-            latest_modification_time_s = max(latest_modification_time_s, self._get_latest_file_modification_time_s(item_path, 0))
-
-        return latest_modification_time_s
-
     def _get_file_mod_time_s(self, file_path):
         try:
             return os.path.getmtime(file_path)
