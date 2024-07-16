@@ -233,7 +233,9 @@ class Position(BaseModel):
 
     @property
     def newest_order_age_ms(self):
-        return TimeUtil.now_in_millis() - self.orders[-1].processed_ms
+        if len(self.orders) > 0:
+            return TimeUtil.now_in_millis() - self.orders[-1].processed_ms
+        return 0
 
     def __str__(self):
         return self.to_json_string()
