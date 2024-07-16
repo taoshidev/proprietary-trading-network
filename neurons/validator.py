@@ -25,6 +25,7 @@ from vali_objects.decoders.generalized_json_decoder import GeneralizedJSONDecode
 from vali_objects.utils.auto_sync import PositionSyncer
 from vali_objects.utils.p2p_syncer import P2PSyncer
 from shared_objects.rate_limiter import RateLimiter
+from vali_objects.utils.timestamp_manager import TimestampManager
 from vali_objects.uuid_tracker import UUIDTracker
 from time_util.time_util import TimeUtil
 from vali_config import TradePair
@@ -176,7 +177,7 @@ class Validator:
         self.checkpoint_lock = threading.Lock()
         self.encoded_checkpoint = ""
         self.last_checkpoint_time = 0
-        self.last_received_order_time_ms = 0
+        self.timestamp_manager = TimestampManager(config=self.config, metagraph=self.metagraph, hotkey=self.wallet.hotkey.ss58_address)
 
         self.perf_ledger_manager = PerfLedgerManager(self.metagraph, live_price_fetcher=self.live_price_fetcher,
                                                      shutdown_dict=shutdown_dict, position_syncer=self.position_syncer)
@@ -197,7 +198,6 @@ class Validator:
         bt.logging.info(f"Attaching forward function to axon.")
 
         self.order_rate_limiter = RateLimiter()
-        self.timestamp_write_rate_limiter = RateLimiter(max_requests_per_window=1, rate_limit_window_duration_seconds=60 * 60)
         self.position_inspector_rate_limiter = RateLimiter(max_requests_per_window=1, rate_limit_window_duration_seconds=60 * 4)
         self.checkpoint_rate_limiter = RateLimiter(max_requests_per_window=1, rate_limit_window_duration_seconds=60 * 60 * 6)
 
@@ -636,11 +636,7 @@ class Validator:
                 if miner_order_uuid:
                     self.uuid_tracker.add(miner_order_uuid)
                 # Update the last received order time
-                self.last_received_order_time_ms = max(self.last_received_order_time_ms, signal_to_order.processed_ms)
-                allowed, wait_time = self.timestamp_write_rate_limiter.is_allowed(self.wallet.hotkey.ss58_address)
-                if allowed:
-                    self.position_manager.write_last_order_timestamp_from_memory_to_disk(self.last_received_order_time_ms)
-
+                self.timestamp_manager.update_timestamp(signal_to_order)
                 # Log the open position for the miner
                 bt.logging.info(f"Position {open_position.trade_pair.trade_pair_id} for miner [{miner_hotkey}] updated.")
                 open_position.log_position_status()
@@ -723,15 +719,12 @@ class Validator:
                         compressed = gzip.compress(checkpoint_str.encode("utf-8"))
                         self.encoded_checkpoint = base64.b64encode(compressed).decode("utf-8")
 
-                    # if we haven't received any signals, read our timestamp file to get the last order received
-                    if self.last_received_order_time_ms == 0:
-                        self.last_received_order_time_ms = self.position_manager.get_last_order_timestamp()
-
                     # only send a checkpoint if we are an up-to-date validator
-                    if TimeUtil.now_in_millis() - self.last_received_order_time_ms < 1000 * 60 * 60 * 24:  # 24 hrs
+                    timestamp = self.timestamp_manager.get_last_order_timestamp()
+                    if TimeUtil.now_in_millis() - timestamp < 1000 * 60 * 60 * 24:  # 24 hrs
                         synapse.checkpoint = self.encoded_checkpoint
                     else:
-                        error_message = f"Validator is stale, no orders received in 24 hrs, last order timestamp {self.last_received_order_time_ms}, {TimeUtil.now_in_millis() - self.last_received_order_time_ms} ms ago"
+                        error_message = f"Validator is stale, no orders received in 24 hrs, last order timestamp {timestamp}, {round((TimeUtil.now_in_millis() - timestamp)/(1000 * 60 * 60))} hrs ago"
             except Exception as e:
                 error_message = f"Error processing checkpoint request poke from [{sender_hotkey}] with error [{e}]"
                 bt.logging.error(traceback.format_exc())

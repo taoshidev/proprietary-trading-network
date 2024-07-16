@@ -170,7 +170,7 @@ class P2PSyncer(ValidatorSyncBase):
 
                 num_valid_checkpoints += 1
             else:
-                bt.logging.info(f"Checkpoint from validator {hotkey} is stale with newest order timestamp {latest_order_ms}, {TimeUtil.now_in_millis() - latest_order_ms} ms ago, Skipping.")
+                bt.logging.info(f"Checkpoint from validator {hotkey} is stale with newest order timestamp {latest_order_ms}, {round((TimeUtil.now_in_millis() - latest_order_ms)/(1000 * 60 * 60))} hrs ago, Skipping.")
 
         if num_valid_checkpoints == 0:
             bt.logging.info(f"All checkpoints are stale, unable to build golden.")
@@ -296,7 +296,7 @@ class P2PSyncer(ValidatorSyncBase):
         # Check if the time is right to sync signals
         if self.is_testnet:
             # every hour in testnet
-            if not (27 < datetime_now.minute < 37):
+            if not (37 < datetime_now.minute < 47):
                 return
             # if datetime_now.minute % 15 != 0:
             #     return

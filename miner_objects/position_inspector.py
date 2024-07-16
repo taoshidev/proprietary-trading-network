@@ -39,12 +39,12 @@ class PositionInspector:
     def get_possible_validators(self):
         # Right now bittensor has no functionality to know if a hotkey 100% corresponds to a validator
         # Revisit this in the future.
-        if not self.is_testnet:
+        if self.is_testnet:
+            return self.metagraph.axons
+        else:
             return [n.axon_info for n in self.metagraph.neurons
                     if n.stake > bt.Balance(MinerConfig.STAKE_MIN)
                     and n.axon_info.ip != MinerConfig.AXON_NO_IP]
-        else:
-            return self.metagraph.axons
 
     def query_positions(self, validators, hotkey_to_positions):
         remaining_validators_to_query = [v for v in validators if v.hotkey not in hotkey_to_positions]
