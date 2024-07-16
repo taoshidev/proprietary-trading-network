@@ -46,11 +46,10 @@ class P2PSyncer(ValidatorSyncBase):
         validator_axons = self.get_largest_staked_validators(ValiConfig.TOP_N_STAKE)
 
         try:
+            bt.logging.info(f"Validator {self.wallet.hotkey.ss58_address} requesting checkpoints")
             # create dendrite and transmit synapse
             checkpoint_synapse = template.protocol.ValidatorCheckpoint()
             validator_responses = await dendrite.forward(axons=validator_axons, synapse=checkpoint_synapse, timeout=60 * 5)
-
-            bt.logging.info(f"Validator {self.wallet.hotkey.ss58_address} requesting checkpoints")
 
             n_failures = 0
             n_successful_checkpoints = 0
@@ -85,79 +84,18 @@ class P2PSyncer(ValidatorSyncBase):
             bt.logging.info(f"{n_successful_checkpoints} responses succeeded. {n_failures} responses failed")
 
             if (n_successful_checkpoints > 0 and self.is_testnet) or n_successful_checkpoints >= ValiConfig.MIN_CHECKPOINTS_RECEIVED:
-                # sort all our successful responses to get the 10 largest by validator_trust
-                sorted_v_trust = sorted(hotkey_to_received_checkpoint.items(), key=lambda item: item[1][0], reverse=True)[:ValiConfig.TOP_N_VTRUST]
+                # sort all our successful responses by validator_trust
+                sorted_v_trust = sorted(hotkey_to_received_checkpoint.items(), key=lambda item: item[1][0], reverse=True)
                 hotkey_to_received_checkpoint = {checkpoint[0]: checkpoint[1] for checkpoint in sorted_v_trust}
 
                 bt.logging.info("Received enough checkpoints, now creating golden.")
-                self.create_golden(hotkey_to_received_checkpoint)
-                self.created_golden = True
+                self.created_golden = self.create_golden(hotkey_to_received_checkpoint)
             else:
                 bt.logging.info("Not enough checkpoints received to create a golden.")
                 self.created_golden = False
 
         except Exception as e:
             bt.logging.info(f"Error sending checkpoint with error [{e}]")
-
-    def get_validators(self, neurons=None):
-        """
-        get a list of all validators. defined as:
-        stake > 1000 and validator_trust > 0.5
-        """
-        if self.is_testnet:
-            return self.metagraph.axons
-        if neurons is None:
-            neurons = self.metagraph.neurons
-        validator_axons = [n.axon_info for n in neurons
-                           if n.stake > bt.Balance(ValiConfig.STAKE_MIN)
-                           and n.axon_info.ip != ValiConfig.AXON_NO_IP]
-        return validator_axons
-
-    def get_largest_staked_validators(self, top_n_validators, neurons=None):
-        """
-        get a list of the trusted validators for checkpoint sending
-        return top 20 neurons sorted by stake
-        """
-        if self.is_testnet:
-            return self.get_validators()
-        if neurons is None:
-            neurons = self.metagraph.neurons
-        sorted_stake_neurons = sorted(neurons, key=lambda n: n.stake, reverse=True)
-
-        return self.get_validators(sorted_stake_neurons)[:top_n_validators]
-
-    def sync_positions_with_cooldown(self):
-        now_ms = TimeUtil.now_in_millis()
-        # Already performed a sync recently
-        if now_ms - self.last_signal_sync_time_ms < 1000 * 60 * 15:
-            return
-        datetime_now = TimeUtil.generate_start_timestamp(0)  # UTC
-        # Check if the time is right to sync signals
-        if self.is_testnet:
-            # every hour in testnet
-            if not (7 < datetime_now.minute < 17):
-                return
-            # if datetime_now.minute % 15 != 0:
-            #     return
-        else:
-            # Check if we are between 7:09 AM and 7:19 AM UTC
-            # Temp change time to 21:00 UTC so we can see the effects in shadow mode ASAP
-            if not (datetime_now.hour == 21 and (18 < datetime_now.minute < 30)):
-                return
-
-        try:
-            bt.logging.info("Calling send_checkpoint_requests")
-            self.golden = None
-            asyncio.run(self.send_checkpoint_requests())
-            if self.created_golden:
-                bt.logging.info("Calling apply_golden")
-                # TODO guard sync_positions with the signal lock once we move on from shadow mode
-                self.sync_positions(True, candidate_data=self.golden)
-        except Exception as e:
-            bt.logging.error(f"Error sending checkpoint: {e}")
-            bt.logging.error(traceback.format_exc())
-
-        self.last_signal_sync_time_ms = TimeUtil.now_in_millis()
 
     def create_golden(self, trusted_checkpoints: dict):
         """
@@ -196,6 +134,9 @@ class P2PSyncer(ValidatorSyncBase):
 
         # parse each checkpoint to count occurrences of each position and order
         for hotkey, checkpoint in trusted_checkpoints.items():
+            # get the first 10 up-to-date checkpoints
+            if num_valid_checkpoints >= ValiConfig.TOP_N_CHECKPOINTS:
+                break
             # determine the latest order on each validator, and skip stale checkpoints
             latest_order_ms = 0
 
@@ -229,7 +170,11 @@ class P2PSyncer(ValidatorSyncBase):
 
                 num_valid_checkpoints += 1
             else:
-                bt.logging.info(f"Checkpoint from validator {hotkey} is stale with last order timestamp {latest_order_ms}, {TimeUtil.now_in_millis() - latest_order_ms} ms ago, Skipping.")
+                bt.logging.info(f"Checkpoint from validator {hotkey} is stale with newest order timestamp {latest_order_ms}, {TimeUtil.now_in_millis() - latest_order_ms} ms ago, Skipping.")
+
+        if num_valid_checkpoints == 0:
+            bt.logging.info(f"All checkpoints are stale, unable to build golden.")
+            return False
 
         # get the set of position_uuids that appear in the majority of checkpoints
         positions_threshold = 2  # math.ceil(num_valid_checkpoints / 2)
@@ -299,6 +244,7 @@ class P2PSyncer(ValidatorSyncBase):
             num_pos_orders = [len(self.golden['positions'][miner]['positions']), orders]
             temp[miner] = num_pos_orders
         bt.logging.info(f"Created golden checkpoint {temp}")
+        return True
 
     def get_median_order(self, orders, trade_pair) -> Order:
         """
@@ -313,6 +259,66 @@ class P2PSyncer(ValidatorSyncBase):
                       processed_ms=median_order["processed_ms"],
                       order_uuid=median_order["order_uuid"])
         return order
+
+    def get_validators(self, neurons=None):
+        """
+        get a list of all validators. defined as:
+        stake > 1000 and validator_trust > 0.5
+        """
+        if self.is_testnet:
+            return self.metagraph.axons
+        if neurons is None:
+            neurons = self.metagraph.neurons
+        validator_axons = [n.axon_info for n in neurons
+                           if n.stake > bt.Balance(ValiConfig.STAKE_MIN)
+                           and n.axon_info.ip != ValiConfig.AXON_NO_IP]
+        return validator_axons
+
+    def get_largest_staked_validators(self, top_n_validators, neurons=None):
+        """
+        get a list of the trusted validators for checkpoint sending
+        return top 20 neurons sorted by stake
+        """
+        if self.is_testnet:
+            return self.get_validators()
+        if neurons is None:
+            neurons = self.metagraph.neurons
+        sorted_stake_neurons = sorted(neurons, key=lambda n: n.stake, reverse=True)
+
+        return self.get_validators(sorted_stake_neurons)[:top_n_validators]
+
+    def sync_positions_with_cooldown(self):
+        now_ms = TimeUtil.now_in_millis()
+        # Already performed a sync recently
+        if now_ms - self.last_signal_sync_time_ms < 1000 * 60 * 15:
+            return
+        datetime_now = TimeUtil.generate_start_timestamp(0)  # UTC
+        # Check if the time is right to sync signals
+        if self.is_testnet:
+            # every hour in testnet
+            if not (27 < datetime_now.minute < 37):
+                return
+            # if datetime_now.minute % 15 != 0:
+            #     return
+        else:
+            # Check if we are between 7:09 AM and 7:19 AM UTC
+            # Temp change time to 21:00 UTC so we can see the effects in shadow mode ASAP
+            if not (datetime_now.hour == 21 and (18 < datetime_now.minute < 30)):
+                return
+
+        try:
+            bt.logging.info("Calling send_checkpoint_requests")
+            self.golden = None
+            asyncio.run(self.send_checkpoint_requests())
+            if self.created_golden:
+                bt.logging.info("Calling apply_golden")
+                # TODO guard sync_positions with the signal lock once we move on from shadow mode
+                self.sync_positions(True, candidate_data=self.golden)
+        except Exception as e:
+            bt.logging.error(f"Error sending checkpoint: {e}")
+            bt.logging.error(traceback.format_exc())
+
+        self.last_signal_sync_time_ms = TimeUtil.now_in_millis()
 
 if __name__ == "__main__":
     bt.logging.enable_default()
