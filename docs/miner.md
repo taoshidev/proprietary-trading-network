@@ -40,7 +40,7 @@ There are two primary penalties in place for each miner: Consistency and Drawdow
 
 The consistency penalty is meant to discourage miners who cannot deliver consistent performance over each 30 day period. To fully mitigate penalties associated with consistency, your miner should achieve the following metrics:
 - Minimum of 18 days of open positions, of any volume.
-- Your portfolio value in one period should represent over 50% of your total portfolio value change over the prior 30 days. If your portfolio value increases sharply and decreases back towards 1, the value change in one period may exceed your total portvolio value change and you are likely to experience a large penalty due to consistency.
+- Your portfolio value change in any single six-hour checkpoint period should not exceed 50% of the total portfolio value change over the previous 30 days. If your portfolio value increases sharply and decreases back towards a total return of 1.0, the value change in one period may exceed your total portfolio value change and you are likely to experience a large penalty due to consistency.
 
 The drawdown penalty is meant to both discourage miners from taking too much drawdown and benefit miners with low drawdown. To do this, the drawdown penalty is defined as 1 / MDD of the miner. This enables miners with low risk tolerance to be competitive with higher risk miners. Between 0.25% MDD and 1.5% MDD the drawdown penalty is only designed to normalize the returns of your miner relative to the risk. We apply a penalty below 0.25% MDD and above 1.5%, with the upper penalty linearly tapering to 0 as it gets closer to 5% MDD.
 
@@ -50,7 +50,7 @@ There are four primary requirements for a miner to pass the challenge period: Re
 
 The volume minimum checkpoint is defined as a checkpoint which meets a certain threshold of raw gains and losses. The threshold value for inclusion of the checkpoint as valid is 0.1. This means that a checkpoint with a gain of 0.05 and a loss of -0.05 would have an absolute sum of 0.1 and qualify. We are requiring 12 of these valid checkpoints to have been observed in order for the miner to pass the checkpoint qualifications.
 
-### Distribution and Rankins
+### Distribution and Rankings
 We then rank miners based on their historical performance, by determining their percentiles against their peers for each scoring category. We then distribute emissions based on an exponential decay function, giving significant priority to the top miners. Details of both scoring functions can be found [here](https://github.com/taoshidev/proprietary-trading-network/tree/main/vali_objects/scoring). The best way to get emissions is to have a consistently great trading strategy, which makes multiple transactions each week (the more the better). Capturing upside through timing and proper leverage utilization will yield the highest score in our system.
 
 ## Mining Infrastructure
