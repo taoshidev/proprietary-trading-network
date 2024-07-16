@@ -1,3 +1,4 @@
+import copy
 import gzip
 import json
 import os
@@ -238,6 +239,9 @@ def generate_request_core(time_now:int) -> dict:
         )
     )
 
+    # unfiltered positions dict for checkpoints
+    unfiltered_positions = {'positions': copy.deepcopy(ord_dict_hotkey_position_map)}
+
     n_orders_original = 0
     for positions in hotkey_positions.values():
         n_orders_original += sum([len(position.orders) for position in positions])
@@ -295,4 +299,4 @@ def generate_request_core(time_now:int) -> dict:
 
     # Max filtering
     upload_checkpoint_to_gcloud(final_dict)
-    return final_dict
+    return unfiltered_positions

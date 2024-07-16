@@ -146,7 +146,11 @@ class P2PSyncer(ValidatorSyncBase):
 
             # get positions for each miner
             positions = checkpoint[1]["positions"]
-            for miner_positions in positions.values():
+            # for miner_positions in positions.values():
+            for miner_hotkey, miner_positions in positions.items():
+                if miner_hotkey == "5F6oea6yYMFWETD9KkWj5FMUntRv77yCw7WoiJv5tVsor2Mb":
+                    print("dumping miner 5F6oea6yYMFWETD9KkWj5FMUntRv77yCw7WoiJv5tVsor2Mb position\n\n\n")
+                    print(miner_positions)
                 for position in miner_positions["positions"]:
                     position_uuid = position["position_uuid"]
                     checkpoint_position_counts[position_uuid] += 1
@@ -173,8 +177,10 @@ class P2PSyncer(ValidatorSyncBase):
                 bt.logging.info(f"Checkpoint from validator {hotkey} is stale with newest order timestamp {latest_order_ms}, {round((TimeUtil.now_in_millis() - latest_order_ms)/(1000 * 60 * 60))} hrs ago, Skipping.")
 
         if num_valid_checkpoints == 0:
-            bt.logging.info(f"All checkpoints are stale, unable to build golden.")
+            bt.logging.info(f"All {len(trusted_checkpoints)} checkpoints are stale, unable to build golden.")
             return False
+        else:
+            bt.logging.info(f"Building golden from [{num_valid_checkpoints}/{len(trusted_checkpoints)}] up-to-date checkpoints.")
 
         # get the set of position_uuids that appear in the majority of checkpoints
         positions_threshold = 2  # math.ceil(num_valid_checkpoints / 2)
@@ -296,7 +302,7 @@ class P2PSyncer(ValidatorSyncBase):
         # Check if the time is right to sync signals
         if self.is_testnet:
             # every hour in testnet
-            if not (37 < datetime_now.minute < 47):
+            if not (27 < datetime_now.minute < 37):
                 return
             # if datetime_now.minute % 15 != 0:
             #     return
