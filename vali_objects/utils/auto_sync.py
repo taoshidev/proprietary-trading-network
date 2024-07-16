@@ -53,7 +53,6 @@ class PositionSyncer(ValidatorSyncBase):
         if now_ms - self.last_signal_sync_time_ms < 1000 * 60 * 30:
             return
 
-        # Check if we are between 6:09 AM and 6:19 AM UTC
         datetime_now = TimeUtil.generate_start_timestamp(0)  # UTC
         if not (datetime_now.hour == 6 and (8 < datetime_now.minute < 20)):
             return

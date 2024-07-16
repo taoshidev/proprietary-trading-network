@@ -364,7 +364,14 @@ class PerfLedgerManager(CacheController):
                 time.sleep(30)
             time.sleep(1)
 
-    def get_historical_position(self, position:Position, timestamp_ms:int):
+    def get_historical_position(self, position:Position, timestamp_ms:int, hk_to_last_order_processed_ms:dict):
+        hk = position.miner_hotkey
+        if hk in hk_to_last_order_processed_ms:
+            hk_to_last_order_processed_ms[hk] = max(hk_to_last_order_processed_ms[hk], timestamp_ms)
+        else:
+            hk_to_last_order_processed_ms[hk] = timestamp_ms
+
+
         new_orders = []
         temp_pos = deepcopy(position)
         temp_pos_to_pop = deepcopy(position)
@@ -741,14 +748,8 @@ class PerfLedgerManager(CacheController):
                         break
 
                 order, position = event
-                if hotkey in hk_to_last_order_processed_ms:
-                    hk_to_last_order_processed_ms[hotkey] = max(hk_to_last_order_processed_ms[hotkey],
-                                                                order.processed_ms)
-                else:
-                    hk_to_last_order_processed_ms[hotkey] = order.processed_ms
-
                 symbol = position.trade_pair.trade_pair
-                pos, realtime_position_to_pop = self.get_historical_position(position, order.processed_ms)
+                pos, realtime_position_to_pop = self.get_historical_position(position, order.processed_ms, hk_to_last_order_processed_ms)
 
                 if (symbol in tp_to_historical_positions and
                         pos.position_uuid == tp_to_historical_positions[symbol][-1].position_uuid):
@@ -914,7 +915,7 @@ class PerfLedgerManager(CacheController):
             self.random_security_screenings = set()
 
         # Regenerate checkpoints if a hotkey was modified during position sync
-        attempting_invalidations = False#bool(self.position_syncer) and bool(self.position_syncer.perf_ledger_hks_to_invalidate)
+        attempting_invalidations = bool(self.position_syncer) and bool(self.position_syncer.perf_ledger_hks_to_invalidate)
         if attempting_invalidations:
             for hk, t in self.position_syncer.perf_ledger_hks_to_invalidate.items():
                 hotkeys_to_delete.add(hk)

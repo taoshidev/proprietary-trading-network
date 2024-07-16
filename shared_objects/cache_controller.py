@@ -2,6 +2,7 @@
 # Copyright © 2024 Taoshi Inc
 import os
 import datetime
+from collections import defaultdict
 from pickle import UnpicklingError
 from typing import List, Dict
 import copy
@@ -391,22 +392,62 @@ class CacheController:
             _position.close_ms if _position.is_closed_position else float("inf")
         )
 
-    @retry(tries=5, delay=1, backoff=1)
+    def exorcise_positions(self, positions, all_files) -> List[Position]:
+        """
+        Disk positions can be left in a bad state for a variety of reasons. Let's clean them up here.
+        If a dup is encountered, deleted both and let position syncing add the correct one back.
+        """
+        filtered_positions = []
+        position_uuid_to_count = defaultdict(int)
+        order_uuid_to_count = defaultdict(int)
+        order_uuids_to_purge = set()
+        for position in positions:
+            position_uuid_to_count[position.position_uuid] += 1
+            for order in position.orders:
+                order_uuid_to_count[order.order_uuid] += 1
+                if order_uuid_to_count[order.order_uuid] > 1:
+                    order_uuids_to_purge.add(order.order_uuid)
+
+        for file_name, position in zip(all_files, positions):
+            if position_uuid_to_count[position.position_uuid] > 1:
+                bt.logging.info(f"Exorcising position from disk: {file_name}")
+                os.remove(file_name)
+                continue
+
+            new_orders = [x for x in position.orders if order_uuid_to_count[x.order_uuid] == 1]
+            if len(new_orders) == 0:
+                bt.logging.info(f"Exorcising position from disk: {file_name}")
+                os.remove(file_name)
+
+            elif len(new_orders) != len(position.orders):
+                position.orders = new_orders
+                position.rebuild_position_with_updated_orders()
+                ValiBkpUtils.write_file(file_name, position)
+                filtered_positions.append(position)
+                bt.logging.info(f"Exorcising orders from position on disk: {file_name}")
+
+            else:
+                filtered_positions.append(position)
+        return filtered_positions
+
+
+
+
+
     def get_all_miner_positions(self,
                                 miner_hotkey: str,
                                 only_open_positions: bool = False,
                                 sort_positions: bool = False,
-                                acceptable_position_end_ms: int = None
+                                acceptable_position_end_ms: int = None,
+                                perform_exorcism: bool = False
                                 ) -> List[Position]:
-        """
-        Retry due to a race condition where an open position is deleted and the file is not found.
-        """
+
         miner_dir = ValiBkpUtils.get_miner_all_positions_dir(miner_hotkey, running_unit_tests=self.running_unit_tests)
         all_files = ValiBkpUtils.get_all_files_in_dir(miner_dir)
 
         positions = [self.get_miner_position_from_disk(file) for file in all_files]
-        if len(positions):
-            bt.logging.trace(f"miner_dir: {miner_dir}, n_positions: {len(positions)}")
+        if perform_exorcism:
+            positions = self.exorcise_positions(positions, all_files)
 
         if acceptable_position_end_ms is not None:
             positions = [

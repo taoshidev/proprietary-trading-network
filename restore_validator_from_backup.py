@@ -194,8 +194,8 @@ if __name__ == "__main__":
     # Check commandline arg "disable_backup" to disable backup.
     parser = argparse.ArgumentParser(description="Regenerate miner positions with optional backup disabling.")
     # Add disable_backup argument, default is 0 (False), change type to int
-    parser.add_argument('--backup', type=int, default=1,
-                        help='Set to 0 to disable backup during regeneration process.')
+    parser.add_argument('--backup', type=int, default=0,
+                        help='Set to 1 to enable backup during regeneration process.')
 
     # Parse command-line arguments
     args = parser.parse_args()
