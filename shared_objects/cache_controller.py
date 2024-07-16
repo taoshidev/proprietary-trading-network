@@ -410,22 +410,14 @@ class CacheController:
 
         for file_name, position in zip(all_files, positions):
             if position_uuid_to_count[position.position_uuid] > 1:
-                bt.logging.info(f"Exorcising position from disk: {file_name}")
+                bt.logging.info(f"Exorcising position from disk: {file_name} {position}")
                 os.remove(file_name)
                 continue
 
             new_orders = [x for x in position.orders if order_uuid_to_count[x.order_uuid] == 1]
-            if len(new_orders) == 0:
-                bt.logging.info(f"Exorcising position from disk: {file_name}")
+            if len(new_orders) != len(position.orders):
+                bt.logging.info(f"Exorcising position from disk due to order mismatch: {file_name} {position}")
                 os.remove(file_name)
-
-            elif len(new_orders) != len(position.orders):
-                position.orders = new_orders
-                position.rebuild_position_with_updated_orders()
-                ValiBkpUtils.write_file(file_name, position)
-                filtered_positions.append(position)
-                bt.logging.info(f"Exorcising orders from position on disk: {file_name}")
-
             else:
                 filtered_positions.append(position)
         return filtered_positions
