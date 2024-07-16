@@ -51,7 +51,6 @@ class ValidatorSyncBase():
         self.miners_with_position_kept = set()
         self.perf_ledger_hks_to_invalidate = {}  # {hk: timestamp_ms}
 
-
     def sync_positions(self, shadow_mode, candidate_data=None, disk_positions=None) -> dict[str: list[Position]]:
         t0 = time.time()
         self.init_data()
@@ -78,12 +77,7 @@ class ValidatorSyncBase():
 
         if disk_positions is None:
             disk_positions = self.position_manager.get_all_disk_positions_for_all_miners(only_open_positions=False,
-                                                                                sort_positions=True)
-
-        # Only add positions/orders to the disk positions. never delete from disk positions.
-        # Step 1. segment positions by trade pair
-        # Step 2. identify positions that need to be inserted
-        # Step 3. identify positions that need to be updated. try to match on uuid and fall back to leverage+order_type and timestamp (~9 s range).
+                                                                                sort_positions=True, perform_exorcism=True)
 
 
         eliminations = candidate_data['eliminations']

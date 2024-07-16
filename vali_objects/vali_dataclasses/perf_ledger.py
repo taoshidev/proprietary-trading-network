@@ -364,7 +364,14 @@ class PerfLedgerManager(CacheController):
                 time.sleep(30)
             time.sleep(1)
 
-    def get_historical_position(self, position:Position, timestamp_ms:int):
+    def get_historical_position(self, position:Position, timestamp_ms:int, hk_to_last_order_processed_ms:dict):
+        hk = position.miner_hotkey
+        if hk in hk_to_last_order_processed_ms:
+            hk_to_last_order_processed_ms[hk] = max(hk_to_last_order_processed_ms[hk], timestamp_ms)
+        else:
+            hk_to_last_order_processed_ms[hk] = timestamp_ms
+
+
         new_orders = []
         temp_pos = deepcopy(position)
         temp_pos_to_pop = deepcopy(position)
@@ -694,109 +701,114 @@ class PerfLedgerManager(CacheController):
             perf_ledger.update(portfolio_return, end_time_ms, miner_hotkey, any_open, last_dd, portfolio_spread_fee, portfolio_carry_fee)
         return False
 
+    def update_one_perf_ledger(self, hotkey_i, n_hotkeys, hotkey, positions, now_ms, hk_to_last_order_processed_ms, existing_perf_ledgers) -> None:
+        # if hotkey != '5GhCxfBcA7Ur5iiAS343xwvrYHTUfBjBi4JimiL5LhujRT9t':
+        #    continue
+
+        eliminated = False
+        self.n_api_calls = 0
+
+        t0 = time.time()
+        perf_ledger = existing_perf_ledgers.get(hotkey)
+        if perf_ledger is None:
+            perf_ledger = PerfLedgerData()
+            verbose = True
+        else:
+            verbose = False
+        existing_perf_ledgers[hotkey] = perf_ledger
+        self.trade_pair_to_position_ret = {}
+        if hotkey in self.hk_to_dd_stats:
+            del self.hk_to_dd_stats[hotkey]
+        self.n_price_corrections = 0
+
+        tp_to_historical_positions = defaultdict(list)
+        sorted_timeline = self.generate_order_timeline(positions, now_ms)  # Enforces our "now_ms" constraint
+        last_event_time = sorted_timeline[-1][0].processed_ms if sorted_timeline else 0
+        building_from_new_orders = True
+        # There hasn't been a new order since the last update time. Just need to update for open positions
+        if last_event_time <= perf_ledger.last_update_ms:
+            building_from_new_orders = False
+
+        # There have been order(s) since the last update time. Also, this code is used to initialize a perf ledger.
+        realtime_position_to_pop = None
+        for event in sorted_timeline:
+            if realtime_position_to_pop:
+                symbol = realtime_position_to_pop.trade_pair.trade_pair
+                tp_to_historical_positions[symbol][-1] = realtime_position_to_pop
+                if realtime_position_to_pop.return_at_close == 0:  # liquidated
+                    self.check_liquidated(hotkey, 0.0, realtime_position_to_pop.close_ms, tp_to_historical_positions,
+                                          perf_ledger)
+                    eliminated = True
+                    break
+
+            order, position = event
+            symbol = position.trade_pair.trade_pair
+            pos, realtime_position_to_pop = self.get_historical_position(position, order.processed_ms,
+                                                                         hk_to_last_order_processed_ms)
+
+            if (symbol in tp_to_historical_positions and
+                    pos.position_uuid == tp_to_historical_positions[symbol][-1].position_uuid):
+                tp_to_historical_positions[symbol][-1] = pos
+            else:
+                tp_to_historical_positions[symbol].append(pos)
+
+            # Sanity check
+            # We want to ensure that all positions or closed or there is only one open position and it is at the end
+            n_open_positions = sum(1 for p in tp_to_historical_positions[symbol] if p.is_open_position)
+            n_closed_positions = sum(1 for p in tp_to_historical_positions[symbol] if p.is_closed_position)
+            assert n_open_positions == 0 or n_open_positions == 1, (
+            n_open_positions, n_closed_positions, tp_to_historical_positions[symbol])
+            if n_open_positions == 1:
+                assert tp_to_historical_positions[symbol][-1].is_open_position, (
+                n_open_positions, n_closed_positions, tp_to_historical_positions[symbol])
+
+            # Perf ledger is already built, we just need to run the above loop to build tp_to_historical_positions
+            if not building_from_new_orders:
+                continue
+
+            # Already processed this order. Skip until we get to the new order(s)
+            if order.processed_ms < perf_ledger.last_update_ms:
+                continue
+            # Need to catch up from perf_ledger.last_update_ms to order.processed_ms
+            eliminated = self.build_perf_ledger(perf_ledger, tp_to_historical_positions, perf_ledger.last_update_ms,
+                                                order.processed_ms, hotkey, realtime_position_to_pop)
+            if eliminated:
+                break
+            # print(f"Done processing order {order}. perf ledger {perf_ledger}")
+
+        if eliminated:
+            return
+        # We have processed all orders. Need to catch up to now_ms
+        if realtime_position_to_pop:
+            symbol = realtime_position_to_pop.trade_pair.trade_pair
+            tp_to_historical_positions[symbol][-1] = realtime_position_to_pop
+        if now_ms > perf_ledger.last_update_ms:
+            self.build_perf_ledger(perf_ledger, tp_to_historical_positions, perf_ledger.last_update_ms, now_ms, hotkey,
+                                   None)
+
+        lag = (TimeUtil.now_in_millis() - perf_ledger.last_update_ms) // 1000
+        total_product = perf_ledger.get_total_product()
+        last_portfolio_value = perf_ledger.prev_portfolio_ret
+        if verbose:
+            bt.logging.info(
+                f"Done updating perf ledger for {hotkey} {hotkey_i + 1}/{n_hotkeys} in {time.time() - t0} "
+                f"(s). Lag: {lag} (s). Total product: {total_product}. Last portfolio value: {last_portfolio_value}."
+                f" n_api_calls: {self.n_api_calls} dd stats {self.hk_to_dd_stats[hotkey]}. n_price_corrections {self.n_price_corrections}"
+                f" last cp {perf_ledger.cps[-1]}")
+
     def update_all_perf_ledgers(self, hotkey_to_positions: dict[str, List[Position]], existing_perf_ledgers: dict[str, PerfLedgerData], now_ms: int, return_dict=False) -> None | dict[str, PerfLedgerData]:
         t_init = time.time()
         self.now_ms = now_ms
         self.elimination_rows = []
         hk_to_last_order_processed_ms = {}
-        #hit_target = False
+        n_hotkeys = len(hotkey_to_positions)
         for hotkey_i, (hotkey, positions) in enumerate(hotkey_to_positions.items()):
-            #if hotkey != '5GhCxfBcA7Ur5iiAS343xwvrYHTUfBjBi4JimiL5LhujRT9t':
-            #    continue
-
-            eliminated = False
-            self.n_api_calls = 0
-            if self.shutdown_dict:
-                break
-            t0 = time.time()
-            perf_ledger = existing_perf_ledgers.get(hotkey)
-            if perf_ledger is None:
-                perf_ledger = PerfLedgerData()
-                verbose = True
-            else:
-                verbose = False
-            existing_perf_ledgers[hotkey] = perf_ledger
-            self.trade_pair_to_position_ret = {}
-            if hotkey in self.hk_to_dd_stats:
-                del self.hk_to_dd_stats[hotkey]
-            self.n_price_corrections = 0
-
-            tp_to_historical_positions = defaultdict(list)
-            sorted_timeline = self.generate_order_timeline(positions, now_ms)  # Enforces our "now_ms" constraint
-            last_event_time = sorted_timeline[-1][0].processed_ms if sorted_timeline else 0
-            building_from_new_orders = True
-            # There hasn't been a new order since the last update time. Just need to update for open positions
-            if last_event_time <= perf_ledger.last_update_ms:
-                building_from_new_orders = False
-
-            # There have been order(s) since the last update time. Also, this code is used to initialize a perf ledger.
-            realtime_position_to_pop = None
-            for event in sorted_timeline:
-                if realtime_position_to_pop:
-                    symbol = realtime_position_to_pop.trade_pair.trade_pair
-                    tp_to_historical_positions[symbol][-1] = realtime_position_to_pop
-                    if realtime_position_to_pop.return_at_close == 0: # liquidated
-                        self.check_liquidated(hotkey, 0.0, realtime_position_to_pop.close_ms, tp_to_historical_positions, perf_ledger)
-                        eliminated = True
-                        break
-
-                order, position = event
-                if hotkey in hk_to_last_order_processed_ms:
-                    hk_to_last_order_processed_ms[hotkey] = max(hk_to_last_order_processed_ms[hotkey],
-                                                                order.processed_ms)
-                else:
-                    hk_to_last_order_processed_ms[hotkey] = order.processed_ms
-
-                symbol = position.trade_pair.trade_pair
-                pos, realtime_position_to_pop = self.get_historical_position(position, order.processed_ms)
-
-                if (symbol in tp_to_historical_positions and
-                        pos.position_uuid == tp_to_historical_positions[symbol][-1].position_uuid):
-                   tp_to_historical_positions[symbol][-1] = pos
-                else:
-                    tp_to_historical_positions[symbol].append(pos)
-
-                # Sanity check
-                # We want to ensure that all positions or closed or there is only one open position and it is at the end
-                n_open_positions = sum(1 for p in tp_to_historical_positions[symbol] if p.is_open_position)
-                n_closed_positions = sum(1 for p in tp_to_historical_positions[symbol] if p.is_closed_position)
-                assert n_open_positions == 0 or n_open_positions == 1, (n_open_positions, n_closed_positions, tp_to_historical_positions[symbol])
-                if n_open_positions == 1:
-                    assert tp_to_historical_positions[symbol][-1].is_open_position, (n_open_positions, n_closed_positions, tp_to_historical_positions[symbol])
-
-                # Perf ledger is already built, we just need to run the above loop to build tp_to_historical_positions
-                if not building_from_new_orders:
-                    continue
-
-                # Already processed this order. Skip until we get to the new order(s)
-                if order.processed_ms < perf_ledger.last_update_ms:
-                    continue
-                # Need to catch up from perf_ledger.last_update_ms to order.processed_ms
-                eliminated = self.build_perf_ledger(perf_ledger, tp_to_historical_positions, perf_ledger.last_update_ms, order.processed_ms, hotkey, realtime_position_to_pop)
-                if eliminated:
-                    break
-                #print(f"Done processing order {order}. perf ledger {perf_ledger}")
-
-            if eliminated:
+            try:
+                self.update_one_perf_ledger(hotkey_i, n_hotkeys, hotkey, positions, now_ms, hk_to_last_order_processed_ms, existing_perf_ledgers)
+            except Exception as e:
+                bt.logging.error(f"Error updating perf ledger for {hotkey}: {e}. Please alert a team member ASAP!")
+                bt.logging.error(traceback.format_exc())
                 continue
-            # We have processed all orders. Need to catch up to now_ms
-            if realtime_position_to_pop:
-                symbol = realtime_position_to_pop.trade_pair.trade_pair
-                tp_to_historical_positions[symbol][-1] = realtime_position_to_pop
-            if now_ms > perf_ledger.last_update_ms:
-                self.build_perf_ledger(perf_ledger, tp_to_historical_positions, perf_ledger.last_update_ms, now_ms, hotkey, None)
-
-            if self.shutdown_dict:
-                break
-            lag = (TimeUtil.now_in_millis() - perf_ledger.last_update_ms) // 1000
-            total_product = perf_ledger.get_total_product()
-            last_portfolio_value = perf_ledger.prev_portfolio_ret
-            if verbose:
-                bt.logging.info(
-                    f"Done updating perf ledger for {hotkey} {hotkey_i+1}/{len(hotkey_to_positions)} in {time.time() - t0} "
-                    f"(s). Lag: {lag} (s). Total product: {total_product}. Last portfolio value: {last_portfolio_value}."
-                    f" n_api_calls: {self.n_api_calls} dd stats {self.hk_to_dd_stats[hotkey]}. n_price_corrections {self.n_price_corrections}"
-                    f" last cp {perf_ledger.cps[-1]}")
 
         bt.logging.info(f"Done updating perf ledger for all hotkeys in {time.time() - t_init} s")
         self.write_perf_ledger_eliminations_to_disk(self.elimination_rows)
@@ -914,7 +926,7 @@ class PerfLedgerManager(CacheController):
             self.random_security_screenings = set()
 
         # Regenerate checkpoints if a hotkey was modified during position sync
-        attempting_invalidations = False#bool(self.position_syncer) and bool(self.position_syncer.perf_ledger_hks_to_invalidate)
+        attempting_invalidations = bool(self.position_syncer) and bool(self.position_syncer.perf_ledger_hks_to_invalidate)
         if attempting_invalidations:
             for hk, t in self.position_syncer.perf_ledger_hks_to_invalidate.items():
                 hotkeys_to_delete.add(hk)
