@@ -18,7 +18,8 @@ class SendSignal(bt.Synapse):
     required_hash_fields: List[str] = Field(
         ["signal"],
         title="Required Hash Fields",
-        description="A list of fields required for the hash."
+        description="A list of fields required for the hash.",
+        frozen=False
     )
 
 class GetPositions(bt.Synapse):
@@ -28,7 +29,8 @@ class GetPositions(bt.Synapse):
     required_hash_fields: List[str] = Field(
         ["positions"],
         title="Required Hash Fields",
-        description="A list of fields required for the hash."
+        description="A list of fields required for the hash.",
+        frozen=False
     )
 
 class ValidatorCheckpoint(bt.Synapse):
@@ -39,5 +41,6 @@ class ValidatorCheckpoint(bt.Synapse):
     required_hash_fields: List[str] = Field(
         ["checkpoint"],
         title="Required Hash Fields",
-        description="A list of fields required for the hash."
+        description="A list of fields required for the hash.",
+        frozen=False
     )

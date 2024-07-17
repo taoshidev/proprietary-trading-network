@@ -25,6 +25,7 @@ from vali_objects.decoders.generalized_json_decoder import GeneralizedJSONDecode
 from vali_objects.utils.auto_sync import PositionSyncer
 from vali_objects.utils.p2p_syncer import P2PSyncer
 from shared_objects.rate_limiter import RateLimiter
+from vali_objects.utils.timestamp_manager import TimestampManager
 from vali_objects.uuid_tracker import UUIDTracker
 from time_util.time_util import TimeUtil
 from vali_config import TradePair
@@ -176,6 +177,7 @@ class Validator:
         self.checkpoint_lock = threading.Lock()
         self.encoded_checkpoint = ""
         self.last_checkpoint_time = 0
+        self.timestamp_manager = TimestampManager(config=self.config, metagraph=self.metagraph, hotkey=self.wallet.hotkey.ss58_address)
 
         self.perf_ledger_manager = PerfLedgerManager(self.metagraph, live_price_fetcher=self.live_price_fetcher,
                                                      shutdown_dict=shutdown_dict, position_syncer=self.position_syncer)
@@ -197,7 +199,7 @@ class Validator:
 
         self.order_rate_limiter = RateLimiter()
         self.position_inspector_rate_limiter = RateLimiter(max_requests_per_window=1, rate_limit_window_duration_seconds=60 * 4)
-        self.checkpoint_rate_limiter = RateLimiter(max_requests_per_window=1, rate_limit_window_duration_seconds=60 * 60)
+        self.checkpoint_rate_limiter = RateLimiter(max_requests_per_window=1, rate_limit_window_duration_seconds=60 * 60 * 6)
 
         def rs_blacklist_fn(synapse: template.protocol.SendSignal) -> Tuple[bool, str]:
             return Validator.blacklist_fn(synapse, self.metagraph)
@@ -633,6 +635,8 @@ class Validator:
                 self.position_manager.save_miner_position_to_disk(open_position)
                 if miner_order_uuid:
                     self.uuid_tracker.add(miner_order_uuid)
+                # Update the last received order time
+                self.timestamp_manager.update_timestamp(signal_to_order)
                 # Log the open position for the miner
                 bt.logging.info(f"Position {open_position.trade_pair.trade_pair_id} for miner [{miner_hotkey}] updated.")
                 open_position.log_position_status()
@@ -704,7 +708,7 @@ class Validator:
                     # reset checkpoint after 10 minutes
                     if TimeUtil.now_in_millis() - self.last_checkpoint_time > 1000 * 60 * 10:
                         self.encoded_checkpoint = ""
-                    # only want to generate checkpoint once for all requests
+                    # save checkpoint so we only generate it once for all requests
                     if not self.encoded_checkpoint:
                         # get our current checkpoint
                         self.last_checkpoint_time = TimeUtil.now_in_millis()
@@ -715,7 +719,12 @@ class Validator:
                         compressed = gzip.compress(checkpoint_str.encode("utf-8"))
                         self.encoded_checkpoint = base64.b64encode(compressed).decode("utf-8")
 
-                    synapse.checkpoint = self.encoded_checkpoint
+                    # only send a checkpoint if we are an up-to-date validator
+                    timestamp = self.timestamp_manager.get_last_order_timestamp()
+                    if TimeUtil.now_in_millis() - timestamp < 1000 * 60 * 60 * 24:  # 24 hrs
+                        synapse.checkpoint = self.encoded_checkpoint
+                    else:
+                        error_message = f"Validator is stale, no orders received in 24 hrs, last order timestamp {timestamp}, {round((TimeUtil.now_in_millis() - timestamp)/(1000 * 60 * 60))} hrs ago"
             except Exception as e:
                 error_message = f"Error processing checkpoint request poke from [{sender_hotkey}] with error [{e}]"
                 bt.logging.error(traceback.format_exc())

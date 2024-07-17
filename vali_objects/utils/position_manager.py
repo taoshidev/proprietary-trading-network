@@ -34,7 +34,8 @@ TARGET_MS = 1717185371000 + 1000 * 60 * 60 * 2
 class PositionManager(CacheController):
     def __init__(self, config=None, metagraph=None, running_unit_tests=False, perform_price_adjustment=False,
                  live_price_fetcher=None, perform_order_corrections=False, perform_fee_structure_update=False,
-                 generate_correction_templates=False, apply_corrections_template=False, perform_compaction=False):
+                 generate_correction_templates=False, apply_corrections_template=False, perform_compaction=False,
+                 is_mothership=False):
         super().__init__(config=config, metagraph=metagraph, running_unit_tests=running_unit_tests)
         self.init_cache_files()
         self.position_locks = PositionLocks()
@@ -62,6 +63,8 @@ class PositionManager(CacheController):
 
         if perform_fee_structure_update:
             self.ensure_latest_fee_structure_applied()
+
+        self.is_mothership = is_mothership
 
     def give_erronously_eliminated_miners_another_shot(self, hotkey_to_positions):
         time_now_ms = TimeUtil.now_in_millis()
