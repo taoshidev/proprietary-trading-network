@@ -711,7 +711,7 @@ class PositionManager(CacheController):
         lookback_time_ms: int = None
     ) -> dict[str, PerfLedger]:
         """
-        Augments the entire perf ledger, augmented with historical decay.
+        Restricts the perf ledger to only have checkpoints within a certain lookback window.
         """
         if not ledger:
             return ledger
@@ -806,7 +806,7 @@ class PositionManager(CacheController):
         lookback_time_ms: int
     ) -> list[PerfCheckpoint]:
         """
-        Returns the return at each performance checkpoint, augmented with historical decay.
+        Limits a single checkpoints object, to only have checkpoints within a certain lookback window.
         """
         if len(cps) == 0:
             return []
