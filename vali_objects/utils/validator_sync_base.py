@@ -27,8 +27,9 @@ class PositionSyncResultException(Exception):
 
 class ValidatorSyncBase():
     def __init__(self, shutdown_dict=None, signal_sync_lock=None, signal_sync_condition=None, n_orders_being_processed=None):
+        self.is_mothership = 'mothership' in ValiUtils.get_secrets()
         self.SYNC_LOOK_AROUND_MS = 1000 * 60 * 3
-        self.position_manager = PositionManager()
+        self.position_manager = PositionManager(is_mothership=self.is_mothership)
         self.position_manager.init_cache_files()
         self.shutdown_dict = shutdown_dict
         self.last_signal_sync_time_ms = 0
@@ -71,17 +72,16 @@ class ValidatorSyncBase():
         bt.logging.info(
             f"Automated sync. hard_snap_cutoff_ms: {TimeUtil.millis_to_formatted_date_str(hard_snap_cutoff_ms)}")
 
-        is_mothership = 'mothership' in ValiUtils.get_secrets()
-        if is_mothership:
+        if self.is_mothership:
             bt.logging.info(f"Mothership detected")
 
         if disk_positions is None:
             disk_positions = self.position_manager.get_all_disk_positions_for_all_miners(only_open_positions=False,
                                                                                 sort_positions=True, perform_exorcism=True)
 
-
         eliminations = candidate_data['eliminations']
-        self.position_manager.write_eliminations_to_disk(eliminations)
+        if not self.is_mothership:
+            self.position_manager.write_eliminations_to_disk(eliminations)
         eliminated_hotkeys = set([e['hotkey'] for e in eliminations])
         # For a healthy validator, the existing positions will always be a superset of the candidate positions
         for hotkey, positions in candidate_hk_to_positions.items():
@@ -108,7 +108,7 @@ class ValidatorSyncBase():
                             min_timestamp_of_change) if hotkey not in perf_ledger_hks_to_invalidate else (
                             min(perf_ledger_hks_to_invalidate[hotkey], min_timestamp_of_change))
                         if not shadow_mode:
-                            self.write_modifications(position_to_sync_status, stats, is_mothership)
+                            self.write_modifications(position_to_sync_status, stats)
                 except Exception as e:
                     full_traceback = traceback.format_exc()
                     # Slice the last 1000 characters of the traceback
@@ -140,7 +140,7 @@ class ValidatorSyncBase():
             bt.logging.info(f"  {k}: {v}")
         bt.logging.info(f"Position sync took {time.time() - t0} seconds")
 
-    def write_modifications(self, position_to_sync_status, stats, is_mothership):
+    def write_modifications(self, position_to_sync_status, stats):
         # Ensure the enums align with the global stats
         kept_and_matched = stats['kept'] + stats['matched']
         deleted = stats['deleted']
@@ -149,26 +149,26 @@ class ValidatorSyncBase():
         for position, sync_status in position_to_sync_status.items():
             if sync_status == PositionSyncResult.DELETED:
                 deleted -= 1
-                if not is_mothership:
+                if not self.is_mothership:
                     self.position_manager.delete_position_from_disk(position)
 
         # Updates happen next
         # First close out contradicting positions that happen if a validator is left in a bad state
         for position, sync_status in position_to_sync_status.items():
             if sync_status == PositionSyncResult.UPDATED or sync_status == PositionSyncResult.NOTHING:
-                if not is_mothership:
+                if not self.is_mothership:
                     if position.is_closed_position:
                         self.position_manager.delete_open_position_if_exists(position)
         for position, sync_status in position_to_sync_status.items():
             if sync_status == PositionSyncResult.UPDATED:
-                if not is_mothership:
+                if not self.is_mothership:
                     self.position_manager.save_miner_position_to_disk(position, delete_open_position_if_exists=True)
                 kept_and_matched -= 1
         # Insertions happen last so that there is no double open position issue
         for position, sync_status in position_to_sync_status.items():
             if sync_status == PositionSyncResult.INSERTED:
                 inserted -= 1
-                if not is_mothership:
+                if not self.is_mothership:
                     self.position_manager.save_miner_position_to_disk(position, delete_open_position_if_exists=False)
         for position, sync_status in position_to_sync_status.items():
             if sync_status == PositionSyncResult.NOTHING:

@@ -34,7 +34,8 @@ TARGET_MS = 1717185371000 + 1000 * 60 * 60 * 2
 class PositionManager(CacheController):
     def __init__(self, config=None, metagraph=None, running_unit_tests=False, perform_price_adjustment=False,
                  live_price_fetcher=None, perform_order_corrections=False, perform_fee_structure_update=False,
-                 generate_correction_templates=False, apply_corrections_template=False, perform_compaction=False):
+                 generate_correction_templates=False, apply_corrections_template=False, perform_compaction=False,
+                 is_mothership=False):
         super().__init__(config=config, metagraph=metagraph, running_unit_tests=running_unit_tests)
         self.init_cache_files()
         self.position_locks = PositionLocks()
@@ -62,6 +63,8 @@ class PositionManager(CacheController):
 
         if perform_fee_structure_update:
             self.ensure_latest_fee_structure_applied()
+
+        self.is_mothership = is_mothership
 
     def give_erronously_eliminated_miners_another_shot(self, hotkey_to_positions):
         time_now_ms = TimeUtil.now_in_millis()
@@ -198,11 +201,13 @@ class PositionManager(CacheController):
                     # Replace if it has more orders
                     if len(p.orders) > len(position_uuid_to_dedupe[p.position_uuid].orders):
                         old_position = position_uuid_to_dedupe[p.position_uuid]
-                        self.delete_position_from_disk(old_position)
+                        if not self.is_mothership:
+                            self.delete_position_from_disk(old_position)
                         position_uuid_to_dedupe[p.position_uuid] = p
                         n_positions_deleted += 1
                     else:
-                        self.delete_position_from_disk(p)
+                        if not self.is_mothership:
+                            self.delete_position_from_disk(p)
                         n_positions_deleted += 1
                 else:
                     position_uuid_to_dedupe[p.position_uuid] = p
@@ -221,7 +226,8 @@ class PositionManager(CacheController):
                 if any_orders_deleted:
                     position.orders = new_orders
                     position.rebuild_position_with_updated_orders()
-                    self.save_miner_position_to_disk(position, delete_open_position_if_exists=False)
+                    if not self.is_mothership:
+                        self.save_miner_position_to_disk(position, delete_open_position_if_exists=False)
                     n_positions_rebuilt_with_new_orders += 1
         if n_positions_deleted or n_orders_deleted or n_positions_rebuilt_with_new_orders:
             bt.logging.warning(f"Hotkey {miner_hotkey}: Deleted {n_positions_deleted} duplicate positions and {n_orders_deleted} "

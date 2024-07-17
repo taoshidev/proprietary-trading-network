@@ -95,7 +95,7 @@ class P2PSyncer(ValidatorSyncBase):
                 self.created_golden = False
 
         except Exception as e:
-            bt.logging.info(f"Error sending checkpoint with error [{e}]")
+            bt.logging.info(f"Error generating golden with error [{e}]")
 
     def create_golden(self, trusted_checkpoints: dict):
         """
@@ -146,11 +146,7 @@ class P2PSyncer(ValidatorSyncBase):
 
             # get positions for each miner
             positions = checkpoint[1]["positions"]
-            # for miner_positions in positions.values():
-            for miner_hotkey, miner_positions in positions.items():
-                if miner_hotkey == "5F6oea6yYMFWETD9KkWj5FMUntRv77yCw7WoiJv5tVsor2Mb":
-                    print("dumping miner 5F6oea6yYMFWETD9KkWj5FMUntRv77yCw7WoiJv5tVsor2Mb position\n\n\n")
-                    print(miner_positions)
+            for miner_positions in positions.values():
                 for position in miner_positions["positions"]:
                     position_uuid = position["position_uuid"]
                     checkpoint_position_counts[position_uuid] += 1
@@ -183,7 +179,7 @@ class P2PSyncer(ValidatorSyncBase):
             bt.logging.info(f"Building golden from [{num_valid_checkpoints}/{len(trusted_checkpoints)}] up-to-date checkpoints.")
 
         # get the set of position_uuids that appear in the majority of checkpoints
-        positions_threshold = 2  # math.ceil(num_valid_checkpoints / 2)
+        positions_threshold = math.ceil(num_valid_checkpoints / 2)
         majority_positions = {position_uuid for position_uuid, count in position_counts.items()
                               if count >= positions_threshold}
 
@@ -211,7 +207,7 @@ class P2PSyncer(ValidatorSyncBase):
                         seen_positions.add(position_uuid)
 
                         # get the set of order_uuids that appear in the majority of positions for a position_uuid
-                        orders_threshold = 2  # math.ceil(position_counts[position_uuid] / 2)
+                        orders_threshold = math.ceil(position_counts[position_uuid] / 2)
                         majority_orders = {order_uuid for order_uuid, count in order_counts[position_uuid].items()
                                            if count >= orders_threshold}
 
