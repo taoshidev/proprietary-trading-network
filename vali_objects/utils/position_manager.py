@@ -201,13 +201,11 @@ class PositionManager(CacheController):
                     # Replace if it has more orders
                     if len(p.orders) > len(position_uuid_to_dedupe[p.position_uuid].orders):
                         old_position = position_uuid_to_dedupe[p.position_uuid]
-                        if not self.is_mothership:
-                            self.delete_position_from_disk(old_position)
+                        self.delete_position_from_disk(old_position)
                         position_uuid_to_dedupe[p.position_uuid] = p
                         n_positions_deleted += 1
                     else:
-                        if not self.is_mothership:
-                            self.delete_position_from_disk(p)
+                        self.delete_position_from_disk(p)
                         n_positions_deleted += 1
                 else:
                     position_uuid_to_dedupe[p.position_uuid] = p
@@ -226,8 +224,7 @@ class PositionManager(CacheController):
                 if any_orders_deleted:
                     position.orders = new_orders
                     position.rebuild_position_with_updated_orders()
-                    if not self.is_mothership:
-                        self.save_miner_position_to_disk(position, delete_open_position_if_exists=False)
+                    self.save_miner_position_to_disk(position, delete_open_position_if_exists=False)
                     n_positions_rebuilt_with_new_orders += 1
         if n_positions_deleted or n_orders_deleted or n_positions_rebuilt_with_new_orders:
             bt.logging.warning(f"Hotkey {miner_hotkey}: Deleted {n_positions_deleted} duplicate positions and {n_orders_deleted} "
