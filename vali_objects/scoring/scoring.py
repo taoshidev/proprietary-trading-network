@@ -79,30 +79,20 @@ class Scoring:
         if evaluation_time_ms is None:
             evaluation_time_ms = TimeUtil.now_in_millis()
         
-        return_decay_coefficient_short = ValiConfig.HISTORICAL_DECAY_COEFFICIENT_RETURNS_SHORT
-        return_decay_coefficient_long = ValiConfig.HISTORICAL_DECAY_COEFFICIENT_RETURNS_LONG
-        risk_adjusted_decay_coefficient = ValiConfig.HISTORICAL_DECAY_COEFFICIENT_RISKMETRIC
+        return_decay_short_lookback_time_ms = ValiConfig.RETURN_DECAY_SHORT_LOOKBACK_TIME_MS
 
         # Compute miner penalties
         miner_penalties = Scoring.miner_penalties(ledger_dict)
 
+        ## Miners with full penalty
+        fullpenalty_miner_scores: list[tuple[str, float]] = [ ( miner, 0 ) for miner, penalty in miner_penalties.items() if penalty == 0 ]
+        fullpenalty_miners = set([ x[0] for x in fullpenalty_miner_scores ])
+
         # Augmented returns ledgers
-        returns_ledger_short = PositionManager.augment_perf_ledger(
+        returns_ledger_short = PositionManager.limit_perf_ledger(
             ledger_dict,
             evaluation_time_ms=evaluation_time_ms,
-            time_decay_coefficient=return_decay_coefficient_short,
-        )
-
-        returns_ledger_long = PositionManager.augment_perf_ledger(
-            ledger_dict,
-            evaluation_time_ms=evaluation_time_ms,
-            time_decay_coefficient=return_decay_coefficient_long,
-        )
-
-        risk_adjusted_ledger = PositionManager.augment_perf_ledger(
-            ledger_dict,
-            evaluation_time_ms=evaluation_time_ms,
-            time_decay_coefficient=risk_adjusted_decay_coefficient,
+            lookback_time_ms=return_decay_short_lookback_time_ms,
         )
 
         scoring_config = {
@@ -114,34 +104,37 @@ class Scoring:
             'return_cps_long': {
                 'function': Scoring.return_cps,
                 'weight': ValiConfig.SCORING_RETURN_CPS_LONG_WEIGHT,
-                'ledger': returns_ledger_long,
+                'ledger': ledger_dict,
             },
             'omega_cps': {
                 'function': Scoring.omega_cps,
                 'weight': ValiConfig.SCORING_OMEGA_CPS_WEIGHT,
-                'ledger': risk_adjusted_ledger,
+                'ledger': ledger_dict,
             },
         }
 
         combined_scores = {}
 
-        for config in scoring_config.values():
+        for config_name, config in scoring_config.items():
             miner_scores = []
             for miner, minerledger in config['ledger'].items():
+                # Check if the miner has full penalty - if not include them in the scoring competition
+                if miner in fullpenalty_miners:
+                    continue
+
                 scoringunit = ScoringUnit.from_perf_ledger(minerledger)
                 score = config['function'](scoringunit=scoringunit)
                 score_riskadjusted = score * miner_penalties.get(miner, 0)
                 miner_scores.append((miner, score_riskadjusted))
             
             weighted_scores = Scoring.miner_scores_percentiles(miner_scores)
-            
             for miner, score in weighted_scores:
                 if miner not in combined_scores:
                     combined_scores[miner] = 1
                 combined_scores[miner] *= config['weight'] * score + (1 - config['weight'])
 
         # ## Force good performance of all error metrics
-        combined_weighed = Scoring.weigh_miner_scores(list(combined_scores.items()))
+        combined_weighed = Scoring.weigh_miner_scores(list(combined_scores.items())) + fullpenalty_miner_scores
         combined_scores = dict(combined_weighed)
 
         ## Normalize the scores
@@ -193,7 +186,7 @@ class Scoring:
 
         if len(gains) == 0 or len(losses) == 0:
             # won't happen because we need a minimum number of trades, but would kick them to a bad return (bottom of the list)
-            return -1
+            return 0 # should return 0, indicating a return of 1
 
         total_gain = sum(gains)
         total_loss = sum(losses)

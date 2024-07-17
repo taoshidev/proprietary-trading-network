@@ -316,7 +316,7 @@ class PositionUtils:
 
         length_threshold = ValiConfig.CHECKPOINT_LENGTH_THRESHOLD
         duration_threshold = ValiConfig.CHECKPOINT_DURATION_THRESHOLD
-        min_median = ValiConfig.MIN_MEDIAN
+        epsilon = ValiConfig.EPSILON
 
         checkpoint_length_augmentation = 1
         checkpoint_duration_augmentation = 1
@@ -328,11 +328,11 @@ class PositionUtils:
         if len(nonzero_checkpoints) <= 0:
             return 0
     
-        checkpoint_margins = [ abs(checkpoint.gain + checkpoint.loss) for checkpoint in nonzero_checkpoints ]
+        checkpoint_margins = [ checkpoint.gain + checkpoint.loss for checkpoint in nonzero_checkpoints ]
+        checkpoint_absolute = [ abs(x) for x in checkpoint_margins ]
 
-        margin_median = max(np.median(checkpoint_margins), min_median)
-        margins_consistency = max(checkpoint_margins) / margin_median
-
+        marginsum = max(sum(checkpoint_margins), epsilon)
+        margins_consistency = max(checkpoint_absolute) / marginsum
         consistency_value = PositionUtils.consistency_sigmoid(margins_consistency)
 
         # ## Compute the duration of the checkpoints

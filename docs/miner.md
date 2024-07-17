@@ -23,16 +23,16 @@ Each miner is compared to a baseline, the annual return rate of American Treasur
 
 We will use three scoring metrics to evaluate miners based on their mid trade scores: **Short Term Returns**, **Long Term Returns**, and **Omega**.
 
-Short term Returns measure the pure value change that the miner experienced through the course of their positions. This will be similar to the prior position based system, although open positions will now also be evaluated. These values have the highest time decay, with the potency of returns falling to 50% within 18 hours.
+Short term Returns measure the pure value change that the miner experienced through the course of their positions. This will be similar to the prior position based system, although open positions will now also be evaluated. For this metric, we only consider the movement of the portfolio value from the prior three days.
 
-Similar to the short term returns, long term returns are also going to measure the historical gains for a miner in determining their quality. The potency of the long term returns will fall to 50% after roughly 3 weeks:
+Similar to the short term returns, long term returns are also going to measure the historical gains for a miner in determining their quality. Long term returns consider all portfolio value movement from the prior 30 days.
 
 Omega will evaluate the magnitude of the positive asset changes over the magnitude of negative asset changes. Any score above 1 will indicate that the miner experienced a net gain through the course of their position. A higher omega value will result from:
 
 - Higher magnitude positive value change
 - Pure positive value change
 
-The total score will result from the product of the Return, Omega, and Sortino, so the top miners in our system must perform well in both metrics to receive substantial incentive. The relative weight of each term in the product sum is Returns: 0.95, Omega: 0.35, Sortino: 0.2. The terms used to calculate the product are defined by ranking each metric against the other miners. As a simple example, if a miner is first place in returns and last place in Omega, their total score would start at 1, multiply by 1 due to first place in returns. It would then multiply by (1 - 0.35) as they are the last place in Omega, so their final score would be 0.65.
+The total score will result from the product of the Long Term Returns, Short Term Returns, and Omega, so the top miners in our system must perform well in all three metrics to receive substantial incentive. The relative weight of each term in the product sum is Long Term Returns: 1.0, Short Term Returns: 0.25, Omega: 0.05. The terms used to calculate the product are defined by ranking each metric against the other miners. As a simple example, if a miner is first place in both returns and last place in Omega, their total score would start at 1, multiply by 1 due to first place in long term returns and 1 due to short term returns. It would then multiply by (1 - 0.05) as they are the last place in Omega, so their final score would be 0.95.
 
 #### Scoring Penalties
 
@@ -40,7 +40,7 @@ There are two primary penalties in place for each miner: Consistency and Drawdow
 
 The consistency penalty is meant to discourage miners who cannot deliver consistent performance over each 30 day period. To fully mitigate penalties associated with consistency, your miner should achieve the following metrics:
 - Minimum of 18 days of open positions, of any volume.
-- Your portfolio value should change with every checkpoint. If the value change in your portfolio over one checkpoint is more than 30x the typical change, you will start to accrue consistency penalties.
+- Your portfolio value change in any single six-hour checkpoint period should not exceed 50% of the total portfolio value change over the previous 30 days. If your portfolio value increases sharply and decreases back towards a total return of 1.0, the value change in one period may exceed your total portfolio value change and you are likely to experience a large penalty due to consistency.
 
 The drawdown penalty is meant to both discourage miners from taking too much drawdown and benefit miners with low drawdown. To do this, the drawdown penalty is defined as 1 / MDD of the miner. This enables miners with low risk tolerance to be competitive with higher risk miners. Between 0.25% MDD and 1.5% MDD the drawdown penalty is only designed to normalize the returns of your miner relative to the risk. We apply a penalty below 0.25% MDD and above 1.5%, with the upper penalty linearly tapering to 0 as it gets closer to 5% MDD.
 
@@ -50,11 +50,8 @@ There are four primary requirements for a miner to pass the challenge period: Re
 
 The volume minimum checkpoint is defined as a checkpoint which meets a certain threshold of raw gains and losses. The threshold value for inclusion of the checkpoint as valid is 0.1. This means that a checkpoint with a gain of 0.05 and a loss of -0.05 would have an absolute sum of 0.1 and qualify. We are requiring 12 of these valid checkpoints to have been observed in order for the miner to pass the checkpoint qualifications.
 
-### Historic Decay
-
-In order to incentivize more recent activity, historical gains and losses are dampened after the miner passes teh challenge period. The historical decay function used can be found [here](https://github.com/taoshidev/proprietary-trading-network/blob/main/vali_objects/scoring/historical_scoring.py). Returns are dampened at a more aggressive pace than the risk adjusted metrics, meaning that more recent returns will exert a greater influence on the current score. By dampening the risk adjusted metrics at a lower rate, we are permitting miners with historically better risk adjusted metrics to take larger risks and benefit. The potency of raw return will decrease by about 50% in 18 hours, while the potency of gains and losses used to calculate the risk metrics will decay by 50% in around 22 days.
-
-We then rank the miners based on historically augmented return checkpoints, and distribute emissions based on an exponential decay function, giving significant priority to the top miners. Details of both scoring functions can be found [here](https://github.com/taoshidev/proprietary-trading-network/tree/main/vali_objects/scoring). The best way to get emissions is to have a consistently great trading strategy, which makes multiple transactions each week (the more the better). Capturing upside through timing and proper leverage utilization will yield the highest score in our system.
+### Distribution and Rankings
+We then rank miners based on their historical performance, by determining their percentiles against their peers for each scoring category. We then distribute emissions based on an exponential decay function, giving significant priority to the top miners. Details of both scoring functions can be found [here](https://github.com/taoshidev/proprietary-trading-network/tree/main/vali_objects/scoring). The best way to get emissions is to have a consistently great trading strategy, which makes multiple transactions each week (the more the better). Capturing upside through timing and proper leverage utilization will yield the highest score in our system.
 
 ## Mining Infrastructure
 

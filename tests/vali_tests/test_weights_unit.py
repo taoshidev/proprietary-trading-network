@@ -525,7 +525,7 @@ class TestWeights(TestBase):
         )
 
         return_zero = Scoring.return_cps(scoringunit)
-        self.assertLess(return_zero, 0.0)
+        self.assertEqual(return_zero, 0.0)
 
     def test_consistency_no_cps(self):
         """Test that the consistency function works as expected with no cps"""
@@ -953,6 +953,44 @@ class TestWeights(TestBase):
 
         self.assertGreater(dampened_one, dampened_two)
         self.assertGreater(dampened_two, dampened_three)
+
+    def test_limit_ledger(self):
+        """Test that the limit ledger function works as expected, increasing the lookback period will increase the raw gains and raw losses"""
+        limiting_lookback_window = 1000*60*60*24*3
+
+        miner_list = self.ledger_dict.keys()
+
+        original_ledger = PositionManager.limit_perf_ledger(
+            self.ledger_dict,
+            evaluation_time_ms=self.end_time,
+            lookback_time_ms=None
+        )
+
+        limited_ledger = PositionManager.limit_perf_ledger(
+            self.ledger_dict,
+            evaluation_time_ms=self.end_time,
+            lookback_time_ms=limiting_lookback_window
+        )
+
+        for miner in miner_list:
+            original_subledger = original_ledger[miner]
+            limited_subledger = limited_ledger[miner]
+
+            ## with higher amount of historical decay, the sortino will be lower as the losses were lower initially, which will now weigh more heavily. The returns should also be lower.
+            original_scoringunit = ScoringUnit.from_perf_ledger(original_subledger)
+            limited_scoringunit = ScoringUnit.from_perf_ledger(limited_subledger)
+
+            # Check that we have monotomic absolute increase in gains and losses
+            self.assertGreaterEqual(sum(original_scoringunit.gains), sum(limited_scoringunit.gains))
+            self.assertLessEqual(sum(original_scoringunit.losses), sum(limited_scoringunit.losses))
+
+            # Check the lengths are longer on the original ledger
+            self.assertGreaterEqual(len(original_scoringunit.gains), len(limited_scoringunit.gains))
+            self.assertGreaterEqual(len(original_scoringunit.losses), len(limited_scoringunit.losses))
+
+            # Check the time of decay, that no checkpoints are older than the lookback period
+            for checkpoint in limited_subledger.cps:
+                self.assertGreaterEqual(limiting_lookback_window, self.end_time - checkpoint.last_update_ms)
 
     def test_augment_ledger_increasing(self):
         """Test that the augment ledger function works as expected, increasing position will score better with more decay (more recent consideration)"""
