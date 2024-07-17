@@ -234,6 +234,7 @@ class P2PSyncer(ValidatorSyncBase):
 
         # Construct golden and convert defaultdict to dict
         self.golden = {"created_timestamp_ms": time_now,
+                       "hard_snap_cutoff_ms": time_now - 1000 * 60 * 15,
                        "eliminations": eliminations,
                        "positions": {miner: dict(golden_positions[miner]) for miner in golden_positions}}
         # temp = {k: len(self.golden['positions'][k]['positions']) for k in self.golden['positions']}  # log the {miner hotkey: number of positions}

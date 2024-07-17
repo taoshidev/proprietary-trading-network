@@ -68,7 +68,10 @@ class ValidatorSyncBase():
 
         # The candidate dataset is time lagged. We only delete non-matching data if they occured during the window of the candidate data.
         # We want to account for a few minutes difference of possible orders that came in after a retry.
-        hard_snap_cutoff_ms = backup_creation_time_ms - AUTO_SYNC_ORDER_LAG_MS
+        if 'hard_snap_cutoff_ms' in candidate_data:
+            hard_snap_cutoff_ms = candidate_data['hard_snap_cutoff_ms']
+        else:
+            hard_snap_cutoff_ms = backup_creation_time_ms - AUTO_SYNC_ORDER_LAG_MS
         bt.logging.info(
             f"Automated sync. hard_snap_cutoff_ms: {TimeUtil.millis_to_formatted_date_str(hard_snap_cutoff_ms)}")
 
