@@ -206,22 +206,21 @@ class P2PSyncer(ValidatorSyncBase):
                     outdated = False
                     pos_repeat += 1
                 total_pos += 1
-            if outdated:
-                for order_uuid in uuids["orders"]:
-                    if all_order_counts[order_uuid] > 1:
-                        # bt.logging.info(f"Miner {miner_hotkey} has up-to-date code, based on orders")
-                        outdated = False
-                        orders_repeat += 1
-                    total_orders += 1
+            # if outdated:
+            for order_uuid in uuids["orders"]:
+                if all_order_counts[order_uuid] > 1:
+                    # bt.logging.info(f"Miner {miner_hotkey} has up-to-date code, based on orders")
+                    outdated = False
+                    orders_repeat += 1
+                total_orders += 1
             if outdated:
                 # (# of positions that appear 1x/# of positions)
                 outdated_miner_candidates.add(miner_hotkey)
-                bt.logging.info(f"Miner {miner_hotkey} is using outdated legacy code. Skipping.")
             bt.logging.info(
                 f"Miner {miner_hotkey} has [{(total_pos-pos_repeat)}/{total_pos} legacy positions, {(total_orders-orders_repeat)}/{total_orders} legacy orders]")
 
-        # for miner in outdated_miner_candidates:
-        #     bt.logging.info(f"Miner {miner} is using outdated code. [{len(miner_to_uuids[miner]['positions'])} positions, {len(miner_to_uuids[miner]['orders'])} orders] Skipping")
+        for miner in outdated_miner_candidates:
+            bt.logging.info(f"Miner {miner} is using outdated code. [{len(miner_to_uuids[miner]['positions'])} positions, {len(miner_to_uuids[miner]['orders'])} orders] Skipping")
 
 
 
