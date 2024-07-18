@@ -219,8 +219,9 @@ class P2PSyncer(ValidatorSyncBase):
             bt.logging.info(
                 f"Miner {miner_hotkey} has [{(total_pos-pos_repeat)}/{total_pos} legacy positions, {(total_orders-orders_repeat)}/{total_orders} legacy orders]")
 
-        for miner in outdated_miner_candidates:
-            bt.logging.info(f"Miner {miner} is using outdated code. [{len(miner_to_uuids[miner]['positions'])} positions, {len(miner_to_uuids[miner]['orders'])} orders] Skipping")
+        bt.logging.info(f"outdated_miner_candidates: {outdated_miner_candidates}")
+        # for miner in outdated_miner_candidates:
+            # bt.logging.info(f"Miner {miner} is using outdated code. [{len(miner_to_uuids[miner]['positions'])} positions, {len(miner_to_uuids[miner]['orders'])} orders] Skipping")
 
 
 
@@ -238,7 +239,7 @@ class P2PSyncer(ValidatorSyncBase):
             positions = checkpoint[1]["positions"]
             for miner_hotkey, miner_positions in positions.items():
                 if miner_hotkey in outdated_miner_candidates:
-                    break
+                    continue
                 for position in miner_positions["positions"]:
                     position_uuid = position["position_uuid"]
                     # position exists on majority of validators
@@ -352,7 +353,7 @@ class P2PSyncer(ValidatorSyncBase):
         else:
             # Check if we are between 7:09 AM and 7:19 AM UTC
             # Temp change time to 21:00 UTC so we can see the effects in shadow mode ASAP
-            if not (datetime_now.hour == 7 and (18 < datetime_now.minute < 30)):
+            if not (datetime_now.hour == 14 and (18 < datetime_now.minute < 30)):
                 return
 
         try:
