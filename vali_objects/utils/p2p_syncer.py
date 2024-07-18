@@ -218,7 +218,7 @@ class P2PSyncer(ValidatorSyncBase):
                 outdated_miner_candidates.add(miner_hotkey)
                 bt.logging.info(f"Miner {miner_hotkey} is using outdated legacy code. Skipping.")
             bt.logging.info(
-                f"Miner {miner_hotkey} has [{(total_pos-pos_repeat)}/{total_pos} legacy positions, {(total_orders-orders_repeat)}/{orders_repeat} legacy orders]")
+                f"Miner {miner_hotkey} has [{(total_pos-pos_repeat)}/{total_pos} legacy positions, {(total_orders-orders_repeat)}/{total_orders} legacy orders]")
 
         # for miner in outdated_miner_candidates:
         #     bt.logging.info(f"Miner {miner} is using outdated code. [{len(miner_to_uuids[miner]['positions'])} positions, {len(miner_to_uuids[miner]['orders'])} orders] Skipping")
@@ -348,7 +348,7 @@ class P2PSyncer(ValidatorSyncBase):
         # Check if the time is right to sync signals
         if self.is_testnet:
             # every hour in testnet
-            if not (1 < datetime_now.minute < 11):
+            if not (7 < datetime_now.minute < 17):
                 return
         else:
             # Check if we are between 7:09 AM and 7:19 AM UTC
