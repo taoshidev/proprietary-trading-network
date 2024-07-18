@@ -196,22 +196,31 @@ class P2PSyncer(ValidatorSyncBase):
         outdated_miner_candidates = set()
         for miner_hotkey, uuids in miner_to_uuids.items():
             outdated = True
+            total_pos = 0
+            total_orders = 0
+            pos_repeat = 0
+            orders_repeat = 0
             for position_uuid in uuids["positions"]:
                 if position_counts[position_uuid] > 1:
                     bt.logging.info(f"Miner {miner_hotkey} has up-to-date code, based on positions")
                     outdated = False
-                    break
+                    pos_repeat += 1
+                total_pos += 1
             if outdated:
                 for order_uuid in uuids["orders"]:
                     if all_order_counts[order_uuid] > 1:
                         bt.logging.info(f"Miner {miner_hotkey} has up-to-date code, based on orders")
                         outdated = False
-                        break
+                        orders_repeat += 1
+                    total_orders += 1
             if outdated:
+                # (# of positions that appear 1x/# of positions)
                 outdated_miner_candidates.add(miner_hotkey)
+                bt.logging.info(
+                    f"Miner {miner_hotkey} is using outdated code. [{(total_pos-pos_repeat)/total_pos} legacy positions, {(total_orders-orders_repeat)/orders_repeat} legacy orders]. Skipping")
 
-        for miner in outdated_miner_candidates:
-            bt.logging.info(f"Miner {miner} is using outdated code. [{len(miner_to_uuids[miner]['positions'])} positions, {len(miner_to_uuids[miner]['orders'])} orders] Skipping")
+        # for miner in outdated_miner_candidates:
+        #     bt.logging.info(f"Miner {miner} is using outdated code. [{len(miner_to_uuids[miner]['positions'])} positions, {len(miner_to_uuids[miner]['orders'])} orders] Skipping")
 
 
 
@@ -338,7 +347,7 @@ class P2PSyncer(ValidatorSyncBase):
         # Check if the time is right to sync signals
         if self.is_testnet:
             # every hour in testnet
-            if not (37 < datetime_now.minute < 47):
+            if not (1 < datetime_now.minute < 11):
                 return
         else:
             # Check if we are between 7:09 AM and 7:19 AM UTC
