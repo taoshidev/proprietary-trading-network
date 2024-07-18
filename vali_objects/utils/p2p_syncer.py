@@ -216,8 +216,9 @@ class P2PSyncer(ValidatorSyncBase):
             if outdated:
                 # (# of positions that appear 1x/# of positions)
                 outdated_miner_candidates.add(miner_hotkey)
-                bt.logging.info(
-                    f"Miner {miner_hotkey} is using outdated code. [{(total_pos-pos_repeat)/total_pos} legacy positions, {(total_orders-orders_repeat)/orders_repeat} legacy orders]. Skipping")
+                bt.logging.info(f"Miner {miner_hotkey} is using outdated legacy code. Skipping.")
+            bt.logging.info(
+                f"Miner {miner_hotkey} has [{(total_pos-pos_repeat)/total_pos} legacy positions, {(total_orders-orders_repeat)/orders_repeat} legacy orders]")
 
         # for miner in outdated_miner_candidates:
         #     bt.logging.info(f"Miner {miner} is using outdated code. [{len(miner_to_uuids[miner]['positions'])} positions, {len(miner_to_uuids[miner]['orders'])} orders] Skipping")
