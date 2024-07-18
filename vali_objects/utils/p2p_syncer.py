@@ -131,12 +131,12 @@ class P2PSyncer(ValidatorSyncBase):
         order_data = defaultdict(list)                          # {order_uuid: [{order}]}
         miner_to_uuids = defaultdict(lambda: defaultdict(set))  # {miner_hotkey: {positions:[position_uuid], orders:[order_uuid]}
 
-        num_valid_checkpoints = 0
+        valid_checkpoints = {}
 
         # parse each checkpoint to count occurrences of each position and order
         for hotkey, checkpoint in trusted_checkpoints.items():
             # get the first 10 up-to-date checkpoints
-            if num_valid_checkpoints >= ValiConfig.TOP_N_CHECKPOINTS:
+            if len(valid_checkpoints) >= ValiConfig.TOP_N_CHECKPOINTS:
                 break
             # determine the latest order on each validator, and skip stale checkpoints
             latest_order_ms = 0
@@ -176,15 +176,15 @@ class P2PSyncer(ValidatorSyncBase):
                     miner_to_uuids[miner_hotkey]["positions"].update(checkpoint_miner_to_uuids[miner_hotkey]["positions"])
                     miner_to_uuids[miner_hotkey]["orders"].update(checkpoint_miner_to_uuids[miner_hotkey]["orders"])
 
-                num_valid_checkpoints += 1
+                valid_checkpoints[hotkey] = checkpoint
             else:
                 bt.logging.info(f"Checkpoint from validator {hotkey} is stale with newest order timestamp {latest_order_ms}, {round((TimeUtil.now_in_millis() - latest_order_ms)/(1000 * 60 * 60))} hrs ago, Skipping.")
 
-        if num_valid_checkpoints == 0:
+        if len(valid_checkpoints) == 0:
             bt.logging.info(f"All {len(trusted_checkpoints)} checkpoints are stale, unable to build golden.")
             return False
         else:
-            bt.logging.info(f"Building golden from [{num_valid_checkpoints}/{len(trusted_checkpoints)}] up-to-date checkpoints.")
+            bt.logging.info(f"Building golden from [{len(valid_checkpoints)}/{len(trusted_checkpoints)}] up-to-date checkpoints.")
 
         # detect miners running outdated code. miner with outdated code will have all unique uuid's across validators
         # so the counts of each position_uuid and order_uuid would be 1
@@ -202,31 +202,24 @@ class P2PSyncer(ValidatorSyncBase):
             orders_repeat = 0
             for position_uuid in uuids["positions"]:
                 if position_counts[position_uuid] > 1:
-                    # bt.logging.info(f"Miner {miner_hotkey} has up-to-date code, based on positions")
                     outdated = False
                     pos_repeat += 1
                 total_pos += 1
-            # if outdated:
             for order_uuid in uuids["orders"]:
                 if all_order_counts[order_uuid] > 1:
-                    # bt.logging.info(f"Miner {miner_hotkey} has up-to-date code, based on orders")
                     outdated = False
                     orders_repeat += 1
                 total_orders += 1
             if outdated:
-                # (# of positions that appear 1x/# of positions)
+                # (num of positions that appear once/num of positions)
                 outdated_miner_candidates.add(miner_hotkey)
             bt.logging.info(
                 f"Miner {miner_hotkey} has [{(total_pos-pos_repeat)}/{total_pos} legacy positions, {(total_orders-orders_repeat)}/{total_orders} legacy orders]")
 
         bt.logging.info(f"outdated_miner_candidates: {outdated_miner_candidates}")
-        # for miner in outdated_miner_candidates:
-            # bt.logging.info(f"Miner {miner} is using outdated code. [{len(miner_to_uuids[miner]['positions'])} positions, {len(miner_to_uuids[miner]['orders'])} orders] Skipping")
-
-
 
         # get the set of position_uuids that appear in the majority of checkpoints
-        positions_threshold = math.ceil(num_valid_checkpoints / 2)
+        positions_threshold = min(2, math.ceil(len(valid_checkpoints) / 2))
         majority_positions = {position_uuid for position_uuid, count in position_counts.items()
                               if count >= positions_threshold}
 
@@ -235,7 +228,7 @@ class P2PSyncer(ValidatorSyncBase):
         seen_positions = set()
         seen_orders = set()
 
-        for checkpoint in trusted_checkpoints.values():
+        for checkpoint in valid_checkpoints.values():
             positions = checkpoint[1]["positions"]
             for miner_hotkey, miner_positions in positions.items():
                 if miner_hotkey in outdated_miner_candidates:
@@ -256,7 +249,7 @@ class P2PSyncer(ValidatorSyncBase):
                         seen_positions.add(position_uuid)
 
                         # get the set of order_uuids that appear in the majority of positions for a position_uuid
-                        orders_threshold = math.ceil(position_counts[position_uuid] / 2)
+                        orders_threshold = min(2, math.ceil(position_counts[position_uuid] / 2))
                         majority_orders = {order_uuid for order_uuid, count in order_counts[position_uuid].items()
                                            if count >= orders_threshold}
 
@@ -279,7 +272,7 @@ class P2PSyncer(ValidatorSyncBase):
                         golden_positions[miner_hotkey]["positions"].append(position_dict)
                     elif (position_uuid not in seen_positions
                           and position_counts[position_uuid] != 0):
-                        bt.logging.info(f"Position {position_uuid} only appeared [{position_counts[position_uuid]}/{num_valid_checkpoints}] times on miner {miner_hotkey}. Skipping")
+                        bt.logging.info(f"Position {position_uuid} only appeared [{position_counts[position_uuid]}/{len(valid_checkpoints)}] times on miner {miner_hotkey}. Skipping")
 
         # Construct golden and convert defaultdict to dict
         self.golden = {"created_timestamp_ms": time_now,
