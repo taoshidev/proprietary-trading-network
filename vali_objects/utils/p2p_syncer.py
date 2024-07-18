@@ -6,6 +6,7 @@ import math
 import traceback
 from collections import defaultdict
 from copy import deepcopy
+from typing import List
 
 import bittensor as bt
 
@@ -193,33 +194,40 @@ class P2PSyncer(ValidatorSyncBase):
         all_order_counts_list = list(order_counts.values())
         for order_count_dict in all_order_counts_list:
             all_order_counts = all_order_counts | order_count_dict
+        outdated_miners = set()
         outdated_miner_candidates = set()
-        for miner_hotkey, uuids in miner_to_uuids.items():
-            outdated = True
-            total_pos = 0
-            total_orders = 0
-            pos_repeat = 0
-            orders_repeat = 0
-            for position_uuid in uuids["positions"]:
-                if position_counts[position_uuid] > 1:
-                    outdated = False
-                    pos_repeat += 1
-                total_pos += 1
-            for order_uuid in uuids["orders"]:
-                if all_order_counts[order_uuid] > 1:
-                    outdated = False
-                    orders_repeat += 1
-                total_orders += 1
-            if outdated:
-                # (num of positions that appear once/num of positions)
-                outdated_miner_candidates.add(miner_hotkey)
-            bt.logging.info(
-                f"Miner {miner_hotkey} has [{(total_pos-pos_repeat)}/{total_pos} legacy positions, {(total_orders-orders_repeat)}/{total_orders} legacy orders]")
+        if len(valid_checkpoints) > 1:
+            for miner_hotkey, uuids in miner_to_uuids.items():
+                outdated = True
+                total_pos = 0
+                total_orders = 0
+                pos_repeat = 0
+                orders_repeat = 0
+                for position_uuid in uuids["positions"]:
+                    if position_counts[position_uuid] > 1:
+                        outdated = False
+                        pos_repeat += 1
+                    total_pos += 1
+                for order_uuid in uuids["orders"]:
+                    if all_order_counts[order_uuid] > 1:
+                        outdated = False
+                        orders_repeat += 1
+                    total_orders += 1
+                if outdated:
+                    # (num of positions that appear once/num of positions)
+                    outdated_miners.add(miner_hotkey)
+                if pos_repeat != total_pos or orders_repeat != total_orders:
+                    outdated_miner_candidates.add(miner_hotkey)
+                bt.logging.info(
+                    f"Miner {miner_hotkey} has [{(total_pos-pos_repeat)}/{total_pos} legacy positions, {(total_orders-orders_repeat)}/{total_orders} legacy orders]")
 
+        bt.logging.info(f"outdated_miners: {outdated_miners}")
+
+        # TODO: add timestamps of the newest unique position_uuid that only shows up once
         bt.logging.info(f"outdated_miner_candidates: {outdated_miner_candidates}")
 
         # get the set of position_uuids that appear in the majority of checkpoints
-        positions_threshold = min(2, math.ceil(len(valid_checkpoints) / 2))
+        positions_threshold = self.consensus_threshold(len(valid_checkpoints))
         majority_positions = {position_uuid for position_uuid, count in position_counts.items()
                               if count >= positions_threshold}
 
@@ -228,10 +236,12 @@ class P2PSyncer(ValidatorSyncBase):
         seen_positions = set()
         seen_orders = set()
 
-        for checkpoint in valid_checkpoints.values():
+        unmatched_positions_matrix = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))  # {miner hotkey: {trade pair: {validator hotkey: [all unmatched positions on validator]}}}
+
+        for validator_hotkey, checkpoint in valid_checkpoints.items():
             positions = checkpoint[1]["positions"]
             for miner_hotkey, miner_positions in positions.items():
-                if miner_hotkey in outdated_miner_candidates:
+                if miner_hotkey in outdated_miners:
                     continue
                 for position in miner_positions["positions"]:
                     position_uuid = position["position_uuid"]
@@ -249,7 +259,7 @@ class P2PSyncer(ValidatorSyncBase):
                         seen_positions.add(position_uuid)
 
                         # get the set of order_uuids that appear in the majority of positions for a position_uuid
-                        orders_threshold = min(2, math.ceil(position_counts[position_uuid] / 2))
+                        orders_threshold = self.consensus_threshold(position_counts[position_uuid])
                         majority_orders = {order_uuid for order_uuid, count in order_counts[position_uuid].items()
                                            if count >= orders_threshold}
 
@@ -270,9 +280,17 @@ class P2PSyncer(ValidatorSyncBase):
                         new_position.rebuild_position_with_updated_orders()
                         position_dict = json.loads(new_position.to_json_string())
                         golden_positions[miner_hotkey]["positions"].append(position_dict)
+                    # if our position is not in the majority, it may be from legacy miner code.
                     elif (position_uuid not in seen_positions
                           and position_counts[position_uuid] != 0):
+                        unmatched_positions_matrix[miner_hotkey][position["trade_pair"][0]][validator_hotkey].append(position)
                         bt.logging.info(f"Position {position_uuid} only appeared [{position_counts[position_uuid]}/{len(valid_checkpoints)}] times on miner {miner_hotkey}. Skipping")
+
+        # insert heuristic matched positions back into the golden's positions
+        for position in self.heuristic_resolve_positions(unmatched_positions_matrix):
+            print(f"Position {position['position_uuid']} matched, adding back in")
+            miner_hotkey = position["miner_hotkey"]
+            golden_positions[miner_hotkey]["positions"].append(position)
 
         # Construct golden and convert defaultdict to dict
         self.golden = {"created_timestamp_ms": time_now,
@@ -290,6 +308,65 @@ class P2PSyncer(ValidatorSyncBase):
             temp[miner] = num_pos_orders
         bt.logging.info(f"Created golden checkpoint {temp}")
         return True
+
+    def heuristic_resolve_positions(self, position_matrix) -> List[Position]:
+        """
+        takes a matrix of unmatched positions, and returns a list of positions to add back in
+        position_matrix:
+            {miner hotkey: {trade pair: {validator hotkey: [all unmatched positions on validator]}}}
+        """
+        resolved_position_uuids = set()
+
+        matched_positions = []
+        # want to resolve all the unmatched positions for the validators against each other
+        for miner_hotkey, trade_pairs in position_matrix.items():
+            for trade_pair, validator in trade_pairs.items():
+                for validator_hotkey, position_list in validator.items():
+                    for position in position_list:
+
+                        match = self.find_match(position, trade_pairs[trade_pair], resolved_position_uuids, validator_hotkey)
+                        if match is not None:
+                            matched_positions.append(match)
+        return matched_positions
+
+    def find_match(self, position, trade_pair_validator_positions: dict, resolved_positions: set, corresponding_validator_hotkey) -> Position | None:
+        """
+        compares a position from validator corresponding_validator_hotkey to all the positions from all the other validators.
+        If we are able to match the position to another, we record all the matches, and return the first one as the matched
+        position that we will keep.
+        """
+        if position["position_uuid"] in resolved_positions:
+            return
+
+        matched_positions = [position]
+
+        for validator_hotkey, position_list in trade_pair_validator_positions.items():
+            if validator_hotkey == corresponding_validator_hotkey:
+                continue
+
+            for p in position_list:
+                if p["position_uuid"] in resolved_positions:
+                    continue
+
+                if self.dict_positions_aligned(position, p, validate_num_orders=True):
+                    matched_positions.append(p)
+                    break
+
+        for p in matched_positions:
+            resolved_positions.add(p["position_uuid"])
+
+        # if the matched positions exceed threshold, we return the first position_uuid that's matched.
+        # make sure that we have matches other than ourselves
+        if len(matched_positions) >= self.consensus_threshold(len(matched_positions)) and len(matched_positions) > 1:
+            matched_positions.sort(key=lambda x: x["position_uuid"])
+            return matched_positions[0]
+        return
+
+    def consensus_threshold(self, total_items):
+        """
+        threshold for including a position or order in the golden
+        """
+        return min(2, math.ceil(total_items / 2))
 
     def get_median_order(self, orders, trade_pair) -> Order:
         """

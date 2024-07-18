@@ -271,6 +271,7 @@ class TestPositions(TestBase):
 
         order0 = deepcopy(self.default_order)
         order0.order_uuid = "test_order0"
+        order0.processed_ms = TimeUtil.now_in_millis() - 1000 * 60 * 10
         orders = [order0]
         position = deepcopy(self.default_position)
         position.position_uuid = "test_position2"
@@ -352,6 +353,7 @@ class TestPositions(TestBase):
         position.rebuild_position_with_updated_orders()
 
         checkpoint1 = {"positions": {self.DEFAULT_MINER_HOTKEY: {"positions": [json.loads(position.to_json_string())]}}}
+        checkpoint2 = {"positions": {self.DEFAULT_MINER_HOTKEY: {"positions": [json.loads(position.to_json_string())]}}}
 
         order0 = deepcopy(self.default_order)
         order0.order_uuid = "test_order0"
@@ -361,9 +363,11 @@ class TestPositions(TestBase):
         position.orders = orders
         position.rebuild_position_with_updated_orders()
 
-        checkpoint2 = {"positions": {"diff_miner": {"positions": [json.loads(position.to_json_string())]}}}
+        checkpoint3 = {"positions": {"diff_miner": {"positions": [json.loads(position.to_json_string())]}}}
+        checkpoint4 = {"positions": {"diff_miner": {"positions": [json.loads(position.to_json_string())]}}}
 
-        checkpoints = {"test_validator1": [0, checkpoint1], "test_validator2": [0, checkpoint2]}
+        checkpoints = {"test_validator1": [0, checkpoint1], "test_validator2": [0, checkpoint2],
+                       "test_validator3": [0, checkpoint3], "test_validator4": [0, checkpoint4]}
         self.p2p_syncer.create_golden(checkpoints)
 
         # print(json.dumps(self.p2p_syncer.golden, indent=4))
@@ -373,6 +377,10 @@ class TestPositions(TestBase):
         assert len(self.p2p_syncer.golden["positions"]["diff_miner"]["positions"]) == 1
         assert len(self.p2p_syncer.golden["positions"][self.DEFAULT_MINER_HOTKEY]["positions"][0]["orders"]) == 1
         assert len(self.p2p_syncer.golden["positions"]["diff_miner"]["positions"][0]["orders"]) == 1
+
+    def test_checkpoint_syncing_one_of_each_miner(self):
+        # TODO
+        pass
 
     def test_checkpoint_syncing_miner_not_in_majority(self):
         order1 = deepcopy(self.default_order)
@@ -443,3 +451,45 @@ class TestPositions(TestBase):
         assert len(self.p2p_syncer.golden["positions"]) == 1
         assert len(self.p2p_syncer.golden["positions"]["diff_miner"]["positions"]) == 1
         assert len(self.p2p_syncer.golden["positions"]["diff_miner"]["positions"][0]["orders"]) == 1
+
+    def test_heuristic_resolve_positions(self):
+        order1 = deepcopy(self.default_order)
+        order1.order_uuid = "test_order1"
+        orders = [order1]
+        position1 = deepcopy(self.default_position)
+        position1.position_uuid = "test_position1"
+        position1.orders = orders
+        position1.rebuild_position_with_updated_orders()
+
+        order2 = deepcopy(self.default_order)
+        order2.order_uuid = "test_order2"
+        orders = [order2]
+        position2 = deepcopy(self.default_position)
+        position2.position_uuid = "test_position2"
+        position2.orders = orders
+        position2.rebuild_position_with_updated_orders()
+
+        order3 = deepcopy(self.default_order)
+        order3.order_uuid = "test_order3"
+        orders = [order3]
+        position3 = deepcopy(self.default_position)
+        position3.position_uuid = "test_position3"
+        position3.orders = orders
+        position3.rebuild_position_with_updated_orders()
+
+        order4 = deepcopy(self.default_order)
+        order4.order_uuid = "test_order4"
+        order4.processed_ms = TimeUtil.now_in_millis() - 1000 * 60 * 10
+        orders = [order4]
+        position4 = deepcopy(self.default_position)
+        position4.position_uuid = "test_position4"
+        position4.orders = orders
+        position4.rebuild_position_with_updated_orders()
+
+        matrix = {'miner_hotkey_1': {self.DEFAULT_TRADE_PAIR: {'validator_hotkey_1': [json.loads(position1.to_json_string())], 'validator_hotkey_2': [json.loads(position2.to_json_string())]}},
+                  'miner_hotkey_2': {self.DEFAULT_TRADE_PAIR: {'validator_hotkey_3': [json.loads(position3.to_json_string())], 'validator_hotkey_4': [json.loads(position4.to_json_string())]}}}
+
+        matched_positions = self.p2p_syncer.heuristic_resolve_positions(matrix)
+
+        assert len(matched_positions) == 1
+        assert matched_positions[0]["position_uuid"] == "test_position1"
