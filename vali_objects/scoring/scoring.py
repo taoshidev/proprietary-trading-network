@@ -13,6 +13,8 @@ from vali_objects.exceptions.min_responses_exception import MinResponsesExceptio
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.utils.vali_utils import ValiUtils
 from vali_objects.vali_dataclasses.perf_ledger import PerfCheckpoint, PerfLedger
+from vali_objects.position import Position
+
 from vali_objects.utils.position_manager import PositionManager
 from time_util.time_util import TimeUtil
 from vali_objects.utils.position_utils import PositionUtils
@@ -63,6 +65,7 @@ class Scoring:
     @staticmethod
     def compute_results_checkpoint(
         ledger_dict: Dict[str, PerfLedger],
+        filtered_positions: Dict[str, list[Position]],
         evaluation_time_ms: int = None,
         verbose=True
     ) -> List[Tuple[str, float]]:
@@ -82,7 +85,7 @@ class Scoring:
         return_decay_short_lookback_time_ms = ValiConfig.RETURN_DECAY_SHORT_LOOKBACK_TIME_MS
 
         # Compute miner penalties
-        miner_penalties = Scoring.miner_penalties(ledger_dict)
+        miner_penalties = Scoring.miner_penalties(ledger_dict, filtered_positions)
 
         ## Miners with full penalty
         fullpenalty_miner_scores: list[tuple[str, float]] = [ ( miner, 0 ) for miner, penalty in miner_penalties.items() if penalty == 0 ]
@@ -134,15 +137,14 @@ class Scoring:
                 combined_scores[miner] *= config['weight'] * score + (1 - config['weight'])
 
         # ## Force good performance of all error metrics
-        combined_weighed = Scoring.weigh_miner_scores(list(combined_scores.items())) + fullpenalty_miner_scores
+        combined_weighed = Scoring.softmax_scores(list(combined_scores.items())) + fullpenalty_miner_scores
         combined_scores = dict(combined_weighed)
 
         ## Normalize the scores
-        normalized_scores = Scoring.normalize_scores(combined_scores)
-        return sorted(normalized_scores.items(), key=lambda x: x[1], reverse=True)
+        return sorted(combined_scores.items(), key=lambda x: x[1], reverse=True)
     
     @staticmethod
-    def miner_penalties(ledger_dict: dict[str, PerfLedger]) -> dict[str, float]:
+    def miner_penalties(ledger_dict: dict[str, PerfLedger], miner_positions: dict[str, list[Position]]) -> dict[str, float]:
         # Compute miner penalties
         miner_penalties = {}
         for miner, perfledger in ledger_dict.items():
@@ -150,7 +152,9 @@ class Scoring:
 
             consistency_penalty = PositionUtils.compute_consistency_penalty_cps(ledgercps)
             drawdown_penalty = PositionUtils.compute_drawdown_penalty_cps(ledgercps)
-            miner_penalties[miner] = drawdown_penalty * consistency_penalty
+            positional_penalty = PositionUtils.compute_positional_penalty_cps(ledgercps, miner_positions.get(miner, []))
+
+            miner_penalties[miner] = drawdown_penalty * consistency_penalty * positional_penalty
 
         return miner_penalties
     
@@ -438,7 +442,43 @@ class Scoring:
         
         return miner_percentiles
 
+    @staticmethod
+    def softmax_scores(returns: list[tuple[str, float]]) -> list[tuple[str, float]]:
+        """
+        Assign weights to the returns based on their relative position and apply softmax with a temperature parameter.
 
+        The softmax function is used to convert the scores into probabilities that sum to 1.
+        Subtracting the max value from the scores before exponentiation improves numerical stability.
+
+        Parameters:
+        returns (list[tuple[str, float]]): List of tuples with miner names and their scores.
+        temperature (float): Temperature parameter to control the sharpness of the softmax distribution. Default is 1.0.
+
+        Returns:
+        list[tuple[str, float]]: List of tuples with miner names and their softmax weights.
+        """
+        epsilon = ValiConfig.EPSILON
+        temperature = ValiConfig.SOFTMAX_TEMPERATURE
+
+        if not returns:
+            bt.debug("No returns to score, returning empty list")
+            return []
+
+        if len(returns) == 1:
+            bt.info("Only one miner, returning 1.0 for the solo miner weight")
+            return [(returns[0][0], 1.0)]
+
+        # Extract scores and apply softmax with temperature
+        scores = [score for _, score in returns]
+        max_score = np.max(scores)
+        exp_scores = np.exp((scores - max_score) / temperature)
+        softmax_scores = exp_scores / max(np.sum(exp_scores), epsilon)
+
+        # Combine miners with their respective softmax scores
+        weighted_returns = [(returns[i][0], softmax_scores[i]) for i in range(len(returns))]
+
+        return weighted_returns
+    
     @staticmethod
     def weigh_miner_scores(returns: list[tuple[str, float]]) -> list[tuple[str, float]]:
         """

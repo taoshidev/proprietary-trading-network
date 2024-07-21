@@ -44,6 +44,11 @@ class SubtensorWeightSetter(CacheController):
 
         # only collect ledger elements for the miners that passed the challenge period
         filtered_ledger = self.filtered_ledger(hotkeys=success_hotkeys)
+        filtered_positions = self.position_manager.get_all_miner_positions_by_hotkey(
+            success_hotkeys,
+            sort_positions=True,
+            acceptable_position_end_ms=current_time - ValiConfig.SET_WEIGHT_LOOKBACK_RANGE_MS
+        )
 
         if len(filtered_ledger) == 0:
             bt.logging.info("No returns to set weights with. Do nothing for now.")
@@ -51,6 +56,7 @@ class SubtensorWeightSetter(CacheController):
             bt.logging.info("Calculating new subtensor weights...")
             checkpoint_results = Scoring.compute_results_checkpoint(
                 filtered_ledger,
+                filtered_positions,
                 evaluation_time_ms=current_time
             )
             bt.logging.info(f"Sorted results for weight setting: [{sorted(checkpoint_results, key=lambda x: x[1], reverse=True)}]")
