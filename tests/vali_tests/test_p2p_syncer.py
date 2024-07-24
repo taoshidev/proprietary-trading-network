@@ -456,6 +456,7 @@ class TestPositions(TestBase):
     def test_heuristic_resolve_positions(self):
         order1 = deepcopy(self.default_order)
         order1.order_uuid = "test_order1"
+        order1.processed_ms = 100
         orders = [order1]
         position1 = deepcopy(self.default_position)
         position1.position_uuid = "test_position1"
@@ -464,6 +465,7 @@ class TestPositions(TestBase):
 
         order2 = deepcopy(self.default_order)
         order2.order_uuid = "test_order2"
+        order2.processed_ms = 110
         orders = [order2]
         position2 = deepcopy(self.default_position)
         position2.position_uuid = "test_position2"
@@ -472,6 +474,7 @@ class TestPositions(TestBase):
 
         order3 = deepcopy(self.default_order)
         order3.order_uuid = "test_order3"
+        order3.processed_ms = 90
         orders = [order3]
         position3 = deepcopy(self.default_position)
         position3.position_uuid = "test_position3"

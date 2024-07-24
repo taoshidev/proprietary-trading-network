@@ -188,7 +188,7 @@ class P2PSyncer(ValidatorSyncBase):
 
         # insert heuristic matched positions back into the golden's positions
         for position in self.heuristic_resolve_positions(unmatched_positions_matrix):
-            print(f"Position {position['position_uuid']} matched, adding back in")
+            bt.logging.info(f"Position {position['position_uuid']} matched, adding back in")
             miner_hotkey = position["miner_hotkey"]
             golden_positions[miner_hotkey]["positions"].append(position)
 
@@ -355,13 +355,13 @@ class P2PSyncer(ValidatorSyncBase):
             for trade_pair, validator in trade_pairs.items():
                 for validator_hotkey, position_list in validator.items():
                     for position in position_list:
-
-                        match = self.find_match(position, trade_pairs[trade_pair], resolved_position_uuids, validator_hotkey)
-                        if match is not None:
-                            matched_positions.append(match)
+                        matches = self.find_match(position, trade_pairs[trade_pair], resolved_position_uuids, validator_hotkey)
+                        if matches is not None:
+                            bt.logging.info(f"Miner hotkey {miner_hotkey} has matches {[m['position_uuid'] for m in matches]}")
+                            matched_positions.append(matches[0])
         return matched_positions
 
-    def find_match(self, position, trade_pair_validator_positions: dict, resolved_positions: set, corresponding_validator_hotkey) -> Position | None:
+    def find_match(self, position, trade_pair_validator_positions: dict, resolved_positions: set, corresponding_validator_hotkey) -> List[Position] | None:
         """
         compares a position from validator corresponding_validator_hotkey to all the positions from all the other validators.
         If we are able to match the position to another, we record all the matches, and return the first one as the matched
@@ -391,7 +391,7 @@ class P2PSyncer(ValidatorSyncBase):
         # make sure that we have matches other than ourselves
         if len(matched_positions) >= self.consensus_threshold(len(matched_positions)) and len(matched_positions) > 1:
             matched_positions.sort(key=lambda x: x["position_uuid"])
-            return matched_positions[0]
+            return matched_positions
         return
 
     def consensus_threshold(self, total_items):
