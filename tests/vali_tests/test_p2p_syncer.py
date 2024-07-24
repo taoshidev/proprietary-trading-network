@@ -1,5 +1,6 @@
 import json
 import time
+from collections import defaultdict
 from copy import deepcopy
 
 from bittensor import Balance
@@ -493,3 +494,50 @@ class TestPositions(TestBase):
 
         assert len(matched_positions) == 1
         assert matched_positions[0]["position_uuid"] == "test_position1"
+
+    def test_parse_checkpoint_and_last_order_time(self):
+        order1 = deepcopy(self.default_order)
+        order1.order_uuid = "test_order1"
+        order1.processed_ms = 100
+        order0 = deepcopy(self.default_order)
+        order0.order_uuid = "test_order0"
+        order0.processed_ms = 50
+        order2 = deepcopy(self.default_order)
+        order2.order_uuid = "test_order1"
+        order2.processed_ms = 150
+        orders = [order1, order2, order0]
+        position = deepcopy(self.default_position)
+        position.position_uuid = "test_position1"
+        position.orders = orders
+        position.rebuild_position_with_updated_orders()
+
+        checkpoint = {"positions": {self.DEFAULT_MINER_HOTKEY: {"positions": [json.loads(position.to_json_string())]}}}
+
+        latest_order_ms = self.p2p_syncer.parse_checkpoint_and_last_order_time(checkpoint, defaultdict(int), defaultdict(lambda:defaultdict(int)), defaultdict(list), defaultdict(lambda: defaultdict(set)))
+
+        assert latest_order_ms == 150
+
+    def test_find_one_legacy_miners(self):
+        num_checkpoints = 2
+        order_counts = {"position 1": {"order 1": 2}, "position 2": {"order 2": 1}, "position 2 also": {"order 2 also": 1}}
+        miner_to_uuids = {"updated miner": {"positions": ["position 1"], "orders":["order 1"]}, "legacy miner": {"positions": ["position 2", "position 2 also"], "orders": ["order 2", "order 2 also"]}}
+        position_counts = {"position 1": 2, "position 2": 1, "position 2 also": 1}
+        order_data = {"order 1": [{"processed_ms": 100}, {"processed_ms": 100}], "order 2": [{"processed_ms": 150}], "order 2 also": [{"processed_ms": 150}]}
+
+        legacy_miners = self.p2p_syncer.find_legacy_miners(num_checkpoints, order_counts, miner_to_uuids, position_counts, order_data)
+
+        assert len(legacy_miners) == 1
+        assert "legacy miner" in legacy_miners
+
+    def test_find_zero_legacy_miners(self):
+        num_checkpoints = 2
+        order_counts = {"position 1": {"order 1": 2}, "position 2": {"order 2": 1}}
+        miner_to_uuids = {"updated miner": {"positions": ["position 1"], "orders": ["order 1"]},
+                          "legacy miner": {"positions": ["position 2"], "orders": ["order 2"]}}
+        position_counts = {"position 1": 2, "position 2": 2}
+        order_data = {"order 1": [{"processed_ms": 100}, {"processed_ms": 100}], "order 2": [{"processed_ms": 150}, {"processed_ms": 150}]}
+
+        legacy_miners = self.p2p_syncer.find_legacy_miners(num_checkpoints, order_counts, miner_to_uuids,
+                                                           position_counts, order_data)
+
+        assert len(legacy_miners) == 0
