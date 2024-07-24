@@ -87,8 +87,6 @@ class Validator:
         except Exception as e:
             bt.logging.error(f"Error reading meta/meta.json: {e}")
 
-        self.is_mothership = 'mothership' in ValiUtils.get_secrets()
-
         ValiBkpUtils.clear_tmp_dir()
         self.uuid_tracker = UUIDTracker()
         # Lock to stop new signals from being processed while a validator is restoring
@@ -98,7 +96,7 @@ class Validator:
 
         self.config = self.get_config()
         # Use the getattr function to safely get the autosync attribute with a default of False if not found.
-        self.auto_sync = getattr(self.config, 'autosync', False)
+        self.auto_sync = getattr(self.config, 'autosync', False) and 'mothership' not in ValiUtils.get_secrets()
         self.is_mainnet = self.config.netuid == 8
         # Ensure the directory for logging exists, else create one.
         if not os.path.exists(self.config.full_path):
@@ -391,8 +389,7 @@ class Validator:
                 self.challengeperiod_manager.refresh(current_time=current_time)
                 self.weight_setter.set_weights(current_time=current_time)
                 self.elimination_manager.process_eliminations()
-                if not self.is_mothership:
-                    self.position_syncer.sync_positions_with_cooldown(self.auto_sync)
+                self.position_syncer.sync_positions_with_cooldown(self.auto_sync)
                 self.position_manager.position_locks.cleanup_locks(self.metagraph.hotkeys)
                 self.p2p_syncer.sync_positions_with_cooldown()
 
