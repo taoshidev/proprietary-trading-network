@@ -311,14 +311,13 @@ class Position(BaseModel):
             )
 
         if self._clamp_and_validate_leverage(order):
-            if order.leverage == 0:
-                # This order's leverage got clamped to zero.
-                # Skip it since we don't want to consider this a FLAT position and we don't want to allow bad actors
-                # to send in a bunch of spam orders.
-                logging.warning(
-                    f"Miner attempted to exceed max leverage {self.trade_pair.max_leverage} for trade pair "
-                    f"{self.trade_pair.trade_pair_id}. Ignoring order.")
-                return
+            # This order's leverage got clamped to zero.
+            # Skip it since we don't want to consider this a FLAT position and we don't want to allow bad actors
+            # to send in a bunch of spam orders.
+            logging.warning(
+                f"Miner attempted to exceed max leverage {self.trade_pair.max_leverage} for trade pair "
+                f"{self.trade_pair.trade_pair_id}. Ignoring order.")
+            return
         self.orders.append(order)
         self._update_position()
 
@@ -503,28 +502,28 @@ class Position(BaseModel):
 
     def _clamp_and_validate_leverage(self, order) -> bool:
         """
-        An order's leverage can be positive or negative. This goal of this function is to modify the leverage
-        of an order so that the position's total leverage stays between
+        If an order's leverage would make the position's leverage higher than max_position_leverage,
+        we clamp the order's leverage. If clamping causes the order's leverage to be below
+        ValiConfig.ORDER_MIN_LEVERAGE, we raise an error.
 
-        -max_position_leverage and -min_position_leverage
+        If an order's leverage would take the position leverage below min_position_leverage, we raise an error.
 
-        and
-
-        min_position_leverage and max_position_leverage
-
-        If an order's leverage would take the position leverage out of bounds, we clamp the order's leverage to a value
-        between -max_position_leverage and max_position_leverage.
-
-        Return true if the order's leverage was modified.
+        Return true if the order should be ignored. Only happens when the order attempts to exceed max_position_leverage
+        and is already at max_position_leverage.
         """
+        should_ignore_order = False
+        if order.order_type == OrderType.FLAT:
+            return should_ignore_order
+
         is_first_order = len(self.orders) == 0
         proposed_leverage = self.net_leverage + order.leverage
         min_position_leverage, max_position_leverage = leverage_utils.get_position_leverage_bounds(self.trade_pair, order.processed_ms)
-        ans = False
         if abs(proposed_leverage) > max_position_leverage:
             if is_first_order or abs(proposed_leverage) >= abs(self.net_leverage):
                 order.leverage = max(0.0, max_position_leverage - abs(self.net_leverage))
-                ans = True
+                if self.position_type == OrderType.SHORT:
+                    order.leverage *= -1
+                should_ignore_order = order.leverage == 0
             else:
                 pass#  We are getting the leverage closer to the new boundary (decrease) so allow it
         elif abs(proposed_leverage) < min_position_leverage:
@@ -533,12 +532,10 @@ class Position(BaseModel):
             else:
                 pass  # We are trying to increase the leverage here so let it happen
 
-        if order.order_type != OrderType.FLAT and not (order.leverage == 0 and ans) and abs(order.leverage) < ValiConfig.ORDER_MIN_LEVERAGE:
+        if abs(order.leverage) < ValiConfig.ORDER_MIN_LEVERAGE and (should_ignore_order is False):
             raise ValueError(f'Clamped order leverage [{order.leverage}] is below ValiConfig.ORDER_MIN_LEVERAGE {ValiConfig.ORDER_MIN_LEVERAGE}')
 
-        if ans and self.position_type == OrderType.SHORT:
-            order.leverage *= -1
-        return ans
+        return should_ignore_order
 
     def _update_position(self):
         self.net_leverage = 0.0

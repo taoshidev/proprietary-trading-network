@@ -14,8 +14,8 @@ class ValiConfig:
     ## versioning
     VERSION = "3.2.7"
     ## Positional Leverage limits
-    CRYPTO_MIN_LEVERAGE = 0.025
-    CRYPTO_MAX_LEVERAGE = 1
+    CRYPTO_MIN_LEVERAGE = 0.01
+    CRYPTO_MAX_LEVERAGE = 0.5
     FOREX_MIN_LEVERAGE = 0.1
     FOREX_MAX_LEVERAGE = 5
     INDICES_MIN_LEVERAGE = 0.1

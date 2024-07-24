@@ -383,7 +383,7 @@ class CacheController:
         except UnpicklingError as e:
             raise ValiBkpCorruptDataException(f"file_string is {file_string}, {e}")
         except UnicodeDecodeError as e:
-            raise ValiBkpCorruptDataException(f" Error {e} You may be running an old version of the software. Confirm with the team if you should delete your cache. ")
+            raise ValiBkpCorruptDataException(f" Error {e} for file {file} You may be running an old version of the software. Confirm with the team if you should delete your cache. file string {file_string[:2000] if file_string else None}")
         except Exception as e:
             raise ValiBkpCorruptDataException(f"Error {e} file_path {file} file_string: {file_string}")
 
