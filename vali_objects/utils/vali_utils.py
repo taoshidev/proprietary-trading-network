@@ -12,13 +12,16 @@ from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 
 class ValiUtils:
     @staticmethod
-    def get_secrets() -> Dict:
+    def get_secrets(running_unit_tests=False) -> Dict:
         # wrapping here to allow simpler error handling & original for other error handling
         try:
             secrets = ValiBkpUtils.get_file(ValiBkpUtils.get_secrets_dir())
             return json.loads(secrets)
         except FileNotFoundError:
-            raise ValiFileMissingException("Vali secrets file is missing")
+            if running_unit_tests:
+                return {"twelvedata_apikey": "", "polygon_apikey": ""}
+            else:
+                raise ValiFileMissingException("Vali secrets file is missing")
 
     @staticmethod
     def get_vali_json_file(vali_dir: str, key: str = None) -> List | Dict:

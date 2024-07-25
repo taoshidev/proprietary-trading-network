@@ -19,7 +19,7 @@ class TestMDDChecker(TestBase):
 
     def setUp(self):
         super().setUp()
-        secrets = ValiUtils.get_secrets()
+        secrets = ValiUtils.get_secrets(running_unit_tests=True)
         self.MINER_HOTKEY = "test_miner"
         self.mock_metagraph = MockMetagraph([self.MINER_HOTKEY])
         self.position_manager = PositionManager(metagraph=self.mock_metagraph, running_unit_tests=True)

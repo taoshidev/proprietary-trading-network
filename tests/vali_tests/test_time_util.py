@@ -18,7 +18,7 @@ class TestTimeUtil(TestBase):
 
     def setUp(self):
         super().setUp()
-        secrets = ValiUtils.get_secrets()
+        secrets = ValiUtils.get_secrets(running_unit_tests=True)
         secrets["twelvedata_apikey"] = secrets["twelvedata_apikey"]
         self.live_price_fetcher = LivePriceFetcher(secrets=secrets, disable_ws=True)
         self.DEFAULT_MINER_HOTKEY = "test_miner"

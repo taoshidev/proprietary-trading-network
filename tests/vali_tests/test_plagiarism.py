@@ -50,7 +50,7 @@ class TestPlagiarism(TestBase):
         self.plagiarism_detector.clear_eliminations_from_disk()
         self.plagiarism_detector.clear_plagiarism_scores_from_disk()
         self.position_manager.clear_all_miner_positions_from_disk()
-        secrets = ValiUtils.get_secrets()
+        secrets = ValiUtils.get_secrets(running_unit_tests=True)
         self.tds = TwelveDataService(api_key=secrets["twelvedata_apikey"])
 
     def add_order_to_position_and_save_to_disk(self, position, order):

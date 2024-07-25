@@ -338,7 +338,7 @@ class PerfLedgerManager(CacheController):
         self.shutdown_dict = shutdown_dict
         self.position_syncer = position_syncer
         if live_price_fetcher is None:
-            secrets = ValiUtils.get_secrets()
+            secrets = ValiUtils.get_secrets(running_unit_tests=running_unit_tests)
             live_price_fetcher = LivePriceFetcher(secrets, disable_ws=True)
             self.pds = live_price_fetcher.polygon_data_service
         else:

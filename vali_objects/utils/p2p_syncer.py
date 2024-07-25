@@ -19,8 +19,8 @@ from vali_objects.vali_dataclasses.order import Order
 from vali_objects.utils.validator_sync_base import ValidatorSyncBase
 
 class P2PSyncer(ValidatorSyncBase):
-    def __init__(self, wallet=None, metagraph=None, is_testnet=None, shutdown_dict=None, signal_sync_lock=None, signal_sync_condition=None, n_orders_being_processed=None):
-        super().__init__(shutdown_dict, signal_sync_lock, signal_sync_condition, n_orders_being_processed)
+    def __init__(self, wallet=None, metagraph=None, is_testnet=None, shutdown_dict=None, signal_sync_lock=None, signal_sync_condition=None, n_orders_being_processed=None, running_unit_tests=False):
+        super().__init__(shutdown_dict, signal_sync_lock, signal_sync_condition, n_orders_being_processed, running_unit_tests=running_unit_tests)
         self.wallet = wallet
         self.metagraph = metagraph
         self.golden = None

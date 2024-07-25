@@ -62,7 +62,7 @@ class TestPositions(TestBase):
         )
         self.default_closed_position.close_out_position(self.DEFAULT_OPEN_MS + 1000 * 60 * 60 * 6)
 
-        self.p2p_syncer = P2PSyncer()
+        self.p2p_syncer = P2PSyncer(running_unit_tests=True)
 
     def test_get_validators(self):
         neuron1 = deepcopy(self.default_neuron)
