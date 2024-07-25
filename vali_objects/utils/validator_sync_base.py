@@ -193,9 +193,11 @@ class ValidatorSyncBase():
     def debug_print_order(self, o):
         print(f'        order: type {o.order_type} lev {o.leverage} time {TimeUtil.millis_to_formatted_date_str(o.processed_ms)} uuid {o.order_uuid}')
 
-    def positions_aligned(self, p1, p2, timebound_ms=None):
+    def positions_aligned(self, p1, p2, timebound_ms=None, validate_num_orders=False):
         p1_initial_position_type = p1.orders[0].order_type
         p2_initial_position_type = p2.orders[0].order_type
+        if validate_num_orders and len(p1.orders) != len(p2.orders):
+            return False
         if p1_initial_position_type != p2_initial_position_type:
             return False
         if timebound_ms is None:
@@ -204,6 +206,21 @@ class ValidatorSyncBase():
             return abs(p1.open_ms - p2.open_ms) < timebound_ms and abs(p1.close_ms - p2.close_ms) < timebound_ms
         elif p1.is_open_position and p2.is_open_position:
             return abs(p1.open_ms - p2.open_ms) < timebound_ms
+        return False
+
+    def dict_positions_aligned(self, p1, p2, timebound_ms=None, validate_num_orders=False):
+        p1_initial_position_type = p1["orders"][0]["order_type"]
+        p2_initial_position_type = p2["orders"][0]["order_type"]
+        if validate_num_orders and len(p1["orders"]) != len(p2["orders"]):
+            return False
+        if p1_initial_position_type != p2_initial_position_type:
+            return False
+        if timebound_ms is None:
+            timebound_ms = self.SYNC_LOOK_AROUND_MS
+        if p1["is_closed_position"] and p2["is_closed_position"]:
+            return abs(p1["open_ms"] - p2["open_ms"]) < timebound_ms and abs(p1["close_ms"] - p2["close_ms"]) < timebound_ms
+        elif not p1["is_closed_position"] and not p2["is_closed_position"]:
+            return abs(p1["open_ms"] - p2["open_ms"]) < timebound_ms
         return False
 
     def positions_aligned_strict(self, p1, p2):
