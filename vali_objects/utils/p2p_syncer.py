@@ -299,7 +299,12 @@ class P2PSyncer(ValidatorSyncBase):
         all_order_counts = {}
         all_order_counts_list = list(order_counts.values())
         for order_count_dict in all_order_counts_list:
-            all_order_counts = all_order_counts | order_count_dict
+            for order_uuid, count in order_count_dict.items():
+                if order_uuid in all_order_counts:
+                    all_order_counts[order_uuid] += count
+                else:
+                    all_order_counts[order_uuid] = count
+            # all_order_counts = all_order_counts | order_count_dict
 
         legacy_miners = set()            # position/order uuids are all unique across validators
         legacy_miner_candidates = set()  # at least one position/order uuid is unique across validators
@@ -312,6 +317,7 @@ class P2PSyncer(ValidatorSyncBase):
                 pos_repeat = 0
                 orders_repeat = 0
                 newest_order_timestamp = 0
+                newest_unique_order_timestamp = 0
                 newest_order_uuid = ""
                 for position_uuid in uuids["positions"]:
                     total_pos += 1
@@ -320,21 +326,25 @@ class P2PSyncer(ValidatorSyncBase):
                         pos_repeat += 1
                 for order_uuid in uuids["orders"]:
                     total_orders += 1
+                    newest_order_timestamp = max(newest_order_timestamp, order_data[order_uuid][0]["processed_ms"])
                     if all_order_counts[order_uuid] > 1:
                         legacy = False
                         orders_repeat += 1
                         continue
                     # save the timestamp of the newest unique order uuid
-                    if order_data[order_uuid][0]["processed_ms"] > newest_order_timestamp:
-                        newest_order_timestamp = order_data[order_uuid][0]["processed_ms"]
+                    if order_data[order_uuid][0]["processed_ms"] > newest_unique_order_timestamp:
+                        newest_unique_order_timestamp = order_data[order_uuid][0]["processed_ms"]
                         newest_order_uuid = order_uuid
+                # reasonably confident miner is running legacy code if every single position and order is unique across all validators
                 if legacy:
                     # (num of positions that appear once/num of positions)
                     legacy_miners.add(miner_hotkey)
+                # miner running legacy code if their last potential legacy order timestamp is the same as their last order timestamp
                 if pos_repeat != total_pos or orders_repeat != total_orders:
-                    legacy_miner_candidates.add(miner_hotkey)
+                    if newest_unique_order_timestamp == newest_order_timestamp:
+                        legacy_miner_candidates.add(miner_hotkey)
                     bt.logging.info(
-                        f"Miner {miner_hotkey} has [{(total_pos - pos_repeat)}/{total_pos} legacy positions, {(total_orders - orders_repeat)}/{total_orders} legacy orders]. Newest legacy order {newest_order_uuid} at timestamp {newest_order_timestamp}")
+                        f"Miner {miner_hotkey} has [{(total_pos - pos_repeat)}/{total_pos} legacy positions, {(total_orders - orders_repeat)}/{total_orders} legacy orders]. Newest legacy order {newest_order_uuid} at timestamp {newest_unique_order_timestamp}")
                 else:
                     bt.logging.info(f"Miner {miner_hotkey} has 0 legacy positions or orders")
         bt.logging.info(f"legacy_miners: {legacy_miners}")
@@ -366,6 +376,11 @@ class P2PSyncer(ValidatorSyncBase):
         compares a position from validator corresponding_validator_hotkey to all the positions from all the other validators.
         If we are able to match the position to another, we record all the matches, and return the first one as the matched
         position that we will keep.
+
+        position match heuristic:
+            same position type
+            same # of orders
+            opened and closed around SYNC_LOOK_AROUND_MS of each other
         """
         if position["position_uuid"] in resolved_positions:
             return
@@ -380,19 +395,46 @@ class P2PSyncer(ValidatorSyncBase):
                 if p["position_uuid"] in resolved_positions:
                     continue
 
+                # positions have same position_type, # of orders, and open/close_ms times
                 if self.dict_positions_aligned(position, p, validate_num_orders=True):
                     matched_positions.append(p)
+                    break
+
+                # positions contain orders with the same order_uuid
+                aligned_position = self.positions_order_align(position, p)
+                if aligned_position is not None:
+                    matched_positions.append(json.loads(aligned_position.to_json_string()))
                     break
 
         for p in matched_positions:
             resolved_positions.add(p["position_uuid"])
 
-        # if the matched positions exceed threshold, we return the first position_uuid that's matched.
+        # if the matched positions exceed threshold, we sort the matches by number of orders and then position_uuid
         # make sure that we have matches other than ourselves
         if len(matched_positions) >= self.consensus_threshold(len(matched_positions)) and len(matched_positions) > 1:
-            matched_positions.sort(key=lambda x: x["position_uuid"])
+            matched_positions.sort(key=lambda x: (-len(x["orders"]), x["position_uuid"]))
             return matched_positions
         return
+
+    def positions_order_align(self, p1, p2):
+        """
+        we can align positions which have different position_uuids but contain orders with the same order_uuid
+        """
+        matched_orders = []
+        for order in p1["orders"]:
+            for o in p2["orders"]:
+                if order["order_uuid"] == o["order_uuid"]:
+                    matched_orders.append(o)
+
+        if len(matched_orders) > 0:
+            new_position = Position(miner_hotkey=p2["miner_hotkey"],
+                                    position_uuid=p2["position_uuid"],
+                                    open_ms=0,
+                                    trade_pair=p2["trade_pair"],
+                                    orders=matched_orders)
+            new_position.orders.sort(key=lambda x: x.processed_ms)
+            new_position.rebuild_position_with_updated_orders()
+            return new_position
 
     def consensus_threshold(self, total_items):
         """
@@ -450,7 +492,7 @@ class P2PSyncer(ValidatorSyncBase):
         # Check if the time is right to sync signals
         if self.is_testnet:
             # every hour in testnet
-            if not (7 < datetime_now.minute < 17):
+            if not (47 < datetime_now.minute < 57):
                 return
         else:
             # Check if we are between 7:09 AM and 7:19 AM UTC
