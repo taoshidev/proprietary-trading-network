@@ -214,7 +214,7 @@ class P2PSyncer(ValidatorSyncBase):
                 # create a single combined position, and delete uuid to avoid duplicates
                 new_position = Position(miner_hotkey=miner_hotkey,
                                         position_uuid=position_uuid,
-                                        open_ms=0,  # position["open_ms"],
+                                        open_ms=position["open_ms"],
                                         trade_pair=position["trade_pair"],
                                         orders=[])
 
@@ -296,55 +296,33 @@ class P2PSyncer(ValidatorSyncBase):
         uuid's as potentially running legacy code.
         """
         # create single dict of all orders and counts
-        all_order_counts = {}
+        all_order_counts = defaultdict(int)  # {order_uuid: count}
         all_order_counts_list = list(order_counts.values())
         for order_count_dict in all_order_counts_list:
             for order_uuid, count in order_count_dict.items():
-                if order_uuid in all_order_counts:
-                    all_order_counts[order_uuid] += count
-                else:
-                    all_order_counts[order_uuid] = count
-            # all_order_counts = all_order_counts | order_count_dict
+                all_order_counts[order_uuid] += count
 
         legacy_miners = set()            # position/order uuids are all unique across validators
         legacy_miner_candidates = set()  # at least one position/order uuid is unique across validators
 
         if num_checkpoints > 1:
             for miner_hotkey, uuids in miner_to_uuids.items():
-                legacy = True
-                total_pos = 0
-                total_orders = 0
-                pos_repeat = 0
-                orders_repeat = 0
-                newest_order_timestamp = 0
-                newest_unique_order_timestamp = 0
-                newest_order_uuid = ""
-                for position_uuid in uuids["positions"]:
-                    total_pos += 1
-                    if position_counts[position_uuid] > 1:
-                        legacy = False
-                        pos_repeat += 1
-                for order_uuid in uuids["orders"]:
-                    total_orders += 1
-                    newest_order_timestamp = max(newest_order_timestamp, order_data[order_uuid][0]["processed_ms"])
-                    if all_order_counts[order_uuid] > 1:
-                        legacy = False
-                        orders_repeat += 1
-                        continue
-                    # save the timestamp of the newest unique order uuid
-                    if order_data[order_uuid][0]["processed_ms"] > newest_unique_order_timestamp:
-                        newest_unique_order_timestamp = order_data[order_uuid][0]["processed_ms"]
-                        newest_order_uuid = order_uuid
-                # reasonably confident miner is running legacy code if every single position and order is unique across all validators
-                if legacy:
-                    # (num of positions that appear once/num of positions)
-                    legacy_miners.add(miner_hotkey)
-                # miner running legacy code if their last potential legacy order timestamp is the same as their last order timestamp
-                if pos_repeat != total_pos or orders_repeat != total_orders:
-                    if newest_unique_order_timestamp == newest_order_timestamp:
+                # number of repeated position_uuids and order_uuids
+                num_repeated_pos = sum(1 for pos_uuid in uuids["positions"] if position_counts[pos_uuid] > 1)
+                num_repeated_orders = sum(1 for order_uuid in uuids["orders"] if all_order_counts[order_uuid] > 1)
+                newest_order_timestamp = max([order_data[order_uuid][0]["processed_ms"] for order_uuid in uuids["orders"]])
+                newest_unique_order_timestamp = max([order_data[order_uuid][0]["processed_ms"] for order_uuid in uuids["orders"] if all_order_counts[order_uuid] == 1], default=-1)
+                newest_unique_order_uuid = next((order_uuid for order_uuid in uuids["orders"]
+                                                if all_order_counts[order_uuid] == 1 and order_data[order_uuid][0]["processed_ms"] == newest_unique_order_timestamp), "")
+
+                # if there are positions or orders that only appear once across all validators
+                if num_repeated_pos != len(uuids["positions"]) or num_repeated_orders != len(uuids["orders"]):
+                    if (num_repeated_pos == 0) and (num_repeated_orders == 0):
+                        legacy_miners.add(miner_hotkey)
+                    elif newest_unique_order_timestamp == newest_order_timestamp:
                         legacy_miner_candidates.add(miner_hotkey)
                     bt.logging.info(
-                        f"Miner {miner_hotkey} has [{(total_pos - pos_repeat)}/{total_pos} legacy positions, {(total_orders - orders_repeat)}/{total_orders} legacy orders]. Newest legacy order {newest_order_uuid} at timestamp {newest_unique_order_timestamp}")
+                        f"Miner {miner_hotkey} has [{(len(uuids['positions']) - num_repeated_pos)}/{len(uuids['positions'])} legacy positions, {(len(uuids['orders']) - num_repeated_orders)}/{len(uuids['orders'])} legacy orders]. Newest legacy order {newest_unique_order_uuid} at timestamp {newest_unique_order_timestamp}")
                 else:
                     bt.logging.info(f"Miner {miner_hotkey} has 0 legacy positions or orders")
         bt.logging.info(f"legacy_miners: {legacy_miners}")
@@ -421,15 +399,15 @@ class P2PSyncer(ValidatorSyncBase):
         we can align positions which have different position_uuids but contain orders with the same order_uuid
         """
         matched_orders = []
-        for order in p1["orders"]:
-            for o in p2["orders"]:
-                if order["order_uuid"] == o["order_uuid"]:
-                    matched_orders.append(o)
+        for o1 in p1["orders"]:
+            for o2 in p2["orders"]:
+                if o1["order_uuid"] == o2["order_uuid"]:
+                    matched_orders.append(o2)
 
         if len(matched_orders) > 0:
             new_position = Position(miner_hotkey=p2["miner_hotkey"],
                                     position_uuid=p2["position_uuid"],
-                                    open_ms=0,
+                                    open_ms=p2["open_ms"],
                                     trade_pair=p2["trade_pair"],
                                     orders=matched_orders)
             new_position.orders.sort(key=lambda x: x.processed_ms)
@@ -497,7 +475,7 @@ class P2PSyncer(ValidatorSyncBase):
         else:
             # Check if we are between 7:09 AM and 7:19 AM UTC
             # Temp change time to 21:00 UTC so we can see the effects in shadow mode ASAP
-            if not (datetime_now.hour == 14 and (18 < datetime_now.minute < 30)):
+            if not (datetime_now.hour == 7 and (18 < datetime_now.minute < 30)):
                 return
 
         try:
