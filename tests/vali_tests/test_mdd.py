@@ -1,6 +1,7 @@
 # developer: jbonilla
 # Copyright © 2024 Taoshi Inc
 import time
+from unittest.mock import patch
 
 from shared_objects.cache_controller import CacheController
 from tests.shared_objects.mock_classes import MockMetagraph, MockMDDChecker
@@ -14,8 +15,33 @@ from vali_objects.utils.mdd_checker import MDDChecker
 from vali_objects.utils.position_manager import PositionManager
 from vali_objects.utils.vali_utils import ValiUtils
 from vali_objects.vali_dataclasses.order import Order
+from vali_objects.vali_dataclasses.price_source import PriceSource
+
 
 class TestMDDChecker(TestBase):
+    @classmethod
+    def setUpClass(cls):
+        cls.data_patch = patch('vali_objects.utils.live_price_fetcher.LivePriceFetcher.fetch_prices')
+        cls.mock_fetch_prices = cls.data_patch.start()
+        cls.mock_fetch_prices.return_value = {TradePair.BTCUSD: (
+            64751.73,
+            [PriceSource(source='TwelveData_rest', timespan_ms=60000, open=64751.73, close=64771.04, vwap=None,
+                         high=64813.66, low=64749.99, start_ms=1721937480000, websocket=False, lag_ms=29041,
+                         volume=None),
+             PriceSource(source='TwelveData_ws', timespan_ms=0, open=64681.6, close=64681.6, vwap=None,
+                         high=64681.6, low=64681.6, start_ms=1721937625000, websocket=True, lag_ms=174041,
+                         volume=None),
+             PriceSource(source='Polygon_ws', timespan_ms=0, open=64693.52, close=64693.52, vwap=64693.7546,
+                         high=64696.22, low=64693.52, start_ms=1721937626000, websocket=True, lag_ms=175041,
+                         volume=0.00023784),
+             PriceSource(source='Polygon_rest', timespan_ms=1000, open=64695.87, close=64681.9, vwap=64682.2898,
+                         high=64695.87, low=64681.9, start_ms=1721937628000, websocket=False, lag_ms=177041,
+                         volume=0.05812185)])
+        }
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.data_patch.stop()
 
     def setUp(self):
         super().setUp()
