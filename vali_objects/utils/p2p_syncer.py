@@ -175,8 +175,8 @@ class P2PSyncer(ValidatorSyncBase):
         for validator_hotkey, checkpoint in valid_checkpoints.items():
             positions = checkpoint[1]["positions"]
             for miner_hotkey, miner_positions in positions.items():
-                if miner_hotkey in legacy_miners:
-                    continue
+                # if miner_hotkey in legacy_miners:
+                #     continue
 
                 positions_in_majority, unmatched_positions = self.sort_positions(miner_hotkey, miner_positions, majority_positions, seen_positions, seen_orders, position_counts, order_counts, order_data)
                 golden_positions[miner_hotkey]["positions"].extend(positions_in_majority)
