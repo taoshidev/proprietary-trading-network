@@ -121,6 +121,7 @@ class P2PSyncer(ValidatorSyncBase):
         order_counts = defaultdict(lambda: defaultdict(int))    # {position_uuid: {order_uuid: count}}
         order_data = defaultdict(list)                          # {order_uuid: [{order}]}
         miner_to_uuids = defaultdict(lambda: defaultdict(set))  # {miner_hotkey: {positions:[position_uuid], orders:[order_uuid]}
+        miner_counts = defaultdict(int)                         # {miner_hotkey: count}
 
         valid_checkpoints = {}
 
@@ -149,6 +150,7 @@ class P2PSyncer(ValidatorSyncBase):
                 for miner_hotkey, uuids in checkpoint_miner_to_uuids.items():
                     miner_to_uuids[miner_hotkey]["positions"].update(checkpoint_miner_to_uuids[miner_hotkey]["positions"])
                     miner_to_uuids[miner_hotkey]["orders"].update(checkpoint_miner_to_uuids[miner_hotkey]["orders"])
+                    miner_counts[miner_hotkey] += 1
 
                 valid_checkpoints[hotkey] = checkpoint
             else:
@@ -161,7 +163,7 @@ class P2PSyncer(ValidatorSyncBase):
             bt.logging.info(f"Building golden from [{len(valid_checkpoints)}/{len(trusted_checkpoints)}] up-to-date checkpoints.")
 
         # miners who are still running legacy code. do not want to include them in checkpoint
-        legacy_miners = self.find_legacy_miners(len(valid_checkpoints), order_counts, miner_to_uuids, position_counts, order_data)
+        self.find_legacy_miners(len(valid_checkpoints), order_counts, miner_to_uuids, position_counts, order_data)
 
         # get the set of position_uuids that appear in the majority of checkpoints
         positions_threshold = self.consensus_threshold(len(valid_checkpoints))
@@ -175,8 +177,8 @@ class P2PSyncer(ValidatorSyncBase):
         for validator_hotkey, checkpoint in valid_checkpoints.items():
             positions = checkpoint[1]["positions"]
             for miner_hotkey, miner_positions in positions.items():
-                # if miner_hotkey in legacy_miners:
-                #     continue
+                if miner_counts[miner_hotkey] < positions_threshold:
+                    continue
 
                 positions_in_majority, unmatched_positions = self.sort_positions(miner_hotkey, miner_positions, majority_positions, seen_positions, seen_orders, position_counts, order_counts, order_data)
                 golden_positions[miner_hotkey]["positions"].extend(positions_in_majority)
@@ -187,7 +189,7 @@ class P2PSyncer(ValidatorSyncBase):
                         f"Position {position_uuid} only appeared [{position_counts[position_uuid]}/{len(valid_checkpoints)}] times on miner {miner_hotkey}. Skipping")
 
         # insert heuristic matched positions back into the golden's positions
-        for position in self.heuristic_resolve_positions(unmatched_positions_matrix):
+        for position in self.heuristic_resolve_positions(unmatched_positions_matrix, positions_threshold):
             bt.logging.info(f"Position {position['position_uuid']} matched, adding back in")
             miner_hotkey = position["miner_hotkey"]
             golden_positions[miner_hotkey]["positions"].append(position)
@@ -329,7 +331,7 @@ class P2PSyncer(ValidatorSyncBase):
         bt.logging.info(f"legacy_miner_candidates: {legacy_miner_candidates}")
         return legacy_miners
 
-    def heuristic_resolve_positions(self, position_matrix) -> List[Position]:
+    def heuristic_resolve_positions(self, position_matrix, positions_threshold) -> List[Position]:
         """
         takes a matrix of unmatched positions, and returns a list of positions to add back in
         position_matrix:
@@ -344,7 +346,7 @@ class P2PSyncer(ValidatorSyncBase):
                 for validator_hotkey, position_list in validator.items():
                     for position in position_list:
                         matches = self.find_match(position, trade_pairs[trade_pair], resolved_position_uuids, validator_hotkey)
-                        if matches is not None:
+                        if matches is not None and len(matches) >= positions_threshold:
                             bt.logging.info(f"Miner hotkey {miner_hotkey} has matches {[m['position_uuid'] for m in matches]}")
                             matched_positions.append(matches[0])
         return matched_positions

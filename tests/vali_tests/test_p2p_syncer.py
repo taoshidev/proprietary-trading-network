@@ -493,7 +493,7 @@ class TestPositions(TestBase):
         matrix = {'miner_hotkey_1': {self.DEFAULT_TRADE_PAIR: {'validator_hotkey_1': [json.loads(position1.to_json_string())], 'validator_hotkey_2': [json.loads(position2.to_json_string())]}},
                   'miner_hotkey_2': {self.DEFAULT_TRADE_PAIR: {'validator_hotkey_3': [json.loads(position3.to_json_string())], 'validator_hotkey_4': [json.loads(position4.to_json_string())]}}}
 
-        matched_positions = self.p2p_syncer.heuristic_resolve_positions(matrix)
+        matched_positions = self.p2p_syncer.heuristic_resolve_positions(matrix, 2)
 
         assert len(matched_positions) == 1
         assert matched_positions[0]["position_uuid"] == "test_position1"
