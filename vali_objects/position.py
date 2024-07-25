@@ -4,7 +4,6 @@ from copy import deepcopy
 from typing import Optional, List
 from pydantic import model_validator, BaseModel, Field
 
-
 from time_util.time_util import TimeUtil, MS_IN_8_HOURS, MS_IN_24_HOURS
 from vali_config import TradePair, ValiConfig
 from vali_objects.vali_dataclasses.order import Order

@@ -79,7 +79,7 @@ class ValidatorSyncBase():
             f"Automated sync. hard_snap_cutoff_ms: {TimeUtil.millis_to_formatted_date_str(hard_snap_cutoff_ms)}")
 
         if self.is_mothership:
-            bt.logging.info(f"Mothership detected")
+            bt.logging.info("Mothership detected")
 
         if disk_positions is None:
             disk_positions = self.position_manager.get_all_disk_positions_for_all_miners(only_open_positions=False,
@@ -148,7 +148,7 @@ class ValidatorSyncBase():
         # Write atomically to prevent race condition in perf ledger update.
         self.perf_ledger_hks_to_invalidate = perf_ledger_hks_to_invalidate
         # Print self.global_stats
-        bt.logging.info(f"Global stats:")
+        bt.logging.info("Global stats:")
         for k, v in self.global_stats.items():
             bt.logging.info(f"  {k}: {v}")
         bt.logging.info(f"Position sync took {time.time() - t0} seconds")
@@ -396,26 +396,26 @@ class ValidatorSyncBase():
             print(f'hk {hk} trade pair {trade_pair.trade_pair} - Found {len(candidate_orders)} candidates and'
                   f' {len(existing_orders)} existing orders. stats {stats} min_timestamp_of_order_change {min_timestamp_of_order_change}')
 
-            print(f'  existing:')
+            print('  existing:')
             for x in existing_orders:
                 self.debug_print_order(x)
-            print(f'  candidate:')
+            print('  candidate:')
             for x in candidate_orders:
                 self.debug_print_order(x)
             if inserted:
-                print(f'  inserted:')
+                print('  inserted:')
                 for x in inserted:
                     self.debug_print_order(x)
             if deleted:
-                print(f'  deleted:')
+                print('  deleted:')
                 for x in deleted:
                     self.debug_print_order(x)
             if kept:
-                print(f'  kept:')
+                print('  kept:')
                 for x in kept:
                     self.debug_print_order(x)
             if matched:
-                print(f'  matched:')
+                print('  matched:')
                 print(f'  {len(matched)} matched orders')
                 #for x in matched:
                 #    self.debug_print_order(x)
@@ -561,27 +561,27 @@ class ValidatorSyncBase():
             print(f'hk {hk} trade pair {trade_pair.trade_pair} - Found {len(candidate_positions)} candidates and'
                   f' {len(existing_positions)} existing positions. stats {stats}')
 
-            print(f'  existing positions:')
+            print('  existing positions:')
             for x in existing_positions_original:
                 self.debug_print_pos(x)
-            print(f'  candidate positions:')
+            print('  candidate positions:')
             for x in candidate_positions_original:
                 self.debug_print_pos(x)
             if inserted:
-                print(f'  inserted positions:')
+                print('  inserted positions:')
                 for x in inserted:
                     self.debug_print_pos(x)
             if deleted:
-                print(f'  deleted positions:')
+                print('  deleted positions:')
                 for x in deleted:
                     self.debug_print_pos(x)
             if matched:
-                print(f'  matched positions:')
+                print('  matched positions:')
                 #print(f'  {len(matched)} matched positions')
                 for x in matched:
                     self.debug_print_pos(x)
             if kept:
-                print(f'  kept positions:')
+                print('  kept positions:')
                 for x in kept:
                     self.debug_print_pos(x)
 

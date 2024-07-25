@@ -209,7 +209,7 @@ class PerfLedgerData:
             n_new_updates = 1
             try:
                 delta_return = self.compute_delta_between_ticks(current_portfolio_value, current_cp.prev_portfolio_ret)
-            except Exception as e:
+            except Exception:
                 # print debug info
                 raise (Exception(
                     f"hk {miner_hotkey} Error computing delta between ticks. cur: {current_portfolio_value}, prev: {current_cp.prev_portfolio_ret}. cp {current_cp} cpc {current_portfolio_carry}"))

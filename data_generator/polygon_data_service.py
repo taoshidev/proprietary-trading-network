@@ -1,6 +1,5 @@
 import threading
 import traceback
-from collections import Counter
 
 
 from typing import List

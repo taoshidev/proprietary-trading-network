@@ -193,7 +193,7 @@ if __name__ == "__main__":
             print(f"{rank}. {miner} - Original Score: {original_score:.4e}, Weighted Score: {weighted_score:.2f}")
         print()
 
-    print(f"\nMiner Penalties:\n")
+    print("\nMiner Penalties:\n")
     for miner, penalty in miner_penalties.items():
         print(f"{miner}: {penalty:.2f}")
 

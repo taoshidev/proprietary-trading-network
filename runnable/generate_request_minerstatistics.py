@@ -104,7 +104,7 @@ def generate_request_minerstatistics(time_now:int):
 
     ## Penalties
     miner_penalties = Scoring.miner_penalties(filtered_ledger)
-    fullpenalty_miners: list[tuple[str, float]] = [ ( miner, 0 ) for miner, penalty in miner_penalties.items() if penalty == 0 ]
+    fullpenalty_miners: list[tuple[str, float]] = [ ( miner, 0 ) for miner, penalty in miner_penalties.items() if penalty == 0 ]  # noqa: F841
 
     consistency_penalties = {}
     drawdown_penalties = {}

@@ -806,7 +806,7 @@ class TestPositions(TestBase):
 
     def test_invalid_prices_negative(self):
         with self.assertRaises(ValueError):
-            o1 = Order(order_type=OrderType.LONG,
+            o1 = Order(order_type=OrderType.LONG,  # noqa: F841
                        leverage=1.0,
                        price=-1,
                        trade_pair=TradePair.BTCUSD,
