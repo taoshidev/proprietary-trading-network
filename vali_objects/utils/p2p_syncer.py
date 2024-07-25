@@ -5,13 +5,11 @@ import json
 import math
 import traceback
 from collections import defaultdict
-from copy import deepcopy
 from typing import List
 
 import bittensor as bt
 
 import template
-from runnable.generate_request_core import generate_request_core
 from time_util.time_util import TimeUtil
 from vali_config import TradePair
 from vali_config import ValiConfig
