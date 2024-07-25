@@ -190,7 +190,7 @@ class P2PSyncer(ValidatorSyncBase):
 
         # insert heuristic matched positions back into the golden's positions
         for position in self.heuristic_resolve_positions(unmatched_positions_matrix, positions_threshold):
-            bt.logging.info(f"Position {position['position_uuid']} matched, adding back in")
+            bt.logging.info(f"Position {position['position_uuid']} on miner {position['miner_hotkey']} matched, adding back in")
             miner_hotkey = position["miner_hotkey"]
             golden_positions[miner_hotkey]["positions"].append(position)
 
@@ -346,7 +346,7 @@ class P2PSyncer(ValidatorSyncBase):
                 for validator_hotkey, position_list in validator.items():
                     for position in position_list:
                         matches = self.find_match(position, trade_pairs[trade_pair], resolved_position_uuids, validator_hotkey)
-                        if matches is not None and len(matches) >= positions_threshold:
+                        if matches is not None and len(matches) > positions_threshold:
                             bt.logging.info(f"Miner hotkey {miner_hotkey} has matches {[m['position_uuid'] for m in matches]}")
                             matched_positions.append(matches[0])
         return matched_positions
@@ -420,7 +420,7 @@ class P2PSyncer(ValidatorSyncBase):
         """
         threshold for including a position or order in the golden
         """
-        return min(2, math.ceil(total_items / 2))
+        return math.ceil(total_items / 2)
 
     def get_median_order(self, orders, trade_pair) -> Order:
         """
@@ -477,7 +477,7 @@ class P2PSyncer(ValidatorSyncBase):
         else:
             # Check if we are between 7:09 AM and 7:19 AM UTC
             # Temp change time to 21:00 UTC so we can see the effects in shadow mode ASAP
-            if not (datetime_now.hour == 17 and (18 < datetime_now.minute < 30)):
+            if not (datetime_now.hour == 3 and (18 < datetime_now.minute < 30)):
                 return
 
         try:
