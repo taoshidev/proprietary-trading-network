@@ -475,12 +475,12 @@ class P2PSyncer(ValidatorSyncBase):
         # Check if the time is right to sync signals
         if self.is_testnet:
             # every hour in testnet
-            if not (37 < datetime_now.minute < 47):
+            if not (47 < datetime_now.minute < 57):
                 return
         else:
             # Check if we are between 7:09 AM and 7:19 AM UTC
             # Temp change time to 21:00 UTC so we can see the effects in shadow mode ASAP
-            if not (datetime_now.hour == 4 and (18 < datetime_now.minute < 30)):
+            if not (datetime_now.hour == 5 and (18 < datetime_now.minute < 30)):
                 return
 
         try:
