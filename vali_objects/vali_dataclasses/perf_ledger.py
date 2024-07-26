@@ -57,7 +57,7 @@ class FeeCache():
 
         # cache miss
         carry_fee, next_update_time_ms = position.get_carry_fee(current_time_ms)
-        assert next_update_time_ms > current_time_ms, [TimeUtil.millis_to_verbose_formatted_date_str(x) for x in (self.carry_fee_next_increase_time_ms, next_update_time_ms, current_time_ms)] + [carry_fee, position]
+        assert next_update_time_ms > current_time_ms, [TimeUtil.millis_to_verbose_formatted_date_str(x) for x in (self.carry_fee_next_increase_time_ms, next_update_time_ms, current_time_ms)] + [carry_fee, position] + [self.carry_fee_next_increase_time_ms, next_update_time_ms, current_time_ms]
 
         assert carry_fee >= 0, (carry_fee, next_update_time_ms, position)
         self.carry_fee = carry_fee
@@ -1007,6 +1007,6 @@ if __name__ == "__main__":
     all_hotkeys_on_disk = CacheController.get_directory_names(all_miners_dir)
     mmg = MockMetagraph(hotkeys=all_hotkeys_on_disk)
     perf_ledger_manager = PerfLedgerManager(metagraph=mmg, running_unit_tests=False)
-    #perf_ledger_manager.update(testing_one_hotkey='5CSHrvBiEJAFAAj7YAr5y8jzmpFajRsV9PahphPGi7P8PZrA')
+    #perf_ledger_manager.update(testing_one_hotkey='5EUTaAo7vCGxvLDWRXRrEuqctPjt9fKZmgkaeFZocWECUe9X')
     perf_ledger_manager.update(regenerate_all_ledgers=True)
 
