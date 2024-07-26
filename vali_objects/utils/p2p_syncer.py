@@ -172,7 +172,8 @@ class P2PSyncer(ValidatorSyncBase):
         seen_positions = set()
         seen_orders = set()
 
-        unmatched_positions_matrix = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))  # {miner hotkey: {trade pair: {validator hotkey: [all unmatched positions on validator]}}}
+        positions_matrix = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))  # {miner hotkey: {trade pair: {validator hotkey: [all positions on validator]}}}
+        matched_position_uuids = set()
 
         for validator_hotkey, checkpoint in valid_checkpoints.items():
             positions = checkpoint[1]["positions"]
@@ -180,17 +181,15 @@ class P2PSyncer(ValidatorSyncBase):
                 if miner_counts[miner_hotkey] < positions_threshold:
                     continue
 
-                positions_in_majority, unmatched_positions = self.sort_positions(miner_hotkey, miner_positions, majority_positions, seen_positions, seen_orders, position_counts, order_counts, order_data)
-                golden_positions[miner_hotkey]["positions"].extend(positions_in_majority)
-                for position in unmatched_positions:
-                    unmatched_positions_matrix[miner_hotkey][position["trade_pair"][0]][validator_hotkey].append(position)
-                    position_uuid = position["position_uuid"]
-                    bt.logging.info(
-                        f"Position {position_uuid} only appeared [{position_counts[position_uuid]}/{len(valid_checkpoints)}] times on miner {miner_hotkey}. Skipping")
+                uuid_matched_positions, _ = self.sort_positions(miner_hotkey, miner_positions, majority_positions, seen_positions, seen_orders, position_counts, order_counts, order_data)
+                golden_positions[miner_hotkey]["positions"].extend(uuid_matched_positions)
+                matched_position_uuids.update([pos["position_uuid"] for pos in uuid_matched_positions])
+                for position in miner_positions["positions"]:
+                    positions_matrix[miner_hotkey][position["trade_pair"][0]][validator_hotkey].append(position)
 
         # insert heuristic matched positions back into the golden's positions
-        for position in self.heuristic_resolve_positions(unmatched_positions_matrix, positions_threshold):
-            bt.logging.info(f"Position {position['position_uuid']} matched, adding back in")
+        for position in self.heuristic_resolve_positions(positions_matrix, positions_threshold, matched_position_uuids):
+            bt.logging.info(f"Position {position['position_uuid']} on miner {position['miner_hotkey']} matched, adding back in")
             miner_hotkey = position["miner_hotkey"]
             golden_positions[miner_hotkey]["positions"].append(position)
 
@@ -206,7 +205,7 @@ class P2PSyncer(ValidatorSyncBase):
         """
         determine which positions are in the majority, and which ones should be matched up using a heuristic
         """
-        positions_in_majority = []
+        uuid_matched_positions = []
         unmatched_positions = []
 
         for position in miner_positions["positions"]:
@@ -246,12 +245,12 @@ class P2PSyncer(ValidatorSyncBase):
                 new_position.orders.sort(key=lambda o: o.processed_ms)
                 new_position.rebuild_position_with_updated_orders()
                 position_dict = json.loads(new_position.to_json_string())
-                positions_in_majority.append(position_dict)
+                uuid_matched_positions.append(position_dict)
             # if our position is not in the majority, it may be from legacy miner code, and we want to match with a heuristic.
             elif (position_uuid not in seen_positions
                   and position_counts[position_uuid] != 0):
                 unmatched_positions.append(position)
-        return positions_in_majority, unmatched_positions
+        return uuid_matched_positions, unmatched_positions
 
     def checkpoint_summary(self, checkpoint):
         """
@@ -331,11 +330,11 @@ class P2PSyncer(ValidatorSyncBase):
         bt.logging.info(f"legacy_miner_candidates: {legacy_miner_candidates}")
         return legacy_miners
 
-    def heuristic_resolve_positions(self, position_matrix, positions_threshold) -> List[Position]:
+    def heuristic_resolve_positions(self, position_matrix, positions_threshold, matched_position_uuids) -> List[Position]:
         """
         takes a matrix of unmatched positions, and returns a list of positions to add back in
         position_matrix:
-            {miner hotkey: {trade pair: {validator hotkey: [all unmatched positions on validator]}}}
+            {miner hotkey: {trade pair: {validator hotkey: [all positions on validator]}}}
         """
         resolved_position_uuids = set()
 
@@ -346,8 +345,12 @@ class P2PSyncer(ValidatorSyncBase):
                 for validator_hotkey, position_list in validator.items():
                     for position in position_list:
                         matches = self.find_match(position, trade_pairs[trade_pair], resolved_position_uuids, validator_hotkey)
-                        if matches is not None and len(matches) >= positions_threshold:
+                        if (matches is not None
+                                and len(matches) >= positions_threshold
+                                and set([match["position_uuid"] for match in matches]).isdisjoint(matched_position_uuids)):
+                            # see if no elements from matches have already appeared in uuid_matched_positions
                             bt.logging.info(f"Miner hotkey {miner_hotkey} has matches {[m['position_uuid'] for m in matches]}")
+                            # bt.logging.info(f"uuid_matched {uuid_matched_positions_set}")
                             matched_positions.append(matches[0])
         return matched_positions
 
@@ -477,7 +480,7 @@ class P2PSyncer(ValidatorSyncBase):
         else:
             # Check if we are between 7:09 AM and 7:19 AM UTC
             # Temp change time to 21:00 UTC so we can see the effects in shadow mode ASAP
-            if not (datetime_now.hour == 17 and (18 < datetime_now.minute < 30)):
+            if not (datetime_now.hour == 5 and (18 < datetime_now.minute < 30)):
                 return
 
         try:
