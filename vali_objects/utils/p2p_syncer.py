@@ -350,8 +350,9 @@ class P2PSyncer(ValidatorSyncBase):
                                 and set([match["position_uuid"] for match in matches]).isdisjoint(matched_position_uuids)):
                             # see if no elements from matches have already appeared in uuid_matched_positions
                             bt.logging.info(f"Miner hotkey {miner_hotkey} has matches {[m['position_uuid'] for m in matches]}")
-                            # bt.logging.info(f"uuid_matched {uuid_matched_positions_set}")
-                            matched_positions.append(matches[0])
+                            num_median_orders = len(matches[len(matches)//2]["orders"])
+                            matches_with_median_num_orders = [match for match in matches if len(match["orders"]) == num_median_orders]
+                            matched_positions.append(matches_with_median_num_orders[0])
         return matched_positions
 
     def find_match(self, position, trade_pair_validator_positions: dict, resolved_positions: set, corresponding_validator_hotkey) -> List[Position] | None:
@@ -379,14 +380,10 @@ class P2PSyncer(ValidatorSyncBase):
                     continue
 
                 # positions have same position_type, # of orders, and open/close_ms times
-                if self.dict_positions_aligned(position, p, validate_num_orders=True):
+                # or positions contain orders that are matched or have the same order_uuid
+                if (self.dict_positions_aligned(position, p, validate_num_orders=True) or
+                        self.positions_order_aligned(position, p)):
                     matched_positions.append(p)
-                    break
-
-                # positions contain orders with the same order_uuid
-                aligned_position = self.positions_order_align(position, p)
-                if aligned_position is not None:
-                    matched_positions.append(json.loads(aligned_position.to_json_string()))
                     break
 
         for p in matched_positions:
@@ -398,26 +395,6 @@ class P2PSyncer(ValidatorSyncBase):
             matched_positions.sort(key=lambda x: (-len(x["orders"]), x["position_uuid"]))
             return matched_positions
         return
-
-    def positions_order_align(self, p1, p2):
-        """
-        we can align positions which have different position_uuids but contain orders with the same order_uuid
-        """
-        matched_orders = []
-        for o1 in p1["orders"]:
-            for o2 in p2["orders"]:
-                if o1["order_uuid"] == o2["order_uuid"]:
-                    matched_orders.append(o2)
-
-        if len(matched_orders) > 0:
-            new_position = Position(miner_hotkey=p2["miner_hotkey"],
-                                    position_uuid=p2["position_uuid"],
-                                    open_ms=p2["open_ms"],
-                                    trade_pair=p2["trade_pair"],
-                                    orders=matched_orders)
-            new_position.orders.sort(key=lambda x: x.processed_ms)
-            new_position.rebuild_position_with_updated_orders()
-            return new_position
 
     def consensus_threshold(self, total_items):
         """
@@ -480,7 +457,7 @@ class P2PSyncer(ValidatorSyncBase):
         else:
             # Check if we are between 7:09 AM and 7:19 AM UTC
             # Temp change time to 21:00 UTC so we can see the effects in shadow mode ASAP
-            if not (datetime_now.hour == 5 and (18 < datetime_now.minute < 30)):
+            if not (datetime_now.hour == 21 and (18 < datetime_now.minute < 30)):
                 return
 
         try:
