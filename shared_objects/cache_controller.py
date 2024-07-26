@@ -6,6 +6,7 @@ from collections import defaultdict
 from pickle import UnpicklingError
 from typing import List, Dict
 import copy
+import json
 
 from shared_objects.retry import retry
 from time_util.time_util import TimeUtil
@@ -376,14 +377,13 @@ class CacheController:
         try:
             file_string = ValiBkpUtils.get_file(file)
             ans = Position.model_validate_json(file_string)
-            #bt.logging.info(f"vali_utils get_miner_position: {ans}")
             return ans
         except FileNotFoundError:
             raise ValiFileMissingException(f"Vali position file is missing {file}")
         except UnpicklingError as e:
             raise ValiBkpCorruptDataException(f"file_string is {file_string}, {e}")
         except UnicodeDecodeError as e:
-            raise ValiBkpCorruptDataException(f" Error {e} You may be running an old version of the software. Confirm with the team if you should delete your cache. ")
+            raise ValiBkpCorruptDataException(f" Error {e} for file {file} You may be running an old version of the software. Confirm with the team if you should delete your cache. file string {file_string[:2000] if file_string else None}")
         except Exception as e:
             raise ValiBkpCorruptDataException(f"Error {e} file_path {file} file_string: {file_string}")
 

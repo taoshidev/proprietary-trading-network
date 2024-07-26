@@ -241,6 +241,8 @@ class ValiBkpUtils:
             for filename in filenames:
                 if filename == '.DS_Store':
                     continue  # Skip .DS_Store files
+                elif filename.endswith('.swp'):
+                    continue
                 filepath = os.path.join(dirpath, filename)
                 if '/open/' in filepath:  # Check if file is in an "open" subdirectory
                     open_files.append(filepath)

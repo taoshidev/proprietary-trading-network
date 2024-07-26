@@ -1,9 +1,10 @@
 # developer: Taoshidev
 # Copyright © 2024 Taoshi Inc
-
+from time_util.time_util import TimeUtil
 from vali_config import TradePair
 from vali_objects.enums.order_type_enum import OrderType
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, field_validator, model_validator
+from vali_config import ValiConfig
 
 class Signal(BaseModel):
     trade_pair: TradePair
@@ -19,16 +20,16 @@ class Signal(BaseModel):
             leverage = -1.0 * abs(leverage)
         return leverage
 
-    @field_validator('trade_pair', 'order_type', 'leverage', mode='before')
-    def validate_trade_pair_and_leverage(cls, v, info):
-        if info.field_name == 'leverage':
-            trade_pair = info.data.get('trade_pair')
-            order_type = info.data.get('order_type')
-            is_flat_order = order_type == OrderType.FLAT
-            if not is_flat_order and trade_pair and not (trade_pair.min_leverage <= abs(v) <= trade_pair.max_leverage):
-                raise ValueError(
-                    f"Leverage must be between {trade_pair.min_leverage} and {trade_pair.max_leverage}, provided - [{v}]")
-        return v
+    @model_validator(mode='before')
+    def validate_trade_pair_and_leverage(cls, values):
+        trade_pair = values['trade_pair']
+        order_type = values['order_type']
+        lev = values['leverage']
+        is_flat_order = order_type == OrderType.FLAT or order_type == 'FLAT'
+        if not is_flat_order and trade_pair and not (ValiConfig.ORDER_MIN_LEVERAGE <= abs(lev) <= ValiConfig.ORDER_MAX_LEVERAGE):
+            raise ValueError(
+                f"Order leverage must be between {ValiConfig.ORDER_MIN_LEVERAGE} and {ValiConfig.ORDER_MAX_LEVERAGE}, provided - lev [{lev}] and order_type [{order_type}] ({type(order_type)})")
+        return values
 
     def __str__(self):
         return str({'trade_pair': str(self.trade_pair),
