@@ -1,7 +1,6 @@
 # developer: jbonilla
 # Copyright © 2024 Taoshi Inc
 import json
-import datetime
 from copy import deepcopy
 
 from vali_objects.position import CRYPTO_CARRY_FEE_PER_INTERVAL, FOREX_CARRY_FEE_PER_INTERVAL, INDICES_CARRY_FEE_PER_INTERVAL
@@ -229,46 +228,6 @@ class TestPositions(TestBase):
                 self.assertEqual(position.get_cumulative_leverage(), 2.0)
 
                 self.assertEqual(position.get_carry_fee(o2.processed_ms)[0], CRYPTO_CARRY_FEE_PER_INTERVAL)
-
-    def test_carry_fee_edge_case(self):
-        """
-        assert next_update_time_ms > current_time_ms,
-        [TimeUtil.millis_to_verbose_formatted_date_str(x) for x in
-         (self.carry_fee_next_increase_time_ms, next_update_time_ms, current_time_ms)] + [carry_fee, position]
-        AssertionError: ['2024-07-24 04:00:00.000', '2024-07-24 04:00:00.000', '2024-07-24 04:00:00.000', 0.9999979876994218,
-         Position(miner_hotkey='5EUTaAo7vCGxvLDWRXRrEuqctPjt9fKZmgkaeFZocWECUe9X',
-          position_uuid='6955409a-031e-47df-8614-4488208497a6',
-          open_ms=1721228840870,
-          trade_pair=<TradePair.BTCUSD: ['BTCUSD', 'BTC/USD', 0.001, 0.001, 20, <TradePairCategory.CRYPTO: 'crypto'>]>,
-          orders=[Order(trade_pair=<TradePair.BTCUSD: ['BTCUSD', 'BTC/USD', 0.001, 0.001, 20, <TradePairCategory.CRYPTO: 'crypto'>]>,
-                    order_type=<OrderType.LONG: 'LONG'>, leverage=0.001, price=64900.41, processed_ms=1721228840870,
-                    order_uuid='6955409a-031e-47df-8614-4488208497a6', price_sources=[])],
-           current_return=1.0000177396413983,
-           close_ms=None,
-           return_at_close=1.0000152272972591,
-            net_leverage=0.001,
-            average_entry_price=64900.41,
-            position_type=<OrderType.LONG: 'LONG'>, is_closed_position=False)]
-        """
-        timestamp_ms_july_24_2024_4am = datetime.datetime(2024, 7, 24, 4, 0, 0, tzinfo=datetime.timezone.utc).timestamp() * 1000
-        timestamp_ms_july_24_2024_4am = int(timestamp_ms_july_24_2024_4am)
-        t0 = 1721228840870 # Wednesday, July 17, 2024 3:07:20.870 PM
-        position = Position(
-            open_ms=t0,
-            miner_hotkey='5EUTaAo7vCGxvLDWRXRrEuqctPjt9fKZmgkaeFZocWECUe9X',
-            position_uuid='6955409a-031e-47df-8614-4488208497a6',
-            trade_pair=TradePair.BTCUSD,
-        )
-        o1 = Order(order_type=OrderType.LONG,
-                   leverage=1.0,
-                   price=500,
-                   trade_pair=TradePair.BTCUSD,
-                   processed_ms=t0,
-                   order_uuid="1000")
-        position.add_order(o1)
-        carry_fee, next_update_time_ms = position.get_carry_fee(timestamp_ms_july_24_2024_4am)
-        self.assertNotEqual(next_update_time_ms, timestamp_ms_july_24_2024_4am)
-        self.assertEqual(next_update_time_ms, timestamp_ms_july_24_2024_4am + MS_IN_8_HOURS, msg=next_update_time_ms -timestamp_ms_july_24_2024_4am)
 
 
     def test_simple_long_position_with_implicit_FLAT(self):

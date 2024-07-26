@@ -315,75 +315,58 @@ class TimeUtil:
         return int(dt.replace(hour=0, minute=0, second=0, microsecond=0).timestamp() * 1000)
 
     @staticmethod
-    def delta_ms_to_next_crypto_interval(t_ms: int):
-        # Convert the timestamp to a datetime object in UTC
-        dt = TimeUtil.millis_to_timestamp(t_ms, change_timezone=False)
-
-        # Get the current hour
-        hour = dt.hour
-
-        # Calculate the start of the next day (UTC)
-        if hour < 4:
-            next_interval = dt.replace(hour=4, minute=0, second=0, microsecond=0)
-        elif hour < 12:
-            next_interval = dt.replace(hour=12, minute=0, second=0, microsecond=0)
-        elif hour < 20:
-            next_interval = dt.replace(hour=20, minute=0, second=0, microsecond=0)
-        elif hour < 24:
-            temp = dt + timedelta(days=1)
-            next_interval = temp.replace(hour=4, minute=0, second=0, microsecond=0)
-        else:
-            raise Exception(f'Unexpected hour: {hour}')
-
-        # Calculate the difference in milliseconds
-        delta_ms = (next_interval - dt).total_seconds() * 1000
-        return int(delta_ms)
-
-    @staticmethod
     def n_intervals_elapsed_crypto(start_ms:int, current_time_ms:int) -> Tuple[int, int]:
         elapsed_ms = current_time_ms - start_ms
         #print(f'Start time {TimeUtil.millis_to_formatted_date_str(start_ms)} end time {TimeUtil.millis_to_formatted_date_str(current_time_ms)}')
 
+        start_date_utc = TimeUtil.millis_to_timestamp(start_ms, change_timezone=False)
+        #current_date_utc = TimeUtil.millis_to_timestamp(current_time_ms, change_timezone=False)
+        start_hour = start_date_utc.hour
+        # Calculate the start of the next day (UTC)
+        if start_hour < 4:
+            first_interval = start_date_utc.replace(hour=4, minute=0, second=0, microsecond=0)
+        elif start_hour < 12:
+            first_interval = start_date_utc.replace(hour=12, minute=0, second=0, microsecond=0)
+        elif start_hour < 20:
+            first_interval = start_date_utc.replace(hour=20, minute=0, second=0, microsecond=0)
+        elif start_hour < 24:
+            temp = start_date_utc + timedelta(days=1)
+            first_interval = temp.replace(hour=4, minute=0, second=0, microsecond=0)
+        else:
+            raise Exception(f'Unexpected hour: {start_hour}')
+
+
         n_intervals = elapsed_ms // MS_IN_8_HOURS
         remainder_ms = elapsed_ms % MS_IN_8_HOURS
         #print(f'n_intervals {n_intervals} remainder_ms {remainder_ms}')
-        delta_ms_to_first_interval = TimeUtil.delta_ms_to_next_crypto_interval(start_ms)
+        delta_ms_to_first_interval = (first_interval.timestamp() - start_date_utc.timestamp()) * 1000
         if remainder_ms >= delta_ms_to_first_interval:
             n_intervals += 1
+        #print(f'delta_ms_to_first_interval {delta_ms_to_first_interval} n_intervals {n_intervals}')
+        #print(f'@@@@@ time_until_next_interval_ms {time_until_next_interval_ms} emi {emi} n_intervals {n_intervals} elapsed_ms {elapsed_ms}')
 
-        return n_intervals, TimeUtil.delta_ms_to_next_crypto_interval(current_time_ms)
-
-    @staticmethod
-    def delta_ms_to_next_forex_indices_interval(t_ms: int):
-        # Convert the timestamp to a datetime object in UTC
-        dt = TimeUtil.millis_to_timestamp(t_ms, change_timezone=False)
-
-        # Get the current hour
-        hour = dt.hour
-
-        # Calculate the start of the next day (UTC)
-        if hour < 21:
-            next_interval = dt.replace(hour=21, minute=0, second=0, microsecond=0)
-        else:
-            temp = dt + timedelta(days=1)
-            next_interval = temp.replace(hour=21, minute=0, second=0, microsecond=0)
-
-        # Calculate the difference in milliseconds
-        delta_ms = (next_interval - dt).total_seconds() * 1000
-        return int(delta_ms)
+        return n_intervals, start_ms + delta_ms_to_first_interval + n_intervals * MS_IN_8_HOURS - current_time_ms
 
     @staticmethod
     def n_intervals_elapsed_forex_indices(start_ms: int, current_time_ms: int) -> Tuple[int, int]:
         elapsed_ms = current_time_ms - start_ms
+        start_date_utc = TimeUtil.millis_to_timestamp(start_ms, change_timezone=False)
+        start_hour = start_date_utc.hour
+        # Calculate the start of the next day (UTC)
+        if start_hour < 21:
+            first_interval = start_date_utc.replace(hour=21, minute=0, second=0, microsecond=0)
+        else:
+            temp = start_date_utc + timedelta(days=1)
+            first_interval = temp.replace(hour=21, minute=0, second=0, microsecond=0)
 
         n_intervals = elapsed_ms // MS_IN_24_HOURS
         remainder_ms = elapsed_ms % MS_IN_24_HOURS
 
-        delta_ms_to_first_interval = TimeUtil.delta_ms_to_next_forex_indices_interval(start_ms)
+        delta_ms_to_first_interval = (first_interval.timestamp() - start_date_utc.timestamp()) * 1000
         if remainder_ms >= delta_ms_to_first_interval:
             n_intervals += 1
 
-        return n_intervals, TimeUtil.delta_ms_to_next_forex_indices_interval(current_time_ms)
+        return n_intervals, start_ms + delta_ms_to_first_interval + n_intervals * MS_IN_24_HOURS - current_time_ms
 
     @staticmethod
     def get_day_of_week_from_timestamp(ms_timestamp: int) -> int:
