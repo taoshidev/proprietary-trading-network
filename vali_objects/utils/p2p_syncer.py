@@ -173,7 +173,7 @@ class P2PSyncer(ValidatorSyncBase):
         seen_orders = set()
 
         positions_matrix = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))  # {miner hotkey: {trade pair: {validator hotkey: [all positions on validator]}}}
-        uuid_matched_positions_set = set()
+        matched_position_uuids = set()
 
         for validator_hotkey, checkpoint in valid_checkpoints.items():
             positions = checkpoint[1]["positions"]
@@ -183,12 +183,12 @@ class P2PSyncer(ValidatorSyncBase):
 
                 uuid_matched_positions, _ = self.sort_positions(miner_hotkey, miner_positions, majority_positions, seen_positions, seen_orders, position_counts, order_counts, order_data)
                 golden_positions[miner_hotkey]["positions"].extend(uuid_matched_positions)
-                uuid_matched_positions_set.update([pos["position_uuid"] for pos in uuid_matched_positions])
+                matched_position_uuids.update([pos["position_uuid"] for pos in uuid_matched_positions])
                 for position in miner_positions["positions"]:
                     positions_matrix[miner_hotkey][position["trade_pair"][0]][validator_hotkey].append(position)
 
         # insert heuristic matched positions back into the golden's positions
-        for position in self.heuristic_resolve_positions(positions_matrix, positions_threshold, uuid_matched_positions_set):
+        for position in self.heuristic_resolve_positions(positions_matrix, positions_threshold, matched_position_uuids):
             bt.logging.info(f"Position {position['position_uuid']} on miner {position['miner_hotkey']} matched, adding back in")
             miner_hotkey = position["miner_hotkey"]
             golden_positions[miner_hotkey]["positions"].append(position)
@@ -330,7 +330,7 @@ class P2PSyncer(ValidatorSyncBase):
         bt.logging.info(f"legacy_miner_candidates: {legacy_miner_candidates}")
         return legacy_miners
 
-    def heuristic_resolve_positions(self, position_matrix, positions_threshold, uuid_matched_positions_set) -> List[Position]:
+    def heuristic_resolve_positions(self, position_matrix, positions_threshold, matched_position_uuids) -> List[Position]:
         """
         takes a matrix of unmatched positions, and returns a list of positions to add back in
         position_matrix:
@@ -347,9 +347,10 @@ class P2PSyncer(ValidatorSyncBase):
                         matches = self.find_match(position, trade_pairs[trade_pair], resolved_position_uuids, validator_hotkey)
                         if (matches is not None
                                 and len(matches) >= positions_threshold
-                                and set([match["position_uuid"] for match in matches]).isdisjoint(uuid_matched_positions_set)):
+                                and set([match["position_uuid"] for match in matches]).isdisjoint(matched_position_uuids)):
                             # see if no elements from matches have already appeared in uuid_matched_positions
                             bt.logging.info(f"Miner hotkey {miner_hotkey} has matches {[m['position_uuid'] for m in matches]}")
+                            # bt.logging.info(f"uuid_matched {uuid_matched_positions_set}")
                             matched_positions.append(matches[0])
         return matched_positions
 
@@ -474,12 +475,12 @@ class P2PSyncer(ValidatorSyncBase):
         # Check if the time is right to sync signals
         if self.is_testnet:
             # every hour in testnet
-            if not (47 < datetime_now.minute < 57):
+            if not (37 < datetime_now.minute < 47):
                 return
         else:
             # Check if we are between 7:09 AM and 7:19 AM UTC
             # Temp change time to 21:00 UTC so we can see the effects in shadow mode ASAP
-            if not (datetime_now.hour == 3 and (18 < datetime_now.minute < 30)):
+            if not (datetime_now.hour == 4 and (18 < datetime_now.minute < 30)):
                 return
 
         try:
