@@ -1,4 +1,4 @@
-LEVERAGE_BOUNDS_V2_START_TIME_MS = 1721357668000  # TODO update this to PR time
+LEVERAGE_BOUNDS_V2_START_TIME_MS = 1722018483000
 from vali_config import TradePair
 
 def positional_leverage_limit_v1(trade_pair: TradePair) -> int:
