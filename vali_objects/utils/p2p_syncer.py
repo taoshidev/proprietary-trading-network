@@ -188,7 +188,7 @@ class P2PSyncer(ValidatorSyncBase):
                     positions_matrix[miner_hotkey][position["trade_pair"][0]][validator_hotkey].append(position)
 
         # insert heuristic matched positions back into the golden's positions
-        for position in self.heuristic_resolve_positions(positions_matrix, positions_threshold, matched_position_uuids):
+        for position in self.heuristic_resolve_positions(positions_matrix, len(valid_checkpoints), matched_position_uuids):
             bt.logging.info(f"Position {position['position_uuid']} on miner {position['miner_hotkey']} matched, adding back in")
             miner_hotkey = position["miner_hotkey"]
             golden_positions[miner_hotkey]["positions"].append(position)
@@ -330,7 +330,7 @@ class P2PSyncer(ValidatorSyncBase):
         bt.logging.info(f"legacy_miner_candidates: {legacy_miner_candidates}")
         return legacy_miners
 
-    def heuristic_resolve_positions(self, position_matrix, positions_threshold, matched_position_uuids) -> List[Position]:
+    def heuristic_resolve_positions(self, position_matrix, num_checkpoints, matched_position_uuids) -> List[Position]:
         """
         takes a matrix of unmatched positions, and returns a list of positions to add back in
         position_matrix:
@@ -346,7 +346,7 @@ class P2PSyncer(ValidatorSyncBase):
                     for position in position_list:
                         matches = self.find_match(position, trade_pairs[trade_pair], resolved_position_uuids, validator_hotkey)
                         if (matches is not None
-                                and len(matches) >= positions_threshold
+                                and len(matches) > self.consensus_threshold(num_checkpoints, heuristic_match=True)
                                 and set([match["position_uuid"] for match in matches]).isdisjoint(matched_position_uuids)):
                             # see if no elements from matches have already appeared in uuid_matched_positions
                             bt.logging.info(f"Miner hotkey {miner_hotkey} has matches {[m['position_uuid'] for m in matches]}")
@@ -396,11 +396,14 @@ class P2PSyncer(ValidatorSyncBase):
             return matched_positions
         return
 
-    def consensus_threshold(self, total_items):
+    def consensus_threshold(self, total_items, heuristic_match=False):
         """
         threshold for including a position or order in the golden
         """
-        return min(2, math.ceil(total_items / 2))
+        if heuristic_match:
+            return math.floor(total_items / 2)
+        else:
+            return min(2, math.ceil(total_items / 2))
 
     def get_median_order(self, orders, trade_pair) -> Order:
         """
@@ -457,7 +460,7 @@ class P2PSyncer(ValidatorSyncBase):
         else:
             # Check if we are between 7:09 AM and 7:19 AM UTC
             # Temp change time to 21:00 UTC so we can see the effects in shadow mode ASAP
-            if not (datetime_now.hour == 21 and (18 < datetime_now.minute < 30)):
+            if not (datetime_now.hour == 1 and (18 < datetime_now.minute < 30)):
                 return
 
         try:
