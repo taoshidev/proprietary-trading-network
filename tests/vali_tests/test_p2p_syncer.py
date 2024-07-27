@@ -547,7 +547,8 @@ class TestPositions(TestBase):
 
     def test_position_with_mixed_order_uuids(self):
         """
-        heuristically combine positions with different position_uuids. match order2 and order2x, order3
+        Heuristically combine positions with different position_uuids.
+        Match the positions on a order-by-order basis, based on heuristics or order_uuid.
         """
         order1 = deepcopy(self.default_order)
         order1.order_uuid = "test_order1"
@@ -609,3 +610,86 @@ class TestPositions(TestBase):
 
         assert len(self.p2p_syncer.golden["positions"][self.DEFAULT_MINER_HOTKEY]["positions"]) == 1
         assert len(self.p2p_syncer.golden["positions"][self.DEFAULT_MINER_HOTKEY]["positions"][0]["orders"]) == 2
+
+    def test_order_duplicated_across_multiple_positions(self):
+        """
+        An order could be duplicated across position A and B on a single validator.
+        Heuristic matches have a higher threshold, so must show up on at least >50% of validators.
+        """
+        order1 = deepcopy(self.default_order)
+        order1.order_uuid = "test_order1"
+        order1.processed_ms = 1000
+        order2 = deepcopy(self.default_order)
+        order2.order_uuid = "test_order2"
+        order2.processed_ms = TimeUtil.now_in_millis()
+        order2.leverage = 0.5
+        order2.order_type = "LONG"
+        orders = [order1, order2]
+        position1 = deepcopy(self.default_position)
+        position1.position_uuid = "test_position1"
+        position1.orders = orders
+        position1.rebuild_position_with_updated_orders()
+
+        orders = [order2]
+        position2 = deepcopy(self.default_position)
+        position2.position_uuid = "test_position2"
+        position2.orders = orders
+        position2.rebuild_position_with_updated_orders()
+
+        checkpoint1 = {
+            "positions": {self.DEFAULT_MINER_HOTKEY: {"positions": [json.loads(position1.to_json_string()), json.loads(position2.to_json_string())]}}}
+
+        orders = [order1, order2]
+        position1x = deepcopy(self.default_position)
+        position1x.position_uuid = "test_position1x"
+        position1x.orders = orders
+        position1x.rebuild_position_with_updated_orders()
+
+        checkpoint2 = {
+            "positions": {self.DEFAULT_MINER_HOTKEY: {"positions": [json.loads(position1x.to_json_string())]}}}
+
+        orders = [order1, order2]
+        position1y = deepcopy(self.default_position)
+        position1y.position_uuid = "test_position1y"
+        position1y.orders = orders
+        position1y.rebuild_position_with_updated_orders()
+
+        orders = [order2]
+        position2x = deepcopy(self.default_position)
+        position2x.position_uuid = "test_position2x"
+        position2x.orders = orders
+        position2x.rebuild_position_with_updated_orders()
+
+        checkpoint3 = {
+            "positions": {self.DEFAULT_MINER_HOTKEY: {"positions": [json.loads(position1y.to_json_string()), json.loads(position2x.to_json_string())]}}}
+
+        orders = [order1, order2]
+        position1z = deepcopy(self.default_position)
+        position1z.position_uuid = "test_position1z"
+        position1z.orders = orders
+        position1z.rebuild_position_with_updated_orders()
+
+        checkpoint4 = {
+            "positions": {self.DEFAULT_MINER_HOTKEY: {"positions": [json.loads(position1z.to_json_string())]}}}
+
+        orders = [order1, order2]
+        position1a = deepcopy(self.default_position)
+        position1a.position_uuid = "test_position1a"
+        position1a.orders = orders
+        position1a.rebuild_position_with_updated_orders()
+
+        checkpoint5 = {
+            "positions": {self.DEFAULT_MINER_HOTKEY: {"positions": [json.loads(position1a.to_json_string())]}}}
+
+        checkpoints = {"test_validator1": [1, checkpoint1], "test_validator2": [1, checkpoint2],
+                       "test_validator3": [1, checkpoint3], "test_validator4": [1, checkpoint4],
+                       "test_validator5": [1, checkpoint5]}
+
+        # print(checkpoints)
+        self.p2p_syncer.create_golden(checkpoints)
+
+        # print(self.p2p_syncer.golden)
+
+        assert len(self.p2p_syncer.golden["positions"][self.DEFAULT_MINER_HOTKEY]["positions"]) == 1
+        assert len(self.p2p_syncer.golden["positions"][self.DEFAULT_MINER_HOTKEY]["positions"][0]["orders"]) == 2
+
