@@ -157,30 +157,33 @@ class ValidatorSyncBase():
         kept_and_matched = stats['kept'] + stats['matched']
         deleted = stats['deleted']
         inserted = stats['inserted']
+        allow_writes = (not self.is_mothership or
+                        (self.is_mothership and (stats['deleted'] == 0 or stats['deleted'] == stats['inserted'])))
+        bt.logging.info(f'allow_writes: {allow_writes} stats: {stats}')
         # Deletions happen first
         for position, sync_status in position_to_sync_status.items():
             if sync_status == PositionSyncResult.DELETED:
                 deleted -= 1
-                if not self.is_mothership:
+                if allow_writes:
                     self.position_manager.delete_position_from_disk(position)
 
         # Updates happen next
         # First close out contradicting positions that happen if a validator is left in a bad state
         for position, sync_status in position_to_sync_status.items():
             if sync_status == PositionSyncResult.UPDATED or sync_status == PositionSyncResult.NOTHING:
-                if not self.is_mothership:
+                if allow_writes:
                     if position.is_closed_position:
                         self.position_manager.delete_open_position_if_exists(position)
         for position, sync_status in position_to_sync_status.items():
             if sync_status == PositionSyncResult.UPDATED:
-                if not self.is_mothership:
+                if allow_writes:
                     self.position_manager.save_miner_position_to_disk(position, delete_open_position_if_exists=True)
                 kept_and_matched -= 1
         # Insertions happen last so that there is no double open position issue
         for position, sync_status in position_to_sync_status.items():
             if sync_status == PositionSyncResult.INSERTED:
                 inserted -= 1
-                if not self.is_mothership:
+                if allow_writes:
                     self.position_manager.save_miner_position_to_disk(position, delete_open_position_if_exists=False)
         for position, sync_status in position_to_sync_status.items():
             if sync_status == PositionSyncResult.NOTHING:
