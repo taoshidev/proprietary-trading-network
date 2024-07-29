@@ -32,6 +32,7 @@ class P2PSyncer(ValidatorSyncBase):
         self.created_golden = False
         self.last_signal_sync_time_ms = 0
         self.running_unit_tests = running_unit_tests
+        self.min_checkpoints = 1 if running_unit_tests else ValiConfig.MIN_CHECKPOINTS_RECEIVED
 
     def send_checkpoint_requests(self):
         """
@@ -84,7 +85,7 @@ class P2PSyncer(ValidatorSyncBase):
 
             bt.logging.info(f"{n_successful_checkpoints} responses succeeded. {n_failures} responses failed")
 
-            if (n_successful_checkpoints > 0 and self.is_testnet) or n_successful_checkpoints >= ValiConfig.MIN_CHECKPOINTS_RECEIVED:
+            if (n_successful_checkpoints > 0 and self.is_testnet) or n_successful_checkpoints >= self.min_checkpoints:
                 # sort all our successful responses by validator_trust
                 sorted_v_trust = sorted(hotkey_to_received_checkpoint.items(), key=lambda item: item[1][0], reverse=True)
                 hotkey_to_received_checkpoint = {checkpoint[0]: checkpoint[1] for checkpoint in sorted_v_trust}
@@ -122,8 +123,8 @@ class P2PSyncer(ValidatorSyncBase):
             else:
                 bt.logging.info(f"Checkpoint from validator {hotkey} is stale with newest order timestamp {latest_order_ms}, {round((TimeUtil.now_in_millis() - latest_order_ms)/(1000 * 60 * 60))} hrs ago, Skipping.")
 
-        if len(valid_checkpoints) == 0:
-            bt.logging.info(f"All {len(trusted_checkpoints)} checkpoints are stale, unable to build golden.")
+        if len(valid_checkpoints) < self.min_checkpoints:
+            bt.logging.info(f"Only {len(valid_checkpoints)} checkpoints are not stale, unable to build golden. Min required: {self.min_checkpoints}")
             return False
         else:
             bt.logging.info(f"Building golden from [{len(valid_checkpoints)}/{len(trusted_checkpoints)}] up-to-date checkpoints.")
@@ -161,8 +162,8 @@ class P2PSyncer(ValidatorSyncBase):
             self.parse_checkpoint_challengeperiod(checkpoint, challengeperiod_testing_data, challengeperiod_success_data)
 
         threshold = self.consensus_threshold(len(valid_checkpoints))
-        majority_testing = {hotkey for hotkey, times in challengeperiod_testing_data.items() if len(times) >= threshold}
-        majority_success = {hotkey for hotkey, times in challengeperiod_success_data.items() if len(times) >= threshold}
+        majority_testing = {hotkey for hotkey, times in challengeperiod_testing_data.items() if len(times) > threshold}
+        majority_success = {hotkey for hotkey, times in challengeperiod_success_data.items() if len(times) > threshold}
 
         for hotkey in majority_testing:
             challengeperiod_testing[hotkey] = statistics.median_low(challengeperiod_testing_data[hotkey])
@@ -213,14 +214,14 @@ class P2PSyncer(ValidatorSyncBase):
 
         # get the set of position_uuids that appear in the majority of checkpoints
         positions_threshold = self.consensus_threshold(len(valid_checkpoints))
-        majority_positions = {position_uuid for position_uuid, count in position_counts.items() if count >= positions_threshold}
+        majority_positions = {position_uuid for position_uuid, count in position_counts.items() if count > positions_threshold}
         seen_positions = set()
         seen_orders = set()
 
         for validator_hotkey, checkpoint in valid_checkpoints.items():
             positions = checkpoint.get("positions", {})
             for miner_hotkey, miner_positions in positions.items():
-                if miner_counts[miner_hotkey] < positions_threshold:
+                if miner_counts[miner_hotkey] <= positions_threshold:
                     continue
 
                 # combinations where the position_uuid appears in the majority
@@ -262,7 +263,7 @@ class P2PSyncer(ValidatorSyncBase):
 
                 # get the set of order_uuids that appear in the majority of positions for a position_uuid
                 orders_threshold = self.consensus_threshold(position_counts[position_uuid])
-                majority_orders = {order_uuid for order_uuid, count in order_counts[position_uuid].items() if count >= orders_threshold}
+                majority_orders = {order_uuid for order_uuid, count in order_counts[position_uuid].items() if count > orders_threshold}
 
                 for order_uuid in order_counts[position_uuid].keys():
                     if order_uuid not in seen_orders:
@@ -277,7 +278,7 @@ class P2PSyncer(ValidatorSyncBase):
                                 seen_orders.update([o["order_uuid"] for o in orders])
                                 continue
 
-                            if len(orders) > self.consensus_threshold(position_counts[position_uuid], heuristic_match=True):
+                            if len(orders) > self.consensus_threshold(position_counts[position_uuid]):
                                 bt.logging.info(f"Order {order_uuid} with Position {position_uuid} on miner {position['miner_hotkey']} matched with {[o['order_uuid'] for o in orders]}, adding back in")
                             else:
                                 bt.logging.info(f"Order {order_uuid} with Position {position_uuid} only matched [{len(orders)}/{position_counts[position_uuid]}] times on miner {position['miner_hotkey']} with with {[o['order_uuid'] for o in orders]}. Skipping")
@@ -471,7 +472,7 @@ class P2PSyncer(ValidatorSyncBase):
                             continue
                         matches = self.find_matching_positions(position, trade_pairs[trade_pair], resolved_position_uuids, validator_hotkey)
 
-                        if (len(matches) > self.consensus_threshold(num_checkpoints, heuristic_match=True) and
+                        if (len(matches) > self.consensus_threshold(num_checkpoints) and
                                 set([match["position_uuid"] for match in matches]).isdisjoint(seen_positions)):
                             # median number of orders for matched positions
                             median_order_count = len(matches[len(matches) // 2]["orders"])
@@ -484,7 +485,7 @@ class P2PSyncer(ValidatorSyncBase):
                             goal_order_count = max(median_order_count, max_common_order_count)
 
                             matches_with_goal_order_count = [p for p in matches if len(p["orders"]) == goal_order_count]
-                            bt.logging.info(f"Miner hotkey {miner_hotkey} has matches {[p['position_uuid'] for p in matches]}. goal_order_count: {goal_order_count}. matches_with_goal_order_count: {matches_with_goal_order_count}.")
+                            bt.logging.info(f"Miner hotkey {miner_hotkey} has matches {[p['position_uuid'] for p in matches]}. goal_order_count: {goal_order_count}. matches_with_goal_order_count: {[p['position_uuid'] for p in matches_with_goal_order_count]}.")
                             matched_positions.append(matches_with_goal_order_count[0])
                         else:
                             bt.logging.info(f"Position {position['position_uuid']} only matched [{len(matches)}/{num_checkpoints}] times on miner {position['miner_hotkey']} with matches {[p['position_uuid'] for p in matches]}. Skipping")
@@ -531,14 +532,11 @@ class P2PSyncer(ValidatorSyncBase):
         matched_positions.sort(key=lambda x: (-len(x["orders"]), x["position_uuid"]))
         return matched_positions
 
-    def consensus_threshold(self, total_items: int, heuristic_match: bool=False) -> int:
+    def consensus_threshold(self, total_items: int) -> int:
         """
         threshold for including a position or order in the golden
         """
-        if heuristic_match:
-            return math.floor(total_items / 2)
-        else:
-            return math.ceil(total_items / 2)
+        return math.floor(total_items / 2)
 
     def get_median_order(self, orders: List[dict], trade_pair: TradePair) -> Order:
         """
@@ -588,19 +586,20 @@ class P2PSyncer(ValidatorSyncBase):
             if not (47 < datetime_now.minute < 57):
                 return
         else:
-            # Check if we are between 7:09 AM and 7:19 AM UTC
-            # Temp change time to 21:00 UTC so we can see the effects in shadow mode ASAP
+            # Check if we are between 7:19 AM and 7:29 AM UTC
             if not (datetime_now.hour == 1 and (18 < datetime_now.minute < 30)):
                 return
 
         try:
-            bt.logging.info("Calling send_checkpoint_requests")
+            bt.logging.info("Sending checkpoint requests")
             self.golden = None
             self.send_checkpoint_requests()
             if self.created_golden:
-                bt.logging.info("Calling apply_golden")
-                # TODO guard sync_positions with the signal lock once we move on from shadow mode
-                self.sync_positions(True, candidate_data=self.golden)
+                bt.logging.info("Golden created. Syncing positions.")
+                with self.signal_sync_lock:
+                    while self.n_orders_being_processed[0] > 0:
+                        self.signal_sync_condition.wait()
+                    self.sync_positions(False, candidate_data=self.golden)
         except Exception as e:
             bt.logging.error(f"Error sending checkpoint: {e}")
             bt.logging.error(traceback.format_exc())
@@ -612,4 +611,4 @@ if __name__ == "__main__":
     position_syncer = P2PSyncer(is_testnet=True)
     position_syncer.send_checkpoint_requests()
     if position_syncer.created_golden:
-        position_syncer.sync_positions(True, candidate_data=position_syncer.golden)
+        position_syncer.sync_positions(False, candidate_data=position_syncer.golden)
