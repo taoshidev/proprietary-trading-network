@@ -588,9 +588,7 @@ class P2PSyncer(ValidatorSyncBase):
             if not (47 < datetime_now.minute < 57):
                 return
         else:
-            # Check if we are between 7:09 AM and 7:19 AM UTC
-            # Temp change time to 21:00 UTC so we can see the effects in shadow mode ASAP
-            if not (datetime_now.hour == 1 and (18 < datetime_now.minute < 30)):
+            if not (datetime_now.hour == 21 and (18 < datetime_now.minute < 30)):
                 return
 
         try:
@@ -599,8 +597,10 @@ class P2PSyncer(ValidatorSyncBase):
             self.send_checkpoint_requests()
             if self.created_golden:
                 bt.logging.info("Calling apply_golden")
-                # TODO guard sync_positions with the signal lock once we move on from shadow mode
-                self.sync_positions(True, candidate_data=self.golden)
+                with self.signal_sync_lock:
+                    while self.n_orders_being_processed[0] > 0:
+                        self.signal_sync_condition.wait()
+                    self.sync_positions(False, candidate_data=self.golden)
         except Exception as e:
             bt.logging.error(f"Error sending checkpoint: {e}")
             bt.logging.error(traceback.format_exc())
@@ -612,4 +612,4 @@ if __name__ == "__main__":
     position_syncer = P2PSyncer(is_testnet=True)
     position_syncer.send_checkpoint_requests()
     if position_syncer.created_golden:
-        position_syncer.sync_positions(True, candidate_data=position_syncer.golden)
+        position_syncer.sync_positions(False, candidate_data=position_syncer.golden)
