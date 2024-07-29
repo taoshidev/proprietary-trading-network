@@ -6,6 +6,7 @@ from collections import defaultdict
 
 from time_util.time_util import TimeUtil
 from vali_objects.position import Position
+from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
 from vali_objects.utils.position_manager import PositionManager
 import bittensor as bt
 
@@ -28,6 +29,7 @@ class PositionSyncResultException(Exception):
 class ValidatorSyncBase():
     def __init__(self, shutdown_dict=None, signal_sync_lock=None, signal_sync_condition=None, n_orders_being_processed=None):
         self.is_mothership = 'mothership' in ValiUtils.get_secrets()
+        self.challengeperiod_manager = ChallengePeriodManager(config=None, metagraph=None)
         self.SYNC_LOOK_AROUND_MS = 1000 * 60 * 3
         self.position_manager = PositionManager(is_mothership=self.is_mothership)
         self.position_manager.init_cache_files()
@@ -85,6 +87,13 @@ class ValidatorSyncBase():
         eliminations = candidate_data['eliminations']
         if not self.is_mothership:
             self.position_manager.write_eliminations_to_disk(eliminations)
+
+        challenge_period_data = candidate_data.get('challengeperiod')
+        if challenge_period_data:  # Only in autosync as of now.
+            self.challengeperiod_manager.challengeperiod_testing = challenge_period_data.get('testing', {})
+            self.challengeperiod_manager.challengeperiod_success = challenge_period_data.get('success', {})
+            self.challengeperiod_manager._write_challengeperiod_from_memory_to_disk()
+
         eliminated_hotkeys = set([e['hotkey'] for e in eliminations])
         # For a healthy validator, the existing positions will always be a superset of the candidate positions
         for hotkey, positions in candidate_hk_to_positions.items():
