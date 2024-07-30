@@ -195,7 +195,7 @@ class ValidatorSyncBase():
                     for p in positions:
                         if p.is_open_position:
                             prev_open_position = self.close_older_open_position(p, prev_open_position)
-                        self.position_manager.save_miner_position_to_disk(p, delete_open_position_if_exists=True)
+                        self.position_manager.save_miner_position_to_disk(p, delete_open_position_if_exists=False)
         for position, sync_status in position_to_sync_status.items():
             if sync_status == PositionSyncResult.NOTHING:
                 kept_and_matched -= 1
