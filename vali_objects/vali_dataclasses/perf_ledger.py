@@ -126,6 +126,12 @@ class PerfLedgerData:
             return 0
         return self.cps[0].last_update_ms - self.cps[0].accum_ms
 
+    def init_max_portfolio_value(self):
+        if self.cps:
+            if all(x.mpv != 0 for x in self.cps):  #Some will be 0 if the perf ledger is being incrementally updated right after this PR was merged.
+                # Update portfolio max after all trimming and purging has completed.
+                self.max_return = max(x.mpv for x in self.cps)
+
     def create_cps_to_fill_void(self, time_since_last_update_ms: int, now_ms: int, point_in_time_dd: float):
         original_accum_time = self.cps[-1].accum_ms
         delta_accum_time_ms = self.target_cp_duration_ms - original_accum_time
@@ -368,13 +374,8 @@ class PerfLedgerManager(CacheController):
                 time.sleep(30)
             time.sleep(1)
 
-    def get_historical_position(self, position:Position, timestamp_ms:int, hk_to_last_order_processed_ms:dict):
+    def get_historical_position(self, position:Position, timestamp_ms:int):
         hk = position.miner_hotkey
-        if hk in hk_to_last_order_processed_ms:
-            hk_to_last_order_processed_ms[hk] = max(hk_to_last_order_processed_ms[hk], timestamp_ms)
-        else:
-            hk_to_last_order_processed_ms[hk] = timestamp_ms
-
 
         new_orders = []
         temp_pos = deepcopy(position)
@@ -701,7 +702,7 @@ class PerfLedgerManager(CacheController):
             perf_ledger.update(portfolio_return, end_time_ms, miner_hotkey, any_open, last_dd, portfolio_spread_fee, portfolio_carry_fee)
         return False
 
-    def update_one_perf_ledger(self, hotkey_i, n_hotkeys, hotkey, positions, now_ms, hk_to_last_order_processed_ms, existing_perf_ledgers) -> None:
+    def update_one_perf_ledger(self, hotkey_i, n_hotkeys, hotkey, positions, now_ms, existing_perf_ledgers) -> None:
         # if hotkey != '5GhCxfBcA7Ur5iiAS343xwvrYHTUfBjBi4JimiL5LhujRT9t':
         #    continue
 
@@ -716,11 +717,7 @@ class PerfLedgerManager(CacheController):
         else:
             verbose = False
         existing_perf_ledgers[hotkey] = perf_ledger
-
-        if perf_ledger.cps:
-            if all(x.mpv != 0 for x in perf_ledger.cps):  #Some will be 0 if the perf ledger is being incrementally updated right after this PR was merged.
-                # Update portfolio max after all trimming and purging has completed.
-                perf_ledger.max_return = max(x.mpv for x in perf_ledger.cps)
+        perf_ledger.init_max_portfolio_value()
 
         self.trade_pair_to_position_ret = {}
         if hotkey in self.hk_to_dd_stats:
@@ -730,6 +727,8 @@ class PerfLedgerManager(CacheController):
         tp_to_historical_positions = defaultdict(list)
         sorted_timeline = self.generate_order_timeline(positions, now_ms)  # Enforces our "now_ms" constraint
         last_event_time = sorted_timeline[-1][0].processed_ms if sorted_timeline else 0
+        self.hk_to_last_order_processed_ms[hotkey] = last_event_time
+
         building_from_new_orders = True
         # There hasn't been a new order since the last update time. Just need to update for open positions
         if last_event_time <= perf_ledger.last_update_ms:
@@ -749,8 +748,7 @@ class PerfLedgerManager(CacheController):
 
             order, position = event
             symbol = position.trade_pair.trade_pair
-            pos, realtime_position_to_pop = self.get_historical_position(position, order.processed_ms,
-                                                                         hk_to_last_order_processed_ms)
+            pos, realtime_position_to_pop = self.get_historical_position(position, order.processed_ms)
 
             if (symbol in tp_to_historical_positions and
                     pos.position_uuid == tp_to_historical_positions[symbol][-1].position_uuid):
@@ -800,17 +798,16 @@ class PerfLedgerManager(CacheController):
                 f"Done updating perf ledger for {hotkey} {hotkey_i + 1}/{n_hotkeys} in {time.time() - t0} "
                 f"(s). Lag: {lag} (s). Total product: {total_product}. Last portfolio value: {last_portfolio_value}."
                 f" n_api_calls: {self.n_api_calls} dd stats {self.hk_to_dd_stats[hotkey]}. n_price_corrections {self.n_price_corrections}"
-                f" last cp {perf_ledger.cps[-1]}")
+                f" last cp {perf_ledger.cps[-1]}. perf_ledger_mpv {perf_ledger.max_return}")
 
     def update_all_perf_ledgers(self, hotkey_to_positions: dict[str, List[Position]], existing_perf_ledgers: dict[str, PerfLedgerData], now_ms: int, return_dict=False) -> None | dict[str, PerfLedgerData]:
         t_init = time.time()
         self.now_ms = now_ms
         self.elimination_rows = []
-        hk_to_last_order_processed_ms = {}
         n_hotkeys = len(hotkey_to_positions)
         for hotkey_i, (hotkey, positions) in enumerate(hotkey_to_positions.items()):
             try:
-                self.update_one_perf_ledger(hotkey_i, n_hotkeys, hotkey, positions, now_ms, hk_to_last_order_processed_ms, existing_perf_ledgers)
+                self.update_one_perf_ledger(hotkey_i, n_hotkeys, hotkey, positions, now_ms, existing_perf_ledgers)
             except Exception as e:
                 bt.logging.error(f"Error updating perf ledger for {hotkey}: {e}. Please alert a team member ASAP!")
                 bt.logging.error(traceback.format_exc())
@@ -818,7 +815,6 @@ class PerfLedgerManager(CacheController):
 
         bt.logging.info(f"Done updating perf ledger for all hotkeys in {time.time() - t_init} s")
         self.write_perf_ledger_eliminations_to_disk(self.elimination_rows)
-        self.hk_to_last_order_processed_ms = hk_to_last_order_processed_ms
 
         if self.shutdown_dict:
             return
