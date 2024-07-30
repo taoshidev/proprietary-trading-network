@@ -5,6 +5,7 @@ from enum import Enum
 from collections import defaultdict
 
 from time_util.time_util import TimeUtil
+from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.position import Position
 from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
 from vali_objects.utils.position_manager import PositionManager
@@ -157,6 +158,11 @@ class ValidatorSyncBase():
         kept_and_matched = stats['kept'] + stats['matched']
         deleted = stats['deleted']
         inserted = stats['inserted']
+
+        # handle having multiple open positions for a hotkey
+        # close the older open position
+        prev_open_position = None
+
         # Deletions happen first
         for position, sync_status in position_to_sync_status.items():
             if sync_status == PositionSyncResult.DELETED:
@@ -174,14 +180,22 @@ class ValidatorSyncBase():
         for position, sync_status in position_to_sync_status.items():
             if sync_status == PositionSyncResult.UPDATED:
                 if not self.is_mothership:
-                    self.position_manager.save_miner_position_to_disk(position, delete_open_position_if_exists=True)
+                    positions = self.split_position_on_flat(position)
+                    for p in positions:
+                        if p.is_open_position:
+                            prev_open_position = self.close_older_open_position(p, prev_open_position)
+                        self.position_manager.save_miner_position_to_disk(p, delete_open_position_if_exists=True)
                 kept_and_matched -= 1
         # Insertions happen last so that there is no double open position issue
         for position, sync_status in position_to_sync_status.items():
             if sync_status == PositionSyncResult.INSERTED:
                 inserted -= 1
                 if not self.is_mothership:
-                    self.position_manager.save_miner_position_to_disk(position, delete_open_position_if_exists=False)
+                    positions = self.split_position_on_flat(position)
+                    for p in positions:
+                        if p.is_open_position:
+                            prev_open_position = self.close_older_open_position(p, prev_open_position)
+                        self.position_manager.save_miner_position_to_disk(p, delete_open_position_if_exists=True)
         for position, sync_status in position_to_sync_status.items():
             if sync_status == PositionSyncResult.NOTHING:
                 kept_and_matched -= 1
@@ -193,6 +207,23 @@ class ValidatorSyncBase():
             raise PositionSyncResultException(f"deleted: {deleted} stats {stats}")
         if inserted != 0:
             raise PositionSyncResultException(f"inserted: {inserted} stats {stats}")
+
+    def close_older_open_position(self, p1: Position, p2: Position):
+        """
+        p1 and p2 are both open positions for a hotkey+trade pair, so we want to close the older one.
+        """
+        if p2 is None:
+            return p1
+
+        # if p2 is an older position, we close it and return p1 as the newest open position.
+        if p2.open_ms < p1.open_ms:
+            p2.close_out_position(TimeUtil.now_in_millis())
+            self.position_manager.save_miner_position_to_disk(p2, delete_open_position_if_exists=True)
+            return p1
+        else:
+            p1.close_out_position(TimeUtil.now_in_millis())
+            self.position_manager.save_miner_position_to_disk(p1, delete_open_position_if_exists=True)
+            return p2
 
 
     def debug_print_pos(self, p):
@@ -400,7 +431,7 @@ class ValidatorSyncBase():
         # There should only be one open position at a time. We trust the candidate data to be correct. Therefore, if
         # there is an open position in the candidate data, we will delete all open positions in the existing data.
 
-        open_postition_acked = False
+        # open_postition_acked = False
         # First pass. Try to match 1:1 based on position_uuid
         for c in candidate_positions:
             if c.position_uuid in matched_candidates_by_uuid:
@@ -410,8 +441,8 @@ class ValidatorSyncBase():
                     continue
                 if e.position_uuid == c.position_uuid:
                     # Block the match
-                    if open_postition_acked and e.is_open_position:
-                        continue
+                    # if open_postition_acked and e.is_open_position:
+                    #     continue
 
                     e.orders, min_timestamp_of_order_change = self.sync_orders(e, c, hk, trade_pair, hard_snap_cutoff_ms)
                     if min_timestamp_of_order_change != float('inf'):
@@ -420,7 +451,7 @@ class ValidatorSyncBase():
                         position_to_sync_status[e] = PositionSyncResult.UPDATED
                     else:
                         position_to_sync_status[e] = PositionSyncResult.NOTHING
-                    open_postition_acked |= e.is_open_position
+                    # open_postition_acked |= e.is_open_position
                     ret.append(e)
 
                     matched_candidates_by_uuid |= {c.position_uuid}
@@ -438,8 +469,8 @@ class ValidatorSyncBase():
                     continue
                 if self.positions_aligned(e, c):
                     # Block the match
-                    if open_postition_acked and e.is_open_position:
-                        continue
+                    # if open_postition_acked and e.is_open_position:
+                    #     continue
 
                     e.orders, min_timestamp_of_order_change = self.sync_orders(e, c, hk, trade_pair, hard_snap_cutoff_ms)
                     if min_timestamp_of_order_change != float('inf'):
@@ -448,7 +479,7 @@ class ValidatorSyncBase():
                         position_to_sync_status[e] = PositionSyncResult.UPDATED
                     else:
                         position_to_sync_status[e] = PositionSyncResult.NOTHING
-                    open_postition_acked |= e.is_open_position
+                    # open_postition_acked |= e.is_open_position
                     matched_candidates_by_uuid |= {c.position_uuid}
                     matched_existing_by_uuid |= {e.position_uuid}
                     ret.append(e)
@@ -463,13 +494,13 @@ class ValidatorSyncBase():
                 continue
 
             # Block the insert
-            if open_postition_acked and p.is_open_position:
-                self.global_stats['blocked_insert_open_position_acked'] += 1
-                continue
+            # if open_postition_acked and p.is_open_position:
+            #     self.global_stats['blocked_insert_open_position_acked'] += 1
+            #     continue
 
             stats['inserted'] += 1
             position_to_sync_status[p] = PositionSyncResult.INSERTED
-            open_postition_acked |= p.is_open_position
+            # open_postition_acked |= p.is_open_position
             min_timestamp_of_change = min(min_timestamp_of_change, p.open_ms)
             ret.append(p)
             inserted.append(p)
@@ -485,17 +516,17 @@ class ValidatorSyncBase():
                 min_timestamp_of_change = min(min_timestamp_of_change, p.open_ms)
             else:
                 # Block the keep and delete it
-                if open_postition_acked and p.is_open_position:
-                    stats['deleted'] += 1
-                    deleted.append(p)
-                    position_to_sync_status[p] = PositionSyncResult.DELETED
-                    min_timestamp_of_change = min(min_timestamp_of_change, p.open_ms)
-                    self.global_stats['blocked_keep_open_position_acked'] += 1
-                    continue
+                # if open_postition_acked and p.is_open_position:
+                #     stats['deleted'] += 1
+                #     deleted.append(p)
+                #     position_to_sync_status[p] = PositionSyncResult.DELETED
+                #     min_timestamp_of_change = min(min_timestamp_of_change, p.open_ms)
+                #     self.global_stats['blocked_keep_open_position_acked'] += 1
+                #     continue
 
                 ret.append(p)
                 kept.append(p)
-                open_postition_acked |= p.is_open_position
+                # open_postition_acked |= p.is_open_position
                 stats['kept'] += 1
                 position_to_sync_status[p] = PositionSyncResult.NOTHING
 
@@ -551,3 +582,43 @@ class ValidatorSyncBase():
         for position in positions:
             positions_by_trade_pair[position.trade_pair].append(deepcopy(position))
         return positions_by_trade_pair
+
+    def split_position_on_flat(self, position: Position) -> list[Position]:
+        """
+        Takes a position, iterates through the orders, and splits the position into multiple positions
+        separated by the FLAT orders in the original position.
+        If there are no FLAT orders or the FLAT is at the end, no splitting is done.
+        """
+        positions = [position]
+        all_orders = []
+        orders_for_sub_position = []
+
+        for order in position.orders:
+            orders_for_sub_position.append(order)
+
+            if order.order_type == OrderType.FLAT:
+                all_orders.append(orders_for_sub_position)
+                orders_for_sub_position = []
+
+        # last set of orders not ending in FLAT
+        if orders_for_sub_position:
+            all_orders.append(orders_for_sub_position)
+
+        # return original position if there is no FLAT, or FLAT is last order
+        if len(all_orders) == 1:
+            return positions
+
+        # truncate orders in original position
+        position.orders = all_orders[0]
+        position.rebuild_position_with_updated_orders()
+
+        # create new positions for each set of remaining orders
+        for position_orders in all_orders[1:]:
+            new_position = Position(miner_hotkey=position.miner_hotkey,
+                                    position_uuid=position_orders[0].order_uuid,
+                                    open_ms=0,
+                                    trade_pair=position.trade_pair,
+                                    orders=position_orders)
+            new_position.rebuild_position_with_updated_orders()
+            positions.append(new_position)
+        return positions
