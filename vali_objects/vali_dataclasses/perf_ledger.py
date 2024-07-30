@@ -66,7 +66,7 @@ class FeeCache():
 
 class PerfCheckpointData:
     def __init__(self, last_update_ms, prev_portfolio_ret, prev_portfolio_spread_fee=1.0, prev_portfolio_carry_fee=1.0,
-                 accum_ms=0, open_ms=0, n_updates=0, gain=0.0, loss=0.0, spread_fee_loss=0.0, carry_fee_loss=0.0, mdd=1.0):
+                 accum_ms=0, open_ms=0, n_updates=0, gain=0.0, loss=0.0, spread_fee_loss=0.0, carry_fee_loss=0.0, mdd=1.0, mpv=0.0):
         self.last_update_ms = last_update_ms
         self.prev_portfolio_ret = prev_portfolio_ret
         self.prev_portfolio_spread_fee = prev_portfolio_spread_fee
@@ -79,6 +79,7 @@ class PerfCheckpointData:
         self.spread_fee_loss = spread_fee_loss
         self.carry_fee_loss = carry_fee_loss
         self.mdd = mdd
+        self.mpv = mpv
 
     def __str__(self):
         return str(self.to_dict())
@@ -138,7 +139,8 @@ class PerfLedgerData:
                                         prev_portfolio_spread_fee=self.cps[-1].prev_portfolio_spread_fee,
                                         prev_portfolio_carry_fee=self.cps[-1].prev_portfolio_carry_fee,
                                         accum_ms=self.target_cp_duration_ms,
-                                        mdd=self.cps[-1].mdd)
+                                        mdd=self.cps[-1].mdd,
+                                        mpv=self.cps[-1].prev_portfolio_ret)
             assert new_cp.last_update_ms < now_ms, (self.cps, (now_ms - new_cp.last_update_ms))
             self.cps.append(new_cp)
             time_since_last_update_ms -= self.target_cp_duration_ms
@@ -148,13 +150,14 @@ class PerfLedgerData:
                                     prev_portfolio_ret=self.cps[-1].prev_portfolio_ret,
                                     prev_portfolio_spread_fee=self.cps[-1].prev_portfolio_spread_fee,
                                     prev_portfolio_carry_fee=self.cps[-1].prev_portfolio_carry_fee,
-                                    mdd=point_in_time_dd)
+                                    mdd=point_in_time_dd,
+                                    mpv=self.cps[-1].prev_portfolio_ret)
         assert new_cp.last_update_ms <= now_ms, self.cps
         self.cps.append(new_cp)
 
     def init_with_first_order(self, order_processed_ms: int, point_in_time_dd: float):
         new_cp = PerfCheckpointData(last_update_ms=order_processed_ms, prev_portfolio_ret=1.0,
-                                    mdd=point_in_time_dd, prev_portfolio_spread_fee=1.0, prev_portfolio_carry_fee=1.0)
+                                    mdd=point_in_time_dd, prev_portfolio_spread_fee=1.0, prev_portfolio_carry_fee=1.0, mpv=1.0)
         self.cps.append(new_cp)
 
     def get_or_create_latest_cp_with_mdd(self, now_ms: int, point_in_time_dd: float):
@@ -215,6 +218,7 @@ class PerfLedgerData:
         current_cp.prev_portfolio_ret = current_portfolio_value
         current_cp.prev_portfolio_spread_fee = current_portfolio_fee_spread
         current_cp.prev_portfolio_carry_fee = current_portfolio_carry
+        current_cp.mpv = max(current_cp.mpv, current_portfolio_value)
         current_cp.n_updates += n_new_updates
 
     def purge_old_cps(self):
@@ -266,7 +270,6 @@ class PerfCheckpoint(BaseModel, PerfCheckpointData):
     prev_portfolio_spread_fee: float = 1.0
     prev_portfolio_carry_fee: float = 1.0
 
-
     accum_ms: int = 0
     open_ms: int = 0
     n_updates: int = 0
@@ -277,6 +280,7 @@ class PerfCheckpoint(BaseModel, PerfCheckpointData):
     carry_fee_loss: float = 0.0
 
     mdd: float = 1.0
+    mpv: float = 0.0
 
     def __str__(self):
         return self.to_json_string()
@@ -401,10 +405,6 @@ class PerfLedgerManager(CacheController):
         # sort
         time_sorted_orders.sort(key=lambda x: x[0].processed_ms)
         return time_sorted_orders
-
-    def _update_portfolio_debug_counters(self, portfolio_ret):
-        self.max_portfolio_value_seen = max(self.max_portfolio_value_seen, portfolio_ret)
-        self.min_portfolio_value_seen = min(self.min_portfolio_value_seen, portfolio_ret)
 
     def replay_all_closed_positions(self,miner_hotkey, tp_to_historical_positions: dict[str:Position]) -> (bool, float):
         max_cuml_return_so_far = 1.0
@@ -716,6 +716,12 @@ class PerfLedgerManager(CacheController):
         else:
             verbose = False
         existing_perf_ledgers[hotkey] = perf_ledger
+
+        if perf_ledger.cps:
+            if all(x.mpv != 0 for x in perf_ledger.cps):  #Some will be 0 if the perf ledger is being incrementally updated right after this PR was merged.
+                # Update portfolio max after all trimming and purging has completed.
+                perf_ledger.max_return = max(x.mpv for x in perf_ledger.cps)
+
         self.trade_pair_to_position_ret = {}
         if hotkey in self.hk_to_dd_stats:
             del self.hk_to_dd_stats[hotkey]

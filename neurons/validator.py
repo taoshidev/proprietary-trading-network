@@ -613,7 +613,6 @@ class Validator:
         with self.signal_sync_lock:
             self.n_orders_being_processed[0] += 1
 
-
         # error message to send back to miners in case of a problem so they can fix and resend
         error_message = ""
         try:
