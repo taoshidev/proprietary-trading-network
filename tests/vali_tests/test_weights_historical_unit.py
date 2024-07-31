@@ -33,7 +33,7 @@ class TestWeights(TestBase):
         self.n_positions = n_positions
 
         self.start_time = 1710521764446
-        self.end_time = self.start_time + ValiConfig.SET_WEIGHT_LOOKBACK_RANGE_MS
+        self.end_time = self.start_time + ValiConfig.TARGET_LEDGER_WINDOW_MS
 
         self.start_times = sorted([ get_time_in_range(x, self.start_time, self.end_time) for x in np.random.rand(n_positions) ])
         self.end_times = sorted([ get_time_in_range(x, self.start_times[c], self.end_time) for c,x in enumerate(np.random.rand(n_positions)) ])
@@ -87,7 +87,7 @@ class TestWeights(TestBase):
         checkpoint = self.standard_checkpoints[0]
 
         evaluation_time = 1710523564446
-        time_delta = ValiConfig.SET_WEIGHT_LOOKBACK_RANGE_MS
+        time_delta = ValiConfig.TARGET_LEDGER_WINDOW_MS
 
         close_time = evaluation_time - time_delta + int(time_delta * 0.3) # 30% of the way through the lookback period
         open_time = evaluation_time - time_delta + int(time_delta * 0.1) # 10% of the way through the lookback period

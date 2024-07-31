@@ -20,8 +20,8 @@ from vali_objects.utils.live_price_fetcher import LivePriceFetcher
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils, CustomEncoder
 from vali_objects.utils.vali_utils import ValiUtils
 
-TARGET_CHECKPOINT_DURATION_MS = 21600000  # 6 hours
-TARGET_LEDGER_WINDOW_MS = 2592000000  # 30 days
+TARGET_CHECKPOINT_DURATION_MS = ValiConfig.TARGET_CHECKPOINT_DURATION_MS
+TARGET_LEDGER_WINDOW_MS = ValiConfig.TARGET_LEDGER_WINDOW_MS
 
 class FeeCache():
     def __init__(self):

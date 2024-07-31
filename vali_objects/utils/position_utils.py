@@ -61,7 +61,7 @@ class PositionUtils:
         position_close_ms: int, 
         evaluation_time_ms: int
     ) -> float:
-        lookback_period = ValiConfig.SET_WEIGHT_LOOKBACK_RANGE_MS
+        lookback_period = ValiConfig.TARGET_LEDGER_WINDOW_MS
         time_since_closed = evaluation_time_ms - position_close_ms
         time_fraction = time_since_closed / lookback_period
         time_fraction = np.clip(time_fraction, 0, 1)
@@ -203,8 +203,6 @@ class PositionUtils:
         if len(checkpoints) <= 0:
             return 0
 
-        drawdown_nterms = ValiConfig.DRAWDOWN_NTERMS
-
         ## Compute the drawdown of the checkpoints
         drawdowns = [ checkpoint.mdd for checkpoint in checkpoints ]
 
@@ -306,8 +304,6 @@ class PositionUtils:
             evaluation_time_ms: int - the evaluation time
         """
 
-        # activity_threshold = ValiConfig.SET_WEIGHT_MINER_CHALLENGE_PERIOD_TOTAL_ACTIVITY
-
         # checkpoint_consistency_threshold = ValiConfig.SET_WEIGHT_MINER_CHALLENGE_PERIOD_CHECKPOINT_CONSISTENCY_THRESHOLD
         # checkpoint_consistency_ratio = ValiConfig.SET_WEIGHT_MINER_CHALLENGE_PERIOD_CHECKPOINT_CONSISTENCY_RATIO
 
@@ -345,104 +341,6 @@ class PositionUtils:
             checkpoint_length_augmentation = (len(nonzero_checkpoints) / length_threshold)**2
 
         return consistency_value * checkpoint_length_augmentation * checkpoint_duration_augmentation
-    
-    @staticmethod
-    def compute_consistency_penalty(
-        positions: list[Position],
-        evaluation_time_ms: int
-    ) -> float:
-        """
-        Args:
-            positions: list[Position] - the list of positions
-            evaluation_time_ms: int - the evaluation time
-        """
-        if len(positions) == 0:
-            return 0
-        
-        lookback_fractions = [
-            PositionUtils.compute_lookback_fraction(
-                position.open_ms,
-                position.close_ms,
-                evaluation_time_ms
-            ) for position in positions
-            if position.is_closed_position and position.max_leverage_seen() >= ValiConfig.MIN_LEVERAGE_CONSITENCY_PENALTY
-        ]
-
-        # Sort the lookback fractions in ascending order
-        lookback_fractions = sorted(lookback_fractions)
-        consistency_penalties = PositionUtils.compute_consistency(lookback_fractions)
-        return consistency_penalties
-    
-    @staticmethod
-    def compute_consistency_penalty_positions(
-        positions: list[Position],
-        evaluation_time_ms: int
-    ) -> float:
-        """
-        Args:
-            positions: list[Position] - the list of positions
-            evaluation_time_ms: int - the evaluation time
-        """
-        lookback_fractions = [
-            PositionUtils.compute_lookback_fraction(
-                position.open_ms,
-                position.close_ms,
-                evaluation_time_ms
-            ) for position in positions
-            if position.is_closed_position and position.max_leverage_seen() >= ValiConfig.MIN_LEVERAGE_CONSITENCY_PENALTY
-        ]
-
-        # Sort the lookback fractions in ascending order
-        lookback_fractions = sorted(lookback_fractions)
-        consistency_penalties = PositionUtils.compute_consistency(lookback_fractions)
-        return consistency_penalties
-    
-    @staticmethod
-    def compute_consistency(
-        lookback_fractions: list[Position]
-    ) -> float:
-        """
-        Args:
-            close_ms_list: list[int] - the list of close times for the positions
-        """
-        if len(lookback_fractions) == 0:
-            return 0
-        
-        window_size = ValiConfig.HISTORICAL_PENALTY_WINDOW
-        stride = ValiConfig.HISTORICAL_PENALTY_STRIDE
-        
-        # Initialize variables
-        total_windows = int((1 - window_size) / stride) + 1
-        represented_windows = 0
-        
-        # Iterate over the sliding windows
-        for i in range(total_windows):
-            window_start = i * stride
-            window_end = window_start + window_size
-            
-            # Check if any lookback fraction falls within the current window
-            for fraction in lookback_fractions:
-                if window_start <= fraction < window_end:
-                    represented_windows += 1
-                    break
-        
-        # Calculate the penalty score
-        penalty_score = represented_windows / total_windows
-
-        if penalty_score >= 0.6:
-            return 1
-        elif penalty_score >= 0.5:
-            return 0.9
-        elif penalty_score >= 0.4:
-            return 0.8
-        elif penalty_score >= 0.3:
-            return 0.5
-        elif penalty_score >= 0.2:
-            return 0.25
-        elif penalty_score >= 0.1:
-            return 0.1
-                
-        return 0.1
     
     @staticmethod
     def flatten_positions(

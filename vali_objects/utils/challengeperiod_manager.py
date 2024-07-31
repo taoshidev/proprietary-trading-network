@@ -114,34 +114,28 @@ class ChallengePeriodManager(CacheController):
                 
         minimum_return = ValiConfig.SET_WEIGHT_MINER_CHALLENGE_PERIOD_RETURN_CPS_PERCENT
         minimum_sortino = ValiConfig.SET_WEIGHT_MINER_CHALLENGE_PERIOD_SORTINO_CPS
-        minimum_duration = ValiConfig.SET_WEIGHT_MINER_CHALLENGE_PERIOD_TOTAL_POSITION_DURATION
         minimum_volume_checkpoints = ValiConfig.SET_WEIGHT_MINER_CHALLENGE_PERIOD_VOLUME_CHECKPOINTS
 
         ## Create a scoring unit from the ledger element
         scoringunit = ScoringUnit.from_perf_ledger(ledger_element)
 
         ## Compute the criteria for passing the challenge period
-        omega_cps = Scoring.omega_cps(scoringunit)
         sortino_cps = Scoring.inverted_sortino_cps(scoringunit)
         return_cps = np.exp(Scoring.return_cps(scoringunit))
-        position_duration = sum(scoringunit.open_ms)
         volume_cps = Scoring.checkpoint_volume_threshold_count(scoringunit)
 
         ## Criteria
         sortino_criteria = sortino_cps >= minimum_sortino
         return_criteria = return_cps >= minimum_return
-        duration_criteria = position_duration >= minimum_duration
         volume_crtieria = volume_cps >= minimum_volume_checkpoints
 
         if log:
-            dayhours = (60 * 60 * 1000)
             viewable_return = 100 * (return_cps - 1)
             viewable_minimum_return = 100 * (minimum_return - 1)
             print(f"Sortino: {sortino_cps:.3e} >= {minimum_sortino}: {sortino_criteria}")
             print(f"Return: {viewable_return:.4f}% >= {viewable_minimum_return:.2f}%: {return_criteria}")
-            print(f"Duration (Hours): {position_duration / dayhours:.2f} >= {minimum_duration / dayhours:.2f}: {duration_criteria}")
             print(f"Volume Checkpoints: {volume_cps} >= {minimum_volume_checkpoints}: {volume_crtieria}")
             print()
 
-        return sortino_criteria and return_criteria and duration_criteria and volume_crtieria
+        return sortino_criteria and return_criteria and volume_crtieria
 

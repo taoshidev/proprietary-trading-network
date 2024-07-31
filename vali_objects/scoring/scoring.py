@@ -255,50 +255,6 @@ class Scoring:
         volume_arr = np.array(gains) + np.abs(np.array(losses))
 
         return int(np.sum(volume_arr >= checkpoint_volume_threshold))
-
-    @staticmethod
-    def omega(returns: list[float]) -> float:
-        """
-        Args: returns: list[float] - the logged returns for each miner
-        """
-        if len(returns) == 0:
-            # won't happen because we need a minimum number of trades, but would kick them to 0 weight (bottom of the list)
-            return 0
-
-        threshold = ValiConfig.OMEGA_LOG_RATIO_THRESHOLD
-        omega_minimum_denominator = ValiConfig.OMEGA_MINIMUM_DENOMINATOR
-
-        # need to convert this to percentage based returns
-        sum_above = 0
-        sum_below = 0
-
-        threshold_return = [ return_ - threshold for return_ in returns ]
-        for return_ in threshold_return:
-            if return_ > 0:
-                sum_above += return_
-            else:
-                sum_below += return_
-
-        sum_below = max(abs(sum_below), omega_minimum_denominator)
-        return sum_above / sum_below
-    
-    @staticmethod
-    def mad_variation(returns: list[float]) -> float:
-        """
-        Args: returns: list[float] - the variance of the miner returns
-        """
-        if len(returns) == 0:
-            return 0
-
-        median = np.median(returns)
-
-        if median == 0:
-            median = ValiConfig.MIN_MEDIAN
-
-        mad = np.mean(np.abs(returns - median))
-        mrad = mad / median
-        
-        return abs(mrad)
     
     @staticmethod
     def total_return(returns: list[float]) -> float:
@@ -310,33 +266,6 @@ class Scoring:
             return 0
         
         return np.exp(np.sum(returns))
-    
-    @staticmethod
-    def probabilistic_sharpe_ratio(returns: list[float]) -> float:
-        """
-        Calculates the Probabilistic Sharpe Ratio (PSR) for a list of returns using the Adjusted Sharpe Ratio (ASR)
-        and the normal CDF approximation.
-
-        Args:
-            returns (list[float]): List of returns.
-            threshold (float): Threshold return (default is 0).
-
-        Returns:
-            float: Probabilistic Sharpe Ratio (PSR).
-        """
-        if len(returns) == 0:
-            return 0
-        
-        sharpe_ratio = Scoring.sharpe_ratio(returns)
-
-        # skewness, kurtosis = Scoring.calculate_moments(returns)
-
-        # Calculate the Adjusted Sharpe Ratio (ASR) based on '“Risk and Risk Aversion”, in C. Alexander and E. Sheedy, eds.: The Professional Risk Managers’Handbook, PRMIA Publications'
-
-        # adjusted_sharpe_ratio = sharpe_ratio * (1 + (skewness * sharpe_ratio / 6) - (sharpe_ratio**2 * (kurtosis - 3) / 24))
-
-        psr = Scoring.norm_cdf(sharpe_ratio)
-        return psr
     
     @staticmethod
     def sharpe_ratio(returns: list[float]) -> float:
@@ -363,32 +292,6 @@ class Scoring:
         log_sharpe = (mean_return - threshold) / std_dev
 
         return np.exp(log_sharpe)
-    
-    @staticmethod # Calculate the Probabilistic Sharpe Ratio (PSR) using the normal CDF approximation
-    def norm_cdf(x):
-        return 0.5 * (1 + math.erf(x / np.sqrt(2)))
-    
-    @staticmethod
-    def calculate_moments(returns):
-        """
-        Calculates the skewness and kurtosis of the returns distribution.
-
-        Args:
-            returns (list[float]): List of returns.
-
-        Returns:
-            tuple: Skewness and kurtosis of the returns distribution.
-        """
-        mean = np.mean(returns)
-        std_dev = np.std(returns)
-
-        third_moment = np.mean((returns - mean)**3)
-        fourth_moment = np.mean((returns - mean)**4)
-
-        skewness = third_moment / (std_dev**3)
-        kurtosis = fourth_moment / (std_dev**4)
-
-        return skewness, kurtosis
     
     @staticmethod
     def exponential_decay_returns(scale: int) -> np.ndarray:
