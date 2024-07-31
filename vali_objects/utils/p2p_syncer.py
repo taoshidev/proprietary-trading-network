@@ -403,7 +403,7 @@ class P2PSyncer(ValidatorSyncBase):
         if heuristic_match:
             return math.floor(total_items / 2)
         else:
-            return min(2, math.ceil(total_items / 2))
+            return math.ceil(total_items / 2)
 
     def get_median_order(self, orders, trade_pair) -> Order:
         """
