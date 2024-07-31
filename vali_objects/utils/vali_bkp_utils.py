@@ -52,6 +52,7 @@ class ValiBkpUtils:
     def get_eliminations_dir(running_unit_tests=False) -> str:
         suffix = "/tests" if running_unit_tests else ""
         return ValiConfig.BASE_DIR + f"{suffix}/validation/eliminations.json"
+
     @staticmethod
     def get_perf_ledger_eliminations_dir(running_unit_tests=False) -> str:
         suffix = "/tests" if running_unit_tests else ""

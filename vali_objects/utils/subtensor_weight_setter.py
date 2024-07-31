@@ -1,5 +1,4 @@
 # developer: jbonilla
-# Copyright © 2024 Taoshi Inc
 import copy
 from typing import List
 
@@ -11,7 +10,8 @@ from shared_objects.cache_controller import CacheController
 from vali_objects.utils.position_manager import PositionManager
 from vali_objects.position import Position
 from vali_objects.scoring.scoring import Scoring
-from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager, PerfCheckpoint, PerfLedger
+from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager, PerfCheckpoint, PerfLedger, PerfLedgerData
+
 
 class SubtensorWeightSetter(CacheController):
     def __init__(self, config, wallet, metagraph, running_unit_tests=False):
@@ -26,11 +26,11 @@ class SubtensorWeightSetter(CacheController):
             return
 
         bt.logging.info("running set weights")
-        ## First run the challenge period miner filtering
+        # First run the challenge period miner filtering
         if current_time is None:
             current_time = TimeUtil.now_in_millis()
 
-        ## we want to do this first because we will add to the eliminations list
+        # we want to do this first because we will add to the eliminations list
         self._refresh_eliminations_in_memory()
         self._refresh_challengeperiod_in_memory()
 
@@ -40,6 +40,12 @@ class SubtensorWeightSetter(CacheController):
 
         # only collect ledger elements for the miners that passed the challenge period
         filtered_ledger = self.filtered_ledger(hotkeys=success_hotkeys)
+        filtered_positions = self.filtered_positions(hotkeys=success_hotkeys)
+
+        # synced_ledger, synced_positions = self.sync_ledger_positions(
+        #     filtered_ledger,
+        #     filtered_positions
+        # )
 
         if len(filtered_ledger) == 0:
             bt.logging.info("No returns to set weights with. Do nothing for now.")
@@ -47,6 +53,7 @@ class SubtensorWeightSetter(CacheController):
             bt.logging.info("Calculating new subtensor weights...")
             checkpoint_results = Scoring.compute_results_checkpoint(
                 filtered_ledger,
+                filtered_positions,
                 evaluation_time_ms=current_time
             )
             bt.logging.info(f"Sorted results for weight setting: [{sorted(checkpoint_results, key=lambda x: x[1], reverse=True)}]")
@@ -66,21 +73,57 @@ class SubtensorWeightSetter(CacheController):
                 if miner in self.metagraph.hotkeys:
                     challengeperiod_weights.append((
                         self.metagraph.hotkeys.index(miner),
-                        ValiConfig.SET_WEIGHT_MINER_CHALLENGE_PERIOD_WEIGHT
+                        ValiConfig.CHALLENGE_PERIOD_WEIGHT
                     ))
                 else:
                     bt.logging.error(f"Challengeperiod miner {miner} not found in the metagraph.")
 
-            transformed_list = checkpoint_netuid_weights + challengeperiod_weights
+            weights_list = checkpoint_netuid_weights + challengeperiod_weights
+            transformed_hotkeys = [x[0] for x in weights_list]
+
+            metagraph_remaining_hotkeys = list(set(self.metagraph.hotkeys) - set(transformed_hotkeys))
+            metagraph_remaining_scores = [(hotkey, 0) for hotkey in metagraph_remaining_hotkeys]
+
+            transformed_list = weights_list + metagraph_remaining_scores
             bt.logging.info(f"transformed list: {transformed_list}")
 
             self._set_subtensor_weights(transformed_list)
         self.set_last_update_time()
 
+    @staticmethod
+    def sync_ledger_positions(
+            ledger,
+            positions
+    ) -> tuple[dict[str, PerfLedger], dict[str, list[Position]]]:
+        """
+        Sync the ledger and positions to ensure that the ledger and positions are in the same state.
+        """
+        ledger_keys = set(ledger.keys())
+        position_keys = set(positions.keys())
+
+        common_keys = ledger_keys.intersection(position_keys)
+        uncommon_keys = ledger_keys.union(position_keys) - common_keys
+
+        synced_ledger = {}
+        synced_positions = {}
+
+        for hotkey in common_keys:
+            synced_ledger[hotkey] = ledger[hotkey]
+            synced_positions[hotkey] = positions[hotkey]
+
+        # if len(uncommon_keys) > 0:
+        #     for hotkey in uncommon_keys:
+        #         if hotkey in ledger_keys:
+        #             bt.logging.warning(f"Hotkey found in ledger but not positions: {hotkey}")
+        #         elif hotkey in position_keys:
+        #             bt.logging.warning(f"Hotkey found in positions but not ledger: {hotkey}")
+
+        return synced_ledger, synced_positions
+
     def filtered_ledger(
-        self,
-        hotkeys: List[str] = None
-    ) -> PerfLedger:
+            self,
+            hotkeys: List[str] = None
+    ) -> dict[str, PerfLedgerData]:
         """
         Filter the ledger for a set of hotkeys.
         """
@@ -90,81 +133,19 @@ class SubtensorWeightSetter(CacheController):
         # Note, eliminated miners will not appear in the dict below
         ledger = self.perf_manager.load_perf_ledgers_from_disk()
 
-        augmented_ledger = {}
+        filtering_ledger = {}
         for hotkey, miner_ledger in ledger.items():
             if hotkey not in hotkeys:
                 continue
 
             ledger_copy = copy.deepcopy(miner_ledger)
-            if not ledger_copy.cps:
+            if not self._filter_checkpoint_list(ledger_copy.cps):
                 continue
 
-            checkpoint_filtered_elements = self._filter_checkpoint_elements(ledger_copy.cps)
-            checkpoint_meets_criteria = self._filter_checkpoint_list(checkpoint_filtered_elements)
-            if not checkpoint_meets_criteria:
-                continue
+            filtering_ledger[hotkey] = ledger_copy
 
-            ledger_copy.cps = checkpoint_filtered_elements
-            augmented_ledger[hotkey] = ledger_copy
+        return filtering_ledger
 
-        return augmented_ledger
-
-    def augmented_ledger(
-        self,
-        local: bool = False,
-        hotkeys: List[str] = None,
-        eliminations: List[str] = None,
-        omitted_miners: List[str] = None,
-        evaluation_time_ms: int = None,
-    ) -> PerfLedger:
-        """
-        Calculate all returns for the .
-        """
-        if hotkeys is None:
-            hotkeys = self.metagraph.hotkeys
-
-        if eliminations is None:
-            eliminations = self.eliminations
-
-        if evaluation_time_ms is None:
-            evaluation_time_ms = TimeUtil.now_in_millis()
-
-        # Note, eliminated miners will not appear in the dict below
-        eliminated_hotkeys = set(x['hotkey'] for x in eliminations) if eliminations is not None else set()
-        ledger = self.perf_manager.load_perf_ledgers_from_disk()
-
-        augmented_ledger = {}
-        for hotkey, miner_ledger in ledger.items():
-            if hotkey not in hotkeys:
-                continue
-
-            if omitted_miners is not None and hotkey in omitted_miners:
-                continue
-
-            if hotkey in eliminated_hotkeys:
-                continue
-
-            miner_checkpoints = copy.deepcopy(miner_ledger.cps)
-            checkpoint_meets_criteria = self._filter_checkpoint_list(miner_checkpoints)
-            if not checkpoint_meets_criteria:
-                continue
-
-            augmented_ledger[hotkey] = miner_ledger
-
-        return augmented_ledger
-    
-    def _filter_checkpoint_elements(self, checkpoints: list[PerfCheckpoint]):
-        """
-        Filter out checkpoints that are not within the lookback range.
-        """
-        filtered_checkpoints = []
-        for checkpoint in checkpoints:
-            if checkpoint.n_updates < ValiConfig.SET_WEIGHT_MINIMUM_UPDATES:
-                continue
-
-            filtered_checkpoints.append(checkpoint)
-        return filtered_checkpoints
-    
     def _filter_checkpoint_list(self, checkpoints: list[PerfCheckpoint]):
         """
         Filter out miners based on a minimum total duration of interaction with the system.
@@ -173,30 +154,31 @@ class SubtensorWeightSetter(CacheController):
             return False
 
         return True
-    
-    def _filter_miner(self, positions: list[Position], current_time: int):
-        """
-        Filter out miners who don't have enough positions to be considered for setting weights - True means that we want to filter the miner out
-        """
-        if len(positions) == 0:
-            return True
 
-        # find the time when the first position was opened
-        first_closed_position_ms = positions[0].close_ms
-        for i in range(1, len(positions)):
-            first_closed_position_ms = min(
-                first_closed_position_ms, positions[i].close_ms
-            )
+    def filtered_positions(
+            self,
+            hotkeys: List[str] = None
+    ) -> dict[str, list[Position]]:
+        """
+        Filter the positions for a set of hotkeys.
+        """
+        if hotkeys is None:
+            hotkeys = self.metagraph.hotkeys
 
-        closed_positions = len(
-            [position for position in positions if position.is_closed_position]
+        positions = self.position_manager.get_all_miner_positions_by_hotkey(
+            hotkeys,
+            sort_positions=True
         )
 
-        if closed_positions < ValiConfig.SET_WEIGHT_MINIMUM_POSITIONS:
-            return True
+        filtering_positions = {}
+        for hotkey, miner_positions in positions.items():
+            if hotkey not in hotkeys:
+                continue
 
-        # check that the position
-        return False
+            filtered_positions = self._filter_positions(miner_positions)
+            filtering_positions[hotkey] = filtered_positions
+
+        return filtering_positions
 
     def _filter_positions(self, positions: list[Position]):
         """
@@ -207,7 +189,7 @@ class SubtensorWeightSetter(CacheController):
             if not position.is_closed_position:
                 continue
 
-            if position.close_ms - position.open_ms < ValiConfig.SET_WEIGHT_MINIMUM_POSITION_DURATION_MS:
+            if position.close_ms - position.open_ms < ValiConfig.MINIMUM_POSITION_DURATION_MS:
                 continue
 
             filtered_positions.append(position)

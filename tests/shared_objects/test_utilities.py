@@ -9,8 +9,10 @@ from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.vali_dataclasses.perf_ledger import PerfCheckpoint, PerfLedger
 from vali_config import ValiConfig
 
+
 def get_time_in_range(percent, start, end):
     return int(start + ((end - start) * percent))
+
 
 def hash_object(obj):
     serialized_obj = pickle.dumps(obj)
@@ -19,34 +21,36 @@ def hash_object(obj):
     hashed_str = hash_obj.hexdigest()
     return hashed_str[:10]
 
+
 def order_generator(
-    order_type = OrderType.LONG,
-    leverage = 1.0,
-    n_orders:int = 10,
-    processed_ms:int = 1710521764446
+        order_type=OrderType.LONG,
+        leverage=1.0,
+        n_orders: int = 10,
+        processed_ms: int = 1710521764446
 ) -> list[Order]:
     order_list = []
     for _ in range(n_orders):
         sample_order = Order(
-            order_type = order_type,
-            leverage = leverage,
-            price = 3000,
-            trade_pair = TradePair.BTCUSD,
-            processed_ms = processed_ms,
-            order_uuid = "1000"
+            order_type=order_type,
+            leverage=leverage,
+            price=3000,
+            trade_pair=TradePair.BTCUSD,
+            processed_ms=processed_ms,
+            order_uuid="1000"
         )
-        
+
         order_list.append(sample_order)
 
     return order_list
 
+
 def position_generator(
-    open_time_ms, 
-    trade_pair,
-    close_time_ms: Union[None, int] = None,
-    return_at_close = 1.0,
-    orders: list[Order] = [],
-    miner_hotkey: str = 'miner0'
+        open_time_ms,
+        trade_pair,
+        close_time_ms: Union[None, int] = None,
+        return_at_close=1.0,
+        orders: list[Order] = [],
+        miner_hotkey: str = 'miner0'
 ):
     generated_position = Position(
         miner_hotkey=miner_hotkey,
@@ -64,31 +68,46 @@ def position_generator(
 
     if close_time_ms is not None:
         generated_position.close_out_position(
-            close_ms = close_time_ms
+            close_ms=close_time_ms
         )
         generated_position.return_at_close = return_at_close
 
     return generated_position
 
+
 def generate_ledger(
-        nterms, 
-        value, 
-        start_time=0, 
-        end_time=ValiConfig.SET_WEIGHT_MINIMUM_TOTAL_CHECKPOINT_DURATION_MS,
+        value=None,
+        start_time=0,
+        nterms=None,
+        end_time=ValiConfig.TARGET_LEDGER_WINDOW_MS,
         gain=None,
         loss=None,
-        open_ms=None
-    ):
+        open_ms=None,
+        mdd=1.0
+):
+    # Check for invalid input combinations
+    if value is None and (gain is None or loss is None):
+        raise ValueError("Either 'value' or both 'gain' and 'loss' must be provided")
 
-    if gain is None and loss is None:
+    # If value is provided and gain/loss are not, set gain/loss based on value
+    if value is not None and gain is None and loss is None:
         gain = value
         loss = -value
 
-    checkpoint_list = []
-    checkpoint_times = np.linspace(start_time, end_time, nterms, dtype=int).tolist()
-    checkpoint_time_accumulation = np.diff(checkpoint_times, prepend=0)
+    # If gain or loss is provided without value, just use the provided gain/loss
+    if gain is not None and loss is not None and value is None:
+        pass  # gain and loss are already set correctly
 
-    for i in range(nterms):
+    # Determine the number of terms if not provided
+    if nterms is None:
+        nterms = (end_time - start_time) // ValiConfig.TARGET_CHECKPOINT_DURATION_MS
+
+    # Generate checkpoint times
+    checkpoint_times = np.linspace(start_time, end_time, nterms, dtype=int).tolist()
+    checkpoint_time_accumulation = np.diff(checkpoint_times, prepend=start_time)
+
+    checkpoint_list = []
+    for i in range(len(checkpoint_times)):
         if open_ms is None:
             checkpoint_open_ms = checkpoint_time_accumulation[i]
         else:
@@ -100,31 +119,37 @@ def generate_ledger(
                 gain=gain,
                 loss=loss,
                 prev_portfolio_ret=1.0,
-                open_ms=checkpoint_open_ms
+                open_ms=checkpoint_open_ms,
+                mdd=mdd
             )
         )
 
     return ledger_generator(checkpoints=checkpoint_list)
 
+
 def ledger_generator(
-    target_cp_duration: int = 21600000,
-    target_ledger_window_ms: float = 2592000000,
-    checkpoints: list[PerfCheckpoint] = [],
+        target_cp_duration: int = ValiConfig.TARGET_CHECKPOINT_DURATION_MS,
+        target_ledger_window_ms: float = ValiConfig.TARGET_LEDGER_WINDOW_MS,
+        checkpoints=None,
 ):
+    if checkpoints is None:
+        checkpoints = []
     return PerfLedger(
-        target_cp_duration=target_cp_duration,
+        target_cp_duration_ms=target_cp_duration,
         target_ledger_window_ms=target_ledger_window_ms,
         cps=checkpoints
     )
 
+
 def checkpoint_generator(
-    last_update_ms: int = 0, 
-    prev_portfolio_ret: float = 1.0,
-    accum_ms: int = 0,
-    open_ms: int = 0,
-    n_updates: int = 0,
-    gain: float = 0.0,
-    loss: float = 0.0
+        last_update_ms: int = 0,
+        prev_portfolio_ret: float = 1.0,
+        accum_ms: int = 0,
+        open_ms: int = 0,
+        n_updates: int = 0,
+        gain: float = 0.0,
+        loss: float = 0.0,
+        mdd: float = 1.0
 ):
     return PerfCheckpoint(
         last_update_ms=last_update_ms,
@@ -133,5 +158,6 @@ def checkpoint_generator(
         open_ms=open_ms,
         n_updates=n_updates,
         gain=gain,
-        loss=loss
+        loss=loss,
+        mdd=mdd
     )

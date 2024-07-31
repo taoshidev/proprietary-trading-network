@@ -1,5 +1,4 @@
 # developer: jbonilla
-# Copyright © 2024 Taoshi Inc
 from copy import deepcopy
 from datetime import datetime, timezone
 

@@ -1,10 +1,10 @@
 # developer: jbonilla
-# Copyright © 2024 Taoshi Inc
 import json
 import datetime
 from copy import deepcopy
 
-from vali_objects.position import CRYPTO_CARRY_FEE_PER_INTERVAL, FOREX_CARRY_FEE_PER_INTERVAL, INDICES_CARRY_FEE_PER_INTERVAL
+from vali_objects.position import CRYPTO_CARRY_FEE_PER_INTERVAL, FOREX_CARRY_FEE_PER_INTERVAL, \
+    INDICES_CARRY_FEE_PER_INTERVAL
 from tests.shared_objects.mock_classes import MockMetagraph
 from tests.vali_tests.base_objects.test_base import TestBase
 from vali_config import TradePair, ValiConfig
@@ -16,6 +16,7 @@ from vali_objects.utils.position_manager import PositionManager
 from vali_objects.utils.vali_utils import ValiUtils
 from vali_objects.vali_dataclasses.order import Order
 from time_util.time_util import MS_IN_8_HOURS, MS_IN_24_HOURS
+
 
 class TestPositions(TestBase):
 
@@ -60,12 +61,12 @@ class TestPositions(TestBase):
         position = deepcopy(self.default_position)
         position.orders = []
         for i in range(10):
-            o= Order(order_type=OrderType.LONG,
-                       leverage=.1 + i / 10,
-                       price=100,
-                       trade_pair=TradePair.BTCUSD,
-                       processed_ms=1000 + i * 10,
-                       order_uuid=str(i))
+            o = Order(order_type=OrderType.LONG,
+                      leverage=.1 + i / 10,
+                      price=100,
+                      trade_pair=TradePair.BTCUSD,
+                      processed_ms=1000 + i * 10,
+                      order_uuid=str(i))
             position.orders.append(o)
         position.rebuild_position_with_updated_orders()
 
@@ -86,7 +87,6 @@ class TestPositions(TestBase):
             (1085, 1085, 4.5),  # zero interval length is still valid since we check inclusive.
             (1090, 1090, 5.5),  # zero interval length is still valid since we check inclusive.
 
-
             (1010, 1020, 0.6),  # max at 1020 unchanged
             (1020, 1030, 1.0),  # max at ... unchanged
             (1030, 1040, 1.5),  # max at ... unchanged
@@ -97,15 +97,16 @@ class TestPositions(TestBase):
             (1080, 1090, 5.5),  # 1090 unchanged
             (1090, 1100, 5.5),  # 1090 unchanged
 
-            (1100, 1150, 5.5),  # Interval after any order timestamps but the position hasn't closed so it is the most recent leverage
-            (1500, 1500, 5.5)   # Interval after any order timestamps but the position hasn't closed so it is the most recent leverage
+            (1100, 1150, 5.5),
+            # Interval after any order timestamps but the position hasn't closed so it is the most recent leverage
+            (1500, 1500, 5.5)
+            # Interval after any order timestamps but the position hasn't closed so it is the most recent leverage
 
         ]
 
         for start, end, expected_leverage in test_intervals:
             msg = f"start: {start}, end: {end}, expected_leverage: {expected_leverage}"
             self.assertAlmostEquals(position.max_leverage_seen_in_interval(start, end), expected_leverage, 7, msg)
-
 
         # throw an exception for invalid interval
         invalid_intervals = [
@@ -119,7 +120,6 @@ class TestPositions(TestBase):
             with self.assertRaises(ValueError, msg=msg):
                 _ = position.max_leverage_seen_in_interval(start, end)
 
-
     def test_maximum_leverage_in_interval_ups_and_downs(self):
         position = deepcopy(self.default_position)
         position.orders = []
@@ -130,19 +130,19 @@ class TestPositions(TestBase):
                 lev = 0.5
 
             ot = OrderType.LONG if lev > 0 else OrderType.SHORT
-            o= Order(order_type=ot,
-                       leverage=lev,
-                       price=100,
-                       trade_pair=TradePair.BTCUSD,
-                       processed_ms=1000 + i * 10,
-                       order_uuid=str(i))
+            o = Order(order_type=ot,
+                      leverage=lev,
+                      price=100,
+                      trade_pair=TradePair.BTCUSD,
+                      processed_ms=1000 + i * 10,
+                      order_uuid=str(i))
             position.orders.append(o)
         position.rebuild_position_with_updated_orders()
 
         # Test various intervals
         test_intervals = [
-            (1000, 1001, 1),    # -1 = -1
-            (1000, 1010, 1),    # -1 + 0.5 = -0.5
+            (1000, 1001, 1),  # -1 = -1
+            (1000, 1010, 1),  # -1 + 0.5 = -0.5
             (1000, 1020, 1.5),  # -1 + 0.5 - 1 = -1.5
             (1000, 1030, 1.5),  # -1 + 0.5 - 1 + 0.5 = -1
             (1000, 1040, 2.0),  # -1 + 0.5 - 1 + 0.5 - 1 = -2
@@ -156,7 +156,6 @@ class TestPositions(TestBase):
             (1085, 1085, 3.0),  # zero interval length is still valid since we check inclusive.
             (1090, 1090, 2.5),  # zero interval length is still valid since we check inclusive.
 
-
             (1010, 1020, 1.5),  # max at 1020 unchanged
             (1020, 1030, 1.5),  # max at ... unchanged
             (1030, 1040, 2.0),  # max at ... unchanged
@@ -167,8 +166,10 @@ class TestPositions(TestBase):
             (1080, 1090, 3.0),  # 1090 unchanged
             (1090, 1100, 2.5),  # 1090 unchanged
 
-            (1100, 1150, 2.5),  # Interval after any order timestamps but the position hasn't closed so it is the most recent leverage
-            (1500, 1500, 2.5)   # Interval after any order timestamps but the position hasn't closed so it is the most recent leverage
+            (1100, 1150, 2.5),
+            # Interval after any order timestamps but the position hasn't closed so it is the most recent leverage
+            (1500, 1500, 2.5)
+            # Interval after any order timestamps but the position hasn't closed so it is the most recent leverage
 
         ]
 
@@ -176,60 +177,59 @@ class TestPositions(TestBase):
             msg = f"start: {start}, end: {end}, expected_leverage: {expected_leverage}"
             self.assertAlmostEquals(position.max_leverage_seen_in_interval(start, end), expected_leverage, 7, msg)
 
-
     def test_simple_long_position_with_explicit_FLAT(self):
-                position = deepcopy(self.default_position)
-                o1 = Order(order_type=OrderType.LONG,
-                           leverage=1.0,
-                           price=100,
-                           trade_pair=TradePair.BTCUSD,
-                           processed_ms=FEE_V6_TIME_MS,
-                           order_uuid="1000")
-                o2 = Order(order_type=OrderType.FLAT,
-                           leverage=0.0,
-                           price=110,
-                           trade_pair=TradePair.BTCUSD,
-                           processed_ms=FEE_V6_TIME_MS + MS_IN_8_HOURS + 1000,
-                           order_uuid="2000")
+        position = deepcopy(self.default_position)
+        o1 = Order(order_type=OrderType.LONG,
+                   leverage=1.0,
+                   price=100,
+                   trade_pair=TradePair.BTCUSD,
+                   processed_ms=FEE_V6_TIME_MS,
+                   order_uuid="1000")
+        o2 = Order(order_type=OrderType.FLAT,
+                   leverage=0.0,
+                   price=110,
+                   trade_pair=TradePair.BTCUSD,
+                   processed_ms=FEE_V6_TIME_MS + MS_IN_8_HOURS + 1000,
+                   order_uuid="2000")
 
-                self.add_order_to_position_and_save_to_disk(position, o1)
-                self.validate_intermediate_position_state(position, {
-                    'orders': [o1],
-                    'position_type': OrderType.LONG,
-                    'is_closed_position': False,
-                    'net_leverage': 1.0,
-                    'initial_entry_price': 100,
-                    'average_entry_price': 100,
-                    'close_ms': None,
-                    'return_at_close': 0.9995,
-                    'current_return': 1.0,
-                    'miner_hotkey': self.DEFAULT_MINER_HOTKEY,
-                    'open_ms': FEE_V6_TIME_MS,
-                    'trade_pair': self.DEFAULT_TRADE_PAIR,
-                    'position_uuid': self.DEFAULT_POSITION_UUID
-                })
+        self.add_order_to_position_and_save_to_disk(position, o1)
+        self.validate_intermediate_position_state(position, {
+            'orders': [o1],
+            'position_type': OrderType.LONG,
+            'is_closed_position': False,
+            'net_leverage': 1.0,
+            'initial_entry_price': 100,
+            'average_entry_price': 100,
+            'close_ms': None,
+            'return_at_close': 0.9995,
+            'current_return': 1.0,
+            'miner_hotkey': self.DEFAULT_MINER_HOTKEY,
+            'open_ms': FEE_V6_TIME_MS,
+            'trade_pair': self.DEFAULT_TRADE_PAIR,
+            'position_uuid': self.DEFAULT_POSITION_UUID
+        })
 
-                self.add_order_to_position_and_save_to_disk(position, o2)
-                self.validate_intermediate_position_state(position, {
-                    'orders': [o1, o2],
-                    'position_type': OrderType.FLAT,
-                    'is_closed_position': True,
-                    'net_leverage': 0.0,
-                    'initial_entry_price': 100,
-                    'average_entry_price': 100,
-                    'close_ms': o2.processed_ms,
-                    'return_at_close': 1.0987836209351618,
-                    'current_return': 1.1,
-                    'miner_hotkey': self.DEFAULT_MINER_HOTKEY,
-                    'open_ms': FEE_V6_TIME_MS,
-                    'trade_pair': self.DEFAULT_TRADE_PAIR,
-                    'position_uuid': self.DEFAULT_POSITION_UUID
-                })
+        self.add_order_to_position_and_save_to_disk(position, o2)
+        self.validate_intermediate_position_state(position, {
+            'orders': [o1, o2],
+            'position_type': OrderType.FLAT,
+            'is_closed_position': True,
+            'net_leverage': 0.0,
+            'initial_entry_price': 100,
+            'average_entry_price': 100,
+            'close_ms': o2.processed_ms,
+            'return_at_close': 1.0987836209351618,
+            'current_return': 1.1,
+            'miner_hotkey': self.DEFAULT_MINER_HOTKEY,
+            'open_ms': FEE_V6_TIME_MS,
+            'trade_pair': self.DEFAULT_TRADE_PAIR,
+            'position_uuid': self.DEFAULT_POSITION_UUID
+        })
 
-                self.assertEqual(position.max_leverage_seen(), 1.0)
-                self.assertEqual(position.get_cumulative_leverage(), 2.0)
+        self.assertEqual(position.max_leverage_seen(), 1.0)
+        self.assertEqual(position.get_cumulative_leverage(), 2.0)
 
-                self.assertEqual(position.get_carry_fee(o2.processed_ms)[0], CRYPTO_CARRY_FEE_PER_INTERVAL)
+        self.assertEqual(position.get_carry_fee(o2.processed_ms)[0], CRYPTO_CARRY_FEE_PER_INTERVAL)
 
     def test_carry_fee_edge_case(self):
         """
@@ -251,9 +251,10 @@ class TestPositions(TestBase):
             average_entry_price=64900.41,
             position_type=<OrderType.LONG: 'LONG'>, is_closed_position=False)]
         """
-        timestamp_ms_july_24_2024_4am = datetime.datetime(2024, 7, 24, 4, 0, 0, tzinfo=datetime.timezone.utc).timestamp() * 1000
+        timestamp_ms_july_24_2024_4am = datetime.datetime(2024, 7, 24, 4, 0, 0,
+                                                          tzinfo=datetime.timezone.utc).timestamp() * 1000
         timestamp_ms_july_24_2024_4am = int(timestamp_ms_july_24_2024_4am)
-        t0 = 1721228840870 # Wednesday, July 17, 2024 3:07:20.870 PM
+        t0 = 1721228840870  # Wednesday, July 17, 2024 3:07:20.870 PM
         position = Position(
             open_ms=t0,
             miner_hotkey='5EUTaAo7vCGxvLDWRXRrEuqctPjt9fKZmgkaeFZocWECUe9X',
@@ -269,8 +270,8 @@ class TestPositions(TestBase):
         position.add_order(o1)
         carry_fee, next_update_time_ms = position.get_carry_fee(timestamp_ms_july_24_2024_4am)
         self.assertNotEqual(next_update_time_ms, timestamp_ms_july_24_2024_4am)
-        self.assertEqual(next_update_time_ms, timestamp_ms_july_24_2024_4am + MS_IN_8_HOURS, msg=next_update_time_ms -timestamp_ms_july_24_2024_4am)
-
+        self.assertEqual(next_update_time_ms, timestamp_ms_july_24_2024_4am + MS_IN_8_HOURS,
+                         msg=next_update_time_ms - timestamp_ms_july_24_2024_4am)
 
     def test_simple_long_position_with_implicit_FLAT(self):
         position = deepcopy(self.default_position)
@@ -377,7 +378,7 @@ class TestPositions(TestBase):
         })
         self.assertEqual(position.max_leverage_seen(), 1.0)
         self.assertEqual(position.get_cumulative_leverage(), 2.0)
-        self.assertAlmostEqual(position.get_carry_fee(o2.processed_ms)[0], CRYPTO_CARRY_FEE_PER_INTERVAL**3)
+        self.assertAlmostEqual(position.get_carry_fee(o2.processed_ms)[0], CRYPTO_CARRY_FEE_PER_INTERVAL ** 3)
 
     def test_liquidated_long_position_with_explicit_FLAT(self):
         position = deepcopy(self.default_position)
@@ -697,100 +698,97 @@ class TestPositions(TestBase):
 
         with self.assertRaises(ValueError):
             position_v1.add_order(Order(order_type=OrderType.LONG,
-                                      leverage=ValiConfig.ORDER_MIN_LEVERAGE * .999,
-                                      price=100,
-                                      trade_pair=TradePair.BTCUSD,
-                                      processed_ms=1000,
-                                      order_uuid="1000"))
+                                        leverage=ValiConfig.ORDER_MIN_LEVERAGE * .999,
+                                        price=100,
+                                        trade_pair=TradePair.BTCUSD,
+                                        processed_ms=1000,
+                                        order_uuid="1000"))
 
         with self.assertRaises(ValueError):
             position_v1.add_order(Order(order_type=OrderType.LONG,
-                                      leverage=ValiConfig.ORDER_MAX_LEVERAGE * 1.0001,
-                                      price=100,
-                                      trade_pair=TradePair.BTCUSD,
-                                      processed_ms=1000,
-                                      order_uuid="1000"))
+                                        leverage=ValiConfig.ORDER_MAX_LEVERAGE * 1.0001,
+                                        price=100,
+                                        trade_pair=TradePair.BTCUSD,
+                                        processed_ms=1000,
+                                        order_uuid="1000"))
 
         with self.assertRaises(ValueError):
             position_v1.add_order(Order(order_type=OrderType.SHORT,
-                                      leverage=ValiConfig.ORDER_MIN_LEVERAGE * .999,
-                                      price=100,
-                                      trade_pair=TradePair.BTCUSD,
-                                      processed_ms=1000,
-                                      order_uuid="1000"))
+                                        leverage=ValiConfig.ORDER_MIN_LEVERAGE * .999,
+                                        price=100,
+                                        trade_pair=TradePair.BTCUSD,
+                                        processed_ms=1000,
+                                        order_uuid="1000"))
 
         with self.assertRaises(ValueError):
             position_v1.add_order(Order(order_type=OrderType.SHORT,
-                                      leverage=ValiConfig.ORDER_MAX_LEVERAGE * 1.0001,
-                                      price=100,
-                                      trade_pair=TradePair.BTCUSD,
-                                      processed_ms=1000,
-                                      order_uuid="1000"))
+                                        leverage=ValiConfig.ORDER_MAX_LEVERAGE * 1.0001,
+                                        price=100,
+                                        trade_pair=TradePair.BTCUSD,
+                                        processed_ms=1000,
+                                        order_uuid="1000"))
 
         with self.assertRaises(ValueError):
             position_v1.add_order(Order(order_type=OrderType.LONG,
-                                      leverage=0.0,
-                                      price=100,
-                                      trade_pair=TradePair.BTCUSD,
-                                      processed_ms=1000,
-                                      order_uuid="1000"))
+                                        leverage=0.0,
+                                        price=100,
+                                        trade_pair=TradePair.BTCUSD,
+                                        processed_ms=1000,
+                                        order_uuid="1000"))
         with self.assertRaises(ValueError):
             position_v2.add_order(Order(order_type=OrderType.LONG,
-                                      leverage=0.0,
-                                      price=100,
-                                      trade_pair=TradePair.BTCUSD,
-                                      processed_ms=LEVERAGE_BOUNDS_V2_START_TIME_MS,
-                                      order_uuid="1000"))
+                                        leverage=0.0,
+                                        price=100,
+                                        trade_pair=TradePair.BTCUSD,
+                                        processed_ms=LEVERAGE_BOUNDS_V2_START_TIME_MS,
+                                        order_uuid="1000"))
 
         with self.assertRaises(ValueError):
             position_v1.add_order(Order(order_type=OrderType.SHORT,
-                                     leverage=min_allowed_leverage_v1 * .999,
-                                     price=100,
-                                     trade_pair=TradePair.BTCUSD,
-                                     processed_ms=LEVERAGE_BOUNDS_V2_START_TIME_MS - 1,
-                                     order_uuid="1000"))
+                                        leverage=min_allowed_leverage_v1 * .999,
+                                        price=100,
+                                        trade_pair=TradePair.BTCUSD,
+                                        processed_ms=LEVERAGE_BOUNDS_V2_START_TIME_MS - 1,
+                                        order_uuid="1000"))
 
         with self.assertRaises(ValueError):
             position_v2.add_order(Order(order_type=OrderType.SHORT,
-                                     leverage=TradePair.BTCUSD.min_leverage * .999,
-                                     price=100,
-                                     trade_pair=TradePair.BTCUSD,
-                                     processed_ms=LEVERAGE_BOUNDS_V2_START_TIME_MS,
-                                     order_uuid="1000"))
+                                        leverage=TradePair.BTCUSD.min_leverage * .999,
+                                        price=100,
+                                        trade_pair=TradePair.BTCUSD,
+                                        processed_ms=LEVERAGE_BOUNDS_V2_START_TIME_MS,
+                                        order_uuid="1000"))
 
         with self.assertRaises(ValueError):
             position_v1.add_order(Order(order_type=OrderType.LONG,
-                                     leverage=-1.0,
-                                     price=100,
-                                     trade_pair=TradePair.BTCUSD,
-                                     processed_ms=1000,
-                                     order_uuid="1000"))
+                                        leverage=-1.0,
+                                        price=100,
+                                        trade_pair=TradePair.BTCUSD,
+                                        processed_ms=1000,
+                                        order_uuid="1000"))
         with self.assertRaises(ValueError):
             position_v2.add_order(Order(order_type=OrderType.LONG,
-                                     leverage=-1.0,
-                                     price=100,
-                                     trade_pair=TradePair.BTCUSD,
-                                     processed_ms=LEVERAGE_BOUNDS_V2_START_TIME_MS,
-                                     order_uuid="1000"))
+                                        leverage=-1.0,
+                                        price=100,
+                                        trade_pair=TradePair.BTCUSD,
+                                        processed_ms=LEVERAGE_BOUNDS_V2_START_TIME_MS,
+                                        order_uuid="1000"))
 
         with self.assertRaises(ValueError):
             position_v1.add_order(Order(order_type=OrderType.LONG,
-                                     leverage=min_allowed_leverage_v1 * .999,
-                                     price=100,
-                                     trade_pair=TradePair.BTCUSD,
-                                     processed_ms=LEVERAGE_BOUNDS_V2_START_TIME_MS - 1,
-                                     order_uuid="1000"))
+                                        leverage=min_allowed_leverage_v1 * .999,
+                                        price=100,
+                                        trade_pair=TradePair.BTCUSD,
+                                        processed_ms=LEVERAGE_BOUNDS_V2_START_TIME_MS - 1,
+                                        order_uuid="1000"))
 
         with self.assertRaises(ValueError):
             position_v2.add_order(Order(order_type=OrderType.LONG,
-                                     leverage=TradePair.BTCUSD.min_leverage * .999,
-                                     price=100,
-                                     trade_pair=TradePair.BTCUSD,
-                                     processed_ms=LEVERAGE_BOUNDS_V2_START_TIME_MS,
-                                     order_uuid="1000"))
-
-
-
+                                        leverage=TradePair.BTCUSD.min_leverage * .999,
+                                        price=100,
+                                        trade_pair=TradePair.BTCUSD,
+                                        processed_ms=LEVERAGE_BOUNDS_V2_START_TIME_MS,
+                                        order_uuid="1000"))
 
     def test_invalid_prices_zero(self):
         position = deepcopy(self.default_position)
@@ -802,7 +800,6 @@ class TestPositions(TestBase):
                    order_uuid="1000")
         with self.assertRaises(ValueError):
             position.add_order(o1)
-
 
     def test_invalid_prices_negative(self):
         with self.assertRaises(ValueError):
@@ -816,23 +813,23 @@ class TestPositions(TestBase):
     def test_three_orders_with_longs_no_drawdown(self):
         position = deepcopy(self.default_position)
         o1 = Order(order_type=OrderType.LONG,
-                leverage=1.0,
-                price=1000,
-                trade_pair=TradePair.BTCUSD,
-                processed_ms=1000,
-                order_uuid="1000")
+                   leverage=1.0,
+                   price=1000,
+                   trade_pair=TradePair.BTCUSD,
+                   processed_ms=1000,
+                   order_uuid="1000")
         o2 = Order(order_type=OrderType.LONG,
-                leverage=0.1,
-                price=2000,
-                trade_pair=TradePair.BTCUSD,
-                processed_ms=2000,
-                order_uuid="2000")
+                   leverage=0.1,
+                   price=2000,
+                   trade_pair=TradePair.BTCUSD,
+                   processed_ms=2000,
+                   order_uuid="2000")
         o3 = Order(order_type=OrderType.FLAT,
-                leverage=0.0,
-                price=2000,
-                trade_pair=TradePair.BTCUSD,
-                processed_ms=5000,
-                order_uuid="5000")
+                   leverage=0.0,
+                   price=2000,
+                   trade_pair=TradePair.BTCUSD,
+                   processed_ms=5000,
+                   order_uuid="5000")
 
         self.add_order_to_position_and_save_to_disk(position, o1)
         self.validate_intermediate_position_state(position, {
@@ -889,17 +886,17 @@ class TestPositions(TestBase):
 
     def test_two_orders_with_a_loss(self):
         o1 = Order(order_type=OrderType.LONG,
-                leverage=1.0,
-                price=1000,
-                trade_pair=TradePair.BTCUSD,
-                processed_ms=FEE_V6_TIME_MS - 1000 * 60 * 60 * 24,
-                order_uuid="1000")
+                   leverage=1.0,
+                   price=1000,
+                   trade_pair=TradePair.BTCUSD,
+                   processed_ms=FEE_V6_TIME_MS - 1000 * 60 * 60 * 24,
+                   order_uuid="1000")
         o2 = Order(order_type=OrderType.FLAT,
-                leverage=0.0,
-                price=500,
-                trade_pair=TradePair.BTCUSD,
-                processed_ms=FEE_V6_TIME_MS - 1000 * 60 * 60 * 12,
-                order_uuid="2000")
+                   leverage=0.0,
+                   price=500,
+                   trade_pair=TradePair.BTCUSD,
+                   processed_ms=FEE_V6_TIME_MS - 1000 * 60 * 60 * 12,
+                   order_uuid="2000")
 
         position = deepcopy(self.default_position)
         self.add_order_to_position_and_save_to_disk(position, o1)
@@ -941,111 +938,111 @@ class TestPositions(TestBase):
         self.assertEqual(position.get_carry_fee(o2.processed_ms)[0], 1.0)
 
     def test_three_orders_with_a_loss_and_then_a_gain(self):
-            o1 = Order(order_type=OrderType.LONG,
-                    leverage=1.0,
-                    price=1000,
-                    trade_pair=TradePair.BTCUSD,
-                    processed_ms=FEE_V6_TIME_MS - 1000 * 60 * 60 * 24,
-                    order_uuid="1000")
-            o2 = Order(order_type=OrderType.LONG,
-                    leverage=0.1,
-                    price=500,
-                    trade_pair=TradePair.BTCUSD,
-                    processed_ms=FEE_V6_TIME_MS - 1000 * 60 * 60 * 12,
-                    order_uuid="2000")
-            o3 = Order(order_type=OrderType.SHORT,
-                    leverage=0.1,
-                    price=1000,
-                    trade_pair=TradePair.BTCUSD,
-                    processed_ms=FEE_V6_TIME_MS - 1000 * 60 * 60 * 4,
-                    order_uuid="5000")
+        o1 = Order(order_type=OrderType.LONG,
+                   leverage=1.0,
+                   price=1000,
+                   trade_pair=TradePair.BTCUSD,
+                   processed_ms=FEE_V6_TIME_MS - 1000 * 60 * 60 * 24,
+                   order_uuid="1000")
+        o2 = Order(order_type=OrderType.LONG,
+                   leverage=0.1,
+                   price=500,
+                   trade_pair=TradePair.BTCUSD,
+                   processed_ms=FEE_V6_TIME_MS - 1000 * 60 * 60 * 12,
+                   order_uuid="2000")
+        o3 = Order(order_type=OrderType.SHORT,
+                   leverage=0.1,
+                   price=1000,
+                   trade_pair=TradePair.BTCUSD,
+                   processed_ms=FEE_V6_TIME_MS - 1000 * 60 * 60 * 4,
+                   order_uuid="5000")
 
-            position = deepcopy(self.default_position)
-            self.add_order_to_position_and_save_to_disk(position, o1)
-            self.validate_intermediate_position_state(position, {
-                'orders': [o1],
-                'position_type': OrderType.LONG,
-                'is_closed_position': False,
-                'net_leverage': 1.0,
-                'initial_entry_price': 1000,
-                'average_entry_price': 1000,
-                'close_ms': None,
-                'return_at_close': 0.9995,
-                'current_return': 1.0,
-                'miner_hotkey': self.DEFAULT_MINER_HOTKEY,
-                'open_ms': o1.processed_ms,
-                'trade_pair': self.DEFAULT_TRADE_PAIR,
-                'position_uuid': self.DEFAULT_POSITION_UUID
-            })
+        position = deepcopy(self.default_position)
+        self.add_order_to_position_and_save_to_disk(position, o1)
+        self.validate_intermediate_position_state(position, {
+            'orders': [o1],
+            'position_type': OrderType.LONG,
+            'is_closed_position': False,
+            'net_leverage': 1.0,
+            'initial_entry_price': 1000,
+            'average_entry_price': 1000,
+            'close_ms': None,
+            'return_at_close': 0.9995,
+            'current_return': 1.0,
+            'miner_hotkey': self.DEFAULT_MINER_HOTKEY,
+            'open_ms': o1.processed_ms,
+            'trade_pair': self.DEFAULT_TRADE_PAIR,
+            'position_uuid': self.DEFAULT_POSITION_UUID
+        })
 
-            self.add_order_to_position_and_save_to_disk(position, o2)
-            self.validate_intermediate_position_state(position, {
-                'orders': [o1, o2],
-                'position_type': OrderType.LONG,
-                'is_closed_position': False,
-                'net_leverage': 1.1,
-                'initial_entry_price': 1000,
-                'average_entry_price': 954.5454545454545,
-                'close_ms': None,
-                'return_at_close': 0.499725,
-                'current_return': 0.5,
-                'miner_hotkey': self.DEFAULT_MINER_HOTKEY,
-                'open_ms': o1.processed_ms,
-                'trade_pair': self.DEFAULT_TRADE_PAIR,
-                'position_uuid': self.DEFAULT_POSITION_UUID
-            })
+        self.add_order_to_position_and_save_to_disk(position, o2)
+        self.validate_intermediate_position_state(position, {
+            'orders': [o1, o2],
+            'position_type': OrderType.LONG,
+            'is_closed_position': False,
+            'net_leverage': 1.1,
+            'initial_entry_price': 1000,
+            'average_entry_price': 954.5454545454545,
+            'close_ms': None,
+            'return_at_close': 0.499725,
+            'current_return': 0.5,
+            'miner_hotkey': self.DEFAULT_MINER_HOTKEY,
+            'open_ms': o1.processed_ms,
+            'trade_pair': self.DEFAULT_TRADE_PAIR,
+            'position_uuid': self.DEFAULT_POSITION_UUID
+        })
 
-            self.add_order_to_position_and_save_to_disk(position, o3)
-            self.validate_intermediate_position_state(position, {
-                'orders': [o1, o2, o3],
-                'position_type': OrderType.LONG,
-                'is_closed_position': False,
-                'net_leverage': 1.0,
-                'initial_entry_price': 1000,
-                'average_entry_price': 950.0,
-                'close_ms': None,
-                'return_at_close': 1.04937,
-                'current_return': 1.05,
-                'miner_hotkey': self.DEFAULT_MINER_HOTKEY,
-                'open_ms': o1.processed_ms,
-                'trade_pair': self.DEFAULT_TRADE_PAIR,
-                'position_uuid': self.DEFAULT_POSITION_UUID
-            })
+        self.add_order_to_position_and_save_to_disk(position, o3)
+        self.validate_intermediate_position_state(position, {
+            'orders': [o1, o2, o3],
+            'position_type': OrderType.LONG,
+            'is_closed_position': False,
+            'net_leverage': 1.0,
+            'initial_entry_price': 1000,
+            'average_entry_price': 950.0,
+            'close_ms': None,
+            'return_at_close': 1.04937,
+            'current_return': 1.05,
+            'miner_hotkey': self.DEFAULT_MINER_HOTKEY,
+            'open_ms': o1.processed_ms,
+            'trade_pair': self.DEFAULT_TRADE_PAIR,
+            'position_uuid': self.DEFAULT_POSITION_UUID
+        })
 
-            self.assertEqual(position.max_leverage_seen(), 1.1)
-            self.assertAlmostEquals(position.get_cumulative_leverage(), 1.2, 8)
+        self.assertEqual(position.max_leverage_seen(), 1.1)
+        self.assertAlmostEquals(position.get_cumulative_leverage(), 1.2, 8)
 
     def test_returns_on_large_price_increase(self):
         o1 = Order(order_type=OrderType.LONG,
-                leverage=1.0,
-                price=1000,
-                trade_pair=TradePair.BTCUSD,
-                processed_ms=1000,
-                order_uuid="1000")
+                   leverage=1.0,
+                   price=1000,
+                   trade_pair=TradePair.BTCUSD,
+                   processed_ms=1000,
+                   order_uuid="1000")
         o2 = Order(order_type=OrderType.LONG,
-                leverage=0.1,
-                price=2000,
-                trade_pair=TradePair.BTCUSD,
-                processed_ms=2000,
-                order_uuid="2000")
+                   leverage=0.1,
+                   price=2000,
+                   trade_pair=TradePair.BTCUSD,
+                   processed_ms=2000,
+                   order_uuid="2000")
         o3 = Order(order_type=OrderType.LONG,
-                leverage=.01,
-                price=39000,
-                trade_pair=TradePair.BTCUSD,
-                processed_ms=3000,
-                order_uuid="3000")
+                   leverage=.01,
+                   price=39000,
+                   trade_pair=TradePair.BTCUSD,
+                   processed_ms=3000,
+                   order_uuid="3000")
         o4 = Order(order_type=OrderType.LONG,
-                leverage=.01,
-                price=40000,
-                trade_pair=TradePair.BTCUSD,
-                processed_ms=4000,
-                order_uuid="4000")
+                   leverage=.01,
+                   price=40000,
+                   trade_pair=TradePair.BTCUSD,
+                   processed_ms=4000,
+                   order_uuid="4000")
         o5 = Order(order_type=OrderType.FLAT,
-                leverage=0.0,
-                price=40000,
-                trade_pair=TradePair.BTCUSD,
-                processed_ms=5000,
-                order_uuid="5000")
+                   leverage=0.0,
+                   price=40000,
+                   trade_pair=TradePair.BTCUSD,
+                   processed_ms=5000,
+                   order_uuid="5000")
         position = deepcopy(self.default_position)
 
         self.add_order_to_position_and_save_to_disk(position, o1)
@@ -1053,7 +1050,6 @@ class TestPositions(TestBase):
         self.add_order_to_position_and_save_to_disk(position, o3)
         self.add_order_to_position_and_save_to_disk(position, o4)
         self.add_order_to_position_and_save_to_disk(position, o5)
-
 
         self.validate_intermediate_position_state(position, {
             'orders': [o1, o2, o3, o4, o5],
@@ -1075,35 +1071,35 @@ class TestPositions(TestBase):
 
     def test_returns_on_many_shorts(self):
         o1 = Order(order_type=OrderType.SHORT,
-                leverage=1.0,
-                price=1000,
-                trade_pair=TradePair.BTCUSD,
-                processed_ms=1000,
-                order_uuid="1000")
+                   leverage=1.0,
+                   price=1000,
+                   trade_pair=TradePair.BTCUSD,
+                   processed_ms=1000,
+                   order_uuid="1000")
         o2 = Order(order_type=OrderType.SHORT,
-                leverage=0.1,
-                price=900,
-                trade_pair=TradePair.BTCUSD,
-                processed_ms=2000,
-                order_uuid="2000")
+                   leverage=0.1,
+                   price=900,
+                   trade_pair=TradePair.BTCUSD,
+                   processed_ms=2000,
+                   order_uuid="2000")
         o3 = Order(order_type=OrderType.SHORT,
-                leverage=.01,
-                price=800,
-                trade_pair=TradePair.BTCUSD,
-                processed_ms=3000,
-                order_uuid="3000")
+                   leverage=.01,
+                   price=800,
+                   trade_pair=TradePair.BTCUSD,
+                   processed_ms=3000,
+                   order_uuid="3000")
         o4 = Order(order_type=OrderType.SHORT,
-                leverage=.01,
-                price=700,
-                trade_pair=TradePair.BTCUSD,
-                processed_ms=4000,
-                order_uuid="4000")
+                   leverage=.01,
+                   price=700,
+                   trade_pair=TradePair.BTCUSD,
+                   processed_ms=4000,
+                   order_uuid="4000")
         o5 = Order(order_type=OrderType.FLAT,
-                leverage=0.0,
-                price=600,
-                trade_pair=TradePair.BTCUSD,
-                processed_ms=5000,
-                order_uuid="5000")
+                   leverage=0.0,
+                   price=600,
+                   trade_pair=TradePair.BTCUSD,
+                   processed_ms=5000,
+                   order_uuid="5000")
         position = deepcopy(self.default_position)
 
         self.add_order_to_position_and_save_to_disk(position, o1)
@@ -1111,7 +1107,6 @@ class TestPositions(TestBase):
         self.add_order_to_position_and_save_to_disk(position, o3)
         self.add_order_to_position_and_save_to_disk(position, o4)
         self.add_order_to_position_and_save_to_disk(position, o5)
-
 
         self.validate_intermediate_position_state(position, {
             'orders': [o1, o2, o3, o4, o5],
@@ -1122,7 +1117,7 @@ class TestPositions(TestBase):
             'average_entry_price': 986.6071428571428,
             'close_ms': 5000,
             'return_at_close': 1.4313950399999997,
-            'current_return':  1.4329999999999998,
+            'current_return': 1.4329999999999998,
             'miner_hotkey': self.DEFAULT_MINER_HOTKEY,
             'open_ms': self.DEFAULT_OPEN_MS,
             'trade_pair': self.DEFAULT_TRADE_PAIR,
@@ -1131,38 +1126,37 @@ class TestPositions(TestBase):
         self.assertEqual(position.max_leverage_seen(), 1.12)
         self.assertEqual(position.get_cumulative_leverage(), 2.24)
 
-
     def test_returns_on_alternating_long_short(self):
         o1 = Order(order_type=OrderType.SHORT,
-                leverage=1.0,
-                price=1000,
-                trade_pair=TradePair.BTCUSD,
-                processed_ms=1000,
-                order_uuid="1000")
+                   leverage=1.0,
+                   price=1000,
+                   trade_pair=TradePair.BTCUSD,
+                   processed_ms=1000,
+                   order_uuid="1000")
         o2 = Order(order_type=OrderType.LONG,
-                leverage=0.5,
-                price=900,
-                trade_pair=TradePair.BTCUSD,
-                processed_ms=2000,
-                order_uuid="2000")
+                   leverage=0.5,
+                   price=900,
+                   trade_pair=TradePair.BTCUSD,
+                   processed_ms=2000,
+                   order_uuid="2000")
         o3 = Order(order_type=OrderType.SHORT,
-                leverage=2.0,
-                price=800,
-                trade_pair=TradePair.BTCUSD,
-                processed_ms=3000,
-                order_uuid="3000")
+                   leverage=2.0,
+                   price=800,
+                   trade_pair=TradePair.BTCUSD,
+                   processed_ms=3000,
+                   order_uuid="3000")
         o4 = Order(order_type=OrderType.LONG,
-                leverage=2.1,
-                price=700,
-                trade_pair=TradePair.BTCUSD,
-                processed_ms=4000,
-                order_uuid="4000")
+                   leverage=2.1,
+                   price=700,
+                   trade_pair=TradePair.BTCUSD,
+                   processed_ms=4000,
+                   order_uuid="4000")
         o5 = Order(order_type=OrderType.FLAT,
-                leverage=0.0,
-                price=600,
-                trade_pair=TradePair.BTCUSD,
-                processed_ms=5000,
-                order_uuid="5000")
+                   leverage=0.0,
+                   price=600,
+                   trade_pair=TradePair.BTCUSD,
+                   processed_ms=5000,
+                   order_uuid="5000")
         position = deepcopy(self.default_position)
 
         self.add_order_to_position_and_save_to_disk(position, o1)
@@ -1170,7 +1164,6 @@ class TestPositions(TestBase):
         self.add_order_to_position_and_save_to_disk(position, o3)
         self.add_order_to_position_and_save_to_disk(position, o4)
         self.add_order_to_position_and_save_to_disk(position, o5)
-
 
         self.validate_intermediate_position_state(position, {
             'orders': [o1, o2, o3, o4, o5],
@@ -1181,7 +1174,7 @@ class TestPositions(TestBase):
             'average_entry_price': 1700.0000000000005,
             'close_ms': 5000,
             'return_at_close': 1.4364000000000001,
-            'current_return':  1.44,
+            'current_return': 1.44,
             'miner_hotkey': self.DEFAULT_MINER_HOTKEY,
             'open_ms': self.DEFAULT_OPEN_MS,
             'trade_pair': self.DEFAULT_TRADE_PAIR,
@@ -1190,8 +1183,6 @@ class TestPositions(TestBase):
         self.assertEqual(position.max_leverage_seen(), 2.5)
         # -1 +.5 - 2.0 + 2.1 = 1.44 (abs 5.6) , (flat from -.4) -> 6.0
         self.assertEqual(position.get_cumulative_leverage(), 6.0)
-
-
 
     def test_error_adding_mismatched_trade_pair(self):
         position = deepcopy(self.default_position)
@@ -1238,18 +1229,17 @@ class TestPositions(TestBase):
         )
 
         o1 = Order(order_type=OrderType.SHORT,
-                leverage=0.4,
-                price=1000,
-                trade_pair=trade_pair1,
-                processed_ms=weekday_time_ms,
-                order_uuid="1000")
+                   leverage=0.4,
+                   price=1000,
+                   trade_pair=trade_pair1,
+                   processed_ms=weekday_time_ms,
+                   order_uuid="1000")
         o2 = Order(order_type=OrderType.SHORT,
-                leverage=0.4,
-                price=500,
-                trade_pair=trade_pair2,
-                processed_ms=weekday_time_ms,
-                order_uuid="2000")
-
+                   leverage=0.4,
+                   price=500,
+                   trade_pair=trade_pair2,
+                   processed_ms=weekday_time_ms,
+                   order_uuid="2000")
 
         self.add_order_to_position_and_save_to_disk(position1, o1)
         self.validate_intermediate_position_state(position1, {
@@ -1290,14 +1280,16 @@ class TestPositions(TestBase):
         self.assertEqual(position1.get_cumulative_leverage(), 0.4)
         self.assertEqual(position2.get_cumulative_leverage(), 0.4)
 
-        self.assertEqual(position1.get_carry_fee(o1.processed_ms + MS_IN_24_HOURS)[0], INDICES_CARRY_FEE_PER_INTERVAL ** position1.max_leverage_seen())
-        self.assertEqual(position2.get_carry_fee(o2.processed_ms + MS_IN_24_HOURS)[0], FOREX_CARRY_FEE_PER_INTERVAL ** position2.max_leverage_seen())
-
+        self.assertEqual(position1.get_carry_fee(o1.processed_ms + MS_IN_24_HOURS)[0],
+                         INDICES_CARRY_FEE_PER_INTERVAL ** position1.max_leverage_seen())
+        self.assertEqual(position2.get_carry_fee(o2.processed_ms + MS_IN_24_HOURS)[0],
+                         FOREX_CARRY_FEE_PER_INTERVAL ** position2.max_leverage_seen())
 
     def test_transition_to_positional_leverage_v2_high_positive_leverage(self):
         position = deepcopy(self.default_position)
         live_price = 69000
-        min_allowed_leverage, max_allowed_leverage = get_position_leverage_bounds(TradePair.BTCUSD, LEVERAGE_BOUNDS_V2_START_TIME_MS + 1)
+        min_allowed_leverage, max_allowed_leverage = get_position_leverage_bounds(TradePair.BTCUSD,
+                                                                                  LEVERAGE_BOUNDS_V2_START_TIME_MS + 1)
         o1 = Order(order_type=OrderType.LONG,
                    leverage=max_allowed_leverage * 2,
                    price=live_price,
@@ -1310,7 +1302,6 @@ class TestPositions(TestBase):
                    trade_pair=TradePair.BTCUSD,
                    processed_ms=LEVERAGE_BOUNDS_V2_START_TIME_MS + 1,
                    order_uuid="2000")
-
 
         for order in [o1, o2]:
             self.add_order_to_position_and_save_to_disk(position, order)
@@ -1374,11 +1365,9 @@ class TestPositions(TestBase):
                    processed_ms=LEVERAGE_BOUNDS_V2_START_TIME_MS + 1,
                    order_uuid="2000")
 
-
         self.add_order_to_position_and_save_to_disk(position, o1)
         with self.assertRaises(ValueError):
             self.add_order_to_position_and_save_to_disk(position, o2)
-
 
         self.assertEqual(position.max_leverage_seen(), ValiConfig.ORDER_MIN_LEVERAGE * 2)
         self.assertEqual(position.get_cumulative_leverage(), ValiConfig.ORDER_MIN_LEVERAGE * 2)
@@ -1423,11 +1412,9 @@ class TestPositions(TestBase):
                    processed_ms=LEVERAGE_BOUNDS_V2_START_TIME_MS + 1,
                    order_uuid="2000")
 
-
         self.add_order_to_position_and_save_to_disk(position, o1)
         with self.assertRaises(ValueError):
             self.add_order_to_position_and_save_to_disk(position, o2)
-
 
         self.assertEqual(position.max_leverage_seen(), ValiConfig.ORDER_MIN_LEVERAGE * 2)
         self.assertEqual(position.get_cumulative_leverage(), ValiConfig.ORDER_MIN_LEVERAGE * 2)
@@ -1455,7 +1442,6 @@ class TestPositions(TestBase):
             'trade_pair': self.DEFAULT_TRADE_PAIR,
             'position_uuid': self.DEFAULT_POSITION_UUID
         })
-
 
     def test_transition_to_positional_leverage_v2_high_negative_leverage(self):
         position = deepcopy(self.default_position)
@@ -1524,7 +1510,8 @@ class TestPositions(TestBase):
     def test_leverage_clamping_v1_long(self):
         position = deepcopy(self.default_position)
         live_price = 69000
-        min_allowed_leverage, max_allowed_leverage = get_position_leverage_bounds(TradePair.BTCUSD, LEVERAGE_BOUNDS_V2_START_TIME_MS - 1)
+        min_allowed_leverage, max_allowed_leverage = get_position_leverage_bounds(TradePair.BTCUSD,
+                                                                                  LEVERAGE_BOUNDS_V2_START_TIME_MS - 1)
         self.assertEqual(min_allowed_leverage, 0.001)
         self.assertEqual(max_allowed_leverage, 20)
         o1 = Order(order_type=OrderType.LONG,
@@ -1542,8 +1529,6 @@ class TestPositions(TestBase):
 
         o2_clamped = deepcopy(o2)
         o2_clamped.leverage = 2
-
-
 
         for order in [o1, o2]:
             self.add_order_to_position_and_save_to_disk(position, order)
@@ -1567,7 +1552,6 @@ class TestPositions(TestBase):
         self.assertEqual(position.max_leverage_seen(), 20.0)
         self.assertEqual(position.get_cumulative_leverage(), 20.0)
 
-
     def test_leverage_clamping_v2_long(self):
         position = deepcopy(self.default_position)
         live_price = 69000
@@ -1586,8 +1570,6 @@ class TestPositions(TestBase):
 
         o2_clamped = deepcopy(o2)
         o2_clamped.leverage = TradePair.BTCUSD.max_leverage / 2
-
-
 
         for order in [o1, o2]:
             self.add_order_to_position_and_save_to_disk(position, order)
@@ -1627,9 +1609,8 @@ class TestPositions(TestBase):
                    leverage=1.0,
                    price=live_price,
                    trade_pair=TradePair.BTCUSD,
-                   processed_ms= 2000,
+                   processed_ms=2000,
                    order_uuid="2000")
-
 
         for order in [o1, o2]:
             self.add_order_to_position_and_save_to_disk(position, order)
@@ -1669,7 +1650,6 @@ class TestPositions(TestBase):
                    processed_ms=LEVERAGE_BOUNDS_V2_START_TIME_MS + 2000,
                    order_uuid="2000")
 
-
         for order in [o1, o2]:
             self.add_order_to_position_and_save_to_disk(position, order)
 
@@ -1694,7 +1674,8 @@ class TestPositions(TestBase):
 
     def test_leverage_clamping_short_v1(self):
         position = deepcopy(self.default_position)
-        min_allowed_leverage, max_allowed_leverage = get_position_leverage_bounds(TradePair.BTCUSD, LEVERAGE_BOUNDS_V2_START_TIME_MS - 1)
+        min_allowed_leverage, max_allowed_leverage = get_position_leverage_bounds(TradePair.BTCUSD,
+                                                                                  LEVERAGE_BOUNDS_V2_START_TIME_MS - 1)
         live_price = 4444
         o1 = Order(order_type=OrderType.SHORT,
                    leverage=-10.0,
@@ -1711,7 +1692,6 @@ class TestPositions(TestBase):
 
         o2_clamped = deepcopy(o2)
         o2_clamped.leverage = -1.0 * (max_allowed_leverage - abs(o1.leverage))
-
 
         for order in [o1, o2]:
             self.add_order_to_position_and_save_to_disk(position, order)
@@ -1753,7 +1733,6 @@ class TestPositions(TestBase):
         o2_clamped = deepcopy(o2)
         o2_clamped.leverage = -1.0 * (TradePair.BTCUSD.max_leverage - abs(o1.leverage))
 
-
         for order in [o1, o2]:
             self.add_order_to_position_and_save_to_disk(position, order)
 
@@ -1774,7 +1753,6 @@ class TestPositions(TestBase):
         })
         self.assertEqual(position.max_leverage_seen(), TradePair.BTCUSD.max_leverage)
         self.assertEqual(position.get_cumulative_leverage(), TradePair.BTCUSD.max_leverage)
-
 
     def test_leverage_clamping_v2_clamps_leverage_to_small(self):
         position = deepcopy(self.default_position)
@@ -1799,14 +1777,11 @@ class TestPositions(TestBase):
         with self.assertRaises(ValueError):
             self.add_order_to_position_and_save_to_disk(position, o2)
 
-
-
-
-
     def test_leverage_v1_clamping_skip_short_order(self):
         position = deepcopy(self.default_position)
         live_price = 999
-        min_allowed_leverage, max_allowed_leverage = get_position_leverage_bounds(TradePair.BTCUSD, LEVERAGE_BOUNDS_V2_START_TIME_MS - 1)
+        min_allowed_leverage, max_allowed_leverage = get_position_leverage_bounds(TradePair.BTCUSD,
+                                                                                  LEVERAGE_BOUNDS_V2_START_TIME_MS - 1)
         self.assertEqual(min_allowed_leverage, 0.001)
         self.assertEqual(max_allowed_leverage, 20)
         o1 = Order(order_type=OrderType.SHORT,
@@ -1821,7 +1796,6 @@ class TestPositions(TestBase):
                    trade_pair=TradePair.BTCUSD,
                    processed_ms=2000,
                    order_uuid="2000")
-
 
         for order in [o1, o2]:
             self.add_order_to_position_and_save_to_disk(position, order)
@@ -1860,7 +1834,6 @@ class TestPositions(TestBase):
                    trade_pair=TradePair.BTCUSD,
                    processed_ms=LEVERAGE_BOUNDS_V2_START_TIME_MS + 2000,
                    order_uuid="2000")
-
 
         for order in [o1, o2]:
             self.add_order_to_position_and_save_to_disk(position, order)
@@ -1903,7 +1876,6 @@ class TestPositions(TestBase):
         for order in [o1, o2]:
             self.add_order_to_position_and_save_to_disk(position, order)
 
-
         #self.assertEqual(position_json, {})
         dict_repr = position.to_dict()  # Make sure no side effects in the recreated object...
         for x in dict_repr['orders']:
@@ -1919,9 +1891,9 @@ class TestPositions(TestBase):
             self.assertFalse('trade_pair' in x, recreated_object_json)
 
         #print(f"position json: {position_json}")
-        dict_repr = position.to_dict() # Make sure no side effects in the recreated object...
+        dict_repr = position.to_dict()  # Make sure no side effects in the recreated object...
 
-        recreated_object = Position.parse_raw(position_json)#Position(**json.loads(position_json))
+        recreated_object = Position.parse_raw(position_json)  #Position(**json.loads(position_json))
         #print(f"recreated object str repr: {recreated_object}")
         #print("recreated object:", recreated_object)
         self.assertTrue(PositionManager.positions_are_the_same(position, recreated_object))
@@ -1932,8 +1904,7 @@ class TestPositions(TestBase):
             self.assertTrue(hasattr(x, 'trade_pair'), recreated_object)
 
 
-
-
 if __name__ == '__main__':
     import unittest
+
     unittest.main()
