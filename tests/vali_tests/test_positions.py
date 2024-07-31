@@ -1225,7 +1225,7 @@ class TestPositions(TestBase):
         position1 = Position(
             miner_hotkey=hotkey1,
             position_uuid=self.DEFAULT_POSITION_UUID,
-            open_ms=FEE_V6_TIME_MS+2*MS_IN_24_HOURS,
+            open_ms=weekday_time_ms,
             trade_pair=trade_pair1
         )
         trade_pair2 = TradePair.EURJPY
@@ -1233,7 +1233,7 @@ class TestPositions(TestBase):
         position2 = Position(
             miner_hotkey=hotkey2,
             position_uuid=self.DEFAULT_POSITION_UUID + '_2',
-            open_ms=FEE_V6_TIME_MS+2*MS_IN_24_HOURS,
+            open_ms=weekday_time_ms,
             trade_pair=trade_pair2
         )
 
@@ -1241,13 +1241,13 @@ class TestPositions(TestBase):
                 leverage=0.4,
                 price=1000,
                 trade_pair=trade_pair1,
-                processed_ms=FEE_V6_TIME_MS+2*MS_IN_24_HOURS,
+                processed_ms=weekday_time_ms,
                 order_uuid="1000")
         o2 = Order(order_type=OrderType.SHORT,
                 leverage=0.4,
                 price=500,
                 trade_pair=trade_pair2,
-                processed_ms=FEE_V6_TIME_MS+2*MS_IN_24_HOURS,
+                processed_ms=weekday_time_ms,
                 order_uuid="2000")
 
 
@@ -1263,7 +1263,7 @@ class TestPositions(TestBase):
             'return_at_close': 0.999982,
             'current_return': 1.0,
             'miner_hotkey': position1.miner_hotkey,
-            'open_ms': FEE_V6_TIME_MS+2*MS_IN_24_HOURS,
+            'open_ms': weekday_time_ms,
             'trade_pair': trade_pair1,
             'position_uuid': self.DEFAULT_POSITION_UUID
         })
@@ -1280,7 +1280,7 @@ class TestPositions(TestBase):
             'return_at_close': .999986,
             'current_return': 1.0,
             'miner_hotkey': position2.miner_hotkey,
-            'open_ms': FEE_V6_TIME_MS+2*MS_IN_24_HOURS,
+            'open_ms': weekday_time_ms,
             'trade_pair': trade_pair2,
             'position_uuid': self.DEFAULT_POSITION_UUID + '_2'
         })

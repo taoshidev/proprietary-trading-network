@@ -543,9 +543,9 @@ class TestWeights(TestBase):
     ## now test the individual function for consistency
     def test_consistency_sigmoid_function_margins(self):
         """Test that the consistency function works as expected"""
-        margins_list = [ 0.0 ] * 29 + [ 0.9 ]  # noqa: F841
+        margins_list = [ 0.0 ] * 29 + [ 0.9 ]
         max_margin = 0.9
-        median_margin = 0.0
+        median_margin = 0.0  # noqa: F841
 
         consistency_term = max_margin / max(1e-6, sum(margins_list))
         consistency = PositionUtils.consistency_sigmoid(consistency_term)
