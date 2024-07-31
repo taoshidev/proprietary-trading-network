@@ -36,8 +36,21 @@ class TestMDDChecker(TestBase):
                          volume=0.00023784),
              PriceSource(source='Polygon_rest', timespan_ms=1000, open=64695.87, close=64681.9, vwap=64682.2898,
                          high=64695.87, low=64681.9, start_ms=1721937628000, websocket=False, lag_ms=177041,
-                         volume=0.05812185)])
+                         volume=0.05812185)]),
+            TradePair.ETHUSD: (
+        3267.8, [PriceSource(source='Polygon_ws', timespan_ms=0, open=3267.8, close=3267.8, vwap=3267.8, high=3267.8,
+                             low=3267.8, start_ms=1722390426999, websocket=True, lag_ms=2470, volume=0.00697151),
+                 PriceSource(source='Polygon_rest', timespan_ms=1000, open=3267.8, close=3267.8, vwap=3267.8,
+                             high=3267.8, low=3267.8, start_ms=1722390426000, websocket=False, lag_ms=2470,
+                             volume=0.00697151),
+                 PriceSource(source='TwelveData_ws', timespan_ms=0, open=3267.9, close=3267.9, vwap=None, high=3267.9,
+                             low=3267.9, start_ms=1722390422000, websocket=True, lag_ms=7469, volume=None),
+                 PriceSource(source='TwelveData_rest', timespan_ms=60000, open=3271.26001, close=3268.6001, vwap=None,
+                             high=3271.26001, low=3268.1001, start_ms=1722389640000, websocket=False, lag_ms=729470,
+                             volume=None)])
         }
+
+
 
     @classmethod
     def tearDownClass(cls):
@@ -349,8 +362,8 @@ class TestMDDChecker(TestBase):
 
         btc_position_from_disk = self.position_manager.get_all_miner_positions(self.MINER_HOTKEY, only_open_positions=False)[0]
         print("Position return on BTC after mdd_check:", btc_position_from_disk.current_return)
-        print("Max MDD for closed positions:", self.mdd_checker.portfolio_max_dd_closed_positions)
-        print("Max MDD for all positions:", self.mdd_checker.portfolio_max_dd_all_positions)
+        # print("Max MDD for closed positions:", self.mdd_checker.portfolio_max_dd_closed_positions)
+        # print("Max MDD for all positions:", self.mdd_checker.portfolio_max_dd_all_positions)
 
 
         print("Adding ETH position")
@@ -367,8 +380,8 @@ class TestMDDChecker(TestBase):
         positions_from_disk = self.position_manager.get_all_miner_positions(self.MINER_HOTKEY, only_open_positions=False)
         for p in positions_from_disk:
             print('individual position return', p.trade_pair, p.current_return)
-        print("Max MDD for closed positions:", self.mdd_checker.portfolio_max_dd_closed_positions)
-        print("Max MDD for all position:", self.mdd_checker.portfolio_max_dd_all_positions)
+        # print("Max MDD for closed positions:", self.mdd_checker.portfolio_max_dd_closed_positions)
+        # print("Max MDD for all position:", self.mdd_checker.portfolio_max_dd_all_positions)
 
 
 if __name__ == '__main__':
