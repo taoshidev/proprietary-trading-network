@@ -139,7 +139,7 @@ class P2PSyncer(ValidatorSyncBase):
             # add this checkpoint's data if the checkpoint is up-to-date
             latest_order_ms = self.parse_checkpoint_and_last_order_time(checkpoint[1], checkpoint_position_counts, checkpoint_order_counts, checkpoint_order_data, checkpoint_miner_to_uuids)
 
-            if TimeUtil.now_in_millis() - latest_order_ms < 1000 * 60 * 60 * 24:
+            if TimeUtil.now_in_millis() - latest_order_ms < 1000 * 60 * 60 * 10:  # validators with no orders processed in 10 hrs are considered stale
                 for position_uuid in checkpoint_position_counts:
                     position_counts[position_uuid] += checkpoint_position_counts[position_uuid]
 
