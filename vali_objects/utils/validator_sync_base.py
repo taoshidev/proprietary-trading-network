@@ -215,6 +215,8 @@ class ValidatorSyncBase():
         if p2 is None:
             return p1
 
+        self.global_stats['n_positions_closed_duplicate_opens_for_trade_pair'] += 1
+
         # if p2 is an older position, we close it and return p1 as the newest open position.
         if p2.open_ms < p1.open_ms:
             p2.close_out_position(TimeUtil.now_in_millis())
@@ -621,4 +623,5 @@ class ValidatorSyncBase():
                                     orders=position_orders)
             new_position.rebuild_position_with_updated_orders()
             positions.append(new_position)
+        self.global_stats['n_positions_spawned_from_post_flat_orders'] += len(positions) - 1
         return positions
