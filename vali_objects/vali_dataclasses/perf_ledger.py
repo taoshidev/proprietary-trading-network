@@ -131,6 +131,8 @@ class PerfLedgerData:
             if all(x.mpv != 0 for x in self.cps):  #Some will be 0 if the perf ledger is being incrementally updated right after this PR was merged.
                 # Update portfolio max after all trimming and purging has completed.
                 self.max_return = max(x.mpv for x in self.cps)
+        # Initial portfolio value is 1.0
+        self.max_return = max(self.max_return, 1.0)
 
     def create_cps_to_fill_void(self, time_since_last_update_ms: int, now_ms: int, point_in_time_dd: float):
         original_accum_time = self.cps[-1].accum_ms
