@@ -354,8 +354,8 @@ class PerfLedgerManager(CacheController):
         self.UPDATE_LOOKBACK_MS = 600000  # 10 minutes ago. Want to give Polygon time to create candles on the backend.
         self.UPDATE_LOOKBACK_S = self.UPDATE_LOOKBACK_MS // 1000
         self.now_ms = 0  # The largest timestamp we want to buffer candles for. time.time() - UPDATE_LOOKBACK_S
-        self.base_dd_stats = {'worst_dd':1.0, 'last_dd':0, 'mrpv':1.0, 'n_closed_pos':0, 'n_checks':0, 'current_portfolio_return': 1.0}
-        self.hk_to_dd_stats = defaultdict(lambda: deepcopy(self.base_dd_stats))
+        #self.base_dd_stats = {'worst_dd':1.0, 'last_dd':0, 'mrpv':1.0, 'n_closed_pos':0, 'n_checks':0, 'current_portfolio_return': 1.0}
+        #self.hk_to_dd_stats = defaultdict(lambda: deepcopy(self.base_dd_stats))
         self.n_price_corrections = 0
         self.elimination_rows = []
         self.hk_to_last_order_processed_ms = {}
@@ -424,9 +424,9 @@ class PerfLedgerManager(CacheController):
                 max_cuml_return_so_far = max(cuml_return, max_cuml_return_so_far)
 
         # Replay of closed positions complete.
-        stats = self.hk_to_dd_stats[miner_hotkey]
-        stats['mrpv'] = max_cuml_return_so_far
-        stats['n_closed_pos'] = n_closed_positions
+        #stats = self.hk_to_dd_stats[miner_hotkey]
+        #stats['mrpv'] = max_cuml_return_so_far
+        #stats['n_closed_pos'] = n_closed_positions
         return max_cuml_return_so_far
 
     def _can_shortcut(self, tp_to_historical_positions: dict[str: Position], end_time_ms:int,
@@ -613,21 +613,22 @@ class PerfLedgerManager(CacheController):
     def update_mdd(self, miner_hotkey, portfolio_return, perf_ledger):
         perf_ledger.max_return = max(perf_ledger.max_return, portfolio_return)
         dd = self.calculate_drawdown(portfolio_return, perf_ledger.max_return)
-        stats = self.hk_to_dd_stats[miner_hotkey]
-        if dd < stats['worst_dd']:
-            stats['worst_dd'] = dd
-        stats['last_dd'] = dd
-        stats['n_checks'] += 1
-        stats['current_portfolio_return'] = portfolio_return
+        return dd
+        #stats = self.hk_to_dd_stats[miner_hotkey]
+        #if dd < stats['worst_dd']:
+        #    stats['worst_dd'] = dd
+        #stats['last_dd'] = dd
+        #stats['n_checks'] += 1
+        #stats['current_portfolio_return'] = portfolio_return
 
     def check_liquidated(self, miner_hotkey, portfolio_return, t_ms, tp_to_historical_positions, perf_ledger):
         if portfolio_return == 0:
             bt.logging.warning(f"Portfolio value is {portfolio_return} for miner {miner_hotkey} at {t_ms}. Eliminating miner.")
             elimination_row = self.generate_elimination_row(miner_hotkey, 0.0, 'LIQUIDATED', t_ms=t_ms,
                                         price_info=self.tp_to_last_price,
-                                        return_info={'dd_stats':self.hk_to_dd_stats[miner_hotkey], 'returns': self.trade_pair_to_position_ret})
+                                        return_info={'dd_stats':{}, 'returns': self.trade_pair_to_position_ret})
             self.elimination_rows.append(elimination_row)
-            self.hk_to_dd_stats[miner_hotkey]['eliminated'] = True
+            #self.hk_to_dd_stats[miner_hotkey]['eliminated'] = True
             for _, v in tp_to_historical_positions.items():
                 for pos in v:
                     print(
@@ -693,9 +694,12 @@ class PerfLedgerManager(CacheController):
             portfolio_return, any_open, portfolio_spread_fee, portfolio_carry_fee = self.positions_to_portfolio_return(tp_to_historical_positions_dense, t_ms, miner_hotkey, end_time_ms, initial_portfolio_return, initial_portfolio_spread_fee, initial_portfolio_carry_fee)
             if portfolio_return == 0 and self.check_liquidated(miner_hotkey, portfolio_return, t_ms, tp_to_historical_positions, perf_ledger):
                 return True
-            self.update_mdd(miner_hotkey, portfolio_return, perf_ledger)
+            perf_ledger.max_return = max(perf_ledger.max_return, portfolio_return)
+            last_dd = self.calculate_drawdown(portfolio_return, perf_ledger.max_return)
+
+            #last_dd = self.update_mdd(miner_hotkey, portfolio_return, perf_ledger)
             #assert portfolio_return > 0, f"Portfolio value is {portfolio_return} for miner {miner_hotkey} at {t_ms // 1000}. perf ledger {perf_ledger}"
-            last_dd = self.hk_to_dd_stats[miner_hotkey]['last_dd']
+            #last_dd = self.hk_to_dd_stats[miner_hotkey]['last_dd']
             perf_ledger.update(portfolio_return, t_ms, miner_hotkey, any_open, last_dd, portfolio_spread_fee, portfolio_carry_fee)
             any_update = True
 
@@ -722,8 +726,8 @@ class PerfLedgerManager(CacheController):
         perf_ledger.init_max_portfolio_value()
 
         self.trade_pair_to_position_ret = {}
-        if hotkey in self.hk_to_dd_stats:
-            del self.hk_to_dd_stats[hotkey]
+        #if hotkey in self.hk_to_dd_stats:
+        #    del self.hk_to_dd_stats[hotkey]
         self.n_price_corrections = 0
 
         tp_to_historical_positions = defaultdict(list)
@@ -799,7 +803,7 @@ class PerfLedgerManager(CacheController):
             bt.logging.info(
                 f"Done updating perf ledger for {hotkey} {hotkey_i + 1}/{n_hotkeys} in {time.time() - t0} "
                 f"(s). Lag: {lag} (s). Total product: {total_product}. Last portfolio value: {last_portfolio_value}."
-                f" n_api_calls: {self.n_api_calls} dd stats {self.hk_to_dd_stats[hotkey]}. n_price_corrections {self.n_price_corrections}"
+                f" n_api_calls: {self.n_api_calls} dd stats {None}. n_price_corrections {self.n_price_corrections}"
                 f" last cp {perf_ledger.cps[-1]}. perf_ledger_mpv {perf_ledger.max_return}")
 
     def update_all_perf_ledgers(self, hotkey_to_positions: dict[str, List[Position]], existing_perf_ledgers: dict[str, PerfLedgerData], now_ms: int, return_dict=False) -> None | dict[str, PerfLedgerData]:
