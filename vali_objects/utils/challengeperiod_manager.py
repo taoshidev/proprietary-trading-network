@@ -1,17 +1,23 @@
 # developer: trdougherty
-# Copyright © 2024 Taoshi Inc
+
 import numpy as np
 import time
 from vali_config import ValiConfig
 from shared_objects.cache_controller import CacheController
 from vali_objects.scoring.scoring import Scoring, ScoringUnit
 from time_util.time_util import TimeUtil
-from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager, PerfLedger
+from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager, PerfLedger, PerfLedgerData
+from vali_objects.utils.position_utils import PositionUtils
+from vali_objects.utils.ledger_utils import LedgerUtils
+from vali_objects.utils.position_manager import PositionManager
+from vali_objects.position import Position
+
 
 class ChallengePeriodManager(CacheController):
     def __init__(self, config, metagraph, running_unit_tests=False):
         super().__init__(config, metagraph, running_unit_tests=running_unit_tests)
         self.perf_manager = PerfLedgerManager(metagraph=metagraph, running_unit_tests=running_unit_tests)
+        self.position_manager = PositionManager(metagraph=metagraph, running_unit_tests=running_unit_tests)
 
     def refresh(self, current_time: int = None):
         if not self.refresh_allowed(ValiConfig.CHALLENGE_PERIOD_REFRESH_TIME_MS):
@@ -21,44 +27,51 @@ class ChallengePeriodManager(CacheController):
         # The refresh should just read the current eliminations
         self.eliminations = self.get_filtered_eliminations_from_disk()
 
-        # Collect challengeperiod and update with new eliminations criteria
+        # Collect challenge period and update with new eliminations criteria
         self._refresh_challengeperiod_in_memory_and_disk(eliminations=self.eliminations)
 
         # challenge period adds to testing if not in eliminated, already in the challenge period, or in the new eliminations list from disk
         self._add_challengeperiod_testing_in_memory_and_disk(
-            new_hotkeys = self.metagraph.hotkeys,
-            eliminations = self.eliminations,
-            current_time = current_time
+            new_hotkeys=self.metagraph.hotkeys,
+            eliminations=self.eliminations,
+            current_time=current_time
         )
 
         ledger = self.perf_manager.load_perf_ledgers_from_disk()
-        challengeperiod_success, challengeperiod_eliminations = self.inspect(
-            ledger = ledger,
-            inspection_hotkeys = self.challengeperiod_testing,
-            current_time = current_time
+        positions = self.position_manager.get_all_miner_positions_by_hotkey(
+            self.metagraph.hotkeys,
+            sort_positions=True
         )
-        
-        # Moves challenge period testing to challenge period success in memory
-        self._promote_challengeperiod_in_memory(hotkeys = challengeperiod_success, current_time = current_time)
-        self._demote_challengeperiod_in_memory(hotkeys = challengeperiod_eliminations)
 
-        ## Now sync challenge period with the disk
+        challengeperiod_success, challengeperiod_eliminations = self.inspect(
+            positions=positions,
+            ledger=ledger,
+            inspection_hotkeys=self.challengeperiod_testing,
+            current_time=current_time
+        )
+
+        # Moves challenge period testing to challenge period success in memory
+        self._promote_challengeperiod_in_memory(hotkeys=challengeperiod_success, current_time=current_time)
+        self._demote_challengeperiod_in_memory(hotkeys=challengeperiod_eliminations)
+
+        # Now sync challenge period with the disk
         self._write_challengeperiod_from_memory_to_disk()
         self._write_eliminations_from_memory_to_disk()
 
     def inspect(
         self,
-        ledger: dict[str, PerfLedger],
+        positions: dict[str, list[Position]],
+        ledger: dict[str, PerfLedgerData],
         inspection_hotkeys: dict[str, int] = None,
         current_time: int = None,
         eliminations: list[str] = None,
         log: bool = False,
     ):
         """
-        Runs a screening process to elminate miners who didn't pass the challenge period. Does not modify the challenge period in memory.
+        Runs a screening process to eliminate miners who didn't pass the challenge period. Does not modify the challenge period in memory.
         """
         if inspection_hotkeys is None:
-            return [], [] # no hotkeys to inspect
+            return [], []  # no hotkeys to inspect
 
         if current_time is None:
             current_time = TimeUtil.now_in_millis()
@@ -69,18 +82,20 @@ class ChallengePeriodManager(CacheController):
         passing_miners = []
         failing_miners = []
         for hotkey, inspection_time in inspection_hotkeys.items():
-            ## Check the criteria for passing the challenge period
+            # Check the criteria for passing the challenge period
             if hotkey not in ledger:
                 passing_criteria = False
             else:
                 if log:
                     print(f"Inspecting hotkey: {hotkey}")
-                passing_criteria = self.screen_ledger(
-                    ledger_element=ledger[hotkey], 
+                passing_criteria = ChallengePeriodManager.screen(
+                    position_elements=positions.get(hotkey, []),
+                    ledger_element=ledger[hotkey],
+                    current_time=current_time,
                     log=log
                 )
 
-            time_criteria = current_time - inspection_time < ValiConfig.SET_WEIGHT_CHALLENGE_PERIOD_MS
+            time_criteria = current_time - inspection_time < ValiConfig.CHALLENGE_PERIOD_MS
 
             # if the miner meets the criteria for passing, they are added to the passing list
             if passing_criteria:
@@ -93,51 +108,61 @@ class ChallengePeriodManager(CacheController):
                 continue
 
         return passing_miners, failing_miners
-    
-    def screen_ledger(
-        self, 
-        ledger_element: PerfLedger,
+
+    @staticmethod
+    def screen(
+        position_elements: list[Position],
+        ledger_element: PerfLedgerData,
+        current_time: int,
         log: bool = False
     ) -> bool:
         """
-        Runs a screening process to elminate miners who didn't pass the challenge period.
+        Runs a screening process to eliminate miners who didn't pass the challenge period.
         """
         if ledger_element is None:
             return False
 
         if len(ledger_element.cps) == 0:
             return False
-                
-        minimum_return = ValiConfig.SET_WEIGHT_MINER_CHALLENGE_PERIOD_RETURN_CPS_PERCENT
-        minimum_sortino = ValiConfig.SET_WEIGHT_MINER_CHALLENGE_PERIOD_SORTINO_CPS
-        minimum_duration = ValiConfig.SET_WEIGHT_MINER_CHALLENGE_PERIOD_TOTAL_POSITION_DURATION
-        minimum_volume_checkpoints = ValiConfig.SET_WEIGHT_MINER_CHALLENGE_PERIOD_VOLUME_CHECKPOINTS
 
-        ## Create a scoring unit from the ledger element
-        scoringunit = ScoringUnit.from_perf_ledger(ledger_element)
+        if len(position_elements) <= 1:
+            # We need at least more than 1 position to evaluate the challenge period
+            return False
 
-        ## Compute the criteria for passing the challenge period
-        omega_cps = Scoring.omega_cps(scoringunit)  # noqa: F841
-        sortino_cps = Scoring.inverted_sortino_cps(scoringunit)
-        return_cps = np.exp(Scoring.return_cps(scoringunit))
-        position_duration = sum(scoringunit.open_ms)
-        volume_cps = Scoring.checkpoint_volume_threshold_count(scoringunit)
+        minimum_return = ValiConfig.CHALLENGE_PERIOD_RETURN
+        minimum_number_of_positions = ValiConfig.CHALLENGE_PERIOD_MIN_POSITIONS
+        maximum_positional_returns_ratio = ValiConfig.CHALLENGE_PERIOD_MAX_POSITIONAL_RETURNS_RATIO
+        maximum_drawdown = ValiConfig.CHALLENGE_PERIOD_MAX_DRAWDOWN_PERCENT
 
-        ## Criteria
-        sortino_criteria = sortino_cps >= minimum_sortino
-        return_criteria = return_cps >= minimum_return
-        duration_criteria = position_duration >= minimum_duration
-        volume_crtieria = volume_cps >= minimum_volume_checkpoints
+        # Check the closed positions from the miner
+        filtered_positions = PositionUtils.filter_single_miner(
+            position_elements,
+            evaluation_time_ms=current_time,
+            lookback_time_ms=ValiConfig.CHALLENGE_PERIOD_MS
+        )
+
+        # Drawdown Criteria
+        max_drawdown = LedgerUtils.recent_drawdown(ledger_element.cps, restricted=False)
+        max_drawdown_percentage = LedgerUtils.drawdown_percentage(max_drawdown)
+
+        # Closed Positions Criteria
+        closed_positions = [position for position in filtered_positions if position.is_closed_position]
+        n_closed_positions = len(closed_positions)
+
+        # Returns Ratio Criteria
+        max_returns_ratio = PositionUtils.returns_ratio(filtered_positions)
+        base_return = np.exp(Scoring.base_return(filtered_positions))
+
+        # Evaluation
+        return_criteria = base_return >= minimum_return
+        closed_positions_criteria = n_closed_positions >= minimum_number_of_positions
+        max_returns_ratio_criteria = max_returns_ratio <= maximum_positional_returns_ratio
+        max_drawdown_criteria = max_drawdown_percentage >= maximum_drawdown
 
         if log:
-            dayhours = (60 * 60 * 1000)
-            viewable_return = 100 * (return_cps - 1)
+            viewable_return = 100 * (base_return - 1)
             viewable_minimum_return = 100 * (minimum_return - 1)
-            print(f"Sortino: {sortino_cps:.3e} >= {minimum_sortino}: {sortino_criteria}")
             print(f"Return: {viewable_return:.4f}% >= {viewable_minimum_return:.2f}%: {return_criteria}")
-            print(f"Duration (Hours): {position_duration / dayhours:.2f} >= {minimum_duration / dayhours:.2f}: {duration_criteria}")
-            print(f"Volume Checkpoints: {volume_cps} >= {minimum_volume_checkpoints}: {volume_crtieria}")
             print()
 
-        return sortino_criteria and return_criteria and duration_criteria and volume_crtieria
-
+        return return_criteria and closed_positions_criteria and max_returns_ratio_criteria and max_drawdown_criteria

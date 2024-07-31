@@ -25,7 +25,7 @@ We will use three scoring metrics to evaluate miners based on their mid trade sc
 
 Short term Returns measure the pure value change that the miner experienced through the course of their positions. This will be similar to the prior position based system, although open positions will now also be evaluated. For this metric, we only consider the movement of the portfolio value from the prior three days.
 
-Similar to the short term returns, long term returns are also going to measure the historical gains for a miner in determining their quality. Long term returns consider all portfolio value movement from the prior 30 days.
+Similar to the short term returns, long term returns are also going to measure the historical gains for a miner in determining their quality. Long term returns consider all portfolio value movement from the prior 45 days.
 
 Omega will evaluate the magnitude of the positive asset changes over the magnitude of negative asset changes. Any score above 1 will indicate that the miner experienced a net gain through the course of their position. A higher omega value will result from:
 
@@ -38,9 +38,9 @@ The total score will result from the product of the Long Term Returns, Short Ter
 
 There are two primary penalties in place for each miner: Consistency and Drawdown.
 
-The consistency penalty is meant to discourage miners who cannot deliver consistent performance over each 30 day period. To fully mitigate penalties associated with consistency, your miner should achieve the following metrics:
+The consistency penalty is meant to discourage miners who cannot deliver consistent performance over each 45 day period. To fully mitigate penalties associated with consistency, your miner should achieve the following metrics:
 - Minimum of 18 days of open positions, of any volume.
-- Your portfolio value change in any single six-hour checkpoint period should not exceed 50% of the total portfolio value change over the previous 30 days. If your portfolio value increases sharply and decreases back towards a total return of 1.0, the value change in one period may exceed your total portfolio value change and you are likely to experience a large penalty due to consistency.
+- Your portfolio value change in any single six-hour checkpoint period should not exceed 50% of the total portfolio value change over the previous 45 days. If your portfolio value increases sharply and decreases back towards a total return of 1.0, the value change in one period may exceed your total portfolio value change and you are likely to experience a large penalty due to consistency.
 
 The drawdown penalty is meant to both discourage miners from taking too much drawdown and benefit miners with low drawdown. To do this, the drawdown penalty is defined as 1 / MDD of the miner. This enables miners with low risk tolerance to be competitive with higher risk miners. Between 0.25% MDD and 1.5% MDD the drawdown penalty is only designed to normalize the returns of your miner relative to the risk. We apply a penalty below 0.25% MDD and above 1.5%, with the upper penalty linearly tapering to 0 as it gets closer to 5% MDD.
 

@@ -1,71 +1,103 @@
 # developer: trdougherty
 # Copyright © 2024 Taoshi Inc
+import math
 import numpy as np
 import copy
+from collections import defaultdict
+from datetime import datetime
+
+from typing import Union
 
 from vali_objects.position import Position
 from vali_config import ValiConfig
-
-
 from vali_objects.enums.order_type_enum import OrderType
-from vali_objects.scoring.historical_scoring import HistoricalScoring
-from vali_objects.vali_dataclasses.perf_ledger import PerfCheckpoint
+from vali_objects.utils.functional_utils import FunctionalUtils
+
 from time_util.time_util import TimeUtil
+
 
 class PositionUtils:
     @staticmethod
-    def log_transform(
-        return_value: float,
-    ) -> float:
+    def filter_single_miner(
+            positions: list[Position],
+            evaluation_time_ms: int,
+            lookback_time_ms: int = None
+    ) -> list[Position]:
         """
-        Args:
-            return_value: float - the return of the miner
+        Restricts to positions which were closed in the prior lookback window
         """
-        return_value = np.clip(return_value, 1e-12, None)
-        return np.log(return_value)
-    
-    @staticmethod
-    def exp_transform(
-        return_value: float,
-    ) -> float:
-        """
-        Args:
-            return_value: float - the return of the miner
-        """
-        return np.exp(return_value)
-    
-    @staticmethod
-    def augment_benefit(
-        coefficient_of_augmentation: float,
-        lookback_fraction: float,
-    ) -> float:
-        """
-        Args:
-            coefficient_of_augmentation: float - the coefficient of augmentation
-            lookback_fraction: float - the fraction of the lookback period since the position was closed.
-        """
-        coefficient_of_augmentation = np.clip(coefficient_of_augmentation, 0, 1)
-        lookback_fraction = np.clip(lookback_fraction, 0, 1)
+        if lookback_time_ms is None:
+            lookback_time_ms = ValiConfig.TARGET_LEDGER_WINDOW_MS
 
-        resulting_augmentation = (coefficient_of_augmentation - 1) * lookback_fraction + 1
-        return np.clip(resulting_augmentation, 0, 1)
-    
+        lookback_threshold_ms = evaluation_time_ms - lookback_time_ms
+
+        subset_positions = []
+        for position in positions:
+            if position.is_closed_position is True and position.open_ms >= lookback_threshold_ms:
+                subset_positions.append(position)
+
+            if position.is_closed_position is False and position.return_at_close < 1:
+                subset_positions.append(position)
+
+        return subset_positions
+
     @staticmethod
-    def compute_lookback_fraction(
-        position_open_ms: int, 
-        position_close_ms: int, 
-        evaluation_time_ms: int
-    ) -> float:
-        lookback_period = ValiConfig.SET_WEIGHT_LOOKBACK_RANGE_MS
-        time_since_closed = evaluation_time_ms - position_close_ms
-        time_fraction = time_since_closed / lookback_period
-        time_fraction = np.clip(time_fraction, 0, 1)
-        return time_fraction
-    
+    def filter(
+            positions: dict[str, list[Position]],
+            evaluation_time_ms: int,
+            lookback_time_ms: int = None
+    ) -> dict[str, list[Position]]:
+        """
+        Restricts to positions which were closed in the prior lookback window
+        """
+        updated_positions = {}
+
+        for miner_hotkey, miner_positions in positions.items():
+            updated_positions[miner_hotkey] = PositionUtils.filter_single_miner(
+                miner_positions,
+                evaluation_time_ms,
+                lookback_time_ms
+            )
+
+        return updated_positions
+
+    @staticmethod
+    def filter_recent(
+            positions: dict[str, list[Position]],
+            evaluation_time_ms: int,
+            lookback_time_ms: int = None,
+            lookback_recent_time_ms: int = None
+    ) -> dict[str, list[Position]]:
+        """
+        Restricts to positions which were closed in the prior lookback window
+        """
+        updated_positions = {}
+
+        if lookback_time_ms is None:
+            lookback_time_ms = ValiConfig.TARGET_LEDGER_WINDOW_MS
+
+        if lookback_recent_time_ms is None:
+            lookback_recent_time_ms = ValiConfig.RETURN_SHORT_LOOKBACK_TIME_MS
+
+        lookback_recent_threshold_ms = evaluation_time_ms - lookback_recent_time_ms
+
+        for miner_hotkey, miner_positions in positions.items():
+            filtered_miner_positions = PositionUtils.filter_single_miner(
+                miner_positions,
+                evaluation_time_ms,
+                lookback_time_ms
+            )
+
+            recent_filtered_miner_positions = [position for position in filtered_miner_positions if
+                                               position.close_ms >= lookback_recent_threshold_ms]
+            updated_positions[miner_hotkey] = recent_filtered_miner_positions
+
+        return updated_positions
+
     @staticmethod
     def translate_current_leverage(
-        positions: list[Position],
-        evaluation_time_ms: int = None
+            positions: list[Position],
+            evaluation_time_ms: int = None
     ) -> list[Position]:
         """
         Adjusts the leverage of each position based on order types and adds a new order with the final leverage at the end.
@@ -95,9 +127,9 @@ class PositionUtils:
             position.orders.extend(new_orders)  # Append all new orders after the loop
 
         return positions_copy
-    
+
     @staticmethod
-    def compute_average_leverage(positions: list[Position]) -> float:
+    def average_leverage(positions: list[Position]) -> float:
         """
         Computes the time-weighted average leverage of a list of positions.
 
@@ -132,10 +164,10 @@ class PositionUtils:
             return 0.0
 
         return total_timeleverage / total_time
-    
+
     @staticmethod
-    def compute_total_position_duration(
-        positions: list[Position]
+    def total_duration(
+            positions: list[Position]
     ) -> int:
         """
         Args:
@@ -145,318 +177,163 @@ class PositionUtils:
 
         for position in positions:
             if position.is_closed_position:
-                time_deltas.append( position.close_ms - position.open_ms )
+                time_deltas.append(position.close_ms - position.open_ms)
 
         return sum(time_deltas)
-    
+
     @staticmethod
-    def dampen_return(
-        return_value: float, 
-        position_open_ms: int, 
-        position_close_ms: int,
-        evaluation_time_ms: int
+    def time_consistency_penalty(
+            positions: list[Position]
     ) -> float:
         """
-        Args:
-            return_value: float - the return of the miner
-            position_open_ms: int - the open time of the position
-            position_close_ms: int - the close time of the position
-            dampening_factor: float - the dampening factor
-        """
-        lookback_fraction = PositionUtils.compute_lookback_fraction(
-            position_open_ms,
-            position_close_ms,
-            evaluation_time_ms
-        )
+        Returns the penalty associated with uneven distributions for realized returns
 
-        return HistoricalScoring.historical_decay_return(return_value, lookback_fraction)
-    
-    @staticmethod
-    def dampen_value(
-        return_value: float,
-        lookback_fraction: float,
-        time_intensity_coefficient: float = None
-    ) -> float:
-        """
-        Args:
-            return_value: float - the return of the miner
-            lookback_fraction: float - the fraction of the lookback period since the position was closed.
-        """
-        return HistoricalScoring.historical_decay_return(
-            return_value, 
-            lookback_fraction,
-            time_intensity_coefficient=time_intensity_coefficient
-        )
-    
-    @staticmethod
-    def compute_recent_drawdown(checkpoints: list[PerfCheckpoint]) -> float:
-        """
-        Args:
-            checkpoints: list[PerfCheckpoint] - the list of checkpoints
-            evaluation_time_ms: int - the evaluation time
-        """
-        if len(checkpoints) <= 0:
-            return 0
-
-        drawdown_nterms = ValiConfig.DRAWDOWN_NTERMS  # noqa: F841
-
-        ## Compute the drawdown of the checkpoints
-        drawdowns = [ checkpoint.mdd for checkpoint in checkpoints ]
-
-        recent_drawdown = min(drawdowns)
-        recent_drawdown = np.clip(recent_drawdown, 0, 1.0)
-
-        return recent_drawdown
-    
-    @staticmethod
-    def consistency_sigmoid(delta_discrepancy: float) -> float:
-        ## Convert a max delta term into a consistency penalty
-        consistency_displacement = ValiConfig.SET_WEIGHT_MINER_CHECKPOINT_CONSISTENCY_DISPLACEMENT
-        consistency_taper = ValiConfig.SET_WEIGHT_CHECKPOINT_CONSISTENCY_TAPER
-        lower_bound = ValiConfig.SET_WEIGHT_CHECKPOINT_CONSISTENCY_LOWER_BOUND
-
-        exp_term = np.clip(consistency_taper * delta_discrepancy - consistency_displacement, -50, 50)
-        return ((1-lower_bound)*(1 + (np.exp(exp_term)))**-1) + lower_bound
-    
-    @staticmethod
-    def mdd_lower_augmentation(recent_drawdown_percentage: float) -> float:
-        """
-        Args: mdd: float - the maximum drawdown of the miner
-        """
-        drawdown_minvalue = ValiConfig.DRAWDOWN_MINVALUE_PERCENTAGE
-
-        ## Protect against division by zero
-        if drawdown_minvalue <= 0 or recent_drawdown_percentage <= 0:
-            return 1
-
-        ## Drawdown value
-        if recent_drawdown_percentage <= drawdown_minvalue:
-            return 0
-        
-        return 1
-    
-    @staticmethod
-    def mdd_upper_augmentation(recent_drawdown_percentage: float) -> float:
-        """
-        Args: mdd: float - the maximum drawdown of the miner
-        """
-        drawdown_maxvalue = ValiConfig.DRAWDOWN_MAXVALUE_PERCENTAGE
-        drawdown_scaling = ValiConfig.DRAWDOWN_UPPER_SCALING
-
-        if drawdown_maxvalue <= 0 or recent_drawdown_percentage <= 0:
-            return 1
-        
-        upper_penalty = (-recent_drawdown_percentage + drawdown_maxvalue) / drawdown_scaling
-        return float(np.clip(upper_penalty, 0, 1))
-    
-    @staticmethod
-    def mdd_base_augmentation(recent_drawdown_percentage: float) -> float:
-        """
-        Args: mdd: float - the maximum drawdown of the miner
-        """
-        if recent_drawdown_percentage <= 0:
-            return 1
-
-        return float(1 / recent_drawdown_percentage)
-    
-    @staticmethod
-    def mdd_augmentation(recent_drawdown: float) -> float:
-        """
-        Args: mdd: float - the maximum drawdown of the miner
-        """
-        if recent_drawdown <= 0 or recent_drawdown > 1:
-            return 0
-        
-        recent_drawdown_percentage = (1 - recent_drawdown) * 100
-        if recent_drawdown_percentage <= ValiConfig.DRAWDOWN_MINVALUE_PERCENTAGE:
-            return 0
-        
-        if recent_drawdown_percentage >= ValiConfig.DRAWDOWN_MAXVALUE_PERCENTAGE:
-            return 0
-
-        base_augmentation = PositionUtils.mdd_base_augmentation(recent_drawdown_percentage)
-        lower_augmentation = PositionUtils.mdd_lower_augmentation(recent_drawdown_percentage)
-        upper_augmentation = PositionUtils.mdd_upper_augmentation(recent_drawdown_percentage)
-
-        drawdown_penalty = base_augmentation * lower_augmentation * upper_augmentation
-        return float(drawdown_penalty)
-    
-    def compute_drawdown_penalty_cps(checkpoints: list[PerfCheckpoint]) -> float:
-        """
-        Args:
-            checkpoints: list[PerfCheckpoint] - the list of checkpoints
-        """
-        if len(checkpoints) <= 0:
-            return 0
-        
-        recent_drawdown = PositionUtils.compute_recent_drawdown(checkpoints)
-        drawdown_penalty = PositionUtils.mdd_augmentation(recent_drawdown)
-        return drawdown_penalty
-    
-    ## just looking at the consistency penalties
-    def compute_consistency_penalty_cps(checkpoints: list[PerfCheckpoint]) -> float:
-        """
-        Args:
-            checkpoints: list[PerfCheckpoint] - the list of checkpoints
-            evaluation_time_ms: int - the evaluation time
-        """
-
-        # activity_threshold = ValiConfig.SET_WEIGHT_MINER_CHALLENGE_PERIOD_TOTAL_ACTIVITY
-
-        # checkpoint_consistency_threshold = ValiConfig.SET_WEIGHT_MINER_CHALLENGE_PERIOD_CHECKPOINT_CONSISTENCY_THRESHOLD
-        # checkpoint_consistency_ratio = ValiConfig.SET_WEIGHT_MINER_CHALLENGE_PERIOD_CHECKPOINT_CONSISTENCY_RATIO
-
-        if len(checkpoints) <= 0:
-            return 0
-
-        length_threshold = ValiConfig.CHECKPOINT_LENGTH_THRESHOLD
-        duration_threshold = ValiConfig.CHECKPOINT_DURATION_THRESHOLD
-        epsilon = ValiConfig.EPSILON
-
-        checkpoint_length_augmentation = 1
-        checkpoint_duration_augmentation = 1
-
-        if len(checkpoints) < 1:
-            return 0
-        
-        nonzero_checkpoints = [ checkpoint for checkpoint in checkpoints if checkpoint.open_ms > 0 ]
-        if len(nonzero_checkpoints) <= 0:
-            return 0
-    
-        checkpoint_margins = [ checkpoint.gain + checkpoint.loss for checkpoint in nonzero_checkpoints ]
-        checkpoint_absolute = [ abs(x) for x in checkpoint_margins ]
-
-        marginsum = max(sum(checkpoint_margins), epsilon)
-        margins_consistency = max(checkpoint_absolute) / marginsum
-        consistency_value = PositionUtils.consistency_sigmoid(margins_consistency)
-
-        # ## Compute the duration of the checkpoints
-        checkpoint_duration = sum([checkpoint.open_ms for checkpoint in nonzero_checkpoints])
-        if checkpoint_duration < duration_threshold:
-            checkpoint_duration_augmentation = (checkpoint_duration / duration_threshold)**2
-
-        ## Check the length penalty of the checkpoints
-        if len(nonzero_checkpoints) < length_threshold:
-            checkpoint_length_augmentation = (len(nonzero_checkpoints) / length_threshold)**2
-
-        return consistency_value * checkpoint_length_augmentation * checkpoint_duration_augmentation
-    
-    @staticmethod
-    def compute_consistency_penalty(
-        positions: list[Position],
-        evaluation_time_ms: int
-    ) -> float:
-        """
         Args:
             positions: list[Position] - the list of positions
-            evaluation_time_ms: int - the evaluation time
+        """
+        return_time_spread = ValiConfig.POSITIONAL_RETURN_TIME_SIGMOID_SPREAD
+        return_time_shift = ValiConfig.POSITIONAL_RETURN_TIME_SIGMOID_SHIFT
+
+        # Need at least two positions for this to even make sense
+        if len(positions) <= 1:
+            return 0.0
+
+        return FunctionalUtils.sigmoid(
+            PositionUtils.time_consistency_ratio(positions),
+            return_time_shift,
+            return_time_spread
+        )
+
+    @staticmethod
+    def time_consistency_ratio(
+            positions: list[Position],
+            time_window: Union[int, None] = None
+    ) -> float:
+        """
+        Returns the ratio associated with the time window of the realized returns
+        Args:
+            positions: list[Position] - the list of positions
+            time_window: int - window used to aggregate the returns on closed positions
+
+        Returns:
+            float - the ratio of the realized returns in the time window relative to total returns
         """
         if len(positions) == 0:
-            return 0
-        
-        lookback_fractions = [
-            PositionUtils.compute_lookback_fraction(
-                position.open_ms,
-                position.close_ms,
-                evaluation_time_ms
-            ) for position in positions
-            if position.is_closed_position and position.max_leverage_seen() >= ValiConfig.MIN_LEVERAGE_CONSITENCY_PENALTY
-        ]
+            return 1  # no aggregate returns, so it should capture the full penalty
 
-        # Sort the lookback fractions in ascending order
-        lookback_fractions = sorted(lookback_fractions)
-        consistency_penalties = PositionUtils.compute_consistency(lookback_fractions)
-        return consistency_penalties
-    
+        if time_window is None:
+            time_window = ValiConfig.POSITIONAL_RETURN_TIME_WINDOW_MS
+
+        close_times = np.array([position.close_ms for position in positions])
+        returns = np.log([position.return_at_close for position in positions])
+        total_return = np.sum(returns)
+
+        # If there is no return, the ratio is 1, as our denominator is invalid
+        if total_return == 0:
+            return 1
+
+        # Initialize an empty list to store the results
+        sums_in_window = []
+
+        # Iterate through each time point
+        for i in range(len(close_times)):
+            # Define the start and end of the sliding window
+            start_time: int = close_times[i]
+            end_time: int = start_time + time_window
+
+            # Sum values within the window
+            sum_values = returns[
+                (close_times >= start_time) &
+                (close_times < end_time)
+                ].sum()
+
+            # Store the result
+            sums_in_window.append(sum_values)
+
+        if total_return > 0:
+            largest_windowed_contribution = max(sums_in_window)
+        else:
+            largest_windowed_contribution = min(sums_in_window)
+
+        return np.clip(largest_windowed_contribution / total_return, 0, 1)
+
     @staticmethod
-    def compute_consistency_penalty_positions(
-        positions: list[Position],
-        evaluation_time_ms: int
+    def returns_ratio_penalty(
+            positions: list[Position]
     ) -> float:
         """
+        Returns the penalty associated with uneven distributions for realized returns
+
         Args:
             positions: list[Position] - the list of positions
-            evaluation_time_ms: int - the evaluation time
         """
-        lookback_fractions = [
-            PositionUtils.compute_lookback_fraction(
-                position.open_ms,
-                position.close_ms,
-                evaluation_time_ms
-            ) for position in positions
-            if position.is_closed_position and position.max_leverage_seen() >= ValiConfig.MIN_LEVERAGE_CONSITENCY_PENALTY
-        ]
+        max_return_spread = ValiConfig.MAX_RETURN_SIGMOID_SPREAD
+        max_return_shift = ValiConfig.MAX_RETURN_SIGMOID_SHIFT
 
-        # Sort the lookback fractions in ascending order
-        lookback_fractions = sorted(lookback_fractions)
-        consistency_penalties = PositionUtils.compute_consistency(lookback_fractions)
-        return consistency_penalties
-    
+        # Need at least two positions for this to even make sense
+        if len(positions) <= 1:
+            return 0.0
+
+        max_return_ratio = PositionUtils.returns_ratio(positions)
+        return FunctionalUtils.sigmoid(
+            max_return_ratio,
+            max_return_shift,
+            max_return_spread
+        )
+
     @staticmethod
-    def compute_consistency(
-        lookback_fractions: list[Position]
+    def returns_ratio(
+            positions: list[Position]
     ) -> float:
         """
-        Args:
-            close_ms_list: list[int] - the list of close times for the positions
-        """
-        if len(lookback_fractions) == 0:
-            return 0
-        
-        window_size = ValiConfig.HISTORICAL_PENALTY_WINDOW
-        stride = ValiConfig.HISTORICAL_PENALTY_STRIDE
-        
-        # Initialize variables
-        total_windows = int((1 - window_size) / stride) + 1
-        represented_windows = 0
-        
-        # Iterate over the sliding windows
-        for i in range(total_windows):
-            window_start = i * stride
-            window_end = window_start + window_size
-            
-            # Check if any lookback fraction falls within the current window
-            for fraction in lookback_fractions:
-                if window_start <= fraction < window_end:
-                    represented_windows += 1
-                    break
-        
-        # Calculate the penalty score
-        penalty_score = represented_windows / total_windows
+        Returns the penalty associated with uneven distributions for realized returns
 
-        if penalty_score >= 0.6:
-            return 1
-        elif penalty_score >= 0.5:
-            return 0.9
-        elif penalty_score >= 0.4:
-            return 0.8
-        elif penalty_score >= 0.3:
-            return 0.5
-        elif penalty_score >= 0.2:
-            return 0.25
-        elif penalty_score >= 0.1:
-            return 0.1
-                
-        return 0.1
-    
+        Args:
+            positions: list[Position] - the list of positions
+        """
+        daily_sums = defaultdict(float)
+
+        closed_positions = [position for position in positions if position.is_closed_position]
+        closed_return = sum([math.log(position.return_at_close) for position in closed_positions])
+        if closed_return == 0:
+            return 1  # no aggregate returns, so it should capture the full penalty
+
+        for position in closed_positions:
+            date = datetime.utcfromtimestamp(position.close_ms / 1000).date()
+            daily_sums[date] += math.log(position.return_at_close)
+
+        daily_log_returns = daily_sums.values()
+
+        if closed_return > 0:
+            positive_returns = [x for x in daily_log_returns if x > 0]
+            numerator = max(positive_returns)
+        else:
+            negative_returns = [x for x in daily_log_returns if x < 0]
+            numerator = min(negative_returns)
+
+        denominator = closed_return
+        max_return_ratio = np.clip(numerator / denominator, 0, 1)
+
+        return max_return_ratio
+
     @staticmethod
-    def flatten_positions(
-        positions: dict[str, list[Position]]
+    def flatten(
+            positions: dict[str, list[Position]]
     ) -> list[Position]:
         """
         Args:
             positions: list[Position] - the positions
         """
         positions_list = []
-        for minerkey, minerpositions in positions.items():
-            for position in minerpositions:
+        for miner_key, miner_positions in positions.items():
+            for position in miner_positions:
                 positions_list.append(position)
 
         return positions_list
-    
+
     @staticmethod
     def running_leverage_computation(
-        positions: list[Position]
+            positions: list[Position]
     ) -> list[Position]:
         """
         Args:
@@ -466,18 +343,22 @@ class PositionUtils:
         for position in positions_copy:
             for order in position.orders:
                 order.leverage = np.clip(order.leverage, 0, 1)
-        
+
         return positions
-    
+
     @staticmethod
     def to_state_list(
-        positions: list[Position],
-        current_time: int,
-        constrain_lookback: bool = True
+            positions: list[Position],
+            current_time: int,
+            constrain_lookback: bool = True
     ) -> tuple:
         """
         Args:
             positions: list[Position] - the positions
+            current_time: int - the current time
+            constrain_lookback: bool - whether to constrain the lookback
+
+        Return:
             return: list[dict] - the order list
         """
         order_list = []
@@ -499,7 +380,7 @@ class PositionUtils:
 
             if len(position.orders) == 0:
                 continue
-            
+
             for order_number, order in enumerate(position.orders):
                 if order_number == 0:
                     order_start = order.processed_ms
@@ -527,7 +408,7 @@ class PositionUtils:
                 order_orderid = order.order_uuid
 
         return (
-            sorted(list(miners)), 
-            sorted(list(trade_pairs)), 
+            sorted(list(miners)),
+            sorted(list(trade_pairs)),
             order_list
         )
