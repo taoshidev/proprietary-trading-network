@@ -998,7 +998,7 @@ class PositionManager(CacheController):
         self.delete_position_from_disk(position, check_open_and_closed_dirs=True)
         miner_dir = ValiBkpUtils.get_partitioned_miner_positions_dir(position.miner_hotkey,
                                                                      position.trade_pair.trade_pair_id,
-                                                                     order_status=position.is_open_position,
+                                                                     order_status=OrderStatus.OPEN if position.is_open_position else OrderStatus.CLOSED,
                                                                      running_unit_tests=self.running_unit_tests)
         ValiBkpUtils.write_file(miner_dir + position.position_uuid, position)
 
