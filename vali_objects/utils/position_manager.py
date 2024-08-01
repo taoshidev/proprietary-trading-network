@@ -993,6 +993,15 @@ class PositionManager(CacheController):
 
         ValiBkpUtils.write_file(miner_dir + position.position_uuid, position)
 
+    def overwrite_position_on_disk(self, position: Position) -> None:
+        # delete the position from disk. Try the open position dir and the closed position dir
+        self.delete_position_from_disk(position, check_open_and_closed_dirs=True)
+        miner_dir = ValiBkpUtils.get_partitioned_miner_positions_dir(position.miner_hotkey,
+                                                                     position.trade_pair.trade_pair_id,
+                                                                     order_status=position.is_open_position,
+                                                                     running_unit_tests=self.running_unit_tests)
+        ValiBkpUtils.write_file(miner_dir + position.position_uuid, position)
+
     def clear_all_miner_positions_from_disk(self, target_hotkey=None):
         # Clear all files and directories in the directory specified by dir
         dir = ValiBkpUtils.get_miner_dir(running_unit_tests=self.running_unit_tests)
@@ -1058,14 +1067,21 @@ class PositionManager(CacheController):
         return ValiBkpUtils.get_partitioned_miner_positions_dir(hotkey, trade_pair_id, order_status=order_status,
                                                                running_unit_tests=self.running_unit_tests) + position_uuid
 
-    def delete_position_from_disk(self, p:Position):
+    def delete_position_from_disk(self, p:Position, check_open_and_closed_dirs=False):
         hotkey = p.miner_hotkey
         trade_pair_id = p.trade_pair.trade_pair_id
         position_uuid = p.position_uuid
         is_open = p.is_open_position
-        filepath = self.get_filepath_for_position(hotkey, trade_pair_id, position_uuid, is_open)
-        os.remove(filepath)
-        bt.logging.info(f"Deleted position from disk: {filepath}")
+        if check_open_and_closed_dirs:
+            file_paths = [self.get_filepath_for_position(hotkey, trade_pair_id, position_uuid, True),
+                            self.get_filepath_for_position(hotkey, trade_pair_id, position_uuid, False)]
+        else:
+            file_paths = [self.get_filepath_for_position(hotkey, trade_pair_id, position_uuid, is_open)]
+        for fp in file_paths:
+            if os.path.exists(fp):
+                os.remove(fp)
+                bt.logging.info(f"Deleted position from disk: {fp}")
+
 
 
     def check_elimination(self, positions, miner_hotkey, orig_portfolio_return, ALL_MSGS, ELIM_MSGS):

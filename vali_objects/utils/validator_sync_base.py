@@ -184,7 +184,7 @@ class ValidatorSyncBase():
                     for p in positions:
                         if p.is_open_position:
                             prev_open_position = self.close_older_open_position(p, prev_open_position)
-                        self.position_manager.save_miner_position_to_disk(p, delete_open_position_if_exists=True)
+                        self.position_manager.overwrite_position_on_disk(p)
                 kept_and_matched -= 1
         # Insertions happen last so that there is no double open position issue
         for position, sync_status in position_to_sync_status.items():
@@ -195,7 +195,7 @@ class ValidatorSyncBase():
                     for p in positions:
                         if p.is_open_position:
                             prev_open_position = self.close_older_open_position(p, prev_open_position)
-                        self.position_manager.save_miner_position_to_disk(p, delete_open_position_if_exists=False)
+                        self.position_manager.overwrite_position_on_disk(p)
         for position, sync_status in position_to_sync_status.items():
             if sync_status == PositionSyncResult.NOTHING:
                 kept_and_matched -= 1
@@ -220,11 +220,11 @@ class ValidatorSyncBase():
         # if p2 is an older position, we close it and return p1 as the newest open position.
         if p2.open_ms < p1.open_ms:
             p2.close_out_position(TimeUtil.now_in_millis())
-            self.position_manager.save_miner_position_to_disk(p2, delete_open_position_if_exists=True)
+            self.position_manager.overwrite_position_on_disk(p2)
             return p1
         else:
             p1.close_out_position(TimeUtil.now_in_millis())
-            self.position_manager.save_miner_position_to_disk(p1, delete_open_position_if_exists=True)
+            self.position_manager.overwrite_position_on_disk(p1)
             return p2
 
 
