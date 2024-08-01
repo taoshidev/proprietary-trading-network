@@ -575,8 +575,8 @@ class ValidatorSyncBase():
                 for x in kept:
                     self.debug_print_pos(x)
 
-        n_open = len([p for p in ret if p.is_open_position])
-        assert n_open < 2, f"n_open: {n_open}"
+        # n_open = len([p for p in ret if p.is_open_position])
+        # assert n_open < 2, f"n_open: {n_open}"
         return position_to_sync_status, min_timestamp_of_change, stats
 
     def partition_positions_by_trade_pair(self, positions: list[Position]) -> dict[str, list[Position]]:

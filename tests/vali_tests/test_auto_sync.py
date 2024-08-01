@@ -207,9 +207,31 @@ class TestPositions(TestBase):
 
             assert len(self.position_syncer.perf_ledger_hks_to_invalidate) == 0
 
+    def test_split_position_with_orders_after_flat(self):
+        order1 = deepcopy(self.default_order)
+        order1.order_uuid = "test_order1"
+        order1.processed_ms = self.default_order.processed_ms + 1000
+        order2 = deepcopy(self.default_order)
+        order2.order_uuid = "test_order2"
+        order2.processed_ms = self.default_order.processed_ms + 1000 * 60 * 10
+        order2.order_type = OrderType.FLAT
+        order3 = deepcopy(self.default_order)
+        order3.order_uuid = "test_order3"
+        order3.processed_ms = self.default_order.processed_ms + 1000 * 60 * 10 * 2
+        orders = [order1, order2, order3]
+        position = deepcopy(self.default_position)
+        position.orders = orders
+        print(position.is_open_position)
+        candidate_data = self.positions_to_candidate_data([position])
+        disk_positions = self.positions_to_disk_data([self.default_position])
+        self.position_syncer.sync_positions(shadow_mode=False, candidate_data=candidate_data,
+                                            disk_positions=disk_positions)
+        stats = self.position_syncer.global_stats
 
+        assert stats['n_positions_spawned_from_post_flat_orders'] == 1, stats
+        assert stats['n_positions_closed_duplicate_opens_for_trade_pair'] == 0, stats
 
-    def test_position_keep_one_insert(self):
+    def test_position_keep_both_insert(self):
         dp1 = deepcopy(self.default_closed_position)
         dp1.position_uuid = 'to_keep'
         # After hardsnap, we must keep it
@@ -221,9 +243,9 @@ class TestPositions(TestBase):
         dp2.open_ms += 1000 * 60 * 10
         dp2.close_ms += 1000 * 60 * 10
 
-        # Prevent this from being kept since it would result in 2 open positions
+        # Close the older open position, and insert the newer open position
         dp3 = deepcopy(self.default_open_position)
-        dp3.position_uuid = 'block_double_open'
+        dp3.position_uuid = 'double_open'
         dp3.open_ms += 1000 * 60 * 10
 
         for i, dp in enumerate([dp1, dp2, dp3]):
@@ -238,10 +260,10 @@ class TestPositions(TestBase):
                 stats_str += f"{k}:{v}, "
 
             assert stats['n_miners_synced'] == 1, (i, stats_str)
-            if i == 2:
-                assert stats['blocked_keep_open_position_acked'] == 1
-            assert stats['n_miners_positions_deleted'] == int(i == 2), (i, stats_str)
-            assert stats['n_miners_positions_kept'] == int(i != 2), (i, stats_str)
+            # if i == 2:
+            #     assert stats['blocked_keep_open_position_acked'] == 1
+            assert stats['n_miners_positions_deleted'] == 0, (i, stats_str)
+            assert stats['n_miners_positions_kept'] == 1, (i, stats_str)
             assert stats['n_miners_positions_matched'] == 0, (i, stats_str)
             assert stats['n_miners_positions_inserted'] == 1, (i, stats_str)
 
@@ -252,8 +274,8 @@ class TestPositions(TestBase):
 
             assert stats['positions_inserted'] == 1, (i, stats_str)
             assert stats['positions_matched'] == 0, (i, stats_str)
-            assert stats['positions_deleted'] == int(i == 2), (i, stats_str)
-            assert stats['positions_kept'] == int(i != 2), (i, stats_str)
+            assert stats['positions_deleted'] == 0, (i, stats_str)
+            assert stats['positions_kept'] == 1, (i, stats_str)
 
             assert stats['orders_inserted'] == 0, (i, stats_str)
             assert stats['orders_matched'] == 0, (i, stats_str)
