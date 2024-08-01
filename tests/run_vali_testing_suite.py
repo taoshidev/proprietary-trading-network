@@ -4,7 +4,6 @@
 import unittest
 import sys
 from vali_config import ValiConfig
-import bittensor as bt
 
 if __name__ == '__main__':
     # Create a test loader

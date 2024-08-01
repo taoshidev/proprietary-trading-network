@@ -144,4 +144,4 @@ class PositionInspector:
             bt.logging.info("No positions found.")
 
         self.last_update_time = time.time()
-        bt.logging.success(f"PositionInspector successfully completed signal processing.")
+        bt.logging.success("PositionInspector successfully completed signal processing.")

@@ -1,8 +1,6 @@
 import threading
 import traceback
-from collections import Counter
 
-import matplotlib.pyplot as plt
 
 from typing import List
 from polygon.rest.models import MarketStatus, Agg
@@ -358,7 +356,7 @@ class PolygonDataService(BaseDataService):
         self,
         trade_pair: TradePair
     ) -> PriceSource | None:
-        polygon_ticker = self.trade_pair_to_polygon_ticker(trade_pair)
+        polygon_ticker = self.trade_pair_to_polygon_ticker(trade_pair)  # noqa: F841
         #bt.logging.info(f"Fetching REST data for {polygon_ticker}")
 
         if not self.is_market_open(trade_pair):
@@ -433,7 +431,7 @@ class PolygonDataService(BaseDataService):
 
 
     def get_close_in_past_hour_fallback(self, trade_pair: TradePair, timestamp_ms: int):
-        polygon_ticker = self.trade_pair_to_polygon_ticker(trade_pair)
+        polygon_ticker = self.trade_pair_to_polygon_ticker(trade_pair)  # noqa: F841
 
         #if not self.is_market_open(trade_pair):
         #    return self.get_event_before_market_close(trade_pair)
@@ -472,7 +470,7 @@ class PolygonDataService(BaseDataService):
 
 
     def get_close_at_date_minute_fallback(self, trade_pair: TradePair, timestamp_ms: int):
-        polygon_ticker = self.trade_pair_to_polygon_ticker(trade_pair)
+        polygon_ticker = self.trade_pair_to_polygon_ticker(trade_pair)  # noqa: F841
 
         #if not self.is_market_open(trade_pair):
         #    return self.get_event_before_market_close(trade_pair)
@@ -768,7 +766,7 @@ if __name__ == "__main__":
     #price, time_delta = polygon_data_provider.get_close_at_date_second(trade_pair=TradePair.BTCUSD, target_timestamp_ms=1712671378202)
 
 
-    print(price, time_delta)
+    print(price, time_delta)  # noqa: F821
     assert 0
 
     trade_pairs = [TradePair.BTCUSD, TradePair.ETHUSD, TradePair.SPX, TradePair.GBPUSD, TradePair.DJI]
@@ -822,7 +820,7 @@ if __name__ == "__main__":
         print('-------------------------------------------------------------------')
         print(f"Testing between {start_date_formatted} and {end_date_formatted}")
 
-        tps = [tp for tp in TradePair if tp not in self.UNSUPPORTED_TRADE_PAIRS]
+        tps = [tp for tp in TradePair if tp not in self.UNSUPPORTED_TRADE_PAIRS]  # noqa: F821
         candles = polygon_data_provider.get_candles(tps, start_time_ms, end_time_ms)
         print(f"    candles: {candles}")
 
@@ -830,7 +828,7 @@ if __name__ == "__main__":
         if tp != TradePair.GBPUSD:
             continue
 
-        is_open = self.is_market_open(tp)
+        is_open = self.is_market_open(tp)  # noqa: F821
         print(f'market is open for {tp}: ', is_open)
         print('PRICE BEFORE MARKET CLOSE: ', polygon_data_provider.get_event_before_market_close(tp))
         print('getting close for', tp.trade_pair_id, ':', polygon_data_provider.get_close_rest(tp)[tp])
@@ -859,9 +857,9 @@ if __name__ == "__main__":
     cached_prices = {}
     cached_times = {}
     while True:
-        print('main thread perspective - n_events_global:', n_events_global)
-        for k, price in latest_websocket_events.items():
-            t = last_websocket_ping_time_s[k]
+        print('main thread perspective - n_events_global:', n_events_global)  # noqa: F821
+        for k, price in latest_websocket_events.items():  # noqa: F821
+            t = last_websocket_ping_time_s[k]  # noqa: F821
             cached_price = cached_prices.get(k, None)
             cached_time = cached_times.get(k, None)
             if cached_price and cached_time:
@@ -869,5 +867,5 @@ if __name__ == "__main__":
 
             cached_prices[k] = price
             cached_times[k] = t
-        debug_log()
+        debug_log()  # noqa: F821
         time.sleep(10)

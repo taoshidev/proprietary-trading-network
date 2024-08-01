@@ -1,17 +1,12 @@
 # developer: trdougherty
 # Copyright © 2024 Taoshi Inc
-import math
 import numpy as np
 import copy
 
 from vali_objects.position import Position
 from vali_config import ValiConfig
 
-import bittensor as bt
 
-from vali_objects.position import Position
-from vali_objects.vali_dataclasses.order import Order
-from vali_config import ValiConfig
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.scoring.historical_scoring import HistoricalScoring
 from vali_objects.vali_dataclasses.perf_ledger import PerfCheckpoint
@@ -203,7 +198,7 @@ class PositionUtils:
         if len(checkpoints) <= 0:
             return 0
 
-        drawdown_nterms = ValiConfig.DRAWDOWN_NTERMS
+        drawdown_nterms = ValiConfig.DRAWDOWN_NTERMS  # noqa: F841
 
         ## Compute the drawdown of the checkpoints
         drawdowns = [ checkpoint.mdd for checkpoint in checkpoints ]

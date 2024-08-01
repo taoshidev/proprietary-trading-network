@@ -1,16 +1,13 @@
 import json
-import time
 from collections import defaultdict
 from copy import deepcopy
 
 from bittensor import Balance
 
 from time_util.time_util import TimeUtil
-from vali_objects.utils.auto_sync import PositionSyncer
 from tests.shared_objects.mock_classes import MockMetagraph, MockNeuron, MockAxonInfo
 from tests.vali_tests.base_objects.test_base import TestBase
 from vali_config import TradePair
-from vali_objects.decoders.generalized_json_decoder import GeneralizedJSONDecoder
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.position import Position
 from vali_objects.utils.p2p_syncer import P2PSyncer
@@ -65,7 +62,7 @@ class TestPositions(TestBase):
         )
         self.default_closed_position.close_out_position(self.DEFAULT_OPEN_MS + 1000 * 60 * 60 * 6)
 
-        self.p2p_syncer = P2PSyncer()
+        self.p2p_syncer = P2PSyncer(running_unit_tests=True)
 
     def test_get_validators(self):
         neuron1 = deepcopy(self.default_neuron)

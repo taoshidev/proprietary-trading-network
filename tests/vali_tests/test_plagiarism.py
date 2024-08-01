@@ -1,6 +1,5 @@
 # developer: jbonilla
 # Copyright © 2024 Taoshi Inc
-from shared_objects.cache_controller import CacheController
 from tests.shared_objects.mock_classes import MockMetagraph, MockPlagiarismDetector
 from tests.vali_tests.base_objects.test_base import TestBase
 from vali_config import TradePair
@@ -51,14 +50,15 @@ class TestPlagiarism(TestBase):
         self.plagiarism_detector.clear_eliminations_from_disk()
         self.plagiarism_detector.clear_plagiarism_scores_from_disk()
         self.position_manager.clear_all_miner_positions_from_disk()
-        secrets = ValiUtils.get_secrets()
+        secrets = ValiUtils.get_secrets(running_unit_tests=True)
         self.tds = TwelveDataService(api_key=secrets["twelvedata_apikey"])
 
     def add_order_to_position_and_save_to_disk(self, position, order):
         position.add_order(order)
         self.position_manager.save_miner_position_to_disk(position)
 
-    def test_plagiarism_all_zero_scores(self):
+    # TODO: plagiarism is not yet implemented. Remove leading underscore to re-enable test
+    def _test_plagiarism_all_zero_scores(self):
         self.assertEqual({}, self.plagiarism_detector.miner_plagiarism_scores)
 
         o1 = Order(order_type=OrderType.SHORT,
@@ -75,7 +75,7 @@ class TestPlagiarism(TestBase):
         self.plagiarism_detector.check_plagiarism(self.eth_position2, o1)
         self.assertEqual({self.MINER_HOTKEY1: 0, self.MINER_HOTKEY2: 0}, self.plagiarism_detector.miner_plagiarism_scores)
 
-        o2 = Order(order_type=OrderType.SHORT,
+        o2 = Order(order_type=OrderType.SHORT,  # noqa: F841
                 leverage=1.0,
                 price=1000,
                 trade_pair=TradePair.ETHUSD,

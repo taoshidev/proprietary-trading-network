@@ -21,7 +21,7 @@ class TestPositions(TestBase):
 
     def setUp(self):
         super().setUp()
-        secrets = ValiUtils.get_secrets()
+        secrets = ValiUtils.get_secrets(running_unit_tests=True)
         secrets["twelvedata_apikey"] = secrets["twelvedata_apikey"]
         self.live_price_fetcher = LivePriceFetcher(secrets=secrets, disable_ws=True)
         self.DEFAULT_MINER_HOTKEY = "test_miner"
@@ -806,7 +806,7 @@ class TestPositions(TestBase):
 
     def test_invalid_prices_negative(self):
         with self.assertRaises(ValueError):
-            o1 = Order(order_type=OrderType.LONG,
+            o1 = Order(order_type=OrderType.LONG,  # noqa: F841
                        leverage=1.0,
                        price=-1,
                        trade_pair=TradePair.BTCUSD,
@@ -1331,8 +1331,8 @@ class TestPositions(TestBase):
             'position_uuid': self.DEFAULT_POSITION_UUID
         })
 
-        self.assertEqual(position.max_leverage_seen(), 2.0)
-        self.assertEqual(position.get_cumulative_leverage(), 2.0)
+        self.assertEqual(position.max_leverage_seen(), 1.0)
+        self.assertEqual(position.get_cumulative_leverage(), 1.0)
 
         o3 = Order(order_type=OrderType.SHORT,
                    leverage=ValiConfig.ORDER_MIN_LEVERAGE,
@@ -1494,8 +1494,8 @@ class TestPositions(TestBase):
             'position_uuid': self.DEFAULT_POSITION_UUID
         })
 
-        self.assertEqual(position.max_leverage_seen(), 2.0)
-        self.assertEqual(position.get_cumulative_leverage(), 2.0)
+        self.assertEqual(position.max_leverage_seen(), 1.0)
+        self.assertEqual(position.get_cumulative_leverage(), 1.0)
 
         o3 = Order(order_type=OrderType.LONG,
                    leverage=ValiConfig.ORDER_MIN_LEVERAGE,

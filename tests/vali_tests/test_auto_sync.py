@@ -1,5 +1,4 @@
 import json
-import time
 from copy import deepcopy
 
 from vali_objects.utils.auto_sync import PositionSyncer
@@ -57,7 +56,7 @@ class TestPositions(TestBase):
         )
         self.default_closed_position.close_out_position(self.DEFAULT_OPEN_MS + 1000 * 60 * 60 * 6)
 
-        self.position_syncer = PositionSyncer()
+        self.position_syncer = PositionSyncer(running_unit_tests=True)
 
     def positions_to_disk_data(self, positions: list[Position]):
         return {self.DEFAULT_MINER_HOTKEY: positions}

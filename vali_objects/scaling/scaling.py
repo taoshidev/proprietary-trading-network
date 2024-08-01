@@ -79,7 +79,7 @@ class Scaling:
         return vmins, vmaxs, dp_decimal_places, np.array(sds_list)
 
     @staticmethod
-    def min_max_scalar_list(l):
+    def min_max_scalar_list(l):  # noqa: E741
         original_values_2d = [[val] for val in l]
         scaler = MinMaxScaler()
 

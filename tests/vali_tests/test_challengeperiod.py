@@ -1,7 +1,5 @@
 # developer: trdougherty
 # Copyright © 2024 Taoshi Inc
-import numpy as np
-import bittensor as bt
 import functools
 import random
 from copy import deepcopy
@@ -12,14 +10,10 @@ from tests.vali_tests.base_objects.test_base import TestBase
 from tests.shared_objects.test_utilities import generate_ledger
 
 from vali_config import TradePair
-from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.position import Position
 from vali_objects.utils.position_manager import PositionManager
 
-from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager, PerfCheckpoint, PerfLedger
-from vali_objects.utils.vali_utils import ValiUtils
-from vali_objects.vali_dataclasses.order import Order
-from data_generator.twelvedata_service import TwelveDataService
+from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
 from vali_config import ValiConfig
 
 class TestChallengePriod(TestBase):

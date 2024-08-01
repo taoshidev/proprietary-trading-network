@@ -1,5 +1,4 @@
 import requests
-from datetime import datetime
 
 import time
 from typing import List, Tuple
@@ -7,7 +6,6 @@ from typing import List, Tuple
 from data_generator.financial_markets_generator.base_financial_markets_generator.base_financial_markets_generator import \
     BaseFinancialMarketsGenerator
 
-import requests
 
 from time_util.time_util import TimeUtil
 from vali_config import ValiConfig

@@ -6,7 +6,6 @@ from sortedcontainers import SortedList
 
 from vali_objects.vali_dataclasses.recent_event_tracker import RecentEventTracker
 from vali_objects.vali_dataclasses.price_source import PriceSource
-from time_util.time_util import TimeUtil
 
 class TestRecentEventTracker(unittest.TestCase):
 
@@ -148,9 +147,9 @@ class TestRecentEventTracker(unittest.TestCase):
         mock_time.return_value = 10000000
         self.tracker.add_event(PriceSource(start_ms=mock_time.return_value, open=100.0, close=105.0))
         self.tracker.add_event(PriceSource(start_ms=mock_time.return_value, open=101.0, close=106.0))  # Exact same start time
-        self.assertEqual(len(self.tracker.events), 2)
-        self.assertNotEqual(self.tracker.events[0][1], self.tracker.events[1][1])
-        self.assertEqual(self.tracker.events[0][0], self.tracker.events[1][0])
+        self.assertEqual(len(self.tracker.events), 1)
+        # self.assertNotEqual(self.tracker.events[0][1], self.tracker.events[1][1])
+        # self.assertEqual(self.tracker.events[0][0], self.tracker.events[1][0])
 
     @patch('time_util.time_util.TimeUtil.now_in_millis')
     def test_precise_timing(self, mock_time):

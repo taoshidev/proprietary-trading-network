@@ -7,14 +7,9 @@ from scipy import sparse
 
 from sklearn.preprocessing import normalize
 from sklearn.metrics.pairwise import cosine_similarity
-import copy
 
 from vali_config import ValiConfig
 from vali_objects.position import Position
-from shared_objects.cache_controller import CacheController
-from vali_objects.utils.position_manager import PositionManager
-from vali_config import ValiConfig
-from vali_objects.vali_dataclasses.order import Order
 from vali_objects.utils.position_utils import PositionUtils
 
 class PlagiarismUtils:
@@ -80,7 +75,7 @@ class PlagiarismUtils:
         Args:
             state_similarities: ndarray - the state similarities matrix
         """
-        similarity_condition = state_similarities_booleans == True
+        similarity_condition = state_similarities_booleans == True  # noqa: E712
         victims, plagiarisers, condition = sparse.find(similarity_condition)
 
         victims_cosine_similarities = state_similarities_snapshot[
@@ -372,7 +367,7 @@ class PlagiarismUtils:
             threshold: float - the threshold for similarity
         """
         # Axis of 1 is the new miners axis
-        similarities_percentile = np.percentile(state_similarities_matrix, 80, axis=1)
+        similarities_percentile = np.percentile(state_similarities_matrix, 80, axis=1)  # noqa: F841
         return state_similarities_matrix
     
     @staticmethod

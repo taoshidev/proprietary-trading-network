@@ -10,7 +10,6 @@ import time
 
 from data_generator.financial_markets_generator.base_financial_markets_generator.base_financial_markets_generator import \
     BaseFinancialMarketsGenerator
-from time_util.time_util import TimeUtil
 from vali_config import ValiConfig
 
 
@@ -32,7 +31,7 @@ class BinanceData(BaseFinancialMarketsGenerator):
                  limit=1000,
                  retries=0) -> Response:
 
-        if type(interval) == int:
+        if type(interval) == int:  # noqa: E721
             binance_interval = self._tf[interval]
         else:
             raise Exception("no mapping for binance interval")

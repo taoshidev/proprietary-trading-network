@@ -1,15 +1,7 @@
 # developer: trdougherty
 # Copyright © 2024 Taoshi Inc
 from tests.vali_tests.base_objects.test_base import TestBase
-from vali_objects.scoring.scoring import Scoring
-from vali_objects.position import Position
-import pickle
-import uuid
-import hashlib
 import math
-import copy
-from vali_objects.vali_dataclasses.order import Order
-from vali_objects.enums.order_type_enum import OrderType
 from vali_config import ValiConfig, TradePair
 from vali_objects.utils.position_utils import PositionUtils
 from vali_objects.scoring.historical_scoring import HistoricalScoring
@@ -17,13 +9,13 @@ from vali_objects.scoring.historical_scoring import HistoricalScoring
 import numpy as np
 import random
 
-from tests.shared_objects.test_utilities import get_time_in_range, hash_object, order_generator, position_generator, ledger_generator, checkpoint_generator
+from tests.shared_objects.test_utilities import get_time_in_range, checkpoint_generator
 
 class TestWeights(TestBase):
     def setUp(self):
         super().setUp()
 
-        possible_tradepairs = list(TradePair.__members__)    
+        possible_tradepairs = list(TradePair.__members__)  # noqa: F841
 
         ## seeding
         np.random.seed(0)

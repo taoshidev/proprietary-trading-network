@@ -8,18 +8,15 @@ import numpy as np
 from scipy.stats import percentileofscore
 
 from vali_config import ValiConfig
-from vali_objects.exceptions.incorrect_prediction_size_error import IncorrectPredictionSizeError
-from vali_objects.exceptions.min_responses_exception import MinResponsesException
-from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.utils.vali_utils import ValiUtils
-from vali_objects.vali_dataclasses.perf_ledger import PerfCheckpoint, PerfLedger
+from vali_objects.vali_dataclasses.perf_ledger import PerfLedger
 from vali_objects.utils.position_manager import PositionManager
 from time_util.time_util import TimeUtil
 from vali_objects.utils.position_utils import PositionUtils
 
 import bittensor as bt
 
-from pydantic import BaseModel, validator, field_validator
+from pydantic import BaseModel, field_validator
 
 
 class ScoringUnit(BaseModel):
@@ -161,12 +158,12 @@ class Scoring:
         """
         # bt.logging.info(f"Normalizing scores: {scores}")
         if len(scores) == 0:
-            bt.logging.info(f"No scores to normalize, returning empty list")
+            bt.logging.info("No scores to normalize, returning empty list")
             return {}
         
         sum_scores = sum(scores.values())
         if sum_scores == 0:
-            bt.logging.info(f"sum_scores is 0, returning empty list")
+            bt.logging.info("sum_scores is 0, returning empty list")
             return {}
         
         normalized_scores = {

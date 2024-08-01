@@ -13,8 +13,8 @@ import bittensor as bt
 
 
 class PositionSyncer(ValidatorSyncBase):
-    def __init__(self, shutdown_dict=None, signal_sync_lock=None, signal_sync_condition=None, n_orders_being_processed=None):
-        super().__init__(shutdown_dict, signal_sync_lock, signal_sync_condition, n_orders_being_processed)
+    def __init__(self, shutdown_dict=None, signal_sync_lock=None, signal_sync_condition=None, n_orders_being_processed=None, running_unit_tests=False):
+        super().__init__(shutdown_dict, signal_sync_lock, signal_sync_condition, n_orders_being_processed, running_unit_tests=running_unit_tests)
         self.force_ran_on_boot = False
 
     def read_validator_checkpoint_from_gcloud_zip(url):
@@ -66,7 +66,7 @@ class PositionSyncer(ValidatorSyncBase):
         if not auto_sync_enabled:
             return
 
-        if self.force_ran_on_boot == False:
+        if self.force_ran_on_boot == False:  # noqa: E712
             self.perform_sync()
             self.force_ran_on_boot = True
 

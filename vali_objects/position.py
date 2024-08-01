@@ -4,7 +4,6 @@ from copy import deepcopy
 from typing import Optional, List
 from pydantic import model_validator, BaseModel, Field
 
-
 from time_util.time_util import TimeUtil, MS_IN_8_HOURS, MS_IN_24_HOURS
 from vali_config import TradePair, ValiConfig
 from vali_objects.vali_dataclasses.order import Order
@@ -233,7 +232,9 @@ class Position(BaseModel):
 
     @property
     def newest_order_age_ms(self):
-        return TimeUtil.now_in_millis() - self.orders[-1].processed_ms
+        if len(self.orders) > 0:
+            return TimeUtil.now_in_millis() - self.orders[-1].processed_ms
+        return -1
 
     def __str__(self):
         return self.to_json_string()

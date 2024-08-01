@@ -12,12 +12,12 @@ from time_util.time_util import MS_IN_8_HOURS, MS_IN_24_HOURS
 from pydantic import BaseModel
 
 from shared_objects.cache_controller import CacheController
-from shared_objects.retry import retry, periodic_heartbeat, retry_with_timeout
+from shared_objects.retry import retry, periodic_heartbeat
 from time_util.time_util import TimeUtil, UnifiedMarketCalendar
-from vali_config import ValiConfig, TradePair
+from vali_config import ValiConfig
 from vali_objects.position import Position
 from vali_objects.utils.live_price_fetcher import LivePriceFetcher
-from vali_objects.utils.vali_bkp_utils import ValiBkpUtils, CustomEncoder
+from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.utils.vali_utils import ValiUtils
 
 TARGET_CHECKPOINT_DURATION_MS = 21600000  # 6 hours
@@ -209,7 +209,7 @@ class PerfLedgerData:
             n_new_updates = 1
             try:
                 delta_return = self.compute_delta_between_ticks(current_portfolio_value, current_cp.prev_portfolio_ret)
-            except Exception as e:
+            except Exception:
                 # print debug info
                 raise (Exception(
                     f"hk {miner_hotkey} Error computing delta between ticks. cur: {current_portfolio_value}, prev: {current_cp.prev_portfolio_ret}. cp {current_cp} cpc {current_portfolio_carry}"))
@@ -338,7 +338,7 @@ class PerfLedgerManager(CacheController):
         self.shutdown_dict = shutdown_dict
         self.position_syncer = position_syncer
         if live_price_fetcher is None:
-            secrets = ValiUtils.get_secrets()
+            secrets = ValiUtils.get_secrets(running_unit_tests=running_unit_tests)
             live_price_fetcher = LivePriceFetcher(secrets, disable_ws=True)
             self.pds = live_price_fetcher.polygon_data_service
         else:
@@ -377,7 +377,7 @@ class PerfLedgerManager(CacheController):
             time.sleep(1)
 
     def get_historical_position(self, position:Position, timestamp_ms:int):
-        hk = position.miner_hotkey
+        hk = position.miner_hotkey  # noqa: F841
 
         new_orders = []
         temp_pos = deepcopy(position)
