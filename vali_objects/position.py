@@ -300,7 +300,7 @@ class Position(BaseModel):
         ]
         bt.logging.debug(f"position order details: " f"close_ms [{order_info}] ")
 
-    def add_order(self, order: Order, total_portfolio_leverage: float):
+    def add_order(self, order: Order, net_portfolio_leverage: float=0.0):
         """
         Add an order to a position, and adjust its leverage to stay within
         the trade pair max and portfolio max.
@@ -315,13 +315,14 @@ class Position(BaseModel):
                 f"Order trade pair [{order.trade_pair}] does not match position trade pair [{self.trade_pair}]"
             )
 
-        if self._clamp_and_validate_leverage(order, total_portfolio_leverage):
+        if self._clamp_and_validate_leverage(order, net_portfolio_leverage):
             # This order's leverage got clamped to zero.
             # Skip it since we don't want to consider this a FLAT position and we don't want to allow bad actors
             # to send in a bunch of spam orders.
-            if abs(total_portfolio_leverage) >= ValiConfig.PORTFOLIO_LEVERAGE_CAP:
+            max_portfolio_leverage = leverage_utils.get_portfolio_leverage_cap(order.processed_ms)
+            if abs(net_portfolio_leverage) >= max_portfolio_leverage:
                 logging.warning(
-                    f"Miner attempted to exceed max leverage {ValiConfig.PORTFOLIO_LEVERAGE_CAP} for portfolio. Ignoring order.")
+                    f"Miner attempted to exceed max adjusted portfolio leverage of {max_portfolio_leverage}. Ignoring order.")
             else:
                 logging.warning(
                     f"Miner attempted to exceed max leverage {self.trade_pair.max_leverage} for trade pair "
@@ -509,7 +510,7 @@ class Position(BaseModel):
         self.is_closed_position = False
         self.close_ms = None
 
-    def _clamp_and_validate_leverage(self, order, total_portfolio_leverage) -> bool:
+    def _clamp_and_validate_leverage(self, order, net_portfolio_leverage) -> bool:
         """
         If an order's leverage would make the position's leverage higher than max_position_leverage,
         we clamp the order's leverage. If clamping causes the order's leverage to be below
@@ -526,43 +527,30 @@ class Position(BaseModel):
 
         is_first_order = len(self.orders) == 0
         proposed_leverage = self.net_leverage + order.leverage
+        proposed_portfolio_leverage = net_portfolio_leverage + (order.leverage * self.trade_pair.leverage_multiplier)
         min_position_leverage, max_position_leverage = leverage_utils.get_position_leverage_bounds(self.trade_pair, order.processed_ms)
-        # we only need to worry about clamping if the sign of the position leverage remains the same i.e. position does not flip and close
-        if is_first_order or self.net_leverage * proposed_leverage > 0:
-            if abs(proposed_leverage) > max_position_leverage:
-                if is_first_order or abs(proposed_leverage) >= abs(self.net_leverage):
-                    order.leverage = max(0.0, max_position_leverage - abs(self.net_leverage))
-                    if order.order_type == OrderType.SHORT:
-                        order.leverage *= -1
-                    should_ignore_order = order.leverage == 0
-                else:
-                    pass#  We are getting the leverage closer to the new boundary (decrease) so allow it
-            elif abs(proposed_leverage) < min_position_leverage:
-                if is_first_order or abs(proposed_leverage) < abs(self.net_leverage):
-                    raise ValueError(f'Attempted to set position leverage below min_position_leverage {min_position_leverage}')
-                else:
-                    pass  # We are trying to increase the leverage here so let it happen
-        # attempting to flip position
-        else:
-            order.leverage = -self.net_leverage
+        max_portfolio_leverage = leverage_utils.get_portfolio_leverage_cap(order.processed_ms)
 
-        # new_portfolio_leverage = total_portfolio_leverage + (order.leverage * self.trade_pair.leverage_multiplier)
-        #
-        # if (self.position_type == OrderType.LONG
-        #         and (proposed_leverage > self.trade_pair.max_leverage
-        #              or new_portfolio_leverage > ValiConfig.PORTFOLIO_LEVERAGE_CAP)):
-        #     order.leverage = max(0, min(self.trade_pair.max_leverage - self.net_leverage,
-        #                                 (
-        #                                             ValiConfig.PORTFOLIO_LEVERAGE_CAP - total_portfolio_leverage) / self.trade_pair.leverage_multiplier))
-        #     return True
-        # elif (self.position_type == OrderType.SHORT
-        #       and (proposed_leverage < -self.trade_pair.max_leverage
-        #            or new_portfolio_leverage < -ValiConfig.PORTFOLIO_LEVERAGE_CAP)):
-        #     order.leverage = min(0, max(-self.trade_pair.max_leverage - self.net_leverage,
-        #                                 (
-        #                                             -ValiConfig.PORTFOLIO_LEVERAGE_CAP - total_portfolio_leverage) / self.trade_pair.leverage_multiplier))
-        #     return True
-        # return False
+        if (abs(proposed_leverage) > max_position_leverage
+                or abs(proposed_portfolio_leverage) > max_portfolio_leverage):
+            if (is_first_order
+                    or abs(proposed_leverage) >= abs(self.net_leverage)
+                    or abs(proposed_portfolio_leverage) >= abs(net_portfolio_leverage)):
+                order.leverage = max(0.0,
+                                     min(max_position_leverage - abs(self.net_leverage),
+                                         (max_portfolio_leverage - abs(net_portfolio_leverage)) / self.trade_pair.leverage_multiplier))
+                if order.order_type == OrderType.SHORT:
+                    order.leverage *= -1
+                should_ignore_order = order.leverage == 0
+                if not should_ignore_order:
+                    logging.warning(f"Order leverage clamped to {order.leverage}")
+            else:
+                pass#  We are getting the leverage closer to the new boundary (decrease) so allow it
+        elif abs(proposed_leverage) < min_position_leverage:
+            if is_first_order or abs(proposed_leverage) < abs(self.net_leverage):
+                raise ValueError(f'Attempted to set position leverage below min_position_leverage {min_position_leverage}')
+            else:
+                pass  # We are trying to increase the leverage here so let it happen
 
         if abs(order.leverage) < ValiConfig.ORDER_MIN_LEVERAGE and (should_ignore_order is False):
             raise ValueError(f'Clamped order leverage [{order.leverage}] is below ValiConfig.ORDER_MIN_LEVERAGE {ValiConfig.ORDER_MIN_LEVERAGE}')

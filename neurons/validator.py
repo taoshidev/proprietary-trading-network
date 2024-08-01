@@ -636,9 +636,9 @@ class Validator:
                 trade_pair_to_open_position = {position.trade_pair: position for position in positions}
                 self._enforce_num_open_order_limit(trade_pair_to_open_position, signal_to_order)
                 open_position = self._get_or_create_open_position(signal_to_order, miner_hotkey, trade_pair_to_open_position, miner_order_uuid)
-                total_portfolio_leverage = self.position_manager.calculate_total_portfolio_leverage(miner_hotkey)
+                net_portfolio_leverage = self.position_manager.calculate_net_portfolio_leverage(miner_hotkey)
                 self.enforce_order_cooldown(signal_to_order, open_position)
-                open_position.add_order(signal_to_order, total_portfolio_leverage)
+                open_position.add_order(signal_to_order, net_portfolio_leverage)
                 self.position_manager.save_miner_position_to_disk(open_position)
                 if miner_order_uuid:
                     self.uuid_tracker.add(miner_order_uuid)
