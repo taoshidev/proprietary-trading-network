@@ -286,6 +286,89 @@ class PositionUtils:
         drawdown_penalty = base_augmentation * lower_augmentation * upper_augmentation
         return float(drawdown_penalty)
     
+    @staticmethod
+    def positional_realized_returns_distribution(realized_returns: list[float]) -> float:
+        """
+        Returns the penalty associated with uneven distributions for realized returns
+
+        Args:
+            realized_returns: list[float] - list of realized (closed position) returns
+        """
+        epsilon = ValiConfig.EPSILON
+        max_return_spread = ValiConfig.MAX_RETURN_SIGMOID_SPREAD
+        max_return_shift = ValiConfig.MAX_RETURN_SIGMOID_SHIFT
+
+        if len(realized_returns) <= 0:
+            return 0
+
+        ## look piecewise
+        realized_return = sum(realized_returns)
+
+        if realized_return == 0:
+            return 0
+        
+        if realized_return > 0:
+            positive_returns = [ x for x in realized_returns if x > 0 ]
+            numerator = max(positive_returns)
+        else:
+            negative_returns = [ x for x in realized_returns if x < 0 ]
+            numerator = min(negative_returns)
+
+        denominator = realized_return
+        max_return_ratio = np.clip(numerator / denominator, 0, 1)
+
+        return np.clip(1 / (1 + np.exp(max_return_spread*(max_return_ratio-max_return_shift))), 0, 1)
+    
+    @staticmethod
+    def positional_realized_unrealized_ratio(realized_return: float, unrealized_return: float) -> float:
+        """
+        Returns the expected penalty for large discrepancies between realized and unrealized gains
+
+        Args:
+            returns_ratio: float - ratio of realized and unrealized gains
+        """
+        epsilon = ValiConfig.EPSILON
+        realized_return_ratio_exponent = ValiConfig.REALIZED_RETURN_EXPONENT
+
+        numerator = abs(unrealized_return - realized_return)
+        denominator = abs(unrealized_return)
+
+        if denominator <= epsilon:
+            return 0
+
+        returns_ratio = numerator / denominator
+        return np.clip(1 - returns_ratio**realized_return_ratio_exponent, 0, 1)
+
+    @staticmethod
+    def compute_positional_penalty_cps(checkpoints: list[PerfCheckpoint], positions: list[Position]) -> float:
+        """
+        This function looks at:
+        1. The number of closed positions within the past 30 days, which were also opened in the past 30 days
+        2. The ratio between the largest position and the total closed position returns
+        3. Ratio between the realized and unrealized returns 
+
+        Args:
+            checkpoints: list[PerfCheckpoint] - the list of checkpoints
+            positions: list[Position] - the list of positions
+        """
+        epsilon = ValiConfig.EPSILON
+
+        # Closed Positions
+        closed_positions = [ x for x in positions if x.is_closed_position and x.close_ms > 0 ]
+        
+        # Total realized return
+        realized_returns = [ math.log(x.return_at_close) for x in closed_positions ]
+        realized_return = sum(realized_returns)
+
+        # Unrealized return - already in log format
+        unrealized_returns = [ x.gain + x.loss for x in checkpoints ]
+        unrealized_return = sum(unrealized_returns)
+
+        returns_ratio_penalty = PositionUtils.positional_realized_unrealized_ratio(realized_return, unrealized_return)
+        max_returns_penalty = PositionUtils.positional_realized_returns_distribution(realized_returns)
+
+        return returns_ratio_penalty * max_returns_penalty
+    
     def compute_drawdown_penalty_cps(checkpoints: list[PerfCheckpoint]) -> float:
         """
         Args:
@@ -372,77 +455,6 @@ class PositionUtils:
         lookback_fractions = sorted(lookback_fractions)
         consistency_penalties = PositionUtils.compute_consistency(lookback_fractions)
         return consistency_penalties
-    
-    @staticmethod
-    def compute_consistency_penalty_positions(
-        positions: list[Position],
-        evaluation_time_ms: int
-    ) -> float:
-        """
-        Args:
-            positions: list[Position] - the list of positions
-            evaluation_time_ms: int - the evaluation time
-        """
-        lookback_fractions = [
-            PositionUtils.compute_lookback_fraction(
-                position.open_ms,
-                position.close_ms,
-                evaluation_time_ms
-            ) for position in positions
-            if position.is_closed_position and position.max_leverage_seen() >= ValiConfig.MIN_LEVERAGE_CONSITENCY_PENALTY
-        ]
-
-        # Sort the lookback fractions in ascending order
-        lookback_fractions = sorted(lookback_fractions)
-        consistency_penalties = PositionUtils.compute_consistency(lookback_fractions)
-        return consistency_penalties
-    
-    @staticmethod
-    def compute_consistency(
-        lookback_fractions: list[Position]
-    ) -> float:
-        """
-        Args:
-            close_ms_list: list[int] - the list of close times for the positions
-        """
-        if len(lookback_fractions) == 0:
-            return 0
-        
-        window_size = ValiConfig.HISTORICAL_PENALTY_WINDOW
-        stride = ValiConfig.HISTORICAL_PENALTY_STRIDE
-        
-        # Initialize variables
-        total_windows = int((1 - window_size) / stride) + 1
-        represented_windows = 0
-        
-        # Iterate over the sliding windows
-        for i in range(total_windows):
-            window_start = i * stride
-            window_end = window_start + window_size
-            
-            # Check if any lookback fraction falls within the current window
-            for fraction in lookback_fractions:
-                if window_start <= fraction < window_end:
-                    represented_windows += 1
-                    break
-        
-        # Calculate the penalty score
-        penalty_score = represented_windows / total_windows
-
-        if penalty_score >= 0.6:
-            return 1
-        elif penalty_score >= 0.5:
-            return 0.9
-        elif penalty_score >= 0.4:
-            return 0.8
-        elif penalty_score >= 0.3:
-            return 0.5
-        elif penalty_score >= 0.2:
-            return 0.25
-        elif penalty_score >= 0.1:
-            return 0.1
-                
-        return 0.1
     
     @staticmethod
     def flatten_positions(

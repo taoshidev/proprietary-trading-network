@@ -48,13 +48,19 @@ if __name__ == "__main__":
     )
 
     filtered_ledger = subtensor_weight_setter.filtered_ledger(hotkeys=passing_hotkeys + challengeperiod_success)
+    filtered_positions = subtensor_weight_setter.get_all_miner_positions_by_hotkey(
+        passing_hotkeys + challengeperiod_success,
+        sort_positions=True,
+        acceptable_position_end_ms=current_time - ValiConfig.SET_WEIGHT_LOOKBACK_RANGE_MS
+    )
+
     return_decay_coefficient_short = ValiConfig.HISTORICAL_DECAY_COEFFICIENT_RETURNS_SHORT
     return_decay_coefficient_long = ValiConfig.HISTORICAL_DECAY_COEFFICIENT_RETURNS_LONG
     risk_adjusted_decay_coefficient = ValiConfig.HISTORICAL_DECAY_COEFFICIENT_RISKMETRIC
     return_decay_short_lookback_time_ms = ValiConfig.RETURN_DECAY_SHORT_LOOKBACK_TIME_MS
 
     # Compute miner penalties
-    miner_penalties = Scoring.miner_penalties(filtered_ledger)
+    miner_penalties = Scoring.miner_penalties(filtered_ledger, filtered_positions)
 
     ## Miners with full penalty
     fullpenalty_miner_scores: list[tuple[str, float]] = [ ( miner, 0 ) for miner, penalty in miner_penalties.items() if penalty == 0 ]
@@ -63,11 +69,16 @@ if __name__ == "__main__":
     ## Individual miner penalties
     consistency_penalties = {}
     drawdown_penalties = {}
+    positional_penalties = {}
 
     for miner, ledger in filtered_ledger.items():
         minercps = ledger.cps
         consistency_penalties[miner] = PositionUtils.compute_consistency_penalty_cps(minercps)
         drawdown_penalties[miner] = PositionUtils.compute_drawdown_penalty_cps(minercps)
+        positional_penalties[miner] = PositionUtils.compute_positional_penalty_cps(
+            minercps,
+            filtered_positions[miner]
+        )
 
     # Augmented returns ledgers
     returns_ledger_short = PositionManager.limit_perf_ledger(
@@ -142,7 +153,7 @@ if __name__ == "__main__":
                 combined_scores[miner] = 1
             combined_scores[miner] *= config['weight'] * score + (1 - config['weight'])
 
-    combined_weighed = Scoring.weigh_miner_scores(list(combined_scores.items())) + fullpenalty_miner_scores
+    combined_weighed = Scoring.softmax_scores(list(combined_scores.items())) + fullpenalty_miner_scores
     combined_scores = dict(combined_weighed)
 
     ## Normalize the scores
@@ -168,22 +179,24 @@ if __name__ == "__main__":
         combined_data[miner]['Penalty'] = miner_penalties.get(miner, 0)
         combined_data[miner]['Drawdown Penalty'] = drawdown_penalties.get(miner, 0)
         combined_data[miner]['Consistency Penalty'] = consistency_penalties.get(miner, 0)
+        combined_data[miner]['Positional Penalty'] = positional_penalties.get(miner, 0)
 
     df = pd.DataFrame.from_dict(combined_data, orient='index')
 
-    # printing_columns = [
-    #     'return_cps_short Weighted Score',
-    #     'return_cps_long Weighted Score',
-    #     'Final Normalized Score',
-    #     'Final Rank',
-    #     'Penalty',
-    #     'Drawdown Penalty',
-    #     'Consistency Penalty',
-    # ]
+    printing_columns = [
+        'return_cps_short Weighted Score',
+        'return_cps_long Weighted Score',
+        'Final Normalized Score',
+        'Final Rank',
+        'Penalty',
+        'Drawdown Penalty',
+        'Consistency Penalty',
+        'Positional Penalty'
+    ]
 
-    # df_subset = df[printing_columns].round(3)
-    # df_subset = df_subset.sort_values(by='Final Rank', ascending=True)
-    # # print(df_subset)
+    df_subset = df[printing_columns].round(3)
+    df_subset = df_subset.sort_values(by='Final Rank', ascending=True)
+    print(df_subset.head(30))
 
     # Print rankings and original scores for each metric
     for metric, ranks in rankings.items():
