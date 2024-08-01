@@ -402,6 +402,9 @@ class PerfLedgerManager(CacheController):
         # (order, position)
         time_sorted_orders = []
         for p in positions:
+            if p.is_closed_position and len(p.orders) < 2:
+                bt.logging.info(f"perf ledger generate_order_timeline. Skipping closed position with < 2 orders: {p}")
+                continue
             for o in p.orders:
                 if o.processed_ms <= now_ms:
                     time_sorted_orders.append((o, p))
@@ -767,10 +770,10 @@ class PerfLedgerManager(CacheController):
             n_open_positions = sum(1 for p in tp_to_historical_positions[symbol] if p.is_open_position)
             n_closed_positions = sum(1 for p in tp_to_historical_positions[symbol] if p.is_closed_position)
             assert n_open_positions == 0 or n_open_positions == 1, (
-            n_open_positions, n_closed_positions, tp_to_historical_positions[symbol])
+            n_open_positions, n_closed_positions, [p for p in tp_to_historical_positions[symbol] if p.is_open_position])
             if n_open_positions == 1:
                 assert tp_to_historical_positions[symbol][-1].is_open_position, (
-                n_open_positions, n_closed_positions, tp_to_historical_positions[symbol])
+                n_open_positions, n_closed_positions, [p for p in tp_to_historical_positions[symbol] if p.is_open_position])
 
             # Perf ledger is already built, we just need to run the above loop to build tp_to_historical_positions
             if not building_from_new_orders:
