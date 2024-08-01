@@ -15,6 +15,7 @@ import bittensor as bt
 class PositionSyncer(ValidatorSyncBase):
     def __init__(self, shutdown_dict=None, signal_sync_lock=None, signal_sync_condition=None, n_orders_being_processed=None):
         super().__init__(shutdown_dict, signal_sync_lock, signal_sync_condition, n_orders_being_processed)
+        self.force_ran_on_boot = False
 
     def read_validator_checkpoint_from_gcloud_zip(url):
         # URL of the zip file
@@ -44,19 +45,7 @@ class PositionSyncer(ValidatorSyncBase):
             bt.logging.error(f"An unexpected error occurred: {e}")
         return None
 
-    def sync_positions_with_cooldown(self, auto_sync_enabled:bool):
-        # Check if the time is right to sync signals
-        if not auto_sync_enabled:
-            return
-        now_ms = TimeUtil.now_in_millis()
-        # Already performed a sync recently
-        if now_ms - self.last_signal_sync_time_ms < 1000 * 60 * 30:
-            return
-
-        datetime_now = TimeUtil.generate_start_timestamp(0)  # UTC
-        if not (datetime_now.hour == 6 and (8 < datetime_now.minute < 20)):
-            return
-
+    def perform_sync(self):
         with self.signal_sync_lock:
             while self.n_orders_being_processed[0] > 0:
                 self.signal_sync_condition.wait()
@@ -72,6 +61,26 @@ class PositionSyncer(ValidatorSyncBase):
                 bt.logging.error(traceback.format_exc())
 
         self.last_signal_sync_time_ms = TimeUtil.now_in_millis()
+
+    def sync_positions_with_cooldown(self, auto_sync_enabled:bool):
+        if not auto_sync_enabled:
+            return
+
+        if self.force_ran_on_boot == False:
+            self.perform_sync()
+            self.force_ran_on_boot = True
+
+        # Check if the time is right to sync signals
+        now_ms = TimeUtil.now_in_millis()
+        # Already performed a sync recently
+        if now_ms - self.last_signal_sync_time_ms < 1000 * 60 * 30:
+            return
+
+        datetime_now = TimeUtil.generate_start_timestamp(0)  # UTC
+        if not (datetime_now.hour == 6 and (8 < datetime_now.minute < 20)):
+            return
+
+        self.perform_sync()
 
 
 if __name__ == "__main__":

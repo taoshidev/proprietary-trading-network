@@ -62,7 +62,7 @@ class ValidatorSyncBase():
         assert candidate_data, "Candidate data must be provided"
 
         backup_creation_time_ms = candidate_data['created_timestamp_ms']
-        bt.logging.info(f"Automated sync. Found backup creation time: {TimeUtil.millis_to_formatted_date_str(backup_creation_time_ms)}")
+        bt.logging.info(f"Automated sync. Shadow mode {shadow_mode}. Found backup creation time: {TimeUtil.millis_to_formatted_date_str(backup_creation_time_ms)}")
 
         candidate_hk_to_positions = {}
         for hk, data in candidate_data['positions'].items():
@@ -163,6 +163,12 @@ class ValidatorSyncBase():
         # close the older open position
         prev_open_position = None
 
+        #for position, sync_status in position_to_sync_status.items():
+        #    position_debug_sting = f'---debug printing pos to ss: {position.trade_pair.trade_pair_id} n_orders {len(position.orders)}'
+        #    print(position_debug_sting)
+        #    self.debug_print_pos(position)
+        #    print('---status', sync_status)
+
         # Deletions happen first
         for position, sync_status in position_to_sync_status.items():
             if sync_status == PositionSyncResult.DELETED:
@@ -172,11 +178,11 @@ class ValidatorSyncBase():
 
         # Updates happen next
         # First close out contradicting positions that happen if a validator is left in a bad state
-        for position, sync_status in position_to_sync_status.items():
-            if sync_status == PositionSyncResult.UPDATED or sync_status == PositionSyncResult.NOTHING:
-                if not self.is_mothership:
-                    if position.is_closed_position:
-                        self.position_manager.delete_open_position_if_exists(position)
+        #for position, sync_status in position_to_sync_status.items():
+        #    if sync_status == PositionSyncResult.UPDATED or sync_status == PositionSyncResult.NOTHING:
+        #        if not self.is_mothership:
+        #            if position.is_closed_position:
+        #                self.position_manager.delete_open_position_if_exists(position)
         for position, sync_status in position_to_sync_status.items():
             if sync_status == PositionSyncResult.UPDATED:
                 if not self.is_mothership:
@@ -199,7 +205,11 @@ class ValidatorSyncBase():
         for position, sync_status in position_to_sync_status.items():
             if sync_status == PositionSyncResult.NOTHING:
                 kept_and_matched -= 1
-
+                if not self.is_mothership:
+                    positions = self.split_position_on_flat(position)
+                    for p in positions:
+                        if p.is_open_position:
+                            prev_open_position = self.close_older_open_position(p, prev_open_position)
 
         if kept_and_matched != 0:
             raise PositionSyncResultException(f"kept_and_matched: {kept_and_matched} stats {stats}")
@@ -384,7 +394,7 @@ class ValidatorSyncBase():
         any_changes = stats['inserted'] + stats['deleted']
         if debug and any_changes:
             print(f'hk {hk} trade pair {trade_pair.trade_pair} - Found {len(candidate_orders)} candidates and'
-                  f' {len(existing_orders)} existing orders. stats {stats}')
+                  f' {len(existing_orders)} existing orders. stats {stats} min_timestamp_of_order_change {min_timestamp_of_order_change}')
 
             print(f'  existing:')
             for x in existing_orders:
@@ -477,7 +487,7 @@ class ValidatorSyncBase():
                     e.orders, min_timestamp_of_order_change = self.sync_orders(e, c, hk, trade_pair, hard_snap_cutoff_ms)
                     if min_timestamp_of_order_change != float('inf'):
                         e.rebuild_position_with_updated_orders()
-                        min(min_timestamp_of_change, min_timestamp_of_order_change)
+                        min_timestamp_of_change = min(min_timestamp_of_change, min_timestamp_of_order_change)
                         position_to_sync_status[e] = PositionSyncResult.UPDATED
                     else:
                         position_to_sync_status[e] = PositionSyncResult.NOTHING
