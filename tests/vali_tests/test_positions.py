@@ -8,6 +8,7 @@ from vali_objects.position import CRYPTO_CARRY_FEE_PER_INTERVAL, FOREX_CARRY_FEE
 from tests.shared_objects.mock_classes import MockMetagraph
 from tests.vali_tests.base_objects.test_base import TestBase
 from vali_config import TradePair, ValiConfig
+from vali_objects.utils.leverage_utils import LEVERAGE_BOUNDS_V2_START_TIME_MS, get_position_leverage_bounds
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.position import Position, FEE_V6_TIME_MS
 from vali_objects.utils.live_price_fetcher import LivePriceFetcher
@@ -1716,7 +1717,7 @@ class TestPositions(TestBase):
 
     def test_leverage_clamping_short_v2(self):
         position = deepcopy(self.default_position)
-        live_price = 100  # self.live_price_fetcher.get_close_at_date(trade_pair=TradePair.BTCUSD, timestamp_ms=TimeUtil.now_in_millis())[0]
+        live_price = 4444
         o1 = Order(order_type=OrderType.SHORT,
                    leverage=-TradePair.BTCUSD.max_leverage * .80,
                    price=live_price,
