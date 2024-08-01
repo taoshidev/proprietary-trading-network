@@ -377,7 +377,7 @@ class PerfLedgerManager(CacheController):
             time.sleep(1)
 
     def get_historical_position(self, position:Position, timestamp_ms:int):
-        hk = position.miner_hotkey
+        hk = position.miner_hotkey  # noqa: F841
 
         new_orders = []
         temp_pos = deepcopy(position)
