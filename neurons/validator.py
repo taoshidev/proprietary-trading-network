@@ -720,10 +720,10 @@ class Validator:
 
                     # only send a checkpoint if we are an up-to-date validator
                     timestamp = self.timestamp_manager.get_last_order_timestamp()
-                    if TimeUtil.now_in_millis() - timestamp < 1000 * 60 * 60 * 24:  # 24 hrs
+                    if TimeUtil.now_in_millis() - timestamp < 1000 * 60 * 60 * 10:  # validators with no orders processed in 10 hrs are considered stale
                         synapse.checkpoint = self.encoded_checkpoint
                     else:
-                        error_message = f"Validator is stale, no orders received in 24 hrs, last order timestamp {timestamp}, {round((TimeUtil.now_in_millis() - timestamp)/(1000 * 60 * 60))} hrs ago"
+                        error_message = f"Validator is stale, no orders received in 10 hrs, last order timestamp {timestamp}, {round((TimeUtil.now_in_millis() - timestamp)/(1000 * 60 * 60))} hrs ago"
             except Exception as e:
                 error_message = f"Error processing checkpoint request poke from [{sender_hotkey}] with error [{e}]"
                 bt.logging.error(traceback.format_exc())
