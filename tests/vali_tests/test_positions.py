@@ -801,7 +801,7 @@ class TestPositions(TestBase):
                    processed_ms=1000,
                    order_uuid="1000")
         with self.assertRaises(ValueError):
-            self.add_order_to_position_and_save_to_disk(position, o1)
+            position.add_order(o1)
 
     def test_invalid_prices_negative(self):
         with self.assertRaises(ValueError):
@@ -1209,7 +1209,7 @@ class TestPositions(TestBase):
 
         for order in [o1, o2, o3]:
             with self.assertRaises(ValueError):
-                self.add_order_to_position_and_save_to_disk(position, order)
+                position.add_order(order)
 
     def test_two_positions_no_collisions(self):
         weekday_time_ms = FEE_V6_TIME_MS + 1000 * 60 * 60 * 24 * 3
