@@ -199,7 +199,11 @@ class ValidatorSyncBase():
         for position, sync_status in position_to_sync_status.items():
             if sync_status == PositionSyncResult.NOTHING:
                 kept_and_matched -= 1
-
+                if not self.is_mothership:
+                    positions = self.split_position_on_flat(position)
+                    for p in positions:
+                        if p.is_open_position:
+                            prev_open_position = self.close_older_open_position(p, prev_open_position)
 
         if kept_and_matched != 0:
             raise PositionSyncResultException(f"kept_and_matched: {kept_and_matched} stats {stats}")
