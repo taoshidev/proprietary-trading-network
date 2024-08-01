@@ -8,7 +8,7 @@ jobs:
       - name: Ruff linting
         uses: chartboost/ruff-action@v1
 
-  unittest:
+  pytest:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
