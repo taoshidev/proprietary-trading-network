@@ -1,3 +1,4 @@
+# cython: profile=True
 # perf_ledger.pyx
 from vali_config import ValiConfig, TradePair
 from vali_objects.position import Position
@@ -19,7 +20,7 @@ from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.utils.vali_utils import ValiUtils
 
 TARGET_CHECKPOINT_DURATION_MS = 21600000  # 6 hours
-TARGET_LEDGER_WINDOW_MS = 2592000000  # 30 days
+TARGET_LEDGER_WINDOW_MS = TARGET_CHECKPOINT_DURATION_MS * 3#2592000000  # 30 days
 
 cdef class FeeCache:
     cdef float spread_fee
@@ -568,6 +569,7 @@ cdef class PerfLedgerManager():
         start_time_ms = start_time_s * 1000
         end_time_ms = end_time_s * 1000
 
+        print(f'Fetching candles for {tp.trade_pair} from {TimeUtil.millis_to_formatted_date_str(start_time_ms)} to {TimeUtil.millis_to_formatted_date_str(end_time_ms)}')
         price_info, lb_ms, ub_ms = self.pds.get_candles_for_trade_pair_simple(
             trade_pair=tp, start_timestamp_ms=start_time_ms, end_timestamp_ms=end_time_ms)
         self.n_api_calls += 1
@@ -693,6 +695,7 @@ cdef class PerfLedgerManager():
         last_dd = None
         self.init_tp_to_last_price(tp_to_historical_positions)
         initial_portfolio_return, initial_portfolio_spread_fee, initial_portfolio_carry_fee, tp_to_historical_positions_dense = self.condense_positions(tp_to_historical_positions)
+        print(f'Building perf ledger for {miner_hotkey} from {TimeUtil.millis_to_formatted_date_str(start_time_ms)} to {TimeUtil.millis_to_formatted_date_str(end_time_ms)}')
         for t_ms in range(start_time_ms, end_time_ms, 1000):
             if self.shutdown_dict:
                 return False
