@@ -23,8 +23,8 @@ import os
 import codecs
 from os import path
 from io import open
-from setuptools import setup, find_packages
-
+from setuptools import setup, find_packages, Extension
+from Cython.Build import cythonize
 
 def read_requirements(path):
     with open(path, "r") as f:
@@ -61,6 +61,13 @@ with codecs.open(
     )
     version_string = version_match.group(1)
 
+extensions = [
+    Extension(
+        name="vali_objects.vali_dataclasses.perf_ledger",
+        sources=["vali_objects/vali_dataclasses/perf_ledger.pyx"],
+    ),
+]
+
 setup(
     name="taoshi-prop-net",
     version=version_string,
@@ -91,4 +98,5 @@ setup(
         "Topic :: Software Development :: Libraries",
         "Topic :: Software Development :: Libraries :: Python Modules",
     ],
+    ext_modules=cythonize(extensions, language_level="3"),
 )
