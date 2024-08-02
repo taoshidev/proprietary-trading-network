@@ -200,7 +200,7 @@ cdef class PerfCheckpointData:
 
 
 cdef class PerfLedgerData:
-    cdef float max_return
+    cdef float _max_return
     cdef long target_cp_duration_ms
     cdef long target_ledger_window_ms
     cdef list[object] _cps
@@ -209,7 +209,7 @@ cdef class PerfLedgerData:
                  long target_ledger_window_ms=TARGET_LEDGER_WINDOW_MS, list[object] cps=None):
         if cps is None:
             cps = []
-        self.max_return = max_return
+        self._max_return = max_return
         self.target_cp_duration_ms = target_cp_duration_ms
         self.target_ledger_window_ms = target_ledger_window_ms
         self._cps = cps
@@ -222,7 +222,7 @@ cdef class PerfLedgerData:
 
     cpdef dict to_dict(self):
         return {
-            "max_return": self.max_return,
+            "max_return": self._max_return,
             "target_cp_duration_ms": self.target_cp_duration_ms,
             "target_ledger_window_ms": self.target_ledger_window_ms,
             "cps": [cp.to_dict() for cp in self.cps]
@@ -233,6 +233,12 @@ cdef class PerfLedgerData:
             return 0
 
         return self.cps[-1].last_update_ms
+
+    property max_return:
+        def __get__(self):
+            return self._max_return
+        def __set__(self, value):
+            self._max_return = value
 
 
     cpdef float prev_portfolio_ret(self):
@@ -433,22 +439,13 @@ cdef class PerfLedgerManager():
         self.position_uuid_to_cache = {}
         self.cc = CacheController(metagraph=metagraph)
 
-    def refresh_allowed(self, refresh_interval_ms):
-        return TimeUtil.now_in_millis() - self._last_update_time_ms > refresh_interval_ms
-
-    def set_last_update_time(self, skip_message=False):
-        # Log that the class has finished updating and the time it finished updating
-        if not skip_message:
-            bt.logging.success(f"Finished updating class {self.__class__.__name__}")
-        self._last_update_time_ms = TimeUtil.now_in_millis()
-
     @periodic_heartbeat(interval=600, message="perf ledger run_update_loop still running...")
     def run_update_loop(self):
         while not self.shutdown_dict:
             try:
-                if self.refresh_allowed(ValiConfig.PERF_LEDGER_REFRESH_TIME_MS):
+                if self.cc.refresh_allowed(ValiConfig.PERF_LEDGER_REFRESH_TIME_MS):
                     self.update()
-                    self.set_last_update_time(skip_message=True)
+                    self.cc.set_last_update_time(skip_message=True)
 
             except Exception as e:
                 bt.logging.error(f"Error during perf ledger update: {e}. Please alert a team member ASAP!")
@@ -1006,8 +1003,8 @@ def main():
     all_hotkeys_on_disk = CacheController.get_directory_names(all_miners_dir)
     mmg = MockMetagraph(hotkeys=all_hotkeys_on_disk)
     perf_ledger_manager = PerfLedgerManager(metagraph=mmg, running_unit_tests=False)
-    #perf_ledger_manager.update(testing_one_hotkey='5EUTaAo7vCGxvLDWRXRrEuqctPjt9fKZmgkaeFZocWECUe9X')
-    perf_ledger_manager.update(regenerate_all_ledgers=True)
+    perf_ledger_manager.update(testing_one_hotkey='5EUTaAo7vCGxvLDWRXRrEuqctPjt9fKZmgkaeFZocWECUe9X')
+    #perf_ledger_manager.update(regenerate_all_ledgers=True)
 
 if __name__ == "__main__":
     main()
