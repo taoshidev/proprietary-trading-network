@@ -21,9 +21,10 @@
 import re
 import os
 import codecs
+import shutil
 from os import path
 from io import open
-from setuptools import setup, find_packages, Extension
+from setuptools import setup, find_packages, Extension, Command
 from Cython.Build import cythonize
 
 def read_requirements(path):
@@ -44,6 +45,30 @@ def read_requirements(path):
             else:
                 processed_requirements.append(req)
         return processed_requirements
+
+
+class CleanCommand(Command):
+    """Custom clean command to tidy up the project root."""
+    user_options = []
+
+    def initialize_options(self):
+        pass
+
+    def finalize_options(self):
+        pass
+
+    def run(self):
+        for root, dirs, files in os.walk(here):
+            for file in files:
+                if file.endswith((".so", ".c", ".html")):
+                    file_path = os.path.join(root, file)
+                    print(f"Removing {file_path}")
+                    os.remove(file_path)
+        build_dirs = ['build', 'dist', 'taoshi_prop_net.egg-info']
+        for build_dir in build_dirs:
+            if os.path.exists(build_dir):
+                print(f"Removing {build_dir}")
+                shutil.rmtree(build_dir)
 
 
 requirements = read_requirements("requirements.txt")
@@ -99,4 +124,7 @@ setup(
         "Topic :: Software Development :: Libraries :: Python Modules",
     ],
     ext_modules=cythonize(extensions, language_level="3"),
+    cmdclass={
+        'clean': CleanCommand,
+    },
 )
