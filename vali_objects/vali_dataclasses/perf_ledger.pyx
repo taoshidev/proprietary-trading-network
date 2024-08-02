@@ -63,62 +63,162 @@ cdef class FeeCache:
         return self.carry_fee
 
 cdef class PerfCheckpointData:
-    cdef long last_update_ms
-    cdef float prev_portfolio_ret
-    cdef float prev_portfolio_spread_fee
-    cdef float prev_portfolio_carry_fee
-    cdef long accum_ms
-    cdef long open_ms
-    cdef long n_updates
-    cdef float gain
-    cdef float loss
-    cdef float spread_fee_loss
-    cdef float carry_fee_loss
-    cdef float mdd
-    cdef float mpv
+    cdef long _last_update_ms
+    cdef float _prev_portfolio_ret
+    cdef float _prev_portfolio_spread_fee
+    cdef float _prev_portfolio_carry_fee
+    cdef long _accum_ms
+    cdef long _open_ms
+    cdef long _n_updates
+    cdef float _gain
+    cdef float _loss
+    cdef float _spread_fee_loss
+    cdef float _carry_fee_loss
+    cdef float _mdd
+    cdef float _mpv
 
     def __init__(self, long last_update_ms, float prev_portfolio_ret, float prev_portfolio_spread_fee=1.0, float prev_portfolio_carry_fee=1.0,
                  long accum_ms=0, long open_ms=0, long n_updates=0, float gain=0.0, float loss=0.0, float spread_fee_loss=0.0, float carry_fee_loss=0.0,
                  float mdd=1.0, float mpv=0.0):
-        self.last_update_ms = last_update_ms
-        self.prev_portfolio_ret = prev_portfolio_ret
-        self.prev_portfolio_spread_fee = prev_portfolio_spread_fee
-        self.prev_portfolio_carry_fee = prev_portfolio_carry_fee
-        self.accum_ms = accum_ms
-        self.open_ms = open_ms
-        self.n_updates = n_updates
-        self.gain = gain
-        self.loss = loss
-        self.spread_fee_loss = spread_fee_loss
-        self.carry_fee_loss = carry_fee_loss
-        self.mdd = mdd
-        self.mpv = mpv
+        self._last_update_ms = last_update_ms
+        self._prev_portfolio_ret = prev_portfolio_ret
+        self._prev_portfolio_spread_fee = prev_portfolio_spread_fee
+        self._prev_portfolio_carry_fee = prev_portfolio_carry_fee
+        self._accum_ms = accum_ms
+        self._open_ms = open_ms
+        self._n_updates = n_updates
+        self._gain = gain
+        self._loss = loss
+        self._spread_fee_loss = spread_fee_loss
+        self._carry_fee_loss = carry_fee_loss
+        self._mdd = mdd
+        self._mpv = mpv
 
     def __str__(self):
         return str(self.to_dict())
 
+
     cpdef dict to_dict(self):
-        return self.__dict__
+        return {
+            'last_update_ms': self._last_update_ms,
+            'prev_portfolio_ret': self._prev_portfolio_ret,
+            'prev_portfolio_spread_fee': self._prev_portfolio_spread_fee,
+            'prev_portfolio_carry_fee': self._prev_portfolio_carry_fee,
+            'accum_ms': self._accum_ms,
+            'open_ms': self._open_ms,
+            'n_updates': self._n_updates,
+            'gain': self._gain,
+            'loss': self._loss,
+            'spread_fee_loss': self._spread_fee_loss,
+            'carry_fee_loss': self._carry_fee_loss,
+            'mdd': self._mdd,
+            'mpv': self._mpv
+        }
 
     cpdef long time_created_ms(self):
-        return self.last_update_ms - self.accum_ms
+        return self._last_update_ms - self._accum_ms
+
+    #cpdef long get_last_update_ms(self):
+    #    return self.last_update_ms
+    property last_update_ms:
+        def __get__(self):
+            return self._last_update_ms
+        def __set__(self, value):
+            self._last_update_ms = value
+
+    property prev_portfolio_ret:
+        def __get__(self):
+            return self._prev_portfolio_ret
+        def __set__(self, value):
+            self._prev_portfolio_ret = value
+
+    property prev_portfolio_spread_fee:
+        def __get__(self):
+            return self._prev_portfolio_spread_fee
+        def __set__(self, value):
+            self._prev_portfolio_spread_fee = value
+
+    property prev_portfolio_carry_fee:
+        def __get__(self):
+            return self._prev_portfolio_carry_fee
+        def __set__(self, value):
+            self._prev_portfolio_carry_fee = value
+
+    property accum_ms:
+        def __get__(self):
+            return self._accum_ms
+        def __set__(self, value):
+            self._accum_ms = value
+
+    property open_ms:
+        def __get__(self):
+            return self._open_ms
+        def __set__(self, value):
+            self._open_ms = value
+
+    property n_updates:
+        def __get__(self):
+            return self._n_updates
+        def __set__(self, value):
+            self._n_updates = value
+
+    property gain:
+        def __get__(self):
+            return self._gain
+        def __set__(self, value):
+            self._gain = value
+
+    property loss:
+        def __get__(self):
+            return self._loss
+        def __set__(self, value):
+            self._loss = value
+
+    property spread_fee_loss:
+        def __get__(self):
+            return self._spread_fee_loss
+        def __set__(self, value):
+            self._spread_fee_loss = value
+
+    property carry_fee_loss:
+        def __get__(self):
+            return self._carry_fee_loss
+        def __set__(self, value):
+            self._carry_fee_loss = value
+
+    property mdd:
+        def __get__(self):
+            return self._mdd
+        def __set__(self, value):
+            self._mdd = value
+
+    property mpv:
+        def __get__(self):
+            return self._mpv
+        def __set__(self, value):
+            self._mpv = value
 
 
 cdef class PerfLedgerData:
     cdef float max_return
     cdef long target_cp_duration_ms
     cdef long target_ledger_window_ms
-    cdef list[PerfCheckpointData] cps
+    cdef list[object] _cps
 
     def __init__(self, float max_return=1.0, long target_cp_duration_ms=TARGET_CHECKPOINT_DURATION_MS,
-                 long target_ledger_window_ms=TARGET_LEDGER_WINDOW_MS, list[PerfCheckpointData] cps=None):
+                 long target_ledger_window_ms=TARGET_LEDGER_WINDOW_MS, list[object] cps=None):
         if cps is None:
             cps = []
         self.max_return = max_return
         self.target_cp_duration_ms = target_cp_duration_ms
         self.target_ledger_window_ms = target_ledger_window_ms
-        self.cps = cps
+        self._cps = cps
 
+    property cps:
+        def __get__(self):
+            return self._cps
+        def __set__(self, value):
+            self._cps = value
 
     cpdef dict to_dict(self):
         return {
@@ -128,11 +228,12 @@ cdef class PerfLedgerData:
             "cps": [cp.to_dict() for cp in self.cps]
         }
 
-    @property
-    def last_update_ms(self):
+    cpdef long last_update_ms(self):
         if len(self.cps) == 0:
             return 0
+
         return self.cps[-1].last_update_ms
+
 
     cpdef float prev_portfolio_ret(self):
         if len(self.cps) == 0:
@@ -304,6 +405,8 @@ cdef class PerfLedgerManager():
     cdef dict position_uuid_to_cache
     cdef list eliminations
     cdef object cc
+    cdef dict tp_to_last_price
+
     def __init__(self, metagraph, live_price_fetcher=None, running_unit_tests=False, shutdown_dict=None, position_syncer=None):
         self.metagraph = metagraph
         self.shutdown_dict = shutdown_dict
@@ -596,7 +699,7 @@ cdef class PerfLedgerManager():
         for t_ms in range(start_time_ms, end_time_ms, 1000):
             if self.shutdown_dict:
                 return False
-            assert t_ms >= perf_ledger.last_update_ms, f"t_ms: {t_ms}, last_update_ms: {perf_ledger.last_update_ms}, delta_s: {(t_ms - perf_ledger.last_update_ms) // 1000} s. perf ledger {perf_ledger}"
+            assert t_ms >= perf_ledger.last_update_ms(), f"t_ms: {t_ms}, last_update_ms: {perf_ledger.last_update_ms()}, delta_s: {(t_ms - perf_ledger.last_update_ms()) // 1000} s. perf ledger {perf_ledger}"
             portfolio_return, any_open, portfolio_spread_fee, portfolio_carry_fee = self.positions_to_portfolio_return(tp_to_historical_positions_dense, t_ms, miner_hotkey, end_time_ms, initial_portfolio_return, initial_portfolio_spread_fee, initial_portfolio_carry_fee)
             if portfolio_return == 0 and self.check_liquidated(miner_hotkey, portfolio_return, t_ms, tp_to_historical_positions, perf_ledger):
                 return True
@@ -606,7 +709,7 @@ cdef class PerfLedgerManager():
             perf_ledger.update(portfolio_return, t_ms, miner_hotkey, any_open, last_dd, portfolio_spread_fee, portfolio_carry_fee)
             any_update = True
 
-        if any_update and perf_ledger.last_update_ms != end_time_ms:
+        if any_update and perf_ledger.last_update_ms() != end_time_ms:
             perf_ledger.update(portfolio_return, end_time_ms, miner_hotkey, any_open, last_dd, portfolio_spread_fee, portfolio_carry_fee)
         return False
 
@@ -634,7 +737,8 @@ cdef class PerfLedgerManager():
 
         building_from_new_orders = True
 
-        if last_event_time <= perf_ledger.last_update_ms:
+        pl_last_update_ms = perf_ledger.last_update_ms()
+        if last_event_time <= pl_last_update_ms:
             building_from_new_orders = False
 
         realtime_position_to_pop = None
@@ -677,9 +781,9 @@ cdef class PerfLedgerManager():
             if not building_from_new_orders:
                 continue
 
-            if order.processed_ms < perf_ledger.last_update_ms:
+            if order.processed_ms < perf_ledger.last_update_ms():
                 continue
-            eliminated = self.build_perf_ledger(perf_ledger, tp_to_historical_positions, perf_ledger.last_update_ms,
+            eliminated = self.build_perf_ledger(perf_ledger, tp_to_historical_positions, perf_ledger.last_update_ms(),
                                                 order.processed_ms, hotkey, realtime_position_to_pop)
             if eliminated:
                 break
@@ -689,11 +793,11 @@ cdef class PerfLedgerManager():
         if realtime_position_to_pop:
             symbol = realtime_position_to_pop.trade_pair.trade_pair
             tp_to_historical_positions[symbol][-1] = realtime_position_to_pop
-        if now_ms > perf_ledger.last_update_ms:
-            self.build_perf_ledger(perf_ledger, tp_to_historical_positions, perf_ledger.last_update_ms, now_ms, hotkey,
+        if now_ms > perf_ledger.last_update_ms():
+            self.build_perf_ledger(perf_ledger, tp_to_historical_positions, perf_ledger.last_update_ms(), now_ms, hotkey,
                                    None)
 
-        lag = (TimeUtil.now_in_millis() - perf_ledger.last_update_ms) // 1000
+        lag = (TimeUtil.now_in_millis() - perf_ledger.last_update_ms()) // 1000
         total_product = perf_ledger.get_total_product()
         last_portfolio_value = perf_ledger.prev_portfolio_ret
         if verbose:
@@ -705,7 +809,7 @@ cdef class PerfLedgerManager():
 
     def write_perf_ledger_eliminations_to_disk(self, eliminations):
         bt.logging.trace(f"Writing [{len(eliminations)}] eliminations from memory to disk: {eliminations}")
-        output_location = ValiBkpUtils.get_perf_ledger_eliminations_dir(running_unit_tests=self.running_unit_tests)
+        output_location = ValiBkpUtils.get_perf_ledger_eliminations_dir(running_unit_tests=False)
         ValiBkpUtils.write_file(output_location, eliminations)
 
     cpdef dict update_all_perf_ledgers(self, dict hotkey_to_positions, dict existing_perf_ledgers, long now_ms, bint return_dict=False):
