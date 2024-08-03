@@ -575,11 +575,11 @@ class PolygonDataService(BaseDataService):
         ub = 0
         lb = float('inf')
         raw = self.unified_candle_fetcher(trade_pair, start_timestamp_ms, end_timestamp_ms, "second")
-        for a in raw:
-            ans[a.timestamp // 1000] = a.close
-            ub = max(ub, a.timestamp)
-            lb = min(lb, a.timestamp)
-        return ans, lb, ub
+        #for a in raw:
+            #ans[a.timestamp // 1000] = a.close
+            #ub = max(ub, a.timestamp)
+            #lb = min(lb, a.timestamp)
+        return raw#, lb, ub
 
 
     def unified_candle_fetcher(self, trade_pair: TradePair, start_timestamp_ms: int, end_timestamp_ms: int, timespan: str=None):

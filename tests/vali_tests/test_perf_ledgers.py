@@ -15,7 +15,7 @@ class TestPerfLedgers(TestBase):
         self.DEFAULT_ORDER_UUID = "test_order"
         self.DEFAULT_OPEN_MS = 1718071209000
         self.DEFAULT_TRADE_PAIR = TradePair.BTCUSD
-        self.default_order = Order(price=1, processed_ms=self.DEFAULT_OPEN_MS, order_uuid=self.DEFAULT_ORDER_UUID, trade_pair=self.DEFAULT_TRADE_PAIR,
+        self.default_order = Order(price=60000, processed_ms=self.DEFAULT_OPEN_MS, order_uuid=self.DEFAULT_ORDER_UUID, trade_pair=self.DEFAULT_TRADE_PAIR,
                                      order_type=OrderType.LONG, leverage=1)
 
         self.default_open_position = Position(
@@ -34,6 +34,6 @@ class TestPerfLedgers(TestBase):
         for x in ans[self.DEFAULT_MINER_HOTKEY].cps:
             last_update_formated = TimeUtil.millis_to_timestamp(x.last_update_ms)
             print(x, last_update_formated)
-        #pprint.pp(ans)
+        print('max_perf_ledger_return:', ans[self.DEFAULT_MINER_HOTKEY].max_return)
         assert len(ans) == 1, ans
 
