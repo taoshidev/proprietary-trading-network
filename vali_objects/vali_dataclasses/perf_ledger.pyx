@@ -20,7 +20,7 @@ from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.utils.vali_utils import ValiUtils
 
 TARGET_CHECKPOINT_DURATION_MS = 21600000  # 6 hours
-TARGET_LEDGER_WINDOW_MS = TARGET_CHECKPOINT_DURATION_MS * 3#2592000000  # 30 days
+TARGET_LEDGER_WINDOW_MS = 2592000000  # 30 days
 
 cdef class FeeCache:
     cdef float spread_fee
@@ -679,9 +679,13 @@ cdef class PerfLedgerManager():
         return portfolio_return, portfolio_spread_fee, portfolio_carry_fee, tp_to_historical_positions_dense
 
     cpdef bint build_perf_ledger(self, PerfLedgerData perf_ledger, dict tp_to_historical_positions, long start_time_ms, long end_time_ms, str miner_hotkey, object realtime_position_to_pop):
-        if start_time_ms == 0:
+        if len(perf_ledger.cps) == 0:
             perf_ledger.init_with_first_order(end_time_ms, point_in_time_dd=1.0)
             return False
+
+        min_start_time_ms = self.now_ms - TARGET_LEDGER_WINDOW_MS
+        start_time_ms = max(start_time_ms, min_start_time_ms)
+        end_time_ms = max(start_time_ms, end_time_ms)
         if start_time_ms == end_time_ms:
             return False
 
