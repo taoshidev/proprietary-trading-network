@@ -699,7 +699,7 @@ cdef class PerfLedgerManager():
         last_dd = None
         self.init_tp_to_last_price(tp_to_historical_positions)
         initial_portfolio_return, initial_portfolio_spread_fee, initial_portfolio_carry_fee, tp_to_historical_positions_dense = self.condense_positions(tp_to_historical_positions)
-        print(f'Building perf ledger for {miner_hotkey} from {TimeUtil.millis_to_formatted_date_str(start_time_ms)} to {TimeUtil.millis_to_formatted_date_str(end_time_ms)}')
+        print(f'Building perf ledger for {miner_hotkey} from {TimeUtil.millis_to_formatted_date_str(start_time_ms)} to {TimeUtil.millis_to_formatted_date_str(end_time_ms)} initial_portfolio_return {initial_portfolio_return}')
         for t_ms in range(start_time_ms, end_time_ms, 1000):
             if self.shutdown_dict:
                 return False
@@ -718,6 +718,7 @@ cdef class PerfLedgerManager():
         return False
 
     cpdef void update_one_perf_ledger(self, int hotkey_i, int n_hotkeys, str hotkey, list positions, long now_ms, dict existing_perf_ledgers):
+        print('Running .pyc')
         eliminated = False
         self.n_api_calls = 0
 
