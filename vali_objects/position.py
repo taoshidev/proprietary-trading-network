@@ -49,6 +49,8 @@ class Position(BaseModel):
     average_entry_price: float = 0.0
     position_type: Optional[OrderType] = None
     is_closed_position: bool = False
+    max_return: float = 1.0
+    drawdown: float = 1.0
 
     @model_validator(mode='before')
     def add_trade_pair_to_orders_and_self(cls, values):
@@ -278,6 +280,8 @@ class Position(BaseModel):
         self.position_type = None
         self.is_closed_position = False
         self.position_type = None
+        self.max_return = 1.0
+        self.drawdown = 1.0
 
         self._update_position()
 
@@ -289,6 +293,7 @@ class Position(BaseModel):
             f"net leverage [{self.net_leverage}] "
             f"average entry price [{self.average_entry_price}] "
             f"return_at_close [{self.return_at_close}]"
+            f"drawdown [{self.drawdown}]"
         )
         order_info = [
             {
@@ -442,6 +447,10 @@ class Position(BaseModel):
                                timestamp_ms=TimeUtil.now_in_millis() if time_ms is None else time_ms)
         else:
             self.return_at_close = self.current_return * total_fees
+
+        # calculate_drawdown
+        self.max_return = max(self.max_return, self.return_at_close)
+        self.drawdown = 1.0 + ((self.return_at_close - self.max_return) / self.max_return)
 
         if self.current_return < 0:
             raise ValueError(f"current return must be positive {self.current_return}")
