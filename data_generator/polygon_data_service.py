@@ -571,9 +571,9 @@ class PolygonDataService(BaseDataService):
         return ret
 
     def get_candles_for_trade_pair_simple(self, trade_pair: TradePair, start_timestamp_ms: int, end_timestamp_ms: int):
-        ans = {}
-        ub = 0
-        lb = float('inf')
+        # ans = {}
+        # ub = 0
+        # lb = float('inf')
         raw = self.unified_candle_fetcher(trade_pair, start_timestamp_ms, end_timestamp_ms, "second")
         #for a in raw:
             #ans[a.timestamp // 1000] = a.close

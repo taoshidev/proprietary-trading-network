@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 from tests.vali_tests.base_objects.test_base import TestBase
 from time_util.time_util import TimeUtil
 from vali_config import TradePair
@@ -27,7 +29,10 @@ class TestPerfLedgers(TestBase):
             position_type=OrderType.LONG
         )
 
-    def test_basic(self):
+    @patch('data_generator.polygon_data_service.PolygonDataService.unified_candle_fetcher')
+    def test_basic(self, mock_unified_candle_fetcher):
+        mock_unified_candle_fetcher.return_value = {}
+
         perf_ledger_manager = PerfLedgerManager(metagraph=None, running_unit_tests=True)
         hotkey_to_positions = {self.DEFAULT_MINER_HOTKEY: [self.default_open_position]}
         ans = perf_ledger_manager.generate_perf_ledgers_for_analysis(hotkey_to_positions)
