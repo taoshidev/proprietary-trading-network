@@ -226,6 +226,14 @@ class PositionManager(CacheController):
             bt.logging.warning(f"Hotkey {miner_hotkey}: Deleted {n_positions_deleted} duplicate positions and {n_orders_deleted} "
                            f"duplicate orders across {n_positions_rebuilt_with_new_orders} positions.")
 
+    def update_all_positions(self):
+        hotkey_to_positions = self.get_all_disk_positions_for_all_miners(sort_positions=True, only_open_positions=False, perform_exorcism=True)
+
+        for hotkey, positions in hotkey_to_positions.items():
+            for p in positions:
+                p.rebuild_position_with_updated_orders()
+                self.save_miner_position_to_disk(p, delete_open_position_if_exists=False)
+
     def apply_order_corrections(self):
         """
         This is our mechanism for manually synchronizing validator orders in situations where a bug prevented an
