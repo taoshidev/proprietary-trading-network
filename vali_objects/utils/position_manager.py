@@ -1155,6 +1155,6 @@ class PositionManager(CacheController):
 
         portfolio_leverage = 0.0
         for position in positions:
-            portfolio_leverage += position.get_net_leverage() * position.trade_pair.leverage_multiplier
+            portfolio_leverage += abs(position.get_net_leverage()) * position.trade_pair.leverage_multiplier
 
         return portfolio_leverage
