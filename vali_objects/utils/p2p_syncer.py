@@ -246,7 +246,7 @@ class P2PSyncer(ValidatorSyncBase):
                             matched_order = self.get_median_order(matches, trade_pair)
                             new_position.orders.append(matched_order)
                             seen_orders.update([m["order_uuid"] for m in matches])
-                            bt.logging.info(f"Order {order_uuid} with Position {position_uuid} on miner {miner_hotkey} matched with {matches}, adding back in")
+                            bt.logging.info(f"Order {order_uuid} with Position {position_uuid} on miner {miner_hotkey} matched with {[m['order_uuid'] for m in matches]}, adding back in")
                         else:
                             bt.logging.info(
                                 f"Order {order_uuid} with Position {position_uuid} only appeared [{order_counts[position_uuid][order_uuid]}/{position_counts[position_uuid]}] times on miner {miner_hotkey}. Skipping")
