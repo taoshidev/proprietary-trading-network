@@ -315,7 +315,7 @@ class Position(BaseModel):
                 f"Order trade pair [{order.trade_pair}] does not match position trade pair [{self.trade_pair}]"
             )
 
-        if self._clamp_and_validate_leverage(order, net_portfolio_leverage):
+        if self._clamp_and_validate_leverage(order, abs(net_portfolio_leverage)):
             # This order's leverage got clamped to zero.
             # Skip it since we don't want to consider this a FLAT position and we don't want to allow bad actors
             # to send in a bunch of spam orders.
@@ -527,18 +527,18 @@ class Position(BaseModel):
 
         is_first_order = len(self.orders) == 0
         proposed_leverage = self.net_leverage + order.leverage
-        proposed_portfolio_leverage = net_portfolio_leverage + (order.leverage * self.trade_pair.leverage_multiplier)
+        proposed_portfolio_leverage = net_portfolio_leverage + (abs(order.leverage) * self.trade_pair.leverage_multiplier)
         min_position_leverage, max_position_leverage = leverage_utils.get_position_leverage_bounds(self.trade_pair, order.processed_ms)
         max_portfolio_leverage = leverage_utils.get_portfolio_leverage_cap(order.processed_ms)
 
         if (abs(proposed_leverage) > max_position_leverage
-                or abs(proposed_portfolio_leverage) > max_portfolio_leverage):
+                or proposed_portfolio_leverage > max_portfolio_leverage):
             if (is_first_order
                     or abs(proposed_leverage) >= abs(self.net_leverage)
-                    or abs(proposed_portfolio_leverage) >= abs(net_portfolio_leverage)):
+                    or proposed_portfolio_leverage >= net_portfolio_leverage):
                 order.leverage = max(0.0,
                                      min(max_position_leverage - abs(self.net_leverage),
-                                         (max_portfolio_leverage - abs(net_portfolio_leverage)) / self.trade_pair.leverage_multiplier))
+                                         (max_portfolio_leverage - net_portfolio_leverage) / self.trade_pair.leverage_multiplier))
                 if order.order_type == OrderType.SHORT:
                     order.leverage *= -1
                 should_ignore_order = order.leverage == 0
