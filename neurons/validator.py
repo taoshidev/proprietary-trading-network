@@ -177,8 +177,7 @@ class Validator:
         self.last_checkpoint_time = 0
         self.timestamp_manager = TimestampManager(config=self.config, metagraph=self.metagraph, hotkey=self.wallet.hotkey.ss58_address)
 
-        self.perf_ledger_manager = PerfLedgerManager(self.metagraph, live_price_fetcher=self.live_price_fetcher,
-                                                     shutdown_dict=shutdown_dict, position_syncer=self.position_syncer)
+        self.perf_ledger_manager = PerfLedgerManager(self.metagraph, shutdown_dict=shutdown_dict, position_syncer=self.position_syncer)
         # Start the perf ledger updater loop in its own thread
         self.perf_ledger_updater_thread = threading.Thread(target=self.perf_ledger_manager.run_update_loop, daemon=True)
         self.perf_ledger_updater_thread.start()

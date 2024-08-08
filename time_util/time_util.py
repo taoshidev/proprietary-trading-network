@@ -105,6 +105,11 @@ class IndicesMarketCalendar:
         self.nasdaq_calendar = mcal.get_calendar('NASDAQ')
         self.cboe_calendar = mcal.get_calendar('CBOE_Index_Options')  # For VIX
 
+        # Initialize cache attributes to zero
+        self.cache_valid_min_ms = 0
+        self.cache_valid_max_ms = 0
+        self.cache_valid_ans = False
+
 
     def get_market_calendar(self, ticker):
         # Return the appropriate calendar based on the ticker
@@ -128,19 +133,17 @@ class IndicesMarketCalendar:
             market_calendar = self.nasdaq_calendar
         else:
             raise ValueError(f"Market calendar not supported {market_name}")
-        start_date = tsn - timedelta(days=5)
-        end_date = tsn + timedelta(days=5)
-        schedule = market_calendar.schedule(start_date=start_date, end_date=end_date)
+        #start_date = tsn - timedelta(days=5)
+        #end_date = tsn + timedelta(days=5)
+        schedule = market_calendar.schedule(start_date=tsn, end_date=tsn)
         return schedule
 
 
     def is_market_open(self, ticker, timestamp_ms):
-        # Convert millisecond timestamp to pandas Timestamp and localize to UTC if needed
-        timestamp = pd.Timestamp(timestamp_ms, unit='ms')
-        if timestamp.tzinfo is None:  # If no timezone information, localize to UTC
-            timestamp = timestamp.tz_localize('UTC')
-        else:  # If there is timezone information, convert to UTC
-            timestamp = timestamp.tz_convert('UTC')
+        if self.cache_valid_min_ms <= timestamp_ms <= self.cache_valid_max_ms:
+            return self.cache_valid_ans
+        # Convert millisecond timestamp to pandas Timestamp in UTC
+        timestamp = pd.Timestamp(timestamp_ms, unit='ms', tz='UTC')
 
         if ticker in ['GDAXI', 'FTSE']:
             return False
@@ -149,15 +152,34 @@ class IndicesMarketCalendar:
         market_calendar = self.get_market_calendar(ticker)
 
         # Calculate the start and end dates for the schedule
-        schedule = self.schedule_from_cache(timestamp.normalize(), market_calendar.name)
+        tsn = timestamp.normalize()
+        schedule = self.schedule_from_cache(tsn, market_calendar.name)
 
         if schedule.empty:
-            return False
+            self.cache_valid_ans = False
+            self.cache_valid_min_ms = timestamp_ms
+            self.cache_valid_max_ms = self.cache_valid_min_ms + MS_IN_24_HOURS
+            return self.cache_valid_ans
         #print('schedule', schedule, 'ts', timestamp, 'ts_m', timestamp_ms)
 
+        start_time_ms = TimeUtil.timestamp_to_millis(schedule.iloc[0]['market_open'])
+        end_time_ms = TimeUtil.timestamp_to_millis(schedule.iloc[0]['market_close'])
+        if timestamp_ms < start_time_ms:
+            self.cache_valid_ans = False
+            self.cache_valid_min_ms = timestamp_ms
+            self.cache_valid_max_ms = start_time_ms - 1
+        elif timestamp_ms < end_time_ms:
+            self.cache_valid_ans = True
+            self.cache_valid_min_ms = timestamp_ms
+            self.cache_valid_max_ms = end_time_ms - 1
+        else:
+            self.cache_valid_ans = False
+            self.cache_valid_min_ms = timestamp_ms
+            self.cache_valid_max_ms = TimeUtil.timestamp_to_millis(tsn) + MS_IN_24_HOURS
+
         # Check if the timestamp is within trading hours
-        market_open = market_calendar.open_at_time(schedule, timestamp, include_close=False)
-        return market_open
+        #market_open = market_calendar.open_at_time(schedule, timestamp, include_close=False)
+        return self.cache_valid_ans
 
 
 

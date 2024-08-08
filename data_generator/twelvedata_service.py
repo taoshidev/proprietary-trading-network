@@ -37,7 +37,10 @@ class TwelveDataService(BaseDataService):
         if disable_ws:
             self._heartbeat_thread = None
         else:
-            self._reset_websocket()
+            try:
+                self._reset_websocket()
+            except Exception as e:
+                bt.logging.error(f"Failed to initialize TD websocket on initial call: {e}. Will continue trying in _websocket_heartbeat")
             self._heartbeat_thread = threading.Thread(target=self._websocket_heartbeat)
             self._heartbeat_thread.daemon = True
             self._heartbeat_thread.start()
