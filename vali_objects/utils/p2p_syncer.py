@@ -226,6 +226,8 @@ class P2PSyncer(ValidatorSyncBase):
                 orders_threshold = self.consensus_threshold(position_counts[position_uuid])
                 majority_orders = {order_uuid for order_uuid, count in order_counts[position_uuid].items()
                                    if count >= orders_threshold}
+                heuristic_order_threshold = self.consensus_threshold(position_counts[position_uuid],
+                                                                     heuristic_match=True)
 
                 # order exists in the majority of positions
                 for order_uuid in order_counts[position_uuid].keys():
@@ -240,7 +242,7 @@ class P2PSyncer(ValidatorSyncBase):
                     elif order_uuid not in seen_orders:
                         # can have different order_uuids in the same position_uuid
                         # heuristic match up every order, make sure that matched orders do not include any orders that are already in seen_orders
-                        matches = self.heuristic_resolve_orders(order_uuid, order_counts[position_uuid], order_data, orders_threshold, seen_orders, resolved_orders)
+                        matches = self.heuristic_resolve_orders(order_uuid, order_counts[position_uuid], order_data, heuristic_order_threshold, seen_orders, resolved_orders)
                         if matches is not None:
                             trade_pair = TradePair.from_trade_pair_id(position["trade_pair"][0])
                             matched_order = self.get_median_order(matches, trade_pair)
@@ -434,9 +436,9 @@ class P2PSyncer(ValidatorSyncBase):
         for p in matched_positions:
             resolved_positions.add(p["position_uuid"])
 
-        # if the matched positions exceed threshold, we sort the matches by number of orders and then position_uuid
+        # we sort the matches by number of orders and then position_uuid
         # make sure that we have matches other than ourselves
-        if len(matched_positions) >= self.consensus_threshold(len(matched_positions)) and len(matched_positions) > 1:
+        if len(matched_positions) > 1:
             matched_positions.sort(key=lambda x: (-len(x["orders"]), x["position_uuid"]))
             return matched_positions
         return
