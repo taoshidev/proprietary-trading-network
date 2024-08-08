@@ -20,7 +20,7 @@ from statistics import median
 class LivePriceFetcher():
     def __init__(self, secrets, disable_ws=False):
         if "twelvedata_apikey" in secrets:
-            self.twelve_data_service = TwelveDataService(api_key=secrets["twelvedata_apikey"], disable_ws=True)
+            self.twelve_data_service = TwelveDataService(api_key=secrets["twelvedata_apikey"], disable_ws=disable_ws)
         else:
             raise Exception("TwelveData API key not found in secrets.json")
         if "polygon_apikey" in secrets:
