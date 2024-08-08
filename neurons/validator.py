@@ -287,6 +287,7 @@ class Validator:
                 self.position_syncer.sync_positions(
                     False, candidate_data=self.position_syncer.read_validator_checkpoint_from_gcloud_zip())
 
+        self.position_manager.update_all_positions()
 
 
 
