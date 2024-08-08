@@ -527,8 +527,11 @@ class Position(BaseModel):
 
         is_first_order = len(self.orders) == 0
         proposed_leverage = self.net_leverage + order.leverage
-        proposed_portfolio_leverage = net_portfolio_leverage + (abs(order.leverage) * self.trade_pair.leverage_multiplier)
         min_position_leverage, max_position_leverage = leverage_utils.get_position_leverage_bounds(self.trade_pair, order.processed_ms)
+
+        current_adjusted_leverage = abs(self.net_leverage) * self.trade_pair.leverage_multiplier
+        proposed_portfolio_leverage = net_portfolio_leverage - current_adjusted_leverage + (
+                    abs(proposed_leverage) * self.trade_pair.leverage_multiplier)
         max_portfolio_leverage = leverage_utils.get_portfolio_leverage_cap(order.processed_ms)
 
         if (abs(proposed_leverage) > max_position_leverage

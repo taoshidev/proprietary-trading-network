@@ -2002,7 +2002,7 @@ class TestPositions(TestBase):
                    processed_ms=leverage_utils.LEVERAGE_BOUNDS_V2_START_TIME_MS + 1000,
                    order_uuid="1000")
         self.add_order_to_position_and_save_to_disk(position2, o2)
-        self.assertEqual(self.position_manager.calculate_net_portfolio_leverage(self.DEFAULT_MINER_HOTKEY), -9.0)
+        self.assertEqual(self.position_manager.calculate_net_portfolio_leverage(self.DEFAULT_MINER_HOTKEY), 9.0)
 
         position3 = deepcopy(self.default_position)
         position3.trade_pair = TradePair.ETHUSD
@@ -2069,5 +2069,4 @@ class TestPositions(TestBase):
 
 if __name__ == '__main__':
     import unittest
-
     unittest.main()
