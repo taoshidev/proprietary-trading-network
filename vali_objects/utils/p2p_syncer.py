@@ -205,6 +205,7 @@ class P2PSyncer(ValidatorSyncBase):
         """
         uuid_matched_positions = []
         unmatched_positions = []
+        resolved_orders = set()
 
         for position in miner_positions["positions"]:
             position_uuid = position["position_uuid"]
@@ -225,6 +226,8 @@ class P2PSyncer(ValidatorSyncBase):
                 orders_threshold = self.consensus_threshold(position_counts[position_uuid])
                 majority_orders = {order_uuid for order_uuid, count in order_counts[position_uuid].items()
                                    if count >= orders_threshold}
+                heuristic_order_threshold = self.consensus_threshold(position_counts[position_uuid],
+                                                                     heuristic_match=True)
 
                 # order exists in the majority of positions
                 for order_uuid in order_counts[position_uuid].keys():
@@ -237,8 +240,18 @@ class P2PSyncer(ValidatorSyncBase):
                         majority_orders.remove(order_uuid)
                         seen_orders.add(order_uuid)
                     elif order_uuid not in seen_orders:
-                        bt.logging.info(
-                            f"Order {order_uuid} with Position {position_uuid} only appeared [{order_counts[position_uuid][order_uuid]}/{position_counts[position_uuid]}] times on miner {miner_hotkey}. Skipping")
+                        # can have different order_uuids in the same position_uuid
+                        # heuristic match up every order, make sure that matched orders do not include any orders that are already in seen_orders
+                        matches = self.heuristic_resolve_orders(order_uuid, order_counts[position_uuid], order_data, heuristic_order_threshold, seen_orders, resolved_orders)
+                        if matches is not None:
+                            trade_pair = TradePair.from_trade_pair_id(position["trade_pair"][0])
+                            matched_order = self.get_median_order(matches, trade_pair)
+                            new_position.orders.append(matched_order)
+                            seen_orders.update([m["order_uuid"] for m in matches])
+                            bt.logging.info(f"Order {order_uuid} with Position {position_uuid} on miner {miner_hotkey} matched with {[m['order_uuid'] for m in matches]}, adding back in")
+                        else:
+                            bt.logging.info(
+                                f"Order {order_uuid} with Position {position_uuid} only appeared [{order_counts[position_uuid][order_uuid]}/{position_counts[position_uuid]}] times on miner {miner_hotkey}. Skipping")
 
                 new_position.orders.sort(key=lambda o: o.processed_ms)
                 new_position.rebuild_position_with_updated_orders()
@@ -249,6 +262,42 @@ class P2PSyncer(ValidatorSyncBase):
                   and position_counts[position_uuid] != 0):
                 unmatched_positions.append(position)
         return uuid_matched_positions, unmatched_positions
+
+    def heuristic_resolve_orders(self, order_uuid: str, all_orders_for_position: dict, order_data: dict, order_threshold: int, seen_orders: set, resolved_orders:set):
+        """
+        heuristic matching for orders with different order_uuids.
+        return all the matches if it contains all new orders, and passes threshold
+        """
+        matches = self.find_matching_orders(order_data[order_uuid][0], all_orders_for_position, order_data, resolved_orders)
+        if (matches is not None
+                and len(matches) > order_threshold
+                and set([match["order_uuid"] for match in matches]).isdisjoint(seen_orders)):
+            # see if no elements from matches have already appeared in uuid_matched_positions
+            return matches
+
+    def find_matching_orders(self, order, all_orders_for_position, order_data, resolved_orders):
+        """
+        compare an order to all other orders associated with a position, and find all the matches
+        sort matches by order_uuid
+        """
+        if order["order_uuid"] in resolved_orders:
+            return
+        matched_orders = [order]
+        for order_uuid, count in all_orders_for_position.items():
+            if order["order_uuid"] == order_uuid or order_uuid in resolved_orders:
+                continue
+            if self.dict_orders_aligned(order, order_data[order_uuid][0]):
+                matched_orders.append(order_data[order_uuid][0])
+
+        for o in matched_orders:
+            resolved_orders.add(o["order_uuid"])
+
+        # if the matched positions exceed threshold, we sort the matches by number of orders and then position_uuid
+        # make sure that we have matches other than ourselves
+        if len(matched_orders) > 1:
+            matched_orders.sort(key=lambda x: x["order_uuid"])
+            return matched_orders
+        return
 
     def checkpoint_summary(self, checkpoint):
         """
@@ -387,9 +436,9 @@ class P2PSyncer(ValidatorSyncBase):
         for p in matched_positions:
             resolved_positions.add(p["position_uuid"])
 
-        # if the matched positions exceed threshold, we sort the matches by number of orders and then position_uuid
+        # we sort the matches by number of orders and then position_uuid
         # make sure that we have matches other than ourselves
-        if len(matched_positions) >= self.consensus_threshold(len(matched_positions)) and len(matched_positions) > 1:
+        if len(matched_positions) > 1:
             matched_positions.sort(key=lambda x: (-len(x["orders"]), x["position_uuid"]))
             return matched_positions
         return
