@@ -495,7 +495,7 @@ class TestPositions(TestBase):
         assert len(matched_positions) == 1
         assert matched_positions[0]["position_uuid"] == "test_position1"
 
-    def test_parse_checkpoint_and_last_order_time(self):
+    def test_checkpoint_last_order_time(self):
         order1 = deepcopy(self.default_order)
         order1.order_uuid = "test_order1"
         order1.processed_ms = 100
@@ -513,9 +513,7 @@ class TestPositions(TestBase):
 
         checkpoint = {"positions": {self.DEFAULT_MINER_HOTKEY: {"positions": [json.loads(position.to_json_string())]}}}
 
-        latest_order_ms = self.p2p_syncer.parse_checkpoint_and_last_order_time(checkpoint, defaultdict(int), defaultdict(lambda:defaultdict(int)), defaultdict(list), defaultdict(lambda: defaultdict(set)))
-
-        assert latest_order_ms == 150
+        assert self.p2p_syncer.last_order_time_in_checkpoint(checkpoint) == 150
 
     def test_find_one_legacy_miners(self):
         num_checkpoints = 2
