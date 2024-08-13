@@ -120,7 +120,7 @@ class P2PSyncer(ValidatorSyncBase):
                 break
             # add this checkpoint's data if the checkpoint is up-to-date
             latest_order_ms = self.last_order_time_in_checkpoint(checkpoint[1])
-            if TimeUtil.now_in_millis() - latest_order_ms < 1000 * 60 * 60 * 24:  # validators with no orders processed in 10 hrs are considered stale
+            if TimeUtil.now_in_millis() - latest_order_ms < 1000 * 60 * 60 * 10:  # validators with no orders processed in 10 hrs are considered stale
                 valid_checkpoints[hotkey] = checkpoint[1]
             else:
                 bt.logging.info(f"Checkpoint from validator {hotkey} is stale with newest order timestamp {latest_order_ms}, {round((TimeUtil.now_in_millis() - latest_order_ms)/(1000 * 60 * 60))} hrs ago, Skipping.")
@@ -396,9 +396,9 @@ class P2PSyncer(ValidatorSyncBase):
                                 and len(matches) > self.consensus_threshold(num_checkpoints, heuristic_match=True)
                                 and set([match["position_uuid"] for match in matches]).isdisjoint(seen_positions)):
                             # see if no elements from matches have already appeared in uuid_matched_positions
-                            bt.logging.info(f"Miner hotkey {miner_hotkey} has matches {[m['position_uuid'] for m in matches]}")
                             num_median_orders = len(matches[len(matches)//2]["orders"])
                             matches_with_median_num_orders = [match for match in matches if len(match["orders"]) == num_median_orders]
+                            bt.logging.info(f"Miner hotkey {miner_hotkey} has matches {[m['position_uuid'] for m in matches]}. num_median_orders: {num_median_orders}. matches_with_median_num_orders: {matches_with_median_num_orders}.")
                             matched_positions.append(matches_with_median_num_orders[0])
         return matched_positions
 
@@ -507,7 +507,7 @@ class P2PSyncer(ValidatorSyncBase):
         else:
             # Check if we are between 7:09 AM and 7:19 AM UTC
             # Temp change time to 21:00 UTC so we can see the effects in shadow mode ASAP
-            if not (datetime_now.hour == 1 and (18 < datetime_now.minute < 30)):
+            if not (datetime_now.hour == 7 and (18 < datetime_now.minute < 30)):
                 return
 
         try:
