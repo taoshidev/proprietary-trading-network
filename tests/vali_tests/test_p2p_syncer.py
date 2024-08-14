@@ -1,5 +1,4 @@
 import json
-from collections import defaultdict
 from copy import deepcopy
 
 from bittensor import Balance

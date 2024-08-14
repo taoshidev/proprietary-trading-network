@@ -395,11 +395,18 @@ class P2PSyncer(ValidatorSyncBase):
                         if (matches is not None
                                 and len(matches) > self.consensus_threshold(num_checkpoints, heuristic_match=True)
                                 and set([match["position_uuid"] for match in matches]).isdisjoint(seen_positions)):
-                            # see if no elements from matches have already appeared in uuid_matched_positions
-                            num_median_orders = len(matches[len(matches)//2]["orders"])
-                            matches_with_median_num_orders = [match for match in matches if len(match["orders"]) == num_median_orders]
-                            bt.logging.info(f"Miner hotkey {miner_hotkey} has matches {[m['position_uuid'] for m in matches]}. num_median_orders: {num_median_orders}. matches_with_median_num_orders: {matches_with_median_num_orders}.")
-                            matched_positions.append(matches_with_median_num_orders[0])
+                            # want to find positions with the median number of orders
+                            goal_order_count = len(matches[len(matches) // 2]["orders"])
+                            # in case the median position misses orders, we
+                            # want to take the position with the most orders where
+                            # there are at least 2 positions with that many orders
+                            for i in range(len(matches)-1):
+                                if len(matches[i]["orders"]) == len(matches[i+1]["orders"]):
+                                    goal_order_count = max(goal_order_count, len(matches[i]["orders"]))
+                                    break
+                            matches_with_goal_order_count = [match for match in matches if len(match["orders"]) == goal_order_count]
+                            bt.logging.info(f"Miner hotkey {miner_hotkey} has matches {[m['position_uuid'] for m in matches]}. goal_order_count: {goal_order_count}. matches_with_goal_order_count: {matches_with_goal_order_count}.")
+                            matched_positions.append(matches_with_goal_order_count[0])
         return matched_positions
 
     def find_match(self, position, trade_pair_validator_positions: dict, resolved_positions: set, corresponding_validator_hotkey) -> List[Position] | None:
