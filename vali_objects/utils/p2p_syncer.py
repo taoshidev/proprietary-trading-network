@@ -317,6 +317,7 @@ class P2PSyncer(ValidatorSyncBase):
         miner_counts = defaultdict(int)                         # {miner_hotkey: count}
 
         positions_matrix = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))  # {miner hotkey: {trade pair: {validator hotkey: [all positions on validator]}}}
+        orders_matrix = defaultdict(list)                                               # {validator_hotkey: [all orders]}
         """
         # get positions for each miner
         positions = checkpoint["positions"]
@@ -514,7 +515,7 @@ class P2PSyncer(ValidatorSyncBase):
         else:
             # Check if we are between 7:09 AM and 7:19 AM UTC
             # Temp change time to 21:00 UTC so we can see the effects in shadow mode ASAP
-            if not (datetime_now.hour == 7 and (18 < datetime_now.minute < 30)):
+            if not (datetime_now.hour == 1 and (18 < datetime_now.minute < 30)):
                 return
 
         try:
