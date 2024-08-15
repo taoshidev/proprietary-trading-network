@@ -522,7 +522,7 @@ class Position(BaseModel):
         if abs(proposed_leverage) > max_position_leverage:
             if is_first_order or abs(proposed_leverage) >= abs(self.net_leverage):
                 order.leverage = max(0.0, max_position_leverage - abs(self.net_leverage))
-                if self.position_type == OrderType.SHORT:
+                if order.order_type == OrderType.SHORT:
                     order.leverage *= -1
                 should_ignore_order = order.leverage == 0
             else:
