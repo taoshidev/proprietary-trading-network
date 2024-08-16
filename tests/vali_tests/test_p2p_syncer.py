@@ -823,6 +823,55 @@ class TestPositions(TestBase):
         assert len(self.p2p_syncer.golden["positions"][self.DEFAULT_MINER_HOTKEY]["positions"]) == 1
         assert len(self.p2p_syncer.golden["positions"][self.DEFAULT_MINER_HOTKEY]["positions"][0]["orders"]) == 2
 
+    def test_positions_split_up_on_some_validators(self):
+        """
+        multiple positions may be separate on some validators and combined on others.
+        ex: if a validator misses a flat order.
+        Ensure order is only in one position.
+        """
+        order1 = deepcopy(self.default_order)
+        order1.order_uuid = "test_order1"
+        order1.processed_ms = TimeUtil.now_in_millis() - 1000
+        order1.leverage = 0.1
+        order2 = deepcopy(self.default_order)
+        order2.order_uuid = "test_order2"
+        order2.processed_ms = TimeUtil.now_in_millis()
+        order2.leverage = 0.2
+
+
+        position1 = deepcopy(self.default_position)
+        position1.position_uuid = "test_position1"
+        position1.orders = [order1, order2]
+        position1.rebuild_position_with_updated_orders()
+
+        checkpoint1 = {
+            "positions": {self.DEFAULT_MINER_HOTKEY: {"positions": [json.loads(position1.to_json_string())]}}}
+
+        position1x = deepcopy(self.default_position)
+        position1x.position_uuid = "test_position1"
+        position1x.orders = [order1]
+        position1x.rebuild_position_with_updated_orders()
+
+        position2 = deepcopy(self.default_position)
+        position2.position_uuid = "test_position2"
+        position2.orders = [order2]
+        position2.rebuild_position_with_updated_orders()
+
+        checkpoint2 = {
+            "positions": {self.DEFAULT_MINER_HOTKEY: {"positions": [json.loads(position1x.to_json_string()), json.loads(position2.to_json_string())]}}}
+
+        checkpoint3 = {
+            "positions": {self.DEFAULT_MINER_HOTKEY: {"positions": [json.loads(position1x.to_json_string()), json.loads(position2.to_json_string())]}}}
+
+        checkpoints = {"test_validator1": [1, checkpoint1], "test_validator2": [1, checkpoint2],
+                       "test_validator3": [1, checkpoint3]}
+
+        self.p2p_syncer.create_golden(checkpoints)
+
+        assert len(self.p2p_syncer.golden["positions"][self.DEFAULT_MINER_HOTKEY]["positions"]) == 2
+        assert len(self.p2p_syncer.golden["positions"][self.DEFAULT_MINER_HOTKEY]["positions"][0]["orders"]) == 1
+
+
 
 
 

@@ -147,6 +147,7 @@ class P2PSyncer(ValidatorSyncBase):
         # parse each checkpoint to count occurrences of each position and order
         for hotkey, checkpoint in valid_checkpoints.items():
             self.parse_checkpoint(hotkey, checkpoint, position_counts, order_counts, order_data, miner_to_uuids, miner_counts, positions_matrix, orders_matrix)
+        self.prune_position_orders(order_counts)
 
         # miners who are still running legacy code. do not want to include them in checkpoint
         self.find_legacy_miners(len(valid_checkpoints), order_counts, miner_to_uuids, position_counts, order_data)
@@ -163,7 +164,7 @@ class P2PSyncer(ValidatorSyncBase):
                 if miner_counts[miner_hotkey] < positions_threshold:
                     continue
 
-                uuid_matched_positions = self.sort_positions(miner_hotkey, miner_positions, majority_positions, seen_positions, seen_orders, position_counts, order_counts, order_data, orders_matrix, validator_hotkey)
+                uuid_matched_positions = self.sort_positions(miner_positions, majority_positions, seen_positions, seen_orders, position_counts, order_counts, order_data, orders_matrix, validator_hotkey)
                 golden_positions[miner_hotkey]["positions"].extend(uuid_matched_positions)
 
         # insert heuristic matched positions back into the golden's positions
@@ -180,7 +181,7 @@ class P2PSyncer(ValidatorSyncBase):
         bt.logging.info(f"Created golden checkpoint: {self.checkpoint_summary(self.golden)}")
         return True
 
-    def sort_positions(self, miner_hotkey, miner_positions, majority_positions, seen_positions, seen_orders, position_counts, order_counts, order_data, orders_matrix, validator_hotkey):
+    def sort_positions(self, miner_positions, majority_positions, seen_positions, seen_orders, position_counts, order_counts, order_data, orders_matrix, validator_hotkey):
         """
         determine which positions are in the majority, and which ones should be matched up using a heuristic
         """
@@ -192,11 +193,8 @@ class P2PSyncer(ValidatorSyncBase):
             # position exists on majority of validators
             if position_uuid in majority_positions and position_uuid not in seen_positions:
                 # create a single combined position, and delete uuid to avoid duplicates
-                new_position = Position(miner_hotkey=miner_hotkey,
-                                        position_uuid=position_uuid,
-                                        open_ms=position["open_ms"],
-                                        trade_pair=position["trade_pair"],
-                                        orders=[])
+                new_position = Position(**position)
+                new_position.orders = []
 
                 # mark a position as seen, so we don't add it multiple times
                 seen_positions.add(position_uuid)
@@ -210,9 +208,8 @@ class P2PSyncer(ValidatorSyncBase):
                 for order_uuid in order_counts[position_uuid].keys():
                     if order_uuid in majority_orders and order_uuid not in seen_orders:
                         trade_pair = TradePair.from_trade_pair_id(position["trade_pair"][0])
-                        combined_order = self.get_median_order(order_data[order_uuid], trade_pair)
-                        new_position.orders.append(combined_order)
-
+                        median_order = self.get_median_order(order_data[order_uuid], trade_pair)
+                        new_position.orders.append(median_order)
                         # mark order_uuid as seen, so we don't add it multiple times
                         seen_orders.add(order_uuid)
                     elif order_uuid not in seen_orders:
@@ -224,12 +221,14 @@ class P2PSyncer(ValidatorSyncBase):
                             matched_order = self.get_median_order(matches, trade_pair)
                             new_position.orders.append(matched_order)
                             seen_orders.update([m["order_uuid"] for m in matches])
-                            bt.logging.info(f"Order {order_uuid} with Position {position_uuid} on miner {miner_hotkey} matched with {[m['order_uuid'] for m in matches]}, adding back in")
+                            bt.logging.info(f"Order {order_uuid} with Position {position_uuid} on miner {position['miner_hotkey']} matched with {[m['order_uuid'] for m in matches]}, adding back in")
                         else:
                             bt.logging.info(
-                                f"Order {order_uuid} with Position {position_uuid} only appeared [{order_counts[position_uuid][order_uuid]}/{position_counts[position_uuid]}] times on miner {miner_hotkey}. Skipping")
+                                f"Order {order_uuid} with Position {position_uuid} only appeared [{order_counts[position_uuid][order_uuid]}/{position_counts[position_uuid]}] times on miner {position['miner_hotkey']}. Skipping")
 
                 new_position.orders.sort(key=lambda o: o.processed_ms)
+                if len(new_position.orders) > 0 and new_position.orders[0].leverage == 0:
+                    bt.logging.info(f"Miner[{new_position.miner_hotkey}] Position [{new_position.position_uuid}] with orders {[o.order_uuid for o in new_position.orders]} first order leverage is 0")
                 new_position.rebuild_position_with_updated_orders()
                 position_dict = json.loads(new_position.to_json_string())
                 uuid_matched_positions.append(position_dict)
@@ -337,6 +336,29 @@ class P2PSyncer(ValidatorSyncBase):
                     orders_matrix[validator_hotkey].append(order)
 
                 positions_matrix[miner_hotkey][position["trade_pair"][0]][validator_hotkey].append(position)
+
+    def prune_position_orders(self, order_counts):
+        """
+        some validators may incorrectly combine multiple positions into one, so an order_uuid may appear under
+        multiple positions. We will only keep the order_uuid in the position that it appears the most in.
+
+        order_counts = defaultdict(lambda: defaultdict(int))    # {position_uuid: {order_uuid: count}}
+        """
+        order_max_count_appears_in_position = defaultdict(tuple)       # {order_uuid: (position_uuid, count)}
+        # find the position_uuid with the max count for each order_uuid
+        for position, orders in order_counts.items():
+            for order, count in orders.items():
+                if order not in order_max_count_appears_in_position:
+                    order_max_count_appears_in_position[order] = (position, count)
+                else:
+                    if count > order_max_count_appears_in_position[order][1]:
+                        order_max_count_appears_in_position[order] = (position, count)
+
+        # remove order_uuid from all other position_uuids
+        for position, orders in order_counts.items():
+            for order in list(orders.keys()):
+                if position != order_max_count_appears_in_position[order][0]:
+                    del orders[order]
 
     def find_legacy_miners(self, num_checkpoints, order_counts, miner_to_uuids, position_counts, order_data):
         """
@@ -466,13 +488,8 @@ class P2PSyncer(ValidatorSyncBase):
         """
         sorted_orders = sorted(orders, key=lambda o: o["price"])
         median_order = sorted_orders[len(orders)//2]
-        order = Order(trade_pair=trade_pair,
-                      order_type=median_order["order_type"],
-                      leverage=median_order["leverage"],
-                      price=median_order["price"],
-                      processed_ms=median_order["processed_ms"],
-                      order_uuid=median_order["order_uuid"])
-        return order
+        median_order["trade_pair"] = trade_pair
+        return Order(**median_order)
 
     def get_validators(self, neurons=None):
         """
