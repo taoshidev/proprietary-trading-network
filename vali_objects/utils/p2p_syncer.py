@@ -226,8 +226,9 @@ class P2PSyncer(ValidatorSyncBase):
                             bt.logging.info(
                                 f"Order {order_uuid} with Position {position_uuid} only appeared [{order_counts[position_uuid][order_uuid]}/{position_counts[position_uuid]}] times on miner {position['miner_hotkey']}. Skipping")
 
-                # TODO: make sure first order is not leverage 0
                 new_position.orders.sort(key=lambda o: o.processed_ms)
+                if len(new_position.orders) > 0 and new_position.orders[0].leverage == 0:
+                    bt.logging.info(f"Miner[{new_position.miner_hotkey}] Position [{new_position.position_uuid}] with orders {[o.order_uuid for o in new_position.orders]} first order leverage is 0")
                 new_position.rebuild_position_with_updated_orders()
                 position_dict = json.loads(new_position.to_json_string())
                 uuid_matched_positions.append(position_dict)
