@@ -147,6 +147,7 @@ class P2PSyncer(ValidatorSyncBase):
         # parse each checkpoint to count occurrences of each position and order
         for hotkey, checkpoint in valid_checkpoints.items():
             self.parse_checkpoint(hotkey, checkpoint, position_counts, order_counts, order_data, miner_to_uuids, miner_counts, positions_matrix, orders_matrix)
+        self.prune_position_orders(order_counts)
 
         # miners who are still running legacy code. do not want to include them in checkpoint
         self.find_legacy_miners(len(valid_checkpoints), order_counts, miner_to_uuids, position_counts, order_data)
@@ -334,6 +335,29 @@ class P2PSyncer(ValidatorSyncBase):
                     orders_matrix[validator_hotkey].append(order)
 
                 positions_matrix[miner_hotkey][position["trade_pair"][0]][validator_hotkey].append(position)
+
+    def prune_position_orders(self, order_counts):
+        """
+        some validators may incorrectly combine multiple positions into one, so an order_uuid may appear under
+        multiple positions. We will only keep the order_uuid in the position that it appears the most in.
+
+        order_counts = defaultdict(lambda: defaultdict(int))    # {position_uuid: {order_uuid: count}}
+        """
+        order_max_count_appears_in_position = defaultdict(tuple)       # {order_uuid: (position_uuid, count)}
+        # find the position_uuid with the max count for each order_uuid
+        for position, orders in order_counts.items():
+            for order, count in orders.items():
+                if order not in order_max_count_appears_in_position:
+                    order_max_count_appears_in_position[order] = (position, count)
+                else:
+                    if count > order_max_count_appears_in_position[order][1]:
+                        order_max_count_appears_in_position[order] = (position, count)
+
+        # remove order_uuid from all other position_uuids
+        for position, orders in order_counts.items():
+            for order in list(orders.keys()):
+                if position != order_max_count_appears_in_position[order][0]:
+                    del orders[order]
 
     def find_legacy_miners(self, num_checkpoints, order_counts, miner_to_uuids, position_counts, order_data):
         """
