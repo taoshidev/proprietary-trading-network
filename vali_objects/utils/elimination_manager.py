@@ -69,6 +69,29 @@ class EliminationManager(CacheController):
             if hotkey in self.metagraph.hotkeys:
                 bt.logging.trace(f"miner [{hotkey}] has not been deregistered by BT yet. Not deleting miner dir.")
                 continue
+
+            # Now to manage the deletion of the miner's challengeperiod information if it exists
+            try:
+                # Collect existing challengeperiod information from disk
+                self._refresh_challengeperiod_in_memory()
+
+                if hotkey in self.challengeperiod_testing:
+                    self.challengeperiod_testing.pop(hotkey)
+
+                if hotkey in self.challengeperiod_success:
+                    self.challengeperiod_success.pop(hotkey)
+
+                # Write the updated challengeperiod data back to disk
+                self._write_challengeperiod_from_memory_to_disk()
+
+            except KeyError as ke:
+                bt.logging.error(f"KeyError: The hotkey [{hotkey}] was not found in the challengeperiod information. Error: {ke}")
+            except IOError as ioe:
+                bt.logging.error(f"IOError: Failed to read or write challengeperiod information for hotkey [{hotkey}]. Error: {ioe}")
+            except Exception as e:
+                bt.logging.error(f"Unexpected error occurred while deleting miner's challengeperiod information [{hotkey}]. Error: {e}")
+                raise  # Re-raise the exception after logging to avoid silent failures
+
             miner_dir = ValiBkpUtils.get_miner_dir(running_unit_tests=self.running_unit_tests) + hotkey
             try:
                 shutil.rmtree(miner_dir)
