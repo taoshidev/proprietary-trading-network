@@ -1,6 +1,7 @@
 # developer: jbonilla
 # Copyright © 2024 Taoshi Inc
 import time
+from collections import defaultdict
 from typing import List, Dict
 
 from time_util.time_util import TimeUtil
@@ -8,6 +9,7 @@ from vali_config import ValiConfig, TradePair
 from shared_objects.cache_controller import CacheController
 from vali_objects.position import Position
 from vali_objects.utils.live_price_fetcher import LivePriceFetcher
+from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerData
 from vali_objects.vali_dataclasses.recent_event_tracker import RecentEventTracker
 
 from vali_objects.utils.vali_utils import ValiUtils
@@ -19,7 +21,7 @@ from vali_objects.vali_dataclasses.price_source import PriceSource
 
 class MDDChecker(CacheController):
 
-    def __init__(self, config, metagraph, position_manager, eliminations_lock, running_unit_tests=False,
+    def __init__(self, config, metagraph, position_manager, perf_ledger_manager, eliminations_lock, running_unit_tests=False,
                  live_price_fetcher=None, shutdown_dict=None):
         super().__init__(config, metagraph, running_unit_tests=running_unit_tests)
         self.last_price_fetch_time_ms = None
@@ -36,6 +38,9 @@ class MDDChecker(CacheController):
         self.reset_debug_counters()
         self.shutdown_dict = shutdown_dict
         self.n_poly_api_requests = 0
+        self.perf_ledger_manager = perf_ledger_manager
+        self.hk_to_dd = defaultdict(lambda: defaultdict(lambda: 1.0))
+        self.lastUpdate = 0
 
     def reset_debug_counters(self):
         self.n_miners_skipped_already_eliminated = 0
@@ -62,7 +67,44 @@ class MDDChecker(CacheController):
         self.last_price_fetch_time_ms = now
         return candle_data
 
-    
+    """"
+    -mdd every 15 secs
+    -compare current portfolio val to max all time portfolio val
+    -all time portfolio val computed from perf ledgers (30 mins delayed)
+    -current val
+
+    log realtime mdd est for every miner
+    recalc realtime portfolio val
+    -iterate over positions
+    """
+    def realtime_mdd(self):
+        now = TimeUtil.now_in_millis()
+        if now - self.lastUpdate < 1000 * 15:
+            time.sleep(1)
+            return
+        bt.logging.info("realtime MDD")
+        hotkey_to_positions = self.position_manager.get_all_miner_positions_by_hotkey(
+            self.metagraph.hotkeys, sort_positions=True,
+            eliminations=self.eliminations
+        )
+
+        for miner in self.hk_to_dd.keys():
+            # TODO lock around this?
+            self.hk_to_dd[miner]["curr_return"] = self.current_portfolio_ret(miner, hotkey_to_positions)
+            self.hk_to_dd[miner]["max_return"] = max(self.hk_to_dd[miner]["max_return"],
+                                                     self.hk_to_dd[miner]["curr_return"])
+            self.hk_to_dd[miner]["dd"] = self.calculate_drawdown(self.hk_to_dd[miner]["curr_return"], self.hk_to_dd[miner]["max_return"])
+
+        bt.logging.info(f"Miner DD: {dict(self.hk_to_dd)}")
+        self.lastUpdate = now
+
+    def current_portfolio_ret(self, miner_hotkey, hotkey_to_positions):
+        portfolio_return = 1.0
+        # iterate over the positions
+        for position in hotkey_to_positions[miner_hotkey]:
+            portfolio_return *= position.return_at_close
+        return portfolio_return
+
     def mdd_check(self):
         self.n_poly_api_requests = 0
         if not self.refresh_allowed(ValiConfig.MDD_CHECK_REFRESH_TIME_MS):
@@ -101,10 +143,12 @@ class MDDChecker(CacheController):
             eliminations=self.eliminations
         )
         candle_data = self.get_candle_data(hotkey_to_positions)
+        perf_ledgers = self.perf_ledger_manager.load_perf_ledgers_from_disk(read_as_pydantic=False)
         for hotkey, sorted_positions in hotkey_to_positions.items():
             if self.shutdown_dict:
                 return
             self.perform_price_corrections(hotkey, sorted_positions, candle_data)
+            self.hk_to_dd[hotkey]["max_return"] = perf_ledgers.get(hotkey, PerfLedgerData()).max_return
 
         bt.logging.info(f"mdd checker completed. n_eliminations_this_round: "
                         f"{self.n_eliminations_this_round}. "

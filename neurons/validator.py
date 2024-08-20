@@ -258,7 +258,7 @@ class Validator:
         # reading outside of the mainloop (validator).
         self.eliminations_lock = threading.Lock()
         # self.plagiarism_detector = PlagiarismDetector(self.config, self.metagraph)
-        self.mdd_checker = MDDChecker(self.config, self.metagraph, self.position_manager, self.eliminations_lock,
+        self.mdd_checker = MDDChecker(self.config, self.metagraph, self.position_manager, self.perf_ledger_manager, self.eliminations_lock,
                                       live_price_fetcher=self.live_price_fetcher, shutdown_dict=shutdown_dict)
         self.weight_setter = SubtensorWeightSetter(self.config, self.wallet, self.metagraph)
         self.challengeperiod_manager = ChallengePeriodManager(self.config, self.metagraph)
@@ -386,6 +386,7 @@ class Validator:
                 self.position_syncer.sync_positions_with_cooldown(self.auto_sync)
                 self.weight_setter.set_weights(current_time=current_time)
                 self.mdd_checker.mdd_check()
+                self.mdd_checker.realtime_mdd()
                 self.challengeperiod_manager.refresh(current_time=current_time)
                 self.elimination_manager.process_eliminations()
                 self.position_manager.position_locks.cleanup_locks(self.metagraph.hotkeys)
