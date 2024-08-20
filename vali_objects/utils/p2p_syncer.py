@@ -216,7 +216,7 @@ class P2PSyncer(ValidatorSyncBase):
                         # can have different order_uuids in the same position_uuid
                         # heuristic match up every order, make sure that matched orders do not include any orders that are already in seen_orders
                         trade_pair = position["trade_pair"][0]
-                        matches = self.heuristic_resolve_orders(order_uuid, order_data, position_counts[position_uuid], seen_orders, resolved_orders, orders_matrix, validator_hotkey, trade_pair)
+                        matches = self.heuristic_resolve_orders(order_uuid, order_data, position_counts[position_uuid], seen_orders, resolved_orders, orders_matrix, validator_hotkey, trade_pair, new_position.miner_hotkey)
                         if matches is not None:
                             trade_pair = TradePair.from_trade_pair_id(trade_pair)
                             matched_order = self.get_median_order(matches, trade_pair)
@@ -235,21 +235,20 @@ class P2PSyncer(ValidatorSyncBase):
                 uuid_matched_positions.append(position_dict)
         return uuid_matched_positions
 
-    def heuristic_resolve_orders(self, order_uuid: str, order_data: dict, order_in_num_positions: int, seen_orders: set, resolved_orders:set, orders_matrix, corresponding_validator_hotkey, order_trade_pair):
+    def heuristic_resolve_orders(self, order_uuid: str, order_data: dict, order_in_num_positions: int, seen_orders: set, resolved_orders:set, orders_matrix, corresponding_validator_hotkey, order_trade_pair, miner_hotkey):
         """
         heuristic matching for orders with different order_uuids.
         return all the matches if it contains all new orders, and passes threshold
         orders_matrix:
             {miner hotkey: {trade pair: {validator hotkey: [all orders on validator]}}}
         """
-        for miner_hotkey, trade_pairs in orders_matrix.items():
-            matches = self.find_matching_orders(order_data[order_uuid][0], resolved_orders, trade_pairs[order_trade_pair], corresponding_validator_hotkey)
-            order_threshold = self.consensus_threshold(order_in_num_positions, heuristic_match=True)
-            if (matches is not None
-                    and len(matches) > order_threshold
-                    and set([match["order_uuid"] for match in matches]).isdisjoint(seen_orders)):
-                # see if no elements from matches have already appeared in uuid_matched_positions
-                return matches
+        matches = self.find_matching_orders(order_data[order_uuid][0], resolved_orders, orders_matrix[miner_hotkey][order_trade_pair], corresponding_validator_hotkey)
+        order_threshold = self.consensus_threshold(order_in_num_positions, heuristic_match=True)
+        if (matches is not None
+                and len(matches) > order_threshold
+                and set([match["order_uuid"] for match in matches]).isdisjoint(seen_orders)):
+            # see if no elements from matches have already appeared in uuid_matched_positions
+            return matches
 
     def find_matching_orders(self, order, resolved_orders, orders_matrix, corresponding_validator_hotkey):
         """
