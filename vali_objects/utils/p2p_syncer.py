@@ -142,7 +142,7 @@ class P2PSyncer(ValidatorSyncBase):
         miner_counts = defaultdict(int)                         # {miner_hotkey: count}
 
         positions_matrix = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))  # {miner hotkey: {trade pair: {validator hotkey: [all positions on validator]}}}
-        orders_matrix = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))     # {miner hotkey: {trade pair: {validator hotkey: [all orders on validator]}}}
+        orders_matrix = defaultdict(lambda: defaultdict(list))                          # {position_uuid: {validator hotkey: [all orders on validator]}}
 
         # parse each checkpoint to count occurrences of each position and order
         for hotkey, checkpoint in valid_checkpoints.items():
@@ -215,10 +215,9 @@ class P2PSyncer(ValidatorSyncBase):
                     elif order_uuid not in seen_orders:
                         # can have different order_uuids in the same position_uuid
                         # heuristic match up every order, make sure that matched orders do not include any orders that are already in seen_orders
-                        trade_pair = position["trade_pair"][0]
-                        matches = self.heuristic_resolve_orders(order_uuid, order_data, position_counts[position_uuid], seen_orders, resolved_orders, orders_matrix, validator_hotkey, trade_pair, new_position.miner_hotkey)
+                        matches = self.heuristic_resolve_orders(order_uuid, order_data, position_counts[position_uuid], seen_orders, resolved_orders, orders_matrix, validator_hotkey, position_uuid)
                         if matches is not None:
-                            trade_pair = TradePair.from_trade_pair_id(trade_pair)
+                            trade_pair = TradePair.from_trade_pair_id(position["trade_pair"][0])
                             matched_order = self.get_median_order(matches, trade_pair)
                             new_position.orders.append(matched_order)
                             seen_orders.update([m["order_uuid"] for m in matches])
@@ -235,14 +234,14 @@ class P2PSyncer(ValidatorSyncBase):
                 uuid_matched_positions.append(position_dict)
         return uuid_matched_positions
 
-    def heuristic_resolve_orders(self, order_uuid: str, order_data: dict, order_in_num_positions: int, seen_orders: set, resolved_orders:set, orders_matrix, corresponding_validator_hotkey, order_trade_pair, miner_hotkey):
+    def heuristic_resolve_orders(self, order_uuid: str, order_data: dict, order_in_num_positions: int, seen_orders: set, resolved_orders:set, orders_matrix, corresponding_validator_hotkey, position_uuid):
         """
         heuristic matching for orders with different order_uuids.
         return all the matches if it contains all new orders, and passes threshold
         orders_matrix:
-            {miner hotkey: {trade pair: {validator hotkey: [all orders on validator]}}}
+            {position_uuid: {validator hotkey: [all orders on validator]}}
         """
-        matches = self.find_matching_orders(order_data[order_uuid][0], resolved_orders, orders_matrix[miner_hotkey][order_trade_pair], corresponding_validator_hotkey)
+        matches = self.find_matching_orders(order_data[order_uuid][0], resolved_orders, orders_matrix[position_uuid], corresponding_validator_hotkey)
         order_threshold = self.consensus_threshold(order_in_num_positions, heuristic_match=True)
         if (matches is not None
                 and len(matches) > order_threshold
@@ -319,7 +318,7 @@ class P2PSyncer(ValidatorSyncBase):
         miner_counts = defaultdict(int)                         # {miner_hotkey: count}
 
         positions_matrix = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))  # {miner hotkey: {trade pair: {validator hotkey: [all positions on validator]}}}
-        orders_matrix = defaultdict(list)                                               # {validator_hotkey: [all orders]}
+        orders_matrix = defaultdict(lambda: defaultdict(list))                          # {position_uuid: {validator_hotkey: [all orders]}}
         """
         # get positions for each miner
         positions = checkpoint["positions"]
@@ -336,7 +335,7 @@ class P2PSyncer(ValidatorSyncBase):
                     order_counts[position_uuid][order_uuid] += 1
                     order_data[order_uuid].append(dict(order))
                     miner_to_uuids[miner_hotkey]["orders"].add(order_uuid)
-                    orders_matrix[miner_hotkey][position["trade_pair"][0]][validator_hotkey].append(order)
+                    orders_matrix[position_uuid][validator_hotkey].append(order)
 
                 positions_matrix[miner_hotkey][position["trade_pair"][0]][validator_hotkey].append(position)
 
