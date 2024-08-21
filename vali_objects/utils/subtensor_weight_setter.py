@@ -79,12 +79,8 @@ class SubtensorWeightSetter(CacheController):
                     bt.logging.error(f"Challengeperiod miner {miner} not found in the metagraph.")
 
             weights_list = checkpoint_netuid_weights + challengeperiod_weights
-            transformed_hotkeys = [x[0] for x in weights_list]
+            transformed_list = [x[0] for x in weights_list]
 
-            metagraph_remaining_hotkeys = list(set(self.metagraph.hotkeys) - set(transformed_hotkeys))
-            metagraph_remaining_scores = [(hotkey, 0) for hotkey in metagraph_remaining_hotkeys]
-
-            transformed_list = weights_list + metagraph_remaining_scores
             bt.logging.info(f"transformed list: {transformed_list}")
 
             self._set_subtensor_weights(transformed_list)
