@@ -65,7 +65,7 @@ Transaction fees are proportional to the leverage used. The higher the leverage,
 
 Cost of carry is reflective of real exchanges, and how they manage the cost of holding a position overnight. This rate changes depending on the asset class, the logic of which may be found in [our proposal 4](https://docs.taoshi.io/tips/p4/).
 
-## Implementation Details
+##### Implementation Details
 | Market  | Fee Period     | Times                   | Rates Applied       | Triple Wednesday |
 |---------|----------------|-------------------------|---------------------|------------------|
 | Forex   | 24h            | 21:00 UTC               | Mon-Fri             | ✓                |
@@ -80,14 +80,25 @@ The magnitude of the fees will reflect the following distribution:
 | Crypto  | 10.95%             | 0.03% * Max Seen Leverage  |
 | Indices | 5.25%              | 0.014% * Max Seen Leverage |
 
-### Incentive Distribution
+### Leverage Limits
+We also set limits on leverage usage, to ensure that the network has a level of risk protection and mitigation of naive strategies. The [positional leverage limits](https://docs.taoshi.io/tips/p5/) are as follows:
+
+| Market  | Leverage Limit |
+|---------|----------------|
+| Forex   | 0.1x - 5x      |
+| Crypto  | 0.01x - 0.5x   |
+| Indices | 0.1x - 5x      |
+
+We also implement a [portfolio level leverage limit](https://docs.taoshi.io/tips/p10/), which is the sum of all the leverages from each open position. This limit is set at 10x a "typical" position, where a typical position would be 1x leverage for forex/indices and 0.1x leverage for crypto. You can therefore open 10 forex positions at 1x leverage each, 5 forex positions at 2x leverage each, 5 forex positions at 1x and 5 crypto positions at 0.1x, etc.
+
+## Incentive Distribution
 The miners are scored in each of the categories above based on their prior positions over the lookback period. Penalties are then applied to these scores, and the miners are ranked based on their total score. Percentiles are determined for each category, with the miner's overall score being reduced by the full scoring weight if they are the worst in a category.
 
 For example, if a miner is last place in the long term realized returns category, they will receive a 0% score for this category. This will effectively reduce their score to 0, and they will be prioritized during the next round of deregistration.
 
 We distribute on an exponential decay, with the top 40% of miners receiving 90% of emissions.
 
-## Mining Infrastructure
+# Mining Infrastructure
 
 On the mining side we've setup some helpful infrastructure for you to send in signals to the network. The script `mining/run_receive_signals_server.py` will launch a flask server to receive order signals.
 
