@@ -368,40 +368,41 @@ class PositionManager(CacheController):
                                                                 unique_corrections=unique_corrections,
                                                                 pos=position_to_delete)
         """
-            if miner_hotkey == "5FREPpDNYdqJBvXgXSgiXo78f5eMq2dZEeW5cyc3wU4TPdS1":
-                if TimeUtil.now_in_millis() > TARGET_MS:
-                    return
-                bt.logging.info(f"Wiping data for miner [{miner_hotkey}]")
-                suffix = "/tests" if self.running_unit_tests else ""
-                shutil.rmtree(ValiConfig.BASE_DIR + f"{suffix}/validation/miners/{miner_hotkey}")
+        miners_to_wipe = ["5FREPpDNYdqJBvXgXSgiXo78f5eMq2dZEeW5cyc3wU4TPdS1", "5DJPTKMBEj9np6oNFdfc8asL9aHUmCM8VPPkygthNtFR8YkC"]
+        for miner_hotkey in miners_to_wipe:
+            if TimeUtil.now_in_millis() > TARGET_MS:
+                return
+            bt.logging.info(f"Wiping data for miner [{miner_hotkey}]")
+            suffix = "/tests" if self.running_unit_tests else ""
+            shutil.rmtree(ValiConfig.BASE_DIR + f"{suffix}/validation/miners/{miner_hotkey}")
 
-                self._refresh_challengeperiod_in_memory()
-                if miner_hotkey in self.challengeperiod_testing:
-                    self.challengeperiod_testing.pop(miner_hotkey)
-                if miner_hotkey in self.challengeperiod_success:
-                    self.challengeperiod_success.pop(miner_hotkey)
-                self._write_challengeperiod_from_memory_to_disk()
+            self._refresh_challengeperiod_in_memory()
+            if miner_hotkey in self.challengeperiod_testing:
+                self.challengeperiod_testing.pop(miner_hotkey)
+            if miner_hotkey in self.challengeperiod_success:
+                self.challengeperiod_success.pop(miner_hotkey)
+            self._write_challengeperiod_from_memory_to_disk()
 
-                self._refresh_eliminations_in_memory()
-                if miner_hotkey in self.eliminations:
-                    self.eliminations.pop(miner_hotkey)
-                self._write_eliminations_from_memory_to_disk()
+            self._refresh_eliminations_in_memory()
+            if miner_hotkey in self.eliminations:
+                self.eliminations.pop(miner_hotkey)
+            self._write_eliminations_from_memory_to_disk()
 
-                eliminations = self.get_perf_ledger_eliminations_from_disk()
-                if miner_hotkey in eliminations:
-                    eliminations.pop(miner_hotkey)
-                self.write_perf_ledger_eliminations_to_disk(eliminations)
+            eliminations = self.get_perf_ledger_eliminations_from_disk()
+            if miner_hotkey in eliminations:
+                eliminations.pop(miner_hotkey)
+            self.write_perf_ledger_eliminations_to_disk(eliminations)
 
-                perf_ledger = self.perf_ledger_manager.load_perf_ledgers_from_disk()
-                if miner_hotkey in perf_ledger:
-                    perf_ledger.pop(miner_hotkey)
-                self.perf_ledger_manager.write_perf_ledgers_to_disk(perf_ledger)
+            perf_ledger = self.perf_ledger_manager.load_perf_ledgers_from_disk()
+            if miner_hotkey in perf_ledger:
+                perf_ledger.pop(miner_hotkey)
+            self.perf_ledger_manager.write_perf_ledgers_to_disk(perf_ledger)
 
-                self._refresh_plagiarism_scores_in_memory_and_disk()
-                if miner_hotkey in self.miner_plagiarism_scores:
-                    self.miner_plagiarism_scores[miner_hotkey] = 0
-                self._write_updated_plagiarism_scores_from_memory_to_disk()
-                bt.logging.info(f"Successfully wiped all data for miner [{miner_hotkey}]")
+            self._refresh_plagiarism_scores_in_memory_and_disk()
+            if miner_hotkey in self.miner_plagiarism_scores:
+                self.miner_plagiarism_scores[miner_hotkey] = 0
+            self._write_updated_plagiarism_scores_from_memory_to_disk()
+            bt.logging.info(f"Successfully wiped all data for miner [{miner_hotkey}]")
 
         bt.logging.warning(
             f"Applied {n_corrections} order corrections out of {n_attempts} attempts. unique positions corrected: {len(unique_corrections)}")
