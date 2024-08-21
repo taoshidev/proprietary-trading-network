@@ -1,10 +1,5 @@
 import copy
-from copy import deepcopy
 from tests.vali_tests.base_objects.test_base import TestBase
-from vali_config import TradePair
-from vali_objects.enums.order_type_enum import OrderType
-from vali_objects.vali_dataclasses.order import Order
-from vali_objects.utils.position_utils import PositionUtils
 from vali_objects.utils.ledger_utils import LedgerUtils
 
 from vali_config import ValiConfig

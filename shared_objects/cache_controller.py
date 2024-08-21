@@ -1,7 +1,6 @@
 # developer: jbonilla
 import os
 import datetime
-import json
 from collections import defaultdict
 from pickle import UnpicklingError
 from typing import List, Dict

@@ -4,11 +4,9 @@ import json
 import os
 import shutil
 import time
-import copy
 import traceback
-import math
 from collections import defaultdict
-from typing import List, Dict, Union
+from typing import List, Dict
 import bittensor as bt
 from pathlib import Path
 
@@ -23,9 +21,8 @@ from vali_objects.position import Position
 from vali_objects.utils.position_lock import PositionLocks
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.vali_dataclasses.order import OrderStatus
-from vali_objects.utils.position_utils import PositionUtils
 from vali_objects.vali_dataclasses.price_source import PriceSource
-from vali_objects.vali_dataclasses.perf_ledger import PerfCheckpoint, PerfLedger, PerfLedgerManager
+from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
 
 TARGET_MS = 1724310000000 + 1000 * 60 * 60 * 2
 

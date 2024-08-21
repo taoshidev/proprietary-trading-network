@@ -1,7 +1,6 @@
 # developer: trdougherty
 from copy import deepcopy
 
-from shared_objects.cache_controller import CacheController
 from tests.shared_objects.mock_classes import (
     MockMetagraph, MockChallengePeriodManager, MockPositionManager, MockPerfLedgerManager, MockCacheController
 )
@@ -12,14 +11,6 @@ from vali_config import TradePair
 from vali_objects.position import Position
 from vali_config import ValiConfig
 
-from vali_objects.utils.ledger_utils import LedgerUtils
-from vali_objects.utils.position_filtering import PositionFiltering
-from vali_objects.utils.position_penalties import PositionPenalties
-from vali_objects.scoring.scoring import Scoring
-
-from vali_objects.utils.vali_utils import ValiUtils
-
-import functools
 import copy
 
 
@@ -189,20 +180,9 @@ class TestChallengePeriodIntegration(TestBase):
         self.assertEqual(len(self.challengeperiod_manager.challengeperiod_success), 0)
         self.assertEqual(len(self.challengeperiod_manager.eliminations), 0)
 
-        challenge_period_miners = list(self.challengeperiod_manager.challengeperiod_testing.keys())
-
-        # Check that our miners are in challenge period - don't need to get all of them
-        positions = self.position_manager.get_all_miner_positions_by_hotkey(
-            challenge_period_miners,
-            sort_positions=True
-        )
-        ledger = self.challengeperiod_manager.perf_manager.load_perf_ledgers_from_disk()
-        ledger = {hotkey: ledger.get(hotkey, None) for hotkey in challenge_period_miners}
-
         inspection_hotkeys = self.challengeperiod_manager.challengeperiod_testing
 
         for hotkey, inspection_time in inspection_hotkeys.items():
-            passing_criteria = True
 
             time_criteria = self.CURRENTLY_IN_CHALLENGE - inspection_time <= ValiConfig.CHALLENGE_PERIOD_MS
             self.assertTrue(time_criteria, f"Time criteria failed for {hotkey}")

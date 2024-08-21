@@ -1,6 +1,5 @@
 # developer: Taoshi
 import os
-import json
 import math
 from time_util.time_util import TimeUtil
 

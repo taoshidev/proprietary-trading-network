@@ -102,7 +102,7 @@ class SubtensorWeightSetter(CacheController):
         position_keys = set(positions.keys())
 
         common_keys = ledger_keys.intersection(position_keys)
-        uncommon_keys = ledger_keys.union(position_keys) - common_keys
+        # uncommon_keys = ledger_keys.union(position_keys) - common_keys
 
         synced_ledger = {}
         synced_positions = {}

@@ -1,10 +1,6 @@
 import copy
 from copy import deepcopy
 from tests.vali_tests.base_objects.test_base import TestBase
-from vali_config import TradePair
-from vali_objects.enums.order_type_enum import OrderType
-from vali_objects.vali_dataclasses.order import Order
-from vali_objects.utils.position_utils import PositionUtils
 from vali_objects.utils.ledger_utils import LedgerUtils
 
 from vali_config import ValiConfig
@@ -139,7 +135,6 @@ class TestLedgerPenalty(TestBase):
         l5_cps = l5.cps
 
         # Set all gains to 1.0 for these days
-        n_days_in_biweekly = biweekly_window // daily_window
         for i in range(0, biweekly_window, daily_window):
             l5_cps[min(i, len(l5_cps) - 1)].gain = 1.0
 

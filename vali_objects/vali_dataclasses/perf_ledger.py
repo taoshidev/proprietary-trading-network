@@ -12,7 +12,7 @@ from time_util.time_util import MS_IN_8_HOURS, MS_IN_24_HOURS
 from pydantic import BaseModel
 
 from shared_objects.cache_controller import CacheController
-from shared_objects.retry import retry, periodic_heartbeat
+from shared_objects.retry import periodic_heartbeat
 from time_util.time_util import TimeUtil, UnifiedMarketCalendar
 from vali_config import ValiConfig
 from vali_objects.position import Position

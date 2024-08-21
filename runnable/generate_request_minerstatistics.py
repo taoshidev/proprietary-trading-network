@@ -4,7 +4,6 @@ from scipy.stats import percentileofscore
 
 from time_util.time_util import TimeUtil
 from vali_config import ValiConfig
-from vali_objects.utils.position_manager import PositionManager
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.utils.subtensor_weight_setter import SubtensorWeightSetter
 from vali_objects.utils.position_utils import PositionUtils
@@ -82,11 +81,6 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
         running_unit_tests=False
     )
 
-    position_manager = PositionManager(
-        metagraph=None,
-        running_unit_tests=False
-    )
-
     # Collect information from the disk and populate variables in memory
     subtensor_weight_setter._refresh_eliminations_in_memory()
     subtensor_weight_setter._refresh_challengeperiod_in_memory()
@@ -143,12 +137,6 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
         filtered_positions,
         filtered_ledger
     )
-
-    # Miners with full penalty
-    fullpenalty_miner_scores: list[tuple[str, float]] = [
-        (miner, 0) for miner, penalty in miner_penalties.items() if penalty == 0
-    ]
-    fullpenalty_miners = set([x[0] for x in fullpenalty_miner_scores])
 
     # Scoring metrics
     omega_dict = {}
@@ -351,7 +339,6 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
         if miner_standard_ledger is None:
             continue
 
-        miner_penalty = miner_penalties.get(miner_id, 0.0)
         miner_data = {
             "hotkey": miner_id,
             "weight": {
@@ -414,22 +401,22 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
             },
             "penalized_scores": {
                 "omega": {
-                    "value": apply_penalties(omega_dict, miner_penalties).get(miner_id),
+                    "value": omega_penalized_dict.get(miner_id),
                     "rank": omega_penalized_rank.get(miner_id),
                     "percentile": omega_penalized_percentile.get(miner_id),
                 },
                 "sharpe": {
-                    "value": apply_penalties(sharpe_dict, miner_penalties).get(miner_id),
+                    "value": sharpe_penalized_dict.get(miner_id),
                     "rank": sharpe_penalized_rank.get(miner_id),
                     "percentile": sharpe_penalized_percentile.get(miner_id),
                 },
                 "short_risk_adjusted_return": {
-                    "value": apply_penalties(short_risk_adjusted_return_dict, miner_penalties).get(miner_id),
+                    "value": short_risk_adjusted_return_penalized_dict.get(miner_id),
                     "rank": short_risk_adjusted_return_penalized_rank.get(miner_id),
                     "percentile": short_risk_adjusted_return_penalized_percentile.get(miner_id),
                 },
                 "risk_adjusted_return": {
-                    "value": apply_penalties(risk_adjusted_return_dict, miner_penalties).get(miner_id),
+                    "value": risk_adjusted_return_penalized_dict.get(miner_id),
                     "rank": risk_adjusted_return_penalized_rank.get(miner_id),
                     "percentile": risk_adjusted_return_penalized_percentile.get(miner_id),
                 }
@@ -460,11 +447,26 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
            and key not in ['BASE_DIR', 'base_directory']
     }
 
+    # Filter out invalid entries
+    valid_data = [item for item in combined_data if item is not None and
+                  item.get('weight') is not None and
+                  item['weight'].get('rank') is not None]
+
+    # If there's no valid data, return an empty dict or handle accordingly
+    if not valid_data:
+        return {
+            'version': ValiConfig.VERSION,
+            'created_timestamp_ms': time_now,
+            'created_date': TimeUtil.millis_to_formatted_date_str(time_now),
+            'data': [],  # empty list as there's no valid data
+            'constants': ldconfig_printable,
+        }
+
     final_dict = {
         'version': ValiConfig.VERSION,
         'created_timestamp_ms': time_now,
         'created_date': TimeUtil.millis_to_formatted_date_str(time_now),
-        'data': sorted(combined_data, key=lambda x: x['weight']['rank']),
+        'data': sorted(valid_data, key=lambda x: x['weight']['rank']),
         'constants': ldconfig_printable,
     }
 

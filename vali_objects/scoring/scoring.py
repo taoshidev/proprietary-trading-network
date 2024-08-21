@@ -1,14 +1,14 @@
 # developer: trdougherty
 
 import math
-from typing import List, Tuple, Dict
+from typing import List, Tuple
 from vali_objects.position import Position
 
 import numpy as np
 from scipy.stats import percentileofscore
 
 from vali_config import ValiConfig
-from vali_objects.vali_dataclasses.perf_ledger import PerfLedger, PerfLedgerData
+from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerData
 from time_util.time_util import TimeUtil
 from vali_objects.utils.position_filtering import PositionFiltering
 from vali_objects.utils.position_penalties import PositionPenalties

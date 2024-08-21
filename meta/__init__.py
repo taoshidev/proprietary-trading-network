@@ -1,5 +1,4 @@
 import json
-import os
 
 
 def load_version(file_path):

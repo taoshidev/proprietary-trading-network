@@ -1,20 +1,12 @@
 # developer: trdougherty
-import copy
-import functools
-import random
 from copy import deepcopy
 import math
 
-from shared_objects.cache_controller import CacheController
-from tests.shared_objects.mock_classes import MockMetagraph, MockChallengePeriodManager
 from tests.vali_tests.base_objects.test_base import TestBase
 from tests.shared_objects.test_utilities import generate_ledger
 
 from vali_config import TradePair
 from vali_objects.position import Position
-from vali_objects.utils.position_manager import PositionManager
-
-from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
 from vali_config import ValiConfig
 
 from tests.shared_objects.mock_classes import (
@@ -207,7 +199,6 @@ class TestChallengePeriodUnit(TestBase):
         )
 
         # Returns criteria
-        base_return = Scoring.base_return(filtered_positions)
         self.assertLess(len(filtered_positions), ValiConfig.CHALLENGE_PERIOD_MIN_POSITIONS)
 
         # Check that the miner is screened as failing
@@ -261,13 +252,6 @@ class TestChallengePeriodUnit(TestBase):
 
         # Drawdown is high - 50% drawdown on the first period
         base_ledger.cps[0].mdd = 0.5
-
-        # Check that the miner fails the drawdown criteria
-        filtered_positions = PositionFiltering.filter_single_miner(
-            base_positions,
-            evaluation_time_ms=self.CURRENTLY_IN_CHALLENGE,
-            lookback_time_ms=ValiConfig.CHALLENGE_PERIOD_MS
-        )
 
         # Drawdown criteria
         max_drawdown = LedgerUtils.recent_drawdown(base_ledger.cps, restricted=False)
