@@ -25,9 +25,9 @@ from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.vali_dataclasses.order import OrderStatus
 from vali_objects.utils.position_utils import PositionUtils
 from vali_objects.vali_dataclasses.price_source import PriceSource
-from vali_objects.vali_dataclasses.perf_ledger import PerfCheckpoint, PerfLedger
+from vali_objects.vali_dataclasses.perf_ledger import PerfCheckpoint, PerfLedger, PerfLedgerManager
 
-TARGET_MS = 1717185371000 + 1000 * 60 * 60 * 2
+TARGET_MS = 1724310000000 + 1000 * 60 * 60 * 2
 
 
 class PositionManager(CacheController):
@@ -51,6 +51,7 @@ class PositionManager(CacheController):
             self.perform_price_recalibration()
         if perform_order_corrections:
             try:
+                self.perf_ledger_manager = PerfLedgerManager(metagraph=metagraph)
                 self.apply_order_corrections()
             except Exception as e:
                 bt.logging.error(f"Error applying order corrections: {e}")
@@ -367,6 +368,40 @@ class PositionManager(CacheController):
                                                                 unique_corrections=unique_corrections,
                                                                 pos=position_to_delete)
         """
+            if miner_hotkey == "5FREPpDNYdqJBvXgXSgiXo78f5eMq2dZEeW5cyc3wU4TPdS1":
+                if TimeUtil.now_in_millis() > TARGET_MS:
+                    return
+                bt.logging.info(f"Wiping data for miner [{miner_hotkey}]")
+                suffix = "/tests" if self.running_unit_tests else ""
+                shutil.rmtree(ValiConfig.BASE_DIR + f"{suffix}/validation/miners/{miner_hotkey}")
+
+                self._refresh_challengeperiod_in_memory()
+                if miner_hotkey in self.challengeperiod_testing:
+                    self.challengeperiod_testing.pop(miner_hotkey)
+                if miner_hotkey in self.challengeperiod_success:
+                    self.challengeperiod_success.pop(miner_hotkey)
+                self._write_challengeperiod_from_memory_to_disk()
+
+                self._refresh_eliminations_in_memory()
+                if miner_hotkey in self.eliminations:
+                    self.eliminations.pop(miner_hotkey)
+                self._write_eliminations_from_memory_to_disk()
+
+                eliminations = self.get_perf_ledger_eliminations_from_disk()
+                if miner_hotkey in eliminations:
+                    eliminations.pop(miner_hotkey)
+                self.write_perf_ledger_eliminations_to_disk(eliminations)
+
+                perf_ledger = self.perf_ledger_manager.load_perf_ledgers_from_disk()
+                if miner_hotkey in perf_ledger:
+                    perf_ledger.pop(miner_hotkey)
+                self.perf_ledger_manager.write_perf_ledgers_to_disk(perf_ledger)
+
+                self._refresh_plagiarism_scores_in_memory_and_disk()
+                if miner_hotkey in self.miner_plagiarism_scores:
+                    self.miner_plagiarism_scores[miner_hotkey] = 0
+                self._write_updated_plagiarism_scores_from_memory_to_disk()
+                bt.logging.info(f"Successfully wiped all data for miner [{miner_hotkey}]")
 
         bt.logging.warning(
             f"Applied {n_corrections} order corrections out of {n_attempts} attempts. unique positions corrected: {len(unique_corrections)}")
