@@ -520,7 +520,7 @@ class Position(BaseModel):
         proposed_leverage = self.net_leverage + order.leverage
         min_position_leverage, max_position_leverage = leverage_utils.get_position_leverage_bounds(self.trade_pair, order.processed_ms)
         # we only need to worry about clamping if the sign of the position leverage remains the same i.e. position does not flip and close
-        if self.net_leverage * proposed_leverage > 0:
+        if is_first_order or self.net_leverage * proposed_leverage > 0:
             if abs(proposed_leverage) > max_position_leverage:
                 if is_first_order or abs(proposed_leverage) >= abs(self.net_leverage):
                     order.leverage = max(0.0, max_position_leverage - abs(self.net_leverage))
@@ -534,6 +534,9 @@ class Position(BaseModel):
                     raise ValueError(f'Attempted to set position leverage below min_position_leverage {min_position_leverage}')
                 else:
                     pass  # We are trying to increase the leverage here so let it happen
+        # attempting to flip position
+        else:
+            order.leverage = -self.net_leverage
 
         if abs(order.leverage) < ValiConfig.ORDER_MIN_LEVERAGE and (should_ignore_order is False):
             raise ValueError(f'Clamped order leverage [{order.leverage}] is below ValiConfig.ORDER_MIN_LEVERAGE {ValiConfig.ORDER_MIN_LEVERAGE}')
