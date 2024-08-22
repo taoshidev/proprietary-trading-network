@@ -519,19 +519,21 @@ class Position(BaseModel):
         is_first_order = len(self.orders) == 0
         proposed_leverage = self.net_leverage + order.leverage
         min_position_leverage, max_position_leverage = leverage_utils.get_position_leverage_bounds(self.trade_pair, order.processed_ms)
-        if abs(proposed_leverage) > max_position_leverage:
-            if is_first_order or abs(proposed_leverage) >= abs(self.net_leverage):
-                order.leverage = max(0.0, max_position_leverage - abs(self.net_leverage))
-                if order.order_type == OrderType.SHORT:
-                    order.leverage *= -1
-                should_ignore_order = order.leverage == 0
-            else:
-                pass#  We are getting the leverage closer to the new boundary (decrease) so allow it
-        elif abs(proposed_leverage) < min_position_leverage:
-            if is_first_order or abs(proposed_leverage) < abs(self.net_leverage):
-                raise ValueError(f'Attempted to set position leverage below min_position_leverage {min_position_leverage}')
-            else:
-                pass  # We are trying to increase the leverage here so let it happen
+        # we only need to worry about clamping if the sign of the position leverage remains the same i.e. position does not flip and close
+        if self.net_leverage * proposed_leverage > 0:
+            if abs(proposed_leverage) > max_position_leverage:
+                if is_first_order or abs(proposed_leverage) >= abs(self.net_leverage):
+                    order.leverage = max(0.0, max_position_leverage - abs(self.net_leverage))
+                    if order.order_type == OrderType.SHORT:
+                        order.leverage *= -1
+                    should_ignore_order = order.leverage == 0
+                else:
+                    pass#  We are getting the leverage closer to the new boundary (decrease) so allow it
+            elif abs(proposed_leverage) < min_position_leverage:
+                if is_first_order or abs(proposed_leverage) < abs(self.net_leverage):
+                    raise ValueError(f'Attempted to set position leverage below min_position_leverage {min_position_leverage}')
+                else:
+                    pass  # We are trying to increase the leverage here so let it happen
 
         if abs(order.leverage) < ValiConfig.ORDER_MIN_LEVERAGE and (should_ignore_order is False):
             raise ValueError(f'Clamped order leverage [{order.leverage}] is below ValiConfig.ORDER_MIN_LEVERAGE {ValiConfig.ORDER_MIN_LEVERAGE}')
