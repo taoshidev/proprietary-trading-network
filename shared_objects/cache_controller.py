@@ -195,8 +195,8 @@ class CacheController:
             ValiBkpUtils.get_challengeperiod_file_location(running_unit_tests=self.running_unit_tests)
         ).get('success', {})
 
-    def _refresh_challengeperiod_in_memory(self, eliminations: list[dict] = []):
-        if len(eliminations) == 0:
+    def _refresh_challengeperiod_in_memory(self, eliminations: list[dict] = None):
+        if eliminations is None:
             eliminations = self.eliminations
 
         eliminations_hotkeys = set([x['hotkey'] for x in eliminations])

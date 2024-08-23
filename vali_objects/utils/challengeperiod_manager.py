@@ -58,9 +58,27 @@ class ChallengePeriodManager(CacheController):
         self._promote_challengeperiod_in_memory(hotkeys=challengeperiod_success, current_time=current_time)
         self._demote_challengeperiod_in_memory(hotkeys=challengeperiod_eliminations)
 
+        # Now remove any miners who are no longer in the metagraph
+        self._prune_deregistered_metagraph()
+
         # Now sync challenge period with the disk
         self._write_challengeperiod_from_memory_to_disk()
         self._write_eliminations_from_memory_to_disk()
+
+    def _prune_deregistered_metagraph(self):
+        """
+        Prune the challenge period of all miners who are no longer in the metagraph
+        """
+        hotkeys = self.metagraph.hotkeys
+
+        for hotkey in self.challengeperiod_testing:
+            if hotkey not in hotkeys:
+                self.challengeperiod_testing.pop(hotkey)
+
+        for hotkey in self.challengeperiod_success:
+            if hotkey not in hotkeys:
+                self.challengeperiod_success.pop(hotkey)
+
 
 
     def inspect(

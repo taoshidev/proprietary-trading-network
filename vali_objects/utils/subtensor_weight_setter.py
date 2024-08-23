@@ -30,6 +30,9 @@ class SubtensorWeightSetter(CacheController):
         if current_time is None:
             current_time = TimeUtil.now_in_millis()
 
+        # Collect metagraph hotkeys to ensure we are only setting weights for miners in the metagraph
+        metagraph_hotkeys = self.metagraph.hotkeys
+
         # we want to do this first because we will add to the eliminations list
         self._refresh_eliminations_in_memory()
         self._refresh_challengeperiod_in_memory()
@@ -60,9 +63,9 @@ class SubtensorWeightSetter(CacheController):
 
             checkpoint_netuid_weights = []
             for miner, score in checkpoint_results:
-                if miner in self.metagraph.hotkeys:
+                if miner in metagraph_hotkeys:
                     checkpoint_netuid_weights.append((
-                        self.metagraph.hotkeys.index(miner),
+                        metagraph_hotkeys.index(miner),
                         score
                     ))
                 else:
@@ -70,9 +73,9 @@ class SubtensorWeightSetter(CacheController):
 
             challengeperiod_weights = []
             for miner in testing_hotkeys:
-                if miner in self.metagraph.hotkeys:
+                if miner in metagraph_hotkeys:
                     challengeperiod_weights.append((
-                        self.metagraph.hotkeys.index(miner),
+                        metagraph_hotkeys.index(miner),
                         ValiConfig.CHALLENGE_PERIOD_WEIGHT
                     ))
                 else:
