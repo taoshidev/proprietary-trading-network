@@ -395,11 +395,6 @@ class PositionManager(CacheController):
                 eliminations.pop(miner_hotkey)
             self.write_perf_ledger_eliminations_to_disk(eliminations)
 
-            perf_ledger = self.perf_ledger_manager.load_perf_ledgers_from_disk()
-            if miner_hotkey in perf_ledger:
-                perf_ledger.pop(miner_hotkey)
-            self.perf_ledger_manager.write_perf_ledgers_to_disk(perf_ledger)
-
             self._refresh_plagiarism_scores_in_memory_and_disk()
             if miner_hotkey in self.miner_plagiarism_scores:
                 self.miner_plagiarism_scores[miner_hotkey] = 0
