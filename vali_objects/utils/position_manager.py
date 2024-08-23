@@ -371,7 +371,12 @@ class PositionManager(CacheController):
                 return
             bt.logging.info(f"Wiping data for miner [{miner_hotkey}]")
             suffix = "/tests" if self.running_unit_tests else ""
-            shutil.rmtree(ValiConfig.BASE_DIR + f"{suffix}/validation/miners/{miner_hotkey}")
+
+            try:
+                shutil.rmtree(ValiConfig.BASE_DIR + f"{suffix}/validation/miners/{miner_hotkey}")
+            except FileNotFoundError:
+                bt.logging.warning(f"Could not find data for miner [{miner_hotkey}]")
+                pass
 
             self._refresh_challengeperiod_in_memory()
             if miner_hotkey in self.challengeperiod_testing:
