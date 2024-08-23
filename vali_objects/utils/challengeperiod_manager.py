@@ -71,11 +71,11 @@ class ChallengePeriodManager(CacheController):
         """
         hotkeys = self.metagraph.hotkeys
 
-        for hotkey in self.challengeperiod_testing:
+        for hotkey in list(self.challengeperiod_testing.keys()):
             if hotkey not in hotkeys:
                 self.challengeperiod_testing.pop(hotkey)
 
-        for hotkey in self.challengeperiod_success:
+        for hotkey in list(self.challengeperiod_success.keys()):
             if hotkey not in hotkeys:
                 self.challengeperiod_success.pop(hotkey)
 
