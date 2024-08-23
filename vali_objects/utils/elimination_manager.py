@@ -72,20 +72,11 @@ class EliminationManager(CacheController):
                 continue
 
             # If the miner is no longer in the metagraph, we can remove them from the challengeperiod information
-            try:
-                if hotkey in self.challengeperiod_testing:
-                    self.challengeperiod_testing.pop(hotkey)
+            if hotkey in self.challengeperiod_testing:
+                self.challengeperiod_testing.pop(hotkey)
 
-                if hotkey in self.challengeperiod_success:
-                    self.challengeperiod_success.pop(hotkey)
-
-            except KeyError as ke:
-                bt.logging.error(f"KeyError: The hotkey [{hotkey}] was not found in the challengeperiod information. Error: {ke}")
-            except IOError as ioe:
-                bt.logging.error(f"IOError: Failed to read or write challengeperiod information for hotkey [{hotkey}]. Error: {ioe}")
-            except Exception as e:
-                bt.logging.error(f"Unexpected error occurred while deleting miner's challengeperiod information [{hotkey}]. Error: {e}")
-                raise  # Re-raise the exception after logging to avoid silent failures
+            if hotkey in self.challengeperiod_success:
+                self.challengeperiod_success.pop(hotkey)
 
             miner_dir = ValiBkpUtils.get_miner_dir(running_unit_tests=self.running_unit_tests) + hotkey
             try:

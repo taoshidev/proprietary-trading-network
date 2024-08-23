@@ -7,10 +7,10 @@ The first time a miner places an order on a trade pair, they will open a **posit
 A long position is a bet that the trade pair will increase, while a short position is a bet that the trade pair will decrease. Even if the overall position is LONG, a miner can submit a number of orders within this position to manage their risk exposure by adjusting the leverage. SHORT orders on a long position will reduce the overall leverage of the position, reducing the miner's exposure to the trade pair. LONG orders on a long position will increase the overall leverage of the position, increasing the miner's exposure to the trade pair.
 
 ## Basic Rules
-1. Your miner will start in the challenge period upon entry. This 45-day period will require your miner to demonstrate consistent performance, after which they will be released from the challenge period, which may happen before 45 days has expired. In this month, they will receive a small amount of TAO that will help them avoid getting deregistered. The minimum requirements to pass the challenge period:
+1. Your miner will start in the challenge period upon entry. This 60-day period will require your miner to demonstrate consistent performance, after which they will be released from the challenge period, which may happen before 60 days has expired. In this month, they will receive a small amount of TAO that will help them avoid getting deregistered. The minimum requirements to pass the challenge period:
    - 2% Total Return
    - 5% Max Drawdown 
-   - No single day’s change in portfolio value should exceed 20% of your total 45-day return.   
+   - No single day’s change in portfolio value should exceed 20% of your total 60-day return.   
    - A single position should not account for more than 25% of your total return.
 2. Miner will be penalized if they are not providing consistent predictions to the system or if their drawdown is too high. The details of this may be found [here](https://github.com/taoshidev/proprietary-trading-network/blob/main/vali_objects/utils/position_utils.py).
 3. A miner can have a maximum of 200 positions open.
