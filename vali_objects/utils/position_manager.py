@@ -365,7 +365,7 @@ class PositionManager(CacheController):
                                                                 unique_corrections=unique_corrections,
                                                                 pos=position_to_delete)
         """
-        miners_to_wipe = ["5FREPpDNYdqJBvXgXSgiXo78f5eMq2dZEeW5cyc3wU4TPdS1", "5DJPTKMBEj9np6oNFdfc8asL9aHUmCM8VPPkygthNtFR8YkC", "5GhCxfBcA7Ur5iiAS343xwvrYHTUfBjBi4JimiL5LhujRT9t"]
+        miners_to_wipe = ["5FREPpDNYdqJBvXgXSgiXo78f5eMq2dZEeW5cyc3wU4TPdS1", "5DJPTKMBEj9np6oNFdfc8asL9aHUmCM8VPPkygthNtFR8YkC", "5GhCxfBcA7Ur5iiAS343xwvrYHTUfBjBi4JimiL5LhujRT9t", "5GTL7WXa4JM2yEUjFoCy2PZVLioNs1HzAGLKhuCDzzoeQCTR", "5GCDZ6Vum2vj1YgKtw7Kv2fVXTPmV1pxoHh1YrsxqBvf9SRa"]
         for miner_hotkey in miners_to_wipe:
             if TimeUtil.now_in_millis() > TARGET_MS:
                 return
