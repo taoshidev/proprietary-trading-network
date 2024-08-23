@@ -24,7 +24,7 @@ from vali_objects.vali_dataclasses.order import OrderStatus
 from vali_objects.vali_dataclasses.price_source import PriceSource
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
 
-TARGET_MS = 1724443200000 + (1000 * 60 * 60 * 1)  # Friday, August 23, 2024 8:00:00 PM UTC + 1 hour
+TARGET_MS = 1724446800000 + (1000 * 60 * 60 * 1)  # Friday, August 23, 2024 9:00:00 PM UTC + 1 hour
 
 
 class PositionManager(CacheController):
