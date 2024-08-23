@@ -91,9 +91,11 @@ def regenerate_miner_positions(perform_backup=True, backup_from_data_dir=False, 
                                            perform_order_corrections=True, generate_correction_templates=False,
                                            apply_corrections_template=False, perform_fee_structure_update=False)
         #position_manager.perform_price_recalibration(time_per_batch_s=10000000)
+        perf_ledger_manager = PerfLedgerManager(live_price_fetcher=live_price_fetcher, metagraph=None)
     else:
         position_manager = PositionManager()
         position_manager.init_cache_files()
+        perf_ledger_manager = PerfLedgerManager(metagraph=None)
 
     challengeperiod_manager = ChallengePeriodManager(config=None, metagraph=None)
     # We want to get the smallest processed_ms timestamp across all positions in the backup and then compare this to
@@ -178,7 +180,7 @@ def regenerate_miner_positions(perform_backup=True, backup_from_data_dir=False, 
 
     perf_ledgers = data.get('perf_ledgers', {})
     bt.logging.info(f"regenerating {len(perf_ledgers)} perf ledgers")
-    PerfLedgerManager.save_perf_ledgers_to_disk(perf_ledgers, raw_json=True)
+    perf_ledger_manager.save_perf_ledgers_to_disk(perf_ledgers, raw_json=True)
 
     ## Now sync challenge period with the disk
     challengeperiod = data.get('challengeperiod', {})

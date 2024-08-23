@@ -150,6 +150,11 @@ def generate_request_core(time_now:int) -> dict:
         running_unit_tests=False
     )
 
+    perf_ledger_manager = PerfLedgerManager(
+        metagraph=None,
+        running_unit_tests=False
+    )
+
     eliminations = position_manager.get_eliminations_from_disk()
     eliminated_hotkeys = set(x['hotkey'] for x in eliminations)
 
@@ -253,7 +258,7 @@ def generate_request_core(time_now:int) -> dict:
 
     assert n_orders_original == n_positions_new, f"n_orders_original: {n_orders_original}, n_positions_new: {n_positions_new}"
 
-    perf_ledgers = PerfLedgerManager.load_perf_ledgers_from_disk()
+    perf_ledgers = perf_ledger_manager.load_perf_ledgers_from_disk()
     final_dict = {
         'version': ValiConfig.VERSION,
         'created_timestamp_ms': time_now,

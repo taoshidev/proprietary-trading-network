@@ -25,7 +25,7 @@ if __name__ == "__main__":
             if write_output:
                 # Generate the request outputs
                 generate_request_core(time_now=current_time_ms)
-                generate_request_minerstatistics(time_now=current_time_ms)
+                generate_request_minerstatistics(time_now=current_time_ms, checkpoints=True)
 
             if write_output:
                 last_validator_checkpoint_time = current_time

@@ -1,5 +1,4 @@
 # developer: trdougherty
-# Copyright © 2024 Taoshi Inc
 import numpy as np
 from numpy import ndarray
 from scipy.sparse import csr_matrix
@@ -12,11 +11,12 @@ from vali_config import ValiConfig
 from vali_objects.position import Position
 from vali_objects.utils.position_utils import PositionUtils
 
+
 class PlagiarismUtils:
     @staticmethod
     def generate_elimination_mapping(
-        positions: list[Position],
-        current_time: int
+            positions: list[Position],
+            current_time: int
     ) -> dict[str, bool]:
         """
         Args:
@@ -63,13 +63,13 @@ class PlagiarismUtils:
         # state_similarities = PlagiarismUtils.similarities_distillation(state_similarities_snapshot)
 
         return similarities_instances
-    
+
     @staticmethod
     def log_similarities(
-        miners: list[str],
-        trade_pairs: list[str],
-        state_similarities_booleans: csr_matrix,
-        state_similarities_snapshot: csr_matrix
+            miners: list[str],
+            trade_pairs: list[str],
+            state_similarities_booleans: csr_matrix,
+            state_similarities_snapshot: csr_matrix
     ):
         """
         Args:
@@ -79,15 +79,15 @@ class PlagiarismUtils:
         victims, plagiarisers, condition = sparse.find(similarity_condition)
 
         victims_cosine_similarities = state_similarities_snapshot[
-            victims, 
+            victims,
             plagiarisers
         ]
 
-        plagiarisers_minerids = np.array([ miners[plagiariser // len(trade_pairs)] for plagiariser in plagiarisers ])
-        plagiarisers_tradepairids = np.array([ trade_pairs[plagiariser % len(trade_pairs)] for plagiariser in plagiarisers ])
+        plagiarisers_minerids = np.array([miners[plagiariser // len(trade_pairs)] for plagiariser in plagiarisers])
+        plagiarisers_tradepairids = np.array([trade_pairs[plagiariser % len(trade_pairs)] for plagiariser in plagiarisers])
 
-        victims_minerids = np.array([ miners[victim // len(trade_pairs)] for victim in victims ])
-        victims_tradepairids = np.array([ trade_pairs[victim % len(trade_pairs)] for victim in victims ])
+        victims_minerids = np.array([miners[victim // len(trade_pairs)] for victim in victims])
+        victims_tradepairids = np.array([trade_pairs[victim % len(trade_pairs)] for victim in victims])
 
         matching_tradepairs = (plagiarisers_tradepairids == victims_tradepairids) & (plagiarisers_minerids != victims_minerids)
 
@@ -102,8 +102,8 @@ class PlagiarismUtils:
 
     @staticmethod
     def detect_lag(
-        state_similarities: csr_matrix,
-        threshold: float = None
+            state_similarities: csr_matrix,
+            threshold: float = None
     ) -> np.ndarray:
         """
         Args:
@@ -116,11 +116,11 @@ class PlagiarismUtils:
 
         sparse_comparison = np.array(state_similarities / state_similarities.T)
         return sparse_comparison >= threshold
-    
+
     @staticmethod
     def detect_similarity(
-        state_similarities: csr_matrix,
-        threshold: float = None
+            state_similarities: csr_matrix,
+            threshold: float = None
     ) -> np.ndarray:
         """
         Args:
@@ -132,15 +132,15 @@ class PlagiarismUtils:
             threshold = ValiConfig.PLAGIARISM_FOLLOWER_SIMILARITY_THRESHOLD
 
         return (state_similarities >= threshold).toarray()
-    
+
     @staticmethod
     def build_state_matrix(
-        miners: list[str],
-        trade_pairs: list[str],
-        state_list: list[dict],
-        current_time: int,
-        time_resolution: int = None,
-        lookback_window: int = None
+            miners: list[str],
+            trade_pairs: list[str],
+            state_list: list[dict],
+            current_time: int,
+            time_resolution: int = None,
+            lookback_window: int = None
     ) -> ndarray:
         """
         Args:
@@ -165,14 +165,14 @@ class PlagiarismUtils:
             leverage_matrix[miner_index, tradepair_index, time_criteria] = state["leverage"]
 
         return leverage_matrix
-    
+
     @staticmethod
     def build_state_matrix_sparse(
-        miners: list[str],
-        trade_pairs: list[str],
-        state_list: list[dict],
-        current_time: int,
-        time_resolution: int = None
+            miners: list[str],
+            trade_pairs: list[str],
+            state_list: list[dict],
+            current_time: int,
+            time_resolution: int = None
     ) -> ndarray:
         """
         Args:
@@ -180,7 +180,6 @@ class PlagiarismUtils:
         """
         if time_resolution is None:
             time_resolution = ValiConfig.PLAGIARISM_MATCHING_TIME_RESOLUTION_MS
-
 
         start_time = current_time - (ValiConfig.PLAGIARISM_LOOKBACK_RANGE_MS)
         times_length = (current_time - start_time) // time_resolution
@@ -192,23 +191,22 @@ class PlagiarismUtils:
         for state in state_list:
             miner_index = miners.index(state["miner_id"])
             tradepair_index = trade_pairs.index(state["trade_pair"])
-            
+
             start_index = ((state["start"] - start_time + time_resolution - 1) // time_resolution)
             end_index = ((state["end"] - start_time) // time_resolution) + 1
-            
+
             time_indices = np.arange(start_index, end_index)
-            
+
             data.extend([state["leverage"]] * len(time_indices))
             row_indices.extend([miner_index * len(trade_pairs) + tradepair_index] * len(time_indices))
             col_indices.extend(time_indices)
 
         leverage_matrix = csr_matrix((data, (row_indices, col_indices)), shape=(len(miners) * len(trade_pairs), times_length))
         return leverage_matrix
-    
-    
+
     @staticmethod
     def similarities_distillation(
-        state_similarities_matrix: ndarray
+            state_similarities_matrix: ndarray
     ) -> ndarray:
         """
         Args:
@@ -218,19 +216,19 @@ class PlagiarismUtils:
 
         # axis 1 is the time lagged index
         return np.mean(state_similarities_matrix, axis=1)
-    
+
     @staticmethod
     def build_similarities_matrix(
-        state_matrix: csr_matrix,
-        n_lags: int = 1
+            state_matrix: csr_matrix,
+            n_lags: int = 1
     ) -> csr_matrix:
         """
         Args:
             state_matrix: ndarray - the state matrix
         """
         # Compute the similarities between the states
-        d1 = state_matrix[:,:-n_lags] # beginning to all the way up to current - n_lags
-        d2 = state_matrix[:,n_lags:] # all the way up to current - i.e. "lagged" in history relative to d1
+        d1 = state_matrix[:, :-n_lags]  # beginning to all the way up to current - n_lags
+        d2 = state_matrix[:, n_lags:]  # all the way up to current - i.e. "lagged" in history relative to d1
 
         # return a cosine similarity matrix between the two
         similarities = cosine_similarity(
@@ -242,24 +240,24 @@ class PlagiarismUtils:
         # Drop the diagonal
         similarities.setdiag(0)
         return similarities
-    
+
     @staticmethod
     def matrix_divided_by_transpose(matrix):
         transpose = matrix.T
         ratio_matrix = matrix.copy()
-        
+
         # Find the indices of non-zero elements in ratio_matrix
         nonzero_indices = ratio_matrix.nonzero()
-        
+
         # Get the corresponding non-zero elements from the transpose
         transpose_nonzero = transpose[nonzero_indices].A1
-        
+
         # Replace zero elements in transpose_nonzero with 1 to avoid divide by zero
         transpose_nonzero[transpose_nonzero == 0] = 1
-        
+
         # Divide the non-zero elements of ratio_matrix by the corresponding elements of transpose_nonzero
         ratio_matrix.data /= transpose_nonzero
-        
+
         return ratio_matrix
 
     @staticmethod
@@ -269,11 +267,11 @@ class PlagiarismUtils:
             if ratio_matrix[i, j] > threshold:
                 nonsymmetric_elements.append((i, j))
         return nonsymmetric_elements
-    
+
     @staticmethod
     def build_cosine_similarity_matrix(
-        state_matrix: csr_matrix,
-        n_lags: int = 1
+            state_matrix: csr_matrix,
+            n_lags: int = 1
     ) -> csr_matrix:
         """
         Args:
@@ -309,7 +307,7 @@ class PlagiarismUtils:
             for j in range(n_miners):
                 # Extract the cell block for miners i and j
                 cell_block = similarity_matrix[i * n_signals:(i + 1) * n_signals, j * n_signals:(j + 1) * n_signals]
-                
+
                 # this is used when we just want to compare like signals
                 cell_signals = cell_block.diagonal()
 
@@ -324,7 +322,7 @@ class PlagiarismUtils:
         compressed_matrix = csr_matrix((compressed_data, (compressed_row, compressed_col)), shape=(n_miners, n_miners))
 
         return compressed_matrix
-    
+
     @staticmethod
     def build_similarities_cascade_lag(state_matrix: csr_matrix, max_lags: int = None) -> csr_matrix:
         """
@@ -343,10 +341,10 @@ class PlagiarismUtils:
             similarities_matrix = similarities_matrix.maximum(similarities_matrix_lagged)
 
         return similarities_matrix
-    
+
     @staticmethod
     def normalize_state_matrix(
-        state_matrix: ndarray
+            state_matrix: ndarray
     ) -> ndarray:
         """
         Args:
@@ -355,11 +353,11 @@ class PlagiarismUtils:
 
         # Normalize along the timeseries axis - the rows, not the columns
         return normalize(state_matrix, norm='l2', axis=1)
-    
+
     @staticmethod
     def similarity_compression(
-        state_similarities_matrix: ndarray,
-        threshold: float = 0.5
+            state_similarities_matrix: ndarray,
+            threshold: float = 0.5
     ) -> ndarray:
         """
         Args:
@@ -369,11 +367,11 @@ class PlagiarismUtils:
         # Axis of 1 is the new miners axis
         similarities_percentile = np.percentile(state_similarities_matrix, 80, axis=1)  # noqa: F841
         return state_similarities_matrix
-    
+
     @staticmethod
     def similarity_threshold(
-        score: ndarray,
-        threshold: float = None
+            score: ndarray,
+            threshold: float = None
     ) -> bool:
         """
         Args:

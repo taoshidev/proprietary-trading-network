@@ -1,67 +1,28 @@
-# developer: Taoshidev
-# Copyright © 2024 Taoshi Inc
+# developer: trdougherty
 
 import math
-from typing import List, Tuple, Dict
+from typing import List, Tuple
+from vali_objects.position import Position
 
 import numpy as np
 from scipy.stats import percentileofscore
 
 from vali_config import ValiConfig
-from vali_objects.utils.vali_utils import ValiUtils
-from vali_objects.vali_dataclasses.perf_ledger import PerfLedger
-from vali_objects.utils.position_manager import PositionManager
+from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerData
 from time_util.time_util import TimeUtil
-from vali_objects.utils.position_utils import PositionUtils
+from vali_objects.utils.position_filtering import PositionFiltering
+from vali_objects.utils.position_penalties import PositionPenalties
+from vali_objects.utils.ledger_utils import LedgerUtils
 
 import bittensor as bt
 
-from pydantic import BaseModel, field_validator
-
-
-class ScoringUnit(BaseModel):
-    gains: list[float]
-    losses: list[float]
-    n_updates: list[int]
-    open_ms: list[int]
-    mdd: list[float]
-
-    @field_validator('gains', 'n_updates', 'open_ms', mode='before')
-    def check_non_negative(cls, v):
-        if any(x < 0 for x in (v or [])):  # Simplified check
-            raise ValueError("All values must be non-negative")
-        return v
-
-    @field_validator('losses', mode='before')
-    def check_non_positive(cls, v):
-        if any(x > 0 for x in (v or [])):  # Simplified check
-            raise ValueError("All values must be non-positive")
-        return v
-
-    @classmethod
-    def from_perf_ledger(cls, perf_ledger: PerfLedger):
-        # Extract the required fields from the list of PerfCheckpoint in the PerfLedger
-        gains = []
-        losses = []
-        n_updates = []
-        open_ms = []
-        mdd = []
-
-        for cp in perf_ledger.cps:
-            gains.append(cp.gain)
-            losses.append(cp.loss)
-            n_updates.append(cp.n_updates)
-            open_ms.append(cp.open_ms)
-            mdd.append(cp.mdd)
-
-        return cls(gains=gains, losses=losses, n_updates=n_updates, open_ms=open_ms, mdd=mdd)
-    
 class Scoring:
     @staticmethod
     def compute_results_checkpoint(
-        ledger_dict: Dict[str, PerfLedger],
-        evaluation_time_ms: int = None,
-        verbose=True
+            ledger_dict: dict[str, PerfLedgerData],
+            full_positions: dict[str, list[Position]],
+            evaluation_time_ms: int = None,
+            verbose=True
     ) -> List[Tuple[str, float]]:
         if len(ledger_dict) == 0:
             bt.logging.debug("No results to compute, returning empty list")
@@ -72,41 +33,49 @@ class Scoring:
             if verbose:
                 bt.logging.info(f"Only one miner: {miner}, returning 1.0 for the solo miner weight")
             return [(miner, 1.0)]
-        
+
         if evaluation_time_ms is None:
             evaluation_time_ms = TimeUtil.now_in_millis()
-        
-        return_decay_short_lookback_time_ms = ValiConfig.RETURN_DECAY_SHORT_LOOKBACK_TIME_MS
 
-        # Compute miner penalties
-        miner_penalties = Scoring.miner_penalties(ledger_dict)
-
-        ## Miners with full penalty
-        fullpenalty_miner_scores: list[tuple[str, float]] = [ ( miner, 0 ) for miner, penalty in miner_penalties.items() if penalty == 0 ]
-        fullpenalty_miners = set([ x[0] for x in fullpenalty_miner_scores ])
-
-        # Augmented returns ledgers
-        returns_ledger_short = PositionManager.limit_perf_ledger(
-            ledger_dict,
-            evaluation_time_ms=evaluation_time_ms,
-            lookback_time_ms=return_decay_short_lookback_time_ms,
+        filtered_positions = PositionFiltering.filter(
+            full_positions,
+            evaluation_time_ms=evaluation_time_ms
         )
 
+        filtered_recent_positions = PositionFiltering.filter_recent(
+            full_positions,
+            evaluation_time_ms=evaluation_time_ms
+        )
+
+        # Compute miner penalties
+        miner_penalties = Scoring.miner_penalties(filtered_positions, ledger_dict)
+
+        # Miners with full penalty
+        full_penalty_miner_scores: list[tuple[str, float]] = [
+            (miner, 0) for miner, penalty in miner_penalties.items() if penalty == 0
+        ]
+        full_penalty_miners = set([x[0] for x in full_penalty_miner_scores])
+
         scoring_config = {
-            'return_cps_short': {
-                'function': Scoring.return_cps,
-                'weight': ValiConfig.SCORING_RETURN_CPS_SHORT_WEIGHT,
-                'ledger': returns_ledger_short,
+            'return_long': {
+                'function': Scoring.risk_adjusted_return,
+                'weight': ValiConfig.SCORING_RETURN_LONG_LOOKBACK_WEIGHT,
+                'positions': filtered_positions
             },
-            'return_cps_long': {
-                'function': Scoring.return_cps,
-                'weight': ValiConfig.SCORING_RETURN_CPS_LONG_WEIGHT,
-                'ledger': ledger_dict,
+            'return_short': {
+                'function': Scoring.risk_adjusted_return,
+                'weight': ValiConfig.SCORING_RETURN_SHORT_LOOKBACK_WEIGHT,
+                'positions': filtered_recent_positions
             },
-            'omega_cps': {
-                'function': Scoring.omega_cps,
-                'weight': ValiConfig.SCORING_OMEGA_CPS_WEIGHT,
-                'ledger': ledger_dict,
+            'sharpe_ratio': {
+                'function': Scoring.sharpe,
+                'weight': ValiConfig.SCORING_SHARPE_WEIGHT,
+                'positions': filtered_positions
+            },
+            'omega': {
+                'function': Scoring.omega,
+                'weight': ValiConfig.SCORING_OMEGA_WEIGHT,
+                'positions': filtered_positions
             },
         }
 
@@ -114,43 +83,68 @@ class Scoring:
 
         for config_name, config in scoring_config.items():
             miner_scores = []
-            for miner, minerledger in config['ledger'].items():
+            for miner, positions in config['positions'].items():
+                # Get the miner ledger
+                ledger = ledger_dict.get(miner, [])
+
                 # Check if the miner has full penalty - if not include them in the scoring competition
-                if miner in fullpenalty_miners:
+                if miner in full_penalty_miners:
                     continue
 
-                scoringunit = ScoringUnit.from_perf_ledger(minerledger)
-                score = config['function'](scoringunit=scoringunit)
-                score_riskadjusted = score * miner_penalties.get(miner, 0)
-                miner_scores.append((miner, score_riskadjusted))
-            
+                score = config['function'](
+                    positions=positions,
+                    ledger=ledger
+                )
+
+                penalized_score = score * miner_penalties.get(miner, 0)
+                miner_scores.append((miner, penalized_score))
+
             weighted_scores = Scoring.miner_scores_percentiles(miner_scores)
             for miner, score in weighted_scores:
                 if miner not in combined_scores:
                     combined_scores[miner] = 1
                 combined_scores[miner] *= config['weight'] * score + (1 - config['weight'])
 
-        # ## Force good performance of all error metrics
-        combined_weighed = Scoring.weigh_miner_scores(list(combined_scores.items())) + fullpenalty_miner_scores
+        # Force good performance of all error metrics
+        combined_weighed = Scoring.weigh_miner_scores(list(combined_scores.items())) + full_penalty_miner_scores
         combined_scores = dict(combined_weighed)
 
-        ## Normalize the scores
+        # Normalize the scores
         normalized_scores = Scoring.normalize_scores(combined_scores)
         return sorted(normalized_scores.items(), key=lambda x: x[1], reverse=True)
-    
+
     @staticmethod
-    def miner_penalties(ledger_dict: dict[str, PerfLedger]) -> dict[str, float]:
+    def miner_penalties(
+            hotkey_positions: dict[str, list[Position]],
+            ledger_dict: dict[str, PerfLedgerData]
+    ) -> dict[str, float]:
         # Compute miner penalties
         miner_penalties = {}
-        for miner, perfledger in ledger_dict.items():
-            ledgercps = perfledger.cps
 
-            consistency_penalty = PositionUtils.compute_consistency_penalty_cps(ledgercps)
-            drawdown_penalty = PositionUtils.compute_drawdown_penalty_cps(ledgercps)
-            miner_penalties[miner] = drawdown_penalty * consistency_penalty
+        for miner, ledger in ledger_dict.items():
+            ledger_checkpoints = ledger.cps
+            positions = hotkey_positions.get(miner, [])
+
+            # Positional Consistency
+            positional_return_time_consistency = PositionPenalties.time_consistency_penalty(positions)
+            positional_consistency = PositionPenalties.returns_ratio_penalty(positions)
+
+            # Ledger Consistency
+            daily_consistency = LedgerUtils.daily_consistency_penalty(ledger_checkpoints)
+            biweekly_consistency = LedgerUtils.biweekly_consistency_penalty(ledger_checkpoints)
+            drawdown_threshold_penalty = LedgerUtils.max_drawdown_threshold_penalty(ledger_checkpoints)
+
+            # Combine penalties
+            miner_penalties[miner] = (
+                    drawdown_threshold_penalty *
+                    positional_return_time_consistency *
+                    positional_consistency *
+                    daily_consistency *
+                    biweekly_consistency
+            )
 
         return miner_penalties
-    
+
     @staticmethod
     def normalize_scores(scores: dict[str, float]) -> dict[str, float]:
         """
@@ -160,233 +154,140 @@ class Scoring:
         if len(scores) == 0:
             bt.logging.info("No scores to normalize, returning empty list")
             return {}
-        
+
         sum_scores = sum(scores.values())
         if sum_scores == 0:
             bt.logging.info("sum_scores is 0, returning empty list")
             return {}
-        
+
         normalized_scores = {
             miner: (score / sum_scores) for miner, score in scores.items()
         }
         # normalized_scores = sorted(normalized_scores, key=lambda x: x[1], reverse=True)
         return normalized_scores
-    
+
     @staticmethod
-    def return_cps(scoringunit: ScoringUnit) -> float:
+    def base_return(positions: list[Position]) -> float:
         """
         Args:
-            scoringunit: ScoringUnit - the scoring unit for the miner
+            positions: list of positions from the miner
         """
-        gains = scoringunit.gains
-        losses = scoringunit.losses
+        if len(positions) == 0:
+            return 0.0
 
-        if len(gains) == 0 or len(losses) == 0:
-            # won't happen because we need a minimum number of trades, but would kick them to a bad return (bottom of the list)
-            return 0 # should return 0, indicating a return of 1
+        positional_returns = [math.log(position.return_at_close) for position in positions]
 
-        total_gain = sum(gains)
-        total_loss = sum(losses)
-        total_return = total_gain + total_loss
+        aggregate_return = 0.0
+        for positional_return in positional_returns:
+            aggregate_return += positional_return
 
-        return total_return
-    
+        return aggregate_return
+
     @staticmethod
-    def omega_cps(scoringunit: ScoringUnit) -> float:
+    def risk_adjusted_return(positions: list[Position], ledger: PerfLedgerData) -> float:
         """
         Args:
-            scoringunit: ScoringUnit - the scoring unit for the miner
+            positions: list of positions from the miner
+            ledger: the ledger of the miner
         """
-        gains = scoringunit.gains
-        losses = scoringunit.losses
+        # Positional Component
+        if len(positions) == 0:
+            return 0.0
 
-        if len(gains) == 0 or len(losses) == 0:
-            # won't happen because we need a minimum number of trades, but would kick them to 0 weight (bottom of the list)
-            return 0
+        base_return = Scoring.base_return(positions)
+        risk_normalization_factor = LedgerUtils.risk_normalization(ledger.cps)
 
-        omega_minimum_denominator = ValiConfig.OMEGA_MINIMUM_DENOMINATOR
+        return base_return * risk_normalization_factor
 
-        sum_above = sum(gains)
-        sum_below = sum(losses)
-
-        sum_below = max(abs(sum_below), omega_minimum_denominator)
-        return sum_above / sum_below
-    
     @staticmethod
-    def inverted_sortino_cps(scoringunit: ScoringUnit) -> float:
+    def sharpe(positions: list[Position], ledger: PerfLedgerData) -> float:
         """
         Args:
-            scoringunit: ScoringUnit - the scoring unit for the miner
+            positions: list of positions from the miner
+            ledger: the ledger of the miner
         """
-        gains = scoringunit.gains
-        losses = scoringunit.losses
-        open_ms = scoringunit.open_ms
+        if len(positions) == 0:
+            return 0.0
 
-        if len(gains) == 0 or len(losses) == 0:
-            # won't happen because we need a minimum number of trades, but would kick them to 0 weight (bottom of the list)
-            return 0
-        
-        total_loss = sum(losses)
-        total_loss = np.clip(total_loss, a_min=None, a_max=0)
+        # Hyperparameter
+        min_std_dev = ValiConfig.SHARPE_STDDEV_MINIMUM
 
-        total_position_active_time = sum(open_ms)
+        # Return at close should already accommodate the risk-free rate as a cost of carry
+        positional_log_returns = [math.log(position.return_at_close) for position in positions]
 
-        if total_position_active_time == 0:
-            return -1 / ValiConfig.SORTINO_MIN_DENOMINATOR # this will be quite large
-                
-        return total_loss / total_position_active_time
-    
-    @staticmethod
-    def checkpoint_volume_threshold_count(scoringunit: ScoringUnit) -> int:
-        """
-        Args:
-            scoringunit: ScoringUnit - the scoring unit for the miner
-        """
-        gains = scoringunit.gains
-        losses = scoringunit.losses
-        if len(gains) == 0 or len(losses) == 0:
-            # won't happen because we need a minimum number of trades, but would kick them to 0 weight (bottom of the list)
-            return 0
-        
-        checkpoint_volume_threshold = ValiConfig.CHECKPOINT_VOLUME_THRESHOLD
-        volume_arr = np.array(gains) + np.abs(np.array(losses))
-
-        return int(np.sum(volume_arr >= checkpoint_volume_threshold))
-
-    @staticmethod
-    def omega(returns: list[float]) -> float:
-        """
-        Args: returns: list[float] - the logged returns for each miner
-        """
-        if len(returns) == 0:
-            # won't happen because we need a minimum number of trades, but would kick them to 0 weight (bottom of the list)
-            return 0
-
-        threshold = ValiConfig.OMEGA_LOG_RATIO_THRESHOLD
-        omega_minimum_denominator = ValiConfig.OMEGA_MINIMUM_DENOMINATOR
-
-        # need to convert this to percentage based returns
-        sum_above = 0
-        sum_below = 0
-
-        threshold_return = [ return_ - threshold for return_ in returns ]
-        for return_ in threshold_return:
-            if return_ > 0:
-                sum_above += return_
-            else:
-                sum_below += return_
-
-        sum_below = max(abs(sum_below), omega_minimum_denominator)
-        return sum_above / sum_below
-    
-    @staticmethod
-    def mad_variation(returns: list[float]) -> float:
-        """
-        Args: returns: list[float] - the variance of the miner returns
-        """
-        if len(returns) == 0:
-            return 0
-
-        median = np.median(returns)
-
-        if median == 0:
-            median = ValiConfig.MIN_MEDIAN
-
-        mad = np.mean(np.abs(returns - median))
-        mrad = mad / median
-        
-        return abs(mrad)
-    
-    @staticmethod
-    def total_return(returns: list[float]) -> float:
-        """
-        Args: returns: list[float] - the total return of the miner returns
-        """
-        ## again, won't happen but in case there are no returns
-        if len(returns) == 0:
-            return 0
-        
-        return np.exp(np.sum(returns))
-    
-    @staticmethod
-    def probabilistic_sharpe_ratio(returns: list[float]) -> float:
-        """
-        Calculates the Probabilistic Sharpe Ratio (PSR) for a list of returns using the Adjusted Sharpe Ratio (ASR)
-        and the normal CDF approximation.
-
-        Args:
-            returns (list[float]): List of returns.
-            threshold (float): Threshold return (default is 0).
-
-        Returns:
-            float: Probabilistic Sharpe Ratio (PSR).
-        """
-        if len(returns) == 0:
-            return 0
-        
-        sharpe_ratio = Scoring.sharpe_ratio(returns)
-
-        # skewness, kurtosis = Scoring.calculate_moments(returns)
-
-        # Calculate the Adjusted Sharpe Ratio (ASR) based on '“Risk and Risk Aversion”, in C. Alexander and E. Sheedy, eds.: The Professional Risk Managers’Handbook, PRMIA Publications'
-
-        # adjusted_sharpe_ratio = sharpe_ratio * (1 + (skewness * sharpe_ratio / 6) - (sharpe_ratio**2 * (kurtosis - 3) / 24))
-
-        psr = Scoring.norm_cdf(sharpe_ratio)
-        return psr
-    
-    @staticmethod
-    def sharpe_ratio(returns: list[float]) -> float:
-        """
-        Calculates the Sharpe Ratio for a list of returns.
-
-        Args:
-            returns (list[float]): List of returns.
-
-        Returns:
-            float: Sharpe Ratio.
-        """
-        if len(returns) <= 1:
-            return 0
-        
-        returns = np.array(returns)
-        mean_return = np.mean(returns)
-        std_dev = np.std(returns)
+        # Sharpe ratio is calculated as the mean of the returns divided by the standard deviation of the returns
+        mean_return = np.mean(positional_log_returns)
+        std_dev = max(np.std(positional_log_returns), min_std_dev)
 
         if std_dev == 0:
-            std_dev = ValiConfig.PROBABILISTIC_SHARPE_RATIO_MIN_STD_DEV
+            return 0.0
 
-        threshold = ValiConfig.PROBABILISTIC_LOG_SHARPE_RATIO_THRESHOLD
-        log_sharpe = (mean_return - threshold) / std_dev
+        return mean_return / std_dev
 
-        return np.exp(log_sharpe)
-    
-    @staticmethod # Calculate the Probabilistic Sharpe Ratio (PSR) using the normal CDF approximation
-    def norm_cdf(x):
-        return 0.5 * (1 + math.erf(x / np.sqrt(2)))
-    
     @staticmethod
-    def calculate_moments(returns):
+    def omega(positions: list[Position], ledger: PerfLedgerData) -> float:
         """
-        Calculates the skewness and kurtosis of the returns distribution.
-
         Args:
-            returns (list[float]): List of returns.
-
-        Returns:
-            tuple: Skewness and kurtosis of the returns distribution.
+            positions: list of positions from the miner
+            ledger: the ledger of the miner
         """
-        mean = np.mean(returns)
-        std_dev = np.std(returns)
+        if len(positions) == 0:
+            return 0.0
 
-        third_moment = np.mean((returns - mean)**3)
-        fourth_moment = np.mean((returns - mean)**4)
+        # Return at close should already accommodate the risk-free rate as a cost of carry
+        positional_log_returns = [math.log(position.return_at_close) for position in positions]
 
-        skewness = third_moment / (std_dev**3)
-        kurtosis = fourth_moment / (std_dev**4)
+        positive_sum = 0
+        negative_sum = 0
 
-        return skewness, kurtosis
-    
+        for log_return in positional_log_returns:
+            if log_return > 0:
+                positive_sum += log_return
+            else:
+                negative_sum += log_return
+
+        numerator = positive_sum
+        denominator = max(abs(negative_sum), ValiConfig.OMEGA_LOSS_MINIMUM)
+
+        return numerator / denominator
+
+    # @staticmethod
+    # def softmax_scores(returns: list[tuple[str, float]]) -> list[tuple[str, float]]:
+    #     """
+    #     Assign weights to the returns based on their relative position and apply softmax with a temperature parameter.
+    #
+    #     The softmax function is used to convert the scores into probabilities that sum to 1.
+    #     Subtracting the max value from the scores before exponentiation improves numerical stability.
+    #
+    #     Parameters:
+    #     returns (list[tuple[str, float]]): List of tuples with miner names and their scores.
+    #     temperature (float): Temperature parameter to control the sharpness of the softmax distribution. Default is 1.0.
+    #
+    #     Returns:
+    #     list[tuple[str, float]]: List of tuples with miner names and their softmax weights.
+    #     """
+    #     epsilon = ValiConfig.EPSILON
+    #     temperature = ValiConfig.SOFTMAX_TEMPERATURE
+    #
+    #     if not returns:
+    #         bt.debug("No returns to score, returning empty list")
+    #         return []
+    #
+    #     if len(returns) == 1:
+    #         bt.info("Only one miner, returning 1.0 for the solo miner weight")
+    #         return [(returns[0][0], 1.0)]
+    #
+    #     # Extract scores and apply softmax with temperature
+    #     scores = [score for _, score in returns]
+    #     max_score = np.max(scores)
+    #     exp_scores = np.exp((scores - max_score) / temperature)
+    #     softmax_scores = exp_scores / max(np.sum(exp_scores), epsilon)
+    #
+    #     # Combine miners with their respective softmax scores
+    #     weighted_returns = [(returns[i][0], softmax_scores[i]) for i in range(len(returns))]
+    #
+    #     return weighted_returns
+
     @staticmethod
     def exponential_decay_returns(scale: int) -> np.ndarray:
         """
@@ -403,12 +304,12 @@ class Scoring:
             return np.array([1])
 
         k = -np.log(1 - top_miner_benefit) / (top_miner_percent * scale)
-        xdecay = np.linspace(0, scale-1, scale)
+        xdecay = np.linspace(0, scale - 1, scale)
         decayed_returns = np.exp((-k) * xdecay)
 
         # Normalize the decayed_returns so that they sum up to 1
         return decayed_returns / np.sum(decayed_returns)
-    
+
     @staticmethod
     def miner_scores_percentiles(miner_scores: list[tuple[str, float]]) -> list[tuple[str, float]]:
         """
@@ -417,12 +318,12 @@ class Scoring:
         if len(miner_scores) == 0:
             bt.logging.debug("No miner scores to compute percentiles, returning empty list")
             return []
-        
+
         if len(miner_scores) == 1:
             miner, score = miner_scores[0]
             bt.logging.info(f"Only one miner: {miner}, returning 1.0 for the solo miner weight")
             return [(miner, 1.0)]
-        
+
         minernames = []
         scores = []
 
@@ -430,11 +331,10 @@ class Scoring:
             minernames.append(miner)
             scores.append(score)
 
-        percentiles = percentileofscore( scores, scores ) / 100
+        percentiles = percentileofscore(scores, scores) / 100
         miner_percentiles = list(zip(minernames, percentiles))
-        
-        return miner_percentiles
 
+        return miner_percentiles
 
     @staticmethod
     def weigh_miner_scores(returns: list[tuple[str, float]]) -> list[tuple[str, float]]:
@@ -455,11 +355,3 @@ class Scoring:
 
         weighted_returns = [(miner, decayed_returns[i]) for i, (miner, _) in enumerate(sorted_returns)]
         return weighted_returns
-
-    @staticmethod
-    def update_weights_remove_deregistrations(miner_uids: List[str]):
-        vweights = ValiUtils.get_vali_weights_json()
-        for miner_uid in miner_uids:
-            if miner_uid in vweights:
-                del vweights[miner_uid]
-        ValiUtils.set_vali_weights_bkp(vweights)
