@@ -165,3 +165,28 @@ class TestPositionFiltering(TestBase):
 
         for position in filtering_positions:
             self.assertNotIn(position, filtered_positions)
+
+    def test_open_position_with_loss(self):
+        """Test that open positions with return_at_close < 1 are included in the results."""
+        # Create an open position with a return_at_close less than 1
+        open_losing_position = Position(
+            miner_hotkey=self.DEFAULT_MINER_HOTKEY,
+            position_uuid="open_losing_position",
+            open_ms=self.DEFAULT_OPEN_MS,
+            close_ms=None,  # Position is still open
+            return_at_close=0.8,  # Losing position
+            is_closed_position=False,
+            trade_pair=self.DEFAULT_TRADE_PAIR,
+        )
+
+        positions = [open_losing_position]
+
+        # Run the filtering
+        filtered_positions = PositionFiltering.filter_single_miner(
+            positions,
+            evaluation_time_ms=self.DEFAULT_EVALUATION_TIME,
+            lookback_time_ms=self.DEFAULT_LOOKBACK_WINDOW
+        )
+
+        # Check that the open losing position is included
+        self.assertIn(open_losing_position, filtered_positions)
