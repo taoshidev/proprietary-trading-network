@@ -85,7 +85,7 @@ class Scoring:
             miner_scores = []
             for miner, positions in config['positions'].items():
                 # Get the miner ledger
-                ledger = ledger_dict.get(miner, [])
+                ledger = ledger_dict.get(miner, PerfLedgerData())
 
                 # Check if the miner has full penalty - if not include them in the scoring competition
                 if miner in full_penalty_miners:
