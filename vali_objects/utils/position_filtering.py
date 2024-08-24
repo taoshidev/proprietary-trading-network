@@ -12,6 +12,7 @@ class PositionFiltering:
     ) -> list[Position]:
         """
         Restricts to positions which were closed in the prior lookback window
+        or positions that are still open and have a return_at_close less than 1
         """
         if lookback_time_ms is None:
             lookback_time_ms = ValiConfig.TARGET_LEDGER_WINDOW_MS
@@ -20,11 +21,14 @@ class PositionFiltering:
 
         subset_positions = []
         for position in positions:
-            if position.is_closed_position is True and position.open_ms >= lookback_threshold_ms:
-                subset_positions.append(position)
-
-            if position.is_closed_position is False and position.return_at_close < 1:
-                subset_positions.append(position)
+            if position.is_closed_position:
+                # Include closed positions within the lookback window
+                if position.open_ms >= lookback_threshold_ms:
+                    subset_positions.append(position)
+            else:
+                # Include open positions with return_at_close < 1
+                if position.return_at_close < 1:
+                    subset_positions.append(position)
 
         return subset_positions
 

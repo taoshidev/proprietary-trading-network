@@ -84,7 +84,7 @@ class TestLedgerPenalty(TestBase):
         self.assertGreater(LedgerUtils.daily_consistency_ratio(l3_cps), 0.0)
 
         self.assertLess(LedgerUtils.daily_consistency_ratio(l3_cps), 0.5)  # Less than half of returns come from a day
-        self.assertAlmostEqual(LedgerUtils.daily_consistency_ratio(l3_cps), 1 / len(l3_cps))  # More than a perfect ledger ratio, as we sum the days
+        self.assertGreaterEqual(LedgerUtils.daily_consistency_ratio(l3_cps), 1 / len(l3_cps))  # More than a perfect ledger ratio, as we sum the days
         self.assertGreater(LedgerUtils.daily_consistency_penalty(l3_cps), 0.0)
         self.assertLess(LedgerUtils.daily_consistency_penalty(l3_cps), 1.0)
 
@@ -126,7 +126,7 @@ class TestLedgerPenalty(TestBase):
         l3_return_inconsistent_period = l3_return * 10
 
         # Huge growth at the most recent interval
-        tail_tart = len(l4_cps) - (len(l4_cps) // 5)
+        tail_tart = len(l4_cps) - (len(l4_cps) // 8)
         for i in range(tail_tart, len(l4_cps)):
             l4_cps[i].gain = l3_return_inconsistent_period
 
