@@ -714,6 +714,9 @@ class PerfLedgerManager(CacheController):
 
     def build_perf_ledger(self, perf_ledger: PerfLedgerData, tp_to_historical_positions: dict[str: Position], start_time_ms, end_time_ms, miner_hotkey, realtime_position_to_pop) -> bool:
         #print(f"Building perf ledger for {miner_hotkey} from {start_time_ms} to {end_time_ms} ({(end_time_ms - start_time_ms) // 1000} s)")
+        if len(perf_ledger.cps) == 0:
+            perf_ledger.init_with_first_order(end_time_ms, point_in_time_dd=1.0)
+            return False  # Can only build perf ledger between orders or after all orders have passed.
 
         min_start_time_ms = self.now_ms - TARGET_LEDGER_WINDOW_MS
         start_time_ms = max(start_time_ms, min_start_time_ms)
@@ -721,9 +724,7 @@ class PerfLedgerManager(CacheController):
         if start_time_ms == end_time_ms:
             return False
 
-        if len(perf_ledger.cps) == 0:
-            perf_ledger.init_with_first_order(start_time_ms, point_in_time_dd=1.0)
-            #return False
+
 
         # "Shortcut" All positions closed and one newly open position OR all closed positions (all orders accounted for).
         can_shortcut, portfolio_return, portfolio_spread_fee, portfolio_carry_fee = \
