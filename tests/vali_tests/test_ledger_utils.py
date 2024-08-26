@@ -25,7 +25,7 @@ class TestLedgerUtils(TestBase):
         l1 = generate_ledger(0.1, mdd=0.99)
         l1_cps = l1.cps
 
-        self.assertEqual(LedgerUtils.recent_drawdown([]), 0)
+        self.assertEqual(LedgerUtils.recent_drawdown([]), 1)
 
         LedgerUtils.recent_drawdown(l1_cps)
         self.assertEqual(LedgerUtils.recent_drawdown(l1_cps), 0.99)

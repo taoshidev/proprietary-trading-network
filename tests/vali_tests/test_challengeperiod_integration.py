@@ -1,6 +1,7 @@
 # developer: trdougherty
 from copy import deepcopy
 
+from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerData
 from tests.shared_objects.mock_classes import (
     MockMetagraph, MockChallengePeriodManager, MockPositionManager, MockPerfLedgerManager, MockCacheController
 )
@@ -242,6 +243,50 @@ class TestChallengePeriodIntegration(TestBase):
         eliminations = self.challengeperiod_manager.get_eliminated_hotkeys()
 
         self.assertListEqual(sorted(list(eliminations)), sorted(elimination_keys))
+
+    def test_single_position_no_ledger(self):
+        # Cleanup all positions first
+        self.position_manager.clear_all_miner_positions_from_disk()
+        self.ledger_manager.clear_perf_ledgers_from_disk()
+
+        self.challengeperiod_manager._clear_challengeperiod_in_memory_and_disk()
+        self.challengeperiod_manager._clear_eliminations_in_memory_and_disk()
+
+        self.challengeperiod_manager.challengeperiod_testing = {}
+        self.challengeperiod_manager.challengeperiod_success = {}
+
+        position = deepcopy(self.DEFAULT_POSITION)
+        position.is_closed_position = False
+        position.close_ms = None
+
+        self.position_manager.save_miner_position_to_disk(position)
+        self.challengeperiod_manager.challengeperiod_testing = {self.DEFAULT_MINER_HOTKEY: self.DEFAULT_OPEN_MS}
+        self.challengeperiod_manager._write_challengeperiod_from_memory_to_disk()
+
+        # Now loading the data
+        positions = self.position_manager.get_all_miner_positions_by_hotkey(hotkeys=[self.DEFAULT_MINER_HOTKEY])
+        ledgers = self.ledger_manager.load_perf_ledgers_from_disk()
+
+        # First check that there is nothing on the miner
+        self.assertEqual(ledgers.get(self.DEFAULT_MINER_HOTKEY, PerfLedgerData().cps), PerfLedgerData().cps)
+        self.assertEqual(ledgers.get(self.DEFAULT_MINER_HOTKEY, len(PerfLedgerData().cps)), 0)
+
+        # Check the failing criteria initially
+        failing_criteria = self.challengeperiod_manager.screen_failing_criteria(
+            ledger_element=ledgers.get(self.DEFAULT_MINER_HOTKEY)
+        )
+
+        self.assertFalse(failing_criteria)
+
+        # Now check the inspect to see where the key went
+        challenge_success, challenge_eliminations = self.challengeperiod_manager.inspect(
+            positions=positions,
+            ledger=ledgers,
+        )
+
+        # There should be no promotion or demotion
+        self.assertListEqual(challenge_success, [])
+        self.assertListEqual(challenge_eliminations, [])
 
     def test_failing_miner_screen(self):
         # Add all the challenge period miners

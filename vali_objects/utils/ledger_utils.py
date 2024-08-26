@@ -25,7 +25,7 @@ class LedgerUtils:
             raise ValueError("Drawdown lookback window must be greater than 0")
 
         if len(checkpoints) == 0:
-            return 0
+            return 1.0
 
         # Compute the drawdown of the checkpoints
         if restricted:
