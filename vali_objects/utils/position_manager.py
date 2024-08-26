@@ -284,6 +284,13 @@ class PositionManager(CacheController):
         for k in miners_to_wipe:
             if k not in hotkey_to_positions:
                 hotkey_to_positions[k] = []
+
+        self._refresh_eliminations_in_memory()
+        for e in self.eliminations:
+            if e['hotkey'] in miners_to_wipe:
+                bt.logging.info(f"Removed elimination for hotkey {e['hotkey']}")
+                self.eliminations.remove(e)
+        self._write_eliminations_from_memory_to_disk()
         for miner_hotkey, positions in hotkey_to_positions.items():
             n_attempts += 1
             self.dedupe_positions(positions, miner_hotkey)
@@ -300,10 +307,6 @@ class PositionManager(CacheController):
                         self.challengeperiod_success.pop(miner_hotkey)
                     self._write_challengeperiod_from_memory_to_disk()
 
-                    self._refresh_eliminations_in_memory()
-                    if miner_hotkey in self.eliminations:
-                        self.eliminations.pop(miner_hotkey)
-                    self._write_eliminations_from_memory_to_disk()
             """
                     
             if miner_hotkey == '5DX8tSyGrx1QuoR1wL99TWDusvmmWgQW5su3ik2Sc8y8Mqu3':
