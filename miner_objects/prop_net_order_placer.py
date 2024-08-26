@@ -81,7 +81,8 @@ class PropNetOrderPlacer:
         retry_status = {
                 'retry_attempts': 0,
                 'retry_delay_seconds': self.INITIAL_RETRY_DELAY_SECONDS,
-                'validators_needing_retry': axons_to_try
+                'validators_needing_retry': axons_to_try,
+                'validator_error_messages': {}
         }
 
         # Track the high-trust validators for special checking after processing
@@ -116,7 +117,7 @@ class PropNetOrderPlacer:
                  f" Consider re-sending the signal if this is your first time seeing this error. If this error"
                  f" persists, your miner is eliminated or there is likely an issue with the relevant validator(s) "
                              f"and their vtrust should drop soon.")
-            self.write_signal_to_failure_directory(signal_data, signal_file_path, retry_status['validators_needing_retry'])
+            self.write_signal_to_failure_directory(signal_data, signal_file_path, retry_status)
         else:
             self.write_signal_to_processed_directory(signal_data, signal_file_path)
 
@@ -170,7 +171,11 @@ class PropNetOrderPlacer:
             if acked_axon in high_trust_validators:
                 all_high_trust_validators_succeeded = False
                 if response.error_message:
-                    bt.logging.warning(f"Error sending order to axon {acked_axon} with v_trust {vtrust}. Error message: {response.error_message}")
+                    msg = f"Error sending order to axon {acked_axon} with v_trust {vtrust}. Error message: {response.error_message}"
+                    bt.logging.warning(msg)
+                    if acked_axon.hotkey not in retry_status['validator_error_messages']:
+                        retry_status['validator_error_messages'][acked_axon.hotkey] = []
+                    retry_status['validator_error_messages'][acked_axon.hotkey].append(response.error_message)
 
 
         if all_high_trust_validators_succeeded:
@@ -203,13 +208,16 @@ class PropNetOrderPlacer:
         """Moves a processed signal file to the processed directory."""
         self.write_signal_to_directory(MinerConfig.get_miner_processed_signals_dir(), signal_file_path, signal_data, True)
 
-    def write_signal_to_failure_directory(self, signal_data, signal_file_path: str, validators_needing_retry: list):
+    def write_signal_to_failure_directory(self, signal_data, signal_file_path: str, retry_status: dict):
+        validators_needing_retry = retry_status['validators_needing_retry']
+        error_messages_dict = retry_status['validator_error_messages']
         # Append the failure information to the signal data.
         json_validator_data = [{'ip': validator.ip, 'port': validator.port, 'ip_type': validator.ip_type,
                                 'hotkey': validator.hotkey, 'coldkey': validator.coldkey, 'protocol': validator.protocol}
                                for validator in validators_needing_retry]
         new_data = {'original_signal': signal_data,
-                    'validators_needing_retry': json_validator_data}
+                    'validators_needing_retry': json_validator_data,
+                    'error_messages_dict': error_messages_dict}
 
         # Move signal file to the failed directory
         self.write_signal_to_directory(MinerConfig.get_miner_failed_signals_dir(), signal_file_path, signal_data, False)
@@ -217,7 +225,8 @@ class PropNetOrderPlacer:
         # Overwrite the file we just moved with the new data
         new_file_path = os.path.join(MinerConfig.get_miner_failed_signals_dir(), os.path.basename(signal_file_path))
         ValiBkpUtils.write_file(new_file_path, json.dumps(new_data))
-        bt.logging.info(f"Signal file modified to include failure information: {new_file_path}")
+        new_data_compact = {k: v for k, v in new_data.items() if k != 'validators_needing_retry'}
+        bt.logging.info(f"Signal file modified to include failure information: {new_file_path}. Data dump: {new_data_compact}")
 
     def write_signal_to_directory(self, directory: str, signal_file_path, signal_data, success):
         ValiBkpUtils.make_dir(directory)
