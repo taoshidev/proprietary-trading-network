@@ -65,11 +65,12 @@ class ChallengePeriodManager(CacheController):
         self._write_challengeperiod_from_memory_to_disk()
         self._write_eliminations_from_memory_to_disk()
 
-    def _prune_deregistered_metagraph(self):
+    def _prune_deregistered_metagraph(self, hotkeys=None):
         """
         Prune the challenge period of all miners who are no longer in the metagraph
         """
-        hotkeys = self.metagraph.hotkeys
+        if hotkeys is None:
+            hotkeys = self.metagraph.hotkeys
 
         for hotkey in list(self.challengeperiod_testing.keys()):
             if hotkey not in hotkeys:
