@@ -888,6 +888,7 @@ class PerfLedgerManager(CacheController):
         Since we are running in our own thread, we need to retry in case positions are being written to simultaneously.
         """
         #testing_one_hotkey = '5GzYKUYSD5d7TJfK4jsawtmS2bZDgFuUYw8kdLdnEDxSykTU'
+        hotkeys_with_no_positions = set()
         if testing_one_hotkey:
             hotkey_to_positions = self.get_all_miner_positions_by_hotkey(
                 [testing_one_hotkey], sort_positions=True
@@ -898,14 +899,13 @@ class PerfLedgerManager(CacheController):
                 eliminations=self.eliminations
             )
             # Keep only hotkeys with positions
-            hotkeys_with_no_positions = set()
             for k, positions in hotkey_to_positions.items():
                 if len(positions) == 0:
                     hotkeys_with_no_positions.add(k)
             for k in hotkeys_with_no_positions:
                 del hotkey_to_positions[k]
 
-        return hotkey_to_positions
+        return hotkey_to_positions, hotkeys_with_no_positions
 
     def generate_perf_ledgers_for_analysis(self, hotkey_to_positions: dict[str, List[Position]], t_ms: int = None) -> dict[str, PerfLedger]:
         if t_ms is None:
@@ -922,7 +922,7 @@ class PerfLedgerManager(CacheController):
         #if t_ms < 1720763350000 + 1000 * 60 * 60 * 1:  # Rebuild after bug fix
         #    for ledger in perf_ledgers.values():
         #        ledger.trim_checkpoints(1720665175000)  #  Wednesday, July 10, 2024 10:32:55 PM ET
-        hotkey_to_positions = self.get_positions_perf_ledger(testing_one_hotkey=testing_one_hotkey)
+        hotkey_to_positions, hotkeys_with_no_positions = self.get_positions_perf_ledger(testing_one_hotkey=testing_one_hotkey)
 
         def sort_key(x):
             # Highest priority. Want to rebuild this hotkey first in case it has an incorrect dd from a Polygon bug
@@ -937,7 +937,7 @@ class PerfLedgerManager(CacheController):
 
         # Remove keys from perf ledgers if they aren't in the metagraph anymore
         metagraph_hotkeys = set(self.metagraph.hotkeys)
-        hotkeys_to_delete = set()
+        hotkeys_to_delete = hotkeys_with_no_positions
         rss_modified = False
 
         # Determine which hotkeys to remove from the perf ledger

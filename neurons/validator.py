@@ -655,7 +655,7 @@ class Validator:
             synapse.successfully_processed = False
 
         synapse.error_message = error_message
-        bt.logging.success(f"Sending ack back to miner [{miner_hotkey}]. Error Message: {synapse.error_message}")
+        bt.logging.success(f"Sending ack back to miner [{miner_hotkey}]. Synapse Message: {synapse.error_message}")
         with self.signal_sync_lock:
             self.n_orders_being_processed[0] -= 1
             if self.n_orders_being_processed[0] == 0:
