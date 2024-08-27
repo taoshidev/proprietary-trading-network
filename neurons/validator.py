@@ -468,12 +468,9 @@ class Validator:
             open_position = trade_pair_to_open_position[trade_pair]
         else:
             bt.logging.debug("processing new position")
-            # if the order is FLAT ignore and log
+            # if the order is FLAT ignore (noop)
             if signal_to_order.order_type == OrderType.FLAT:
-                raise SignalException(
-                    f"miner [{miner_hotkey}] sent a "
-                    f"FLAT order for {trade_pair.trade_pair} with no existing position."
-                )
+                open_position = None
             else:
                 # if a position doesn't exist, then make a new one
                 open_position = Position(
@@ -626,16 +623,22 @@ class Validator:
                                                                                              only_open_positions=True)}
                 self._enforce_num_open_order_limit(trade_pair_to_open_position, signal_to_order)
                 open_position = self._get_or_create_open_position(signal_to_order, miner_hotkey, trade_pair_to_open_position, miner_order_uuid)
-                self.enforce_order_cooldown(signal_to_order, open_position)
-                open_position.add_order(signal_to_order)
-                self.position_manager.save_miner_position_to_disk(open_position)
-                if miner_order_uuid:
-                    self.uuid_tracker.add(miner_order_uuid)
+                if open_position:
+                    self.enforce_order_cooldown(signal_to_order, open_position)
+                    open_position.add_order(signal_to_order)
+                    self.position_manager.save_miner_position_to_disk(open_position)
+                    bt.logging.info(
+                        f"Position {open_position.trade_pair.trade_pair_id} for miner [{miner_hotkey}] updated.")
+                    # Log the open position for the miner
+                    open_position.log_position_status()
+                    if miner_order_uuid:
+                        self.uuid_tracker.add(miner_order_uuid)
+                else:
+                    # Happens if a FLAT is sent when no order exists
+                    pass
                 # Update the last received order time
                 self.timestamp_manager.update_timestamp(signal_to_order)
-                # Log the open position for the miner
-                bt.logging.info(f"Position {open_position.trade_pair.trade_pair_id} for miner [{miner_hotkey}] updated.")
-                open_position.log_position_status()
+
             # self.plagiarism_detector.check_plagiarism(open_position, signal_to_order)
 
         except SignalException as e:
@@ -652,7 +655,7 @@ class Validator:
             synapse.successfully_processed = False
 
         synapse.error_message = error_message
-        bt.logging.success(f"Sending ack back to miner [{miner_hotkey}]")
+        bt.logging.success(f"Sending ack back to miner [{miner_hotkey}]. Error Message: {synapse.error_message}")
         with self.signal_sync_lock:
             self.n_orders_being_processed[0] -= 1
             if self.n_orders_being_processed[0] == 0:

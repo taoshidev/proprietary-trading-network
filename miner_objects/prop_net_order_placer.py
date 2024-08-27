@@ -171,7 +171,7 @@ class PropNetOrderPlacer:
             n_high_trust_validators = len(high_trust_validators)
             bt.logging.success(f"Signal file {send_signal_request.signal} was successfully processed by"
                                f" {n_high_trust_validators}/{n_high_trust_validators} high-trust validators with "
-                               f"min v_trust {v_trust_floor}.")
+                               f"min v_trust {v_trust_floor}. Total n_validators: {len(retry_status['validators_needing_retry'])}")
 
         def _allow_retry(axon):
             if axon.hotkey in success_validators:
