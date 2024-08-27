@@ -2,7 +2,6 @@
 # Copyright © 2024 Yuma Rao
 # developer: jbonilla
 # Copyright © 2024 Taoshi Inc
-import asyncio
 import json
 import os
 import threading
@@ -40,7 +39,7 @@ class PropNetOrderPlacer:
 
         threads = []
         for (signal_data, signal_file_path) in zip(signals, signal_file_names):
-            thread = threading.Thread(target=self.threaded_process_signal, args=(signal_file_path, signal_data))
+            thread = threading.Thread(target=self.process_a_signal, args=(signal_file_path, signal_data))
             threads.append(thread)
             thread.start()
 
@@ -50,20 +49,7 @@ class PropNetOrderPlacer:
 
         #time.sleep(3)
 
-
-    def threaded_process_signal(self, signal_file_path, signal_data):
-        """
-        Sets up a new event loop for asynchronous processing of each signal in a separate thread.
-        """
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-
-        try:
-            loop.run_until_complete(self.process_a_signal(signal_file_path, signal_data))
-        finally:
-            loop.close()
-
-    async def process_a_signal(self, signal_file_path, signal_data):
+    def process_a_signal(self, signal_file_path, signal_data):
         """
         Processes a signal file by attempting to send it to the validators.
         Manages retry attempts and employs exponential backoff for failed attempts.
@@ -94,7 +80,7 @@ class PropNetOrderPlacer:
 
         # Continue retrying until the max number of retries is reached or no validators need retrying
         while retry_status['retry_attempts'] < self.MAX_RETRIES and retry_status['validators_needing_retry']:
-            await self.attempt_to_send_signal(send_signal_request, retry_status, high_trust_validators, validator_hotkey_to_axon)
+            self.attempt_to_send_signal(send_signal_request, retry_status, high_trust_validators, validator_hotkey_to_axon)
 
         # After retries, check if all high-trust validators have processed the signal successfully
         # This requires checking the current state of trust and response success
@@ -105,6 +91,9 @@ class PropNetOrderPlacer:
             if validator in retry_status['validators_needing_retry']:
                 high_trust_processed = False
                 n_high_trust_validators_that_failed += 1
+
+        if self.is_testnet and retry_status['validator_error_messages']:
+            high_trust_processed = False
 
         # If there were validators that failed to process the signal, we move the file to the failed directory
         if high_trust_processed:
@@ -134,7 +123,7 @@ class PropNetOrderPlacer:
             return high_trust_validators
 
 
-    async def attempt_to_send_signal(self, send_signal_request: SendSignal, retry_status: dict, high_trust_validators: list, validator_hotkey_to_axon: dict):
+    def attempt_to_send_signal(self, send_signal_request: SendSignal, retry_status: dict, high_trust_validators: list, validator_hotkey_to_axon: dict):
         """
         Attempts to send a signal to the validators that need retrying, applying exponential backoff for each retry attempt.
         Logs the retry attempt number, and the number of validators that successfully responded out of the total number of original validators.
@@ -151,9 +140,8 @@ class PropNetOrderPlacer:
             retry_status['retry_delay_seconds'] *= 2  # Double the delay for the next attempt
 
         dendrite = bt.dendrite(wallet=self.wallet)
-        #validator_responses = self.dendrite.forward(retry_status[signal_file_path]['validators_needing_retry'],
-        #                                          send_signal_request, deserialize=True)
-        validator_responses = await dendrite(retry_status['validators_needing_retry'], send_signal_request)
+        validator_responses = dendrite.query(retry_status['validators_needing_retry'], send_signal_request)
+        #validator_responses = dendrite(retry_status['validators_needing_retry'], send_signal_request)
 
         # Filtering validators for the next retry based on the current response.
         all_high_trust_validators_succeeded = True
