@@ -24,7 +24,7 @@ from vali_objects.vali_dataclasses.order import OrderStatus
 from vali_objects.vali_dataclasses.price_source import PriceSource
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
 
-TARGET_MS = 1724779293000 + (1000 * 60 * 60 * 2)  # + 2 hours
+TARGET_MS = 1724868640000 + (1000 * 60 * 60 * 2)  # + 2 hours
 
 
 class PositionManager(CacheController):
@@ -281,7 +281,7 @@ class PositionManager(CacheController):
         unique_corrections = set()
         now_ms = TimeUtil.now_in_millis()
         #miners_to_wipe = ["5FREPpDNYdqJBvXgXSgiXo78f5eMq2dZEeW5cyc3wU4TPdS1", "5DJPTKMBEj9np6oNFdfc8asL9aHUmCM8VPPkygthNtFR8YkC", "5GhCxfBcA7Ur5iiAS343xwvrYHTUfBjBi4JimiL5LhujRT9t", "5GTL7WXa4JM2yEUjFoCy2PZVLioNs1HzAGLKhuCDzzoeQCTR", "5GCDZ6Vum2vj1YgKtw7Kv2fVXTPmV1pxoHh1YrsxqBvf9SRa"]
-        miners_to_wipe = ["5FREPpDNYdqJBvXgXSgiXo78f5eMq2dZEeW5cyc3wU4TPdS1"]
+        miners_to_wipe = ["5Et6DsfKyfe2PBziKo48XNsTCWst92q8xWLdcFy6hig427qH"]
         for k in miners_to_wipe:
             if k not in hotkey_to_positions:
                 hotkey_to_positions[k] = []
@@ -299,14 +299,21 @@ class PositionManager(CacheController):
                 bt.logging.info(f"Resetting hotkey {miner_hotkey}")
                 n_corrections += 1
                 unique_corrections.update([p.position_uuid for p in positions])
-                for pos in positions:
-                    self.delete_position_from_disk(pos)
-                    self._refresh_challengeperiod_in_memory()
-                    if miner_hotkey in self.challengeperiod_testing:
-                        self.challengeperiod_testing.pop(miner_hotkey)
-                    if miner_hotkey in self.challengeperiod_success:
-                        self.challengeperiod_success.pop(miner_hotkey)
-                    self._write_challengeperiod_from_memory_to_disk()
+                #for pos in positions:
+                #    self.delete_position_from_disk(pos)
+                self._refresh_challengeperiod_in_memory()
+                if miner_hotkey in self.challengeperiod_testing:
+                    self.challengeperiod_testing.pop(miner_hotkey)
+                if miner_hotkey in self.challengeperiod_success:
+                    self.challengeperiod_success.pop(miner_hotkey)
+                self._write_challengeperiod_from_memory_to_disk()
+
+                perf_ledgers = self.perf_ledger_manager.load_perf_ledgers_from_disk()
+                print('n perf ledgers before:', len(perf_ledgers))
+                perf_ledgers_new = {k:v for k,v in perf_ledgers.items() if k != miner_hotkey}
+                print('n perf ledgers after:', len(perf_ledgers_new))
+                self.perf_ledger_manager.save_perf_ledgers_to_disk(perf_ledgers_new)
+
 
             """
                     
