@@ -1,5 +1,4 @@
 import asyncio
-import json
 
 import bittensor as bt
 import uvicorn

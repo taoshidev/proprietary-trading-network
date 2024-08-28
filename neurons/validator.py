@@ -8,7 +8,6 @@ import sys
 import threading
 import signal
 import uuid
-from tabnanny import check
 from typing import Tuple
 from enum import Enum
 
@@ -22,7 +21,7 @@ import gzip
 import base64
 
 from runnable.generate_request_core import generate_request_core
-from runnable.generate_request_minerstatistics import generate_request_minerstatistics, generate_miner_statistics_data
+from runnable.generate_request_minerstatistics import generate_miner_statistics_data
 from vali_objects.utils.auto_sync import PositionSyncer
 from vali_objects.utils.p2p_syncer import P2PSyncer
 from shared_objects.rate_limiter import RateLimiter
@@ -722,7 +721,7 @@ class Validator:
                 error_message = f"Validator {self.wallet.hotkey.ss58_address} has no positions for miner {miner_hotkey}"
 
             synapse.data = dash_data
-            bt.logging.info(f"Sending data back to miner: " + miner_hotkey)
+            bt.logging.info("Sending data back to miner: " + miner_hotkey)
         except Exception as e:
             error_message = f"Error in GetData for [{miner_hotkey}] with error [{e}]."
             bt.logging.error(traceback.format_exc())
