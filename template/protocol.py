@@ -23,7 +23,6 @@ class GetPositions(bt.Synapse):
     successfully_processed: bool = Field(False, title="Successfully Processed", frozen=False)
     error_message: str = Field("", title="Error Message", frozen=False)
     computed_body_hash: str = Field("", title="Computed Body Hash", frozen=False)
-
 GetPositions.required_hash_fields = ["positions"]
 
 class ValidatorCheckpoint(bt.Synapse):
@@ -31,20 +30,12 @@ class ValidatorCheckpoint(bt.Synapse):
     successfully_processed: bool = Field(False, title="Successfully Processed", frozen=False)
     error_message: str = Field("", title="Error Message", frozen=False)
     validator_receive_hotkey: str = Field("", title="Hotkey set by receiving validator", frozen=False)
-    required_hash_fields: List[str] = Field(
-        ["checkpoint"],
-        title="Required Hash Fields",
-        description="A list of fields required for the hash.",
-        frozen=False
-    )
+    computed_body_hash: str = Field("", title="Computed Body Hash", frozen=False)
+ValidatorCheckpoint.required_hash_fields = ["checkpoint"]
 
 class GetDashData(bt.Synapse):
     data: typing.Dict = Field(default_factory=dict, title="Dashboard Data", frozen=False)
     successfully_processed: bool = Field(False, title="Successfully Processed", frozen=False)
     error_message: str = Field("", title="Error Message", frozen=False)
-    required_hash_fields: List[str] = Field(
-        ["data"],
-        title="Required Hash Fields",
-        description="A list of fields required for the hash.",
-        frozen=False
-    )
+    computed_body_hash: str = Field("", title="Computed Body Hash", frozen=False)
+GetDashData.required_hash_fields = ["data"]

@@ -16,8 +16,6 @@ class Dashboard:
 
         self.miner_data = {}
 
-        # asyncio.run(self.get_stats_positions_from_validator())
-
         self.app = FastAPI()
         self.setup_routes()
 
