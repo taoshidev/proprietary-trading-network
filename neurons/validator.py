@@ -526,7 +526,7 @@ class Validator:
         elif method == SynapseMethod.CHECKPOINT:
             allowed, wait_time = self.checkpoint_rate_limiter.is_allowed(sender_hotkey)
         else:
-            msg = "Received synapse does not match one of expected methods for: receive_signal, get_positions, get_stats, or receive_checkpoint"
+            msg = "Received synapse does not match one of expected methods for: receive_signal, get_positions, get_data, or receive_checkpoint"
             bt.logging.trace(msg)
             synapse.successfully_processed = False
             synapse.error_message = msg
