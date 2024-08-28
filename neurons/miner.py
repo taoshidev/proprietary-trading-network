@@ -11,6 +11,7 @@ import time
 import bittensor as bt
 
 from miner_config import MinerConfig
+from miner_objects.dashboard import Dashboard
 from miner_objects.prop_net_order_placer import PropNetOrderPlacer
 from miner_objects.position_inspector import PositionInspector
 from shared_objects.metagraph_updater import MetagraphUpdater
@@ -31,6 +32,10 @@ class Miner:
         # Start the metagraph updater loop in its own thread
         self.metagraph_updater_thread = threading.Thread(target=self.metagraph_updater.run_update_loop, daemon=True)
         self.metagraph_updater_thread.start()
+
+        self.dashboard = Dashboard(self.wallet, self.metagraph, self.config, self.is_testnet)
+        self.dashboard.run()
+
         # Start position inspector loop in its own thread
         self.position_inspector_thread = threading.Thread(target=self.position_inspector.run_update_loop, daemon=True)
         self.position_inspector_thread.start()

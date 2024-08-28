@@ -1,4 +1,5 @@
 # developer: trdougherty
+from typing import List
 
 from scipy.stats import percentileofscore
 
@@ -70,7 +71,7 @@ def percentile_rank_dictionary(d, ascending=False) -> dict:
     return miner_percentiles
 
 
-def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = True):
+def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = True, miner_hotkeys: List[str] = None):
     if time_now is None:
         time_now = TimeUtil.now_in_millis()
 
@@ -109,8 +110,11 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
             f"[{ValiBkpUtils.get_miner_dir()}]. Skip run for now."
         )
 
-    # full ledger of all miner hotkeys
-    all_miner_hotkeys = challengeperiod_success_hotkeys + challengeperiod_testing_hotkeys
+    if miner_hotkeys is None:
+        # full ledger of all miner hotkeys
+        all_miner_hotkeys = challengeperiod_success_hotkeys + challengeperiod_testing_hotkeys
+    else:
+        all_miner_hotkeys = miner_hotkeys
 
     filtered_ledger = subtensor_weight_setter.filtered_ledger(hotkeys=all_miner_hotkeys)
     filtered_positions = subtensor_weight_setter.filtered_positions(hotkeys=all_miner_hotkeys)
