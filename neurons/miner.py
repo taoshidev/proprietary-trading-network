@@ -34,7 +34,7 @@ class Miner:
         self.metagraph_updater_thread.start()
 
         self.dashboard = Dashboard(self.wallet, self.metagraph, self.config, self.is_testnet)
-        self.dashboard.run()
+        # self.dashboard.run()
 
         # Start position inspector loop in its own thread
         self.position_inspector_thread = threading.Thread(target=self.position_inspector.run_update_loop, daemon=True)

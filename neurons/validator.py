@@ -52,7 +52,7 @@ shutdown_dict = {}
 # Enum class that represents the method associated with Synapse
 class SynapseMethod(Enum):
     POSITION_INSPECTOR = "GetPositions"
-    STATS = "GetStatistics"
+    DASHBOARD = "GetDashData"
     SIGNAL = "SendSignal"
     CHECKPOINT = "SendCheckpoint"
 
@@ -199,7 +199,7 @@ class Validator:
 
         self.order_rate_limiter = RateLimiter()
         self.position_inspector_rate_limiter = RateLimiter(max_requests_per_window=2, rate_limit_window_duration_seconds=60 * 4)
-        self.stats_rate_limiter = RateLimiter(max_requests_per_window=1, rate_limit_window_duration_seconds=60 * 4)
+        self.dash_rate_limiter = RateLimiter(max_requests_per_window=1, rate_limit_window_duration_seconds=60)
         self.checkpoint_rate_limiter = RateLimiter(max_requests_per_window=1, rate_limit_window_duration_seconds=60 * 60 * 6)
 
         def rs_blacklist_fn(synapse: template.protocol.SendSignal) -> Tuple[bool, str]:
@@ -214,10 +214,10 @@ class Validator:
         def gp_priority_fn(synapse: template.protocol.GetPositions) -> float:
             return Validator.priority_fn(synapse, self.metagraph)
 
-        def gs_blacklist_fn(synapse: template.protocol.GetStatistics) -> Tuple[bool, str]:
+        def gd_blacklist_fn(synapse: template.protocol.GetDashData) -> Tuple[bool, str]:
             return Validator.blacklist_fn(synapse, self.metagraph)
 
-        def gs_priority_fn(synapse: template.protocol.GetStatistics) -> float:
+        def gd_priority_fn(synapse: template.protocol.GetDashData) -> float:
             return Validator.priority_fn(synapse, self.metagraph)
 
         def rc_blacklist_fn(synapse: template.protocol.ValidatorCheckpoint) -> Tuple[bool, str]:
@@ -237,9 +237,9 @@ class Validator:
             priority_fn=gp_priority_fn,
         )
         self.axon.attach(
-            forward_fn=self.get_stats,
-            blacklist_fn=gs_blacklist_fn,
-            priority_fn=gs_priority_fn,
+            forward_fn=self.get_data,
+            blacklist_fn=gd_blacklist_fn,
+            priority_fn=gd_priority_fn,
         )
         self.axon.attach(
             forward_fn=self.receive_checkpoint,
@@ -506,7 +506,7 @@ class Validator:
                 synapse.successfully_processed = False
                 synapse.error_message = msg
 
-    def should_fail_early(self, synapse: template.protocol.SendSignal | template.protocol.GetPositions | template.protocol.GetStatistics | template.protocol.ValidatorCheckpoint, method:SynapseMethod,
+    def should_fail_early(self, synapse: template.protocol.SendSignal | template.protocol.GetPositions | template.protocol.GetDashData | template.protocol.ValidatorCheckpoint, method:SynapseMethod,
                           signal:dict=None) -> bool:
         global shutdown_dict
         if shutdown_dict:
@@ -519,8 +519,8 @@ class Validator:
         # Don't allow miners to send too many signals in a short period of time
         if method == SynapseMethod.POSITION_INSPECTOR:
             allowed, wait_time = self.position_inspector_rate_limiter.is_allowed(sender_hotkey)
-        elif method == SynapseMethod.STATS:
-            allowed, wait_time = self.stats_rate_limiter.is_allowed(sender_hotkey)
+        elif method == SynapseMethod.DASHBOARD:
+            allowed, wait_time = self.dash_rate_limiter.is_allowed(sender_hotkey)
         elif method == SynapseMethod.SIGNAL:
             allowed, wait_time = self.order_rate_limiter.is_allowed(sender_hotkey)
         elif method == SynapseMethod.CHECKPOINT:
@@ -682,7 +682,6 @@ class Validator:
     def get_positions(self, synapse: template.protocol.GetPositions,
                       ) -> template.protocol.GetPositions:
         if self.should_fail_early(synapse, SynapseMethod.POSITION_INSPECTOR):
-            print("pos fail early")
             return synapse
 
         miner_hotkey = synapse.dendrite.hotkey
@@ -705,21 +704,22 @@ class Validator:
         synapse.error_message = error_message
         return synapse
 
-    def get_stats(self, synapse: template.protocol.GetStatistics,
-                      ) -> template.protocol.GetStatistics:
-        if self.should_fail_early(synapse, SynapseMethod.STATS):
-            print("stats fail early")
+    def get_data(self, synapse: template.protocol.GetDashData,
+                      ) -> template.protocol.GetDashData:
+        if self.should_fail_early(synapse, SynapseMethod.DASHBOARD):
             return synapse
 
         miner_hotkey = synapse.dendrite.hotkey
         error_message = ""
-        print("got stats request")
         try:
             stats = generate_miner_statistics_data(time_now=TimeUtil.now_in_millis(), checkpoints=False, miner_hotkeys=[miner_hotkey])
-            synapse.stats = stats
-            bt.logging.info(f"Sending stats back to miner: " + miner_hotkey)
+            positions = self.position_manager.get_all_miner_positions(miner_hotkey, sort_positions=True)
+            dash_data = {"statistics": stats, "positions": positions}
+
+            synapse.data = dash_data
+            bt.logging.info(f"Sending data back to miner: " + miner_hotkey)
         except Exception as e:
-            error_message = f"Error in GetStats for [{miner_hotkey}] with error [{e}]."
+            error_message = f"Error in GetData for [{miner_hotkey}] with error [{e}]."
             bt.logging.error(traceback.format_exc())
 
         if error_message == "":

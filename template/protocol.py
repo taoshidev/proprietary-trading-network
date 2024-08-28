@@ -38,12 +38,12 @@ class ValidatorCheckpoint(bt.Synapse):
         frozen=False
     )
 
-class GetStatistics(bt.Synapse):
-    stats: typing.Dict = Field(default_factory=dict, title="Stats", frozen=False)
+class GetDashData(bt.Synapse):
+    data: typing.Dict = Field(default_factory=dict, title="Dashboard Data", frozen=False)
     successfully_processed: bool = Field(False, title="Successfully Processed", frozen=False)
     error_message: str = Field("", title="Error Message", frozen=False)
     required_hash_fields: List[str] = Field(
-        ["stats"],
+        ["data"],
         title="Required Hash Fields",
         description="A list of fields required for the hash.",
         frozen=False
