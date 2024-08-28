@@ -32,15 +32,13 @@ class Miner:
         # Start the metagraph updater loop in its own thread
         self.metagraph_updater_thread = threading.Thread(target=self.metagraph_updater.run_update_loop, daemon=True)
         self.metagraph_updater_thread.start()
-
+        # Start position inspector loop in its own thread
+        self.position_inspector_thread = threading.Thread(target=self.position_inspector.run_update_loop, daemon=True)
+        self.position_inspector_thread.start()
         # Start the dashboard in its own thread
         self.dashboard = Dashboard(self.wallet, self.metagraph, self.config, self.is_testnet)
         self.dashboard_thread = threading.Thread(target=self.dashboard.run, daemon=True)
         self.dashboard_thread.start()
-
-        # Start position inspector loop in its own thread
-        self.position_inspector_thread = threading.Thread(target=self.position_inspector.run_update_loop, daemon=True)
-        self.position_inspector_thread.start()
 
     def setup_logging_directory(self):
         if not os.path.exists(self.config.full_path):
@@ -152,9 +150,9 @@ class Miner:
             except KeyboardInterrupt:
                 bt.logging.success("Miner killed by keyboard interrupt.")
                 self.metagraph_updater_thread.join()
-                self.dashboard_thread.join()
                 self.position_inspector.stop_update_loop()
                 self.position_inspector_thread.join()
+                self.dashboard_thread.join()
                 break
             # In case of unforeseen errors, the miner will log the error and continue operations.
             except Exception:

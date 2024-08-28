@@ -22,15 +22,12 @@ class Dashboard:
     def setup_routes(self):
         @self.app.get("/miner/{miner_id}")
         async def get_miner_data(miner_id: str):
-            bt.logging.info("get_miner_data request")
+            bt.logging.info("Dashboard stats request processing")
             asyncio.run(self.get_stats_positions_from_validator())
-            return self.miner_data
-
-            # TODO: make sure vali has miner?
-            # if self.miner_data is not None:
-            #     return self.miner_data
-            # else:
-            #     raise HTTPException(status_code=404, detail="Miner not found")
+            if self.miner_data:
+                return self.miner_data
+            else:
+                raise HTTPException(status_code=404, detail="Miner not found")
 
     def run(self, host="127.0.0.1", port=8000):
         uvicorn.run(self.app, host=host, port=port)
@@ -41,17 +38,19 @@ class Dashboard:
         """
         dendrite = bt.dendrite(wallet=self.wallet)
         if self.is_testnet:
-            validator_axons = [n.axon_info for n in self.metagraph.neurons if n.hotkey == "5HY92b6TyroU2ZK1GHe5ccqu8QSFmzb835CDduQk2toDkRSZ"]
+            validator_axons = self.metagraph.axons
         else:
-            validator_axons = [n.axon_info for n in self.metagraph.neurons if n.hotkey == "5FFApaS75bv5pJHfAp2FVLBj9ZaXuFDjEypsaBNc1wCfe52v"]  # RT21 validator# self.position_inspector.get_possible_validators()  # RT21?
+            validator_axons = [n.axon_info for n in self.metagraph.neurons if n.hotkey == "5FFApaS75bv5pJHfAp2FVLBj9ZaXuFDjEypsaBNc1wCfe52v"]  # RT21
 
         try:
             miner_dash_synapse = template.protocol.GetDashData()
-            validator_response = await dendrite.forward(axons=validator_axons, synapse=miner_dash_synapse, timeout=10)
+            validator_response = await dendrite.forward(axons=validator_axons, synapse=miner_dash_synapse, timeout=5)
 
             for response in validator_response:
                 if response.successfully_processed:
                     self.miner_data = response.data
+                    bt.logging.info("Dashboard stats request succeeded")
+                    break
                 else:
                     if response.error_message:
                         bt.logging.info(f"Dashboard stats request failed with error [{response.error_message}]")

@@ -716,6 +716,11 @@ class Validator:
             positions = self.position_manager.get_all_miner_positions(miner_hotkey, sort_positions=True)
             dash_data = {"statistics": stats, "positions": positions}
 
+            if not stats["data"]:
+                error_message = f"Validator {self.wallet.hotkey.ss58_address} has no stats for miner {miner_hotkey}"
+            elif not positions:
+                error_message = f"Validator {self.wallet.hotkey.ss58_address} has no positions for miner {miner_hotkey}"
+
             synapse.data = dash_data
             bt.logging.info(f"Sending data back to miner: " + miner_hotkey)
         except Exception as e:
