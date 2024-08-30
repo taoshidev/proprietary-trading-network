@@ -2,7 +2,7 @@ import asyncio
 import bittensor as bt
 import uvicorn
 import template.protocol
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 origins = [
@@ -44,8 +44,8 @@ class Dashboard:
                 empty_data = {"statistics": {"data": []}, "positions": []}
                 return empty_data
 
-    def run(self, host="127.0.0.1", port=8000):
-        uvicorn.run(self.app, host=host, port=port)
+    def run(self):
+        uvicorn.run(self.app, host="127.0.0.1", port=8080)
 
     async def get_stats_positions_from_validator(self):
         """
