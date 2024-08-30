@@ -41,7 +41,8 @@ class Dashboard:
             if self.miner_data:
                 return self.miner_data
             else:
-                raise HTTPException(status_code=404, detail="Miner not found")
+                empty_data = {"statistics": {"data": []}, "positions": []}
+                return empty_data
 
     def run(self, host="127.0.0.1", port=8000):
         uvicorn.run(self.app, host=host, port=port)
