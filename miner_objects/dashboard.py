@@ -1,10 +1,14 @@
 import asyncio
-
 import bittensor as bt
 import uvicorn
-
 import template.protocol
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+
+origins = [
+    "http://localhost",
+    "http://localhost:5173",
+]
 
 class Dashboard:
     def __init__(self, wallet, metagraph, config, is_testnet):
@@ -16,11 +20,22 @@ class Dashboard:
         self.miner_data = {}
 
         self.app = FastAPI()
-        self.setup_routes()
+        self._add_cors_middleware()
+        self._setup_routes()
 
-    def setup_routes(self):
-        @self.app.get("/miner/{miner_id}")
-        async def get_miner_data(miner_id: str):
+    def _add_cors_middleware(self):
+        # Set up CORS middleware
+        self.app.add_middleware(
+            CORSMiddleware,
+            allow_origins=origins,
+            allow_credentials=True,
+            allow_methods=["*"],  # allow all HTTP methods
+            allow_headers=["*"],  # allow all headers
+        )
+
+    def _setup_routes(self):
+        @self.app.get("/miner")
+        async def get_miner_data():
             bt.logging.info("Dashboard stats request processing")
             asyncio.run(self.get_stats_positions_from_validator())
             if self.miner_data:

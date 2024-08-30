@@ -197,7 +197,7 @@ class Validator:
         bt.logging.info("Attaching forward function to axon.")
 
         self.order_rate_limiter = RateLimiter()
-        self.position_inspector_rate_limiter = RateLimiter(max_requests_per_window=2, rate_limit_window_duration_seconds=60 * 4)
+        self.position_inspector_rate_limiter = RateLimiter(max_requests_per_window=1, rate_limit_window_duration_seconds=60 * 4)
         self.dash_rate_limiter = RateLimiter(max_requests_per_window=1, rate_limit_window_duration_seconds=60)
         self.checkpoint_rate_limiter = RateLimiter(max_requests_per_window=1, rate_limit_window_duration_seconds=60 * 60 * 6)
 
@@ -539,7 +539,7 @@ class Validator:
             synapse.error_message = msg
             return True
 
-        if method == SynapseMethod.CHECKPOINT:
+        if method == SynapseMethod.CHECKPOINT or method == SynapseMethod.DASHBOARD:
             return False
 
         # don't process eliminated miners
