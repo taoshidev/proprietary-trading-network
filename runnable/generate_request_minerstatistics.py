@@ -119,11 +119,11 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
     filtered_ledger = subtensor_weight_setter.filtered_ledger(hotkeys=all_miner_hotkeys)
     filtered_positions = subtensor_weight_setter.filtered_positions(hotkeys=all_miner_hotkeys)
 
-    # Sync the ledger and positions
-    filtered_ledger, filtered_positions = subtensor_weight_setter.sync_ledger_positions(
-        filtered_ledger,
-        filtered_positions
-    )
+    # # Sync the ledger and positions
+    # filtered_ledger, filtered_positions = subtensor_weight_setter.sync_ledger_positions(
+    #     filtered_ledger,
+    #     filtered_positions
+    # )
 
     # Lookback window positions
     lookback_positions = PositionFiltering.filter(
