@@ -119,7 +119,8 @@ class ValiConfig:
     CHALLENGE_PERIOD_RETURN = 1.02
     CHALLENGE_PERIOD_RETURN_LOG = math.log(CHALLENGE_PERIOD_RETURN)
     CHALLENGE_PERIOD_RETURN_PERCENTAGE = (CHALLENGE_PERIOD_RETURN - 1) * 100
-    CHALLENGE_PERIOD_MAX_POSITIONAL_RETURNS_RATIO = 0.3  # one position shouldn't be more than 30% of the total returns
+    CHALLENGE_PERIOD_MAX_POSITIONAL_RETURNS_RATIO = 0.25  # one position shouldn't be more than 25% of the total returns
+    CHALLENGE_PERIOD_MAX_UNREALIZED_RETURNS_RATIO = 0.20  # one day shouldn't be more than 20% of the total returns
     CHALLENGE_PERIOD_MAX_DRAWDOWN_PERCENT = 5  # beyond 5% drawdown, they don't pass challenge
     CHALLENGE_PERIOD_MIN_POSITIONS = 10  # need at least 10 positions to pass challenge
 

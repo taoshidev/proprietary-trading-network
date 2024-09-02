@@ -176,6 +176,7 @@ class ChallengePeriodManager(CacheController):
         minimum_return = ValiConfig.CHALLENGE_PERIOD_RETURN_LOG
         minimum_number_of_positions = ValiConfig.CHALLENGE_PERIOD_MIN_POSITIONS
         maximum_positional_returns_ratio = ValiConfig.CHALLENGE_PERIOD_MAX_POSITIONAL_RETURNS_RATIO
+        maximum_unrealized_return_ratio = ValiConfig.CHALLENGE_PERIOD_MAX_UNREALIZED_RETURNS_RATIO
 
         # Check the closed positions from the miner
         filtered_positions = PositionFiltering.filter_single_miner(
@@ -192,6 +193,9 @@ class ChallengePeriodManager(CacheController):
         recorded_returns_ratio = PositionPenalties.returns_ratio(filtered_positions)
         recorded_return = Scoring.base_return(filtered_positions)
 
+        # Unrealized Gains Ratio Criteria
+        recorded_unrealized_ratio = LedgerUtils.daily_consistency_ratio(ledger_element.cps)
+
         # Evaluation
         # Recorded returns are greater than minimum returns - log
         return_criteria = recorded_return >= minimum_return
@@ -202,13 +206,16 @@ class ChallengePeriodManager(CacheController):
         # Ratio of largest to overall is less than our maximum permitted ratio
         max_returns_ratio_criteria = recorded_returns_ratio < maximum_positional_returns_ratio
 
+        # Ratio of unrealized gains to total returns is less than our maximum permitted ratio
+        max_unrealized_return_ratio_criteria = recorded_unrealized_ratio <= maximum_unrealized_return_ratio
+
         if log:
             viewable_return = 100 * (recorded_return - 1)
             viewable_minimum_return = 100 * (minimum_return - 1)
             print(f"Return: {viewable_return:.4f}% >= {viewable_minimum_return:.2f}%: {return_criteria}")
             print()
 
-        return return_criteria and closed_positions_criteria and max_returns_ratio_criteria
+        return return_criteria and closed_positions_criteria and max_returns_ratio_criteria and max_unrealized_return_ratio_criteria
 
     @staticmethod
     def screen_failing_criteria(
