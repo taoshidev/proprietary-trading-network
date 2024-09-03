@@ -1,11 +1,10 @@
 # developer: trdougherty
-# Copyright © 2024 Taoshi Inc
 import math
 import numpy as np
 import copy
 
 from vali_config import ValiConfig
-from vali_objects.vali_dataclasses.perf_ledger import PerfCheckpoint, PerfLedger
+from vali_objects.vali_dataclasses.perf_ledger import PerfCheckpoint, PerfLedgerData
 from vali_objects.utils.functional_utils import FunctionalUtils
 
 
@@ -288,7 +287,7 @@ class LedgerUtils:
         return np.clip(abs(numerator / unrealized_return), 0, 1)
 
     @staticmethod
-    def cumulative(ledger: dict[str, PerfLedger]) -> dict[str, dict]:
+    def cumulative(ledger: dict[str, PerfLedgerData]) -> dict[str, dict]:
         """
         Adds the cumulative return of the ledger to each checkpoint.
         Args:
