@@ -138,7 +138,7 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
 
     # Penalties
     miner_penalties = Scoring.miner_penalties(
-        filtered_positions,
+        lookback_positions,
         filtered_ledger
     )
 
