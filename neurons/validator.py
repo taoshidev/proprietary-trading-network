@@ -21,6 +21,7 @@ import gzip
 import base64
 
 from runnable.generate_request_core import generate_request_core
+from runnable.generate_request_minerstatistics import generate_miner_statistics_data
 from vali_objects.utils.auto_sync import PositionSyncer
 from vali_objects.utils.p2p_syncer import P2PSyncer
 from shared_objects.rate_limiter import RateLimiter
@@ -50,6 +51,7 @@ shutdown_dict = {}
 # Enum class that represents the method associated with Synapse
 class SynapseMethod(Enum):
     POSITION_INSPECTOR = "GetPositions"
+    DASHBOARD = "GetDashData"
     SIGNAL = "SendSignal"
     CHECKPOINT = "SendCheckpoint"
 
@@ -196,6 +198,7 @@ class Validator:
 
         self.order_rate_limiter = RateLimiter()
         self.position_inspector_rate_limiter = RateLimiter(max_requests_per_window=1, rate_limit_window_duration_seconds=60 * 4)
+        self.dash_rate_limiter = RateLimiter(max_requests_per_window=1, rate_limit_window_duration_seconds=60)
         self.checkpoint_rate_limiter = RateLimiter(max_requests_per_window=1, rate_limit_window_duration_seconds=60 * 60 * 6)
 
         def rs_blacklist_fn(synapse: template.protocol.SendSignal) -> Tuple[bool, str]:
@@ -208,6 +211,12 @@ class Validator:
             return Validator.blacklist_fn(synapse, self.metagraph)
 
         def gp_priority_fn(synapse: template.protocol.GetPositions) -> float:
+            return Validator.priority_fn(synapse, self.metagraph)
+
+        def gd_blacklist_fn(synapse: template.protocol.GetDashData) -> Tuple[bool, str]:
+            return Validator.blacklist_fn(synapse, self.metagraph)
+
+        def gd_priority_fn(synapse: template.protocol.GetDashData) -> float:
             return Validator.priority_fn(synapse, self.metagraph)
 
         def rc_blacklist_fn(synapse: template.protocol.ValidatorCheckpoint) -> Tuple[bool, str]:
@@ -225,6 +234,11 @@ class Validator:
             forward_fn=self.get_positions,
             blacklist_fn=gp_blacklist_fn,
             priority_fn=gp_priority_fn,
+        )
+        self.axon.attach(
+            forward_fn=self.get_data,
+            blacklist_fn=gd_blacklist_fn,
+            priority_fn=gd_priority_fn,
         )
         self.axon.attach(
             forward_fn=self.receive_checkpoint,
@@ -491,7 +505,7 @@ class Validator:
                 synapse.successfully_processed = False
                 synapse.error_message = msg
 
-    def should_fail_early(self, synapse: template.protocol.SendSignal | template.protocol.GetPositions | template.protocol.ValidatorCheckpoint, method:SynapseMethod,
+    def should_fail_early(self, synapse: template.protocol.SendSignal | template.protocol.GetPositions | template.protocol.GetDashData | template.protocol.ValidatorCheckpoint, method:SynapseMethod,
                           signal:dict=None) -> bool:
         global shutdown_dict
         if shutdown_dict:
@@ -504,12 +518,14 @@ class Validator:
         # Don't allow miners to send too many signals in a short period of time
         if method == SynapseMethod.POSITION_INSPECTOR:
             allowed, wait_time = self.position_inspector_rate_limiter.is_allowed(sender_hotkey)
+        elif method == SynapseMethod.DASHBOARD:
+            allowed, wait_time = self.dash_rate_limiter.is_allowed(sender_hotkey)
         elif method == SynapseMethod.SIGNAL:
             allowed, wait_time = self.order_rate_limiter.is_allowed(sender_hotkey)
         elif method == SynapseMethod.CHECKPOINT:
             allowed, wait_time = self.checkpoint_rate_limiter.is_allowed(sender_hotkey)
         else:
-            msg = "Received synapse does not match one of expected methods for: receive_signal, get_positions, or receive_checkpoint"
+            msg = "Received synapse does not match one of expected methods for: receive_signal, get_positions, get_data, or receive_checkpoint"
             bt.logging.trace(msg)
             synapse.successfully_processed = False
             synapse.error_message = msg
@@ -523,7 +539,7 @@ class Validator:
             synapse.error_message = msg
             return True
 
-        if method == SynapseMethod.CHECKPOINT:
+        if method == SynapseMethod.CHECKPOINT or method == SynapseMethod.DASHBOARD:
             return False
 
         # don't process eliminated miners
@@ -677,6 +693,37 @@ class Validator:
             bt.logging.info(f"Sending {len(positions)} positions back to miner: " + hotkey)
         except Exception as e:
             error_message = f"Error in GetPositions for [{miner_hotkey}] with error [{e}]. Perhaps the position was being written to disk at the same time."
+            bt.logging.error(traceback.format_exc())
+
+        if error_message == "":
+            synapse.successfully_processed = True
+        else:
+            bt.logging.error(error_message)
+            synapse.successfully_processed = False
+        synapse.error_message = error_message
+        return synapse
+
+    def get_data(self, synapse: template.protocol.GetDashData,
+                      ) -> template.protocol.GetDashData:
+        if self.should_fail_early(synapse, SynapseMethod.DASHBOARD):
+            return synapse
+
+        miner_hotkey = synapse.dendrite.hotkey
+        error_message = ""
+        try:
+            stats = generate_miner_statistics_data(time_now=TimeUtil.now_in_millis(), checkpoints=False, miner_hotkeys=[miner_hotkey])
+            positions = self.position_manager.get_all_miner_positions(miner_hotkey, sort_positions=True)
+            dash_data = {"statistics": stats, "positions": positions}
+
+            if not stats["data"]:
+                error_message = f"Validator {self.wallet.hotkey.ss58_address} has no stats for miner {miner_hotkey}"
+            elif not positions:
+                error_message = f"Validator {self.wallet.hotkey.ss58_address} has no positions for miner {miner_hotkey}"
+
+            synapse.data = dash_data
+            bt.logging.info("Sending data back to miner: " + miner_hotkey)
+        except Exception as e:
+            error_message = f"Error in GetData for [{miner_hotkey}] with error [{e}]."
             bt.logging.error(traceback.format_exc())
 
         if error_message == "":
