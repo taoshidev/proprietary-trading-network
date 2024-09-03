@@ -6,6 +6,8 @@ class MinerConfig:
     STAKE_MIN = 1000.0
     AXON_NO_IP = "0.0.0.0"
 
+    DASHBOARD_PORT = 41511
+
     @staticmethod
     def get_miner_received_signals_dir() -> str:
         return ValiConfig.BASE_DIR + "/mining/received_signals/"

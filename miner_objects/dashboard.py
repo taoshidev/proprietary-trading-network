@@ -5,6 +5,8 @@ import template.protocol
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from miner_config import MinerConfig
+
 origins = [
     "http://localhost",
     "http://localhost:5173",
@@ -45,7 +47,7 @@ class Dashboard:
                 return empty_data
 
     def run(self):
-        uvicorn.run(self.app, host="127.0.0.1", port=8080)
+        uvicorn.run(self.app, host="127.0.0.1", port=MinerConfig.DASHBOARD_PORT)
 
     async def get_stats_positions_from_validator(self):
         """
