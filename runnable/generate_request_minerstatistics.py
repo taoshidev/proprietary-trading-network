@@ -138,7 +138,7 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
 
     # Penalties
     miner_penalties = Scoring.miner_penalties(
-        filtered_positions,
+        lookback_positions,
         filtered_ledger
     )
 
@@ -231,11 +231,11 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
         max_drawdown_threshold_penalties[hotkey] = LedgerUtils.max_drawdown_threshold_penalty(hotkey_ledger.cps)
 
         # Positional consistency ratios
-        positional_realized_returns_ratios[hotkey] = PositionPenalties.returns_ratio(miner_positions)
-        positional_realized_returns_penalties[hotkey] = PositionPenalties.returns_ratio_penalty(miner_positions)
+        positional_realized_returns_ratios[hotkey] = PositionPenalties.returns_ratio(miner_lookback_positions)
+        positional_realized_returns_penalties[hotkey] = PositionPenalties.returns_ratio_penalty(miner_lookback_positions)
 
-        positional_return_time_consistency_ratios[hotkey] = PositionPenalties.time_consistency_ratio(miner_positions)
-        positional_return_time_consistency_penalty = PositionPenalties.time_consistency_penalty(miner_positions)
+        positional_return_time_consistency_ratios[hotkey] = PositionPenalties.time_consistency_ratio(miner_lookback_positions)
+        positional_return_time_consistency_penalty = PositionPenalties.time_consistency_penalty(miner_lookback_positions)
         positional_return_time_consistency_penalties[hotkey] = positional_return_time_consistency_penalty
 
         # Now for the ledger statistics
@@ -254,10 +254,10 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
     successful_ledger = subtensor_weight_setter.filtered_ledger(hotkeys=challengeperiod_success_hotkeys)
     successful_positions = subtensor_weight_setter.filtered_positions(hotkeys=challengeperiod_success_hotkeys)
 
-    successful_ledger, successful_positions = subtensor_weight_setter.sync_ledger_positions(
-        successful_ledger,
-        successful_positions
-    )
+    # successful_ledger, successful_positions = subtensor_weight_setter.sync_ledger_positions(
+    #     successful_ledger,
+    #     successful_positions
+    # )
 
     checkpoint_results = Scoring.compute_results_checkpoint(
         successful_ledger,

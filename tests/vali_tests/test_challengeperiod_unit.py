@@ -66,7 +66,8 @@ class TestChallengePeriodUnit(TestBase):
         self.DEFAULT_LEDGER = generate_ledger(
             start_time=self.START_TIME,
             end_time=self.END_TIME,
-            value=0.1,
+            gain=0.1,
+            loss=-0.08,
             mdd=0.99
         )
 
