@@ -43,7 +43,6 @@ class TestPositions(TestBase):
 
     def add_order_to_position_and_save_to_disk(self, position, order):
         position.add_order(order, self.position_manager.calculate_net_portfolio_leverage(self.DEFAULT_MINER_HOTKEY))
-        # print(self.position_manager.calculate_total_portfolio_leverage(self.DEFAULT_MINER_HOTKEY))
         self.position_manager.save_miner_position_to_disk(position)
 
     def _find_disk_position_from_memory_position(self, position):

@@ -510,7 +510,7 @@ class Position(BaseModel):
         self.is_closed_position = False
         self.close_ms = None
 
-    def _clamp_and_validate_leverage(self, order, net_portfolio_leverage) -> bool:
+    def _clamp_and_validate_leverage(self, order: Order, net_portfolio_leverage: float) -> bool:
         """
         If an order's leverage would make the position's leverage higher than max_position_leverage,
         we clamp the order's leverage. If clamping causes the order's leverage to be below
@@ -541,9 +541,13 @@ class Position(BaseModel):
                 if (is_first_order
                         or abs(proposed_leverage) >= abs(self.net_leverage)
                         or proposed_portfolio_leverage >= net_portfolio_leverage):
-                    order.leverage = max(0.0,
-                                         min(max_position_leverage - abs(self.net_leverage),
-                                             (max_portfolio_leverage - net_portfolio_leverage) / self.trade_pair.leverage_multiplier))
+
+                    clamped_position_leverage = max_position_leverage - abs(self.net_leverage)
+                    clamped_portfolio_leverage = (max_portfolio_leverage - net_portfolio_leverage) / self.trade_pair.leverage_multiplier
+                    # take leverage up to the limit for position or portfolio, whichever is hit first
+                    clamped_leverage = min(clamped_position_leverage, clamped_portfolio_leverage)
+                    order.leverage = max(0.0, clamped_leverage)  # ensure leverage is always >= 0
+
                     if order.order_type == OrderType.SHORT:
                         order.leverage *= -1
                     should_ignore_order = order.leverage == 0

@@ -266,7 +266,7 @@ class TradePair(Enum):
         return self.trade_pair_category == TradePairCategory.INDICES
 
     @property
-    def leverage_multiplier(self):
+    def leverage_multiplier(self) -> int:
         trade_pair_leverage_multiplier = {TradePairCategory.CRYPTO: 10,
                                           TradePairCategory.FOREX: 1,
                                           TradePairCategory.INDICES: 1}

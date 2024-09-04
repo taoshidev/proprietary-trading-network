@@ -1146,7 +1146,7 @@ class PositionManager(CacheController):
 
         f.close()
 
-    def calculate_net_portfolio_leverage(self, hotkey):
+    def calculate_net_portfolio_leverage(self, hotkey: str) -> float:
         """
         Calculate leverage across all open positions
         Normalize each asset class with a multiplier
