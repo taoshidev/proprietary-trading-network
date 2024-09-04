@@ -2019,6 +2019,42 @@ class TestPositions(TestBase):
             self.assertEqual(position3.orders[0].leverage, -0.1)
             self.assertEqual(["WARNING:root:Order leverage clamped to -0.1"], logger.output)
 
+    def test_position_below_min_while_portfolio_lev_exceeded(self):
+        """
+        bringing a position below the position min while the portfolio leverage is being exceeded should not be allowed
+        """
+        position1 = deepcopy(self.default_position)
+        position1.trade_pair = TradePair.USDCAD
+        o1 = Order(order_type=OrderType.LONG,
+                   leverage=50,
+                   price=100,
+                   trade_pair=TradePair.USDCAD,
+                   processed_ms=leverage_utils.LEVERAGE_BOUNDS_V2_START_TIME_MS - 1000,
+                   order_uuid="1000")
+        self.add_order_to_position_and_save_to_disk(position1, o1)
+
+        position2 = deepcopy(self.default_position)
+        position2.trade_pair = TradePair.AUDCAD
+        o2 = Order(order_type=OrderType.LONG,
+                   leverage=50,
+                   price=100,
+                   trade_pair=TradePair.AUDCAD,
+                   processed_ms=leverage_utils.LEVERAGE_BOUNDS_V2_START_TIME_MS - 1000,
+                   order_uuid="1000")
+        self.add_order_to_position_and_save_to_disk(position2, o2)
+
+        o3 = Order(order_type=OrderType.SHORT,
+                   leverage=49.99,
+                   price=100,
+                   trade_pair=TradePair.AUDCAD,
+                   processed_ms=leverage_utils.LEVERAGE_BOUNDS_V2_START_TIME_MS + 1000,
+                   order_uuid="1000")
+        self.add_order_to_position_and_save_to_disk(position2, o3)
+
+        # the o3 order should be skipped since it would bring the position net leverage below min leverage.
+        self.assertEqual(position2.net_leverage, 50)
+
+
     def test_position_json(self):
         position = deepcopy(self.default_position)
         live_price = 100000

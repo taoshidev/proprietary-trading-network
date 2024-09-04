@@ -324,9 +324,13 @@ class Position(BaseModel):
                 logging.warning(
                     f"Miner attempted to exceed max adjusted portfolio leverage of {max_portfolio_leverage}. Ignoring order.")
             else:
-                logging.warning(
-                    f"Miner attempted to exceed max leverage {self.trade_pair.max_leverage} for trade pair "
-                    f"{self.trade_pair.trade_pair_id}. Ignoring order.")
+                if order.leverage >= 0:
+                    logging.warning(
+                        f"Miner attempted to exceed max leverage {self.trade_pair.max_leverage} for trade pair "
+                        f"{self.trade_pair.trade_pair_id}. Ignoring order.")
+                else:
+                    logging.warning(f"Miner attempted to go below min leverage {self.trade_pair.min_leverage} for trade pair "
+                                    f"{self.trade_pair.trade_pair_id}. Ignoring order.")
             return
         self.orders.append(order)
         self._update_position()
@@ -554,7 +558,12 @@ class Position(BaseModel):
                     if not should_ignore_order:
                         logging.warning(f"Order leverage clamped to {order.leverage}")
                 else:
-                    pass#  We are getting the leverage closer to the new boundary (decrease) so allow it
+                    # portfolio leverage attempts to go under min
+                    if abs(proposed_leverage) < min_position_leverage:
+                        should_ignore_order = True
+                        logging.warning(f"Attempted to set position leverage below min_position_leverage {min_position_leverage} while exceeding max_portfolio_leverage")
+                    else:
+                        pass  #  We are getting the leverage closer to the new boundary (decrease) so allow it
             elif abs(proposed_leverage) < min_position_leverage:
                 if is_first_order or abs(proposed_leverage) < abs(self.net_leverage):
                     raise ValueError(f'Attempted to set position leverage below min_position_leverage {min_position_leverage}')
