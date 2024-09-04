@@ -711,7 +711,7 @@ class Validator:
         miner_hotkey = synapse.dendrite.hotkey
         error_message = ""
         try:
-            stats = generate_miner_statistics_data(time_now=TimeUtil.now_in_millis(), checkpoints=False, miner_hotkeys=[miner_hotkey])
+            stats = generate_miner_statistics_data(time_now=TimeUtil.now_in_millis(), checkpoints=True, miner_hotkeys=[miner_hotkey])
             positions = self.position_manager.get_all_miner_positions(miner_hotkey, sort_positions=True)
             dash_data = {"statistics": stats, "positions": positions}
 
