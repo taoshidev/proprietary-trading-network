@@ -5,9 +5,10 @@ import json
 import math
 import traceback
 from collections import defaultdict
-from typing import List
+from typing import List, Set
 
 import bittensor as bt
+from bittensor import AxonInfo, NeuronInfo
 
 import template
 from time_util.time_util import TimeUtil
@@ -96,7 +97,7 @@ class P2PSyncer(ValidatorSyncBase):
         except Exception as e:
             bt.logging.info(f"Error generating golden with error [{e}]")
 
-    def create_golden(self, trusted_checkpoints: dict):
+    def create_golden(self, trusted_checkpoints: dict) -> bool:
         """
         Simple majority approach
             If a position’s uuid exists on the majority of validators, that position is kept.
@@ -181,7 +182,7 @@ class P2PSyncer(ValidatorSyncBase):
         bt.logging.info(f"Created golden checkpoint: {self.checkpoint_summary(self.golden)}")
         return True
 
-    def sort_positions(self, miner_positions, majority_positions, seen_positions, seen_orders, position_counts, order_counts, order_data, orders_matrix, validator_hotkey):
+    def sort_positions(self, miner_positions: dict, majority_positions: Set[str], seen_positions: Set[str], seen_orders: Set[str], position_counts: dict, order_counts: dict, order_data: dict, orders_matrix: dict, validator_hotkey: str) -> List[dict]:
         """
         determine which positions are in the majority, and which ones should be matched up using a heuristic
         """
@@ -234,7 +235,7 @@ class P2PSyncer(ValidatorSyncBase):
                 uuid_matched_positions.append(position_dict)
         return uuid_matched_positions
 
-    def heuristic_resolve_orders(self, order_uuid: str, order_data: dict, order_in_num_positions: int, seen_orders: set, resolved_orders:set, orders_matrix, corresponding_validator_hotkey, position_uuid):
+    def heuristic_resolve_orders(self, order_uuid: str, order_data: dict, order_in_num_positions: int, seen_orders: set, resolved_orders: set, orders_matrix: dict, corresponding_validator_hotkey: str, position_uuid: str) -> List[dict]:
         """
         heuristic matching for orders with different order_uuids.
         return all the matches if it contains all new orders, and passes threshold
@@ -249,7 +250,7 @@ class P2PSyncer(ValidatorSyncBase):
             # see if no elements from matches have already appeared in uuid_matched_positions
             return matches
 
-    def find_matching_orders(self, order, resolved_orders, orders_matrix, corresponding_validator_hotkey):
+    def find_matching_orders(self, order: dict, resolved_orders: Set[dict], orders_matrix: dict, corresponding_validator_hotkey: str) -> List[dict] | None:
         """
         compare an order to all other orders associated with a position, and find all the matches
         sort matches by order_uuid
@@ -280,7 +281,7 @@ class P2PSyncer(ValidatorSyncBase):
             return matched_orders
         return
 
-    def checkpoint_summary(self, checkpoint):
+    def checkpoint_summary(self, checkpoint: dict) -> dict:
         """
         returns a summary of the checkpoint information
         {miner hotkey: [num of positions, num of orders]
@@ -294,7 +295,7 @@ class P2PSyncer(ValidatorSyncBase):
             summary[miner] = pos_orders
         return summary
 
-    def last_order_time_in_checkpoint(self, checkpoint):
+    def last_order_time_in_checkpoint(self, checkpoint: dict) -> int:
         """
         determine the latest order on each validator checkpoint
         """
@@ -307,7 +308,7 @@ class P2PSyncer(ValidatorSyncBase):
                     latest_order_ms = max(latest_order_ms, order["processed_ms"])
         return latest_order_ms
 
-    def parse_checkpoint(self, validator_hotkey, checkpoint, position_counts, order_counts, order_data, miner_to_uuids, miner_counts, positions_matrix, orders_matrix):
+    def parse_checkpoint(self, validator_hotkey: str, checkpoint: dict, position_counts: dict, order_counts: dict, order_data: dict, miner_to_uuids: dict, miner_counts: dict, positions_matrix: dict, orders_matrix: dict):
         """
         parse checkpoint data
 
@@ -339,7 +340,7 @@ class P2PSyncer(ValidatorSyncBase):
 
                 positions_matrix[miner_hotkey][position["trade_pair"][0]][validator_hotkey].append(position)
 
-    def prune_position_orders(self, order_counts):
+    def prune_position_orders(self, order_counts: dict):
         """
         some validators may incorrectly combine multiple positions into one, so an order_uuid may appear under
         multiple positions. We will only keep the order_uuid in the position that it appears the most in.
@@ -362,7 +363,7 @@ class P2PSyncer(ValidatorSyncBase):
                 if position != order_max_count_appears_in_position[order][0]:
                     del orders[order]
 
-    def find_legacy_miners(self, num_checkpoints, order_counts, miner_to_uuids, position_counts, order_data):
+    def find_legacy_miners(self, num_checkpoints: int, order_counts: dict, miner_to_uuids: dict, position_counts: dict, order_data: dict) -> Set[str]:
         """
         detect miners running legacy code. miner with legacy code will have all unique uuid's across validators
         so the counts of each position_uuid and order_uuid would be 1. Mark miners with some unique position/order
@@ -402,7 +403,7 @@ class P2PSyncer(ValidatorSyncBase):
         bt.logging.info(f"legacy_miner_candidates: {legacy_miner_candidates}")
         return legacy_miners
 
-    def heuristic_resolve_positions(self, positions_matrix, num_checkpoints, seen_positions) -> List[Position]:
+    def heuristic_resolve_positions(self, positions_matrix: dict, num_checkpoints: int, seen_positions: set) -> List[dict]:
         """
         takes a matrix of unmatched positions, and returns a list of positions to add back in
         positions_matrix:
@@ -434,7 +435,7 @@ class P2PSyncer(ValidatorSyncBase):
                             matched_positions.append(matches_with_goal_order_count[0])
         return matched_positions
 
-    def find_match(self, position, trade_pair_validator_positions: dict, resolved_positions: set, corresponding_validator_hotkey) -> List[Position] | None:
+    def find_match(self, position: dict, trade_pair_validator_positions: dict, resolved_positions: set, corresponding_validator_hotkey: str) -> List[dict] | None:
         """
         compares a position from validator corresponding_validator_hotkey to all the positions from all the other validators.
         If we are able to match the position to another, we record all the matches, and return the first one as the matched
@@ -475,7 +476,7 @@ class P2PSyncer(ValidatorSyncBase):
             return matched_positions
         return
 
-    def consensus_threshold(self, total_items, heuristic_match=False):
+    def consensus_threshold(self, total_items: int, heuristic_match: bool=False) -> int:
         """
         threshold for including a position or order in the golden
         """
@@ -484,7 +485,7 @@ class P2PSyncer(ValidatorSyncBase):
         else:
             return math.ceil(total_items / 2)
 
-    def get_median_order(self, orders, trade_pair) -> Order:
+    def get_median_order(self, orders: List[dict], trade_pair: TradePair) -> Order:
         """
         select the order with the median price from a list of orders with the same order_uuid
         """
@@ -493,7 +494,7 @@ class P2PSyncer(ValidatorSyncBase):
         median_order["trade_pair"] = trade_pair
         return Order(**median_order)
 
-    def get_validators(self, neurons=None):
+    def get_validators(self, neurons: List[NeuronInfo]=None) -> List[AxonInfo]:
         """
         get a list of all validators. defined as:
         stake > 1000 and validator_trust > 0.5
@@ -507,7 +508,7 @@ class P2PSyncer(ValidatorSyncBase):
                            and n.axon_info.ip != ValiConfig.AXON_NO_IP]
         return validator_axons
 
-    def get_largest_staked_validators(self, top_n_validators, neurons=None):
+    def get_largest_staked_validators(self, top_n_validators: int, neurons: List[NeuronInfo]=None) -> List[AxonInfo]:
         """
         get a list of the trusted validators for checkpoint sending
         return top 20 neurons sorted by stake
