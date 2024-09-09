@@ -148,7 +148,7 @@ class P2PSyncer(ValidatorSyncBase):
         # parse each checkpoint to count occurrences of each position and order
         for hotkey, checkpoint in valid_checkpoints.items():
             self.parse_checkpoint(hotkey, checkpoint, position_counts, order_counts, order_data, miner_to_uuids, miner_counts, positions_matrix, orders_matrix)
-        self.prune_position_orders(order_counts)
+        self.prune_position_orders(order_counts, orders_matrix)
 
         # miners who are still running legacy code. do not want to include them in checkpoint
         self.find_legacy_miners(len(valid_checkpoints), order_counts, miner_to_uuids, position_counts, order_data)
@@ -165,10 +165,11 @@ class P2PSyncer(ValidatorSyncBase):
                 if miner_counts[miner_hotkey] < positions_threshold:
                     continue
 
+                # combinations where the position_uuid appears in the majority
                 uuid_matched_positions = self.sort_positions(miner_positions, majority_positions, seen_positions, seen_orders, position_counts, order_counts, order_data, orders_matrix, validator_hotkey)
                 golden_positions[miner_hotkey]["positions"].extend(uuid_matched_positions)
 
-        # insert heuristic matched positions back into the golden's positions
+        # combinations where the position_uuid does not appear in the majority, instead we use a heuristic match to combine positions
         for position in self.heuristic_resolve_positions(positions_matrix, len(valid_checkpoints), seen_positions):
             bt.logging.info(f"Position {position['position_uuid']} on miner {position['miner_hotkey']} matched, adding back in")
             miner_hotkey = position["miner_hotkey"]
@@ -185,6 +186,12 @@ class P2PSyncer(ValidatorSyncBase):
     def sort_positions(self, miner_positions: dict, majority_positions: Set[str], seen_positions: Set[str], seen_orders: Set[str], position_counts: dict, order_counts: dict, order_data: dict, orders_matrix: dict, validator_hotkey: str) -> List[dict]:
         """
         determine which positions are in the majority, and which ones should be matched up using a heuristic
+
+        position_counts = defaultdict(int)                      # {position_uuid: count}
+        order_counts = defaultdict(lambda: defaultdict(int))    # {position_uuid: {order_uuid: count}}
+        order_data = defaultdict(list)                          # {order_uuid: [{order}]}
+
+        orders_matrix = defaultdict(lambda: defaultdict(list))  # {position_uuid: {validator hotkey: [all orders on validator]}}
         """
         uuid_matched_positions = []
         resolved_orders = set()
@@ -193,29 +200,23 @@ class P2PSyncer(ValidatorSyncBase):
             position_uuid = position["position_uuid"]
             # position exists on majority of validators
             if position_uuid in majority_positions and position_uuid not in seen_positions:
-                # create a single combined position, and delete uuid to avoid duplicates
+                seen_positions.add(position_uuid)
                 new_position = Position(**position)
                 new_position.orders = []
 
-                # mark a position as seen, so we don't add it multiple times
-                seen_positions.add(position_uuid)
-
                 # get the set of order_uuids that appear in the majority of positions for a position_uuid
                 orders_threshold = self.consensus_threshold(position_counts[position_uuid])
-                majority_orders = {order_uuid for order_uuid, count in order_counts[position_uuid].items()
-                                   if count >= orders_threshold}
+                majority_orders = {order_uuid for order_uuid, count in order_counts[position_uuid].items() if count >= orders_threshold}
 
-                # order exists in the majority of positions
                 for order_uuid in order_counts[position_uuid].keys():
+                    # combinations where the order_uuid appears in the majority
                     if order_uuid in majority_orders and order_uuid not in seen_orders:
                         trade_pair = TradePair.from_trade_pair_id(position["trade_pair"][0])
                         median_order = self.get_median_order(order_data[order_uuid], trade_pair)
                         new_position.orders.append(median_order)
-                        # mark order_uuid as seen, so we don't add it multiple times
                         seen_orders.add(order_uuid)
+                    # combinations where the order_uuid does not appear in the majority, instead we use a heuristic to combine orders
                     elif order_uuid not in seen_orders:
-                        # can have different order_uuids in the same position_uuid
-                        # heuristic match up every order, make sure that matched orders do not include any orders that are already in seen_orders
                         matches = self.heuristic_resolve_orders(order_uuid, order_data, position_counts[position_uuid], seen_orders, resolved_orders, orders_matrix, validator_hotkey, position_uuid)
                         if matches is not None:
                             trade_pair = TradePair.from_trade_pair_id(position["trade_pair"][0])
@@ -228,11 +229,14 @@ class P2PSyncer(ValidatorSyncBase):
                                 f"Order {order_uuid} with Position {position_uuid} only appeared [{order_counts[position_uuid][order_uuid]}/{position_counts[position_uuid]}] times on miner {position['miner_hotkey']}. Skipping")
 
                 new_position.orders.sort(key=lambda o: o.processed_ms)
-                if len(new_position.orders) > 0 and new_position.orders[0].leverage == 0:
-                    bt.logging.info(f"Miner[{new_position.miner_hotkey}] Position [{new_position.position_uuid}] with orders {[o.order_uuid for o in new_position.orders]} first order leverage is 0")
-                new_position.rebuild_position_with_updated_orders()
-                position_dict = json.loads(new_position.to_json_string())
-                uuid_matched_positions.append(position_dict)
+                try:
+                    new_position.rebuild_position_with_updated_orders()
+                    position_dict = json.loads(new_position.to_json_string())
+                    uuid_matched_positions.append(position_dict)
+                except ValueError as v:
+                    bt.logging.info(
+                        f"Miner [{new_position.miner_hotkey}] Position [{new_position.position_uuid}] orders {[o.order_uuid for o in new_position.orders]} ValueError {v}")
+
         return uuid_matched_positions
 
     def heuristic_resolve_orders(self, order_uuid: str, order_data: dict, order_in_num_positions: int, seen_orders: set, resolved_orders: set, orders_matrix: dict, corresponding_validator_hotkey: str, position_uuid: str) -> List[dict]:
@@ -340,12 +344,13 @@ class P2PSyncer(ValidatorSyncBase):
 
                 positions_matrix[miner_hotkey][position["trade_pair"][0]][validator_hotkey].append(position)
 
-    def prune_position_orders(self, order_counts: dict):
+    def prune_position_orders(self, order_counts: dict, orders_matrix: dict):
         """
         some validators may incorrectly combine multiple positions into one, so an order_uuid may appear under
         multiple positions. We will only keep the order_uuid in the position that it appears the most in.
 
         order_counts = defaultdict(lambda: defaultdict(int))    # {position_uuid: {order_uuid: count}}
+        orders_matrix = defaultdict(lambda: defaultdict(list))  # {position_uuid: {validator hotkey: [all orders on validator]}}
         """
         order_max_count_appears_in_position = defaultdict(tuple)       # {order_uuid: (position_uuid, count)}
         # find the position_uuid with the max count for each order_uuid
@@ -360,8 +365,13 @@ class P2PSyncer(ValidatorSyncBase):
         # remove order_uuid from all other position_uuids
         for position, orders in order_counts.items():
             for order in list(orders.keys()):
-                if position != order_max_count_appears_in_position[order][0]:
+                max_position = order_max_count_appears_in_position[order][0]
+                if position != max_position:
                     del orders[order]
+                    order_counts[max_position][order] += 1
+
+                    for vali_orders in orders_matrix[position].values():
+                        vali_orders.remove(order) if order in vali_orders else None
 
     def find_legacy_miners(self, num_checkpoints: int, order_counts: dict, miner_to_uuids: dict, position_counts: dict, order_data: dict) -> Set[str]:
         """
