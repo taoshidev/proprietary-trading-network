@@ -101,17 +101,18 @@ those that provide the most returns, while never exceeding certain drawdown limi
 4. Positions are uni-directional. Meaning, if a position starts LONG (the first order it receives is LONG), 
 it can't flip SHORT. If you try and have it flip SHORT (using more leverage SHORT than exists LONG) it will close out 
 the position. You'll then need to open a second position which is SHORT with the difference.
-5. Position leverage is bound per trade_pair. If an order would cause the position's leverage to exceed the boundary, the position leverage will be clamped.
-6. You can take profit on an open position using LONG and SHORT. Say you have an open LONG position with .75x 
-leverage and you want to reduce it to a .5x leverage position to start taking profit on it. You would send in a SHORT signal
+5. Position leverage is bound per trade_pair. If an order would cause the position's leverage to exceed the upper boundary, the position leverage will be clamped. Minimum order leverage is 0.001. Crypto positional leverage limit is [0.01, 0.5]. Forex/Indices positional leverage limit is [0.1, 5]
+6. You can take profit on an open position using LONG and SHORT. Say you have an open LONG position with .5x 
+leverage and you want to reduce it to a .25x leverage position to start taking profit on it. You would send in a SHORT signal
 of size .25x leverage to reduce the size of the position. LONG and SHORT signals can be thought of working in opposite 
 directions in this way.
 7. Miners can explicitly close out a position by sending in a FLAT signal. 
 8. Miners are eliminated if they are detected as plagiarising other miners. (more info in  the "Eliminations" section).
-9. There is a fee per trade pair position. The fee scales with leverage. e.x a 10x leveraged position will have a 10x higher fee.
-10. There is a minimum registration fee of 5 TAO on the mainnet subnet.
-11. There is an immunity period of 9 days to help miners submit orders to become competitive with existing miners. Eliminated miners do not benefit from being in the immunity period.
-12. Based on portfolio metrics such as omega score and total portfolio return, weights/incentive get set to reward the best miners.
+9. There is a fee per order "spread fee". The fee scales with leverage. e.x a 3x leveraged order will have a 3x higher fee.
+10. There is a fee for leaving positions open "carry fee". The fee is equal to 10.95/5.25/3% per year for a 1x leverage position (crypto/indices/forex) <a href="https://docs-git-feat-p7-taoshi.vercel.app/tips/p4/">More info</a>
+11. There is a minimum registration fee of 5 TAO on the mainnet subnet.
+12. There is an immunity period of 9 days to help miners submit orders to become competitive with existing miners. Eliminated miners do not benefit from being in the immunity period.
+13. Based on portfolio metrics such as omega score and total portfolio return, weights/incentive get set to reward the best miners.
 
 With this system only the world's best traders & deep learning / quant based trading systems can compete.
 
@@ -159,6 +160,5 @@ For instructions on how to contribute to Taoshi, see CONTRIBUTING.md and Taoshi'
 
 # License
 
-Refer to the <a href='?tab=MIT-1-ov-file'>License</a> page for information about Taoshi's licensing.
-
 Bittensor's source code in this repository is licensed under the MIT License.
+Taoshi Inc's source code in this repository is licensed under the MIT License.

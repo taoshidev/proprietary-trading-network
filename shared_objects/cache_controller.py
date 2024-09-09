@@ -1,10 +1,9 @@
 # developer: jbonilla
-# Copyright © 2024 Taoshi Inc
 import os
 import datetime
+from collections import defaultdict
 from pickle import UnpicklingError
 from typing import List, Dict
-import copy
 
 from shared_objects.retry import retry
 from time_util.time_util import TimeUtil
@@ -23,6 +22,7 @@ class CacheController:
     ELIMINATIONS = "eliminations"
     MAX_DAILY_DRAWDOWN = 'MAX_DAILY_DRAWDOWN'
     MAX_TOTAL_DRAWDOWN = 'MAX_TOTAL_DRAWDOWN'
+
     def __init__(self, config=None, metagraph=None, running_unit_tests=False):
         self.config = config
         if config is not None:
@@ -45,21 +45,6 @@ class CacheController:
     def _hotkey_in_eliminations(self, hotkey):
         return any(hotkey == x['hotkey'] for x in self.eliminations)
 
-    @staticmethod
-    def generate_elimination_row(hotkey, dd, reason, t_ms=None, price_info=None, return_info=None):
-        if t_ms is None:
-            t_ms = TimeUtil.now_in_millis()
-        ans = {'hotkey': hotkey, 'elimination_initiated_time_ms': t_ms, 'dd': dd, 'reason': reason}
-        if price_info:
-            ans['price_info'] = price_info
-        if return_info:
-            ans['return_info'] = return_info
-        bt.logging.info(f"Created elimination row: {ans}")
-        return ans
-
-    def refresh_allowed(self, refresh_interval_ms):
-        return TimeUtil.now_in_millis() - self.get_last_update_time_ms() > refresh_interval_ms
-
     def set_last_update_time(self, skip_message=False):
         # Log that the class has finished updating and the time it finished updating
         if not skip_message:
@@ -77,6 +62,23 @@ class CacheController:
         directory_names = [item for item in os.listdir(query_dir) if (Path(query_dir) / item).is_dir()]
         return directory_names
 
+    # ----------------- Eliminations -----------------
+
+    @staticmethod
+    def generate_elimination_row(hotkey, dd, reason, t_ms=None, price_info=None, return_info=None):
+        if t_ms is None:
+            t_ms = TimeUtil.now_in_millis()
+        ans = {'hotkey': hotkey, 'elimination_initiated_time_ms': t_ms, 'dd': dd, 'reason': reason}
+        if price_info:
+            ans['price_info'] = price_info
+        if return_info:
+            ans['return_info'] = return_info
+        bt.logging.info(f"Created elimination row: {ans}")
+        return ans
+
+    def refresh_allowed(self, refresh_interval_ms):
+        return TimeUtil.now_in_millis() - self.get_last_update_time_ms() > refresh_interval_ms
+
     def _write_eliminations_from_memory_to_disk(self):
         self.write_eliminations_to_disk(self.eliminations)
 
@@ -86,23 +88,12 @@ class CacheController:
         output_location = ValiBkpUtils.get_eliminations_dir(running_unit_tests=self.running_unit_tests)
         ValiBkpUtils.write_file(output_location, vali_eliminations)
 
-    def write_perf_ledger_eliminations_to_disk(self, eliminations):
-        bt.logging.trace(f"Writing [{len(eliminations)}] eliminations from memory to disk: {eliminations}")
-        output_location = ValiBkpUtils.get_perf_ledger_eliminations_dir(running_unit_tests=self.running_unit_tests)
-        ValiBkpUtils.write_file(output_location, eliminations)
-
     def clear_eliminations_from_disk(self):
         ValiBkpUtils.write_file(ValiBkpUtils.get_eliminations_dir(running_unit_tests=self.running_unit_tests), {CacheController.ELIMINATIONS: []})
 
-    def clear_plagiarism_scores_from_disk(self):
-        ValiBkpUtils.write_file(ValiBkpUtils.get_plagiarism_scores_file_location(running_unit_tests=self.running_unit_tests), {})
-
-    def _write_updated_plagiarism_scores_from_memory_to_disk(self):
-        self.write_plagiarism_scores_to_disk(self.miner_plagiarism_scores)
-
-    def write_plagiarism_scores_to_disk(self, scores):
-        ValiBkpUtils.write_file(ValiBkpUtils.get_plagiarism_scores_file_location(
-            running_unit_tests=self.running_unit_tests), scores)
+    def _clear_eliminations_in_memory_and_disk(self):
+        self.eliminations = []
+        self.clear_eliminations_from_disk()
 
     def _refresh_eliminations_in_memory_and_disk(self):
         self.eliminations = self.get_filtered_eliminations_from_disk()
@@ -118,8 +109,7 @@ class CacheController:
         # Filters out miners that have already been deregistered. (Not in the metagraph)
         # This allows the miner to participate again once they re-register
         cached_eliminations = self.get_eliminations_from_disk()
-        updated_eliminations = [elimination for elimination in cached_eliminations if
-                                elimination['hotkey'] in self.metagraph.hotkeys]
+        updated_eliminations = [elimination for elimination in cached_eliminations if elimination['hotkey'] in self.metagraph.hotkeys]
         if len(updated_eliminations) != len(cached_eliminations):
             bt.logging.info(f"Filtered [{len(cached_eliminations) - len(updated_eliminations)}] / "
                             f"{len(cached_eliminations)} eliminations from disk due to not being in the metagraph")
@@ -143,11 +133,27 @@ class CacheController:
         bt.logging.trace(f"Loaded [{len(cached_eliminations)}] eliminations from disk. Dir: {location}")
         return cached_eliminations
 
+    # ----------------- Perf Ledgers -----------------
+    def write_perf_ledger_eliminations_to_disk(self, eliminations):
+        bt.logging.trace(f"Writing [{len(eliminations)}] eliminations from memory to disk: {eliminations}")
+        output_location = ValiBkpUtils.get_perf_ledger_eliminations_dir(running_unit_tests=self.running_unit_tests)
+        ValiBkpUtils.write_file(output_location, eliminations)
+
     def get_perf_ledger_eliminations_from_disk(self):
         location = ValiBkpUtils.get_perf_ledger_eliminations_dir(running_unit_tests=self.running_unit_tests)
         cached_eliminations = ValiUtils.get_vali_json_file(location)
         bt.logging.trace(f"Loaded [{len(cached_eliminations)}] eliminations from disk. Dir: {location}")
         return cached_eliminations
+
+    # ----------------- Plagiarism -----------------
+    def clear_plagiarism_scores_from_disk(self):
+        ValiBkpUtils.write_file(ValiBkpUtils.get_plagiarism_scores_file_location(running_unit_tests=self.running_unit_tests), {})
+
+    def _write_updated_plagiarism_scores_from_memory_to_disk(self):
+        self.write_plagiarism_scores_to_disk(self.miner_plagiarism_scores)
+
+    def write_plagiarism_scores_to_disk(self, scores):
+        ValiBkpUtils.write_file(ValiBkpUtils.get_plagiarism_scores_file_location(running_unit_tests=self.running_unit_tests), scores)
 
     def get_plagiarism_scores_from_disk(self):
         location = ValiBkpUtils.get_plagiarism_scores_file_location(running_unit_tests=self.running_unit_tests)
@@ -159,18 +165,12 @@ class CacheController:
         # Filters out miners that have already been deregistered. (Not in the metagraph)
         # This allows the miner to participate again once they re-register
         cached_miner_plagiarism = self.get_plagiarism_scores_from_disk()
-        
-        blocklist_dict = ValiUtils.get_vali_json_file(
-            ValiBkpUtils.get_plagiarism_blocklist_file_location()
-        )
 
-        blocklist_scores = {
-            key['miner_id']: 1 for key in blocklist_dict
-        }
+        blocklist_dict = ValiUtils.get_vali_json_file(ValiBkpUtils.get_plagiarism_blocklist_file_location())
+        blocklist_scores = {key['miner_id']: 1 for key in blocklist_dict}
 
-        self.miner_plagiarism_scores = {mch: mc for mch, mc in cached_miner_plagiarism.items() if
-                                        mch in self.metagraph.hotkeys}
-        
+        self.miner_plagiarism_scores = {mch: mc for mch, mc in cached_miner_plagiarism.items() if mch in self.metagraph.hotkeys}
+
         self.miner_plagiarism_scores = {
             **self.miner_plagiarism_scores,
             **blocklist_scores
@@ -181,42 +181,44 @@ class CacheController:
         self._write_updated_plagiarism_scores_from_memory_to_disk()
 
     def _update_plagiarism_scores_in_memory(self):
-        cached_miner_plagiarism = ValiUtils.get_vali_json_file(
-            ValiBkpUtils.get_plagiarism_scores_file_location(running_unit_tests=self.running_unit_tests))
+        cached_miner_plagiarism = ValiUtils.get_vali_json_file(ValiBkpUtils.get_plagiarism_scores_file_location(running_unit_tests=self.running_unit_tests))
         self.miner_plagiarism_scores = {mch: mc for mch, mc in cached_miner_plagiarism.items()}
 
+    # ----------------- Challenge Period -----------------
     def get_challengeperiod_testing(self):
         return ValiUtils.get_vali_json_file_dict(
             ValiBkpUtils.get_challengeperiod_file_location(running_unit_tests=self.running_unit_tests)
         ).get('testing', {})
-    
+
     def get_challengeperiod_success(self):
         return ValiUtils.get_vali_json_file_dict(
             ValiBkpUtils.get_challengeperiod_file_location(running_unit_tests=self.running_unit_tests)
         ).get('success', {})
 
-    ## Challenge period functions
-    def _refresh_challengeperiod_in_memory(self, eliminations: list[dict] = []):
-        if len(eliminations) == 0:
+    def _refresh_challengeperiod_in_memory(self, eliminations: list[dict] = None):
+        if eliminations is None:
             eliminations = self.eliminations
 
-        eliminations_hotkeys = set([ x['hotkey'] for x in eliminations ])
+        eliminations_hotkeys = set([x['hotkey'] for x in eliminations])
 
         location = ValiBkpUtils.get_challengeperiod_file_location(running_unit_tests=self.running_unit_tests)
         existing_challengeperiod = ValiUtils.get_vali_json_file_dict(location)
         existing_challengeperiod_testing = existing_challengeperiod.get('testing', {})
         existing_challengeperiod_success = existing_challengeperiod.get('success', {})
 
-        self.challengeperiod_testing = { k: v for k, v in existing_challengeperiod_testing.items() if k not in eliminations_hotkeys }
-        self.challengeperiod_success = { k: v for k, v in existing_challengeperiod_success.items() if k not in eliminations_hotkeys }
-    
-    def _refresh_challengeperiod_in_memory_and_disk(self, eliminations: list[str] = []):
+        self.challengeperiod_testing = {k: v for k, v in existing_challengeperiod_testing.items() if k not in eliminations_hotkeys}
+        self.challengeperiod_success = {k: v for k, v in existing_challengeperiod_success.items() if k not in eliminations_hotkeys}
+
+    def _refresh_challengeperiod_in_memory_and_disk(self, eliminations=None):
+        if eliminations is None:
+            eliminations = []
+
         self._refresh_challengeperiod_in_memory(eliminations=eliminations)
         self._write_challengeperiod_from_memory_to_disk()
 
     def clear_challengeperiod_from_disk(self):
         ValiBkpUtils.write_file(ValiBkpUtils.get_challengeperiod_file_location(
-            running_unit_tests=self.running_unit_tests), 
+            running_unit_tests=self.running_unit_tests),
             {"testing": {}, "success": {}}
         )
 
@@ -228,10 +230,10 @@ class CacheController:
     def _promote_challengeperiod_in_memory(self, hotkeys: list[str], current_time: int):
         if len(hotkeys) > 0:
             bt.logging.info(f"Promoting hotkeys {hotkeys} to challengeperiod success.")
-        
-        new_success = { hotkey: current_time for hotkey in hotkeys }
+
+        new_success = {hotkey: current_time for hotkey in hotkeys}
         self.challengeperiod_success = {
-            **self.challengeperiod_success, 
+            **self.challengeperiod_success,
             **new_success
         }
 
@@ -251,25 +253,27 @@ class CacheController:
 
         for hotkey in hotkeys:
             bt.logging.info(f"Eliminating hotkey {hotkey}.")
+
+            # This will also add the hotkey to the in memory self.eliminations list
             self.append_elimination_row(hotkey, -1, 'FAILED_CHALLENGE_PERIOD')
 
     def _write_challengeperiod_from_memory_to_disk(self):
-        challengeperiod_data = { 
-            "testing": self.challengeperiod_testing, 
-            "success": self.challengeperiod_success 
+        challengeperiod_data = {
+            "testing": self.challengeperiod_testing,
+            "success": self.challengeperiod_success
         }
         ValiBkpUtils.write_file(
             ValiBkpUtils.get_challengeperiod_file_location(
                 running_unit_tests=self.running_unit_tests
-            ), 
+            ),
             challengeperiod_data
         )
 
     def _add_challengeperiod_testing_in_memory_and_disk(
-        self, 
-        new_hotkeys: list[str], 
-        eliminations: list[dict] = None,
-        current_time: int = None
+            self,
+            new_hotkeys: list[str],
+            eliminations: list[dict] = None,
+            current_time: int = None
     ):
         if current_time is None:
             current_time = TimeUtil.now_in_millis()
@@ -277,9 +281,9 @@ class CacheController:
         if eliminations is None:
             eliminations = self.eliminations
 
-        elimination_hotkeys = [ x['hotkey'] for x in eliminations ]
+        elimination_hotkeys = [x['hotkey'] for x in eliminations]
 
-        ## check all hotkeys which have at least one position
+        # check all hotkeys which have at least one position
         miners_with_positions = self.get_all_miner_hotkeys_with_at_least_one_position()
 
         for hotkey in new_hotkeys:
@@ -297,20 +301,22 @@ class CacheController:
 
         if len(self.get_miner_eliminations_from_disk()) == 0:
             ValiBkpUtils.write_file(
-                ValiBkpUtils.get_eliminations_dir(running_unit_tests=self.running_unit_tests), {CacheController.ELIMINATIONS: []}
+                ValiBkpUtils.get_eliminations_dir(running_unit_tests=self.running_unit_tests),
+                {CacheController.ELIMINATIONS: []}
             )
 
         if len(ValiUtils.get_vali_json_file(ValiBkpUtils.get_plagiarism_scores_file_location(running_unit_tests=self.running_unit_tests))) == 0:
             hotkeys = self.metagraph.hotkeys if self.metagraph is not None else []
             miner_copying_file = {hotkey: 0 for hotkey in hotkeys}
             ValiBkpUtils.write_file(
-                ValiBkpUtils.get_plagiarism_scores_file_location(running_unit_tests=self.running_unit_tests), miner_copying_file
+                ValiBkpUtils.get_plagiarism_scores_file_location(running_unit_tests=self.running_unit_tests),
+                miner_copying_file
             )
 
         if len(self.get_challengeperiod_testing()) == 0 and len(self.get_challengeperiod_success()) == 0:
             ValiBkpUtils.write_file(
                 ValiBkpUtils.get_challengeperiod_file_location(running_unit_tests=self.running_unit_tests),
-                {"testing": {},"success": {}}
+                {"testing": {}, "success": {}}
             )
 
         # Check if the get_miner_dir directory exists. If not, create it
@@ -338,7 +344,8 @@ class CacheController:
             return None
 
     def append_elimination_row(self, hotkey, current_dd, mdd_failure, t_ms=None, price_info=None, return_info=None):
-        elimination_row = self.generate_elimination_row(hotkey, current_dd, mdd_failure, t_ms=t_ms, price_info=price_info, return_info=return_info)
+        elimination_row = self.generate_elimination_row(hotkey, current_dd, mdd_failure, t_ms=t_ms,
+                                                        price_info=price_info, return_info=return_info)
         self.eliminations.append(elimination_row)
 
     def calculate_drawdown(self, final, initial):
@@ -367,22 +374,21 @@ class CacheController:
         )
         return self.get_all_miner_positions_by_hotkey(all_miner_hotkeys, **args)
 
-
     def get_miner_position_from_disk(self, file) -> Position:
         # wrapping here to allow simpler error handling & original for other error handling
         # Note one position always corresponds to one file.
         file_string = None
         try:
             file_string = ValiBkpUtils.get_file(file)
-            ans = Position.parse_raw(file_string)
-            #bt.logging.info(f"vali_utils get_miner_position: {ans}")
+            ans = Position.model_validate_json(file_string)
             return ans
         except FileNotFoundError:
             raise ValiFileMissingException(f"Vali position file is missing {file}")
         except UnpicklingError as e:
             raise ValiBkpCorruptDataException(f"file_string is {file_string}, {e}")
         except UnicodeDecodeError as e:
-            raise ValiBkpCorruptDataException(f" Error {e} You may be running an old version of the software. Confirm with the team if you should delete your cache. ")
+            raise ValiBkpCorruptDataException(
+                f" Error {e} for file {file} You may be running an old version of the software. Confirm with the team if you should delete your cache. file string {file_string[:2000] if file_string else None}")
         except Exception as e:
             raise ValiBkpCorruptDataException(f"Error {e} file_path {file} file_string: {file_string}")
 
@@ -391,22 +397,50 @@ class CacheController:
             _position.close_ms if _position.is_closed_position else float("inf")
         )
 
-    @retry(tries=5, delay=1, backoff=1)
+    def exorcise_positions(self, positions, all_files) -> List[Position]:
+        """
+        Disk positions can be left in a bad state for a variety of reasons. Let's clean them up here.
+        If a dup is encountered, deleted both and let position syncing add the correct one back.
+        """
+        filtered_positions = []
+        position_uuid_to_count = defaultdict(int)
+        order_uuid_to_count = defaultdict(int)
+        order_uuids_to_purge = set()
+        for position in positions:
+            position_uuid_to_count[position.position_uuid] += 1
+            for order in position.orders:
+                order_uuid_to_count[order.order_uuid] += 1
+                if order_uuid_to_count[order.order_uuid] > 1:
+                    order_uuids_to_purge.add(order.order_uuid)
+
+        for file_name, position in zip(all_files, positions):
+            if position_uuid_to_count[position.position_uuid] > 1:
+                bt.logging.info(f"Exorcising position from disk: {file_name} {position}")
+                os.remove(file_name)
+                continue
+
+            new_orders = [x for x in position.orders if order_uuid_to_count[x.order_uuid] == 1]
+            if len(new_orders) != len(position.orders):
+                bt.logging.info(f"Exorcising position from disk due to order mismatch: {file_name} {position}")
+                os.remove(file_name)
+            else:
+                filtered_positions.append(position)
+        return filtered_positions
+
     def get_all_miner_positions(self,
                                 miner_hotkey: str,
                                 only_open_positions: bool = False,
                                 sort_positions: bool = False,
-                                acceptable_position_end_ms: int = None
+                                acceptable_position_end_ms: int = None,
+                                perform_exorcism: bool = False
                                 ) -> List[Position]:
-        """
-        Retry due to a race condition where an open position is deleted and the file is not found.
-        """
+
         miner_dir = ValiBkpUtils.get_miner_all_positions_dir(miner_hotkey, running_unit_tests=self.running_unit_tests)
         all_files = ValiBkpUtils.get_all_files_in_dir(miner_dir)
 
         positions = [self.get_miner_position_from_disk(file) for file in all_files]
-        if len(positions):
-            bt.logging.trace(f"miner_dir: {miner_dir}, n_positions: {len(positions)}")
+        if perform_exorcism:
+            positions = self.exorcise_positions(positions, all_files)
 
         if acceptable_position_end_ms is not None:
             positions = [
@@ -438,11 +472,9 @@ class CacheController:
             for hotkey in hotkeys
             if hotkey not in eliminated_hotkeys
         }
-    
+
     def get_all_miner_hotkeys_with_at_least_one_position(self) -> set[str]:
-        all_miner_hotkeys: list = ValiBkpUtils.get_directories_in_dir(
-            ValiBkpUtils.get_miner_dir()
-        )
+        all_miner_hotkeys: list = ValiBkpUtils.get_directories_in_dir(ValiBkpUtils.get_miner_dir(running_unit_tests=self.running_unit_tests))
         positions_dict = self.get_all_miner_positions_by_hotkey(all_miner_hotkeys)
 
         miner_nonzero_positions = set()

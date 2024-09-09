@@ -59,6 +59,7 @@ class TestPositionManager(TestBase):
                 position.position_uuid = f"{self.DEFAULT_POSITION_UUID}_{i}_{j}"
                 position.open_ms = self.DEFAULT_OPEN_MS + 100 * i + j
                 position.trade_pair = trade_pair
+                position.rebuild_position_with_updated_orders()
                 position.close_out_position(position.open_ms + 1)
                 idx_to_position[(i, j)] = position
                 self.position_manager.save_miner_position_to_disk(position)
@@ -68,6 +69,7 @@ class TestPositionManager(TestBase):
             position.position_uuid = f"{self.DEFAULT_POSITION_UUID}_{i}_{j}"
             position.open_ms = self.DEFAULT_OPEN_MS + 100 * i + j
             position.trade_pair = trade_pair
+            position.rebuild_position_with_updated_orders()
             idx_to_position[(i, j)] = position
             self.position_manager.save_miner_position_to_disk(position)
 

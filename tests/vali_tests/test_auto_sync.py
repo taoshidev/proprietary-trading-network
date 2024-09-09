@@ -1,8 +1,7 @@
 import json
-import time
 from copy import deepcopy
 
-from vali_objects.utils.auto_sync import PositionSyncer, AUTO_SYNC_ORDER_LAG_MS
+from vali_objects.utils.auto_sync import PositionSyncer
 from tests.shared_objects.mock_classes import MockMetagraph
 from tests.vali_tests.base_objects.test_base import TestBase
 from vali_config import TradePair
@@ -10,6 +9,7 @@ from vali_objects.decoders.generalized_json_decoder import GeneralizedJSONDecode
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.position import Position
 from vali_objects.utils.position_manager import PositionManager
+from vali_objects.utils.validator_sync_base import AUTO_SYNC_ORDER_LAG_MS
 from vali_objects.vali_dataclasses.order import Order
 
 
@@ -56,7 +56,7 @@ class TestPositions(TestBase):
         )
         self.default_closed_position.close_out_position(self.DEFAULT_OPEN_MS + 1000 * 60 * 60 * 6)
 
-        self.position_syncer = PositionSyncer()
+        self.position_syncer = PositionSyncer(running_unit_tests=True)
 
     def positions_to_disk_data(self, positions: list[Position]):
         return {self.DEFAULT_MINER_HOTKEY: positions}
@@ -77,7 +77,7 @@ class TestPositions(TestBase):
     def test_validate_basic_sync(self):
         candidate_data = self.positions_to_candidate_data([self.default_position])
         disk_positions = self.positions_to_disk_data([self.default_position])
-        self.position_syncer.sync_positions(candidate_data=candidate_data, disk_positions=disk_positions)
+        self.position_syncer.sync_positions(shadow_mode=False, candidate_data=candidate_data, disk_positions=disk_positions)
         stats = self.position_syncer.global_stats
         assert stats['n_miners_synced'] == 1
         assert stats['n_miners_positions_deleted'] == 0
@@ -92,7 +92,7 @@ class TestPositions(TestBase):
         # When there are no existing positions, we should insert the new one.
         candidate_data = self.positions_to_candidate_data([self.default_position])
         disk_positions = self.positions_to_disk_data([])
-        self.position_syncer.sync_positions(candidate_data=candidate_data, disk_positions=disk_positions)
+        self.position_syncer.sync_positions(shadow_mode=False, candidate_data=candidate_data, disk_positions=disk_positions)
         stats = self.position_syncer.global_stats
         assert stats['n_miners_synced'] == 1, stats
 
@@ -138,7 +138,7 @@ class TestPositions(TestBase):
             cd = self.default_open_position if i == 2 else self.default_closed_position
             candidate_data = self.positions_to_candidate_data([cd])
             disk_positions = self.positions_to_disk_data([dp])
-            self.position_syncer.sync_positions(candidate_data=candidate_data, disk_positions=disk_positions)
+            self.position_syncer.sync_positions(shadow_mode=False, candidate_data=candidate_data, disk_positions=disk_positions)
             stats = self.position_syncer.global_stats
 
             stats_str = ''
@@ -175,7 +175,7 @@ class TestPositions(TestBase):
         candidate_data = self.positions_to_candidate_data([])
         for i, dp in enumerate([dp1, dp2, dp3]):
             disk_positions = self.positions_to_disk_data([dp])
-            self.position_syncer.sync_positions(candidate_data=candidate_data, disk_positions=disk_positions)
+            self.position_syncer.sync_positions(shadow_mode=False, candidate_data=candidate_data, disk_positions=disk_positions)
             stats = self.position_syncer.global_stats
 
             stats_str = ''
@@ -206,9 +206,31 @@ class TestPositions(TestBase):
 
             assert len(self.position_syncer.perf_ledger_hks_to_invalidate) == 0
 
+    def test_split_position_with_orders_after_flat(self):
+        order1 = deepcopy(self.default_order)
+        order1.order_uuid = "test_order1"
+        order1.processed_ms = self.default_order.processed_ms + 1000
+        order2 = deepcopy(self.default_order)
+        order2.order_uuid = "test_order2"
+        order2.processed_ms = self.default_order.processed_ms + 1000 * 60 * 10
+        order2.order_type = OrderType.FLAT
+        order3 = deepcopy(self.default_order)
+        order3.order_uuid = "test_order3"
+        order3.processed_ms = self.default_order.processed_ms + 1000 * 60 * 10 * 2
+        orders = [order1, order2, order3]
+        position = deepcopy(self.default_position)
+        position.orders = orders
+        print(position.is_open_position)
+        candidate_data = self.positions_to_candidate_data([position])
+        disk_positions = self.positions_to_disk_data([self.default_position])
+        self.position_syncer.sync_positions(shadow_mode=False, candidate_data=candidate_data,
+                                            disk_positions=disk_positions)
+        stats = self.position_syncer.global_stats
 
+        assert stats['n_positions_spawned_from_post_flat_orders'] == 1, stats
+        assert stats['n_positions_closed_duplicate_opens_for_trade_pair'] == 0, stats
 
-    def test_position_keep_one_insert(self):
+    def test_position_keep_both_insert(self):
         dp1 = deepcopy(self.default_closed_position)
         dp1.position_uuid = 'to_keep'
         # After hardsnap, we must keep it
@@ -220,16 +242,16 @@ class TestPositions(TestBase):
         dp2.open_ms += 1000 * 60 * 10
         dp2.close_ms += 1000 * 60 * 10
 
-        # Prevent this from being kept since it would result in 2 open positions
+        # Close the older open position, and insert the newer open position
         dp3 = deepcopy(self.default_open_position)
-        dp3.position_uuid = 'block_double_open'
+        dp3.position_uuid = 'double_open'
         dp3.open_ms += 1000 * 60 * 10
 
         for i, dp in enumerate([dp1, dp2, dp3]):
             cd = self.default_open_position if i == 2 else self.default_closed_position
             candidate_data = self.positions_to_candidate_data([cd])
             disk_positions = self.positions_to_disk_data([dp])
-            self.position_syncer.sync_positions(candidate_data=candidate_data, disk_positions=disk_positions)
+            self.position_syncer.sync_positions(shadow_mode=False, candidate_data=candidate_data, disk_positions=disk_positions)
             stats = self.position_syncer.global_stats
 
             stats_str = ''
@@ -237,10 +259,10 @@ class TestPositions(TestBase):
                 stats_str += f"{k}:{v}, "
 
             assert stats['n_miners_synced'] == 1, (i, stats_str)
-            if i == 2:
-                assert stats['blocked_keep_open_position_acked'] == 1
-            assert stats['n_miners_positions_deleted'] == int(i == 2), (i, stats_str)
-            assert stats['n_miners_positions_kept'] == int(i != 2), (i, stats_str)
+            # if i == 2:
+            #     assert stats['blocked_keep_open_position_acked'] == 1
+            assert stats['n_miners_positions_deleted'] == 0, (i, stats_str)
+            assert stats['n_miners_positions_kept'] == 1, (i, stats_str)
             assert stats['n_miners_positions_matched'] == 0, (i, stats_str)
             assert stats['n_miners_positions_inserted'] == 1, (i, stats_str)
 
@@ -251,8 +273,8 @@ class TestPositions(TestBase):
 
             assert stats['positions_inserted'] == 1, (i, stats_str)
             assert stats['positions_matched'] == 0, (i, stats_str)
-            assert stats['positions_deleted'] == int(i == 2), (i, stats_str)
-            assert stats['positions_kept'] == int(i != 2), (i, stats_str)
+            assert stats['positions_deleted'] == 0, (i, stats_str)
+            assert stats['positions_kept'] == 1, (i, stats_str)
 
             assert stats['orders_inserted'] == 0, (i, stats_str)
             assert stats['orders_matched'] == 0, (i, stats_str)
@@ -274,7 +296,7 @@ class TestPositions(TestBase):
         position.orders = orders
         candidate_data = self.positions_to_candidate_data([position])
         disk_positions = self.positions_to_disk_data([self.default_position])
-        self.position_syncer.sync_positions(candidate_data=candidate_data, disk_positions=disk_positions)
+        self.position_syncer.sync_positions(shadow_mode=False, candidate_data=candidate_data, disk_positions=disk_positions)
         stats = self.position_syncer.global_stats
 
         assert stats['n_miners_synced'] == 1, stats
@@ -315,7 +337,7 @@ class TestPositions(TestBase):
         position.orders = orders
         candidate_data = self.positions_to_candidate_data([position])
         disk_positions = self.positions_to_disk_data([self.default_position])
-        self.position_syncer.sync_positions(candidate_data=candidate_data, disk_positions=disk_positions)
+        self.position_syncer.sync_positions(shadow_mode=False, candidate_data=candidate_data, disk_positions=disk_positions)
         stats = self.position_syncer.global_stats
 
         assert stats['n_miners_synced'] == 1, stats
@@ -361,7 +383,7 @@ class TestPositions(TestBase):
             position = deepcopy(self.default_position)
             position.orders = orders
             candidate_data = self.positions_to_candidate_data([position])
-            self.position_syncer.sync_positions(candidate_data=candidate_data, disk_positions=disk_positions)
+            self.position_syncer.sync_positions(shadow_mode=False, candidate_data=candidate_data, disk_positions=disk_positions)
             stats = self.position_syncer.global_stats
             stats_str = ''
             for k, v in stats.items():
@@ -407,7 +429,7 @@ class TestPositions(TestBase):
             position = deepcopy(self.default_position)
             position.orders = orders
             candidate_data = self.positions_to_candidate_data([position])
-            self.position_syncer.sync_positions(candidate_data=candidate_data, disk_positions=disk_positions)
+            self.position_syncer.sync_positions(shadow_mode=False, candidate_data=candidate_data, disk_positions=disk_positions)
             stats = self.position_syncer.global_stats
             stats_str = ''
             for k, v in stats.items():
@@ -452,7 +474,7 @@ class TestPositions(TestBase):
 
         position = deepcopy(self.default_position)
         candidate_data = self.positions_to_candidate_data([position])
-        self.position_syncer.sync_positions(candidate_data=candidate_data, disk_positions=disk_positions)
+        self.position_syncer.sync_positions(shadow_mode=False, candidate_data=candidate_data, disk_positions=disk_positions)
         stats = self.position_syncer.global_stats
         stats_str = ''
         for k, v in stats.items():
@@ -496,7 +518,7 @@ class TestPositions(TestBase):
 
         position = deepcopy(self.default_position)
         candidate_data = self.positions_to_candidate_data([position])
-        self.position_syncer.sync_positions(candidate_data=candidate_data, disk_positions=disk_positions)
+        self.position_syncer.sync_positions(shadow_mode=False, candidate_data=candidate_data, disk_positions=disk_positions)
         stats = self.position_syncer.global_stats
         stats_str = ''
         for k, v in stats.items():
@@ -557,7 +579,7 @@ class TestPositions(TestBase):
         order_to_match = deepcopy(self.default_order)
         position.orders = [order_to_match, order_to_insert]
         candidate_data = self.positions_to_candidate_data([position])
-        self.position_syncer.sync_positions(candidate_data=candidate_data, disk_positions=disk_positions)
+        self.position_syncer.sync_positions(shadow_mode=False, candidate_data=candidate_data, disk_positions=disk_positions)
         stats = self.position_syncer.global_stats
         stats_str = ''
         for k, v in stats.items():
@@ -618,7 +640,7 @@ class TestPositions(TestBase):
 
         disk_positions = self.positions_to_disk_data([dp_to_keep, dp_to_delete, dp_to_match])
         candidate_data = self.positions_to_candidate_data([cp_to_insert, cp_to_match])
-        self.position_syncer.sync_positions(candidate_data=candidate_data, disk_positions=disk_positions)
+        self.position_syncer.sync_positions(shadow_mode=False, candidate_data=candidate_data, disk_positions=disk_positions)
         stats = self.position_syncer.global_stats
         stats_str = ''
         for k, v in stats.items():
@@ -682,7 +704,7 @@ class TestPositions(TestBase):
 
         disk_positions = self.positions_to_disk_data([dp_to_keep, dp_to_delete, dp_to_match])
         candidate_data = self.positions_to_candidate_data([cp_to_insert, cp_to_match])
-        self.position_syncer.sync_positions(candidate_data=candidate_data, disk_positions=disk_positions)
+        self.position_syncer.sync_positions(shadow_mode=False, candidate_data=candidate_data, disk_positions=disk_positions)
         stats = self.position_syncer.global_stats
         stats_str = ''
         for k, v in stats.items():
@@ -744,7 +766,7 @@ class TestPositions(TestBase):
         order_to_match = deepcopy(self.default_order)
         position.orders = [order_to_match, order_to_insert]
         candidate_data = self.positions_to_candidate_data([position])
-        self.position_syncer.sync_positions(candidate_data=candidate_data, disk_positions=disk_positions)
+        self.position_syncer.sync_positions(shadow_mode=False, candidate_data=candidate_data, disk_positions=disk_positions)
         stats = self.position_syncer.global_stats
         stats_str = ''
         for k, v in stats.items():

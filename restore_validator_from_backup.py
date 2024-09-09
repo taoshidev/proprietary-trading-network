@@ -71,7 +71,7 @@ def regenerate_miner_positions(perform_backup=True, backup_from_data_dir=False, 
         bt.logging.error(f"Unable to read validator checkpoint file. {e}")
         return False
 
-    bt.logging.info(f"Found validator backup file with the following attributes:")
+    bt.logging.info("Found validator backup file with the following attributes:")
     # Log every key and value apir in the data except for positions, eliminations, and plagiarism scores
     for key, value in data.items():
         # Check is the value is of type dict or list. If so, print the size of the dict or list
@@ -91,9 +91,11 @@ def regenerate_miner_positions(perform_backup=True, backup_from_data_dir=False, 
                                            perform_order_corrections=True, generate_correction_templates=False,
                                            apply_corrections_template=False, perform_fee_structure_update=False)
         #position_manager.perform_price_recalibration(time_per_batch_s=10000000)
+        perf_ledger_manager = PerfLedgerManager(live_price_fetcher=live_price_fetcher, metagraph=None)
     else:
         position_manager = PositionManager()
         position_manager.init_cache_files()
+        perf_ledger_manager = PerfLedgerManager(metagraph=None)
 
     challengeperiod_manager = ChallengePeriodManager(config=None, metagraph=None)
     # We want to get the smallest processed_ms timestamp across all positions in the backup and then compare this to
@@ -109,14 +111,14 @@ def regenerate_miner_positions(perform_backup=True, backup_from_data_dir=False, 
         formatted_backup_date_largest = TimeUtil.millis_to_formatted_date_str(largest_backup_ms)
         formatted_disk_date_smallest = TimeUtil.millis_to_formatted_date_str(smallest_disk_ms)
         formatted_backup_date_smallest = TimeUtil.millis_to_formatted_date_str(smallest_backup_ms)
-    except:
+    except:  # noqa: E722
         formatted_backup_creation_time = backup_creation_time_ms
         formatted_disk_date_largest = largest_disk_ms
         formatted_backup_date_largest = largest_backup_ms
         formatted_disk_date_smallest = smallest_disk_ms
         formatted_backup_date_smallest = smallest_backup_ms
 
-    bt.logging.info(f"Timestamp analysis of backup vs disk (UTC):")
+    bt.logging.info("Timestamp analysis of backup vs disk (UTC):")
     bt.logging.info(f"    backup_creation_time: {formatted_backup_creation_time}")
     bt.logging.info(f"    smallest_disk_order_timestamp: {formatted_disk_date_smallest}")
     bt.logging.info(f"    smallest_backup_order_timestamp: {formatted_backup_date_smallest}")
@@ -178,7 +180,7 @@ def regenerate_miner_positions(perform_backup=True, backup_from_data_dir=False, 
 
     perf_ledgers = data.get('perf_ledgers', {})
     bt.logging.info(f"regenerating {len(perf_ledgers)} perf ledgers")
-    PerfLedgerManager.save_perf_ledgers_to_disk(perf_ledgers)
+    perf_ledger_manager.save_perf_ledgers_to_disk(perf_ledgers, raw_json=True)
 
     ## Now sync challenge period with the disk
     challengeperiod = data.get('challengeperiod', {})
@@ -189,12 +191,13 @@ def regenerate_miner_positions(perform_backup=True, backup_from_data_dir=False, 
     return True
 
 if __name__ == "__main__":
+    bt.logging.enable_default()
     t0 = time.time()
     # Check commandline arg "disable_backup" to disable backup.
     parser = argparse.ArgumentParser(description="Regenerate miner positions with optional backup disabling.")
     # Add disable_backup argument, default is 0 (False), change type to int
-    parser.add_argument('--backup', type=int, default=1,
-                        help='Set to 0 to disable backup during regeneration process.')
+    parser.add_argument('--backup', type=int, default=0,
+                        help='Set to 1 to enable backup during regeneration process.')
 
     # Parse command-line arguments
     args = parser.parse_args()

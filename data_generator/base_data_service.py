@@ -133,7 +133,7 @@ class BaseDataService():
                           self.latest_websocket_events.items()}
         bt.logging.info(f"{self.provider_name} Current websocket lags (s): {formatted_lags}")
         # Log the prices
-        formatted_prices = {tp: f"{price_source.close:.2f}" for tp, price_source in
+        formatted_prices = {tp: f"{price_source.close:.2f}" for tp, price_source in  # noqa: F841
                             self.latest_websocket_events.items()}
         #bt.logging.info(f"{self.provider_name} Latest websocket prices: {formatted_prices}")
         bt.logging.info(f'{self.provider_name} websocket n_events_global: {self.n_events_global}')

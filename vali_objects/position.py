@@ -4,13 +4,18 @@ from copy import deepcopy
 from typing import Optional, List
 from pydantic import model_validator, BaseModel, Field
 
-from time_util.time_util import TimeUtil
-from vali_config import TradePair
+from time_util.time_util import TimeUtil, MS_IN_8_HOURS, MS_IN_24_HOURS
+from vali_config import TradePair, ValiConfig
 from vali_objects.vali_dataclasses.order import Order
 from vali_objects.enums.order_type_enum import OrderType
-
+from vali_objects.utils import leverage_utils
 import bittensor as bt
+import math
 
+CRYPTO_CARRY_FEE_PER_INTERVAL = math.exp(math.log(1 - 0.1095) / (365.0*3.0))  # 10.95% per year for 1x leverage. Each interval is 8 hrs
+FOREX_CARRY_FEE_PER_INTERVAL = math.exp(math.log(1 - .03) / 365.0)  # 3% per year for 1x leverage. Each interval is 24 hrs
+INDICES_CARRY_FEE_PER_INTERVAL = math.exp(math.log(1 - .0525) / 365.0)  # 5.25% per year for 1x leverage. Each interval is 24 hrs
+FEE_V6_TIME_MS = 1720843707000  # V6 PR merged
 
 class Position(BaseModel):
     """Represents a position in a trading system.
@@ -42,17 +47,16 @@ class Position(BaseModel):
     return_at_close: float = 1.0
     net_leverage: float = 0.0
     average_entry_price: float = 0.0
-    initial_entry_price: float = 0.0
     position_type: Optional[OrderType] = None
     is_closed_position: bool = False
 
-    @model_validator(mode="before")
-    @classmethod
-    def add_trade_pair_to_orders(cls, values):
+    @model_validator(mode='before')
+    def add_trade_pair_to_orders_and_self(cls, values):
         if isinstance(values['trade_pair'], TradePair):
             trade_pair_id = values['trade_pair'].trade_pair_id
         else:
             trade_pair_id = values['trade_pair'][0]
+
         trade_pair = TradePair.get_latest_trade_pair_from_trade_pair_id(trade_pair_id)
         orders = values.get('orders', [])
 
@@ -61,11 +65,127 @@ class Position(BaseModel):
         for order in orders:
             if not isinstance(order, Order):
                 order['trade_pair'] = trade_pair
-                
+            else:
+                order = order.copy(update={'trade_pair': trade_pair})
+
             updated_orders.append(order)
         values['orders'] = updated_orders
         values['trade_pair'] = trade_pair
         return values
+
+    @property
+    def start_carry_fee_accrual_ms(self):
+        return max(FEE_V6_TIME_MS, self.open_ms)
+
+    def get_cumulative_leverage(self) -> float:
+        current_leverage = 0.0
+        cumulative_leverage = 0.0
+        for order in self.orders:
+            # Explicit flat
+            if order.order_type == OrderType.FLAT:
+                cumulative_leverage += abs(current_leverage)
+                break
+
+            prev_leverage = current_leverage
+            current_leverage += order.leverage
+
+            # Implicit FLAT
+            if current_leverage == 0.0 or self._leverage_flipped(prev_leverage, current_leverage):
+                cumulative_leverage += abs(prev_leverage)
+                break
+            else:
+                cumulative_leverage += abs(current_leverage - prev_leverage)
+
+        return cumulative_leverage
+
+
+    def get_spread_fee(self) -> float:
+        return 1.0 - (self.get_cumulative_leverage() * self.trade_pair.fees * 0.5)
+
+    def crypto_carry_fee(self, current_time_ms: int) -> (float, int):
+        #print(f'accrual time {TimeUtil.millis_to_formatted_date_str(self.start_carry_fee_accrual_ms)} now {TimeUtil.millis_to_formatted_date_str(current_time_ms)}')
+        # Fees every 8 hrs. 4 UTC, 12 UTC, 20 UTC
+        n_intervals_elapsed, time_until_next_interval_ms = TimeUtil.n_intervals_elapsed_crypto(self.start_carry_fee_accrual_ms, current_time_ms)
+        fee_product = 1.0
+        start_ms = self.start_carry_fee_accrual_ms
+        end_ms = start_ms + time_until_next_interval_ms
+        for n in range(n_intervals_elapsed):
+            if n != 0:
+                start_ms = end_ms
+                end_ms = start_ms + MS_IN_8_HOURS
+
+            max_lev = self.max_leverage_seen_in_interval(start_ms, end_ms)
+            fee_product *= CRYPTO_CARRY_FEE_PER_INTERVAL ** max_lev
+
+        final_fee = fee_product
+        #ct_formatted = TimeUtil.millis_to_formatted_date_str(current_time_ms)
+        #start_formatted = TimeUtil.millis_to_formatted_date_str(self.open_ms)
+        #print(f"start time {start_formatted}, end time {ct_formatted}, delta (days) {(current_time_ms - self.open_ms) / (1000 * 60 * 60 * 24)} final fee {final_fee}")
+        return final_fee, current_time_ms + time_until_next_interval_ms
+
+    def forex_indices_carry_fee(self, current_time_ms: int) -> (float, int):
+        # Fees M-F where W gets triple fee.
+        n_intervals_elapsed, time_until_next_interval_ms = TimeUtil.n_intervals_elapsed_forex_indices(self.start_carry_fee_accrual_ms, current_time_ms)
+        fee_product = 1.0
+        start_ms = self.start_carry_fee_accrual_ms
+        end_ms = start_ms + time_until_next_interval_ms
+        for n in range(n_intervals_elapsed):
+            if n != 0:
+                start_ms = end_ms
+                end_ms = start_ms + MS_IN_8_HOURS
+            # Monday == 0...Sunday == 6
+            day_of_week_index = TimeUtil.get_day_of_week_from_timestamp(end_ms)
+            assert day_of_week_index in range(7)
+            if day_of_week_index in (5, 6):
+                continue  # no fees on Saturday, Sunday
+            else:
+                fee = 1.0
+                max_lev = self.max_leverage_seen_in_interval(start_ms, end_ms)
+                if self.trade_pair.is_forex:
+                    fee *= FOREX_CARRY_FEE_PER_INTERVAL ** max_lev
+                elif self.trade_pair.is_indices:
+                    fee *= INDICES_CARRY_FEE_PER_INTERVAL ** max_lev
+                else:
+                    raise ValueError(f"Unexpected trade pair: {self.trade_pair.trade_pair_id}")
+                if day_of_week_index == 2:
+                    fee = fee ** 3  # triple fee on Wednesday
+
+            fee_product *= fee
+
+        next_update_time_ms = current_time_ms + time_until_next_interval_ms
+        assert next_update_time_ms > current_time_ms, (next_update_time_ms, current_time_ms, fee_product, n_intervals_elapsed, time_until_next_interval_ms)
+        return fee_product, next_update_time_ms
+
+    def get_carry_fee(self, current_time_ms) -> (float, int):
+        # Calculate the number of times a new day occurred (UTC). If a position is opened at 23:59:58 and this function is
+        # called at 00:00:02, the carry fee will be calculated as if a day has passed. Another example: if a position is
+        # opened at 23:59:58 and this function is called at 23:59:59, the carry fee will be calculated as 0 days have passed
+        # Recalculate and update cache
+        assert current_time_ms
+
+        if self.is_closed_position and current_time_ms > self.close_ms:
+            current_time_ms = self.close_ms
+
+        if current_time_ms < self.start_carry_fee_accrual_ms:
+            delta = MS_IN_8_HOURS if self.trade_pair.is_crypto else MS_IN_24_HOURS
+            return 1.0, min(current_time_ms + delta, self.start_carry_fee_accrual_ms)
+
+        if self.trade_pair.is_crypto:
+            carry_fee, next_update_time_ms = self.crypto_carry_fee(current_time_ms)
+        elif self.trade_pair.is_forex or self.trade_pair.is_indices:
+            carry_fee, next_update_time_ms = self.forex_indices_carry_fee(current_time_ms)
+        else:
+            raise Exception(f'Unexpected trade pair: {self.trade_pair.trade_pair_id}')
+
+        #print('haahahahahahahah', self.trade_pair.trade_pair_id, current_time_ms, next_update_time_ms, TimeUtil.millis_to_formatted_date_str(current_time_ms), TimeUtil.millis_to_formatted_date_str(next_update_time_ms))
+        return carry_fee, next_update_time_ms
+
+
+    @property
+    def initial_entry_price(self) -> float:
+        if not self.orders or len(self.orders) == 0:
+            return 0.0
+        return self.orders[0].price
 
     def __hash__(self):
         # Include specified fields in the hash, assuming trade_pair is accessible and immutable
@@ -112,7 +232,9 @@ class Position(BaseModel):
 
     @property
     def newest_order_age_ms(self):
-        return TimeUtil.now_in_millis() - self.orders[-1].processed_ms
+        if len(self.orders) > 0:
+            return TimeUtil.now_in_millis() - self.orders[-1].processed_ms
+        return -1
 
     def __str__(self):
         return self.to_json_string()
@@ -153,7 +275,6 @@ class Position(BaseModel):
         self.return_at_close = 1.0
         self.net_leverage = 0.0
         self.average_entry_price = 0.0
-        self.initial_entry_price = 0.0
         self.position_type = None
         self.is_closed_position = False
         self.position_type = None
@@ -190,16 +311,14 @@ class Position(BaseModel):
                 f"Order trade pair [{order.trade_pair}] does not match position trade pair [{self.trade_pair}]"
             )
 
-        if self._clamp_leverage(order):
-            if order.leverage == 0:
-                # This order's leverage got clamped to zero.
-                # Skip it since we don't want to consider this a FLAT position and we don't want to allow bad actors
-                # to send in a bunch of spam orders.
-                logging.warning(
-                    f"Miner attempted to add exceed max leverage for trade pair {self.trade_pair.trade_pair_id}. "
-                    f"Clamping to max leverage {self.trade_pair.max_leverage}"
-                )
-                return
+        if self._clamp_and_validate_leverage(order):
+            # This order's leverage got clamped to zero.
+            # Skip it since we don't want to consider this a FLAT position and we don't want to allow bad actors
+            # to send in a bunch of spam orders.
+            logging.warning(
+                f"Miner attempted to exceed max leverage {self.trade_pair.max_leverage} for trade pair "
+                f"{self.trade_pair.trade_pair_id}. Ignoring order.")
+            return
         self.orders.append(order)
         self._update_position()
 
@@ -207,11 +326,6 @@ class Position(BaseModel):
         if self.initial_entry_price == 0 or self.average_entry_price is None:
             return 1
 
-        bt.logging.trace(
-            f"trade_pair: {self.trade_pair.trade_pair_id} current price: {current_price},"
-            f" average entry price: {self.average_entry_price}, net leverage: {self.net_leverage}, "
-            f"initial entry price: {self.initial_entry_price}"
-        )
         gain = (
             (current_price - self.average_entry_price)
             * self.net_leverage
@@ -224,55 +338,76 @@ class Position(BaseModel):
         return net_return
 
     def _leverage_flipped(self, prev_leverage, cur_leverage):
-        return prev_leverage * cur_leverage < 0
-    def max_leverage_seen(self):
+        return prev_leverage * cur_leverage < 0 or prev_leverage != 0 and cur_leverage == 0
+
+    def max_leverage_seen_in_interval(self, start_ms: int, end_ms: int) -> float:
+        #print(f"Seeking max leverage between {TimeUtil.millis_to_formatted_date_str(start_ms)} and {TimeUtil.millis_to_formatted_date_str(end_ms)}")
+        #for x in self.orders:
+        #    print(f"    Found order at time {TimeUtil.millis_to_formatted_date_str(x.processed_ms)}")
+        """
+        Returns the max leverage seen in the interval [start_ms, end_ms] (inclusive). If no orders are in the interval,
+        raise an exception
+        """
+        # check valid bounds and throw ValueError if bad data
+        if start_ms > end_ms:
+            raise ValueError(f"start_ms [{start_ms}] is greater than end_ms [{end_ms}]")
+        if end_ms < self.open_ms:
+            raise ValueError(f"end_ms [{end_ms}] is less than open_ms [{self.open_ms}]")
+        if end_ms < 0 or start_ms < 0:
+            raise ValueError(f"start_ms [{start_ms}] or end_ms [{end_ms}] is less than 0")
+        if len(self.orders) == 0:
+            raise ValueError("No orders in position")
+        if self.orders[0].processed_ms > end_ms:
+            raise ValueError(f"First order processed_ms [{self.orders[0].processed_ms}] is greater than end_ms [{end_ms}]")
+        if self.is_closed_position and start_ms > self.close_ms:
+            raise ValueError(f"Position closed before interval start_ms [{start_ms}]")
+
+
+        interval_data = {'start_ms': start_ms, 'end_ms': end_ms, 'max_leverage': -float('inf')}
+        self.max_leverage_seen(interval_data=interval_data)
+
+        if interval_data['max_leverage'] == -float('inf'):
+            raise ValueError('Unable to find max leverage in interval')
+        assert interval_data['max_leverage'] > 0, (interval_data['max_leverage'], self.orders)
+        return interval_data['max_leverage']
+
+    def max_leverage_seen(self, interval_data=None):
         max_leverage = 0
         current_leverage = 0
-        for order in self.orders:
-            # Explicit flat
-            if order.order_type == OrderType.FLAT:
+        stop_signaled = False
+        for idx, order in enumerate(self.orders):
+            if stop_signaled:
                 break
+
             prev_leverage = current_leverage
             current_leverage += order.leverage
-            if current_leverage > self.trade_pair.max_leverage:
-                current_leverage = self.trade_pair.max_leverage
-            elif current_leverage < -self.trade_pair.max_leverage:
-                current_leverage = -self.trade_pair.max_leverage
-            # Implicit FLAT
-            if current_leverage == 0 or self._leverage_flipped(prev_leverage, current_leverage):
-                break
+            # Explicit flat / implicit FLAT
+            if order.order_type == OrderType.FLAT or self._leverage_flipped(prev_leverage, current_leverage):
+                stop_signaled = True
+                current_leverage = 0
 
             if abs(current_leverage) > max_leverage:
                 max_leverage = abs(current_leverage)
+
+            if interval_data:
+                if order.processed_ms < interval_data['start_ms']:
+                    pass
+                elif order.processed_ms == interval_data['start_ms']:
+                    interval_data['max_leverage'] = max(abs(current_leverage), interval_data['max_leverage'])
+                elif order.processed_ms <= interval_data['end_ms']:
+                    interval_data['max_leverage'] = max(abs(current_leverage), interval_data['max_leverage'], abs(prev_leverage))
+
+                # An order passes the interval for the first time
+                elif order.processed_ms > interval_data['end_ms']:
+                    interval_data['max_leverage'] = max(abs(prev_leverage), interval_data['max_leverage'])
+                    stop_signaled = True
+
+        if interval_data:
+            # The position's last order is way before the interval start. Use the last known position leverage
+            if interval_data['max_leverage'] == -float('inf'):
+                interval_data['max_leverage'] = abs(current_leverage)
+
         return max_leverage
-
-    def cumulative_leverage(self):
-        current_leverage = 0.0
-        cumulative_leverage = 0.0
-        for order in self.orders:
-            # Explicit flat
-            if order.order_type == OrderType.FLAT:
-                cumulative_leverage += abs(current_leverage)
-                break
-
-            prev_leverage = current_leverage
-
-            # Clamp
-            if current_leverage + order.leverage > self.trade_pair.max_leverage:
-                current_leverage = self.trade_pair.max_leverage
-            elif current_leverage + order.leverage < -self.trade_pair.max_leverage:
-                current_leverage = -self.trade_pair.max_leverage
-            else:
-                current_leverage += order.leverage
-
-            # Implicit FLAT
-            if current_leverage == 0.0 or self._leverage_flipped(prev_leverage, current_leverage):
-                cumulative_leverage += abs(prev_leverage)
-                break
-            else:
-                cumulative_leverage += abs(current_leverage - prev_leverage)
-
-        return cumulative_leverage
 
     def _handle_liquidation(self, time_ms):
         self._position_log("position liquidated. Trade pair: " + str(self.trade_pair.trade_pair_id))
@@ -287,29 +422,32 @@ class Position(BaseModel):
         # V3 calculation. All fees scaled by leverage. Updated forex and indices fees.
         # V4 calculation. Fees are now based on cumulative leverage
         # V5 Crypto fees cut in half
+        # V6 introduce "carry fee"
         if timestamp_ms < 1713198680000:  # V4 PR merged
-            fee = self.trade_pair.fees * self.max_leverage_seen()
+            fee = 1.0 - self.trade_pair.fees * self.max_leverage_seen()
         else:
-            fee = self.trade_pair.fees * self.cumulative_leverage() / 2.0
-        return current_return_no_fees * (1.0 - fee)
+            fee = self.get_carry_fee(timestamp_ms)[0] * self.get_spread_fee()
+        return current_return_no_fees * fee
 
     def get_open_position_return_with_fees(self, realtime_price, time_ms):
         current_return = self.calculate_unrealized_pnl(realtime_price)
         return self.calculate_return_with_fees(current_return, timestamp_ms=time_ms)
 
-    def set_returns(self, realtime_price, time_ms=None):
-        if time_ms is None:
-            time_ms = TimeUtil.now_in_millis()
+    def set_returns(self, realtime_price, time_ms=None, total_fees=None):
         # We used to multiple trade_pair.fees by net_leverage. Eventually we will
         # Update this calculation to approximate actual exchange fees.
         self.current_return = self.calculate_unrealized_pnl(realtime_price)
-        self.return_at_close = self.calculate_return_with_fees(self.current_return, timestamp_ms=time_ms)
+        if total_fees is None:
+            self.return_at_close = self.calculate_return_with_fees(self.current_return,
+                               timestamp_ms=TimeUtil.now_in_millis() if time_ms is None else time_ms)
+        else:
+            self.return_at_close = self.current_return * total_fees
 
         if self.current_return < 0:
             raise ValueError(f"current return must be positive {self.current_return}")
 
         if self.current_return == 0:
-            self._handle_liquidation(time_ms)
+            self._handle_liquidation(TimeUtil.now_in_millis() if time_ms is None else time_ms)
 
     def update_position_state_for_new_order(self, order, delta_leverage):
         """
@@ -340,7 +478,7 @@ class Position(BaseModel):
             self.net_leverage = new_net_leverage
 
     def initialize_position_from_first_order(self, order):
-        self.initial_entry_price = order.price
+        self.open_ms = order.processed_ms
         if self.initial_entry_price <= 0:
             raise ValueError("Initial entry price must be > 0")
         # Initialize the position type. It will stay the same until the position is closed.
@@ -363,16 +501,47 @@ class Position(BaseModel):
         self.is_closed_position = False
         self.close_ms = None
 
-    def _clamp_leverage(self, order):
-        proposed_leverage = self.net_leverage + order.leverage
-        if self.position_type == OrderType.LONG and proposed_leverage > self.trade_pair.max_leverage:
-            order.leverage = self.trade_pair.max_leverage - self.net_leverage
-            return True
-        elif self.position_type == OrderType.SHORT and proposed_leverage < -self.trade_pair.max_leverage:
-            order.leverage = -self.trade_pair.max_leverage - self.net_leverage
-            return True
+    def _clamp_and_validate_leverage(self, order) -> bool:
+        """
+        If an order's leverage would make the position's leverage higher than max_position_leverage,
+        we clamp the order's leverage. If clamping causes the order's leverage to be below
+        ValiConfig.ORDER_MIN_LEVERAGE, we raise an error.
 
-        return False
+        If an order's leverage would take the position leverage below min_position_leverage, we raise an error.
+
+        Return true if the order should be ignored. Only happens when the order attempts to exceed max_position_leverage
+        and is already at max_position_leverage.
+        """
+        should_ignore_order = False
+        if order.order_type == OrderType.FLAT:
+            return should_ignore_order
+
+        is_first_order = len(self.orders) == 0
+        proposed_leverage = self.net_leverage + order.leverage
+        min_position_leverage, max_position_leverage = leverage_utils.get_position_leverage_bounds(self.trade_pair, order.processed_ms)
+        # we only need to worry about clamping if the sign of the position leverage remains the same i.e. position does not flip and close
+        if is_first_order or self.net_leverage * proposed_leverage > 0:
+            if abs(proposed_leverage) > max_position_leverage:
+                if is_first_order or abs(proposed_leverage) >= abs(self.net_leverage):
+                    order.leverage = max(0.0, max_position_leverage - abs(self.net_leverage))
+                    if order.order_type == OrderType.SHORT:
+                        order.leverage *= -1
+                    should_ignore_order = order.leverage == 0
+                else:
+                    pass#  We are getting the leverage closer to the new boundary (decrease) so allow it
+            elif abs(proposed_leverage) < min_position_leverage:
+                if is_first_order or abs(proposed_leverage) < abs(self.net_leverage):
+                    raise ValueError(f'Attempted to set position leverage below min_position_leverage {min_position_leverage}')
+                else:
+                    pass  # We are trying to increase the leverage here so let it happen
+        # attempting to flip position
+        else:
+            order.leverage = -self.net_leverage
+
+        if abs(order.leverage) < ValiConfig.ORDER_MIN_LEVERAGE and (should_ignore_order is False):
+            raise ValueError(f'Clamped order leverage [{order.leverage}] is below ValiConfig.ORDER_MIN_LEVERAGE {ValiConfig.ORDER_MIN_LEVERAGE}')
+
+        return should_ignore_order
 
     def _update_position(self):
         self.net_leverage = 0.0

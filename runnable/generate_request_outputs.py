@@ -25,7 +25,7 @@ if __name__ == "__main__":
             if write_output:
                 # Generate the request outputs
                 generate_request_core(time_now=current_time_ms)
-                generate_request_minerstatistics(time_now=current_time_ms)
+                generate_request_minerstatistics(time_now=current_time_ms, checkpoints=True)
 
             if write_output:
                 last_validator_checkpoint_time = current_time
@@ -35,8 +35,9 @@ if __name__ == "__main__":
                 n_updates += 1
                 if n_updates % 10 == 0:
                     logger.info("Completed writing outputs in " + str(time.time() - current_time) + " seconds. n_updates: " + str(n_updates))
-    except (JSONDecodeError, ValiBkpCorruptDataException) as e:
+    except (JSONDecodeError, ValiBkpCorruptDataException):
         logger.error("error occurred trying to decode position json. Probably being written to simultaneously.")
+        logger.error(traceback.format_exc())
     except Exception as e:
         logger.error(f"An error occurred: {str(e)}")
         # traceback

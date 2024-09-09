@@ -5,7 +5,6 @@ import shutil
 from time_util.time_util import TimeUtil
 from vali_config import ValiConfig
 from shared_objects.cache_controller import CacheController
-from vali_objects.utils.position_manager import PositionManager
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 
 import bittensor as bt
@@ -57,6 +56,7 @@ class EliminationManager(CacheController):
 
     def _delete_eliminated_expired_miners(self):
         eliminated_hotkeys = set()
+        self._refresh_challengeperiod_in_memory()
         # self.eliminations were just refreshed in process_eliminations
         for x in self.eliminations:
             if self.shutdown_dict:
@@ -70,6 +70,14 @@ class EliminationManager(CacheController):
             if hotkey in self.metagraph.hotkeys:
                 bt.logging.trace(f"miner [{hotkey}] has not been deregistered by BT yet. Not deleting miner dir.")
                 continue
+
+            # If the miner is no longer in the metagraph, we can remove them from the challengeperiod information
+            if hotkey in self.challengeperiod_testing:
+                self.challengeperiod_testing.pop(hotkey)
+
+            if hotkey in self.challengeperiod_success:
+                self.challengeperiod_success.pop(hotkey)
+
             miner_dir = ValiBkpUtils.get_miner_dir(running_unit_tests=self.running_unit_tests) + hotkey
             try:
                 shutil.rmtree(miner_dir)
@@ -80,6 +88,9 @@ class EliminationManager(CacheController):
             except FileNotFoundError:
                 bt.logging.info(f"miner dir not found. Already deleted. [{miner_dir}]")
             eliminated_hotkeys.add(hotkey)
+
+        # Write the challengeperiod information to disk
+        self._write_challengeperiod_from_memory_to_disk()
 
         if eliminated_hotkeys:
             self.eliminations = [x for x in self.eliminations if x['hotkey'] not in eliminated_hotkeys]

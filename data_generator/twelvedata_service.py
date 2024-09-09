@@ -37,7 +37,10 @@ class TwelveDataService(BaseDataService):
         if disable_ws:
             self._heartbeat_thread = None
         else:
-            self._reset_websocket()
+            try:
+                self._reset_websocket()
+            except Exception as e:
+                bt.logging.error(f"Failed to initialize TD websocket on initial call: {e}. Will continue trying in _websocket_heartbeat")
             self._heartbeat_thread = threading.Thread(target=self._websocket_heartbeat)
             self._heartbeat_thread.daemon = True
             self._heartbeat_thread.start()
@@ -62,7 +65,7 @@ class TwelveDataService(BaseDataService):
             if lag_time_ms < 0:
                 bt.logging.error(f"Received TD websocket data in the future {symbol}. lag_ms {lag_time_ms} Ignoring this data.")
                 return
-            formatted_event_price = TimeUtil.millis_to_formatted_date_str(timestamp_ms)
+            formatted_event_price = TimeUtil.millis_to_formatted_date_str(timestamp_ms)  # noqa: F841
             prev_event = self.latest_websocket_events.get(symbol)
             prev_event_time_ms = prev_event.start_ms + prev_event.timespan_ms if prev_event else None
             if prev_event is None or timestamp_ms > prev_event_time_ms:
@@ -298,7 +301,7 @@ class TwelveDataService(BaseDataService):
 
         #print(f"Input time: {input_time_formatted}, Response time: {t_str}")
 
-        smallest_delta_s = smallest_delta_ms / 1000 if smallest_delta_ms is not None else None
+        smallest_delta_s = smallest_delta_ms / 1000 if smallest_delta_ms is not None else None  # noqa: F841
         #print('TD Delta time in s: ', smallest_delta_s, 'Reported time', corresponding_date, 'Input date', input_time_formatted)
 
         return price, smallest_delta_ms
@@ -343,13 +346,13 @@ if __name__ == "__main__":
 
     for trade_pair, websocket_price_history in data.items():
         print(trade_pair)
-        websocket_times = [datetime.strptime(x[0], '%Y-%m-%d %H:%M:%S') for x in websocket_price_history]
+        websocket_times = [datetime.strptime(x[0], '%Y-%m-%d %H:%M:%S') for x in websocket_price_history]  # noqa: F821
         websocket_prices = [x[1] for x in websocket_price_history]
 
         min_time = min(websocket_price_history, key=lambda x: x[0])[0]
         max_time = max(websocket_price_history, key=lambda x: x[0])[0]
         closes_historical = twelve_data.get_range_of_closes(trade_pair, min_time, max_time)
-        historical_times = [datetime.strptime(x[0], '%Y-%m-%d %H:%M:%S') for x in closes_historical]
+        historical_times = [datetime.strptime(x[0], '%Y-%m-%d %H:%M:%S') for x in closes_historical]  # noqa: F821
         historical_prices = [x[1] for x in closes_historical]
 
         plt.figure(figsize=(10, 6))

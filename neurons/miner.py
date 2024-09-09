@@ -11,6 +11,7 @@ import time
 import bittensor as bt
 
 from miner_config import MinerConfig
+from miner_objects.dashboard import Dashboard
 from miner_objects.prop_net_order_placer import PropNetOrderPlacer
 from miner_objects.position_inspector import PositionInspector
 from shared_objects.metagraph_updater import MetagraphUpdater
@@ -34,6 +35,10 @@ class Miner:
         # Start position inspector loop in its own thread
         self.position_inspector_thread = threading.Thread(target=self.position_inspector.run_update_loop, daemon=True)
         self.position_inspector_thread.start()
+        # Start the dashboard in its own thread
+        self.dashboard = Dashboard(self.wallet, self.metagraph, self.config, self.is_testnet)
+        self.dashboard_thread = threading.Thread(target=self.dashboard.run, daemon=True)
+        self.dashboard_thread.start()
 
     def setup_logging_directory(self):
         if not os.path.exists(self.config.full_path):
@@ -43,8 +48,8 @@ class Miner:
         self.wallet = bt.wallet(config=self.config)
         self.subtensor = bt.subtensor(config=self.config)
         self.metagraph = self.subtensor.metagraph(self.config.netuid)
-        self.prop_net_order_placer = PropNetOrderPlacer(self.wallet, self.metagraph, self.config, self.is_testnet)
         self.position_inspector = PositionInspector(self.wallet, self.metagraph, self.config)
+        self.prop_net_order_placer = PropNetOrderPlacer(self.wallet, self.metagraph, self.config, self.is_testnet, position_inspector=self.position_inspector)
         self.metagraph_updater = MetagraphUpdater(self.config, self.metagraph, self.wallet.hotkey.ss58_address,
                                                   True, position_inspector=self.position_inspector)
 
@@ -147,6 +152,7 @@ class Miner:
                 self.metagraph_updater_thread.join()
                 self.position_inspector.stop_update_loop()
                 self.position_inspector_thread.join()
+                self.dashboard_thread.join()
                 break
             # In case of unforeseen errors, the miner will log the error and continue operations.
             except Exception:

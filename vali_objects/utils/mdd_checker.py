@@ -6,7 +6,6 @@ from typing import List, Dict
 from time_util.time_util import TimeUtil
 from vali_config import ValiConfig, TradePair
 from shared_objects.cache_controller import CacheController
-from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.position import Position
 from vali_objects.utils.live_price_fetcher import LivePriceFetcher
 from vali_objects.vali_dataclasses.recent_event_tracker import RecentEventTracker
@@ -25,7 +24,7 @@ class MDDChecker(CacheController):
         super().__init__(config, metagraph, running_unit_tests=running_unit_tests)
         self.last_price_fetch_time_ms = None
         self.price_correction_enabled = True
-        secrets = ValiUtils.get_secrets()
+        secrets = ValiUtils.get_secrets(running_unit_tests=running_unit_tests)
         self.position_manager = position_manager
         assert self.running_unit_tests == self.position_manager.running_unit_tests
         self.all_trade_pairs = [trade_pair for trade_pair in TradePair]

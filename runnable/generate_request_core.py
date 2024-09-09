@@ -1,3 +1,4 @@
+import copy
 import gzip
 import json
 import os
@@ -13,7 +14,8 @@ from vali_objects.utils.position_manager import PositionManager
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils, CustomEncoder
 from vali_objects.utils.subtensor_weight_setter import SubtensorWeightSetter
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
-from vali_objects.utils.auto_sync import AUTO_SYNC_ORDER_LAG_MS
+
+from vali_objects.utils.validator_sync_base import AUTO_SYNC_ORDER_LAG_MS
 
 # no filters,... , max filter
 PERCENT_NEW_POSITIONS_TIERS = [100, 50, 30, 0]
@@ -134,7 +136,7 @@ def upload_checkpoint_to_gcloud(final_dict):
     blob.upload_from_string(zip_buffer)
     print(f'Uploaded {blob_name} to {bucket_name}')
 
-def generate_request_core(time_now:int):
+def generate_request_core(time_now:int) -> dict:
     position_manager = PositionManager(
         config=None,
         metagraph=None,
@@ -144,6 +146,11 @@ def generate_request_core(time_now:int):
     subtensor_weight_setter = SubtensorWeightSetter(
         config=None,
         wallet=None,
+        metagraph=None,
+        running_unit_tests=False
+    )
+
+    perf_ledger_manager = PerfLedgerManager(
         metagraph=None,
         running_unit_tests=False
     )
@@ -167,9 +174,6 @@ def generate_request_core(time_now:int):
             f"directory for miners doesn't exist "
             f"[{ValiBkpUtils.get_miner_dir()}]. Skip run for now."
         )
-    
-    # Perf Ledger Calculations
-    perf_ledgers = PerfLedgerManager.load_perf_ledgers_from_disk()
 
     # we won't be able to query for eliminated hotkeys from challenge period
     hotkey_positions = position_manager.get_all_miner_positions_by_hotkey(
@@ -240,6 +244,9 @@ def generate_request_core(time_now:int):
         )
     )
 
+    # unfiltered positions dict for checkpoints
+    unfiltered_positions = {'positions': copy.deepcopy(ord_dict_hotkey_position_map)}
+
     n_orders_original = 0
     for positions in hotkey_positions.values():
         n_orders_original += sum([len(position.orders) for position in positions])
@@ -250,6 +257,8 @@ def generate_request_core(time_now:int):
         n_positions_new += sum([len(p['orders']) for p in positions])
 
     assert n_orders_original == n_positions_new, f"n_orders_original: {n_orders_original}, n_positions_new: {n_positions_new}"
+
+    perf_ledgers = perf_ledger_manager.load_perf_ledgers_from_disk()
     final_dict = {
         'version': ValiConfig.VERSION,
         'created_timestamp_ms': time_now,
@@ -295,3 +304,4 @@ def generate_request_core(time_now:int):
 
     # Max filtering
     upload_checkpoint_to_gcloud(final_dict)
+    return unfiltered_positions

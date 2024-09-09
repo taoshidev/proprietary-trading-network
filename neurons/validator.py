@@ -9,15 +9,23 @@ import threading
 import signal
 import uuid
 from typing import Tuple
+from enum import Enum
 
 import template
 import argparse
 import traceback
 import time
 import bittensor as bt
+import json
+import gzip
+import base64
 
+from runnable.generate_request_core import generate_request_core
+from runnable.generate_request_minerstatistics import generate_miner_statistics_data
 from vali_objects.utils.auto_sync import PositionSyncer
+from vali_objects.utils.p2p_syncer import P2PSyncer
 from shared_objects.rate_limiter import RateLimiter
+from vali_objects.utils.timestamp_manager import TimestampManager
 from vali_objects.uuid_tracker import UUIDTracker
 from time_util.time_util import TimeUtil
 from vali_config import TradePair
@@ -27,9 +35,8 @@ from vali_objects.utils.elimination_manager import EliminationManager
 from vali_objects.utils.live_price_fetcher import LivePriceFetcher
 from vali_objects.utils.subtensor_weight_setter import SubtensorWeightSetter
 from vali_objects.utils.mdd_checker import MDDChecker
-from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
+from vali_objects.utils.vali_bkp_utils import ValiBkpUtils, CustomEncoder
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
-from vali_objects.utils.plagiarism_detector import PlagiarismDetector
 from vali_objects.utils.position_manager import PositionManager
 from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
 from vali_objects.vali_dataclasses.order import Order
@@ -40,6 +47,13 @@ from vali_config import ValiConfig
 
 # Global flag used to indicate shutdown
 shutdown_dict = {}
+
+# Enum class that represents the method associated with Synapse
+class SynapseMethod(Enum):
+    POSITION_INSPECTOR = "GetPositions"
+    DASHBOARD = "GetDashData"
+    SIGNAL = "SendSignal"
+    CHECKPOINT = "SendCheckpoint"
 
 def signal_handler(signum, frame):
     global shutdown_dict
@@ -82,7 +96,7 @@ class Validator:
 
         self.config = self.get_config()
         # Use the getattr function to safely get the autosync attribute with a default of False if not found.
-        self.auto_sync = getattr(self.config, 'autosync', False)
+        self.auto_sync = getattr(self.config, 'autosync', False) and 'mothership' not in ValiUtils.get_secrets()
         self.is_mainnet = self.config.netuid == 8
         # Ensure the directory for logging exists, else create one.
         if not os.path.exists(self.config.full_path):
@@ -143,6 +157,8 @@ class Validator:
         self.metagraph_updater_thread = threading.Thread(target=self.metagraph_updater.run_update_loop, daemon=True)
         self.metagraph_updater_thread.start()
 
+
+
         if self.wallet.hotkey.ss58_address not in self.metagraph.hotkeys:
             bt.logging.error(
                 f"\nYour validator: {self.wallet} is not registered to chain "
@@ -153,8 +169,17 @@ class Validator:
         self.position_syncer = PositionSyncer(shutdown_dict=shutdown_dict, signal_sync_lock=self.signal_sync_lock,
                                               signal_sync_condition=self.signal_sync_condition,
                                               n_orders_being_processed=self.n_orders_being_processed)
-        self.perf_ledger_manager = PerfLedgerManager(self.metagraph, live_price_fetcher=self.live_price_fetcher,
-                                                     shutdown_dict=shutdown_dict, position_syncer=self.position_syncer)
+        self.p2p_syncer = P2PSyncer(wallet=self.wallet, metagraph=self.metagraph, is_testnet=not self.is_mainnet,
+                                    shutdown_dict=shutdown_dict, signal_sync_lock=self.signal_sync_lock,
+                                    signal_sync_condition=self.signal_sync_condition,
+                                    n_orders_being_processed=self.n_orders_being_processed
+                                    )
+        self.checkpoint_lock = threading.Lock()
+        self.encoded_checkpoint = ""
+        self.last_checkpoint_time = 0
+        self.timestamp_manager = TimestampManager(config=self.config, metagraph=self.metagraph, hotkey=self.wallet.hotkey.ss58_address)
+
+        self.perf_ledger_manager = PerfLedgerManager(self.metagraph, shutdown_dict=shutdown_dict, position_syncer=self.position_syncer)
         # Start the perf ledger updater loop in its own thread
         self.perf_ledger_updater_thread = threading.Thread(target=self.perf_ledger_manager.run_update_loop, daemon=True)
         self.perf_ledger_updater_thread.start()
@@ -169,10 +194,12 @@ class Validator:
         bt.logging.info(f"Axon {self.axon}")
 
         # Attach determines which functions are called when servicing a request.
-        bt.logging.info(f"Attaching forward function to axon.")
+        bt.logging.info("Attaching forward function to axon.")
 
         self.order_rate_limiter = RateLimiter()
-        self.position_inspector_rate_limiter = RateLimiter(max_requests_per_window=1, rate_limit_window_duration_seconds = 60 * 4)
+        self.position_inspector_rate_limiter = RateLimiter(max_requests_per_window=1, rate_limit_window_duration_seconds=60 * 4)
+        self.dash_rate_limiter = RateLimiter(max_requests_per_window=1, rate_limit_window_duration_seconds=60)
+        self.checkpoint_rate_limiter = RateLimiter(max_requests_per_window=1, rate_limit_window_duration_seconds=60 * 60 * 6)
 
         def rs_blacklist_fn(synapse: template.protocol.SendSignal) -> Tuple[bool, str]:
             return Validator.blacklist_fn(synapse, self.metagraph)
@@ -186,6 +213,18 @@ class Validator:
         def gp_priority_fn(synapse: template.protocol.GetPositions) -> float:
             return Validator.priority_fn(synapse, self.metagraph)
 
+        def gd_blacklist_fn(synapse: template.protocol.GetDashData) -> Tuple[bool, str]:
+            return Validator.blacklist_fn(synapse, self.metagraph)
+
+        def gd_priority_fn(synapse: template.protocol.GetDashData) -> float:
+            return Validator.priority_fn(synapse, self.metagraph)
+
+        def rc_blacklist_fn(synapse: template.protocol.ValidatorCheckpoint) -> Tuple[bool, str]:
+            return Validator.blacklist_fn(synapse, self.metagraph)
+
+        def rc_priority_fn(synapse: template.protocol.ValidatorCheckpoint) -> float:
+            return Validator.priority_fn(synapse, self.metagraph)
+
         self.axon.attach(
             forward_fn=self.receive_signal,
             blacklist_fn=rs_blacklist_fn,
@@ -195,6 +234,16 @@ class Validator:
             forward_fn=self.get_positions,
             blacklist_fn=gp_blacklist_fn,
             priority_fn=gp_priority_fn,
+        )
+        self.axon.attach(
+            forward_fn=self.get_data,
+            blacklist_fn=gd_blacklist_fn,
+            priority_fn=gd_priority_fn,
+        )
+        self.axon.attach(
+            forward_fn=self.receive_checkpoint,
+            blacklist_fn=rc_blacklist_fn,
+            priority_fn=rc_priority_fn,
         )
 
         # Serve passes the axon information to the network + netuid we are hosting on.
@@ -243,13 +292,14 @@ class Validator:
             if (n_positions_on_disk == 0 or
                     smallest_disk_ms > TimeUtil.timestamp_to_millis(TimeUtil.generate_start_timestamp(days=1)) or
                     largest_disk_ms < TimeUtil.timestamp_to_millis(TimeUtil.generate_start_timestamp(days=1))):
-                msg = (f"Validator data needs to be synced with mainnet. Please restore data from checkpoint "
-                       f"before running the validator. More info here: "
-                       f"https://github.com/taoshidev/proprietary-trading-network/"
-                       f"blob/main/docs/regenerating_validator_state.md")
+                msg = ("Validator data needs to be synced with mainnet. Please restore data from checkpoint "  # noqa: F841
+                       "before running the validator. More info here: "
+                       "https://github.com/taoshidev/proprietary-trading-network/"
+                       "blob/main/docs/regenerating_validator_state.md")
                 #bt.logging.error(msg)
                 #raise Exception(msg)
-                self.position_syncer.sync_positions()
+                self.position_syncer.sync_positions(
+                    False, candidate_data=self.position_syncer.read_validator_checkpoint_from_gcloud_zip())
 
 
 
@@ -342,16 +392,17 @@ class Validator:
     def main(self):
         global shutdown_dict
         # Keep the vali alive. This loop maintains the vali's operations until intentionally stopped.
-        bt.logging.info(f"Starting main loop")
+        bt.logging.info("Starting main loop")
         while not shutdown_dict:
             try:
                 current_time = TimeUtil.now_in_millis()
+                self.position_syncer.sync_positions_with_cooldown(self.auto_sync)
                 self.mdd_checker.mdd_check()
                 self.challengeperiod_manager.refresh(current_time=current_time)
-                self.weight_setter.set_weights(current_time=current_time)
                 self.elimination_manager.process_eliminations()
-                self.position_syncer.sync_positions_with_cooldown(self.auto_sync)
+                self.weight_setter.set_weights(current_time=current_time)
                 self.position_manager.position_locks.cleanup_locks(self.metagraph.hotkeys)
+                self.p2p_syncer.sync_positions_with_cooldown()
 
             # In case of unforeseen errors, the miner will log the error and continue operations.
             except Exception:
@@ -431,12 +482,9 @@ class Validator:
             open_position = trade_pair_to_open_position[trade_pair]
         else:
             bt.logging.debug("processing new position")
-            # if the order is FLAT ignore and log
+            # if the order is FLAT ignore (noop)
             if signal_to_order.order_type == OrderType.FLAT:
-                raise SignalException(
-                    f"miner [{miner_hotkey}] sent a "
-                    f"FLAT order for {trade_pair.trade_pair} with no existing position."
-                )
+                open_position = None
             else:
                 # if a position doesn't exist, then make a new one
                 open_position = Position(
@@ -457,7 +505,7 @@ class Validator:
                 synapse.successfully_processed = False
                 synapse.error_message = msg
 
-    def should_fail_early(self, synapse: template.protocol.SendSignal | template.protocol.GetPositions, is_pi:bool,
+    def should_fail_early(self, synapse: template.protocol.SendSignal | template.protocol.GetPositions | template.protocol.GetDashData | template.protocol.ValidatorCheckpoint, method:SynapseMethod,
                           signal:dict=None) -> bool:
         global shutdown_dict
         if shutdown_dict:
@@ -466,20 +514,33 @@ class Validator:
             bt.logging.trace(synapse.error_message)
             return True
 
-        miner_hotkey = synapse.dendrite.hotkey
+        sender_hotkey = synapse.dendrite.hotkey
         # Don't allow miners to send too many signals in a short period of time
-        if is_pi:
-            allowed, wait_time = self.position_inspector_rate_limiter.is_allowed(miner_hotkey)
+        if method == SynapseMethod.POSITION_INSPECTOR:
+            allowed, wait_time = self.position_inspector_rate_limiter.is_allowed(sender_hotkey)
+        elif method == SynapseMethod.DASHBOARD:
+            allowed, wait_time = self.dash_rate_limiter.is_allowed(sender_hotkey)
+        elif method == SynapseMethod.SIGNAL:
+            allowed, wait_time = self.order_rate_limiter.is_allowed(sender_hotkey)
+        elif method == SynapseMethod.CHECKPOINT:
+            allowed, wait_time = self.checkpoint_rate_limiter.is_allowed(sender_hotkey)
         else:
-            allowed, wait_time = self.order_rate_limiter.is_allowed(miner_hotkey)
-
-        if not allowed:
-            msg = (f"Rate limited. Please wait {wait_time} seconds before sending another signal. "
-                   f"{'GetPositions' if is_pi else 'SendSignal'}")
+            msg = "Received synapse does not match one of expected methods for: receive_signal, get_positions, get_data, or receive_checkpoint"
             bt.logging.trace(msg)
             synapse.successfully_processed = False
             synapse.error_message = msg
             return True
+
+        if not allowed:
+            msg = (f"Rate limited. Please wait {wait_time} seconds before sending another signal. "
+                   f"{method.value}")
+            bt.logging.trace(msg)
+            synapse.successfully_processed = False
+            synapse.error_message = msg
+            return True
+
+        if method == SynapseMethod.CHECKPOINT or method == SynapseMethod.DASHBOARD:
+            return False
 
         # don't process eliminated miners
         with self.eliminations_lock:
@@ -556,12 +617,11 @@ class Validator:
         synapse.validator_hotkey = self.wallet.hotkey.ss58_address
         signal = synapse.signal
         bt.logging.info(f"received signal [{signal}] from miner_hotkey [{miner_hotkey}].")
-        if self.should_fail_early(synapse, False, signal=signal):
+        if self.should_fail_early(synapse, SynapseMethod.SIGNAL, signal=signal):
             return synapse
 
         with self.signal_sync_lock:
             self.n_orders_being_processed[0] += 1
-
 
         # error message to send back to miners in case of a problem so they can fix and resend
         error_message = ""
@@ -579,14 +639,22 @@ class Validator:
                                                                                              only_open_positions=True)}
                 self._enforce_num_open_order_limit(trade_pair_to_open_position, signal_to_order)
                 open_position = self._get_or_create_open_position(signal_to_order, miner_hotkey, trade_pair_to_open_position, miner_order_uuid)
-                self.enforce_order_cooldown(signal_to_order, open_position)
-                open_position.add_order(signal_to_order)
-                self.position_manager.save_miner_position_to_disk(open_position)
-                if miner_order_uuid:
-                    self.uuid_tracker.add(miner_order_uuid)
-                # Log the open position for the miner
-                bt.logging.info(f"Position {open_position.trade_pair.trade_pair_id} for miner [{miner_hotkey}] updated.")
-                open_position.log_position_status()
+                if open_position:
+                    self.enforce_order_cooldown(signal_to_order, open_position)
+                    open_position.add_order(signal_to_order)
+                    self.position_manager.save_miner_position_to_disk(open_position)
+                    bt.logging.info(
+                        f"Position {open_position.trade_pair.trade_pair_id} for miner [{miner_hotkey}] updated.")
+                    # Log the open position for the miner
+                    open_position.log_position_status()
+                    if miner_order_uuid:
+                        self.uuid_tracker.add(miner_order_uuid)
+                else:
+                    # Happens if a FLAT is sent when no order exists
+                    pass
+                # Update the last received order time
+                self.timestamp_manager.update_timestamp(signal_to_order)
+
             # self.plagiarism_detector.check_plagiarism(open_position, signal_to_order)
 
         except SignalException as e:
@@ -603,7 +671,7 @@ class Validator:
             synapse.successfully_processed = False
 
         synapse.error_message = error_message
-        bt.logging.success(f"Sending ack back to miner [{miner_hotkey}]")
+        bt.logging.success(f"Sending ack back to miner [{miner_hotkey}]. Synapse Message: {synapse.error_message}")
         with self.signal_sync_lock:
             self.n_orders_being_processed[0] -= 1
             if self.n_orders_being_processed[0] == 0:
@@ -612,7 +680,7 @@ class Validator:
 
     def get_positions(self, synapse: template.protocol.GetPositions,
                       ) -> template.protocol.GetPositions:
-        if self.should_fail_early(synapse, True):
+        if self.should_fail_early(synapse, SynapseMethod.POSITION_INSPECTOR):
             return synapse
 
         miner_hotkey = synapse.dendrite.hotkey
@@ -635,6 +703,90 @@ class Validator:
         synapse.error_message = error_message
         return synapse
 
+    def get_data(self, synapse: template.protocol.GetDashData,
+                      ) -> template.protocol.GetDashData:
+        if self.should_fail_early(synapse, SynapseMethod.DASHBOARD):
+            return synapse
+
+        miner_hotkey = synapse.dendrite.hotkey
+        error_message = ""
+        try:
+            stats = generate_miner_statistics_data(time_now=TimeUtil.now_in_millis(), checkpoints=True, miner_hotkeys=[miner_hotkey])
+            positions = self.position_manager.get_all_miner_positions(miner_hotkey, sort_positions=True)
+            dash_data = {"statistics": stats, "positions": positions}
+
+            if not stats["data"]:
+                error_message = f"Validator {self.wallet.hotkey.ss58_address} has no stats for miner {miner_hotkey}"
+            elif not positions:
+                error_message = f"Validator {self.wallet.hotkey.ss58_address} has no positions for miner {miner_hotkey}"
+
+            synapse.data = dash_data
+            bt.logging.info("Sending data back to miner: " + miner_hotkey)
+        except Exception as e:
+            error_message = f"Error in GetData for [{miner_hotkey}] with error [{e}]."
+            bt.logging.error(traceback.format_exc())
+
+        if error_message == "":
+            synapse.successfully_processed = True
+        else:
+            bt.logging.error(error_message)
+            synapse.successfully_processed = False
+        synapse.error_message = error_message
+        return synapse
+
+    def receive_checkpoint(self, synapse: template.protocol.ValidatorCheckpoint) -> template.protocol.ValidatorCheckpoint:
+        """
+        receive checkpoint request, and ensure that only requests received from valid validators are processed.
+        """
+        sender_hotkey = synapse.dendrite.hotkey
+
+        # validator responds to poke from validator and attaches their checkpoint
+        if sender_hotkey in [axon.hotkey for axon in self.p2p_syncer.get_validators()]:
+            synapse.validator_receive_hotkey = self.wallet.hotkey.ss58_address
+
+            bt.logging.info(f"Received checkpoint request poke from validator hotkey [{sender_hotkey}].")
+            if self.should_fail_early(synapse, SynapseMethod.CHECKPOINT):
+                return synapse
+
+            error_message = ""
+            try:
+                with self.checkpoint_lock:
+                    # reset checkpoint after 10 minutes
+                    if TimeUtil.now_in_millis() - self.last_checkpoint_time > 1000 * 60 * 10:
+                        self.encoded_checkpoint = ""
+                    # save checkpoint so we only generate it once for all requests
+                    if not self.encoded_checkpoint:
+                        # get our current checkpoint
+                        self.last_checkpoint_time = TimeUtil.now_in_millis()
+                        checkpoint_dict = generate_request_core(time_now=self.last_checkpoint_time)
+
+                        # compress json and encode as base64 to keep as a string
+                        checkpoint_str = json.dumps(checkpoint_dict, cls=CustomEncoder)
+                        compressed = gzip.compress(checkpoint_str.encode("utf-8"))
+                        self.encoded_checkpoint = base64.b64encode(compressed).decode("utf-8")
+
+                    # only send a checkpoint if we are an up-to-date validator
+                    timestamp = self.timestamp_manager.get_last_order_timestamp()
+                    if TimeUtil.now_in_millis() - timestamp < 1000 * 60 * 60 * 10:  # validators with no orders processed in 10 hrs are considered stale
+                        synapse.checkpoint = self.encoded_checkpoint
+                    else:
+                        error_message = f"Validator is stale, no orders received in 10 hrs, last order timestamp {timestamp}, {round((TimeUtil.now_in_millis() - timestamp)/(1000 * 60 * 60))} hrs ago"
+            except Exception as e:
+                error_message = f"Error processing checkpoint request poke from [{sender_hotkey}] with error [{e}]"
+                bt.logging.error(traceback.format_exc())
+
+            if error_message == "":
+                synapse.successfully_processed = True
+            else:
+                bt.logging.error(error_message)
+                synapse.successfully_processed = False
+            synapse.error_message = error_message
+            bt.logging.success(f"Sending checkpoint back to validator [{sender_hotkey}]")
+        else:
+            bt.logging.info(f"Received a checkpoint poke from non validator [{sender_hotkey}]")
+            synapse.error_message = "Rejecting checkpoint poke from non validator"
+            synapse.successfully_processed = False
+        return synapse
 
 # This is the main function, which runs the miner.
 if __name__ == "__main__":

@@ -1,5 +1,4 @@
 from data_generator.financial_markets_generator.binance_data import BinanceData
-from data_generator.financial_markets_generator.bybit_data import ByBitData
 from vali_objects.exceptions.incorrect_live_results_count_exception import IncorrectLiveResultsCountException
 
 

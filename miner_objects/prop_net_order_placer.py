@@ -2,7 +2,6 @@
 # Copyright © 2024 Yuma Rao
 # developer: jbonilla
 # Copyright © 2024 Taoshi Inc
-import asyncio
 import json
 import os
 import threading
@@ -19,7 +18,7 @@ class PropNetOrderPlacer:
     MAX_RETRIES = 3
     INITIAL_RETRY_DELAY_SECONDS = 20
 
-    def __init__(self, wallet, metagraph, config, is_testnet):
+    def __init__(self, wallet, metagraph, config, is_testnet, position_inspector=None):
         self.wallet = wallet
         self.metagraph = metagraph
         self.config = config
@@ -27,6 +26,7 @@ class PropNetOrderPlacer:
         self.is_testnet = is_testnet
         self.trade_pair_id_to_last_order_send = {tp.trade_pair_id: 0 for tp in TradePair}
         self.used_miner_uuids = set()
+        self.position_inspector = position_inspector
 
     def send_signals(self, signals, signal_file_names, recently_acked_validators: list[str]):
         """
@@ -39,7 +39,7 @@ class PropNetOrderPlacer:
 
         threads = []
         for (signal_data, signal_file_path) in zip(signals, signal_file_names):
-            thread = threading.Thread(target=self.threaded_process_signal, args=(signal_file_path, signal_data))
+            thread = threading.Thread(target=self.process_a_signal, args=(signal_file_path, signal_data))
             threads.append(thread)
             thread.start()
 
@@ -49,26 +49,13 @@ class PropNetOrderPlacer:
 
         #time.sleep(3)
 
-
-    def threaded_process_signal(self, signal_file_path, signal_data):
-        """
-        Sets up a new event loop for asynchronous processing of each signal in a separate thread.
-        """
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-
-        try:
-            loop.run_until_complete(self.process_a_signal(signal_file_path, signal_data))
-        finally:
-            loop.close()
-
-    async def process_a_signal(self, signal_file_path, signal_data):
+    def process_a_signal(self, signal_file_path, signal_data):
         """
         Processes a signal file by attempting to send it to the validators.
         Manages retry attempts and employs exponential backoff for failed attempts.
         """
         hotkey_to_v_trust = {neuron.hotkey: neuron.validator_trust for neuron in self.metagraph.neurons}
-        axons_to_try = self.metagraph.axons
+        axons_to_try = self.position_inspector.get_possible_validators()
         axons_to_try.sort(key=lambda validator: hotkey_to_v_trust[validator.hotkey], reverse=True)
 
         validator_hotkey_to_axon = {}
@@ -80,7 +67,8 @@ class PropNetOrderPlacer:
         retry_status = {
                 'retry_attempts': 0,
                 'retry_delay_seconds': self.INITIAL_RETRY_DELAY_SECONDS,
-                'validators_needing_retry': axons_to_try
+                'validators_needing_retry': axons_to_try,
+                'validator_error_messages': {}
         }
 
         # Track the high-trust validators for special checking after processing
@@ -92,7 +80,7 @@ class PropNetOrderPlacer:
 
         # Continue retrying until the max number of retries is reached or no validators need retrying
         while retry_status['retry_attempts'] < self.MAX_RETRIES and retry_status['validators_needing_retry']:
-            await self.attempt_to_send_signal(send_signal_request, retry_status, high_trust_validators, validator_hotkey_to_axon)
+            self.attempt_to_send_signal(send_signal_request, retry_status, high_trust_validators, validator_hotkey_to_axon)
 
         # After retries, check if all high-trust validators have processed the signal successfully
         # This requires checking the current state of trust and response success
@@ -103,6 +91,9 @@ class PropNetOrderPlacer:
             if validator in retry_status['validators_needing_retry']:
                 high_trust_processed = False
                 n_high_trust_validators_that_failed += 1
+
+        if self.is_testnet and retry_status['validator_error_messages']:
+            high_trust_processed = False
 
         # If there were validators that failed to process the signal, we move the file to the failed directory
         if high_trust_processed:
@@ -115,7 +106,7 @@ class PropNetOrderPlacer:
                  f" Consider re-sending the signal if this is your first time seeing this error. If this error"
                  f" persists, your miner is eliminated or there is likely an issue with the relevant validator(s) "
                              f"and their vtrust should drop soon.")
-            self.write_signal_to_failure_directory(signal_data, signal_file_path, retry_status['validators_needing_retry'])
+            self.write_signal_to_failure_directory(signal_data, signal_file_path, retry_status)
         else:
             self.write_signal_to_processed_directory(signal_data, signal_file_path)
 
@@ -132,7 +123,7 @@ class PropNetOrderPlacer:
             return high_trust_validators
 
 
-    async def attempt_to_send_signal(self, send_signal_request: SendSignal, retry_status: dict, high_trust_validators: list, validator_hotkey_to_axon: dict):
+    def attempt_to_send_signal(self, send_signal_request: SendSignal, retry_status: dict, high_trust_validators: list, validator_hotkey_to_axon: dict):
         """
         Attempts to send a signal to the validators that need retrying, applying exponential backoff for each retry attempt.
         Logs the retry attempt number, and the number of validators that successfully responded out of the total number of original validators.
@@ -149,9 +140,8 @@ class PropNetOrderPlacer:
             retry_status['retry_delay_seconds'] *= 2  # Double the delay for the next attempt
 
         dendrite = bt.dendrite(wallet=self.wallet)
-        #validator_responses = self.dendrite.forward(retry_status[signal_file_path]['validators_needing_retry'],
-        #                                          send_signal_request, deserialize=True)
-        validator_responses = await dendrite(retry_status['validators_needing_retry'], send_signal_request)
+        validator_responses = dendrite.query(retry_status['validators_needing_retry'], send_signal_request)
+        #validator_responses = dendrite(retry_status['validators_needing_retry'], send_signal_request)
 
         # Filtering validators for the next retry based on the current response.
         all_high_trust_validators_succeeded = True
@@ -169,7 +159,11 @@ class PropNetOrderPlacer:
             if acked_axon in high_trust_validators:
                 all_high_trust_validators_succeeded = False
                 if response.error_message:
-                    bt.logging.warning(f"Error sending order to axon {acked_axon} with v_trust {vtrust}. Error message: {response.error_message}")
+                    msg = f"Error sending order to axon {acked_axon} with v_trust {vtrust}. Error message: {response.error_message}"
+                    bt.logging.warning(msg)
+                    if acked_axon.hotkey not in retry_status['validator_error_messages']:
+                        retry_status['validator_error_messages'][acked_axon.hotkey] = []
+                    retry_status['validator_error_messages'][acked_axon.hotkey].append(response.error_message)
 
 
         if all_high_trust_validators_succeeded:
@@ -177,7 +171,7 @@ class PropNetOrderPlacer:
             n_high_trust_validators = len(high_trust_validators)
             bt.logging.success(f"Signal file {send_signal_request.signal} was successfully processed by"
                                f" {n_high_trust_validators}/{n_high_trust_validators} high-trust validators with "
-                               f"min v_trust {v_trust_floor}.")
+                               f"min v_trust {v_trust_floor}. Total n_validators: {len(retry_status['validators_needing_retry'])}")
 
         def _allow_retry(axon):
             if axon.hotkey in success_validators:
@@ -202,13 +196,16 @@ class PropNetOrderPlacer:
         """Moves a processed signal file to the processed directory."""
         self.write_signal_to_directory(MinerConfig.get_miner_processed_signals_dir(), signal_file_path, signal_data, True)
 
-    def write_signal_to_failure_directory(self, signal_data, signal_file_path: str, validators_needing_retry: list):
+    def write_signal_to_failure_directory(self, signal_data, signal_file_path: str, retry_status: dict):
+        validators_needing_retry = retry_status['validators_needing_retry']
+        error_messages_dict = retry_status['validator_error_messages']
         # Append the failure information to the signal data.
         json_validator_data = [{'ip': validator.ip, 'port': validator.port, 'ip_type': validator.ip_type,
                                 'hotkey': validator.hotkey, 'coldkey': validator.coldkey, 'protocol': validator.protocol}
                                for validator in validators_needing_retry]
         new_data = {'original_signal': signal_data,
-                    'validators_needing_retry': json_validator_data}
+                    'validators_needing_retry': json_validator_data,
+                    'error_messages_dict': error_messages_dict}
 
         # Move signal file to the failed directory
         self.write_signal_to_directory(MinerConfig.get_miner_failed_signals_dir(), signal_file_path, signal_data, False)
@@ -216,7 +213,8 @@ class PropNetOrderPlacer:
         # Overwrite the file we just moved with the new data
         new_file_path = os.path.join(MinerConfig.get_miner_failed_signals_dir(), os.path.basename(signal_file_path))
         ValiBkpUtils.write_file(new_file_path, json.dumps(new_data))
-        bt.logging.info(f"Signal file modified to include failure information: {new_file_path}")
+        new_data_compact = {k: v for k, v in new_data.items() if k != 'validators_needing_retry'}
+        bt.logging.info(f"Signal file modified to include failure information: {new_file_path}. Data dump: {new_data_compact}")
 
     def write_signal_to_directory(self, directory: str, signal_file_path, signal_data, success):
         ValiBkpUtils.make_dir(directory)

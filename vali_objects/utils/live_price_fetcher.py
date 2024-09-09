@@ -17,7 +17,7 @@ from vali_objects.vali_dataclasses.price_source import PriceSource
 from statistics import median
 
 
-class LivePriceFetcher():
+class LivePriceFetcher:
     def __init__(self, secrets, disable_ws=False):
         if "twelvedata_apikey" in secrets:
             self.twelve_data_service = TwelveDataService(api_key=secrets["twelvedata_apikey"], disable_ws=disable_ws)
@@ -26,7 +26,7 @@ class LivePriceFetcher():
         if "polygon_apikey" in secrets:
             self.polygon_data_service = PolygonDataService(api_key=secrets["polygon_apikey"], disable_ws=disable_ws)
         else:
-            raise Exception("TwelveData API key not found in secrets.json")
+            raise Exception("Polygon API key not found in secrets.json")
 
     def stop_all_threads(self):
         if self.twelve_data_service._heartbeat_thread:
@@ -52,18 +52,15 @@ class LivePriceFetcher():
         if filter_recent_only and best_event.time_delta_from_now_ms(current_time_ms) > 2000:
             return None, None
 
-        return best_event.parse_best_price(current_time_ms), PriceSource.non_null_events_sorted(valid_events,
-                                                                                                current_time_ms)
+        return best_event.parse_best_price(current_time_ms), PriceSource.non_null_events_sorted(valid_events, current_time_ms)
 
     def fetch_prices(self, tps: List[TradePair], trade_pair_to_last_order_time_ms, ws_only=False) -> (
             dict[str: Tuple[float, List[PriceSource]]] | dict[str: Tuple[None, None]]):
         """
         Fetches data using WebSockets first; uses REST APIs if WebSocket data is outdated or missing.
         """
-        websocket_prices_polygon = self.polygon_data_service.get_closes_websocket(trade_pairs=tps,
-                                                                                  trade_pair_to_last_order_time_ms=trade_pair_to_last_order_time_ms)
-        websocket_prices_twelve_data = self.twelve_data_service.get_closes_websocket(trade_pairs=tps,
-                                                                                     trade_pair_to_last_order_time_ms=trade_pair_to_last_order_time_ms)
+        websocket_prices_polygon = self.polygon_data_service.get_closes_websocket(trade_pairs=tps, trade_pair_to_last_order_time_ms=trade_pair_to_last_order_time_ms)
+        websocket_prices_twelve_data = self.twelve_data_service.get_closes_websocket(trade_pairs=tps, trade_pair_to_last_order_time_ms=trade_pair_to_last_order_time_ms)
         trade_pairs_needing_rest_data = []
 
         results = {}
@@ -99,10 +96,8 @@ class LivePriceFetcher():
 
     def get_ws_price_sources_in_window(self, trade_pair: TradePair, start_ms: int, end_ms: int) -> List[PriceSource]:
         # Utilize get_events_in_range
-        poly_sources = self.polygon_data_service.trade_pair_to_recent_events[trade_pair.trade_pair].get_events_in_range(
-            start_ms, end_ms)
-        td_sources = self.twelve_data_service.trade_pair_to_recent_events[trade_pair.trade_pair].get_events_in_range(
-            start_ms, end_ms)
+        poly_sources = self.polygon_data_service.trade_pair_to_recent_events[trade_pair.trade_pair].get_events_in_range(start_ms, end_ms)
+        td_sources = self.twelve_data_service.trade_pair_to_recent_events[trade_pair.trade_pair].get_events_in_range(start_ms, end_ms)
         return poly_sources + td_sources
 
     @retry(tries=2, delay=5, backoff=2)
@@ -178,9 +173,7 @@ class LivePriceFetcher():
         # Data by timestamp in ascending order so that the largest timestamp is first
         return data[0].close
 
-    def parse_extreme_price_in_window(self, candle_data: Dict[TradePair, List[PriceSource]],
-                                      open_position: Position, parse_min: bool = True) -> Tuple[float, PriceSource] | \
-                                                                                          Tuple[None, None]:
+    def parse_extreme_price_in_window(self, candle_data: Dict[TradePair, List[PriceSource]], open_position: Position, parse_min: bool = True) -> Tuple[float, PriceSource] | Tuple[None, None]:
         trade_pair = open_position.trade_pair
         dat = candle_data.get(trade_pair)
         if dat is None:

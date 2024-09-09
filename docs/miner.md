@@ -1,62 +1,104 @@
 # Miner
 
-Basic Rules:
-1. Your miner will start in the challenge period upon entry. This 30 day period will require your miner to demonstrate consistent performance, after which they will be released from the challenge period, which may happen before 30 days has expired. In this month, they will receive a small amount of TAO that will help them avoid getting deregistered. The minimum requirements to pass the challenge period:
-  - 2% Total Return
-  - -3.08E-8 Time Averaged Sortino
-  - 12 Volume Minimum Checkpoints
+Our miners act like traders. To score well and receive incentive, they place **orders** on our system against different trade pairs. The magnitude of each order is determined by its **leverage**, which can be thought of as the percentage of the portfolio used for the transaction. An order with a leverage of 1.0x indicates that the miner is betting against their entire portfolio value.
+
+The first time a miner places an order on a trade pair, they will open a **position** against it. The leverage and directionality of this position determines the miner's expectation of the trade pair's future movement. As long as this position is open, the miner is communicating an expectation of continued trade pair movement in this direction. There are two types of positions: **LONG** and **SHORT**. 
+
+A long position is a bet that the trade pair will increase, while a short position is a bet that the trade pair will decrease. Even if the overall position is LONG, a miner can submit a number of orders within this position to manage their risk exposure by adjusting the leverage. SHORT orders on a long position will reduce the overall leverage of the position, reducing the miner's exposure to the trade pair. LONG orders on a long position will increase the overall leverage of the position, increasing the miner's exposure to the trade pair.
+
+## Basic Rules
+1. Your miner will start in the challenge period upon entry. This 60-day period will require your miner to demonstrate consistent performance, after which they will be released from the challenge period, which may happen before 60 days has expired. In this month, they will receive a small amount of TAO that will help them avoid getting deregistered. The minimum requirements to pass the challenge period:
+   - 2% Total Return
+   - 5% Max Drawdown 
+   - No single day’s change in portfolio value should exceed 20% of your total 60-day return.   
+   - A single position should not account for more than 25% of your total return.
 2. Miner will be penalized if they are not providing consistent predictions to the system or if their drawdown is too high. The details of this may be found [here](https://github.com/taoshidev/proprietary-trading-network/blob/main/vali_objects/utils/position_utils.py).
 3. A miner can have a maximum of 200 positions open.
 4. A miner's order will be ignored if placing a trade outside of market hours.
 5. A miner's order will be ignored if they are rate limited (maliciously sending too many requests)
+6. There is a 10-second cooldown period between orders, during which the miner cannot place another order.
 
+## Scoring Details
 
-### Scoring Details
+The primary scoring mechanic in our system is *Risk Adjusted Returns*. We look at all of your positions in the prior lookback period, 90 days, and evaluate the returns from these positions. Notably, to determine the return of a miner, we look at the returns from closed positions and from open positions in loss. In filtering for open positions, we will also filter against any positions which have been open for more than 90 days. If they are in loss and still open, they will count against your score. We do this to avoid the scenario where a losing position is never closed, and the miner is able to avoid the penalty associated with this loss.
 
-The open positions held by miners will be continuously evaluated based on their value changes. Any measured positive movement on the asset while tracked in a position will count as a gain for the miner. Any negative movements will be tracked as losses. Risk is defined as the sum volume of millisecond negative value change overseen during a position. Given that the price of assets fluctuates so quickly and has some level of noise, it is virtually impossible for an investment strategy to have zero risk. This is normal. An asset with zero return through the course of the day will still carry risk, although the gains and losses result in a product of 1.0. A higher leverage trade will increase the intensity of losses and of gains, but in this scenario the product sum will still be 1.0 as a return. With this increased leverage, there will be a higher volume of losses, and thus risk. You may augment the risk for a position by placing an order on the position, which might increase or decrease the leverage utilization. Please note that there is a 10 second cooldown period between orders. Additionally, we are requiring miners to hold positions for a minimum of 15 minutes on each 6 hour interval to qualify for scoring in that round.
+While our primary scoring mechanic is returns, consistency plays a substantial role in scoring our miners as we look to prioritize miners with a consistent track record of success. Additionally, we have a layer of costs and penalties baked into PTN, to simulate the real costs of trading.
 
-In order to capture information at such a high resolution, we utilize checkpoints which track a miner's behavior over time. Each checkpoint has a target duration of 6 hours, after which the checkpoint is closed and a new checkpoint is opened. The checkpoint contains the aggregate of all gains and losses, as well as information on the duration of open positions held in the checkpoint and number of updates seen.
+There are two primary systems which live in parallel to give us a stronger perspective on the quality of our miners: _Positions_ and _Portfolio Value_.
 
-Each miner is compared to a baseline, the annual return rate of American Treasury Bills. This will consistently add a small amount of loss for the miner every millisecond. If the miner's Omega is less than 1 and log return less than 0, they were unable to beat the growth rate of treasury bills.
+### Scoring Metrics
 
-#### Scoring Metrics
+We use four scoring metrics to evaluate miners based on their mid trade scores: **Short Term Risk Adjusted Returns**, **Long Term Risk Adjusted Returns**, **Sharpe** and **Omega**.
 
-We will use three scoring metrics to evaluate miners based on their mid trade scores: **Short Term Returns**, **Long Term Returns**, and **Omega**.
+We measure miner risk as their maximum portfolio drawdown, the largest drop in value seen while we have been tracking the behavior of the miner. We use a blend of recently seen max drawdown values and historically likely values to make this determination, with the most recent values having the most weight. Details on this mechanic may be found in [our proposal 9](https://docs.taoshi.io/tips/p9/).
 
-Short term Returns measure the pure value change that the miner experienced through the course of their positions. This will be similar to the prior position based system, although open positions will now also be evaluated. These values have the highest time decay, with the potency of returns falling to 50% within 18 hours.
+To find the risk adjusted return, we take the product of all positional returns as the current miner return. We then divide this by the drawdown term. If, for example, a miner has a total 90-day return of 7.5% and a drawdown of 2.5%, their long term risk adjusted return would be 3.0.
 
-Similar to the short term returns, long term returns are also going to measure the historical gains for a miner in determining their quality. The potency of the long term returns will fall to 50% after roughly 3 weeks:
+_Short term returns_ look at positions opened in the prior 90 days, but closed in the last 5 days. Like the long term returns, these use losing positions to calculate the return.
 
-Omega will evaluate the magnitude of the positive asset changes over the magnitude of negative asset changes. Any score above 1 will indicate that the miner experienced a net gain through the course of their position. A higher omega value will result from:
+The _sharpe ratio_ will look at the positional return divided by the standard deviation of the returns. To avoid gaming on the bottom, a minimum value of 0.5% is used for the standard deviation.
 
-- Higher magnitude positive value change
-- Pure positive value change
+The _omega ratio_ is a measure of the winning trades versus the losing trades. It serves as a useful proxy for the risk to reward ratio the miner is willing to take with each trade. Like the sharpe ratio, we will use a minimum value of 0.5% for the denominator.
 
-The total score will result from the product of the Return, Omega, and Sortino, so the top miners in our system must perform well in both metrics to receive substantial incentive. The relative weight of each term in the product sum is Returns: 0.95, Omega: 0.35, Sortino: 0.2. The terms used to calculate the product are defined by ranking each metric against the other miners. As a simple example, if a miner is first place in returns and last place in Omega, their total score would start at 1, multiply by 1 due to first place in returns. It would then multiply by (1 - 0.35) as they are the last place in Omega, so their final score would be 0.65.
+| Metric                     | Scoring Weight |
+|----------------------------|----------------|
+| Long Term Realized Returns | 100%           |
+| Short Term Realized Returns| 25%            |
+| Sharpe Ratio               | 25%            |
+| Omega Ratio                | 25%            |
 
-#### Scoring Penalties
+### Scoring Penalties
 
-There are two primary penalties in place for each miner: Consistency and Drawdown.
+There are four primary penalties in place for each miner:
 
-The consistency penalty is meant to discourage miners who cannot deliver consistent performance over each 30 day period. To fully mitigate penalties associated with consistency, your miner should achieve the following metrics:
-- Minimum of 18 days of open positions, of any volume.
-- Your portfolio value should change with every checkpoint. If the value change in your portfolio over one checkpoint is more than 30x the typical change, you will start to accrue consistency penalties.
+1. **Max Positional Return**: A single position should not represent more than 15% of total realized return.
+2. **Realized Return Distribution**: No more than 30% of the miner's realized returns should be from positions all closed in a single week.
+3. **Max Portfolio Value Change - Daily**: A single day of trading should not represent more than 20% of the total unrealized return.
+4. **Max Portfolio Value Change - Biweekly**: A single two-week period should not account for more than 35% of total unrealized return.
 
-The drawdown penalty is meant to both discourage miners from taking too much drawdown and benefit miners with low drawdown. To do this, the drawdown penalty is defined as 1 / MDD of the miner. This enables miners with low risk tolerance to be competitive with higher risk miners. Between 0.25% MDD and 1.5% MDD the drawdown penalty is only designed to normalize the returns of your miner relative to the risk. We apply a penalty below 0.25% MDD and above 1.5%, with the upper penalty linearly tapering to 0 as it gets closer to 5% MDD.
+Portfolio value is tracked in realtime against positions, regardless of if they are closed or open. If the measured volatility on the portfolio value is too high relative to the total returns from the miner, we will flag them as inconsistent, even if their closed positions meet the requirements. This is meant to protect from the scenario where most of a miner's value comes from a single interval, but their positions may close over a longer period. Full details on the logic associated with each proposal may be found in [proposal 9](https://docs.taoshi.io/tips/p9/).
 
-### Challenge Period Details
+### Fees and Transaction Costs
+We want to simulate real costs of trading for our miners, to make signals from PTN more valuable outside our platform. To do this, we have incorporated two primary costs: **Transaction Fees** and **Cost of Carry**. 
 
-There are four primary requirements for a miner to pass the challenge period: Returns, Sortino and Volume Minimum Checkpoints. All of these metrics were set to be reasonably competitive with our currently successful miners' median values, such that by passing the challenge period the miner will be in a decently competitive stance. The checkpoint files used for the challenge period will also be used to score the miner against other successful miners after passing. The first three metrics are described above in the scoring details section.
+Transaction fees are proportional to the leverage used. The higher the leverage, the higher the transaction fee. We use cumulative leverage to determine the transaction fee, so any order placed on a position will increase the fees proportional to the change in leverage.
 
-The volume minimum checkpoint is defined as a checkpoint which meets a certain threshold of raw gains and losses. The threshold value for inclusion of the checkpoint as valid is 0.1. This means that a checkpoint with a gain of 0.05 and a loss of -0.05 would have an absolute sum of 0.1 and qualify. We are requiring 12 of these valid checkpoints to have been observed in order for the miner to pass the checkpoint qualifications.
+Cost of carry is reflective of real exchanges, and how they manage the cost of holding a position overnight. This rate changes depending on the asset class, the logic of which may be found in [our proposal 4](https://docs.taoshi.io/tips/p4/).
 
-### Historic Decay
+##### Implementation Details
+| Market  | Fee Period     | Times                   | Rates Applied       | Triple Wednesday |
+|---------|----------------|-------------------------|---------------------|------------------|
+| Forex   | 24h            | 21:00 UTC               | Mon-Fri             | ✓                |
+| Crypto  | 8h             | 04:00, 12:00, 20:00 UTC | Daily (Mon-Sun)     |                  |
+| Indices | 24h            | 21:00 UTC               | Mon-Fri             | ✓                |
 
-In order to incentivize more recent activity, historical gains and losses are dampened after the miner passes teh challenge period. The historical decay function used can be found [here](https://github.com/taoshidev/proprietary-trading-network/blob/main/vali_objects/scoring/historical_scoring.py). Returns are dampened at a more aggressive pace than the risk adjusted metrics, meaning that more recent returns will exert a greater influence on the current score. By dampening the risk adjusted metrics at a lower rate, we are permitting miners with historically better risk adjusted metrics to take larger risks and benefit. The potency of raw return will decrease by about 50% in 18 hours, while the potency of gains and losses used to calculate the risk metrics will decay by 50% in around 22 days.
+The magnitude of the fees will reflect the following distribution:
 
-We then rank the miners based on historically augmented return checkpoints, and distribute emissions based on an exponential decay function, giving significant priority to the top miners. Details of both scoring functions can be found [here](https://github.com/taoshidev/proprietary-trading-network/tree/main/vali_objects/scoring). The best way to get emissions is to have a consistently great trading strategy, which makes multiple transactions each week (the more the better). Capturing upside through timing and proper leverage utilization will yield the highest score in our system.
+| Market  | Base Rate (Annual) | Daily Rate Calculation     |
+|---------|--------------------|----------------------------|
+| Forex   | 3%                 | 0.008% * Max Seen Leverage |
+| Crypto  | 10.95%             | 0.03% * Max Seen Leverage  |
+| Indices | 5.25%              | 0.014% * Max Seen Leverage |
 
-## Mining Infrastructure
+### Leverage Limits
+We also set limits on leverage usage, to ensure that the network has a level of risk protection and mitigation of naive strategies. The [positional leverage limits](https://docs.taoshi.io/tips/p5/) are as follows:
+
+| Market  | Leverage Limit |
+|---------|----------------|
+| Forex   | 0.1x - 5x      |
+| Crypto  | 0.01x - 0.5x   |
+| Indices | 0.1x - 5x      |
+
+We also implement a [portfolio level leverage limit](https://docs.taoshi.io/tips/p10/), which is the sum of all the leverages from each open position. This limit is set at 10x a "typical" position, where a typical position would be 1x leverage for forex/indices and 0.1x leverage for crypto. You can therefore open 10 forex positions at 1x leverage each, 5 forex positions at 2x leverage each, 5 forex positions at 1x and 5 crypto positions at 0.1x, etc.
+
+## Incentive Distribution
+The miners are scored in each of the categories above based on their prior positions over the lookback period. Penalties are then applied to these scores, and the miners are ranked based on their total score. Percentiles are determined for each category, with the miner's overall score being reduced by the full scoring weight if they are the worst in a category.
+
+For example, if a miner is last place in the long term realized returns category, they will receive a 0% score for this category. This will effectively reduce their score to 0, and they will be prioritized during the next round of deregistration.
+
+We distribute on an exponential decay, with the top 40% of miners receiving 90% of emissions.
+
+# Mining Infrastructure
 
 On the mining side we've setup some helpful infrastructure for you to send in signals to the network. The script `mining/run_receive_signals_server.py` will launch a flask server to receive order signals.
 
@@ -74,9 +116,6 @@ The current flow of information is as follows:
 6. Validators review your positions to assess drawdown every few seconds to determine if a miner should be eliminated (see main README for more info)
 7. Validators wait for you to send in signals to close out positions (FLAT)
 8. Validators set weights based on miner returns every 5 minutes based on portfolio performance with both open and closed positions. 
-
-
-Please keep in mind that only one order can be submitted per minute per trade pair. This limitation may interfere with certain HFT strategies. We suggest verifying your miner on testnet before running on mainnet. 
 
 When getting set up, we recommend running `mining/run_receive_signals_server.py` and `mining/sample_signal_request.py` locally to verify that order signals can be created and parsed correctly.
 

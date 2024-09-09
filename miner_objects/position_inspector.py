@@ -19,6 +19,7 @@ class PositionInspector:
         self.last_update_time = 0
         self.recently_acked_validators = []
         self.stop_requested = False  # Flag to control the loop
+        self.is_testnet = self.config.subtensor.network == "test"
 
     def run_update_loop(self):
         while not self.stop_requested:
@@ -38,7 +39,12 @@ class PositionInspector:
     def get_possible_validators(self):
         # Right now bittensor has no functionality to know if a hotkey 100% corresponds to a validator
         # Revisit this in the future.
-        return self.metagraph.axons
+        if self.is_testnet:
+            return self.metagraph.axons
+        else:
+            return [n.axon_info for n in self.metagraph.neurons
+                    if n.stake > bt.Balance(MinerConfig.STAKE_MIN)
+                    and n.axon_info.ip != MinerConfig.AXON_NO_IP]
 
     def query_positions(self, validators, hotkey_to_positions):
         remaining_validators_to_query = [v for v in validators if v.hotkey not in hotkey_to_positions]
@@ -138,4 +144,4 @@ class PositionInspector:
             bt.logging.info("No positions found.")
 
         self.last_update_time = time.time()
-        bt.logging.success(f"PositionInspector successfully completed signal processing.")
+        bt.logging.success("PositionInspector successfully completed signal processing.")
