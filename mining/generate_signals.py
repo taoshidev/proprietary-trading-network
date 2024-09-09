@@ -18,6 +18,7 @@ from signals import process_data_for_predictions,LONG_ENTRY
 import bittensor as bt
 import duckdb
 import numpy as np
+from datetime import timedelta
 
 model = mining_utils.load_model()
 TP = 0.05 
@@ -324,14 +325,14 @@ if __name__ == "__main__":
 
         input = process_data_for_predictions(input)
         
-        if (btc.last_update is None) or (round_time_to_nearest_five_minutes(btc.last_update) < pd.to_datetime(input['ds'].tail(1).values[0])):            
+        if (btc.last_update is None) or ((pd.to_datetime(input['ds'].tail(1).values[0]) - pd.to_datetime(btc.last_update)) >= timedelta(minutes=5)):
             # feed into model to predict 
             
       
 
             lasttrade = btc.check_last_trade()
             
-            if isinstance(lasttrade, pd.DataFrame) and not lasttrade.empty:
+            if (isinstance(lasttrade, pd.DataFrame)) and not lasttrade.empty:
                 
                  if lasttrade['trade_closed'].tail(1).isnull():
 
