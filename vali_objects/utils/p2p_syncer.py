@@ -196,7 +196,7 @@ class P2PSyncer(ValidatorSyncBase):
         orders_matrix = defaultdict(lambda: defaultdict(list))  # {position_uuid: {validator hotkey: [all orders on validator]}}
         """
         uuid_matched_positions = []
-        resolved_orders = set()
+        resolved_orders = set()  # separate from seen_orders, because we want to be able to match with seen orders
 
         for position in miner_positions["positions"]:
             position_uuid = position["position_uuid"]
@@ -251,7 +251,7 @@ class P2PSyncer(ValidatorSyncBase):
         validator_to_orders = defaultdict(list)  # {validator hotkey: [all orders on validator]}
         """
         if order["order_uuid"] in resolved_orders:
-            return
+            return []
         matched_orders = []
 
         for validator_hotkey, order_list in validator_to_orders.items():
@@ -402,8 +402,7 @@ class P2PSyncer(ValidatorSyncBase):
     def heuristic_resolve_positions(self, positions_matrix: dict, num_checkpoints: int, seen_positions: set) -> List[dict]:
         """
         takes a matrix of unmatched positions, and returns a list of positions to add back in
-        positions_matrix:
-            {miner hotkey: {trade pair: {validator hotkey: [all positions on validator]}}}
+        positions_matrix: {miner hotkey: {trade pair: {validator hotkey: [all positions on validator]}}}
         """
         resolved_position_uuids = set()
 
@@ -413,37 +412,43 @@ class P2PSyncer(ValidatorSyncBase):
             for trade_pair, validator in trade_pairs.items():
                 for validator_hotkey, position_list in validator.items():
                     for position in position_list:
-                        matches = self.find_match(position, trade_pairs[trade_pair], resolved_position_uuids, validator_hotkey)
-                        if (matches is not None
-                                and len(matches) > self.consensus_threshold(num_checkpoints, heuristic_match=True)
-                                and set([match["position_uuid"] for match in matches]).isdisjoint(seen_positions)):
-                            # want to find positions with the median number of orders
-                            goal_order_count = len(matches[len(matches) // 2]["orders"])
-                            # in case the median position misses orders, we
-                            # want to take the position with the most orders where
-                            # there are at least 2 positions with that many orders
+                        if position["position_uuid"] in seen_positions:
+                            continue
+                        matches = self.find_matching_positions(position, trade_pairs[trade_pair], resolved_position_uuids, validator_hotkey)
+
+                        if (len(matches) > self.consensus_threshold(num_checkpoints, heuristic_match=True) and
+                                set([match["position_uuid"] for match in matches]).isdisjoint(seen_positions)):
+                            # median number of orders for matched positions
+                            median_order_count = len(matches[len(matches) // 2]["orders"])
+                            # greatest common number of orders by 2 or more positions
+                            max_common_order_count = 0
                             for i in range(len(matches)-1):
                                 if len(matches[i]["orders"]) == len(matches[i+1]["orders"]):
-                                    goal_order_count = max(goal_order_count, len(matches[i]["orders"]))
+                                    max_common_order_count = len(matches[i]["orders"])
                                     break
-                            matches_with_goal_order_count = [match for match in matches if len(match["orders"]) == goal_order_count]
-                            bt.logging.info(f"Miner hotkey {miner_hotkey} has matches {[m['position_uuid'] for m in matches]}. goal_order_count: {goal_order_count}. matches_with_goal_order_count: {matches_with_goal_order_count}.")
+                            goal_order_count = max(median_order_count, max_common_order_count)
+
+                            matches_with_goal_order_count = [p for p in matches if len(p["orders"]) == goal_order_count]
+                            bt.logging.info(f"Miner hotkey {miner_hotkey} has matches {[p['position_uuid'] for p in matches]}. goal_order_count: {goal_order_count}. matches_with_goal_order_count: {matches_with_goal_order_count}.")
                             matched_positions.append(matches_with_goal_order_count[0])
+
+                        seen_positions.update([p["position_uuid"] for p in matches])
         return matched_positions
 
-    def find_match(self, position: dict, trade_pair_validator_positions: dict, resolved_positions: set, corresponding_validator_hotkey: str) -> List[dict] | None:
+    def find_matching_positions(self, position: dict, trade_pair_validator_positions: dict, resolved_positions: set, corresponding_validator_hotkey: str) -> List[dict]:
         """
-        compares a position from validator corresponding_validator_hotkey to all the positions from all the other validators.
-        If we are able to match the position to another, we record all the matches, and return the first one as the matched
-        position that we will keep.
+        compares a position from corresponding_validator_hotkey to all other positions with matching trade pair from all the other validators.
+        positions are matched with a heuristic, and returned in a list sorted by number of orders then position_uuid
 
         position match heuristic:
             same position type
             same # of orders
             opened and closed around SYNC_LOOK_AROUND_MS of each other
+
+        trade_pair_validator_positions: {validator hotkey: [all positions on validator]}
         """
         if position["position_uuid"] in resolved_positions:
-            return
+            return []
 
         matched_positions = [position]
 
@@ -466,11 +471,8 @@ class P2PSyncer(ValidatorSyncBase):
             resolved_positions.add(p["position_uuid"])
 
         # we sort the matches by number of orders and then position_uuid
-        # make sure that we have matches other than ourselves
-        if len(matched_positions) > 1:
-            matched_positions.sort(key=lambda x: (-len(x["orders"]), x["position_uuid"]))
-            return matched_positions
-        return
+        matched_positions.sort(key=lambda x: (-len(x["orders"]), x["position_uuid"]))
+        return matched_positions
 
     def consensus_threshold(self, total_items: int, heuristic_match: bool=False) -> int:
         """
