@@ -1,4 +1,3 @@
-import asyncio
 import base64
 import gzip
 import json
