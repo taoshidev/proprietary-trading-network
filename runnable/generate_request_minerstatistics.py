@@ -112,6 +112,8 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
 
     # full ledger of all miner hotkeys
     all_miner_hotkeys = challengeperiod_success_hotkeys + challengeperiod_testing_hotkeys
+    if selected_miner_hotkeys is None:
+        selected_miner_hotkeys = all_miner_hotkeys
 
     filtered_ledger = subtensor_weight_setter.filtered_ledger(hotkeys=all_miner_hotkeys)
     filtered_positions = subtensor_weight_setter.filtered_positions(hotkeys=all_miner_hotkeys)
