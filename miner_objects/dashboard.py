@@ -13,11 +13,12 @@ origins = [
 ]
 
 class Dashboard:
-    def __init__(self, wallet, metagraph, config, is_testnet):
+    def __init__(self, wallet, metagraph, config, is_testnet, port=MinerConfig.DASHBOARD_PORT):
         self.wallet = wallet
         self.metagraph = metagraph
         self.config = config
         self.is_testnet = is_testnet
+        self.port = port
 
         self.miner_data = {}
 
@@ -47,7 +48,7 @@ class Dashboard:
                 return empty_data
 
     def run(self):
-        uvicorn.run(self.app, host="127.0.0.1", port=MinerConfig.DASHBOARD_PORT)
+        uvicorn.run(self.app, host="127.0.0.1", port=self.port)
 
     async def get_stats_positions_from_validator(self):
         """

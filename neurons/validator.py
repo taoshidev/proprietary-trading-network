@@ -709,9 +709,9 @@ class Validator:
         miner_hotkey = synapse.dendrite.hotkey
         error_message = ""
         try:
-            stats = generate_miner_statistics_data(time_now=TimeUtil.now_in_millis(), checkpoints=True, miner_hotkeys=[miner_hotkey])
-            positions = self.position_manager.get_all_miner_positions(miner_hotkey, sort_positions=True)
-            dash_data = {"statistics": stats, "positions": positions}
+            stats = generate_miner_statistics_data(time_now=TimeUtil.now_in_millis(), checkpoints=True, selected_miner_hotkeys=[miner_hotkey])
+            positions = generate_request_core(time_now=TimeUtil.now_in_millis(), selected_miner_hotkeys=[miner_hotkey])["positions"][miner_hotkey]
+            dash_data = {"statistics": stats, **positions}
 
             if not stats["data"]:
                 error_message = f"Validator {self.wallet.hotkey.ss58_address} has no stats for miner {miner_hotkey}"
