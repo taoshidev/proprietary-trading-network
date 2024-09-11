@@ -137,7 +137,7 @@ def upload_checkpoint_to_gcloud(final_dict):
     blob.upload_from_string(zip_buffer)
     print(f'Uploaded {blob_name} to {bucket_name}')
 
-def generate_request_core(time_now:int, miner_hotkeys: List[str] = None) -> dict:
+def generate_request_core(time_now:int, selected_miner_hotkeys: List[str] = None) -> dict:
     position_manager = PositionManager(
         config=None,
         metagraph=None,
@@ -177,8 +177,8 @@ def generate_request_core(time_now:int, miner_hotkeys: List[str] = None) -> dict
         )
 
     # only return miner hotkeys if specified
-    if miner_hotkeys is not None:
-        all_miner_hotkeys = miner_hotkeys
+    if selected_miner_hotkeys is not None:
+        all_miner_hotkeys = selected_miner_hotkeys
 
     # we won't be able to query for eliminated hotkeys from challenge period
     hotkey_positions = position_manager.get_all_miner_positions_by_hotkey(
