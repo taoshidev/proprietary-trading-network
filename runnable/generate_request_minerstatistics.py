@@ -1,5 +1,6 @@
 # developer: trdougherty
 from typing import List
+import math
 
 from scipy.stats import percentileofscore
 
@@ -327,6 +328,47 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
                 "start_time_ms": challengeperiod_testing_time,
                 "remaining_time_ms": remaining_time,
             }
+
+            challengeperiod_positions = filtered_positions.get(miner_id, [])
+            challengeperiod_positions_length = len(challengeperiod_positions)
+            challengeperiod_positions_target = ValiConfig.CHALLENGE_PERIOD_MIN_POSITIONS
+            challengeperiod_positions_passing = bool(challengeperiod_positions_length >= challengeperiod_positions_target)
+
+            challengeperiod_return_ratio = positional_realized_returns_ratios.get(miner_id)
+            challengeperiod_return_ratio_target = ValiConfig.CHALLENGE_PERIOD_MAX_POSITIONAL_RETURNS_RATIO
+            challengeperiod_return_ratio_passing = bool(challengeperiod_return_ratio < challengeperiod_return_ratio_target)
+
+            challengeperiod_return = return_dict.get(miner_id, 0)
+            challengeperiod_return_percentage = (math.exp(challengeperiod_return) - 1)*100
+            challengeperiod_return_target = ValiConfig.CHALLENGE_PERIOD_RETURN_PERCENTAGE
+            challengeperiod_return_passing = bool(challengeperiod_return >= challengeperiod_return_target)
+
+            challengeperiod_unrealized_ratio = ledger_daily_consistency_ratios.get(miner_id, 1.0)
+            challengeperiod_unrealized_ratio_target = ValiConfig.CHALLENGE_PERIOD_MAX_UNREALIZED_RETURNS_RATIO
+            challengeperiod_unrealized_ratio_passing = bool(challengeperiod_unrealized_ratio <= challengeperiod_unrealized_ratio_target)
+
+            challengeperiod_specific = {**challengeperiod_specific, **{
+                "positions": {
+                    "value": challengeperiod_positions_length,
+                    "target": challengeperiod_positions_target,
+                    "passing": challengeperiod_positions_passing,
+                },
+                "return_ratio": {
+                    "value": challengeperiod_return_ratio,
+                    "target": challengeperiod_return_ratio_target,
+                    "passing": challengeperiod_return_ratio_passing,
+                },
+                "return": {
+                    "value": challengeperiod_return_percentage,
+                    "target": challengeperiod_return_target,
+                    "passing": challengeperiod_return_passing,
+                },
+                "unrealized_ratio": {
+                    "value": challengeperiod_unrealized_ratio,
+                    "target": challengeperiod_unrealized_ratio_target,
+                    "passing": challengeperiod_unrealized_ratio_passing,
+                }
+            }}
 
         elif miner_id in sorted_challengeperiod_success:
             challengeperiod_success_time = sorted_challengeperiod_success[miner_id]
