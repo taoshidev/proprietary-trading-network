@@ -23,13 +23,13 @@ class TimestampManager(CacheController):
             if allowed:
                 self.write_last_order_timestamp_from_memory_to_disk(self.last_received_order_time_ms)
 
-    def get_last_order_timestamp(self):
+    def get_last_order_timestamp(self) -> int:
         # if we haven't received any signals, read our timestamp file to get the last order received
         if self.last_received_order_time_ms == 0:
             self.last_received_order_time_ms = self.read_last_order_timestamp()
         return self.last_received_order_time_ms
 
-    def write_last_order_timestamp_from_memory_to_disk(self, timestamp):
+    def write_last_order_timestamp_from_memory_to_disk(self, timestamp: int):
         timestamp_data = {
             "timestamp": timestamp
         }
@@ -40,7 +40,7 @@ class TimestampManager(CacheController):
             timestamp_data
         )
 
-    def read_last_order_timestamp(self):
+    def read_last_order_timestamp(self) -> int:
         return ValiUtils.get_vali_json_file_dict(
             ValiBkpUtils.get_last_order_timestamp_file_location(running_unit_tests=self.running_unit_tests)
         ).get("timestamp", -1)

@@ -291,7 +291,7 @@ class ValidatorSyncBase():
     def positions_order_aligned(self, p1, p2):
         for o1 in p1["orders"]:
             for o2 in p2["orders"]:
-                if o1["order_uuid"] == o2["order_uuid"] or self.dict_orders_aligned(o1, o2):
+                if self.dict_orders_aligned(o1, o2):
                     return True
         return False
 
@@ -305,9 +305,10 @@ class ValidatorSyncBase():
     def dict_orders_aligned(self, o1, o2, timebound_ms=None):
         if timebound_ms is None:
             timebound_ms = self.SYNC_LOOK_AROUND_MS
-        return ((o1["leverage"] == o2["leverage"]) and
-                (o1["order_type"] == o2["order_type"]) and
-                abs(o1["processed_ms"] - o2["processed_ms"]) < timebound_ms)
+        return (o1["order_uuid"] == o2["order_uuid"] or
+                ((o1["leverage"] == o2["leverage"]) and
+                 (o1["order_type"] == o2["order_type"]) and
+                 abs(o1["processed_ms"] - o2["processed_ms"]) < timebound_ms))
 
     def sync_orders(self, ep, cp, hk, trade_pair, hard_snap_cutoff_ms):
         debug = 1
