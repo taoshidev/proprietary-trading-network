@@ -312,6 +312,12 @@ You can run a second miner using the following example command:
 python neurons/miner.py --netuid 116 --subtensor.network test --wallet.name <wallet> --wallet.hotkey <miner2> --logging.debug --axon.port 8095
 ```
 
+# Miner Dashboard
+
+Each miner also fetches and displays its own positions and stats through a dashboard which can be set up [here](https://github.com/taoshidev/miner-dashboard).
+
+The miner starts a local server on port `41511` by default, which can be specified using the `--dashboard_port` flag.
+
 # Issues?
 
 If you are running into issues, please run with `--logging.debug` and `--logging.trace` set so you can better analyze why your miner isn't running.
