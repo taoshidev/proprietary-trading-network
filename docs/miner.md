@@ -298,25 +298,7 @@ You will see the below terminal output:
 >> 2023-08-08 16:58:11.223 |       INFO       | Running miner for subnet: 8 on network: ws://127.0.0.1:9946 with config: ...
 ```
 
-## 7. Get emissions flowing
-
-Register to the root network using the `btcli`:
-
-```bash
-btcli root register
-```
-
-To register your miner to the root network on testnet use the `--subtensor.network test` flag.
-
-Then set your weights for the subnet:
-
-```bash
-btcli root weights
-```
-
-To set your weights on testnet `--subtensor.network test` flag.
-
-## 8. Stopping your miner
+## 7. Stopping your miner
 
 To stop your miner, press CTRL + C in the terminal where the miner is running.
 
