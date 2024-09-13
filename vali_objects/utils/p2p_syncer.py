@@ -225,7 +225,7 @@ class P2PSyncer(ValidatorSyncBase):
                             if len(orders) > self.consensus_threshold(position_counts[position_uuid], heuristic_match=True):
                                 bt.logging.info(f"Order {order_uuid} with Position {position_uuid} on miner {position['miner_hotkey']} matched with {[o['order_uuid'] for o in orders]}, adding back in")
                             else:
-                                bt.logging.info(f"Order {order_uuid} with Position {position_uuid} only appeared [{order_counts[position_uuid][order_uuid]}/{position_counts[position_uuid]}] times on miner {position['miner_hotkey']}. Skipping")
+                                bt.logging.info(f"Order {order_uuid} with Position {position_uuid} only matched [{len(orders)}/{position_counts[position_uuid]}] times on miner {position['miner_hotkey']} with with {[o['order_uuid'] for o in orders]}. Skipping")
                                 continue
 
                         trade_pair = TradePair.from_trade_pair_id(position["trade_pair"][0])
@@ -430,6 +430,8 @@ class P2PSyncer(ValidatorSyncBase):
                             matches_with_goal_order_count = [p for p in matches if len(p["orders"]) == goal_order_count]
                             bt.logging.info(f"Miner hotkey {miner_hotkey} has matches {[p['position_uuid'] for p in matches]}. goal_order_count: {goal_order_count}. matches_with_goal_order_count: {matches_with_goal_order_count}.")
                             matched_positions.append(matches_with_goal_order_count[0])
+                        else:
+                            bt.logging.info(f"Position {position['position_uuid']} only matched [{len(matches)}/{num_checkpoints}] times on miner {position['miner_hotkey']} with matches {[p['position_uuid'] for p in matches]}. Skipping")
 
                         seen_positions.update([p["position_uuid"] for p in matches])
         return matched_positions
