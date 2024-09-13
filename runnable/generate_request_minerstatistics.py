@@ -341,7 +341,7 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
             challengeperiod_return = return_dict.get(miner_id, 0)
             challengeperiod_return_percentage = (math.exp(challengeperiod_return) - 1)*100
             challengeperiod_return_target = ValiConfig.CHALLENGE_PERIOD_RETURN_PERCENTAGE
-            challengeperiod_return_passing = bool(challengeperiod_return >= challengeperiod_return_target)
+            challengeperiod_return_passing = bool(challengeperiod_return_percentage >= challengeperiod_return_target)
 
             challengeperiod_unrealized_ratio = ledger_daily_consistency_ratios.get(miner_id, 1.0)
             challengeperiod_unrealized_ratio_target = ValiConfig.CHALLENGE_PERIOD_MAX_UNREALIZED_RETURNS_RATIO
