@@ -1,9 +1,7 @@
 # developer: trdougherty
 from typing import Union
-from collections import defaultdict
 import numpy as np
 import math
-from datetime import datetime
 
 from vali_config import ValiConfig
 from vali_objects.position import Position
@@ -121,22 +119,15 @@ class PositionPenalties:
         Args:
             positions: list[Position] - the list of positions
         """
-        daily_sums = defaultdict(float)
-
         closed_positions = [position for position in positions if position.is_closed_position]
-        closed_return = sum([math.log(position.return_at_close) for position in closed_positions])
+        closed_position_returns = [math.log(position.return_at_close) for position in closed_positions]
+        closed_return = sum(closed_position_returns)
 
         # Return early if there will be an issue with the ratio denominator
         if closed_return == 0:
             return 1
 
-        for position in closed_positions:
-            date = datetime.utcfromtimestamp(position.close_ms / 1000).date()
-            daily_sums[date] += math.log(position.return_at_close)
-
-        daily_log_returns = daily_sums.values()
-
-        numerator = max(daily_log_returns) if closed_return > 0 else min(daily_log_returns)
+        numerator = max(closed_position_returns) if closed_return > 0 else min(closed_position_returns)
         denominator = closed_return
 
         max_return_ratio = np.clip(numerator / denominator, 0, 1)
