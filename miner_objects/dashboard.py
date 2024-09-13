@@ -6,6 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from miner_config import MinerConfig
+from shared_objects.rate_limiter import RateLimiter
 
 origins = [
     "http://localhost",
@@ -21,6 +22,7 @@ class Dashboard:
         self.port = port
 
         self.miner_data = {}
+        self.dash_rate_limiter = RateLimiter(max_requests_per_window=1, rate_limit_window_duration_seconds=60)
 
         self.app = FastAPI()
         self._add_cors_middleware()
@@ -39,6 +41,10 @@ class Dashboard:
     def _setup_routes(self):
         @self.app.get("/miner")
         async def get_miner_data():
+            allowed, _ = self.dash_rate_limiter.is_allowed(self.wallet.hotkey.ss58_address)
+            if not allowed and self.miner_data:
+                return self.miner_data
+
             bt.logging.info("Dashboard stats request processing")
             asyncio.run(self.get_stats_positions_from_validator())
             if self.miner_data:
