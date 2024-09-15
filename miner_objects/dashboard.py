@@ -40,17 +40,22 @@ class Dashboard:
 
     def _setup_routes(self):
         @self.app.get("/miner")
-        async def get_miner_data():
-            allowed, _ = self.dash_rate_limiter.is_allowed(self.wallet.hotkey.ss58_address)
-            if not allowed and self.miner_data:
-                return self.miner_data
+        async def get_miner():
+            return self.wallet.hotkey.ss58_address
 
-            bt.logging.info("Dashboard stats request processing")
+        @self.app.get("/miner_data")
+        async def get_miner_data():
+            allowed, wait_time = self.dash_rate_limiter.is_allowed(self.wallet.hotkey.ss58_address)
+            if not allowed:
+                bt.logging.info(f"Rate limited. Please wait {wait_time} seconds before sending another signal.")
+                if self.miner_data:
+                    return self.miner_data
+
             asyncio.run(self.get_stats_positions_from_validator())
             if self.miner_data:
                 return self.miner_data
             else:
-                empty_data = {"statistics": {"data": []}, "positions": []}
+                empty_data = {"statistics": {"data": []}, "positions": {}}
                 return empty_data
 
     def run(self):
@@ -67,6 +72,7 @@ class Dashboard:
             validator_axons = [n.axon_info for n in self.metagraph.neurons if n.hotkey == "5FFApaS75bv5pJHfAp2FVLBj9ZaXuFDjEypsaBNc1wCfe52v"]  # RT21
 
         try:
+            bt.logging.info("Dashboard stats request processing")
             miner_dash_synapse = template.protocol.GetDashData()
             validator_response = await dendrite.forward(axons=validator_axons, synapse=miner_dash_synapse, timeout=5)
 
