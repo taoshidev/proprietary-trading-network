@@ -1,4 +1,6 @@
 import asyncio
+import socket
+
 import bittensor as bt
 import uvicorn
 import template.protocol
@@ -19,7 +21,7 @@ class Dashboard:
         self.metagraph = metagraph
         self.config = config
         self.is_testnet = is_testnet
-        self.port = port
+        self.port = self.get_next_unused_port(port, port+100)
 
         self.miner_data = {}
         self.dash_rate_limiter = RateLimiter(max_requests_per_window=1, rate_limit_window_duration_seconds=60)
@@ -40,18 +42,33 @@ class Dashboard:
 
     def _setup_routes(self):
         @self.app.get("/miner")
-        async def get_miner_data():
-            allowed, _ = self.dash_rate_limiter.is_allowed(self.wallet.hotkey.ss58_address)
-            if not allowed and self.miner_data:
-                return self.miner_data
+        async def get_miner():
+            return self.wallet.hotkey.ss58_address
 
-            bt.logging.info("Dashboard stats request processing")
+        @self.app.get("/miner-data")
+        async def get_miner_data():
+            allowed, wait_time = self.dash_rate_limiter.is_allowed(self.wallet.hotkey.ss58_address)
+            if not allowed:
+                bt.logging.info(f"Rate limited. Please wait {wait_time} seconds before refreshing.")
+                if self.miner_data:
+                    return self.miner_data
+
             asyncio.run(self.get_stats_positions_from_validator())
             if self.miner_data:
                 return self.miner_data
             else:
-                empty_data = {"statistics": {"data": []}, "positions": []}
+                empty_data = {"statistics": {"data": []}, "positions": {}}
                 return empty_data
+
+    def get_next_unused_port(self, start, stop):
+        """
+        finds a free port in the range [start, stop). raises an OSError if a port is unable to be found, and aborts dashboard startup.
+        """
+        for port in range(start, stop):
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                if s.connect_ex(("127.0.0.1", port)) != 0:
+                    return port  # found a free port
+        raise OSError(f"All ports from [{start}, {stop}) in use. Aborting dashboard.")
 
     def run(self):
         uvicorn.run(self.app, host="127.0.0.1", port=self.port)
@@ -67,6 +84,7 @@ class Dashboard:
             validator_axons = [n.axon_info for n in self.metagraph.neurons if n.hotkey == "5FFApaS75bv5pJHfAp2FVLBj9ZaXuFDjEypsaBNc1wCfe52v"]  # RT21
 
         try:
+            bt.logging.info("Dashboard stats request processing")
             miner_dash_synapse = template.protocol.GetDashData()
             validator_response = await dendrite.forward(axons=validator_axons, synapse=miner_dash_synapse, timeout=5)
 
