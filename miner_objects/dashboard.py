@@ -49,7 +49,7 @@ class Dashboard:
         async def get_miner_data():
             allowed, wait_time = self.dash_rate_limiter.is_allowed(self.wallet.hotkey.ss58_address)
             if not allowed:
-                bt.logging.info(f"Rate limited. Please wait {wait_time} seconds before sending another signal.")
+                bt.logging.info(f"Rate limited. Please wait {wait_time} seconds before refreshing.")
                 if self.miner_data:
                     return self.miner_data
 
