@@ -30,6 +30,7 @@ class P2PSyncer(ValidatorSyncBase):
         self.is_testnet = is_testnet
         self.created_golden = False
         self.last_signal_sync_time_ms = 0
+        self.min_checkpoints = 1 if running_unit_tests else ValiConfig.MIN_CHECKPOINTS_RECEIVED
 
     def send_checkpoint_requests(self):
         """
@@ -82,7 +83,7 @@ class P2PSyncer(ValidatorSyncBase):
 
             bt.logging.info(f"{n_successful_checkpoints} responses succeeded. {n_failures} responses failed")
 
-            if (n_successful_checkpoints > 0 and self.is_testnet) or n_successful_checkpoints >= ValiConfig.MIN_CHECKPOINTS_RECEIVED:
+            if (n_successful_checkpoints > 0 and self.is_testnet) or n_successful_checkpoints >= self.min_checkpoints:
                 # sort all our successful responses by validator_trust
                 sorted_v_trust = sorted(hotkey_to_received_checkpoint.items(), key=lambda item: item[1][0], reverse=True)
                 hotkey_to_received_checkpoint = {checkpoint[0]: checkpoint[1] for checkpoint in sorted_v_trust}
@@ -125,8 +126,8 @@ class P2PSyncer(ValidatorSyncBase):
             else:
                 bt.logging.info(f"Checkpoint from validator {hotkey} is stale with newest order timestamp {latest_order_ms}, {round((TimeUtil.now_in_millis() - latest_order_ms)/(1000 * 60 * 60))} hrs ago, Skipping.")
 
-        if len(valid_checkpoints) < ValiConfig.MIN_CHECKPOINTS_RECEIVED:
-            bt.logging.error(f"Only {len(valid_checkpoints)} checkpoints are not stale, unable to build golden. Min required: {ValiConfig.MIN_CHECKPOINTS_RECEIVED}")
+        if len(valid_checkpoints) < self.min_checkpoints:
+            bt.logging.error(f"Only {len(valid_checkpoints)} checkpoints are not stale, unable to build golden. Min required: {self.min_checkpoints}")
             return False
         else:
             bt.logging.info(f"Building golden from [{len(valid_checkpoints)}/{len(trusted_checkpoints)}] up-to-date checkpoints.")
