@@ -90,11 +90,11 @@ class P2PSyncer(ValidatorSyncBase):
                 bt.logging.info("Received enough checkpoints, now creating golden.")
                 self.created_golden = self.create_golden(hotkey_to_received_checkpoint)
             else:
-                bt.logging.info("Not enough checkpoints received to create a golden.")
+                bt.logging.error("Not enough checkpoints received to create a golden.")
                 self.created_golden = False
 
         except Exception as e:
-            bt.logging.info(f"Error generating golden with error [{e}]")
+            bt.logging.error(f"Error generating golden with error [{e}]")
 
     def create_golden(self, trusted_checkpoints: dict) -> bool:
         """
@@ -125,15 +125,15 @@ class P2PSyncer(ValidatorSyncBase):
             else:
                 bt.logging.info(f"Checkpoint from validator {hotkey} is stale with newest order timestamp {latest_order_ms}, {round((TimeUtil.now_in_millis() - latest_order_ms)/(1000 * 60 * 60))} hrs ago, Skipping.")
 
-        if len(valid_checkpoints) == 0:
-            bt.logging.info(f"All {len(trusted_checkpoints)} checkpoints are stale, unable to build golden.")
+        if len(valid_checkpoints) < ValiConfig.MIN_CHECKPOINTS_RECEIVED:
+            bt.logging.error(f"Only {len(valid_checkpoints)} checkpoints are not stale, unable to build golden. Min required: {ValiConfig.MIN_CHECKPOINTS_RECEIVED}")
             return False
         else:
             bt.logging.info(f"Building golden from [{len(valid_checkpoints)}/{len(trusted_checkpoints)}] up-to-date checkpoints.")
 
         for hotkey, chk in valid_checkpoints.items():
-            bt.logging.info(f"{hotkey} sent checkpoint {self.checkpoint_summary(chk)}")
-            bt.logging.info("--------------------------------------------------")
+            bt.logging.debug(f"{hotkey} sent checkpoint {self.checkpoint_summary(chk)}")
+            bt.logging.debug("--------------------------------------------------")
 
         position_counts = defaultdict(int)                      # {position_uuid: count}
         order_counts = defaultdict(lambda: defaultdict(int))    # {position_uuid: {order_uuid: count}}
@@ -170,7 +170,7 @@ class P2PSyncer(ValidatorSyncBase):
 
         # combinations where the position_uuid does not appear in the majority, instead we use a heuristic match to combine positions
         for position in self.heuristic_resolve_positions(positions_matrix, len(valid_checkpoints), seen_positions):
-            bt.logging.info(f"Position {position['position_uuid']} on miner {position['miner_hotkey']} matched, adding back in")
+            bt.logging.debug(f"Position {position['position_uuid']} on miner {position['miner_hotkey']} matched, adding back in")
             miner_hotkey = position["miner_hotkey"]
             golden_positions[miner_hotkey]["positions"].append(position)
 
@@ -179,7 +179,7 @@ class P2PSyncer(ValidatorSyncBase):
                        "hard_snap_cutoff_ms": TimeUtil.now_in_millis() - 1000 * 60 * 15,
                        "eliminations": golden_eliminations,
                        "positions": {miner: dict(golden_positions[miner]) for miner in golden_positions}}
-        bt.logging.info(f"Created golden checkpoint: {self.checkpoint_summary(self.golden)}")
+        bt.logging.success(f"Created golden checkpoint: {self.checkpoint_summary(self.golden)}")
         return True
 
     def construct_positions_uuid_in_majority(self, miner_positions: dict, majority_positions: Set[str], seen_positions: Set[str], seen_orders: Set[str], position_counts: dict, order_counts: dict, order_data: dict, orders_matrix: dict, validator_hotkey: str) -> List[dict]:
@@ -223,9 +223,9 @@ class P2PSyncer(ValidatorSyncBase):
                                 continue
 
                             if len(orders) > self.consensus_threshold(position_counts[position_uuid], heuristic_match=True):
-                                bt.logging.info(f"Order {order_uuid} with Position {position_uuid} on miner {position['miner_hotkey']} matched with {[o['order_uuid'] for o in orders]}, adding back in")
+                                bt.logging.debug(f"Order {order_uuid} with Position {position_uuid} on miner {position['miner_hotkey']} matched with {[o['order_uuid'] for o in orders]}, adding back in")
                             else:
-                                bt.logging.info(f"Order {order_uuid} with Position {position_uuid} only matched [{len(orders)}/{position_counts[position_uuid]}] times on miner {position['miner_hotkey']} with with {[o['order_uuid'] for o in orders]}. Skipping")
+                                bt.logging.debug(f"Order {order_uuid} with Position {position_uuid} only matched [{len(orders)}/{position_counts[position_uuid]}] times on miner {position['miner_hotkey']} with with {[o['order_uuid'] for o in orders]}. Skipping")
                                 continue
 
                         trade_pair = TradePair.from_trade_pair_id(position["trade_pair"][0])
@@ -239,7 +239,7 @@ class P2PSyncer(ValidatorSyncBase):
                     position_dict = json.loads(new_position.to_json_string())
                     uuid_matched_positions.append(position_dict)
                 except ValueError as v:
-                    bt.logging.info(f"Miner [{new_position.miner_hotkey}] Position [{new_position.position_uuid}] Orders {[o.order_uuid for o in new_position.orders]} ValueError {v}")
+                    bt.logging.debug(f"Miner [{new_position.miner_hotkey}] Position [{new_position.position_uuid}] Orders {[o.order_uuid for o in new_position.orders]} ValueError {v}")
         return uuid_matched_positions
 
     def find_matching_orders(self, order: dict, validator_to_orders: dict, resolved_orders: Set[str]) -> List[dict] | None:
@@ -390,10 +390,10 @@ class P2PSyncer(ValidatorSyncBase):
                         legacy_miners.add(miner_hotkey)
                     elif newest_unique_order_timestamp == newest_order_timestamp:
                         legacy_miner_candidates.add(miner_hotkey)
-                    bt.logging.info(
+                    bt.logging.debug(
                         f"Miner {miner_hotkey} has [{(len(uuids['positions']) - num_repeated_pos)}/{len(uuids['positions'])} legacy positions, {(len(uuids['orders']) - num_repeated_orders)}/{len(uuids['orders'])} legacy orders]. Newest legacy order {newest_unique_order_uuid} at timestamp {newest_unique_order_timestamp}")
                 else:
-                    bt.logging.info(f"Miner {miner_hotkey} has 0 legacy positions or orders")
+                    bt.logging.debug(f"Miner {miner_hotkey} has 0 legacy positions or orders")
         bt.logging.info(f"legacy_miners: {legacy_miners}")
         bt.logging.info(f"legacy_miner_candidates: {legacy_miner_candidates}")
         return legacy_miners
@@ -428,10 +428,10 @@ class P2PSyncer(ValidatorSyncBase):
                             goal_order_count = max(median_order_count, max_common_order_count)
 
                             matches_with_goal_order_count = [p for p in matches if len(p["orders"]) == goal_order_count]
-                            bt.logging.info(f"Miner hotkey {miner_hotkey} has matches {[p['position_uuid'] for p in matches]}. goal_order_count: {goal_order_count}. matches_with_goal_order_count: {matches_with_goal_order_count}.")
+                            bt.logging.debug(f"Miner hotkey {miner_hotkey} has matches {[p['position_uuid'] for p in matches]}. goal_order_count: {goal_order_count}. matches_with_goal_order_count: {matches_with_goal_order_count}.")
                             matched_positions.append(matches_with_goal_order_count[0])
                         else:
-                            bt.logging.info(f"Position {position['position_uuid']} only matched [{len(matches)}/{num_checkpoints}] times on miner {position['miner_hotkey']} with matches {[p['position_uuid'] for p in matches]}. Skipping")
+                            bt.logging.debug(f"Position {position['position_uuid']} only matched [{len(matches)}/{num_checkpoints}] times on miner {position['miner_hotkey']} with matches {[p['position_uuid'] for p in matches]}. Skipping")
 
                         seen_positions.update([p["position_uuid"] for p in matches])
         return matched_positions
@@ -537,11 +537,11 @@ class P2PSyncer(ValidatorSyncBase):
                 return
 
         try:
-            bt.logging.info("Calling send_checkpoint_requests")
+            bt.logging.info("Sending checkpoint requests")
             self.golden = None
             self.send_checkpoint_requests()
             if self.created_golden:
-                bt.logging.info("Calling apply_golden")
+                bt.logging.info("Golden created. Syncing positions.")
                 with self.signal_sync_lock:
                     while self.n_orders_being_processed[0] > 0:
                         self.signal_sync_condition.wait()
