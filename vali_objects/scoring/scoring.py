@@ -274,7 +274,7 @@ class Scoring:
             return []
     
         if len(returns) == 1:
-            bt.info("Only one miner, returning 1.0 for the solo miner weight")
+            bt.logging.info("Only one miner, returning 1.0 for the solo miner weight")
             return [(returns[0][0], 1.0)]
     
         # Extract scores and apply softmax with temperature
