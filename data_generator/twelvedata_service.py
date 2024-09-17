@@ -32,7 +32,7 @@ class TwelveDataService(BaseDataService):
         self.n_resets = 0
         self.init_time_ms = TimeUtil.now_in_millis()
         self._api_key = api_key
-        self.td = TDClient(apikey=self._api_key)
+        self.td = TDClient(apikey=self._api_key, self_heal_time_s=10)
 
         if disable_ws:
             self._heartbeat_thread = None
