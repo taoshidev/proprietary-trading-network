@@ -532,7 +532,8 @@ class P2PSyncer(ValidatorSyncBase):
             if not (47 < datetime_now.minute < 57):
                 return
         else:
-            if not (datetime_now.hour == 21 and (18 < datetime_now.minute < 30)):
+            # Check if we are between 7:19 AM and 7:29 AM UTC
+            if not (datetime_now.hour == 1 and (18 < datetime_now.minute < 30)):
                 return
 
         try:

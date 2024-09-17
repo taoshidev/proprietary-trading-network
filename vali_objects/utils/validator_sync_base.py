@@ -158,6 +158,17 @@ class ValidatorSyncBase():
         kept_and_matched = stats['kept'] + stats['matched']
         deleted = stats['deleted']
         inserted = stats['inserted']
+
+        # handle having multiple open positions for a hotkey
+        # close the older open position
+        prev_open_position = None
+
+        #for position, sync_status in position_to_sync_status.items():
+        #    position_debug_sting = f'---debug printing pos to ss: {position.trade_pair.trade_pair_id} n_orders {len(position.orders)}'
+        #    print(position_debug_sting)
+        #    self.debug_print_pos(position)
+        #    print('---status', sync_status)
+
         allow_writes = (not self.is_mothership or
                         (self.is_mothership and (stats['deleted'] == 0 or stats['deleted'] == stats['inserted'])))
         bt.logging.info(f'allow_writes: {allow_writes} stats: {stats}')
@@ -170,22 +181,30 @@ class ValidatorSyncBase():
 
         # Updates happen next
         # First close out contradicting positions that happen if a validator is left in a bad state
-        for position, sync_status in position_to_sync_status.items():
-            if sync_status == PositionSyncResult.UPDATED or sync_status == PositionSyncResult.NOTHING:
-                if allow_writes:
-                    if position.is_closed_position:
-                        self.position_manager.delete_open_position_if_exists(position)
+        # for position, sync_status in position_to_sync_status.items():
+        #     if sync_status == PositionSyncResult.UPDATED or sync_status == PositionSyncResult.NOTHING:
+        #         if allow_writes:
+        #             if position.is_closed_position:
+        #                 self.position_manager.delete_open_position_if_exists(position)
         for position, sync_status in position_to_sync_status.items():
             if sync_status == PositionSyncResult.UPDATED:
                 if allow_writes:
-                    self.position_manager.save_miner_position_to_disk(position, delete_open_position_if_exists=True)
+                    positions = self.split_position_on_flat(position)
+                    for p in positions:
+                        if p.is_open_position:
+                            prev_open_position = self.close_older_open_position(p, prev_open_position)
+                        self.position_manager.overwrite_position_on_disk(p)
                 kept_and_matched -= 1
         # Insertions happen last so that there is no double open position issue
         for position, sync_status in position_to_sync_status.items():
             if sync_status == PositionSyncResult.INSERTED:
                 inserted -= 1
                 if allow_writes:
-                    self.position_manager.save_miner_position_to_disk(position, delete_open_position_if_exists=False)
+                    positions = self.split_position_on_flat(position)
+                    for p in positions:
+                        if p.is_open_position:
+                            prev_open_position = self.close_older_open_position(p, prev_open_position)
+                        self.position_manager.overwrite_position_on_disk(p)
         for position, sync_status in position_to_sync_status.items():
             if sync_status == PositionSyncResult.NOTHING:
                 kept_and_matched -= 1
