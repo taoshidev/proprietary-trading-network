@@ -81,6 +81,25 @@ class ChallengePeriodManager(CacheController):
                 self.challengeperiod_success.pop(hotkey)
 
 
+    def is_recently_re_registered(self, ledger, positions):
+        """
+        A miner can re-register and their perf ledger may still be old.
+        This function checks for that condition and blocks challenge period failure so that
+        the perf ledger can rebuild.
+        """
+        if ledger:
+            time_of_ledger_start = ledger.start_time_ms
+        else:
+            # No ledger? No edge case.
+            return False
+        if positions and positions[0].orders:
+            time_of_first_order = positions[0].orders[0].processed_ms
+        else:
+            # No positions? Perf ledger must be stale.
+            return True
+
+        # A perf ledger can never begin before the first order. Edge case confirmed.
+        return time_of_ledger_start < time_of_first_order
 
     def inspect(
         self,
@@ -102,6 +121,8 @@ class ChallengePeriodManager(CacheController):
         passing_miners = []
         failing_miners = []
         for hotkey, inspection_time in inspection_hotkeys.items():
+            if self.is_recently_re_registered(ledger.get(hotkey), positions.get(hotkey)):
+                continue
             # Default starts as true
             passing_criteria = True
 

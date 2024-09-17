@@ -1,6 +1,8 @@
 # developer: trdougherty
 from copy import deepcopy
 
+from vali_objects.enums.order_type_enum import OrderType
+from vali_objects.vali_dataclasses.order import Order
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerData
 from tests.shared_objects.mock_classes import (
     MockMetagraph, MockChallengePeriodManager, MockPositionManager, MockPerfLedgerManager, MockCacheController
@@ -60,7 +62,10 @@ class TestChallengePeriodIntegration(TestBase):
             close_ms=self.DEFAULT_CLOSE_MS,
             trade_pair=self.DEFAULT_TRADE_PAIR,
             is_closed_position=True,
-            return_at_close=1.00
+            return_at_close=1.00,
+            orders=[Order(price=60000, processed_ms=self.START_TIME, order_uuid="initial_order",
+                          trade_pair=TradePair.BTCUSD, order_type=OrderType.LONG, leverage=0.1)]
+
         )
 
         # Generate a positions list with N_POSITIONS positions
@@ -71,6 +76,9 @@ class TestChallengePeriodIntegration(TestBase):
             position.close_ms = self.EVEN_TIME_DISTRIBUTION[i + 1]
             position.is_closed_position = True
             position.return_at_close = 1.0
+            position.orders[0] = Order(price=60000, processed_ms=int(position.open_ms), order_uuid="order" + str(i),
+                                       trade_pair=TradePair.BTCUSD, order_type=OrderType.LONG, leverage=0.1)
+
             self.DEFAULT_POSITIONS.append(position)
 
         self.WINNING_POSITIONS = copy.deepcopy(self.DEFAULT_POSITIONS)
