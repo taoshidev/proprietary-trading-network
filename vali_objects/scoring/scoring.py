@@ -106,7 +106,7 @@ class Scoring:
                 combined_scores[miner] *= config['weight'] * score + (1 - config['weight'])
 
         # Force good performance of all error metrics
-        combined_weighed = Scoring.weigh_miner_scores(list(combined_scores.items())) + full_penalty_miner_scores
+        combined_weighed = Scoring.softmax_scores(list(combined_scores.items())) + full_penalty_miner_scores
         combined_scores = dict(combined_weighed)
 
         # Normalize the scores
