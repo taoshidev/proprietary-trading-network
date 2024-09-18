@@ -106,7 +106,7 @@ class Scoring:
                 combined_scores[miner] *= config['weight'] * score + (1 - config['weight'])
 
         # Force good performance of all error metrics
-        combined_weighed = Scoring.weigh_miner_scores(list(combined_scores.items())) + full_penalty_miner_scores
+        combined_weighed = Scoring.softmax_scores(list(combined_scores.items())) + full_penalty_miner_scores
         combined_scores = dict(combined_weighed)
 
         # Normalize the scores
@@ -251,42 +251,42 @@ class Scoring:
 
         return numerator / denominator
 
-    # @staticmethod
-    # def softmax_scores(returns: list[tuple[str, float]]) -> list[tuple[str, float]]:
-    #     """
-    #     Assign weights to the returns based on their relative position and apply softmax with a temperature parameter.
-    #
-    #     The softmax function is used to convert the scores into probabilities that sum to 1.
-    #     Subtracting the max value from the scores before exponentiation improves numerical stability.
-    #
-    #     Parameters:
-    #     returns (list[tuple[str, float]]): List of tuples with miner names and their scores.
-    #     temperature (float): Temperature parameter to control the sharpness of the softmax distribution. Default is 1.0.
-    #
-    #     Returns:
-    #     list[tuple[str, float]]: List of tuples with miner names and their softmax weights.
-    #     """
-    #     epsilon = ValiConfig.EPSILON
-    #     temperature = ValiConfig.SOFTMAX_TEMPERATURE
-    #
-    #     if not returns:
-    #         bt.debug("No returns to score, returning empty list")
-    #         return []
-    #
-    #     if len(returns) == 1:
-    #         bt.info("Only one miner, returning 1.0 for the solo miner weight")
-    #         return [(returns[0][0], 1.0)]
-    #
-    #     # Extract scores and apply softmax with temperature
-    #     scores = [score for _, score in returns]
-    #     max_score = np.max(scores)
-    #     exp_scores = np.exp((scores - max_score) / temperature)
-    #     softmax_scores = exp_scores / max(np.sum(exp_scores), epsilon)
-    #
-    #     # Combine miners with their respective softmax scores
-    #     weighted_returns = [(returns[i][0], softmax_scores[i]) for i in range(len(returns))]
-    #
-    #     return weighted_returns
+    @staticmethod
+    def softmax_scores(returns: list[tuple[str, float]]) -> list[tuple[str, float]]:
+        """
+        Assign weights to the returns based on their relative position and apply softmax with a temperature parameter.
+    
+        The softmax function is used to convert the scores into probabilities that sum to 1.
+        Subtracting the max value from the scores before exponentiation improves numerical stability.
+    
+        Parameters:
+        returns (list[tuple[str, float]]): List of tuples with miner names and their scores.
+        temperature (float): Temperature parameter to control the sharpness of the softmax distribution. Default is 1.0.
+    
+        Returns:
+        list[tuple[str, float]]: List of tuples with miner names and their softmax weights.
+        """
+        epsilon = ValiConfig.EPSILON
+        temperature = ValiConfig.SOFTMAX_TEMPERATURE
+    
+        if not returns:
+            bt.debug("No returns to score, returning empty list")
+            return []
+    
+        if len(returns) == 1:
+            bt.logging.info("Only one miner, returning 1.0 for the solo miner weight")
+            return [(returns[0][0], 1.0)]
+    
+        # Extract scores and apply softmax with temperature
+        scores = [score for _, score in returns]
+        max_score = np.max(scores)
+        exp_scores = np.exp((scores - max_score) / temperature)
+        softmax_scores = exp_scores / max(np.sum(exp_scores), epsilon)
+    
+        # Combine miners with their respective softmax scores
+        weighted_returns = [(returns[i][0], softmax_scores[i]) for i in range(len(returns))]
+    
+        return weighted_returns
 
     @staticmethod
     def exponential_decay_returns(scale: int) -> np.ndarray:
