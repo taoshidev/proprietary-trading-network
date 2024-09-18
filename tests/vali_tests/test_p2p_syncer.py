@@ -421,6 +421,9 @@ class TestPositions(TestBase):
         assert len(self.p2p_syncer.golden["positions"][self.DEFAULT_MINER_HOTKEY]["positions"][0]["orders"]) == 1
 
     def test_checkpoint_syncing_checkpoint_is_stale(self):
+        # need to bypass the unit test flag
+        self.p2p_syncer = P2PSyncer(running_unit_tests=False)
+
         order1 = deepcopy(self.default_order)
         order1.order_uuid = "test_order1"
         order1.processed_ms = 100
@@ -870,6 +873,26 @@ class TestPositions(TestBase):
 
         assert len(self.p2p_syncer.golden["positions"][self.DEFAULT_MINER_HOTKEY]["positions"]) == 2
         assert len(self.p2p_syncer.golden["positions"][self.DEFAULT_MINER_HOTKEY]["positions"][0]["orders"]) == 1
+
+    def test_sync_challengeperiod(self):
+        checkpoint1 = {"challengeperiod": {"testing": {"miner1": 100, "miner2": 105},
+                                           "success": {"miner3": 120, "miner4": 110}}}
+        checkpoint2 = {"challengeperiod": {"testing": {"miner1": 100, "miner2": 105},
+                                           "success": {"miner3": 130, "miner5": 110}}}
+        checkpoint3 = {"challengeperiod": {"testing": {"miner1": 100, "miner6": 165},
+                                           "success": {"miner4": 100, "miner5": 110}}}
+
+        checkpoints = {"test_validator1": [1, checkpoint1], "test_validator2": [1, checkpoint2], "test_validator3": [1, checkpoint3]}
+
+        self.p2p_syncer.create_golden(checkpoints)
+        assert len(self.p2p_syncer.golden["challengeperiod"]["testing"]) == 2
+        assert len(self.p2p_syncer.golden["challengeperiod"]["success"]) == 3
+        assert self.p2p_syncer.golden["challengeperiod"]["testing"]["miner1"] == 100
+        assert self.p2p_syncer.golden["challengeperiod"]["testing"]["miner2"] == 105
+        assert self.p2p_syncer.golden["challengeperiod"]["success"]["miner3"] == 120
+        assert self.p2p_syncer.golden["challengeperiod"]["success"]["miner4"] == 100
+        assert self.p2p_syncer.golden["challengeperiod"]["success"]["miner5"] == 110
+
 
 
 

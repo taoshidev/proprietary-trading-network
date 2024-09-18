@@ -31,6 +31,7 @@ class P2PSyncer(ValidatorSyncBase):
         self.is_testnet = is_testnet
         self.created_golden = False
         self.last_signal_sync_time_ms = 0
+        self.running_unit_tests = running_unit_tests
 
     def send_checkpoint_requests(self):
         """
@@ -116,7 +117,7 @@ class P2PSyncer(ValidatorSyncBase):
                 break
             # add this checkpoint's data if the checkpoint is up-to-date
             latest_order_ms = self.last_order_time_in_checkpoint(checkpoint[1])
-            if TimeUtil.now_in_millis() - latest_order_ms < 1000 * 60 * 60 * 10:  # validators with no orders processed in 10 hrs are considered stale
+            if TimeUtil.now_in_millis() - latest_order_ms < 1000 * 60 * 60 * 10 or self.running_unit_tests:  # validators with no orders processed in 10 hrs are considered stale
                 valid_checkpoints[hotkey] = checkpoint[1]
             else:
                 bt.logging.info(f"Checkpoint from validator {hotkey} is stale with newest order timestamp {latest_order_ms}, {round((TimeUtil.now_in_millis() - latest_order_ms)/(1000 * 60 * 60))} hrs ago, Skipping.")
@@ -161,12 +162,12 @@ class P2PSyncer(ValidatorSyncBase):
 
         threshold = self.consensus_threshold(len(valid_checkpoints))
         majority_testing = {hotkey for hotkey, times in challengeperiod_testing_data.items() if len(times) >= threshold}
-        majority_success = {hotkey for hotkey, times in challengeperiod_testing_data.items() if len(times) >= threshold}
+        majority_success = {hotkey for hotkey, times in challengeperiod_success_data.items() if len(times) >= threshold}
 
         for hotkey in majority_testing:
-            challengeperiod_testing[hotkey] = statistics.median(challengeperiod_testing_data[hotkey])
+            challengeperiod_testing[hotkey] = statistics.median_low(challengeperiod_testing_data[hotkey])
         for hotkey in majority_success:
-            challengeperiod_success[hotkey] = statistics.median(challengeperiod_success_data[hotkey])
+            challengeperiod_success[hotkey] = statistics.median_low(challengeperiod_success_data[hotkey])
 
         return {"testing": challengeperiod_testing, "success": challengeperiod_success}
 
@@ -329,12 +330,13 @@ class P2PSyncer(ValidatorSyncBase):
         {miner hotkey: [num of positions, num of orders]
         """
         summary = {}
-        for miner in checkpoint['positions']:
+        positions = checkpoint.get("positions", {})
+        for miner_hotkey, miner_positions in positions.items():
             orders = 0
-            for pos in checkpoint['positions'][miner]['positions']:
+            for pos in miner_positions['positions']:
                 orders += len(pos["orders"])
-            pos_orders = [len(checkpoint['positions'][miner]['positions']), orders]
-            summary[miner] = pos_orders
+            pos_orders = [len(miner_positions['positions']), orders]
+            summary[miner_hotkey] = pos_orders
         return summary
 
     def last_order_time_in_checkpoint(self, checkpoint: dict) -> int:
