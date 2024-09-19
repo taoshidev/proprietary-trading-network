@@ -65,6 +65,7 @@ class ChallengePeriodManager(CacheController):
         # Now sync challenge period with the disk
         self._write_challengeperiod_from_memory_to_disk()
         self._write_eliminations_from_memory_to_disk()
+        self.set_last_update_time()
 
     def _prune_deregistered_metagraph(self, hotkeys=None):
         """
@@ -82,7 +83,7 @@ class ChallengePeriodManager(CacheController):
                 self.challengeperiod_success.pop(hotkey)
 
 
-    def is_recently_re_registered(self, ledger, positions):
+    def is_recently_re_registered(self, ledger, positions, hotkey):
         """
         A miner can re-register and their perf ledger may still be old.
         This function checks for that condition and blocks challenge period failure so that
@@ -93,14 +94,20 @@ class ChallengePeriodManager(CacheController):
         else:
             # No ledger? No edge case.
             return False
-        if positions and positions[0].orders:
-            time_of_first_order = positions[0].orders[0].processed_ms
+        if positions and all(p.orders for p in positions):
+            time_of_first_order = min(p.orders[0].processed_ms for p in positions)
         else:
             # No positions? Perf ledger must be stale.
+            msg = f'No positions for hotkey {hotkey} - ledger start time: {time_of_ledger_start}'
+            print(msg)
             return True
 
         # A perf ledger can never begin before the first order. Edge case confirmed.
-        return time_of_ledger_start < time_of_first_order
+        ans = time_of_ledger_start < time_of_first_order
+        if ans:
+            msg = f'Hotkey {hotkey} has a ledger start time of {TimeUtil.millis_to_formatted_date_str(time_of_ledger_start)} and a first order time of {TimeUtil.millis_to_formatted_date_str(time_of_first_order)}'
+            print(msg)
+        return ans
 
     def inspect(
         self,
@@ -123,7 +130,7 @@ class ChallengePeriodManager(CacheController):
         failing_miners = []
         miners_rrr = set()
         for hotkey, inspection_time in inspection_hotkeys.items():
-            if self.is_recently_re_registered(ledger.get(hotkey), positions.get(hotkey)):
+            if self.is_recently_re_registered(ledger.get(hotkey), positions.get(hotkey), hotkey):
                 miners_rrr.add(hotkey)
                 continue
             # Default starts as true
