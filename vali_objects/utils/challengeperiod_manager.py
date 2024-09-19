@@ -1,6 +1,7 @@
 # developer: trdougherty
 
 import time
+import bittensor as bt
 from vali_config import ValiConfig
 from shared_objects.cache_controller import CacheController
 from vali_objects.scoring.scoring import Scoring
@@ -120,8 +121,10 @@ class ChallengePeriodManager(CacheController):
 
         passing_miners = []
         failing_miners = []
+        miners_rrr = set()
         for hotkey, inspection_time in inspection_hotkeys.items():
             if self.is_recently_re_registered(ledger.get(hotkey), positions.get(hotkey)):
+                miners_rrr.add(hotkey)
                 continue
             # Default starts as true
             passing_criteria = True
@@ -169,6 +172,10 @@ class ChallengePeriodManager(CacheController):
                 failing_miners.append(hotkey)
                 continue
 
+        bt.logging.info(f'Challenge Period - n_miners_passing: {len(passing_miners)}'
+                        f' n_miners_failing: {len(failing_miners)} '
+                        f'recently_re_registered: {miners_rrr} '
+                        f'n_miners_inspected {len(inspection_hotkeys)}')
         return passing_miners, failing_miners
 
     @staticmethod
