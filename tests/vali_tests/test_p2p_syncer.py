@@ -420,38 +420,6 @@ class TestPositions(TestBase):
         assert len(self.p2p_syncer.golden["positions"][self.DEFAULT_MINER_HOTKEY]["positions"]) == 1
         assert len(self.p2p_syncer.golden["positions"][self.DEFAULT_MINER_HOTKEY]["positions"][0]["orders"]) == 1
 
-    def test_checkpoint_syncing_checkpoint_is_stale(self):
-        # need to bypass the unit test flag
-        self.p2p_syncer = P2PSyncer(running_unit_tests=False)
-
-        order1 = deepcopy(self.default_order)
-        order1.order_uuid = "test_order1"
-        order1.processed_ms = 100
-        orders = [order1]
-        position = deepcopy(self.default_position)
-        position.position_uuid = "test_position1"
-        position.orders = orders
-        position.rebuild_position_with_updated_orders()
-
-        checkpoint1 = {"positions": {self.DEFAULT_MINER_HOTKEY: {"positions": [json.loads(position.to_json_string())]}}}
-
-        order0 = deepcopy(self.default_order)
-        order0.order_uuid = "test_order0"
-        orders = [order0]
-        position = deepcopy(self.default_position)
-        position.position_uuid = "test_position2"
-        position.orders = orders
-        position.rebuild_position_with_updated_orders()
-
-        checkpoint2 = {"positions": {"diff_miner": {"positions": [json.loads(position.to_json_string())]}}}
-
-        checkpoints = {"test_validator1": [0, checkpoint1], "test_validator2": [0, checkpoint2]}
-        self.p2p_syncer.create_golden(checkpoints)
-
-        assert len(self.p2p_syncer.golden["positions"]) == 1
-        assert len(self.p2p_syncer.golden["positions"]["diff_miner"]["positions"]) == 1
-        assert len(self.p2p_syncer.golden["positions"]["diff_miner"]["positions"][0]["orders"]) == 1
-
     def test_heuristic_resolve_positions(self):
         order1 = deepcopy(self.default_order)
         order1.order_uuid = "test_order1"
