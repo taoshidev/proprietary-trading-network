@@ -1896,7 +1896,7 @@ class TestPositions(TestBase):
             self.add_order_to_position_and_save_to_disk(position3, o3)
             self.assertEqual(len(position3.orders), 0)
             # print(logger.output)
-            self.assertEqual([f"WARNING:root:Miner attempted to exceed max adjusted portfolio leverage of {ValiConfig.PORTFOLIO_LEVERAGE_CAP}. Ignoring order."], logger.output)
+            self.assertEqual([f"WARNING:root:Miner {self.DEFAULT_MINER_HOTKEY} attempted to exceed max adjusted portfolio leverage of {ValiConfig.PORTFOLIO_LEVERAGE_CAP}. Ignoring order."], logger.output)
 
     def test_long_order_crypto_leverage_exceed_portfolio_limit(self):
         """

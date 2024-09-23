@@ -322,14 +322,14 @@ class Position(BaseModel):
             max_portfolio_leverage = leverage_utils.get_portfolio_leverage_cap(order.processed_ms)
             if abs(net_portfolio_leverage) >= max_portfolio_leverage:
                 logging.warning(
-                    f"Miner attempted to exceed max adjusted portfolio leverage of {max_portfolio_leverage}. Ignoring order.")
+                    f"Miner {self.miner_hotkey} attempted to exceed max adjusted portfolio leverage of {max_portfolio_leverage}. Ignoring order.")
             else:
                 if order.leverage >= 0:
                     logging.warning(
-                        f"Miner attempted to exceed max leverage {self.trade_pair.max_leverage} for trade pair "
+                        f"Miner {self.miner_hotkey} attempted to exceed max leverage {self.trade_pair.max_leverage} for trade pair "
                         f"{self.trade_pair.trade_pair_id}. Ignoring order.")
                 else:
-                    logging.warning(f"Miner attempted to go below min leverage {self.trade_pair.min_leverage} for trade pair "
+                    logging.warning(f"Miner {self.miner_hotkey} attempted to go below min leverage {self.trade_pair.min_leverage} for trade pair "
                                     f"{self.trade_pair.trade_pair_id}. Ignoring order.")
             return
         self.orders.append(order)
