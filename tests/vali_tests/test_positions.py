@@ -1868,7 +1868,7 @@ class TestPositions(TestBase):
                    leverage=TradePair.AUDCAD.max_leverage,
                    price=100,
                    trade_pair=TradePair.AUDCAD,
-                   processed_ms=leverage_utils.LEVERAGE_BOUNDS_V2_START_TIME_MS + 1000,
+                   processed_ms=leverage_utils.PORTFOLIO_LEVERAGE_BOUNDS_START_TIME_MS + 1000,
                    order_uuid="1000")
         self.add_order_to_position_and_save_to_disk(position, o1)
 
@@ -1878,7 +1878,7 @@ class TestPositions(TestBase):
                    leverage=TradePair.BTCUSD.max_leverage,
                    price=100,
                    trade_pair=TradePair.BTCUSD,
-                   processed_ms=leverage_utils.LEVERAGE_BOUNDS_V2_START_TIME_MS + 1000,
+                   processed_ms=leverage_utils.PORTFOLIO_LEVERAGE_BOUNDS_START_TIME_MS + 1000,
                    order_uuid="1000")
         self.add_order_to_position_and_save_to_disk(position2, o2)
         self.assertEqual(self.position_manager.calculate_net_portfolio_leverage(self.DEFAULT_MINER_HOTKEY), 10.0)
@@ -1889,7 +1889,7 @@ class TestPositions(TestBase):
                    leverage=0.1,
                    price=100,
                    trade_pair=TradePair.ETHUSD,
-                   processed_ms=leverage_utils.LEVERAGE_BOUNDS_V2_START_TIME_MS + 2000,
+                   processed_ms=leverage_utils.PORTFOLIO_LEVERAGE_BOUNDS_START_TIME_MS + 2000,
                    order_uuid="2000")
 
         with self.assertLogs('root', level='DEBUG') as logger:
@@ -1908,7 +1908,7 @@ class TestPositions(TestBase):
                    leverage=TradePair.AUDCAD.max_leverage,
                    price=100,
                    trade_pair=TradePair.AUDCAD,
-                   processed_ms=leverage_utils.LEVERAGE_BOUNDS_V2_START_TIME_MS + 1000,
+                   processed_ms=leverage_utils.PORTFOLIO_LEVERAGE_BOUNDS_START_TIME_MS + 1000,
                    order_uuid="1000")
         self.add_order_to_position_and_save_to_disk(position, o1)
 
@@ -1918,7 +1918,7 @@ class TestPositions(TestBase):
                    leverage=TradePair.BTCUSD.max_leverage - 0.1,
                    price=100,
                    trade_pair=TradePair.BTCUSD,
-                   processed_ms=leverage_utils.LEVERAGE_BOUNDS_V2_START_TIME_MS + 1000,
+                   processed_ms=leverage_utils.PORTFOLIO_LEVERAGE_BOUNDS_START_TIME_MS + 1000,
                    order_uuid="1000")
         self.add_order_to_position_and_save_to_disk(position2, o2)
         self.assertEqual(self.position_manager.calculate_net_portfolio_leverage(self.DEFAULT_MINER_HOTKEY), 9.0)
@@ -1929,7 +1929,7 @@ class TestPositions(TestBase):
                    leverage=0.2,
                    price=100,
                    trade_pair=TradePair.ETHUSD,
-                   processed_ms=leverage_utils.LEVERAGE_BOUNDS_V2_START_TIME_MS + 2000,
+                   processed_ms=leverage_utils.PORTFOLIO_LEVERAGE_BOUNDS_START_TIME_MS + 2000,
                    order_uuid="2000")
 
         with self.assertLogs('root', level='DEBUG') as logger:
@@ -1948,7 +1948,7 @@ class TestPositions(TestBase):
                    leverage=TradePair.AUDCAD.max_leverage,
                    price=100,
                    trade_pair=TradePair.AUDCAD,
-                   processed_ms=leverage_utils.LEVERAGE_BOUNDS_V2_START_TIME_MS + 1000,
+                   processed_ms=leverage_utils.PORTFOLIO_LEVERAGE_BOUNDS_START_TIME_MS + 1000,
                    order_uuid="1000")
         self.add_order_to_position_and_save_to_disk(position, o1)
 
@@ -1958,7 +1958,7 @@ class TestPositions(TestBase):
                    leverage=TradePair.AUDUSD.max_leverage - 1,
                    price=100,
                    trade_pair=TradePair.AUDUSD,
-                   processed_ms=leverage_utils.LEVERAGE_BOUNDS_V2_START_TIME_MS + 1000,
+                   processed_ms=leverage_utils.PORTFOLIO_LEVERAGE_BOUNDS_START_TIME_MS + 1000,
                    order_uuid="1000")
         self.add_order_to_position_and_save_to_disk(position2, o2)
         self.assertEqual(self.position_manager.calculate_net_portfolio_leverage(self.DEFAULT_MINER_HOTKEY), 9.0)
@@ -1969,7 +1969,7 @@ class TestPositions(TestBase):
                    leverage=2,
                    price=100,
                    trade_pair=TradePair.AUDJPY,
-                   processed_ms=leverage_utils.LEVERAGE_BOUNDS_V2_START_TIME_MS + 2000,
+                   processed_ms=leverage_utils.PORTFOLIO_LEVERAGE_BOUNDS_START_TIME_MS + 2000,
                    order_uuid="2000")
 
         with self.assertLogs('root', level='DEBUG') as logger:
@@ -1988,7 +1988,7 @@ class TestPositions(TestBase):
                    leverage=-TradePair.AUDCAD.max_leverage,
                    price=100,
                    trade_pair=TradePair.AUDCAD,
-                   processed_ms=leverage_utils.LEVERAGE_BOUNDS_V2_START_TIME_MS + 1000,
+                   processed_ms=leverage_utils.PORTFOLIO_LEVERAGE_BOUNDS_START_TIME_MS + 1000,
                    order_uuid="1000")
         self.add_order_to_position_and_save_to_disk(position, o1)
 
@@ -1998,7 +1998,7 @@ class TestPositions(TestBase):
                    leverage=-(TradePair.BTCUSD.max_leverage - 0.1),
                    price=100,
                    trade_pair=TradePair.BTCUSD,
-                   processed_ms=leverage_utils.LEVERAGE_BOUNDS_V2_START_TIME_MS + 1000,
+                   processed_ms=leverage_utils.PORTFOLIO_LEVERAGE_BOUNDS_START_TIME_MS + 1000,
                    order_uuid="1000")
         self.add_order_to_position_and_save_to_disk(position2, o2)
         self.assertEqual(self.position_manager.calculate_net_portfolio_leverage(self.DEFAULT_MINER_HOTKEY), 9.0)
@@ -2010,7 +2010,7 @@ class TestPositions(TestBase):
                    leverage=-0.2,
                    price=100,
                    trade_pair=TradePair.ETHUSD,
-                   processed_ms=leverage_utils.LEVERAGE_BOUNDS_V2_START_TIME_MS + 2000,
+                   processed_ms=leverage_utils.PORTFOLIO_LEVERAGE_BOUNDS_START_TIME_MS + 2000,
                    order_uuid="2000")
 
         with self.assertLogs('root', level='DEBUG') as logger:
@@ -2047,7 +2047,7 @@ class TestPositions(TestBase):
                    leverage=49.99,
                    price=100,
                    trade_pair=TradePair.AUDCAD,
-                   processed_ms=leverage_utils.LEVERAGE_BOUNDS_V2_START_TIME_MS + 1000,
+                   processed_ms=leverage_utils.PORTFOLIO_LEVERAGE_BOUNDS_START_TIME_MS + 1000,
                    order_uuid="1000")
         self.add_order_to_position_and_save_to_disk(position2, o3)
 
