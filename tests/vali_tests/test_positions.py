@@ -1936,7 +1936,7 @@ class TestPositions(TestBase):
             self.add_order_to_position_and_save_to_disk(position3, o3)
             # print(logger.output)
             self.assertEqual(position3.orders[0].leverage, 0.1)
-            self.assertEqual(["WARNING:root:Order leverage clamped to 0.1"], logger.output)
+            self.assertEqual([f"WARNING:root:Miner {self.DEFAULT_MINER_HOTKEY} ETHUSD order leverage clamped to 0.1"], logger.output)
 
     def test_long_order_forex_leverage_exceed_portfolio_limit(self):
         """
@@ -1976,7 +1976,7 @@ class TestPositions(TestBase):
             self.add_order_to_position_and_save_to_disk(position3, o3)
             # print(logger.output)
             self.assertEqual(position3.orders[0].leverage, 1)
-            self.assertEqual(["WARNING:root:Order leverage clamped to 1.0"], logger.output)
+            self.assertEqual([f"WARNING:root:Miner {self.DEFAULT_MINER_HOTKEY} AUDJPY order leverage clamped to 1.0"], logger.output)
 
     def test_short_order_leverage_exceed_portfolio_limit(self):
         """
@@ -2017,7 +2017,7 @@ class TestPositions(TestBase):
             self.add_order_to_position_and_save_to_disk(position3, o3)
             # print(logger.output)
             self.assertEqual(position3.orders[0].leverage, -0.1)
-            self.assertEqual(["WARNING:root:Order leverage clamped to -0.1"], logger.output)
+            self.assertEqual([f"WARNING:root:Miner {self.DEFAULT_MINER_HOTKEY} ETHUSD order leverage clamped to -0.1"], logger.output)
 
     def test_position_below_min_while_portfolio_lev_exceeded(self):
         """

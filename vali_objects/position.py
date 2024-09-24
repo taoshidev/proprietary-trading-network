@@ -556,17 +556,17 @@ class Position(BaseModel):
                         order.leverage *= -1
                     should_ignore_order = order.leverage == 0
                     if not should_ignore_order:
-                        logging.warning(f"Order leverage clamped to {order.leverage}")
+                        logging.warning(f"Miner {self.miner_hotkey} {self.trade_pair.trade_pair_id} order leverage clamped to {order.leverage}")
                 else:
                     # portfolio leverage attempts to go under min
                     if abs(proposed_leverage) < min_position_leverage:
                         should_ignore_order = True
-                        logging.warning(f"Attempted to set position leverage below min_position_leverage {min_position_leverage} while exceeding max_portfolio_leverage")
+                        logging.warning(f"Miner {self.miner_hotkey} attempted to set {self.trade_pair.trade_pair_id} position leverage below min_position_leverage {min_position_leverage} while exceeding max_portfolio_leverage {max_portfolio_leverage}")
                     else:
                         pass  #  We are getting the leverage closer to the new boundary (decrease) so allow it
             elif abs(proposed_leverage) < min_position_leverage:
                 if is_first_order or abs(proposed_leverage) < abs(self.net_leverage):
-                    raise ValueError(f'Attempted to set position leverage below min_position_leverage {min_position_leverage}')
+                    raise ValueError(f'Miner {self.miner_hotkey} attempted to set {self.trade_pair.trade_pair_id} position leverage below min_position_leverage {min_position_leverage}')
                 else:
                     pass  # We are trying to increase the leverage here so let it happen
         # attempting to flip position
