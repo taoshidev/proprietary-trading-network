@@ -250,7 +250,7 @@ def generate_request_core(time_now:int, selected_miner_hotkeys: List[str] = None
     )
 
     # unfiltered positions dict for checkpoints
-    unfiltered_positions = {'positions': copy.deepcopy(ord_dict_hotkey_position_map)}
+    unfiltered_positions = copy.deepcopy(ord_dict_hotkey_position_map)
 
     n_orders_original = 0
     for positions in hotkey_positions.values():
@@ -309,4 +309,12 @@ def generate_request_core(time_now:int, selected_miner_hotkeys: List[str] = None
 
     # Max filtering
     upload_checkpoint_to_gcloud(final_dict)
-    return unfiltered_positions
+
+    checkpoint_dict = {
+        'challengeperiod': {
+            "testing": challengeperiod_testing_dictionary,
+            "success": challengeperiod_success_dictionary
+        },
+        'positions': unfiltered_positions
+    }
+    return checkpoint_dict

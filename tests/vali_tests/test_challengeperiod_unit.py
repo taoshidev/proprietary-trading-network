@@ -17,6 +17,8 @@ from vali_objects.utils.position_filtering import PositionFiltering
 from vali_objects.utils.position_penalties import PositionPenalties
 from vali_objects.utils.ledger_utils import LedgerUtils
 from vali_objects.scoring.scoring import Scoring
+from vali_objects.vali_dataclasses.order import Order
+from vali_objects.enums.order_type_enum import OrderType
 
 
 class TestChallengePeriodUnit(TestBase):
@@ -44,7 +46,7 @@ class TestChallengePeriodUnit(TestBase):
         self.DEFAULT_POSITION = Position(
             miner_hotkey="miner",
             position_uuid="miner",
-            orders=[],
+            orders=[Order(price=60000, processed_ms=self.START_TIME, order_uuid="initial_order", trade_pair=TradePair.BTCUSD, order_type=OrderType.LONG, leverage=0.1)],
             net_leverage=0.0,
             open_ms=self.START_TIME,
             close_ms=self.END_TIME,
@@ -61,6 +63,7 @@ class TestChallengePeriodUnit(TestBase):
             position.close_ms = self.EVEN_TIME_DISTRIBUTION[i + 1]
             position.is_closed_position = True
             position.return_at_close = 1.0
+            position.orders[0] = Order(price=60000, processed_ms=int(position.open_ms), order_uuid="order" + str(i), trade_pair=TradePair.BTCUSD,  order_type=OrderType.LONG, leverage=0.1)
             self.DEFAULT_POSITIONS.append(position)
 
         self.DEFAULT_LEDGER = generate_ledger(
@@ -446,7 +449,34 @@ class TestChallengePeriodUnit(TestBase):
     def test_lingering_no_positions(self):
         """Test the scenario where the miner has no positions and has been in the system for a while"""
         base_positions = []
+
+        inspection_positions = {"miner": base_positions}
+        inspection_ledger = {}
+        inspection_hotkeys = {"miner": self.START_TIME}
+        current_time = self.OUTSIDE_OF_CHALLENGE
+
+        # Check that the miner is screened as testing still
+        passing, failing = self.challengeperiod_manager.inspect(
+            positions=inspection_positions,
+            ledger=inspection_ledger,
+            inspection_hotkeys=inspection_hotkeys,
+            current_time=current_time
+        )
+
+        self.assertNotIn("miner", passing)
+        self.assertIn("miner", failing)
+
+    def test_recently_re_registered_miner(self):
+        """
+        Test the scenario where the miner is eliminated and registers again. Simulate this with a stale perf ledger
+        The positions begin after the perf ledger start therefore the ledger is stale.
+        """
+
         base_ledger = deepcopy(self.DEFAULT_LEDGER)
+
+        base_position = deepcopy(self.DEFAULT_POSITION)
+        base_position.orders[0].processed_ms = base_ledger.start_time_ms + 1
+        base_positions = [base_position]
 
         inspection_positions = {"miner": base_positions}
         inspection_ledger = {"miner": base_ledger}
@@ -462,7 +492,7 @@ class TestChallengePeriodUnit(TestBase):
         )
 
         self.assertNotIn("miner", passing)
-        self.assertIn("miner", failing)
+        self.assertNotIn("miner", failing)
 
     def test_lingering_with_positions(self):
         """Test the scenario where the miner has positions and has been in the system for a while"""

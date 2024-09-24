@@ -91,9 +91,19 @@ class ValidatorSyncBase():
 
         challenge_period_data = candidate_data.get('challengeperiod')
         if challenge_period_data:  # Only in autosync as of now.
-            self.challengeperiod_manager.challengeperiod_testing = challenge_period_data.get('testing', {})
-            self.challengeperiod_manager.challengeperiod_success = challenge_period_data.get('success', {})
-            self.challengeperiod_manager._write_challengeperiod_from_memory_to_disk()
+            self.challengeperiod_manager._refresh_challengeperiod_in_memory()
+            orig_testing_keys = set(self.challengeperiod_manager.challengeperiod_testing.keys())
+            orig_success_keys = set(self.challengeperiod_manager.challengeperiod_success.keys())
+            new_testing_keys = set(challenge_period_data.get('testing').keys())
+            new_success_keys = set(challenge_period_data.get('success').keys())
+            bt.logging.info(f"Challengeperiod testing sync keys added: {new_testing_keys-orig_testing_keys}\n"
+                            f"Challengeperiod testing sync keys removed: {orig_testing_keys - new_testing_keys}\n"
+                            f"Challengeperiod success sync keys added: {new_success_keys - orig_success_keys}\n"
+                            f"Challengeperiod success sync keys removed: {orig_success_keys - new_success_keys}")
+            if not shadow_mode:
+                self.challengeperiod_manager.challengeperiod_testing = challenge_period_data.get('testing', {})
+                self.challengeperiod_manager.challengeperiod_success = challenge_period_data.get('success', {})
+                self.challengeperiod_manager._write_challengeperiod_from_memory_to_disk()
 
         eliminated_hotkeys = set([e['hotkey'] for e in eliminations])
         # For a healthy validator, the existing positions will always be a superset of the candidate positions

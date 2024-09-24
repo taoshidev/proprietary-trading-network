@@ -1,6 +1,7 @@
 # developer: trdougherty
 
 import time
+import bittensor as bt
 from vali_config import ValiConfig
 from shared_objects.cache_controller import CacheController
 from vali_objects.scoring.scoring import Scoring
@@ -64,6 +65,7 @@ class ChallengePeriodManager(CacheController):
         # Now sync challenge period with the disk
         self._write_challengeperiod_from_memory_to_disk()
         self._write_eliminations_from_memory_to_disk()
+        self.set_last_update_time()
 
     def _prune_deregistered_metagraph(self, hotkeys=None):
         """
@@ -81,6 +83,31 @@ class ChallengePeriodManager(CacheController):
                 self.challengeperiod_success.pop(hotkey)
 
 
+    def is_recently_re_registered(self, ledger, positions, hotkey):
+        """
+        A miner can re-register and their perf ledger may still be old.
+        This function checks for that condition and blocks challenge period failure so that
+        the perf ledger can rebuild.
+        """
+        if ledger:
+            time_of_ledger_start = ledger.start_time_ms
+        else:
+            # No ledger? No edge case.
+            return False
+        if positions and all(p.orders for p in positions):
+            time_of_first_order = min(p.orders[0].processed_ms for p in positions)
+        else:
+            # No positions? Perf ledger must be stale.
+            msg = f'No positions for hotkey {hotkey} - ledger start time: {time_of_ledger_start}'
+            print(msg)
+            return True
+
+        # A perf ledger can never begin before the first order. Edge case confirmed.
+        ans = time_of_ledger_start < time_of_first_order
+        if ans:
+            msg = f'Hotkey {hotkey} has a ledger start time of {TimeUtil.millis_to_formatted_date_str(time_of_ledger_start)} and a first order time of {TimeUtil.millis_to_formatted_date_str(time_of_first_order)}'
+            print(msg)
+        return ans
 
     def inspect(
         self,
@@ -101,7 +128,11 @@ class ChallengePeriodManager(CacheController):
 
         passing_miners = []
         failing_miners = []
+        miners_rrr = set()
         for hotkey, inspection_time in inspection_hotkeys.items():
+            if self.is_recently_re_registered(ledger.get(hotkey), positions.get(hotkey), hotkey):
+                miners_rrr.add(hotkey)
+                continue
             # Default starts as true
             passing_criteria = True
 
@@ -148,6 +179,10 @@ class ChallengePeriodManager(CacheController):
                 failing_miners.append(hotkey)
                 continue
 
+        bt.logging.info(f'Challenge Period - n_miners_passing: {len(passing_miners)}'
+                        f' n_miners_failing: {len(failing_miners)} '
+                        f'recently_re_registered: {miners_rrr} '
+                        f'n_miners_inspected {len(inspection_hotkeys)}')
         return passing_miners, failing_miners
 
     @staticmethod
