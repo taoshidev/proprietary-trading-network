@@ -139,10 +139,10 @@ class TestLedgerPenalty(TestBase):
             l5_cps[min(i, len(l5_cps) - 1)].gain = 1.0
 
         # Daily consistency penalties and ratios
-        self.assertAlmostEqual(LedgerUtils.biweekly_consistency_penalty(l1_cps), 0.0)
+        self.assertAlmostEqual(LedgerUtils.biweekly_consistency_penalty(l1_cps), 0.0, places=6)
         self.assertEqual(LedgerUtils.biweekly_consistency_ratio(l1_cps), 1.0)
 
-        self.assertAlmostEqual(LedgerUtils.biweekly_consistency_penalty(l2_cps), 0.0)
+        self.assertAlmostEqual(LedgerUtils.biweekly_consistency_penalty(l2_cps), 0.0,  places=6)
         self.assertEqual(LedgerUtils.biweekly_consistency_ratio(l2_cps), 1.0)
 
         self.assertLess(LedgerUtils.biweekly_consistency_penalty(l3_cps), 1.0)  # should have small penalty
@@ -166,7 +166,7 @@ class TestLedgerPenalty(TestBase):
         # Now it should fail the biweekly consistency for l5
         self.assertAlmostEqual(LedgerUtils.biweekly_consistency_ratio(l5_cps), 1.0)
         self.assertLess(LedgerUtils.biweekly_consistency_penalty(l5_cps), 1.0)
-        self.assertAlmostEqual(LedgerUtils.biweekly_consistency_penalty(l5_cps), 0.0)
+        self.assertAlmostEqual(LedgerUtils.biweekly_consistency_penalty(l5_cps), 0.0,  places=6)
 
     def test_max_drawdown_threshold(self):
         l1 = generate_ledger(0.1, mdd=0.99)  # 1% drawdown

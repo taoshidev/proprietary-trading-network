@@ -80,12 +80,12 @@ class ValiConfig:
     # Consistency windowing
     DAILY_MS = 1000 * 60 * 60 * 24  # 1 day
     DAILY_CHECKPOINTS = DAILY_MS // TARGET_CHECKPOINT_DURATION_MS
-    DAILY_SIGMOID_SHIFT = 0.35
+    DAILY_SIGMOID_SHIFT = 0.45
     DAILY_SIGMOID_SPREAD = 35
 
     BIWEEKLY_MS = 1000 * 60 * 60 * 24 * 14  # two weeks
     BIWEEKLY_CHECKPOINTS = BIWEEKLY_MS // TARGET_CHECKPOINT_DURATION_MS
-    BIWEEKLY_SIGMOID_SHIFT = 0.5
+    BIWEEKLY_SIGMOID_SHIFT = 0.55
     BIWEEKLY_SIGMOID_SPREAD = 35
 
     MINIMUM_POSITION_DURATION_MS = 1 * 60 * 1000  # 1 minutes
@@ -119,8 +119,8 @@ class ValiConfig:
     CHALLENGE_PERIOD_RETURN = 1.02
     CHALLENGE_PERIOD_RETURN_LOG = math.log(CHALLENGE_PERIOD_RETURN)
     CHALLENGE_PERIOD_RETURN_PERCENTAGE = (CHALLENGE_PERIOD_RETURN - 1) * 100
-    CHALLENGE_PERIOD_MAX_POSITIONAL_RETURNS_RATIO = 0.25  # one position shouldn't be more than 25% of the total returns
-    CHALLENGE_PERIOD_MAX_UNREALIZED_RETURNS_RATIO = 0.20  # one day shouldn't be more than 20% of the total returns
+    CHALLENGE_PERIOD_MAX_POSITIONAL_RETURNS_RATIO = 0.35  # one position shouldn't be more than 35% of the total returns
+    CHALLENGE_PERIOD_MAX_UNREALIZED_RETURNS_RATIO = 0.40  # one day shouldn't be more than 40% of the total returns
     CHALLENGE_PERIOD_MAX_DRAWDOWN_PERCENT = 5  # beyond 5% drawdown, they don't pass challenge
     CHALLENGE_PERIOD_MIN_POSITIONS = 10  # need at least 10 positions to pass challenge
 
