@@ -632,14 +632,14 @@ class Validator:
                 if synapse.error_message:
                     return synapse
                 # gather open positions and see which trade pairs have an open position
-                trade_pair_to_open_position = {position.trade_pair: position for position in
-                                               self.position_manager.get_all_miner_positions(miner_hotkey,
-                                                                                             only_open_positions=True)}
+                positions = self.position_manager.get_all_miner_positions(miner_hotkey, only_open_positions=True)
+                trade_pair_to_open_position = {position.trade_pair: position for position in positions}
                 self._enforce_num_open_order_limit(trade_pair_to_open_position, signal_to_order)
                 open_position = self._get_or_create_open_position(signal_to_order, miner_hotkey, trade_pair_to_open_position, miner_order_uuid)
                 if open_position:
+                    net_portfolio_leverage = self.position_manager.calculate_net_portfolio_leverage(miner_hotkey)
                     self.enforce_order_cooldown(signal_to_order, open_position)
-                    open_position.add_order(signal_to_order)
+                    open_position.add_order(signal_to_order, net_portfolio_leverage)
                     self.position_manager.save_miner_position_to_disk(open_position)
                     bt.logging.info(
                         f"Position {open_position.trade_pair.trade_pair_id} for miner [{miner_hotkey}] updated.")

@@ -149,6 +149,8 @@ class ValiConfig:
     # Require at least this many successful checkpoints before building golden
     MIN_CHECKPOINTS_RECEIVED = 5
 
+    # Cap leverage across miner's entire portfolio
+    PORTFOLIO_LEVERAGE_CAP = 10
 
 assert ValiConfig.CRYPTO_MIN_LEVERAGE >= ValiConfig.ORDER_MIN_LEVERAGE
 assert ValiConfig.CRYPTO_MAX_LEVERAGE <= ValiConfig.ORDER_MAX_LEVERAGE
@@ -262,6 +264,13 @@ class TradePair(Enum):
     @property
     def is_indices(self):
         return self.trade_pair_category == TradePairCategory.INDICES
+
+    @property
+    def leverage_multiplier(self) -> int:
+        trade_pair_leverage_multiplier = {TradePairCategory.CRYPTO: 10,
+                                          TradePairCategory.FOREX: 1,
+                                          TradePairCategory.INDICES: 1}
+        return trade_pair_leverage_multiplier[self.trade_pair_category]
 
     @staticmethod
     def to_dict():

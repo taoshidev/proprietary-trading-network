@@ -1145,3 +1145,16 @@ class PositionManager(CacheController):
             f.write(str(x) + '\n')
 
         f.close()
+
+    def calculate_net_portfolio_leverage(self, hotkey: str) -> float:
+        """
+        Calculate leverage across all open positions
+        Normalize each asset class with a multiplier
+        """
+        positions = self.get_all_miner_positions(hotkey, only_open_positions=True)
+
+        portfolio_leverage = 0.0
+        for position in positions:
+            portfolio_leverage += abs(position.get_net_leverage()) * position.trade_pair.leverage_multiplier
+
+        return portfolio_leverage
