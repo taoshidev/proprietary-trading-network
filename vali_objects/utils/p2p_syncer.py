@@ -221,7 +221,7 @@ class P2PSyncer(ValidatorSyncBase):
         for validator_hotkey, checkpoint in valid_checkpoints.items():
             positions = checkpoint.get("positions", {})
             for miner_hotkey, miner_positions in positions.items():
-                if miner_counts[miner_hotkey] < positions_threshold:
+                if miner_counts[miner_hotkey] <= positions_threshold:
                     continue
 
                 # combinations where the position_uuid appears in the majority
