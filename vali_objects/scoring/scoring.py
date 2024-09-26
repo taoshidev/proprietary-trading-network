@@ -270,7 +270,7 @@ class Scoring:
         temperature = ValiConfig.SOFTMAX_TEMPERATURE
     
         if not returns:
-            bt.debug("No returns to score, returning empty list")
+            bt.logging.debug("No returns to score, returning empty list")
             return []
     
         if len(returns) == 1:
@@ -278,13 +278,13 @@ class Scoring:
             return [(returns[0][0], 1.0)]
     
         # Extract scores and apply softmax with temperature
-        scores = [score for _, score in returns]
+        scores = np.array([score for _, score in returns])
         max_score = np.max(scores)
         exp_scores = np.exp((scores - max_score) / temperature)
         softmax_scores = exp_scores / max(np.sum(exp_scores), epsilon)
     
         # Combine miners with their respective softmax scores
-        weighted_returns = [(returns[i][0], softmax_scores[i]) for i in range(len(returns))]
+        weighted_returns = [(miner, float(softmax_scores[i])) for i, (miner, _) in enumerate(returns)]
     
         return weighted_returns
 
