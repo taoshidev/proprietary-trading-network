@@ -96,7 +96,7 @@ The miners are scored in each of the categories above based on their prior posit
 
 For example, if a miner is last place in the long term realized returns category, they will receive a 0% score for this category. This will effectively reduce their score to 0, and they will be prioritized during the next round of deregistration.
 
-We distribute on an exponential decay, with the top 40% of miners receiving 90% of emissions.
+We distribute using a [softmax function](https://docs.taoshi.io/tips/p11/), with a target of the top 40% of miners receiving 90% of emissions. The softmax function dynamically adjusts to the scores of miners, distributing more incentive to relatively high-performing miners.
 
 # Mining Infrastructure
 

@@ -354,3 +354,30 @@ class TestWeights(TestBase):
         ]
 
         self.assertEqual(result, expected_result)
+    def test_no_miners_softmax(self):
+       """Test when there are no miners in the list"""
+       miner_scores = []
+       result = Scoring.softmax_scores(miner_scores)
+       self.assertEqual(result, [])
+
+    def test_one_miner_softmax(self):
+        """Test when there is only one miner in the list"""
+        miner_scores = [("miner1", 10.0)]
+        result = Scoring.softmax_scores(miner_scores)
+        self.assertEqual(result, [("miner1", 1.0)])
+
+    def test_ordering_softmax(self):
+        returns = [("miner1", 10.0), ("miner2", 5.0), ("miner3", 1.0), ("miner4", 15.0)]
+        result = Scoring.softmax_scores(returns)
+        
+        #Sort the list by order of softmax output values
+        result.sort(key=lambda x: x[1])
+        ordered_keys = [s[0] for s in result]
+        self.assertEqual(ordered_keys, ["miner3", "miner2", "miner1", "miner4"])
+
+    def test_sum_to_one_softmax(self):
+
+        returns = [("miner1", 10.0), ("miner2", 5.0), ("miner3", 1.0), ("miner4", 15.0),("miner5", 15.0)]
+        result = Scoring.softmax_scores(returns)
+        values = [v[1] for v in result]
+        self.assertAlmostEqual(sum(values), 1.0, places=3)
