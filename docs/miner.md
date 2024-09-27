@@ -318,6 +318,8 @@ Each miner also fetches and displays its own positions and stats through a dashb
 
 The miner starts a local server on port `41511` by default, which can be specified using the `--dashboard_port` flag.
 
+If you are running the miner on a different machine than the dashboard, you may need to specify the address of the machine running the dashboard using the `--dashboard_origin` flag to allow access.
+
 # Issues?
 
 If you are running into issues, please run with `--logging.debug` and `--logging.trace` set so you can better analyze why your miner isn't running.

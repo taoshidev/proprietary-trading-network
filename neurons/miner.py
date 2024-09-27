@@ -37,7 +37,7 @@ class Miner:
         self.position_inspector_thread.start()
         # Start the dashboard in its own thread
         try:
-            self.dashboard = Dashboard(self.wallet, self.metagraph, self.config, self.is_testnet, self.config.dashboard_port)
+            self.dashboard = Dashboard(self.wallet, self.metagraph, self.config, self.is_testnet, self.config.dashboard_port, self.config.dashboard_origin)
             self.dashboard_thread = threading.Thread(target=self.dashboard.run, daemon=True)
             self.dashboard_thread.start()
         except OSError as e:
@@ -117,6 +117,13 @@ class Miner:
             type=int,
             default=MinerConfig.DASHBOARD_PORT,
             help='Uvicorn dashboard server port number (default: 41511)'
+        )
+        # add CORS origin
+        parser.add_argument(
+            '--dashboard_origin',
+            type=str,
+            default="",
+            help='CORS origin (default: http://localhost)'
         )
 
         # Parse the config (will take command-line arguments if provided)

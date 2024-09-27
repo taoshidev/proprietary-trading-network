@@ -16,7 +16,7 @@ origins = [
 ]
 
 class Dashboard:
-    def __init__(self, wallet, metagraph, config, is_testnet, port=MinerConfig.DASHBOARD_PORT):
+    def __init__(self, wallet, metagraph, config, is_testnet, port=MinerConfig.DASHBOARD_PORT, origin=""):
         self.wallet = wallet
         self.metagraph = metagraph
         self.config = config
@@ -27,10 +27,12 @@ class Dashboard:
         self.dash_rate_limiter = RateLimiter(max_requests_per_window=1, rate_limit_window_duration_seconds=60)
 
         self.app = FastAPI()
-        self._add_cors_middleware()
+        self._add_cors_middleware(origin)
         self._setup_routes()
 
-    def _add_cors_middleware(self):
+    def _add_cors_middleware(self, origin):
+        if origin:
+            origins.append(origin)
         # Set up CORS middleware
         self.app.add_middleware(
             CORSMiddleware,
