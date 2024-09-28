@@ -334,7 +334,7 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
             challengeperiod_positions_target = ValiConfig.CHALLENGE_PERIOD_MIN_POSITIONS
             challengeperiod_positions_passing = bool(challengeperiod_positions_length >= challengeperiod_positions_target)
 
-            challengeperiod_return_ratio = positional_realized_returns_ratios.get(miner_id)
+            challengeperiod_return_ratio = positional_realized_returns_ratios.get(miner_id, 1.0)
             challengeperiod_return_ratio_target = ValiConfig.CHALLENGE_PERIOD_MAX_POSITIONAL_RETURNS_RATIO
             challengeperiod_return_ratio_passing = bool(challengeperiod_return_ratio < challengeperiod_return_ratio_target)
 
