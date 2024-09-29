@@ -9,7 +9,6 @@ import threading
 import traceback
 import time
 import bittensor as bt
-import logging as stdlogging
 
 from miner_config import MinerConfig
 from miner_objects.dashboard import Dashboard
@@ -131,7 +130,6 @@ class Miner:
         # To print help message, run python3 template/miner.py --help
         config = bt.config(parser)
         bt.logging.enable_default()
-        bt.logging._logger.setLevel(stdlogging.INFO)  # because default level changed to WARNING
         if config.logging.debug:
             bt.logging.enable_debug()
         if config.logging.trace:

@@ -16,7 +16,6 @@ import argparse
 import traceback
 import time
 import bittensor as bt
-import logging as stdlogging
 import json
 import gzip
 import base64
@@ -351,7 +350,6 @@ class Validator:
         # To print help message, run python3 template/miner.py --help
         config = bt.config(parser)
         bt.logging.enable_default()
-        bt.logging._logger.setLevel(stdlogging.INFO)  # because default level changed to WARNING
         if config.logging.debug:
             bt.logging.enable_debug()
         if config.logging.trace:
