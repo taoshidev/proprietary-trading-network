@@ -280,7 +280,7 @@ class TestChallengePeriodIntegration(TestBase):
         self.assertEqual(ledgers.get(self.DEFAULT_MINER_HOTKEY, len(PerfLedgerData().cps)), 0)
 
         # Check the failing criteria initially
-        failing_criteria = self.challengeperiod_manager.screen_failing_criteria(
+        failing_criteria, _ = self.challengeperiod_manager.screen_failing_criteria(
             ledger_element=ledgers.get(self.DEFAULT_MINER_HOTKEY)
         )
 
@@ -352,7 +352,7 @@ class TestChallengePeriodIntegration(TestBase):
 
         # Check one of the failing miners, to see if they are screened
         failing_miner = self.FAILING_MINER_NAMES[0]
-        failing_screen = self.challengeperiod_manager.screen_failing_criteria(
+        failing_screen, _ = self.challengeperiod_manager.screen_failing_criteria(
             ledger_element=self.LEDGERS[failing_miner]
         )
 

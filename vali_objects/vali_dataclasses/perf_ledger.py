@@ -414,7 +414,7 @@ class PerfLedgerManager(CacheController):
             except Exception as e:
                 # Handle exceptions or log errors
                 bt.logging.error(f"Error during perf ledger update: {e}. Please alert a team member ASAP!")
-                bt.logging.error(traceback.format_exc()[1000:])
+                bt.logging.error(traceback.format_exc())
                 time.sleep(30)
             time.sleep(1)
 
