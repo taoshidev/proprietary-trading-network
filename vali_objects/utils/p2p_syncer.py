@@ -204,101 +204,106 @@ class P2PSyncer(ValidatorSyncBase):
         positions_matrix = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))  # {miner hotkey: {trade pair: {validator hotkey: [all positions on validator]}}}
         orders_matrix = defaultdict(lambda: defaultdict(list))                          # {position_uuid: {validator hotkey: [all orders on validator]}}
 
+        position_validators = defaultdict(set)                  # {position_uuid: {validator hotkeys}}
+        order_validators = defaultdict(set)                     # {order_uuid: {validator hotkeys}}
+
         # parse each checkpoint to count occurrences of each position and order
         for hotkey, checkpoint in valid_checkpoints.items():
-            self.parse_checkpoint_positions(hotkey, checkpoint, position_counts, order_counts, order_data, miner_to_uuids, miner_counts, positions_matrix, orders_matrix)
+            self.parse_checkpoint_positions(hotkey, checkpoint, position_counts, order_counts, order_data, miner_to_uuids, miner_counts, positions_matrix, orders_matrix, position_validators, order_validators)
         self.prune_position_orders(order_counts, orders_matrix)
 
         # miners who are still running legacy code. do not want to include them in checkpoint
         self.find_legacy_miners(len(valid_checkpoints), order_counts, miner_to_uuids, position_counts, order_data)
 
         # get the set of position_uuids that appear in the majority of checkpoints
-        positions_threshold = self.consensus_threshold(len(valid_checkpoints))
-        majority_positions = {position_uuid for position_uuid, count in position_counts.items() if count > positions_threshold}
+        threshold = self.consensus_threshold(len(valid_checkpoints))
         seen_positions = set()
         seen_orders = set()
 
         for validator_hotkey, checkpoint in valid_checkpoints.items():
             positions = checkpoint.get("positions", {})
             for miner_hotkey, miner_positions in positions.items():
-                if miner_counts[miner_hotkey] <= positions_threshold:
+                if miner_counts[miner_hotkey] <= threshold:
                     continue
+                matched_positions = self.construct_common_positions(miner_positions, seen_positions, seen_orders, order_data, orders_matrix, positions_matrix, validator_hotkey, threshold, position_validators, order_validators)
+                golden_positions[miner_hotkey]["positions"].extend(matched_positions)
 
-                # combinations where the position_uuid appears in the majority
-                uuid_matched_positions = self.construct_positions_uuid_in_majority(miner_positions, majority_positions, seen_positions, seen_orders, position_counts, order_counts, order_data, orders_matrix, validator_hotkey)
-                golden_positions[miner_hotkey]["positions"].extend(uuid_matched_positions)
-
-        # combinations where the position_uuid does not appear in the majority, instead we use a heuristic match to combine positions
-        for position in self.heuristic_resolve_positions(positions_matrix, len(valid_checkpoints), seen_positions):
-            bt.logging.info(f"Position {position['position_uuid']} on miner {position['miner_hotkey']} matched, adding back in")
-            miner_hotkey = position["miner_hotkey"]
-            golden_positions[miner_hotkey]["positions"].append(position)
-
-        # convert defaultdict to dict
+        # convert to dict
         return {miner: dict(golden_positions[miner]) for miner in golden_positions}
 
-
-    def construct_positions_uuid_in_majority(self, miner_positions: dict, majority_positions: Set[str], seen_positions: Set[str], seen_orders: Set[str], position_counts: dict, order_counts: dict, order_data: dict, orders_matrix: dict, validator_hotkey: str) -> List[dict]:
+    def construct_common_positions(self, miner_positions: dict, seen_positions: Set[str], seen_orders: Set[str], order_data: dict, orders_matrix: dict, positions_matrix: dict, validator_hotkey: str, threshold: int, position_validators: dict, order_validators: dict) -> List[dict]:
         """
-        return the positions to add to golden, when the position_uuid appears in the majority of checkpoints.
+        return the positions to add to golden, by attempting to match each position up with others.
         construct each position from its orders. if the order appears in the majority then it is taken, otherwise
         the order is attempted to be matched to other orders using a heuristic.
 
-        position_counts = defaultdict(int)                      # {position_uuid: count}
-        order_counts = defaultdict(lambda: defaultdict(int))    # {position_uuid: {order_uuid: count}}
         order_data = defaultdict(list)                          # {order_uuid: [{order}]}
 
+        positions_matrix = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))  # {miner hotkey: {trade pair: {validator hotkey: [all positions on validator]}}}
         orders_matrix = defaultdict(lambda: defaultdict(list))  # {position_uuid: {validator hotkey: [all orders on validator]}}
         """
         uuid_matched_positions = []
         resolved_orders = set()  # separate from seen_orders, because we want to be able to match with seen orders
+        resolved_positions = set()
 
         for position in miner_positions["positions"]:
             position_uuid = position["position_uuid"]
-            # position exists on majority of validators
-            if position_uuid in majority_positions and position_uuid not in seen_positions:
-                seen_positions.add(position_uuid)
-                new_position = Position(**position)
-                new_position.orders = []
+            miner_hotkey = position["miner_hotkey"]
+            trade_pair_id = position["trade_pair"][0]
 
-                # get the set of order_uuids that appear in the majority of positions for a position_uuid
-                orders_threshold = self.consensus_threshold(position_counts[position_uuid])
-                majority_orders = {order_uuid for order_uuid, count in order_counts[position_uuid].items() if count > orders_threshold}
+            if position_uuid not in seen_positions:
+                # find all matches for a position
+                matched_positions = self.find_matching_positions(position, positions_matrix[miner_hotkey][trade_pair_id], resolved_positions, validator_hotkey, position_validators)
+                matched_position_uuids = [p["position_uuid"] for p in matched_positions]
+                matched_position_uuids_set = set(matched_position_uuids)
+                # see if some positions are heuristically matched
+                if len(matched_position_uuids_set) != 1:
+                    bt.logging.info(f"Positions matched for miner {miner_hotkey}: {matched_position_uuids}")
 
-                for order_uuid in order_counts[position_uuid].keys():
-                    if order_uuid not in seen_orders:
-                        # combinations where the order_uuid appears in the majority
-                        if order_uuid in majority_orders:
-                            orders = order_data[order_uuid]
-                        # combinations where the order_uuid does not appear in the majority, instead we use a heuristic to combine orders
-                        else:
-                            orders = self.find_matching_orders(order_data[order_uuid][0], orders_matrix[position_uuid], resolved_orders)
-                            # order has matched with another order that has already been inserted
-                            if not set([o["order_uuid"] for o in orders]).isdisjoint(seen_orders):
-                                seen_orders.update([o["order_uuid"] for o in orders])
-                                continue
+                # ensure that we have not previously encountered/added this position or its matches
+                if len(matched_positions) > threshold and matched_position_uuids_set.isdisjoint(seen_positions):
+                    new_position = Position(**position)
+                    new_position.orders = []
 
-                            if len(orders) > self.consensus_threshold(position_counts[position_uuid]):
-                                bt.logging.info(f"Order {order_uuid} with Position {position_uuid} on miner {position['miner_hotkey']} matched with {[o['order_uuid'] for o in orders]}, adding back in")
-                            else:
-                                bt.logging.info(f"Order {order_uuid} with Position {position_uuid} only matched [{len(orders)}/{position_counts[position_uuid]}] times on miner {position['miner_hotkey']} with with {[o['order_uuid'] for o in orders]}. Skipping")
-                                continue
+                    # get all the orders that appear in these positions
+                    orders_in_matched_positions = set()
+                    # all the validators and orders for the positions
+                    matched_positions_orders_matrix = defaultdict(list)
+                    for p in matched_positions:
+                        orders_in_matched_positions.update([o["order_uuid"] for o in p["orders"]])
+                        matched_positions_orders_matrix.update(orders_matrix[p["position_uuid"]])
 
-                        trade_pair = TradePair.from_trade_pair_id(position["trade_pair"][0])
-                        median_order = self.get_median_order(orders, trade_pair)
-                        new_position.orders.append(median_order)
-                        seen_orders.update([o["order_uuid"] for o in orders])
+                    # find all the common orders
+                    for order_uuid in orders_in_matched_positions:
+                        if order_uuid not in seen_orders:
+                            matched_orders = self.find_matching_orders(order_data[order_uuid][0], matched_positions_orders_matrix, resolved_orders, order_validators)
+                            matched_order_uuids = [o["order_uuid"] for o in matched_orders]
+                            matched_order_uuids_set = set(matched_order_uuids)
+                            # see if some orders are heuristically matched
+                            if len(matched_order_uuids_set) != 1:
+                                bt.logging.info(f"Orders matched for miner {miner_hotkey}: {matched_order_uuids}, across positions: {matched_position_uuids}")
 
-                new_position.orders.sort(key=lambda o: o.processed_ms)
-                try:
-                    new_position.rebuild_position_with_updated_orders()
-                    position_dict = json.loads(new_position.to_json_string())
-                    uuid_matched_positions.append(position_dict)
-                except ValueError as v:
-                    bt.logging.info(f"Miner [{new_position.miner_hotkey}] Position [{new_position.position_uuid}] Orders {[o.order_uuid for o in new_position.orders]} ValueError {v}")
+                            # ensure that we have not previously encountered/added this order or its matches
+                            if len(matched_orders) > threshold and matched_order_uuids_set.isdisjoint(seen_orders):
+                                # add an order to position
+                                trade_pair = TradePair.from_trade_pair_id(trade_pair_id)
+                                median_order = self.get_median_order(matched_orders, trade_pair)
+                                new_position.orders.append(median_order)
+                            # add to seen orders
+                            seen_orders.update(matched_order_uuids_set)
+                    # sort orders by processed time
+                    new_position.orders.sort(key=lambda o: o.processed_ms)
+                    try:
+                        new_position.rebuild_position_with_updated_orders()
+                        position_dict = json.loads(new_position.to_json_string())
+                        uuid_matched_positions.append(position_dict)
+                    except ValueError as v:
+                        bt.logging.info(f"Miner [{new_position.miner_hotkey}] Position [{new_position.position_uuid}] Orders {[o.order_uuid for o in new_position.orders]} ValueError {v}")
+                # add to seen positions
+                seen_positions.update(matched_position_uuids_set)
         return uuid_matched_positions
 
-    def find_matching_orders(self, order: dict, validator_to_orders: dict, resolved_orders: Set[str]) -> List[dict] | None:
+    def find_matching_orders(self, order: dict, validator_to_orders: dict, resolved_orders: Set[str], order_validators: dict) -> List[dict] | None:
         """
         compare an order to all other orders associated with a position, and find all the matches using a heuristic.
         sort matches by order_uuid.
@@ -312,6 +317,10 @@ class P2PSyncer(ValidatorSyncBase):
         for validator_hotkey, order_list in validator_to_orders.items():
             for o in order_list:
                 if o["order_uuid"] in resolved_orders:
+                    continue
+
+                # if 2 orders order and o appear under the same checkpoint, they must be distinct and cannot match.
+                if o["order_uuid"] != order["order_uuid"] and not order_validators[order["order_uuid"]].isdisjoint(order_validators[o["order_uuid"]]):
                     continue
 
                 # orders must have the same order_uuid or same leverage, order_type, and processed_ms
@@ -353,7 +362,7 @@ class P2PSyncer(ValidatorSyncBase):
                     latest_order_ms = max(latest_order_ms, order["processed_ms"])
         return latest_order_ms
 
-    def parse_checkpoint_positions(self, validator_hotkey: str, checkpoint: dict, position_counts: dict, order_counts: dict, order_data: dict, miner_to_uuids: dict, miner_counts: dict, positions_matrix: dict, orders_matrix: dict):
+    def parse_checkpoint_positions(self, validator_hotkey: str, checkpoint: dict, position_counts: dict, order_counts: dict, order_data: dict, miner_to_uuids: dict, miner_counts: dict, positions_matrix: dict, orders_matrix: dict, position_validators: dict, order_validators: dict):
         """
         parse checkpoint data
 
@@ -365,6 +374,9 @@ class P2PSyncer(ValidatorSyncBase):
 
         positions_matrix = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))  # {miner hotkey: {trade pair: {validator hotkey: [all positions on validator]}}}
         orders_matrix = defaultdict(lambda: defaultdict(list))                          # {position_uuid: {validator_hotkey: [all orders]}}
+
+        position_validators = defaultdict(set)                  # {position_uuid: [validator hotkeys]}
+        order_validators = defaultdict(set)                     # {order_uuid: [validator hotkeys]}
         """
         # get positions for each miner
         positions = checkpoint.get("positions", {})
@@ -382,9 +394,11 @@ class P2PSyncer(ValidatorSyncBase):
                     order_data[order_uuid].append(dict(order))
                     miner_to_uuids[miner_hotkey]["orders"].add(order_uuid)
                     orders_matrix[position_uuid][validator_hotkey].append(order)
+                    order_validators[order_uuid].add(validator_hotkey)
 
                 orders_matrix[position_uuid][validator_hotkey].sort(key=lambda o: o["processed_ms"])
                 positions_matrix[miner_hotkey][position["trade_pair"][0]][validator_hotkey].append(position)
+                position_validators[position_uuid].add(validator_hotkey)
 
     def prune_position_orders(self, order_counts: dict, orders_matrix: dict):
         """
@@ -455,45 +469,7 @@ class P2PSyncer(ValidatorSyncBase):
         bt.logging.info(f"legacy_miner_candidates: {legacy_miner_candidates}")
         return legacy_miners
 
-    def heuristic_resolve_positions(self, positions_matrix: dict, num_checkpoints: int, seen_positions: set) -> List[dict]:
-        """
-        takes a matrix of unmatched positions, and returns a list of positions to add back in
-        positions_matrix: {miner hotkey: {trade pair: {validator hotkey: [all positions on validator]}}}
-        """
-        resolved_position_uuids = set()
-
-        matched_positions = []
-        # want to resolve all the unmatched positions for the validators against each other
-        for miner_hotkey, trade_pairs in positions_matrix.items():
-            for trade_pair, validator in trade_pairs.items():
-                for validator_hotkey, position_list in validator.items():
-                    for position in position_list:
-                        if position["position_uuid"] in seen_positions:
-                            continue
-                        matches = self.find_matching_positions(position, trade_pairs[trade_pair], resolved_position_uuids, validator_hotkey)
-
-                        if (len(matches) > self.consensus_threshold(num_checkpoints) and
-                                set([match["position_uuid"] for match in matches]).isdisjoint(seen_positions)):
-                            # median number of orders for matched positions
-                            median_order_count = len(matches[len(matches) // 2]["orders"])
-                            # greatest common number of orders by 2 or more positions
-                            max_common_order_count = 0
-                            for i in range(len(matches)-1):
-                                if len(matches[i]["orders"]) == len(matches[i+1]["orders"]):
-                                    max_common_order_count = len(matches[i]["orders"])
-                                    break
-                            goal_order_count = max(median_order_count, max_common_order_count)
-
-                            matches_with_goal_order_count = [p for p in matches if len(p["orders"]) == goal_order_count]
-                            bt.logging.info(f"Miner hotkey {miner_hotkey} has matches {[p['position_uuid'] for p in matches]}. goal_order_count: {goal_order_count}. matches_with_goal_order_count: {[p['position_uuid'] for p in matches_with_goal_order_count]}.")
-                            matched_positions.append(matches_with_goal_order_count[0])
-                        else:
-                            bt.logging.info(f"Position {position['position_uuid']} only matched [{len(matches)}/{num_checkpoints}] times on miner {position['miner_hotkey']} with matches {[p['position_uuid'] for p in matches]}. Skipping")
-
-                        seen_positions.update([p["position_uuid"] for p in matches])
-        return matched_positions
-
-    def find_matching_positions(self, position: dict, trade_pair_validator_positions: dict, resolved_positions: set, corresponding_validator_hotkey: str) -> List[dict]:
+    def find_matching_positions(self, position: dict, trade_pair_validator_positions: dict, resolved_positions: set, corresponding_validator_hotkey: str, position_validators: dict) -> List[dict]:
         """
         compares a position from corresponding_validator_hotkey to all other positions with matching trade pair from all the other validators.
         positions are matched with a heuristic, and returned in a list sorted by number of orders then position_uuid
@@ -516,6 +492,10 @@ class P2PSyncer(ValidatorSyncBase):
 
             for p in position_list:
                 if p["position_uuid"] in resolved_positions:
+                    continue
+
+                # if 2 positions position and p appear under the same checkpoint, they must be distinct and cannot match.
+                if p["position_uuid"] != position["position_uuid"] and not position_validators[p["position_uuid"]].isdisjoint(position_validators[position["position_uuid"]]):
                     continue
 
                 # positions have same position_type, # of orders, and open/close_ms times

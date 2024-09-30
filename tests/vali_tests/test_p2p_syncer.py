@@ -361,6 +361,7 @@ class TestPositions(TestBase):
         orders = [order0]
         position1 = deepcopy(self.default_position)
         position1.position_uuid = "test_position2"
+        position1.miner_hotkey = "diff_miner"
         position1.orders = orders
         position1.rebuild_position_with_updated_orders()
 
@@ -430,51 +431,6 @@ class TestPositions(TestBase):
         assert len(self.p2p_syncer.golden["positions"]) == 1
         assert len(self.p2p_syncer.golden["positions"][self.DEFAULT_MINER_HOTKEY]["positions"]) == 1
         assert len(self.p2p_syncer.golden["positions"][self.DEFAULT_MINER_HOTKEY]["positions"][0]["orders"]) == 1
-
-    def test_heuristic_resolve_positions(self):
-        order1 = deepcopy(self.default_order)
-        order1.order_uuid = "test_order1"
-        order1.processed_ms = 100
-        orders = [order1]
-        position1 = deepcopy(self.default_position)
-        position1.position_uuid = "test_position1"
-        position1.orders = orders
-        position1.rebuild_position_with_updated_orders()
-
-        order2 = deepcopy(self.default_order)
-        order2.order_uuid = "test_order2"
-        order2.processed_ms = 110
-        orders = [order2]
-        position2 = deepcopy(self.default_position)
-        position2.position_uuid = "test_position2"
-        position2.orders = orders
-        position2.rebuild_position_with_updated_orders()
-
-        order3 = deepcopy(self.default_order)
-        order3.order_uuid = "test_order3"
-        order3.processed_ms = 90
-        orders = [order3]
-        position3 = deepcopy(self.default_position)
-        position3.position_uuid = "test_position3"
-        position3.orders = orders
-        position3.rebuild_position_with_updated_orders()
-
-        order4 = deepcopy(self.default_order)
-        order4.order_uuid = "test_order4"
-        order4.processed_ms = TimeUtil.now_in_millis() - 1000 * 60 * 10
-        orders = [order4]
-        position4 = deepcopy(self.default_position)
-        position4.position_uuid = "test_position4"
-        position4.orders = orders
-        position4.rebuild_position_with_updated_orders()
-
-        matrix = {'miner_hotkey_1': {self.DEFAULT_TRADE_PAIR: {'validator_hotkey_1': [json.loads(position1.to_json_string())], 'validator_hotkey_2': [json.loads(position2.to_json_string())]}},
-                  'miner_hotkey_2': {self.DEFAULT_TRADE_PAIR: {'validator_hotkey_3': [json.loads(position3.to_json_string())], 'validator_hotkey_4': [json.loads(position4.to_json_string())]}}}
-
-        matched_positions = self.p2p_syncer.heuristic_resolve_positions(matrix, 2, set())
-
-        assert len(matched_positions) == 1
-        assert matched_positions[0]["position_uuid"] == "test_position1"
 
     def test_checkpoint_last_order_time(self):
         order1 = deepcopy(self.default_order)
