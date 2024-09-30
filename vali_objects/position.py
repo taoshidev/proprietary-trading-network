@@ -300,16 +300,18 @@ class Position(BaseModel):
         ]
         bt.logging.debug(f"position order details: " f"close_ms [{order_info}] ")
 
-    def add_order(self, order: Order, net_portfolio_leverage: float=0.0):
+    def add_order(self, order: Order, net_portfolio_leverage: float=0.0) -> bool:
         """
         Add an order to a position, and adjust its leverage to stay within
         the trade pair max and portfolio max.
+
+        Returns true if order is added successfully.
         """
         if self.is_closed_position:
             logging.warning(
                 "Miner attempted to add order to a closed/liquidated position. Ignoring."
             )
-            return
+            return False
         if order.trade_pair != self.trade_pair:
             raise ValueError(
                 f"Order trade pair [{order.trade_pair}] does not match position trade pair [{self.trade_pair}]"
@@ -331,9 +333,10 @@ class Position(BaseModel):
                 else:
                     logging.warning(f"Miner {self.miner_hotkey} attempted to go below min leverage {self.trade_pair.min_leverage} for trade pair "
                                     f"{self.trade_pair.trade_pair_id}. Ignoring order.")
-            return
+            return False
         self.orders.append(order)
         self._update_position()
+        return True
 
     def calculate_unrealized_pnl(self, current_price):
         if self.initial_entry_price == 0 or self.average_entry_price is None:
