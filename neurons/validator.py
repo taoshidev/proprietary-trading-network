@@ -647,12 +647,12 @@ class Validator:
                 if open_position:
                     net_portfolio_leverage = self.position_manager.calculate_net_portfolio_leverage(miner_hotkey)
                     self.enforce_order_cooldown(signal_to_order, open_position)
-                    if open_position.add_order(signal_to_order, net_portfolio_leverage):
-                        self.position_manager.save_miner_position_to_disk(open_position)
-                        bt.logging.info(
-                            f"Position {open_position.trade_pair.trade_pair_id} for miner [{miner_hotkey}] updated.")
-                        # Log the open position for the miner
-                        open_position.log_position_status()
+                    open_position.add_order(signal_to_order, net_portfolio_leverage)
+                    self.position_manager.save_miner_position_to_disk(open_position)
+                    bt.logging.info(
+                        f"Position {open_position.trade_pair.trade_pair_id} for miner [{miner_hotkey}] updated.")
+                    # Log the open position for the miner
+                    open_position.log_position_status()
                     if miner_order_uuid:
                         self.uuid_tracker.add(miner_order_uuid)
                 else:

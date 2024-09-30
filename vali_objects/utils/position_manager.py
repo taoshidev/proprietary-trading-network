@@ -269,7 +269,7 @@ class PositionManager(CacheController):
 
           5/30/24 - duplicate order bug. miner.py script updated.
 
-          5.31.24 - validator outage due to twlevedata thread error. add position if not exists.
+          5.31.24 - validator outage due to twelvedata thread error. add position if not exists.
 
         """
 
