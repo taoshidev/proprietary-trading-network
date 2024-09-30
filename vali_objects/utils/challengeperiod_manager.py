@@ -151,13 +151,15 @@ class ChallengePeriodManager(CacheController):
             if not passing_criteria:
                 if not time_criteria:
                     # If the miner registers, never interacts
+                    bt.logging.info(f'Hotkey {hotkey} has no positions or ledger, and has not interacted since registration. cp_failed')
                     failing_miners.append(hotkey)
 
                 continue  # Moving on, as the miner is already failing
 
             # This step we want to check their failure criteria. If they fail, we can move on.
-            failing_criteria = ChallengePeriodManager.screen_failing_criteria(ledger_element=ledger[hotkey])
+            failing_criteria, recorded_drawdown_percentage = ChallengePeriodManager.screen_failing_criteria(ledger_element=ledger[hotkey])
             if failing_criteria:
+                bt.logging.info(f'Hotkey {hotkey} has failed the challenge period due to drawdown {recorded_drawdown_percentage}. cp_failed')
                 failing_miners.append(hotkey)
                 continue
 
@@ -176,6 +178,7 @@ class ChallengePeriodManager(CacheController):
 
             # If their time is ever up, they fail
             if not time_criteria:
+                bt.logging.info(f'Hotkey {hotkey} has failed the challenge period due to time. cp_failed')
                 failing_miners.append(hotkey)
                 continue
 
@@ -255,15 +258,15 @@ class ChallengePeriodManager(CacheController):
     @staticmethod
     def screen_failing_criteria(
         ledger_element: PerfLedgerData
-    ) -> bool:
+    ) -> (bool, float):
         """
         Runs a screening process to eliminate miners who didn't pass the challenge period. Returns True if they fail.
         """
         if ledger_element is None:
-            return False
+            return False, 0
 
         if len(ledger_element.cps) == 0:
-            return False
+            return False, 0
 
         maximum_drawdown_percent = ValiConfig.CHALLENGE_PERIOD_MAX_DRAWDOWN_PERCENT
 
@@ -273,5 +276,5 @@ class ChallengePeriodManager(CacheController):
         # Drawdown is less than our maximum permitted drawdown
         max_drawdown_criteria = recorded_drawdown_percentage >= maximum_drawdown_percent
 
-        return max_drawdown_criteria
+        return max_drawdown_criteria, recorded_drawdown_percentage
 

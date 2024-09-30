@@ -417,7 +417,12 @@ class CacheController:
 
         for file_name, position in zip(all_files, positions):
             if position_uuid_to_count[position.position_uuid] > 1:
-                bt.logging.info(f"Exorcising position from disk: {file_name} {position}")
+                bt.logging.info(f"Exorcising position from disk due to duplicate position uuid: {file_name} {position}")
+                os.remove(file_name)
+                continue
+
+            elif not position.orders:
+                bt.logging.info(f"Exorcising position from disk due to no orders: {file_name} {position.to_dict()}")
                 os.remove(file_name)
                 continue
 
