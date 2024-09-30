@@ -381,6 +381,8 @@ class CacheController:
         try:
             file_string = ValiBkpUtils.get_file(file)
             ans = Position.model_validate_json(file_string)
+            if not ans.orders:
+                bt.logging.warning(f"Anomalous position has no orders: {ans.to_dict()}. Ignoring.")
             return ans
         except FileNotFoundError:
             raise ValiFileMissingException(f"Vali position file is missing {file}")
