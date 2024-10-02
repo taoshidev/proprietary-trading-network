@@ -274,8 +274,6 @@ class ValidatorSyncBase():
         return False
 
     def dict_positions_aligned(self, p1, p2, timebound_ms=None, validate_num_orders=False):
-        if p1["position_uuid"] == p2["position_uuid"]:
-            return True
         p1_initial_position_type = p1["orders"][0]["order_type"]
         p2_initial_position_type = p2["orders"][0]["order_type"]
         if validate_num_orders and len(p1["orders"]) != len(p2["orders"]):
