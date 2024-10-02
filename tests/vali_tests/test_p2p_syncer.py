@@ -199,6 +199,10 @@ class TestPositions(TestBase):
         assert len(self.p2p_syncer.golden["positions"][self.DEFAULT_MINER_HOTKEY]["positions"][0]["orders"]) == 2
 
     def test_checkpoint_syncing_order_not_in_majority_with_multiple_positions(self):
+        """
+        position 1 has order 1 and 2 in the majority, order 0 heuristic matches with 1 so it is not an additional order
+        position 2, order 3 and 4 heuristic match together
+        """
         order1 = deepcopy(self.default_order)
         order1.order_uuid = "test_order1"
         order2 = deepcopy(self.default_order)
@@ -253,7 +257,7 @@ class TestPositions(TestBase):
 
         assert len(self.p2p_syncer.golden["positions"][self.DEFAULT_MINER_HOTKEY]["positions"]) == 2
         assert len(self.p2p_syncer.golden["positions"][self.DEFAULT_MINER_HOTKEY]["positions"][0]["orders"]) == 2
-        assert len(self.p2p_syncer.golden["positions"][self.DEFAULT_MINER_HOTKEY]["positions"][1]["orders"]) == 2
+        assert len(self.p2p_syncer.golden["positions"][self.DEFAULT_MINER_HOTKEY]["positions"][1]["orders"]) == 1
 
     def test_checkpoint_syncing_position_not_in_majority(self):
         order1 = deepcopy(self.default_order)
@@ -341,6 +345,9 @@ class TestPositions(TestBase):
         assert len(self.p2p_syncer.golden["positions"][self.DEFAULT_MINER_HOTKEY]["positions"][0]["orders"]) == 1
 
     def test_checkpoint_syncing_multiple_miners(self):
+        """
+        miners included as long as they appear in majority of checkpoints
+        """
         order1 = deepcopy(self.default_order)
         order1.order_uuid = "test_order1"
         orders = [order1]
@@ -349,19 +356,20 @@ class TestPositions(TestBase):
         position.orders = orders
         position.rebuild_position_with_updated_orders()
 
-        checkpoint1 = {"positions": {self.DEFAULT_MINER_HOTKEY: {"positions": [json.loads(position.to_json_string())]}}}
-        checkpoint2 = {"positions": {self.DEFAULT_MINER_HOTKEY: {"positions": [json.loads(position.to_json_string())]}}}
-
         order0 = deepcopy(self.default_order)
         order0.order_uuid = "test_order0"
         orders = [order0]
-        position = deepcopy(self.default_position)
-        position.position_uuid = "test_position2"
-        position.orders = orders
-        position.rebuild_position_with_updated_orders()
+        position1 = deepcopy(self.default_position)
+        position1.position_uuid = "test_position2"
+        position1.orders = orders
+        position1.rebuild_position_with_updated_orders()
 
-        checkpoint3 = {"positions": {"diff_miner": {"positions": [json.loads(position.to_json_string())]}}}
-        checkpoint4 = {"positions": {"diff_miner": {"positions": [json.loads(position.to_json_string())]}}}
+        checkpoint1 = {"positions": {self.DEFAULT_MINER_HOTKEY: {"positions": [json.loads(position.to_json_string())]}}}
+        checkpoint2 = {"positions": {self.DEFAULT_MINER_HOTKEY: {"positions": [json.loads(position.to_json_string())]},
+                                     "diff_miner": {"positions": [json.loads(position1.to_json_string())]}}}
+
+        checkpoint3 = {"positions": {"diff_miner": {"positions": [json.loads(position1.to_json_string())]}}}
+        checkpoint4 = {"positions": {"diff_miner": {"positions": [json.loads(position1.to_json_string())]}, self.DEFAULT_MINER_HOTKEY: {"positions": [json.loads(position.to_json_string())]}}}
 
         checkpoints = {"test_validator1": [0, checkpoint1], "test_validator2": [0, checkpoint2],
                        "test_validator3": [0, checkpoint3], "test_validator4": [0, checkpoint4]}
@@ -380,6 +388,9 @@ class TestPositions(TestBase):
         pass
 
     def test_checkpoint_syncing_miner_not_in_majority(self):
+        """
+        if the miner does not appear in the majority of checkpoints it will not be included
+        """
         order1 = deepcopy(self.default_order)
         order1.order_uuid = "test_order1"
         orders = [order1]
