@@ -53,8 +53,8 @@ There are four primary penalties in place for each miner:
 
 1. **Max Positional Return**: A single position should not represent more than 15% of total realized return.
 2. **Realized Return Distribution**: No more than 30% of the miner's realized returns should be from positions all closed in a single week.
-3. **Max Portfolio Value Change - Daily**: A single day of trading should not represent more than 20% of the total unrealized return.
-4. **Max Portfolio Value Change - Biweekly**: A single two-week period should not account for more than 35% of total unrealized return.
+3. **Max Portfolio Value Change - Daily**: A single day of trading should not represent more than 30% of the total unrealized return.
+4. **Max Portfolio Value Change - Biweekly**: A single two-week period should not account for more than 40% of total unrealized return.
 
 Portfolio value is tracked in realtime against positions, regardless of if they are closed or open. If the measured volatility on the portfolio value is too high relative to the total returns from the miner, we will flag them as inconsistent, even if their closed positions meet the requirements. This is meant to protect from the scenario where most of a miner's value comes from a single interval, but their positions may close over a longer period. Full details on the logic associated with each proposal may be found in [proposal 9](https://docs.taoshi.io/tips/p9/).
 
