@@ -45,6 +45,8 @@ from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.utils.vali_utils import ValiUtils
 from vali_objects.vali_config import ValiConfig
 
+from vali_objects.utils.plagiarism_detector import PlagiarismDetector
+
 # Global flag used to indicate shutdown
 shutdown_dict = {}
 
@@ -270,7 +272,7 @@ class Validator:
         # Since the mainloop is run synchronously, we just need to lock eliminations when writing to them and when
         # reading outside of the mainloop (validator).
         self.eliminations_lock = threading.Lock()
-        # self.plagiarism_detector = PlagiarismDetector(self.config, self.metagraph)
+        self.plagiarism_detector = PlagiarismDetector(self.config, self.metagraph)
         self.mdd_checker = MDDChecker(self.config, self.metagraph, self.position_manager, self.eliminations_lock,
                                       live_price_fetcher=self.live_price_fetcher, shutdown_dict=shutdown_dict)
         self.weight_setter = SubtensorWeightSetter(self.config, self.wallet, self.metagraph)
@@ -401,6 +403,8 @@ class Validator:
                 self.weight_setter.set_weights(current_time=current_time)
                 self.position_manager.position_locks.cleanup_locks(self.metagraph.hotkeys)
                 self.p2p_syncer.sync_positions_with_cooldown()
+                self.plagiarism_detector.detect_plagiarism(current_time=current_time)
+
 
             # In case of unforeseen errors, the miner will log the error and continue operations.
             except Exception:
@@ -652,8 +656,6 @@ class Validator:
                     pass
                 # Update the last received order time
                 self.timestamp_manager.update_timestamp(signal_to_order)
-
-            # self.plagiarism_detector.check_plagiarism(open_position, signal_to_order)
 
         except SignalException as e:
             error_message = f"Error processing order for [{miner_hotkey}] with error [{e}]"
