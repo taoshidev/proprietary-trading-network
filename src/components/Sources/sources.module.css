@@ -1,0 +1,20 @@
+.th {
+  border-top: 1px dashed #e35f25;
+  border-bottom: 1px dashed #e35f25;
+}
+
+.tr {
+  width: 100%;
+}
+
+.tr:not(:last-child) {
+  border-bottom: 1px dashed #e35f25;
+}
+
+.td {
+  padding: 0;
+}
+
+.table {
+  width: 100%;
+}
