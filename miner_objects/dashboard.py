@@ -16,23 +16,21 @@ origins = [
 ]
 
 class Dashboard:
-    def __init__(self, wallet, metagraph, config, is_testnet, port=MinerConfig.DASHBOARD_PORT, origin=""):
+    def __init__(self, wallet, metagraph, config, is_testnet):
         self.wallet = wallet
         self.metagraph = metagraph
         self.config = config
         self.is_testnet = is_testnet
-        self.port = self.get_next_unused_port(port, port+100)
+        self.port = self.get_next_unused_port(MinerConfig.DASHBOARD_API_PORT, MinerConfig.DASHBOARD_API_PORT+100)
 
         self.miner_data = {}
         self.dash_rate_limiter = RateLimiter(max_requests_per_window=1, rate_limit_window_duration_seconds=60)
 
         self.app = FastAPI()
-        self._add_cors_middleware(origin)
+        self._add_cors_middleware()
         self._setup_routes()
 
-    def _add_cors_middleware(self, origin):
-        if origin:
-            origins.append(origin)
+    def _add_cors_middleware(self):
         # Set up CORS middleware
         self.app.add_middleware(
             CORSMiddleware,
@@ -69,8 +67,17 @@ class Dashboard:
         for port in range(start, stop):
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 if s.connect_ex(("127.0.0.1", port)) != 0:
+                    self.write_env_file(port)
                     return port  # found a free port
         raise OSError(f"All ports from [{start}, {stop}) in use. Aborting dashboard.")
+
+    def write_env_file(self, api_port):
+        """
+        write the miner_url to the miner_dashboard .env file
+        """
+        env_file_path = MinerConfig.BASE_DIR + f"/miner_objects/miner_dashboard/.env"
+        with open(env_file_path, 'w') as env_file:
+            env_file.write(f'VITE_MINER_URL=http://127.0.0.1:{api_port}\n')
 
     def run(self):
         uvicorn.run(self.app, host="127.0.0.1", port=self.port)
