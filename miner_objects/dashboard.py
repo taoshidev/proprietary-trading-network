@@ -31,7 +31,7 @@ class Dashboard:
 
     def _add_cors_middleware(self):
         # allow the connection from the frontend
-        origins.append(f"http://localhost{self.port}")
+        origins.append(f"http://localhost:{self.port}")
 
         # Set up CORS middleware
         self.app.add_middleware(
