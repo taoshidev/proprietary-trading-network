@@ -344,12 +344,13 @@ the miner startup logs to confirm which ports to use.
 
 ![Imgur](https://i.imgur.com/9j7bjMR.png)
 
+`41511` is used by the backend miner data API.
+
 ![Imgur](https://i.imgur.com/FnBbScu.png)
 
-This will map port 41511 and 5173 on your local machine to the same ports on the miner, allowing you to view your miner's
-dashboard at http://localhost:5173/ on your local machine.
+`5173` is used by the dashboard frontend. This is what you will be connecting to on your local machine.
 
-In order to create an ssh tunnel
+To create an ssh tunnel:
 
 ```bash
 ssh -L [local_port_1]:localhost:[remote_port_1] -L [local_port_2]:localhost:[remote_port_2] [miner]@[address]
@@ -362,6 +363,9 @@ As an example if you are using a Google Cloud VM to run your miner:
 ```bash
 gcloud compute ssh miner1@test-miner1 --zone "[zone]" --project "[project]" -- -L 5173:localhost:5173 -L 41511:localhost:41511
 ```
+
+This will map port `41511` and `5173` on your local machine to the same ports on the miner, allowing you to view your miner's
+dashboard at http://localhost:5173/ on your local machine.
 
 # Issues?
 
