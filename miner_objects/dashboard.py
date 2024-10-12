@@ -12,7 +12,6 @@ from shared_objects.rate_limiter import RateLimiter
 
 origins = [
     "http://localhost",
-    "http://localhost:5173",
 ]
 
 class Dashboard:
@@ -31,6 +30,9 @@ class Dashboard:
         self._setup_routes()
 
     def _add_cors_middleware(self):
+        # allow the connection from the frontend
+        origins.append(f"http://localhost{self.port}")
+
         # Set up CORS middleware
         self.app.add_middleware(
             CORSMiddleware,
@@ -75,7 +77,7 @@ class Dashboard:
         """
         write the miner_url to the miner_dashboard .env file
         """
-        env_file_path = MinerConfig.BASE_DIR + f"/miner_objects/miner_dashboard/.env"
+        env_file_path = MinerConfig.BASE_DIR + "/miner_objects/miner_dashboard/.env"
         with open(env_file_path, 'w') as env_file:
             env_file.write(f'VITE_MINER_URL=http://127.0.0.1:{api_port}\n')
 

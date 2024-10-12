@@ -10,8 +10,6 @@ import traceback
 import time
 import bittensor as bt
 import subprocess
-import signal
-import sys
 
 from miner_config import MinerConfig
 from miner_objects.dashboard import Dashboard
