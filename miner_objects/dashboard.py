@@ -11,6 +11,7 @@ from miner_config import MinerConfig
 from shared_objects.rate_limiter import RateLimiter
 
 origins = [
+    "*",
     "http://localhost",
 ]
 
