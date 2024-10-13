@@ -287,10 +287,14 @@ wallet   miner    196    True   0.00000  0.00000  0.00000    0.00000    0.00000 
 Run the subnet miner:
 
 ```bash
-python neurons/miner.py --netuid 8  --wallet.name <wallet> --wallet.hotkey <miner> --logging.debug
+python neurons/miner.py --netuid 8  --wallet.name <wallet> --wallet.hotkey <miner> --start-dashboard
 ```
 
 To run your miner on the testnet add the `--subtensor.network test` flag and override the netuuid flag to `--netuid 116`.
+
+To enable debug logging, add the `--logging.debug` flag
+
+To enable the local miner dashboard to view your stats and positions/orders, add the `--start-dashboard` flag.
 
 You will see the below terminal output:
 
@@ -314,11 +318,54 @@ python neurons/miner.py --netuid 116 --subtensor.network test --wallet.name <wal
 
 # Miner Dashboard
 
-Each miner also fetches and displays its own positions and stats through a dashboard which can be set up [here](https://github.com/taoshidev/miner-dashboard).
+## Prerequisites
 
-The miner starts a local server on port `41511` by default, which can be specified using the `--dashboard_port` flag.
+- A package manager like npm, yarn, or pnpm
 
-If you are running the miner on a different machine than the dashboard, you may need to specify the address of the machine running the dashboard using the `--dashboard_origin` flag to allow access.
+## Running the Dashboard
+
+Each miner now comes equipped with a dashboard that will allow you to view the miner's stats and positions/orders.
+In order to enable the dashboard, add the `--start-dashboard` flag when you run your miner.
+This will install the necessary dependencies and start the app on http://localhost:5173/ by default.
+Open your browser and navigate to this URL to view your miner dashboard.
+
+## Important Note
+
+The miner will only have data if validators have already picked up its orders.
+A brand new miner may not have any data until after submitting an order.
+
+The miner dashboard queries and awaits responses from a validator. Please allow the dashboard some time to load on startup and refresh.
+
+## If you would like to view your miner dashboard on a different machine than your miner:
+
+In order to view the miner dashboard on a different machine from your miner, we recommend opening a ssh tunnel to the
+default ports `41511` and `5173`. If you are running multiple miners on one machine or those ports are busy, you can view
+the miner startup logs to confirm which ports to use.
+
+![Imgur](https://i.imgur.com/9j7bjMR.png)
+
+`41511` is used by the backend miner data API.
+
+![Imgur](https://i.imgur.com/FnBbScu.png)
+
+`5173` is used by the dashboard frontend. This is what you will be connecting to on your local machine.
+
+To create an ssh tunnel:
+
+```bash
+ssh -L [local_port_1]:localhost:[remote_port_1] -L [local_port_2]:localhost:[remote_port_2] [miner]@[address]
+```
+ex:
+```bash
+ssh -L 41511:localhost:41511 -L 5173:localhost:5173 taoshi-miner@123.45.67.89
+```
+As an example if you are using a Google Cloud VM to run your miner:
+```bash
+gcloud compute ssh miner1@test-miner1 --zone "[zone]" --project "[project]" -- -L 5173:localhost:5173 -L 41511:localhost:41511
+```
+
+This will map port `41511` and `5173` on your local machine to the same ports on the miner, allowing you to view your miner's
+dashboard at http://localhost:5173/ on your local machine.
 
 # Issues?
 

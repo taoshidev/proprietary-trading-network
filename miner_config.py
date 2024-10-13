@@ -1,12 +1,16 @@
+import os
 from vali_config import ValiConfig
 
+
+BASE_DIR = base_directory = os.path.dirname(os.path.abspath(__file__))
 
 class MinerConfig:
     HIGH_V_TRUST_THRESHOLD = 0.75
     STAKE_MIN = 1000.0
     AXON_NO_IP = "0.0.0.0"
 
-    DASHBOARD_PORT = 41511
+    DASHBOARD_API_PORT = 41511
+    BASE_DIR = base_directory = BASE_DIR
 
     @staticmethod
     def get_miner_received_signals_dir() -> str:
