@@ -4,7 +4,7 @@ from vali_config import ValiConfig
 
 
 class ReportingUtils:
-    #This is very similar to Plagiarism_utils.build_state_matrix, possibly refactor
+
     def rasterize(cumulative_leverages, current_time=None, lookback_window=None, time_resolution=None):
         if current_time == None:
            current_time = TimeUtil.now_in_millis()
@@ -21,7 +21,7 @@ class ReportingUtils:
         return rasterized_positions
 
     def rasterize_cumulative_position(cumulative_leverage, current_time=None, lookback_window=None, time_resolution=None):
-        #These variables will change with integration
+
         if current_time == None:
            current_time = TimeUtil.now_in_millis()
 

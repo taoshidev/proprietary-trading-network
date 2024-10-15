@@ -3,6 +3,7 @@ from vali_objects.utils.plagiarism_events import PlagiarismEvents
 from vali_objects.utils.reporting_utils import ReportingUtils
 from vali_objects.utils.position_utils import PositionUtils
 from vali_config import ValiConfig
+import uuid
 import time
 
 class PlagiarismPipeline:
@@ -16,7 +17,6 @@ class PlagiarismPipeline:
     self.plagiarism_classes = plagiarism_classes
     
 
-
   def generate_plagiarism_events(self, miner_ids, trade_pairs, plagiarist_id, state_dict) -> list[dict]:
 
     for trade_pair in trade_pairs:
@@ -27,7 +27,7 @@ class PlagiarismPipeline:
     return self.compose(miner_ids, trade_pairs, plagiarist_id, state_dict)
   
 
-  def compose_sub_plagiarism(self, metadatas, plagiarism_key):
+  def compose_sub_plagiarism(self, metadatas, plagiarism_key) -> list[dict]:
     events = []
     # Have a list of the relevant plagiarism events 
     for sub_plagiarism in metadatas:
@@ -37,17 +37,11 @@ class PlagiarismPipeline:
         event = sub_plagiarism[plagiarism_key]
         events.append({"type": event["type"],
                       "score": event["score"]})
-        # This condition is meant to exclude follow and lag detection similarity.
-        # This is done, since those forms on their own do not prove plagiarism
-        # Later this could be some sort of combination, but max seems good.
-        
-        # If its combination plagiarism, then include who the victims are, possibly will be duplicates
-
         
     return events
      
 
-  def compose_victims(self, miner_ids, trade_pairs, plagiarist_id, plagiarist_trade_pair, state_dict):
+  def compose_victims(self, miner_ids, trade_pairs, plagiarist_id, plagiarist_trade_pair, state_dict) -> list[dict]:
 
     metadatas = [x.summary() for x in self.plagiarism_classes]
     victims = []
@@ -77,12 +71,12 @@ class PlagiarismPipeline:
                     "victim_trade_pair": trade_pair,
                     "events": events}
         
-        # TODO May want to make this different for 
+        # If the plagiarist passes lag and follow thresholds and passes threshold for at least one other type of plagiarism, report
         if len(events) > 2 and lagPassed and followPassed and current_score >= ValiConfig.PLAGIARISM_REPORTING_THRESHOLD:
+
           positions = PlagiarismEvents.positions[(miner_id, trade_pair)]
           self.rasterized_positions[(miner_id, trade_pair)] = ReportingUtils.rasterize_cumulative_position(positions)
           self.order_lists[(miner_id, trade_pair)] = state_dict[(miner_id, trade_pair)]
-
 
           victim = {"victim": miner_id,
                     "victim_trade_pair": trade_pair,
@@ -95,7 +89,6 @@ class PlagiarismPipeline:
 
   def compose(self, miner_ids, trade_pairs, plagiarist_id, state_dict) -> list[dict]:
 
-    # possibly optimize by composing it for each trade pair, rather than at the end
     plagiarism_data = {}
 
     for plagiarist_trade_pair in trade_pairs:
@@ -142,19 +135,15 @@ class PlagiarismPipeline:
     return new_positions
 
 
-  """
-  Temporary function just for running the reporting system. This will likely be initiated in a different file later in the integration.
-  """
-  def run_reporting(positions, current_time) -> None:
+  def run_reporting(positions, current_time) -> tuple[dict, dict, dict]:
     flattened_positions = PositionUtils.flatten(positions)
     positions_list_translated = PositionUtils.translate_current_leverage(flattened_positions)
     miners, trade_pairs, state_list = PositionUtils.to_state_list(positions_list_translated, current_time=current_time)
     state_dict = PlagiarismPipeline.state_list_to_dict(miners, trade_pairs, state_list)
 
-    # TODO state_dict above should be accurate, but is a possible place for bugs
     PlagiarismEvents.set_positions(state_dict, miners, trade_pairs)
     rasterized_positions = {}
-    positions_data = {} #will be written to file
+    positions_data = {}
     plagiarists_data = []
     for miner_id in miners:
 
@@ -166,13 +155,12 @@ class PlagiarismPipeline:
       
       pipeline = PlagiarismPipeline(plagiarism_classes)
       trade_pair_output = pipeline.generate_plagiarism_events(miners, trade_pairs, miner_id, state_dict)
+      
       # If nothing above the thresholds, maintain info on the maximum
-      # TODO add info for cases of combination plagiarism
       if len(trade_pair_output) == 0 and pipeline.overall_score != 0:
       
-
         trade_pair_output[pipeline.max_trade_pair] = [{"plagiarist_trade_pair": pipeline.max_trade_pair,
-                            "victims": [pipeline.max_victim]}] # possibly problematic, check if this is in accordance with the other structure
+                            "victims": [pipeline.max_victim]}]
         victim_id = pipeline.max_victim["victim"]
         victim_tp = pipeline.max_victim["victim_trade_pair"]
         positions = PlagiarismEvents.positions[(victim_id, victim_tp)]
@@ -180,10 +168,11 @@ class PlagiarismPipeline:
 
         pipeline.rasterized_positions[(victim_id, victim_tp)] = raster_vector
         pipeline.order_lists[(victim_id, victim_tp)] = positions
+
       elif pipeline.overall_score != 0:
         pipeline.rasterized_positions[(miner_id, pipeline.max_trade_pair)] = ReportingUtils.rasterize_cumulative_position(PlagiarismEvents.positions[(miner_id, pipeline.max_trade_pair)])
         pipeline.order_lists[(miner_id, pipeline.max_trade_pair)] = PlagiarismEvents.positions[(miner_id, pipeline.max_trade_pair)]
-      final_output = {"event_id": 1, # Placeholder value 
+      final_output = {"event_id": str(uuid.uuid4()),
                       "time": round(time.time() * 1000),
                       "plagiarist": miner_id,
                       "overall_score": pipeline.overall_score,

@@ -7,15 +7,11 @@ from vali_config import ValiConfig
 import bittensor as bt
 
 
-THRESHOLD = 0.99 #This will be changed to different variables for each subplagiarism
-
 class FollowPercentage(PlagiarismEvents):
 
   def __init__(self, plagiarist_id):
     super().__init__(plagiarist_id, "follow")
   
-
-  # Every class overrides the score function that will sometimes take different arguments
 
   def score(self, plagiarist_trade_pair, victim_key):
 
@@ -26,17 +22,13 @@ class FollowPercentage(PlagiarismEvents):
     if event_key in self.time_differences:
       differences = self.time_differences[event_key]
 
-    differences, copied_victim_orders, copy_plagiarist_orders = FollowPercentage.compute_time_differences(plagiarist_orders, victim_orders)
+    differences = FollowPercentage.compute_time_differences(plagiarist_orders, victim_orders)
     self.time_differences[event_key] = differences
     percent_of_follow = len(differences)/len(victim_orders) if len(victim_orders) > 0 else 0
-
-    #if percent_of_follow >= THRESHOLD:
 
     plagiarism_key = (self.plagiarist_id, plagiarist_trade_pair, victim_key[0], victim_key[1])
     self.metadata[plagiarism_key] = {"victim": victim_key[0],
                                     "victim_trade_pair": victim_key[1],
-                                    #"copied_victim_orders": copied_victim_orders, #TODO maybe keep something like this??
-                                    #"copy_plagiarist_orders": copy_plagiarist_orders,
                                     "type": self.name,
                                     "score": percent_of_follow
                                     }
@@ -45,13 +37,11 @@ class FollowPercentage(PlagiarismEvents):
   def compute_time_differences(plagiarist_orders, victim_orders):
 
     time_resolution = ValiConfig.PLAGIARISM_MATCHING_TIME_RESOLUTION_MS
-    time_window =  time_resolution * 60 * 12
+    time_window = ValiConfig.PLAGIARISM_ORDER_TIME_WINDOW_MS
 
     differences = []
     i = j = 0
 
-    copied_victim_orders = []
-    copy_plagiarist_orders = []
     while i < len(victim_orders) and j < len(plagiarist_orders):
 
         difference = plagiarist_orders[j]["start"] - (victim_orders[i]["start"])
@@ -59,8 +49,6 @@ class FollowPercentage(PlagiarismEvents):
         if difference <= time_window and difference >= 0:
             
             differences.append(difference / time_resolution)
-            #copied_victim_orders.append(victim_orders[i])
-            #copy_plagiarist_orders.append(plagiarist_orders[j])
 
             i += 1
             j = 0
@@ -68,13 +56,13 @@ class FollowPercentage(PlagiarismEvents):
             
             j+= 1
 
-    return differences, copied_victim_orders, copy_plagiarist_orders
+    return differences
 
 
   
   def average_time_lag(plagiarist_orders, victim_orders, differences=None):
     if differences == None:
-      differences, _, _ = FollowPercentage.compute_time_differences(plagiarist_orders, victim_orders)
+      differences = FollowPercentage.compute_time_differences(plagiarist_orders, victim_orders)
 
     avg_difference = int(sum(differences)/len(differences)) if len(differences) > 0 else 0
 
@@ -88,15 +76,8 @@ class LagDetection(PlagiarismEvents):
 
   
   def score(self, plagiarist_trade_pair, victim_key):
-
-    plagiarist_score = CopySimilarity.score_direct(self.plagiarist_id, plagiarist_trade_pair, victim_key[0], victim_key[1])
-    victim_score = CopySimilarity.score_direct(victim_key[0], victim_key[1], self.plagiarist_id, plagiarist_trade_pair)
-
-    lag_score = plagiarist_score / victim_score if victim_score > 0 else 0
-
-    # Add environment variable here
-    #if lag_score >= 1.005: #Too many nonPlagiarism events pass this, change the threshold
-
+    lag_score = self.score_direct(plagiarist_trade_pair, victim_key)
+    
     plagiarism_key = (self.plagiarist_id, plagiarist_trade_pair, victim_key[0], victim_key[1])
     self.metadata[plagiarism_key] = {"victim": victim_key[0],
                                     "victim_trade_pair": victim_key[1],
@@ -104,7 +85,15 @@ class LagDetection(PlagiarismEvents):
                                     "score": lag_score
                                 }
     
-  
+  def score_direct(self, plagiarist_trade_pair, victim_key):
+    plagiarist_score = CopySimilarity.score_direct(self.plagiarist_id, plagiarist_trade_pair, victim_key[0], victim_key[1])
+    victim_score = CopySimilarity.score_direct(victim_key[0], victim_key[1], self.plagiarist_id, plagiarist_trade_pair)
+    bt.logging.info(f"plagiarist_score: {plagiarist_score} and victim score: {victim_score}")
+
+    lag_score = plagiarist_score / victim_score if victim_score > 0 else 0
+    return lag_score
+
+
 class CopySimilarity(PlagiarismEvents):
   
   def __init__(self, plagiarist_id):
@@ -114,7 +103,6 @@ class CopySimilarity(PlagiarismEvents):
   def score(self, plagiarist_trade_pair, victim_key):
 
     similarity = CopySimilarity.score_direct(self.plagiarist_id, plagiarist_trade_pair, victim_key[0], victim_key[1])
-    #if similarity >= THRESHOLD:
     plagiarism_key = (self.plagiarist_id, plagiarist_trade_pair, victim_key[0], victim_key[1])
 
     self.metadata[plagiarism_key] = {"victim": victim_key[0],
@@ -138,6 +126,8 @@ class CopySimilarity(PlagiarismEvents):
       differences = PlagiarismEvents.time_differences[event_key]
 
     time_lag = FollowPercentage.average_time_lag(plagiarist_positions, victim_positions, differences=differences)
+    bt.logging.info(f"time_lag: {time_lag}")
+    bt.logging.info(f"plagiarist: {plagiarist_id}")
     if event_key in PlagiarismEvents.copy_similarities:
       similarity = PlagiarismEvents.copy_similarities[event_key]
     elif time_lag > 0:
@@ -154,8 +144,6 @@ class CopySimilarity(PlagiarismEvents):
     return similarity
   
 
-# Add fields that show all victims involved in this combination plagiarism
-
 class TwoCopySimilarity(PlagiarismEvents):
   
   def __init__(self, plagiarist_id):
@@ -166,6 +154,7 @@ class TwoCopySimilarity(PlagiarismEvents):
     single_pair_similarities = {}
     for miner_id in PlagiarismEvents.miner_ids:
       for trade_pair in PlagiarismEvents.trade_pairs:
+
         event_key = (self.plagiarist_id, plagiarist_trade_pair, miner_id, trade_pair)
         if miner_id != self.plagiarist_id:
           victim_key = (miner_id, trade_pair)
@@ -178,10 +167,9 @@ class TwoCopySimilarity(PlagiarismEvents):
 
 
   def score(self, plagiarist_trade_pair, single_pair_similarities):
-    # Requires a single_pair_similarities to compute average of top scorers
+
     top_pairs = heapq.nlargest(2, single_pair_similarities.items(), key=lambda x: x[1])
     two_n_avg = np.average([x[1] for x in top_pairs])
-    #if two_n_avg >= THRESHOLD:
 
     for pair in top_pairs:
       plagiarism_key = (self.plagiarist_id, plagiarist_trade_pair, pair[0][0], pair[0][1])
@@ -191,8 +179,6 @@ class TwoCopySimilarity(PlagiarismEvents):
                                       "score": two_n_avg
                                         }
 
-
-# Add fields that show all victims involved in this combination plagiarism
 
 class ThreeCopySimilarity(PlagiarismEvents):
   
@@ -204,6 +190,7 @@ class ThreeCopySimilarity(PlagiarismEvents):
     single_pair_similarities = {}
     for miner_id in PlagiarismEvents.miner_ids:
       for trade_pair in PlagiarismEvents.trade_pairs:
+
         event_key = (self.plagiarist_id, plagiarist_trade_pair, miner_id, trade_pair)
         if miner_id != self.plagiarist_id:
           victim_key = (miner_id, trade_pair)
@@ -219,7 +206,6 @@ class ThreeCopySimilarity(PlagiarismEvents):
 
     top_pairs = heapq.nlargest(3, single_pair_similarities.items(), key=lambda x: x[1])
     three_n_avg = np.average([x[1] for x in top_pairs])
-    #if three_n_avg >= THRESHOLD:
     for pair in top_pairs:
       plagiarism_key = (self.plagiarist_id, plagiarist_trade_pair, pair[0][0], pair[0][1])
       self.metadata[plagiarism_key] = {"victim": pair[0][0],

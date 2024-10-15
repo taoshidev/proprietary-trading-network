@@ -40,4 +40,13 @@ class PlagiarismEvents():
     PlagiarismEvents.miner_ids = miner_ids
     PlagiarismEvents.trade_pairs = trade_pairs
     PlagiarismEvents.rasterized_positions = ReportingUtils.rasterize(positions)
+  
+  
+  def clear_plagiarism_events():
+    PlagiarismEvents.positons = {}
+    PlagiarismEvents.rasterized_positions = {}
+    PlagiarismEvents.time_differences = {}
+    PlagiarismEvents.copy_similarities = {}
+    PlagiarismEvents.miner_ids = []
+    PlagiarismEvents.trade_pairs = []
 

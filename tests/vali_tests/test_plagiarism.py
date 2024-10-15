@@ -9,6 +9,13 @@ from vali_objects.utils.position_manager import PositionManager
 from vali_objects.utils.vali_utils import ValiUtils
 from vali_objects.vali_dataclasses.order import Order
 from data_generator.twelvedata_service import TwelveDataService
+from vali_objects.utils.plagiarism_events import PlagiarismEvents
+from vali_objects.utils.plagiarism_pipeline import PlagiarismPipeline
+from vali_objects.utils.plagiarism_definitions import LagDetection
+from vali_config import ValiConfig
+from vali_objects.utils.position_utils import PositionUtils
+
+import uuid
 
 class TestPlagiarism(TestBase):
 
@@ -20,6 +27,7 @@ class TestPlagiarism(TestBase):
         self.mock_metagraph = MockMetagraph([self.MINER_HOTKEY1, self.MINER_HOTKEY2, self.MINER_HOTKEY3])
         self.plagiarism_detector = MockPlagiarismDetector(self.mock_metagraph)
         self.plagiarism_detector.running_unit_tests = True
+        self.current_time = ValiConfig.PLAGIARISM_LOOKBACK_RANGE_MS
 
         self.position_manager = PositionManager(metagraph=self.mock_metagraph, running_unit_tests=True)
         self.DEFAULT_TEST_POSITION_UUID = "test_position"
@@ -76,13 +84,12 @@ class TestPlagiarism(TestBase):
 
         self.plagiarism_detector.clear_eliminations_from_disk()
 
+
     def add_order_to_position_and_save_to_disk(self, position, order):
         position.add_order(order)
         self.position_manager.save_miner_position_to_disk(position)
 
-    # TODO: plagiarism is not yet implemented. Remove leading underscore to re-enable test
-    
-    def _test_plagiarism_two_miners(self):
+    def test_plagiarism_two_miners(self):
         o1 = Order(order_type=OrderType.SHORT,
                 leverage=1.0,
                 price=1000,
@@ -94,10 +101,10 @@ class TestPlagiarism(TestBase):
         self.add_order_to_position_and_save_to_disk(self.eth_position2, o1)
 
         self.plagiarism_detector.detect()
-        self.assertEqual(len(self.plagiarism_detector.plagiarists_data), 2)
+        self.assertEqual(len(self.plagiarism_detector.plagiarism_data), 2)
 
-        miner_one = self.plagiarism_detector.plagiarists_data[0]
-        miner_two = self.plagiarism_detector.plagiarists_data[1]
+        miner_one = self.plagiarism_detector.plagiarism_data[0]
+        miner_two = self.plagiarism_detector.plagiarism_data[1]
         if miner_one["plagiarist"] == self.MINER_HOTKEY1:
             self.assertAlmostEqual(miner_one["overall_score"], 0)
             self.assertAlmostEqual(miner_two["overall_score"], 1)
@@ -149,10 +156,10 @@ class TestPlagiarism(TestBase):
 
 
         self.plagiarism_detector.detect()
-        self.assertEqual(len(self.plagiarism_detector.plagiarists_data), 3)
+        self.assertEqual(len(self.plagiarism_detector.plagiarism_data), 3)
 
         miner_one = miner_two = miner_three = None
-        for miner in self.plagiarism_detector.plagiarists_data:
+        for miner in self.plagiarism_detector.plagiarism_data:
             if miner["plagiarist"] == self.MINER_HOTKEY1:
                 miner_one = miner
             if miner["plagiarist"] == self.MINER_HOTKEY2:
@@ -163,6 +170,119 @@ class TestPlagiarism(TestBase):
         self.assertAlmostEqual(miner_one["overall_score"], 0)
         self.assertGreaterEqual(miner_two["overall_score"], 0.95)
         self.assertGreaterEqual(miner_three["overall_score"], 0.95)
+
+    # Test case of no plagiarism
+    # Test case of 1 plagiarism (test two miners)
+    # Test case of 2 plagiarists and one innocent person for different tradepairs (change 3 miner test slightly)
+    # At least 3 tests for each kind of plagiarism (except maybe combo plagiarism)
+    # 1 test for low score if not plagiarism (or 0)
+    # 1 test for high score if plagiarism
+    # 1 test for nonzero score if similar
+
+    # Does nothing for now
+    def test_lag_detection_not_similar(self):
+        alternate = False
+        for i in range(5):
+            victim_order = Order(order_type=OrderType.SHORT,
+                leverage=-0.05,
+                price=1000,
+                trade_pair=TradePair.ETHUSD,
+                processed_ms= (i * 1000 * 60 * 60 * 24),
+                order_uuid=str(uuid.uuid4()))
+            
+            plagiarist_order = Order(order_type=OrderType.SHORT,
+                leverage=-0.05,
+                price=1000,
+                trade_pair=TradePair.ETHUSD,
+                processed_ms= (i * 1000 * 60 * 60 * 24) + ValiConfig.PLAGIARISM_ORDER_TIME_WINDOW_MS + 1, #30 minutes after each other
+                order_uuid=str(uuid.uuid4()))
+            
+            # Alternate who is following so that lag threshold shouldn't be passed
+            if alternate:
+                self.add_order_to_position_and_save_to_disk(self.eth_position2, victim_order)
+                self.add_order_to_position_and_save_to_disk(self.eth_position1, plagiarist_order)
+            else:
+                self.add_order_to_position_and_save_to_disk(self.eth_position1, victim_order)
+                self.add_order_to_position_and_save_to_disk(self.eth_position2, plagiarist_order)
+            alternate = not alternate
+
+        hotkeys = self.mock_metagraph.hotkeys
+        positions = self.position_manager.get_all_miner_positions_by_hotkey(hotkeys)
+        flattened_positions = PositionUtils.flatten(positions)
+        positions_list_translated = PositionUtils.translate_current_leverage(flattened_positions)
+        miners, trade_pairs, state_list = PositionUtils.to_state_list(positions_list_translated, current_time=self.current_time)
+        state_dict = PlagiarismPipeline.state_list_to_dict(miners, trade_pairs, state_list)
+        
+        
+    
+
+        PlagiarismEvents.set_positions(state_dict, miners, trade_pairs)
+        miner_one_lag = LagDetection(self.MINER_HOTKEY1)
+        victim_key = (self.MINER_HOTKEY2, TradePair.ETHUSD.name)
+        #Consider what the threshold should really be for lag score
+        miner_one_score = miner_one_lag.score_direct(plagiarist_trade_pair=TradePair.ETHUSD.name, victim_key=victim_key)
+        self.assertAlmostEqual(miner_one_score, 1)
+        victim_key = (self.MINER_HOTKEY1, TradePair.ETHUSD.name)
+        miner_two_lag = LagDetection(self.MINER_HOTKEY2)
+        miner_two_score = miner_two_lag.score_direct(plagiarist_trade_pair=TradePair.ETHUSD.name, victim_key=victim_key)
+        self.assertAlmostEqual(miner_two_score, 1)
+        PlagiarismEvents.clear_plagiarism_events()
+
+
+
+    def test_lag_detection_plagiarism(self):
+
+        victim_order = Order(order_type=OrderType.SHORT,
+                leverage=-0.03,
+                price=1000,
+                trade_pair=TradePair.ETHUSD,
+                processed_ms= 0,
+                order_uuid=str(uuid.uuid4()))
+        self.add_order_to_position_and_save_to_disk(self.eth_position1, victim_order)
+
+        for i in range(1, 5):
+            victim_order = Order(order_type=OrderType.SHORT,
+                leverage=-0.05,
+                price=1000,
+                trade_pair=TradePair.ETHUSD,
+                processed_ms= (i * 1000 * 60 * 60 * 24),
+                order_uuid=str(uuid.uuid4()))
+            
+            plagiarist_order = Order(order_type=OrderType.SHORT,
+                leverage=-0.05,
+                price=1000,
+                trade_pair=TradePair.ETHUSD,
+                processed_ms= (i * 1000 * 60 * 60 * 24) + 1000 * 60 * 60 * 1, # 1 hour after each other
+                order_uuid=str(uuid.uuid4()))
+                    
+            self.add_order_to_position_and_save_to_disk(self.eth_position1, victim_order)
+            self.add_order_to_position_and_save_to_disk(self.eth_position2, plagiarist_order)
+
+        hotkeys = self.mock_metagraph.hotkeys
+        positions = self.position_manager.get_all_miner_positions_by_hotkey(hotkeys)
+        flattened_positions = PositionUtils.flatten(positions)
+        positions_list_translated = PositionUtils.translate_current_leverage(flattened_positions)
+        miners, trade_pairs, state_list = PositionUtils.to_state_list(positions_list_translated, current_time=self.current_time)
+        state_dict = PlagiarismPipeline.state_list_to_dict(miners, trade_pairs, state_list)
+        
+        
+    
+
+        PlagiarismEvents.set_positions(state_dict, miners, trade_pairs)
+        miner_one_lag = LagDetection(self.MINER_HOTKEY1)
+        victim_key = (self.MINER_HOTKEY2, TradePair.ETHUSD.name)
+        #Consider what the threshold should really be for lag score
+        miner_one_score = miner_one_lag.score_direct(plagiarist_trade_pair=TradePair.ETHUSD.name, victim_key=victim_key)
+        self.assertLessEqual(miner_one_score, 1)
+        victim_key = (self.MINER_HOTKEY1, TradePair.ETHUSD.name)
+        miner_two_lag = LagDetection(self.MINER_HOTKEY2)
+        miner_two_score = miner_two_lag.score_direct(plagiarist_trade_pair=TradePair.ETHUSD.name, victim_key=victim_key)
+        self.assertGreater(miner_two_score, 1)
+
+        PlagiarismEvents.clear_plagiarism_events()
+
+
+    
     """
     def _test_plagiarism_all_zero_scores(self):
         self.assertEqual({}, self.plagiarism_detector.miner_plagiarism_scores)

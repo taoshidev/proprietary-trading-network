@@ -63,12 +63,6 @@ class ValiBkpUtils:
         suffix = "/tests" if running_unit_tests else ""
         return ValiConfig.BASE_DIR + f"{suffix}/validation/perf_ledgers.json"
 
-    # @staticmethod
-    # def get_plagiarism_scores_file_location(running_unit_tests=False) -> str:
-    #    suffix = "/tests" if running_unit_tests else ""
-    #    return ValiConfig.BASE_DIR + f"{suffix}/validation/plagiarism.json"
-    
-    #added these TODO
     @staticmethod
     def get_plagiarism_dir(running_unit_tests=False) -> str:
         suffix = "/tests" if running_unit_tests else ""
@@ -84,13 +78,13 @@ class ValiBkpUtils:
         return ValiConfig.BASE_DIR + f"{suffix}/validation/plagiarism/positions"
 
     @staticmethod
-    def get_plagiarists_dir(running_unit_tests=False) -> str:
+    def get_plagiarism_scores_dir(running_unit_tests=False) -> str:
         suffix = "/tests" if running_unit_tests else ""
         return ValiConfig.BASE_DIR + f"{suffix}/validation/plagiarism/miners/"
     
     @staticmethod
-    def get_plagiarist_file_location(miner_hotkey, running_unit_tests=False) -> str:
-        return f"{ValiBkpUtils.get_plagiarists_dir(running_unit_tests=running_unit_tests)}{miner_hotkey}.json"
+    def get_plagiarism_score_file_location(hotkey, running_unit_tests=False) -> str:
+        return f"{ValiBkpUtils.get_plagiarism_scores_dir(running_unit_tests=running_unit_tests)}{hotkey}.json"
     
     @staticmethod
     def get_challengeperiod_file_location(running_unit_tests=False) -> str:

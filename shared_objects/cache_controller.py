@@ -1,7 +1,6 @@
 # developer: jbonilla
 import os
-import shutil #added this TODO
-import json
+import shutil
 import datetime
 from collections import defaultdict
 from pickle import UnpicklingError
@@ -36,10 +35,11 @@ class CacheController:
         self.running_unit_tests = running_unit_tests
         self.metagraph = metagraph  # Refreshes happen on validator
         self._last_update_time_ms = 0
+        self.last_time_plagiarism_run_ms = 0
         self.eliminations = []
         self.challengeperiod_testing = {}
         self.challengeperiod_success = {}
-        self.plagiarists_data = []
+        self.plagiarism_data = {}
         self.plagiarism_raster = {}
         self.plagiarism_positions = {}
         self.DD_V2_TIME = TimeUtil.millis_to_datetime(1715359820000 + 1000 * 60 * 60 * 2)  # 5/10/24 TODO: Update before mainnet release
@@ -153,7 +153,7 @@ class CacheController:
     # ----------------- Plagiarism -----------------
     def clear_plagiarism_from_disk(self, target_hotkey=None):
         # Clear all files and directories in the directory specified by dir
-        dir = ValiBkpUtils.get_plagiarists_dir(running_unit_tests=self.running_unit_tests)
+        dir = ValiBkpUtils.get_plagiarism_scores_dir(running_unit_tests=self.running_unit_tests)
         for file in os.listdir(dir):
             if target_hotkey and file != target_hotkey:
                 continue
@@ -162,15 +162,16 @@ class CacheController:
                 os.unlink(file_path)
             elif os.path.isdir(file_path):
                 shutil.rmtree(file_path)
-        #TODO add something about clearing the raster and position files
 
-    def _write_updated_plagiarism_scores_from_memory_to_disk(self):
-        self.write_plagiarism_scores_to_disk(self.miner_plagiarism_scores)
-    def write_all_plagiarists_to_disk(self):
-        for plagiarist in self.plagiarists_data:
-            self.write_plagiarist_to_disk(plagiarist["plagiarist"], plagiarist)
-    def write_plagiarist_to_disk(self, hotkey, plagiarist_data):
-        ValiBkpUtils.write_file(ValiBkpUtils.get_plagiarists_dir(running_unit_tests=self.running_unit_tests) + hotkey + ".json", plagiarist_data)
+    def plagiarism_detection_allowed(self, plagiarism_interval_ms):
+        return TimeUtil.now_in_millis() - self.last_time_plagiarism_run_ms > plagiarism_interval_ms
+    
+    def write_plagiarism_scores_to_disk(self):
+        for plagiarist in self.plagiarism_data:
+            self.write_plagiarism_score_to_disk(plagiarist["plagiarist"], plagiarist)
+
+    def write_plagiarism_score_to_disk(self, hotkey, plagiarism_data):
+        ValiBkpUtils.write_file(ValiBkpUtils.get_plagiarism_score_file_location(hotkey=hotkey, running_unit_tests=self.running_unit_tests), plagiarism_data)
 
     def write_plagiarism_raster_to_disk(self):
         ValiBkpUtils.write_file(ValiBkpUtils.get_plagiarism_raster_file_location(running_unit_tests=self.running_unit_tests), self.plagiarism_raster)
@@ -178,34 +179,45 @@ class CacheController:
     def write_plagiarism_positions_to_disk(self):
         ValiBkpUtils.write_file(ValiBkpUtils.get_plagiarism_positions_file_location(running_unit_tests=self.running_unit_tests), self.plagiarism_positions)
 
-    # def write_plagiarism_scores_to_disk(self, scores):
-    #    ValiBkpUtils.write_file(ValiBkpUtils.get_plagiarism_scores_file_location(running_unit_tests=self.running_unit_tests), scores)
+    def get_plagiarism_scores_from_disk(self):
 
-    def get_all_plagiarism_scores_from_disk(self):
-        #This should get all hotkeys 
-        plagiarist_dir = ValiBkpUtils.get_plagiarists_dir()
+        plagiarist_dir = ValiBkpUtils.get_plagiarism_scores_dir()
         all_files = ValiBkpUtils.get_all_files_in_dir(plagiarist_dir)
-        #remove ".json" 
+
+        # Retrieve hotkeys from plagiarism file names
         all_hotkeys = ValiBkpUtils.get_hotkeys_from_file_name(all_files)
         
-        plagiarism_scores = {hotkey: self.get_miner_plagiarism_score_from_disk(hotkey) for hotkey in all_hotkeys}
+        plagiarism_data = {hotkey: self.get_miner_plagiarism_data_from_disk(hotkey) for hotkey in all_hotkeys}
+        plagiarism_scores = {}
+        for hotkey in plagiarism_data:
+            plagiarism_scores[hotkey] = plagiarism_data.get("overall_score", 0)
 
         bt.logging.trace(f"Loaded [{len(plagiarism_scores)}] plagiarism scores from disk. Dir: {plagiarist_dir}")
         return plagiarism_scores
     
-    def get_miner_plagiarism_score_from_disk(self, hotkey):
-        plagiarist_dir = ValiBkpUtils.get_plagiarists_dir()
+    def get_plagiarism_data_from_disk(self, ):
+        plagiarist_dir = ValiBkpUtils.get_plagiarism_scores_dir()
+        all_files = ValiBkpUtils.get_all_files_in_dir(plagiarist_dir)
+
+        # Retrieve hotkeys from plagiarism file names
+        all_hotkeys = ValiBkpUtils.get_hotkeys_from_file_name(all_files)
+        
+        plagiarism_data = {hotkey: self.get_miner_plagiarism_data_from_disk(hotkey) for hotkey in all_hotkeys}
+
+        bt.logging.trace(f"Loaded [{len(plagiarism_data)}] plagiarism scores from disk. Dir: {plagiarist_dir}")
+        return plagiarism_data
+
+    def get_miner_plagiarism_data_from_disk(self, hotkey):
+        plagiarist_dir = ValiBkpUtils.get_plagiarism_scores_dir()
         file_path = os.path.join(plagiarist_dir, f"{hotkey}.json")
         
         if os.path.exists(file_path):
-            with open(file_path, 'r') as file:
-                data = json.load(file)
-                return data.get("overall_score", 0)  # Return 0 if overall_score is not found
+            data = ValiUtils.get_vali_json_file(file_path)
+            return data
         else:
-            return 0
+            return {}
 
-    
-    #TODO Not sure what this is for yet
+    """
     def _refresh_plagiarism_scores_in_memory_and_disk(self):
         # Filters out miners that have already been deregistered. (Not in the metagraph)
         # This allows the miner to participate again once they re-register
@@ -224,10 +236,15 @@ class CacheController:
         bt.logging.trace(f"Loaded [{len(self.miner_plagiarism_scores)}] miner plagiarism scores from disk.")
 
         self._write_updated_plagiarism_scores_from_memory_to_disk()
-
+    """
     def _update_plagiarism_scores_in_memory(self):
-        cached_miner_plagiarism = ValiUtils.get_vali_json_file(ValiBkpUtils.get_plagiarism_scores_file_location(running_unit_tests=self.running_unit_tests))
-        self.miner_plagiarism_scores = {mch: mc for mch, mc in cached_miner_plagiarism.items()}
+        raster_positions_location = ValiBkpUtils.get_plagiarism_raster_file_location(running_unit_tests=self.running_unit_tests)
+        self.plagiarism_raster = ValiUtils.get_vali_json_file(raster_positions_location)
+
+        positions_location = ValiBkpUtils.get_plagiarism_positions_file_location(running_unit_tests=self.running_unit_tests)
+        self.plagiarism_positions = ValiUtils.get_vali_json_file(positions_location)
+
+        self.plagiarism_data = self.get_plagiarism_data_from_disk()
 
     # ----------------- Challenge Period -----------------
     def get_challengeperiod_testing(self):
@@ -350,22 +367,11 @@ class CacheController:
                 {CacheController.ELIMINATIONS: []}
             )
 
-        # TODO Need to first check if directory exists so as not to overwrite unnecessarily
-
-        ValiBkpUtils.make_dir(ValiBkpUtils.get_plagiarism_dir(running_unit_tests=self.running_unit_tests))
-        ValiBkpUtils.make_dir(ValiBkpUtils.get_plagiarists_dir(running_unit_tests=self.running_unit_tests))
-        hotkeys = self.metagraph.hotkeys if self.metagraph is not None else []
-        miner_copying_file = {hotkey: {} for hotkey in hotkeys}
+        plagiarism_dir = ValiBkpUtils.get_plagiarism_dir(running_unit_tests=self.running_unit_tests)
+        if not os.path.exists(plagiarism_dir):
+            ValiBkpUtils.make_dir(ValiBkpUtils.get_plagiarism_dir(running_unit_tests=self.running_unit_tests))
+            ValiBkpUtils.make_dir(ValiBkpUtils.get_plagiarism_scores_dir(running_unit_tests=self.running_unit_tests))
         
-        if miner_copying_file:
-            for hotkey in miner_copying_file:
-                ValiBkpUtils.write_file(
-                    ValiBkpUtils.get_plagiarists_dir(running_unit_tests=self.running_unit_tests) + hotkey + ".json", #def fix this TODO
-                    {}
-                )
-        
-
-
         if len(self.get_challengeperiod_testing()) == 0 and len(self.get_challengeperiod_success()) == 0:
             ValiBkpUtils.write_file(
                 ValiBkpUtils.get_challengeperiod_file_location(running_unit_tests=self.running_unit_tests),

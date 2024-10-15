@@ -126,7 +126,7 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
     detector = PlagiarismDetector(config=None, metagraph=None)
     print("selected hotkeys: ", selected_miner_hotkeys)
     detector.detect(hotkeys=selected_miner_hotkeys, hotkey_positions=filtered_positions)
-    plagiarism = subtensor_weight_setter.get_all_plagiarism_scores_from_disk()
+    plagiarism = subtensor_weight_setter.get_plagiarism_scores_from_disk()
 
     # # Sync the ledger and positions
     # filtered_ledger, filtered_positions = subtensor_weight_setter.sync_ledger_positions(
