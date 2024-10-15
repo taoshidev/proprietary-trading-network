@@ -14,6 +14,9 @@ from vali_objects.utils.position_filtering import PositionFiltering
 from vali_objects.utils.ledger_utils import LedgerUtils
 from vali_objects.scoring.scoring import Scoring
 
+#TODO Remove this
+from vali_objects.utils.plagiarism_detector import PlagiarismDetector
+
 
 def rank_dictionary(d, ascending=False):
     """
@@ -98,8 +101,7 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
     challengeperiod_testing_hotkeys = list(challengeperiod_testing_dictionary.keys())
     challengeperiod_success_hotkeys = list(challengeperiod_success_dictionary.keys())
 
-    # get plagiarism scores
-    plagiarism = subtensor_weight_setter.get_plagiarism_scores_from_disk()
+    
 
     try:
         all_miner_hotkeys: list = ValiBkpUtils.get_directories_in_dir(
@@ -118,6 +120,13 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
 
     filtered_ledger = subtensor_weight_setter.filtered_ledger(hotkeys=all_miner_hotkeys)
     filtered_positions = subtensor_weight_setter.filtered_positions(hotkeys=all_miner_hotkeys)
+
+    # get plagiarism scores
+    # TODO remove this after testing
+    detector = PlagiarismDetector(config=None, metagraph=None)
+    print("selected hotkeys: ", selected_miner_hotkeys)
+    detector.detect(hotkeys=selected_miner_hotkeys, hotkey_positions=filtered_positions)
+    plagiarism = subtensor_weight_setter.get_plagiarism_scores_from_disk()
 
     # # Sync the ledger and positions
     # filtered_ledger, filtered_positions = subtensor_weight_setter.sync_ledger_positions(
@@ -519,6 +528,8 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
 
 
 def generate_request_minerstatistics(time_now: int, checkpoints: bool = True):
+    print("hello")
+
     final_dict = generate_miner_statistics_data(time_now, checkpoints)
 
     output_file_path = ValiBkpUtils.get_vali_outputs_dir() + "minerstatistics.json"
