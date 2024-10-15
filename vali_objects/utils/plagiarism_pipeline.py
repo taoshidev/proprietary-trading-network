@@ -145,6 +145,9 @@ class PlagiarismPipeline:
     rasterized_positions = {}
     positions_data = {}
     plagiarists_data = []
+
+    #In the case of no miners
+    pipeline = None
     for miner_id in miners:
 
       plagiarism_classes = [FollowPercentage(miner_id),
@@ -183,7 +186,7 @@ class PlagiarismPipeline:
       rasterized_positions.update(pipeline.rasterized_positions)
       positions_data.update(pipeline.order_lists)
       plagiarists_data.append(final_output)
-
-    rasterized_positions = pipeline.reformat_raster()
-    positions_data = pipeline.reformat_positions()
+    if pipeline != None:
+      rasterized_positions = pipeline.reformat_raster()
+      positions_data = pipeline.reformat_positions()
     return (plagiarists_data, rasterized_positions, positions_data)

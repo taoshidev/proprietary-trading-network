@@ -88,7 +88,7 @@ class LagDetection(PlagiarismEvents):
   def score_direct(self, plagiarist_trade_pair, victim_key):
     plagiarist_score = CopySimilarity.score_direct(self.plagiarist_id, plagiarist_trade_pair, victim_key[0], victim_key[1])
     victim_score = CopySimilarity.score_direct(victim_key[0], victim_key[1], self.plagiarist_id, plagiarist_trade_pair)
-    bt.logging.info(f"plagiarist_score: {plagiarist_score} and victim score: {victim_score}")
+    #bt.logging.info(f"plagiarist_score: {plagiarist_score} and victim score: {victim_score}")
 
     lag_score = plagiarist_score / victim_score if victim_score > 0 else 0
     return lag_score
@@ -126,8 +126,8 @@ class CopySimilarity(PlagiarismEvents):
       differences = PlagiarismEvents.time_differences[event_key]
 
     time_lag = FollowPercentage.average_time_lag(plagiarist_positions, victim_positions, differences=differences)
-    bt.logging.info(f"time_lag: {time_lag}")
-    bt.logging.info(f"plagiarist: {plagiarist_id}")
+    #bt.logging.info(f"time_lag: {time_lag}")
+    #bt.logging.info(f"plagiarist: {plagiarist_id}")
     if event_key in PlagiarismEvents.copy_similarities:
       similarity = PlagiarismEvents.copy_similarities[event_key]
     elif time_lag > 0:
@@ -138,9 +138,11 @@ class CopySimilarity(PlagiarismEvents):
       similarity = cosine_similarity([plagiarist_vector], [victim_vector])[0][0]
 
     PlagiarismEvents.copy_similarities[event_key] = similarity
+    # For Testing
     if similarity > .9:
       bt.logging.info(f"score: {similarity}")
       bt.logging.info(f"people: {(plagiarist_id, plagiarist_trade_pair, victim_id, victim_trade_pair)}")
+
     return similarity
   
 
