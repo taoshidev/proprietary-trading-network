@@ -173,7 +173,7 @@ class TestChallengePeriodUnit(TestBase):
         base_return = Scoring.base_return(filtered_positions)
         base_return_percentage = (math.exp(base_return) - 1) * 100
 
-        self.assertGreaterEqual(base_return, ValiConfig.CHALLENGE_PERIOD_RETURN_LOG)
+        self.assertGreaterEqual(base_return, ValiConfig.CHALLENGE_PERIOD_RETURN)
         self.assertGreaterEqual(base_return_percentage, ValiConfig.CHALLENGE_PERIOD_RETURN_PERCENTAGE)
 
         screening_logic = self.challengeperiod_manager.screen_passing_criteria(
@@ -335,7 +335,7 @@ class TestChallengePeriodUnit(TestBase):
 
         # Returns criteria
         base_return = Scoring.base_return(filtered_positions)
-        self.assertGreater(base_return, ValiConfig.CHALLENGE_PERIOD_RETURN_LOG)
+        self.assertGreater(base_return, ValiConfig.CHALLENGE_PERIOD_RETURN)
 
         # Check that the miner is screened as failing
         screening_logic = self.challengeperiod_manager.screen_passing_criteria(

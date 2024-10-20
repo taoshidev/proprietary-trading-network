@@ -181,7 +181,7 @@ class Scoring:
         for positional_return in positional_returns:
             aggregate_return += positional_return
 
-        return aggregate_return
+        return math.exp(aggregate_return)
 
     @staticmethod
     def risk_adjusted_return(positions: list[Position], ledger: PerfLedgerData) -> float:
@@ -194,7 +194,7 @@ class Scoring:
         if len(positions) == 0:
             return 0.0
 
-        base_return = Scoring.base_return(positions)
+        base_return = math.log(Scoring.base_return(positions))
         risk_normalization_factor = LedgerUtils.risk_normalization(ledger.cps)
 
         return base_return * risk_normalization_factor

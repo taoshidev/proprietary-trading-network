@@ -84,7 +84,7 @@ class TestWeights(TestBase):
             positions.append(p)
 
         # Switch to log returns
-        base_return = Scoring.base_return(positions)
+        base_return = math.log(Scoring.base_return(positions))
         self.assertLess(base_return, 0.0)
 
     def test_positive_returns(self):
