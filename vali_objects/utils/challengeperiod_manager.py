@@ -211,7 +211,7 @@ class ChallengePeriodManager(CacheController):
             # We need at least more than 1 position to evaluate the challenge period
             return False
 
-        minimum_return = ValiConfig.CHALLENGE_PERIOD_RETURN_LOG
+        minimum_return = ValiConfig.CHALLENGE_PERIOD_RETURN
         minimum_number_of_positions = ValiConfig.CHALLENGE_PERIOD_MIN_POSITIONS
         maximum_positional_returns_ratio = ValiConfig.CHALLENGE_PERIOD_MAX_POSITIONAL_RETURNS_RATIO
         maximum_unrealized_return_ratio = ValiConfig.CHALLENGE_PERIOD_MAX_UNREALIZED_RETURNS_RATIO
@@ -235,7 +235,7 @@ class ChallengePeriodManager(CacheController):
         recorded_unrealized_ratio = LedgerUtils.daily_consistency_ratio(ledger_element.cps)
 
         # Evaluation
-        # Recorded returns are greater than minimum returns - log
+        # Recorded returns are greater than minimum returns
         return_criteria = recorded_return >= minimum_return
 
         # Recorded number of closed positions are greater than minimum number of positions
