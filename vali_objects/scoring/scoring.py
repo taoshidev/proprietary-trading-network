@@ -175,7 +175,9 @@ class Scoring:
         if len(positions) == 0:
             return 0.0
 
-        positional_returns = [math.log(position.return_at_close) for position in positions]
+        positional_returns = [math.log(
+            max(position.return_at_close, .00001))  # Prevent math domain error
+            for position in positions]
 
         aggregate_return = 0.0
         for positional_return in positional_returns:
@@ -213,7 +215,9 @@ class Scoring:
         min_std_dev = ValiConfig.SHARPE_STDDEV_MINIMUM
 
         # Return at close should already accommodate the risk-free rate as a cost of carry
-        positional_log_returns = [math.log(position.return_at_close) for position in positions]
+        positional_log_returns = [math.log(
+            max(position.return_at_close, .00001))  # Prevent math domain error)
+            for position in positions]
 
         # Sharpe ratio is calculated as the mean of the returns divided by the standard deviation of the returns
         mean_return = np.mean(positional_log_returns)
@@ -235,7 +239,9 @@ class Scoring:
             return 0.0
 
         # Return at close should already accommodate the risk-free rate as a cost of carry
-        positional_log_returns = [math.log(position.return_at_close) for position in positions]
+        positional_log_returns = [math.log(
+            max(position.return_at_close, .00001))  # Prevent math domain error
+            for position in positions]
 
         positive_sum = 0
         negative_sum = 0
