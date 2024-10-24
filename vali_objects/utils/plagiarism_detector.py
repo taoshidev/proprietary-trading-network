@@ -12,6 +12,7 @@ import bittensor as bt
 from vali_objects.utils.plagiarism_pipeline import PlagiarismPipeline
 
 class PlagiarismDetector(CacheController):
+    
     def __init__(self, config, metagraph, running_unit_tests=False):
         super().__init__(config, metagraph, running_unit_tests=running_unit_tests)
         self.position_manager = PositionManager(metagraph=metagraph, running_unit_tests=running_unit_tests)

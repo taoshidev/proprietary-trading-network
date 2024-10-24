@@ -13,6 +13,7 @@ if __name__ == "__main__":
     logger = LoggerUtils.init_logger("generate_request_outputs")
     last_write_time = time.time()
     n_updates = 0
+    counter = [0]
     try:
         while True:
             current_time = time.time()
@@ -25,7 +26,7 @@ if __name__ == "__main__":
             if write_output:
                 # Generate the request outputs
                 generate_request_core(time_now=current_time_ms)
-                generate_request_minerstatistics(time_now=current_time_ms, checkpoints=True)
+                generate_request_minerstatistics(time_now=current_time_ms, checkpoints=True, counter=counter)
 
             if write_output:
                 last_validator_checkpoint_time = current_time

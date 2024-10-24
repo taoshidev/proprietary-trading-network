@@ -6,9 +6,13 @@ from vali_config import ValiConfig
 import uuid
 import time
 
+
 class PlagiarismPipeline:
+
   rasterized_positions = {} # ((miner_id, trade_pair): rasterized position)
   order_lists = {} # ((miner_id, trade_pair), all orders)
+  current_time = 0
+  
   def __init__(self, plagiarism_classes):
     self.overall_score = 0
     self.max_victim = None
@@ -57,14 +61,14 @@ class PlagiarismPipeline:
         current_score = 0
 
         for event in events:
-          if event["type"] == "lag" and event["score"] <= ValiConfig.PLAGIARISM_FOLLOWER_TIMELAG_THRESHOLD:
+          if event["type"] == "lag" and event["score"] >= ValiConfig.PLAGIARISM_FOLLOWER_TIMELAG_THRESHOLD:
             lagPassed = True
           elif event["type"] == "follow" and event["score"] >= ValiConfig.PLAGIARISM_FOLLOWER_SIMILARITY_THRESHOLD:
             followPassed = True
           if event["type"] == "single" or event["type"] == "two" or event["type"] == "three":
             current_score = max(current_score, event["score"])
 
-        if current_score >= self.overall_score and lagPassed and followPassed:
+        if current_score >= self.overall_score and (lagPassed or followPassed):
           self.overall_score = current_score
           self.max_trade_pair = plagiarist_trade_pair
           self.max_victim = {"victim": miner_id,
@@ -72,17 +76,22 @@ class PlagiarismPipeline:
                     "events": events}
         
         # If the plagiarist passes lag and follow thresholds and passes threshold for at least one other type of plagiarism, report
-        if len(events) > 2 and lagPassed and followPassed and current_score >= ValiConfig.PLAGIARISM_REPORTING_THRESHOLD:
+        # For the time being lag is only used as additional evidence for plagiarism rather than a necessary condition
+        if len(events) >= 2 and followPassed and current_score >= ValiConfig.PLAGIARISM_REPORTING_THRESHOLD:
 
           positions = PlagiarismEvents.positions[(miner_id, trade_pair)]
-          self.rasterized_positions[(miner_id, trade_pair)] = ReportingUtils.rasterize_cumulative_position(positions)
-          self.order_lists[(miner_id, trade_pair)] = state_dict[(miner_id, trade_pair)]
-
+          PlagiarismPipeline.rasterized_positions[(miner_id, trade_pair)] = ReportingUtils.rasterize_cumulative_position(positions, current_time=PlagiarismPipeline.current_time)
+          PlagiarismPipeline.order_lists[(miner_id, trade_pair)] = state_dict[(miner_id, trade_pair)]
+          if (plagiarist_id, plagiarist_trade_pair) not in PlagiarismPipeline.rasterized_positions:
+            PlagiarismPipeline.rasterized_positions[(plagiarist_id, plagiarist_trade_pair)] = ReportingUtils.rasterize_cumulative_position(PlagiarismEvents.positions[(plagiarist_id, plagiarist_trade_pair)], current_time=PlagiarismPipeline.current_time)
+            PlagiarismPipeline.order_lists[(plagiarist_id, plagiarist_trade_pair)] = PlagiarismEvents.positions[(plagiarist_id, plagiarist_trade_pair)]
+        
           victim = {"victim": miner_id,
                     "victim_trade_pair": trade_pair,
                     "events": events}
           
           victims.append(victim)
+        
 
     return victims
 
@@ -122,6 +131,7 @@ class PlagiarismPipeline:
         if key[0] not in new_raster:
             new_raster[key[0]] = {}
         new_raster[key[0]][key[1]] = value.tolist()
+    new_raster["created_timestamp_ms"] = int(time.time() * 1000)
     return new_raster
 
   def reformat_positions(self):
@@ -131,7 +141,7 @@ class PlagiarismPipeline:
         if key[0] not in new_positions:
             new_positions[key[0]] = {}
         new_positions[key[0]][key[1]] = value
-
+    new_positions["created_timestamp_ms"] = int(time.time() * 1000)
     return new_positions
 
 
@@ -140,8 +150,9 @@ class PlagiarismPipeline:
     positions_list_translated = PositionUtils.translate_current_leverage(flattened_positions)
     miners, trade_pairs, state_list = PositionUtils.to_state_list(positions_list_translated, current_time=current_time)
     state_dict = PlagiarismPipeline.state_list_to_dict(miners, trade_pairs, state_list)
+    PlagiarismPipeline.current_time = current_time
 
-    PlagiarismEvents.set_positions(state_dict, miners, trade_pairs)
+    PlagiarismEvents.set_positions(state_dict, miners, trade_pairs, current_time=current_time)
     rasterized_positions = {}
     positions_data = {}
     plagiarists_data = []
@@ -158,7 +169,6 @@ class PlagiarismPipeline:
       
       pipeline = PlagiarismPipeline(plagiarism_classes)
       trade_pair_output = pipeline.generate_plagiarism_events(miners, trade_pairs, miner_id, state_dict)
-      
       # If nothing above the thresholds, maintain info on the maximum
       if len(trade_pair_output) == 0 and pipeline.overall_score != 0:
       
@@ -166,15 +176,17 @@ class PlagiarismPipeline:
                             "victims": [pipeline.max_victim]}]
         victim_id = pipeline.max_victim["victim"]
         victim_tp = pipeline.max_victim["victim_trade_pair"]
+
         positions = PlagiarismEvents.positions[(victim_id, victim_tp)]
-        raster_vector = ReportingUtils.rasterize_cumulative_position(positions)
+        raster_vector = ReportingUtils.rasterize_cumulative_position(positions, current_time=current_time)
 
         pipeline.rasterized_positions[(victim_id, victim_tp)] = raster_vector
         pipeline.order_lists[(victim_id, victim_tp)] = positions
 
-      elif pipeline.overall_score != 0:
-        pipeline.rasterized_positions[(miner_id, pipeline.max_trade_pair)] = ReportingUtils.rasterize_cumulative_position(PlagiarismEvents.positions[(miner_id, pipeline.max_trade_pair)])
+        pipeline.rasterized_positions[(miner_id, pipeline.max_trade_pair)] = ReportingUtils.rasterize_cumulative_position(PlagiarismEvents.positions[(miner_id, pipeline.max_trade_pair)], current_time=current_time)
         pipeline.order_lists[(miner_id, pipeline.max_trade_pair)] = PlagiarismEvents.positions[(miner_id, pipeline.max_trade_pair)]
+
+      
       final_output = {"event_id": str(uuid.uuid4()),
                       "time": round(time.time() * 1000),
                       "plagiarist": miner_id,

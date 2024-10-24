@@ -25,7 +25,7 @@ class FollowPercentage(PlagiarismEvents):
     differences = FollowPercentage.compute_time_differences(plagiarist_orders, victim_orders)
     self.time_differences[event_key] = differences
     percent_of_follow = FollowPercentage.compute_follow_percentage(differences, victim_orders)
-
+    
     plagiarism_key = (self.plagiarist_id, plagiarist_trade_pair, victim_key[0], victim_key[1])
     self.metadata[plagiarism_key] = {"victim": victim_key[0],
                                     "victim_trade_pair": victim_key[1],
@@ -44,7 +44,8 @@ class FollowPercentage(PlagiarismEvents):
     while i < len(victim_orders) and j < len(plagiarist_orders):
 
         difference = plagiarist_orders[j]["start"] - (victim_orders[i]["start"])
-        if difference <= time_window and difference >= 0:
+        # Difference is within the follow time window and greater than 10 seconds
+        if difference <= time_window and difference >= ValiConfig.PLAGIARISM_MINIMUM_FOLLOW_MS:
             differences.append(difference / time_resolution)
 
             i += 1
@@ -87,6 +88,7 @@ class LagDetection(PlagiarismEvents):
     lag_score = self.score_direct(plagiarist_trade_pair, victim_key)
     
     plagiarism_key = (self.plagiarist_id, plagiarist_trade_pair, victim_key[0], victim_key[1])
+
     self.metadata[plagiarism_key] = {"victim": victim_key[0],
                                     "victim_trade_pair": victim_key[1],
                                     "type": self.name,
@@ -137,6 +139,7 @@ class CopySimilarity(PlagiarismEvents):
     if event_key in PlagiarismEvents.copy_similarities:
       similarity = PlagiarismEvents.copy_similarities[event_key]
     elif time_lag > 0:
+      
       similarity = cosine_similarity([plagiarist_vector[time_lag:]], [victim_vector[:-time_lag]])[0][0]
 
     else:
@@ -144,7 +147,6 @@ class CopySimilarity(PlagiarismEvents):
       similarity = cosine_similarity([plagiarist_vector], [victim_vector])[0][0]
 
     PlagiarismEvents.copy_similarities[event_key] = similarity
-
     return similarity
   
 
@@ -157,15 +159,14 @@ class TwoCopySimilarity(PlagiarismEvents):
   def score_all(self, plagiarist_trade_pair):
     single_pair_similarities = {}
     for miner_id in PlagiarismEvents.miner_ids:
-      for trade_pair in PlagiarismEvents.trade_pairs:
 
-        event_key = (self.plagiarist_id, plagiarist_trade_pair, miner_id, trade_pair)
-        if miner_id != self.plagiarist_id:
-          victim_key = (miner_id, trade_pair)
-          if event_key in self.copy_similarities:
-            single_pair_similarities[victim_key] = self.copy_similarities[event_key]
-          else: 
-            single_pair_similarities[victim_key] = CopySimilarity.score_direct(self.plagiarist_id, plagiarist_trade_pair, miner_id, trade_pair)
+      event_key = (self.plagiarist_id, plagiarist_trade_pair, miner_id, plagiarist_trade_pair)
+      if miner_id != self.plagiarist_id:
+        victim_key = (miner_id, plagiarist_trade_pair)
+        if event_key in self.copy_similarities:
+          single_pair_similarities[victim_key] = self.copy_similarities[event_key]
+        else: 
+          single_pair_similarities[victim_key] = CopySimilarity.score_direct(self.plagiarist_id, plagiarist_trade_pair, miner_id, plagiarist_trade_pair)
 
     self.score(plagiarist_trade_pair, single_pair_similarities)
 
@@ -194,15 +195,14 @@ class ThreeCopySimilarity(PlagiarismEvents):
 
     single_pair_similarities = {}
     for miner_id in PlagiarismEvents.miner_ids:
-      for trade_pair in PlagiarismEvents.trade_pairs:
 
-        event_key = (self.plagiarist_id, plagiarist_trade_pair, miner_id, trade_pair)
-        if miner_id != self.plagiarist_id:
-          victim_key = (miner_id, trade_pair)
-          if event_key in self.copy_similarities:
-            single_pair_similarities[victim_key] = self.copy_similarities[event_key]
-          else:
-            single_pair_similarities[victim_key] = CopySimilarity.score_direct(self.plagiarist_id, plagiarist_trade_pair, miner_id, trade_pair)
+      event_key = (self.plagiarist_id, plagiarist_trade_pair, miner_id, plagiarist_trade_pair)
+      if miner_id != self.plagiarist_id:
+        victim_key = (miner_id, plagiarist_trade_pair)
+        if event_key in self.copy_similarities:
+          single_pair_similarities[victim_key] = self.copy_similarities[event_key]
+        else:
+          single_pair_similarities[victim_key] = CopySimilarity.score_direct(self.plagiarist_id, plagiarist_trade_pair, miner_id, plagiarist_trade_pair)
 
     self.score(plagiarist_trade_pair, single_pair_similarities)
 

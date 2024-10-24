@@ -17,12 +17,11 @@ class PlagiarismEvents():
   def score_all(self, plagiarist_trade_pair):
 
     for miner_id in PlagiarismEvents.miner_ids:
-      for trade_pair in PlagiarismEvents.trade_pairs:
 
-        if miner_id != self.plagiarist_id:
-          
-          victim_key = (miner_id, trade_pair)
-          self.score(plagiarist_trade_pair, victim_key)
+      if miner_id != self.plagiarist_id:
+        
+        victim_key = (miner_id, plagiarist_trade_pair)
+        self.score(plagiarist_trade_pair, victim_key)
     return 
 
 

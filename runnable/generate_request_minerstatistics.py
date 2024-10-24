@@ -14,6 +14,9 @@ from vali_objects.utils.position_filtering import PositionFiltering
 from vali_objects.utils.ledger_utils import LedgerUtils
 from vali_objects.scoring.scoring import Scoring
 
+from vali_objects.utils.plagiarism_detector import PlagiarismDetector
+
+
 
 def rank_dictionary(d, ascending=False):
     """
@@ -117,11 +120,8 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
 
     filtered_ledger = subtensor_weight_setter.filtered_ledger(hotkeys=all_miner_hotkeys)
     filtered_positions = subtensor_weight_setter.filtered_positions(hotkeys=all_miner_hotkeys)
-
-    # get plagiarism scores
-
+    
     plagiarism = subtensor_weight_setter.get_plagiarism_scores_from_disk()
-
     # # Sync the ledger and positions
     # filtered_ledger, filtered_positions = subtensor_weight_setter.sync_ledger_positions(
     #     filtered_ledger,
@@ -521,12 +521,13 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
     return final_dict
 
 
-def generate_request_minerstatistics(time_now: int, checkpoints: bool = True):
+def generate_request_minerstatistics(time_now: int, checkpoints: bool = True, counter=[0]):
+    if counter[0] == 0:
+        final_dict = generate_miner_statistics_data(time_now, checkpoints)
 
-    final_dict = generate_miner_statistics_data(time_now, checkpoints)
-
-    output_file_path = ValiBkpUtils.get_vali_outputs_dir() + "minerstatistics.json"
-    ValiBkpUtils.write_file(
-        output_file_path,
-        final_dict,
-    )
+        output_file_path = ValiBkpUtils.get_vali_outputs_dir() + "minerstatistics.json"
+        ValiBkpUtils.write_file(
+            output_file_path,
+            final_dict,
+        )
+        counter[0] += 1

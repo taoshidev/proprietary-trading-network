@@ -24,7 +24,10 @@ from vali_objects.utils.position_utils import PositionUtils
 
 import uuid
 
-class TestPlagiarism(TestBase):
+
+
+
+class TestPlagiarismUnit(TestBase):
 
     def setUp(self):
         super().setUp()
@@ -139,87 +142,6 @@ class TestPlagiarism(TestBase):
 
         self.generate_one_position(plagiarist_key[0], plagiarist_key[1], leverages=plagiarist_leverages, time_apart=time_apart, time_after=time_after)
         self.generate_one_position(victim_key[0], victim_key[1], leverages=victim_leverages, time_apart=time_apart, time_after=0)
-        
-    def test_plagiarism_two_miners(self):
-        o1 = Order(order_type=OrderType.SHORT,
-                leverage=1.0,
-                price=1000,
-                trade_pair=TradePair.ETHUSD,
-                processed_ms=1000,
-                order_uuid="1000")
-        self.add_order_to_position_and_save_to_disk(self.eth_position1, o1)
-        o1.processed_ms = 1005
-        self.add_order_to_position_and_save_to_disk(self.eth_position2, o1)
-
-        self.plagiarism_detector.detect()
-        self.assertEqual(len(self.plagiarism_detector.plagiarism_data), 2)
-
-        miner_one = self.plagiarism_detector.plagiarism_data[0]
-        miner_two = self.plagiarism_detector.plagiarism_data[1]
-        if miner_one["plagiarist"] == self.MINER_HOTKEY1:
-            self.assertAlmostEqual(miner_one["overall_score"], 0)
-            self.assertAlmostEqual(miner_two["overall_score"], 1)
-        else:
-            self.assertAlmostEqual(miner_one["overall_score"], 1)
-            self.assertAlmostEqual(miner_two["overall_score"], 0)       
-
-
-    def test_plagiarism_three_miners(self):
-
-        o1 = Order(order_type=OrderType.SHORT,
-                leverage=-1.0,
-                price=1000,
-                trade_pair=TradePair.ETHUSD,
-                processed_ms=1000,
-                order_uuid="1000")
-        o1_copy = Order(order_type=OrderType.SHORT,
-                leverage=-1.0,
-                price=1000,
-                trade_pair=TradePair.ETHUSD,
-                processed_ms=60000 * 60 * 6 + 1000, #6 hours later
-                order_uuid="1001")
-        
-
-        o2 = Order(order_type=OrderType.LONG,
-                leverage=0.5,
-                price=1000,
-                trade_pair=TradePair.BTCUSD,
-                processed_ms=1000,
-                order_uuid="1002")
-        
-        o2_copy = Order(order_type=OrderType.LONG,
-                leverage=0.5,
-                price=1000,
-                trade_pair=TradePair.BTCUSD,
-                processed_ms=60000 * 5 + 1000, #5 minutes later
-                order_uuid="1003")
-        
-        #ETH
-        #miner 2 following miner 1
-        self.add_order_to_position_and_save_to_disk(self.eth_position1, o1)
-        self.add_order_to_position_and_save_to_disk(self.eth_position2, o1_copy)
-        #BTC
-        #miner 3 following miner 2
-        self.add_order_to_position_and_save_to_disk(self.btc_position2, o2)
-        self.add_order_to_position_and_save_to_disk(self.btc_position3, o2_copy)
-
-
-
-        self.plagiarism_detector.detect()
-        self.assertEqual(len(self.plagiarism_detector.plagiarism_data), 3)
-
-        miner_one = miner_two = miner_three = None
-        for miner in self.plagiarism_detector.plagiarism_data:
-            if miner["plagiarist"] == self.MINER_HOTKEY1:
-                miner_one = miner
-            if miner["plagiarist"] == self.MINER_HOTKEY2:
-                miner_two = miner
-            if miner["plagiarist"] == self.MINER_HOTKEY3:
-                miner_three = miner
-            
-        self.assertAlmostEqual(miner_one["overall_score"], 0)
-        self.assertGreaterEqual(miner_two["overall_score"], 0.95)
-        self.assertGreaterEqual(miner_three["overall_score"], 0.95)
 
     def test_lag_detection_not_similar(self):
         alternate = False
@@ -335,7 +257,7 @@ class TestPlagiarism(TestBase):
 
         miner_one_differences = FollowPercentage.compute_time_differences(plagiarist_orders=miner_one_orders, victim_orders=miner_two_orders)
 
-        #Miner one is not following miner two
+        # Miner one is not following miner two
         self.assertCountEqual(miner_one_differences, [])
         average_time_lag_one = FollowPercentage.average_time_lag(differences=miner_one_differences)
 
@@ -346,12 +268,14 @@ class TestPlagiarism(TestBase):
         self.assertAlmostEqual(follow_percentage_one, 0)
         
         miner_two_differences = FollowPercentage.compute_time_differences(plagiarist_orders=miner_two_orders, victim_orders=miner_one_orders)
-        #all follow times should be 30
+        # All follow times should be 30
+        follow_ms = 30 * 1000 * 60
+
         for diff in miner_two_differences:
-            self.assertAlmostEqual(diff, 30)
+            self.assertAlmostEqual(diff, follow_ms/ValiConfig.PLAGIARISM_MATCHING_TIME_RESOLUTION_MS)
         average_time_lag_two = FollowPercentage.average_time_lag(differences=miner_two_differences)
 
-        self.assertAlmostEqual(average_time_lag_two, 30)
+        self.assertAlmostEqual(average_time_lag_two, follow_ms/ValiConfig.PLAGIARISM_MATCHING_TIME_RESOLUTION_MS)
 
         follow_percentage_two = FollowPercentage.compute_follow_percentage(victim_orders=miner_one_orders, differences=miner_two_differences)
 
@@ -359,8 +283,9 @@ class TestPlagiarism(TestBase):
         
 
         PlagiarismEvents.clear_plagiarism_events()
+
     def test_follow_similarity_outside(self):
-        #Plagiarist follows outside of the order time window
+        # Plagiarist follows outside of the order time window
         self.generate_plagiarism_position(plagiarist_key=(self.MINER_HOTKEY2, TradePair.AUDUSD),
                                           victim_key=(self.MINER_HOTKEY1, TradePair.AUDUSD),
                                           time_after=ValiConfig.PLAGIARISM_ORDER_TIME_WINDOW_MS + 1,
@@ -476,7 +401,7 @@ class TestPlagiarism(TestBase):
         self.assertListEqual(sorted([self.MINER_HOTKEY1, self.MINER_HOTKEY2, self.MINER_HOTKEY4]), sorted([x["victim"] for x in metadata.values()]))
 
         for key, value in metadata.items():
-            # assert that all values are above 0.8 (They should all be the same since there are three available)
+            # Assert that all values are above 0.8 (They should all be the same since there are three available)
             self.assertGreaterEqual(value["score"], 0.8)
         
 

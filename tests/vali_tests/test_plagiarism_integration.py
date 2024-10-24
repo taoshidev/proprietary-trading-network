@@ -3,25 +3,15 @@ from tests.vali_tests.base_objects.test_base import TestBase
 from vali_config import TradePair
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.position import Position
-from vali_objects.utils.position_manager import PositionManager
 from vali_objects.utils.vali_utils import ValiUtils
 from vali_objects.vali_dataclasses.order import Order
 from data_generator.twelvedata_service import TwelveDataService
 from vali_objects.utils.plagiarism_events import PlagiarismEvents
-from vali_objects.utils.plagiarism_pipeline import PlagiarismPipeline
-from vali_objects.utils.plagiarism_definitions import LagDetection
-from vali_objects.utils.plagiarism_definitions import FollowPercentage
-from vali_objects.utils.plagiarism_definitions import CopySimilarity
-from vali_objects.utils.plagiarism_definitions import TwoCopySimilarity
-from vali_objects.utils.plagiarism_definitions import ThreeCopySimilarity
-
-from copy import deepcopy
 
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.vali_dataclasses.order import Order
-from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerData
 from tests.shared_objects.mock_classes import (
-    MockMetagraph, MockChallengePeriodManager, MockPositionManager, MockPerfLedgerManager, MockCacheController
+    MockMetagraph, MockPositionManager
 )
 from tests.vali_tests.base_objects.test_base import TestBase
 
@@ -29,15 +19,11 @@ from vali_config import TradePair
 from vali_objects.position import Position
 from vali_config import ValiConfig
 
-import copy
-
 from vali_config import ValiConfig
-from vali_objects.utils.position_utils import PositionUtils
-
 
 import uuid
 
-class TestPlagiarism(TestBase):
+class TestPlagiarismIntegration(TestBase):
 
     def setUp(self):
 
@@ -47,7 +33,7 @@ class TestPlagiarism(TestBase):
         self.ONE_HOUR_MS = 1000 * 60 * 60
         self.ONE_MIN_MS = 1000 * 60
 
-        self.N_MINERS = 5
+        self.N_MINERS = 6
         self.MINER_NAMES = [f"test_miner{i}" for i in range(self.N_MINERS)]
 
 
@@ -56,7 +42,7 @@ class TestPlagiarism(TestBase):
         self.plagiarism_detector.running_unit_tests = True
         self.current_time = ValiConfig.PLAGIARISM_LOOKBACK_RANGE_MS
 
-        self.position_manager = PositionManager(metagraph=self.mock_metagraph, running_unit_tests=True)
+        self.position_manager = MockPositionManager(metagraph=self.mock_metagraph)
         self.DEFAULT_TEST_POSITION_UUID = "test_position"
         self.DEFAULT_OPEN_MS = 1
 
@@ -93,8 +79,6 @@ class TestPlagiarism(TestBase):
                                    open_ms=self.ONE_HOUR_MS,
                                    close_ms=self.ONE_HOUR_MS * 6)
         
-        #TODO investigate if FLATS get appended
-
         # Two positions, higher leverage each 2.5 days apart with one order
         miner_1_btc_lev_one = [0.5]
         miner_1_btc_close_one = self.ONE_HOUR_MS * 3 + (self.ONE_DAY_MS * 2.5)
@@ -175,28 +159,19 @@ class TestPlagiarism(TestBase):
                                    open_ms=self.ONE_DAY_MS * 3 + self.ONE_HOUR_MS)
 
         # Longer Different Times one position
-        miner_3_eth_lev_one = [0.25, 0.1, -0.2] # 1 day, 2 days
+        self.miner_3_eth_lev_one = [0.25, 0.1, -0.2] # 1 day, 2 days
+        self.miner_3_eth_times_apart = [0, self.ONE_DAY_MS, self.ONE_DAY_MS * 2]
         self.generate_one_position(hotkey=self.MINER_NAMES[3],
                                    trade_pair=TradePair.ETHUSD,
-                                   leverages=miner_3_eth_lev_one,
+                                   leverages=self.miner_3_eth_lev_one,
                                    times_apart=[0, self.ONE_DAY_MS, self.ONE_DAY_MS * 2],
                                    open_ms=self.ONE_MIN_MS * 10)
-        # Figure out a way to then add plagiarism, I'll just have an extra miner that doesn't have any positions unless plagiarism
-
-    def translate_positions_to_states(self):
-        hotkeys = self.mock_metagraph.hotkeys
-        positions = self.position_manager.get_all_miner_positions_by_hotkey(hotkeys)
-        flattened_positions = PositionUtils.flatten(positions)
-        positions_list_translated = PositionUtils.translate_current_leverage(flattened_positions)
-        miners, trade_pairs, state_list = PositionUtils.to_state_list(positions_list_translated, current_time=self.current_time)
-        state_dict = PlagiarismPipeline.state_list_to_dict(miners, trade_pairs, state_list)
-        
-        PlagiarismEvents.set_positions(state_dict, miners, trade_pairs, current_time=self.current_time)
-
 
     def add_order_to_position_and_save_to_disk(self, position, order):
         position.add_order(order)
-        self.position_manager.save_miner_position_to_disk(position)
+        if order.order_type == OrderType.FLAT:
+            position.is_closed_position = True
+        self.position_manager.save_miner_position_to_disk(position, delete_open_position_if_exists=True)
 
     def generate_one_position(self, hotkey, trade_pair, leverages, times_apart, open_ms, close_ms=None, times_after=None):
         if times_after is None:
@@ -229,68 +204,140 @@ class TestPlagiarism(TestBase):
                 order_uuid=str(uuid.uuid4()))
             self.add_order_to_position_and_save_to_disk(position, order)
         position.close_ms = close_ms
-        position.is_closed_position = close_ms < ValiConfig.PLAGIARISM_LOOKBACK_RANGE_MS
-        self.position_manager.save_miner_position_to_disk(position)
 
-    def generate_plagiarism_position(self, plagiarist_key, victim_key, plagiarist_leverages, victim_leverages, times_apart, open_ms, close_ms=None,  times_after=None):
+        to_close = close_ms < ValiConfig.PLAGIARISM_LOOKBACK_RANGE_MS
+        if to_close:
+            close_order = Order(order_type=OrderType.FLAT,
+                leverage=0,
+                price=1000,
+                trade_pair=position.trade_pair,
+                processed_ms= close_ms - 1, 
+                order_uuid=str(uuid.uuid4()))
+            self.add_order_to_position_and_save_to_disk(order=close_order, position=position)
+        self.position_manager.save_miner_position_to_disk(position, delete_open_position_if_exists=True)
 
-        self.generate_one_position(plagiarist_key[0], plagiarist_key[1], leverages=plagiarist_leverages, times_apart=times_apart, open_ms=open_ms, close_ms=close_ms, times_after=times_after)
-        self.generate_one_position(victim_key[0], victim_key[1], leverages=victim_leverages, times_apart=times_apart, open_ms=open_ms, close_ms=close_ms)
-
-    def test_plagiarism_two_miners(self):
-        #Direct copy one order.
-        self.position_manager.clear_all_miner_positions_from_disk()
-        self.position_manager.get_miner_position_from_disk_using_position_in_memory
-        leverages = [1.0]
-        plagiarist_key = (self.MINER_NAMES[1], TradePair.ETHUSD)
-        victim_key = (self.MINER_NAMES[0], TradePair.ETHUSD)
-        self.generate_plagiarism_position(plagiarist_key=plagiarist_key,
-                                        victim_key=victim_key,
-                                        plagiarist_leverages=leverages,
-                                        victim_leverages=leverages,
-                                        times_apart=[1000 * 60 * 60 * 24],
-                                        open_ms=0,
-                                        times_after=[1000 * 60])
+    def check_one_plagiarist(self, plagiarist_id, victim_id, trade_pair_name):
         self.plagiarism_detector.detect()
-        self.assertEqual(len(self.plagiarism_detector.plagiarism_data), 2)
 
         for miner in self.plagiarism_detector.plagiarism_data:
-            if miner["plagiarist"] == self.MINER_NAMES[1]:
-                self.assertAlmostEqual(miner["overall_score"], 1)
-            elif miner["plagiarist"] == self.MINER_NAMES[0]:
-                self.assertAlmostEqual(miner["overall_score"], 0)
+            if miner["plagiarist"] == plagiarist_id:
+                self.assertGreaterEqual(miner["overall_score"], 0.95)
+                trade_pairs = miner["trade_pairs"]
 
+                # There should only be one trade pair
+                self.assertEqual(len(trade_pairs.keys()), 1)
+
+                self.assertIn(trade_pair_name, trade_pairs)
+
+                plagiarism_event = trade_pairs[trade_pair_name]
+
+                # There should only be one victim
+                self.assertEqual(len(plagiarism_event["victims"]), 1)
+
+                victim = plagiarism_event["victims"][0]
+
+                self.assertEqual(victim["victim"], victim_id)
+                self.assertEqual(victim["victim_trade_pair"], trade_pair_name)
+
+                # Flagged for at least two events
+                self.assertGreaterEqual(len(victim["events"]), 2)
+
+                # Flagged for follow orders and single similarity
+                event_set = set([event["type"] for event in victim["events"]])
+                self.assertIn("follow", event_set)
+                self.assertIn("single", event_set)
+
+                for event in victim["events"]:
+                    if event["type"] == "follow":
+                        self.assertAlmostEqual(event["score"], 1)
+
+                    elif event["type"] == "lag":
+                        self.assertGreaterEqual(event["score"], 1)
+
+                    elif event["type"] == "single":
+                        self.assertGreaterEqual(event["score"], 0.95)
+            else:
+                self.assertLess(miner["overall_score"], 0.8)
 
     def test_no_plagiarism(self):
         # There should be no false positives
-        self.plagiarism_detector.detect()
+        positions = self.position_manager.get_all_miner_positions_by_hotkey(
+                self.mock_metagraph.hotkeys
+            )
+        
+        self.plagiarism_detector.detect(hotkeys= self.mock_metagraph.hotkeys,
+            current_time= self.current_time,
+            hotkey_positions=positions)
+        
         self.assertGreaterEqual(len(self.plagiarism_detector.plagiarism_data), 1)
-        positions = self.position_manager.get_all_disk_positions_for_all_miners()
-        for key, value in positions.items():
-
-            self.assertAlmostEqual(value, [])
 
         for miner in self.plagiarism_detector.plagiarism_data:
             self.assertLess(miner["overall_score"], 0.8)
 
-    def _test_plagiarism_scale(self):
+    def test_plagiarism_scale(self):
         # Plagiarist scales the leverages of another miner with constant time lag of one hour
         # Copies Miner zero bitcoin leverages
-        leverages = self.miner_0_btc_lev
+
+        leverages = [x * 1.1 for x in self.miner_0_btc_lev]
         times_apart = [self.ONE_DAY_MS for _ in range(len(self.miner_0_btc_lev))] #same as for miner 0
         times_after = [self.ONE_HOUR_MS for _ in range(len(self.miner_0_btc_lev))]
         
         self.generate_one_position( hotkey=self.MINER_NAMES[4],
-                                    plagiarist_leverages=leverages,
+                                    trade_pair=TradePair.BTCUSD,
+                                    leverages=leverages,
                                     times_apart=times_apart,
                                     open_ms=0,
                                     times_after=times_after)
-        self.plagiarism_detector.detect()
+        
+        self.check_one_plagiarist(plagiarist_id=self.MINER_NAMES[4], victim_id=self.MINER_NAMES[0], trade_pair_name=TradePair.BTCUSD.name)
 
-        for miner in self.plagiarism_detector.plagiarism_data:
-            if miner["plagiarist"] == self.MINER_NAMES[4]:
-                self.assertGreaterEqual(miner["overall_score"], 0.95)
-                trade_pairs = miner["trade_pairs"]
-            elif miner["plagiarist"] == self.MINER_NAMES[0]:
-                self.assertAlmostEqual(miner["overall_score"], 0)
-        #TODO add more checks here to make sure it all looks good
+
+    def test_plagiarism_shift(self):
+        # Plagiarist shifts the leverages of another miner with constant time lag of one hour
+        # Copies Miner three ethereum leverages
+        plagiarist_shift = 0.1
+    
+        leverages = [x + plagiarist_shift for x in self.miner_3_eth_lev_one]
+        times_after = [self.ONE_HOUR_MS for _ in range(len(self.miner_3_eth_lev_one))]
+
+        self.generate_one_position( hotkey=self.MINER_NAMES[4],
+                                    trade_pair=TradePair.ETHUSD,
+                                    leverages=leverages,
+                                    times_apart=self.miner_3_eth_times_apart,
+                                    open_ms=self.ONE_MIN_MS * 10,
+                                    times_after=times_after)
+        
+        self.check_one_plagiarist(plagiarist_id=self.MINER_NAMES[4], victim_id=self.MINER_NAMES[3], trade_pair_name=TradePair.ETHUSD.name)
+
+
+    def test_plagiarism_variable_scale(self):
+        scales = [0.9, 1.1, 0.85]
+        leverages = [x * scales[i] for i, x in enumerate(self.miner_0_btc_lev)]
+        times_apart = [self.ONE_DAY_MS for _ in range(len(self.miner_0_btc_lev))] #same as for miner 0
+        times_after = [self.ONE_HOUR_MS for _ in range(len(self.miner_0_btc_lev))]
+        
+        self.generate_one_position( hotkey=self.MINER_NAMES[4],
+                                    trade_pair=TradePair.BTCUSD,
+                                    leverages=leverages,
+                                    times_apart=times_apart,
+                                    open_ms=0,
+                                    times_after=times_after)
+        
+        self.check_one_plagiarist(plagiarist_id=self.MINER_NAMES[4], victim_id=self.MINER_NAMES[0], trade_pair_name=TradePair.BTCUSD.name)
+
+    def test_plagiarism_variable_shift(self):
+        # Plagiarist shifts the leverages of another miner with constant time lag of one hour
+        # Copies Miner three ethereum leverages
+        plagiarist_shifts = [0.1, 0.05, -0.1]
+    
+        leverages = [x + plagiarist_shifts[i] for i, x in enumerate(self.miner_3_eth_lev_one)]
+        times_after = [self.ONE_HOUR_MS for _ in range(len(self.miner_3_eth_lev_one))]
+
+        self.generate_one_position( hotkey=self.MINER_NAMES[4],
+                                    trade_pair=TradePair.ETHUSD,
+                                    leverages=leverages,
+                                    times_apart=self.miner_3_eth_times_apart,
+                                    open_ms=self.ONE_MIN_MS * 10,
+                                    times_after=times_after)
+        
+        self.check_one_plagiarist(plagiarist_id=self.MINER_NAMES[4], victim_id=self.MINER_NAMES[3], trade_pair_name=TradePair.ETHUSD.name)
