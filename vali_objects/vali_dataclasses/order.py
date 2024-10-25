@@ -9,12 +9,15 @@ from vali_objects.vali_dataclasses.price_source import PriceSource
 from vali_objects.vali_dataclasses.order_signal import Signal
 from enum import Enum, auto
 
+ORDER_SRC_ORGANIC = 0
+ORDER_SRC_ELIMINATION_FLAT = 1
 
 class Order(Signal):
     price: float
     processed_ms: int
     order_uuid: str
     price_sources: list[PriceSource] = []
+    src: int = ORDER_SRC_ORGANIC
 
     @field_validator('price', 'processed_ms', 'leverage', mode='before')
     def validate_values(cls, v, info):
