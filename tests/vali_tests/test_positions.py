@@ -15,7 +15,7 @@ from vali_objects.position import Position, FEE_V6_TIME_MS
 from vali_objects.utils.live_price_fetcher import LivePriceFetcher
 from vali_objects.utils.position_manager import PositionManager
 from vali_objects.utils.vali_utils import ValiUtils
-from vali_objects.vali_dataclasses.order import Order
+from vali_objects.vali_dataclasses.order import Order, ORDER_SRC_ELIMINATION_FLAT
 from time_util.time_util import MS_IN_8_HOURS, MS_IN_24_HOURS
 
 
@@ -2100,6 +2100,39 @@ class TestPositions(TestBase):
 
         for x in recreated_object.orders:
             self.assertTrue(hasattr(x, 'trade_pair'), recreated_object)
+
+    def test_fake_flat_order(self):
+        position = deepcopy(self.default_position)
+        position.orders = []
+        for i in range(10):
+            o = Order(order_type=OrderType.LONG,
+                      leverage=.1 + i / 10,
+                      price=100,
+                      trade_pair=TradePair.BTCUSD,
+                      processed_ms=1000 + i * 10,
+                      order_uuid=str(i))
+            position.orders.append(o)
+        position.rebuild_position_with_updated_orders()
+        orig_return = position.return_at_close
+        n_orders_orig = len(position.orders)
+
+        fake_flat_order = Order(price=0,
+                           processed_ms=12345,
+                           order_uuid=position.position_uuid[::-1],
+                           # determinstic across validators. Won't mess with p2p sync
+                           trade_pair=position.trade_pair,
+                           order_type=OrderType.FLAT,
+                           leverage=0,
+                           src=ORDER_SRC_ELIMINATION_FLAT)
+        position.add_order(fake_flat_order)
+        assert orig_return == position.return_at_close
+        assert len(position.orders) == n_orders_orig + 1
+
+        position.rebuild_position_with_updated_orders()
+        assert orig_return == position.return_at_close
+        assert len(position.orders) == n_orders_orig + 1
+
+
 
 
 if __name__ == '__main__':
