@@ -15,10 +15,10 @@ from vali_objects.position import Position
 
 
 class ChallengePeriodManager(CacheController):
-    def __init__(self, config, metagraph, running_unit_tests=False):
+    def __init__(self, config, metagraph, running_unit_tests=False, position_manager=None):
         super().__init__(config, metagraph, running_unit_tests=running_unit_tests)
         self.perf_manager = PerfLedgerManager(metagraph=metagraph, running_unit_tests=running_unit_tests)
-        self.position_manager = PositionManager(metagraph=metagraph, running_unit_tests=running_unit_tests)
+        self.position_manager = PositionManager(metagraph=metagraph, running_unit_tests=running_unit_tests) if position_manager is None else position_manager
 
     def refresh(self, current_time: int = None):
         if not self.refresh_allowed(ValiConfig.CHALLENGE_PERIOD_REFRESH_TIME_MS):
@@ -63,8 +63,12 @@ class ChallengePeriodManager(CacheController):
         self._prune_deregistered_metagraph()
 
         # Now sync challenge period with the disk
+
         self._write_challengeperiod_from_memory_to_disk()
-        self._write_eliminations_from_memory_to_disk()
+        if challengeperiod_eliminations:
+            for hotkey in challengeperiod_eliminations:
+                self.position_manager.handle_eliminated_miner(hotkey, {})
+            self._write_eliminations_from_memory_to_disk()
         self.set_last_update_time()
 
     def _prune_deregistered_metagraph(self, hotkeys=None):
