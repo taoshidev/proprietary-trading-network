@@ -24,7 +24,7 @@ from vali_objects.vali_dataclasses.order import OrderStatus
 from vali_objects.vali_dataclasses.price_source import PriceSource
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
 
-TARGET_MS = 1727709807000 + (1000 * 60 * 60 * 2)  # + 2 hours
+TARGET_MS = 1729868537000 + (1000 * 60 * 60 * 3)  # + 3 hours
 
 
 class PositionManager(CacheController):
@@ -281,7 +281,7 @@ class PositionManager(CacheController):
         unique_corrections = set()
         now_ms = TimeUtil.now_in_millis()
         #miners_to_wipe = ["5FREPpDNYdqJBvXgXSgiXo78f5eMq2dZEeW5cyc3wU4TPdS1", "5DJPTKMBEj9np6oNFdfc8asL9aHUmCM8VPPkygthNtFR8YkC", "5GhCxfBcA7Ur5iiAS343xwvrYHTUfBjBi4JimiL5LhujRT9t", "5GTL7WXa4JM2yEUjFoCy2PZVLioNs1HzAGLKhuCDzzoeQCTR", "5GCDZ6Vum2vj1YgKtw7Kv2fVXTPmV1pxoHh1YrsxqBvf9SRa"]
-        miners_to_wipe = ["5GCRF1NLkU41tipELQbVsFuH8ZAYxtwWpn4FYiXiu6QHUaHA"]
+        miners_to_wipe = []
         for k in miners_to_wipe:
             if k not in hotkey_to_positions:
                 hotkey_to_positions[k] = []
@@ -399,8 +399,18 @@ class PositionManager(CacheController):
                                                                 unique_corrections=unique_corrections,
                                                                 pos=position_to_delete)
         """
+            if miner_hotkey == "5DCzvCF22vTVhXLtGrd7dBy19iFKKJNxmdSp5uo4C4v6Xx6h":
+                time_now_ms = TimeUtil.now_in_millis()
+                if time_now_ms > TARGET_MS:
+                    return
+                position_to_delete = [x for x in positions if x.trade_pair == TradePair.SPX][-1]
+                n_attempts, n_corrections = self.correct_for_tp(positions, None, None, TradePair.SPX,
+                                                                timestamp_ms=None, n_attempts=n_attempts,
+                                                                n_corrections=n_corrections,
+                                                                unique_corrections=unique_corrections,
+                                                                pos=position_to_delete)
 
-
+        #5DCzvCF22vTVhXLtGrd7dBy19iFKKJNxmdSp5uo4C4v6Xx6h
         bt.logging.warning(
             f"Applied {n_corrections} order corrections out of {n_attempts} attempts. unique positions corrected: {len(unique_corrections)}")
 
