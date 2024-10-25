@@ -43,7 +43,10 @@ class CacheController:
         return self._last_update_time_ms
 
     def _hotkey_in_eliminations(self, hotkey):
-        return any(hotkey == x['hotkey'] for x in self.eliminations)
+        for x in self.eliminations:
+            if x['hotkey'] == hotkey:
+                return x
+        return None
 
     def set_last_update_time(self, skip_message=False):
         # Log that the class has finished updating and the time it finished updating
