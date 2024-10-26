@@ -10,6 +10,24 @@ from time_util.time_util import TimeUtil
 
 
 class PositionUtils:
+
+    @staticmethod
+    def order_returns(
+            positions: list[Position]
+    ) -> list[float]:
+        """Computes per order returns for a list of positions."""
+        order_returns = []
+        for position in positions:
+            all_orders = position.orders
+            final_price = all_orders[-1].price
+
+            for order in position.orders[:-1]:
+                percentage_change = order.price / final_price
+                value_change = order.leverage * percentage_change
+                order_returns.append(value_change)
+
+        return order_returns
+
     @staticmethod
     def translate_current_leverage(
             positions: list[Position],
