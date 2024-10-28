@@ -3,7 +3,7 @@
 
 import time
 
-from vali_config import ValiConfig
+from vali_objects.vali_config import ValiConfig
 from shared_objects.cache_controller import CacheController
 
 import bittensor as bt

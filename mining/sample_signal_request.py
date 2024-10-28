@@ -4,7 +4,7 @@ import requests
 import json
 
 from vali_objects.enums.order_type_enum import OrderType
-from vali_config import TradePair, TradePairCategory
+from vali_objects.vali_config import TradePair, TradePairCategory
 
 
 class CustomEncoder(json.JSONEncoder):

@@ -7,7 +7,7 @@ from typing import List, Dict
 
 from shared_objects.retry import retry
 from time_util.time_util import TimeUtil
-from vali_config import ValiConfig
+from vali_objects.vali_config import ValiConfig
 from vali_objects.exceptions.corrupt_data_exception import ValiBkpCorruptDataException
 from vali_objects.exceptions.vali_bkp_file_missing_exception import ValiFileMissingException
 from vali_objects.position import Position

@@ -1,13 +1,11 @@
-import json
 import threading
 import traceback
 from collections import defaultdict
 from typing import List, Tuple
-import matplotlib.pyplot as plt
 
 from data_generator.base_data_service import BaseDataService, TWELVEDATA_PROVIDER_NAME
 from time_util.time_util import TimeUtil
-from vali_config import TradePair, TradePairCategory
+from vali_objects.vali_config import TradePair, TradePairCategory
 import time
 from twelvedata import TDClient
 
@@ -337,79 +335,3 @@ if __name__ == "__main__":
     print(twelve_data.get_close_at_date(TradePair.DJI, 1712746241174))
     assert 0
 
-
-    data = None
-    #data = twelve_data.get_close_at_date(TradePair.SPX, '2024-04-01')
-    # read in the cached data
-    with open('/Users/jbonilla/Documents/prop-net/price_history_2.json', 'r') as f:
-        data = json.load(f)
-
-    for trade_pair, websocket_price_history in data.items():
-        print(trade_pair)
-        websocket_times = [datetime.strptime(x[0], '%Y-%m-%d %H:%M:%S') for x in websocket_price_history]  # noqa: F821
-        websocket_prices = [x[1] for x in websocket_price_history]
-
-        min_time = min(websocket_price_history, key=lambda x: x[0])[0]
-        max_time = max(websocket_price_history, key=lambda x: x[0])[0]
-        closes_historical = twelve_data.get_range_of_closes(trade_pair, min_time, max_time)
-        historical_times = [datetime.strptime(x[0], '%Y-%m-%d %H:%M:%S') for x in closes_historical]  # noqa: F821
-        historical_prices = [x[1] for x in closes_historical]
-
-        plt.figure(figsize=(10, 6))
-        plt.plot(historical_times, historical_prices, label='Historical Data', marker='o', linestyle='-', markersize=4)
-        plt.plot(websocket_times, websocket_prices, label='Websocket Data', marker='x', linestyle='--', markersize=4)
-        plt.title(f'Trade Pair: {trade_pair}')
-        plt.xlabel('Time')
-        plt.ylabel('Price')
-        plt.legend()
-        plt.xticks(rotation=45)
-        plt.tight_layout()
-
-        # Step 5: Display or Save the Plot
-        plt.show()
-
-
-    assert 0
-
-
-    ######################
-    def on_event(e):
-        # do whatever is needed with data
-        print(e)
-
-    td = TDClient(apikey=secrets['twelvedata_apikey'])
-    ws = td.websocket(symbols="BTC/USD", on_event=on_event)
-    ws.subscribe(['ETH/BTC', 'AAPL'])
-    ws.connect()
-
-    raise Exception('@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@')
-    ############################
-
-    for i, secret in enumerate([secrets['twelvedata_apikey'], secrets['twelvedata_apikey2']]):
-        if i == 0:
-            print("USING ENTERPRISE TIER")
-        else:
-            print("USING FREE TIER")
-        twelve_data = TwelveDataService(api_key=secret)
-
-        #twelve_data.get_closes_rest([TradePair.BTCUSD, TradePair.SPX, TradePair.ETHUSD])
-        #time.sleep(70)
-        #twelve_data.get_closes_rest([TradePair.BTCUSD, TradePair.SPX, TradePair.ETHUSD])
-        #assert 0
-
-
-        time.sleep(90)
-        trade_pairs = [TradePair.BTCUSD, TradePair.ETHUSD, TradePair.SPX, TradePair.GBPUSD]
-        print("-----------------REST-----------------")
-        ans_rest = twelve_data.get_closes_rest(trade_pairs)
-        for k, v in ans_rest.items():
-            print(f"{k.trade_pair_id}: {v}")
-        print("-----------------WEBSOCKET-----------------")
-        ans_ws = twelve_data.get_closes_rest(trade_pairs)
-        for k, v in ans_ws.items():
-            print(f"{k.trade_pair_id}: {v}")
-        print("-----------------Normal-----------------")
-        ans_n = twelve_data.get_closes(trade_pairs)
-        for k, v in ans_n.items():
-            print(f"{k.trade_pair_id}: {v}")
-        print("-----------------Done-----------------")

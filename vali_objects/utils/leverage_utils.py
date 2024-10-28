@@ -1,6 +1,6 @@
 LEVERAGE_BOUNDS_V2_START_TIME_MS = 1722018483000
 PORTFOLIO_LEVERAGE_BOUNDS_START_TIME_MS = 1727161200000
-from vali_config import TradePair, ValiConfig  # noqa: E402
+from vali_objects.vali_config import TradePair, ValiConfig  # noqa: E402
 
 def positional_leverage_limit_v1(trade_pair: TradePair) -> int:
     if trade_pair.is_crypto:

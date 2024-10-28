@@ -1,6 +1,6 @@
 # developer: trdougherty
 
-from vali_config import TradePair
+from vali_objects.vali_config import TradePair
 from vali_objects.position import Position
 from vali_objects.utils.position_filtering import PositionFiltering
 from tests.vali_tests.base_objects.test_base import TestBase

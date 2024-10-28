@@ -7,7 +7,7 @@ from vali_objects.position import Position
 import numpy as np
 from scipy.stats import percentileofscore
 
-from vali_config import ValiConfig
+from vali_objects.vali_config import ValiConfig
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerData
 from time_util.time_util import TimeUtil
 from vali_objects.utils.position_filtering import PositionFiltering

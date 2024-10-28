@@ -1,6 +1,6 @@
 # developer: trdougherty
 from vali_objects.position import Position
-from vali_config import ValiConfig
+from vali_objects.vali_config import ValiConfig
 
 
 class PositionFiltering:

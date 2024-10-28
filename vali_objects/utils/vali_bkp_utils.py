@@ -9,11 +9,11 @@ import uuid
 import bittensor as bt
 from pydantic import BaseModel
 
-from vali_config import ValiConfig
+from vali_objects.vali_config import ValiConfig
 from vali_objects.position import Position
 from vali_objects.vali_dataclasses.order import OrderStatus
 from vali_objects.enums.order_type_enum import OrderType
-from vali_config import TradePair
+from vali_objects.vali_config import TradePair
 
 class CustomEncoder(json.JSONEncoder):
     def default(self, obj):

@@ -3,7 +3,7 @@
 
 import unittest
 import sys
-from vali_config import ValiConfig
+from vali_objects.vali_config import ValiConfig
 
 if __name__ == '__main__':
     # Create a test loader

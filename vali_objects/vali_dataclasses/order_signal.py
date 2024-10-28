@@ -1,9 +1,9 @@
 # developer: Taoshidev
 # Copyright © 2024 Taoshi Inc
-from vali_config import TradePair
+from vali_objects.vali_config import TradePair
 from vali_objects.enums.order_type_enum import OrderType
 from pydantic import BaseModel, field_validator, model_validator
-from vali_config import ValiConfig
+from vali_objects.vali_config import ValiConfig
 
 class Signal(BaseModel):
     trade_pair: TradePair

@@ -5,7 +5,7 @@ import random
 
 from tests.shared_objects.mock_classes import MockMetagraph
 from tests.vali_tests.base_objects.test_base import TestBase
-from vali_config import TradePair
+from vali_objects.vali_config import TradePair
 from vali_objects.exceptions.vali_records_misalignment_exception import ValiRecordsMisalignmentException
 from vali_objects.position import Position
 from vali_objects.utils.position_manager import PositionManager
