@@ -9,7 +9,7 @@ import time
 import bittensor as bt
 from miner_config import MinerConfig
 from template.protocol import SendSignal
-from vali_config import TradePair
+from vali_objects.vali_config import TradePair
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 
 class PropNetOrderPlacer:

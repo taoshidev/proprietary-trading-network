@@ -7,7 +7,7 @@ from scipy import sparse
 from sklearn.preprocessing import normalize
 from sklearn.metrics.pairwise import cosine_similarity
 
-from vali_config import ValiConfig
+from vali_objects.vali_config import ValiConfig
 from vali_objects.position import Position
 from vali_objects.utils.position_utils import PositionUtils
 

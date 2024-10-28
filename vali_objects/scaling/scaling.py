@@ -7,7 +7,7 @@ import numpy as np
 from numpy import ndarray
 from sklearn.preprocessing import MinMaxScaler
 
-from vali_config import ValiConfig
+from vali_objects.vali_config import ValiConfig
 
 
 class Scaling:

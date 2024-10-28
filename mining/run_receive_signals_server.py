@@ -7,7 +7,7 @@ from flask import Flask, request, jsonify
 import waitress
 
 from miner_config import MinerConfig
-from vali_config import TradePair, ValiConfig
+from vali_objects.vali_config import TradePair, ValiConfig
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.vali_dataclasses.order_signal import Signal

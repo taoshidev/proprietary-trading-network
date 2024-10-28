@@ -3,7 +3,7 @@ import unittest
 
 
 from time_util.time_util import UnifiedMarketCalendar, TimeUtil
-from vali_config import TradePair
+from vali_objects.vali_config import TradePair
 from datetime import datetime, timedelta, timezone
 
 class TestMarketHours(unittest.TestCase):

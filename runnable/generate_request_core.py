@@ -8,7 +8,7 @@ from typing import List
 from google.cloud import storage
 
 from time_util.time_util import TimeUtil
-from vali_config import ValiConfig
+from vali_objects.vali_config import ValiConfig
 from vali_objects.decoders.generalized_json_decoder import GeneralizedJSONDecoder
 from vali_objects.position import Position
 from vali_objects.utils.position_manager import PositionManager

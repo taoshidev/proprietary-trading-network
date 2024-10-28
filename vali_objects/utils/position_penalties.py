@@ -3,7 +3,7 @@ from typing import Union
 import numpy as np
 import math
 
-from vali_config import ValiConfig
+from vali_objects.vali_config import ValiConfig
 from vali_objects.position import Position
 from vali_objects.utils.functional_utils import FunctionalUtils
 

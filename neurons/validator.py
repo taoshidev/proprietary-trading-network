@@ -28,7 +28,7 @@ from shared_objects.rate_limiter import RateLimiter
 from vali_objects.utils.timestamp_manager import TimestampManager
 from vali_objects.uuid_tracker import UUIDTracker
 from time_util.time_util import TimeUtil
-from vali_config import TradePair
+from vali_objects.vali_config import TradePair
 from vali_objects.exceptions.signal_exception import SignalException
 from shared_objects.metagraph_updater import MetagraphUpdater
 from vali_objects.utils.elimination_manager import EliminationManager
@@ -43,7 +43,7 @@ from vali_objects.vali_dataclasses.order import Order
 from vali_objects.position import Position
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.utils.vali_utils import ValiUtils
-from vali_config import ValiConfig
+from vali_objects.vali_config import ValiConfig
 
 # Global flag used to indicate shutdown
 shutdown_dict = {}

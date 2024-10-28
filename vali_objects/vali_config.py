@@ -6,9 +6,15 @@ from time_util.time_util import TimeUtil
 from enum import Enum
 
 from meta import load_version
-BASE_DIR = base_directory = os.path.dirname(os.path.abspath(__file__))
+
+BASE_DIR = base_directory = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 meta_dict = load_version(os.path.join(base_directory, "meta", "meta.json"))
-meta_version = meta_dict.get("subnet_version", "x.x.x")
+if meta_dict is None:
+    #  Databricks
+    print('Unable to load meta_dict. This is expected if running on Databricks.')
+    meta_version = "x.x.x"
+else:
+    meta_version = meta_dict.get("subnet_version", "x.x.x")
 
 class TradePairCategory(str, Enum):
     CRYPTO = "crypto"

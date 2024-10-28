@@ -5,7 +5,7 @@ import math
 from scipy.stats import percentileofscore
 
 from time_util.time_util import TimeUtil
-from vali_config import ValiConfig
+from vali_objects.vali_config import ValiConfig
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.utils.subtensor_weight_setter import SubtensorWeightSetter
 from vali_objects.utils.position_utils import PositionUtils
