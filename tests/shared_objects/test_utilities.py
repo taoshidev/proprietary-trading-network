@@ -4,10 +4,10 @@ import numpy as np
 from typing import Union
 from vali_objects.vali_dataclasses.order import Order
 from vali_objects.position import Position
-from vali_config import TradePair
+from vali_objects.vali_config import TradePair
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.vali_dataclasses.perf_ledger import PerfCheckpoint, PerfLedger
-from vali_config import ValiConfig
+from vali_objects.vali_config import ValiConfig
 
 
 def get_time_in_range(percent, start, end):

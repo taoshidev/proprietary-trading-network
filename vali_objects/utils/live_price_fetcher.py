@@ -7,7 +7,7 @@ from data_generator.twelvedata_service import TwelveDataService
 from data_generator.polygon_data_service import PolygonDataService
 from time_util.time_util import TimeUtil
 
-from vali_config import TradePair
+from vali_objects.vali_config import TradePair
 from vali_objects.position import Position
 from vali_objects.utils.vali_utils import ValiUtils
 from shared_objects.retry import retry

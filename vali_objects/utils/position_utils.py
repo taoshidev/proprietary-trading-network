@@ -3,7 +3,7 @@ import numpy as np
 import copy
 
 from vali_objects.position import Position
-from vali_config import ValiConfig
+from vali_objects.vali_config import ValiConfig
 from vali_objects.enums.order_type_enum import OrderType
 
 from time_util.time_util import TimeUtil

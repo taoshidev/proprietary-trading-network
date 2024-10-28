@@ -1,5 +1,5 @@
 import os
-from vali_config import ValiConfig
+from vali_objects.vali_config import ValiConfig
 
 
 BASE_DIR = base_directory = os.path.dirname(os.path.abspath(__file__))

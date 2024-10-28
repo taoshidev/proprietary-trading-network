@@ -8,7 +8,7 @@ from data_generator.financial_markets_generator.base_financial_markets_generator
 
 
 from time_util.time_util import TimeUtil
-from vali_config import ValiConfig
+from vali_objects.vali_config import ValiConfig
 
 
 class ByBitData(BaseFinancialMarketsGenerator):

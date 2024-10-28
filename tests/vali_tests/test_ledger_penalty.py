@@ -3,7 +3,7 @@ from copy import deepcopy
 from tests.vali_tests.base_objects.test_base import TestBase
 from vali_objects.utils.ledger_utils import LedgerUtils
 
-from vali_config import ValiConfig
+from vali_objects.vali_config import ValiConfig
 
 from tests.shared_objects.test_utilities import generate_ledger
 import random

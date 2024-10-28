@@ -3,7 +3,7 @@ import math
 import numpy as np
 import copy
 
-from vali_config import ValiConfig
+from vali_objects.vali_config import ValiConfig
 from vali_objects.vali_dataclasses.perf_ledger import PerfCheckpoint, PerfLedgerData
 from vali_objects.utils.functional_utils import FunctionalUtils
 

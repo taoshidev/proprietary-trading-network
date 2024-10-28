@@ -7,7 +7,7 @@ from vali_objects.position import CRYPTO_CARRY_FEE_PER_INTERVAL, FOREX_CARRY_FEE
     INDICES_CARRY_FEE_PER_INTERVAL
 from tests.shared_objects.mock_classes import MockMetagraph
 from tests.vali_tests.base_objects.test_base import TestBase
-from vali_config import TradePair, ValiConfig
+from vali_objects.vali_config import TradePair, ValiConfig
 from vali_objects.utils import leverage_utils
 from vali_objects.utils.leverage_utils import LEVERAGE_BOUNDS_V2_START_TIME_MS, get_position_leverage_bounds
 from vali_objects.enums.order_type_enum import OrderType

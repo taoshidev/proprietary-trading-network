@@ -10,7 +10,7 @@ import time
 
 from data_generator.financial_markets_generator.base_financial_markets_generator.base_financial_markets_generator import \
     BaseFinancialMarketsGenerator
-from vali_config import ValiConfig
+from vali_objects.vali_config import ValiConfig
 
 
 class BinanceData(BaseFinancialMarketsGenerator):

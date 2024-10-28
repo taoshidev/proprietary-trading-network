@@ -5,9 +5,9 @@ import math
 from tests.vali_tests.base_objects.test_base import TestBase
 from tests.shared_objects.test_utilities import generate_ledger
 
-from vali_config import TradePair
+from vali_objects.vali_config import TradePair
 from vali_objects.position import Position
-from vali_config import ValiConfig
+from vali_objects.vali_config import ValiConfig
 
 from tests.shared_objects.mock_classes import (
     MockMetagraph, MockChallengePeriodManager, MockPositionManager, MockPerfLedgerManager, MockCacheController

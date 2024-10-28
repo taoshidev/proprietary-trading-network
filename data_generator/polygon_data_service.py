@@ -9,7 +9,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from data_generator.base_data_service import BaseDataService, POLYGON_PROVIDER_NAME
 from time_util.time_util import TimeUtil
-from vali_config import TradePair, TradePairCategory
+from vali_objects.vali_config import TradePair, TradePairCategory
 import time
 
 from vali_objects.utils.vali_utils import ValiUtils

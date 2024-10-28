@@ -13,7 +13,7 @@ from pathlib import Path
 from copy import deepcopy
 from shared_objects.cache_controller import CacheController
 from time_util.time_util import TimeUtil
-from vali_config import TradePair, ValiConfig
+from vali_objects.vali_config import TradePair, ValiConfig
 from vali_objects.decoders.generalized_json_decoder import GeneralizedJSONDecoder
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.exceptions.vali_records_misalignment_exception import ValiRecordsMisalignmentException

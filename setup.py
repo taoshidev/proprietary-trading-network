@@ -71,6 +71,9 @@ setup(
     author="taoshidev",
     packages=find_packages(),
     include_package_data=True,
+    package_data={
+        "meta": ["meta.json"],  # include meta.json in the root of the package
+    },
     author_email="support@taoshi.io",
     python_requires=">=3.10",
     install_requires=requirements,
@@ -78,7 +81,6 @@ setup(
         "Development Status :: 3 - Alpha",
         "Intended Audience :: Developers",
         "Topic :: Software Development :: Build Tools",
-        # Pick your license as you wish
         "License :: OSI Approved :: MIT License",
         "Programming Language :: Python :: 3 :: Only",
         "Programming Language :: Python :: 3.10",
