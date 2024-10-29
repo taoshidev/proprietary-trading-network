@@ -199,8 +199,8 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
         omega_dict[hotkey] = Scoring.omega(**scoring_input)
         sharpe_dict[hotkey] = Scoring.sharpe(**scoring_input)
 
-        short_return_dict[hotkey] = Scoring.base_return(miner_lookback_positions_recent)
-        return_dict[hotkey] = Scoring.base_return(miner_lookback_positions)
+        short_return_dict[hotkey] = math.exp(Scoring.base_return(miner_lookback_positions_recent))
+        return_dict[hotkey] = math.exp(Scoring.base_return(miner_lookback_positions))
 
         short_risk_adjusted_return_dict[hotkey] = Scoring.risk_adjusted_return(
             miner_lookback_positions_recent,
@@ -244,7 +244,7 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
 
         # Now for the full positions statistics
         n_positions[hotkey] = len(miner_positions)
-        positional_return[hotkey] = Scoring.base_return(miner_positions)
+        positional_return[hotkey] = math.exp(Scoring.base_return(miner_positions))
         positional_duration[hotkey] = PositionUtils.total_duration(miner_positions)
 
     # Cumulative ledger, for printing
