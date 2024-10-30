@@ -10,8 +10,8 @@ A long position is a bet that the trade pair will increase, while a short positi
 1. Your miner will start in the challenge period upon entry. This 60-day period will require your miner to demonstrate consistent performance, after which they will be released from the challenge period, which may happen before 60 days has expired. In this month, they will receive a small amount of TAO that will help them avoid getting deregistered. The minimum requirements to pass the challenge period:
    - 2% Total Return
    - 5% Max Drawdown 
-   - No single day’s change in portfolio value should exceed 20% of your total 60-day return.   
-   - A single position should not account for more than 25% of your total return.
+   - No single day’s change in portfolio value should exceed 40% of your total 60-day return.   
+   - A single position should not account for more than 35% of your total return.
 2. Miner will be penalized if they are not providing consistent predictions to the system or if their drawdown is too high. The details of this may be found [here](https://github.com/taoshidev/proprietary-trading-network/blob/main/vali_objects/utils/position_utils.py).
 3. A miner can have a maximum of 200 positions open.
 4. A miner's order will be ignored if placing a trade outside of market hours.
