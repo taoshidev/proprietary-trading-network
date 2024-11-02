@@ -125,7 +125,7 @@ class Miner:
         # Parse the config (will take command-line arguments if provided)
         # To print help message, run python3 template/miner.py --help
         config = bt.config(parser)
-        bt.logging.enable_info()
+        bt.logging.enable_default()
         if config.logging.debug:
             bt.logging.enable_debug()
         if config.logging.trace:
