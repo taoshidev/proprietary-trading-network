@@ -166,17 +166,17 @@ class PerfLedgerData:
         assert new_cp.last_update_ms <= now_ms, self.cps
         self.cps.append(new_cp)
 
-    def init_with_first_order(self, order_processed_ms: int, point_in_time_dd: float):
-        new_cp = PerfCheckpointData(last_update_ms=order_processed_ms, prev_portfolio_ret=1.0,
-                                    mdd=point_in_time_dd, prev_portfolio_spread_fee=1.0, prev_portfolio_carry_fee=1.0, mpv=1.0)
+    def init_with_first_order(self, order_processed_ms: int, point_in_time_dd: float, current_portfolio_value: float,  current_portfolio_fee_spread:float, current_portfolio_carry:float):
+        new_cp = PerfCheckpointData(last_update_ms=order_processed_ms, prev_portfolio_ret=current_portfolio_value,
+                                    mdd=point_in_time_dd, prev_portfolio_spread_fee=current_portfolio_fee_spread, prev_portfolio_carry_fee=current_portfolio_carry, mpv=1.0)
         self.cps.append(new_cp)
 
-    def get_or_create_latest_cp_with_mdd(self, now_ms: int, point_in_time_dd: float):
+    def get_or_create_latest_cp_with_mdd(self, now_ms: int, point_in_time_dd: float, current_portfolio_value:float, current_portfolio_fee_spread:float, current_portfolio_carry:float):
         if point_in_time_dd is None:  # When "shortcut" is called.
             point_in_time_dd = self.cps[-1].mdd
 
         if len(self.cps) == 0:
-            self.init_with_first_order(now_ms, point_in_time_dd)
+            self.init_with_first_order(now_ms, point_in_time_dd, current_portfolio_value, current_portfolio_fee_spread, current_portfolio_carry)
             return self.cps[-1]
 
         time_since_last_update_ms = now_ms - self.cps[-1].last_update_ms
@@ -248,7 +248,7 @@ class PerfLedgerData:
 
     def update(self, current_portfolio_value: float, now_ms: int, miner_hotkey: str, any_open: bool,
                point_in_time_dd: float | None, current_portfolio_fee_spread: float, current_portfolio_carry: float):
-        current_cp = self.get_or_create_latest_cp_with_mdd(now_ms, point_in_time_dd)
+        current_cp = self.get_or_create_latest_cp_with_mdd(now_ms, point_in_time_dd, current_portfolio_value, current_portfolio_fee_spread, current_portfolio_carry)
         self.update_gains_losses(current_cp, current_portfolio_value, current_portfolio_fee_spread,
                                  current_portfolio_carry, miner_hotkey)
         self.update_accumulated_time(current_cp, now_ms, miner_hotkey, any_open)
@@ -479,42 +479,32 @@ class PerfLedgerManager(CacheController):
         return max_cuml_return_so_far
 
     def _can_shortcut(self, tp_to_historical_positions: dict[str: Position], end_time_ms: int,
-                      realtime_position_to_pop: Position | None) -> (bool, float, float, float):
+                      realtime_position_to_pop: Position | None, start_time_ms: int) -> (bool, float, float, float, int, int):
+
         portfolio_value = 1.0
         portfolio_spread_fee = 1.0
         portfolio_carry_fee = 1.0
         n_open_positions = 0
-        if end_time_ms < TimeUtil.now_in_millis() - TARGET_LEDGER_WINDOW_MS:
-            for tp, historical_positions in tp_to_historical_positions.items():
-                for i, historical_position in enumerate(historical_positions):
-                    if tp == realtime_position_to_pop.trade_pair.trade_pair and i == len(historical_positions) - 1 and realtime_position_to_pop:
-                        historical_position = realtime_position_to_pop
-                    # fee timeskip OK since we just need to update for the portfolio value.
-                    portfolio_spread_fee *= self.position_uuid_to_cache[historical_position.position_uuid].get_spread_fee(historical_position)
-                    portfolio_carry_fee *= self.position_uuid_to_cache[historical_position.position_uuid].get_carry_fee(end_time_ms, historical_position)
-                    portfolio_value *= historical_position.return_at_close
-                    n_open_positions += historical_position.is_open_position
-            # Since this window would be purged anyways, we can skip by using the instantaneous portfolio return.
-            #print(f'skipping with {n_open_positions} open positions')
-            assert portfolio_carry_fee > 0, (portfolio_carry_fee, portfolio_spread_fee)
-            return True, portfolio_value, portfolio_spread_fee, portfolio_carry_fee
+        now_ms = TimeUtil.now_in_millis()
+        ledger_cutoff_ms = now_ms - TARGET_LEDGER_WINDOW_MS
 
         n_positions = 0
         n_closed_positions = 0
         n_positions_newly_opened = 0
-        for tp, historical_positions in tp_to_historical_positions.items():
-            for historical_position in historical_positions:
-                n_positions += 1
-                if historical_position.is_closed_position:
-                    # fee timeskip OK since all positions would be closed
-                    portfolio_value *= historical_position.return_at_close
-                    portfolio_spread_fee *= self.position_uuid_to_cache[historical_position.position_uuid].get_spread_fee(historical_position)
-                    portfolio_carry_fee *= self.position_uuid_to_cache[historical_position.position_uuid].get_carry_fee(end_time_ms, historical_position)
 
-                    n_closed_positions += 1
-                elif len(historical_position.orders) == 0:
+        for tp, historical_positions in tp_to_historical_positions.items():
+            for i, historical_position in enumerate(historical_positions):
+                n_positions += 1
+                if len(historical_position.orders) == 0:
                     n_positions_newly_opened += 1
+                if realtime_position_to_pop and tp == realtime_position_to_pop.trade_pair.trade_pair and i == len(historical_positions) - 1 and realtime_position_to_pop:
+                    historical_position = realtime_position_to_pop
+                portfolio_spread_fee *= self.position_uuid_to_cache[historical_position.position_uuid].get_spread_fee(historical_position)
+                portfolio_carry_fee *= self.position_uuid_to_cache[historical_position.position_uuid].get_carry_fee(end_time_ms, historical_position)
+                portfolio_value *= historical_position.return_at_close
                 n_open_positions += historical_position.is_open_position
+                n_closed_positions += historical_position.is_closed_position
+        assert portfolio_carry_fee > 0, (portfolio_carry_fee, portfolio_spread_fee)
 
         # When building from orders, we will always have at least one open position. When opening a position after a
         # period of all closed positions, we can shortcut by identifying that the new position is the only open position
@@ -523,12 +513,28 @@ class PerfLedgerManager(CacheController):
         # case, we simply need to check if all positions are closed.
         ans = (n_positions == n_closed_positions + n_positions_newly_opened) and (n_positions_newly_opened == 1)
         ans |= (n_positions == n_closed_positions)
-        #if ans:
-        #    print(f'skipping with {n_open_positions} open positions')
-        #if ans:
-        #    window_s = (end_time_ms - start_time_ms) // 1000
-        #    #print(f"Shortcutting. n_positions: {n_positions}, n_closed_positions: {n_closed_positions}, n_positions_newly_opened: {n_positions_newly_opened}, window_s: {window_s}")
-        return ans, portfolio_value, portfolio_spread_fee, portfolio_carry_fee
+
+        # This window would be dropped anyways
+        ans |= (end_time_ms < ledger_cutoff_ms)
+
+
+        min_start_time_ms = self.now_ms - TARGET_LEDGER_WINDOW_MS
+        start_time_ms = max(start_time_ms, min_start_time_ms)
+        end_time_ms = max(start_time_ms, end_time_ms)
+        # This window would be dropped anyways
+        ans |= (start_time_ms == end_time_ms)
+
+        if 0:
+            print(f'skipping with n_positions: {n_positions} n_open_positions {n_open_positions}, n_closed_positions: '
+                  f'{n_closed_positions}, n_positions_newly_opened: {n_positions_newly_opened}, start_time_ms '
+                  f'{TimeUtil.millis_to_formatted_date_str(start_time_ms)} ledger_cutoff_ms '
+                  f'{TimeUtil.millis_to_formatted_date_str(ledger_cutoff_ms)} end_time '
+                  f'{TimeUtil.millis_to_formatted_date_str(start_time_ms)} start_time_ms'
+                  f'{TimeUtil.millis_to_formatted_date_str(end_time_ms)} portfolio_value {portfolio_value} ')
+            print('---------------------------------------------------------------------')
+
+        return ans, portfolio_value, portfolio_spread_fee, portfolio_carry_fee, start_time_ms, end_time_ms
+
 
     def new_window_intersects_old_window(self, start_time_s, end_time_s, existing_lb_s, existing_ub_s):
         # Check if new window intersects with the old window
@@ -719,20 +725,14 @@ class PerfLedgerManager(CacheController):
     def build_perf_ledger(self, perf_ledger: PerfLedgerData, tp_to_historical_positions: dict[str: Position], start_time_ms, end_time_ms, miner_hotkey, realtime_position_to_pop) -> bool:
         #print(f"Building perf ledger for {miner_hotkey} from {start_time_ms} to {end_time_ms} ({(end_time_ms - start_time_ms) // 1000} s)")
         if len(perf_ledger.cps) == 0:
-            perf_ledger.init_with_first_order(end_time_ms, point_in_time_dd=1.0)
+            perf_ledger.init_with_first_order(end_time_ms, point_in_time_dd=1.0, current_portfolio_value=1.0,
+                                              current_portfolio_fee_spread=1.0, current_portfolio_carry=1.0)
             return False  # Can only build perf ledger between orders or after all orders have passed.
 
-        min_start_time_ms = self.now_ms - TARGET_LEDGER_WINDOW_MS
-        start_time_ms = max(start_time_ms, min_start_time_ms)
-        end_time_ms = max(start_time_ms, end_time_ms)
-        if start_time_ms == end_time_ms:
-            return False
 
-
-
-        # "Shortcut" All positions closed and one newly open position OR all closed positions (all orders accounted for).
-        can_shortcut, portfolio_return, portfolio_spread_fee, portfolio_carry_fee = \
-            self._can_shortcut(tp_to_historical_positions, end_time_ms, realtime_position_to_pop)
+        # "Shortcut" All positions closed and one newly open position OR all closed positions (all orders accounted for) OR before the ledger lookback window.
+        can_shortcut, portfolio_return, portfolio_spread_fee, portfolio_carry_fee, start_time_ms, end_time_ms = \
+            self._can_shortcut(tp_to_historical_positions, end_time_ms, realtime_position_to_pop, start_time_ms)
         if can_shortcut:
             perf_ledger.update(portfolio_return, end_time_ms, miner_hotkey, False, None, portfolio_spread_fee, portfolio_carry_fee)
             perf_ledger.purge_old_cps()
@@ -860,6 +860,7 @@ class PerfLedgerManager(CacheController):
                 f"(s). Lag: {lag} (s). Total product: {total_product}. Last portfolio value: {last_portfolio_value}."
                 f" n_api_calls: {self.n_api_calls} dd stats {None}. n_price_corrections {self.n_price_corrections}"
                 f" last cp {perf_ledger_candidate.cps[-1]}. perf_ledger_mpv {perf_ledger_candidate.max_return}")
+
         # Write candidate at the very end in case an exception leads to a partial update
         existing_perf_ledgers[hotkey] = perf_ledger_candidate
 
@@ -1049,5 +1050,5 @@ if __name__ == "__main__":
     all_hotkeys_on_disk = CacheController.get_directory_names(all_miners_dir)
     mmg = MockMetagraph(hotkeys=all_hotkeys_on_disk)
     perf_ledger_manager = PerfLedgerManager(metagraph=mmg, running_unit_tests=False)
-    # perf_ledger_manager.update(testing_one_hotkey='5Cqqc5mVr82A2ZH6XqcrgkqbVUR6UwuktRJXaBGLicF9BjFP')
+    #perf_ledger_manager.update(testing_one_hotkey='5CALivVcJBTjYJFMsAkqhppQgq5U2PYW4HejCajHMvTMUgkC')
     perf_ledger_manager.update(regenerate_all_ledgers=True)
