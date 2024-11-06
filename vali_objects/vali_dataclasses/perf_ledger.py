@@ -439,20 +439,24 @@ class PerfLedgerManager(CacheController):
 
         return temp_pos, temp_pos_to_pop
 
-    def generate_order_timeline(self, positions, now_ms) -> list[tuple]:
+    def generate_order_timeline(self, positions: list[Position], now_ms: int, hk: str) -> (list[tuple], int):
         # order to understand timestamps needing checking, position to understand returns per timestamp (will be adjusted)
         # (order, position)
         time_sorted_orders = []
+        last_event_time_ms = None
+
         for p in positions:
+            if p.orders and (last_event_time_ms is None or p.orders[-1].processed_ms > last_event_time_ms):
+                last_event_time_ms = p.orders[-1].processed_ms
             if p.is_closed_position and len(p.orders) < 2:
-                bt.logging.info(f"perf ledger generate_order_timeline. Skipping closed position with < 2 orders: {p}")
+                bt.logging.info(f"perf ledger generate_order_timeline. Skipping closed position for hk {hk} with < 2 orders: {p}")
                 continue
             for o in p.orders:
                 if o.processed_ms <= now_ms:
                     time_sorted_orders.append((o, p))
         # sort
         time_sorted_orders.sort(key=lambda x: x[0].processed_ms)
-        return time_sorted_orders
+        return time_sorted_orders, last_event_time_ms
 
     def replay_all_closed_positions(self, miner_hotkey, tp_to_historical_positions: dict[str:Position]) -> (bool, float):
         max_cuml_return_so_far = 1.0
@@ -761,7 +765,8 @@ class PerfLedgerManager(CacheController):
         perf_ledger.purge_old_cps()
         return False
 
-    def update_one_perf_ledger(self, hotkey_i, n_hotkeys, hotkey, positions, now_ms, existing_perf_ledgers) -> None:
+    def update_one_perf_ledger(self, hotkey_i: int, n_hotkeys: int, hotkey: str, positions: List[Position], now_ms:int,
+                               existing_perf_ledgers: dict[str, PerfLedgerData]) -> None:
         # if hotkey != '5GhCxfBcA7Ur5iiAS343xwvrYHTUfBjBi4JimiL5LhujRT9t':
         #    continue
 
@@ -784,13 +789,12 @@ class PerfLedgerManager(CacheController):
         self.n_price_corrections = 0
 
         tp_to_historical_positions = defaultdict(list)
-        sorted_timeline = self.generate_order_timeline(positions, now_ms)  # Enforces our "now_ms" constraint
-        last_event_time = sorted_timeline[-1][0].processed_ms if sorted_timeline else 0
-        self.hk_to_last_order_processed_ms[hotkey] = last_event_time
+        sorted_timeline, last_event_time_ms = self.generate_order_timeline(positions, now_ms, hotkey)  # Enforces our "now_ms" constraint
+        self.hk_to_last_order_processed_ms[hotkey] = last_event_time_ms
 
         building_from_new_orders = True
         # There hasn't been a new order since the last update time. Just need to update for open positions
-        if last_event_time <= perf_ledger_candidate.last_update_ms:
+        if last_event_time_ms <= perf_ledger_candidate.last_update_ms:
             building_from_new_orders = False
 
         # There have been order(s) since the last update time. Also, this code is used to initialize a perf ledger.
@@ -859,7 +863,9 @@ class PerfLedgerManager(CacheController):
         # Write candidate at the very end in case an exception leads to a partial update
         existing_perf_ledgers[hotkey] = perf_ledger_candidate
 
-    def update_all_perf_ledgers(self, hotkey_to_positions: dict[str, List[Position]], existing_perf_ledgers: dict[str, PerfLedgerData], now_ms: int, return_dict=False) -> None | dict[str, PerfLedgerData]:
+    def update_all_perf_ledgers(self, hotkey_to_positions: dict[str, List[Position]],
+                                existing_perf_ledgers: dict[str, PerfLedgerData],
+                                now_ms: int, return_dict=False) -> None | dict[str, PerfLedgerData]:
         t_init = time.time()
         self.now_ms = now_ms
         self.elimination_rows = []
