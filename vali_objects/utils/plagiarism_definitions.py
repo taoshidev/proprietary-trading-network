@@ -3,8 +3,7 @@ from vali_objects.utils.plagiarism_events import PlagiarismEvents
 from sklearn.metrics.pairwise import cosine_similarity
 import heapq
 import numpy as np
-from vali_config import ValiConfig
-
+from vali_objects.vali_config import ValiConfig
 
 
 class FollowPercentage(PlagiarismEvents):
@@ -135,7 +134,6 @@ class CopySimilarity(PlagiarismEvents):
       differences = PlagiarismEvents.time_differences[event_key]
 
     time_lag = FollowPercentage.average_time_lag(plagiarist_positions, victim_positions, differences=differences)
-
     if event_key in PlagiarismEvents.copy_similarities:
       similarity = PlagiarismEvents.copy_similarities[event_key]
     elif time_lag > 0:

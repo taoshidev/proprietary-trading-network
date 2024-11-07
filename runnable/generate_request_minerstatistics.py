@@ -14,8 +14,6 @@ from vali_objects.utils.position_filtering import PositionFiltering
 from vali_objects.utils.ledger_utils import LedgerUtils
 from vali_objects.scoring.scoring import Scoring
 
-from vali_objects.utils.plagiarism_detector import PlagiarismDetector
-
 
 
 def rank_dictionary(d, ascending=False):

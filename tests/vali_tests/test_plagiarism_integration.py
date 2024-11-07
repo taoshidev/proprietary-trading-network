@@ -1,6 +1,6 @@
 from tests.shared_objects.mock_classes import MockMetagraph, MockPlagiarismDetector
 from tests.vali_tests.base_objects.test_base import TestBase
-from vali_config import TradePair
+from vali_objects.vali_config import TradePair
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.position import Position
 from vali_objects.utils.vali_utils import ValiUtils
@@ -15,11 +15,9 @@ from tests.shared_objects.mock_classes import (
 )
 from tests.vali_tests.base_objects.test_base import TestBase
 
-from vali_config import TradePair
 from vali_objects.position import Position
-from vali_config import ValiConfig
+from vali_objects.vali_config import ValiConfig
 
-from vali_config import ValiConfig
 
 import uuid
 

@@ -39,6 +39,7 @@ class PlagiarismEvents():
     PlagiarismEvents.miner_ids = miner_ids
     PlagiarismEvents.trade_pairs = trade_pairs
     PlagiarismEvents.rasterized_positions = ReportingUtils.rasterize(positions, current_time=current_time, lookback_window=lookback_window, time_resolution=time_resolution)
+
   
   
   def clear_plagiarism_events():

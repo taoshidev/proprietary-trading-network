@@ -1,7 +1,6 @@
 import numpy as np
 from time_util.time_util import TimeUtil
-from vali_config import ValiConfig
-
+from vali_objects.vali_config import ValiConfig
 
 class ReportingUtils:
 
@@ -33,7 +32,6 @@ class ReportingUtils:
 
         end_time = current_time
         start_time = current_time - lookback_window
-
         times = np.arange(start_time, end_time, time_resolution)
         rasterized_positions = np.zeros(len(times))
         

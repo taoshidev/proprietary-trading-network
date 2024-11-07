@@ -2,7 +2,7 @@ from vali_objects.utils.plagiarism_definitions import FollowPercentage, LagDetec
 from vali_objects.utils.plagiarism_events import PlagiarismEvents
 from vali_objects.utils.reporting_utils import ReportingUtils
 from vali_objects.utils.position_utils import PositionUtils
-from vali_config import ValiConfig
+from vali_objects.vali_config import ValiConfig
 import uuid
 import time
 
@@ -68,7 +68,7 @@ class PlagiarismPipeline:
           if event["type"] == "single" or event["type"] == "two" or event["type"] == "three":
             current_score = max(current_score, event["score"])
 
-        if current_score >= self.overall_score and (lagPassed or followPassed):
+        if current_score >= self.overall_score and followPassed:
           self.overall_score = current_score
           self.max_trade_pair = plagiarist_trade_pair
           self.max_victim = {"victim": miner_id,

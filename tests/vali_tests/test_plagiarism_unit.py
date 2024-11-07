@@ -18,13 +18,11 @@ from vali_objects.utils.plagiarism_definitions import TwoCopySimilarity
 from vali_objects.utils.plagiarism_definitions import ThreeCopySimilarity
 
 
-from vali_config import ValiConfig
+from vali_objects.vali_config import ValiConfig
 from vali_objects.utils.position_utils import PositionUtils
 
 
 import uuid
-
-
 
 
 class TestPlagiarismUnit(TestBase):
@@ -101,9 +99,10 @@ class TestPlagiarismUnit(TestBase):
         hotkeys = self.mock_metagraph.hotkeys
         positions = self.position_manager.get_all_miner_positions_by_hotkey(hotkeys)
         flattened_positions = PositionUtils.flatten(positions)
-        positions_list_translated = PositionUtils.translate_current_leverage(flattened_positions)
+        positions_list_translated = PositionUtils.translate_current_leverage(flattened_positions, evaluation_time_ms=self.current_time)
         miners, trade_pairs, state_list = PositionUtils.to_state_list(positions_list_translated, current_time=self.current_time)
         state_dict = PlagiarismPipeline.state_list_to_dict(miners, trade_pairs, state_list)
+
         
         PlagiarismEvents.set_positions(state_dict, miners, trade_pairs, current_time=self.current_time)
 
