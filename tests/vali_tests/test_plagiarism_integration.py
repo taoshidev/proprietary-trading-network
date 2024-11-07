@@ -8,14 +8,9 @@ from vali_objects.vali_dataclasses.order import Order
 from data_generator.twelvedata_service import TwelveDataService
 from vali_objects.utils.plagiarism_events import PlagiarismEvents
 
-from vali_objects.enums.order_type_enum import OrderType
-from vali_objects.vali_dataclasses.order import Order
-from tests.shared_objects.mock_classes import (
-    MockMetagraph, MockPositionManager
-)
-from tests.vali_tests.base_objects.test_base import TestBase
 
-from vali_objects.position import Position
+from tests.shared_objects.mock_classes import MockPositionManager
+
 from vali_objects.vali_config import ValiConfig
 
 

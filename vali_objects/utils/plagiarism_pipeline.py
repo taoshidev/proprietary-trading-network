@@ -57,13 +57,17 @@ class PlagiarismPipeline:
 
         plagiarism_key = (plagiarist_id, plagiarist_trade_pair, miner_id, trade_pair)
         events = self.compose_sub_plagiarism(metadatas, plagiarism_key)
-        lagPassed = followPassed = False
+        followPassed = False
         current_score = 0
 
         for event in events:
+          """
+          # Temporarily not using lag detection as necessary criteria
+          
           if event["type"] == "lag" and event["score"] >= ValiConfig.PLAGIARISM_FOLLOWER_TIMELAG_THRESHOLD:
             lagPassed = True
-          elif event["type"] == "follow" and event["score"] >= ValiConfig.PLAGIARISM_FOLLOWER_SIMILARITY_THRESHOLD:
+          """
+          if event["type"] == "follow" and event["score"] >= ValiConfig.PLAGIARISM_FOLLOWER_SIMILARITY_THRESHOLD:
             followPassed = True
           if event["type"] == "single" or event["type"] == "two" or event["type"] == "three":
             current_score = max(current_score, event["score"])
