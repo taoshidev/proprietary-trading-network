@@ -31,7 +31,7 @@ class EliminationManager(CacheController):
         bt.logging.info("running elimination manager")
         with self.eliminations_lock:
             self.eliminations = self.get_eliminations_from_disk()
-        self._handle_plagiarism_eliminations()
+        # self._handle_plagiarism_eliminations()
         self._delete_eliminated_expired_miners()
         self.set_last_update_time()
 
