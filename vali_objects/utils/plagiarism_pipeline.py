@@ -1,4 +1,3 @@
-from vali_objects.utils.plagiarism_definitions import FollowPercentage, LagDetection, CopySimilarity, TwoCopySimilarity, ThreeCopySimilarity
 from vali_objects.utils.plagiarism_events import PlagiarismEvents
 from vali_objects.utils.reporting_utils import ReportingUtils
 from vali_objects.utils.position_utils import PositionUtils
