@@ -13,7 +13,6 @@ if __name__ == "__main__":
     logger = LoggerUtils.init_logger("generate_request_outputs")
     last_write_time = time.time()
     n_updates = 0
-    counter = [0]
     try:
         while True:
             current_time = time.time()
