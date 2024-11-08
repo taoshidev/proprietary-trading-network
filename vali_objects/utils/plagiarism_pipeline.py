@@ -12,7 +12,7 @@ class PlagiarismPipeline:
   order_lists = {} # ((miner_id, trade_pair), all orders)
   current_time = 0
   
-  def __init__(self, plagiarism_classes):
+  def __init__(self, plagiarism_classes: list):
     self.overall_score = 0
     self.max_victim = None
     self.max_trade_pair = None
@@ -20,7 +20,12 @@ class PlagiarismPipeline:
     self.plagiarism_classes = plagiarism_classes
     
 
-  def generate_plagiarism_events(self, miner_ids, trade_pairs, plagiarist_id, state_dict) -> dict[str, dict]:
+  def generate_plagiarism_events(self, miner_ids: list[str], trade_pairs: list[str], plagiarist_id: str, state_dict) -> dict[str, dict]:
+    """
+    Args:
+        state_dict: dict[tuple[str, str], list] -- A dictionary that contains the states of a miners positions
+          using cumulative leverage
+    """
     for trade_pair in trade_pairs:
         for sub_plagiarism in self.plagiarism_classes:
 
@@ -29,7 +34,14 @@ class PlagiarismPipeline:
     return self.compose(miner_ids, trade_pairs, plagiarist_id, state_dict)
   
 
-  def compose_sub_plagiarism(self, metadatas, plagiarism_key) -> list[dict]:
+  def compose_sub_plagiarism(self, metadatas, plagiarism_key: tuple[str, str]) -> list[dict]:
+    """
+    Args:
+        metadatas: list of dictionaries where each dictionary is 
+          dict[(plagiarist_id, plagiarist_tp, victim_id, victim_tp), event for particular type of plagiarism]
+
+        plagiarism_key: tuple of (plagiarist hotkey, plagiarist trade pair)
+    """
     events = []
     # Have a list of the relevant plagiarism events 
     for sub_plagiarism in metadatas:
@@ -43,7 +55,12 @@ class PlagiarismPipeline:
     return events
      
 
-  def compose_victims(self, miner_ids, trade_pairs, plagiarist_id, plagiarist_trade_pair, state_dict) -> list[dict]:
+  def compose_victims(self, miner_ids: list[str], trade_pairs: list[str], plagiarist_id: str, plagiarist_trade_pair: str, state_dict) -> list[dict]:
+    """
+    Args:
+        state_dict: dict[tuple[str, str], list] -- A dictionary that contains the states of a miners positions
+          using cumulative leverage
+    """
 
     metadatas = [x.summary() for x in self.plagiarism_classes]
     victims = []
@@ -98,7 +115,12 @@ class PlagiarismPipeline:
     return victims
 
 
-  def compose(self, miner_ids, trade_pairs, plagiarist_id, state_dict) -> dict[str, dict]:
+  def compose(self, miner_ids: list[str], trade_pairs: list[str], plagiarist_id: str, state_dict) -> dict[str, dict]:
+    """
+    Args:
+        state_dict: dict[tuple[str, str], list] -- A dictionary that contains the states of a miners positions
+          using cumulative leverage
+    """
     plagiarism_data = {}
 
     for plagiarist_trade_pair in trade_pairs:
@@ -115,6 +137,10 @@ class PlagiarismPipeline:
     return plagiarism_data
 
   def state_list_to_dict(self, miners, trade_pairs, state_list):
+    """
+    Args:
+        state_list: An unorganized list of states of miner positions with cumulative leverage
+    """
 
     state_dict = {}
     for miner in miners:
@@ -128,25 +154,29 @@ class PlagiarismPipeline:
   
   def reformat_raster(self):
     new_raster = {}
-    for key, value in self.rasterized_positions.items():
-        if key[0] not in new_raster:
-            new_raster[key[0]] = {}
-        new_raster[key[0]][key[1]] = value.tolist()
+    for (miner, trade_pair), positions in self.rasterized_positions.items():
+        if miner not in new_raster:
+            new_raster[miner] = {}
+        new_raster[miner][trade_pair] = positions.tolist()
     new_raster["created_timestamp_ms"] = int(time.time() * 1000)
     return new_raster
 
   def reformat_positions(self):
     new_positions = {}
 
-    for key, value in self.order_lists.items():
-        if key[0] not in new_positions:
-            new_positions[key[0]] = {}
-        new_positions[key[0]][key[1]] = value
+    for (miner, trade_pair), orders in self.order_lists.items():
+        if miner not in new_positions:
+            new_positions[miner] = {}
+        new_positions[miner][trade_pair] = orders
     new_positions["created_timestamp_ms"] = int(time.time() * 1000)
     return new_positions
 
 
   def run_reporting(self, positions, current_time) -> tuple[list[dict], dict, dict]:
+    """
+    Args:
+        positions: hotkey positions of all miners
+    """
     flattened_positions = PositionUtils.flatten(positions)
     positions_list_translated = PositionUtils.translate_current_leverage(flattened_positions)
     miners, trade_pairs, state_list = PositionUtils.to_state_list(positions_list_translated, current_time=current_time)

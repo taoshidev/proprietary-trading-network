@@ -8,11 +8,15 @@ from vali_objects.vali_config import ValiConfig
 
 class FollowPercentage(PlagiarismEvents):
 
-  def __init__(self, plagiarist_id):
+  def __init__(self, plagiarist_id: str):
     super().__init__(plagiarist_id, "follow")
   
 
-  def score(self, plagiarist_trade_pair, victim_key):
+  def score(self, plagiarist_trade_pair: str, victim_key: tuple[str, str]):
+    """
+    Args:
+        victim_key: tuple of (victim hotkey, victim trade pair)
+    """
 
     plagiarist_orders = PlagiarismEvents.positions[(self.plagiarist_id, plagiarist_trade_pair)]
     victim_orders = PlagiarismEvents.positions[victim_key]
@@ -33,13 +37,19 @@ class FollowPercentage(PlagiarismEvents):
                                     }
   
   @staticmethod
-  def compute_time_differences(plagiarist_orders, victim_orders):
+  def compute_time_differences(plagiarist_orders: list, victim_orders: list):
+    """
+    Args:
+        plagiarist_orders: list of states from state_dict which have the cumulative leverages of miner positions
+    """
 
     time_resolution = ValiConfig.PLAGIARISM_MATCHING_TIME_RESOLUTION_MS
     time_window = ValiConfig.PLAGIARISM_ORDER_TIME_WINDOW_MS
 
     differences = []
     i = j = 0
+
+    # Looks through all victim orders to collect all possible plagiarist orders that follow them
     while i < len(victim_orders) and j < len(plagiarist_orders):
 
         difference = plagiarist_orders[j]["start"] - (victim_orders[i]["start"])
@@ -58,6 +68,11 @@ class FollowPercentage(PlagiarismEvents):
 
   @staticmethod
   def average_time_lag(plagiarist_orders=None, victim_orders=None, differences=None):
+    """
+    Args:
+        plagiarist_orders: list of states from state_dict which have the cumulative leverages of miner positions
+        differences: list of time differences between followed orders of plagiarist and victim in terms of the plagiarism time resolution
+    """
 
     # Must provide orders or differences
     if differences is None and plagiarist_orders is not None and victim_orders is not None:
@@ -70,7 +85,13 @@ class FollowPercentage(PlagiarismEvents):
     return avg_difference
 
   @staticmethod
-  def compute_follow_percentage(differences, victim_orders):
+  def compute_follow_percentage(differences: list, victim_orders: list):
+    """
+    Args:
+        victim_orders: list of states from state_dict which have the cumulative leverages of miner positions
+        differences: list of time differences between followed orders of plagiarist and victim in terms of the plagiarism time resolution
+
+    """
 
     if len(victim_orders) > 0:
       return len(differences)/len(victim_orders)
@@ -80,11 +101,15 @@ class FollowPercentage(PlagiarismEvents):
 
 class LagDetection(PlagiarismEvents):
   
-  def __init__(self, plagiarist_id):
+  def __init__(self, plagiarist_id: str):
     super().__init__(plagiarist_id, "lag")
 
   
-  def score(self, plagiarist_trade_pair, victim_key):
+  def score(self, plagiarist_trade_pair: str, victim_key: tuple[str, str]):
+    """
+    Args:
+        victim_key: tuple of (victim hotkey, victim trade pair)
+    """
     lag_score = self.score_direct(plagiarist_trade_pair, victim_key)
     
     plagiarism_key = (self.plagiarist_id, plagiarist_trade_pair, victim_key[0], victim_key[1])
@@ -95,7 +120,11 @@ class LagDetection(PlagiarismEvents):
                                     "score": lag_score
                                 }
     
-  def score_direct(self, plagiarist_trade_pair, victim_key):
+  def score_direct(self, plagiarist_trade_pair: str, victim_key: tuple[str, str]):
+    """
+    Args:
+        victim_key: tuple of (victim hotkey, victim trade pair)
+    """
     plagiarist_score = CopySimilarity.score_direct(self.plagiarist_id, plagiarist_trade_pair, victim_key[0], victim_key[1])
     victim_score = CopySimilarity.score_direct(victim_key[0], victim_key[1], self.plagiarist_id, plagiarist_trade_pair)
 
@@ -105,11 +134,15 @@ class LagDetection(PlagiarismEvents):
 
 class CopySimilarity(PlagiarismEvents):
   
-  def __init__(self, plagiarist_id):
+  def __init__(self, plagiarist_id: str):
     super().__init__(plagiarist_id, "single")
 
 
-  def score(self, plagiarist_trade_pair, victim_key):
+  def score(self, plagiarist_trade_pair: str, victim_key: tuple[str, str]):
+    """
+    Args:
+        victim_key: tuple of (victim hotkey, victim trade pair)
+    """
 
     similarity = CopySimilarity.score_direct(self.plagiarist_id, plagiarist_trade_pair, victim_key[0], victim_key[1])
     plagiarism_key = (self.plagiarist_id, plagiarist_trade_pair, victim_key[0], victim_key[1])
@@ -121,7 +154,7 @@ class CopySimilarity(PlagiarismEvents):
                                     }
   
   @staticmethod
-  def score_direct(plagiarist_id, plagiarist_trade_pair, victim_id, victim_trade_pair):
+  def score_direct(plagiarist_id: str, plagiarist_trade_pair: str, victim_id: str, victim_trade_pair: str):
 
     plagiarist_vector = PlagiarismEvents.rasterized_positions[(plagiarist_id, plagiarist_trade_pair)]
     victim_vector = PlagiarismEvents.rasterized_positions[(victim_id, victim_trade_pair)]
@@ -151,11 +184,11 @@ class CopySimilarity(PlagiarismEvents):
 
 class TwoCopySimilarity(PlagiarismEvents):
   
-  def __init__(self, plagiarist_id):
+  def __init__(self, plagiarist_id: str):
     super().__init__(plagiarist_id, "two")
 
 
-  def score_all(self, plagiarist_trade_pair):
+  def score_all(self, plagiarist_trade_pair: str):
     single_pair_similarities = {}
     for miner_id in PlagiarismEvents.miner_ids:
 
@@ -170,7 +203,13 @@ class TwoCopySimilarity(PlagiarismEvents):
     self.score(plagiarist_trade_pair, single_pair_similarities)
 
   
-  def score(self, plagiarist_trade_pair, single_pair_similarities):
+  def score(self, plagiarist_trade_pair: str, single_pair_similarities: dict):
+    """
+    Args:
+        single_pair_similarities: dict of cosine similarities between 
+          (plagiarist_id, plagiarist_trade_pair) and (victim_id, vicitim_trade_pair)
+    """
+
 
     top_pairs = heapq.nlargest(2, single_pair_similarities.items(), key=lambda x: x[1])
     two_n_avg = np.average([x[1] for x in top_pairs])
@@ -187,10 +226,10 @@ class TwoCopySimilarity(PlagiarismEvents):
 
 class ThreeCopySimilarity(PlagiarismEvents):
   
-  def __init__(self, plagiarist_id):
+  def __init__(self, plagiarist_id: str):
     super().__init__(plagiarist_id, "three")
 
-  def score_all(self, plagiarist_trade_pair):
+  def score_all(self, plagiarist_trade_pair: str):
 
     single_pair_similarities = {}
     for miner_id in PlagiarismEvents.miner_ids:
@@ -206,7 +245,12 @@ class ThreeCopySimilarity(PlagiarismEvents):
     self.score(plagiarist_trade_pair, single_pair_similarities)
 
 
-  def score(self, plagiarist_trade_pair, single_pair_similarities):
+  def score(self, plagiarist_trade_pair: str, single_pair_similarities: dict):
+    """
+    Args:
+        single_pair_similarities: dict of cosine similarities between 
+          (plagiarist_id, plagiarist_trade_pair) and (victim_id, vicitim_trade_pair)
+    """
 
     top_pairs = heapq.nlargest(3, single_pair_similarities.items(), key=lambda x: x[1])
     three_n_avg = np.average([x[1] for x in top_pairs])

@@ -10,13 +10,13 @@ class PlagiarismEvents:
   miner_ids = []
   trade_pairs = []
     
-  def __init__(self, plagiarist_id, name):
+  def __init__(self, plagiarist_id: str, name: str):
     self.metadata = {} # Dictionary of data for plagiarism events
     self.plagiarist_id = plagiarist_id
     self.name = name
 
 
-  def score_all(self, plagiarist_trade_pair):
+  def score_all(self, plagiarist_trade_pair: str):
 
     for miner_id in PlagiarismEvents.miner_ids:
 
@@ -27,7 +27,7 @@ class PlagiarismEvents:
     return
 
   @abstractmethod
-  def score(self, plagiarist_trade_pair, single_pair_similarities):
+  def score(self):
     """Each plagiarism_definitions subclass must override and define their own score method"""
     pass
 
@@ -35,7 +35,11 @@ class PlagiarismEvents:
     return self.metadata
 
   @staticmethod
-  def set_positions(positions, miner_ids, trade_pairs, current_time=None, lookback_window=None, time_resolution=None):
+  def set_positions(positions: dict, miner_ids: list[str], trade_pairs: list[str], current_time=None, lookback_window=None, time_resolution=None):
+    """
+    Args:
+        positions: cumulative leverage positions for each miner as a dictionary with (miner hotkey, miner trade pair) as the key
+    """
 
     PlagiarismEvents.positions = positions
     PlagiarismEvents.miner_ids = miner_ids

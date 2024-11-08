@@ -15,8 +15,8 @@ class ReportingUtils:
             time_resolution = ValiConfig.PLAGIARISM_MATCHING_TIME_RESOLUTION_MS
 
         rasterized_positions = {}
-        for key, cumulative_leverage in cumulative_leverages.items():
-            rasterized_positions[key] = ReportingUtils.rasterize_cumulative_position(cumulative_leverage, current_time=current_time, lookback_window=lookback_window, time_resolution=time_resolution)
+        for id, cumulative_leverage in cumulative_leverages.items():
+            rasterized_positions[id] = ReportingUtils.rasterize_cumulative_position(cumulative_leverage, current_time=current_time, lookback_window=lookback_window, time_resolution=time_resolution)
         return rasterized_positions
 
     @staticmethod

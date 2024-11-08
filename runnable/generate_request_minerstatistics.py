@@ -519,13 +519,12 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
     return final_dict
 
 
-def generate_request_minerstatistics(time_now: int, checkpoints: bool = True, counter=[0]):
-    if counter[0] == 0:
-        final_dict = generate_miner_statistics_data(time_now, checkpoints)
+def generate_request_minerstatistics(time_now: int, checkpoints: bool = True):
+    
+    final_dict = generate_miner_statistics_data(time_now, checkpoints)
 
-        output_file_path = ValiBkpUtils.get_vali_outputs_dir() + "minerstatistics.json"
-        ValiBkpUtils.write_file(
-            output_file_path,
-            final_dict,
-        )
-        counter[0] += 1
+    output_file_path = ValiBkpUtils.get_vali_outputs_dir() + "minerstatistics.json"
+    ValiBkpUtils.write_file(
+        output_file_path,
+        final_dict,
+    )
