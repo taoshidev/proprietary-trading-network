@@ -42,13 +42,10 @@ class PlagiarismDetector(CacheController):
 
         plagiarism_data, raster_positions, positions = PlagiarismPipeline.run_reporting(positions=hotkey_positions, current_time=current_time)
 
-        self.plagiarism_data = plagiarism_data
-        self.plagiarism_raster = raster_positions
-        self.plagiarism_positions = positions
 
-        self.write_plagiarism_scores_to_disk()
-        self.write_plagiarism_raster_to_disk()
-        self.write_plagiarism_positions_to_disk()
+        self.write_plagiarism_scores_to_disk(plagiarism_data)
+        self.write_plagiarism_raster_to_disk(raster_positions)
+        self.write_plagiarism_positions_to_disk(positions)
 
         # elimination_mapping: dict[str, bool] = PlagiarismUtils.generate_elimination_mapping(  # noqa: F841
         #    hotkey_positions

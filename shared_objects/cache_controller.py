@@ -165,19 +165,19 @@ class CacheController:
             elif os.path.isdir(file_path):
                 shutil.rmtree(file_path)
     
-    def write_plagiarism_scores_to_disk(self):
-        for plagiarist in self.plagiarism_data:
+    def write_plagiarism_scores_to_disk(self, plagiarism_data):
+        for plagiarist in plagiarism_data:
             bt.logging.info(f"Plagiarism: {plagiarist}")
             self.write_plagiarism_score_to_disk(plagiarist["plagiarist"], plagiarist)
 
     def write_plagiarism_score_to_disk(self, hotkey, plagiarism_data):
         ValiBkpUtils.write_file(ValiBkpUtils.get_plagiarism_score_file_location(hotkey=hotkey, running_unit_tests=self.running_unit_tests), plagiarism_data)
 
-    def write_plagiarism_raster_to_disk(self):
-        ValiBkpUtils.write_file(ValiBkpUtils.get_plagiarism_raster_file_location(running_unit_tests=self.running_unit_tests), self.plagiarism_raster)
+    def write_plagiarism_raster_to_disk(self, raster_positions):
+        ValiBkpUtils.write_file(ValiBkpUtils.get_plagiarism_raster_file_location(running_unit_tests=self.running_unit_tests), raster_positions)
 
-    def write_plagiarism_positions_to_disk(self):
-        ValiBkpUtils.write_file(ValiBkpUtils.get_plagiarism_positions_file_location(running_unit_tests=self.running_unit_tests), self.plagiarism_positions)
+    def write_plagiarism_positions_to_disk(self, plagiarism_positions):
+        ValiBkpUtils.write_file(ValiBkpUtils.get_plagiarism_positions_file_location(running_unit_tests=self.running_unit_tests), plagiarism_positions)
 
     def get_plagiarism_scores_from_disk(self):
 
@@ -195,7 +195,7 @@ class CacheController:
         bt.logging.trace(f"Loaded [{len(plagiarism_scores)}] plagiarism scores from disk. Dir: {plagiarist_dir}")
         return plagiarism_scores
     
-    def get_plagiarism_data_from_disk(self, ):
+    def get_plagiarism_data_from_disk(self):
         plagiarist_dir = ValiBkpUtils.get_plagiarism_scores_dir()
         all_files = ValiBkpUtils.get_all_files_in_dir(plagiarist_dir)
 
