@@ -12,19 +12,29 @@ import bittensor as bt
 from vali_objects.utils.plagiarism_pipeline import PlagiarismPipeline
 
 class PlagiarismDetector(CacheController):
-    
-    def __init__(self, config, metagraph, running_unit_tests=False):
+    def __init__(self, config, metagraph, running_unit_tests=False, shutdown_dict=None):
         super().__init__(config, metagraph, running_unit_tests=running_unit_tests)
         self.position_manager = PositionManager(metagraph=metagraph, running_unit_tests=running_unit_tests)
+        self.shutdown_dict = shutdown_dict
+
+    def run_update_loop(self):
+        while not self.shutdown_dict:
+            try:
+                if self.refresh_allowed(ValiConfig.PLAGIARISM_REFRESH_TIME_MS):
+                    self.detect()
+                    self.set_last_update_time(skip_message=False)  # TODO: set True
+
+            except Exception as e:
+                # Handle exceptions or log errors
+                bt.logging.error(f"Error during plagiarism update: {e}. Please alert a team member ASAP!")
+                bt.logging.error(traceback.format_exc())
+                time.sleep(30)
+            time.sleep(1)
 
     def detect(self, hotkeys = None, hotkey_positions = None) -> None:
         """
         Kick off the plagiarism detection process.
         """
-        if not self.refresh_allowed(ValiConfig.PLAGIARISM_REFRESH_TIME_MS):
-            time.sleep(1)
-            return
-
         if self.running_unit_tests:
             current_time = ValiConfig.PLAGIARISM_LOOKBACK_RANGE_MS
         else:
@@ -51,7 +61,6 @@ class PlagiarismDetector(CacheController):
         #    hotkey_positions
         #)
 
-        self.set_last_update_time(skip_message=False) # TODO: set True
         bt.logging.info("Plagiarism Detection Complete")
 
     def eliminate(self, elimination_mapping: dict[str, bool]):

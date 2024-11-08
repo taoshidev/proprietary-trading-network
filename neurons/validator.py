@@ -272,9 +272,9 @@ class Validator:
         # Since the mainloop is run synchronously, we just need to lock eliminations when writing to them and when
         # reading outside of the mainloop (validator).
         self.eliminations_lock = threading.Lock()
-        self.plagiarism_detector = PlagiarismDetector(self.config, self.metagraph)
+        self.plagiarism_detector = PlagiarismDetector(self.config, self.metagraph, shutdown_dict=shutdown_dict)
         # Start the plagiarism detector in its own thread
-        self.plagiarism_thread = threading.Thread(target=self.plagiarism_detector.detect, daemon=True)
+        self.plagiarism_thread = threading.Thread(target=self.plagiarism_detector.run_update_loop, daemon=True)
         self.plagiarism_thread.start()
 
         self.mdd_checker = MDDChecker(self.config, self.metagraph, self.position_manager, self.eliminations_lock,
