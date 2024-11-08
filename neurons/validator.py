@@ -403,7 +403,9 @@ class Validator:
                 self.weight_setter.set_weights(current_time=current_time)
                 self.position_manager.position_locks.cleanup_locks(self.metagraph.hotkeys)
                 self.p2p_syncer.sync_positions_with_cooldown()
-                self.plagiarism_detector.detect_plagiarism(current_time=current_time)
+    
+                self.plagiarism_thread = threading.Thread(target=self.plagiarism_detector.detect_plagiarism(), daemon=True, args=(current_time, ))
+                self.plagiarism_thread.start()
 
             # In case of unforeseen errors, the miner will log the error and continue operations.
             except Exception:

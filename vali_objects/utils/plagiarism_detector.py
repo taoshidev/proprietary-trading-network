@@ -16,7 +16,6 @@ class PlagiarismDetector(CacheController):
     def __init__(self, config, metagraph, running_unit_tests=False):
         super().__init__(config, metagraph, running_unit_tests=running_unit_tests)
         self.position_manager = PositionManager(metagraph=metagraph, running_unit_tests=running_unit_tests)
-        self.last_time_plagiarism_run = 0
 
     def detect_plagiarism(self, current_time=None):
             if self.plagiarism_detection_allowed(ValiConfig.PLAGIARISM_REFRESH_TIME_MS):
@@ -62,7 +61,7 @@ class PlagiarismDetector(CacheController):
         #    hotkey_positions
         #)
 
-        self.last_time_plagiarism_run = TimeUtil.now_in_millis()
+        self.last_time_plagiarism_run_ms = TimeUtil.now_in_millis()
 
         bt.logging.info("Plagiarism Detection Complete")
 
