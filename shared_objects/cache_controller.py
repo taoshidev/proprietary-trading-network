@@ -35,7 +35,6 @@ class CacheController:
         self.running_unit_tests = running_unit_tests
         self.metagraph = metagraph  # Refreshes happen on validator
         self._last_update_time_ms = 0
-        self.last_time_plagiarism_run_ms = 0
         self.eliminations = []
         self.challengeperiod_testing = {}
         self.challengeperiod_success = {}
@@ -165,9 +164,6 @@ class CacheController:
                 os.unlink(file_path)
             elif os.path.isdir(file_path):
                 shutil.rmtree(file_path)
-
-    def plagiarism_detection_allowed(self, plagiarism_interval_ms):
-        return TimeUtil.now_in_millis() - self.last_time_plagiarism_run_ms > plagiarism_interval_ms
     
     def write_plagiarism_scores_to_disk(self):
         for plagiarist in self.plagiarism_data:

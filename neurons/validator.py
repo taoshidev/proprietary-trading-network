@@ -273,6 +273,10 @@ class Validator:
         # reading outside of the mainloop (validator).
         self.eliminations_lock = threading.Lock()
         self.plagiarism_detector = PlagiarismDetector(self.config, self.metagraph)
+        # Start the plagiarism detector in its own thread
+        self.plagiarism_thread = threading.Thread(target=self.plagiarism_detector.detect, daemon=True)
+        self.plagiarism_thread.start()
+
         self.mdd_checker = MDDChecker(self.config, self.metagraph, self.position_manager, self.eliminations_lock,
                                       live_price_fetcher=self.live_price_fetcher, shutdown_dict=shutdown_dict)
         self.weight_setter = SubtensorWeightSetter(self.config, self.wallet, self.metagraph)
@@ -385,6 +389,8 @@ class Validator:
         self.live_price_fetcher.stop_all_threads()
         bt.logging.warning("Stopping perf ledger...")
         self.perf_ledger_updater_thread.join()
+        bt.logging.warning("Stopping plagiarism detector...")
+        self.plagiarism_thread.join()
         signal.alarm(0)
         print("Graceful shutdown completed")
         sys.exit(0)
@@ -403,9 +409,6 @@ class Validator:
                 self.weight_setter.set_weights(current_time=current_time)
                 self.position_manager.position_locks.cleanup_locks(self.metagraph.hotkeys)
                 self.p2p_syncer.sync_positions_with_cooldown()
-    
-                self.plagiarism_thread = threading.Thread(target=self.plagiarism_detector.detect_plagiarism(), daemon=True, args=(current_time, ))
-                self.plagiarism_thread.start()
 
             # In case of unforeseen errors, the miner will log the error and continue operations.
             except Exception:
