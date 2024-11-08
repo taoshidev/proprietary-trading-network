@@ -1,7 +1,9 @@
+from abc import abstractmethod
+
 from vali_objects.utils.reporting_utils import ReportingUtils
 
-class PlagiarismEvents():
-  positons = {}
+class PlagiarismEvents:
+  positions = {}
   rasterized_positions = {}
   time_differences = {}
   copy_similarities = {}
@@ -22,17 +24,17 @@ class PlagiarismEvents():
         
         victim_key = (miner_id, plagiarist_trade_pair)
         self.score(plagiarist_trade_pair, victim_key)
-    return 
-
-
-  def score(self):
     return
 
+  @abstractmethod
+  def score(self, plagiarist_trade_pair, single_pair_similarities):
+    """Each plagiarism_definitions subclass must override and define their own score method"""
+    pass
 
   def summary(self) -> dict:
     return self.metadata
 
-
+  @staticmethod
   def set_positions(positions, miner_ids, trade_pairs, current_time=None, lookback_window=None, time_resolution=None):
 
     PlagiarismEvents.positions = positions
@@ -42,8 +44,9 @@ class PlagiarismEvents():
 
   
   
+  @staticmethod
   def clear_plagiarism_events():
-    PlagiarismEvents.positons = {}
+    PlagiarismEvents.positions = {}
     PlagiarismEvents.rasterized_positions = {}
     PlagiarismEvents.time_differences = {}
     PlagiarismEvents.copy_similarities = {}

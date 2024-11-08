@@ -95,13 +95,20 @@ class TestPlagiarismUnit(TestBase):
         self.position_counter = 0
         PlagiarismEvents.clear_plagiarism_events()
 
+        self.plagiarism_classes = [FollowPercentage,
+                                   LagDetection,
+                                   CopySimilarity,
+                                   TwoCopySimilarity,
+                                   ThreeCopySimilarity]
+        self.plagiarism_pipeline = PlagiarismPipeline(self.plagiarism_classes)
+
     def translate_positions_to_states(self):
         hotkeys = self.mock_metagraph.hotkeys
         positions = self.position_manager.get_all_miner_positions_by_hotkey(hotkeys)
         flattened_positions = PositionUtils.flatten(positions)
         positions_list_translated = PositionUtils.translate_current_leverage(flattened_positions, evaluation_time_ms=self.current_time)
         miners, trade_pairs, state_list = PositionUtils.to_state_list(positions_list_translated, current_time=self.current_time)
-        state_dict = PlagiarismPipeline.state_list_to_dict(miners, trade_pairs, state_list)
+        state_dict = self.plagiarism_pipeline.state_list_to_dict(miners, trade_pairs, state_list)
 
         
         PlagiarismEvents.set_positions(state_dict, miners, trade_pairs, current_time=self.current_time)

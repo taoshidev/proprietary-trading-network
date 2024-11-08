@@ -181,7 +181,7 @@ class CacheController:
 
     def get_plagiarism_scores_from_disk(self):
 
-        plagiarist_dir = ValiBkpUtils.get_plagiarism_scores_dir()
+        plagiarist_dir = ValiBkpUtils.get_plagiarism_scores_dir(running_unit_tests=self.running_unit_tests)
         all_files = ValiBkpUtils.get_all_files_in_dir(plagiarist_dir)
 
         # Retrieve hotkeys from plagiarism file names
@@ -196,7 +196,7 @@ class CacheController:
         return plagiarism_scores
     
     def get_plagiarism_data_from_disk(self):
-        plagiarist_dir = ValiBkpUtils.get_plagiarism_scores_dir()
+        plagiarist_dir = ValiBkpUtils.get_plagiarism_scores_dir(running_unit_tests=self.running_unit_tests)
         all_files = ValiBkpUtils.get_all_files_in_dir(plagiarist_dir)
 
         # Retrieve hotkeys from plagiarism file names
@@ -208,7 +208,7 @@ class CacheController:
         return plagiarism_data
 
     def get_miner_plagiarism_data_from_disk(self, hotkey):
-        plagiarist_dir = ValiBkpUtils.get_plagiarism_scores_dir()
+        plagiarist_dir = ValiBkpUtils.get_plagiarism_scores_dir(running_unit_tests=self.running_unit_tests)
         file_path = os.path.join(plagiarist_dir, f"{hotkey}.json")
         
         if os.path.exists(file_path):

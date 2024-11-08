@@ -167,6 +167,8 @@ cython_debug/
 mining/processed_signals/
 validation/miners/
 validation/plagiarism/
+tests/validation/miners/
+tests/validation/plagiarism/
 
 # macOS files
 .DS_Store

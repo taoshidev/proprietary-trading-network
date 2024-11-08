@@ -3,7 +3,7 @@ from time_util.time_util import TimeUtil
 from vali_objects.vali_config import ValiConfig
 
 class ReportingUtils:
-
+    @staticmethod
     def rasterize(cumulative_leverages, current_time=None, lookback_window=None, time_resolution=None):
         if current_time is None:
            current_time = TimeUtil.now_in_millis()
@@ -19,6 +19,7 @@ class ReportingUtils:
             rasterized_positions[key] = ReportingUtils.rasterize_cumulative_position(cumulative_leverage, current_time=current_time, lookback_window=lookback_window, time_resolution=time_resolution)
         return rasterized_positions
 
+    @staticmethod
     def rasterize_cumulative_position(cumulative_leverage, current_time=None, lookback_window=None, time_resolution=None):
 
         if current_time is None:

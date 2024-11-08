@@ -259,13 +259,13 @@ class TestPlagiarismIntegration(TestBase):
             )
         
         self.plagiarism_detector.detect(hotkeys= self.mock_metagraph.hotkeys,
-            current_time= self.current_time,
             hotkey_positions=positions)
-        
+
+        self.plagiarism_detector._update_plagiarism_scores_in_memory()
         self.assertGreaterEqual(len(self.plagiarism_detector.plagiarism_data), 1)
 
-        for miner in self.plagiarism_detector.plagiarism_data:
-            self.assertLess(miner["overall_score"], 0.8)
+        for miner, data in self.plagiarism_detector.plagiarism_data.items():
+            self.assertLess(data["overall_score"], 0.8)
 
     def test_plagiarism_scale(self):
         # Plagiarist scales the leverages of another miner with constant time lag of one hour

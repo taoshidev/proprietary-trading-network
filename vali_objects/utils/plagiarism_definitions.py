@@ -32,7 +32,7 @@ class FollowPercentage(PlagiarismEvents):
                                     "score": percent_of_follow
                                     }
   
-
+  @staticmethod
   def compute_time_differences(plagiarist_orders, victim_orders):
 
     time_resolution = ValiConfig.PLAGIARISM_MATCHING_TIME_RESOLUTION_MS
@@ -56,7 +56,7 @@ class FollowPercentage(PlagiarismEvents):
     return differences
 
 
-  
+  @staticmethod
   def average_time_lag(plagiarist_orders=None, victim_orders=None, differences=None):
 
     # Must provide orders or differences
@@ -68,7 +68,8 @@ class FollowPercentage(PlagiarismEvents):
     avg_difference = int(sum(differences)/len(differences)) if len(differences) > 0 else 0
 
     return avg_difference
-  
+
+  @staticmethod
   def compute_follow_percentage(differences, victim_orders):
 
     if len(victim_orders) > 0:
@@ -119,7 +120,7 @@ class CopySimilarity(PlagiarismEvents):
                                     "score": similarity
                                     }
   
-
+  @staticmethod
   def score_direct(plagiarist_id, plagiarist_trade_pair, victim_id, victim_trade_pair):
 
     plagiarist_vector = PlagiarismEvents.rasterized_positions[(plagiarist_id, plagiarist_trade_pair)]

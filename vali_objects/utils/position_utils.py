@@ -132,7 +132,7 @@ class PositionUtils:
             positions: list[Position],
             current_time: int,
             constrain_lookback: bool = True
-    ) -> tuple:
+    ) -> tuple[list[str], list[str], list[dict]]:
         """
         Args:
             positions: list[Position] - the positions

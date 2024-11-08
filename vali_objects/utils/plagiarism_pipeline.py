@@ -21,8 +21,7 @@ class PlagiarismPipeline:
     self.plagiarism_classes = plagiarism_classes
     
 
-  def generate_plagiarism_events(self, miner_ids, trade_pairs, plagiarist_id, state_dict) -> list[dict]:
-
+  def generate_plagiarism_events(self, miner_ids, trade_pairs, plagiarist_id, state_dict) -> dict[str, dict]:
     for trade_pair in trade_pairs:
         for sub_plagiarism in self.plagiarism_classes:
 
@@ -100,8 +99,7 @@ class PlagiarismPipeline:
     return victims
 
 
-  def compose(self, miner_ids, trade_pairs, plagiarist_id, state_dict) -> list[dict]:
-
+  def compose(self, miner_ids, trade_pairs, plagiarist_id, state_dict) -> dict[str, dict]:
     plagiarism_data = {}
 
     for plagiarist_trade_pair in trade_pairs:
@@ -116,8 +114,8 @@ class PlagiarismPipeline:
           plagiarism_data[plagiarist_trade_pair] = plagiarism_report
 
     return plagiarism_data
-                     
-  def state_list_to_dict(miners, trade_pairs, state_list):
+
+  def state_list_to_dict(self, miners, trade_pairs, state_list):
 
     state_dict = {}
     for miner in miners:
@@ -149,12 +147,13 @@ class PlagiarismPipeline:
     return new_positions
 
 
-  def run_reporting(positions, current_time) -> tuple[dict, dict, dict]:
+  def run_reporting(self, positions, current_time) -> tuple[list[dict], dict, dict]:
     flattened_positions = PositionUtils.flatten(positions)
     positions_list_translated = PositionUtils.translate_current_leverage(flattened_positions)
     miners, trade_pairs, state_list = PositionUtils.to_state_list(positions_list_translated, current_time=current_time)
-    state_dict = PlagiarismPipeline.state_list_to_dict(miners, trade_pairs, state_list)
-    PlagiarismPipeline.current_time = current_time
+
+    state_dict = self.state_list_to_dict(miners, trade_pairs, state_list)
+    self.current_time = current_time
 
     PlagiarismEvents.set_positions(state_dict, miners, trade_pairs, current_time=current_time)
     rasterized_positions = {}
@@ -164,20 +163,14 @@ class PlagiarismPipeline:
     #In the case of no miners
     pipeline = None
     for miner_id in miners:
+      miner_plagiarism_classes = [p(miner_id) for p in self.plagiarism_classes]
+      pipeline = PlagiarismPipeline(miner_plagiarism_classes)
 
-      plagiarism_classes = [FollowPercentage(miner_id),
-                            LagDetection(miner_id),
-                            CopySimilarity(miner_id),
-                            TwoCopySimilarity(miner_id),
-                            ThreeCopySimilarity(miner_id)]
-      
-      pipeline = PlagiarismPipeline(plagiarism_classes)
       trade_pair_output = pipeline.generate_plagiarism_events(miners, trade_pairs, miner_id, state_dict)
       # If nothing above the thresholds, maintain info on the maximum
       if len(trade_pair_output) == 0 and pipeline.overall_score != 0:
-      
-        trade_pair_output[pipeline.max_trade_pair] = [{"plagiarist_trade_pair": pipeline.max_trade_pair,
-                            "victims": [pipeline.max_victim]}]
+        trade_pair_output[pipeline.max_trade_pair] = {"plagiarist_trade_pair": pipeline.max_trade_pair,
+                            "victims": [pipeline.max_victim]}
         victim_id = pipeline.max_victim["victim"]
         victim_tp = pipeline.max_victim["victim_trade_pair"]
 
@@ -206,4 +199,4 @@ class PlagiarismPipeline:
     if pipeline is not None:
       rasterized_positions = pipeline.reformat_raster()
       positions_data = pipeline.reformat_positions()
-    return (plagiarists_data, rasterized_positions, positions_data)
+    return plagiarists_data, rasterized_positions, positions_data
