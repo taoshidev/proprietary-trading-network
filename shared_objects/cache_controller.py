@@ -407,7 +407,8 @@ class CacheController:
                                                         price_info=price_info, return_info=return_info)
         self.eliminations.append(elimination_row)
 
-    def calculate_drawdown(self, final, initial):
+    @staticmethod
+    def calculate_drawdown(final, initial):
         # Ex we went from return of 1 to 0.9. Drawdown is -10% or in this case -0.1. Return 1 - 0.1 = 0.9
         # Ex we went from return of 0.9 to 1. Drawdown is +10% or in this case 0.1. Return 1 + 0.1 = 1.1 (not really a drawdown)
         return 1.0 + ((float(final) - float(initial)) / float(initial))
