@@ -10,6 +10,27 @@ from vali_objects.utils.functional_utils import FunctionalUtils
 
 class LedgerUtils:
     @staticmethod
+    def risk_free_adjustment(checkpoints: list[PerfCheckpoint]) -> list[PerfCheckpoint]:
+        """
+        Args:
+            checkpoints: list[PerfCheckpoint] - the list of checkpoints
+
+        Returns:
+            float - the risk-free adjustment
+        """
+        if len(checkpoints) == 0:
+            return checkpoints
+
+        checkpoints_copy = copy.deepcopy(checkpoints)
+
+        risk_free_rate = ValiConfig.MS_RISK_FREE_RATE
+
+        for checkpoint in checkpoints_copy:
+            checkpoint.loss += risk_free_rate * checkpoint.accum_ms
+
+        return checkpoints_copy
+
+    @staticmethod
     def recent_drawdown(checkpoints: list[PerfCheckpoint], restricted: bool = True) -> float:
         """
         Args:
