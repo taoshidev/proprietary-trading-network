@@ -26,6 +26,10 @@ class ValiConfig:
     # versioning
     VERSION = meta_version
 
+    # Market-specific configurations
+    ANNUAL_RISK_FREE_PERCENT = 4.19  # From tbill rates
+    MS_RISK_FREE_RATE = math.log(1 + ANNUAL_RISK_FREE_PERCENT / 100) / (365 * 24 * 60 * 60 * 1000)
+
     # Time Configurations
     TARGET_CHECKPOINT_DURATION_MS = 1000 * 60 * 60 * 12  # 12 hours
     TARGET_LEDGER_WINDOW_MS = 1000 * 60 * 60 * 24 * 90  # 90 days
