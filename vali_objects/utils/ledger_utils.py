@@ -68,8 +68,49 @@ class LedgerUtils:
     @staticmethod
     def daily_return(checkpoints: list[PerfCheckpoint]) -> list[float]:
         # First risk-free adjustment
-        checkpoints = LedgerUtils.risk_free_adjustment(checkpoints)
-        return [math.exp(x) if x != 0 else 0 for x in LedgerUtils.daily_return_log(checkpoints)]
+        return [(math.exp(x)-1) * 100 if x != 0 else 0 for x in LedgerUtils.daily_return_log(checkpoints)]
+
+    @staticmethod
+    def returns(checkpoints: list[PerfCheckpoint]) -> list[float]:
+        if len(checkpoints) == 0:
+            return []
+
+        risk_free_adjusted_checkpoints = LedgerUtils.risk_free_adjustment(checkpoints)
+        return LedgerUtils.daily_return(risk_free_adjusted_checkpoints)
+
+    @staticmethod
+    def returns_log(checkpoints: list[PerfCheckpoint]) -> list[float]:
+        if len(checkpoints) == 0:
+            return []
+
+        risk_free_adjusted_checkpoints = LedgerUtils.risk_free_adjustment(checkpoints)
+        return LedgerUtils.daily_return_log(risk_free_adjusted_checkpoints)
+
+    @staticmethod
+    def ledger_returns(ledger: dict[str, PerfLedgerData]) -> dict[str, list[float]]:
+        """
+        Args:
+            ledger: dict[str, PerfLedger] - the ledger of the miners
+        """
+        miner_returns = {}
+
+        for miner, miner_ledger in ledger.items():
+            miner_returns[miner] = LedgerUtils.returns(miner_ledger['cps'])
+
+        return miner_returns
+
+    @staticmethod
+    def ledger_returns_log(ledger: dict[str, PerfLedgerData]) -> dict[str, list[float]]:
+        """
+        Args:
+            ledger: dict[str, PerfLedger] - the ledger of the miners
+        """
+        miner_returns = {}
+
+        for miner, miner_ledger in ledger.items():
+            miner_returns[miner] = LedgerUtils.returns_log(miner_ledger.cps)
+
+        return miner_returns
 
     @staticmethod
     def recent_drawdown(checkpoints: list[PerfCheckpoint], restricted: bool = True) -> float:

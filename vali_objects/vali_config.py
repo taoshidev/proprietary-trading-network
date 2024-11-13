@@ -118,10 +118,12 @@ class ValiConfig:
     SCORING_RETURN_SHORT_LOOKBACK_WEIGHT = 0.25
     SCORING_SHARPE_WEIGHT = 0.25
     SCORING_OMEGA_WEIGHT = 0.25
+    SCORING_SORTINO_WEIGHT = 0.25
 
     # Scoring hyperparameters
     OMEGA_LOSS_MINIMUM = 0.02  # Equivalent to 2% loss
     SHARPE_STDDEV_MINIMUM = 0.01  # Equivalent to 1% standard deviation
+    SORTINO_STDDEV_MINIMUM = 0.01  # Equivalent to 1% standard deviation
 
     # MDD penalty calculation
     APPROXIMATE_DRAWDOWN_PERCENTILE = 0.90
