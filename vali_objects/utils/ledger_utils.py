@@ -69,7 +69,7 @@ class LedgerUtils:
     def daily_return(checkpoints: list[PerfCheckpoint]) -> list[float]:
         # First risk-free adjustment
         checkpoints = LedgerUtils.risk_free_adjustment(checkpoints)
-        return LedgerUtils.daily_return_log(checkpoints)
+        return [math.exp(x) if x != 0 else 0 for x in LedgerUtils.daily_return_log(checkpoints)]
 
     @staticmethod
     def recent_drawdown(checkpoints: list[PerfCheckpoint], restricted: bool = True) -> float:
