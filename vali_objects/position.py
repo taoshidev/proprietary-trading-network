@@ -304,18 +304,12 @@ class Position(BaseModel):
         """
         Add an order to a position, and adjust its leverage to stay within
         the trade pair max and portfolio max.
-
-        Returns true if order is added successfully.
         """
         if self.is_closed_position:
-            logging.warning(
-                "Miner attempted to add order to a closed/liquidated position. Ignoring."
-            )
-            return False
+            raise ValueError("Miner attempted to add order to a closed/liquidated position. Ignoring.")
         if order.trade_pair != self.trade_pair:
             raise ValueError(
-                f"Order trade pair [{order.trade_pair}] does not match position trade pair [{self.trade_pair}]"
-            )
+                f"Order trade pair [{order.trade_pair}] does not match position trade pair [{self.trade_pair}]")
 
         if self._clamp_and_validate_leverage(order, abs(net_portfolio_leverage)):
             # This order's leverage got clamped to zero.
@@ -323,20 +317,17 @@ class Position(BaseModel):
             # to send in a bunch of spam orders.
             max_portfolio_leverage = leverage_utils.get_portfolio_leverage_cap(order.processed_ms)
             if abs(net_portfolio_leverage) >= max_portfolio_leverage:
-                logging.warning(
+                raise ValueError(
                     f"Miner {self.miner_hotkey} attempted to exceed max adjusted portfolio leverage of {max_portfolio_leverage}. Ignoring order.")
             else:
                 if order.leverage >= 0:
-                    logging.warning(
-                        f"Miner {self.miner_hotkey} attempted to exceed max leverage {self.trade_pair.max_leverage} for trade pair "
-                        f"{self.trade_pair.trade_pair_id}. Ignoring order.")
+                    raise ValueError(
+                        f"Miner {self.miner_hotkey} attempted to exceed max leverage {self.trade_pair.max_leverage} for trade pair {self.trade_pair.trade_pair_id}. Ignoring order.")
                 else:
-                    logging.warning(f"Miner {self.miner_hotkey} attempted to go below min leverage {self.trade_pair.min_leverage} for trade pair "
-                                    f"{self.trade_pair.trade_pair_id}. Ignoring order.")
-            return False
+                    raise ValueError(
+                        f"Miner {self.miner_hotkey} attempted to go below min leverage {self.trade_pair.min_leverage} for trade pair {self.trade_pair.trade_pair_id}. Ignoring order.")
         self.orders.append(order)
         self._update_position()
-        return True
 
     def calculate_unrealized_pnl(self, current_price):
         if self.initial_entry_price == 0 or self.average_entry_price is None:
@@ -565,8 +556,7 @@ class Position(BaseModel):
                 else:
                     # portfolio leverage attempts to go under min
                     if abs(proposed_leverage) < min_position_leverage:
-                        should_ignore_order = True
-                        logging.warning(f"Miner {self.miner_hotkey} attempted to set {self.trade_pair.trade_pair_id} position leverage below min_position_leverage {min_position_leverage} while exceeding max_portfolio_leverage {max_portfolio_leverage}")
+                        raise ValueError(f"Miner {self.miner_hotkey} attempted to set {self.trade_pair.trade_pair_id} position leverage below min_position_leverage {min_position_leverage} while exceeding max_portfolio_leverage {max_portfolio_leverage}")
                     else:
                         pass  #  We are getting the leverage closer to the new boundary (decrease) so allow it
             elif abs(proposed_leverage) < min_position_leverage:
