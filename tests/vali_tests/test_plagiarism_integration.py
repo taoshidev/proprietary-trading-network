@@ -334,3 +334,15 @@ class TestPlagiarismIntegration(TestBase):
                                     times_after=times_after)
         
         self.check_one_plagiarist(plagiarist_id=self.MINER_NAMES[4], victim_id=self.MINER_NAMES[3], trade_pair_name=TradePair.ETHUSD.name)
+
+    def test_no_errors_few_miners(self):
+
+        for i in range(4):
+            # Ensure that plagiarism doesn't error when there are 3 or less miners in the metagraph
+
+            self.mock_metagraph = MockMetagraph([f"test_miner{j}" for j in range(i)])
+            self.plagiarism_detector = MockPlagiarismDetector(self.mock_metagraph)
+            self.plagiarism_detector.running_unit_tests = True
+
+            self.position_manager = MockPositionManager(metagraph=self.mock_metagraph)
+            self.plagiarism_detector.detect()
