@@ -123,24 +123,19 @@ class Scoring:
 
         for miner, ledger in ledger_dict.items():
             ledger_checkpoints = ledger.cps
-            positions = hotkey_positions.get(miner, [])
 
-            # Positional Consistency
-            positional_return_time_consistency = PositionPenalties.time_consistency_penalty(positions)
-            positional_consistency = PositionPenalties.returns_ratio_penalty(positions)
-
-            # Ledger Consistency
-            daily_consistency = LedgerUtils.daily_consistency_penalty(ledger_checkpoints)
-            biweekly_consistency = LedgerUtils.biweekly_consistency_penalty(ledger_checkpoints)
+            # # Positional Consistency
+            # positional_return_time_consistency = PositionPenalties.time_consistency_penalty(positions)
+            # positional_consistency = PositionPenalties.returns_ratio_penalty(positions)
+            #
+            # # Ledger Consistency
+            # daily_consistency = LedgerUtils.daily_consistency_penalty(ledger_checkpoints)
+            # biweekly_consistency = LedgerUtils.biweekly_consistency_penalty(ledger_checkpoints)
             drawdown_threshold_penalty = LedgerUtils.max_drawdown_threshold_penalty(ledger_checkpoints)
 
             # Combine penalties
             miner_penalties[miner] = (
-                    drawdown_threshold_penalty *
-                    positional_return_time_consistency *
-                    positional_consistency *
-                    daily_consistency *
-                    biweekly_consistency
+                    drawdown_threshold_penalty
             )
 
         return miner_penalties
