@@ -118,6 +118,7 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
 
     filtered_ledger = subtensor_weight_setter.filtered_ledger(hotkeys=all_miner_hotkeys)
     filtered_positions = subtensor_weight_setter.filtered_positions(hotkeys=all_miner_hotkeys)
+    filtered_returns = LedgerUtils.ledger_returns_log(filtered_ledger)
     
     plagiarism = subtensor_weight_setter.get_plagiarism_scores_from_disk()
     # # Sync the ledger and positions
@@ -186,30 +187,31 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
     for hotkey, hotkey_ledger in filtered_ledger.items():
         # Collect miner positions
         miner_positions = filtered_positions.get(hotkey, [])
+        miner_returns = filtered_returns.get(hotkey, [])
 
         # Lookback window positions
         miner_lookback_positions = lookback_positions.get(hotkey, [])
         miner_lookback_positions_recent = lookback_positions_recent.get(hotkey, [])
 
         scoring_input = {
-            "ledger": hotkey_ledger,
-            "positions": miner_lookback_positions,
+            "returns": miner_returns,
+            "ledger": hotkey_ledger
         }
 
         # Positional Scoring
         omega_dict[hotkey] = Scoring.omega(**scoring_input)
         sharpe_dict[hotkey] = Scoring.sharpe(**scoring_input)
 
-        short_return_dict[hotkey] = Scoring.base_return(miner_lookback_positions_recent)
-        return_dict[hotkey] = Scoring.base_return(miner_lookback_positions)
+        short_return_dict[hotkey] = Scoring.base_return(miner_returns)
+        return_dict[hotkey] = Scoring.base_return(miner_returns)
 
         short_risk_adjusted_return_dict[hotkey] = Scoring.risk_adjusted_return(
-            miner_lookback_positions_recent,
+            miner_returns,
             hotkey_ledger
         )
 
         risk_adjusted_return_dict[hotkey] = Scoring.risk_adjusted_return(
-            miner_lookback_positions,
+            miner_returns,
             hotkey_ledger
         )
 
@@ -245,7 +247,7 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
 
         # Now for the full positions statistics
         n_positions[hotkey] = len(miner_positions)
-        positional_return[hotkey] = Scoring.base_return(miner_positions)
+        positional_return[hotkey] = Scoring.base_return(miner_returns)
         positional_duration[hotkey] = PositionUtils.total_duration(miner_positions)
 
     # Cumulative ledger, for printing

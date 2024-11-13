@@ -42,10 +42,7 @@ class Scoring:
             evaluation_time_ms=evaluation_time_ms
         )
 
-        filtered_recent_positions = PositionFiltering.filter_recent(
-            full_positions,
-            evaluation_time_ms=evaluation_time_ms
-        )
+        filtered_ledger_returns = LedgerUtils.ledger_returns_log(ledger_dict)
 
         # Compute miner penalties
         miner_penalties = Scoring.miner_penalties(filtered_positions, ledger_dict)
@@ -60,22 +57,22 @@ class Scoring:
             'return_long': {
                 'function': Scoring.risk_adjusted_return,
                 'weight': ValiConfig.SCORING_RETURN_LONG_LOOKBACK_WEIGHT,
-                'positions': filtered_positions
-            },
-            'return_short': {
-                'function': Scoring.risk_adjusted_return,
-                'weight': ValiConfig.SCORING_RETURN_SHORT_LOOKBACK_WEIGHT,
-                'positions': filtered_recent_positions
+                'returns': filtered_ledger_returns
             },
             'sharpe_ratio': {
                 'function': Scoring.sharpe,
                 'weight': ValiConfig.SCORING_SHARPE_WEIGHT,
-                'positions': filtered_positions
+                'returns': filtered_ledger_returns
             },
             'omega': {
                 'function': Scoring.omega,
                 'weight': ValiConfig.SCORING_OMEGA_WEIGHT,
-                'positions': filtered_positions
+                'returns': filtered_ledger_returns
+            },
+            'sortino': {
+                'function': Scoring.sortino,
+                'weight': ValiConfig.SCORING_SORTINO_WEIGHT,
+                'returns': filtered_ledger_returns
             },
         }
 
@@ -83,7 +80,7 @@ class Scoring:
 
         for config_name, config in scoring_config.items():
             miner_scores = []
-            for miner, positions in config['positions'].items():
+            for miner, returns in config['returns'].items():
                 # Get the miner ledger
                 ledger = ledger_dict.get(miner, PerfLedgerData())
 
@@ -91,10 +88,7 @@ class Scoring:
                 if miner in full_penalty_miners:
                     continue
 
-                score = config['function'](
-                    positions=positions,
-                    ledger=ledger
-                )
+                score = config['function'](returns=returns, ledger=ledger)
 
                 penalized_score = score * miner_penalties.get(miner, 0)
                 miner_scores.append((miner, penalized_score))
@@ -162,61 +156,44 @@ class Scoring:
         return normalized_scores
 
     @staticmethod
-    def base_return(positions: list[Position]) -> float:
+    def base_return(returns: list[float]) -> float:
         """
         Args:
-            positions: list of positions from the miner
+            returns: list of daily returns from the miner
         """
-        if len(positions) == 0:
-            return 0.0
-
-        positional_returns = [math.log(
-            max(position.return_at_close, .00001))  # Prevent math domain error
-            for position in positions]
-
-        aggregate_return = 0.0
-        for positional_return in positional_returns:
-            aggregate_return += positional_return
-
-        return aggregate_return
+        return sum(returns)
 
     @staticmethod
-    def risk_adjusted_return(positions: list[Position], ledger: PerfLedgerData) -> float:
+    def risk_adjusted_return(returns: list[float], ledger: PerfLedgerData) -> float:
         """
         Args:
-            positions: list of positions from the miner
+            returns: list of returns
             ledger: the ledger of the miner
         """
         # Positional Component
-        if len(positions) == 0:
+        if len(returns) == 0:
             return 0.0
 
-        base_return = Scoring.base_return(positions)
+        base_return = Scoring.base_return(returns)
         risk_normalization_factor = LedgerUtils.risk_normalization(ledger.cps)
 
         return base_return * risk_normalization_factor
 
     @staticmethod
-    def sharpe(positions: list[Position], ledger: PerfLedgerData) -> float:
+    def sharpe(returns: list[float], ledger: PerfLedgerData) -> float:
         """
         Args:
-            positions: list of positions from the miner
-            ledger: the ledger of the miner
+            returns: list of daily returns from the miner
         """
-        if len(positions) == 0:
+        if len(returns) == 0:
             return 0.0
 
         # Hyperparameter
         min_std_dev = ValiConfig.SHARPE_STDDEV_MINIMUM
 
-        # Return at close should already accommodate the risk-free rate as a cost of carry
-        positional_log_returns = [math.log(
-            max(position.return_at_close, .00001))  # Prevent math domain error)
-            for position in positions]
-
         # Sharpe ratio is calculated as the mean of the returns divided by the standard deviation of the returns
-        mean_return = np.mean(positional_log_returns)
-        std_dev = max(np.std(positional_log_returns), min_std_dev)
+        mean_return = np.mean(returns)
+        std_dev = max(np.std(returns), min_std_dev)
 
         if std_dev == 0:
             return 0.0
@@ -224,24 +201,18 @@ class Scoring:
         return mean_return / std_dev
 
     @staticmethod
-    def omega(positions: list[Position], ledger: PerfLedgerData) -> float:
+    def omega(returns: list[float], ledger: PerfLedgerData) -> float:
         """
         Args:
-            positions: list of positions from the miner
-            ledger: the ledger of the miner
+            returns: list of daily returns from the miner
         """
-        if len(positions) == 0:
+        if len(returns) == 0:
             return 0.0
-
-        # Return at close should already accommodate the risk-free rate as a cost of carry
-        positional_log_returns = [math.log(
-            max(position.return_at_close, .00001))  # Prevent math domain error
-            for position in positions]
 
         positive_sum = 0
         negative_sum = 0
 
-        for log_return in positional_log_returns:
+        for log_return in returns:
             if log_return > 0:
                 positive_sum += log_return
             else:
@@ -251,6 +222,28 @@ class Scoring:
         denominator = max(abs(negative_sum), ValiConfig.OMEGA_LOSS_MINIMUM)
 
         return numerator / denominator
+
+    @staticmethod
+    def sortino(returns: list[float], ledger: PerfLedgerData) -> float:
+        """
+        Args:
+            returns: list of daily returns from the miner
+        """
+        if len(returns) == 0:
+            return 0.0
+
+        # Hyperparameter
+        min_std_dev = ValiConfig.SORTINO_STDDEV_MINIMUM
+
+        # Sortino ratio is calculated as the mean of the returns divided by the standard deviation of the negative returns
+        mean_return = np.mean(returns)
+        negative_returns = [r for r in returns if r < 0]
+        std_dev = max(np.std(negative_returns), min_std_dev)
+
+        if std_dev == 0:
+            return 0.0
+
+        return mean_return / std_dev
 
     @staticmethod
     def softmax_scores(returns: list[tuple[str, float]]) -> list[tuple[str, float]]:
