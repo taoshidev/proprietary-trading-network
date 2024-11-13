@@ -2,6 +2,7 @@
 import math
 import numpy as np
 import copy
+from datetime import datetime, timezone, date
 
 from vali_objects.vali_config import ValiConfig
 from vali_objects.vali_dataclasses.perf_ledger import PerfCheckpoint, PerfLedgerData
@@ -29,6 +30,46 @@ class LedgerUtils:
             checkpoint.loss += risk_free_rate * checkpoint.accum_ms
 
         return checkpoints_copy
+
+    @staticmethod
+    def daily_return_log(checkpoints: list[PerfCheckpoint]) -> list[float]:
+        """
+        Calculate daily returns from performance checkpoints, only including full days
+        with complete data and correct total accumulated time.
+
+        Args:
+            checkpoints: List[PerfCheckpoint] - list of checkpoints ordered by timestamp
+        Returns:
+            List[float] - list of daily returns for complete days
+        """
+        if not checkpoints:
+            return []
+
+        daily_groups = {}
+        n_checkpoints_per_day = int(ValiConfig.DAILY_CHECKPOINTS)
+
+        # Group checkpoints by date
+        for cp in checkpoints:
+            running_date = datetime.fromtimestamp(cp.last_update_ms / 1000, tz=timezone.utc).date()
+            if cp.accum_ms == ValiConfig.TARGET_CHECKPOINT_DURATION_MS:
+                if running_date not in daily_groups:
+                    daily_groups[running_date] = []
+                daily_groups[running_date].append(cp)
+
+        # Calculate returns for complete days
+        returns = []
+        for running_date, day_checkpoints in sorted(daily_groups.items()):
+            if len(day_checkpoints) == n_checkpoints_per_day:
+                daily_return = sum(cp.gain + cp.loss for cp in day_checkpoints)
+                returns.append(daily_return)
+
+        return returns
+
+    @staticmethod
+    def daily_return(checkpoints: list[PerfCheckpoint]) -> list[float]:
+        # First risk-free adjustment
+        checkpoints = LedgerUtils.risk_free_adjustment(checkpoints)
+        return LedgerUtils.daily_return_log(checkpoints)
 
     @staticmethod
     def recent_drawdown(checkpoints: list[PerfCheckpoint], restricted: bool = True) -> float:
