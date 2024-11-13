@@ -540,7 +540,8 @@ class TestPositions(TestBase):
         })
 
         # Orders post-liquidation are ignored
-        self.add_order_to_position_and_save_to_disk(position, o3)
+        with self.assertRaises(ValueError):
+            self.add_order_to_position_and_save_to_disk(position, o3)
         self.validate_intermediate_position_state(position, {
             'orders': [o1, o2],
             'position_type': OrderType.FLAT,
@@ -615,7 +616,8 @@ class TestPositions(TestBase):
         })
 
         # Orders post-liquidation are ignored
-        self.add_order_to_position_and_save_to_disk(position, o3)
+        with self.assertRaises(ValueError):
+            self.add_order_to_position_and_save_to_disk(position, o3)
         self.validate_intermediate_position_state(position, {
             'orders': [o1, o2],
             'position_type': OrderType.FLAT,
@@ -1287,6 +1289,9 @@ class TestPositions(TestBase):
                          FOREX_CARRY_FEE_PER_INTERVAL ** position2.max_leverage_seen())
 
     def test_transition_to_positional_leverage_v2_high_positive_leverage(self):
+        """
+        leverage v1 could exceed the new leverage v2 limits. do not allow any orders that do not decrease the leverage
+        """
         position = deepcopy(self.default_position)
         live_price = 69000
         min_allowed_leverage, max_allowed_leverage = get_position_leverage_bounds(TradePair.BTCUSD,
@@ -1304,8 +1309,9 @@ class TestPositions(TestBase):
                    processed_ms=LEVERAGE_BOUNDS_V2_START_TIME_MS + 1,
                    order_uuid="2000")
 
-        for order in [o1, o2]:
-            self.add_order_to_position_and_save_to_disk(position, order)
+        self.add_order_to_position_and_save_to_disk(position, o1)
+        with self.assertRaises(ValueError):
+            self.add_order_to_position_and_save_to_disk(position, o2)
 
         self.validate_intermediate_position_state(position, {
             'orders': [o1],
@@ -1445,6 +1451,9 @@ class TestPositions(TestBase):
         })
 
     def test_transition_to_positional_leverage_v2_high_negative_leverage(self):
+        """
+        leverage v1 could exceed the new leverage v2 limits. do not allow any orders that do not decrease the leverage
+        """
         position = deepcopy(self.default_position)
         live_price = 69000
         min_allowed_leverage, max_allowed_leverage = get_position_leverage_bounds(TradePair.BTCUSD,
@@ -1462,8 +1471,9 @@ class TestPositions(TestBase):
                    processed_ms=LEVERAGE_BOUNDS_V2_START_TIME_MS + 1,
                    order_uuid="2000")
 
-        for order in [o1, o2]:
-            self.add_order_to_position_and_save_to_disk(position, order)
+        self.add_order_to_position_and_save_to_disk(position, o1)
+        with self.assertRaises(ValueError):
+            self.add_order_to_position_and_save_to_disk(position, o2)
 
         self.validate_intermediate_position_state(position, {
             'orders': [o1],
@@ -1613,8 +1623,9 @@ class TestPositions(TestBase):
                    processed_ms=2000,
                    order_uuid="2000")
 
-        for order in [o1, o2]:
-            self.add_order_to_position_and_save_to_disk(position, order)
+        self.add_order_to_position_and_save_to_disk(position, o1)
+        with self.assertRaises(ValueError):
+            self.add_order_to_position_and_save_to_disk(position, o2)
 
         self.validate_intermediate_position_state(position, {
             'orders': [o1],
@@ -1651,8 +1662,9 @@ class TestPositions(TestBase):
                    processed_ms=LEVERAGE_BOUNDS_V2_START_TIME_MS + 2000,
                    order_uuid="2000")
 
-        for order in [o1, o2]:
-            self.add_order_to_position_and_save_to_disk(position, order)
+        self.add_order_to_position_and_save_to_disk(position, o1)
+        with self.assertRaises(ValueError):
+            self.add_order_to_position_and_save_to_disk(position, o2)
 
         self.validate_intermediate_position_state(position, {
             'orders': [o1],
@@ -1798,8 +1810,9 @@ class TestPositions(TestBase):
                    processed_ms=2000,
                    order_uuid="2000")
 
-        for order in [o1, o2]:
-            self.add_order_to_position_and_save_to_disk(position, order)
+        self.add_order_to_position_and_save_to_disk(position, o1)
+        with self.assertRaises(ValueError):
+            self.add_order_to_position_and_save_to_disk(position, o2)
 
         self.validate_intermediate_position_state(position, {
             'orders': [o1],
@@ -1836,8 +1849,9 @@ class TestPositions(TestBase):
                    processed_ms=LEVERAGE_BOUNDS_V2_START_TIME_MS + 2000,
                    order_uuid="2000")
 
-        for order in [o1, o2]:
-            self.add_order_to_position_and_save_to_disk(position, order)
+        self.add_order_to_position_and_save_to_disk(position, o1)
+        with self.assertRaises(ValueError):
+            self.add_order_to_position_and_save_to_disk(position, o2)
 
         self.validate_intermediate_position_state(position, {
             'orders': [o1],
@@ -1892,11 +1906,9 @@ class TestPositions(TestBase):
                    processed_ms=leverage_utils.PORTFOLIO_LEVERAGE_BOUNDS_START_TIME_MS + 2000,
                    order_uuid="2000")
 
-        with self.assertLogs('root', level='DEBUG') as logger:
+        with self.assertRaises(ValueError):
             self.add_order_to_position_and_save_to_disk(position3, o3)
             self.assertEqual(len(position3.orders), 0)
-            # print(logger.output)
-            self.assertEqual([f"WARNING:root:Miner {self.DEFAULT_MINER_HOTKEY} attempted to exceed max adjusted portfolio leverage of {ValiConfig.PORTFOLIO_LEVERAGE_CAP}. Ignoring order."], logger.output)
 
     def test_long_order_crypto_leverage_exceed_portfolio_limit(self):
         """
@@ -2049,7 +2061,8 @@ class TestPositions(TestBase):
                    trade_pair=TradePair.AUDCAD,
                    processed_ms=leverage_utils.PORTFOLIO_LEVERAGE_BOUNDS_START_TIME_MS + 1000,
                    order_uuid="1000")
-        self.add_order_to_position_and_save_to_disk(position2, o3)
+        with self.assertRaises(ValueError):
+            self.add_order_to_position_and_save_to_disk(position2, o3)
 
         # the o3 order should be skipped since it would bring the position net leverage below min leverage.
         self.assertEqual(position2.net_leverage, 50)
