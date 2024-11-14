@@ -13,6 +13,7 @@ from time_util.time_util import TimeUtil
 from vali_objects.utils.position_filtering import PositionFiltering
 from vali_objects.utils.position_penalties import PositionPenalties
 from vali_objects.utils.ledger_utils import LedgerUtils
+from vali_objects.utils.metrics import Metrics
 
 import bittensor as bt
 
@@ -54,23 +55,23 @@ class Scoring:
         full_penalty_miners = set([x[0] for x in full_penalty_miner_scores])
 
         scoring_config = {
-            'return_long': {
-                'function': Scoring.risk_adjusted_return,
-                'weight': ValiConfig.SCORING_RETURN_LONG_LOOKBACK_WEIGHT,
-                'returns': filtered_ledger_returns
-            },
+            # 'return_long': {
+            #     'function': Metrics.risk_adjusted_return,
+            #     'weight': ValiConfig.SCORING_RETURN_LONG_LOOKBACK_WEIGHT,
+            #     'returns': filtered_ledger_returns
+            # },
             'sharpe_ratio': {
-                'function': Scoring.sharpe,
+                'function': Metrics.sharpe,
                 'weight': ValiConfig.SCORING_SHARPE_WEIGHT,
                 'returns': filtered_ledger_returns
             },
             'omega': {
-                'function': Scoring.omega,
+                'function': Metrics.omega,
                 'weight': ValiConfig.SCORING_OMEGA_WEIGHT,
                 'returns': filtered_ledger_returns
             },
             'sortino': {
-                'function': Scoring.sortino,
+                'function': Metrics.sortino,
                 'weight': ValiConfig.SCORING_SORTINO_WEIGHT,
                 'returns': filtered_ledger_returns
             },
@@ -82,13 +83,13 @@ class Scoring:
             miner_scores = []
             for miner, returns in config['returns'].items():
                 # Get the miner ledger
-                ledger = ledger_dict.get(miner, PerfLedgerData())
+                # ledger = ledger_dict.get(miner, PerfLedgerData())
 
                 # Check if the miner has full penalty - if not include them in the scoring competition
                 if miner in full_penalty_miners:
                     continue
 
-                score = config['function'](returns=returns, ledger=ledger)
+                score = config['function'](log_returns=returns) #, ledger=ledger)
 
                 penalized_score = score * miner_penalties.get(miner, 0)
                 miner_scores.append((miner, penalized_score))
@@ -154,96 +155,6 @@ class Scoring:
         }
         # normalized_scores = sorted(normalized_scores, key=lambda x: x[1], reverse=True)
         return normalized_scores
-
-    @staticmethod
-    def base_return(returns: list[float]) -> float:
-        """
-        Args:
-            returns: list of daily returns from the miner
-        """
-        return sum(returns)
-
-    @staticmethod
-    def risk_adjusted_return(returns: list[float], ledger: PerfLedgerData) -> float:
-        """
-        Args:
-            returns: list of returns
-            ledger: the ledger of the miner
-        """
-        # Positional Component
-        if len(returns) == 0:
-            return 0.0
-
-        base_return = Scoring.base_return(returns)
-        risk_normalization_factor = LedgerUtils.risk_normalization(ledger.cps)
-
-        return base_return * risk_normalization_factor
-
-    @staticmethod
-    def sharpe(returns: list[float], ledger: PerfLedgerData) -> float:
-        """
-        Args:
-            returns: list of daily returns from the miner
-        """
-        if len(returns) == 0:
-            return 0.0
-
-        # Hyperparameter
-        min_std_dev = ValiConfig.SHARPE_STDDEV_MINIMUM
-
-        # Sharpe ratio is calculated as the mean of the returns divided by the standard deviation of the returns
-        mean_return = np.mean(returns)
-        std_dev = max(np.std(returns), min_std_dev)
-
-        if std_dev == 0:
-            return 0.0
-
-        return mean_return / std_dev
-
-    @staticmethod
-    def omega(returns: list[float], ledger: PerfLedgerData) -> float:
-        """
-        Args:
-            returns: list of daily returns from the miner
-        """
-        if len(returns) == 0:
-            return 0.0
-
-        positive_sum = 0
-        negative_sum = 0
-
-        for log_return in returns:
-            if log_return > 0:
-                positive_sum += log_return
-            else:
-                negative_sum += log_return
-
-        numerator = positive_sum
-        denominator = max(abs(negative_sum), ValiConfig.OMEGA_LOSS_MINIMUM)
-
-        return numerator / denominator
-
-    @staticmethod
-    def sortino(returns: list[float], ledger: PerfLedgerData) -> float:
-        """
-        Args:
-            returns: list of daily returns from the miner
-        """
-        if len(returns) == 0:
-            return 0.0
-
-        # Hyperparameter
-        min_std_dev = ValiConfig.SORTINO_STDDEV_MINIMUM
-
-        # Sortino ratio is calculated as the mean of the returns divided by the standard deviation of the negative returns
-        mean_return = np.mean(returns)
-        negative_returns = [r for r in returns if r < 0]
-        std_dev = max(np.std(negative_returns), min_std_dev)
-
-        if std_dev == 0:
-            return 0.0
-
-        return mean_return / std_dev
 
     @staticmethod
     def softmax_scores(returns: list[tuple[str, float]]) -> list[tuple[str, float]]:

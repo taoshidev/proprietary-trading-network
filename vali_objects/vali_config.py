@@ -27,8 +27,9 @@ class ValiConfig:
     VERSION = meta_version
 
     # Market-specific configurations
-    ANNUAL_RISK_FREE_PERCENT = 4.19  # From tbill rates
-    MS_RISK_FREE_RATE = math.log(1 + ANNUAL_RISK_FREE_PERCENT / 100) / (365 * 24 * 60 * 60 * 1000)
+    MARKET_OPEN_DAYS = 252  # 252 trading days in a year
+    ANNUAL_RISK_FREE_PERCENTAGE = 4.19  # From tbill rates
+    MS_RISK_FREE_RATE = math.log(1 + ANNUAL_RISK_FREE_PERCENTAGE / 100) / (365 * 24 * 60 * 60 * 1000)
 
     # Time Configurations
     TARGET_CHECKPOINT_DURATION_MS = 1000 * 60 * 60 * 12  # 12 hours
@@ -123,7 +124,7 @@ class ValiConfig:
     # Scoring hyperparameters
     OMEGA_LOSS_MINIMUM = 0.02  # Equivalent to 2% loss
     SHARPE_STDDEV_MINIMUM = 0.01  # Equivalent to 1% standard deviation
-    SORTINO_STDDEV_MINIMUM = 0.01  # Equivalent to 1% standard deviation
+    SORTINO_DOWNSIDE_MINIMUM = 0.01  # Equivalent to 1% standard deviation
 
     # MDD penalty calculation
     APPROXIMATE_DRAWDOWN_PERCENTILE = 0.90

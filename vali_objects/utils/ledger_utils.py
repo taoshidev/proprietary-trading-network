@@ -11,25 +11,21 @@ from vali_objects.utils.functional_utils import FunctionalUtils
 
 class LedgerUtils:
     @staticmethod
-    def risk_free_adjustment(checkpoints: list[PerfCheckpoint]) -> list[PerfCheckpoint]:
+    def risk_free_adjustment(mean_return: list[float]) -> float:
         """
         Args:
-            checkpoints: list[PerfCheckpoint] - the list of checkpoints
+            mean_return: float - mean return from the positions
 
         Returns:
-            float - the risk-free adjustment
+            float - the risk-free adjustment return
         """
-        if len(checkpoints) == 0:
-            return checkpoints
+        if len(mean_return) == 0:
+            return 0
 
-        checkpoints_copy = copy.deepcopy(checkpoints)
+        annual_risk_free_rate = ValiConfig.ANNUAL_RISK_FREE_PERCENT
+        trading_days = ValiConfig.MARKET_OPEN_DAYS
 
-        risk_free_rate = ValiConfig.MS_RISK_FREE_RATE
-
-        for checkpoint in checkpoints_copy:
-            checkpoint.loss += risk_free_rate * checkpoint.accum_ms
-
-        return checkpoints_copy
+        return (np.mean(mean_return) * trading_days) - annual_risk_free_rate
 
     @staticmethod
     def daily_return_log(checkpoints: list[PerfCheckpoint]) -> list[float]:
@@ -71,22 +67,6 @@ class LedgerUtils:
         return [(math.exp(x)-1) * 100 if x != 0 else 0 for x in LedgerUtils.daily_return_log(checkpoints)]
 
     @staticmethod
-    def returns(checkpoints: list[PerfCheckpoint]) -> list[float]:
-        if len(checkpoints) == 0:
-            return []
-
-        risk_free_adjusted_checkpoints = LedgerUtils.risk_free_adjustment(checkpoints)
-        return LedgerUtils.daily_return(risk_free_adjusted_checkpoints)
-
-    @staticmethod
-    def returns_log(checkpoints: list[PerfCheckpoint]) -> list[float]:
-        if len(checkpoints) == 0:
-            return []
-
-        risk_free_adjusted_checkpoints = LedgerUtils.risk_free_adjustment(checkpoints)
-        return LedgerUtils.daily_return_log(risk_free_adjusted_checkpoints)
-
-    @staticmethod
     def ledger_returns(ledger: dict[str, PerfLedgerData]) -> dict[str, list[float]]:
         """
         Args:
@@ -95,7 +75,7 @@ class LedgerUtils:
         miner_returns = {}
 
         for miner, miner_ledger in ledger.items():
-            miner_returns[miner] = LedgerUtils.returns(miner_ledger['cps'])
+            miner_returns[miner] = LedgerUtils.daily_return(miner_ledger.cps)
 
         return miner_returns
 
@@ -108,9 +88,21 @@ class LedgerUtils:
         miner_returns = {}
 
         for miner, miner_ledger in ledger.items():
-            miner_returns[miner] = LedgerUtils.returns_log(miner_ledger.cps)
+            miner_returns[miner] = LedgerUtils.daily_return_log(miner_ledger.cps)
 
         return miner_returns
+
+    # Volatility section
+    @staticmethod
+    def ann_volatility(daily_log_returns: list[float]) -> float:
+        """
+        Args:
+            daily_log_returns (pd.Series): Daily Series of log returns.
+        """
+        window = len(daily_log_returns)
+        ann_factor = 252 / window
+        annualized_volatility = np.sqrt(np.var(daily_log_returns, ddof=1) * ann_factor)
+        return annualized_volatility
 
     @staticmethod
     def recent_drawdown(checkpoints: list[PerfCheckpoint], restricted: bool = True) -> float:

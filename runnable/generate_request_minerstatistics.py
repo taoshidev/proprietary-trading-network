@@ -13,6 +13,7 @@ from vali_objects.utils.position_penalties import PositionPenalties
 from vali_objects.utils.position_filtering import PositionFiltering
 from vali_objects.utils.ledger_utils import LedgerUtils
 from vali_objects.scoring.scoring import Scoring
+from vali_objects.utils.metrics import Metrics
 
 
 
@@ -194,23 +195,23 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
         miner_lookback_positions_recent = lookback_positions_recent.get(hotkey, [])
 
         scoring_input = {
-            "returns": miner_returns,
-            "ledger": hotkey_ledger
+            "log_returns": miner_returns,
+            # "ledger": hotkey_ledger
         }
 
         # Positional Scoring
-        omega_dict[hotkey] = Scoring.omega(**scoring_input)
-        sharpe_dict[hotkey] = Scoring.sharpe(**scoring_input)
+        omega_dict[hotkey] = Metrics.omega(**scoring_input)
+        sharpe_dict[hotkey] = Metrics.sharpe(**scoring_input)
 
-        short_return_dict[hotkey] = Scoring.base_return(miner_returns)
-        return_dict[hotkey] = Scoring.base_return(miner_returns)
+        short_return_dict[hotkey] = Metrics.base_return(miner_returns)
+        return_dict[hotkey] = Metrics.base_return(miner_returns)
 
-        short_risk_adjusted_return_dict[hotkey] = Scoring.risk_adjusted_return(
+        short_risk_adjusted_return_dict[hotkey] = Metrics.risk_adjusted_return(
             miner_returns,
             hotkey_ledger
         )
 
-        risk_adjusted_return_dict[hotkey] = Scoring.risk_adjusted_return(
+        risk_adjusted_return_dict[hotkey] = Metrics.risk_adjusted_return(
             miner_returns,
             hotkey_ledger
         )
@@ -247,7 +248,7 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
 
         # Now for the full positions statistics
         n_positions[hotkey] = len(miner_positions)
-        positional_return[hotkey] = Scoring.base_return(miner_returns)
+        positional_return[hotkey] = Metrics.base_return(miner_returns)
         positional_duration[hotkey] = PositionUtils.total_duration(miner_positions)
 
     # Cumulative ledger, for printing
