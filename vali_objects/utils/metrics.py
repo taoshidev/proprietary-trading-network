@@ -16,13 +16,13 @@ class Metrics:
         Parameters:
         log_returns list[float]: Daily Series of log returns.
         """
-        annual_risk_free_rate = ValiConfig.ANNUAL_RISK_FREE_PERCENTAGE
+        annual_risk_free_rate = ValiConfig.ANNUAL_RISK_FREE_LOG
         trading_days = ValiConfig.MARKET_OPEN_DAYS
 
         mean_daily_log_returns = np.mean(log_returns)
 
         # Annualize the mean daily excess returns
-        annualized_excess_return = math.exp(mean_daily_log_returns * trading_days) - annual_risk_free_rate
+        annualized_excess_return = (mean_daily_log_returns * trading_days) - annual_risk_free_rate
         return annualized_excess_return
 
     @staticmethod

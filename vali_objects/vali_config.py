@@ -29,6 +29,7 @@ class ValiConfig:
     # Market-specific configurations
     MARKET_OPEN_DAYS = 252  # 252 trading days in a year
     ANNUAL_RISK_FREE_PERCENTAGE = 4.19  # From tbill rates
+    ANNUAL_RISK_FREE_LOG = math.log(ANNUAL_RISK_FREE_PERCENTAGE / 100 + 1)
     MS_RISK_FREE_RATE = math.log(1 + ANNUAL_RISK_FREE_PERCENTAGE / 100) / (365 * 24 * 60 * 60 * 1000)
 
     # Time Configurations
