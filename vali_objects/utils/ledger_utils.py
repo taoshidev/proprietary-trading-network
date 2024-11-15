@@ -2,7 +2,7 @@
 import math
 import numpy as np
 import copy
-from datetime import datetime, timezone, date
+from datetime import datetime, timezone
 
 from vali_objects.vali_config import ValiConfig
 from vali_objects.vali_dataclasses.perf_ledger import PerfCheckpoint, PerfLedgerData
@@ -13,6 +13,8 @@ class LedgerUtils:
     @staticmethod
     def risk_free_adjustment(mean_return: list[float]) -> float:
         """
+        Annualizes simple returns and subtract risk-free rate
+
         Args:
             mean_return: float - mean return from the positions
 
@@ -22,7 +24,7 @@ class LedgerUtils:
         if len(mean_return) == 0:
             return 0
 
-        annual_risk_free_rate = ValiConfig.ANNUAL_RISK_FREE_PERCENT
+        annual_risk_free_rate = ValiConfig.ANNUAL_RISK_FREE_PERCENTAGE
         trading_days = ValiConfig.MARKET_OPEN_DAYS
 
         return (np.mean(mean_return) * trading_days) - annual_risk_free_rate
