@@ -1,13 +1,12 @@
-import os
-import sys
 
 import math
 import numpy as np
-from typing import List, Tuple
 
 from vali_objects.vali_config import ValiConfig
 from vali_objects.utils.ledger_utils import LedgerUtils
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerData
+
+
 
 class Metrics:
     @staticmethod
@@ -117,7 +116,7 @@ class Metrics:
 
         excess_return = Metrics.ann_excess_return(log_returns)
         volatility = Metrics.ann_volatility(log_returns)
-
+        
         return excess_return / max(volatility, min_std_dev)
 
     @staticmethod
