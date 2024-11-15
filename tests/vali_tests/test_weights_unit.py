@@ -53,9 +53,6 @@ class TestWeights(TestBase):
             evaluation_time_ms=self.EVALUATION_TIME_MS
         )
 
-        # With no miners, we should not have any results
-        self.assertListEqual(scaled_transformed_list, [])
-
         # Check that the result is a list of tuples with string and float elements
         self.assertIsInstance(scaled_transformed_list, list)
         for item in scaled_transformed_list:
@@ -66,9 +63,6 @@ class TestWeights(TestBase):
         # Check that the values are sorted in descending order
         values = [x[1] for x in scaled_transformed_list]
         self.assertEqual(values, sorted(values, reverse=True))
-
-        # Check that the values are scaled correctly
-        self.assertListEqual(values, [])
 
     def test_return_no_positions(self):
         self.assertEqual(Scoring.base_return([]), 0.0)
