@@ -134,10 +134,10 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
         evaluation_time_ms=time_now
     )
 
-    lookback_positions_recent = PositionFiltering.filter_recent(
-        filtered_positions,
-        evaluation_time_ms=time_now
-    )
+    # lookback_positions_recent = PositionFiltering.filter_recent(
+    #     filtered_positions,
+    #     evaluation_time_ms=time_now
+    # )
 
     # Penalties
     miner_penalties = Scoring.miner_penalties(
@@ -192,7 +192,7 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
 
         # Lookback window positions
         miner_lookback_positions = lookback_positions.get(hotkey, [])
-        miner_lookback_positions_recent = lookback_positions_recent.get(hotkey, [])
+        # miner_lookback_positions_recent = lookback_positions_recent.get(hotkey, [])
 
         scoring_input = {
             "log_returns": miner_returns,
