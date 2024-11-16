@@ -28,8 +28,9 @@ class ValiConfig:
 
     # Market-specific configurations
     MARKET_OPEN_DAYS = 252  # 252 trading days in a year
+    DAYS_IN_YEAR = 365
     ANNUAL_RISK_FREE_PERCENTAGE = 4.19  # From tbill rates
-    ANNUAL_RISK_FREE_LOG = math.log(ANNUAL_RISK_FREE_PERCENTAGE / 100 + 1)
+    ANNUAL_RISK_FREE_DECIMAL = ANNUAL_RISK_FREE_PERCENTAGE / 100
     MS_RISK_FREE_RATE = math.log(1 + ANNUAL_RISK_FREE_PERCENTAGE / 100) / (365 * 24 * 60 * 60 * 1000)
 
     # Time Configurations
@@ -124,8 +125,8 @@ class ValiConfig:
 
     # Scoring hyperparameters
     OMEGA_LOSS_MINIMUM = 0.02  # Equivalent to 2% loss
-    SHARPE_STDDEV_MINIMUM = 0.01  # Equivalent to 1% standard deviation
-    SORTINO_DOWNSIDE_MINIMUM = 0.01  # Equivalent to 1% standard deviation
+    SHARPE_STDDEV_MINIMUM = 0.04 # Equivalent to 4% standard deviation
+    SORTINO_DOWNSIDE_MINIMUM = 0.04 # Equivalent to 4% standard deviation
 
     # MDD penalty calculation
     APPROXIMATE_DRAWDOWN_PERCENTILE = 0.90

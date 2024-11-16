@@ -7,7 +7,6 @@ from vali_objects.utils.ledger_utils import LedgerUtils
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerData
 
 
-
 class Metrics:
     @staticmethod
     def ann_excess_return(log_returns: list[float]) -> float:
@@ -16,13 +15,14 @@ class Metrics:
         Parameters:
         log_returns list[float]: Daily Series of log returns.
         """
-        annual_risk_free_rate = ValiConfig.ANNUAL_RISK_FREE_LOG
-        trading_days = ValiConfig.MARKET_OPEN_DAYS
+        annual_risk_free_rate = ValiConfig.ANNUAL_RISK_FREE_DECIMAL
+        days_in_year = ValiConfig.DAYS_IN_YEAR
 
         mean_daily_log_returns = np.mean(log_returns)
 
         # Annualize the mean daily excess returns
-        annualized_excess_return = (mean_daily_log_returns * trading_days) - annual_risk_free_rate
+
+        annualized_excess_return = (math.exp(mean_daily_log_returns * days_in_year) - 1) - annual_risk_free_rate
         return annualized_excess_return
 
     @staticmethod
@@ -33,13 +33,14 @@ class Metrics:
         log_returns list[float]: Daily Series of log returns.
         """
         # Annualize volatility of the daily log returns assuming sample variance
-        trading_days = ValiConfig.MARKET_OPEN_DAYS
+        days_in_year = ValiConfig.DAYS_IN_YEAR
 
         window = len(log_returns)
         if window == 0:
             return np.inf
 
-        ann_factor = trading_days / window
+        ann_factor = days_in_year / window
+        
         annualized_volatility = np.sqrt(np.var(log_returns, ddof=1) * ann_factor)
         return annualized_volatility
 
@@ -53,14 +54,14 @@ class Metrics:
         Returns:
             The downside annualized volatility as a float assuming sample variance
         """
-        trading_days = ValiConfig.MARKET_OPEN_DAYS
+        days_in_year = ValiConfig.DAYS_IN_YEAR
 
         downside_returns = [log_return for log_return in log_returns if log_return < target]
         window = len(downside_returns)
         if window == 0:
             return np.inf
 
-        ann_factor = trading_days / window
+        ann_factor = days_in_year / window
         annualized_downside_volatility = np.sqrt(np.var(downside_returns, ddof=1) * ann_factor)
         return annualized_downside_volatility
 
@@ -108,7 +109,8 @@ class Metrics:
         Args:
             log_returns: list of daily log returns from the miner
         """
-        if len(log_returns) == 0:
+        # Can't use one day because np.var uses ddof=1
+        if len(log_returns) <= 1:
             return 0.0
 
         # Hyperparameter
@@ -148,7 +150,8 @@ class Metrics:
         Args:
             log_returns: list of daily log returns from the miner
         """
-        if len(log_returns) == 0:
+        # Can't use one day because np.var uses ddof=1
+        if len(log_returns) <= 1:
             return 0.0
 
         # Hyperparameter

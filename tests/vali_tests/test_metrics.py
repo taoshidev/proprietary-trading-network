@@ -72,8 +72,8 @@ class TestMetrics(TestBase):
         self.assertLess(omega, np.inf)
 
     def test_sharpe_positive(self):
-        """Test that the sharpe function works as expected"""
-        log_returns = [0.2, 0.1, 0.3, 0.2, 0.1, 0.3]
+        """Test that the sharpe function is positive when all returns are positive"""
+        log_returns = [0.02, 0.01, 0.03, 0.02, 0.01, 0.03]
 
         sharpe = Metrics.sharpe(log_returns)
 
@@ -81,8 +81,8 @@ class TestMetrics(TestBase):
         self.assertGreater(sharpe, 0.0)
 
     def test_sharpe_negative(self):
-        """Test that the sharpe function works as expected"""
-        log_returns = [-0.2, -0.1, -0.3, -0.2, -0.1, -0.3]
+        """Test that the sharpe function is negative when all returns are negative"""
+        log_returns = [-0.001 for _ in range(5)]
 
         sharpe = Metrics.sharpe(log_returns)
 
@@ -99,28 +99,42 @@ class TestMetrics(TestBase):
         # Expected value is zero
         self.assertEqual(sharpe, 0.0)
 
-    # TODO Hyperparameter has to be tuned to pass this test
-
     def test_sharpe_no_returns_no_variance(self):
-        """Test that the sharpe function works as expected"""
+        """Test that the sharpe function is negative with 0 returns"""
         log_returns = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
 
         sharpe = Metrics.sharpe(log_returns)
 
         # Expected value is zero
-        self.assertEqual(sharpe, 0.0)
+        self.assertLess(sharpe, 0.0)
 
-    # TODO Hyperparameter has to be tuned to pass this test
-
-    def test_sharpe_perfect_positive(self):
-        """Test that the sharpe function works as expected"""
-        log_returns = [0.01 for _ in range(5)]
+    def test_sharpe_perfect_positive_small(self):
+        """Test that the sharpe function is positive for small positive returns"""
+        log_returns = [0.001 for _ in range(5)]
 
         sharpe = Metrics.sharpe(log_returns)
 
         # Expected value is between zero and 10
         self.assertGreater(sharpe, 0.0)
         self.assertLess(sharpe, 10)
+
+    def test_sharpe_perfect_positive_year(self):
+        """Test that the sharpe function works for 365 days of returns"""
+        log_returns = [0.05/ 365 for _ in range(365)]
+
+        sharpe = Metrics.sharpe(log_returns)
+
+        # Expected value is between zero and 10
+        self.assertGreater(sharpe, 0.0)
+        self.assertLess(sharpe, 10)
+
+    def test_sharpe_one(self):
+        """ Test that only one day of information doesn't cause errors with stddev """
+        log_returns = [0.05]
+
+        sharpe = Metrics.sharpe(log_returns)
+
+        self.assertAlmostEqual(sharpe, 0)
 
     def test_swing_miners(self):
         """Test that the sharpe function works as expected"""
@@ -171,4 +185,13 @@ class TestMetrics(TestBase):
 
         # Expected value is zero
         self.assertEqual(sortino, 0.0)
+
+    def test_sortino_one(self):
+        """ Test that only one day of information doesn't cause errors with stddev """
+
+        log_returns = [0.05]
+
+        sortino = Metrics.sortino(log_returns)
+
+        self.assertAlmostEqual(sortino, 0)
 
