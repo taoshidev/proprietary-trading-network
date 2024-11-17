@@ -1,10 +1,11 @@
 import threading
 import traceback
-
+import requests
 
 from typing import List
-from polygon.rest.models import MarketStatus, Agg
-from polygon.websocket import WebSocketClient, Market, EquityAgg, CurrencyAgg, ForexQuote
+
+from polygon.rest.models import Agg
+from polygon.websocket import WebSocketClient, Market, EquityAgg, EquityTrade, CryptoTrade, ForexQuote
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from data_generator.base_data_service import BaseDataService, POLYGON_PROVIDER_NAME
@@ -22,19 +23,117 @@ from vali_objects.vali_dataclasses.recent_event_tracker import RecentEventTracke
 DEBUG = 0
 
 
+class ExchangeMappingHelper:
+    def __init__(self, api_key, fetch_live_mapping=True):
+        self.fetch_live_mapping = fetch_live_mapping
+        self.api_key = api_key
+        self.crypto_fallback_mapping = {
+            'coinbase': 1,
+            'bitfinex': 2,
+            'bitstamp': 6,
+            'binance': 10,
+            'kraken': 23
+        }
+        self.stock_fallback_mapping = {
+            "nyse american, llc": 1,
+            "nasdaq omx bx, inc.": 2,
+            "nyse national, inc.": 3,
+            "finra alternative display facility": 4,
+            "unlisted trading privileges": 5,
+            "international securities exchange, llc - stocks": 6,
+            "cboe edga": 7,
+            "cboe edgx": 8,
+            "nyse chicago, inc.": 9,
+            "new york stock exchange": 10,
+            "nyse arca, inc.": 11,
+            "nasdaq": 12,
+            "consolidated tape association": 13,
+            "long-term stock exchange": 14,
+            "investors exchange": 15
+        }
+        self.crypto_mapping = {}
+        self.stock_mapping = {}
+
+        self.create_crypto_mapping()
+        self.create_stock_mapping()
+
+    def create_crypto_mapping(self):
+        if not self.fetch_live_mapping:
+            self.crypto_mapping = self.crypto_fallback_mapping
+            return
+        endpoint = "https://api.polygon.io/v3/reference/exchanges"
+        params = {
+            "asset_class": "crypto",
+            "apiKey": self.api_key
+        }
+
+        try:
+            response = requests.get(endpoint, params=params)
+            response.raise_for_status()  # Raise an exception for HTTP errors
+
+            # Parse the response
+            data = response.json()
+            if 'results' in data and isinstance(data['results'], list):
+                self.crypto_mapping = {
+                    entry['name'].lower(): entry['id']
+                    for entry in data['results']
+                }
+                print("Successfully created crypto mapping from API.")
+            else:
+                print("Unexpected response structure. Using fallback mapping.")
+                self.crypto_mapping = self.crypto_fallback_mapping
+
+        except Exception as e:
+            print(f"API request failed: {e}. Using fallback mapping.")
+            self.crypto_mapping = self.crypto_fallback_mapping
+
+    def create_stock_mapping(self):
+        if not self.fetch_live_mapping:
+            self.stock_mapping = self.stock_fallback_mapping
+            return
+        endpoint = "https://api.polygon.io/v3/reference/exchanges"
+        params = {
+            "asset_class": "stocks",
+            "apiKey": self.api_key
+        }
+
+        try:
+            response = requests.get(endpoint, params=params)
+            response.raise_for_status()  # Raise an exception for HTTP errors
+
+            # Parse the response
+            data = response.json()
+            if 'results' in data and isinstance(data['results'], list):
+                self.stock_mapping = {
+                    entry['name'].lower(): entry['id']
+                    for entry in data['results']
+                }
+                print("Successfully created stock mapping from API.")
+            else:
+                print("Unexpected response structure. Using fallback mapping.")
+                self.stock_mapping = self.stock_fallback_mapping
+
+        except Exception as e:
+            print(f"API request failed: {e}. Using fallback mapping.")
+            self.stock_mapping = self.stock_fallback_mapping
+
+
 
 class PolygonDataService(BaseDataService):
 
     def __init__(self, api_key, disable_ws=False):
         self.init_time = time.time()
         self._api_key = api_key
+        ehm = ExchangeMappingHelper(api_key, fetch_live_mapping = not disable_ws)
+        self.crypto_mapping = ehm.crypto_mapping
+        self.equities_mapping = ehm.stock_mapping
         self.disable_ws = disable_ws
         timespan_to_ms = {'second': 1000, 'minute': 1000 * 60, 'hour': 1000 * 60 * 60, 'day': 1000 * 60 * 60 * 24}
         self.N_CANDLES_LIMIT = 50000
 
 
         trade_pair_category_to_longest_allowed_lag_s = {TradePairCategory.CRYPTO: 30, TradePairCategory.FOREX: 30,
-                                                           TradePairCategory.INDICES: 30}
+                                                           TradePairCategory.INDICES: 30, TradePairCategory.EQUITIES: 30}
         super().__init__(trade_pair_category_to_longest_allowed_lag_s=trade_pair_category_to_longest_allowed_lag_s,
                          timespan_to_ms=timespan_to_ms,
                          provider_name=POLYGON_PROVIDER_NAME)
@@ -43,19 +142,18 @@ class PolygonDataService(BaseDataService):
         self.LOCK = threading.Lock()
         self.UNSUPPORTED_TRADE_PAIRS = (TradePair.SPX, TradePair.DJI, TradePair.NDX, TradePair.VIX, TradePair.FTSE, TradePair.GDAXI)
 
-
         self.POLYGON_CLIENT = RESTClient(api_key=self._api_key, num_pools=20)
 
         self.POLY_WEBSOCKETS = {
             Market.Crypto: None,
             Market.Forex: None,
-            Market.Indices: None
+            Market.Stocks: None
         }
 
         self.POLY_WEBSOCKET_THREADS = {
             Market.Crypto: None,
             Market.Forex: None,
-            Market.Indices: None
+            Market.Stocks: None
         }
 
         # Start thread to refresh market status
@@ -69,27 +167,27 @@ class PolygonDataService(BaseDataService):
     def main_forex(self):
         self.POLY_WEBSOCKETS[Market.Forex].run(self.handle_msg)
 
-    def main_indices(self):
-        self.POLY_WEBSOCKETS[Market.Indices].run(self.handle_msg)
+    def main_stocks(self):
+        self.POLY_WEBSOCKETS[Market.Stocks].run(self.handle_msg)
 
     def main_crypto(self):
         self.POLY_WEBSOCKETS[Market.Crypto].run(self.handle_msg)
 
     def stop_threads(self):
-        if self.POLY_WEBSOCKET_THREADS[Market.Indices]:
-            self.POLY_WEBSOCKET_THREADS[Market.Indices].join()
+        if self.POLY_WEBSOCKET_THREADS[Market.Stocks]:
+            self.POLY_WEBSOCKET_THREADS[Market.Stocks].join()
             self.POLY_WEBSOCKET_THREADS[Market.Forex].join()
             self.POLY_WEBSOCKET_THREADS[Market.Crypto].join()
 
     def close_websockets(self):
-        if self.POLY_WEBSOCKETS[Market.Indices]:
-            self.POLY_WEBSOCKETS[Market.Indices].close()
+        if self.POLY_WEBSOCKETS[Market.Stocks]:
+            self.POLY_WEBSOCKETS[Market.Stocks].close()
             self.POLY_WEBSOCKETS[Market.Forex].close()
             self.POLY_WEBSOCKETS[Market.Crypto].close()
 
     def stop_start_websocket_threads(self):
         self.close_websockets()
-        self.POLY_WEBSOCKETS[Market.Indices] = WebSocketClient(market=Market.Indices, api_key=self._api_key)
+        self.POLY_WEBSOCKETS[Market.Stocks] = WebSocketClient(market=Market.Stocks, api_key=self._api_key)
         self.POLY_WEBSOCKETS[Market.Forex] = WebSocketClient(market=Market.Forex, api_key=self._api_key)
         self.POLY_WEBSOCKETS[Market.Crypto] = WebSocketClient(market=Market.Crypto, api_key=self._api_key)
         self.subscribe_websockets()
@@ -97,10 +195,10 @@ class PolygonDataService(BaseDataService):
         time.sleep(5)
 
         self.LOCK = threading.Lock()
-        self.POLY_WEBSOCKET_THREADS[Market.Indices] = threading.Thread(target=self.main_indices, daemon=True)
+        self.POLY_WEBSOCKET_THREADS[Market.Stocks] = threading.Thread(target=self.main_stocks, daemon=True)
         self.POLY_WEBSOCKET_THREADS[Market.Forex] = threading.Thread(target=self.main_forex, daemon=True)
         self.POLY_WEBSOCKET_THREADS[Market.Crypto] = threading.Thread(target=self.main_crypto, daemon=True)
-        self.POLY_WEBSOCKET_THREADS[Market.Indices].start()
+        self.POLY_WEBSOCKET_THREADS[Market.Stocks].start()
         self.POLY_WEBSOCKET_THREADS[Market.Forex].start()
         self.POLY_WEBSOCKET_THREADS[Market.Crypto].start()
 
@@ -120,7 +218,7 @@ class PolygonDataService(BaseDataService):
                 last_ws_health_check_s = now
                 prev_n_events = self.n_events_global
 
-            if now - last_market_status_update_s > 180:
+            if now - last_market_status_update_s > self.DEBUG_LOG_INTERVAL_S:
                 #self.MARKET_STATUS = self.POLYGON_CLIENT.get_market_status()
                 #if not isinstance(self.MARKET_STATUS, MarketStatus):
                 #    bt.logging.error(f"Failed to fetch market status. Received: {self.MARKET_STATUS}")
@@ -149,7 +247,7 @@ class PolygonDataService(BaseDataService):
         #    stats['t_vlp'] = t_ms
         return m.bid_price, delta
 
-    def handle_msg(self, msgs: List[ForexQuote | CurrencyAgg | EquityAgg]):
+    def handle_msg(self, msgs: List[ForexQuote | CryptoTrade | EquityAgg | EquityTrade]):
         """
         received message: CurrencyAgg(event_type='CAS', pair='USD/CHF', open=0.91313, close=0.91317, high=0.91318,
         low=0.91313, volume=3, vwap=None, start_timestamp=1713273701000, end_timestamp=1713273702000,
@@ -157,9 +255,12 @@ class PolygonDataService(BaseDataService):
 
          CurrencyAgg(event_type='XAS', pair='ETH-USD', open=3084.37, close=3084.24, high=3084.37, low=3084.08,
          volume=0.99917426, vwap=3084.1452, start_timestamp=1713273981000, end_timestamp=1713273982000, avg_trade_size=0)
+
+         CryptoTrade(event_type='XT', pair='SOL-USD', exchange=23, id='98a5b760-1884-475f-81e8-c215b74cc641',
+          price=236.51, size=0.02152625, conditions=[2], timestamp=1732107788615, received_timestamp=1732107788983),
+
         """
         def msg_to_price_sources(m, tp):
-            now_ms = TimeUtil.now_in_millis()
             symbol = tp.trade_pair
             if tp.is_forex:
                 new_price, delta_ba = self.parse_price_for_forex(m, is_ws=True)
@@ -176,6 +277,22 @@ class PolygonDataService(BaseDataService):
                     open = close = vwap = high = low = new_price
 
                 volume = 1
+            elif tp.is_equities:
+                if m.exchange != self.equities_mapping['nasdaq']:
+                    #print(f"Skipping equity trade from exchange {m.exchange} for {tp.trade_pair}")
+                    return None, None
+                start_timestamp = round(m.timestamp, -3)  # round to nearest second which allows aggresssive filtering via dup logic
+                end_timestamp = None
+                open = close = vwap = high = low = m.price
+                volume = 1
+            elif tp.is_crypto:
+                if m.exchange != self.crypto_mapping['coinbase']:
+                    #print(f"Skipping crypto trade from exchange {m.exchange} for {tp.trade_pair}")
+                    return None, None
+                start_timestamp = round(m.received_timestamp, -3) # round to nearest second which allows aggresssive filtering via dup logic
+                end_timestamp = None
+                open = close = vwap = high = low = m.price
+                volume = m.size
             else:
                 start_timestamp = m.start_timestamp
                 end_timestamp = m.end_timestamp - 1   # prioritize a new candle's open over a previous candle's close
@@ -187,7 +304,7 @@ class PolygonDataService(BaseDataService):
                 volume = m.volume
                 #print(f'Received message {symbol} price {close} time {TimeUtil.millis_to_formatted_date_str(start_timestamp)}')
 
-
+            now_ms = TimeUtil.now_in_millis()
             price_source1 = PriceSource(
                 source=f'{POLYGON_PROVIDER_NAME}_ws',
                 timespan_ms=0,
@@ -202,33 +319,40 @@ class PolygonDataService(BaseDataService):
                 volume=volume
             )
 
-            price_source2 = PriceSource(
-                source=f'{POLYGON_PROVIDER_NAME}_ws',
-                timespan_ms=0,
-                open=close,
-                close=close,
-                vwap=vwap,
-                high=high,
-                low=low,
-                start_ms=end_timestamp,
-                websocket=True,
-                lag_ms=now_ms - end_timestamp,
-                volume=volume
-            )
+            if tp.is_equities or tp.is_crypto:
+                # This is a point in time trade. We can't make a candle out of it
+                price_source2 = None
+            else:
+                price_source2 = PriceSource(
+                    source=f'{POLYGON_PROVIDER_NAME}_ws',
+                    timespan_ms=0,
+                    open=close,
+                    close=close,
+                    vwap=vwap,
+                    high=high,
+                    low=low,
+                    start_ms=end_timestamp,
+                    websocket=True,
+                    lag_ms=now_ms - end_timestamp,
+                    volume=volume
+                )
             return price_source1, price_source2
 
         with self.LOCK:
             try:
+                m = None
                 for m in msgs:
                     self.n_events_global += 1
-                    # bt.logging.info(f"Received price event: {event}")
+                    #bt.logging.info(f"Received price event: {m}")
                     # print('received message:', m, type(m))
                     if isinstance(m, EquityAgg):
                         tp = self.symbol_to_trade_pair(m.symbol[2:])  # I:SPX -> SPX
-                    elif isinstance(m, CurrencyAgg):
+                    elif isinstance(m, CryptoTrade):
                         tp = self.symbol_to_trade_pair(m.pair)
                     elif isinstance(m, ForexQuote):
                         tp = self.symbol_to_trade_pair(m.pair)
+                    elif isinstance(m, EquityTrade):
+                        tp = self.symbol_to_trade_pair(m.symbol)
                     else:
                         raise ValueError(f"Unknown message in POLY websocket: {m}")
 
@@ -260,47 +384,28 @@ class PolygonDataService(BaseDataService):
                 full_traceback = traceback.format_exc()
                 # Slice the last 1000 characters of the traceback
                 limited_traceback = full_traceback[-1000:]
-                bt.logging.error(f"Failed to handle POLY websocket message with error: {e}, "
+                bt.logging.error(f"Failed to handle POLY websocket message with error: {e}, last message {m} "
                                  f"type: {type(e).__name__}, traceback: {limited_traceback}")
 
     def subscribe_websockets(self):
         for tp in TradePair:
             if tp in self.UNSUPPORTED_TRADE_PAIRS:
-                continue  # not supported by polygon
+                continue
             if tp.is_crypto:
-                symbol = "XAS." + tp.trade_pair.replace('/', '-')
+                symbol = "XT." + tp.trade_pair.replace('/', '-')
                 self.POLY_WEBSOCKETS[Market.Crypto].subscribe(symbol)
             elif tp.is_forex:
                 symbol = "C." + tp.trade_pair
                 self.POLY_WEBSOCKETS[Market.Forex].subscribe(symbol)
+            elif tp.is_equities:
+                symbol = "T." + tp.trade_pair
+                print('subscribe:', symbol)
+                self.POLY_WEBSOCKETS[Market.Stocks].subscribe(symbol)
             elif tp.is_indices:
-                symbol = "A.I:" + tp.trade_pair
-                self.POLY_WEBSOCKETS[Market.Indices].subscribe(symbol)
+                continue
             else:
                 raise ValueError(f"Unknown trade pair category: {tp.trade_pair_category}")
 
-    def is_market_open_old(self, trade_pair: TradePair) -> bool:
-        if self.MARKET_STATUS is None:
-            return False
-        if not isinstance(self.MARKET_STATUS, MarketStatus):
-            return False
-        if trade_pair.trade_pair_category == TradePairCategory.CRYPTO:
-            return self.MARKET_STATUS.currencies.crypto == 'open'
-        elif trade_pair.trade_pair_category == TradePairCategory.FOREX:
-            return self.MARKET_STATUS.currencies.fx == 'open'
-        elif trade_pair.trade_pair_category == TradePairCategory.INDICES:
-            #if trade_pair == TradePair.SPX:
-            #    return MARKET_STATUS.indicesGroups.s_and_p == 'open'
-            #elif trade_pair == TradePair.DJI:
-            #    return MARKET_STATUS.indicesGroups.dow_jones == 'open'
-            #elif trade_pair in UNSUPPORTED_TRADE_PAIRS:
-            #    return False
-            #else:
-            #    raise ValueError(f"Unknown trade pair id: {trade_pair.trade_pair_id}")
-            return self.MARKET_STATUS.market == 'open'
-
-        else:
-            raise ValueError(f"Unknown trade pair: {trade_pair}")
 
     def symbol_to_trade_pair(self, symbol: str):
         # Should work for indices and forex
@@ -387,12 +492,14 @@ class PolygonDataService(BaseDataService):
 
 
     def trade_pair_to_polygon_ticker(self, trade_pair: TradePair):
-        if trade_pair.trade_pair_category == TradePairCategory.CRYPTO:
+        if trade_pair.is_crypto:
             return 'X:' + trade_pair.trade_pair_id
-        elif trade_pair.trade_pair_category == TradePairCategory.FOREX:
+        elif trade_pair.is_forex:
             return 'C:' + trade_pair.trade_pair_id
-        elif trade_pair.trade_pair_category == TradePairCategory.INDICES:
+        elif trade_pair.is_indices:
             return 'I:' + trade_pair.trade_pair_id
+        elif trade_pair.is_equities:
+            return trade_pair.trade_pair_id
         else:
             raise ValueError(f"Unknown trade pair category: {trade_pair.trade_pair_category}")
 
@@ -722,23 +829,44 @@ class PolygonDataService(BaseDataService):
 
 
 if __name__ == "__main__":
-    secrets = ValiUtils.get_secrets()
-    polygon_data_provider = PolygonDataService(api_key=secrets['polygon_apikey'], disable_ws=False)
-    time.sleep(100000)
-    assert 0
-    target_timestamp_ms = 1715288502999
 
-    tp = TradePair.GBPUSD
+    secrets = ValiUtils.get_secrets()
+
+    #polygon_data_provider = PolygonDataService(api_key=secrets['polygon_apikey'], disable_ws=False)
+    #time.sleep(100000)
+
+    polygon_data_provider = PolygonDataService(api_key=secrets['polygon_apikey'], disable_ws=True)
+    target_timestamp_ms = 1715276502999
+
+    """
+    aggs = []
+    for a in RESTClient(secrets['polygon_apikey']).list_aggs(
+            "X:BNBUSD",
+            1,
+            "day",
+            "2023-01-30",
+            "2023-02-03",
+            limit=50000,
+    ):
+        aggs.append(a)
+
+    assert 0, aggs
+    """
+
+
+    #tp = TradePair.TSLA
     # Initialize client
     #aggs = polygon_data_provider.get_close_at_date_second(tp, target_timestamp_ms, return_aggs=True)
 
     #uu = {a.timestamp: [a] for a in aggs}
-    for tp in [x for x in TradePair if x.is_forex]:
+    for tp in [x for x in TradePair if x.is_equities or x.is_crypto]:
+        t0 = time.time()
         quotes = polygon_data_provider.unified_candle_fetcher(tp,
-                                                              target_timestamp_ms - 1000 * 250000,
-                                                              target_timestamp_ms + 1000 * 250000,
-                                                              "second")
-    print(len(quotes))
+                                                              target_timestamp_ms - 1000 * 1200,
+                                                              target_timestamp_ms + 1000 * 1200,
+                                                              "minute")
+        quotes = list(quotes)
+        print(f'fetched data for {tp} in {time.time() - t0} s. quotes: {quotes}')
 
     ##trades = polygon_data_provider.POLYGON_CLIENT.list_trades(ticker='C:CAD-JPY',
     #                                                         timestamp_gt=target_timestamp_ms * 1000000 - 1000 * 1000000 * 10,
@@ -746,7 +874,7 @@ if __name__ == "__main__":
     #for trade in trades:
     #    print('trade', trade)
 
-    assert 0
+    assert 0, quotes
 
     # 'X:BTC-USD'
     trades = polygon_data_provider.POLYGON_CLIENT.list_trades(

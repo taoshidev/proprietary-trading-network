@@ -11,10 +11,11 @@ from vali_objects.vali_dataclasses.price_source import PriceSource
 
 POLYGON_PROVIDER_NAME = "Polygon"
 TWELVEDATA_PROVIDER_NAME = "TwelveData"
-
+TIINGO_PROVIDER_NAME = "Tiingo"
 
 class BaseDataService():
     def __init__(self, trade_pair_category_to_longest_allowed_lag_s, timespan_to_ms, provider_name):
+        self.DEBUG_LOG_INTERVAL_S = 30
         self.provider_name = provider_name
         self.n_events_global = 0
 
@@ -84,24 +85,6 @@ class BaseDataService():
     def get_closes_rest(self, trade_pairs: List[TradePair]) -> dict[str: float]:
         pass
 
-    def get_closes(self, trade_pairs: List[TradePair]) -> dict:
-        closes = self.get_closes_websocket(trade_pairs)
-        missing_trade_pairs = []
-        for tp in trade_pairs:
-            if tp not in closes or closes[tp] is None:
-                missing_trade_pairs.append(tp)
-        if closes:
-            debug = {k.trade_pair: v for k, v in closes.items()}
-            bt.logging.info(f"Received {self.provider_name} websocket data: {debug}")
-
-        if missing_trade_pairs:
-            rest_closes = self.get_closes_rest(missing_trade_pairs)
-            debug = {k.trade_pair: v for k, v in rest_closes.items()}
-            bt.logging.info(f"Received stale/websocket-less data using {self.provider_name} REST: {debug}")
-            closes.update(rest_closes)
-
-        return closes
-
     def get_websocket_lag_for_trade_pair_s(self, tp: str, now_ms: int) -> float | None:
         cur_event = self.latest_websocket_events.get(tp)
         if cur_event:
@@ -126,16 +109,18 @@ class BaseDataService():
                     self.trade_pair_to_longest_seen_lag_s[tp] = lag_s
         # log how long it has been since the last ping
         formatted_lags = {tp: f"{lag:.2f}" for tp, lag in self.trade_pair_to_longest_seen_lag_s.items()}
+        formatted_lags = {k: v for k, v in formatted_lags.items() if float(v) > 10}
         bt.logging.info(f"{self.provider_name} Worst lags seen: {formatted_lags}")
         # Log the last time since websocket ping
         now_ms = TimeUtil.now_in_millis()
         formatted_lags = {tp: f"{(now_ms - price_source.end_ms) / 1000.0:.2f}" for tp, price_source in
                           self.latest_websocket_events.items()}
+        formatted_lags = {k:v for k, v in formatted_lags.items() if float(v) > 10}
         bt.logging.info(f"{self.provider_name} Current websocket lags (s): {formatted_lags}")
         # Log the prices
         formatted_prices = {tp: f"{price_source.close:.2f}" for tp, price_source in  # noqa: F841
                             self.latest_websocket_events.items()}
-        #bt.logging.info(f"{self.provider_name} Latest websocket prices: {formatted_prices}")
+        bt.logging.info(f"{self.provider_name} Latest websocket prices: {formatted_prices}")
         bt.logging.info(f'{self.provider_name} websocket n_events_global: {self.n_events_global}')
         #if self.provider_name == POLYGON_PROVIDER_NAME:
         #    # Log which trade pairs are likely in closed markets

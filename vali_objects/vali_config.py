@@ -1,7 +1,6 @@
 # developer: Taoshi
 import os
 import math
-from time_util.time_util import TimeUtil
 
 from enum import Enum
 
@@ -20,6 +19,7 @@ class TradePairCategory(str, Enum):
     CRYPTO = "crypto"
     FOREX = "forex"
     INDICES = "indices"
+    EQUITIES = "equities"
 
 
 class ValiConfig:
@@ -46,6 +46,8 @@ class ValiConfig:
     FOREX_MAX_LEVERAGE = 5
     INDICES_MIN_LEVERAGE = 0.1
     INDICES_MAX_LEVERAGE = 5
+    EQUITIES_MIN_LEVERAGE = 0.1
+    EQUITIES_MAX_LEVERAGE = 5
 
     MAX_DAILY_DRAWDOWN = 0.95  # Portfolio should never fall below .95 x of initial value when measured day to day
     MAX_TOTAL_DRAWDOWN = 0.9  # Portfolio should never fall below .90 x of initial value when measured at any instant
@@ -135,7 +137,7 @@ class ValiConfig:
     CHALLENGE_PERIOD_MIN_POSITIONS = 10  # need at least 10 positions to pass challenge
 
     # Plagiarism
-    ORDER_SIMILARITY_WINDOW_MS = TimeUtil.hours_in_millis(24)
+    ORDER_SIMILARITY_WINDOW_MS = 60000 * 60 * 24
     MINER_COPYING_WEIGHT = 0.01
     MAX_MINER_PLAGIARISM_SCORE = 0.9  # want to make sure we're filtering out the bad actors
 
@@ -168,7 +170,8 @@ assert ValiConfig.FOREX_MIN_LEVERAGE >= ValiConfig.ORDER_MIN_LEVERAGE
 assert ValiConfig.FOREX_MAX_LEVERAGE <= ValiConfig.ORDER_MAX_LEVERAGE
 assert ValiConfig.INDICES_MIN_LEVERAGE >= ValiConfig.ORDER_MIN_LEVERAGE
 assert ValiConfig.INDICES_MAX_LEVERAGE <= ValiConfig.ORDER_MAX_LEVERAGE
-
+assert ValiConfig.EQUITIES_MIN_LEVERAGE >= ValiConfig.ORDER_MIN_LEVERAGE
+assert ValiConfig.EQUITIES_MAX_LEVERAGE <= ValiConfig.ORDER_MAX_LEVERAGE
 
 class TradePair(Enum):
     # crypto
@@ -176,6 +179,11 @@ class TradePair(Enum):
               TradePairCategory.CRYPTO]
     ETHUSD = ["ETHUSD", "ETH/USD", 0.001, ValiConfig.CRYPTO_MIN_LEVERAGE, ValiConfig.CRYPTO_MAX_LEVERAGE,
               TradePairCategory.CRYPTO]
+    SOLUSD = ["SOLUSD", "SOL/USD", 0.001, ValiConfig.CRYPTO_MIN_LEVERAGE, ValiConfig.CRYPTO_MAX_LEVERAGE,
+              TradePairCategory.CRYPTO]
+    DOGEUSD = ["DOGEUSD", "DOGE/USD", 0.001, ValiConfig.CRYPTO_MIN_LEVERAGE, ValiConfig.CRYPTO_MAX_LEVERAGE,
+                TradePairCategory.CRYPTO]
+
 
     # forex
     AUDCAD = ["AUDCAD", "AUD/CAD", 0.00007, ValiConfig.FOREX_MIN_LEVERAGE, ValiConfig.FOREX_MAX_LEVERAGE,
@@ -223,7 +231,21 @@ class TradePair(Enum):
     USDMXN = ["USDMXN", "USD/MXN", 0.00007, ValiConfig.FOREX_MIN_LEVERAGE, ValiConfig.FOREX_MAX_LEVERAGE,
               TradePairCategory.FOREX]
 
-    # indices (no longer supported)
+    # "Commodities" (Bundle with Forex for now)
+    XAUUSD = ["XAUUSD", "XAU/USD", 0.00007, ValiConfig.FOREX_MIN_LEVERAGE, ValiConfig.FOREX_MAX_LEVERAGE, TradePairCategory.FOREX]
+    XAGUSD = ["XAGUSD", "XAG/USD", 0.00007, ValiConfig.FOREX_MIN_LEVERAGE, ValiConfig.FOREX_MAX_LEVERAGE, TradePairCategory.FOREX]
+
+    # Equities
+    NVDA = ["NVDA", "NVDA", 0.00009, ValiConfig.EQUITIES_MIN_LEVERAGE, ValiConfig.EQUITIES_MAX_LEVERAGE, TradePairCategory.EQUITIES]
+    AAPL = ["AAPL", "AAPL", 0.00009, ValiConfig.EQUITIES_MIN_LEVERAGE, ValiConfig.EQUITIES_MAX_LEVERAGE, TradePairCategory.EQUITIES]
+    TSLA = ["TSLA", "TSLA", 0.00009, ValiConfig.EQUITIES_MIN_LEVERAGE, ValiConfig.EQUITIES_MAX_LEVERAGE, TradePairCategory.EQUITIES]
+    AMZN = ["AMZN", "AMZN", 0.00009, ValiConfig.EQUITIES_MIN_LEVERAGE, ValiConfig.EQUITIES_MAX_LEVERAGE, TradePairCategory.EQUITIES]
+    MSFT = ["MSFT", "MSFT", 0.00009, ValiConfig.EQUITIES_MIN_LEVERAGE, ValiConfig.EQUITIES_MAX_LEVERAGE, TradePairCategory.EQUITIES]
+    GOOG = ["GOOG", "GOOG", 0.00009, ValiConfig.EQUITIES_MIN_LEVERAGE, ValiConfig.EQUITIES_MAX_LEVERAGE, TradePairCategory.EQUITIES]
+    META = ["META", "META", 0.00009, ValiConfig.EQUITIES_MIN_LEVERAGE, ValiConfig.EQUITIES_MAX_LEVERAGE, TradePairCategory.EQUITIES]
+
+
+    # indices (no longer allowed for trading as we moved to equities tickers instead)
     SPX = ["SPX", "SPX", 0.00009, ValiConfig.INDICES_MIN_LEVERAGE, ValiConfig.INDICES_MAX_LEVERAGE,
            TradePairCategory.INDICES]
     DJI = ["DJI", "DJI", 0.00009, ValiConfig.INDICES_MIN_LEVERAGE, ValiConfig.INDICES_MAX_LEVERAGE,
@@ -270,6 +292,9 @@ class TradePair(Enum):
         return self.trade_pair_category == TradePairCategory.FOREX
 
     @property
+    def is_equities(self):
+        return self.trade_pair_category == TradePairCategory.EQUITIES
+    @property
     def is_indices(self):
         return self.trade_pair_category == TradePairCategory.INDICES
 
@@ -277,7 +302,8 @@ class TradePair(Enum):
     def leverage_multiplier(self) -> int:
         trade_pair_leverage_multiplier = {TradePairCategory.CRYPTO: 10,
                                           TradePairCategory.FOREX: 1,
-                                          TradePairCategory.INDICES: 1}
+                                          TradePairCategory.INDICES: 1,
+                                          TradePairCategory.EQUITIES: 1}
         return trade_pair_leverage_multiplier[self.trade_pair_category]
 
     @staticmethod

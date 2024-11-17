@@ -19,7 +19,7 @@ class ValiUtils:
             return json.loads(secrets)
         except FileNotFoundError:
             if running_unit_tests:
-                return {"twelvedata_apikey": "", "polygon_apikey": ""}
+                return {"twelvedata_apikey": "", "polygon_apikey": "", "tiingo_apikey": ""}
             else:
                 raise ValiFileMissingException("Vali secrets file is missing")
 
