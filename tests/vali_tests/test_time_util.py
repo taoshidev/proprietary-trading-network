@@ -86,6 +86,29 @@ class TestTimeUtil(TestBase):
         n_intervals, time_until_next_interval_ms = TimeUtil.n_intervals_elapsed_crypto(position.start_carry_fee_accrual_ms, t_ms)
         assert n_intervals == 0, f"n_intervals: {n_intervals}, time_until_next_interval_ms: {time_until_next_interval_ms}"
 
+    def test_parse_iso_to_ms(self):
+        test_cases = [
+            # Timestamp with milliseconds and UTC offset
+            {"iso": "2024-11-20T15:47:40.062000+00:00", "expected": 1732117660062},
+
+            # Timestamp with no milliseconds
+            {"iso": "2023-03-01T12:00:00+00:00", "expected": 1677672000000},
+
+            # Timestamp with positive timezone offset
+            {"iso": "2023-03-01T15:00:00+03:00", "expected": 1677661200000},
+
+            # Timestamp with negative timezone offset
+            {"iso": "2023-03-01T06:00:00-06:00", "expected": 1677672000000},
+
+            # Timestamp with microseconds
+            {"iso": "2023-03-01T12:00:00.123456+00:00", "expected": 1677672000123},
+        ]
+
+        for case in test_cases:
+            with self.subTest(iso=case["iso"]):
+                ms = TimeUtil.parse_iso_to_ms(case["iso"])
+                self.assertEqual(ms, case["expected"], msg=f"Expected {case['expected']} but got {ms}")
+
     def test_n_forex_intervals(self):
         prev_delta = None
         for i in range(50):

@@ -49,7 +49,7 @@ class FeeCache():
         # cache hit?
         if position.trade_pair.is_crypto:
             start_time_cache_hit = self.carry_fee_next_increase_time_ms - MS_IN_8_HOURS
-        elif position.trade_pair.is_forex or position.trade_pair.is_indices:
+        elif position.trade_pair.is_forex or position.trade_pair.is_indices or position.trade_pair.is_equities:
             start_time_cache_hit = self.carry_fee_next_increase_time_ms - MS_IN_24_HOURS
         else:
             raise Exception(f"Unknown trade pair type: {position.trade_pair}")
