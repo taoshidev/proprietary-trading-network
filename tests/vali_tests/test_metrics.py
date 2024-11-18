@@ -76,7 +76,7 @@ class TestMetrics(TestBase):
         self.assertGreater(sharpe, 0.0)
 
     def test_sharpe_no_returns_no_variance(self):
-        """Test that the sharpe function is negative with 0 returns"""
+        """Test that the sharpe function is 0 with 0 returns"""
         log_returns = [0.0] * 30  # Sum = 0.0
         sharpe = Metrics.sharpe(log_returns)
 
@@ -91,15 +91,6 @@ class TestMetrics(TestBase):
 
         # Expected value is zero
         self.assertEqual(sharpe, 0.0)
-
-    def test_sharpe_no_returns_no_variance(self):
-        """Test that the sharpe function is negative with 0 returns"""
-        log_returns = [0.0] * 100
-
-        sharpe = Metrics.sharpe(log_returns)
-
-        # Expected value is zero
-        self.assertLess(sharpe, 0.0)
 
     def test_sharpe_perfect_positive_year(self):
         """Test that the sharpe function works for 365 days of returns"""
