@@ -125,8 +125,8 @@ class ValiConfig:
 
     # Scoring hyperparameters
     OMEGA_LOSS_MINIMUM = 0.02  # Equivalent to 2% loss
-    SHARPE_STDDEV_MINIMUM = 0.04 # Equivalent to 4% standard deviation
-    SORTINO_DOWNSIDE_MINIMUM = 0.04 # Equivalent to 4% standard deviation
+    SHARPE_STDDEV_MINIMUM = 0.01 # Equivalent to 1% standard deviation
+    SORTINO_DOWNSIDE_MINIMUM = 0.01 # Equivalent to 1% standard deviation
 
     # MDD penalty calculation
     APPROXIMATE_DRAWDOWN_PERCENTILE = 0.90
