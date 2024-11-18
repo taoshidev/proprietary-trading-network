@@ -109,8 +109,8 @@ class Metrics:
         Args:
             log_returns: list of daily log returns from the miner
         """
-        # Can't use one day because np.var uses ddof=1
-        if len(log_returns) <= 1:
+        # Need a large enough sample size
+        if len(log_returns) < 30:
             return 0.0
 
         # Hyperparameter
@@ -127,7 +127,8 @@ class Metrics:
         Args:
             log_returns: list of daily log returns from the miner
         """
-        if len(log_returns) == 0:
+        # Need a large enough sample size
+        if len(log_returns) < 30:
             return 0.0
 
         positive_sum = 0
@@ -150,8 +151,8 @@ class Metrics:
         Args:
             log_returns: list of daily log returns from the miner
         """
-        # Can't use one day because np.var uses ddof=1
-        if len(log_returns) <= 1:
+        # Need a large enough sample size
+        if len(log_returns) < 30:
             return 0.0
 
         # Hyperparameter
