@@ -1035,5 +1035,5 @@ if __name__ == "__main__":
     all_hotkeys_on_disk = CacheController.get_directory_names(all_miners_dir)
     mmg = MockMetagraph(hotkeys=all_hotkeys_on_disk)
     perf_ledger_manager = PerfLedgerManager(metagraph=mmg, running_unit_tests=False)
-    #perf_ledger_manager.update(testing_one_hotkey='5CALivVcJBTjYJFMsAkqhppQgq5U2PYW4HejCajHMvTMUgkC')
-    perf_ledger_manager.update(regenerate_all_ledgers=True)
+    perf_ledger_manager.update(testing_one_hotkey='5CALivVcJBTjYJFMsAkqhppQgq5U2PYW4HejCajHMvTMUgkC')
+    #perf_ledger_manager.update(regenerate_all_ledgers=True)
