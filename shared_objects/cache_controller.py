@@ -167,7 +167,6 @@ class CacheController:
     
     def write_plagiarism_scores_to_disk(self, plagiarism_data):
         for plagiarist in plagiarism_data:
-            bt.logging.info(f"Plagiarism: {plagiarist}")
             self.write_plagiarism_score_to_disk(plagiarist["plagiarist"], plagiarist)
 
     def write_plagiarism_score_to_disk(self, hotkey, plagiarism_data):
