@@ -60,7 +60,7 @@ class TestMDDChecker(TestBase):
         self.MINER_HOTKEY = "test_miner"
         self.mock_metagraph = MockMetagraph([self.MINER_HOTKEY])
         self.position_manager = PositionManager(metagraph=self.mock_metagraph, running_unit_tests=True)
-        self.live_price_fetcher = LivePriceFetcher(secrets=secrets)
+        self.live_price_fetcher = LivePriceFetcher(secrets=secrets, disable_ws=True)
         self.mdd_checker = MockMDDChecker(self.mock_metagraph, self.position_manager, self.live_price_fetcher)
         self.DEFAULT_TEST_POSITION_UUID = "test_position"
         self.DEFAULT_OPEN_MS = TimeUtil.now_in_millis()

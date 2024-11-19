@@ -107,7 +107,7 @@ class TestPositions(TestBase):
 
         for start, end, expected_leverage in test_intervals:
             msg = f"start: {start}, end: {end}, expected_leverage: {expected_leverage}"
-            self.assertAlmostEquals(position.max_leverage_seen_in_interval(start, end), expected_leverage, 7, msg)
+            self.assertAlmostEqual(position.max_leverage_seen_in_interval(start, end), expected_leverage, 7, msg)
 
         # throw an exception for invalid interval
         invalid_intervals = [
@@ -176,7 +176,7 @@ class TestPositions(TestBase):
 
         for start, end, expected_leverage in test_intervals:
             msg = f"start: {start}, end: {end}, expected_leverage: {expected_leverage}"
-            self.assertAlmostEquals(position.max_leverage_seen_in_interval(start, end), expected_leverage, 7, msg)
+            self.assertAlmostEqual(position.max_leverage_seen_in_interval(start, end), expected_leverage, 7, msg)
 
     def test_simple_long_position_with_explicit_FLAT(self):
         position = deepcopy(self.default_position)
@@ -1013,7 +1013,7 @@ class TestPositions(TestBase):
         })
 
         self.assertEqual(position.max_leverage_seen(), 1.1)
-        self.assertAlmostEquals(position.get_cumulative_leverage(), 1.2, 8)
+        self.assertAlmostEqual(position.get_cumulative_leverage(), 1.2, 8)
 
     def test_returns_on_large_price_increase(self):
         o1 = Order(order_type=OrderType.LONG,
