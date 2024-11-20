@@ -12,6 +12,7 @@ from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerData
 from time_util.time_util import TimeUtil
 from vali_objects.utils.position_filtering import PositionFiltering
 from vali_objects.utils.ledger_utils import LedgerUtils
+from vali_objects.utils.position_penalties import PositionPenalties
 from vali_objects.utils.metrics import Metrics
 
 import bittensor as bt
@@ -53,12 +54,13 @@ class Scoring:
         ]
         full_penalty_miners = set([x[0] for x in full_penalty_miner_scores])
 
+        # Set the scoring configuration
         scoring_config = {
-            # 'return_long': {
-            #     'function': Metrics.risk_adjusted_return,
-            #     'weight': ValiConfig.SCORING_RETURN_LONG_LOOKBACK_WEIGHT,
-            #     'returns': filtered_ledger_returns
-            # },
+            'return_long': {
+                'function': Metrics.base_return,
+                'weight': ValiConfig.SCORING_RETURN_LONG_LOOKBACK_WEIGHT,
+                'returns': filtered_ledger_returns
+            },
             'sharpe_ratio': {
                 'function': Metrics.sharpe,
                 'weight': ValiConfig.SCORING_SHARPE_WEIGHT,
@@ -76,9 +78,20 @@ class Scoring:
             },
         }
 
-        combined_scores = {}
+        # Calculate the total weight
+        total_weight = sum(value['weight'] for value in scoring_config.values())
 
-        for config_name, config in scoring_config.items():
+        # Create a new dictionary with normalized weights
+        normalized_scoring_config = {
+            key: {
+                **value,  # Keep all other key-value pairs as-is
+                'weight': value['weight'] / total_weight  # Normalize the weight
+            }
+            for key, value in scoring_config.items()
+        }
+
+        combined_scores = {}
+        for config_name, config in normalized_scoring_config.items():
             miner_scores = []
             for miner, returns in config['returns'].items():
                 # Get the miner ledger
@@ -96,8 +109,8 @@ class Scoring:
             weighted_scores = Scoring.miner_scores_percentiles(miner_scores)
             for miner, score in weighted_scores:
                 if miner not in combined_scores:
-                    combined_scores[miner] = 1
-                combined_scores[miner] *= config['weight'] * score + (1 - config['weight'])
+                    combined_scores[miner] = 0
+                combined_scores[miner] += config['weight'] * score
 
         # Force good performance of all error metrics
         combined_weighed = Scoring.softmax_scores(list(combined_scores.items())) + full_penalty_miner_scores
@@ -117,10 +130,11 @@ class Scoring:
 
         for miner, ledger in ledger_dict.items():
             ledger_checkpoints = ledger.cps
+            positions = hotkey_positions.get(miner, [])
 
             # # Positional Consistency
             # positional_return_time_consistency = PositionPenalties.time_consistency_penalty(positions)
-            # positional_consistency = PositionPenalties.returns_ratio_penalty(positions)
+            positional_consistency = PositionPenalties.returns_ratio_penalty(positions)
             #
             # # Ledger Consistency
             # daily_consistency = LedgerUtils.daily_consistency_penalty(ledger_checkpoints)
