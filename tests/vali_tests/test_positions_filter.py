@@ -71,11 +71,11 @@ class TestPositionFiltering(TestBase):
         positions = self.old_positions + self.old_recent_close_positions
 
         # Expected to keep: p4 (losing old open)
-        keeping_positions = [self.p4]
+        keeping_positions = []
 
         # Expected to filter: p1 (winning old close), p2 (losing old close), p3 (winning old open),
         # p5 (winning old, recent close), p6 (losing old, recent close)
-        filtering_positions = [self.p1, self.p2, self.p3, self.p5, self.p6]
+        filtering_positions = [self.p1, self.p2, self.p3, self.p4, self.p5, self.p6]
 
         filtered_positions = PositionFiltering.filter_single_miner(
             positions,
@@ -94,10 +94,10 @@ class TestPositionFiltering(TestBase):
         positions = self.new_positions + self.new_recent_close_positions
 
         # Expected to keep: p7 (winning new close), p8 (losing new close), p10 (losing new open), p11 (winning new, recent close)
-        keeping_positions = [self.p7, self.p8, self.p10, self.p11]
+        keeping_positions = [self.p7, self.p8, self.p9, self.p10, self.p11]
 
         # Expected to filter: p9 (winning new open)
-        filtering_positions = [self.p9]
+        filtering_positions = []
 
         filtered_positions = PositionFiltering.filter_single_miner(
             positions,
@@ -117,10 +117,10 @@ class TestPositionFiltering(TestBase):
         positions = self.new_positions + self.new_recent_close_positions + self.recent_positions
 
         # Expected to keep: p13 (winning recent close), p14 (losing recent close), p16 (losing recent open)
-        keeping_positions = [self.p7, self.p8, self.p10, self.p11, self.p13, self.p14, self.p16]
+        keeping_positions = [self.p7, self.p8, self.p9, self.p10, self.p11, self.p13, self.p14, self.p15, self.p16]
 
         # Expected to filter: p15 (winning recent open)
-        filtering_positions = [self.p9, self.p15]
+        filtering_positions = []
 
         filtered_positions = PositionFiltering.filter_single_miner(
             positions,
@@ -140,12 +140,12 @@ class TestPositionFiltering(TestBase):
         # Expected to keep: p4 (losing old open), p7 (winning new close), p8 (losing new close),
         # p10 (losing new open), p11 (winning new, recent close), p12 (losing new, recent close),
         # p13 (winning recent close), p14 (losing recent close), p16 (losing recent open)
-        keeping_positions = [self.p4, self.p7, self.p8, self.p10, self.p11, self.p12, self.p13, self.p14, self.p16]
+        keeping_positions = [self.p7, self.p8, self.p9, self.p10, self.p11, self.p12, self.p13, self.p14, self.p15, self.p16]
 
         # Expected to filter: p1 (winning old close), p2 (losing old close), p3 (winning old open),
         # p5 (winning old, recent close), p6 (losing old, recent close), p9 (winning new open),
         # p15 (winning recent open)
-        filtering_positions = [self.p1, self.p2, self.p3, self.p5, self.p6, self.p9, self.p15]
+        filtering_positions = [self.p1, self.p2, self.p3, self.p4, self.p5, self.p6]
 
         # First, ensure that all the positions we're looking for are found within the lists
         for position in keeping_positions:
