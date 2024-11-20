@@ -74,7 +74,7 @@ class Metrics:
         Returns:
              The aggregate total return of the miner as a log total
         """
-        return float(np.mean(log_returns))
+        return float(np.mean(log_returns)) * ValiConfig.DAYS_IN_YEAR
 
     @staticmethod
     def base_return(log_returns: list[float]) -> float:
