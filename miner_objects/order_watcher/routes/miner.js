@@ -1,4 +1,4 @@
-import {startMinerProcess, startSignalServer} from "../lib/miner.js";
+import {startMinerProcess, startSignalServer} from "../utils";
 
 export const minerRoutes = (router, wss) => {
 	router.post("/start-miner", async (req, res) => {

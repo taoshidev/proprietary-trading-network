@@ -1,0 +1,24 @@
+{
+  "name": "order_watcher",
+  "version": "1.0.0",
+  "exports": "./index.js",
+  "type": "module",
+  "scripts": {
+    "dev": "node index.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "ccxt": "^4.4.30",
+    "express": "^4.21.1",
+    "lodash": "^4.17.21",
+    "lowdb": "^7.0.1",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0"
+  }
+}
