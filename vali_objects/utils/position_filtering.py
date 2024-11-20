@@ -21,9 +21,14 @@ class PositionFiltering:
 
         subset_positions = []
         for position in positions:
-            # Include all positions within the lookback window (unrealized returns)
-            if position.open_ms >= lookback_threshold_ms:
-                subset_positions.append(position)
+            if position.is_closed_position:
+                # Include closed positions within the lookback window
+                if position.open_ms >= lookback_threshold_ms:
+                    subset_positions.append(position)
+            else:
+                # Include open positions with return_at_close < 1
+                if position.return_at_close < 1:
+                    subset_positions.append(position)
 
         return subset_positions
 
