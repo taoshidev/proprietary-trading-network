@@ -2,12 +2,15 @@ import express from "express";
 import { createServer } from "http";
 import _ from "lodash";
 
-import { initializeExchange } from './lib/ccxt.js';
-import { orderToSignal } from "./lib/orderToSignal.js";
+import {
+	initializeExchange,
+	orderToSignal,
+	initializeWebSocketServer,
+	broadcast,
+	calculateLeverage,
+	sendToPTN
+} from './utils';
 import {initializeRoutes} from "./routes/index.js";
-import { initializeWebSocketServer, broadcast } from "./utils/websocketService.js";
-import {calculateLeverage} from "./utils/calculateLeverage.js";
-import { sendToPTN } from './lib/sendToPTN.js';
 
 import config from "./config.json" assert { type: 'json' };
 

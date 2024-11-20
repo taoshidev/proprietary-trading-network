@@ -37,11 +37,11 @@ NODE_VERSION=$(node -v)
 echo "Using Node.js $NODE_VERSION"
 
 # Install the npm package
-echo "Installing npm package..."
+echo "Installing npm packages..."
 npm install "$1" --engine-strict
 
 if [ $? -eq 0 ]; then
-    echo "Package installed successfully!"
+    echo "Packages installed successfully!"
 else
     echo "Error installing package. Please check the output above for details."
     exit 1
@@ -80,7 +80,16 @@ echo "Signals Server started with PID: $PID"
 # Start Order Watcher...
 echo "Starting Order Watcher..."
 cd $PROJECT_ROOT/miner_objects/order_watcher
-npm install
+
+echo "Installing npm packages..."
+npm install "$1" --engine-strict
+
+if [ $? -eq 0 ]; then
+    echo "Packages installed successfully!"
+else
+    echo "Error installing package. Please check the output above for details."
+    exit 1
+fi
 npm run dev &  # Run Order Watcher in the background
 
 sleep 5
@@ -88,7 +97,16 @@ sleep 5
 # Start Easy Miner...
 echo "Starting Easy Miner..."
 cd $PROJECT_ROOT/miner_objects/easy_miner
-npm install
+echo "Installing npm packages..."
+npm install "$1" --engine-strict
+
+if [ $? -eq 0 ]; then
+    echo "Packages installed successfully!"
+else
+    echo "Error installing package. Please check the output above for details."
+    exit 1
+fi
+
 npm run dev &  # Run Easy Miner in the background
 
 # Wait for background processes to finish

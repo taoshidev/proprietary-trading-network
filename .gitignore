@@ -173,7 +173,3 @@ tests/validation/plagiarism/
 
 # macOS files
 .DS_Store
-
-# Node modules
-miner_objects/easy_miner/node_modules
-miner_objects/order_watcher/node_modules
