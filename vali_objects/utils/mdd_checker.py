@@ -59,7 +59,7 @@ class MDDChecker(CacheController):
         candle_data = self.live_price_fetcher.get_latest_prices(list(required_trade_pairs_for_candles))
         for tp, price_and_sources in candle_data.items():
             sources = price_and_sources[1]
-            if any(x and not x.websocket for x in sources):
+            if sources and any(x and not x.websocket for x in sources):
                 self.n_poly_api_requests += 1
 
         self.last_price_fetch_time_ms = now
