@@ -181,6 +181,8 @@ class TradePair(Enum):
               TradePairCategory.CRYPTO]
     SOLUSD = ["SOLUSD", "SOL/USD", 0.001, ValiConfig.CRYPTO_MIN_LEVERAGE, ValiConfig.CRYPTO_MAX_LEVERAGE,
               TradePairCategory.CRYPTO]
+    XRPUSD = ["XRPUSD", "XRP/USD", 0.001, ValiConfig.CRYPTO_MIN_LEVERAGE, ValiConfig.CRYPTO_MAX_LEVERAGE,
+                TradePairCategory.CRYPTO]
     DOGEUSD = ["DOGEUSD", "DOGE/USD", 0.001, ValiConfig.CRYPTO_MIN_LEVERAGE, ValiConfig.CRYPTO_MAX_LEVERAGE,
                 TradePairCategory.CRYPTO]
 
@@ -303,7 +305,7 @@ class TradePair(Enum):
         trade_pair_leverage_multiplier = {TradePairCategory.CRYPTO: 10,
                                           TradePairCategory.FOREX: 1,
                                           TradePairCategory.INDICES: 1,
-                                          TradePairCategory.EQUITIES: 1}
+                                          TradePairCategory.EQUITIES: 2}
         return trade_pair_leverage_multiplier[self.trade_pair_category]
 
     @staticmethod

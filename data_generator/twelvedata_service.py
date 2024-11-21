@@ -5,7 +5,7 @@ from typing import List, Tuple
 
 from data_generator.base_data_service import BaseDataService, TWELVEDATA_PROVIDER_NAME
 from time_util.time_util import TimeUtil
-from vali_objects.vali_config import TradePair, TradePairCategory
+from vali_objects.vali_config import TradePair
 import time
 from twelvedata import TDClient
 
@@ -20,11 +20,7 @@ DEBUG = 0
 class TwelveDataService(BaseDataService):
 
     def __init__(self, api_key, disable_ws=False):
-        trade_pair_category_to_longest_allowed_lag_s = {TradePairCategory.CRYPTO: 60, TradePairCategory.FOREX: 60,
-                                                             TradePairCategory.INDICES: 60}
-        timespan_to_ms = {'1min': 1000 * 60, '1h': 1000 * 60 * 60, '1day': 1000 * 60 * 60 * 24}
-        super().__init__(trade_pair_category_to_longest_allowed_lag_s=trade_pair_category_to_longest_allowed_lag_s,
-                         timespan_to_ms=timespan_to_ms, provider_name=TWELVEDATA_PROVIDER_NAME)
+        super().__init__(provider_name=TWELVEDATA_PROVIDER_NAME)
         self.WS = None
         self.disable_ws = disable_ws
         self.n_resets = 0

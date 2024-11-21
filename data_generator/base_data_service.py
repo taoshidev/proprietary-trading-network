@@ -5,7 +5,7 @@ from typing import List
 
 import bittensor as bt
 from time_util.time_util import TimeUtil, UnifiedMarketCalendar
-from vali_objects.vali_config import TradePair
+from vali_objects.vali_config import TradePair, TradePairCategory
 from vali_objects.vali_dataclasses.recent_event_tracker import RecentEventTracker
 from vali_objects.vali_dataclasses.price_source import PriceSource
 
@@ -14,17 +14,19 @@ TWELVEDATA_PROVIDER_NAME = "TwelveData"
 TIINGO_PROVIDER_NAME = "Tiingo"
 
 class BaseDataService():
-    def __init__(self, trade_pair_category_to_longest_allowed_lag_s, timespan_to_ms, provider_name):
-        self.DEBUG_LOG_INTERVAL_S = 30
+    def __init__(self, provider_name):
+        self.DEBUG_LOG_INTERVAL_S = 180
         self.provider_name = provider_name
         self.n_events_global = 0
-
+        self.n_equity_events_skipped_afterhours = 0
         self.trade_pair_to_price_history = defaultdict(list)
         self.closed_market_prices = {tp: None for tp in TradePair}
         self.latest_websocket_events = {}
         self.trade_pair_to_recent_events = defaultdict(RecentEventTracker)
-        self.trade_pair_category_to_longest_allowed_lag_s = trade_pair_category_to_longest_allowed_lag_s
-        self.timespan_to_ms = timespan_to_ms
+        self.trade_pair_category_to_longest_allowed_lag_s = {TradePairCategory.CRYPTO: 30, TradePairCategory.FOREX: 30,
+                                                           TradePairCategory.INDICES: 30, TradePairCategory.EQUITIES: 30}
+        self.timespan_to_ms = {'second': 1000, 'minute': 1000 * 60, 'hour': 1000 * 60 * 60, 'day': 1000 * 60 * 60 * 24}
+
         self.trade_pair_lookup = {pair.trade_pair: pair for pair in TradePair}
         self.trade_pair_to_longest_seen_lag_s = {}
         self.market_calendar = UnifiedMarketCalendar()
@@ -115,13 +117,13 @@ class BaseDataService():
         now_ms = TimeUtil.now_in_millis()
         formatted_lags = {tp: f"{(now_ms - price_source.end_ms) / 1000.0:.2f}" for tp, price_source in
                           self.latest_websocket_events.items()}
-        formatted_lags = {k:v for k, v in formatted_lags.items() if float(v) > 10}
+        #formatted_lags = {k:v for k, v in formatted_lags.items() if float(v) > 10}
         bt.logging.info(f"{self.provider_name} Current websocket lags (s): {formatted_lags}")
         # Log the prices
         formatted_prices = {tp: f"{price_source.close:.2f}" for tp, price_source in  # noqa: F841
                             self.latest_websocket_events.items()}
         bt.logging.info(f"{self.provider_name} Latest websocket prices: {formatted_prices}")
-        bt.logging.info(f'{self.provider_name} websocket n_events_global: {self.n_events_global}')
+        bt.logging.info(f'{self.provider_name} websocket n_events_global: {self.n_events_global}. n_equity_events_skipped_afterhours: {self.n_equity_events_skipped_afterhours}')
         #if self.provider_name == POLYGON_PROVIDER_NAME:
         #    # Log which trade pairs are likely in closed markets
         #    closed_trade_pairs = {}

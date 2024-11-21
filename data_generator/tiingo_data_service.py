@@ -26,15 +26,8 @@ class TiingoDataService(BaseDataService):
         self.init_time = time.time()
         self._api_key = api_key
         self.disable_ws = disable_ws
-        timespan_to_ms = {'second': 1000, 'minute': 1000 * 60, 'hour': 1000 * 60 * 60, 'day': 1000 * 60 * 60 * 24}
-        self.N_CANDLES_LIMIT = 50000
 
-
-        trade_pair_category_to_longest_allowed_lag_s = {TradePairCategory.CRYPTO: 30, TradePairCategory.FOREX: 30,
-                                                           TradePairCategory.INDICES: 30, TradePairCategory.EQUITIES: 30}
-        super().__init__(trade_pair_category_to_longest_allowed_lag_s=trade_pair_category_to_longest_allowed_lag_s,
-                         timespan_to_ms=timespan_to_ms,
-                         provider_name=TIINGO_PROVIDER_NAME)
+        super().__init__(provider_name=TIINGO_PROVIDER_NAME)
 
         self.MARKET_STATUS = None
         self.LOCK = threading.Lock()
@@ -99,13 +92,14 @@ class TiingoDataService(BaseDataService):
         prev_n_events = None
         last_ws_health_check_s = 0
         last_market_status_update_s = 0
+        MAX_TIME_NO_EVENTS_S = 180
         while True:
             now = time.time()
-            if now - last_ws_health_check_s > 180:
+            if now - last_ws_health_check_s > MAX_TIME_NO_EVENTS_S:
                 if prev_n_events is None or prev_n_events == self.n_events_global:
                     if prev_n_events is not None:
                         bt.logging.error(
-                            f"POLY websocket has not received any events in the last 180 seconds. n_events {self.n_events_global} Restarting websocket.")
+                            f"Tiingo websocket has not received any events in the last {MAX_TIME_NO_EVENTS_S} seconds. n_events {self.n_events_global} Restarting websocket.")
                     self.stop_start_websocket_threads()
 
                 last_ws_health_check_s = now
@@ -143,7 +137,7 @@ class TiingoDataService(BaseDataService):
                     self.trade_pair_to_recent_events[symbol].update_prices_for_median(start_timestamp, bid_price)
                     return None
                 else:
-                    open = close = vwap = high = low = bid_price
+                    open = vwap = high = low = bid_price
 
                 volume = 1
             elif tp.is_crypto:
@@ -159,8 +153,11 @@ class TiingoDataService(BaseDataService):
             elif tp.is_equities:
                 (mode, date_str, timestamp_ns, ticker, bid_size, bid_price, mid_price, ask_price, ask_size, last_price,
                  last_size, halted, after_hours, intermarket_sweep, oddlot, nms) = data
-                if mode != 'T' or (after_hours and int(after_hours) == 1):
+                if mode != 'T':
                     #print(f'Skipping equities trade due to non-T mode {m}')
+                    return None
+                elif (after_hours and int(after_hours) == 1):
+                    self.n_equity_events_skipped_afterhours += 1
                     return None
                 # Exchange here is always iex!
                 timestamp_ms = timestamp_ns // 1e6

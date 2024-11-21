@@ -95,7 +95,7 @@ class TestTimeUtil(TestBase):
             {"iso": "2023-03-01T12:00:00+00:00", "expected": 1677672000000},
 
             # Timestamp with positive timezone offset
-            {"iso": "2023-03-01T15:00:00+03:00", "expected": 1677661200000},
+            {"iso": "2023-03-01T15:00:00+03:00", "expected": 1677672000000},
 
             # Timestamp with negative timezone offset
             {"iso": "2023-03-01T06:00:00-06:00", "expected": 1677672000000},

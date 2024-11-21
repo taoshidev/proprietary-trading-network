@@ -116,15 +116,16 @@ class IndicesMarketCalendar:
 
     def get_market_calendar(self, ticker):
         ticker = ticker.upper()
+        tp = TradePair.get_latest_trade_pair_from_trade_pair_id(ticker)
         # Return the appropriate calendar based on the ticker
         if ticker in ['SPX', 'DJI']:  # S&P 500 and Dow Jones are on the NYSE
             return self.nyse_calendar
-        elif ticker == 'NDX' or TradePair.get_latest_trade_pair_from_trade_pair_id(ticker).is_equities:  # NASDAQ 100 is on the NASDAQ
+        elif ticker == 'NDX' or tp and tp.is_equities:  # NASDAQ 100 is on the NASDAQ
             return self.nasdaq_calendar
         elif ticker == 'VIX':  # Volatility Index is derived from CBOE
             return self.cboe_calendar
         else:
-            raise ValueError(f"Ticker not supported {ticker}. Supported tickers are: SPX, NDX, DJI, VIX")
+            raise ValueError(f"Ticker not supported {ticker}")
 
     @lru_cache(maxsize=3000)
     def schedule_from_cache(self, tsn, market_name):

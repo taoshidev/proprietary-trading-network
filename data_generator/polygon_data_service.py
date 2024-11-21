@@ -10,7 +10,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from data_generator.base_data_service import BaseDataService, POLYGON_PROVIDER_NAME
 from time_util.time_util import TimeUtil
-from vali_objects.vali_config import TradePair, TradePairCategory
+from vali_objects.vali_config import TradePair
 import time
 
 from vali_objects.utils.vali_utils import ValiUtils
@@ -128,15 +128,8 @@ class PolygonDataService(BaseDataService):
         self.crypto_mapping = ehm.crypto_mapping
         self.equities_mapping = ehm.stock_mapping
         self.disable_ws = disable_ws
-        timespan_to_ms = {'second': 1000, 'minute': 1000 * 60, 'hour': 1000 * 60 * 60, 'day': 1000 * 60 * 60 * 24}
         self.N_CANDLES_LIMIT = 50000
-
-
-        trade_pair_category_to_longest_allowed_lag_s = {TradePairCategory.CRYPTO: 30, TradePairCategory.FOREX: 30,
-                                                           TradePairCategory.INDICES: 30, TradePairCategory.EQUITIES: 30}
-        super().__init__(trade_pair_category_to_longest_allowed_lag_s=trade_pair_category_to_longest_allowed_lag_s,
-                         timespan_to_ms=timespan_to_ms,
-                         provider_name=POLYGON_PROVIDER_NAME)
+        super().__init__(provider_name=POLYGON_PROVIDER_NAME)
 
         self.MARKET_STATUS = None
         self.LOCK = threading.Lock()
@@ -280,6 +273,10 @@ class PolygonDataService(BaseDataService):
             elif tp.is_equities:
                 if m.exchange != self.equities_mapping['nasdaq']:
                     #print(f"Skipping equity trade from exchange {m.exchange} for {tp.trade_pair}")
+                    return None, None
+                if isinstance(m, EquityTrade) and isinstance(m.conditions, list) and 12 in m.conditions:
+                    #print(f"Skipping Polygon websocket trade with afterhours condition for {m}")
+                    self.n_equity_events_skipped_afterhours += 1
                     return None, None
                 start_timestamp = round(m.timestamp, -3)  # round to nearest second which allows aggresssive filtering via dup logic
                 end_timestamp = None
@@ -859,12 +856,12 @@ if __name__ == "__main__":
     #aggs = polygon_data_provider.get_close_at_date_second(tp, target_timestamp_ms, return_aggs=True)
 
     #uu = {a.timestamp: [a] for a in aggs}
-    for tp in [x for x in TradePair if x.is_equities or x.is_crypto]:
+    for tp in [x for x in TradePair if x.is_equities]:
         t0 = time.time()
         quotes = polygon_data_provider.unified_candle_fetcher(tp,
-                                                              target_timestamp_ms - 1000 * 1200,
-                                                              target_timestamp_ms + 1000 * 1200,
-                                                              "minute")
+                                                              target_timestamp_ms - 1000 * 20,
+                                                              target_timestamp_ms + 1000 * 20,
+                                                              "second")
         quotes = list(quotes)
         print(f'fetched data for {tp} in {time.time() - t0} s. quotes: {quotes}')
 

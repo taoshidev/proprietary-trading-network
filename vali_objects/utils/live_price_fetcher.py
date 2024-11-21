@@ -29,8 +29,10 @@ class LivePriceFetcher:
             raise Exception("Polygon API key not found in secrets.json")
 
     def stop_all_threads(self):
-        if self.tiingo_data_service._heartbeat_thread:
-            self.tiingo_data_service._heartbeat_thread.join()
+        if self.tiingo_data_service.websocket_manager_thread:
+            self.tiingo_data_service.websocket_manager_thread.join()
+        self.tiingo_data_service.stop_threads()
+
         if self.polygon_data_service.websocket_manager_thread:
             self.polygon_data_service.websocket_manager_thread.join()
         self.polygon_data_service.close_websockets()

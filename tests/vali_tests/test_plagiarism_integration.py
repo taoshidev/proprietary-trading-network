@@ -3,9 +3,7 @@ from tests.vali_tests.base_objects.test_base import TestBase
 from vali_objects.vali_config import TradePair
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.position import Position
-from vali_objects.utils.vali_utils import ValiUtils
 from vali_objects.vali_dataclasses.order import Order
-from data_generator.twelvedata_service import TwelveDataService
 from vali_objects.utils.plagiarism_events import PlagiarismEvents
 
 
@@ -41,8 +39,6 @@ class TestPlagiarismIntegration(TestBase):
 
     
         self.plagiarism_detector.init_cache_files()
-        secrets = ValiUtils.get_secrets(running_unit_tests=True)
-        self.tds = TwelveDataService(api_key=secrets["twelvedata_apikey"])
 
         self.position_manager.clear_all_miner_positions_from_disk()
         self.plagiarism_detector.clear_plagiarism_from_disk()
