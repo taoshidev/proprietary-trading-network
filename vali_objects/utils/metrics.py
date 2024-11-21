@@ -1,6 +1,7 @@
 
 import math
 import numpy as np
+from scipy.stats import ttest_1samp
 
 from vali_objects.vali_config import ValiConfig
 from vali_objects.utils.ledger_utils import LedgerUtils
@@ -144,6 +145,16 @@ class Metrics:
         denominator = max(abs(negative_sum), ValiConfig.OMEGA_LOSS_MINIMUM)
 
         return numerator / denominator
+
+    @staticmethod
+    def statistical_confidence(log_returns: list[float]) -> float:
+        """
+        Args:
+            log_returns: list of daily log returns from the miner
+        """
+        # Need a large enough sample size
+        res = ttest_1samp(log_returns, 0, alternative='greater')
+        return res.pvalue
 
     @staticmethod
     def sortino(log_returns: list[float]) -> float:

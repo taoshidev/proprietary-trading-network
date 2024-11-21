@@ -115,16 +115,16 @@ class ValiConfig:
     CHECKPOINT_DURATION_THRESHOLD = int(TARGET_LEDGER_WINDOW_MS * CHECKPOINT_DURATION_RATIO)
 
     # Scoring weights
-    SCORING_RETURN_LONG_LOOKBACK_WEIGHT = 0.5
-    SCORING_RETURN_SHORT_LOOKBACK_WEIGHT = 0.25
-    SCORING_SHARPE_WEIGHT = 0.15
-    SCORING_OMEGA_WEIGHT = 0.15
+    SCORING_RETURN_LOOKBACK_WEIGHT = 0.20
+    SCORING_SHARPE_WEIGHT = 0.20
+    SCORING_OMEGA_WEIGHT = 0.20
     SCORING_SORTINO_WEIGHT = 0.20
+    SCORING_STATISTICAL_CONFIDENCE_WEIGHT = 0.20
 
     # Scoring hyperparameters
-    OMEGA_LOSS_MINIMUM = 0.02  # Equivalent to 2% loss
-    SHARPE_STDDEV_MINIMUM = 0.01 # Equivalent to 1% standard deviation
-    SORTINO_DOWNSIDE_MINIMUM = 0.01 # Equivalent to 1% standard deviation
+    OMEGA_LOSS_MINIMUM = 0.01   # Equivalent to 1% loss
+    SHARPE_STDDEV_MINIMUM = 0.01  # Equivalent to 1% standard deviation
+    SORTINO_DOWNSIDE_MINIMUM = 0.01  # Equivalent to 1% standard deviation
 
     # MDD penalty calculation
     APPROXIMATE_DRAWDOWN_PERCENTILE = 0.90
