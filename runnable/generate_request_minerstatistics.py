@@ -100,8 +100,6 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
     challengeperiod_testing_hotkeys = list(challengeperiod_testing_dictionary.keys())
     challengeperiod_success_hotkeys = list(challengeperiod_success_dictionary.keys())
 
-    
-
     try:
         all_miner_hotkeys: list = ValiBkpUtils.get_directories_in_dir(
             ValiBkpUtils.get_miner_dir()
@@ -152,6 +150,7 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
     return_dict = {}
     short_risk_adjusted_return_dict = {}
     risk_adjusted_return_dict = {}
+    statistical_confidence_dict = {}
 
     # Positional ratios
     positional_return_time_consistency_ratios = {}
@@ -192,7 +191,6 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
 
         # Lookback window positions
         miner_lookback_positions = lookback_positions.get(hotkey, [])
-        # miner_lookback_positions_recent = lookback_positions_recent.get(hotkey, [])
 
         scoring_input = {
             "log_returns": miner_returns,
@@ -202,6 +200,7 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
         # Positional Scoring
         omega_dict[hotkey] = Metrics.omega(**scoring_input)
         sharpe_dict[hotkey] = Metrics.sharpe(**scoring_input)
+        statistical_confidence_dict[hotkey] = Metrics.statistical_confidence(miner_returns)
 
         short_return_dict[hotkey] = Metrics.base_return(miner_returns)
         return_dict[hotkey] = Metrics.base_return(miner_returns)
@@ -300,6 +299,9 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
     risk_adjusted_return_rank = rank_dictionary(risk_adjusted_return_dict)
     risk_adjusted_return_percentile = percentile_rank_dictionary(risk_adjusted_return_dict)
 
+    statistical_confidence_rank = rank_dictionary(statistical_confidence_dict)
+    statistical_confidence_percentile = percentile_rank_dictionary(statistical_confidence_dict)
+
     # Rankings on Penalized Metrics
     omega_penalized_dict = apply_penalties(omega_dict, miner_penalties)
     omega_penalized_rank = rank_dictionary(omega_penalized_dict)
@@ -316,6 +318,10 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
     risk_adjusted_return_penalized_dict = apply_penalties(risk_adjusted_return_dict, miner_penalties)
     risk_adjusted_return_penalized_rank = rank_dictionary(risk_adjusted_return_penalized_dict)
     risk_adjusted_return_penalized_percentile = percentile_rank_dictionary(risk_adjusted_return_penalized_dict)
+
+    statistical_confidence_penalized_dict = apply_penalties(statistical_confidence_dict, miner_penalties)
+    statistical_confidence_penalized_rank = rank_dictionary(statistical_confidence_penalized_dict)
+    statistical_confidence_penalized_percentile = percentile_rank_dictionary(statistical_confidence_penalized_dict)
 
     # Here is the full list of data in frontend format
     combined_data = []
@@ -426,6 +432,11 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
                     "value": sharpe_dict.get(miner_id),
                     "rank": sharpe_rank.get(miner_id),
                     "percentile": sharpe_percentile.get(miner_id),
+                },
+                "statistical_confidence": {
+                    "value": statistical_confidence_dict.get(miner_id),
+                    "rank": statistical_confidence_rank.get(miner_id),
+                    "percentile": statistical_confidence_percentile.get(miner_id),
                 },
                 "short_return": {
                     "value": short_return_dict.get(miner_id),

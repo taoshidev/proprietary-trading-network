@@ -1,7 +1,9 @@
 # developer: trdougherty
 
+from dataclasses import dataclass
+from enum import Enum, auto
 import math
-from typing import List, Tuple
+from typing import List, Tuple, Callable, TypeVar, Union, Any
 from vali_objects.position import Position
 
 import numpy as np
@@ -17,7 +19,55 @@ from vali_objects.utils.metrics import Metrics
 
 import bittensor as bt
 
+
+class PenaltyInputType(Enum):
+    LEDGER = auto()
+    POSITIONS = auto()
+
+
+@dataclass
+class PenaltyConfig:
+    function: Callable
+    input_type: PenaltyInputType
+
+
 class Scoring:
+    # Set the scoring configuration
+    scoring_config = {
+        'return_long': {
+            'function': Metrics.base_return,
+            'weight': ValiConfig.SCORING_RETURN_LOOKBACK_WEIGHT
+        },
+        'sharpe_ratio': {
+            'function': Metrics.sharpe,
+            'weight': ValiConfig.SCORING_SHARPE_WEIGHT
+        },
+        'omega': {
+            'function': Metrics.omega,
+            'weight': ValiConfig.SCORING_OMEGA_WEIGHT
+        },
+        'sortino': {
+            'function': Metrics.sortino,
+            'weight': ValiConfig.SCORING_SORTINO_WEIGHT
+        },
+        'statistical_confidence': {
+            'function': Metrics.statistical_confidence,
+            'weight': ValiConfig.SCORING_STATISTICAL_CONFIDENCE_WEIGHT
+        }
+    }
+
+    # Define the configuration with input types
+    penalties_config = {
+        'drawdown_threshold': PenaltyConfig(
+            function=LedgerUtils.max_drawdown_threshold_penalty,
+            input_type=PenaltyInputType.LEDGER
+        ),
+        'position_ratio': PenaltyConfig(
+            function=PositionPenalties.returns_ratio_penalty,
+            input_type=PenaltyInputType.POSITIONS
+        ),
+    }
+
     @staticmethod
     def compute_results_checkpoint(
             ledger_dict: dict[str, PerfLedgerData],
@@ -54,32 +104,8 @@ class Scoring:
         ]
         full_penalty_miners = set([x[0] for x in full_penalty_miner_scores])
 
-        # Set the scoring configuration
-        scoring_config = {
-            'return_long': {
-                'function': Metrics.base_return,
-                'weight': ValiConfig.SCORING_RETURN_LONG_LOOKBACK_WEIGHT,
-                'returns': filtered_ledger_returns
-            },
-            'sharpe_ratio': {
-                'function': Metrics.sharpe,
-                'weight': ValiConfig.SCORING_SHARPE_WEIGHT,
-                'returns': filtered_ledger_returns
-            },
-            'omega': {
-                'function': Metrics.omega,
-                'weight': ValiConfig.SCORING_OMEGA_WEIGHT,
-                'returns': filtered_ledger_returns
-            },
-            'sortino': {
-                'function': Metrics.sortino,
-                'weight': ValiConfig.SCORING_SORTINO_WEIGHT,
-                'returns': filtered_ledger_returns
-            },
-        }
-
         # Calculate the total weight
-        total_weight = sum(value['weight'] for value in scoring_config.values())
+        total_weight = sum(value['weight'] for value in Scoring.scoring_config.values())
 
         # Create a new dictionary with normalized weights
         normalized_scoring_config = {
@@ -87,13 +113,13 @@ class Scoring:
                 **value,  # Keep all other key-value pairs as-is
                 'weight': value['weight'] / total_weight  # Normalize the weight
             }
-            for key, value in scoring_config.items()
+            for key, value in Scoring.scoring_config.items()
         }
 
         combined_scores = {}
         for config_name, config in normalized_scoring_config.items():
             miner_scores = []
-            for miner, returns in config['returns'].items():
+            for miner, returns in filtered_ledger_returns.items():
                 # Get the miner ledger
                 # ledger = ledger_dict.get(miner, PerfLedgerData())
 
@@ -101,7 +127,7 @@ class Scoring:
                 if miner in full_penalty_miners:
                     continue
 
-                score = config['function'](log_returns=returns) #, ledger=ledger)
+                score = config['function'](log_returns=returns)
 
                 penalized_score = score * miner_penalties.get(miner, 0)
                 miner_scores.append((miner, penalized_score))
@@ -132,19 +158,18 @@ class Scoring:
             ledger_checkpoints = ledger.cps
             positions = hotkey_positions.get(miner, [])
 
-            # # Positional Consistency
-            # positional_return_time_consistency = PositionPenalties.time_consistency_penalty(positions)
-            positional_consistency = PositionPenalties.returns_ratio_penalty(positions)
-            #
-            # # Ledger Consistency
-            # daily_consistency = LedgerUtils.daily_consistency_penalty(ledger_checkpoints)
-            # biweekly_consistency = LedgerUtils.biweekly_consistency_penalty(ledger_checkpoints)
-            drawdown_threshold_penalty = LedgerUtils.max_drawdown_threshold_penalty(ledger_checkpoints)
+            cumulative_penalty = 1
+            for penalty_name, penalty_config in Scoring.penalties_config.items():
+                # Apply penalty based on its input type
+                penalty = 1
+                if penalty_config.input_type == PenaltyInputType.LEDGER:
+                    penalty = penalty_config.function(ledger_checkpoints)
+                elif penalty_config.input_type == PenaltyInputType.POSITIONS:
+                    penalty = penalty_config.function(positions)
 
-            # Combine penalties
-            miner_penalties[miner] = (
-                    drawdown_threshold_penalty
-            )
+                cumulative_penalty *= penalty
+
+            miner_penalties[miner] = cumulative_penalty
 
         return miner_penalties
 
@@ -168,7 +193,7 @@ class Scoring:
         }
         # normalized_scores = sorted(normalized_scores, key=lambda x: x[1], reverse=True)
         return normalized_scores
-    
+
     # TODO Remove the methods below when challenge period is modified
     @staticmethod
     def base_return(positions: list[Position]) -> float:
@@ -261,6 +286,30 @@ class Scoring:
 
         return numerator / denominator
 
+    @staticmethod
+    def tstat(positions: list[Position], ledger: PerfLedgerData) -> float:
+        """
+        Args:
+            positions: list of positions from the miner
+            ledger: the ledger of the miner
+        """
+        if len(positions) == 0:
+            return 0.0
+
+        # Return at close should already accommodate the risk-free rate as a cost of carry
+        positional_log_returns = [math.log(
+            max(position.return_at_close, .00001))  # Prevent math domain error
+            for position in positions]
+
+        # T-statistic is calculated as the mean of the returns divided by the standard error of the returns
+        mean_return = np.mean(positional_log_returns)
+        std_error = np.std(positional_log_returns) / np.sqrt(len(positional_log_returns))
+
+        if std_error == 0:
+            return 0.0
+
+        return mean_return / std_error
+
     # TODO Remove the methods above when challenge period is modified
 
     @staticmethod
@@ -280,24 +329,24 @@ class Scoring:
         """
         epsilon = ValiConfig.EPSILON
         temperature = ValiConfig.SOFTMAX_TEMPERATURE
-    
+
         if not returns:
             bt.logging.debug("No returns to score, returning empty list")
             return []
-    
+
         if len(returns) == 1:
             bt.logging.info("Only one miner, returning 1.0 for the solo miner weight")
             return [(returns[0][0], 1.0)]
-    
+
         # Extract scores and apply softmax with temperature
         scores = np.array([score for _, score in returns])
         max_score = np.max(scores)
         exp_scores = np.exp((scores - max_score) / temperature)
         softmax_scores = exp_scores / max(np.sum(exp_scores), epsilon)
-    
+
         # Combine miners with their respective softmax scores
         weighted_returns = [(miner, float(softmax_scores[i])) for i, (miner, _) in enumerate(returns)]
-    
+
         return weighted_returns
 
     @staticmethod
