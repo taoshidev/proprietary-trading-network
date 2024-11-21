@@ -2166,12 +2166,12 @@ class TestPositions(TestBase):
         position.rebuild_position_with_updated_orders()
 
         assert len(position.orders) == 3
-        assert position.is_closed_position == False
+        assert not position.is_closed_position
         self.position_manager.close_open_orders_for_suspended_trade_pairs()
         position = self._find_disk_position_from_memory_position(position)
         print(position)
         assert len(position.orders) == 4
-        assert position.is_closed_position == True
+        assert position.is_closed_position
         assert position.orders[-1].src == ORDER_SRC_DEPRECATION_FLAT
 
 

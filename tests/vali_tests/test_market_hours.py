@@ -17,11 +17,14 @@ class TestMarketHours(unittest.TestCase):
         trade_pair = TradePair.EURUSD  # Assuming this enum exists
         self.assertTrue(self.umc.is_market_open(trade_pair, timestamp))
 
-    def test_indices_success(self):
-        # 11 AM EST on a weekday, NYSE should be open
-        timestamp = TimeUtil.timestamp_to_millis(datetime(2024, 5, 3, 15, 0, tzinfo=timezone.utc))  # 15:00 UTC is 11:00 EST
-        trade_pair = TradePair.SPX  # Assuming SPX is NYSE based and the enum exists
-        self.assertTrue(self.umc.is_market_open(trade_pair, timestamp))
+    """
+    deprecated: indices removed 11/22 (1732226400000)
+    """
+    # def test_indices_success(self):
+    #     # 11 AM EST on a weekday, NYSE should be open
+    #     timestamp = TimeUtil.timestamp_to_millis(datetime(2024, 5, 3, 15, 0, tzinfo=timezone.utc))  # 15:00 UTC is 11:00 EST
+    #     trade_pair = TradePair.SPX  # Assuming SPX is NYSE based and the enum exists
+    #     self.assertTrue(self.umc.is_market_open(trade_pair, timestamp))
 
     def test_forex_fail_holiday_weekend(self):
         # Christmas, assuming forex markets are closed globally
@@ -139,21 +142,24 @@ class TestMarketHours(unittest.TestCase):
             else:
                 self.assertTrue(self.umc.is_market_open(TradePair.EURUSD, timestamp))
 
-            # Test behavior for Indices (SPX, assuming NYSE hours roughly 13:30 to 20:00 UTC)
-            if 0 <= current_datetime.weekday() <= 4:  # Monday to Friday
-                if 13 <= current_datetime.hour < 20:
-                    if current_datetime.hour == 13 and current_datetime.minute < 30:
-                        self.assertFalse(self.umc.is_market_open(TradePair.SPX, timestamp))
-                        self.assertFalse(self.umc.is_market_open(TradePair.NDX, timestamp))
-                    else:
-                        self.assertTrue(self.umc.is_market_open(TradePair.SPX, timestamp))
-                        self.assertTrue(self.umc.is_market_open(TradePair.NDX, timestamp))
-                else:
-                    self.assertFalse(self.umc.is_market_open(TradePair.SPX, timestamp))
-                    self.assertFalse(self.umc.is_market_open(TradePair.NDX, timestamp))
-            else:  # Saturday and Sunday
-                self.assertFalse(self.umc.is_market_open(TradePair.SPX, timestamp))
-                self.assertFalse(self.umc.is_market_open(TradePair.NDX, timestamp))
+            """
+            deprecated: indices removed 11/22 (1732226400000)
+            """
+            # # Test behavior for Indices (SPX, assuming NYSE hours roughly 13:30 to 20:00 UTC)
+            # if 0 <= current_datetime.weekday() <= 4:  # Monday to Friday
+            #     if 13 <= current_datetime.hour < 20:
+            #         if current_datetime.hour == 13 and current_datetime.minute < 30:
+            #             self.assertFalse(self.umc.is_market_open(TradePair.SPX, timestamp))
+            #             self.assertFalse(self.umc.is_market_open(TradePair.NDX, timestamp))
+            #         else:
+            #             self.assertTrue(self.umc.is_market_open(TradePair.SPX, timestamp))
+            #             self.assertTrue(self.umc.is_market_open(TradePair.NDX, timestamp))
+            #     else:
+            #         self.assertFalse(self.umc.is_market_open(TradePair.SPX, timestamp))
+            #         self.assertFalse(self.umc.is_market_open(TradePair.NDX, timestamp))
+            # else:  # Saturday and Sunday
+            #     self.assertFalse(self.umc.is_market_open(TradePair.SPX, timestamp))
+            #     self.assertFalse(self.umc.is_market_open(TradePair.NDX, timestamp))
         print(f'Finished in {time.time() - t0}')
 
 
