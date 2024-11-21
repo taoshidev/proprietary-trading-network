@@ -1,4 +1,5 @@
 export interface Config {
+  exchange: string;
   apiKey: string;
   secret: string;
   demo: boolean;

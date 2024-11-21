@@ -1,5 +1,14 @@
 {
-  "apiKey": "",
-  "secret": "",
-  "demo": true
+  "port": 8080,
+  "signal-server": "http://127.0.0.1:3005",
+  "bybit": {
+    "apiKey": "YOAGfmj4TZGSTsxJWc",
+    "secret": "rFI2oQWjuL5gcKH9EMbWsYdFnHeoPUvBKFrv",
+    "demo": true
+  },
+  "mexc": {
+    "apiKey": "mx0vglhJof2XJaFXFT",
+    "secret": "8a4b9447a3134933bc91063219564ac0",
+    "demo": true
+  }
 }

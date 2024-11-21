@@ -7,18 +7,23 @@
     "dev": "node index.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
+  "engines": {
+    "node": ">=20.0.0"
+  },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "description": "",
   "dependencies": {
     "ccxt": "^4.4.30",
+    "commander": "^12.1.0",
     "express": "^4.21.1",
     "lodash": "^4.17.21",
     "lowdb": "^7.0.1",
     "ws": "^8.18.0"
   },
   "devDependencies": {
-    "@types/express": "^5.0.0"
+    "@types/express": "^5.0.0",
+    "@types/ws": "^8.5.13"
   }
 }

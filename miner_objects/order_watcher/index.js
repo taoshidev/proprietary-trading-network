@@ -1,60 +1,48 @@
 import express from "express";
 import { createServer } from "http";
 import _ from "lodash";
+import { Command } from "commander";
 
-import {
-	initializeExchange,
-	orderToSignal,
-	initializeWebSocketServer,
-	broadcast,
-	calculateLeverage,
-	sendToPTN
-} from './utils';
-import {initializeRoutes} from "./routes/index.js";
-
-import config from "./config.json" assert { type: 'json' };
+import { watchTower } from "./utils/watchTower.js";
+import { initializeWebSocketServer } from "./utils/websocketService.js";
+import { initializeRoutes } from "./routes/index.js";
+import config from "./config.json" assert { type: "json" };
 
 const app = express();
 const server = createServer(app);
 const wss = initializeWebSocketServer(server);
+const program = new Command();
 
 app.use(express.json());
 app.use("/api", initializeRoutes(wss));
 
+program
+  .option("--exchange <string>", "specify the exchange to use", "")
+  .option("--port <number>", "specify the port to use", config.port)
+  .parse(process.argv);
+
+const options = program.opts();
+
 (async () => {
-	let exchange = await initializeExchange(config);
+  try {
+    console.log(`Starting server with options: ${JSON.stringify(options)}`);
 
-	if (!exchange) return null;
+    if (options.exchange) {
+      console.log(`Initializing watchTower for exchange: ${options.exchange}`);
 
-	await exchange.loadMarkets();
-	const balance = await exchange.fetchBalance();
+      await watchTower(options.exchange, wss);
 
-	console.log(balance);
-	console.log("Starting WebSocket server...");
-
-	while (true) {
-		try {
-			const order = await exchange.watchOrders();
-			const recentOrder = _.last(order);
-
-			console.log("Recent Order Status: ", recentOrder.info.orderStatus);
-
-			// if recent order is filled format, send to ptn, and broadcast
-			if (recentOrder.info.orderStatus === 'Filled') {
-				const leverage = calculateLeverage(recentOrder, balance);
-				const signal = orderToSignal(recentOrder, leverage);
-
-				const response = await sendToPTN(signal);
-
-				// broadcast to frontend
-				broadcast(wss, response.data);
-			}
-		} catch (error) {
-			console.error("Error watching orders:", error);
-		}
-	}
+      server.listen(options.port, () => {
+        console.log(
+          `WebSocket server running on ws://localhost:${options.port}`,
+        );
+      });
+    } else {
+      console.warn(
+        "No exchange specified. Skipping watchTower initialization.",
+      );
+    }
+  } catch (error) {
+    console.warn("Error starting Order Watcher");
+  }
 })();
-
-server.listen(8080, () => {
-	console.log("WebSocket server running on ws://localhost:8080");
-});

@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { WEBSOCKET_URL } from "@/constants";
-import { Signal } from '@/types'
+import { Signal } from "@/types";
 
 interface SignalsState {
   signals: Signal[];
@@ -37,7 +37,7 @@ const useOrdersStore = create<SignalsState>((set, get) => {
           const message: Signal = JSON.parse(event.data);
 
           console.log(message);
-          
+
           set((state) => {
             const newSignal: Signal[] = [message];
             return {
@@ -59,8 +59,8 @@ const useOrdersStore = create<SignalsState>((set, get) => {
       ws.onerror = (error) => {
         console.error("WebSocket error:", error);
         set({
-          error: 'WebSocket connection error',
-          isWatching: false
+          error: "WebSocket connection error",
+          isWatching: false,
         });
       };
     },

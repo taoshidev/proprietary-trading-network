@@ -1,7 +1,7 @@
 "use server";
 
-import { API_URL } from '@/constants';
-import { type Config } from '@/types';
+import { API_URL } from "@/constants";
+import { type Config } from "@/types";
 
 export async function saveConfig(data: Config) {
   try {
@@ -19,20 +19,27 @@ export async function saveConfig(data: Config) {
       status: response.status,
       message: result.message || "Configuration saved",
       data: result.data,
-      error: !response.ok ? (result.error || "Failed to save configuration") : undefined
+      error: !response.ok
+        ? result.error || "Failed to save configuration"
+        : undefined,
     };
   } catch (error) {
     return {
       status: 500,
       message: "Failed to save configuration",
-      error: error instanceof Error ? error.message : "An unexpected error occurred"
+      error:
+        error instanceof Error ? error.message : "An unexpected error occurred",
     };
   }
 }
 
-export async function getConfig() {
+export async function getConfig(exchange?: string) {
   try {
-    const response = await fetch(`${API_URL}/get-config`, {
+    const url = exchange
+      ? `${API_URL}/get-config?exchange=${exchange}`
+      : `${API_URL}/get-config`;
+
+    const response = await fetch(url, {
       method: "GET",
       headers: {
         "Content-Type": "application/json",
@@ -45,13 +52,16 @@ export async function getConfig() {
       status: response.status,
       message: result.message || "Configuration retrieved",
       data: result.data,
-      error: !response.ok ? (result.error || "Failed to get configuration") : undefined
+      error: !response.ok
+        ? result.error || "Failed to get configuration"
+        : undefined,
     };
   } catch (error) {
     return {
       status: 500,
       message: "Failed to get configuration",
-      error: error instanceof Error ? error.message : "An unexpected error occurred"
+      error:
+        error instanceof Error ? error.message : "An unexpected error occurred",
     };
   }
 }
