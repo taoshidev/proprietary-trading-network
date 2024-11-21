@@ -11,6 +11,7 @@ from enum import Enum, auto
 
 ORDER_SRC_ORGANIC = 0
 ORDER_SRC_ELIMINATION_FLAT = 1
+ORDER_SRC_DEPRECATION_FLAT = 2
 
 class Order(Signal):
     price: float
