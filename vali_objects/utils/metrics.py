@@ -152,7 +152,10 @@ class Metrics:
         Args:
             log_returns: list of daily log returns from the miner
         """
-        # Need a large enough sample size
+        # Impose a minimum sample size on the miner
+        if len(log_returns) < ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N:
+            return 0.0
+
         res = ttest_1samp(log_returns, 0, alternative='greater')
         return res.pvalue
 
