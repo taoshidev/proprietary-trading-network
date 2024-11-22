@@ -184,6 +184,9 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
     positional_return = {}
     positional_duration = {}
 
+    # Volatility Metrics
+    annual_volatility = {}
+
     for hotkey, hotkey_ledger in filtered_ledger.items():
         # Collect miner positions
         miner_positions = filtered_positions.get(hotkey, [])
@@ -200,6 +203,7 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
         # Positional Scoring
         omega_dict[hotkey] = Metrics.omega(**scoring_input)
         sharpe_dict[hotkey] = Metrics.sharpe(**scoring_input)
+        annual_volatility[hotkey] = Metrics.ann_volatility(miner_returns)
         statistical_confidence_dict[hotkey] = Metrics.statistical_confidence(miner_returns)
 
         short_return_dict[hotkey] = Metrics.base_return(miner_returns)
@@ -416,6 +420,9 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
                 "returns_ratio": positional_realized_returns_ratios.get(miner_id),
                 "daily": ledger_daily_consistency_ratios.get(miner_id),
                 "biweekly": ledger_biweekly_consistency_ratios.get(miner_id),
+            },
+            "volatilities": {
+                "annual": annual_volatility.get(miner_id)
             },
             "drawdowns": {
                 "recent": recent_drawdowns.get(miner_id),

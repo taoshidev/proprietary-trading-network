@@ -118,7 +118,7 @@ class Scoring:
 
         combined_scores = {}
         for config_name, config in normalized_scoring_config.items():
-            miner_scores = []
+            penalized_scores = []
             for miner, returns in filtered_ledger_returns.items():
                 # Get the miner ledger
                 # ledger = ledger_dict.get(miner, PerfLedgerData())
@@ -130,13 +130,13 @@ class Scoring:
                 score = config['function'](log_returns=returns)
 
                 penalized_score = score * miner_penalties.get(miner, 0)
-                miner_scores.append((miner, penalized_score))
+                penalized_scores.append((miner, penalized_score))
 
-            weighted_scores = Scoring.miner_scores_percentiles(miner_scores)
-            for miner, score in weighted_scores:
+            percentile_scores = Scoring.miner_scores_percentiles(penalized_scores)
+            for miner, percentile_rank in percentile_scores:
                 if miner not in combined_scores:
                     combined_scores[miner] = 0
-                combined_scores[miner] += config['weight'] * score
+                combined_scores[miner] += config['weight'] * percentile_rank
 
         # Force good performance of all error metrics
         combined_weighed = Scoring.softmax_scores(list(combined_scores.items())) + full_penalty_miner_scores

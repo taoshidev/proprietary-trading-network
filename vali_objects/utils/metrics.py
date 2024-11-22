@@ -22,8 +22,7 @@ class Metrics:
         mean_daily_log_returns = np.mean(log_returns)
 
         # Annualize the mean daily excess returns
-
-        annualized_excess_return = (math.exp(mean_daily_log_returns * days_in_year) - 1) - annual_risk_free_rate
+        annualized_excess_return = (mean_daily_log_returns * days_in_year) - annual_risk_free_rate
         return annualized_excess_return
 
     @staticmethod
@@ -55,16 +54,8 @@ class Metrics:
         Returns:
             The downside annualized volatility as a float assuming sample variance
         """
-        days_in_year = ValiConfig.DAYS_IN_YEAR
-
         downside_returns = [log_return for log_return in log_returns if log_return < target]
-        window = len(downside_returns)
-        if window == 0:
-            return np.inf
-
-        ann_factor = days_in_year / window
-        annualized_downside_volatility = np.sqrt(np.var(downside_returns, ddof=1) * ann_factor)
-        return annualized_downside_volatility
+        return Metrics.ann_volatility(downside_returns)
 
     @staticmethod
     def base_return_log(log_returns: list[float]) -> float:
@@ -86,7 +77,7 @@ class Metrics:
         Returns:
              The aggregate total return of the miner as a percentage
         """
-        return math.exp(Metrics.base_return_log(log_returns)) - 1
+        return (math.exp(Metrics.base_return_log(log_returns)) - 1) * 100
 
     @staticmethod
     def risk_adjusted_return(returns: list[float], ledger: PerfLedgerData) -> float:
@@ -111,8 +102,8 @@ class Metrics:
             log_returns: list of daily log returns from the miner
         """
         # Need a large enough sample size
-        if len(log_returns) < 30:
-            return 0.0
+        if len(log_returns) < ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N:
+            return ValiConfig.SHARPE_NOCONFIDENCE_VALUE
 
         # Hyperparameter
         min_std_dev = ValiConfig.SHARPE_STDDEV_MINIMUM
@@ -129,8 +120,8 @@ class Metrics:
             log_returns: list of daily log returns from the miner
         """
         # Need a large enough sample size
-        if len(log_returns) < 30:
-            return 0.0
+        if len(log_returns) < ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N:
+            return ValiConfig.OMEGA_NOCONFIDENCE_VALUE
 
         positive_sum = 0
         negative_sum = 0
@@ -154,10 +145,10 @@ class Metrics:
         """
         # Impose a minimum sample size on the miner
         if len(log_returns) < ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N:
-            return 0.0
+            return ValiConfig.STATISTICAL_CONFIDENCE_NOCONFIDENCE_VALUE
 
         res = ttest_1samp(log_returns, 0, alternative='greater')
-        return res.pvalue
+        return res.statistic
 
     @staticmethod
     def sortino(log_returns: list[float]) -> float:
@@ -166,8 +157,8 @@ class Metrics:
             log_returns: list of daily log returns from the miner
         """
         # Need a large enough sample size
-        if len(log_returns) < 30:
-            return 0.0
+        if len(log_returns) < ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N:
+            return ValiConfig.SORTINO_NOCONFIDENCE_VALUE
 
         # Hyperparameter
         min_downside = ValiConfig.SORTINO_DOWNSIDE_MINIMUM
