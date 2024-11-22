@@ -145,7 +145,7 @@ class IndicesMarketCalendar:
         # Convert millisecond timestamp to pandas Timestamp in UTC
         timestamp = pd.Timestamp(timestamp_ms, unit='ms', tz='UTC')
 
-        if ticker in ['SPX', 'DJI', 'NDX', 'VIX', 'GDAXI', 'FTSE']:
+        if ticker in ['GDAXI', 'FTSE']:
             return False
 
         # Get the market calendar for the given ticker
