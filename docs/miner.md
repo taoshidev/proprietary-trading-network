@@ -13,7 +13,7 @@ A long position is a bet that the trade pair will increase, while a short positi
    - No single day’s change in portfolio value should exceed 40% of your total 60-day return.   
    - A single position should not account for more than 35% of your total return.
 2. Miner will be penalized if they are not providing consistent predictions to the system or if their drawdown is too high. The details of this may be found [here](https://github.com/taoshidev/proprietary-trading-network/blob/main/vali_objects/utils/position_utils.py).
-3. A miner can have a maximum of 200 positions open.
+3. A miner can have a maximum of 1 open position per trade pair. No limit on the number of closed positions.
 4. A miner's order will be ignored if placing a trade outside of market hours.
 5. A miner's order will be ignored if they are rate limited (maliciously sending too many requests)
 6. There is a 10-second cooldown period between orders, during which the miner cannot place another order.
@@ -66,30 +66,30 @@ Transaction fees are proportional to the leverage used. The higher the leverage,
 Cost of carry is reflective of real exchanges, and how they manage the cost of holding a position overnight. This rate changes depending on the asset class, the logic of which may be found in [our proposal 4](https://docs.taoshi.io/tips/p4/).
 
 ##### Implementation Details
-| Market  | Fee Period     | Times                   | Rates Applied       | Triple Wednesday |
-|---------|----------------|-------------------------|---------------------|------------------|
-| Forex   | 24h            | 21:00 UTC               | Mon-Fri             | ✓                |
-| Crypto  | 8h             | 04:00, 12:00, 20:00 UTC | Daily (Mon-Sun)     |                  |
-| Indices | 24h            | 21:00 UTC               | Mon-Fri             | ✓                |
+| Market   | Fee Period     | Times                   | Rates Applied       | Triple Wednesday |
+|----------|----------------|-------------------------|---------------------|------------------|
+| Forex    | 24h            | 21:00 UTC               | Mon-Fri             | ✓                |
+| Crypto   | 8h             | 04:00, 12:00, 20:00 UTC | Daily (Mon-Sun)     |                  |
+| Equities | 24h            | 21:00 UTC               | Mon-Fri             | ✓                |
 
 The magnitude of the fees will reflect the following distribution:
 
-| Market  | Base Rate (Annual) | Daily Rate Calculation     |
-|---------|--------------------|----------------------------|
-| Forex   | 3%                 | 0.008% * Max Seen Leverage |
-| Crypto  | 10.95%             | 0.03% * Max Seen Leverage  |
-| Indices | 5.25%              | 0.014% * Max Seen Leverage |
+| Market   | Base Rate (Annual) | Daily Rate Calculation     |
+|----------|--------------------|----------------------------|
+| Forex    | 3%                 | 0.008% * Max Seen Leverage |
+| Crypto   | 10.95%             | 0.03% * Max Seen Leverage  |
+| Equities | 5.25%              | 0.014% * Max Seen Leverage |
 
 ### Leverage Limits
 We also set limits on leverage usage, to ensure that the network has a level of risk protection and mitigation of naive strategies. The [positional leverage limits](https://docs.taoshi.io/tips/p5/) are as follows:
 
-| Market  | Leverage Limit |
-|---------|----------------|
-| Forex   | 0.1x - 5x      |
-| Crypto  | 0.01x - 0.5x   |
-| Indices | 0.1x - 5x      |
+| Market   | Leverage Limit |
+|----------|----------------|
+| Forex    | 0.1x - 5x      |
+| Crypto   | 0.01x - 0.5x   |
+| Equities | 0.1x - 5x      |
 
-We also implement a [portfolio level leverage limit](https://docs.taoshi.io/tips/p10/), which is the sum of all the leverages from each open position. This limit is set at 10x a "typical" position, where a typical position would be 1x leverage for forex/indices and 0.1x leverage for crypto. You can therefore open 10 forex positions at 1x leverage each, 5 forex positions at 2x leverage each, 5 forex positions at 1x and 5 crypto positions at 0.1x, etc.
+We also implement a [portfolio level leverage limit](https://docs.taoshi.io/tips/p10/), which is the sum of all the leverages from each open position. This limit is set at 10x a "typical" position, where a typical position would be 1x leverage for forex, 2x for equities, and 0.1x leverage for crypto. You can therefore open 10 forex positions at 1x leverage each, 5 equities positions at 2x leverage each, 5 forex positions at 2x leverage each, 5 forex positions at 1x and 5 crypto positions at 0.1x, etc.
 
 ## Incentive Distribution
 The miners are scored in each of the categories above based on their prior positions over the lookback period. Penalties are then applied to these scores, and the miners are ranked based on their total score. Percentiles are determined for each category, with the miner's overall score being reduced by the full scoring weight if they are the worst in a category.
