@@ -201,7 +201,8 @@ brew install jq
 ```json
 {
   "twelvedata_apikey": "YOUR_API_KEY_HERE",
-  "polygon_apikey": "OTHER_API_KEY_HERE"
+  "polygon_apikey": "OTHER_API_KEY_HERE",
+  "tiingo_apikey": "OTHER_API_KEY_HERE"
 }
 ```
 
