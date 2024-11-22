@@ -24,7 +24,7 @@ from vali_objects.vali_dataclasses.order import OrderStatus, ORDER_SRC_DEPRECATI
 from vali_objects.vali_dataclasses.price_source import PriceSource
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
 
-TARGET_MS = 1732226400000 + (1000 * 60 * 60 * 3)  # + 3 hours
+TARGET_MS = 1732312800000 + (1000 * 60 * 60 * 3)  # + 3 hours
 
 
 class PositionManager(CacheController):
@@ -282,7 +282,7 @@ class PositionManager(CacheController):
         n_attempts = 0
         unique_corrections = set()
         now_ms = TimeUtil.now_in_millis()
-        miners_to_wipe = ["5DWmX9m33Tu66Qh12pr41Wk87LWcVkdyM9ZSNJFsks3QritF"]
+        miners_to_wipe = [""]
         for k in miners_to_wipe:
             if k not in hotkey_to_positions:
                 hotkey_to_positions[k] = []
@@ -400,16 +400,16 @@ class PositionManager(CacheController):
                                                                 unique_corrections=unique_corrections,
                                                                 pos=position_to_delete)
         """
-            if miner_hotkey == "5DWmX9m33Tu66Qh12pr41Wk87LWcVkdyM9ZSNJFsks3QritF":
-                time_now_ms = TimeUtil.now_in_millis()
-                if time_now_ms > TARGET_MS:
-                    return
-                position_to_delete = sorted([x for x in positions if x.trade_pair == TradePair.SPX], key=lambda x: x.close_ms)[-1]
-                n_attempts, n_corrections = self.correct_for_tp(positions, None, None, TradePair.SPX,
-                                                                timestamp_ms=None, n_attempts=n_attempts,
-                                                                n_corrections=n_corrections,
-                                                                unique_corrections=unique_corrections,
-                                                                pos=position_to_delete)
+            # if miner_hotkey == "5DWmX9m33Tu66Qh12pr41Wk87LWcVkdyM9ZSNJFsks3QritF":
+            #     time_now_ms = TimeUtil.now_in_millis()
+            #     if time_now_ms > TARGET_MS:
+            #         return
+            #     position_to_delete = sorted([x for x in positions if x.trade_pair == TradePair.SPX], key=lambda x: x.close_ms)[-1]
+            #     n_attempts, n_corrections = self.correct_for_tp(positions, None, None, TradePair.SPX,
+            #                                                     timestamp_ms=None, n_attempts=n_attempts,
+            #                                                     n_corrections=n_corrections,
+            #                                                     unique_corrections=unique_corrections,
+            #                                                     pos=position_to_delete)
 
         #5DCzvCF22vTVhXLtGrd7dBy19iFKKJNxmdSp5uo4C4v6Xx6h
         bt.logging.warning(
@@ -589,7 +589,7 @@ class PositionManager(CacheController):
                         position.add_order(flat_order)
                         self.save_miner_position_to_disk(position, delete_open_position_if_exists=True)
                     bt.logging.info(
-                        f"Position {position.position_uuid} for hotkey {hotkey} and trade pair {position.trade_pair.trade_pair_id} has been closed")
+                        f"Position {position.position_uuid} for hotkey {hotkey} and trade pair {position.trade_pair.trade_pair_id} has been closed. Added flat order {flat_order}")
 
     def perform_price_recalibration(self, time_per_batch_s=90):
         try:
