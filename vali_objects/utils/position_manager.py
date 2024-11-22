@@ -20,11 +20,11 @@ from vali_objects.exceptions.vali_records_misalignment_exception import ValiReco
 from vali_objects.position import Position
 from vali_objects.utils.position_lock import PositionLocks
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
-from vali_objects.vali_dataclasses.order import OrderStatus
+from vali_objects.vali_dataclasses.order import OrderStatus, ORDER_SRC_DEPRECATION_FLAT, Order
 from vali_objects.vali_dataclasses.price_source import PriceSource
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
 
-TARGET_MS = 1732030538000 + (1000 * 60 * 60 * 3)  # + 8 hours
+TARGET_MS = 1732312800000 + (1000 * 60 * 60 * 3)  # + 3 hours
 
 
 class PositionManager(CacheController):
@@ -50,6 +50,9 @@ class PositionManager(CacheController):
             try:
                 self.perf_ledger_manager = PerfLedgerManager(metagraph=metagraph)
                 self.apply_order_corrections()
+                time_now_ms = TimeUtil.now_in_millis()
+                if time_now_ms < TARGET_MS:
+                    self.close_open_orders_for_suspended_trade_pairs()
             except Exception as e:
                 bt.logging.error(f"Error applying order corrections: {e}")
                 traceback.print_exc()
@@ -272,7 +275,6 @@ class PositionManager(CacheController):
           5.31.24 - validator outage due to twelvedata thread error. add position if not exists.
 
         """
-
         hotkey_to_positions = self.get_all_disk_positions_for_all_miners(sort_positions=True, only_open_positions=False,
                                                                          perform_exorcism=True)
         #self.give_erronously_eliminated_miners_another_shot(hotkey_to_positions)
@@ -280,7 +282,7 @@ class PositionManager(CacheController):
         n_attempts = 0
         unique_corrections = set()
         now_ms = TimeUtil.now_in_millis()
-        miners_to_wipe = ["5DWmX9m33Tu66Qh12pr41Wk87LWcVkdyM9ZSNJFsks3QritF"]
+        miners_to_wipe = [""]
         for k in miners_to_wipe:
             if k not in hotkey_to_positions:
                 hotkey_to_positions[k] = []
@@ -398,16 +400,16 @@ class PositionManager(CacheController):
                                                                 unique_corrections=unique_corrections,
                                                                 pos=position_to_delete)
         """
-            if miner_hotkey == "5DWmX9m33Tu66Qh12pr41Wk87LWcVkdyM9ZSNJFsks3QritF":
-                time_now_ms = TimeUtil.now_in_millis()
-                if time_now_ms > TARGET_MS:
-                    return
-                position_to_delete = sorted([x for x in positions if x.trade_pair == TradePair.SPX], key=lambda x: x.close_ms)[-1]
-                n_attempts, n_corrections = self.correct_for_tp(positions, None, None, TradePair.SPX,
-                                                                timestamp_ms=None, n_attempts=n_attempts,
-                                                                n_corrections=n_corrections,
-                                                                unique_corrections=unique_corrections,
-                                                                pos=position_to_delete)
+            # if miner_hotkey == "5DWmX9m33Tu66Qh12pr41Wk87LWcVkdyM9ZSNJFsks3QritF":
+            #     time_now_ms = TimeUtil.now_in_millis()
+            #     if time_now_ms > TARGET_MS:
+            #         return
+            #     position_to_delete = sorted([x for x in positions if x.trade_pair == TradePair.SPX], key=lambda x: x.close_ms)[-1]
+            #     n_attempts, n_corrections = self.correct_for_tp(positions, None, None, TradePair.SPX,
+            #                                                     timestamp_ms=None, n_attempts=n_attempts,
+            #                                                     n_corrections=n_corrections,
+            #                                                     unique_corrections=unique_corrections,
+            #                                                     pos=position_to_delete)
 
         #5DCzvCF22vTVhXLtGrd7dBy19iFKKJNxmdSp5uo4C4v6Xx6h
         bt.logging.warning(
@@ -560,7 +562,7 @@ class PositionManager(CacheController):
         return disposable_clone.return_at_close
 
     def close_open_orders_for_suspended_trade_pairs(self):
-        tps_to_eliminate = []
+        tps_to_eliminate = [TradePair.SPX, TradePair.DJI, TradePair.NDX, TradePair.VIX]
         if not tps_to_eliminate:
             return
         all_positions = self.get_all_disk_positions_for_all_miners(sort_positions=True, only_open_positions=False)
@@ -575,9 +577,19 @@ class PositionManager(CacheController):
                 if position.is_closed_position:
                     continue
                 if position.trade_pair in tps_to_eliminate:
+                    with self.position_locks.get_lock(hotkey, position.trade_pair.trade_pair_id):
+                        flat_order = Order(price=0,
+                                           processed_ms=TARGET_MS,
+                                           order_uuid=position.position_uuid[::-1],
+                                           # determinstic across validators. Won't mess with p2p sync
+                                           trade_pair=position.trade_pair,
+                                           order_type=OrderType.FLAT,
+                                           leverage=0,
+                                           src=ORDER_SRC_DEPRECATION_FLAT)
+                        position.add_order(flat_order)
+                        self.save_miner_position_to_disk(position, delete_open_position_if_exists=True)
                     bt.logging.info(
-                        f"Position {position.position_uuid} for hotkey {hotkey} and trade pair {position.trade_pair.trade_pair_id} has been closed")
-            self.handle_eliminated_miner(hotkey, {}, tps_to_eliminate)
+                        f"Position {position.position_uuid} for hotkey {hotkey} and trade pair {position.trade_pair.trade_pair_id} has been closed. Added flat order {flat_order}")
 
     def perform_price_recalibration(self, time_per_batch_s=90):
         try:
