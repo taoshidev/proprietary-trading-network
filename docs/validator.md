@@ -190,11 +190,10 @@ npm install -g pm2
 brew install jq
 ```
 
-3. Create a `secrets.json` file in the root level of the PTN repo to include your TwelveData API key as shown below:
+3. Create a `secrets.json` file in the root level of the PTN repo to include your API keys as shown below:
 
 ```json
 {
-  "twelvedata_apikey": "YOUR_API_KEY_HERE",
   "polygon_apikey": "OTHER_API_KEY_HERE",
   "tiingo_apikey": "OTHER_API_KEY_HERE"
 }
