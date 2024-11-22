@@ -1,7 +1,7 @@
-import { TradePair, OrderType } from "../constants/index.js";
-import config from "../config.json" assert { type: "json" };
+import { TradePair, OrderType } from "../../constants/index.js";
+import config from "../../config.json" assert { type: "json" };
 
-export async function sendToPTN(signal) {
+export async function send(signal) {
   const data = {
     trade_pair: TradePair[signal.trade_pair],
     order_type: OrderType[signal.order_type],

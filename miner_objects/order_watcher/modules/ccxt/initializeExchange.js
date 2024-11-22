@@ -1,14 +1,18 @@
 import { pro as ccxt } from "ccxt";
 
 export async function initializeExchange(exchangeId, config) {
-  const { apiKey, secret, demo } = config;
+  const { apiKey, secret, password, demo } = config;
 
   if (!apiKey || !secret) return null;
 
   const exchange = new ccxt[exchangeId]({
-    apiKey: config.apiKey,
-    secret: config.secret,
+    apiKey,
+    secret,
+    ...(password && { password }),
+    options: { defaultType: "spot" },
   });
+
+  exchange.set_sandbox_mode(demo);
 
   if (exchange && typeof exchange.enableDemoTrading === "function") {
     await exchange.enableDemoTrading(demo);

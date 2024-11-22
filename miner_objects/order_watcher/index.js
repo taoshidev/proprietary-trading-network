@@ -3,14 +3,14 @@ import { createServer } from "http";
 import _ from "lodash";
 import { Command } from "commander";
 
-import { watchTower } from "./utils/watchTower.js";
-import { initializeWebSocketServer } from "./utils/websocketService.js";
+import { watchTower } from "./modules/app/index.js";
+import { startWebSocket } from "./modules/websocket/start.js";
 import { initializeRoutes } from "./routes/index.js";
 import config from "./config.json" assert { type: "json" };
 
 const app = express();
 const server = createServer(app);
-const wss = initializeWebSocketServer(server);
+const wss = startWebSocket(server);
 const program = new Command();
 
 app.use(express.json());

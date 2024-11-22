@@ -1,11 +1,12 @@
-import { startMinerProcess, startSignalServer } from "../utils/miner.js";
+import { startMiner } from "../modules/miner/start.js";
+import { startSignalServer } from "../modules/miner/startSignalServer.js";
 
 export const minerRoutes = (router, wss) => {
   router.post("/start-miner", async (req, res) => {
     const { testnet, wallet, debug } = req.body;
 
     try {
-      const output = await startMinerProcess(wss, { testnet, wallet, debug });
+      const output = await startMiner(wss, { testnet, wallet, debug });
       res.json({
         status: "success",
         message: "Miner started successfully",

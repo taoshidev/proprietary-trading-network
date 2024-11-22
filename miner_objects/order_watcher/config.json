@@ -10,5 +10,11 @@
     "apiKey": "mx0vglhJof2XJaFXFT",
     "secret": "8a4b9447a3134933bc91063219564ac0",
     "demo": true
+  },
+  "okx": {
+    "apiKey": "78f49e66-1700-4a99-a46b-af22fe9f2fa7",
+    "secret": "ED999DA50D7A43C82A553344D6E37E8A",
+    "password": "pLCCn%!xLb34kK",
+    "demo": true
   }
 }
