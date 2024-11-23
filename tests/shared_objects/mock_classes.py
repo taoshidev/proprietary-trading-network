@@ -2,12 +2,15 @@ import threading
 from typing import List
 from bittensor import Balance
 
+from vali_objects.utils.live_price_fetcher import LivePriceFetcher
 from vali_objects.utils.mdd_checker import MDDChecker
 from vali_objects.utils.plagiarism_detector import PlagiarismDetector
 from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
 from vali_objects.utils.position_manager import PositionManager
+from vali_objects.vali_config import TradePair
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
 from shared_objects.cache_controller import CacheController
+
 
 class MockMDDChecker(MDDChecker):
     def __init__(self, metagraph, position_manager, live_price_fetcher):
@@ -48,6 +51,12 @@ class MockChallengePeriodManager(ChallengePeriodManager):
     def __init__(self, metagraph):
         super().__init__(None, metagraph, running_unit_tests=True)
 
+class MockLivePriceFetcher(LivePriceFetcher):
+    def __init__(self, secrets, disable_ws):
+        super().__init__(secrets=secrets, disable_ws=disable_ws)
+
+    def get_latest_price(self, trade_pair: TradePair, time_ms=None):
+        return [0, []]
 
 class MockAxonInfo:
     ip: str
