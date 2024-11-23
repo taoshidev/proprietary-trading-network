@@ -41,7 +41,7 @@ class PolygonDataService(BaseDataService):
 
         self.MARKET_STATUS = None
         self.LOCK = threading.Lock()
-        self.UNSUPPORTED_TRADE_PAIRS = (TradePair.FTSE, TradePair.GDAXI)
+        self.UNSUPPORTED_TRADE_PAIRS = (TradePair.SPX, TradePair.DJI, TradePair.NDX, TradePair.VIX, TradePair.FTSE, TradePair.GDAXI)
 
 
         self.POLYGON_CLIENT = RESTClient(api_key=self._api_key, num_pools=20)

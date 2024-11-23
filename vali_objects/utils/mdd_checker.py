@@ -143,7 +143,7 @@ class MDDChecker(CacheController):
         orig_return = position.return_at_close
         orig_avg_price = position.average_entry_price
         orig_iep = position.initial_entry_price
-        # now_ms = TimeUtil.now_in_millis()
+        now_ms = TimeUtil.now_in_millis()
         with self.position_manager.position_locks.get_lock(hotkey, trade_pair_id):
             # Position could have updated in the time between mdd_check being called and this function being called
             position = self.position_manager.get_miner_position_from_disk_using_position_in_memory(position)
@@ -152,8 +152,8 @@ class MDDChecker(CacheController):
                 if not self.price_correction_enabled:
                     break
 
-                # order_age = now_ms - order.processed_ms
-                if order.processed_ms < 1732309200000: # RecentEventTracker.OLDEST_ALLOWED_RECORD_MS:
+                order_age = now_ms - order.processed_ms
+                if order_age > RecentEventTracker.OLDEST_ALLOWED_RECORD_MS:
                     break  # No need to check older records
 
                 sources = _get_sources_for_order(order, position.trade_pair, is_last_order=i == 0)
@@ -163,7 +163,6 @@ class MDDChecker(CacheController):
                                      f"issue persist, alert the team.")
                     continue
                 if PriceSource.update_order_with_newest_price_sources(order, sources, hotkey, position.trade_pair.trade_pair):
-                    bt.logging.info(f"order {order} updated")
                     n_orders_updated += 1
 
             # Rebuild the position with the newest price
@@ -259,10 +258,6 @@ class MDDChecker(CacheController):
             if position.is_open_position or position.newest_order_age_ms <= RecentEventTracker.OLDEST_ALLOWED_RECORD_MS:
                 self._update_position_returns_and_persist_to_disk(hotkey, position, candle_data)
 
-            # Temp:update prices for force closed indices positions
-            if position.trade_pair.is_indices and position.close_ms > 1732309200000:
-                bt.logging.info(f"performing indices price corrections for position {position}")
-                self._update_position_returns_and_persist_to_disk(hotkey, position, candle_data)
 
 
 

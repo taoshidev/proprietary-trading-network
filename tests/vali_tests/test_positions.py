@@ -5,14 +5,13 @@ from copy import deepcopy
 
 from vali_objects.position import CRYPTO_CARRY_FEE_PER_INTERVAL, FOREX_CARRY_FEE_PER_INTERVAL, \
     INDICES_CARRY_FEE_PER_INTERVAL
-from tests.shared_objects.mock_classes import MockMetagraph
+from tests.shared_objects.mock_classes import MockMetagraph, MockLivePriceFetcher
 from tests.vali_tests.base_objects.test_base import TestBase
 from vali_objects.vali_config import TradePair, ValiConfig
 from vali_objects.utils import leverage_utils
 from vali_objects.utils.leverage_utils import LEVERAGE_BOUNDS_V2_START_TIME_MS, get_position_leverage_bounds
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.position import Position, FEE_V6_TIME_MS
-from vali_objects.utils.live_price_fetcher import LivePriceFetcher
 from vali_objects.utils.position_manager import PositionManager
 from vali_objects.utils.vali_utils import ValiUtils
 from vali_objects.vali_dataclasses.order import Order, ORDER_SRC_ELIMINATION_FLAT, ORDER_SRC_DEPRECATION_FLAT
@@ -25,7 +24,7 @@ class TestPositions(TestBase):
         super().setUp()
         secrets = ValiUtils.get_secrets(running_unit_tests=True)
         secrets["twelvedata_apikey"] = secrets["twelvedata_apikey"]
-        self.live_price_fetcher = LivePriceFetcher(secrets=secrets, disable_ws=True)
+        self.live_price_fetcher = MockLivePriceFetcher(secrets=secrets, disable_ws=True)
         self.DEFAULT_MINER_HOTKEY = "test_miner"
         self.DEFAULT_POSITION_UUID = "test_position"
         self.DEFAULT_OPEN_MS = 1000
@@ -37,7 +36,7 @@ class TestPositions(TestBase):
             trade_pair=self.DEFAULT_TRADE_PAIR,
         )
         self.mock_metagraph = MockMetagraph([self.DEFAULT_MINER_HOTKEY])
-        self.position_manager = PositionManager(metagraph=self.mock_metagraph, running_unit_tests=True)
+        self.position_manager = PositionManager(metagraph=self.mock_metagraph, running_unit_tests=True, live_price_fetcher=self.live_price_fetcher)
         self.position_manager.init_cache_files()
         self.position_manager.clear_all_miner_positions_from_disk()
 
