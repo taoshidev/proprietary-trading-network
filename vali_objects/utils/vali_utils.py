@@ -19,7 +19,7 @@ class ValiUtils:
             secrets = ValiBkpUtils.get_file(ValiBkpUtils.get_secrets_dir())
             ans = json.loads(secrets)
             if running_unit_tests:
-                for k in ['twelvedata_apikey', 'polygon_apikey', 'tiingo_apikey']:
+                for k in ['polygon_apikey', 'tiingo_apikey']:
                     if k not in ans:
                         ans[k] = ""
         except FileNotFoundError:
@@ -27,7 +27,7 @@ class ValiUtils:
                 raise ValiFileMissingException("Vali secrets file is missing")
 
         if running_unit_tests:
-            for k in ['twelvedata_apikey', 'polygon_apikey', 'tiingo_apikey']:
+            for k in ['polygon_apikey', 'tiingo_apikey']:
                 if k not in ans:
                     # Free API key made for tests
                     ans[k] = "aa45e119baef5759d66004903aaff3b0b0e30205" if k == "tiingo_apikey" else ""

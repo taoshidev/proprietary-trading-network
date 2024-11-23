@@ -258,7 +258,7 @@ class LivePriceFetcher:
             price, time_delta = self.tiingo_data_service.get_close_at_date(trade_pair=trade_pair, timestamp_ms=timestamp_ms)
             if price is not None:
                 bt.logging.warning(
-                    f"Fell back to TwelveData get_date for price of {trade_pair.trade_pair} at {TimeUtil.timestamp_ms_to_eastern_time_str(timestamp_ms)}, ms: {timestamp_ms}")
+                    f"Fell back to Tiingo get_date for price of {trade_pair.trade_pair} at {TimeUtil.timestamp_ms_to_eastern_time_str(timestamp_ms)}, ms: {timestamp_ms}")
 
         if price is None:
             price, time_delta = self.polygon_data_service.get_close_at_date_minute_fallback(trade_pair=trade_pair,

@@ -10,7 +10,6 @@ from vali_objects.vali_dataclasses.recent_event_tracker import RecentEventTracke
 from vali_objects.vali_dataclasses.price_source import PriceSource
 
 POLYGON_PROVIDER_NAME = "Polygon"
-TWELVEDATA_PROVIDER_NAME = "TwelveData"
 TIINGO_PROVIDER_NAME = "Tiingo"
 
 class BaseDataService():

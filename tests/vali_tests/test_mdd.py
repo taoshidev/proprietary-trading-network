@@ -23,10 +23,10 @@ class TestMDDChecker(TestBase):
         cls.mock_fetch_prices = cls.data_patch.start()
         cls.mock_fetch_prices.return_value = {TradePair.BTCUSD: (
             64751.73,
-            [PriceSource(source='TwelveData_rest', timespan_ms=60000, open=64751.73, close=64771.04, vwap=None,
+            [PriceSource(source='Tiingo_rest', timespan_ms=60000, open=64751.73, close=64771.04, vwap=None,
                          high=64813.66, low=64749.99, start_ms=1721937480000, websocket=False, lag_ms=29041,
                          volume=None),
-             PriceSource(source='TwelveData_ws', timespan_ms=0, open=64681.6, close=64681.6, vwap=None,
+             PriceSource(source='Tiingo_ws', timespan_ms=0, open=64681.6, close=64681.6, vwap=None,
                          high=64681.6, low=64681.6, start_ms=1721937625000, websocket=True, lag_ms=174041,
                          volume=None),
              PriceSource(source='Polygon_ws', timespan_ms=0, open=64693.52, close=64693.52, vwap=64693.7546,
@@ -41,9 +41,9 @@ class TestMDDChecker(TestBase):
                  PriceSource(source='Polygon_rest', timespan_ms=1000, open=3267.8, close=3267.8, vwap=3267.8,
                              high=3267.8, low=3267.8, start_ms=1722390426000, websocket=False, lag_ms=2470,
                              volume=0.00697151),
-                 PriceSource(source='TwelveData_ws', timespan_ms=0, open=3267.9, close=3267.9, vwap=None, high=3267.9,
+                 PriceSource(source='Tiingo_ws', timespan_ms=0, open=3267.9, close=3267.9, vwap=None, high=3267.9,
                              low=3267.9, start_ms=1722390422000, websocket=True, lag_ms=7469, volume=None),
-                 PriceSource(source='TwelveData_rest', timespan_ms=60000, open=3271.26001, close=3268.6001, vwap=None,
+                 PriceSource(source='Tiingo_rest', timespan_ms=60000, open=3271.26001, close=3268.6001, vwap=None,
                              high=3271.26001, low=3268.1001, start_ms=1722389640000, websocket=False, lag_ms=729470,
                              volume=None)])
         }
@@ -74,7 +74,6 @@ class TestMDDChecker(TestBase):
         self.mdd_checker.init_cache_files()
         self.mdd_checker.clear_eliminations_from_disk()
         self.position_manager.clear_all_miner_positions_from_disk()
-        #secrets["twelvedata_apikey"] = secrets["twelvedata_apikey2"]
         self.mdd_checker.price_correction_enabled = False
 
     def verify_elimination_data_in_memory_and_disk(self, expected_eliminations):
