@@ -578,7 +578,11 @@ class PositionManager(CacheController):
                     continue
                 if position.trade_pair in tps_to_eliminate:
                     with self.position_locks.get_lock(hotkey, position.trade_pair.trade_pair_id):
-                        flat_order = Order(price=0,
+                        live_closing_price, price_sources = self.live_price_fetcher.get_latest_price(
+                            trade_pair=position.trade_pair,
+                            time_ms=TARGET_MS)
+                        flat_order = Order(price=live_closing_price,
+                                           price_sources=price_sources,
                                            processed_ms=TARGET_MS,
                                            order_uuid=position.position_uuid[::-1],
                                            # determinstic across validators. Won't mess with p2p sync

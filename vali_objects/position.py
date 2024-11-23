@@ -6,7 +6,7 @@ from pydantic import model_validator, BaseModel, Field
 
 from time_util.time_util import TimeUtil, MS_IN_8_HOURS, MS_IN_24_HOURS
 from vali_objects.vali_config import TradePair, ValiConfig
-from vali_objects.vali_dataclasses.order import Order, ORDER_SRC_ELIMINATION_FLAT, ORDER_SRC_DEPRECATION_FLAT
+from vali_objects.vali_dataclasses.order import Order, ORDER_SRC_ELIMINATION_FLAT
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.utils import leverage_utils
 import bittensor as bt
@@ -466,7 +466,7 @@ class Position(BaseModel):
         realtime_price = order.price
         assert self.initial_entry_price > 0, self.initial_entry_price
         new_net_leverage = self.net_leverage + delta_leverage
-        if order.src == ORDER_SRC_ELIMINATION_FLAT or order.src == ORDER_SRC_DEPRECATION_FLAT:
+        if order.src == ORDER_SRC_ELIMINATION_FLAT:
             self.net_leverage = 0.0
             return  # Don't set returns since the price is zero'd out.
         self.set_returns(realtime_price, time_ms=order.processed_ms)
