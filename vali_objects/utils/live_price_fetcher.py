@@ -62,12 +62,7 @@ class LivePriceFetcher:
         Fetches data using WebSockets first; uses REST APIs if WebSocket data is outdated or missing.
         """
         websocket_prices_polygon = self.polygon_data_service.get_closes_websocket(trade_pairs=tps, trade_pair_to_last_order_time_ms=trade_pair_to_last_order_time_ms)
-        # do not source indices from twelvedata; ongoing indices outage
-        tp_no_indices = [tp for tp in tps if not tp.is_indices]
-        trade_pair_to_last_order_time_ms_no_indices = {tp: order_ms for tp, order_ms in trade_pair_to_last_order_time_ms.items() if not tp.is_indices}
-        websocket_prices_tiingo_data = {}
-        if tp_no_indices:
-            websocket_prices_tiingo_data = self.tiingo_data_service.get_closes_websocket(trade_pairs=tp_no_indices, trade_pair_to_last_order_time_ms=trade_pair_to_last_order_time_ms_no_indices)
+        websocket_prices_tiingo_data = self.tiingo_data_service.get_closes_websocket(trade_pairs=tps, trade_pair_to_last_order_time_ms=trade_pair_to_last_order_time_ms)
         trade_pairs_needing_rest_data = []
 
         results = {}
@@ -87,10 +82,7 @@ class LivePriceFetcher:
             return results
 
         rest_prices_polygon = self.polygon_data_service.get_closes_rest(trade_pairs_needing_rest_data)
-        trade_pairs_needing_rest_data_no_indices = [tp for tp in trade_pairs_needing_rest_data if not tp.is_indices]
-        rest_prices_tiingo_data = {}
-        if trade_pairs_needing_rest_data_no_indices:
-            rest_prices_tiingo_data = self.tiingo_data_service.get_closes_rest(trade_pairs_needing_rest_data_no_indices)
+        rest_prices_tiingo_data = self.tiingo_data_service.get_closes_rest(trade_pairs_needing_rest_data)
 
         for trade_pair in trade_pairs_needing_rest_data:
             current_time_ms = trade_pair_to_last_order_time_ms[trade_pair]

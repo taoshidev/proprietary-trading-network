@@ -31,7 +31,7 @@ class TiingoDataService(BaseDataService):
 
         self.MARKET_STATUS = None
         self.LOCK = threading.Lock()
-        self.UNSUPPORTED_TRADE_PAIRS = (TradePair.FTSE, TradePair.GDAXI)
+        self.UNSUPPORTED_TRADE_PAIRS = (TradePair.SPX, TradePair.DJI, TradePair.NDX, TradePair.VIX, TradePair.FTSE, TradePair.GDAXI)
 
         self.config = {'api_key': self._api_key, 'session': True}
         self.TIINGO_CLIENT = TiingoClient(self.config)
