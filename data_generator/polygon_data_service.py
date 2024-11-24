@@ -168,9 +168,9 @@ class PolygonDataService(BaseDataService):
 
     def stop_threads(self):
         if self.POLY_WEBSOCKET_THREADS[Market.Stocks]:
-            self.POLY_WEBSOCKET_THREADS[Market.Stocks].join()
-            self.POLY_WEBSOCKET_THREADS[Market.Forex].join()
-            self.POLY_WEBSOCKET_THREADS[Market.Crypto].join()
+            self.POLY_WEBSOCKET_THREADS[Market.Stocks].join(timeout=1)
+            self.POLY_WEBSOCKET_THREADS[Market.Forex].join(timeout=1)
+            self.POLY_WEBSOCKET_THREADS[Market.Crypto].join(timeout=1)
 
     def close_websockets(self):
         if self.POLY_WEBSOCKETS[Market.Stocks]:
@@ -194,31 +194,6 @@ class PolygonDataService(BaseDataService):
         self.POLY_WEBSOCKET_THREADS[Market.Stocks].start()
         self.POLY_WEBSOCKET_THREADS[Market.Forex].start()
         self.POLY_WEBSOCKET_THREADS[Market.Crypto].start()
-
-    def websocket_manager(self):
-        prev_n_events = None
-        last_ws_health_check_s = 0
-        last_market_status_update_s = 0
-        while True:
-            now = time.time()
-            if now - last_ws_health_check_s > 180:
-                if prev_n_events is None or prev_n_events == self.n_events_global:
-                    if prev_n_events is not None:
-                        bt.logging.error(
-                            f"POLY websocket has not received any events in the last 180 seconds. n_events {self.n_events_global} Restarting websocket.")
-                    self.stop_start_websocket_threads()
-
-                last_ws_health_check_s = now
-                prev_n_events = self.n_events_global
-
-            if now - last_market_status_update_s > self.DEBUG_LOG_INTERVAL_S:
-                #self.MARKET_STATUS = self.POLYGON_CLIENT.get_market_status()
-                #if not isinstance(self.MARKET_STATUS, MarketStatus):
-                #    bt.logging.error(f"Failed to fetch market status. Received: {self.MARKET_STATUS}")
-                last_market_status_update_s = now
-                self.debug_log()
-
-            time.sleep(1)
 
     def parse_price_for_forex(self, m, stats=None, is_ws=False):
         t_ms = m.timestamp if is_ws else m.participant_timestamp // 1000000

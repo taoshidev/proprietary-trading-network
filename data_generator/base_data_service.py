@@ -15,6 +15,8 @@ TIINGO_PROVIDER_NAME = "Tiingo"
 class BaseDataService():
     def __init__(self, provider_name):
         self.DEBUG_LOG_INTERVAL_S = 180
+        self.MAX_TIME_NO_EVENTS_S = 120
+
         self.provider_name = provider_name
         self.n_events_global = 0
         self.n_equity_events_skipped_afterhours = 0
@@ -56,6 +58,31 @@ class BaseDataService():
             bt.logging.warning(
                 f"Failed to get close for {trade_pair.trade_pair} using {self.provider_name} websocket or REST.")
         return event
+
+    def websocket_manager(self):
+        prev_n_events = None
+        last_ws_health_check_s = 0
+        last_market_status_update_s = 0
+        while True:
+            now = time.time()
+            if now - last_ws_health_check_s > self.MAX_TIME_NO_EVENTS_S:
+                if prev_n_events is None or prev_n_events == self.n_events_global:
+                    if prev_n_events is not None:
+                        bt.logging.error(
+                            f"{self.provider_name} websocket has not received any events in the last {self.MAX_TIME_NO_EVENTS_S} seconds. n_events {self.n_events_global} Restarting websocket.")
+                    self.stop_start_websocket_threads()
+
+                last_ws_health_check_s = now
+                prev_n_events = self.n_events_global
+
+            if now - last_market_status_update_s > self.DEBUG_LOG_INTERVAL_S:
+                last_market_status_update_s = now
+                self.debug_log()
+
+            time.sleep(1)
+
+    def stop_start_websocket_threads(self):
+        raise NotImplementedError
 
     def get_closes_websocket(self, trade_pairs: List[TradePair], trade_pair_to_last_order_time_ms) -> dict[str: PriceSource]:
         events = {}

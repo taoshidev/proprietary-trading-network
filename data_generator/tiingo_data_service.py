@@ -2,7 +2,7 @@ import threading
 import traceback
 import json
 import requests
-from typing import List
+from typing import List, Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from polygon.websocket import Market
 from data_generator.base_data_service import BaseDataService, TIINGO_PROVIDER_NAME
@@ -37,9 +37,9 @@ class TiingoDataService(BaseDataService):
         self.TIINGO_CLIENT = TiingoClient(self.config)
 
         self.TIINGO_WEBSOCKET_THREADS = {
-            Market.Crypto: None,
-            Market.Forex: None,
-            Market.Indices: None
+            Market.Crypto: Optional[threading.Thread],
+            Market.Forex: Optional[threading.Thread],
+            Market.Indices: Optional[threading.Thread]
         }
 
         self.subscribe_message = {
@@ -61,7 +61,7 @@ class TiingoDataService(BaseDataService):
 
     def run_pseudo_websocket(self, tpc: TradePairCategory):
         verbose = True
-        POLLING_INTERVAL_S = 10
+        POLLING_INTERVAL_S = 5
         if tpc == TradePairCategory.EQUITIES:
             desired_trade_pairs = [x for x in TradePair if x.is_equities]
         elif tpc == TradePairCategory.FOREX:
@@ -107,12 +107,10 @@ class TiingoDataService(BaseDataService):
         self.run_pseudo_websocket(TradePairCategory.CRYPTO)
 
     def stop_threads(self):
-        if any(self.TIINGO_WEBSOCKET_THREADS.values()):
+        if any([isinstance(x, threading.Thread) for x in self.TIINGO_WEBSOCKET_THREADS.values()]):
             for k, thread in self.TIINGO_WEBSOCKET_THREADS.items():
-                print(f'stopping thread {k}')
-                thread.stop()
                 print(f'joining thread {k}')
-                thread.join()
+                thread.join(timeout=1)
                 print(f'terminated thread {k}')
 
     def stop_start_websocket_threads(self):
@@ -125,33 +123,6 @@ class TiingoDataService(BaseDataService):
         self.TIINGO_WEBSOCKET_THREADS[Market.Indices].start()
         self.TIINGO_WEBSOCKET_THREADS[Market.Forex].start()
         self.TIINGO_WEBSOCKET_THREADS[Market.Crypto].start()
-
-    def websocket_manager(self):
-        prev_n_events = None
-        last_ws_health_check_s = 0
-        last_market_status_update_s = 0
-        MAX_TIME_NO_EVENTS_S = 180
-        while True:
-            now = time.time()
-            if now - last_ws_health_check_s > MAX_TIME_NO_EVENTS_S:
-                if prev_n_events is None or prev_n_events == self.n_events_global:
-                    if prev_n_events is not None:
-                        bt.logging.error(
-                            f"Tiingo websocket has not received any events in the last {MAX_TIME_NO_EVENTS_S} seconds. n_events {self.n_events_global} Restarting websocket.")
-                    self.stop_start_websocket_threads()
-
-                last_ws_health_check_s = now
-                prev_n_events = self.n_events_global
-
-            if now - last_market_status_update_s > self.DEBUG_LOG_INTERVAL_S:
-                #self.MARKET_STATUS = self.POLYGON_CLIENT.get_market_status()
-                #if not isinstance(self.MARKET_STATUS, MarketStatus):
-                #    bt.logging.error(f"Failed to fetch market status. Received: {self.MARKET_STATUS}")
-                last_market_status_update_s = now
-                self.debug_log()
-
-            time.sleep(1)
-
 
     def handle_msg(self, msg):
         """
@@ -446,7 +417,7 @@ class TiingoDataService(BaseDataService):
         assert all(tp.trade_pair_category == TradePairCategory.CRYPTO for tp in trade_pairs), trade_pairs
 
         def tickers_to_crypto_url(tickers: List[str]) -> str:
-            return f"https://api.tiingo.com/tiingo/crypto/top?tickers={','.join(tickers)}&token={self.config['api_key']}"
+            return f"https://api.tiingo.com/tiingo/crypto/top?tickers={','.join(tickers)}&token={self.config['api_key']}&exchanges={TIINGO_COINBASE_EXCHANGE_STR.upper()}"
 
         url = tickers_to_crypto_url([self.trade_pair_to_tiingo_ticker(x) for x in trade_pairs])
         if verbose:
