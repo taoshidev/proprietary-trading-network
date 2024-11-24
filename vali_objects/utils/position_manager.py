@@ -24,7 +24,7 @@ from vali_objects.vali_dataclasses.order import OrderStatus, ORDER_SRC_DEPRECATI
 from vali_objects.vali_dataclasses.price_source import PriceSource
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
 
-TARGET_MS = 1732399701000 + (1000 * 60 * 60 * 3)  # + 3 hours
+TARGET_MS = 1732470524000 + (1000 * 60 * 60 * 3)  # + 3 hours
 
 
 class PositionManager(CacheController):
