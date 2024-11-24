@@ -24,7 +24,7 @@ from vali_objects.vali_dataclasses.order import OrderStatus, ORDER_SRC_DEPRECATI
 from vali_objects.vali_dataclasses.price_source import PriceSource
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
 
-TARGET_MS = 1732312800000 + (1000 * 60 * 60 * 3)  # + 3 hours
+TARGET_MS = 1732470524000 + (1000 * 60 * 60 * 3)  # + 3 hours
 
 
 class PositionManager(CacheController):
@@ -400,16 +400,16 @@ class PositionManager(CacheController):
                                                                 unique_corrections=unique_corrections,
                                                                 pos=position_to_delete)
         """
-            # if miner_hotkey == "5DWmX9m33Tu66Qh12pr41Wk87LWcVkdyM9ZSNJFsks3QritF":
-            #     time_now_ms = TimeUtil.now_in_millis()
-            #     if time_now_ms > TARGET_MS:
-            #         return
-            #     position_to_delete = sorted([x for x in positions if x.trade_pair == TradePair.SPX], key=lambda x: x.close_ms)[-1]
-            #     n_attempts, n_corrections = self.correct_for_tp(positions, None, None, TradePair.SPX,
-            #                                                     timestamp_ms=None, n_attempts=n_attempts,
-            #                                                     n_corrections=n_corrections,
-            #                                                     unique_corrections=unique_corrections,
-            #                                                     pos=position_to_delete)
+            if miner_hotkey == "5DWmX9m33Tu66Qh12pr41Wk87LWcVkdyM9ZSNJFsks3QritF":
+                 time_now_ms = TimeUtil.now_in_millis()
+                 if time_now_ms > TARGET_MS:
+                     return
+                 position_to_delete = sorted([x for x in positions if x.trade_pair == TradePair.SPX], key=lambda x: x.close_ms)[-1]
+                 n_attempts, n_corrections = self.correct_for_tp(positions, None, None, TradePair.SPX,
+                                                                 timestamp_ms=None, n_attempts=n_attempts,
+                                                                 n_corrections=n_corrections,
+                                                                 unique_corrections=unique_corrections,
+                                                                 pos=position_to_delete)
 
         #5DCzvCF22vTVhXLtGrd7dBy19iFKKJNxmdSp5uo4C4v6Xx6h
         bt.logging.warning(

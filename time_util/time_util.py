@@ -6,6 +6,9 @@ from functools import lru_cache
 from zoneinfo import ZoneInfo  # Make sure to use Python 3.9 or later
 
 import pandas as pd
+
+from vali_objects.vali_config import TradePair
+
 pd.set_option('future.no_silent_downcasting', True)
 from pandas.tseries.holiday import USFederalHolidayCalendar  # noqa: E402
 
@@ -112,15 +115,17 @@ class IndicesMarketCalendar:
 
 
     def get_market_calendar(self, ticker):
+        ticker = ticker.upper()
+        tp = TradePair.get_latest_trade_pair_from_trade_pair_id(ticker)
         # Return the appropriate calendar based on the ticker
-        if ticker.upper() in ['SPX', 'DJI']:  # S&P 500 and Dow Jones are on the NYSE
+        if ticker in ['SPX', 'DJI']:  # S&P 500 and Dow Jones are on the NYSE
             return self.nyse_calendar
-        elif ticker.upper() == 'NDX':  # NASDAQ 100 is on the NASDAQ
+        elif ticker == 'NDX' or tp and tp.is_equities:  # NASDAQ 100 is on the NASDAQ
             return self.nasdaq_calendar
-        elif ticker.upper() == 'VIX':  # Volatility Index is derived from CBOE
+        elif ticker == 'VIX':  # Volatility Index is derived from CBOE
             return self.cboe_calendar
         else:
-            raise ValueError(f"Ticker not supported {ticker}. Supported tickers are: SPX, NDX, DJI, VIX")
+            raise ValueError(f"Ticker not supported {ticker}")
 
     @lru_cache(maxsize=3000)
     def schedule_from_cache(self, tsn, market_name):
@@ -202,7 +207,7 @@ class UnifiedMarketCalendar:
             #print(f"found forex {trade_pair.trade_pair_id} in {tf - t0}")
             # Check if the Forex market is open using the Forex calendar
             return ans
-        elif trade_pair.is_indices:
+        elif trade_pair.is_indices or trade_pair.is_equities:
             ticker = trade_pair.trade_pair_id  # Use the trade_pair_id as the ticker
             ans = self.indices_calendar.is_market_open(ticker, timestamp_ms)
             #tf = time.time()
@@ -287,6 +292,22 @@ class TimeUtil:
         # Convert the timestamp to milliseconds
         timestamp_milliseconds = int(timestamp_seconds * 1000)
         return timestamp_milliseconds
+
+    @staticmethod
+    def parse_iso_to_ms(iso_string: str) -> int:
+        """
+        Parses an ISO 8601 formatted string into a timestamp in milliseconds.
+
+        Args:
+            iso_string (str): The ISO 8601 formatted string, e.g., '2024-11-20T15:47:40.062000+00:00'.
+
+        Returns:
+            int: The timestamp in milliseconds since the Unix epoch.
+        """
+        # Parse the ISO 8601 string to a datetime object
+        dt = datetime.fromisoformat(iso_string)
+        # Convert to a timestamp in seconds and then to milliseconds
+        return int(dt.timestamp() * 1000)
 
     @staticmethod
     def timestamp_ms_to_eastern_time_str(timestamp_ms):

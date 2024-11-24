@@ -49,7 +49,7 @@ class FeeCache():
         # cache hit?
         if position.trade_pair.is_crypto:
             start_time_cache_hit = self.carry_fee_next_increase_time_ms - MS_IN_8_HOURS
-        elif position.trade_pair.is_forex or position.trade_pair.is_indices:
+        elif position.trade_pair.is_forex or position.trade_pair.is_indices or position.trade_pair.is_equities:
             start_time_cache_hit = self.carry_fee_next_increase_time_ms - MS_IN_24_HOURS
         else:
             raise Exception(f"Unknown trade pair type: {position.trade_pair}")
@@ -864,7 +864,9 @@ class PerfLedgerManager(CacheController):
                 bt.logging.error(traceback.format_exc())
                 continue
 
-        bt.logging.info(f"Done updating perf ledger for all hotkeys in {time.time() - t_init} s")
+        n_perf_ledgers = len(existing_perf_ledgers) if existing_perf_ledgers else 0
+        n_hotkeys_with_positions = len(hotkey_to_positions) if hotkey_to_positions else 0
+        bt.logging.info(f"Done updating perf ledger for all hotkeys in {time.time() - t_init} s. n_perf_ledgers {n_perf_ledgers}. n_hotkeys_with_positions {n_hotkeys_with_positions}")
         self.write_perf_ledger_eliminations_to_disk(self.elimination_rows)
 
         if self.shutdown_dict:
@@ -925,6 +927,7 @@ class PerfLedgerManager(CacheController):
 
         # Sort the keys with the custom sort key
         hotkeys_ordered_by_last_trade = sorted(hotkey_to_positions.keys(), key=sort_key, reverse=True)
+
         eliminated_hotkeys = self.get_eliminated_hotkeys()
 
         # Remove keys from perf ledgers if they aren't in the metagraph anymore
@@ -934,6 +937,9 @@ class PerfLedgerManager(CacheController):
 
         # Determine which hotkeys to remove from the perf ledger
         hotkeys_to_iterate = [x for x in hotkeys_ordered_by_last_trade if x in perf_ledgers]
+        for k in perf_ledgers.keys():  # Some hotkeys may not be in the positions (old, bugged, etc.)
+            if k not in hotkeys_to_iterate:
+                hotkeys_to_iterate.append(k)
 
         for hotkey in hotkeys_to_iterate:
             if hotkey not in metagraph_hotkeys:

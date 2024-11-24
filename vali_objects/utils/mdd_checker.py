@@ -49,11 +49,16 @@ class MDDChecker(CacheController):
 
     def get_candle_data(self, hotkey_positions) -> Dict[TradePair, List[PriceSource]]:
         required_trade_pairs_for_candles = set()
+        trade_pair_to_market_open = {}
         for sorted_positions in hotkey_positions.values():
             for position in sorted_positions:
-                # Only need live price for open positions
+                # Only need live price for open positions in open markets.
                 if position.is_open_position:
-                    required_trade_pairs_for_candles.add(position.trade_pair)
+                    tp = position.trade_pair
+                    if tp not in trade_pair_to_market_open:
+                        trade_pair_to_market_open[tp] = self.live_price_fetcher.polygon_data_service.is_market_open(tp)
+                    if trade_pair_to_market_open[tp]:
+                        required_trade_pairs_for_candles.add(tp)
 
         now = TimeUtil.now_in_millis()
         candle_data = self.live_price_fetcher.get_latest_prices(list(required_trade_pairs_for_candles))

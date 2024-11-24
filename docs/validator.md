@@ -39,15 +39,9 @@ Below are the prerequisites for validators.
 - 4 vCPU + 16 GB memory
 - 1 TB balanced persistent disk
 - 1000 TAO staked
-- A Twelvedata API account. (https://twelvedata.com/) with "Pro 610". The free tier is sufficient for testnet usage.
-<img src="https://github.com/taoshidev/proprietary-trading-network/assets/161871533/ab74b310-7d32-432e-aada-4e0da2cb7a04" width="300">
+- A Tiingo API account. (https://www.tiingo.com/) with the "Commercial" ($50/month) subscription.
 
-- A Polygon API account (https://polygon.io/) with "Currencies Starter" as well as "Indicies Advanced"
-<img src="https://github.com/taoshidev/proprietary-trading-network/assets/161871533/37e525b9-ab43-48b5-95ab-10fdc0903a5d" width="300">
-
-<img src="https://github.com/taoshidev/proprietary-trading-network/assets/161871533/e726ed33-a3d4-4f58-9270-ce201b51e1b1" width="300">
-
-For mainnet applications, the paid tiers are required to stay in consensus (~$250/month as of the time of writing). For testnet, you may use the free tiers.
+- A Polygon API account (https://polygon.io/) with "Currencies Starter ($49/month)" as well as "Stocks Advanced ($199/month)" subscriptions.
 
 # Getting Started
 
@@ -196,12 +190,12 @@ npm install -g pm2
 brew install jq
 ```
 
-3. Create a `secrets.json` file in the root level of the PTN repo to include your TwelveData API key as shown below:
+3. Create a `secrets.json` file in the root level of the PTN repo to include your API keys as shown below:
 
 ```json
 {
-  "twelvedata_apikey": "YOUR_API_KEY_HERE",
-  "polygon_apikey": "OTHER_API_KEY_HERE"
+  "polygon_apikey": "OTHER_API_KEY_HERE",
+  "tiingo_apikey": "OTHER_API_KEY_HERE"
 }
 ```
 

@@ -23,7 +23,6 @@ class TestPositions(TestBase):
     def setUp(self):
         super().setUp()
         secrets = ValiUtils.get_secrets(running_unit_tests=True)
-        secrets["twelvedata_apikey"] = secrets["twelvedata_apikey"]
         self.live_price_fetcher = MockLivePriceFetcher(secrets=secrets, disable_ws=True)
         self.DEFAULT_MINER_HOTKEY = "test_miner"
         self.DEFAULT_POSITION_UUID = "test_position"

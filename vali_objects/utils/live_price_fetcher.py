@@ -3,7 +3,7 @@ from typing import List, Tuple, Dict
 
 import numpy as np
 
-from data_generator.twelvedata_service import TwelveDataService
+from data_generator.tiingo_data_service import TiingoDataService
 from data_generator.polygon_data_service import PolygonDataService
 from time_util.time_util import TimeUtil
 
@@ -19,18 +19,20 @@ from statistics import median
 
 class LivePriceFetcher:
     def __init__(self, secrets, disable_ws=False):
-        if "twelvedata_apikey" in secrets:
-            self.twelve_data_service = TwelveDataService(api_key=secrets["twelvedata_apikey"], disable_ws=disable_ws)
+        if "tiingo_apikey" in secrets:
+            self.tiingo_data_service = TiingoDataService(api_key=secrets["tiingo_apikey"], disable_ws=disable_ws)
         else:
-            raise Exception("TwelveData API key not found in secrets.json")
+            raise Exception("Tiingo API key not found in secrets.json")
         if "polygon_apikey" in secrets:
             self.polygon_data_service = PolygonDataService(api_key=secrets["polygon_apikey"], disable_ws=disable_ws)
         else:
             raise Exception("Polygon API key not found in secrets.json")
 
     def stop_all_threads(self):
-        if self.twelve_data_service._heartbeat_thread:
-            self.twelve_data_service._heartbeat_thread.join()
+        if self.tiingo_data_service.websocket_manager_thread:
+            self.tiingo_data_service.websocket_manager_thread.join()
+        self.tiingo_data_service.stop_threads()
+
         if self.polygon_data_service.websocket_manager_thread:
             self.polygon_data_service.websocket_manager_thread.join()
         self.polygon_data_service.close_websockets()
@@ -60,12 +62,7 @@ class LivePriceFetcher:
         Fetches data using WebSockets first; uses REST APIs if WebSocket data is outdated or missing.
         """
         websocket_prices_polygon = self.polygon_data_service.get_closes_websocket(trade_pairs=tps, trade_pair_to_last_order_time_ms=trade_pair_to_last_order_time_ms)
-        # do not source indices from twelvedata; ongoing indices outage
-        tp_no_indices = [tp for tp in tps if not tp.is_indices]
-        trade_pair_to_last_order_time_ms_no_indices = {tp: order_ms for tp, order_ms in trade_pair_to_last_order_time_ms.items() if not tp.is_indices}
-        websocket_prices_twelve_data = {}
-        if tp_no_indices:
-            websocket_prices_twelve_data = self.twelve_data_service.get_closes_websocket(trade_pairs=tp_no_indices, trade_pair_to_last_order_time_ms=trade_pair_to_last_order_time_ms_no_indices)
+        websocket_prices_tiingo_data = self.tiingo_data_service.get_closes_websocket(trade_pairs=tps, trade_pair_to_last_order_time_ms=trade_pair_to_last_order_time_ms)
         trade_pairs_needing_rest_data = []
 
         results = {}
@@ -73,7 +70,7 @@ class LivePriceFetcher:
         # Initial check using WebSocket data
         for trade_pair in tps:
             current_time_ms = trade_pair_to_last_order_time_ms[trade_pair]
-            events = [websocket_prices_polygon.get(trade_pair), websocket_prices_twelve_data.get(trade_pair)]
+            events = [websocket_prices_polygon.get(trade_pair), websocket_prices_tiingo_data.get(trade_pair)]
             price, sources = self.determine_best_price(events, current_time_ms)
             if price:
                 results[trade_pair] = (price, sources)
@@ -85,18 +82,15 @@ class LivePriceFetcher:
             return results
 
         rest_prices_polygon = self.polygon_data_service.get_closes_rest(trade_pairs_needing_rest_data)
-        trade_pairs_needing_rest_data_no_indices = [tp for tp in trade_pairs_needing_rest_data if not tp.is_indices]
-        rest_prices_twelve_data = {}
-        if trade_pairs_needing_rest_data_no_indices:
-            rest_prices_twelve_data = self.twelve_data_service.get_closes_rest(trade_pairs_needing_rest_data_no_indices)
+        rest_prices_tiingo_data = self.tiingo_data_service.get_closes_rest(trade_pairs_needing_rest_data)
 
         for trade_pair in trade_pairs_needing_rest_data:
             current_time_ms = trade_pair_to_last_order_time_ms[trade_pair]
             events = [
                 websocket_prices_polygon.get(trade_pair),
-                websocket_prices_twelve_data.get(trade_pair),
+                websocket_prices_tiingo_data.get(trade_pair),
                 rest_prices_polygon.get(trade_pair),
-                rest_prices_twelve_data.get(trade_pair)
+                rest_prices_tiingo_data.get(trade_pair)
             ]
             results[trade_pair] = self.determine_best_price(events, current_time_ms, filter_recent_only=False)
 
@@ -105,8 +99,8 @@ class LivePriceFetcher:
     def get_ws_price_sources_in_window(self, trade_pair: TradePair, start_ms: int, end_ms: int) -> List[PriceSource]:
         # Utilize get_events_in_range
         poly_sources = self.polygon_data_service.trade_pair_to_recent_events[trade_pair.trade_pair].get_events_in_range(start_ms, end_ms)
-        td_sources = self.twelve_data_service.trade_pair_to_recent_events[trade_pair.trade_pair].get_events_in_range(start_ms, end_ms)
-        return poly_sources + td_sources
+        t_sources = self.tiingo_data_service.trade_pair_to_recent_events[trade_pair.trade_pair].get_events_in_range(start_ms, end_ms)
+        return poly_sources + t_sources
 
     @retry(tries=2, delay=5, backoff=2)
     def get_latest_price(self, trade_pair: TradePair, time_ms=None) -> Tuple[float, List[PriceSource]] | Tuple[
@@ -135,7 +129,7 @@ class LivePriceFetcher:
             return None
         now_ms = TimeUtil.now_in_millis()
         t1 = self.polygon_data_service.get_websocket_lag_for_trade_pair_s(tp=trade_pair.trade_pair, now_ms=now_ms)
-        t2 = self.twelve_data_service.get_websocket_lag_for_trade_pair_s(tp=trade_pair.trade_pair, now_ms=now_ms)
+        t2 = self.tiingo_data_service.get_websocket_lag_for_trade_pair_s(tp=trade_pair.trade_pair, now_ms=now_ms)
         return max([x for x in (t1, t2) if x])
 
     def filter_outliers(self, unique_data: List[PriceSource]) -> List[PriceSource]:
@@ -253,10 +247,10 @@ class LivePriceFetcher:
     def get_close_at_date(self, trade_pair, timestamp_ms):
         price, time_delta = self.polygon_data_service.get_close_at_date_second(trade_pair=trade_pair, target_timestamp_ms=timestamp_ms)
         if price is None:
-            price, time_delta = self.twelve_data_service.get_close_at_date(trade_pair=trade_pair, timestamp_ms=timestamp_ms)
+            price, time_delta = self.tiingo_data_service.get_close_at_date(trade_pair=trade_pair, timestamp_ms=timestamp_ms)
             if price is not None:
                 bt.logging.warning(
-                    f"Fell back to TwelveData get_date for price of {trade_pair.trade_pair} at {TimeUtil.timestamp_ms_to_eastern_time_str(timestamp_ms)}, ms: {timestamp_ms}")
+                    f"Fell back to Tiingo get_date for price of {trade_pair.trade_pair} at {TimeUtil.timestamp_ms_to_eastern_time_str(timestamp_ms)}, ms: {timestamp_ms}")
 
         if price is None:
             price, time_delta = self.polygon_data_service.get_close_at_date_minute_fallback(trade_pair=trade_pair,
@@ -284,6 +278,7 @@ class LivePriceFetcher:
 if __name__ == "__main__":
     secrets = ValiUtils.get_secrets()
     live_price_fetcher = LivePriceFetcher(secrets)
+    time.sleep(100000)
     trade_pairs = [TradePair.BTCUSD, TradePair.ETHUSD, ]
     while True:
         for tp in TradePair:
