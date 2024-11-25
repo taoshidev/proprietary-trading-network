@@ -2,6 +2,7 @@
 import math
 import numpy as np
 import copy
+from datetime import datetime, timezone
 
 from vali_objects.vali_config import ValiConfig
 from vali_objects.vali_dataclasses.perf_ledger import PerfCheckpoint, PerfLedgerData
@@ -9,6 +10,102 @@ from vali_objects.utils.functional_utils import FunctionalUtils
 
 
 class LedgerUtils:
+    @staticmethod
+    def risk_free_adjustment(mean_return: list[float]) -> float:
+        """
+        Annualizes simple returns and subtract risk-free rate
+
+        Args:
+            mean_return: float - mean return from the positions
+
+        Returns:
+            float - the risk-free adjustment return
+        """
+        if len(mean_return) == 0:
+            return 0
+
+        annual_risk_free_rate = ValiConfig.ANNUAL_RISK_FREE_PERCENTAGE
+        trading_days = ValiConfig.MARKET_OPEN_DAYS
+
+        return (np.mean(mean_return) * trading_days) - annual_risk_free_rate
+
+    @staticmethod
+    def daily_return_log(checkpoints: list[PerfCheckpoint]) -> list[float]:
+        """
+        Calculate daily returns from performance checkpoints, only including full days
+        with complete data and correct total accumulated time.
+
+        Args:
+            checkpoints: List[PerfCheckpoint] - list of checkpoints ordered by timestamp
+        Returns:
+            List[float] - list of daily returns for complete days
+        """
+        if not checkpoints:
+            return []
+
+        daily_groups = {}
+        n_checkpoints_per_day = int(ValiConfig.DAILY_CHECKPOINTS)
+
+        # Group checkpoints by date
+        for cp in checkpoints:
+            running_date = datetime.fromtimestamp(cp.last_update_ms / 1000, tz=timezone.utc).date()
+            if cp.accum_ms == ValiConfig.TARGET_CHECKPOINT_DURATION_MS:
+                if running_date not in daily_groups:
+                    daily_groups[running_date] = []
+                daily_groups[running_date].append(cp)
+
+        # Calculate returns for complete days
+        returns = []
+        for running_date, day_checkpoints in sorted(daily_groups.items()):
+            if len(day_checkpoints) == n_checkpoints_per_day:
+                daily_return = sum(cp.gain + cp.loss for cp in day_checkpoints)
+                returns.append(daily_return)
+
+        return returns
+
+    @staticmethod
+    def daily_return(checkpoints: list[PerfCheckpoint]) -> list[float]:
+        # First risk-free adjustment
+        return [(math.exp(x)-1) * 100 if x != 0 else 0 for x in LedgerUtils.daily_return_log(checkpoints)]
+
+    @staticmethod
+    def ledger_returns(ledger: dict[str, PerfLedgerData]) -> dict[str, list[float]]:
+        """
+        Args:
+            ledger: dict[str, PerfLedger] - the ledger of the miners
+        """
+        miner_returns = {}
+
+        for miner, miner_ledger in ledger.items():
+            miner_returns[miner] = LedgerUtils.daily_return(miner_ledger.cps)
+
+        return miner_returns
+
+    @staticmethod
+    def ledger_returns_log(ledger: dict[str, PerfLedgerData]) -> dict[str, list[float]]:
+        """
+        Args:
+            ledger: dict[str, PerfLedger] - the ledger of the miners
+        """
+        miner_returns = {}
+
+        for miner, miner_ledger in ledger.items():
+            miner_returns[miner] = LedgerUtils.daily_return_log(miner_ledger.cps)
+
+        return miner_returns
+
+    # Volatility section
+    @staticmethod
+    def ann_volatility(daily_log_returns: list[float]) -> float:
+        """
+        Args:
+            daily_log_returns (pd.Series): Daily Series of log returns.
+        """
+        window = len(daily_log_returns)
+        ann_factor = 252 / window
+        annualized_volatility = np.sqrt(np.var(daily_log_returns, ddof=1) * ann_factor)
+        return annualized_volatility
+
     @staticmethod
     def recent_drawdown(checkpoints: list[PerfCheckpoint], restricted: bool = True) -> float:
         """
@@ -145,6 +242,22 @@ class LedgerUtils:
         return 1
 
     @staticmethod
+    def mean_drawdown(checkpoints: list[PerfCheckpoint]) -> float:
+        """
+        Args:
+            checkpoints: list[PerfCheckpoint] - the list of checkpoints
+        """
+        if len(checkpoints) == 0:
+            return 0
+
+        # Compute the drawdown of the checkpoints
+        drawdowns = [checkpoint.mdd for checkpoint in checkpoints]
+        effective_drawdown = np.mean(drawdowns)
+        final_drawdown = np.clip(effective_drawdown, 0, 1.0)
+
+        return final_drawdown
+
+    @staticmethod
     def approximate_drawdown(checkpoints: list[PerfCheckpoint]) -> float:
         """
         Args:
@@ -180,7 +293,7 @@ class LedgerUtils:
         return min(recent_drawdown, approximate_drawdown)
 
     @staticmethod
-    def risk_normalization(checkpoints: list[PerfCheckpoint]) -> float:
+    def drawdown_abnormality(checkpoints: list[PerfCheckpoint]) -> float:
         """
         Args:
             checkpoints: list[PerfCheckpoint] - the list of checkpoints
@@ -191,8 +304,32 @@ class LedgerUtils:
         recent_drawdown = LedgerUtils.recent_drawdown(checkpoints)
         approximate_drawdown = LedgerUtils.approximate_drawdown(checkpoints)
 
-        effective_drawdown = LedgerUtils.effective_drawdown(recent_drawdown, approximate_drawdown)
-        drawdown_penalty = LedgerUtils.mdd_augmentation(effective_drawdown)
+        numerator = LedgerUtils.drawdown_percentage(recent_drawdown)
+        denominator = max(LedgerUtils.drawdown_percentage(approximate_drawdown), ValiConfig.ABNORMALITY_BASELINE)
+
+        abnormality_score = numerator / denominator
+        abnormality_augmentation = FunctionalUtils.sigmoid(
+            abnormality_score,
+            ValiConfig.ABNORMALITY_SIGMOID_SHIFT,
+            ValiConfig.ABNORMALITY_SIGMOID_SPREAD
+        )
+
+        return abnormality_augmentation
+
+    @staticmethod
+    def risk_normalization(checkpoints: list[PerfCheckpoint]) -> float:
+        """
+        Args:
+            checkpoints: list[PerfCheckpoint] - the list of checkpoints
+        """
+        if len(checkpoints) == 0:
+            return 0
+
+        # recent_drawdown = LedgerUtils.recent_drawdown(checkpoints)
+        approximate_drawdown = LedgerUtils.mean_drawdown(checkpoints)
+
+        # effective_drawdown = LedgerUtils.effective_drawdown(approximate_drawdown)
+        drawdown_penalty = LedgerUtils.mdd_augmentation(approximate_drawdown)
         return drawdown_penalty
 
     @staticmethod

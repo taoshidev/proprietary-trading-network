@@ -13,6 +13,7 @@ from vali_objects.utils.position_penalties import PositionPenalties
 from vali_objects.utils.position_filtering import PositionFiltering
 from vali_objects.utils.ledger_utils import LedgerUtils
 from vali_objects.scoring.scoring import Scoring
+from vali_objects.utils.metrics import Metrics
 
 
 
@@ -99,8 +100,6 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
     challengeperiod_testing_hotkeys = list(challengeperiod_testing_dictionary.keys())
     challengeperiod_success_hotkeys = list(challengeperiod_success_dictionary.keys())
 
-    
-
     try:
         all_miner_hotkeys: list = ValiBkpUtils.get_directories_in_dir(
             ValiBkpUtils.get_miner_dir()
@@ -118,6 +117,7 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
 
     filtered_ledger = subtensor_weight_setter.filtered_ledger(hotkeys=all_miner_hotkeys)
     filtered_positions = subtensor_weight_setter.filtered_positions(hotkeys=all_miner_hotkeys)
+    filtered_returns = LedgerUtils.ledger_returns_log(filtered_ledger)
     
     plagiarism = subtensor_weight_setter.get_plagiarism_scores_from_disk()
     # # Sync the ledger and positions
@@ -132,10 +132,10 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
         evaluation_time_ms=time_now
     )
 
-    lookback_positions_recent = PositionFiltering.filter_recent(
-        filtered_positions,
-        evaluation_time_ms=time_now
-    )
+    # lookback_positions_recent = PositionFiltering.filter_recent(
+    #     filtered_positions,
+    #     evaluation_time_ms=time_now
+    # )
 
     # Penalties
     miner_penalties = Scoring.miner_penalties(
@@ -150,6 +150,7 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
     return_dict = {}
     short_risk_adjusted_return_dict = {}
     risk_adjusted_return_dict = {}
+    statistical_confidence_dict = {}
 
     # Positional ratios
     positional_return_time_consistency_ratios = {}
@@ -183,33 +184,38 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
     positional_return = {}
     positional_duration = {}
 
+    # Volatility Metrics
+    annual_volatility = {}
+
     for hotkey, hotkey_ledger in filtered_ledger.items():
         # Collect miner positions
         miner_positions = filtered_positions.get(hotkey, [])
+        miner_returns = filtered_returns.get(hotkey, [])
 
         # Lookback window positions
         miner_lookback_positions = lookback_positions.get(hotkey, [])
-        miner_lookback_positions_recent = lookback_positions_recent.get(hotkey, [])
 
         scoring_input = {
-            "ledger": hotkey_ledger,
-            "positions": miner_lookback_positions,
+            "log_returns": miner_returns,
+            # "ledger": hotkey_ledger
         }
 
         # Positional Scoring
-        omega_dict[hotkey] = Scoring.omega(**scoring_input)
-        sharpe_dict[hotkey] = Scoring.sharpe(**scoring_input)
+        omega_dict[hotkey] = Metrics.omega(**scoring_input)
+        sharpe_dict[hotkey] = Metrics.sharpe(**scoring_input)
+        annual_volatility[hotkey] = Metrics.ann_volatility(miner_returns)
+        statistical_confidence_dict[hotkey] = Metrics.statistical_confidence(miner_returns)
 
-        short_return_dict[hotkey] = Scoring.base_return(miner_lookback_positions_recent)
-        return_dict[hotkey] = Scoring.base_return(miner_lookback_positions)
+        short_return_dict[hotkey] = Metrics.base_return(miner_returns)
+        return_dict[hotkey] = Metrics.base_return(miner_returns)
 
-        short_risk_adjusted_return_dict[hotkey] = Scoring.risk_adjusted_return(
-            miner_lookback_positions_recent,
+        short_risk_adjusted_return_dict[hotkey] = Metrics.risk_adjusted_return(
+            miner_returns,
             hotkey_ledger
         )
 
-        risk_adjusted_return_dict[hotkey] = Scoring.risk_adjusted_return(
-            miner_lookback_positions,
+        risk_adjusted_return_dict[hotkey] = Metrics.risk_adjusted_return(
+            miner_returns,
             hotkey_ledger
         )
 
@@ -245,7 +251,7 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
 
         # Now for the full positions statistics
         n_positions[hotkey] = len(miner_positions)
-        positional_return[hotkey] = Scoring.base_return(miner_positions)
+        positional_return[hotkey] = Metrics.base_return(miner_returns)
         positional_duration[hotkey] = PositionUtils.total_duration(miner_positions)
 
     # Cumulative ledger, for printing
@@ -297,6 +303,9 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
     risk_adjusted_return_rank = rank_dictionary(risk_adjusted_return_dict)
     risk_adjusted_return_percentile = percentile_rank_dictionary(risk_adjusted_return_dict)
 
+    statistical_confidence_rank = rank_dictionary(statistical_confidence_dict)
+    statistical_confidence_percentile = percentile_rank_dictionary(statistical_confidence_dict)
+
     # Rankings on Penalized Metrics
     omega_penalized_dict = apply_penalties(omega_dict, miner_penalties)
     omega_penalized_rank = rank_dictionary(omega_penalized_dict)
@@ -313,6 +322,10 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
     risk_adjusted_return_penalized_dict = apply_penalties(risk_adjusted_return_dict, miner_penalties)
     risk_adjusted_return_penalized_rank = rank_dictionary(risk_adjusted_return_penalized_dict)
     risk_adjusted_return_penalized_percentile = percentile_rank_dictionary(risk_adjusted_return_penalized_dict)
+
+    statistical_confidence_penalized_dict = apply_penalties(statistical_confidence_dict, miner_penalties)
+    statistical_confidence_penalized_rank = rank_dictionary(statistical_confidence_penalized_dict)
+    statistical_confidence_penalized_percentile = percentile_rank_dictionary(statistical_confidence_penalized_dict)
 
     # Here is the full list of data in frontend format
     combined_data = []
@@ -408,6 +421,9 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
                 "daily": ledger_daily_consistency_ratios.get(miner_id),
                 "biweekly": ledger_biweekly_consistency_ratios.get(miner_id),
             },
+            "volatilities": {
+                "annual": annual_volatility.get(miner_id)
+            },
             "drawdowns": {
                 "recent": recent_drawdowns.get(miner_id),
                 "approximate": approximate_drawdowns.get(miner_id),
@@ -423,6 +439,11 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
                     "value": sharpe_dict.get(miner_id),
                     "rank": sharpe_rank.get(miner_id),
                     "percentile": sharpe_percentile.get(miner_id),
+                },
+                "statistical_confidence": {
+                    "value": statistical_confidence_dict.get(miner_id),
+                    "rank": statistical_confidence_rank.get(miner_id),
+                    "percentile": statistical_confidence_percentile.get(miner_id),
                 },
                 "short_return": {
                     "value": short_return_dict.get(miner_id),

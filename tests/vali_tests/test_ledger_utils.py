@@ -20,6 +20,49 @@ class TestLedgerUtils(TestBase):
 
         self.DEFAULT_LEDGER = generate_ledger(0.1, mdd=0.99)
 
+    def test_risk_free_adjustment(self):
+        """
+        adjust returns for risk free rate
+        """
+        mean_returns = []
+        self.assertEqual(LedgerUtils.risk_free_adjustment(mean_returns), 0)
+        mean_returns = [0.1]
+        self.assertGreater(LedgerUtils.risk_free_adjustment(mean_returns), 0)
+        mean_returns = [0.1, 0.2]
+        self.assertGreater(LedgerUtils.risk_free_adjustment(mean_returns), 0)
+        mean_returns = [0.1, -0.2]
+        self.assertLess(LedgerUtils.risk_free_adjustment(mean_returns), 0)
+        mean_returns = [ValiConfig.ANNUAL_RISK_FREE_PERCENTAGE/252]
+        self.assertEqual(LedgerUtils.risk_free_adjustment(mean_returns), 0)
+
+    def test_daily_return_log(self):
+        """
+        should bucket the checkpoint returns by full days
+        """
+        self.assertEqual(LedgerUtils.daily_return_log([]), [])
+        checkpoints = self.DEFAULT_LEDGER.cps
+        self.assertEqual(len(LedgerUtils.daily_return_log(checkpoints)), 89)
+        l1 = generate_ledger(0.1, start_time=10, end_time=ValiConfig.TARGET_LEDGER_WINDOW_MS, mdd=0.99)
+        l1_cps = l1.cps
+        self.assertEqual(len(LedgerUtils.daily_return_log(l1_cps)), 88)
+
+    def test_daily_return(self):
+        """
+        exponentiate daily return log and convert to percentage
+        """
+        l1 = generate_ledger(0.1, gain=0.1, loss=-0.2)
+        l1_cps = l1.cps
+        self.assertLess(LedgerUtils.daily_return(l1_cps)[0], 0)
+        l1 = generate_ledger(0.1, gain=0.2, loss=-0.1)
+        l1_cps = l1.cps
+        self.assertGreater(LedgerUtils.daily_return(l1_cps)[0], 0)
+
+    def test_ann_volatility(self):
+        a = [9/252, 10/252, 11/252]
+        b = [8/252, 10/252, 12/252]
+        self.assertGreater(LedgerUtils.ann_volatility(b), LedgerUtils.ann_volatility(a))
+        self.assertEqual(LedgerUtils.ann_volatility(a), 0.036369648372665396)
+
     # Want to test the individual functions inputs and outputs
     def test_recent_drawdown(self):
         l1 = generate_ledger(0.1, mdd=0.99)
