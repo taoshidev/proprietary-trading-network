@@ -19,6 +19,9 @@ class Metrics:
         annual_risk_free_rate = ValiConfig.ANNUAL_RISK_FREE_DECIMAL
         days_in_year = ValiConfig.DAYS_IN_YEAR
 
+        if len(log_returns) == 0:
+            return 0.0
+
         mean_daily_log_returns = np.mean(log_returns)
 
         # Annualize the mean daily excess returns
@@ -66,6 +69,9 @@ class Metrics:
         Returns:
              The aggregate total return of the miner as a log total
         """
+        if len(log_returns) == 0:
+            return 0.0
+
         return float(np.mean(log_returns)) * ValiConfig.DAYS_IN_YEAR
 
     @staticmethod

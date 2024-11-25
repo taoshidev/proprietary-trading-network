@@ -142,7 +142,7 @@ class Scoring:
             percentile_scores = Scoring.miner_scores_percentiles(penalized_scores)
             for miner, percentile_rank in percentile_scores:
                 if miner not in combined_scores:
-                    combined_scores[miner] = 0
+                    combined_scores[miner] = 1
                 combined_scores[miner] *= config['weight'] * percentile_rank + (1 - config['weight'])
 
         # Force good performance of all error metrics
