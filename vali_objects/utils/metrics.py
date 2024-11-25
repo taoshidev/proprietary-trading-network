@@ -29,7 +29,7 @@ class Metrics:
         return annualized_excess_return
 
     @staticmethod
-    def ann_volatility(log_returns: list[float]) -> float:
+    def ann_volatility(log_returns: list[float], ddof: int = 1) -> float:
         """
         Calculates annualized volatility ASSUMING DAILY OBSERVATIONS
         Parameters:
@@ -39,12 +39,12 @@ class Metrics:
         days_in_year = ValiConfig.DAYS_IN_YEAR
 
         window = len(log_returns)
-        if window == 0:
+        if window < ddof + 1:
             return np.inf
 
         ann_factor = days_in_year / window
         
-        annualized_volatility = np.sqrt(np.var(log_returns, ddof=1) * ann_factor)
+        annualized_volatility = np.sqrt(np.var(log_returns, ddof=ddof) * ann_factor)
         return annualized_volatility
 
     @staticmethod
