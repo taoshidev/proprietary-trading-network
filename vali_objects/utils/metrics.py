@@ -80,6 +80,22 @@ class Metrics:
         return (math.exp(Metrics.base_return_log(log_returns)) - 1) * 100
 
     @staticmethod
+    def drawdown_adjusted_return(log_returns: list[float], ledger: PerfLedgerData) -> float:
+        """
+        Args:
+            log_returns: list of daily log returns from the miner
+            ledger: the ledger of the miner
+        """
+        # Positional Component
+        if len(log_returns) == 0:
+            return 0.0
+
+        base_return = Metrics.base_return_log(log_returns)
+        drawdown_normalization_factor = LedgerUtils.risk_normalization(ledger.cps)
+
+        return base_return * drawdown_normalization_factor
+
+    @staticmethod
     def risk_adjusted_return(returns: list[float], ledger: PerfLedgerData) -> float:
         """
         Args:

@@ -35,7 +35,7 @@ class Scoring:
     # Set the scoring configuration
     scoring_config = {
         'return_long': {
-            'function': Metrics.base_return,
+            'function': Metrics.drawdown_adjusted_return,
             'weight': ValiConfig.SCORING_RETURN_LOOKBACK_WEIGHT
         },
         'sharpe_ratio': {
@@ -60,6 +60,10 @@ class Scoring:
     penalties_config = {
         'drawdown_threshold': PenaltyConfig(
             function=LedgerUtils.max_drawdown_threshold_penalty,
+            input_type=PenaltyInputType.LEDGER
+        ),
+        'drawdown_abnormality': PenaltyConfig(
+            function=LedgerUtils.drawdown_abnormality,
             input_type=PenaltyInputType.LEDGER
         ),
         'position_ratio': PenaltyConfig(
@@ -121,13 +125,16 @@ class Scoring:
             penalized_scores = []
             for miner, returns in filtered_ledger_returns.items():
                 # Get the miner ledger
-                # ledger = ledger_dict.get(miner, PerfLedgerData())
+                ledger = ledger_dict.get(miner, PerfLedgerData())
 
                 # Check if the miner has full penalty - if not include them in the scoring competition
                 if miner in full_penalty_miners:
                     continue
 
-                score = config['function'](log_returns=returns)
+                if config['function'] == Metrics.drawdown_adjusted_return:
+                    score = config['function'](log_returns=returns, ledger=ledger)
+                else:
+                    score = config['function'](log_returns=returns)
 
                 penalized_score = score * miner_penalties.get(miner, 0)
                 penalized_scores.append((miner, penalized_score))
@@ -136,7 +143,7 @@ class Scoring:
             for miner, percentile_rank in percentile_scores:
                 if miner not in combined_scores:
                     combined_scores[miner] = 0
-                combined_scores[miner] += config['weight'] * percentile_rank
+                combined_scores[miner] *= config['weight'] * percentile_rank + (1 - config['weight'])
 
         # Force good performance of all error metrics
         combined_weighed = Scoring.softmax_scores(list(combined_scores.items())) + full_penalty_miner_scores
