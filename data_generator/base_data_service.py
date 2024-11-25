@@ -1,5 +1,6 @@
 import json
 import time
+import traceback
 from collections import defaultdict
 from typing import List
 
@@ -11,6 +12,27 @@ from vali_objects.vali_dataclasses.price_source import PriceSource
 
 POLYGON_PROVIDER_NAME = "Polygon"
 TIINGO_PROVIDER_NAME = "Tiingo"
+
+def exception_handler_decorator():
+    """
+    Decorator to handle exceptions, log them, and return a default value.
+
+    Uses a global logger (bt.logging.error) for logging.
+    """
+
+    def decorator(func):
+        def wrapper(*args, **kwargs):
+            try:
+                return func(*args, **kwargs)
+            except Exception as e:
+                func_name = func.__name__
+                bt.logging.error(f"Failed to get {func_name} with error: {e}, type: {type(e).__name__}")
+                bt.logging.error(traceback.format_exc())
+                return {}
+
+        return wrapper
+
+    return decorator
 
 class BaseDataService():
     def __init__(self, provider_name):

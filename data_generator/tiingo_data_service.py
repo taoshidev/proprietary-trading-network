@@ -5,7 +5,7 @@ import requests
 from typing import List, Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from polygon.websocket import Market
-from data_generator.base_data_service import BaseDataService, TIINGO_PROVIDER_NAME
+from data_generator.base_data_service import BaseDataService, TIINGO_PROVIDER_NAME, exception_handler_decorator
 from time_util.time_util import TimeUtil
 from vali_objects.vali_config import TradePair, TradePairCategory
 import time
@@ -306,13 +306,14 @@ class TiingoDataService(BaseDataService):
 
         return tp_to_price
 
+    @exception_handler_decorator()
     def get_closes_equities(self, trade_pairs: List[TradePair], verbose=False) -> dict[TradePair: PriceSource]:
         tp_to_price = {}
         if not trade_pairs:
             return tp_to_price
         assert all(tp.trade_pair_category == TradePairCategory.EQUITIES for tp in trade_pairs), trade_pairs
 
-        if all(not self.is_market_open(tp) for tp in trade_pairs) and all(self.closed_market_prices[tp] in self.closed_market_prices for tp in trade_pairs):
+        if all(not self.is_market_open(tp) for tp in trade_pairs) and all(self.closed_market_prices.get(tp) for tp in trade_pairs):
             if verbose:
                 print(f'All equities markets closed {trade_pairs}. Returning closed market prices. {self.closed_market_prices}')
             return {tp: self.closed_market_prices[tp] for tp in trade_pairs}
@@ -358,6 +359,7 @@ class TiingoDataService(BaseDataService):
 
         return tp_to_price
 
+    @exception_handler_decorator()
     def get_closes_forex(self, trade_pairs: List[TradePair], verbose=False) -> dict:
         def tickers_to_tiingo_forex_url(tickers: List[str]) -> str:
             return f"https://api.tiingo.com/tiingo/fx/top?tickers={','.join(tickers)}&token={self.config['api_key']}"
@@ -367,7 +369,7 @@ class TiingoDataService(BaseDataService):
             return tp_to_price
 
         assert all(tp.trade_pair_category == TradePairCategory.FOREX for tp in trade_pairs), trade_pairs
-        if all(not self.is_market_open(tp) for tp in trade_pairs) and all(self.closed_market_prices[tp] in self.closed_market_prices for tp in trade_pairs):
+        if all(not self.is_market_open(tp) for tp in trade_pairs) and all(self.closed_market_prices.get(tp) for tp in trade_pairs):
             return {tp: self.closed_market_prices[tp] for tp in trade_pairs}
 
         url = tickers_to_tiingo_forex_url([self.trade_pair_to_tiingo_ticker(x) for x in trade_pairs])
@@ -378,9 +380,11 @@ class TiingoDataService(BaseDataService):
             time_now_ms = TimeUtil.now_in_millis()
             for x in requestResponse.json():
                 tp = TradePair.get_latest_trade_pair_from_trade_pair_id(x['ticker'].upper())
-                price = float(x['bidPrice'])
+                price_raw = x['bidPrice']
+                if not price_raw:
+                    continue
+                price = float(price_raw)
                 data_time_ms = TimeUtil.parse_iso_to_ms(x['quoteTimestamp'])
-
 
                 p_name = f'{TIINGO_PROVIDER_NAME}_rest'
                 attempting_previous_close = not self.is_market_open(tp)
@@ -410,6 +414,7 @@ class TiingoDataService(BaseDataService):
 
         return tp_to_price
 
+    @exception_handler_decorator()
     def get_closes_crypto(self, trade_pairs: List[TradePair], verbose=False) -> dict:
         tp_to_price = {}
         if not trade_pairs:
