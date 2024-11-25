@@ -101,6 +101,9 @@ class TestTimeUtil(TestBase):
 
             # Timestamp with microseconds
             {"iso": "2023-03-01T12:00:00.123456+00:00", "expected": 1677672000123},
+
+            # Timestamp with ns precision
+            {"iso": "2023-03-01T12:00:00.123456789+00:00", "expected": 1677672000123},
         ]
 
         for case in test_cases:
