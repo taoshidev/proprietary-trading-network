@@ -1,5 +1,6 @@
 # developer: Taoshidev
 # Copyright © 2024 Taoshi Inc
+import re
 from datetime import datetime, timedelta, timezone
 from typing import List, Tuple
 from functools import lru_cache
@@ -304,9 +305,28 @@ class TimeUtil:
         Returns:
             int: The timestamp in milliseconds since the Unix epoch.
         """
-        # Parse the ISO 8601 string to a datetime object
-        dt = datetime.fromisoformat(iso_string)
-        # Convert to a timestamp in seconds and then to milliseconds
+        # Use regex to match ISO 8601 patterns with optional fractional seconds
+        iso_regex = r"(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?)([+-]\d{2}:\d{2}|Z)?"
+        match = re.fullmatch(iso_regex, iso_string)
+
+        if not match:
+            raise ValueError(f"Invalid ISO 8601 format: {iso_string}")
+
+        main_part = match.group(1)  # Datetime with optional fractional seconds
+        timezone_part = match.group(2) or ""  # Timezone (optional)
+
+        # Truncate fractional seconds to six digits
+        if '.' in main_part:
+            main_part, fractional_part = main_part.split('.')
+            fractional_part = fractional_part[:6]  # Keep up to six digits
+            main_part = f"{main_part}.{fractional_part}"
+
+        sanitized_iso = f"{main_part}{timezone_part}"
+
+        # Parse the sanitized ISO string
+        dt = datetime.fromisoformat(sanitized_iso)
+
+        # Convert to a timestamp in milliseconds
         return int(dt.timestamp() * 1000)
 
     @staticmethod
