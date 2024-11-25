@@ -277,7 +277,7 @@ class LedgerUtils:
         return min(recent_drawdown, approximate_drawdown)
 
     @staticmethod
-    def risk_normalization(checkpoints: list[PerfCheckpoint]) -> float:
+    def drawdown_abnormality(checkpoints: list[PerfCheckpoint]) -> float:
         """
         Args:
             checkpoints: list[PerfCheckpoint] - the list of checkpoints
@@ -288,8 +288,32 @@ class LedgerUtils:
         recent_drawdown = LedgerUtils.recent_drawdown(checkpoints)
         approximate_drawdown = LedgerUtils.approximate_drawdown(checkpoints)
 
-        effective_drawdown = LedgerUtils.effective_drawdown(recent_drawdown, approximate_drawdown)
-        drawdown_penalty = LedgerUtils.mdd_augmentation(effective_drawdown)
+        numerator = LedgerUtils.drawdown_percentage(recent_drawdown)
+        denominator = max(LedgerUtils.drawdown_percentage(approximate_drawdown), ValiConfig.ABNORMALITY_BASELINE)
+
+        abnormality_score = numerator / denominator
+        abnormality_augmentation = FunctionalUtils.sigmoid(
+            abnormality_score,
+            ValiConfig.ABNORMALITY_SIGMOID_SHIFT,
+            ValiConfig.ABNORMALITY_SIGMOID_SPREAD
+        )
+
+        return abnormality_augmentation
+
+    @staticmethod
+    def risk_normalization(checkpoints: list[PerfCheckpoint]) -> float:
+        """
+        Args:
+            checkpoints: list[PerfCheckpoint] - the list of checkpoints
+        """
+        if len(checkpoints) == 0:
+            return 0
+
+        # recent_drawdown = LedgerUtils.recent_drawdown(checkpoints)
+        approximate_drawdown = LedgerUtils.approximate_drawdown(checkpoints)
+
+        # effective_drawdown = LedgerUtils.effective_drawdown(approximate_drawdown)
+        drawdown_penalty = LedgerUtils.mdd_augmentation(approximate_drawdown)
         return drawdown_penalty
 
     @staticmethod
