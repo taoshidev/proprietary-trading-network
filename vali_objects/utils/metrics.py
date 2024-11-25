@@ -5,8 +5,9 @@ from scipy.stats import ttest_1samp
 
 from vali_objects.vali_config import ValiConfig
 from vali_objects.utils.ledger_utils import LedgerUtils
-from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerData
-
+from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerData, PerfCheckpoint
+from vali_objects.position import Position
+from vali_objects.utils.functional_utils import FunctionalUtils
 
 class Metrics:
     @staticmethod
@@ -19,6 +20,9 @@ class Metrics:
         annual_risk_free_rate = ValiConfig.ANNUAL_RISK_FREE_DECIMAL
         days_in_year = ValiConfig.DAYS_IN_YEAR
 
+        if len(log_returns) == 0:
+            return 0.0
+
         mean_daily_log_returns = np.mean(log_returns)
 
         # Annualize the mean daily excess returns
@@ -26,7 +30,7 @@ class Metrics:
         return annualized_excess_return
 
     @staticmethod
-    def ann_volatility(log_returns: list[float]) -> float:
+    def ann_volatility(log_returns: list[float], ddof: int = 1) -> float:
         """
         Calculates annualized volatility ASSUMING DAILY OBSERVATIONS
         Parameters:
@@ -36,12 +40,12 @@ class Metrics:
         days_in_year = ValiConfig.DAYS_IN_YEAR
 
         window = len(log_returns)
-        if window == 0:
+        if window < ddof + 1:
             return np.inf
 
         ann_factor = days_in_year / window
         
-        annualized_volatility = np.sqrt(np.var(log_returns, ddof=1) * ann_factor)
+        annualized_volatility = np.sqrt(np.var(log_returns, ddof=ddof) * ann_factor)
         return annualized_volatility
 
     @staticmethod
@@ -66,6 +70,9 @@ class Metrics:
         Returns:
              The aggregate total return of the miner as a log total
         """
+        if len(log_returns) == 0:
+            return 0.0
+
         return float(np.mean(log_returns)) * ValiConfig.DAYS_IN_YEAR
 
     @staticmethod
@@ -80,34 +87,34 @@ class Metrics:
         return (math.exp(Metrics.base_return_log(log_returns)) - 1) * 100
 
     @staticmethod
-    def drawdown_adjusted_return(log_returns: list[float], ledger: PerfLedgerData) -> float:
+    def drawdown_adjusted_return(log_returns: list[float], checkpoints: list[PerfCheckpoint]) -> float:
         """
         Args:
             log_returns: list of daily log returns from the miner
-            ledger: the ledger of the miner
+            checkpoints: the ledger of the miner
         """
         # Positional Component
         if len(log_returns) == 0:
             return 0.0
 
         base_return = Metrics.base_return_log(log_returns)
-        drawdown_normalization_factor = LedgerUtils.risk_normalization(ledger.cps)
+        drawdown_normalization_factor = LedgerUtils.risk_normalization(checkpoints)
 
         return base_return * drawdown_normalization_factor
 
     @staticmethod
-    def risk_adjusted_return(returns: list[float], ledger: PerfLedgerData) -> float:
+    def risk_adjusted_return(returns: list[float], checkpoints: list[PerfCheckpoint]) -> float:
         """
         Args:
             returns: list of returns
-            ledger: the ledger of the miner
+            checkpoints: the ledger of the miner
         """
         # Positional Component
         if len(returns) == 0:
             return 0.0
 
         base_return = Metrics.base_return_log(returns)
-        risk_normalization_factor = LedgerUtils.risk_normalization(ledger.cps)
+        risk_normalization_factor = LedgerUtils.risk_normalization(checkpoints)
 
         return base_return * risk_normalization_factor
 
@@ -184,3 +191,24 @@ class Metrics:
         downside_volatility = Metrics.ann_downside_volatility(log_returns)
 
         return excess_return / max(downside_volatility, min_downside)
+
+    @staticmethod
+    def concentration(log_returns: list[float], positions: list[Position]) -> float:
+        """
+        Args:
+            log_returns: list of daily log returns from the miner
+            positions: list of positions
+        """
+
+        if len(log_returns) == 0:
+            return 0
+
+        if len(positions) == 0:
+            return 0
+
+        positional_returns = [(position.return_at_close-1)*100 for position in positions]
+
+        pnl_concentration = FunctionalUtils.concentration(log_returns)
+        position_concentration = FunctionalUtils.concentration(positional_returns)
+
+        return 1-max(pnl_concentration, position_concentration)

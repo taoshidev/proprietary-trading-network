@@ -88,6 +88,22 @@ class PositionPenalties:
         return np.clip(largest_windowed_contribution / total_return, 0, 1)
 
     @staticmethod
+    def concentration_penalty(positions: list[Position]) -> float:
+        """
+        Args:
+            positions: list[Position] - the list of positions
+
+        Returns:
+            float - the concentration penalty
+        """
+        if len(positions) == 0:
+            return 1
+
+        positional_returns = [abs(position.return_at_close) for position in positions]
+        return FunctionalUtils.concentration_penalty(positional_returns)
+
+
+    @staticmethod
     def returns_ratio_penalty(
             positions: list[Position]
     ) -> float:

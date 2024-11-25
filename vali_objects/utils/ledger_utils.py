@@ -94,18 +94,6 @@ class LedgerUtils:
 
         return miner_returns
 
-    # Volatility section
-    @staticmethod
-    def ann_volatility(daily_log_returns: list[float]) -> float:
-        """
-        Args:
-            daily_log_returns (pd.Series): Daily Series of log returns.
-        """
-        window = len(daily_log_returns)
-        ann_factor = 252 / window
-        annualized_volatility = np.sqrt(np.var(daily_log_returns, ddof=1) * ann_factor)
-        return annualized_volatility
-
     @staticmethod
     def recent_drawdown(checkpoints: list[PerfCheckpoint], restricted: bool = True) -> float:
         """
