@@ -41,7 +41,7 @@ Below are the prerequisites for validators.
 - 1000 TAO staked
 - A Tiingo API account. (https://www.tiingo.com/) with the "Commercial" ($50/month) subscription.
 
-- A Polygon API account (https://polygon.io/) with "Currencies Starter ($49/month)" as well as "Stocks Advanced ($199/month)" subscriptions.
+- A Polygon API account (https://polygon.io/) with "Currencies Starter ($49/month)" as well as "Stocks Advanced ($199/month)" subscriptions. **IMPORTANT:** After subscribing, complete the Polygon KYC questionnaire to enable realtime US equities prices. Message a Taoshi team member ASAP if you need guidance with this step! https://polygon.io/dashboard/agreements
 
 # Getting Started
 
