@@ -1,3 +1,4 @@
+import asyncio
 import threading
 import traceback
 import requests
@@ -5,12 +6,12 @@ import requests
 from typing import List
 
 from polygon.rest.models import Agg
-from polygon.websocket import WebSocketClient, Market, EquityAgg, EquityTrade, CryptoTrade, ForexQuote
+from polygon.websocket import Market, EquityAgg, EquityTrade, CryptoTrade, ForexQuote, WebSocketClient
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from data_generator.base_data_service import BaseDataService, POLYGON_PROVIDER_NAME
 from time_util.time_util import TimeUtil
-from vali_objects.vali_config import TradePair
+from vali_objects.vali_config import TradePair, TradePairCategory
 import time
 
 from vali_objects.utils.vali_utils import ValiUtils
@@ -137,18 +138,6 @@ class PolygonDataService(BaseDataService):
 
         self.POLYGON_CLIENT = RESTClient(api_key=self._api_key, num_pools=20)
 
-        self.POLY_WEBSOCKETS = {
-            Market.Crypto: None,
-            Market.Forex: None,
-            Market.Stocks: None
-        }
-
-        self.POLY_WEBSOCKET_THREADS = {
-            Market.Crypto: None,
-            Market.Forex: None,
-            Market.Stocks: None
-        }
-
         # Start thread to refresh market status
         if disable_ws:
             self.websocket_manager_thread = None
@@ -158,42 +147,13 @@ class PolygonDataService(BaseDataService):
             time.sleep(3) # Let the websocket_manager_thread start
 
     def main_forex(self):
-        self.POLY_WEBSOCKETS[Market.Forex].run(self.handle_msg)
+        self.WEBSOCKET_OBJECTS[TradePairCategory.FOREX].run(self.handle_msg)
 
     def main_stocks(self):
-        self.POLY_WEBSOCKETS[Market.Stocks].run(self.handle_msg)
+        self.WEBSOCKET_OBJECTS[TradePairCategory.EQUITIES].run(self.handle_msg)
 
     def main_crypto(self):
-        self.POLY_WEBSOCKETS[Market.Crypto].run(self.handle_msg)
-
-    def stop_threads(self):
-        if self.POLY_WEBSOCKET_THREADS[Market.Stocks]:
-            self.POLY_WEBSOCKET_THREADS[Market.Stocks].join(timeout=1)
-            self.POLY_WEBSOCKET_THREADS[Market.Forex].join(timeout=1)
-            self.POLY_WEBSOCKET_THREADS[Market.Crypto].join(timeout=1)
-
-    def close_websockets(self):
-        if self.POLY_WEBSOCKETS[Market.Stocks]:
-            self.POLY_WEBSOCKETS[Market.Stocks].close()
-            self.POLY_WEBSOCKETS[Market.Forex].close()
-            self.POLY_WEBSOCKETS[Market.Crypto].close()
-
-    def stop_start_websocket_threads(self):
-        self.close_websockets()
-        self.POLY_WEBSOCKETS[Market.Stocks] = WebSocketClient(market=Market.Stocks, api_key=self._api_key)
-        self.POLY_WEBSOCKETS[Market.Forex] = WebSocketClient(market=Market.Forex, api_key=self._api_key)
-        self.POLY_WEBSOCKETS[Market.Crypto] = WebSocketClient(market=Market.Crypto, api_key=self._api_key)
-        self.subscribe_websockets()
-        self.stop_threads()
-        time.sleep(5)
-
-        self.LOCK = threading.Lock()
-        self.POLY_WEBSOCKET_THREADS[Market.Stocks] = threading.Thread(target=self.main_stocks, daemon=True)
-        self.POLY_WEBSOCKET_THREADS[Market.Forex] = threading.Thread(target=self.main_forex, daemon=True)
-        self.POLY_WEBSOCKET_THREADS[Market.Crypto] = threading.Thread(target=self.main_crypto, daemon=True)
-        self.POLY_WEBSOCKET_THREADS[Market.Stocks].start()
-        self.POLY_WEBSOCKET_THREADS[Market.Forex].start()
-        self.POLY_WEBSOCKET_THREADS[Market.Crypto].start()
+        self.WEBSOCKET_OBJECTS[TradePairCategory.CRYPTO].run(self.handle_msg)
 
     def parse_price_for_forex(self, m, stats=None, is_ws=False):
         t_ms = m.timestamp if is_ws else m.participant_timestamp // 1000000
@@ -314,7 +274,6 @@ class PolygonDataService(BaseDataService):
             try:
                 m = None
                 for m in msgs:
-                    self.n_events_global += 1
                     #bt.logging.info(f"Received price event: {m}")
                     # print('received message:', m, type(m))
                     if isinstance(m, EquityAgg):
@@ -328,6 +287,7 @@ class PolygonDataService(BaseDataService):
                     else:
                         raise ValueError(f"Unknown message in POLY websocket: {m}")
 
+                    self.tpc_to_n_events[tp.trade_pair_category] += 1
                     # This could be a candle so we can make 2 prices, one for the open and one for the close
                     symbol = tp.trade_pair
                     ps1, ps2 = msg_to_price_sources(m, tp)
@@ -351,7 +311,7 @@ class PolygonDataService(BaseDataService):
                     print('last message:', m, 'n msgs total:', len(msgs))
                     history_size = sum(len(v) for v in self.trade_pair_to_price_history.values())
                     bt.logging.info("History Size: " + str(history_size))
-                    bt.logging.info(f"n_events_global: {self.n_events_global}")
+                    bt.logging.info(f"n_events_global: {sum(self.tpc_to_n_events.values())} breakdown {self.tpc_to_n_events}")
             except Exception as e:
                 full_traceback = traceback.format_exc()
                 # Slice the last 1000 characters of the traceback
@@ -359,20 +319,41 @@ class PolygonDataService(BaseDataService):
                 bt.logging.error(f"Failed to handle POLY websocket message with error: {e}, last message {m} "
                                  f"type: {type(e).__name__}, traceback: {limited_traceback}")
 
-    def subscribe_websockets(self):
+    def close_create_websocket_objects(self, tpc: TradePairCategory = None):
+        websockets_to_process = self.WEBSOCKET_OBJECTS if tpc is None else {tpc: self.WEBSOCKET_OBJECTS[tpc]}
+        for ws in websockets_to_process.values():
+            if isinstance(ws, WebSocketClient):
+                asyncio.run(ws.close())
+
+        for tpc, ws in websockets_to_process.items():
+            if tpc == TradePairCategory.EQUITIES:
+                market = Market.Stocks
+            elif tpc == TradePairCategory.FOREX:
+                market = Market.Forex
+            elif tpc == TradePairCategory.CRYPTO:
+                market = Market.Crypto
+            else:
+                raise ValueError(f"Unknown trade pair category: {tpc}")
+            self.WEBSOCKET_OBJECTS[tpc] = WebSocketClient(market=market, api_key=self._api_key)
+            self.subscribe_websockets(tpc=tpc)
+
+
+    def subscribe_websockets(self, tpc: TradePairCategory = None):
         for tp in TradePair:
             if tp in self.UNSUPPORTED_TRADE_PAIRS:
                 continue
+            if tpc and tp.trade_pair_category != tpc:
+                continue
             if tp.is_crypto:
                 symbol = "XT." + tp.trade_pair.replace('/', '-')
-                self.POLY_WEBSOCKETS[Market.Crypto].subscribe(symbol)
+                self.WEBSOCKET_OBJECTS[TradePairCategory.CRYPTO].subscribe(symbol)
             elif tp.is_forex:
                 symbol = "C." + tp.trade_pair
-                self.POLY_WEBSOCKETS[Market.Forex].subscribe(symbol)
+                self.WEBSOCKET_OBJECTS[TradePairCategory.FOREX].subscribe(symbol)
             elif tp.is_equities:
                 symbol = "T." + tp.trade_pair
                 print('subscribe:', symbol)
-                self.POLY_WEBSOCKETS[Market.Stocks].subscribe(symbol)
+                self.WEBSOCKET_OBJECTS[TradePairCategory.EQUITIES].subscribe(symbol)
             elif tp.is_indices:
                 continue
             else:
@@ -621,11 +602,6 @@ class PolygonDataService(BaseDataService):
             return aggs
         return corresponding_price, smallest_delta
 
-    def get_range_of_closes(self, trade_pair, start_date: str, end_date: str):
-        ts = self.td.time_series(symbol=trade_pair, interval='1min', start_date=start_date, end_date=end_date, outputsize=5000)
-        response = ts.as_json()
-        closes = [(d['datetime'], float(d["close"])) for d in response]
-        return closes
 
     def get_candles(self, trade_pairs: List[TradePair], start_time_ms:int, end_time_ms:int):
         # Dictionary to store the minimum prices for each trade pair

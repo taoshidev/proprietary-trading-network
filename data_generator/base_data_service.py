@@ -1,8 +1,11 @@
 import json
+import threading
 import time
 import traceback
 from collections import defaultdict
-from typing import List
+from copy import deepcopy
+from typing import List, Optional
+from polygon.websocket import WebSocketClient
 
 import bittensor as bt
 from time_util.time_util import TimeUtil, UnifiedMarketCalendar
@@ -40,7 +43,7 @@ class BaseDataService():
         self.MAX_TIME_NO_EVENTS_S = 120
 
         self.provider_name = provider_name
-        self.n_events_global = 0
+        self.tpc_to_n_events = {x: 0 for x in TradePairCategory}
         self.n_equity_events_skipped_afterhours = 0
         self.trade_pair_to_price_history = defaultdict(list)
         self.closed_market_prices = {tp: None for tp in TradePair}
@@ -57,6 +60,18 @@ class BaseDataService():
         for trade_pair in TradePair:
             assert trade_pair.trade_pair_category in self.trade_pair_category_to_longest_allowed_lag_s, \
                 f"Trade pair {trade_pair} has no allowed lag time"
+
+        self.WEBSOCKET_THREADS = {
+            TradePairCategory.CRYPTO: Optional[threading.Thread],
+            TradePairCategory.FOREX: Optional[threading.Thread],
+            TradePairCategory.EQUITIES: Optional[threading.Thread]
+        }
+
+        self.WEBSOCKET_OBJECTS = {
+            TradePairCategory.CRYPTO: Optional[WebSocketClient],
+            TradePairCategory.FOREX: Optional[WebSocketClient],
+            TradePairCategory.EQUITIES: Optional[WebSocketClient]
+        }
 
     def get_close_rest(
             self,
@@ -81,21 +96,35 @@ class BaseDataService():
                 f"Failed to get close for {trade_pair.trade_pair} using {self.provider_name} websocket or REST.")
         return event
 
+    def get_first_trade_pair_in_category(self, tpc: TradePairCategory) -> TradePair:
+        # Use generator expression for efficiency
+        return next((x for x in TradePair if x.trade_pair_category == tpc), None)
+
     def websocket_manager(self):
-        prev_n_events = None
+        tpc_to_prev_n_events = {x: 0 for x in TradePairCategory}
         last_ws_health_check_s = 0
         last_market_status_update_s = 0
         while True:
             now = time.time()
             if now - last_ws_health_check_s > self.MAX_TIME_NO_EVENTS_S:
-                if prev_n_events is None or prev_n_events == self.n_events_global:
-                    if prev_n_events is not None:
-                        bt.logging.error(
-                            f"{self.provider_name} websocket has not received any events in the last {self.MAX_TIME_NO_EVENTS_S} seconds. n_events {self.n_events_global} Restarting websocket.")
-                    self.stop_start_websocket_threads()
+                categories_reset_messages = []
+                for tpc in TradePairCategory:
+                    if tpc == TradePairCategory.INDICES:
+                        continue
+                    if ((self.tpc_to_n_events[tpc] == tpc_to_prev_n_events[tpc]) and
+                            (last_ws_health_check_s == 0 or self.is_market_open(self.get_first_trade_pair_in_category(tpc)))):
+                        if last_ws_health_check_s == 0:
+                            msg = f"First websocket for {self.provider_name} {tpc.__str__()} created"
+                        else:
+                            msg = f'Websocket {self.provider_name} {tpc.__str__()} is stale {tpc_to_prev_n_events[tpc]}/{self.tpc_to_n_events[tpc]}'
+                        categories_reset_messages.append(msg)
+                        self.stop_start_websocket_threads(tpc=tpc)
 
                 last_ws_health_check_s = now
-                prev_n_events = self.n_events_global
+                tpc_to_prev_n_events = deepcopy(self.tpc_to_n_events)
+                if categories_reset_messages:
+                    bt.logging.warning(
+                        f"Restarted websockets for [{categories_reset_messages}]")
 
             if now - last_market_status_update_s > self.DEBUG_LOG_INTERVAL_S:
                 last_market_status_update_s = now
@@ -103,8 +132,50 @@ class BaseDataService():
 
             time.sleep(1)
 
-    def stop_start_websocket_threads(self):
+    def close_create_websocket_objects(self, tpc: TradePairCategory = None):
         raise NotImplementedError
+
+    def main_stocks(self):
+        raise NotImplementedError
+
+    def main_forex(self):
+        raise NotImplementedError
+
+    def main_crypto(self):
+        raise NotImplementedError
+
+    def stop_start_websocket_threads(self, tpc: TradePairCategory = None):
+        if self.provider_name == POLYGON_PROVIDER_NAME:
+            self.close_create_websocket_objects(tpc=tpc)
+
+        self.stop_threads(tpc)
+        time.sleep(5)
+
+        tpcs = [tpc] if tpc is not None else TradePairCategory
+        for tpc in tpcs:
+            if tpc == TradePairCategory.INDICES:
+                continue
+            elif tpc == TradePairCategory.EQUITIES:
+                target = self.main_stocks
+            elif tpc == TradePairCategory.FOREX:
+                target = self.main_forex
+            elif tpc == TradePairCategory.CRYPTO:
+                target = self.main_crypto
+            else:
+                raise ValueError(f"Invalid tpc {tpc}")
+
+            self.WEBSOCKET_THREADS[tpc] = threading.Thread(target=target, daemon=True)
+            self.WEBSOCKET_THREADS[tpc].start()
+
+
+
+    def stop_threads(self, tpc: TradePairCategory = None):
+        threads_to_check = self.WEBSOCKET_THREADS if tpc is None else {tpc: self.WEBSOCKET_THREADS[tpc]}
+        if any([isinstance(x, threading.Thread) for x in threads_to_check]):
+            for k, thread in self.WEBSOCKET_THREADS.items():
+                print(f'joining {self.provider_name} thread for tpc {k}')
+                thread.join(timeout=1)
+                print(f'terminated {self.provider_name} thread for tpc {k}')
 
     def get_closes_websocket(self, trade_pairs: List[TradePair], trade_pair_to_last_order_time_ms) -> dict[str: PriceSource]:
         events = {}
@@ -171,7 +242,7 @@ class BaseDataService():
         formatted_prices = {tp: f"{price_source.close:.2f}" for tp, price_source in  # noqa: F841
                             self.latest_websocket_events.items()}
         bt.logging.info(f"{self.provider_name} Latest websocket prices: {formatted_prices}")
-        bt.logging.info(f'{self.provider_name} websocket n_events_global: {self.n_events_global}. n_equity_events_skipped_afterhours: {self.n_equity_events_skipped_afterhours}')
+        bt.logging.info(f'{self.provider_name} websocket n_events_global: {self.tpc_to_n_events}. n_equity_events_skipped_afterhours: {self.n_equity_events_skipped_afterhours}')
         #if self.provider_name == POLYGON_PROVIDER_NAME:
         #    # Log which trade pairs are likely in closed markets
         #    closed_trade_pairs = {}
