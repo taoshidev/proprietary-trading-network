@@ -2,9 +2,8 @@ import threading
 import traceback
 import json
 import requests
-from typing import List, Optional
+from typing import List
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from polygon.websocket import Market
 from data_generator.base_data_service import BaseDataService, TIINGO_PROVIDER_NAME, exception_handler_decorator
 from time_util.time_util import TimeUtil
 from vali_objects.vali_config import TradePair, TradePairCategory
@@ -35,12 +34,6 @@ class TiingoDataService(BaseDataService):
 
         self.config = {'api_key': self._api_key, 'session': True}
         self.TIINGO_CLIENT = TiingoClient(self.config)
-
-        self.TIINGO_WEBSOCKET_THREADS = {
-            Market.Crypto: Optional[threading.Thread],
-            Market.Forex: Optional[threading.Thread],
-            Market.Indices: Optional[threading.Thread]
-        }
 
         self.subscribe_message = {
             'eventName': 'subscribe',
@@ -86,7 +79,7 @@ class TiingoDataService(BaseDataService):
 
             for trade_pair, price_source in price_sources.items():
                 price_source.websocket = True
-                self.n_events_global += 1
+                self.tpc_to_n_events[trade_pair.trade_pair_category] += 1
                 self.process_ps_from_websocket(trade_pair, price_source)
 
             last_poll_time = current_time
@@ -105,24 +98,6 @@ class TiingoDataService(BaseDataService):
     def main_crypto(self):
         #TiingoWebsocketClient(self.subscribe_message, endpoint="crypto", on_msg_cb=self.handle_msg)
         self.run_pseudo_websocket(TradePairCategory.CRYPTO)
-
-    def stop_threads(self):
-        if any([isinstance(x, threading.Thread) for x in self.TIINGO_WEBSOCKET_THREADS.values()]):
-            for k, thread in self.TIINGO_WEBSOCKET_THREADS.items():
-                print(f'joining thread {k}')
-                thread.join(timeout=1)
-                print(f'terminated thread {k}')
-
-    def stop_start_websocket_threads(self):
-        self.stop_threads()
-        time.sleep(5)
-
-        self.TIINGO_WEBSOCKET_THREADS[Market.Indices] = threading.Thread(target=self.main_stocks, daemon=True)
-        self.TIINGO_WEBSOCKET_THREADS[Market.Forex] = threading.Thread(target=self.main_forex, daemon=True)
-        self.TIINGO_WEBSOCKET_THREADS[Market.Crypto] = threading.Thread(target=self.main_crypto, daemon=True)
-        self.TIINGO_WEBSOCKET_THREADS[Market.Indices].start()
-        self.TIINGO_WEBSOCKET_THREADS[Market.Forex].start()
-        self.TIINGO_WEBSOCKET_THREADS[Market.Crypto].start()
 
     def handle_msg(self, msg):
         """
@@ -197,7 +172,6 @@ class TiingoDataService(BaseDataService):
             return price_source1
 
         try:
-            self.n_events_global += 1
             msg = json.loads(msg)
             if not isinstance(msg, dict):
                 # print(f'Non-dict message: {msg}')
@@ -229,6 +203,7 @@ class TiingoDataService(BaseDataService):
             if not tp:
                 return
 
+            self.tpc_to_n_events[tp.trade_pair_category] += 1
             ps1 = msg_to_price_sources(msg, tp)
 
             self.process_ps_from_websocket(tp, ps1)
