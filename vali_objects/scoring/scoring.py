@@ -293,30 +293,6 @@ class Scoring:
 
         return numerator / denominator
 
-    @staticmethod
-    def tstat(positions: list[Position], ledger: PerfLedgerData) -> float:
-        """
-        Args:
-            positions: list of positions from the miner
-            ledger: the ledger of the miner
-        """
-        if len(positions) == 0:
-            return 0.0
-
-        # Return at close should already accommodate the risk-free rate as a cost of carry
-        positional_log_returns = [math.log(
-            max(position.return_at_close, .00001))  # Prevent math domain error
-            for position in positions]
-
-        # T-statistic is calculated as the mean of the returns divided by the standard error of the returns
-        mean_return = np.mean(positional_log_returns)
-        std_error = np.std(positional_log_returns) / np.sqrt(len(positional_log_returns))
-
-        if std_error == 0:
-            return 0.0
-
-        return mean_return / std_error
-
     # TODO Remove the methods above when challenge period is modified
 
     @staticmethod
