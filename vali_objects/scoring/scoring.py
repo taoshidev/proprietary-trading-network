@@ -116,20 +116,8 @@ class Scoring:
         ]
         full_penalty_miners = set([x[0] for x in full_penalty_miner_scores])
 
-        # Calculate the total weight
-        total_weight = sum(value['weight'] for value in Scoring.scoring_config.values())
-
-        # Create a new dictionary with normalized weights
-        normalized_scoring_config = {
-            key: {
-                **value,  # Keep all other key-value pairs as-is
-                'weight': value['weight'] / total_weight  # Normalize the weight
-            }
-            for key, value in Scoring.scoring_config.items()
-        }
-
         combined_scores = {}
-        for config_name, config in normalized_scoring_config.items():
+        for config_name, config in Scoring.scoring_config.items():
             penalized_scores = []
             for miner, returns in filtered_ledger_returns.items():
                 # Get the miner ledger
