@@ -159,6 +159,7 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
     # Positional penalties
     positional_return_time_consistency_penalties = {}
     positional_realized_returns_penalties = {}
+    positional_concentration_penalties = {}
 
     # Ledger Ratios
     ledger_daily_consistency_ratios = {}
@@ -169,6 +170,8 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
     biweekly_consistency_penalty = {}
     drawdown_penalties = {}
     max_drawdown_threshold_penalties = {}
+    ledger_concentration_penalties = {}
+    drawdown_abnormality_penalties = {}
 
     # Ledger Drawdowns
     recent_drawdowns = {}
@@ -191,6 +194,7 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
         # Collect miner positions
         miner_positions = filtered_positions.get(hotkey, [])
         miner_returns = filtered_returns.get(hotkey, [])
+        miner_checkpoints = hotkey_ledger.cps
 
         # Lookback window positions
         miner_lookback_positions = lookback_positions.get(hotkey, [])
@@ -211,33 +215,37 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
 
         short_risk_adjusted_return_dict[hotkey] = Metrics.risk_adjusted_return(
             miner_returns,
-            hotkey_ledger
+            miner_checkpoints
         )
 
         risk_adjusted_return_dict[hotkey] = Metrics.risk_adjusted_return(
             miner_returns,
-            hotkey_ledger
+            miner_checkpoints
         )
 
         # Ledger consistency penalties
-        recent_drawdown = LedgerUtils.recent_drawdown(hotkey_ledger.cps)
+        recent_drawdown = LedgerUtils.recent_drawdown(miner_checkpoints)
         recent_drawdowns[hotkey] = recent_drawdown
 
-        approximate_drawdown = LedgerUtils.approximate_drawdown(hotkey_ledger.cps)
+        approximate_drawdown = LedgerUtils.approximate_drawdown(miner_checkpoints)
         approximate_drawdowns[hotkey] = approximate_drawdown
 
         effective_drawdowns[hotkey] = LedgerUtils.effective_drawdown(recent_drawdown, approximate_drawdown)
-        drawdown_penalties[hotkey] = LedgerUtils.risk_normalization(hotkey_ledger.cps)
+        drawdown_penalties[hotkey] = LedgerUtils.risk_normalization(miner_checkpoints)
 
-        ledger_daily_consistency_ratios[hotkey] = LedgerUtils.daily_consistency_ratio(hotkey_ledger.cps)
-        daily_consistency_penalty[hotkey] = LedgerUtils.daily_consistency_penalty(hotkey_ledger.cps)
+        ledger_daily_consistency_ratios[hotkey] = LedgerUtils.daily_consistency_ratio(miner_checkpoints)
+        daily_consistency_penalty[hotkey] = LedgerUtils.daily_consistency_penalty(miner_checkpoints)
 
-        ledger_biweekly_consistency_ratios[hotkey] = LedgerUtils.biweekly_consistency_ratio(hotkey_ledger.cps)
-        biweekly_consistency_penalty[hotkey] = LedgerUtils.biweekly_consistency_penalty(hotkey_ledger.cps)
+        ledger_biweekly_consistency_ratios[hotkey] = LedgerUtils.biweekly_consistency_ratio(miner_checkpoints)
+        biweekly_consistency_penalty[hotkey] = LedgerUtils.biweekly_consistency_penalty(miner_checkpoints)
 
-        max_drawdown_threshold_penalties[hotkey] = LedgerUtils.max_drawdown_threshold_penalty(hotkey_ledger.cps)
+        ledger_concentration_penalties[hotkey] = LedgerUtils.concentration_penalty(miner_checkpoints)
+        drawdown_abnormality_penalties[hotkey] = LedgerUtils.drawdown_abnormality(miner_checkpoints)
+
+        max_drawdown_threshold_penalties[hotkey] = LedgerUtils.max_drawdown_threshold_penalty(miner_checkpoints)
 
         # Positional consistency ratios
+        positional_concentration_penalties[hotkey] = PositionPenalties.concentration_penalty(miner_lookback_positions)
         positional_realized_returns_ratios[hotkey] = PositionPenalties.returns_ratio(miner_lookback_positions)
         positional_realized_returns_penalties[hotkey] = PositionPenalties.returns_ratio_penalty(miner_lookback_positions)
 
@@ -246,8 +254,8 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
         positional_return_time_consistency_penalties[hotkey] = positional_return_time_consistency_penalty
 
         # Now for the ledger statistics
-        n_checkpoints[hotkey] = len([x for x in hotkey_ledger.cps if x.open_ms > 0])
-        checkpoint_durations[hotkey] = sum([x.open_ms for x in hotkey_ledger.cps])
+        n_checkpoints[hotkey] = len([x for x in miner_checkpoints if x.open_ms > 0])
+        checkpoint_durations[hotkey] = sum([x.open_ms for x in miner_checkpoints])
 
         # Now for the full positions statistics
         n_positions[hotkey] = len(miner_positions)
@@ -414,6 +422,9 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
                 "daily": daily_consistency_penalty.get(miner_id),
                 "biweekly": biweekly_consistency_penalty.get(miner_id),
                 "total": miner_penalties.get(miner_id, 0.0),
+                "drawdown_abnormality": drawdown_abnormality_penalties.get(miner_id),
+                "positional_concentration": positional_concentration_penalties.get(miner_id),
+                "ledger_concentration": ledger_concentration_penalties.get(miner_id),
             },
             "ratios": {
                 "time_consistency": positional_return_time_consistency_ratios.get(miner_id),

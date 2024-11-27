@@ -5,7 +5,7 @@ from scipy.stats import ttest_1samp
 
 from vali_objects.vali_config import ValiConfig
 from vali_objects.utils.ledger_utils import LedgerUtils
-from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerData
+from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerData, PerfCheckpoint
 
 
 class Metrics:
@@ -86,34 +86,34 @@ class Metrics:
         return (math.exp(Metrics.base_return_log(log_returns)) - 1) * 100
 
     @staticmethod
-    def drawdown_adjusted_return(log_returns: list[float], ledger: PerfLedgerData) -> float:
+    def drawdown_adjusted_return(log_returns: list[float], checkpoints: list[PerfCheckpoint]) -> float:
         """
         Args:
             log_returns: list of daily log returns from the miner
-            ledger: the ledger of the miner
+            checkpoints: the ledger of the miner
         """
         # Positional Component
         if len(log_returns) == 0:
             return 0.0
 
         base_return = Metrics.base_return_log(log_returns)
-        drawdown_normalization_factor = LedgerUtils.risk_normalization(ledger.cps)
+        drawdown_normalization_factor = LedgerUtils.risk_normalization(checkpoints)
 
         return base_return * drawdown_normalization_factor
 
     @staticmethod
-    def risk_adjusted_return(returns: list[float], ledger: PerfLedgerData) -> float:
+    def risk_adjusted_return(returns: list[float], checkpoints: list[PerfCheckpoint]) -> float:
         """
         Args:
             returns: list of returns
-            ledger: the ledger of the miner
+            checkpoints: the ledger of the miner
         """
         # Positional Component
         if len(returns) == 0:
             return 0.0
 
         base_return = Metrics.base_return_log(returns)
-        risk_normalization_factor = LedgerUtils.risk_normalization(ledger.cps)
+        risk_normalization_factor = LedgerUtils.risk_normalization(checkpoints)
 
         return base_return * risk_normalization_factor
 

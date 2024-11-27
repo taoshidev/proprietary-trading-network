@@ -36,7 +36,11 @@ class Scoring:
     scoring_config = {
         'return_long': {
             'function': Metrics.drawdown_adjusted_return,
-            'weight': ValiConfig.SCORING_RETURN_LOOKBACK_WEIGHT
+            'weight': ValiConfig.SCORING_LONG_RETURN_LOOKBACK_WEIGHT
+        },
+        'return_short': {
+            'function': Metrics.drawdown_adjusted_return,
+            'weight': ValiConfig.SCORING_SHORT_RETURN_LOOKBACK_WEIGHT
         },
         'sharpe_ratio': {
             'function': Metrics.sharpe,
@@ -66,10 +70,14 @@ class Scoring:
             function=LedgerUtils.drawdown_abnormality,
             input_type=PenaltyInputType.LEDGER
         ),
-        'position_ratio': PenaltyConfig(
-            function=PositionPenalties.returns_ratio_penalty,
+        'position_concentration': PenaltyConfig(
+            function=PositionPenalties.concentration_penalty,
             input_type=PenaltyInputType.POSITIONS
         ),
+        'daily_concentration': PenaltyConfig(
+            function=LedgerUtils.concentration_penalty,
+            input_type=PenaltyInputType.LEDGER
+        )
     }
 
     @staticmethod
@@ -125,14 +133,18 @@ class Scoring:
             penalized_scores = []
             for miner, returns in filtered_ledger_returns.items():
                 # Get the miner ledger
-                ledger = ledger_dict.get(miner, PerfLedgerData())
+                checkpoints = ledger_dict.get(miner, PerfLedgerData()).cps
 
                 # Check if the miner has full penalty - if not include them in the scoring competition
                 if miner in full_penalty_miners:
                     continue
 
-                if config['function'] == Metrics.drawdown_adjusted_return:
-                    score = config['function'](log_returns=returns, ledger=ledger)
+                short_lookback_window = ValiConfig.SHORT_LOOKBACK_WINDOW
+
+                if config_name == 'return_long':
+                    score = config['function'](log_returns=returns, checkpoints=checkpoints)
+                elif config_name == 'return_short':
+                    score = config['function'](log_returns=returns[-short_lookback_window:], checkpoints=checkpoints[-short_lookback_window:])
                 else:
                     score = config['function'](log_returns=returns)
 
@@ -392,15 +404,16 @@ class Scoring:
             bt.logging.info(f"Only one miner: {miner}, returning 1.0 for the solo miner weight")
             return [(miner, 1.0)]
 
-        minernames = []
+        miner_hotkeys = []
         scores = []
 
         for miner, score in miner_scores:
-            minernames.append(miner)
-            scores.append(score)
+            if score > 0:
+                miner_hotkeys.append(miner)
+                scores.append(score)
 
         percentiles = percentileofscore(scores, scores) / 100
-        miner_percentiles = list(zip(minernames, percentiles))
+        miner_percentiles = list(zip(miner_hotkeys, percentiles))
 
         return miner_percentiles
 
