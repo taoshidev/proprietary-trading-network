@@ -188,6 +188,7 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
 
     # Volatility Metrics
     annual_volatility = {}
+    annual_downside_volatility = {}
 
     for hotkey, hotkey_ledger in filtered_ledger.items():
         # Collect miner positions
@@ -207,6 +208,7 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
         omega_dict[hotkey] = Metrics.omega(**scoring_input)
         sharpe_dict[hotkey] = Metrics.sharpe(**scoring_input)
         annual_volatility[hotkey] = Metrics.ann_volatility(miner_returns)
+        annual_downside_volatility[hotkey] = Metrics.ann_downside_volatility(miner_returns)
         statistical_confidence_dict[hotkey] = Metrics.statistical_confidence(miner_returns)
         concentration_dict[hotkey] = Metrics.concentration(miner_returns, positions=miner_positions)
 
@@ -240,7 +242,6 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
         biweekly_consistency_penalty[hotkey] = LedgerUtils.biweekly_consistency_penalty(miner_checkpoints)
 
         drawdown_abnormality_penalties[hotkey] = LedgerUtils.drawdown_abnormality(miner_checkpoints)
-
         max_drawdown_threshold_penalties[hotkey] = LedgerUtils.max_drawdown_threshold_penalty(miner_checkpoints)
 
         # Positional consistency ratios
@@ -303,12 +304,6 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
     return_rank = rank_dictionary(return_dict)
     return_percentile = percentile_rank_dictionary(return_dict)
 
-    short_risk_adjusted_return_rank = rank_dictionary(short_risk_adjusted_return_dict)
-    short_risk_adjusted_return_percentile = percentile_rank_dictionary(short_risk_adjusted_return_dict)
-
-    risk_adjusted_return_rank = rank_dictionary(risk_adjusted_return_dict)
-    risk_adjusted_return_percentile = percentile_rank_dictionary(risk_adjusted_return_dict)
-
     statistical_confidence_rank = rank_dictionary(statistical_confidence_dict)
     statistical_confidence_percentile = percentile_rank_dictionary(statistical_confidence_dict)
 
@@ -331,10 +326,6 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
     risk_adjusted_return_penalized_dict = apply_penalties(risk_adjusted_return_dict, miner_penalties)
     risk_adjusted_return_penalized_rank = rank_dictionary(risk_adjusted_return_penalized_dict)
     risk_adjusted_return_penalized_percentile = percentile_rank_dictionary(risk_adjusted_return_penalized_dict)
-
-    statistical_confidence_penalized_dict = apply_penalties(statistical_confidence_dict, miner_penalties)
-    statistical_confidence_penalized_rank = rank_dictionary(statistical_confidence_penalized_dict)
-    statistical_confidence_penalized_percentile = percentile_rank_dictionary(statistical_confidence_penalized_dict)
 
     # Here is the full list of data in frontend format
     combined_data = []
@@ -416,23 +407,13 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
             },
             "challengeperiod": challengeperiod_specific,
             "penalties": {
-                "time_consistency": positional_return_time_consistency_penalties.get(miner_id),
-                "returns_ratio": positional_realized_returns_penalties.get(miner_id),
                 "drawdown_threshold": max_drawdown_threshold_penalties.get(miner_id),
-                "drawdown": drawdown_penalties.get(miner_id),
-                "daily": daily_consistency_penalty.get(miner_id),
-                "biweekly": biweekly_consistency_penalty.get(miner_id),
-                "total": miner_penalties.get(miner_id, 0.0),
                 "drawdown_abnormality": drawdown_abnormality_penalties.get(miner_id),
+                "total": miner_penalties.get(miner_id, 0.0),
             },
-            "ratios": {
-                "time_consistency": positional_return_time_consistency_ratios.get(miner_id),
-                "returns_ratio": positional_realized_returns_ratios.get(miner_id),
-                "daily": ledger_daily_consistency_ratios.get(miner_id),
-                "biweekly": ledger_biweekly_consistency_ratios.get(miner_id),
-            },
-            "volatilities": {
-                "annual": annual_volatility.get(miner_id)
+            "volatility": {
+                "annual": annual_volatility.get(miner_id),
+                "annual_downside": annual_downside_volatility.get(miner_id),
             },
             "drawdowns": {
                 "recent": recent_drawdowns.get(miner_id),

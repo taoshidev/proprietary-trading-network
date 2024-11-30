@@ -201,14 +201,14 @@ class Metrics:
         """
 
         if len(log_returns) == 0:
-            return -1
+            return 0
 
         if len(positions) == 0:
-            return -1
+            return 0
 
         positional_returns = [(position.return_at_close-1)*100 for position in positions]
 
         pnl_concentration = FunctionalUtils.concentration(log_returns)
         position_concentration = FunctionalUtils.concentration(positional_returns)
 
-        return -max(pnl_concentration, position_concentration)
+        return 1-max(pnl_concentration, position_concentration)
