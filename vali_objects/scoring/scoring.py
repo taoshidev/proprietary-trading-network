@@ -57,7 +57,11 @@ class Scoring:
         'statistical_confidence': {
             'function': Metrics.statistical_confidence,
             'weight': ValiConfig.SCORING_STATISTICAL_CONFIDENCE_WEIGHT
-        }
+        },
+        'concentration': {
+            'function': Metrics.concentration,
+            'weight': ValiConfig.SCORING_CONCENTRATION_WEIGHT
+        },
     }
 
     # Define the configuration with input types
@@ -68,14 +72,6 @@ class Scoring:
         ),
         'drawdown_abnormality': PenaltyConfig(
             function=LedgerUtils.drawdown_abnormality,
-            input_type=PenaltyInputType.LEDGER
-        ),
-        'position_concentration': PenaltyConfig(
-            function=PositionPenalties.concentration_penalty,
-            input_type=PenaltyInputType.POSITIONS
-        ),
-        'daily_concentration': PenaltyConfig(
-            function=LedgerUtils.concentration_penalty,
             input_type=PenaltyInputType.LEDGER
         )
     }
@@ -122,6 +118,7 @@ class Scoring:
             for miner, returns in filtered_ledger_returns.items():
                 # Get the miner ledger
                 checkpoints = ledger_dict.get(miner, PerfLedgerData()).cps
+                positions = filtered_positions.get(miner, [])
 
                 # Check if the miner has full penalty - if not include them in the scoring competition
                 if miner in full_penalty_miners:
@@ -133,6 +130,8 @@ class Scoring:
                     score = config['function'](log_returns=returns, checkpoints=checkpoints)
                 elif config_name == 'return_short':
                     score = config['function'](log_returns=returns[-short_lookback_window:], checkpoints=checkpoints[-short_lookback_window:])
+                elif config_name == 'concentration':
+                    score = config['function'](log_returns=returns, positions=positions)
                 else:
                     score = config['function'](log_returns=returns)
 

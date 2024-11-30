@@ -281,11 +281,6 @@ class LedgerUtils:
         return min(recent_drawdown, approximate_drawdown)
 
     @staticmethod
-    def concentration_penalty(checkpoints: list[PerfCheckpoint]) -> float:
-        daily_returns = LedgerUtils.daily_return_log(checkpoints)
-        return FunctionalUtils.concentration_penalty(daily_returns)
-
-    @staticmethod
     def drawdown_abnormality(checkpoints: list[PerfCheckpoint]) -> float:
         """
         Args:
