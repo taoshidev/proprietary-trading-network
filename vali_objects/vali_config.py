@@ -126,7 +126,7 @@ class ValiConfig:
     DRAWDOWN_MINVALUE_PERCENTAGE = 0.5
 
     # Challenge period
-    CHALLENGE_PERIOD_WEIGHT = 5.4e-06  # essentially nothing
+    CHALLENGE_PERIOD_WEIGHT = 1.2e-05  # essentially nothing
     CHALLENGE_PERIOD_MS = 60 * 24 * 60 * 60 * 1000  # 60 days
     CHALLENGE_PERIOD_RETURN = 1.02
     CHALLENGE_PERIOD_RETURN_LOG = math.log(CHALLENGE_PERIOD_RETURN)
