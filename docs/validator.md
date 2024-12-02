@@ -39,9 +39,9 @@ Below are the prerequisites for validators.
 - 4 vCPU + 16 GB memory
 - 1 TB balanced persistent disk
 - 1000 TAO staked
-- A Tiingo API account. (https://www.tiingo.com/) with the "Commercial" ($50/month) subscription.
+- A Tiingo API account. (https://www.tiingo.com/) with the "Commercial" (\$50/month) subscription.
 
-- A Polygon API account (https://polygon.io/) with "Currencies Starter ($49/month)" as well as "Stocks Advanced ($199/month)" subscriptions. **IMPORTANT:** After subscribing, complete the Polygon KYC questionnaire to enable realtime US equities prices. Message a Taoshi team member ASAP if you need guidance with this step! https://polygon.io/dashboard/agreements
+- A Polygon API account (https://polygon.io/) with "Currencies Starter (\$49/month)" as well as "Stocks Advanced (\$199/month)" subscriptions. **IMPORTANT:** After subscribing, complete the Polygon KYC questionnaire to enable realtime US equities prices. Message a Taoshi team member ASAP if you need guidance with this step! https://polygon.io/dashboard/agreements
 
 # Getting Started
 
@@ -95,11 +95,11 @@ This step creates local coldkey and hotkey pairs for your validator.
 
 The validator will be registered to the subnet specified. This ensures that the validator can run the respective validator scripts.
 
-Create a coldkey and hotkey for your validator wallet. A coldkey can have multiple hotkeys, so if you already have an existing coldkey, you should create a new hotkey only. Be sure to save your mnemonics!
+Create a coldkey and hotkey for your validator wallet.
 
 ```bash
-btcli wallet new_coldkey --wallet.name <wallet>
-btcli wallet new_hotkey --wallet.name <wallet> --wallet.hotkey <validator>
+btcli wallet new_coldkey --wallet.name validator
+btcli wallet new_hotkey --wallet.name validator --wallet.hotkey default
 ```
 
 You can list the local wallets on your machine with the following.
@@ -125,7 +125,7 @@ Bittensor -> help-forum -> requests for testnet tao
 This step registers your subnet validator keys to the subnet, giving it the first slot on the subnet.
 
 ```bash
-btcli subnet register --wallet.name <wallet> --wallet.hotkey <validator>
+btcli subnet register --wallet.name validator --wallet.hotkey default
 ```
 
 To register your validator on the testnet add the `--subtensor.network test` and `--netuid 116` flags.
@@ -152,7 +152,7 @@ This step returns information about your registered keys.
 Check that your validator key has been registered:
 
 ```bash
-btcli wallet overview --wallet.name <wallet>
+btcli wallet overview --wallet.name validator
 ```
 
 To check your validator on the testnet add the `--subtensor.network test` flag
@@ -161,9 +161,9 @@ The above command will display the below:
 
 ```bash
 Subnet: 8 # or 116 on testnet
-COLDKEY    HOTKEY    UID  ACTIVE  STAKE(τ)     RANK    TRUST  CONSENSUS  INCENTIVE  DIVIDENDS  EMISSION(ρ)   VTRUST  VPERMIT  UPDATED  AXON  HOTKEY_SS58
-wallet     validator 197    True   0.00000  0.00000  0.00000    0.00000    0.00000    0.00000            0  0.00000                56  none  5GKkQKmDLfsKaumnkD479RBoD5CsbN2yRbMpY88J8YeC5DT4
-1          1         1            τ0.00000  0.00000  0.00000    0.00000    0.00000    0.00000           ρ0  0.00000
+COLDKEY    HOTKEY   UID  ACTIVE  STAKE(τ)     RANK    TRUST  CONSENSUS  INCENTIVE  DIVIDENDS  EMISSION(ρ)   VTRUST  VPERMIT  UPDATED  AXON  HOTKEY_SS58
+validator  default  197    True   0.00000  0.00000  0.00000    0.00000    0.00000    0.00000            0  0.00000                56  none  5GKkQKmDLfsKaumnkD479RBoD5CsbN2yRbMpY88J8YeC5DT4
+1          1        1            τ0.00000  0.00000  0.00000    0.00000    0.00000    0.00000           ρ0  0.00000
                                                                                 Wallet balance: τ0.000999999
 ```
 
@@ -194,7 +194,7 @@ brew install jq
 
 ```json
 {
-  "polygon_apikey": "OTHER_API_KEY_HERE",
+  "polygon_apikey": "YOUR_API_KEY_HERE",
   "tiingo_apikey": "OTHER_API_KEY_HERE"
 }
 ```
@@ -206,12 +206,12 @@ brew install jq
 
 1. **Mainnet Execution**: Run the validator on the mainnet by executing the following command. Include/exclude the `[--start-generate]` and `[--autosync]` flags as needed:
     ```bash
-    $ pm2 start run.sh --name sn8 -- --wallet.name <wallet> --wallet.hotkey <validator> --netuid 8 [--start-generate] [--autosync]
+    $ pm2 start run.sh --name sn8 -- --wallet.name validator --wallet.hotkey default --netuid 8 [--start-generate] [--autosync]
     ```
    
 2. **Testnet Execution**: For testnet operations with optional data generation, use this command:
     ```bash
-    $ pm2 start run.sh --name sn8 -- --wallet.name <wallet> --wallet.hotkey <validator> --netuid 116 --subtensor.network test [--start-generate]
+    $ pm2 start run.sh --name sn8 -- --wallet.name validator --wallet.hotkey default --netuid 116 --subtensor.network test [--start-generate]
     ```
 
 These commands initialize two PM2 processes:
@@ -232,6 +232,10 @@ Using the `--autosync` flag will allow your validator to synchronize with a trus
 However, we understand some validators want strict control and the ability to scrutinize all data changes.
 In this case, we provide an alternative restore mechanism that essentially does a "nuke and force rebuild". 
  To use this manual restore mechanism, please follow the steps [here](https://github.com/taoshidev/proprietary-trading-network/blob/main/docs/regenerating_validator_state.md) for performing the synchronization.
+
+### Stopping your validator
+
+To stop your validator, press CTRL + C in the terminal where the validator is running.
 
 ## 7. Get emissions flowing
 
@@ -291,7 +295,7 @@ pm2 log
 You can begin testing PTN on the testnet with netuid 116. You can do this by using running:
 
 ```bash
-python neurons/validator.py --netuid 116 --subtensor.network test --wallet.name <wallet> --wallet.hotkey <validator>
+python neurons/validator.py --netuid 116 --subtensor.network test --wallet.name validator --wallet.hotkey default
 ```
 Note this won't launch the autoupdater. To launch with the autoupdater, use the run.sh command.
 
