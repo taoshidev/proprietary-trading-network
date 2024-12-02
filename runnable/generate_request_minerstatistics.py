@@ -207,8 +207,8 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
         # Positional Scoring
         omega_dict[hotkey] = Metrics.omega(**scoring_input)
         sharpe_dict[hotkey] = Metrics.sharpe(**scoring_input)
-        annual_volatility[hotkey] = Metrics.ann_volatility(miner_returns)
-        annual_downside_volatility[hotkey] = Metrics.ann_downside_volatility(miner_returns)
+        annual_volatility[hotkey] = min(Metrics.ann_volatility(miner_returns), 100)
+        annual_downside_volatility[hotkey] = min(Metrics.ann_downside_volatility(miner_returns), 100)
         statistical_confidence_dict[hotkey] = Metrics.statistical_confidence(miner_returns)
         concentration_dict[hotkey] = Metrics.concentration(miner_returns, positions=miner_positions)
 
@@ -462,16 +462,6 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
                     "value": sharpe_penalized_dict.get(miner_id),
                     "rank": sharpe_penalized_rank.get(miner_id),
                     "percentile": sharpe_penalized_percentile.get(miner_id),
-                },
-                "short_risk_adjusted_return": {
-                    "value": short_risk_adjusted_return_penalized_dict.get(miner_id),
-                    "rank": short_risk_adjusted_return_penalized_rank.get(miner_id),
-                    "percentile": short_risk_adjusted_return_penalized_percentile.get(miner_id),
-                },
-                "risk_adjusted_return": {
-                    "value": risk_adjusted_return_penalized_dict.get(miner_id),
-                    "rank": risk_adjusted_return_penalized_rank.get(miner_id),
-                    "percentile": risk_adjusted_return_penalized_percentile.get(miner_id),
                 }
             },
             "engagement": {
