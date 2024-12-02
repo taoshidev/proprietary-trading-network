@@ -12,6 +12,7 @@ from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerData
 from time_util.time_util import TimeUtil
 from vali_objects.utils.position_filtering import PositionFiltering
 from vali_objects.utils.position_penalties import PositionPenalties
+from vali_objects.utils.position_utils import PositionUtils
 from vali_objects.utils.ledger_utils import LedgerUtils
 
 import bittensor as bt
@@ -214,14 +215,17 @@ class Scoring:
         # Hyperparameter
         min_std_dev = ValiConfig.SHARPE_STDDEV_MINIMUM
 
+        # Collect a list of returns based on individual positions
+        order_based_returns = PositionUtils.order_returns(positions)
+
         # Return at close should already accommodate the risk-free rate as a cost of carry
-        positional_log_returns = [math.log(
-            max(position.return_at_close, .00001))  # Prevent math domain error)
-            for position in positions]
+        ordered_log_returns = [math.log(
+            max(order_return, .00001))  # Prevent math domain error)
+            for order_return in order_based_returns]
 
         # Sharpe ratio is calculated as the mean of the returns divided by the standard deviation of the returns
-        mean_return = np.mean(positional_log_returns)
-        std_dev = max(np.std(positional_log_returns), min_std_dev)
+        mean_return = np.mean(ordered_log_returns)
+        std_dev = max(np.std(ordered_log_returns), min_std_dev)
 
         if std_dev == 0:
             return 0.0
@@ -238,15 +242,18 @@ class Scoring:
         if len(positions) == 0:
             return 0.0
 
+        # Collect a list of returns based on individual positions
+        order_based_returns = PositionUtils.order_returns(positions)
+
         # Return at close should already accommodate the risk-free rate as a cost of carry
-        positional_log_returns = [math.log(
-            max(position.return_at_close, .00001))  # Prevent math domain error
-            for position in positions]
+        ordered_log_returns = [math.log(
+            max(order_return, .00001))  # Prevent math domain error)
+            for order_return in order_based_returns]
 
         positive_sum = 0
         negative_sum = 0
 
-        for log_return in positional_log_returns:
+        for log_return in ordered_log_returns:
             if log_return > 0:
                 positive_sum += log_return
             else:

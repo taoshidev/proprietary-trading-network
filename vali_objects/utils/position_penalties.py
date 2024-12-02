@@ -6,7 +6,7 @@ import math
 from vali_objects.vali_config import ValiConfig
 from vali_objects.position import Position
 from vali_objects.utils.functional_utils import FunctionalUtils
-
+from vali_objects.utils.position_utils import PositionUtils
 
 class PositionPenalties:
     @staticmethod
@@ -122,16 +122,22 @@ class PositionPenalties:
             positions: list[Position] - the list of positions
         """
         closed_positions = [position for position in positions if position.is_closed_position]
-        closed_position_returns = [math.log(
-                                        max(position.return_at_close, .00001))  # Prevent math domain error
-                                    for position in closed_positions]
-        closed_return = sum(closed_position_returns)
+
+        # Collect a list of returns based on individual positions
+        order_based_returns = PositionUtils.order_returns(closed_positions)
+
+        # Return at close should already accommodate the risk-free rate as a cost of carry
+        ordered_log_returns = [math.log(
+            max(order_return, .00001))  # Prevent math domain error)
+            for order_return in order_based_returns]
+
+        closed_return = sum(ordered_log_returns)
 
         # Return early if there will be an issue with the ratio denominator
         if closed_return == 0:
             return 1
 
-        numerator = max(closed_position_returns) if closed_return > 0 else min(closed_position_returns)
+        numerator = max(ordered_log_returns) if closed_return > 0 else min(ordered_log_returns)
         denominator = closed_return
 
         max_return_ratio = np.clip(numerator / denominator, 0, 1)
