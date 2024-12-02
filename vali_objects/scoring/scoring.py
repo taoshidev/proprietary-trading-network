@@ -376,9 +376,8 @@ class Scoring:
         scores = []
 
         for miner, score in miner_scores:
-            if score > 0:
-                miner_hotkeys.append(miner)
-                scores.append(score)
+            miner_hotkeys.append(miner)
+            scores.append(score)
 
         percentiles = percentileofscore(scores, scores) / 100
         miner_percentiles = list(zip(miner_hotkeys, percentiles))
