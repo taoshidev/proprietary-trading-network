@@ -42,10 +42,8 @@ class Metrics:
         window = len(log_returns)
         if window < ddof + 1:
             return np.inf
-
-        ann_factor = days_in_year / window
         
-        annualized_volatility = np.sqrt(np.var(log_returns, ddof=ddof) * ann_factor)
+        annualized_volatility = np.sqrt(np.var(log_returns, ddof=ddof) * days_in_year)
         return annualized_volatility
 
     @staticmethod
