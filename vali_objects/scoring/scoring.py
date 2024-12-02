@@ -144,10 +144,10 @@ class Scoring:
                     combined_scores[miner] = 1
                 combined_scores[miner] *= config['weight'] * percentile_rank + (1 - config['weight'])
 
-            # Now applying the penalties post scoring
-            for miner, penalty in miner_penalties.items():
-                if miner in combined_scores:
-                    combined_scores[miner] *= penalty
+        # Now applying the penalties post scoring
+        for miner, penalty in miner_penalties.items():
+            if miner in combined_scores:
+                combined_scores[miner] *= penalty
 
         # Force good performance of all error metrics
         combined_weighed = Scoring.softmax_scores(list(combined_scores.items())) + full_penalty_miner_scores
