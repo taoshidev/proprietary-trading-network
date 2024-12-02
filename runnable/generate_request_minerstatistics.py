@@ -154,6 +154,9 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
     statistical_confidence_dict = {}
     concentration_dict = {}
 
+    # Scoring criteria metrics
+    minimum_days_threshold_dict = {}
+
     # Positional ratios
     positional_return_time_consistency_ratios = {}
     positional_realized_returns_ratios = {}
@@ -206,6 +209,9 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
             "log_returns": miner_returns,
             # "ledger": hotkey_ledger
         }
+
+        # Track the positional thresholds
+        minimum_days_threshold_dict[hotkey] = len(miner_returns) >= ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N
 
         # Positional Scoring
         omega_dict[hotkey] = Metrics.omega(**scoring_input)
@@ -496,7 +502,8 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
                 "n_checkpoints": n_checkpoints.get(miner_id),
                 "n_positions": n_positions.get(miner_id),
                 "position_duration": positional_duration.get(miner_id),
-                "checkpoint_durations": checkpoint_durations.get(miner_id)
+                "checkpoint_durations": checkpoint_durations.get(miner_id),
+                "minimum_days_boolean": minimum_days_threshold_dict.get(miner_id),
             },
             "plagiarism": plagiarism.get(miner_id)
         }
