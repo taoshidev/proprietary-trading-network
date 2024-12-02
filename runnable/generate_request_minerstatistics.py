@@ -146,6 +146,7 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
     # Scoring metrics
     omega_dict = {}
     sharpe_dict = {}
+    sortino_dict = {}
     short_return_dict = {}
     return_dict = {}
     short_risk_adjusted_return_dict = {}
@@ -207,6 +208,7 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
         # Positional Scoring
         omega_dict[hotkey] = Metrics.omega(**scoring_input)
         sharpe_dict[hotkey] = Metrics.sharpe(**scoring_input)
+        sortino_dict[hotkey] = Metrics.sortino(**scoring_input)
         annual_volatility[hotkey] = min(Metrics.ann_volatility(miner_returns), 100)
         annual_downside_volatility[hotkey] = min(Metrics.ann_downside_volatility(miner_returns), 100)
         statistical_confidence_dict[hotkey] = Metrics.statistical_confidence(miner_returns)
@@ -294,6 +296,9 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
     # Rankings on Traditional Metrics
     omega_rank = rank_dictionary(omega_dict)
     omega_percentile = percentile_rank_dictionary(omega_dict)
+
+    sortino_rank = rank_dictionary(sortino_dict)
+    sortino_percentile = percentile_rank_dictionary(sortino_dict)
 
     sharpe_rank = rank_dictionary(sharpe_dict)
     sharpe_percentile = percentile_rank_dictionary(sharpe_dict)
@@ -430,6 +435,11 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
                     "value": sharpe_dict.get(miner_id),
                     "rank": sharpe_rank.get(miner_id),
                     "percentile": sharpe_percentile.get(miner_id),
+                },
+                "sortino": {
+                    "value": sortino_dict.get(miner_id),
+                    "rank": sortino_rank.get(miner_id),
+                    "percentile": sortino_percentile.get(miner_id),
                 },
                 "statistical_confidence": {
                     "value": statistical_confidence_dict.get(miner_id),
