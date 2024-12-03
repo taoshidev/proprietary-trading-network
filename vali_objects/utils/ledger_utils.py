@@ -21,11 +21,11 @@ class LedgerUtils:
         Returns:
             float - the risk-free adjustment return
         """
-        if len(mean_return) == 0:
-            return 0
-
         annual_risk_free_rate = ValiConfig.ANNUAL_RISK_FREE_PERCENTAGE
         trading_days = ValiConfig.MARKET_OPEN_DAYS
+
+        if len(mean_return) == 0:
+            return -annual_risk_free_rate
 
         return (np.mean(mean_return) * trading_days) - annual_risk_free_rate
 

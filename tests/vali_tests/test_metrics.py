@@ -1,8 +1,11 @@
+import copy
+
 import numpy as np
 
 from tests.vali_tests.base_objects.test_base import TestBase
 
 from vali_objects.utils.metrics import Metrics
+from vali_objects.vali_config import ValiConfig
 
 
 class TestMetrics(TestBase):
@@ -26,7 +29,7 @@ class TestMetrics(TestBase):
 
     def test_typical_omega(self):
         """Test that the omega function works as expected for only positive returns"""
-        log_returns = [0.003, -0.002] * 15  # Sum = 0.015
+        log_returns = [0.003, -0.002] * 50  # Sum = 0.015
         omega = Metrics.omega(log_returns)
 
         # Should always be greater or equal to 0
@@ -34,7 +37,7 @@ class TestMetrics(TestBase):
 
     def test_negative_omega(self):
         """Test that the omega function works as expected for only negative returns"""
-        log_returns = [-0.003, -0.001] * 15  # Sum = -0.06
+        log_returns = [-0.003, -0.001] * 50  # Sum = -0.06
         omega = Metrics.omega(log_returns)
 
         # Should always be less or equal to 0
@@ -42,7 +45,7 @@ class TestMetrics(TestBase):
 
     def test_positive_omega(self):
         """Test that the omega function works as expected for only positive returns - the default loss works"""
-        log_returns = [0.002, 0.001] * 15  # Sum = 0.045
+        log_returns = [0.002, 0.001] * 50  # Sum = 0.045
         omega = Metrics.omega(log_returns)
 
         # Should always be greater or equal to 0, cannot be massive
@@ -51,7 +54,7 @@ class TestMetrics(TestBase):
 
     def test_positive_omega_small_loss(self):
         """Test that the omega function works as expected for only positive returns - the default loss works"""
-        log_returns = [0.002, -0.001, 0.001] * 10  # Sum = 0.01
+        log_returns = [0.002, -0.001, 0.001] * 50  # Sum = 0.01
         omega = Metrics.omega(log_returns)
 
         # Should always be greater or equal to 0, cannot be massive
@@ -65,11 +68,11 @@ class TestMetrics(TestBase):
         omega = Metrics.omega(returns)
 
         # Expected value is zero
-        self.assertEqual(omega, 0.0)
+        self.assertEqual(omega, ValiConfig.OMEGA_NOCONFIDENCE_VALUE)
 
     def test_sharpe_positive(self):
         """Test that the sharpe function is positive when all returns are positive"""
-        log_returns = [0.002] * 30  # Sum = 0.06
+        log_returns = [0.002] * 100  # Sum = 0.06
         sharpe = Metrics.sharpe(log_returns)
 
         # Should always be greater or equal to 0
@@ -77,7 +80,7 @@ class TestMetrics(TestBase):
 
     def test_sharpe_no_returns_no_variance(self):
         """Test that the sharpe function is 0 with 0 returns"""
-        log_returns = [0.0] * 30  # Sum = 0.0
+        log_returns = [0.0] * 100  # Sum = 0.0
         sharpe = Metrics.sharpe(log_returns)
 
         # Expected value is zero
@@ -90,7 +93,7 @@ class TestMetrics(TestBase):
         sharpe = Metrics.sharpe(returns)
 
         # Expected value is zero
-        self.assertEqual(sharpe, 0.0)
+        self.assertEqual(sharpe, ValiConfig.SHARPE_NOCONFIDENCE_VALUE)
 
     def test_sharpe_perfect_positive_year(self):
         """Test that the sharpe function works for 365 days of returns"""
@@ -109,20 +112,45 @@ class TestMetrics(TestBase):
         sortino = Metrics.sortino(log_returns)
 
         # Expected value is zero
-        self.assertEqual(sortino, 0.0)
-    
-    def test_sortino_no_returns_no_variance(self):
-        """Test that the Sortino function returns 0.0 when there are no returns and no variance"""
-        log_returns = [0.0] * 100
+        self.assertEqual(sortino, ValiConfig.SORTINO_NOCONFIDENCE_VALUE)
+
+    def test_sortino_noconfidence_limit(self):
+        """Test that the Sortino function returns 0.0 when there are no returns"""
+        log_returns = [0.1] * (ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N - 1)
 
         sortino = Metrics.sortino(log_returns)
 
         # Expected value is zero
+        self.assertEqual(sortino, ValiConfig.SORTINO_NOCONFIDENCE_VALUE)
+    
+    def test_sortino_no_returns_no_variance(self):
+        """Test that the Sortino function returns 0.0 when there are no returns and no variance"""
+        log_returns = [0.0] * 100
+        sortino = Metrics.sortino(log_returns)
+
+        # Expected value is minimum downside loss
+        self.assertAlmostEqual(sortino, 0.0)
+
+    def test_sortino_no_losses(self):
+        """Test that the Sortino function returns 0.0 when there are no losses"""
+        log_returns = [0.002] * 100
+        sortino = Metrics.sortino(log_returns)
+
+        # Expected value is zero, as there are no losses and volatility is inf
         self.assertEqual(sortino, 0.0)
+
+    def test_sortino_only_losses(self):
+        """Test that the Sortino function returns 0.0 when there are no losses"""
+        log_returns = [-0.002] * 100
+
+        downside_volatility = Metrics.ann_downside_volatility(log_returns)
+        volatility = Metrics.ann_volatility(log_returns)
+
+        self.assertEqual(downside_volatility, volatility)
 
     def test_sortino_general(self):
         """Test that the Sortino function returns a positive value for general returns"""
-        log_returns = [0.003, -0.002] * 15 
+        log_returns = [0.003, -0.002] * 50
         sortino = Metrics.sortino(log_returns)
         self.assertGreater(sortino, 0.0)
 
@@ -136,20 +164,21 @@ class TestMetrics(TestBase):
         self.assertLess(sortino, 0.0)
         self.assertGreater(sortino, -10)
 
-    def test_swing_miners(self):
-        """Test that the sharpe function works as expected"""
-        total_return_1 = 0.05  # Keeping the total return less than 0.1
-        n_positions_1 = 30
-        per_position_return_1 = total_return_1 / n_positions_1
-        m1 = [per_position_return_1 for _ in range(n_positions_1)]
-        
-        small_return_2 = 0.001
-        n_positions_2 = 29
-        large_return_2 = total_return_1 - (small_return_2 * n_positions_2)
+    def test_ann_volatility(self):
+        a = [9/252, 10/252, 11/252]
+        b = [8/252, 10/252, 12/252]
+        self.assertGreater(Metrics.ann_volatility(b), Metrics.ann_volatility(a))
 
-        m2 = [small_return_2 for _ in range(n_positions_2)]
-        m2.append(large_return_2)
+    def test_ann_downside_volatility(self):
+        a = [9/252, 10/252, 11/252]
+        b = [8/252, 10/252, 12/252]
+        self.assertEqual(Metrics.ann_downside_volatility(b), Metrics.ann_downside_volatility(a))
+        self.assertEqual(Metrics.ann_downside_volatility(a), np.inf)
 
-        self.assertAlmostEqual(Metrics.base_return(m1), Metrics.base_return(m2), places=2)
-        self.assertGreater(Metrics.sharpe(m1), Metrics.sharpe(m2))
-        self.assertAlmostEqual(Metrics.omega(m2), Metrics.omega(m1))
+        c = [-9/252, -10/252, -11/252]
+        d = [-8/252, -10/252, -12/252]
+        self.assertGreater(Metrics.ann_downside_volatility(d), Metrics.ann_downside_volatility(c))
+
+        e = copy.deepcopy(c)
+        e.append(12/252)
+        self.assertEqual(Metrics.ann_downside_volatility(e), Metrics.ann_downside_volatility(c))
