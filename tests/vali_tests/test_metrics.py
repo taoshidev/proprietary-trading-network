@@ -164,6 +164,63 @@ class TestMetrics(TestBase):
         self.assertLess(sortino, 0.0)
         self.assertGreater(sortino, -10)
 
+    def test_statistical_confidence_no_returns(self):
+        """Test that the statistical confidence function returns 0.0 when there are no returns"""
+        log_returns = []
+
+        confidence = Metrics.statistical_confidence(log_returns)
+
+        # Expected value is zero
+        self.assertEqual(confidence, ValiConfig.STATISTICAL_CONFIDENCE_NOCONFIDENCE_VALUE)
+
+    def test_statistical_confidence_noconfidence_limit(self):
+        """Test that the statistical confidence function returns 0.0 when there are no returns"""
+        log_returns = [0.1] * (ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N - 1)
+
+        confidence = Metrics.statistical_confidence(log_returns)
+
+        # Expected value is zero
+        self.assertEqual(confidence, ValiConfig.STATISTICAL_CONFIDENCE_NOCONFIDENCE_VALUE)
+
+    def test_statistical_confidence_general(self):
+        """Test that the statistical confidence function returns a positive value for general returns"""
+        log_returns = [0.003, -0.002] * 50
+        confidence = Metrics.statistical_confidence(log_returns)
+        self.assertGreater(confidence, 0.0)
+
+    def test_statistical_confidence_negative(self):
+        """Test that the statistical confidence function returns a negative value for negative log returns"""
+        log_returns = [-0.001, 0.002] * 50
+        confidence = Metrics.statistical_confidence(log_returns)
+
+        # Expected value less than zero for negative returns
+        self.assertLess(confidence, 0.0)
+
+    def test_statistical_confidence_monotonic(self):
+        """Test that the statistical confidence function is monotonic"""
+        log_returns = [0.003, -0.002] * 50
+        confidence = Metrics.statistical_confidence(log_returns)
+
+        log_returns = [0.003, -0.002] * 70
+        confidence_new = Metrics.statistical_confidence(log_returns)
+
+        log_returns = [0.003, -0.002] * 100
+        confidence_newest = Metrics.statistical_confidence(log_returns)
+
+        self.assertLess(confidence, confidence_new)
+        self.assertLess(confidence_new, confidence_newest)
+
+    def test_concentration_no_returns(self):
+        """Test that the concentration function returns 0.0 when there are no returns"""
+        log_returns = []
+
+        concentration = Metrics.concentration(log_returns, [])
+
+        # Expected value is zero
+        self.assertEqual(concentration, 0.0)
+
+    def test_concentration_no_positions(self)
+
     def test_ann_volatility(self):
         a = [9/252, 10/252, 11/252]
         b = [8/252, 10/252, 12/252]
