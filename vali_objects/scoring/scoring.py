@@ -57,11 +57,7 @@ class Scoring:
         'statistical_confidence': {
             'function': Metrics.statistical_confidence,
             'weight': ValiConfig.SCORING_STATISTICAL_CONFIDENCE_WEIGHT
-        },
-        'concentration': {
-            'function': Metrics.concentration,
-            'weight': ValiConfig.SCORING_CONCENTRATION_WEIGHT
-        },
+        }
     }
 
     # Define the configuration with input types
