@@ -68,10 +68,12 @@ class Metrics:
         Returns:
              The aggregate total return of the miner as a log total
         """
-        if len(log_returns) == 0:
-            return 0.0
+        annualized_rate = ValiConfig.ANNUAL_RISK_FREE_DECIMAL
 
-        return float(np.mean(log_returns)) * ValiConfig.DAYS_IN_YEAR
+        if len(log_returns) == 0:
+            return -annualized_rate
+
+        return (float(np.mean(log_returns)) * ValiConfig.DAYS_IN_YEAR) - annualized_rate
 
     @staticmethod
     def base_return(log_returns: list[float]) -> float:
