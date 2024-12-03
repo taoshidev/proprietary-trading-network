@@ -25,11 +25,13 @@ class TradePairCategory(str, Enum):
 class ValiConfig:
     # versioning
     VERSION = meta_version
+    DAYS_IN_YEAR = 252  # 252 trading days in a year
+    STATISTICAL_CONFIDENCE_MINIMUM_N = 60
 
     # Market-specific configurations
-    MARKET_OPEN_DAYS = 252  # 252 trading days in a year
     ANNUAL_RISK_FREE_PERCENTAGE = 4.19  # From tbill rates
     ANNUAL_RISK_FREE_DECIMAL = ANNUAL_RISK_FREE_PERCENTAGE / 100
+    DAILY_LOG_RISK_FREE_RATE = math.log(1 + ANNUAL_RISK_FREE_DECIMAL) / DAYS_IN_YEAR
     MS_RISK_FREE_RATE = math.log(1 + ANNUAL_RISK_FREE_PERCENTAGE / 100) / (365 * 24 * 60 * 60 * 1000)
 
     # Time Configurations
@@ -75,8 +77,6 @@ class ValiConfig:
     PLAGIARISM_MINIMUM_FOLLOW_MS = 1000 * 10 # Minimum follow time of 10 seconds for each order
 
     HISTORICAL_DECAY_TIME_INTENSITY_COEFFICIENT = 0.18
-    DAYS_IN_YEAR = 252  # 252 trading days in a year
-    STATISTICAL_CONFIDENCE_MINIMUM_N = 60
 
     EPSILON = 1e-6
     RETURN_SHORT_LOOKBACK_TIME_MS = 5 * 24 * 60 * 60 * 1000  # 5 days

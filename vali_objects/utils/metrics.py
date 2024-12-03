@@ -47,7 +47,7 @@ class Metrics:
         return annualized_volatility
 
     @staticmethod
-    def ann_downside_volatility(log_returns: list[float], target: int = 0):
+    def ann_downside_volatility(log_returns: list[float], target: int = ValiConfig.DAILY_LOG_RISK_FREE_RATE) -> float:
         """
         Args:
             log_returns: list[float] - Daily Series of log returns.
