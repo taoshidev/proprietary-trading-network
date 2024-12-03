@@ -167,8 +167,27 @@ class PerfLedgerData:
         self.cps.append(new_cp)
 
     def init_with_first_order(self, order_processed_ms: int, point_in_time_dd: float, current_portfolio_value: float,  current_portfolio_fee_spread:float, current_portfolio_carry:float):
+        # figure out how many ms we want to initalize the checkpoint with so that once self.target_cp_duration_ms is
+        # reached, the CP ends at 00:00:00 UTC or 12:00:00 UTC (12 hr cp case). This may change based on self.target_cp_duration_ms
+        # |----x------midday-----------| -> accum_ms_for_utc_alignment = (distance between start of day and x) = x - start_of_day_ms
+        # |-----------midday-----x-----| -> accum_ms_for_utc_alignment = (distance between midday and x) = x - midday_ms
+        # By calculating the initial accum_ms this way, the co will always end at middday or 00:00:00 the next day.
+
+
+        datetime_representation = TimeUtil.millis_to_datetime(order_processed_ms)
+        assert self.target_cp_duration_ms == 43200000, f'self.target_cp_duration_ms is not 12 hours {self.target_cp_duration_ms}'
+        midday = datetime_representation.replace(hour=12, minute=0, second=0, microsecond=0)
+        midday_ms = int(midday.timestamp() * 1000)
+        if order_processed_ms < midday_ms:
+            start_of_day = datetime_representation.replace(hour=0, minute=0, second=0, microsecond=0)
+            start_of_day_ms = int(start_of_day.timestamp() * 1000)
+            accum_ms_for_utc_alignment = order_processed_ms - start_of_day_ms
+        else:
+            accum_ms_for_utc_alignment = order_processed_ms - midday_ms
+
         new_cp = PerfCheckpointData(last_update_ms=order_processed_ms, prev_portfolio_ret=current_portfolio_value,
-                                    mdd=point_in_time_dd, prev_portfolio_spread_fee=current_portfolio_fee_spread, prev_portfolio_carry_fee=current_portfolio_carry, mpv=1.0)
+                                    mdd=point_in_time_dd, prev_portfolio_spread_fee=current_portfolio_fee_spread,
+                                    prev_portfolio_carry_fee=current_portfolio_carry, accum_ms=accum_ms_for_utc_alignment, mpv=1.0)
         self.cps.append(new_cp)
 
     def get_or_create_latest_cp_with_mdd(self, now_ms: int, current_portfolio_value:float, current_portfolio_fee_spread:float, current_portfolio_carry:float):
@@ -181,7 +200,7 @@ class PerfLedgerData:
 
         time_since_last_update_ms = now_ms - self.cps[-1].last_update_ms
         assert time_since_last_update_ms >= 0, self.cps
-        if time_since_last_update_ms + self.cps[-1].accum_ms >= self.target_cp_duration_ms:
+        if time_since_last_update_ms + self.cps[-1].accum_ms > self.target_cp_duration_ms:
             self.create_cps_to_fill_void(time_since_last_update_ms, now_ms, point_in_time_dd)
         else:
             self.cps[-1].mdd = min(self.cps[-1].mdd, point_in_time_dd)
@@ -985,8 +1004,11 @@ class PerfLedgerManager(CacheController):
 
         if testing_one_hotkey:
             ledger = perf_ledgers[testing_one_hotkey]
-            for x in ledger.cps:
+            for i, x in enumerate(ledger.cps):
                 last_update_formated = TimeUtil.millis_to_timestamp(x.last_update_ms)
+                # assert the checkpoint ends on a 12 hour boundary
+                if i != len(ledger.cps) - 1:
+                    assert x.last_update_ms % ledger.target_cp_duration_ms == 0, x.last_update_ms
                 print(x, last_update_formated)
 
     def save_perf_ledgers_to_disk(self, perf_ledgers: dict[str, PerfLedgerData] | dict[str, dict], raw_json=False):
