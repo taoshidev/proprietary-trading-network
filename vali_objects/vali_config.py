@@ -75,7 +75,7 @@ class ValiConfig:
     PLAGIARISM_MINIMUM_FOLLOW_MS = 1000 * 10 # Minimum follow time of 10 seconds for each order
 
     HISTORICAL_DECAY_TIME_INTENSITY_COEFFICIENT = 0.18
-    DAYS_IN_YEAR = 365.25
+    DAYS_IN_YEAR = 252  # 252 trading days in a year
     STATISTICAL_CONFIDENCE_MINIMUM_N = 60
 
     EPSILON = 1e-6

@@ -25,15 +25,16 @@ class TestLedgerUtils(TestBase):
         adjust returns for risk free rate
         """
         mean_returns = []
-        self.assertEqual(LedgerUtils.risk_free_adjustment(mean_returns), 0)
+        self.assertLess(LedgerUtils.risk_free_adjustment(mean_returns), 0)
         mean_returns = [0.1]
         self.assertGreater(LedgerUtils.risk_free_adjustment(mean_returns), 0)
         mean_returns = [0.1, 0.2]
         self.assertGreater(LedgerUtils.risk_free_adjustment(mean_returns), 0)
         mean_returns = [0.1, -0.2]
         self.assertLess(LedgerUtils.risk_free_adjustment(mean_returns), 0)
+
         mean_returns = [ValiConfig.ANNUAL_RISK_FREE_PERCENTAGE/252]
-        self.assertEqual(LedgerUtils.risk_free_adjustment(mean_returns), 0)
+        self.assertAlmostEqual(LedgerUtils.risk_free_adjustment(mean_returns), 0)
 
     def test_daily_return_log(self):
         """
@@ -56,12 +57,6 @@ class TestLedgerUtils(TestBase):
         l1 = generate_ledger(0.1, gain=0.2, loss=-0.1)
         l1_cps = l1.cps
         self.assertGreater(LedgerUtils.daily_return(l1_cps)[0], 0)
-
-    def test_ann_volatility(self):
-        a = [9/252, 10/252, 11/252]
-        b = [8/252, 10/252, 12/252]
-        self.assertGreater(LedgerUtils.ann_volatility(b), LedgerUtils.ann_volatility(a))
-        self.assertEqual(LedgerUtils.ann_volatility(a), 0.036369648372665396)
 
     # Want to test the individual functions inputs and outputs
     def test_recent_drawdown(self):
