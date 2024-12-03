@@ -11,7 +11,7 @@ from vali_objects.vali_config import ValiConfig
 class TestMetrics(TestBase):
 
     def test_return_no_positions(self):
-        self.assertAlmostEqual(Metrics.base_return([]), -ValiConfig.ANNUAL_RISK_FREE_PERCENTAGE, 0)
+        self.assertEqual(Metrics.base_return([]), 0.0)
 
     def test_negative_returns(self):
         """Test that the returns scoring function works properly for only negative returns"""
