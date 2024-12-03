@@ -338,14 +338,6 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
     sharpe_penalized_rank = rank_dictionary(sharpe_penalized_dict)
     sharpe_penalized_percentile = percentile_rank_dictionary(sharpe_penalized_dict)
 
-    short_risk_adjusted_return_penalized_dict = apply_penalties(short_risk_adjusted_return_dict, miner_penalties)
-    short_risk_adjusted_return_penalized_rank = rank_dictionary(short_risk_adjusted_return_penalized_dict)
-    short_risk_adjusted_return_penalized_percentile = percentile_rank_dictionary(short_risk_adjusted_return_penalized_dict)
-
-    risk_adjusted_return_penalized_dict = apply_penalties(risk_adjusted_return_dict, miner_penalties)
-    risk_adjusted_return_penalized_rank = rank_dictionary(risk_adjusted_return_penalized_dict)
-    risk_adjusted_return_penalized_percentile = percentile_rank_dictionary(risk_adjusted_return_penalized_dict)
-
     # Here is the full list of data in frontend format
     combined_data = []
     for miner_id in selected_miner_hotkeys:

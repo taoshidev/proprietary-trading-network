@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from enum import Enum, auto
 import math
-from typing import List, Tuple, Callable, TypeVar, Union, Any
+from typing import List, Tuple, Callable
 from vali_objects.position import Position
 
 import numpy as np
@@ -14,7 +14,6 @@ from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerData
 from time_util.time_util import TimeUtil
 from vali_objects.utils.position_filtering import PositionFiltering
 from vali_objects.utils.ledger_utils import LedgerUtils
-from vali_objects.utils.position_penalties import PositionPenalties
 from vali_objects.utils.metrics import Metrics
 
 import bittensor as bt
@@ -123,11 +122,20 @@ class Scoring:
                 short_lookback_window = ValiConfig.SHORT_LOOKBACK_WINDOW
 
                 if config_name == 'return_long':
-                    score = config['function'](log_returns=returns, checkpoints=checkpoints)
+                    score = config['function'](
+                        log_returns=returns,
+                        checkpoints=checkpoints
+                    )
                 elif config_name == 'return_short':
-                    score = config['function'](log_returns=returns[-short_lookback_window:], checkpoints=checkpoints[-short_lookback_window:])
+                    score = config['function'](
+                        log_returns=returns[-short_lookback_window:],
+                        checkpoints=checkpoints[-short_lookback_window:]
+                    )
                 elif config_name == 'concentration':
-                    score = config['function'](log_returns=returns, positions=positions)
+                    score = config['function'](
+                        log_returns=returns,
+                        positions=positions
+                    )
                 else:
                     score = config['function'](log_returns=returns)
 
