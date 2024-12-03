@@ -105,7 +105,9 @@ class ChallengePeriodManager(CacheController):
         # A perf ledger can never begin before the first order. Edge case confirmed.
         ans = time_of_ledger_start < time_of_first_order
         if ans:
-            msg = f'Hotkey {hotkey} has a ledger start time of {TimeUtil.millis_to_formatted_date_str(time_of_ledger_start)} and a first order time of {TimeUtil.millis_to_formatted_date_str(time_of_first_order)}'
+            msg = (f'Hotkey {hotkey} has a ledger start time of {TimeUtil.millis_to_formatted_date_str(time_of_ledger_start)},'
+                   f' a first order time of {TimeUtil.millis_to_formatted_date_str(time_of_first_order)}, and an'
+                   f' initialization time of {TimeUtil.millis_to_formatted_date_str(ledger.initialization_time_ms)}.')
             print(msg)
         return ans
 
