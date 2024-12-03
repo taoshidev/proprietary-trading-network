@@ -64,7 +64,7 @@ class LedgerUtils:
         return returns
 
     @staticmethod
-    def daily_return(checkpoints: list[PerfCheckpoint]) -> list[float]:
+    def daily_return_percentage(checkpoints: list[PerfCheckpoint]) -> list[float]:
         # First risk-free adjustment
         return [(math.exp(x)-1) * 100 if x != 0 else 0 for x in LedgerUtils.daily_return_log(checkpoints)]
 
@@ -77,7 +77,7 @@ class LedgerUtils:
         miner_returns = {}
 
         for miner, miner_ledger in ledger.items():
-            miner_returns[miner] = LedgerUtils.daily_return(miner_ledger.cps)
+            miner_returns[miner] = LedgerUtils.daily_return_percentage(miner_ledger.cps)
 
         return miner_returns
 
@@ -110,6 +110,8 @@ class LedgerUtils:
 
         if len(checkpoints) == 0:
             return 1.0
+        # Use the number of checkpoints if there aren't enough for the entire window
+        #drawdown_lookback_window = min(drawdown_lookback_window, len(checkpoints))
 
         # Compute the drawdown of the checkpoints
         if restricted:
