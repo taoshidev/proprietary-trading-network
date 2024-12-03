@@ -1,11 +1,8 @@
 import copy
-from copy import deepcopy
 from tests.vali_tests.base_objects.test_base import TestBase
-from vali_objects.utils.ledger_utils import LedgerUtils
-from vali_objects.vali_config import ValiConfig, TradePair
+from vali_objects.vali_config import TradePair
 
 from vali_objects.utils.ledger_utils import LedgerUtils
-from vali_objects.utils.position_penalties import PositionPenalties
 
 from vali_objects.utils.functional_utils import FunctionalUtils
 from tests.shared_objects.test_utilities import generate_ledger, ledger_generator, position_generator

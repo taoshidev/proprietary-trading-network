@@ -5,7 +5,7 @@ from scipy.stats import ttest_1samp
 
 from vali_objects.vali_config import ValiConfig
 from vali_objects.utils.ledger_utils import LedgerUtils
-from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerData, PerfCheckpoint
+from vali_objects.vali_dataclasses.perf_ledger import PerfCheckpoint
 from vali_objects.position import Position
 from vali_objects.utils.functional_utils import FunctionalUtils
 
