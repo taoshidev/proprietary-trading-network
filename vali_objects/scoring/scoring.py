@@ -109,7 +109,7 @@ class Scoring:
 
         combined_scores = {}
         for config_name, config in Scoring.scoring_config.items():
-            raw_scores = []
+            scores = []
             for miner, returns in filtered_ledger_returns.items():
                 # Get the miner ledger
                 checkpoints = ledger_dict.get(miner, PerfLedgerData()).cps
@@ -139,10 +139,9 @@ class Scoring:
                 else:
                     score = config['function'](log_returns=returns)
 
-                raw_score = score * miner_penalties.get(miner, 0)
-                raw_scores.append((miner, raw_score))
+                scores.append((miner, score))
 
-            percentile_scores = Scoring.miner_scores_percentiles(raw_scores)
+            percentile_scores = Scoring.miner_scores_percentiles(scores)
             for miner, percentile_rank in percentile_scores:
                 if miner not in combined_scores:
                     combined_scores[miner] = 1
