@@ -11,25 +11,6 @@ from vali_objects.utils.functional_utils import FunctionalUtils
 
 class LedgerUtils:
     @staticmethod
-    def risk_free_adjustment(mean_return: list[float]) -> float:
-        """
-        Annualizes simple returns and subtract risk-free rate
-
-        Args:
-            mean_return: float - mean return from the positions
-
-        Returns:
-            float - the risk-free adjustment return
-        """
-        annual_risk_free_rate = ValiConfig.ANNUAL_RISK_FREE_PERCENTAGE
-        trading_days = ValiConfig.MARKET_OPEN_DAYS
-
-        if len(mean_return) == 0:
-            return -annual_risk_free_rate
-
-        return (np.mean(mean_return) * trading_days) - annual_risk_free_rate
-
-    @staticmethod
     def daily_return_log(checkpoints: list[PerfCheckpoint]) -> list[float]:
         """
         Calculate daily returns from performance checkpoints, only including full days

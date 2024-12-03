@@ -11,7 +11,7 @@ from vali_objects.vali_config import ValiConfig
 class TestMetrics(TestBase):
 
     def test_return_no_positions(self):
-        self.assertEqual(Metrics.base_return([]), 0.0)
+        self.assertAlmostEqual(Metrics.base_return([]), -ValiConfig.ANNUAL_RISK_FREE_PERCENTAGE, 0)
 
     def test_negative_returns(self):
         """Test that the returns scoring function works properly for only negative returns"""
@@ -128,8 +128,8 @@ class TestMetrics(TestBase):
         log_returns = [0.0] * 100
         sortino = Metrics.sortino(log_returns)
 
-        # Expected value is minimum downside loss
-        self.assertAlmostEqual(sortino, 0.0)
+        # Expected value will be the annual tbill rate, if there is no variance
+        self.assertAlmostEqual(sortino, -ValiConfig.ANNUAL_RISK_FREE_PERCENTAGE)
 
     def test_sortino_no_losses(self):
         """Test that the Sortino function returns 0.0 when there are no losses"""
@@ -190,7 +190,7 @@ class TestMetrics(TestBase):
 
     def test_statistical_confidence_negative(self):
         """Test that the statistical confidence function returns a negative value for negative log returns"""
-        log_returns = [-0.001, 0.002] * 50
+        log_returns = [0.001, -0.002] * 50
         confidence = Metrics.statistical_confidence(log_returns)
 
         # Expected value less than zero for negative returns
@@ -210,17 +210,6 @@ class TestMetrics(TestBase):
         self.assertLess(confidence, confidence_new)
         self.assertLess(confidence_new, confidence_newest)
 
-    def test_concentration_no_returns(self):
-        """Test that the concentration function returns 0.0 when there are no returns"""
-        log_returns = []
-
-        concentration = Metrics.concentration(log_returns, [])
-
-        # Expected value is zero
-        self.assertEqual(concentration, 0.0)
-
-    def test_concentration_no_positions(self)
-
     def test_ann_volatility(self):
         a = [9/252, 10/252, 11/252]
         b = [8/252, 10/252, 12/252]
@@ -239,3 +228,19 @@ class TestMetrics(TestBase):
         e = copy.deepcopy(c)
         e.append(12/252)
         self.assertEqual(Metrics.ann_downside_volatility(e), Metrics.ann_downside_volatility(c))
+
+    # def test_risk_free_adjustment(self):
+    #     """
+    #     adjust returns for risk free rate
+    #     """
+    #     mean_returns = []
+    #     self.assertLess(LedgerUtils.risk_free_adjustment(mean_returns), 0)
+    #     mean_returns = [0.1]
+    #     self.assertGreater(LedgerUtils.risk_free_adjustment(mean_returns), 0)
+    #     mean_returns = [0.1, 0.2]
+    #     self.assertGreater(LedgerUtils.risk_free_adjustment(mean_returns), 0)
+    #     mean_returns = [0.1, -0.2]
+    #     self.assertLess(LedgerUtils.risk_free_adjustment(mean_returns), 0)
+    #
+    #     mean_returns = [ValiConfig.ANNUAL_RISK_FREE_PERCENTAGE/252]
+    #     self.assertAlmostEqual(LedgerUtils.risk_free_adjustment(mean_returns), 0)

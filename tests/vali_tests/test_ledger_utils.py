@@ -19,22 +19,6 @@ class TestLedgerUtils(TestBase):
         random.seed(0)
 
         self.DEFAULT_LEDGER = generate_ledger(0.1, mdd=0.99)
-    
-    def test_risk_free_adjustment(self):
-        """
-        adjust returns for risk free rate
-        """
-        mean_returns = []
-        self.assertLess(LedgerUtils.risk_free_adjustment(mean_returns), 0)
-        mean_returns = [0.1]
-        self.assertGreater(LedgerUtils.risk_free_adjustment(mean_returns), 0)
-        mean_returns = [0.1, 0.2]
-        self.assertGreater(LedgerUtils.risk_free_adjustment(mean_returns), 0)
-        mean_returns = [0.1, -0.2]
-        self.assertLess(LedgerUtils.risk_free_adjustment(mean_returns), 0)
-
-        mean_returns = [ValiConfig.ANNUAL_RISK_FREE_PERCENTAGE/252]
-        self.assertAlmostEqual(LedgerUtils.risk_free_adjustment(mean_returns), 0)
 
     def test_daily_return_log(self):
         """
@@ -63,7 +47,7 @@ class TestLedgerUtils(TestBase):
         l1_cps = l1.cps
         self.assertEqual(len(LedgerUtils.daily_return_log(l1_cps)), 88)
 
-    def test_daily_return_percentage(self):
+    def test_daily_return(self):
         """
         exponentiate daily return log and convert to percentage
         """
@@ -95,6 +79,7 @@ class TestLedgerUtils(TestBase):
     def test_recent_drawdown(self):
         l1 = generate_ledger(0.1, mdd=0.99)
         l1_cps = l1.cps
+
         self.assertEqual(LedgerUtils.recent_drawdown([]), 1)
 
         LedgerUtils.recent_drawdown(l1_cps)
@@ -118,7 +103,7 @@ class TestLedgerUtils(TestBase):
             self.assertGreaterEqual(LedgerUtils.recent_drawdown(element), 0)
             self.assertLessEqual(LedgerUtils.recent_drawdown(element), 1)
 
-        # Recent drawdown should work even if there is only one checkpoint    
+        # Recent drawdown should work even if there is only one checkpoint
         drawdowns = [0.99, 0.98]
         checkpoints = [checkpoint_generator(mdd=mdd) for mdd in drawdowns]
         self.assertEqual(LedgerUtils.recent_drawdown(checkpoints), 0.98)
@@ -235,7 +220,7 @@ class TestLedgerUtils(TestBase):
         self.assertEqual(LedgerUtils.effective_drawdown(0.5, 0), 0)
         self.assertEqual(LedgerUtils.effective_drawdown(0.5, 0.5), 0.5)
         self.assertEqual(LedgerUtils.effective_drawdown(0.9, 0.95), 0.9)
-    
+
     # Test mean_drawdown
     def test_mean_drawdown(self):
         drawdowns = [0.98]
@@ -270,3 +255,4 @@ class TestLedgerUtils(TestBase):
         checkpoints = self.DEFAULT_LEDGER.cps
         self.assertEqual(LedgerUtils.risk_normalization([]), 0)
         self.assertLessEqual(LedgerUtils.risk_normalization(checkpoints), 1)
+
