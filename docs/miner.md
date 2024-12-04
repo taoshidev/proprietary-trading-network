@@ -20,9 +20,9 @@ A long position is a bet that the trade pair will increase, while a short positi
 
 ## Scoring Details
 
-*Risk-Adjusted Returns* is the most heavily weighted scoring mechanism in our system. We calculate this metric using a combination of average daily returns and a drawdown term, assessed over different lookback periods. This approach allows us to measure each miner’s returns while factoring in the level of risk undertaken to achieve those returns. 
+*Risk-Adjusted Returns* is a heavily weighted scoring mechanism in our system. We calculate this metric using a combination of average daily returns and a drawdown term, assessed over different lookback periods. This approach allows us to measure each miner’s returns while factoring in the level of risk undertaken to achieve those returns. 
 
-While our primary scoring mechanic is returns, consistency and statistical confidence each play a substantial role in scoring our miners as we look to prioritize miners with a consistent track record of success. Additionally, we have a layer of costs and penalties baked into PTN, to simulate the real costs of trading.
+While returns is a significant scoring mechanic, consistency and statistical confidence each play a substantial role in scoring our miners as we look to prioritize miners with a consistent track record of success. Additionally, we have a layer of costs and penalties baked into PTN, to simulate the real costs of trading.
 
 We calculate daily returns for all positions and the entire portfolio, spanning from 12:00 AM UTC to 12:00 AM UTC the following day. However, if a trading day is still ongoing, we still monitor real-time performance and risks. 
 
@@ -75,12 +75,12 @@ $$
 
 | Metric                     | Scoring Weight                 |
 |---------------------------------------|-----------------------|
-| Long Term Risk Adjusted Returns | 30%           |
+| Long Term Risk Adjusted Returns | 20%           |
 | Short Term Realized Returns| 10%                   |
-| Sharpe Ratio                         | 15%                   |
-| Omega Ratio                         | 15%                   |
-| Sortino Ratio 		 | 15%
-| Statistical Confidence	 | 15%	                 |
+| Sharpe Ratio                         | 17.5%                   |
+| Omega Ratio                         | 17.5%                   |
+| Sortino Ratio 		 | 17.5%
+| Statistical Confidence	 | 17.5%	                 |
 
 ### Scoring Penalties
 
