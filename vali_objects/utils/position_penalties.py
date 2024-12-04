@@ -87,6 +87,7 @@ class PositionPenalties:
 
         return np.clip(largest_windowed_contribution / total_return, 0, 1)
 
+
     @staticmethod
     def returns_ratio_penalty(
             positions: list[Position]
