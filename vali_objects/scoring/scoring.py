@@ -1,7 +1,9 @@
 # developer: trdougherty
 
+from dataclasses import dataclass
+from enum import Enum, auto
 import math
-from typing import List, Tuple
+from typing import List, Tuple, Callable
 from vali_objects.position import Position
 
 import numpy as np
@@ -11,12 +13,64 @@ from vali_objects.vali_config import ValiConfig
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerData
 from time_util.time_util import TimeUtil
 from vali_objects.utils.position_filtering import PositionFiltering
-from vali_objects.utils.position_penalties import PositionPenalties
 from vali_objects.utils.ledger_utils import LedgerUtils
+from vali_objects.utils.metrics import Metrics
 
 import bittensor as bt
 
+
+class PenaltyInputType(Enum):
+    LEDGER = auto()
+    POSITIONS = auto()
+
+
+@dataclass
+class PenaltyConfig:
+    function: Callable
+    input_type: PenaltyInputType
+
+
 class Scoring:
+    # Set the scoring configuration
+    scoring_config = {
+        'return_long': {
+            'function': Metrics.drawdown_adjusted_return,
+            'weight': ValiConfig.SCORING_LONG_RETURN_LOOKBACK_WEIGHT
+        },
+        'return_short': {
+            'function': Metrics.drawdown_adjusted_return,
+            'weight': ValiConfig.SCORING_SHORT_RETURN_LOOKBACK_WEIGHT
+        },
+        'sharpe_ratio': {
+            'function': Metrics.sharpe,
+            'weight': ValiConfig.SCORING_SHARPE_WEIGHT
+        },
+        'omega': {
+            'function': Metrics.omega,
+            'weight': ValiConfig.SCORING_OMEGA_WEIGHT
+        },
+        'sortino': {
+            'function': Metrics.sortino,
+            'weight': ValiConfig.SCORING_SORTINO_WEIGHT
+        },
+        'statistical_confidence': {
+            'function': Metrics.statistical_confidence,
+            'weight': ValiConfig.SCORING_STATISTICAL_CONFIDENCE_WEIGHT
+        }
+    }
+
+    # Define the configuration with input types
+    penalties_config = {
+        'drawdown_threshold': PenaltyConfig(
+            function=LedgerUtils.max_drawdown_threshold_penalty,
+            input_type=PenaltyInputType.LEDGER
+        ),
+        'drawdown_abnormality': PenaltyConfig(
+            function=LedgerUtils.drawdown_abnormality,
+            input_type=PenaltyInputType.LEDGER
+        )
+    }
+
     @staticmethod
     def compute_results_checkpoint(
             ledger_dict: dict[str, PerfLedgerData],
@@ -42,10 +96,7 @@ class Scoring:
             evaluation_time_ms=evaluation_time_ms
         )
 
-        filtered_recent_positions = PositionFiltering.filter_recent(
-            full_positions,
-            evaluation_time_ms=evaluation_time_ms
-        )
+        filtered_ledger_returns = LedgerUtils.ledger_returns_log(ledger_dict)
 
         # Compute miner penalties
         miner_penalties = Scoring.miner_penalties(filtered_positions, ledger_dict)
@@ -56,54 +107,50 @@ class Scoring:
         ]
         full_penalty_miners = set([x[0] for x in full_penalty_miner_scores])
 
-        scoring_config = {
-            'return_long': {
-                'function': Scoring.risk_adjusted_return,
-                'weight': ValiConfig.SCORING_RETURN_LONG_LOOKBACK_WEIGHT,
-                'positions': filtered_positions
-            },
-            'return_short': {
-                'function': Scoring.risk_adjusted_return,
-                'weight': ValiConfig.SCORING_RETURN_SHORT_LOOKBACK_WEIGHT,
-                'positions': filtered_recent_positions
-            },
-            'sharpe_ratio': {
-                'function': Scoring.sharpe,
-                'weight': ValiConfig.SCORING_SHARPE_WEIGHT,
-                'positions': filtered_positions
-            },
-            'omega': {
-                'function': Scoring.omega,
-                'weight': ValiConfig.SCORING_OMEGA_WEIGHT,
-                'positions': filtered_positions
-            },
-        }
-
         combined_scores = {}
-
-        for config_name, config in scoring_config.items():
-            miner_scores = []
-            for miner, positions in config['positions'].items():
+        for config_name, config in Scoring.scoring_config.items():
+            scores = []
+            for miner, returns in filtered_ledger_returns.items():
                 # Get the miner ledger
-                ledger = ledger_dict.get(miner, PerfLedgerData())
+                checkpoints = ledger_dict.get(miner, PerfLedgerData()).cps
+                positions = filtered_positions.get(miner, [])
 
                 # Check if the miner has full penalty - if not include them in the scoring competition
                 if miner in full_penalty_miners:
                     continue
 
-                score = config['function'](
-                    positions=positions,
-                    ledger=ledger
-                )
+                short_lookback_window = ValiConfig.SHORT_LOOKBACK_WINDOW
 
-                penalized_score = score * miner_penalties.get(miner, 0)
-                miner_scores.append((miner, penalized_score))
+                if config_name == 'return_long':
+                    score = config['function'](
+                        log_returns=returns,
+                        checkpoints=checkpoints
+                    )
+                elif config_name == 'return_short':
+                    score = config['function'](
+                        log_returns=returns[-short_lookback_window:],
+                        checkpoints=checkpoints[-short_lookback_window:]
+                    )
+                elif config_name == 'concentration':
+                    score = config['function'](
+                        log_returns=returns,
+                        positions=positions
+                    )
+                else:
+                    score = config['function'](log_returns=returns)
 
-            weighted_scores = Scoring.miner_scores_percentiles(miner_scores)
-            for miner, score in weighted_scores:
+                scores.append((miner, score))
+
+            percentile_scores = Scoring.miner_scores_percentiles(scores)
+            for miner, percentile_rank in percentile_scores:
                 if miner not in combined_scores:
                     combined_scores[miner] = 1
-                combined_scores[miner] *= config['weight'] * score + (1 - config['weight'])
+                combined_scores[miner] *= config['weight'] * percentile_rank + (1 - config['weight'])
+
+        # Now applying the penalties post scoring
+        for miner, penalty in miner_penalties.items():
+            if miner in combined_scores:
+                combined_scores[miner] *= penalty
 
         # Force good performance of all error metrics
         combined_weighed = Scoring.softmax_scores(list(combined_scores.items())) + full_penalty_miner_scores
@@ -125,23 +172,18 @@ class Scoring:
             ledger_checkpoints = ledger.cps
             positions = hotkey_positions.get(miner, [])
 
-            # Positional Consistency
-            positional_return_time_consistency = PositionPenalties.time_consistency_penalty(positions)
-            positional_consistency = PositionPenalties.returns_ratio_penalty(positions)
+            cumulative_penalty = 1
+            for penalty_name, penalty_config in Scoring.penalties_config.items():
+                # Apply penalty based on its input type
+                penalty = 1
+                if penalty_config.input_type == PenaltyInputType.LEDGER:
+                    penalty = penalty_config.function(ledger_checkpoints)
+                elif penalty_config.input_type == PenaltyInputType.POSITIONS:
+                    penalty = penalty_config.function(positions)
 
-            # Ledger Consistency
-            daily_consistency = LedgerUtils.daily_consistency_penalty(ledger_checkpoints)
-            biweekly_consistency = LedgerUtils.biweekly_consistency_penalty(ledger_checkpoints)
-            drawdown_threshold_penalty = LedgerUtils.max_drawdown_threshold_penalty(ledger_checkpoints)
+                cumulative_penalty *= penalty
 
-            # Combine penalties
-            miner_penalties[miner] = (
-                    drawdown_threshold_penalty *
-                    positional_return_time_consistency *
-                    positional_consistency *
-                    daily_consistency *
-                    biweekly_consistency
-            )
+            miner_penalties[miner] = cumulative_penalty
 
         return miner_penalties
 
@@ -166,6 +208,7 @@ class Scoring:
         # normalized_scores = sorted(normalized_scores, key=lambda x: x[1], reverse=True)
         return normalized_scores
 
+    # TODO Remove the methods below when challenge period is modified
     @staticmethod
     def base_return(positions: list[Position]) -> float:
         """
@@ -257,6 +300,8 @@ class Scoring:
 
         return numerator / denominator
 
+    # TODO Remove the methods above when challenge period is modified
+
     @staticmethod
     def softmax_scores(returns: list[tuple[str, float]]) -> list[tuple[str, float]]:
         """
@@ -274,24 +319,24 @@ class Scoring:
         """
         epsilon = ValiConfig.EPSILON
         temperature = ValiConfig.SOFTMAX_TEMPERATURE
-    
+
         if not returns:
             bt.logging.debug("No returns to score, returning empty list")
             return []
-    
+
         if len(returns) == 1:
             bt.logging.info("Only one miner, returning 1.0 for the solo miner weight")
             return [(returns[0][0], 1.0)]
-    
+
         # Extract scores and apply softmax with temperature
         scores = np.array([score for _, score in returns])
         max_score = np.max(scores)
         exp_scores = np.exp((scores - max_score) / temperature)
         softmax_scores = exp_scores / max(np.sum(exp_scores), epsilon)
-    
+
         # Combine miners with their respective softmax scores
         weighted_returns = [(miner, float(softmax_scores[i])) for i, (miner, _) in enumerate(returns)]
-    
+
         return weighted_returns
 
     @staticmethod
@@ -330,15 +375,15 @@ class Scoring:
             bt.logging.info(f"Only one miner: {miner}, returning 1.0 for the solo miner weight")
             return [(miner, 1.0)]
 
-        minernames = []
+        miner_hotkeys = []
         scores = []
 
         for miner, score in miner_scores:
-            minernames.append(miner)
+            miner_hotkeys.append(miner)
             scores.append(score)
 
         percentiles = percentileofscore(scores, scores) / 100
-        miner_percentiles = list(zip(minernames, percentiles))
+        miner_percentiles = list(zip(miner_hotkeys, percentiles))
 
         return miner_percentiles
 

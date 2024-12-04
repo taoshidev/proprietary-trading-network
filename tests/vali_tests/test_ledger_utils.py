@@ -4,7 +4,7 @@ from vali_objects.utils.ledger_utils import LedgerUtils
 
 from vali_objects.vali_config import ValiConfig
 
-from tests.shared_objects.test_utilities import generate_ledger
+from tests.shared_objects.test_utilities import generate_ledger, checkpoint_generator
 import random
 
 
@@ -19,6 +19,61 @@ class TestLedgerUtils(TestBase):
         random.seed(0)
 
         self.DEFAULT_LEDGER = generate_ledger(0.1, mdd=0.99)
+
+    def test_daily_return_log(self):
+        """
+        should bucket the checkpoint returns by full days
+        """
+        self.assertEqual(LedgerUtils.daily_return_log([]), [])
+        checkpoints = self.DEFAULT_LEDGER.cps
+
+        # One checkpoint shouldn't be enough since full day is required
+        self.assertEqual(len(LedgerUtils.daily_return_log([checkpoints[0]])), 0)
+
+        # Two checkpoints with one not having enough accumulation time doesn't count as a full day
+        self.assertEqual(len(LedgerUtils.daily_return_log(checkpoints[:2])), 0)
+
+        # Three checkpoints but no two starting on the same day that have full accumulation time doesn't count
+        self.assertEqual(len(LedgerUtils.daily_return_log(checkpoints[:3])), 0)
+
+        # Single day should return a value
+        # 2 is used in the product since the first full day of checkpoints is the second day here
+        num_checkpoints = ValiConfig.DAILY_CHECKPOINTS
+        self.assertEqual(len(LedgerUtils.daily_return_log(checkpoints[:num_checkpoints * 2])), 1)
+        self.assertEqual(LedgerUtils.daily_return_log(checkpoints[:num_checkpoints * 2])[0], 0)
+
+        self.assertEqual(len(LedgerUtils.daily_return_log(checkpoints)), 89)
+        l1 = generate_ledger(0.1, start_time=10, end_time=ValiConfig.TARGET_LEDGER_WINDOW_MS, mdd=0.99)
+        l1_cps = l1.cps
+        self.assertEqual(len(LedgerUtils.daily_return_log(l1_cps)), 88)
+
+    def test_daily_return(self):
+        """
+        exponentiate daily return log and convert to percentage
+        """
+        # Base case
+        self.assertEqual(len(LedgerUtils.daily_return_percentage([])), 0)
+
+        # No returns
+        l1 = generate_ledger(0.1)
+        l1_cps = l1.cps
+        self.assertEqual(LedgerUtils.daily_return_percentage(l1_cps)[0], 0)
+        # Simple returns >= log returns
+        self.assertGreaterEqual(LedgerUtils.daily_return_percentage(l1_cps)[0], LedgerUtils.daily_return_log(l1_cps)[0] * 100)
+
+        # Negative returns
+        l1 = generate_ledger(0.1, gain=0.1, loss=-0.2)
+        l1_cps = l1.cps
+        self.assertLess(LedgerUtils.daily_return_percentage(l1_cps)[0], 0)
+        # Simple returns >= log returns
+        self.assertGreaterEqual(LedgerUtils.daily_return_percentage(l1_cps)[0], LedgerUtils.daily_return_log(l1_cps)[0] * 100)
+
+        # Positive returns
+        l1 = generate_ledger(0.1, gain=0.2, loss=-0.1)
+        l1_cps = l1.cps
+        self.assertGreater(LedgerUtils.daily_return_percentage(l1_cps)[0], 0)
+        # Simple returns >= log returns
+        self.assertGreaterEqual(LedgerUtils.daily_return_percentage(l1_cps)[0], LedgerUtils.daily_return_log(l1_cps)[0] * 100)
 
     # Want to test the individual functions inputs and outputs
     def test_recent_drawdown(self):
@@ -47,6 +102,11 @@ class TestLedgerUtils(TestBase):
         for element in [l1_cps, l2_cps, l3_cps, l4_cps]:
             self.assertGreaterEqual(LedgerUtils.recent_drawdown(element), 0)
             self.assertLessEqual(LedgerUtils.recent_drawdown(element), 1)
+
+        # Recent drawdown should work even if there is only one checkpoint
+        drawdowns = [0.99, 0.98]
+        checkpoints = [checkpoint_generator(mdd=mdd) for mdd in drawdowns]
+        self.assertEqual(LedgerUtils.recent_drawdown(checkpoints), 0.98)
 
     def test_drawdown_percentage(self):
         self.assertAlmostEqual(LedgerUtils.drawdown_percentage(1), 0)
@@ -160,6 +220,35 @@ class TestLedgerUtils(TestBase):
         self.assertEqual(LedgerUtils.effective_drawdown(0.5, 0), 0)
         self.assertEqual(LedgerUtils.effective_drawdown(0.5, 0.5), 0.5)
         self.assertEqual(LedgerUtils.effective_drawdown(0.9, 0.95), 0.9)
+
+    # Test mean_drawdown
+    def test_mean_drawdown(self):
+        drawdowns = [0.98]
+        checkpoints = [checkpoint_generator(mdd=x) for x in drawdowns]
+
+        self.assertEqual(LedgerUtils.mean_drawdown([]), 0)
+        # With one checkpoint, mean drawdown should be mdd
+        self.assertEqual(LedgerUtils.mean_drawdown(checkpoints), 0.98)
+
+        drawdowns = [0.98, 1.0]
+        checkpoints = [checkpoint_generator(mdd=mdd) for mdd in drawdowns]
+
+        # Should be the average in the general case
+        self.assertEqual(LedgerUtils.mean_drawdown(checkpoints), 0.99)
+
+        drawdowns = [1.1, 1.3, 0.99]
+        checkpoints = [checkpoint_generator(mdd=mdd) for mdd in drawdowns]
+
+        # Should be set to 1 if average is over 1
+        self.assertEqual(LedgerUtils.mean_drawdown(checkpoints), 1.0)
+
+        drawdowns = [-0.1, -0.3, -0.9]
+        checkpoints = [checkpoint_generator(mdd=mdd) for mdd in drawdowns]
+
+        # Should be set 0 if drawdowns are somehow negative
+        self.assertEqual(LedgerUtils.mean_drawdown(checkpoints), 0)
+
+        self.assertEqual(LedgerUtils.mean_drawdown(self.DEFAULT_LEDGER.cps), 0.99)
 
     # Test risk_normalization
     def test_risk_normalization(self):
