@@ -1,3 +1,5 @@
+Updated Docs:
+
 # Miner
 
 Our miners act like traders. To score well and receive incentive, they place **orders** on our system against different trade pairs. The magnitude of each order is determined by its **leverage**, which can be thought of as the percentage of the portfolio used for the transaction. An order with a leverage of 1.0x indicates that the miner is betting against their entire portfolio value.
@@ -20,43 +22,78 @@ A long position is a bet that the trade pair will increase, while a short positi
 
 ## Scoring Details
 
-The primary scoring mechanic in our system is *Risk Adjusted Returns*. We look at all of your positions in the prior lookback period, 90 days, and evaluate the returns from these positions. Notably, to determine the return of a miner, we look at the returns from closed positions and from open positions in loss. In filtering for open positions, we will also filter against any positions which have been open for more than 90 days. If they are in loss and still open, they will count against your score. We do this to avoid the scenario where a losing position is never closed, and the miner is able to avoid the penalty associated with this loss.
+*Risk-Adjusted Returns* is the most heavily weighted scoring mechanism in our system. We calculate this metric using a combination of average daily returns and a drawdown term, assessed over different lookback periods. This approach allows us to measure each miner’s returns while factoring in the level of risk undertaken to achieve those returns. 
 
-While our primary scoring mechanic is returns, consistency plays a substantial role in scoring our miners as we look to prioritize miners with a consistent track record of success. Additionally, we have a layer of costs and penalties baked into PTN, to simulate the real costs of trading.
+While our primary scoring mechanic is returns, consistency and statistical confidence each play a substantial role in scoring our miners as we look to prioritize miners with a consistent track record of success. Additionally, we have a layer of costs and penalties baked into PTN, to simulate the real costs of trading.
 
-There are two primary systems which live in parallel to give us a stronger perspective on the quality of our miners: _Positions_ and _Portfolio Value_.
+We calculate daily returns for all positions and the entire portfolio, spanning from 12:00 AM UTC to 12:00 AM UTC the following day. However, if a trading day is still ongoing, we still monitor real-time performance and risks. 
+
+This daily calculation and evaluation framework closely aligns with real-world financial practices, enabling accurate, consistent, and meaningful performance measurement and comparison across strategies. This remains effective even for strategies trading different asset classes at different trading frequencies. This approach can also enhance the precision of volatility measurement for strategies.
+
+Annualization is used for the Sharpe ratio, Sortino ratio, and risk adjusted return with either volatility or returns being annualized to better evaluate the long-term value of strategies and standardize our metrics. Volatility is the standard deviation of returns and is a key factor in the Sharpe and Sortino calculations.
+
+Additionally, normalization with annual risk-free rate of T-bills further standardizes our metrics and allows us to measure miner performance on a more consistent basis.
+
 
 ### Scoring Metrics
 
-We use four scoring metrics to evaluate miners based on their mid trade scores: **Short Term Risk Adjusted Returns**, **Long Term Risk Adjusted Returns**, **Sharpe** and **Omega**.
+We use six scoring metrics to evaluate miners based on daily returns:  **Long Term Risk Adjusted Returns**,  **Short Term Risk Adjusted Returns**, **Sharpe**, **Omega**, **Sortino**, and **Statistical Confidence**.
 
-We measure miner risk as their maximum portfolio drawdown, the largest drop in value seen while we have been tracking the behavior of the miner. We use a blend of recently seen max drawdown values and historically likely values to make this determination, with the most recent values having the most weight. Details on this mechanic may be found in [our proposal 9](https://docs.taoshi.io/tips/p9/).
+The miner risk used in the risk adjusted returns is the miner’s average portfolio drawdown, the average of the maximum drops in value seen while we have been tracking the behavior of the miner. Once the drawdown surpasses 5%, it is no longer used directly as the denominator; instead, it is multiplied by a larger factor to amplify its effect. This emphasizes that a miner in the range between 5% and 10% average drawdown is riskier than a miner below 5% average drawdown.
 
-To find the risk adjusted return, we take the product of all positional returns as the current miner return. We then divide this by the drawdown term. If, for example, a miner has a total 90-day return of 7.5% and a drawdown of 2.5%, their long term risk adjusted return would be 3.0.
+To find the risk adjusted return, we take the annualized daily returns as the current miner return. We then divide this by the drawdown term. If, for example, a miner has a total 90-day return of 7.5% and a mean drawdown of 2.5%, their long term risk adjusted return would be 3.0.
 
-_Short term returns_ look at positions opened in the prior 90 days, but closed in the last 5 days. Like the long term returns, these use losing positions to calculate the return.
+_Long term returns_ will look at daily returns in the prior 90 days and is normalized by the drawdown term.
 
-The _sharpe ratio_ will look at the positional return divided by the standard deviation of the returns. To avoid gaming on the bottom, a minimum value of 0.5% is used for the standard deviation.
+$$
+\text{Return / Drawdown} = \frac{(\frac{365}{n}\sum_{i=0}^n{R_i}) - R_{rf}}{\sum_i^{n}{\text{MDD}_i} / n}
+$$
 
-The _omega ratio_ is a measure of the winning trades versus the losing trades. It serves as a useful proxy for the risk to reward ratio the miner is willing to take with each trade. Like the sharpe ratio, we will use a minimum value of 0.5% for the denominator.
+_Short term returns_ will look at daily returns in the prior 7 days. Besides the shorter lookback window, this calculation is the same as long term returns. 
 
-| Metric                     | Scoring Weight |
-|----------------------------|----------------|
-| Long Term Realized Returns | 100%           |
-| Short Term Realized Returns| 25%            |
-| Sharpe Ratio               | 25%            |
-| Omega Ratio                | 25%            |
+The _sharpe ratio_ will look at the annualized excess return, returns normalized with the risk-free rate, divided by the annualized volatility which is the standard deviation of the returns. To avoid gaming on the bottom, a minimum value of 1% is used for the volatility.
+
+$$
+\text{Sharpe} = \frac{(\frac{365}{n}\sum_{i=0}^n{R_i}) - R_{rf}}{\sqrt{\text{var}{(R) * \frac{365}{n}}}}
+$$
+
+The _omega ratio_ is a measure of the winning days versus the losing days. The numerator is the sum of the positive daily log returns while the denominator is the product of the negative daily log returns. It serves as a useful proxy for the risk to reward ratio the miner is willing to take with each day. Like the Sharpe ratio, we will use a minimum value of 1% for the denominator.
+
+$$
+\text{Omega} = \frac{\sum_{i=1}^n \max(r_i, 0)}{\lvert \sum_{i=1}^n \min(r_i, 0) \rvert}
+$$
+
+The _sortino ratio_ is similar to the Sharpe ratio except that the denominator, the annualized volatility, is calculated using only negative daily returns (i.e., losing days). 
+
+$$
+\text{Sortino} = \frac{(\frac{365}{n}\sum_{i=0}^n{R_i}) - R_{rf}}{\sqrt{\frac{365}{n} \cdot \text{var}(R_i \;|\; R_i < 0)}}
+$$
+
+_Statistical Confidence_ uses a t-statistic to measure how similar the daily distribution of returns is to a normal distribution with zero mean. Low similarity means higher confidence that a miner’s strategy is statistically different from a random distribution.
+
+$$
+t = \frac{\bar{R} - \mu}{s / \sqrt{n}}
+$$
+
+| Metric                     | Scoring Weight                 |
+|---------------------------------------|-----------------------|
+| Long Term Risk Adjusted Returns | 30%           |
+| Short Term Realized Returns| 10%                   |
+| Sharpe Ratio                         | 15%                   |
+| Omega Ratio                         | 15%                   |
+| Sortino Ratio 		 | 15%
+| Statistical Confidence	 | 15%	                 |
 
 ### Scoring Penalties
 
-There are four primary penalties in place for each miner:
+There are two primary penalties in place for each miner:
 
-1. **Max Positional Return**: A single position should not represent more than 15% of total realized return.
-2. **Realized Return Distribution**: No more than 30% of the miner's realized returns should be from positions all closed in a single week.
-3. **Max Portfolio Value Change - Daily**: A single day of trading should not represent more than 30% of the total unrealized return.
-4. **Max Portfolio Value Change - Biweekly**: A single two-week period should not account for more than 40% of total unrealized return.
+1. Max Drawdown: PTN penalizes miners whose maximum drawdown over the past 5 days exceeds the predefined 10% limit.
 
-Portfolio value is tracked in realtime against positions, regardless of if they are closed or open. If the measured volatility on the portfolio value is too high relative to the total returns from the miner, we will flag them as inconsistent, even if their closed positions meet the requirements. This is meant to protect from the scenario where most of a miner's value comes from a single interval, but their positions may close over a longer period. Full details on the logic associated with each proposal may be found in [proposal 9](https://docs.taoshi.io/tips/p9/).
+2. Abnormal Drawdown: PTN evaluates the abnormality of recent trading performance in real time by comparing the maximum drawdown over the past 5 days to a baseline drawdown. This indicates how unusual the recent performance is. The baseline is defined as the 75th percentile of past drawdown percentages. It represents a significant drawdown level without being overly influenced by extreme cases. This approach provides a representative drawdown for comparison, making it useful for detecting abnormal performance and assessing the associated risks of a strategy in real time. 
+
+The Max Drawdown penalty and Abnormal Drawdown penalty help us detect the absolute and relative risks of a miner's trading strategy in real time.
+
 
 ### Fees and Transaction Costs
 We want to simulate real costs of trading for our miners, to make signals from PTN more valuable outside our platform. To do this, we have incorporated two primary costs: **Transaction Fees** and **Cost of Carry**. 
@@ -210,11 +247,11 @@ This step creates local coldkey and hotkey pairs for your miner.
 
 The miner will be registered to the subnet specified. This ensures that the miner can run the respective miner scripts.
 
-Create a coldkey and hotkey for your miner wallet.
+Create a coldkey and hotkey for your miner wallet. A coldkey can have multiple hotkeys, so if you already have an existing coldkey, you should create a new hotkey only. Be sure to save your mnemonics!
 
 ```bash
-btcli wallet new_coldkey --wallet.name miner
-btcli wallet new_hotkey --wallet.name miner --wallet.hotkey default
+btcli wallet new_coldkey --wallet.name <wallet>
+btcli wallet new_hotkey --wallet.name <wallet> --wallet.hotkey <miner>
 ```
 
 You can list the local wallets on your machine with the following.
@@ -240,7 +277,7 @@ Bittensor -> help-forum -> requests for testnet tao
 This step registers your subnet miner keys to the subnet, giving it the first slot on the subnet.
 
 ```bash
-btcli subnet register --wallet.name miner --wallet.hotkey default
+btcli subnet register --wallet.name <wallet> --wallet.hotkey <miner>
 ```
 
 To register your miner on the testnet add the `--subtensor.network test` and `--netuid 116` flags.
@@ -267,7 +304,7 @@ This step returns information about your registered keys.
 Check that your miner has been registered:
 
 ```bash
-btcli wallet overview --wallet.name miner
+btcli wallet overview --wallet.name <wallet>
 ```
 
 To check your miner on the testnet add the `--subtensor.network test` flag
@@ -277,7 +314,7 @@ The above command will display the below:
 ```bash
 Subnet: 8 # or 116 on testnet
 COLDKEY  HOTKEY   UID  ACTIVE  STAKE(τ)     RANK    TRUST  CONSENSUS  INCENTIVE  DIVIDENDS  EMISSION(ρ)   VTRUST  VPERMIT  UPDATED  AXON  HOTKEY_SS58
-miner    default  196    True   0.00000  0.00000  0.00000    0.00000    0.00000    0.00000            0  0.00000        *      134  none  5HRPpSSMD3TKkmgxfF7Bfu67sZRefUMNAcDofqRMb4zpU4S6
+wallet   miner    196    True   0.00000  0.00000  0.00000    0.00000    0.00000    0.00000            0  0.00000        *      134  none  5HRPpSSMD3TKkmgxfF7Bfu67sZRefUMNAcDofqRMb4zpU4S6
 1        1        1            τ0.00000  0.00000  0.00000    0.00000    0.00000    0.00000           ρ0  0.00000
                                                                                Wallet balance: τ4.998999856
 ```
@@ -287,7 +324,7 @@ miner    default  196    True   0.00000  0.00000  0.00000    0.00000    0.00000 
 Run the subnet miner:
 
 ```bash
-python neurons/miner.py --netuid 8  --wallet.name miner --wallet.hotkey default --start-dashboard
+python neurons/miner.py --netuid 8  --wallet.name <wallet> --wallet.hotkey <miner> --start-dashboard
 ```
 
 To run your miner on the testnet add the `--subtensor.network test` flag and override the netuuid flag to `--netuid 116`.
@@ -313,7 +350,7 @@ You may use multiple miners when testing if you pass a different port per regist
 You can run a second miner using the following example command:
 
 ```bash
-python neurons/miner.py --netuid 116 --subtensor.network test --wallet.name miner2 --wallet.hotkey default --logging.debug --axon.port 8095
+python neurons/miner.py --netuid 116 --subtensor.network test --wallet.name <wallet> --wallet.hotkey <miner2> --logging.debug --axon.port 8095
 ```
 
 # Miner Dashboard
