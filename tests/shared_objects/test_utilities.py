@@ -103,7 +103,7 @@ def generate_ledger(
         nterms = (end_time - start_time) // ValiConfig.TARGET_CHECKPOINT_DURATION_MS
 
     # Generate checkpoint times
-    checkpoint_times = [start_time + i * ValiConfig.TARGET_CHECKPOINT_DURATION_MS for i in range(nterms)]
+    checkpoint_times = np.linspace(start_time, end_time, nterms, dtype=int).tolist()
     checkpoint_time_accumulation = np.diff(checkpoint_times, prepend=start_time)
 
     checkpoint_list = []
@@ -120,7 +120,6 @@ def generate_ledger(
                 loss=loss,
                 prev_portfolio_ret=1.0,
                 open_ms=checkpoint_open_ms,
-                accum_ms=checkpoint_open_ms,
                 mdd=mdd
             )
         )

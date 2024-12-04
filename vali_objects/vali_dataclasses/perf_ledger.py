@@ -90,24 +90,21 @@ class PerfCheckpointData:
         return self.__dict__
 
     @property
-    def lowerbound_time_created_ms(self):
-        # accum_ms boundary alignment makes this a lowerbound for the first cp.
+    def time_created_ms(self):
         return self.last_update_ms - self.accum_ms
 
 
 class PerfLedgerData:
-    def __init__(self, initialization_time_ms: int=0, max_return=1.0, target_cp_duration_ms=TARGET_CHECKPOINT_DURATION_MS, target_ledger_window_ms=TARGET_LEDGER_WINDOW_MS, cps=None):
+    def __init__(self, max_return=1.0, target_cp_duration_ms=TARGET_CHECKPOINT_DURATION_MS, target_ledger_window_ms=TARGET_LEDGER_WINDOW_MS, cps=None):
         if cps is None:
             cps = []
         self.max_return = max_return
         self.target_cp_duration_ms = target_cp_duration_ms
         self.target_ledger_window_ms = target_ledger_window_ms
-        self.initialization_time_ms = initialization_time_ms
         self.cps = cps
 
     def to_dict(self):
         return {
-            "initialization_time_ms": self.initialization_time_ms,
             "max_return": self.max_return,
             "target_cp_duration_ms": self.target_cp_duration_ms,
             "target_ledger_window_ms": self.target_ledger_window_ms,
@@ -130,10 +127,7 @@ class PerfLedgerData:
     def start_time_ms(self):
         if len(self.cps) == 0:
             return 0
-        elif self.initialization_time_ms != 0:  # 0 default value for old ledgers that haven't rebuilt as of this update.
-            return self.initialization_time_ms
-        else:
-            return self.cps[0].lowerbound_time_created_ms  # legacy calculation that will stop being used in ~24 hrs
+        return self.cps[0].last_update_ms - self.cps[0].accum_ms
 
     def init_max_portfolio_value(self):
         if self.cps:
@@ -173,27 +167,8 @@ class PerfLedgerData:
         self.cps.append(new_cp)
 
     def init_with_first_order(self, order_processed_ms: int, point_in_time_dd: float, current_portfolio_value: float,  current_portfolio_fee_spread:float, current_portfolio_carry:float):
-        # figure out how many ms we want to initalize the checkpoint with so that once self.target_cp_duration_ms is
-        # reached, the CP ends at 00:00:00 UTC or 12:00:00 UTC (12 hr cp case). This may change based on self.target_cp_duration_ms
-        # |----x------midday-----------| -> accum_ms_for_utc_alignment = (distance between start of day and x) = x - start_of_day_ms
-        # |-----------midday-----x-----| -> accum_ms_for_utc_alignment = (distance between midday and x) = x - midday_ms
-        # By calculating the initial accum_ms this way, the co will always end at middday or 00:00:00 the next day.
-
-
-        datetime_representation = TimeUtil.millis_to_datetime(order_processed_ms)
-        assert self.target_cp_duration_ms == 43200000, f'self.target_cp_duration_ms is not 12 hours {self.target_cp_duration_ms}'
-        midday = datetime_representation.replace(hour=12, minute=0, second=0, microsecond=0)
-        midday_ms = int(midday.timestamp() * 1000)
-        if order_processed_ms < midday_ms:
-            start_of_day = datetime_representation.replace(hour=0, minute=0, second=0, microsecond=0)
-            start_of_day_ms = int(start_of_day.timestamp() * 1000)
-            accum_ms_for_utc_alignment = order_processed_ms - start_of_day_ms
-        else:
-            accum_ms_for_utc_alignment = order_processed_ms - midday_ms
-
         new_cp = PerfCheckpointData(last_update_ms=order_processed_ms, prev_portfolio_ret=current_portfolio_value,
-                                    mdd=point_in_time_dd, prev_portfolio_spread_fee=current_portfolio_fee_spread,
-                                    prev_portfolio_carry_fee=current_portfolio_carry, accum_ms=accum_ms_for_utc_alignment, mpv=1.0)
+                                    mdd=point_in_time_dd, prev_portfolio_spread_fee=current_portfolio_fee_spread, prev_portfolio_carry_fee=current_portfolio_carry, mpv=1.0)
         self.cps.append(new_cp)
 
     def get_or_create_latest_cp_with_mdd(self, now_ms: int, current_portfolio_value:float, current_portfolio_fee_spread:float, current_portfolio_carry:float):
@@ -206,7 +181,7 @@ class PerfLedgerData:
 
         time_since_last_update_ms = now_ms - self.cps[-1].last_update_ms
         assert time_since_last_update_ms >= 0, self.cps
-        if time_since_last_update_ms + self.cps[-1].accum_ms > self.target_cp_duration_ms:
+        if time_since_last_update_ms + self.cps[-1].accum_ms >= self.target_cp_duration_ms:
             self.create_cps_to_fill_void(time_since_last_update_ms, now_ms, point_in_time_dd)
         else:
             self.cps[-1].mdd = min(self.cps[-1].mdd, point_in_time_dd)
@@ -266,7 +241,7 @@ class PerfLedgerData:
     def trim_checkpoints(self, cutoff_ms: int):
         new_cps = []
         for cp in self.cps:
-            if cp.lowerbound_time_created_ms + self.target_cp_duration_ms >= cutoff_ms:
+            if cp.time_created_ms + self.target_cp_duration_ms >= cutoff_ms:
                 continue
             new_cps.append(cp)
         self.cps = new_cps
@@ -335,7 +310,6 @@ class PerfCheckpoint(BaseModel, PerfCheckpointData):
 
 
 class PerfLedger(BaseModel, PerfLedgerData):
-    initialization_time_ms: int = 0
     max_return: float = 1.0
     target_cp_duration_ms: int = TARGET_CHECKPOINT_DURATION_MS
     target_ledger_window_ms: int = TARGET_LEDGER_WINDOW_MS
@@ -355,14 +329,12 @@ class PerfLedger(BaseModel, PerfLedgerData):
     def from_data(cls, data: PerfLedgerData):
         cps = [PerfCheckpoint.from_data(cp) for cp in data.cps]
         return cls(max_return=data.max_return, target_cp_duration_ms=data.target_cp_duration_ms,
-                   target_ledger_window_ms=data.target_ledger_window_ms, cps=cps,
-                   initialization_time_ms=data.initialization_time_ms)
+                   target_ledger_window_ms=data.target_ledger_window_ms, cps=cps)
 
     @classmethod
     def from_dict(self, data: dict):
         return PerfLedger(max_return=data['max_return'], target_cp_duration_ms=data['target_cp_duration_ms'],
-                          target_ledger_window_ms=data['target_ledger_window_ms'], cps=data['cps'],
-                          initialization_time_ms=data.get('initialization_time_ms', 0))
+                          target_ledger_window_ms=data['target_ledger_window_ms'], cps=data['cps'])
 
 
 class PerfLedgerManager(CacheController):
@@ -780,6 +752,8 @@ class PerfLedgerManager(CacheController):
 
     def update_one_perf_ledger(self, hotkey_i: int, n_hotkeys: int, hotkey: str, positions: List[Position], now_ms:int,
                                existing_perf_ledgers: dict[str, PerfLedgerData]) -> None:
+        # if hotkey != '5GhCxfBcA7Ur5iiAS343xwvrYHTUfBjBi4JimiL5LhujRT9t':
+        #    continue
 
         eliminated = False
         self.n_api_calls = 0
@@ -787,8 +761,7 @@ class PerfLedgerManager(CacheController):
         t0 = time.time()
         perf_ledger_candidate = existing_perf_ledgers.get(hotkey)
         if perf_ledger_candidate is None:
-            perf_ledger_candidate = PerfLedgerData(
-                initialization_time_ms = positions[0].orders[0].processed_ms if positions else 0)
+            perf_ledger_candidate = PerfLedgerData()
             verbose = True
         else:
             perf_ledger_candidate = deepcopy(perf_ledger_candidate)
@@ -871,8 +844,7 @@ class PerfLedgerManager(CacheController):
                 f"Done updating perf ledger for {hotkey} {hotkey_i + 1}/{n_hotkeys} in {time.time() - t0} "
                 f"(s). Lag: {lag} (s). Total product: {total_product}. Last portfolio value: {last_portfolio_value}."
                 f" n_api_calls: {self.n_api_calls} dd stats {None}. n_price_corrections {self.n_price_corrections}"
-                f" last cp {perf_ledger_candidate.cps[-1]}. perf_ledger_mpv {perf_ledger_candidate.max_return} "
-                f"perf_ledger_initialization_time {TimeUtil.millis_to_formatted_date_str(perf_ledger_candidate.initialization_time_ms)}")
+                f" last cp {perf_ledger_candidate.cps[-1]}. perf_ledger_mpv {perf_ledger_candidate.max_return}")
 
         # Write candidate at the very end in case an exception leads to a partial update
         existing_perf_ledgers[hotkey] = perf_ledger_candidate
@@ -960,7 +932,7 @@ class PerfLedgerManager(CacheController):
 
         # Remove keys from perf ledgers if they aren't in the metagraph anymore
         metagraph_hotkeys = set(self.metagraph.hotkeys)
-        hotkeys_to_delete = set([x for x in hotkeys_with_no_positions if x in perf_ledgers])
+        hotkeys_to_delete = hotkeys_with_no_positions
         rss_modified = False
 
         # Determine which hotkeys to remove from the perf ledger
@@ -1013,14 +985,8 @@ class PerfLedgerManager(CacheController):
 
         if testing_one_hotkey:
             ledger = perf_ledgers[testing_one_hotkey]
-            # print all attributes except cps: Note ledger is an object
-            print(f'Ledger attributes: initialization_time_ms {ledger.initialization_time_ms},'
-                  f' max_return {ledger.max_return}')
-            for i, x in enumerate(ledger.cps):
+            for x in ledger.cps:
                 last_update_formated = TimeUtil.millis_to_timestamp(x.last_update_ms)
-                # assert the checkpoint ends on a 12 hour boundary
-                if i != len(ledger.cps) - 1:
-                    assert x.last_update_ms % ledger.target_cp_duration_ms == 0, x.last_update_ms
                 print(x, last_update_formated)
 
     def save_perf_ledgers_to_disk(self, perf_ledgers: dict[str, PerfLedgerData] | dict[str, dict], raw_json=False):
