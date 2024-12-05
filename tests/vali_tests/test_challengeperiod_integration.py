@@ -14,7 +14,6 @@ from vali_objects.vali_config import TradePair
 from vali_objects.position import Position
 from vali_objects.vali_config import ValiConfig
 
-import copy
 
 
 class TestChallengePeriodIntegration(TestBase):
@@ -31,8 +30,8 @@ class TestChallengePeriodIntegration(TestBase):
         self.CURRENTLY_IN_CHALLENGE = ValiConfig.CHALLENGE_PERIOD_MS  # Evaluation time when inside the challenge period
         self.OUTSIDE_OF_CHALLENGE = ValiConfig.CHALLENGE_PERIOD_MS + 1  # Evaluation time when the challenge period is over
 
-        self.N_POSITIONS_BOUNDS = ValiConfig.CHALLENGE_PERIOD_MIN_POSITIONS + 1
-        self.N_POSITIONS = self.N_POSITIONS_BOUNDS - 1
+        self.N_POSITIONS_BOUNDS = 21
+        self.N_POSITIONS = 20
 
         self.EVEN_TIME_DISTRIBUTION = [
             int(self.START_TIME + (self.END_TIME - self.START_TIME) * i / self.N_POSITIONS_BOUNDS)
@@ -45,7 +44,9 @@ class TestChallengePeriodIntegration(TestBase):
         self.TESTING_MINER_NAMES = [f"test_miner{i}" for i in range(self.N_MINERS // 2, self.N_MINERS // 2 + self.N_MINERS // 4)]
         self.FAILING_MINER_NAMES = [f"test_miner{i}" for i in range(self.N_MINERS // 2 + self.N_MINERS // 4, self.N_MINERS)]
 
-        self.MINER_NAMES = self.SUCCESS_MINER_NAMES + self.TESTING_MINER_NAMES + self.FAILING_MINER_NAMES
+        self.NOT_FAILING_MINER_NAMES = self.SUCCESS_MINER_NAMES + self.TESTING_MINER_NAMES
+        self.NOT_MAIN_COMP_MINER_NAMES = self.TESTING_MINER_NAMES + self.FAILING_MINER_NAMES
+        self.MINER_NAMES = self.NOT_FAILING_MINER_NAMES + self.FAILING_MINER_NAMES
 
         # Default characteristics
         self.DEFAULT_MINER_HOTKEY = "test_miner"
@@ -81,30 +82,20 @@ class TestChallengePeriodIntegration(TestBase):
 
             self.DEFAULT_POSITIONS.append(position)
 
-        self.WINNING_POSITIONS = copy.deepcopy(self.DEFAULT_POSITIONS)
-        for position in self.WINNING_POSITIONS:
-            position.return_at_close = 1.1
-
-        self.LOSING_POSITIONS = copy.deepcopy(self.DEFAULT_POSITIONS)
-        for position in self.LOSING_POSITIONS:
-            position.return_at_close = 0.9
-
-        # Ledgers
-        self.PROFITABLE_LEDGER = generate_ledger(gain=0.2, loss=-0.1, start_time=self.START_TIME, end_time=self.END_TIME)
+        self.DEFAULT_LEDGER = generate_ledger(
+            start_time=self.START_TIME,
+            end_time=self.END_TIME,
+            gain=0.1,
+            loss=-0.08,
+            mdd=0.99
+        )
         self.LOSING_LEDGER = generate_ledger(
             gain=0.1,
             loss=-0.2,
-            mdd=1 - (ValiConfig.CHALLENGE_PERIOD_MAX_DRAWDOWN_PERCENT / 100),
+            mdd=1 - (ValiConfig.DRAWDOWN_MAXVALUE_PERCENTAGE / 100) - 0.01,
             start_time=self.START_TIME,
             end_time=self.END_TIME
         )
-
-        self.UNDETERMINED_LEDGER = generate_ledger(
-            value=0.1,
-            start_time=self.START_TIME,
-            end_time=self.END_TIME,
-        )
-        self.LEDGERS = {}
 
         # Testing information
         self.TESTING_INFORMATION = {x: self.START_TIME for x in self.MINER_NAMES}
@@ -118,33 +109,17 @@ class TestChallengePeriodIntegration(TestBase):
 
         # Build base ledgers and positions
         self.LEDGERS = {
-            miner: copy.deepcopy(self.PROFITABLE_LEDGER) for miner in self.SUCCESS_MINER_NAMES
+            miner: deepcopy(self.DEFAULT_LEDGER) for miner in self.NOT_FAILING_MINER_NAMES
         }
         self.LEDGERS.update({
-            miner: copy.deepcopy(self.LOSING_LEDGER) for miner in self.FAILING_MINER_NAMES
+            miner: deepcopy(self.LOSING_LEDGER) for miner in self.FAILING_MINER_NAMES
         })
-        self.LEDGERS.update({
-            miner: copy.deepcopy(self.UNDETERMINED_LEDGER) for miner in self.TESTING_MINER_NAMES
-        })
+
         self.ledger_manager.save_perf_ledgers_to_disk(self.LEDGERS)
 
         # Build base positions
         self.POSITIONS = {}
-        for miner in self.SUCCESS_MINER_NAMES:
-            positions = deepcopy(self.WINNING_POSITIONS)
-            for position in positions:
-                position.miner_hotkey = miner
-
-            self.POSITIONS[miner] = positions
-
-        for miner in self.FAILING_MINER_NAMES:
-            positions = deepcopy(self.LOSING_POSITIONS)
-            for position in positions:
-                position.miner_hotkey = miner
-
-            self.POSITIONS[miner] = positions
-
-        for miner in self.TESTING_MINER_NAMES:
+        for miner in self.MINER_NAMES:
             positions = deepcopy(self.DEFAULT_POSITIONS)
             for position in positions:
                 position.miner_hotkey = miner
@@ -159,6 +134,11 @@ class TestChallengePeriodIntegration(TestBase):
         # Finally update the challenge period to default state
         self.challengeperiod_manager.init_cache_files()
         self.challengeperiod_manager._clear_eliminations_in_memory_and_disk()
+
+        # Set up miners that have already passed challenge period
+        self.challengeperiod_manager.challengeperiod_success.update({
+            miner: self.START_TIME for miner in self.SUCCESS_MINER_NAMES
+        })
 
         # Add all the miners with a start time of 0
         self.challengeperiod_manager._add_challengeperiod_testing_in_memory_and_disk(
@@ -175,18 +155,21 @@ class TestChallengePeriodIntegration(TestBase):
 
         self.challengeperiod_manager._clear_challengeperiod_in_memory_and_disk()
         self.challengeperiod_manager._clear_eliminations_in_memory_and_disk()
-
+    
     def test_refresh_populations(self):
         self.challengeperiod_manager.refresh(current_time=self.CURRENTLY_IN_CHALLENGE)
         self.challengeperiod_manager._refresh_challengeperiod_in_memory()
+        testing_length = len(self.challengeperiod_manager.challengeperiod_testing)
+        success_length = len(self.challengeperiod_manager.challengeperiod_success)
+        eliminations_length = len(self.challengeperiod_manager.eliminations)
 
-        self.assertEqual(len(self.challengeperiod_manager.challengeperiod_testing), len(self.TESTING_MINER_NAMES))
-        self.assertEqual(len(self.challengeperiod_manager.challengeperiod_success), len(self.SUCCESS_MINER_NAMES))
-        self.assertEqual(len(self.challengeperiod_manager.eliminations), len(self.FAILING_MINER_NAMES))
-
+        # Ensure that all miners that aren't failing end up in testing or success
+        self.assertEqual(testing_length + success_length, len(self.NOT_FAILING_MINER_NAMES))
+        self.assertEqual(eliminations_length, len(self.FAILING_MINER_NAMES))
+    
     def test_full_refresh(self):
-        self.assertEqual(len(self.challengeperiod_manager.challengeperiod_testing), len(self.MINER_NAMES))
-        self.assertEqual(len(self.challengeperiod_manager.challengeperiod_success), 0)
+        self.assertEqual(len(self.challengeperiod_manager.challengeperiod_testing), len(self.NOT_MAIN_COMP_MINER_NAMES))
+        self.assertEqual(len(self.challengeperiod_manager.challengeperiod_success), len(self.SUCCESS_MINER_NAMES))
         self.assertEqual(len(self.challengeperiod_manager.eliminations), 0)
 
         inspection_hotkeys = self.challengeperiod_manager.challengeperiod_testing
@@ -215,15 +198,15 @@ class TestChallengePeriodIntegration(TestBase):
 
         for miner in self.TESTING_MINER_NAMES:
             self.assertNotIn(miner, elimination_hotkeys)
-
+    
     def test_failing_mechanics(self):
         # Add all the challenge period miners
         self.assertListEqual(sorted(self.MINER_NAMES), sorted(self.mock_metagraph.hotkeys))
-        self.assertListEqual(sorted(self.MINER_NAMES), sorted(list(self.challengeperiod_manager.challengeperiod_testing.keys())))
+        self.assertListEqual(sorted(self.NOT_MAIN_COMP_MINER_NAMES), sorted(list(self.challengeperiod_manager.challengeperiod_testing.keys())))
         # Let's check the initial state of the challenge period
-        self.assertEqual(len(self.challengeperiod_manager.challengeperiod_success), 0)
+        self.assertEqual(len(self.challengeperiod_manager.challengeperiod_success), len(self.SUCCESS_MINER_NAMES))
         self.assertEqual(len(self.challengeperiod_manager.eliminations), 0)
-        self.assertEqual(len(self.challengeperiod_manager.challengeperiod_testing), len(self.MINER_NAMES))
+        self.assertEqual(len(self.challengeperiod_manager.challengeperiod_testing), len(self.NOT_MAIN_COMP_MINER_NAMES))
 
         eliminations = self.challengeperiod_manager.get_filtered_eliminations_from_disk()
         self.assertEqual(len(eliminations), 0)
@@ -231,7 +214,7 @@ class TestChallengePeriodIntegration(TestBase):
         self.challengeperiod_manager._refresh_challengeperiod_in_memory_and_disk(eliminations=eliminations)
         self.assertEqual(len(self.challengeperiod_manager.eliminations), 0)
 
-        self.assertEqual(len(self.challengeperiod_manager.challengeperiod_testing), len(self.MINER_NAMES))
+        self.assertEqual(len(self.challengeperiod_manager.challengeperiod_testing), len(self.NOT_MAIN_COMP_MINER_NAMES))
 
         self.challengeperiod_manager._add_challengeperiod_testing_in_memory_and_disk(
             new_hotkeys=self.challengeperiod_manager.metagraph.hotkeys,
@@ -239,7 +222,7 @@ class TestChallengePeriodIntegration(TestBase):
             current_time=self.CURRENTLY_IN_CHALLENGE
         )
 
-        self.assertEqual(len(self.challengeperiod_manager.challengeperiod_testing), len(self.MINER_NAMES))
+        self.assertEqual(len(self.challengeperiod_manager.challengeperiod_testing), len(self.NOT_MAIN_COMP_MINER_NAMES))
 
         self.challengeperiod_manager.refresh(current_time=self.OUTSIDE_OF_CHALLENGE)
         elimination_keys = [x['hotkey'] for x in self.challengeperiod_manager.eliminations]
@@ -290,33 +273,16 @@ class TestChallengePeriodIntegration(TestBase):
         challenge_success, challenge_eliminations = self.challengeperiod_manager.inspect(
             positions=positions,
             ledger=ledgers,
+            success_hotkeys=self.SUCCESS_MINER_NAMES,
+            inspection_hotkeys=self.challengeperiod_manager.challengeperiod_testing,
+            current_time=self.CURRENTLY_IN_CHALLENGE
         )
 
         # There should be no promotion or demotion
         self.assertListEqual(challenge_success, [])
         self.assertListEqual(challenge_eliminations, [])
 
-    def test_failing_miner_screen(self):
-        # Add all the challenge period miners
-        self.challengeperiod_manager.refresh(current_time=self.OUTSIDE_OF_CHALLENGE)
-
-        ledger = self.ledger_manager.load_perf_ledgers_from_disk()
-        positions = self.position_manager.get_all_miner_positions_by_hotkey(
-            self.MINER_NAMES,
-            self.challengeperiod_manager.eliminations
-        )
-
-        # Should accurately fail all the miners identified as failing
-        for miner in self.FAILING_MINER_NAMES:
-            passing_criteria = self.challengeperiod_manager.screen_passing_criteria(
-                position_elements=positions.get(miner),
-                ledger_element=ledger.get(miner),
-                current_time=self.OUTSIDE_OF_CHALLENGE
-            )
-
-            # self.assertListEqual([miner], self.challengeperiod_manager.eliminations)
-            self.assertFalse(passing_criteria)
-
+    
     def test_promote_testing_miner(self):
         # Add all the challenge period miners
         self.challengeperiod_manager.refresh(current_time=self.CURRENTLY_IN_CHALLENGE)
@@ -343,11 +309,11 @@ class TestChallengePeriodIntegration(TestBase):
             self.challengeperiod_manager.challengeperiod_success[self.TESTING_MINER_NAMES[0]],
             self.CURRENTLY_IN_CHALLENGE
         )
-
+    
     def test_refresh_elimination_disk(self):
         # At this point, all the miners should be in testing
-        self.assertTrue(len(self.challengeperiod_manager.challengeperiod_testing) == len(self.MINER_NAMES))
-        self.assertTrue(len(self.challengeperiod_manager.challengeperiod_success) == 0)
+        self.assertTrue(len(self.challengeperiod_manager.challengeperiod_testing) == len(self.NOT_MAIN_COMP_MINER_NAMES))
+        self.assertTrue(len(self.challengeperiod_manager.challengeperiod_success) == len(self.SUCCESS_MINER_NAMES))
         self.assertTrue(len(self.challengeperiod_manager.eliminations) == 0)
 
         # Check one of the failing miners, to see if they are screened
@@ -362,6 +328,7 @@ class TestChallengePeriodIntegration(TestBase):
         challenge_success, challenge_eliminations = self.challengeperiod_manager.inspect(
             positions=self.POSITIONS,
             ledger=self.LEDGERS,
+            success_hotkeys=self.SUCCESS_MINER_NAMES,
             inspection_hotkeys=self.challengeperiod_manager.challengeperiod_testing,
             current_time=self.OUTSIDE_OF_CHALLENGE
         )
@@ -378,14 +345,13 @@ class TestChallengePeriodIntegration(TestBase):
 
         for miner in self.FAILING_MINER_NAMES:
             self.assertIn(miner, cached_eliminations)
-
+    
     def test_no_positions_miner_filtered(self):
         self.challengeperiod_manager.challengeperiod_testing = {}
-        self.challengeperiod_manager.challengeperiod_success = {}
         self.challengeperiod_manager._write_challengeperiod_from_memory_to_disk()
 
-        self.assertTrue(len(self.challengeperiod_manager.challengeperiod_success) == 0)
-        self.assertTrue(len(self.challengeperiod_manager.eliminations) == 0)
+        self.assertEqual(len(self.challengeperiod_manager.challengeperiod_success), len(self.SUCCESS_MINER_NAMES))
+        self.assertEqual(len(self.challengeperiod_manager.eliminations), 0)
 
         # Now going to remove the positions of the miners
         miners_without_positions = self.TESTING_MINER_NAMES[:2]
@@ -403,7 +369,7 @@ class TestChallengePeriodIntegration(TestBase):
             self.assertIn(miner, self.mock_metagraph.hotkeys)
             self.assertNotIn(miner, self.challengeperiod_manager.challengeperiod_testing)
             self.assertNotIn(miner, self.challengeperiod_manager.challengeperiod_success)
-
+    
     def test_disjoint_testing_success(self):
         self.challengeperiod_manager.refresh(current_time=self.CURRENTLY_IN_CHALLENGE)
         self.challengeperiod_manager._refresh_challengeperiod_in_memory()
@@ -494,8 +460,8 @@ class TestChallengePeriodIntegration(TestBase):
         self.challengeperiod_manager._write_eliminations_from_memory_to_disk()
         self.challengeperiod_manager.eliminations = []
 
-        self.assertTrue(len(self.challengeperiod_manager.challengeperiod_testing) == len(self.MINER_NAMES))
-        self.assertTrue(len(self.challengeperiod_manager.challengeperiod_success) == 0)
+        self.assertTrue(len(self.challengeperiod_manager.challengeperiod_testing) == len(self.NOT_MAIN_COMP_MINER_NAMES))
+        self.assertTrue(len(self.challengeperiod_manager.challengeperiod_success) == len(self.SUCCESS_MINER_NAMES))
         self.assertTrue(len(self.challengeperiod_manager.eliminations) == 0)
 
         self.challengeperiod_manager.refresh(current_time=self.OUTSIDE_OF_CHALLENGE)
@@ -521,3 +487,7 @@ class TestChallengePeriodIntegration(TestBase):
 
         self.assertEqual(testing_keys, [])
         self.assertEqual(success_keys, [])
+ #TODO
+ #   def test_no_miners_in_main_competition(self):
+        
+

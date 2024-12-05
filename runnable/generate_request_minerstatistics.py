@@ -1,6 +1,7 @@
 # developer: trdougherty
 from typing import List
-import math
+import copy
+import numpy as np
 
 from scipy.stats import percentileofscore
 
@@ -20,11 +21,11 @@ from vali_objects.utils.metrics import Metrics
 def rank_dictionary(d, ascending=False):
     """
     Rank the values in a dictionary. Higher values get lower ranks by default.
-    
+
     Args:
     d (dict): The dictionary to rank.
     ascending (bool): If True, ranks in ascending order. Default is False.
-    
+
     Returns:
     dict: A dictionary with the same keys and ranked values.
     """
@@ -56,11 +57,11 @@ def apply_penalties(scores: dict[str, float], penalties: dict[str, float]) -> di
 def percentile_rank_dictionary(d, ascending=False) -> dict:
     """
     Rank the values in a dictionary as a percentile. Higher values get lower ranks by default.
-    
+
     Args:
     d (dict): The dictionary to rank.
     ascending (bool): If True, ranks in ascending order. Default is False.
-    
+
     Returns:
     dict: A dictionary with the same keys and ranked values.
     """
@@ -68,10 +69,60 @@ def percentile_rank_dictionary(d, ascending=False) -> dict:
     miner_names = list(d.keys())
     scores = list(d.values())
 
-    percentiles = percentileofscore(scores, scores) / 100
+    percentiles = percentileofscore(scores, scores, kind='rank') / 100
     miner_percentiles = dict(zip(miner_names, percentiles))
 
     return miner_percentiles
+
+def percentiles_config(scores_dict: dict[str, dict], inspection_dict: dict[str, dict]):
+    """
+    Args:
+        scores_dict: a dictionary with function names as keys to values that have:
+        "scores" which is a list of tuples with (miner, score) for that metric,
+        "weight" which is the weight of the metric
+
+    Returns:
+        percentile_dict: which just adds a field for each function that has a percentiles
+        dictionary for that metric under "percentiles"
+    """
+    percentile_dict = copy.deepcopy(scores_dict)
+    target_percentile = ValiConfig.CHALLENGE_PERIOD_PERCENTILE_THRESHOLD * 100
+
+    # Calculate target percentile with only successful miners for combined scores
+    combined_scores = Scoring.combine_scores(percentile_dict)
+    combined_percentiles = [score for miner, score in combined_scores.items()]
+
+    if len(combined_percentiles) > 0:
+        overall_target = np.percentile(combined_percentiles, target_percentile, method="higher")
+    else:
+        # If no one in main competition, target score is 0
+        overall_target = 0
+    percentile_dict["overall_target_score"] = overall_target
+
+    # Calculate target scores for each metric of only successful miners
+    for config_name, config in percentile_dict["metrics"].items():
+
+        scores = [score for miner, score in config['scores']]
+
+        # If no one in main competition, target score is 0
+        if len(scores) > 0:
+            target_score = np.percentile(scores, target_percentile, method="higher")
+        else:
+            target_score = 0
+        config["target_score"] = target_score
+
+    # Append testing miner scores to successful miners
+    for config_name, config in percentile_dict["metrics"].items():
+
+        miner_scores = config["scores"]
+        miner_scores += inspection_dict["metrics"][config_name]["scores"]
+
+    for config_name, config in percentile_dict["metrics"].items():
+
+        weighted_scores = Scoring.miner_scores_percentiles(config["scores"])
+        config["percentiles"] = dict(weighted_scores)
+
+    return percentile_dict
 
 
 def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = True, selected_miner_hotkeys: List[str] = None):
@@ -118,7 +169,7 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
     filtered_ledger = subtensor_weight_setter.filtered_ledger(hotkeys=all_miner_hotkeys)
     filtered_positions = subtensor_weight_setter.filtered_positions(hotkeys=all_miner_hotkeys)
     filtered_returns = LedgerUtils.ledger_returns_log(filtered_ledger)
-    
+
     plagiarism = subtensor_weight_setter.get_plagiarism_scores_from_disk()
     # # Sync the ledger and positions
     # filtered_ledger, filtered_positions = subtensor_weight_setter.sync_ledger_positions(
@@ -339,6 +390,12 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
     sharpe_penalized_percentile = percentile_rank_dictionary(sharpe_penalized_dict)
 
     # Here is the full list of data in frontend format
+
+    # Get scores of successful miners for each metric
+    success_scores_dict = Scoring.score_miners(ledger_dict=successful_ledger,
+                                               positions=successful_positions,
+                                               evaluation_time_ms=time_now)
+
     combined_data = []
     for miner_id in selected_miner_hotkeys:
         # challenge period specific data
@@ -353,47 +410,58 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
                 "start_time_ms": challengeperiod_testing_time,
                 "remaining_time_ms": remaining_time,
             }
+            inspection_positions = {miner_id: lookback_positions.get(miner_id, None)}
 
-            challengeperiod_positions = filtered_positions.get(miner_id, [])
-            challengeperiod_positions_length = len(challengeperiod_positions)
-            challengeperiod_positions_target = ValiConfig.CHALLENGE_PERIOD_MIN_POSITIONS
-            challengeperiod_positions_passing = bool(challengeperiod_positions_length >= challengeperiod_positions_target)
+            # Get individual scoring dict for inspection
+            inspection_ledger = {miner_id: filtered_ledger.get(miner_id, None)}
 
-            challengeperiod_return_ratio = positional_realized_returns_ratios.get(miner_id, 1.0)
-            challengeperiod_return_ratio_target = ValiConfig.CHALLENGE_PERIOD_MAX_POSITIONAL_RETURNS_RATIO
-            challengeperiod_return_ratio_passing = bool(challengeperiod_return_ratio < challengeperiod_return_ratio_target)
+            # Get the scores for this miner for each metric
+            inspection_scoring_dict = Scoring.score_miners(
+                ledger_dict=inspection_ledger,
+                positions=inspection_positions,
+                evaluation_time_ms=time_now)
 
-            challengeperiod_return = return_dict.get(miner_id, 0)
-            challengeperiod_return_percentage = (math.exp(challengeperiod_return) - 1)*100
-            challengeperiod_return_target = ValiConfig.CHALLENGE_PERIOD_RETURN_PERCENTAGE
-            challengeperiod_return_passing = bool(challengeperiod_return_percentage >= challengeperiod_return_target)
 
-            challengeperiod_unrealized_ratio = ledger_daily_consistency_ratios.get(miner_id, 1.0)
-            challengeperiod_unrealized_ratio_target = ValiConfig.CHALLENGE_PERIOD_MAX_UNREALIZED_RETURNS_RATIO
-            challengeperiod_unrealized_ratio_passing = bool(challengeperiod_unrealized_ratio <= challengeperiod_unrealized_ratio_target)
+            # Calculate percentiles for each metric
+            percentile_dict = percentiles_config(scores_dict=success_scores_dict, inspection_dict=inspection_scoring_dict)
 
-            challengeperiod_specific = {**challengeperiod_specific, **{
-                "positions": {
-                    "value": challengeperiod_positions_length,
-                    "target": challengeperiod_positions_target,
-                    "passing": challengeperiod_positions_passing,
-                },
-                "return_ratio": {
-                    "value": challengeperiod_return_ratio,
-                    "target": challengeperiod_return_ratio_target,
-                    "passing": challengeperiod_return_ratio_passing,
-                },
-                "return": {
-                    "value": challengeperiod_return_percentage,
-                    "target": challengeperiod_return_target,
-                    "passing": challengeperiod_return_passing,
-                },
-                "unrealized_ratio": {
-                    "value": challengeperiod_unrealized_ratio,
-                    "target": challengeperiod_unrealized_ratio_target,
-                    "passing": challengeperiod_unrealized_ratio_passing,
+            # Combine scores and apply penalties
+            combined_scores = Scoring.combine_scores(scoring_dict=percentile_dict)
+
+            challengeperiod_trial_percentiles = percentile_rank_dictionary(dict(combined_scores))
+
+            challengeperiod_trial_score = combined_scores.get(miner_id, 0)
+            challengeperiod_trial_percentile = challengeperiod_trial_percentiles.get(miner_id, 0)
+
+            challengeperiod_passing = bool(challengeperiod_trial_percentile >= ValiConfig.CHALLENGE_PERIOD_PERCENTILE_THRESHOLD)
+
+            challengeperiod_specific["scores"] = {}
+            for config_name, config in percentile_dict["metrics"].items():
+
+                inspection_metrics = inspection_scoring_dict["metrics"]
+                testing_score = inspection_metrics[config_name]["scores"]
+
+                # If no score for any reason, skip miner since there was some error earlier
+                if len(testing_score) < 0:
+                    continue
+
+                # There is only one score in the inspection_scoring_dict: the testing miner
+                value = testing_score[0][1]
+
+                # Show value and percentile for each metric
+                challengeperiod_specific["scores"][config_name] = {
+                    "value": value,
+                    "percentile": config["percentiles"].get(miner_id, 0),
+                    "target_score": config["target_score"]
                 }
-            }}
+            # Show stats for overall score
+            challengeperiod_specific["scores"]["overall"] = {
+                    "value": challengeperiod_trial_score,
+                    "percentile": challengeperiod_trial_percentile,
+                    "target_percentile": ValiConfig.CHALLENGE_PERIOD_PERCENTILE_THRESHOLD,
+                    "target_score": percentile_dict["overall_target_score"],
+                    "passing": challengeperiod_passing,
+                }
 
         elif miner_id in sorted_challengeperiod_success:
             challengeperiod_success_time = sorted_challengeperiod_success[miner_id]

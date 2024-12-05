@@ -2,13 +2,12 @@
 
 import time
 import bittensor as bt
+import copy
 from vali_objects.vali_config import ValiConfig
 from shared_objects.cache_controller import CacheController
 from vali_objects.scoring.scoring import Scoring
 from time_util.time_util import TimeUtil
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager, PerfLedgerData
-from vali_objects.utils.position_filtering import PositionFiltering
-from vali_objects.utils.position_penalties import PositionPenalties
 from vali_objects.utils.ledger_utils import LedgerUtils
 from vali_objects.utils.position_manager import PositionManager
 from vali_objects.position import Position
@@ -37,20 +36,23 @@ class ChallengePeriodManager(CacheController):
             eliminations=self.eliminations,
             current_time=current_time
         )
+        challengeperiod_success_hotkeys = list(self.challengeperiod_success.keys())
+        challengeperiod_testing_hotkeys = list(self.challengeperiod_testing.keys())
 
-        challenge_period_miners = list(self.challengeperiod_testing.keys())
+        all_miners = challengeperiod_success_hotkeys + challengeperiod_testing_hotkeys
 
         # Check that our miners are in challenge period - don't need to get all of them
         positions = self.position_manager.get_all_miner_positions_by_hotkey(
-            challenge_period_miners,
+            all_miners,
             sort_positions=True
         )
         ledger = self.perf_manager.load_perf_ledgers_from_disk()
-        ledger = {hotkey: ledger.get(hotkey, None) for hotkey in challenge_period_miners}
+        ledger = {hotkey: ledger.get(hotkey, None) for hotkey in all_miners}
 
         challengeperiod_success, challengeperiod_eliminations = self.inspect(
             positions=positions,
             ledger=ledger,
+            success_hotkeys=challengeperiod_success_hotkeys,
             inspection_hotkeys=self.challengeperiod_testing,
             current_time=current_time
         )
@@ -115,9 +117,11 @@ class ChallengePeriodManager(CacheController):
         self,
         positions: dict[str, list[Position]],
         ledger: dict[str, PerfLedgerData],
+        success_hotkeys: list[str],
         inspection_hotkeys: dict[str, int] = None,
         current_time: int = None,
-        log: bool = False,
+        success_scores_dict: dict[str, dict] = None,
+        inspection_scores_dict: dict[str, dict] = None
     ):
         """
         Runs a screening process to eliminate miners who didn't pass the challenge period. Does not modify the challenge period in memory.
@@ -130,7 +134,20 @@ class ChallengePeriodManager(CacheController):
 
         passing_miners = []
         failing_miners = []
-        miners_rrr = set()
+        miners_rrr = set()        
+
+        # If success_scoring_dict is already calculated, no need to calculate scores. Useful for testing
+        if success_scores_dict is None:
+
+            success_positions = dict((hotkey, miner_positions) for hotkey, miner_positions in positions.items() if hotkey in success_hotkeys)
+            success_ledger = dict((hotkey, ledger_data) for hotkey, ledger_data in ledger.items() if hotkey in success_hotkeys)
+
+            # Get the penalized scores of all successful miners
+            success_scores_dict = Scoring.score_miners(ledger_dict=success_ledger,
+                                                            positions=success_positions,
+                                                            evaluation_time_ms=current_time)
+        
+
         for hotkey, inspection_time in inspection_hotkeys.items():
             if self.is_recently_re_registered(ledger.get(hotkey), positions.get(hotkey), hotkey):
                 miners_rrr.add(hotkey)
@@ -140,7 +157,6 @@ class ChallengePeriodManager(CacheController):
 
             # We want to know if the miner still has time, as we know the criteria to pass is not met
             time_criteria = current_time - inspection_time <= ValiConfig.CHALLENGE_PERIOD_MS
-
             # Check if hotkey is in ledger and has checkpoints (cps)
             if hotkey not in ledger:
                 passing_criteria = False
@@ -157,20 +173,23 @@ class ChallengePeriodManager(CacheController):
                     failing_miners.append(hotkey)
 
                 continue  # Moving on, as the miner is already failing
-
             # This step we want to check their failure criteria. If they fail, we can move on.
             failing_criteria, recorded_drawdown_percentage = ChallengePeriodManager.screen_failing_criteria(ledger_element=ledger[hotkey])
+
             if failing_criteria:
                 bt.logging.info(f'Hotkey {hotkey} has failed the challenge period due to drawdown {recorded_drawdown_percentage}. cp_failed')
                 failing_miners.append(hotkey)
                 continue
+            
 
             # The main logic loop. They are in the competition but haven't passed yet, need to check the time after.
             passing_criteria = ChallengePeriodManager.screen_passing_criteria(
-                position_elements=positions[hotkey],
-                ledger_element=ledger[hotkey],
+                positions=positions,
+                ledger=ledger,
+                inspection_hotkey=hotkey,
+                success_scores_dict=success_scores_dict,
                 current_time=current_time,
-                log=log
+                inspection_scores_dict=inspection_scores_dict
             )
 
             # If they pass here, then they meet the criteria for passing within the challenge period
@@ -189,73 +208,72 @@ class ChallengePeriodManager(CacheController):
                         f'recently_re_registered: {miners_rrr} '
                         f'n_miners_inspected {len(inspection_hotkeys)}')
         return passing_miners, failing_miners
-
+    
     @staticmethod
     def screen_passing_criteria(
-        position_elements: list[Position],
-        ledger_element: PerfLedgerData,
+        positions: dict[str, list[Position]],
+        ledger: dict[str, PerfLedgerData],
+        success_scores_dict: dict[str, dict],
+        inspection_hotkey: str,
         current_time: int,
-        log: bool = False
+        inspection_scores_dict = None
     ) -> bool:
         """
         Runs a screening process to eliminate miners who didn't pass the challenge period.
+        Args:
+            success_scores_dict: a dictionary with a similar structure to config with keys being
+            function names of metrics and values having "scores" (scores of miners that passed challenge)
+            and "weight" which is the weight of the metric
         """
-        if position_elements is None:
-            return False
+        # trial_scores_dict is used to bypass running scoring
+        if inspection_scores_dict is None:
 
-        if ledger_element is None:
-            return False
+            if positions is None or len(positions) == 0:
+                return False
+            
+            inspection_positions = {inspection_hotkey: positions.get(inspection_hotkey, None)}
+            
+            if inspection_positions is None:
+                return False
 
-        if len(ledger_element.cps) == 0:
-            return False
+            if len(inspection_positions) <= 1:
+                # We need at least more than 1 position to evaluate the challenge period
+                return False
 
-        if len(position_elements) <= 1:
-            # We need at least more than 1 position to evaluate the challenge period
-            return False
+            # Get individual scoring dict for inspection
+            inspection_ledger = {inspection_hotkey: ledger.get(inspection_hotkey, None)}
 
-        minimum_return = ValiConfig.CHALLENGE_PERIOD_RETURN_LOG
-        minimum_number_of_positions = ValiConfig.CHALLENGE_PERIOD_MIN_POSITIONS
-        maximum_positional_returns_ratio = ValiConfig.CHALLENGE_PERIOD_MAX_POSITIONAL_RETURNS_RATIO
-        maximum_unrealized_return_ratio = ValiConfig.CHALLENGE_PERIOD_MAX_UNREALIZED_RETURNS_RATIO
+            if inspection_ledger is None:
+                return False
+            if inspection_ledger.get(inspection_hotkey).cps == 0:
+                return False
 
-        # Check the closed positions from the miner
-        filtered_positions = PositionFiltering.filter_single_miner(
-            position_elements,
-            evaluation_time_ms=current_time,
-            lookback_time_ms=current_time  # Setting to current time will filter for all positions through all time
-        )
 
-        # Closed Positions Criteria
-        closed_positions = [position for position in filtered_positions if position.is_closed_position]
-        recorded_n_closed_positions = len(closed_positions)
+            # Get penalized scores of inspection miner
+            inspection_scores_dict = Scoring.score_miners(
+                ledger_dict=inspection_ledger,
+                positions=inspection_positions,
+                evaluation_time_ms=current_time)
+            
+        trial_scores_dict = copy.deepcopy(success_scores_dict)
 
-        # Returns Ratio Criteria
-        recorded_returns_ratio = PositionPenalties.returns_ratio(filtered_positions)
-        recorded_return = Scoring.base_return(filtered_positions)
+        for config_name, config in trial_scores_dict["metrics"].items():
 
-        # Unrealized Gains Ratio Criteria
-        recorded_unrealized_ratio = LedgerUtils.daily_consistency_ratio(ledger_element.cps)
+            miner_scores = config["scores"]
+            miner_scores += inspection_scores_dict["metrics"][config_name]["scores"]
 
-        # Evaluation
-        # Recorded returns are greater than minimum returns - log
-        return_criteria = recorded_return >= minimum_return
+        trial_scores_dict["penalties"].update(inspection_scores_dict["penalties"])
 
-        # Recorded number of closed positions are greater than minimum number of positions
-        closed_positions_criteria = recorded_n_closed_positions >= minimum_number_of_positions
+        combined_scores = Scoring.combine_scores(scoring_dict=trial_scores_dict)
 
-        # Ratio of largest to overall is less than our maximum permitted ratio
-        max_returns_ratio_criteria = recorded_returns_ratio < maximum_positional_returns_ratio
+        percentiles = Scoring.miner_scores_percentiles(list(combined_scores.items()))
 
-        # Ratio of unrealized gains to total returns is less than our maximum permitted ratio
-        max_unrealized_return_ratio_criteria = recorded_unrealized_ratio <= maximum_unrealized_return_ratio
+        percentile_dict = dict(percentiles)
+        inspection_percentile = percentile_dict.get(inspection_hotkey, 0)
 
-        if log:
-            viewable_return = 100 * (recorded_return - 1)
-            viewable_minimum_return = 100 * (minimum_return - 1)
-            print(f"Return: {viewable_return:.4f}% >= {viewable_minimum_return:.2f}%: {return_criteria}")
-            print()
+        passed = inspection_percentile >= ValiConfig.CHALLENGE_PERIOD_PERCENTILE_THRESHOLD
 
-        return return_criteria and closed_positions_criteria and max_returns_ratio_criteria and max_unrealized_return_ratio_criteria
+        return passed
 
     @staticmethod
     def screen_failing_criteria(
@@ -270,7 +288,7 @@ class ChallengePeriodManager(CacheController):
         if len(ledger_element.cps) == 0:
             return False, 0
 
-        maximum_drawdown_percent = ValiConfig.CHALLENGE_PERIOD_MAX_DRAWDOWN_PERCENT
+        maximum_drawdown_percent = ValiConfig.DRAWDOWN_MAXVALUE_PERCENTAGE
 
         max_drawdown = LedgerUtils.recent_drawdown(ledger_element.cps, restricted=False)
         recorded_drawdown_percentage = LedgerUtils.drawdown_percentage(max_drawdown)
