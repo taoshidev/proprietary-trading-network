@@ -1,7 +1,7 @@
 export interface Challenge {
-  passing: boolean,
-  target: number,
-  value: number
+  passing: boolean;
+  target: number;
+  value: number;
 }
 
 export interface ChallengePeriod {
@@ -61,7 +61,7 @@ export interface Score {
 
 export interface Scores {
   risk_adjusted_return: Score;
-  short_risk_adjusted_return: Score;
+  short_risk_adjusted_return_dict: Score;
   omega: Score;
   sharpe: Score;
 }
@@ -115,7 +115,7 @@ export interface Statistics {
 }
 
 export interface Positions {
-  positions: Position[]
+  positions: Position[];
   thirty_day_returns: number;
   all_time_returns: number;
   n_positions: number;
