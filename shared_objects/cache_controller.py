@@ -334,7 +334,8 @@ class CacheController:
             self,
             new_hotkeys: list[str],
             eliminations: list[dict] = None,
-            current_time: int = None
+            current_time: int = None,
+            miners_with_positions: set[str] = None
     ):
         if current_time is None:
             current_time = TimeUtil.now_in_millis()
@@ -345,7 +346,8 @@ class CacheController:
         elimination_hotkeys = [x['hotkey'] for x in eliminations]
 
         # check all hotkeys which have at least one position
-        miners_with_positions = self.get_all_miner_hotkeys_with_at_least_one_position()
+        if miners_with_positions is None:
+            miners_with_positions = self.get_all_miner_hotkeys_with_at_least_one_position()
 
         for hotkey in new_hotkeys:
             if hotkey in miners_with_positions:
