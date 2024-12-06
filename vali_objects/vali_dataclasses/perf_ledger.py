@@ -937,14 +937,22 @@ class PerfLedgerManager(CacheController):
         ans_pydantic = {k: PerfLedger.from_data(v) for k, v in ans_data.items()}
         return ans_pydantic
 
-    def update(self, testing_one_hotkey=None, regenerate_all_ledgers=False):
-        perf_ledgers = self.load_perf_ledgers_from_disk(read_as_pydantic=False)
-        self._refresh_eliminations_in_memory()
-        t_ms = TimeUtil.now_in_millis() - self.UPDATE_LOOKBACK_MS
+    def update(self, testing_one_hotkey=None, regenerate_all_ledgers=False, perf_ledgers=None, eliminations=None,
+               t_ms=None, hotkey_to_positions=None) -> dict[str, PerfLedgerData]:
+        if perf_ledgers is None:
+            perf_ledgers = self.load_perf_ledgers_from_disk(read_as_pydantic=False)
+        if eliminations is None:
+            self._refresh_eliminations_in_memory()
+
+        if t_ms is None:
+            t_ms = TimeUtil.now_in_millis() - self.UPDATE_LOOKBACK_MS
         #if t_ms < 1720763350000 + 1000 * 60 * 60 * 1:  # Rebuild after bug fix
         #    for ledger in perf_ledgers.values():
         #        ledger.trim_checkpoints(1720665175000)  #  Wednesday, July 10, 2024 10:32:55 PM ET
-        hotkey_to_positions, hotkeys_with_no_positions = self.get_positions_perf_ledger(testing_one_hotkey=testing_one_hotkey)
+        if hotkey_to_positions is None:
+            hotkey_to_positions, hotkeys_with_no_positions = self.get_positions_perf_ledger(testing_one_hotkey=testing_one_hotkey)
+        else:
+            hotkeys_with_no_positions = set()
 
         def sort_key(x):
             # Highest priority. Want to rebuild this hotkey first in case it has an incorrect dd from a Polygon bug
@@ -1022,6 +1030,8 @@ class PerfLedgerManager(CacheController):
                 if i != len(ledger.cps) - 1:
                     assert x.last_update_ms % ledger.target_cp_duration_ms == 0, x.last_update_ms
                 print(x, last_update_formated)
+
+        return perf_ledgers
 
     def save_perf_ledgers_to_disk(self, perf_ledgers: dict[str, PerfLedgerData] | dict[str, dict], raw_json=False):
         # Convert to PerfLedger (pydantic validation)
