@@ -14,15 +14,21 @@ from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager, PerfChe
 
 
 class SubtensorWeightSetter(CacheController):
-    def __init__(self, config, wallet, metagraph, running_unit_tests=False):
+    def __init__(self, config, wallet, metagraph, running_unit_tests=False, perf_manager=None, enable_cooldown=True):
         super().__init__(config, metagraph, running_unit_tests=running_unit_tests)
         self.position_manager = PositionManager(metagraph=metagraph, running_unit_tests=running_unit_tests)
-        self.perf_manager = PerfLedgerManager(metagraph=metagraph, running_unit_tests=running_unit_tests)
+        if perf_manager is None:
+            perf_manager = PerfLedgerManager(metagraph=metagraph, running_unit_tests=running_unit_tests)
+        self.perf_manager = perf_manager
         self.wallet = wallet
         self.subnet_version = 200
+        self.enable_cooldown = enable_cooldown
 
-    def set_weights(self, current_time: int = None):
-        if not self.refresh_allowed(ValiConfig.SET_WEIGHT_REFRESH_TIME_MS):
+    def set_weights(self, current_time: int = None,
+                    filtered_positions: dict[str, list[Position]] = None,
+                    filtered_ledger: dict[str, PerfLedgerData] = None):
+
+        if self.enable_cooldown and not self.refresh_allowed(ValiConfig.SET_WEIGHT_REFRESH_TIME_MS):
             return
 
         bt.logging.info("running set weights")
@@ -42,8 +48,10 @@ class SubtensorWeightSetter(CacheController):
         success_hotkeys = list(self.challengeperiod_success.keys())
 
         # only collect ledger elements for the miners that passed the challenge period
-        filtered_ledger = self.filtered_ledger(hotkeys=success_hotkeys)
-        filtered_positions = self.filtered_positions(hotkeys=success_hotkeys)
+        if filtered_ledger is None:
+            filtered_ledger = self.filtered_ledger(hotkeys=success_hotkeys)
+        if filtered_positions is None:
+            filtered_positions = self.filtered_positions(hotkeys=success_hotkeys)
 
         # synced_ledger, synced_positions = self.sync_ledger_positions(
         #     filtered_ledger,
