@@ -14,27 +14,32 @@ from vali_objects.position import Position
 
 
 class ChallengePeriodManager(CacheController):
-    def __init__(self, config, metagraph, running_unit_tests=False):
+    def __init__(self, config, metagraph, running_unit_tests=False, perf_manager=None, running_backtesting=False):
         super().__init__(config, metagraph, running_unit_tests=running_unit_tests)
-        self.perf_manager = PerfLedgerManager(metagraph=metagraph, running_unit_tests=running_unit_tests)
+        if perf_manager is None:
+            perf_manager = PerfLedgerManager(metagraph=metagraph, running_unit_tests=running_unit_tests)
+        self.perf_manager = perf_manager
         self.position_manager = PositionManager(metagraph=metagraph, running_unit_tests=running_unit_tests)
+        self.running_backtesting = running_backtesting
 
-    def refresh(self, current_time: int = None):
-        if not self.refresh_allowed(ValiConfig.CHALLENGE_PERIOD_REFRESH_TIME_MS):
+    def refresh(self, current_time: int = None, eliminations: list[dict] = None, hotkey_to_positions: dict[str, list[Position]] = None, hotkey_to_ledger: dict[str, PerfLedgerData] = None):
+        if not self.running_backtesting and not self.refresh_allowed(ValiConfig.CHALLENGE_PERIOD_REFRESH_TIME_MS):
             time.sleep(1)
             return
 
-        # The refresh should just read the current eliminations
-        self.eliminations = self.get_filtered_eliminations_from_disk()
+        if not self.running_backtesting:
+            # The refresh should just read the current eliminations
+            self.eliminations = self.get_filtered_eliminations_from_disk()
 
-        # Collect challenge period and update with new eliminations criteria
-        self._refresh_challengeperiod_in_memory_and_disk(eliminations=self.eliminations)
+            # Collect challenge period and update with new eliminations criteria
+            self._refresh_challengeperiod_in_memory_and_disk(eliminations=self.eliminations)
 
         # challenge period adds to testing if not in eliminated, already in the challenge period, or in the new eliminations list from disk
         self._add_challengeperiod_testing_in_memory_and_disk(
             new_hotkeys=self.metagraph.hotkeys,
             eliminations=self.eliminations,
-            current_time=current_time
+            current_time=current_time,
+            miners_with_positions=set(hotkey_to_positions.keys()) if hotkey_to_positions else None
         )
         challengeperiod_success_hotkeys = list(self.challengeperiod_success.keys())
         challengeperiod_testing_hotkeys = list(self.challengeperiod_testing.keys())
@@ -42,12 +47,16 @@ class ChallengePeriodManager(CacheController):
         all_miners = challengeperiod_success_hotkeys + challengeperiod_testing_hotkeys
 
         # Check that our miners are in challenge period - don't need to get all of them
-        positions = self.position_manager.get_all_miner_positions_by_hotkey(
-            all_miners,
-            sort_positions=True
-        )
-        ledger = self.perf_manager.load_perf_ledgers_from_disk()
-        ledger = {hotkey: ledger.get(hotkey, None) for hotkey in all_miners}
+        if self.running_backtesting:
+            positions = {k: v for k, v in hotkey_to_positions.items() if k in all_miners}
+            ledger = {k: v for k, v in hotkey_to_ledger.items() if k in all_miners}
+        else:
+            positions = self.position_manager.get_all_miner_positions_by_hotkey(
+                all_miners,
+                sort_positions=True
+            )
+            ledger = self.perf_manager.load_perf_ledgers_from_disk()
+            ledger = {hotkey: ledger.get(hotkey, None) for hotkey in all_miners}
 
         challengeperiod_success, challengeperiod_eliminations = self.inspect(
             positions=positions,

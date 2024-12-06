@@ -943,6 +943,8 @@ class PerfLedgerManager(CacheController):
             perf_ledgers = self.load_perf_ledgers_from_disk(read_as_pydantic=False)
         if eliminations is None:
             self._refresh_eliminations_in_memory()
+        else:
+            self.eliminations = eliminations
 
         if t_ms is None:
             t_ms = TimeUtil.now_in_millis() - self.UPDATE_LOOKBACK_MS

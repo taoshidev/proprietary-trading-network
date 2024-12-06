@@ -280,7 +280,7 @@ class Validator:
         self.mdd_checker = MDDChecker(self.config, self.metagraph, self.position_manager, self.eliminations_lock,
                                       live_price_fetcher=self.live_price_fetcher, shutdown_dict=shutdown_dict)
         self.weight_setter = SubtensorWeightSetter(self.config, self.wallet, self.metagraph, perf_manager=self.perf_ledger_manager)
-        self.challengeperiod_manager = ChallengePeriodManager(self.config, self.metagraph)
+        self.challengeperiod_manager = ChallengePeriodManager(self.config, self.metagraph, perf_manager=self.perf_ledger_manager)
 
         self.elimination_manager = EliminationManager(self.metagraph, self.position_manager, self.eliminations_lock)
 
