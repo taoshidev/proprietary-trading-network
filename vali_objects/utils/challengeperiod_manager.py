@@ -225,7 +225,7 @@ class ChallengePeriodManager(CacheController):
             function names of metrics and values having "scores" (scores of miners that passed challenge)
             and "weight" which is the weight of the metric
         """
-        # trial_scores_dict is used to bypass running scoring
+        # inspection_scores_dict is used to bypass running scoring when testing
         if inspection_scores_dict is None:
 
             if positions is None or len(positions) == 0:

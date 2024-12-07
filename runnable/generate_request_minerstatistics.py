@@ -441,7 +441,7 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
                 inspection_metrics = inspection_scoring_dict["metrics"]
                 testing_score = inspection_metrics[config_name]["scores"]
 
-                # If no score for any reason, skip miner since there was some error earlier
+                # If no score for any reason, skip metric since there was some error earlier
                 if len(testing_score) < 0:
                     continue
 

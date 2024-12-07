@@ -282,7 +282,16 @@ class PositionManager(CacheController):
         n_attempts = 0
         unique_corrections = set()
         now_ms = TimeUtil.now_in_millis()
-        miners_to_wipe = [""]
+        # Wipe miners only once when dynamic challenge period launches
+        target_time_ms = 1733534704786 + (1000 * 60 * 60 * 6) # 3 hours from launch
+        if now_ms < target_time_ms:
+            # All miners that wanted their challenge period restarted
+            miners_to_wipe = ["5GTL7WXa4JM2yEUjFoCy2PZVLioNs1HzAGLKhuCDzzoeQCTR", "5HCJ6okRkmCsu7iLEWotBxgcZy11RhbxSzs8MXT4Dei9osUx",
+                          "5DcgKr6s8z75sE4c69iMSM8adfRVex7A8BZe2mouVwMVRis4", "5CB6dfQFcmjCuwkKKFguNjnQqPCS9GKWUBokzm1UMLZW5bgw",
+                          "5CthGb2xcWvBBFYxEPudSDLm4kGeF9ztkVDb2FJmSftfuJM2"]
+        else:
+            miners_to_wipe = [""]
+
         for k in miners_to_wipe:
             if k not in hotkey_to_positions:
                 hotkey_to_positions[k] = []
@@ -296,12 +305,12 @@ class PositionManager(CacheController):
         for miner_hotkey, positions in hotkey_to_positions.items():
             n_attempts += 1
             self.dedupe_positions(positions, miner_hotkey)
-            if miner_hotkey in miners_to_wipe and now_ms < TARGET_MS:
+            if miner_hotkey in miners_to_wipe: # and now_ms < TARGET_MS:
                 bt.logging.info(f"Resetting hotkey {miner_hotkey}")
                 n_corrections += 1
                 unique_corrections.update([p.position_uuid for p in positions])
-                #for pos in positions:
-                #    self.delete_position_from_disk(pos)
+                for pos in positions:
+                    self.delete_position_from_disk(pos)
                 self._refresh_challengeperiod_in_memory()
                 if miner_hotkey in self.challengeperiod_testing:
                     self.challengeperiod_testing.pop(miner_hotkey)
