@@ -153,14 +153,8 @@ class ValiConfig:
 
     # Challenge period
     CHALLENGE_PERIOD_WEIGHT = 1.2e-05  # essentially nothing
-    CHALLENGE_PERIOD_MS = 60 * 24 * 60 * 60 * 1000  # 60 days
-    CHALLENGE_PERIOD_RETURN = 1.02
-    CHALLENGE_PERIOD_RETURN_LOG = math.log(CHALLENGE_PERIOD_RETURN)
-    CHALLENGE_PERIOD_RETURN_PERCENTAGE = (CHALLENGE_PERIOD_RETURN - 1) * 100
-    CHALLENGE_PERIOD_MAX_POSITIONAL_RETURNS_RATIO = 0.35  # one position shouldn't be more than 35% of the total returns
-    CHALLENGE_PERIOD_MAX_UNREALIZED_RETURNS_RATIO = 0.40  # one day shouldn't be more than 40% of the total returns
-    CHALLENGE_PERIOD_MAX_DRAWDOWN_PERCENT = 5  # beyond 5% drawdown, they don't pass challenge
-    CHALLENGE_PERIOD_MIN_POSITIONS = 10  # need at least 10 positions to pass challenge
+    CHALLENGE_PERIOD_MS = 90 * 24 * 60 * 60 * 1000  # 90 days
+    CHALLENGE_PERIOD_PERCENTILE_THRESHOLD = 0.75 # miners must pass 75th percentile to enter the main competition
 
     # Plagiarism
     ORDER_SIMILARITY_WINDOW_MS = 60000 * 60 * 24

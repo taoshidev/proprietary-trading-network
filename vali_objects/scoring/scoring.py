@@ -5,6 +5,7 @@ from enum import Enum, auto
 import math
 from typing import List, Tuple, Callable
 from vali_objects.position import Position
+import copy
 
 import numpy as np
 from scipy.stats import percentileofscore
@@ -87,16 +88,14 @@ class Scoring:
             if verbose:
                 bt.logging.info(f"Only one miner: {miner}, returning 1.0 for the solo miner weight")
             return [(miner, 1.0)]
-
+        
         if evaluation_time_ms is None:
             evaluation_time_ms = TimeUtil.now_in_millis()
-
+        
         filtered_positions = PositionFiltering.filter(
             full_positions,
             evaluation_time_ms=evaluation_time_ms
         )
-
-        filtered_ledger_returns = LedgerUtils.ledger_returns_log(ledger_dict)
 
         # Compute miner penalties
         miner_penalties = Scoring.miner_penalties(filtered_positions, ledger_dict)
@@ -105,9 +104,45 @@ class Scoring:
         full_penalty_miner_scores: list[tuple[str, float]] = [
             (miner, 0) for miner, penalty in miner_penalties.items() if penalty == 0
         ]
-        full_penalty_miners = set([x[0] for x in full_penalty_miner_scores])
+        # Run all scoring functions
+        penalized_scores_dict = Scoring.score_miners(ledger_dict=ledger_dict,
+                                                     positions=full_positions,
+                                                     evaluation_time_ms=evaluation_time_ms)
 
-        combined_scores = {}
+        # Combine and penalize scores
+        combined_scores  = Scoring.combine_scores(penalized_scores_dict)
+
+        # Force good performance of all error metrics
+        combined_weighed = Scoring.softmax_scores(list(combined_scores.items())) + full_penalty_miner_scores
+        combined_scores = dict(combined_weighed)
+
+        # Normalize the scores
+        normalized_scores = Scoring.normalize_scores(combined_scores)
+        return sorted(normalized_scores.items(), key=lambda x: x[1], reverse=True)
+
+    @staticmethod
+    def score_miners(
+            ledger_dict: dict[str, PerfLedgerData],
+            positions: dict[str, list[Position]],
+            evaluation_time_ms: int= None):
+
+        if evaluation_time_ms is None:
+            evaluation_time_ms = TimeUtil.now_in_millis()
+
+        filtered_positions = PositionFiltering.filter(
+            positions,
+            evaluation_time_ms=evaluation_time_ms
+        )
+        # Compute miner penalties
+        miner_penalties = Scoring.miner_penalties(filtered_positions, ledger_dict)
+
+        # Miners with full penalty
+        full_penalty_miners: list[tuple[str, float]] = set([
+            miner for miner, penalty in miner_penalties.items() if penalty == 0
+        ])
+
+        filtered_ledger_returns = LedgerUtils.ledger_returns_log(ledger_dict)
+        scores_dict = {"metrics": {}}
         for config_name, config in Scoring.scoring_config.items():
             scores = []
             for miner, returns in filtered_ledger_returns.items():
@@ -139,26 +174,33 @@ class Scoring:
                 else:
                     score = config['function'](log_returns=returns)
 
-                scores.append((miner, score))
+                scores.append((miner, float(score)))
 
-            percentile_scores = Scoring.miner_scores_percentiles(scores)
+            scores_dict["metrics"][config_name] = {"scores": scores[:],
+                                                   "weight": config["weight"]}
+        scores_dict["penalties"] = copy.deepcopy(miner_penalties)
+
+
+        return scores_dict
+
+    @staticmethod
+    def combine_scores(scoring_dict: dict[str, dict]):
+
+        combined_scores = {}
+        for config_name, config in scoring_dict["metrics"].items():
+
+            percentile_scores = Scoring.miner_scores_percentiles(config["scores"])
             for miner, percentile_rank in percentile_scores:
                 if miner not in combined_scores:
                     combined_scores[miner] = 1
                 combined_scores[miner] *= config['weight'] * percentile_rank + (1 - config['weight'])
 
         # Now applying the penalties post scoring
-        for miner, penalty in miner_penalties.items():
+        for miner, penalty in scoring_dict["penalties"].items():
             if miner in combined_scores:
                 combined_scores[miner] *= penalty
 
-        # Force good performance of all error metrics
-        combined_weighed = Scoring.softmax_scores(list(combined_scores.items())) + full_penalty_miner_scores
-        combined_scores = dict(combined_weighed)
-
-        # Normalize the scores
-        normalized_scores = Scoring.normalize_scores(combined_scores)
-        return sorted(normalized_scores.items(), key=lambda x: x[1], reverse=True)
+        return combined_scores
 
     @staticmethod
     def miner_penalties(
@@ -319,24 +361,24 @@ class Scoring:
         """
         epsilon = ValiConfig.EPSILON
         temperature = ValiConfig.SOFTMAX_TEMPERATURE
-
+    
         if not returns:
             bt.logging.debug("No returns to score, returning empty list")
             return []
-
+    
         if len(returns) == 1:
             bt.logging.info("Only one miner, returning 1.0 for the solo miner weight")
             return [(returns[0][0], 1.0)]
-
+    
         # Extract scores and apply softmax with temperature
         scores = np.array([score for _, score in returns])
         max_score = np.max(scores)
         exp_scores = np.exp((scores - max_score) / temperature)
         softmax_scores = exp_scores / max(np.sum(exp_scores), epsilon)
-
+    
         # Combine miners with their respective softmax scores
         weighted_returns = [(miner, float(softmax_scores[i])) for i, (miner, _) in enumerate(returns)]
-
+    
         return weighted_returns
 
     @staticmethod
@@ -382,7 +424,8 @@ class Scoring:
             miner_hotkeys.append(miner)
             scores.append(score)
 
-        percentiles = percentileofscore(scores, scores) / 100
+        percentiles = percentileofscore(scores, scores, kind='rank') / 100
+
         miner_percentiles = list(zip(miner_hotkeys, percentiles))
 
         return miner_percentiles
@@ -406,3 +449,4 @@ class Scoring:
 
         weighted_returns = [(miner, decayed_returns[i]) for i, (miner, _) in enumerate(sorted_returns)]
         return weighted_returns
+
