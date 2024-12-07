@@ -122,9 +122,9 @@ class Metrics:
         Args:
             log_returns: list of daily log returns from the miner
         """
-        # Need a large enough sample size
-        if len(log_returns) < ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N:
-            return ValiConfig.SHARPE_NOCONFIDENCE_VALUE
+        # # Need a large enough sample size
+        # if len(log_returns) < ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N:
+        #     return ValiConfig.SHARPE_NOCONFIDENCE_VALUE
 
         # Hyperparameter
         min_std_dev = ValiConfig.SHARPE_STDDEV_MINIMUM
@@ -141,8 +141,8 @@ class Metrics:
             log_returns: list of daily log returns from the miner
         """
         # Need a large enough sample size
-        if len(log_returns) < ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N:
-            return ValiConfig.OMEGA_NOCONFIDENCE_VALUE
+        # if len(log_returns) < ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N:
+        #     return ValiConfig.OMEGA_NOCONFIDENCE_VALUE
 
         positive_sum = 0
         negative_sum = 0
@@ -165,8 +165,8 @@ class Metrics:
             log_returns: list of daily log returns from the miner
         """
         # Impose a minimum sample size on the miner
-        if len(log_returns) < ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N:
-            return ValiConfig.STATISTICAL_CONFIDENCE_NOCONFIDENCE_VALUE
+        # if len(log_returns) < ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N:
+        #     return ValiConfig.STATISTICAL_CONFIDENCE_NOCONFIDENCE_VALUE
 
         res = ttest_1samp(log_returns, 0, alternative='greater')
         return res.statistic
@@ -178,8 +178,8 @@ class Metrics:
             log_returns: list of daily log returns from the miner
         """
         # Need a large enough sample size
-        if len(log_returns) < ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N:
-            return ValiConfig.SORTINO_NOCONFIDENCE_VALUE
+        # if len(log_returns) < ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N:
+        #     return ValiConfig.SORTINO_NOCONFIDENCE_VALUE
 
         # Hyperparameter
         min_downside = ValiConfig.SORTINO_DOWNSIDE_MINIMUM
