@@ -396,6 +396,7 @@ class PerfLedgerManager(CacheController):
         self.elimination_rows = []
         self.hk_to_last_order_processed_ms = {}
         self.position_uuid_to_cache = defaultdict(FeeCache)
+        self.tp_to_last_price = {}
 
 
     def load_perf_ledgers_from_disk(self, read_as_pydantic=True) -> dict[str, PerfLedgerData]:
@@ -698,7 +699,16 @@ class PerfLedgerManager(CacheController):
 
     def check_liquidated(self, miner_hotkey, portfolio_return, t_ms, tp_to_historical_positions, perf_ledger):
         if portfolio_return == 0:
-            bt.logging.warning(f"Portfolio value is {portfolio_return} for miner {miner_hotkey} at {t_ms}. Eliminating miner.")
+            # Let's calculate the time since the last order.
+            last_order_time_ms = 0
+            for tp, positions in tp_to_historical_positions.items():
+                for pos in positions:
+                    if pos.orders and pos.orders[-1].processed_ms:
+                        last_order_time_ms = max(last_order_time_ms, pos.orders[-1].processed_ms)
+            last_order_time_formatted = TimeUtil.millis_to_formatted_date_str(last_order_time_ms)
+            current_time_formatted = TimeUtil.millis_to_formatted_date_str(t_ms)
+            time_since_last_order_days = (t_ms - last_order_time_ms) / 1000 / 60 / 60 / 24
+            bt.logging.warning(f"Portfolio value is {portfolio_return} for miner {miner_hotkey} at {current_time_formatted}. Eliminating miner. Last order time {last_order_time_formatted} Time since last order (days): {time_since_last_order_days}. tpthp {tp_to_historical_positions}")
             elimination_row = self.generate_elimination_row(miner_hotkey, 0.0, 'LIQUIDATED', t_ms=t_ms, price_info=self.tp_to_last_price, return_info={'dd_stats': {}, 'returns': self.trade_pair_to_position_ret})
             self.elimination_rows.append(elimination_row)
             #self.hk_to_dd_stats[miner_hotkey]['eliminated'] = True

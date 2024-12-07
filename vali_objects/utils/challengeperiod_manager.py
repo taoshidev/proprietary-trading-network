@@ -22,24 +22,30 @@ class ChallengePeriodManager(CacheController):
         self.position_manager = PositionManager(metagraph=metagraph, running_unit_tests=running_unit_tests)
         self.running_backtesting = running_backtesting
 
-    def refresh(self, current_time: int = None, eliminations: list[dict] = None, hotkey_to_positions: dict[str, list[Position]] = None, hotkey_to_ledger: dict[str, PerfLedgerData] = None):
+    def refresh(self, current_time: int = None, eliminations: list[dict] = None,
+                hotkey_to_positions: dict[str, list[Position]] = None,
+                hotkey_to_ledger: dict[str, PerfLedgerData] = None,
+                challenegeperiod_data: dict[str, dict[str, int]] = None):
         if not self.running_backtesting and not self.refresh_allowed(ValiConfig.CHALLENGE_PERIOD_REFRESH_TIME_MS):
             time.sleep(1)
             return
 
-        if not self.running_backtesting:
+        if self.running_backtesting:
+            self.eliminations = eliminations
+        else:
             # The refresh should just read the current eliminations
             self.eliminations = self.get_filtered_eliminations_from_disk()
 
-            # Collect challenge period and update with new eliminations criteria
-            self._refresh_challengeperiod_in_memory_and_disk(eliminations=self.eliminations)
+        # Collect challenge period and update with new eliminations criteria
+        self._refresh_challengeperiod_in_memory_and_disk(eliminations=self.eliminations,
+                                                         existing_challengeperiod=challenegeperiod_data)
 
         # challenge period adds to testing if not in eliminated, already in the challenge period, or in the new eliminations list from disk
         self._add_challengeperiod_testing_in_memory_and_disk(
             new_hotkeys=self.metagraph.hotkeys,
             eliminations=self.eliminations,
             current_time=current_time,
-            miners_with_positions=set(hotkey_to_positions.keys()) if hotkey_to_positions else None
+            miners_with_positions=set(hotkey_to_positions.keys()) if self.running_backtesting else None
         )
         challengeperiod_success_hotkeys = list(self.challengeperiod_success.keys())
         challengeperiod_testing_hotkeys = list(self.challengeperiod_testing.keys())
@@ -74,9 +80,15 @@ class ChallengePeriodManager(CacheController):
         self._prune_deregistered_metagraph()
 
         # Now sync challenge period with the disk
-        self._write_challengeperiod_from_memory_to_disk()
-        self._write_eliminations_from_memory_to_disk()
+        challenge_period_data = None
+        if self.running_backtesting:
+            challenge_period_data = self.get_challengeperiod_data()
+        else:
+            self._write_challengeperiod_from_memory_to_disk()
+            self._write_eliminations_from_memory_to_disk()
         self.set_last_update_time()
+
+        return challenge_period_data, self.eliminations
 
     def _prune_deregistered_metagraph(self, hotkeys=None):
         """
