@@ -256,25 +256,26 @@ class CacheController:
             ValiBkpUtils.get_challengeperiod_file_location(running_unit_tests=self.running_unit_tests)
         ).get('success', {})
 
-    def _refresh_challengeperiod_in_memory(self, eliminations: list[dict] = None):
+    def _refresh_challengeperiod_in_memory(self, eliminations: list[dict] = None, existing_challengeperiod: dict = None):
         if eliminations is None:
             eliminations = self.eliminations
 
         eliminations_hotkeys = set([x['hotkey'] for x in eliminations])
 
         location = ValiBkpUtils.get_challengeperiod_file_location(running_unit_tests=self.running_unit_tests)
-        existing_challengeperiod = ValiUtils.get_vali_json_file_dict(location)
+        if existing_challengeperiod is None:
+            existing_challengeperiod = ValiUtils.get_vali_json_file_dict(location)
         existing_challengeperiod_testing = existing_challengeperiod.get('testing', {})
         existing_challengeperiod_success = existing_challengeperiod.get('success', {})
 
         self.challengeperiod_testing = {k: v for k, v in existing_challengeperiod_testing.items() if k not in eliminations_hotkeys}
         self.challengeperiod_success = {k: v for k, v in existing_challengeperiod_success.items() if k not in eliminations_hotkeys}
 
-    def _refresh_challengeperiod_in_memory_and_disk(self, eliminations=None):
+    def _refresh_challengeperiod_in_memory_and_disk(self, eliminations=None, existing_challengeperiod: dict =None):
         if eliminations is None:
             eliminations = []
 
-        self._refresh_challengeperiod_in_memory(eliminations=eliminations)
+        self._refresh_challengeperiod_in_memory(eliminations=eliminations, existing_challengeperiod=existing_challengeperiod)
         self._write_challengeperiod_from_memory_to_disk()
 
     def clear_challengeperiod_from_disk(self):
@@ -318,11 +319,14 @@ class CacheController:
             # This will also add the hotkey to the in memory self.eliminations list
             self.append_elimination_row(hotkey, -1, 'FAILED_CHALLENGE_PERIOD')
 
-    def _write_challengeperiod_from_memory_to_disk(self):
-        challengeperiod_data = {
+    def get_challengeperiod_data(self):
+        return {
             "testing": self.challengeperiod_testing,
             "success": self.challengeperiod_success
         }
+    def _write_challengeperiod_from_memory_to_disk(self):
+        challengeperiod_data = self.get_challengeperiod_data()
+
         ValiBkpUtils.write_file(
             ValiBkpUtils.get_challengeperiod_file_location(
                 running_unit_tests=self.running_unit_tests
