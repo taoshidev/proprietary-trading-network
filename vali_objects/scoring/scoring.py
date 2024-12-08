@@ -211,8 +211,10 @@ class Scoring:
         miner_penalties = {}
 
         for miner, ledger in ledger_dict.items():
-            ledger_checkpoints = ledger.cps
             positions = hotkey_positions.get(miner, [])
+            if not ledger:
+                bt.logging.warning(f"Unexpectedly skipping miner {miner} with empty ledger and {len(positions)} positions")
+            ledger_checkpoints = ledger.cps if ledger else []
 
             cumulative_penalty = 1
             for penalty_name, penalty_config in Scoring.penalties_config.items():
