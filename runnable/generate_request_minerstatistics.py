@@ -231,6 +231,7 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
     recent_drawdowns = {}
     approximate_drawdowns = {}
     effective_drawdowns = {}
+    max_drawdowns = {}
 
     # Perf Ledger Calculations
     n_checkpoints = {}
@@ -294,6 +295,7 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
         approximate_drawdowns[hotkey] = approximate_drawdown
 
         effective_drawdowns[hotkey] = LedgerUtils.effective_drawdown(recent_drawdown, approximate_drawdown)
+        max_drawdowns[hotkey] = LedgerUtils.max_drawdown(miner_checkpoints)
         drawdown_penalties[hotkey] = LedgerUtils.risk_normalization(miner_checkpoints)
 
         ledger_daily_consistency_ratios[hotkey] = LedgerUtils.daily_consistency_ratio(miner_checkpoints)
@@ -498,6 +500,7 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
                 "recent": recent_drawdowns.get(miner_id),
                 "approximate": approximate_drawdowns.get(miner_id),
                 "effective": effective_drawdowns.get(miner_id),
+                "max": max_drawdowns.get(miner_id)
             },
             "scores": {
                 "omega": {

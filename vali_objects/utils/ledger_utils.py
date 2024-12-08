@@ -229,6 +229,22 @@ class LedgerUtils:
         return final_drawdown
 
     @staticmethod
+    def max_drawdown(checkpoints: list[PerfCheckpoint]) -> float:
+        """
+        Args:
+            checkpoints: list[PerfCheckpoint] - the list of checkpoints
+        """
+        if len(checkpoints) == 0:
+            return 0
+
+        # Compute the drawdown of the checkpoints
+        drawdowns = [checkpoint.mdd for checkpoint in checkpoints]
+        effective_drawdown = np.min(drawdowns)
+        final_drawdown = np.clip(effective_drawdown, 0, 1.0)
+
+        return final_drawdown
+
+    @staticmethod
     def approximate_drawdown(checkpoints: list[PerfCheckpoint]) -> float:
         """
         Args:
@@ -297,7 +313,7 @@ class LedgerUtils:
             return 0
 
         # recent_drawdown = LedgerUtils.recent_drawdown(checkpoints)
-        approximate_drawdown = LedgerUtils.mean_drawdown(checkpoints)
+        approximate_drawdown = LedgerUtils.max_drawdown(checkpoints)
 
         # effective_drawdown = LedgerUtils.effective_drawdown(approximate_drawdown)
         drawdown_penalty = LedgerUtils.mdd_augmentation(approximate_drawdown)
