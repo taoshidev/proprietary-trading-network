@@ -2,6 +2,7 @@
 # Copyright © 2024 Taoshi Inc
 
 import time
+import traceback
 
 from vali_objects.vali_config import ValiConfig
 from shared_objects.cache_controller import CacheController
@@ -47,6 +48,8 @@ class MetagraphUpdater(CacheController):
             except Exception as e:
                 # Handle exceptions or log errors
                 bt.logging.error(f"Error during metagraph update: {e}. Please alert a team member ASAP!")
+                bt.logging.error(traceback.format_exc())
+                time.sleep(10)
             time.sleep(1)  # Don't busy loop
 
     def estimate_number_of_miners(self):

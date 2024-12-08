@@ -1,8 +1,8 @@
-pydantic == 2.7.4
-bittensor == 7.4.0
-polygon-api-client == 1.13.7
+pydantic == 2.10.3
+git+https://github.com/jbonilla-tao/client-python.git@patch-1#egg=polygon-api-client
+bittensor == 8.4.5
 scikit-learn == 1.5.0
-scipy == 1.12.0
+scipy == 1.13.0
 pandas == 2.2.2
 flask == 3.0.3
 waitress == 2.1.2
@@ -12,4 +12,5 @@ pandas-market-calendars == 4.4.0
 google-cloud-storage == 2.17.0
 tiingo == 0.15.6
 requests==2.32.3
+
 

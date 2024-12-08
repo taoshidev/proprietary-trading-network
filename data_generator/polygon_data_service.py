@@ -5,7 +5,6 @@ import requests
 
 from typing import List
 
-from polygon.rest.models import Agg
 from polygon.websocket import Market, EquityAgg, EquityTrade, CryptoTrade, ForexQuote, WebSocketClient
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -23,6 +22,18 @@ from vali_objects.vali_dataclasses.recent_event_tracker import RecentEventTracke
 
 DEBUG = 0
 
+class Agg:
+    """
+    An efficient representation of an aggregate price data point. Use this over the Polygon Agg for speed.
+    """
+    def __init__(self, open, close, high, low, volume, vwap, timestamp):
+        self.open = open
+        self.close = close
+        self.high = high
+        self.low = low
+        self.volume = volume
+        self.vwap = vwap
+        self.timestamp = timestamp
 
 class ExchangeMappingHelper:
     def __init__(self, api_key, fetch_live_mapping=True):
