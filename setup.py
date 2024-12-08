@@ -36,11 +36,11 @@ def read_requirements(path):
             if req.startswith("git+") or "@" in req:
                 pkg_name = re.search(r"(#egg=)([\w\-_]+)", req)
                 if pkg_name:
-                    processed_requirements.append(pkg_name.group(2))
+                    # Convert to the format: PackageName @ git+<URL>
+                    formatted_req = f"{pkg_name.group(2)} @ {req.split('#egg=')[0]}"
+                    processed_requirements.append(formatted_req)
                 else:
-                    # You may decide to raise an exception here,
-                    # if you want to ensure every VCS link has an #egg=<package_name> at the end
-                    continue
+                    print(f"Warning: Unable to determine package name for {req}")
             else:
                 processed_requirements.append(req)
         return processed_requirements
