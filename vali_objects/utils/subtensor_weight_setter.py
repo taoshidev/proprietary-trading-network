@@ -33,6 +33,7 @@ class SubtensorWeightSetter(CacheController):
         if not self.running_backtesting and not self.refresh_allowed(ValiConfig.SET_WEIGHT_REFRESH_TIME_MS):
             return
 
+        hotkey_to_weight = {}
         bt.logging.info("running set weights")
         # First run the challenge period miner filtering
         if current_time is None:
@@ -75,6 +76,7 @@ class SubtensorWeightSetter(CacheController):
 
             checkpoint_netuid_weights = []
             for miner, score in checkpoint_results:
+                hotkey_to_weight[miner] = score
                 if miner in metagraph_hotkeys:
                     checkpoint_netuid_weights.append((
                         metagraph_hotkeys.index(miner),
@@ -98,7 +100,10 @@ class SubtensorWeightSetter(CacheController):
             if not self.running_unit_tests:
                 self._set_subtensor_weights(transformed_list)
         self.set_last_update_time()
-        return transformed_list
+        if self.running_backtesting:
+            return hotkey_to_weight
+        else:
+            return transformed_list
 
     @staticmethod
     def sync_ledger_positions(
