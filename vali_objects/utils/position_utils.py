@@ -1,4 +1,6 @@
 # developer: trdougherty
+from typing import List
+
 import numpy as np
 import copy
 
@@ -10,6 +12,24 @@ from time_util.time_util import TimeUtil
 
 
 class PositionUtils:
+    @staticmethod
+    def cumulative_leverage_position(
+            positions: list[Position],
+            evaluation_time_ms: int = None
+    ) -> list[Position]:
+        """
+        Args:
+            positions: list[Position] - the positions
+            evaluation_time_ms: int - the evaluation time in milliseconds
+        """
+        if evaluation_time_ms is None:
+            evaluation_time_ms = TimeUtil.now_in_millis()
+
+        return PositionUtils.translate_current_leverage(
+            positions,
+            evaluation_time_ms
+        )
+
     @staticmethod
     def translate_current_leverage(
             positions: list[Position],

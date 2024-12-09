@@ -1,4 +1,5 @@
 import numpy as np
+from sklearn.linear_model import LinearRegression
 
 from vali_objects.vali_config import ValiConfig
 
@@ -67,3 +68,30 @@ class FunctionalUtils:
             concentration_shift,
             concentration_spread
         )
+
+    @staticmethod
+    def martingale_score(
+            metrics: dict[str, list[float]]
+    ) -> float:
+        """
+        Returns the martingale score for each miner, which is a regression based on the leverage step in and losses
+
+        Args:
+            metrics: list[tuple[float, float]] - the list of metrics for each miner
+        """
+        if len(metrics) <= 1:
+            return 0.0
+
+        holding_intervals = np.array(metrics['entry_holding_timing'])
+        y = losses = np.array(metrics['losing_value_percents'])
+        x = log_leverages = np.log(metrics['losing_leverages_decimal_multiplier']).reshape(-1, 1)
+        weights = positional_returns = np.array(metrics['positional_returns'])
+
+        if len(x) < 2 or len(y) < 2:
+            return 0.0
+
+        model = LinearRegression()
+        model.fit(x, y, sample_weight=weights)
+
+        slope = model.coef_[0]
+        return slope
