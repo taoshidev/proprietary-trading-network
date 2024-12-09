@@ -147,7 +147,10 @@ class Scoring:
             scores = []
             for miner, returns in filtered_ledger_returns.items():
                 # Get the miner ledger
-                checkpoints = ledger_dict.get(miner, PerfLedgerData()).cps
+                if miner not in ledger_dict or not ledger_dict[miner]:
+                    checkpoints = []
+                else:
+                    checkpoints = ledger_dict[miner].cps
                 positions = filtered_positions.get(miner, [])
 
                 # Check if the miner has full penalty - if not include them in the scoring competition

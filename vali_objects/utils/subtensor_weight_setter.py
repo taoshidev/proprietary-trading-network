@@ -135,6 +135,9 @@ class SubtensorWeightSetter(CacheController):
             if hotkey not in hotkeys:
                 continue
 
+            if miner_ledger is None:
+                continue
+
             ledger_copy = copy.deepcopy(miner_ledger)
             if not self._filter_checkpoint_list(ledger_copy.cps):
                 continue

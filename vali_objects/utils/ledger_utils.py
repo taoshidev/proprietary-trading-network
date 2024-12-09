@@ -58,7 +58,7 @@ class LedgerUtils:
         miner_returns = {}
 
         for miner, miner_ledger in ledger.items():
-            miner_returns[miner] = LedgerUtils.daily_return_percentage(miner_ledger.cps)
+            miner_returns[miner] = LedgerUtils.daily_return_percentage(miner_ledger.cps if miner_ledger else [])
 
         return miner_returns
 
@@ -71,7 +71,7 @@ class LedgerUtils:
         miner_returns = {}
 
         for miner, miner_ledger in ledger.items():
-            miner_returns[miner] = LedgerUtils.daily_return_log(miner_ledger.cps)
+            miner_returns[miner] = LedgerUtils.daily_return_log(miner_ledger.cps if miner_ledger else [])
 
         return miner_returns
 
