@@ -6,6 +6,7 @@ import math
 from vali_objects.vali_config import ValiConfig
 from vali_objects.position import Position
 from vali_objects.utils.functional_utils import FunctionalUtils
+from vali_objects.utils.position_utils import PositionUtils
 
 
 class PositionPenalties:
@@ -111,6 +112,72 @@ class PositionPenalties:
             max_return_shift,
             max_return_spread
         )
+
+    @staticmethod
+    def miner_martingale_penalties(
+            hotkey_positions: dict[str, list[Position]]
+    ) -> dict[str, float]:
+        """
+        Returns the martingale penalty for each miner
+
+        Args:
+            hotkey_positions: dict[str, list[Position]] - the list of positions with translated leverage
+        """
+        miner_martingales = PositionPenalties.miner_martingales(hotkey_positions)
+        return {
+            miner_id: martingale_score < ValiConfig.MARTINGALE_THRESHOLD
+            for miner_id, martingale_score in miner_martingales.items()
+        }
+
+    @staticmethod
+    def miner_martingales(
+            hotkey_positions: dict[str, list[Position]]
+    ) -> dict[str, float]:
+        """
+        Returns the martingale penalty for each miner
+
+        Args:
+            hotkey_positions: dict[str, list[Position]] - the list of positions with translated leverage
+        """
+        cumulative_leverage_dict = PositionUtils.cumulative_leverage_dict(hotkey_positions)
+        return {
+            miner_id: PositionPenalties.martingale(positions)
+            for miner_id, positions in cumulative_leverage_dict.items()
+        }
+
+    @staticmethod
+    def martingale(
+            positions: list[Position]
+    ) -> float:
+        """
+        Returns the penalty associated with uneven distributions for realized returns
+
+        Args:
+            positions: list[Position] - the list of positions, with each position containing the cumulative leverage
+        """
+
+        # Need at least one positions for this to even make sense
+        if len(positions) < 1:
+            return 0.0
+
+        martingale_score = 0
+        for position in positions:
+            entry_order = position.orders[0]
+            entry_price = entry_order.price
+            entry_leverage = abs(entry_order.leverage)
+            positional_martingale = 0
+
+            for order in position.orders[1:]:
+                price = order.price
+                leverage = abs(order.leverage)
+
+                losing = price < entry_price
+                if losing:
+                    positional_martingale = leverage / entry_leverage
+
+            martingale_score = max(martingale_score, abs(positional_martingale))
+
+        return martingale_score
 
     @staticmethod
     def returns_ratio(

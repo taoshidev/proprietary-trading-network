@@ -16,6 +16,7 @@ from time_util.time_util import TimeUtil
 from vali_objects.utils.position_filtering import PositionFiltering
 from vali_objects.utils.ledger_utils import LedgerUtils
 from vali_objects.utils.metrics import Metrics
+from vali_objects.utils.position_penalties import PositionPenalties
 
 import bittensor as bt
 
@@ -209,6 +210,7 @@ class Scoring:
     ) -> dict[str, float]:
         # Compute miner penalties
         miner_penalties = {}
+        martingale_penalties = PositionPenalties.miner_martingale_penalties(hotkey_positions)
 
         for miner, ledger in ledger_dict.items():
             positions = hotkey_positions.get(miner, [])
@@ -227,7 +229,7 @@ class Scoring:
 
                 cumulative_penalty *= penalty
 
-            miner_penalties[miner] = cumulative_penalty
+            miner_penalties[miner] = cumulative_penalty * martingale_penalties.get(miner, 1)
 
         return miner_penalties
 
