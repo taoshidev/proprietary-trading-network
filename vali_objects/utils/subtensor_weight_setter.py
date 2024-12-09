@@ -62,7 +62,7 @@ class SubtensorWeightSetter(CacheController):
         #     filtered_positions
         # )
 
-        if len(filtered_ledger) == 0:
+        if not self.running_backtesting and len(filtered_ledger) == 0:
             bt.logging.info("No returns to set weights with. Do nothing for now.")
             return []
         else:
@@ -76,8 +76,8 @@ class SubtensorWeightSetter(CacheController):
 
             checkpoint_netuid_weights = []
             for miner, score in checkpoint_results:
-                hotkey_to_weight[miner] = score
                 if miner in metagraph_hotkeys:
+                    hotkey_to_weight[miner] = score
                     checkpoint_netuid_weights.append((
                         metagraph_hotkeys.index(miner),
                         score
@@ -88,6 +88,7 @@ class SubtensorWeightSetter(CacheController):
             challengeperiod_weights = []
             for miner in challenge_period_testing_hotkeys:
                 if miner in metagraph_hotkeys:
+                    hotkey_to_weight[miner] = ValiConfig.CHALLENGE_PERIOD_WEIGHT
                     challengeperiod_weights.append((
                         metagraph_hotkeys.index(miner),
                         ValiConfig.CHALLENGE_PERIOD_WEIGHT
@@ -95,15 +96,16 @@ class SubtensorWeightSetter(CacheController):
                 else:
                     bt.logging.error(f"Challengeperiod miner {miner} not found in the metagraph.")
 
-            transformed_list = checkpoint_netuid_weights + challengeperiod_weights
-            bt.logging.info(f"transformed list: {transformed_list}")
-            if not self.running_unit_tests:
+            self.set_last_update_time()
+            if self.running_backtesting:
+                bt.logging.info(f"hotkey to weight: {hotkey_to_weight}")
+                return hotkey_to_weight
+            else:
+                transformed_list = checkpoint_netuid_weights + challengeperiod_weights
+                bt.logging.info(f"transformed list: {transformed_list}")
                 self._set_subtensor_weights(transformed_list)
-        self.set_last_update_time()
-        if self.running_backtesting:
-            return hotkey_to_weight
-        else:
-            return transformed_list
+                return transformed_list
+
 
     @staticmethod
     def sync_ledger_positions(
