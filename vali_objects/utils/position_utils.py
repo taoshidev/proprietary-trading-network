@@ -11,6 +11,28 @@ from time_util.time_util import TimeUtil
 
 class PositionUtils:
     @staticmethod
+    def cumulative_leverage_dict(
+            hotkey_positions: dict[str, list[Position]],
+            evaluation_time_ms: int = None
+    ) -> dict[str, list[Position]]:
+        """
+        Args:
+            hotkey_positions: dict[str, list[Position]] - the positions
+        """
+        if evaluation_time_ms is None:
+            evaluation_time_ms = TimeUtil.now_in_millis()
+
+        cumulative_leverages = copy.deepcopy(hotkey_positions)
+        miners = set(cumulative_leverages.keys())
+        for hotkey in miners:
+            cumulative_leverages[hotkey] = PositionUtils.translate_current_leverage(
+                hotkey_positions[hotkey],
+                evaluation_time_ms
+            )
+
+        return cumulative_leverages
+
+    @staticmethod
     def translate_current_leverage(
             positions: list[Position],
             evaluation_time_ms: int = None

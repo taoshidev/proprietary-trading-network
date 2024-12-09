@@ -15,7 +15,7 @@ from vali_objects.utils.position_utils import PositionUtils
 class PlagiarismUtils:
     @staticmethod
     def generate_elimination_mapping(
-            positions: list[Position],
+            positions: dict[str, list[Position]],
             current_time: int
     ) -> dict[str, bool]:
         """
@@ -26,7 +26,7 @@ class PlagiarismUtils:
         # 2. Eliminate miners based on the similarity score
 
         # Translate the positions list to a list of states
-        flattened_positions = PositionUtils.flatten_positions(positions)
+        flattened_positions = PositionUtils.flatten(positions)
         positions_list_translated = PositionUtils.translate_current_leverage(flattened_positions)
         miners, trade_pairs, state_list = PositionUtils.to_state_list(positions_list_translated, current_time=current_time)
 
@@ -150,7 +150,7 @@ class PlagiarismUtils:
             time_resolution = ValiConfig.PLAGIARISM_MATCHING_TIME_RESOLUTION_MS
 
         if lookback_window is None:
-            lookback_window = ValiConfig.SET_WEIGHT_LOOKBACK_RANGE_MS
+            lookback_window = ValiConfig.PLAGIARISM_LOOKBACK_RANGE_MS
 
         end_time = current_time
         start_time = current_time - lookback_window
@@ -324,10 +324,11 @@ class PlagiarismUtils:
         return compressed_matrix
 
     @staticmethod
-    def build_similarities_cascade_lag(state_matrix: csr_matrix, max_lags: int = None) -> csr_matrix:
+    def build_similarities_cascade_lag(state_matrix: np.array, max_lags: int = None) -> csr_matrix:
         """
         Args:
             state_matrix: ndarray - the state matrix
+            max_lags: int - the maximum number of lags to consider
         """
         if max_lags is None:
             max_lags = ValiConfig.PLAGIARISM_MAX_LAGS
