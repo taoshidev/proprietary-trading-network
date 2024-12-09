@@ -14,17 +14,26 @@ from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager, PerfChe
 
 
 class SubtensorWeightSetter(CacheController):
-    def __init__(self, config, wallet, metagraph, running_unit_tests=False):
+    def __init__(self, config, wallet, metagraph, running_unit_tests=False, perf_manager=None, running_backtesting=True):
         super().__init__(config, metagraph, running_unit_tests=running_unit_tests)
         self.position_manager = PositionManager(metagraph=metagraph, running_unit_tests=running_unit_tests)
-        self.perf_manager = PerfLedgerManager(metagraph=metagraph, running_unit_tests=running_unit_tests)
+        if perf_manager is None:
+            perf_manager = PerfLedgerManager(metagraph=metagraph, running_unit_tests=running_unit_tests)
+        self.perf_manager = perf_manager
         self.wallet = wallet
         self.subnet_version = 200
+        self.running_backtesting = running_backtesting
 
-    def set_weights(self, current_time: int = None):
-        if not self.refresh_allowed(ValiConfig.SET_WEIGHT_REFRESH_TIME_MS):
+    def set_weights(self, current_time: int = None,
+                    filtered_positions: dict[str, list[Position]] = None,
+                    filtered_ledger: dict[str, PerfLedgerData] = None,
+                    challenge_period_success_hotkeys: List[str] = None,
+                    challenge_period_testing_hotkeys: List[str] = None):
+
+        if not self.running_backtesting and not self.refresh_allowed(ValiConfig.SET_WEIGHT_REFRESH_TIME_MS):
             return
 
+        hotkey_to_weight = {}
         bt.logging.info("running set weights")
         # First run the challenge period miner filtering
         if current_time is None:
@@ -34,24 +43,28 @@ class SubtensorWeightSetter(CacheController):
         metagraph_hotkeys = self.metagraph.hotkeys
 
         # we want to do this first because we will add to the eliminations list
-        self._refresh_eliminations_in_memory()
-        self._refresh_challengeperiod_in_memory()
+        if not self.running_backtesting:
+            # When running in backtesting, eliminations are always passed in from the metagraph
+            self._refresh_eliminations_in_memory()
 
-        # augmented ledger should have the gain, loss, n_updates, and time_duration
-        testing_hotkeys = list(self.challengeperiod_testing.keys())
-        success_hotkeys = list(self.challengeperiod_success.keys())
-
-        # only collect ledger elements for the miners that passed the challenge period
-        filtered_ledger = self.filtered_ledger(hotkeys=success_hotkeys)
-        filtered_positions = self.filtered_positions(hotkeys=success_hotkeys)
+            self._refresh_challengeperiod_in_memory()
+            # augmented ledger should have the gain, loss, n_updates, and time_duration
+            challenge_period_testing_hotkeys = list(self.challengeperiod_testing.keys())
+            challenge_period_success_hotkeys = list(self.challengeperiod_success.keys())
+            filtered_ledger = self.filtered_ledger(hotkeys=challenge_period_success_hotkeys)
+            filtered_positions = self.filtered_positions(hotkeys=challenge_period_success_hotkeys)
+        else:
+            filtered_ledger = {k:v for k,v in filtered_ledger.items() if k in challenge_period_success_hotkeys}
+            filtered_positions = {k:v for k,v in filtered_positions.items() if k in challenge_period_success_hotkeys}
 
         # synced_ledger, synced_positions = self.sync_ledger_positions(
         #     filtered_ledger,
         #     filtered_positions
         # )
 
-        if len(filtered_ledger) == 0:
+        if not self.running_backtesting and len(filtered_ledger) == 0:
             bt.logging.info("No returns to set weights with. Do nothing for now.")
+            return []
         else:
             bt.logging.info("Calculating new subtensor weights...")
             checkpoint_results = Scoring.compute_results_checkpoint(
@@ -64,16 +77,18 @@ class SubtensorWeightSetter(CacheController):
             checkpoint_netuid_weights = []
             for miner, score in checkpoint_results:
                 if miner in metagraph_hotkeys:
+                    hotkey_to_weight[miner] = score
                     checkpoint_netuid_weights.append((
                         metagraph_hotkeys.index(miner),
                         score
                     ))
                 else:
-                    bt.logging.error(f"Miner {miner} not found in the metagraph.")
+                    bt.logging.error(f"Miner {miner} not found in the metagraph {self.metagraph.hotkeys}.")
 
             challengeperiod_weights = []
-            for miner in testing_hotkeys:
+            for miner in challenge_period_testing_hotkeys:
                 if miner in metagraph_hotkeys:
+                    hotkey_to_weight[miner] = ValiConfig.CHALLENGE_PERIOD_WEIGHT
                     challengeperiod_weights.append((
                         metagraph_hotkeys.index(miner),
                         ValiConfig.CHALLENGE_PERIOD_WEIGHT
@@ -81,11 +96,16 @@ class SubtensorWeightSetter(CacheController):
                 else:
                     bt.logging.error(f"Challengeperiod miner {miner} not found in the metagraph.")
 
-            transformed_list = checkpoint_netuid_weights + challengeperiod_weights
-            bt.logging.info(f"transformed list: {transformed_list}")
-            
-            self._set_subtensor_weights(transformed_list)
-        self.set_last_update_time()
+            self.set_last_update_time()
+            if self.running_backtesting:
+                bt.logging.info(f"hotkey to weight: {hotkey_to_weight}")
+                return hotkey_to_weight
+            else:
+                transformed_list = checkpoint_netuid_weights + challengeperiod_weights
+                bt.logging.info(f"transformed list: {transformed_list}")
+                self._set_subtensor_weights(transformed_list)
+                return transformed_list
+
 
     @staticmethod
     def sync_ledger_positions(
