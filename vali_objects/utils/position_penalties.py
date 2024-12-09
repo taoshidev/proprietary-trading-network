@@ -6,6 +6,7 @@ import math
 from vali_objects.vali_config import ValiConfig
 from vali_objects.position import Position
 from vali_objects.utils.functional_utils import FunctionalUtils
+from vali_objects.utils.position_utils import PositionUtils
 
 
 class PositionPenalties:
@@ -111,6 +112,92 @@ class PositionPenalties:
             max_return_shift,
             max_return_spread
         )
+
+    @staticmethod
+    def martingale_penalty(
+            positions: list[Position]
+    ) -> float:
+        """
+        Returns the martingale penalty for each miner
+
+        Args:
+            positions: dict[str, list[Position]] - the list of positions with translated leverage
+        """
+        martingale_score = PositionPenalties.martingale_score(positions)
+        return FunctionalUtils.sigmoid(
+            martingale_score,
+            ValiConfig.MARTINGALE_SHIFT,
+            ValiConfig.MARTINGALE_SPREAD
+        )
+
+    @staticmethod
+    def martingale_score(
+            positions: list[Position]
+    ) -> float:
+        """
+        Returns the martingale penalty for each miner
+
+        Args:
+            positions: dict[str, list[Position]] - the list of positions with translated leverage
+        """
+        cumulative_leverage_positions = PositionUtils.cumulative_leverage_position(positions)
+        martingale_metrics = PositionPenalties.martingale_metrics(cumulative_leverage_positions)
+        return FunctionalUtils.martingale_score(martingale_metrics)
+
+    @staticmethod
+    def martingale_metrics(
+            positions: list[Position]
+    ) -> dict[str, list[float]]:
+        """
+        Returns the penalty associated with uneven distributions for realized returns
+
+        Args:
+            positions: list[Position] - the list of positions, with each position containing the cumulative leverage
+        """
+
+        # Need at least one positions for this to even make sense
+        if len(positions) < 1:
+            return {
+                "losing_value_percents": [],
+                "entry_holding_timing": [],
+                "losing_leverages_decimal_multiplier": [],
+                "positional_returns": []
+            }
+
+        losing_value_percents = []
+        losing_leverages_decimal_multiplier = []
+        positional_returns = []
+        order_holding_timings = []
+
+        for position in positions:
+            return_at_close = position.return_at_close
+            entry_order = position.orders[0]
+            entry_price = entry_order.price
+            entry_leverage = abs(entry_order.leverage) + ValiConfig.EPSILON
+            entry_time = position.orders[0].processed_ms
+            exit_time = position.orders[-1].processed_ms
+
+            for order in position.orders[1:]:
+                price = order.price
+                leverage = abs(order.leverage)
+                time_of_execution = order.processed_ms
+
+                losing = price < entry_price
+                if losing and leverage > 0:
+                    losing_percent = (1-(price / entry_price)) * 100
+                    losing_leverage_multiplier = leverage / entry_leverage
+                    losing_entry_timing = (time_of_execution - entry_time) / (exit_time - entry_time)
+                    order_holding_timings.append(losing_entry_timing)
+                    losing_value_percents.append(losing_percent)
+                    losing_leverages_decimal_multiplier.append(losing_leverage_multiplier)
+                    positional_returns.append(return_at_close)
+
+        return {
+            "losing_value_percents": losing_value_percents,
+            "entry_holding_timing": order_holding_timings,
+            "losing_leverages_decimal_multiplier": losing_leverages_decimal_multiplier,
+            "positional_returns": positional_returns
+        }
 
     @staticmethod
     def returns_ratio(

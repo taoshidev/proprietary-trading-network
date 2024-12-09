@@ -194,6 +194,9 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
         filtered_ledger
     )
 
+    miner_martingale_scores = PositionPenalties.miner_martingales(lookback_positions)
+    miner_partingale_penalties = PositionPenalties.miner_martingale_penalties(lookback_positions)
+
     # Scoring metrics
     omega_dict = {}
     sharpe_dict = {}
@@ -488,6 +491,7 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
             "penalties": {
                 "drawdown_threshold": max_drawdown_threshold_penalties.get(miner_id),
                 "drawdown_abnormality": drawdown_abnormality_penalties.get(miner_id),
+                "martingale": miner_partingale_penalties.get(miner_id),
                 "total": miner_penalties.get(miner_id, 0.0),
             },
             "volatility": {
@@ -565,7 +569,8 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
                 "checkpoint_durations": checkpoint_durations.get(miner_id),
                 "minimum_days_boolean": minimum_days_threshold_dict.get(miner_id),
             },
-            "plagiarism": plagiarism.get(miner_id)
+            "plagiarism": plagiarism.get(miner_id),
+            "martingale": miner_martingale_scores.get(miner_id),
         }
 
         miner_checkpoints = {
