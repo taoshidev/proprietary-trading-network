@@ -245,7 +245,7 @@ class ChallengePeriodManager(CacheController):
 
             if inspection_ledger is None:
                 return False
-            if inspection_ledger.get(inspection_hotkey).cps == 0:
+            if inspection_ledger.get(inspection_hotkey) is None:
                 return False
 
 
