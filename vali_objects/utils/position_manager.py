@@ -315,6 +315,8 @@ class PositionManager(CacheController):
                     self.challengeperiod_testing.pop(miner_hotkey)
                 if miner_hotkey in self.challengeperiod_success:
                     self.challengeperiod_success.pop(miner_hotkey)
+                # Add all wiped miners to challengeperiod_testing
+                self.challengeperiod_testing[miner_hotkey] = now_ms
                 self._write_challengeperiod_from_memory_to_disk()
 
                 perf_ledgers = self.perf_ledger_manager.load_perf_ledgers_from_disk()
