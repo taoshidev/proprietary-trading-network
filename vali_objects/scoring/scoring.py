@@ -65,10 +65,6 @@ class Scoring:
         'drawdown_threshold': PenaltyConfig(
             function=LedgerUtils.max_drawdown_threshold_penalty,
             input_type=PenaltyInputType.LEDGER
-        ),
-        'drawdown_abnormality': PenaltyConfig(
-            function=LedgerUtils.drawdown_abnormality,
-            input_type=PenaltyInputType.LEDGER
         )
     }
 
@@ -110,7 +106,7 @@ class Scoring:
                                                      evaluation_time_ms=evaluation_time_ms)
 
         # Combine and penalize scores
-        combined_scores  = Scoring.combine_scores(penalized_scores_dict)
+        combined_scores = Scoring.combine_scores(penalized_scores_dict)
 
         # Force good performance of all error metrics
         combined_weighed = Scoring.softmax_scores(list(combined_scores.items())) + full_penalty_miner_scores
