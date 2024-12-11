@@ -6,6 +6,7 @@ import uuid
 import time
 
 
+
 class PlagiarismPipeline:
 
   rasterized_positions = {} # ((miner_id, trade_pair): rasterized position)
@@ -50,7 +51,8 @@ class PlagiarismPipeline:
 
         event = sub_plagiarism[plagiarism_key]
         events.append({"type": event["type"],
-                      "score": event["score"]})
+                      "score": event["score"],
+                      "ratio": event["ratio"] if "ratio" in event else None})
         
     return events
      
@@ -61,6 +63,7 @@ class PlagiarismPipeline:
         state_dict: dict[tuple[str, str], list] -- A dictionary that contains the states of a miners positions
           using cumulative leverage
     """
+    # Contains most of the thresholding logic
 
     metadatas = [x.summary() for x in self.plagiarism_classes]
     victims = []
@@ -72,7 +75,7 @@ class PlagiarismPipeline:
 
         plagiarism_key = (plagiarist_id, plagiarist_trade_pair, miner_id, trade_pair)
         events = self.compose_sub_plagiarism(metadatas, plagiarism_key)
-        followPassed = False
+        follow_passed = False
         current_score = 0
 
         for event in events:
@@ -83,24 +86,31 @@ class PlagiarismPipeline:
             lagPassed = True
           """
           if event["type"] == "follow" and event["score"] >= ValiConfig.PLAGIARISM_FOLLOWER_SIMILARITY_THRESHOLD:
-            followPassed = True
+            # Check that the plagiarist->victim / victim->plagiarist percentage ratio is larger than 1
+            # This ensures that there is follow behavior rather than two unrelated miners that frequently place orders
+
+            if event["ratio"] >= ValiConfig.PLAGIARISM_FOLLOW_SIMILARITY_RATIO_THRESHOLD:
+              follow_passed = True
           if event["type"] == "single" or event["type"] == "two" or event["type"] == "three":
             current_score = max(current_score, event["score"])
 
-        if current_score >= self.overall_score and followPassed:
+        if current_score >= self.overall_score and follow_passed:
           self.overall_score = current_score
           self.max_trade_pair = plagiarist_trade_pair
           self.max_victim = {"victim": miner_id,
-                    "victim_trade_pair": trade_pair,
-                    "events": events}
+                             "victim_trade_pair": trade_pair,
+                             "events": events}
         
         # If the plagiarist passes lag and follow thresholds and passes threshold for at least one other type of plagiarism, report
-        # For the time being lag is only used as additional evidence for plagiarism rather than a necessary condition
-        if len(events) >= 2 and followPassed and current_score >= ValiConfig.PLAGIARISM_REPORTING_THRESHOLD:
+        # For the time being, lag is only used as additional evidence for plagiarism rather than a necessary condition
+        # follow_passed is only true when the follow percentage raio is greater than 1 as well
+
+        if len(events) >= 2 and current_score >= ValiConfig.PLAGIARISM_REPORTING_THRESHOLD and follow_passed:
 
           positions = PlagiarismEvents.positions[(miner_id, trade_pair)]
           PlagiarismPipeline.rasterized_positions[(miner_id, trade_pair)] = ReportingUtils.rasterize_cumulative_position(positions, current_time=PlagiarismPipeline.current_time)
           PlagiarismPipeline.order_lists[(miner_id, trade_pair)] = state_dict[(miner_id, trade_pair)]
+
           if (plagiarist_id, plagiarist_trade_pair) not in PlagiarismPipeline.rasterized_positions:
             PlagiarismPipeline.rasterized_positions[(plagiarist_id, plagiarist_trade_pair)] = ReportingUtils.rasterize_cumulative_position(PlagiarismEvents.positions[(plagiarist_id, plagiarist_trade_pair)], current_time=PlagiarismPipeline.current_time)
             PlagiarismPipeline.order_lists[(plagiarist_id, plagiarist_trade_pair)] = PlagiarismEvents.positions[(plagiarist_id, plagiarist_trade_pair)]
@@ -177,6 +187,8 @@ class PlagiarismPipeline:
     Args:
         positions: hotkey positions of all miners
     """
+    PlagiarismPipeline.current_time = current_time
+
     flattened_positions = PositionUtils.flatten(positions)
     positions_list_translated = PositionUtils.translate_current_leverage(flattened_positions)
     miners, trade_pairs, state_list = PositionUtils.to_state_list(positions_list_translated, current_time=current_time)

@@ -17,24 +17,47 @@ class FollowPercentage(PlagiarismEvents):
     Args:
         victim_key: tuple of (victim hotkey, victim trade pair)
     """
+    plagiarist_key = (self.plagiarist_id, plagiarist_trade_pair)
+    percent_of_follow = self.score_direct(plagiarist_key, victim_key)
 
-    plagiarist_orders = PlagiarismEvents.positions[(self.plagiarist_id, plagiarist_trade_pair)]
-    victim_orders = PlagiarismEvents.positions[victim_key]
-    event_key = (self.plagiarist_id, plagiarist_trade_pair, victim_key[0], victim_key[1])
-    
-    if event_key in self.time_differences:
-      differences = self.time_differences[event_key]
+    # Calculate the follow percentage of victim following plagiarist
+    percent_of_reverse_follow = self.score_direct(victim_key, plagiarist_key)
 
-    differences = FollowPercentage.compute_time_differences(plagiarist_orders, victim_orders)
-    self.time_differences[event_key] = differences
-    percent_of_follow = FollowPercentage.compute_follow_percentage(differences, victim_orders)
+    if percent_of_reverse_follow == 0:
+      percent_of_reverse_follow = ValiConfig.PLAGIARISM_MINIMUM_REVERSE_FOLLOW
+    follow_ratio = percent_of_follow / percent_of_reverse_follow
+
     
     plagiarism_key = (self.plagiarist_id, plagiarist_trade_pair, victim_key[0], victim_key[1])
     self.metadata[plagiarism_key] = {"victim": victim_key[0],
                                     "victim_trade_pair": victim_key[1],
                                     "type": self.name,
-                                    "score": percent_of_follow
+                                    "score": percent_of_follow,
+                                    "ratio": follow_ratio
                                     }
+  def score_direct(self, plagiarist_key: tuple[str, str], victim_key: tuple[str, str]):
+    """
+    Args:
+      victim_key: tuple of (victim hotkey, victim trade pair)
+      plagiarist_key: tuple of (plagiarism hotkey, plagiarism trade pair)
+    """
+
+    # Get the orders of plagiarist and victim
+    plagiarist_orders = PlagiarismEvents.positions[plagiarist_key]
+    victim_orders = PlagiarismEvents.positions[victim_key]
+    event_key = (plagiarist_key[0], plagiarist_key[1], victim_key[0], victim_key[1])
+
+    # Compute the differences in time for all victim orders that were followed by a plagiarist.
+    if event_key in self.time_differences:
+      differences = self.time_differences[event_key]
+    else:
+      differences = FollowPercentage.compute_time_differences(plagiarist_orders, victim_orders)
+
+    self.time_differences[event_key] = differences
+    percent_of_follow = FollowPercentage.compute_follow_percentage(differences, victim_orders)
+
+    return percent_of_follow
+
   
   @staticmethod
   def compute_time_differences(plagiarist_orders: list, victim_orders: list):
@@ -51,17 +74,14 @@ class FollowPercentage(PlagiarismEvents):
 
     # Looks through all victim orders to collect all possible plagiarist orders that follow them
     while i < len(victim_orders) and j < len(plagiarist_orders):
-
         difference = plagiarist_orders[j]["start"] - (victim_orders[i]["start"])
         # Difference is within the follow time window and greater than 10 seconds
         if difference <= time_window and difference >= ValiConfig.PLAGIARISM_MINIMUM_FOLLOW_MS:
             differences.append(difference / time_resolution)
 
             i += 1
-            j = 0
-        else:
-            
-            j+= 1
+        # Don't use the same plagiarist order twice
+        j += 1
 
     return differences
 
@@ -171,8 +191,10 @@ class CopySimilarity(PlagiarismEvents):
     if event_key in PlagiarismEvents.copy_similarities:
       similarity = PlagiarismEvents.copy_similarities[event_key]
     elif time_lag > 0:
-      
-      similarity = cosine_similarity([plagiarist_vector[time_lag:]], [victim_vector[:-time_lag]])[0][0]
+
+      non_lagged_similarity = cosine_similarity([plagiarist_vector], [victim_vector])[0][0]
+      lagged_similarity = cosine_similarity([plagiarist_vector[time_lag:]], [victim_vector[:-time_lag]])[0][0]
+      similarity = max(non_lagged_similarity, lagged_similarity)
 
     else:
 
