@@ -403,3 +403,6 @@ dashboard at http://localhost:5173/ on your local machine.
 # Issues?
 
 If you are running into issues, please run with `--logging.debug` and `--logging.trace` set so you can better analyze why your miner isn't running.
+
+# Terms of Service
+We do not permit any third-party strategies to be used on the platform which are in violation of the terms and services of the original provider. Failure to comply will result in miner removal from the platform.
