@@ -267,12 +267,12 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
         minimum_days_threshold_dict[hotkey] = len(miner_returns) >= ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N
 
         # Positional Scoring
-        omega_dict[hotkey] = Metrics.omega(**scoring_input)
-        sharpe_dict[hotkey] = Metrics.sharpe(**scoring_input)
-        sortino_dict[hotkey] = Metrics.sortino(**scoring_input)
+        omega_dict[hotkey] = Metrics.omega(**scoring_input, bypass_confidence=True)
+        sharpe_dict[hotkey] = Metrics.sharpe(**scoring_input, bypass_confidence=True)
+        sortino_dict[hotkey] = Metrics.sortino(**scoring_input, bypass_confidence=True)
         annual_volatility[hotkey] = min(Metrics.ann_volatility(miner_returns), 100)
         annual_downside_volatility[hotkey] = min(Metrics.ann_downside_volatility(miner_returns), 100)
-        statistical_confidence_dict[hotkey] = Metrics.statistical_confidence(miner_returns)
+        statistical_confidence_dict[hotkey] = Metrics.statistical_confidence(miner_returns, bypass_confidence=True)
         concentration_dict[hotkey] = Metrics.concentration(miner_returns, positions=miner_positions)
 
         # Positional penalties
