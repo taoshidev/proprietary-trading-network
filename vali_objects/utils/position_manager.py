@@ -283,14 +283,13 @@ class PositionManager(CacheController):
         unique_corrections = set()
         now_ms = TimeUtil.now_in_millis()
         # Wipe miners only once when dynamic challenge period launches
-        target_time_ms = 1733536401615 + (1000 * 60 * 60 * 3) # 3 hours from launch
+        target_time_ms = 1733956641872 + (1000 * 60 * 60 * 4) # 4 hours from launch
+        miners_to_wipe = [""]
         if now_ms < target_time_ms:
             # All miners that wanted their challenge period restarted
             miners_to_wipe = ["5GTL7WXa4JM2yEUjFoCy2PZVLioNs1HzAGLKhuCDzzoeQCTR", "5HCJ6okRkmCsu7iLEWotBxgcZy11RhbxSzs8MXT4Dei9osUx",
                           "5DcgKr6s8z75sE4c69iMSM8adfRVex7A8BZe2mouVwMVRis4", "5CB6dfQFcmjCuwkKKFguNjnQqPCS9GKWUBokzm1UMLZW5bgw",
                           "5CthGb2xcWvBBFYxEPudSDLm4kGeF9ztkVDb2FJmSftfuJM2"]
-        else:
-            miners_to_wipe = [""]
 
         for k in miners_to_wipe:
             if k not in hotkey_to_positions:
@@ -314,8 +313,10 @@ class PositionManager(CacheController):
                 self._refresh_challengeperiod_in_memory()
                 if miner_hotkey in self.challengeperiod_testing:
                     self.challengeperiod_testing.pop(miner_hotkey)
-                #if miner_hotkey in self.challengeperiod_success:
-                #    self.challengeperiod_success.pop(miner_hotkey)
+                if miner_hotkey in self.challengeperiod_success:
+                    self.challengeperiod_success.pop(miner_hotkey)
+                # Add all wiped miners to challengeperiod_testing
+                self.challengeperiod_testing[miner_hotkey] = now_ms
                 self._write_challengeperiod_from_memory_to_disk()
 
                 perf_ledgers = self.perf_ledger_manager.load_perf_ledgers_from_disk()
