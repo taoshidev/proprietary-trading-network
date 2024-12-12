@@ -2,6 +2,7 @@
 from typing import Union
 import numpy as np
 import math
+import pandas as pd
 
 from vali_objects.vali_config import ValiConfig
 from vali_objects.position import Position
@@ -141,8 +142,65 @@ class PositionPenalties:
             positions: dict[str, list[Position]] - the list of positions with translated leverage
         """
         cumulative_leverage_positions = PositionUtils.cumulative_leverage_position(positions)
-        martingale_metrics = PositionPenalties.martingale_metrics(cumulative_leverage_positions)
-        return FunctionalUtils.martingale_score(martingale_metrics)
+        return PositionPenalties.martingale_leverage_average(cumulative_leverage_positions)
+        # return FunctionalUtils.martingale_score(martingale_metrics, cumulative_leverage_positions)
+
+    # what we want to do is determine for each position is to determine the relative drawdown percentage
+    @staticmethod
+    def martingale_leverage_average(
+            positions: list[Position]
+    ) -> float:
+        """
+        Returns the penalty associated with uneven distributions for realized returns
+
+        Args:
+            positions: list[Position] - the list of positions
+        """
+        if len(positions) < 1:
+            return 0.0
+
+        martingale_values = []
+        positional_returns = []
+
+        for position in positions:
+            losing_percentages = []
+            losing_multipliers = []
+
+            return_at_close = (position.return_at_close-1)*100
+            if return_at_close <= 0:
+                continue
+
+            entry_order = position.orders[0]
+            entry_price = entry_order.price
+            entry_leverage = abs(entry_order.leverage)
+
+            for order in position.orders[1:]:
+                price = order.price
+                leverage = abs(order.leverage)
+
+                losing = price < entry_price
+                if losing and leverage > 0 and leverage > entry_leverage:
+                    losing_percent = (1-(price / entry_price)) * 100
+                    losing_leverage_multiplier = leverage / entry_leverage
+
+                    losing_percentages.append(losing_percent)
+                    losing_multipliers.append(losing_leverage_multiplier)
+
+            if len(losing_percentages) < 1 or len(losing_multipliers) < 1:
+                continue
+
+            losing_leverage_losses = [losing_percent * losing_leverage_multiplier for losing_percent, losing_leverage_multiplier in zip(losing_percentages, losing_multipliers)]
+            martingale_values.append(np.mean(losing_leverage_losses) / return_at_close)
+            positional_returns.append(return_at_close)
+
+        if len(martingale_values) == 0:
+            return 0
+
+        positional_returns = np.array(positional_returns)
+        if sum(positional_returns) == 0:
+            positional_returns += ValiConfig.EPSILON
+
+        return np.average(martingale_values, weights=positional_returns)
 
     @staticmethod
     def martingale_metrics(
@@ -168,6 +226,8 @@ class PositionPenalties:
         losing_leverages_decimal_multiplier = []
         positional_returns = []
         order_holding_timings = []
+        times_readable = []
+        position_times = []
 
         for position in positions:
             return_at_close = position.return_at_close
@@ -187,6 +247,8 @@ class PositionPenalties:
                     losing_percent = (1-(price / entry_price)) * 100
                     losing_leverage_multiplier = leverage / entry_leverage
                     losing_entry_timing = (time_of_execution - entry_time) / (exit_time - entry_time)
+                    times_readable.append(pd.to_datetime(time_of_execution, unit='ms', utc=True))
+                    position_times.append(pd.to_datetime(entry_time, unit='ms', utc=True))
                     order_holding_timings.append(losing_entry_timing)
                     losing_value_percents.append(losing_percent)
                     losing_leverages_decimal_multiplier.append(losing_leverage_multiplier)
@@ -196,7 +258,9 @@ class PositionPenalties:
             "losing_value_percents": losing_value_percents,
             "entry_holding_timing": order_holding_timings,
             "losing_leverages_decimal_multiplier": losing_leverages_decimal_multiplier,
-            "positional_returns": positional_returns
+            "positional_returns": positional_returns,
+            "times_readable": times_readable,
+            "position_times": position_times
         }
 
     @staticmethod

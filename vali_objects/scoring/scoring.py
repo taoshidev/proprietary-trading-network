@@ -106,9 +106,11 @@ class Scoring:
             (miner, 0) for miner, penalty in miner_penalties.items() if penalty == 0
         ]
         # Run all scoring functions
-        penalized_scores_dict = Scoring.score_miners(ledger_dict=ledger_dict,
-                                                     positions=full_positions,
-                                                     evaluation_time_ms=evaluation_time_ms)
+        penalized_scores_dict = Scoring.score_miners(
+            ledger_dict=ledger_dict,
+            positions=full_positions,
+            evaluation_time_ms=evaluation_time_ms
+        )
 
         # Combine and penalize scores
         combined_scores = Scoring.combine_scores(penalized_scores_dict)
@@ -196,8 +198,8 @@ class Scoring:
             percentile_scores = Scoring.miner_scores_percentiles(config["scores"])
             for miner, percentile_rank in percentile_scores:
                 if miner not in combined_scores:
-                    combined_scores[miner] = 1
-                combined_scores[miner] *= config['weight'] * percentile_rank + (1 - config['weight'])
+                    combined_scores[miner] = 0
+                combined_scores[miner] += config['weight'] * percentile_rank # + (1 - config['weight'])
 
         # Now applying the penalties post scoring
         for miner, penalty in scoring_dict["penalties"].items():
@@ -213,7 +215,6 @@ class Scoring:
     ) -> dict[str, float]:
         # Compute miner penalties
         miner_penalties = {}
-        martingale_penalties = PositionPenalties.miner_martingale_penalties(hotkey_positions)
 
         for miner, ledger in ledger_dict.items():
             positions = hotkey_positions.get(miner, [])
@@ -232,7 +233,7 @@ class Scoring:
 
                 cumulative_penalty *= penalty
 
-            miner_penalties[miner] = cumulative_penalty * martingale_penalties.get(miner, 1)
+            miner_penalties[miner] = cumulative_penalty
 
         return miner_penalties
 
