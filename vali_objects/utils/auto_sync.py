@@ -84,7 +84,7 @@ class PositionSyncer(ValidatorSyncBase):
 
 
 if __name__ == "__main__":
-    bt.logging.enable_default()
+    bt.logging.enable_info()
     position_syncer = PositionSyncer()
     candidate_data = position_syncer.read_validator_checkpoint_from_gcloud_zip()
     position_syncer.sync_positions(False, candidate_data=candidate_data)
