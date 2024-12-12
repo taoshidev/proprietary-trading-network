@@ -228,21 +228,26 @@ class PositionPenalties:
         order_holding_timings = []
         times_readable = []
         position_times = []
+        steps = []
 
         for position in positions:
             return_at_close = position.return_at_close
             entry_order = position.orders[0]
             entry_price = entry_order.price
+
             entry_leverage = abs(entry_order.leverage) + ValiConfig.EPSILON
             entry_time = position.orders[0].processed_ms
             exit_time = position.orders[-1].processed_ms
+            entry_leverage = abs(entry_order.leverage)
+            direction_is_long = entry_order.leverage > 0
 
-            for order in position.orders[1:]:
+            for step in range(1, len(position.orders)):
+                order = position.orders[step]
                 price = order.price
                 leverage = abs(order.leverage)
                 time_of_execution = order.processed_ms
 
-                losing = price < entry_price
+                losing = price < entry_price and direction_is_long or price > entry_price and not direction_is_long
                 if losing and leverage > 0:
                     losing_percent = (1-(price / entry_price)) * 100
                     losing_leverage_multiplier = leverage / entry_leverage
@@ -253,6 +258,7 @@ class PositionPenalties:
                     losing_value_percents.append(losing_percent)
                     losing_leverages_decimal_multiplier.append(losing_leverage_multiplier)
                     positional_returns.append(return_at_close)
+                    steps.append(step)
 
         return {
             "losing_value_percents": losing_value_percents,
@@ -260,7 +266,8 @@ class PositionPenalties:
             "losing_leverages_decimal_multiplier": losing_leverages_decimal_multiplier,
             "positional_returns": positional_returns,
             "times_readable": times_readable,
-            "position_times": position_times
+            "position_times": position_times,
+            "steps": steps
         }
 
     @staticmethod
