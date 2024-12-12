@@ -194,9 +194,6 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
         filtered_ledger
     )
 
-    miner_martingale_scores = PositionPenalties.miner_martingales(lookback_positions)
-    miner_partingale_penalties = PositionPenalties.miner_martingale_penalties(lookback_positions)
-
     # Scoring metrics
     omega_dict = {}
     sharpe_dict = {}
@@ -218,6 +215,8 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
     # Positional penalties
     positional_return_time_consistency_penalties = {}
     positional_realized_returns_penalties = {}
+    miner_martingale_scores = {}
+    miner_martingale_penalties = {}
 
     # Ledger Ratios
     ledger_daily_consistency_ratios = {}
@@ -275,6 +274,10 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
         annual_downside_volatility[hotkey] = min(Metrics.ann_downside_volatility(miner_returns), 100)
         statistical_confidence_dict[hotkey] = Metrics.statistical_confidence(miner_returns)
         concentration_dict[hotkey] = Metrics.concentration(miner_returns, positions=miner_positions)
+
+        # Positional penalties
+        miner_martingale_scores[hotkey] = PositionPenalties.martingale_score(miner_positions)
+        miner_martingale_penalties[hotkey] = PositionPenalties.martingale_penalty(miner_positions)
 
         short_return_dict[hotkey] = Metrics.base_return(short_term_miner_returns)
         return_dict[hotkey] = Metrics.base_return(miner_returns)
@@ -491,7 +494,7 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
             "penalties": {
                 "drawdown_threshold": max_drawdown_threshold_penalties.get(miner_id),
                 "drawdown_abnormality": drawdown_abnormality_penalties.get(miner_id),
-                "martingale": miner_partingale_penalties.get(miner_id),
+                "martingale": miner_martingale_penalties.get(miner_id),
                 "total": miner_penalties.get(miner_id, 0.0),
             },
             "volatility": {
