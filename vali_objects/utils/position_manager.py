@@ -283,7 +283,7 @@ class PositionManager(CacheController):
         unique_corrections = set()
         now_ms = TimeUtil.now_in_millis()
         # Wipe miners only once when dynamic challenge period launches
-        target_time_ms = 1733956641872 + (1000 * 60 * 60 * 4) # 4 hours from launch
+        target_time_ms = 1734035307102 + (1000 * 60 * 60 * 3) # 4 hours from launch
         miners_to_wipe = [""]
         if now_ms < target_time_ms:
             # All miners that wanted their challenge period restarted
@@ -303,7 +303,7 @@ class PositionManager(CacheController):
         self._write_eliminations_from_memory_to_disk()
         for miner_hotkey, positions in hotkey_to_positions.items():
             n_attempts += 1
-            #self.dedupe_positions(positions, miner_hotkey)
+            self.dedupe_positions(positions, miner_hotkey)
             if miner_hotkey in miners_to_wipe: # and now_ms < TARGET_MS:
                 bt.logging.info(f"Resetting hotkey {miner_hotkey}")
                 n_corrections += 1
@@ -409,7 +409,7 @@ class PositionManager(CacheController):
                                                                 n_corrections=n_corrections,
                                                                 unique_corrections=unique_corrections,
                                                                 pos=position_to_delete)
-        """
+                                                                
             if miner_hotkey == "5DWmX9m33Tu66Qh12pr41Wk87LWcVkdyM9ZSNJFsks3QritF":
                  time_now_ms = TimeUtil.now_in_millis()
                  if time_now_ms > TARGET_MS:
@@ -420,6 +420,8 @@ class PositionManager(CacheController):
                                                                  n_corrections=n_corrections,
                                                                  unique_corrections=unique_corrections,
                                                                  pos=position_to_delete)
+        """
+
 
         #5DCzvCF22vTVhXLtGrd7dBy19iFKKJNxmdSp5uo4C4v6Xx6h
         bt.logging.warning(
