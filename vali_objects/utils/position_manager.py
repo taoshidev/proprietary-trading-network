@@ -303,7 +303,7 @@ class PositionManager(CacheController):
         self._write_eliminations_from_memory_to_disk()
         for miner_hotkey, positions in hotkey_to_positions.items():
             n_attempts += 1
-            self.dedupe_positions(positions, miner_hotkey)
+            #self.dedupe_positions(positions, miner_hotkey)
             if miner_hotkey in miners_to_wipe: # and now_ms < TARGET_MS:
                 bt.logging.info(f"Resetting hotkey {miner_hotkey}")
                 n_corrections += 1
