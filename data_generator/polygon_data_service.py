@@ -636,11 +636,11 @@ class PolygonDataService(BaseDataService):
         # Return the collected results
         return ret
 
-    def get_candles_for_trade_pair_simple(self, trade_pair: TradePair, start_timestamp_ms: int, end_timestamp_ms: int):
+    def get_candles_for_trade_pair_simple(self, trade_pair: TradePair, start_timestamp_ms: int, end_timestamp_ms: int, timespan='second'):
         # ans = {}
         # ub = 0
         # lb = float('inf')
-        raw = self.unified_candle_fetcher(trade_pair, start_timestamp_ms, end_timestamp_ms, "second")
+        raw = self.unified_candle_fetcher(trade_pair, start_timestamp_ms, end_timestamp_ms, timespan)
         #for a in raw:
             #ans[a.timestamp // 1000] = a.close
             #ub = max(ub, a.timestamp)
@@ -795,7 +795,7 @@ if __name__ == "__main__":
     #time.sleep(100000)
 
     polygon_data_provider = PolygonDataService(api_key=secrets['polygon_apikey'], disable_ws=True)
-    target_timestamp_ms = 1715276502999
+    target_timestamp_ms = 1715288494000
 
     """
     aggs = []
@@ -818,14 +818,16 @@ if __name__ == "__main__":
     #aggs = polygon_data_provider.get_close_at_date_second(tp, target_timestamp_ms, return_aggs=True)
 
     #uu = {a.timestamp: [a] for a in aggs}
-    for tp in [x for x in TradePair if x.is_equities]:
+    for tp in [TradePair.CADJPY, TradePair.BTCUSD, TradePair.NVDA]:#[x for x in TradePair if x.is_equities]:
         t0 = time.time()
         quotes = polygon_data_provider.unified_candle_fetcher(tp,
-                                                              target_timestamp_ms - 1000 * 20,
-                                                              target_timestamp_ms + 1000 * 20,
-                                                              "second")
+                                                              target_timestamp_ms - 1000 * 60 * 20,
+                                                              target_timestamp_ms + 1000 * 60 * 20,
+                                                              "minute")
         quotes = list(quotes)
         print(f'fetched data for {tp} in {time.time() - t0} s. quotes: {quotes}')
+        for q in quotes:
+            print(q)
 
     ##trades = polygon_data_provider.POLYGON_CLIENT.list_trades(ticker='C:CAD-JPY',
     #                                                         timestamp_gt=target_timestamp_ms * 1000000 - 1000 * 1000000 * 10,
@@ -833,7 +835,7 @@ if __name__ == "__main__":
     #for trade in trades:
     #    print('trade', trade)
 
-    assert 0, quotes
+    assert 0
 
     # 'X:BTC-USD'
     trades = polygon_data_provider.POLYGON_CLIENT.list_trades(
