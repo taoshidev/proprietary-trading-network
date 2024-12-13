@@ -142,12 +142,12 @@ class PositionPenalties:
             positions: dict[str, list[Position]] - the list of positions with translated leverage
         """
         cumulative_leverage_positions = PositionUtils.cumulative_leverage_position(positions)
-        return PositionPenalties.martingale_leverage_average(cumulative_leverage_positions)
+        return PositionPenalties.martingale_percentile(cumulative_leverage_positions)
         # return FunctionalUtils.martingale_score(martingale_metrics, cumulative_leverage_positions)
 
     # what we want to do is determine for each position is to determine the relative drawdown percentage
     @staticmethod
-    def martingale_leverage_average(
+    def martingale_percentile(
             positions: list[Position]
     ) -> float:
         """
@@ -159,48 +159,35 @@ class PositionPenalties:
         if len(positions) < 1:
             return 0.0
 
-        martingale_values = []
+        position_is_martingale = []
         positional_returns = []
 
         for position in positions:
-            losing_percentages = []
-            losing_multipliers = []
-
-            return_at_close = (position.return_at_close-1)*100
-            if return_at_close <= 0:
-                continue
+            step_count = 0
+            return_at_close = position.return_at_close
 
             entry_order = position.orders[0]
             entry_price = entry_order.price
-            entry_leverage = abs(entry_order.leverage)
+            max_leverage = abs(entry_order.leverage)
 
             for order in position.orders[1:]:
                 price = order.price
                 leverage = abs(order.leverage)
 
-                losing = price < entry_price
-                if losing and leverage > 0 and leverage > entry_leverage:
-                    losing_percent = (1-(price / entry_price)) * 100
-                    losing_leverage_multiplier = leverage / entry_leverage
+                losing = price < entry_price and entry_order.leverage > 0 or price > entry_price and entry_order.leverage < 0
+                if losing and leverage > max_leverage:
+                    step_count += 1
+                    max_leverage = max(max_leverage, leverage)
 
-                    losing_percentages.append(losing_percent)
-                    losing_multipliers.append(losing_leverage_multiplier)
+            positional_returns.append(return_at_close ** ValiConfig.MARTINGALE_CONCENTRATION)
+            if step_count > ValiConfig.MARTINGALE_STEP_THRESHOLD:
+                position_is_martingale.append(True)
+            else:
+                position_is_martingale.append(False)
 
-            if len(losing_percentages) < 1 or len(losing_multipliers) < 1:
-                continue
-
-            losing_leverage_losses = [losing_percent * losing_leverage_multiplier for losing_percent, losing_leverage_multiplier in zip(losing_percentages, losing_multipliers)]
-            martingale_values.append(np.mean(losing_leverage_losses) / return_at_close)
-            positional_returns.append(return_at_close)
-
-        if len(martingale_values) == 0:
-            return 0
-
-        positional_returns = np.array(positional_returns)
-        if sum(positional_returns) == 0:
-            positional_returns += ValiConfig.EPSILON
-
-        return np.average(martingale_values, weights=positional_returns)
+        martingale_binaries = np.array(position_is_martingale, dtype=int)
+        martingale_weights = np.array(positional_returns)
+        return np.average(martingale_binaries, weights=martingale_weights)
 
     @staticmethod
     def martingale_metrics(
