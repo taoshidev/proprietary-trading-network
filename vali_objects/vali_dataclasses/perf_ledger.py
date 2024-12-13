@@ -151,11 +151,13 @@ class PerfLedgerData:
         # Initial portfolio value is 1.0
         self.max_return = max(self.max_return, 1.0)
 
-    def create_cps_to_fill_void(self, time_since_last_update_ms: int, now_ms: int, point_in_time_dd: float):
+    def create_cps_to_fill_void(self, time_since_last_update_ms: int, now_ms: int, point_in_time_dd: float, any_open: TradePairReturnStatus):
         original_accum_time = self.cps[-1].accum_ms
         delta_accum_time_ms = self.target_cp_duration_ms - original_accum_time
         self.cps[-1].accum_ms += delta_accum_time_ms
         self.cps[-1].last_update_ms += delta_accum_time_ms
+        if any_open > TradePairReturnStatus.TP_MARKET_NOT_OPEN:
+            self.cps[-1].open_ms += delta_accum_time_ms
         time_since_last_update_ms -= delta_accum_time_ms
         assert time_since_last_update_ms >= 0, (self.cps, time_since_last_update_ms)
         while time_since_last_update_ms > self.target_cp_duration_ms:
@@ -204,7 +206,7 @@ class PerfLedgerData:
                                     prev_portfolio_carry_fee=current_portfolio_carry, accum_ms=accum_ms_for_utc_alignment, mpv=1.0)
         self.cps.append(new_cp)
 
-    def get_or_create_latest_cp_with_mdd(self, now_ms: int, current_portfolio_value:float, current_portfolio_fee_spread:float, current_portfolio_carry:float):
+    def get_or_create_latest_cp_with_mdd(self, now_ms: int, current_portfolio_value:float, current_portfolio_fee_spread:float, current_portfolio_carry:float, any_open: TradePairReturnStatus) -> PerfCheckpointData:
         point_in_time_dd = CacheController.calculate_drawdown(current_portfolio_value, self.max_return)
         assert point_in_time_dd, point_in_time_dd
 
@@ -215,7 +217,7 @@ class PerfLedgerData:
         time_since_last_update_ms = now_ms - self.cps[-1].last_update_ms
         assert time_since_last_update_ms >= 0, self.cps
         if time_since_last_update_ms + self.cps[-1].accum_ms > self.target_cp_duration_ms:
-            self.create_cps_to_fill_void(time_since_last_update_ms, now_ms, point_in_time_dd)
+            self.create_cps_to_fill_void(time_since_last_update_ms, now_ms, point_in_time_dd, any_open)
         else:
             self.cps[-1].mdd = min(self.cps[-1].mdd, point_in_time_dd)
 
@@ -230,7 +232,8 @@ class PerfLedgerData:
         cp.accum_ms += accumulated_time
         cp.last_update_ms = now_ms
         if any_open == TradePairReturnStatus.TP_NO_OPEN_POSITIONS or any_open == TradePairReturnStatus.TP_MARKET_NOT_OPEN:
-            print(f' {any_open} Blocked {accumulated_time} ms of open time for miner {miner_hotkey}. Time {TimeUtil.millis_to_verbose_formatted_date_str(now_ms)} tp_debug {tp_debug}')
+            pass
+            #print(f' {any_open} Blocked {accumulated_time} ms of open time for miner {miner_hotkey}. Time {TimeUtil.millis_to_verbose_formatted_date_str(now_ms)} tp_debug {tp_debug}')
         else:
             cp.open_ms += accumulated_time
 
@@ -287,7 +290,7 @@ class PerfLedgerData:
             self.init_with_first_order(now_ms, point_in_time_dd=1.0, current_portfolio_value=1.0,
                                            current_portfolio_fee_spread=1.0, current_portfolio_carry=1.0)
         self.max_return = max(self.max_return, current_portfolio_value)
-        current_cp = self.get_or_create_latest_cp_with_mdd(now_ms, current_portfolio_value, current_portfolio_fee_spread, current_portfolio_carry)
+        current_cp = self.get_or_create_latest_cp_with_mdd(now_ms, current_portfolio_value, current_portfolio_fee_spread, current_portfolio_carry, any_open)
         self.update_gains_losses(current_cp, current_portfolio_value, current_portfolio_fee_spread,
                                  current_portfolio_carry, miner_hotkey, any_open)
         self.update_accumulated_time(current_cp, now_ms, miner_hotkey, any_open, tp_debug)
@@ -788,7 +791,7 @@ class PerfLedgerManager(CacheController):
 
         #time_list = list(range(start_time_ms, end_time_ms, step_ms))
         accumulated_time_ms = 0
-        mode_to_ticks = {'second': 0, 'minute': 0}
+        #mode_to_ticks = {'second': 0, 'minute': 0}
         while start_time_ms + accumulated_time_ms < end_time_ms:
             # Need high resolution at the start and end of the time window
             mode = default_mode
@@ -800,7 +803,7 @@ class PerfLedgerManager(CacheController):
                 elif candidate_t_ms + 60000 >= end_time_ms:
                     mode = 'second'
 
-            mode_to_ticks[mode] += 1
+            #mode_to_ticks[mode] += 1
             t_ms = start_time_ms + accumulated_time_ms
 
             if self.shutdown_dict:
@@ -832,9 +835,8 @@ class PerfLedgerManager(CacheController):
             perf_ledger = perf_ledger_bundle[tp_id]
             perf_ledger.purge_old_cps()
 
-        n_minutes_between_intervals = (end_time_ms - start_time_ms) // 60000
-        # @@@@@@@@@@@@@@@@@@@@@@@@@@
-        print(f'Updated between {TimeUtil.millis_to_formatted_date_str(start_time_ms)} and {TimeUtil.millis_to_formatted_date_str(end_time_ms)} ({n_minutes_between_intervals} min). mode_to_ticks {mode_to_ticks}. Default mode {default_mode}')
+        #n_minutes_between_intervals = (end_time_ms - start_time_ms) // 60000
+        #print(f'Updated between {TimeUtil.millis_to_formatted_date_str(start_time_ms)} and {TimeUtil.millis_to_formatted_date_str(end_time_ms)} ({n_minutes_between_intervals} min). mode_to_ticks {mode_to_ticks}. Default mode {default_mode}')
         return False
 
     def update_one_perf_ledger_bundle(self, hotkey_i: int, n_hotkeys: int, hotkey: str, positions: List[Position], now_ms:int,
@@ -942,7 +944,7 @@ class PerfLedgerManager(CacheController):
 
     def update_all_perf_ledgers(self, hotkey_to_positions: dict[str, List[Position]],
                                 existing_perf_ledgers: dict[str, dict[str, PerfLedgerData]],
-                                now_ms: int, return_dict=False) -> None | dict[str, PerfLedgerData]:
+                                now_ms: int, return_dict=False) -> None | dict[str, dict[str, PerfLedgerData]]:
         t_init = time.time()
         self.now_ms = now_ms
         self.elimination_rows = []
@@ -963,10 +965,9 @@ class PerfLedgerManager(CacheController):
         if self.shutdown_dict:
             return
 
+        self.save_perf_ledgers_to_disk(existing_perf_ledgers)
         if return_dict:
             return existing_perf_ledgers
-        else:
-            self.save_perf_ledgers_to_disk(existing_perf_ledgers)
 
     def get_positions_perf_ledger(self, testing_one_hotkey=None):
         """
