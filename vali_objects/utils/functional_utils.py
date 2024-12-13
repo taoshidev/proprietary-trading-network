@@ -89,8 +89,6 @@ class FunctionalUtils:
 
         weighted_loss = np.average(losses, weights=log_leverages)
 
-        positional_return_weights
-
         aggregate_return = (np.prod(np.array([position.return_at_close for position in positions]))-1)*100 + \
             ValiConfig.EPSILON
 
