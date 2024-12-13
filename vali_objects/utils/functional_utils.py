@@ -1,8 +1,6 @@
 import numpy as np
-from sklearn.linear_model import LinearRegression
 
 from vali_objects.vali_config import ValiConfig
-from vali_objects.position import Position
 
 
 class FunctionalUtils:
@@ -69,33 +67,3 @@ class FunctionalUtils:
             concentration_shift,
             concentration_spread
         )
-
-    @staticmethod
-    def martingale_score(
-            metrics: dict[str, list[float]],
-            positions: list[Position]
-    ) -> float:
-        """
-        Returns the martingale score for each miner, which is a regression based on the leverage step in and losses
-
-        Args:
-            metrics: list[tuple[float, float]] - the list of metrics for each miner
-            positions: list[Position] - the list of positions with translated leverage
-        """
-
-        holding_intervals = np.array(metrics['entry_holding_timing'])
-        y = losses = np.array(metrics['losing_value_percents'])
-        x = log_leverages = np.log(metrics['losing_leverages_decimal_multiplier'])
-
-        weighted_loss = np.average(losses, weights=log_leverages)
-
-        aggregate_return = (np.prod(np.array([position.return_at_close for position in positions]))-1)*100 + \
-            ValiConfig.EPSILON
-
-        if len(x) == 0 or len(y) == 0:
-            return 0
-
-        if len(x) != len(y):
-            raise ValueError("The lengths of the input arrays must be the same")
-
-        return np.average(x, weights=y) / aggregate_return
