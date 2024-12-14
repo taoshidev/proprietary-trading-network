@@ -198,6 +198,7 @@ class PerfLedgerData:
 
     def get_or_create_latest_cp_with_mdd(self, now_ms: int, current_portfolio_value:float, current_portfolio_fee_spread:float, current_portfolio_carry:float):
         point_in_time_dd = CacheController.calculate_drawdown(current_portfolio_value, self.max_return)
+
         assert point_in_time_dd, point_in_time_dd
 
         if len(self.cps) == 0:
@@ -460,8 +461,10 @@ class PerfLedgerManager(CacheController):
 
         temp_pos.orders = new_orders[:-1]
         temp_pos.rebuild_position_with_updated_orders()
-        temp_pos_to_pop.orders = new_orders
-        temp_pos_to_pop.rebuild_position_with_updated_orders()
+        # Preserve realtime position return at close
+        if len(temp_pos_to_pop.orders) != len(position.orders):
+            temp_pos_to_pop.orders = new_orders
+            temp_pos_to_pop.rebuild_position_with_updated_orders()
         # Handle position that was forced closed due to realtime data (liquidated)
         if len(new_orders) == len(position.orders) and position.return_at_close == 0:
             temp_pos_to_pop.return_at_close = 0
@@ -768,6 +771,7 @@ class PerfLedgerManager(CacheController):
             if portfolio_return == 0 and self.check_liquidated(miner_hotkey, portfolio_return, t_ms, tp_to_historical_positions, perf_ledger):
                 return True
 
+
             perf_ledger.update(portfolio_return, t_ms, miner_hotkey, any_open, portfolio_spread_fee, portfolio_carry_fee)
             any_update = True
 
@@ -803,13 +807,15 @@ class PerfLedgerManager(CacheController):
         tp_to_historical_positions = defaultdict(list)
         sorted_timeline, last_event_time_ms = self.generate_order_timeline(positions, now_ms, hotkey)  # Enforces our "now_ms" constraint
         self.hk_to_last_order_processed_ms[hotkey] = last_event_time_ms
-
-        building_from_new_orders = True
         # There hasn't been a new order since the last update time. Just need to update for open positions
+        building_from_new_orders = True
         if last_event_time_ms <= perf_ledger_candidate.last_update_ms:
             building_from_new_orders = False
+            # Preserve returns from realtime positions
+            sorted_timeline = []
+            tp_to_historical_positions = {p.trade_pair.trade_pair: [p] for p in positions}
 
-        # There have been order(s) since the last update time. Also, this code is used to initialize a perf ledger.
+        # Building for scratch or there have been order(s) since the last update time
         realtime_position_to_pop = None
         for event in sorted_timeline:
             if realtime_position_to_pop:
@@ -1070,10 +1076,10 @@ class MockMetagraph():
 
 
 if __name__ == "__main__":
-    bt.logging.enable_default()
+    bt.logging.enable_info()
     all_miners_dir = ValiBkpUtils.get_miner_dir(running_unit_tests=False)
     all_hotkeys_on_disk = CacheController.get_directory_names(all_miners_dir)
     mmg = MockMetagraph(hotkeys=all_hotkeys_on_disk)
     perf_ledger_manager = PerfLedgerManager(metagraph=mmg, running_unit_tests=False)
-    #perf_ledger_manager.update(testing_one_hotkey='5CALivVcJBTjYJFMsAkqhppQgq5U2PYW4HejCajHMvTMUgkC')
-    perf_ledger_manager.update(regenerate_all_ledgers=True)
+    perf_ledger_manager.update(testing_one_hotkey='5GNAi7DBGfLftEsnYpY7MzSSLsMU79nD9ASC8VgLSsnHWko5')
+    #perf_ledger_manager.update(regenerate_all_ledgers=True)
