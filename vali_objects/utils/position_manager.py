@@ -283,9 +283,8 @@ class PositionManager(CacheController):
         unique_corrections = set()
         now_ms = TimeUtil.now_in_millis()
         # Wipe miners only once when dynamic challenge period launches
-        target_time_ms = 1734222757456 + (1000 * 60 * 60 * 4) # 4 hours from launch
         miners_to_wipe = [""]
-        if now_ms < target_time_ms:
+        if now_ms < TARGET_MS:
             # All miners that wanted their challenge period restarted
             miners_to_wipe = ["5GTL7WXa4JM2yEUjFoCy2PZVLioNs1HzAGLKhuCDzzoeQCTR", "5HCJ6okRkmCsu7iLEWotBxgcZy11RhbxSzs8MXT4Dei9osUx",
                           "5DcgKr6s8z75sE4c69iMSM8adfRVex7A8BZe2mouVwMVRis4", "5CB6dfQFcmjCuwkKKFguNjnQqPCS9GKWUBokzm1UMLZW5bgw",
