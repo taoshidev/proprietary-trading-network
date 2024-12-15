@@ -813,7 +813,13 @@ class PerfLedgerManager(CacheController):
             building_from_new_orders = False
             # Preserve returns from realtime positions
             sorted_timeline = []
-            tp_to_historical_positions = {p.trade_pair.trade_pair: [p] for p in positions}
+            tp_to_historical_positions = {}
+            for p in positions:
+                if p.trade_pair.trade_pair in tp_to_historical_positions:
+                    tp_to_historical_positions[p.trade_pair.trade_pair].append(p)
+                else:
+                    tp_to_historical_positions[p.trade_pair.trade_pair] = [p]
+            
 
         # Building for scratch or there have been order(s) since the last update time
         realtime_position_to_pop = None
