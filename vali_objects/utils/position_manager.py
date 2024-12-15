@@ -23,7 +23,6 @@ from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.vali_dataclasses.order import OrderStatus, ORDER_SRC_DEPRECATION_FLAT, Order
 from vali_objects.vali_dataclasses.price_source import PriceSource
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
-from vali_objects.vali_dataclasses.perf_ledger import PerfLedger
 
 TARGET_MS = 1734294087806 + (1000 * 60 * 60 * 3)  # + 3 hours
 
