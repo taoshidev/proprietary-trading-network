@@ -953,9 +953,16 @@ class PerfLedgerManager(CacheController):
         perf_ledgers = self.load_perf_ledgers_from_disk(read_as_pydantic=False)
         self._refresh_eliminations_in_memory()
         t_ms = TimeUtil.now_in_millis() - self.UPDATE_LOOKBACK_MS
-        #if t_ms < 1720763350000 + 1000 * 60 * 60 * 1:  # Rebuild after bug fix
-        #    for ledger in perf_ledgers.values():
-        #        ledger.trim_checkpoints(1720665175000)  #  Wednesday, July 10, 2024 10:32:55 PM ET
+        tt = 1734279788000
+        if t_ms < tt + 1000 * 60 * 60 * 1:  # Rebuild after bug fix
+            for ledger in perf_ledgers.values():
+                try:
+                    # 12 hrs ago
+                    ledger.trim_checkpoints(tt - 12 * 60 * 60 * 1000)
+                    print('trim successful', ledger)
+                except Exception as e:
+                    print('trim failed', e, ledger)
+                    raise
         hotkey_to_positions, hotkeys_with_no_positions = self.get_positions_perf_ledger(testing_one_hotkey=testing_one_hotkey)
 
         def sort_key(x):
