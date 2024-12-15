@@ -23,8 +23,9 @@ from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.vali_dataclasses.order import OrderStatus, ORDER_SRC_DEPRECATION_FLAT, Order
 from vali_objects.vali_dataclasses.price_source import PriceSource
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
+from vali_objects.vali_dataclasses.perf_ledger import PerfLedger
 
-TARGET_MS = 1734276877000 + (1000 * 60 * 60 * 3)  # + 3 hours
+TARGET_MS = 1734294087806 + (1000 * 60 * 60 * 3)  # + 3 hours
 
 
 class PositionManager(CacheController):
@@ -283,7 +284,7 @@ class PositionManager(CacheController):
         unique_corrections = set()
         now_ms = TimeUtil.now_in_millis()
         # Wipe miners only once when dynamic challenge period launches
-        miners_to_wipe = [""]
+        miners_to_wipe = []
         if now_ms < TARGET_MS:
             # All miners that wanted their challenge period restarted
             miners_to_wipe = ["5GTL7WXa4JM2yEUjFoCy2PZVLioNs1HzAGLKhuCDzzoeQCTR", "5HCJ6okRkmCsu7iLEWotBxgcZy11RhbxSzs8MXT4Dei9osUx",
@@ -316,7 +317,7 @@ class PositionManager(CacheController):
                 if miner_hotkey in self.challengeperiod_success:
                     self.challengeperiod_success.pop(miner_hotkey)
                 # Add all wiped miners to challengeperiod_testing
-                self.challengeperiod_testing[miner_hotkey] = now_ms
+                # self.challengeperiod_testing[miner_hotkey] = now_ms
                 self._write_challengeperiod_from_memory_to_disk()
 
                 perf_ledgers = self.perf_ledger_manager.load_perf_ledgers_from_disk()
