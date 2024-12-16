@@ -24,7 +24,7 @@ from vali_objects.vali_dataclasses.order import OrderStatus, ORDER_SRC_DEPRECATI
 from vali_objects.vali_dataclasses.price_source import PriceSource
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
 
-TARGET_MS = 1734294087806 + (1000 * 60 * 60 * 3)  # + 3 hours
+TARGET_MS = 1734309144298 + (1000 * 60 * 60 * 3)  # + 3 hours
 
 
 class PositionManager(CacheController):
@@ -315,8 +315,7 @@ class PositionManager(CacheController):
                     self.challengeperiod_testing.pop(miner_hotkey)
                 if miner_hotkey in self.challengeperiod_success:
                     self.challengeperiod_success.pop(miner_hotkey)
-                # Add all wiped miners to challengeperiod_testing
-                # self.challengeperiod_testing[miner_hotkey] = now_ms
+
                 self._write_challengeperiod_from_memory_to_disk()
 
                 perf_ledgers = self.perf_ledger_manager.load_perf_ledgers_from_disk()
