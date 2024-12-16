@@ -8,7 +8,6 @@ from vali_objects.position import Position
 from vali_objects.utils.position_manager import PositionManager
 from vali_objects.vali_dataclasses.order import Order
 from vali_objects.utils.position_penalties import PositionPenalties
-import tests.shared_objects.test_utilities
 import numpy as np
 import random
 
@@ -256,7 +255,6 @@ class TestPositionsPenalty(TestBase):
         position3.return_at_close = 1.05
 
         # Penalty with only non-martingale position should be 1
-        penalty_non_martingale = PositionPenalties.martingale_penalty([position3])
         self.assertAlmostEqual(PositionPenalties.martingale_penalty([position3]), 1.0, places=1)
 
         # Penalty with 2 martingale and 1 non-martingale should be less than the penalty for a miner with only 2 martingale positions
