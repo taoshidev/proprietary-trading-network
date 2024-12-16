@@ -116,7 +116,8 @@ class PositionPenalties:
 
     @staticmethod
     def martingale_penalty(
-            positions: list[Position]
+            positions: list[Position],
+            evaluation_time_ms: int = None
     ) -> float:
         """
         Returns the martingale penalty for each miner
@@ -124,7 +125,7 @@ class PositionPenalties:
         Args:
             positions: dict[str, list[Position]] - the list of positions with translated leverage
         """
-        martingale_score = PositionPenalties.martingale_score(positions)
+        martingale_score = PositionPenalties.martingale_score(positions, evaluation_time_ms)
         return FunctionalUtils.sigmoid(
             martingale_score,
             ValiConfig.MARTINGALE_SHIFT,
@@ -133,7 +134,8 @@ class PositionPenalties:
 
     @staticmethod
     def martingale_score(
-            positions: list[Position]
+            positions: list[Position],
+            evaluation_time_ms: int = None,
     ) -> float:
         """
         Returns the martingale penalty for each miner
@@ -141,7 +143,7 @@ class PositionPenalties:
         Args:
             positions: dict[str, list[Position]] - the list of positions with translated leverage
         """
-        cumulative_leverage_positions = PositionUtils.cumulative_leverage_position(positions)
+        cumulative_leverage_positions = PositionUtils.cumulative_leverage_position(positions, evaluation_time_ms)
         return PositionPenalties.martingale_percentile(cumulative_leverage_positions)
         # return FunctionalUtils.martingale_score(martingale_metrics, cumulative_leverage_positions)
 
