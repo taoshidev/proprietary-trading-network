@@ -171,7 +171,7 @@ class Metrics:
         """
         # Impose a minimum sample size on the miner
         if len(log_returns) < ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N:
-            if not bypass_confidence:
+            if not bypass_confidence or len(log_returns) < 2:
                 return ValiConfig.STATISTICAL_CONFIDENCE_NOCONFIDENCE_VALUE
 
         res = ttest_1samp(log_returns, 0, alternative='greater')
