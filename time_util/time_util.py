@@ -1,6 +1,7 @@
 # developer: Taoshidev
 # Copyright © 2024 Taoshi Inc
 import re
+import time
 from datetime import datetime, timedelta, timezone
 from typing import List, Tuple
 from functools import lru_cache
@@ -187,7 +188,21 @@ class IndicesMarketCalendar:
         #market_open = market_calendar.open_at_time(schedule, timestamp, include_close=False)
         return self.cache_valid_ans
 
+"""
+Make a decorator called "timeme" which prints the function name and the time it took to complete.
+Example usage: @timeme
+               def my_function():
+                 pass
+"""
+def timeme(func):
+    def wrapper(*args, **kwargs):
+        start = time.time()
+        result = func(*args, **kwargs)
+        end = time.time()
+        print(f"{func.__name__} took {end - start} s to run")
+        return result
 
+    return wrapper
 
 class UnifiedMarketCalendar:
     def __init__(self):

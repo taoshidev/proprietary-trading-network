@@ -84,7 +84,7 @@ class MDDChecker(CacheController):
         bt.logging.info("running mdd checker")
         self.reset_debug_counters()
         self._refresh_eliminations_in_memory()
-        perf_ledger_eliminations = self.get_perf_ledger_eliminations_from_disk()
+        perf_ledger_eliminations = self.position_manager.perf_ledger_manager.pl_elimination_rows
         self.eliminated_hotkeys = self.get_eliminated_hotkeys()
         for e in perf_ledger_eliminations:
             if e['hotkey'] in self.eliminated_hotkeys:

@@ -95,7 +95,7 @@ class TestChallengePeriodUnit(TestBase):
         # Initialize system components
         self.mock_metagraph = MockMetagraph(self.MINER_NAMES)
         self.challengeperiod_manager = MockChallengePeriodManager(self.mock_metagraph)
-        self.position_manager = MockPositionManager(self.mock_metagraph)
+        self.position_manager = MockPositionManager(self.mock_metagraph, None)
         self.ledger_manager = MockPerfLedgerManager(self.mock_metagraph)
         self.cache_controller = MockCacheController(self.mock_metagraph)
     

@@ -11,7 +11,7 @@ import numpy as np
 from scipy.stats import percentileofscore
 
 from vali_objects.vali_config import ValiConfig
-from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerData
+from vali_objects.vali_dataclasses.perf_ledger import PerfLedger
 from time_util.time_util import TimeUtil
 from vali_objects.utils.position_filtering import PositionFiltering
 from vali_objects.utils.ledger_utils import LedgerUtils
@@ -75,7 +75,7 @@ class Scoring:
 
     @staticmethod
     def compute_results_checkpoint(
-            ledger_dict: dict[str, PerfLedgerData],
+            ledger_dict: dict[str, PerfLedger],
             full_positions: dict[str, list[Position]],
             evaluation_time_ms: int = None,
             verbose=True
@@ -125,7 +125,7 @@ class Scoring:
 
     @staticmethod
     def score_miners(
-            ledger_dict: dict[str, PerfLedgerData],
+            ledger_dict: dict[str, PerfLedger],
             positions: dict[str, list[Position]],
             evaluation_time_ms: int= None):
 
@@ -211,7 +211,7 @@ class Scoring:
     @staticmethod
     def miner_penalties(
             hotkey_positions: dict[str, list[Position]],
-            ledger_dict: dict[str, PerfLedgerData]
+            ledger_dict: dict[str, PerfLedger]
     ) -> dict[str, float]:
         # Compute miner penalties
         miner_penalties = {}
@@ -279,7 +279,7 @@ class Scoring:
         return aggregate_return
 
     @staticmethod
-    def risk_adjusted_return(positions: list[Position], ledger: PerfLedgerData) -> float:
+    def risk_adjusted_return(positions: list[Position], ledger: PerfLedger) -> float:
         """
         Args:
             positions: list of positions from the miner
@@ -295,7 +295,7 @@ class Scoring:
         return base_return * risk_normalization_factor
 
     @staticmethod
-    def sharpe(positions: list[Position], ledger: PerfLedgerData) -> float:
+    def sharpe(positions: list[Position], ledger: PerfLedger) -> float:
         """
         Args:
             positions: list of positions from the miner
@@ -322,7 +322,7 @@ class Scoring:
         return mean_return / std_dev
 
     @staticmethod
-    def omega(positions: list[Position], ledger: PerfLedgerData) -> float:
+    def omega(positions: list[Position], ledger: PerfLedger) -> float:
         """
         Args:
             positions: list of positions from the miner

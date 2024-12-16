@@ -29,8 +29,9 @@ class MockCacheController(CacheController):
 
 
 class MockPositionManager(PositionManager):
-    def __init__(self, metagraph):
-        super().__init__(None, metagraph, live_price_fetcher=None, running_unit_tests=True)
+    def __init__(self, metagraph, perf_ledger_manager):
+        super().__init__(None, metagraph, live_price_fetcher=None, running_unit_tests=True,
+                         perf_ledger_manager=perf_ledger_manager)
 
 
 class MockPerfLedgerManager(PerfLedgerManager):

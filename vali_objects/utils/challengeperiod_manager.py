@@ -7,16 +7,20 @@ from vali_objects.vali_config import ValiConfig
 from shared_objects.cache_controller import CacheController
 from vali_objects.scoring.scoring import Scoring
 from time_util.time_util import TimeUtil
-from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager, PerfLedgerData
+from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager, PerfLedger
 from vali_objects.utils.ledger_utils import LedgerUtils
 from vali_objects.utils.position_manager import PositionManager
 from vali_objects.position import Position
 
 
 class ChallengePeriodManager(CacheController):
-    def __init__(self, config, metagraph, running_unit_tests=False):
+    def __init__(self, config, metagraph, perf_ledger_manager : PerfLedgerManager =None, running_unit_tests=False):
         super().__init__(config, metagraph, running_unit_tests=running_unit_tests)
-        self.perf_manager = PerfLedgerManager(metagraph=metagraph, running_unit_tests=running_unit_tests)
+        if perf_ledger_manager is None:
+            self.perf_ledger_manager = PerfLedgerManager(metagraph=metagraph, running_unit_tests=running_unit_tests)
+        else:
+            self.perf_ledger_manager = perf_ledger_manager
+
         self.position_manager = PositionManager(metagraph=metagraph, running_unit_tests=running_unit_tests)
 
     def refresh(self, current_time: int = None):
@@ -46,7 +50,7 @@ class ChallengePeriodManager(CacheController):
             all_miners,
             sort_positions=True
         )
-        ledger = self.perf_manager.load_perf_ledgers_from_disk()
+        ledger = self.perf_ledger_manager.load_perf_ledgers_from_memory()
         ledger = {hotkey: ledger.get(hotkey, None) for hotkey in all_miners}
 
         challengeperiod_success, challengeperiod_eliminations = self.inspect(
@@ -116,7 +120,7 @@ class ChallengePeriodManager(CacheController):
     def inspect(
         self,
         positions: dict[str, list[Position]],
-        ledger: dict[str, PerfLedgerData],
+        ledger: dict[str, PerfLedger],
         success_hotkeys: list[str],
         inspection_hotkeys: dict[str, int] = None,
         current_time: int = None,
@@ -212,7 +216,7 @@ class ChallengePeriodManager(CacheController):
     @staticmethod
     def screen_passing_criteria(
         positions: dict[str, list[Position]],
-        ledger: dict[str, PerfLedgerData],
+        ledger: dict[str, PerfLedger],
         success_scores_dict: dict[str, dict],
         inspection_hotkey: str,
         current_time: int,
@@ -276,7 +280,7 @@ class ChallengePeriodManager(CacheController):
 
     @staticmethod
     def screen_failing_criteria(
-        ledger_element: PerfLedgerData
+        ledger_element: PerfLedger
     ) -> (bool, float):
         """
         Runs a screening process to eliminate miners who didn't pass the challenge period. Returns True if they fail.

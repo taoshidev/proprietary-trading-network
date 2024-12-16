@@ -140,18 +140,6 @@ class CacheController:
         bt.logging.trace(f"Loaded [{len(cached_eliminations)}] eliminations from disk. Dir: {location}")
         return cached_eliminations
 
-    # ----------------- Perf Ledgers -----------------
-    def write_perf_ledger_eliminations_to_disk(self, eliminations):
-        bt.logging.trace(f"Writing [{len(eliminations)}] eliminations from memory to disk: {eliminations}")
-        output_location = ValiBkpUtils.get_perf_ledger_eliminations_dir(running_unit_tests=self.running_unit_tests)
-        ValiBkpUtils.write_file(output_location, eliminations)
-
-    def get_perf_ledger_eliminations_from_disk(self):
-        location = ValiBkpUtils.get_perf_ledger_eliminations_dir(running_unit_tests=self.running_unit_tests)
-        cached_eliminations = ValiUtils.get_vali_json_file(location)
-        bt.logging.trace(f"Loaded [{len(cached_eliminations)}] eliminations from disk. Dir: {location}")
-        return cached_eliminations
-
     # ----------------- Plagiarism -----------------
     def clear_plagiarism_from_disk(self, target_hotkey=None):
         # Clear all files and directories in the directory specified by dir
@@ -429,7 +417,7 @@ class CacheController:
 
     def get_all_disk_positions_for_all_miners(self, **args):
         all_miner_hotkeys: list = ValiBkpUtils.get_directories_in_dir(
-            ValiBkpUtils.get_miner_dir()
+            ValiBkpUtils.get_miner_dir(self.running_unit_tests)
         )
         return self.get_all_miner_positions_by_hotkey(all_miner_hotkeys, **args)
 

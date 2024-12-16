@@ -182,7 +182,7 @@ def regenerate_miner_positions(perform_backup=True, backup_from_data_dir=False, 
 
     perf_ledgers = data.get('perf_ledgers', {})
     bt.logging.info(f"regenerating {len(perf_ledgers)} perf ledgers")
-    perf_ledger_manager.save_perf_ledgers_to_disk(perf_ledgers, raw_json=True)
+    perf_ledger_manager.write_perf_ledgers_to_disk_and_memory(perf_ledgers)
 
     ## Now sync challenge period with the disk
     challengeperiod = data.get('challengeperiod', {})

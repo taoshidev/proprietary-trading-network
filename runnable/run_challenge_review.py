@@ -12,7 +12,7 @@ if __name__ == "__main__":
     challengeperiod_manager = ChallengePeriodManager(None, None, None)
 
     ## Collect the ledger
-    ledger = subtensor_weight_setter.perf_manager.load_perf_ledgers_from_disk()
+    ledger = subtensor_weight_setter.perf_ledger_manager.load_perf_ledgers_from_memory()
 
     ## Check the current testing miners for different scenarios
     subtensor_weight_setter._refresh_eliminations_in_memory()

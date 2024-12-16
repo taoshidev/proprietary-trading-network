@@ -22,7 +22,6 @@ from vali_objects.utils.position_lock import PositionLocks
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.vali_dataclasses.order import OrderStatus, ORDER_SRC_DEPRECATION_FLAT, Order
 from vali_objects.vali_dataclasses.price_source import PriceSource
-from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
 
 TARGET_MS = 1734881630000 + (1000 * 60 * 60 * 3)  # + 3 hours
 
@@ -31,11 +30,13 @@ class PositionManager(CacheController):
     def __init__(self, config=None, metagraph=None, running_unit_tests=False, perform_price_adjustment=False,
                  live_price_fetcher=None, perform_order_corrections=False, perform_fee_structure_update=False,
                  generate_correction_templates=False, apply_corrections_template=False, perform_compaction=False,
-                 is_mothership=False):
+                 is_mothership=False, perf_ledger_manager = None):
         super().__init__(config=config, metagraph=metagraph, running_unit_tests=running_unit_tests)
         self.init_cache_files()
         self.position_locks = PositionLocks()
         self.live_price_fetcher = live_price_fetcher
+        self.perf_ledger_manager = perf_ledger_manager
+
         self.recalibrated_position_uuids = set()
         if perform_compaction:
             try:
@@ -48,11 +49,10 @@ class PositionManager(CacheController):
             self.perform_price_recalibration()
         if perform_order_corrections:
             try:
-                self.perf_ledger_manager = PerfLedgerManager(metagraph=metagraph)
                 self.apply_order_corrections()
-                time_now_ms = TimeUtil.now_in_millis()
-                if time_now_ms < TARGET_MS:
-                    self.close_open_orders_for_suspended_trade_pairs()
+                #time_now_ms = TimeUtil.now_in_millis()
+                #if time_now_ms < TARGET_MS:
+                #    self.close_open_orders_for_suspended_trade_pairs()
             except Exception as e:
                 bt.logging.error(f"Error applying order corrections: {e}")
                 traceback.print_exc()
@@ -333,11 +333,11 @@ class PositionManager(CacheController):
 
                 self._write_challengeperiod_from_memory_to_disk()
 
-                perf_ledgers = self.perf_ledger_manager.load_perf_ledgers_from_disk()
+                perf_ledgers = self.perf_ledger_manager.load_perf_ledgers_from_memory()
                 print('n perf ledgers before:', len(perf_ledgers))
                 perf_ledgers_new = {k:v for k,v in perf_ledgers.items() if k != miner_hotkey}
                 print('n perf ledgers after:', len(perf_ledgers_new))
-                self.perf_ledger_manager.save_perf_ledgers_to_disk(perf_ledgers_new)
+                self.perf_ledger_manager.write_perf_ledgers_to_disk_and_memory(perf_ledgers_new)
 
             if miner_hotkey == '5Cd9bVVja2KdgsTiR7rTAh7a4UKVfnAuYAW1bs8BiedUE9JN' and now_ms < TARGET_MS:
                 positions_with_single_order = [p for p in positions if len(p.orders) == 1 and p.is_closed_position]

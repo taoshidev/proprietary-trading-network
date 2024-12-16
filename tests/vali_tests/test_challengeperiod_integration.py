@@ -3,9 +3,9 @@ from copy import deepcopy
 
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.vali_dataclasses.order import Order
-from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerData
+from vali_objects.vali_dataclasses.perf_ledger import PerfLedger
 from tests.shared_objects.mock_classes import (
-    MockMetagraph, MockChallengePeriodManager, MockPositionManager, MockPerfLedgerManager, MockCacheController
+    MockMetagraph, MockChallengePeriodManager, MockPositionManager
 )
 from tests.vali_tests.base_objects.test_base import TestBase
 from tests.shared_objects.test_utilities import generate_ledger
@@ -103,9 +103,9 @@ class TestChallengePeriodIntegration(TestBase):
         # Initialize system components
         self.mock_metagraph = MockMetagraph(self.MINER_NAMES)
         self.challengeperiod_manager = MockChallengePeriodManager(self.mock_metagraph)
-        self.position_manager = MockPositionManager(self.mock_metagraph)
-        self.ledger_manager = MockPerfLedgerManager(self.mock_metagraph)
-        self.cache_controller = MockCacheController(self.mock_metagraph)
+        self.ledger_manager = self.challengeperiod_manager.perf_ledger_manager
+        self.position_manager = MockPositionManager(self.mock_metagraph,
+                                                    perf_ledger_manager=self.ledger_manager)
 
         # Build base ledgers and positions
         self.LEDGERS = {
@@ -115,7 +115,7 @@ class TestChallengePeriodIntegration(TestBase):
             miner: deepcopy(self.LOSING_LEDGER) for miner in self.FAILING_MINER_NAMES
         })
 
-        self.ledger_manager.save_perf_ledgers_to_disk(self.LEDGERS)
+        self.ledger_manager.write_perf_ledgers_to_disk_and_memory(self.LEDGERS)
 
         # Build base positions
         self.POSITIONS = {}
@@ -152,7 +152,6 @@ class TestChallengePeriodIntegration(TestBase):
         # Cleanup and setup
         self.position_manager.clear_all_miner_positions_from_disk()
         self.ledger_manager.clear_perf_ledgers_from_disk()
-
         self.challengeperiod_manager._clear_challengeperiod_in_memory_and_disk()
         self.challengeperiod_manager._clear_eliminations_in_memory_and_disk()
     
@@ -175,7 +174,6 @@ class TestChallengePeriodIntegration(TestBase):
         inspection_hotkeys = self.challengeperiod_manager.challengeperiod_testing
 
         for hotkey, inspection_time in inspection_hotkeys.items():
-
             time_criteria = self.CURRENTLY_IN_CHALLENGE - inspection_time <= ValiConfig.CHALLENGE_PERIOD_MS
             self.assertTrue(time_criteria, f"Time criteria failed for {hotkey}")
 
@@ -184,11 +182,7 @@ class TestChallengePeriodIntegration(TestBase):
 
         self.challengeperiod_manager.write_eliminations_to_disk(self.challengeperiod_manager.eliminations)
 
-        del self.challengeperiod_manager.eliminations
-        self.assertTrue(len(self.cache_controller.eliminations) == 0)
-        self.cache_controller._refresh_eliminations_in_memory()
-
-        elimination_hotkeys = [x['hotkey'] for x in self.cache_controller.eliminations]
+        elimination_hotkeys = [x['hotkey'] for x in self.challengeperiod_manager.eliminations]
 
         for miner in self.FAILING_MINER_NAMES:
             self.assertIn(miner, elimination_hotkeys)
@@ -259,8 +253,8 @@ class TestChallengePeriodIntegration(TestBase):
         ledgers = self.ledger_manager.load_perf_ledgers_from_disk()
 
         # First check that there is nothing on the miner
-        self.assertEqual(ledgers.get(self.DEFAULT_MINER_HOTKEY, PerfLedgerData().cps), PerfLedgerData().cps)
-        self.assertEqual(ledgers.get(self.DEFAULT_MINER_HOTKEY, len(PerfLedgerData().cps)), 0)
+        self.assertEqual(ledgers.get(self.DEFAULT_MINER_HOTKEY, PerfLedger().cps), PerfLedger().cps)
+        self.assertEqual(ledgers.get(self.DEFAULT_MINER_HOTKEY, len(PerfLedger().cps)), 0)
 
         # Check the failing criteria initially
         failing_criteria, _ = self.challengeperiod_manager.screen_failing_criteria(
@@ -337,11 +331,8 @@ class TestChallengePeriodIntegration(TestBase):
         self.assertListEqual(sorted(challenge_eliminations), sorted(self.FAILING_MINER_NAMES + self.TESTING_MINER_NAMES))
 
         self.challengeperiod_manager.refresh(current_time=self.OUTSIDE_OF_CHALLENGE)
-        self.assertTrue(len(self.cache_controller.eliminations) == 0)
-        self.cache_controller._refresh_eliminations_in_memory()
-
-        self.assertTrue(len(self.cache_controller.eliminations) > 0)
-        cached_eliminations = [x['hotkey'] for x in self.cache_controller.eliminations]
+        self.assertTrue(len(self.challengeperiod_manager.eliminations) > 0)
+        cached_eliminations = [x['hotkey'] for x in self.challengeperiod_manager.eliminations]
 
         for miner in self.FAILING_MINER_NAMES:
             self.assertIn(miner, cached_eliminations)
@@ -414,7 +405,7 @@ class TestChallengePeriodIntegration(TestBase):
         self.assertTrue(len(self.challengeperiod_manager.challengeperiod_success) == 0)
 
         # Now add perf ledgers to check that adding miners without positions still doesn't add them
-        self.ledger_manager.save_perf_ledgers_to_disk(self.LEDGERS)
+        self.ledger_manager.write_perf_ledgers_to_disk_and_memory(self.LEDGERS)
         self.challengeperiod_manager._add_challengeperiod_testing_in_memory_and_disk(
             new_hotkeys=new_miners,
             eliminations=[],

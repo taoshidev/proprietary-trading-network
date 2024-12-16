@@ -33,7 +33,7 @@ class TestPlagiarismIntegration(TestBase):
         self.plagiarism_detector.running_unit_tests = True
         self.current_time = ValiConfig.PLAGIARISM_LOOKBACK_RANGE_MS
 
-        self.position_manager = MockPositionManager(metagraph=self.mock_metagraph)
+        self.position_manager = MockPositionManager(metagraph=self.mock_metagraph, perf_ledger_manager=None)
         self.DEFAULT_TEST_POSITION_UUID = "test_position"
         self.DEFAULT_OPEN_MS = 1
 

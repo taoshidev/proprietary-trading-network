@@ -10,14 +10,17 @@ from shared_objects.cache_controller import CacheController
 from vali_objects.utils.position_manager import PositionManager
 from vali_objects.position import Position
 from vali_objects.scoring.scoring import Scoring
-from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager, PerfCheckpoint, PerfLedger, PerfLedgerData
+from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager, PerfCheckpoint, PerfLedger
 
 
 class SubtensorWeightSetter(CacheController):
-    def __init__(self, config, wallet, metagraph, running_unit_tests=False):
+    def __init__(self, config, wallet, metagraph, perf_ledger_manager : PerfLedgerManager =None, running_unit_tests=False):
         super().__init__(config, metagraph, running_unit_tests=running_unit_tests)
         self.position_manager = PositionManager(metagraph=metagraph, running_unit_tests=running_unit_tests)
-        self.perf_manager = PerfLedgerManager(metagraph=metagraph, running_unit_tests=running_unit_tests)
+        if perf_ledger_manager is None:
+            self.perf_ledger_manager = PerfLedgerManager(metagraph=metagraph, running_unit_tests=running_unit_tests)
+        else:
+            self.perf_ledger_manager = perf_ledger_manager
         self.wallet = wallet
         self.subnet_version = 200
 
@@ -120,7 +123,7 @@ class SubtensorWeightSetter(CacheController):
     def filtered_ledger(
             self,
             hotkeys: List[str] = None
-    ) -> dict[str, PerfLedgerData]:
+    ) -> dict[str, PerfLedger]:
         """
         Filter the ledger for a set of hotkeys.
         """
@@ -128,7 +131,7 @@ class SubtensorWeightSetter(CacheController):
             hotkeys = self.metagraph.hotkeys
 
         # Note, eliminated miners will not appear in the dict below
-        ledger = self.perf_manager.load_perf_ledgers_from_disk()
+        ledger = self.perf_ledger_manager.load_perf_ledgers_from_memory()
 
         filtering_ledger = {}
         for hotkey, miner_ledger in ledger.items():
