@@ -86,9 +86,9 @@ There are two primary penalties in place for each miner:
 
 1. Max Drawdown: PTN penalizes miners whose maximum drawdown over the past 5 days exceeds the predefined 10% limit.
 
-2. Abnormal Drawdown: PTN evaluates the abnormality of recent trading performance in real time by comparing the maximum drawdown over the past 5 days to a baseline drawdown. This indicates how unusual the recent performance is. The baseline is defined as the 75th percentile of past drawdown percentages. It represents a significant drawdown level without being overly influenced by extreme cases. This approach provides a representative drawdown for comparison, making it useful for detecting abnormal performance and assessing the associated risks of a strategy in real time. 
+2. Martingale: Miners are penalized for having positions that resemble a martingale strategy. Two or more orders that increase leverage beyond the maximum leverage already seen while a position has unrealized loss may result in a penalty. More details on this can be found [here](https://docs.taoshi.io/tips/p15/).
 
-The Max Drawdown penalty and Abnormal Drawdown penalty help us detect the absolute and relative risks of a miner's trading strategy in real time.
+The Max Drawdown penalty and Martingale penalty help us detect the absolute and relative risks of a miner's trading strategy in real time.
 
 
 ### Fees and Transaction Costs
