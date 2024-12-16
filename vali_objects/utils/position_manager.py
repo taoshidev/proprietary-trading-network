@@ -322,7 +322,7 @@ class PositionManager(CacheController):
                 print('n perf ledgers before:', len(perf_ledgers))
                 perf_ledgers_new = {k:v for k,v in perf_ledgers.items() if k != miner_hotkey}
                 print('n perf ledgers after:', len(perf_ledgers_new))
-                self.perf_ledger_manager.save_perf_ledgers_to_disk(perf_ledgers_new)
+                self.perf_ledger_manager.write_perf_ledgers_to_disk(perf_ledgers_new)
 
 
             """
