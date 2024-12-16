@@ -42,6 +42,9 @@ class CacheController:
         self.plagiarism_raster = {}
         self.plagiarism_positions = {}
         self.DD_V2_TIME = TimeUtil.millis_to_datetime(1715359820000 + 1000 * 60 * 60 * 2)  # 5/10/24 TODO: Update before mainnet release
+        self.hotkey_to_positions = None
+        self.hotkey_to_challenge_period_data = None
+        self.hotkey_to_perf_ledger = None
 
     def get_last_update_time_ms(self):
         return self._last_update_time_ms

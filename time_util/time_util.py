@@ -187,7 +187,21 @@ class IndicesMarketCalendar:
         #market_open = market_calendar.open_at_time(schedule, timestamp, include_close=False)
         return self.cache_valid_ans
 
+"""
+Make a decorator called "timeme" which prints the function name and the time it took to complete.
+Example usage: @timeme
+               def my_function():
+                 pass
+"""
+def timeme(func):
+    def wrapper(*args, **kwargs):
+        start = datetime.now()
+        result = func(*args, **kwargs)
+        end = datetime.now()
+        print(f"{func.__name__} took {end - start} to run")
+        return result
 
+    return wrapper
 
 class UnifiedMarketCalendar:
     def __init__(self):
