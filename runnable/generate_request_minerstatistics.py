@@ -215,6 +215,8 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
     # Positional penalties
     positional_return_time_consistency_penalties = {}
     positional_realized_returns_penalties = {}
+    miner_martingale_scores = {}
+    miner_martingale_penalties = {}
 
     # Ledger Ratios
     ledger_daily_consistency_ratios = {}
@@ -265,13 +267,17 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
         minimum_days_threshold_dict[hotkey] = len(miner_returns) >= ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N
 
         # Positional Scoring
-        omega_dict[hotkey] = Metrics.omega(**scoring_input)
-        sharpe_dict[hotkey] = Metrics.sharpe(**scoring_input)
-        sortino_dict[hotkey] = Metrics.sortino(**scoring_input)
+        omega_dict[hotkey] = Metrics.omega(**scoring_input, bypass_confidence=True)
+        sharpe_dict[hotkey] = Metrics.sharpe(**scoring_input, bypass_confidence=True)
+        sortino_dict[hotkey] = Metrics.sortino(**scoring_input, bypass_confidence=True)
         annual_volatility[hotkey] = min(Metrics.ann_volatility(miner_returns), 100)
         annual_downside_volatility[hotkey] = min(Metrics.ann_downside_volatility(miner_returns), 100)
-        statistical_confidence_dict[hotkey] = Metrics.statistical_confidence(miner_returns)
+        statistical_confidence_dict[hotkey] = Metrics.statistical_confidence(miner_returns, bypass_confidence=True)
         concentration_dict[hotkey] = Metrics.concentration(miner_returns, positions=miner_positions)
+
+        # Positional penalties
+        miner_martingale_scores[hotkey] = PositionPenalties.martingale_score(miner_positions)
+        miner_martingale_penalties[hotkey] = PositionPenalties.martingale_penalty(miner_positions)
 
         short_return_dict[hotkey] = Metrics.base_return(short_term_miner_returns)
         return_dict[hotkey] = Metrics.base_return(miner_returns)
@@ -488,6 +494,7 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
             "penalties": {
                 "drawdown_threshold": max_drawdown_threshold_penalties.get(miner_id),
                 "drawdown_abnormality": drawdown_abnormality_penalties.get(miner_id),
+                "martingale": miner_martingale_penalties.get(miner_id),
                 "total": miner_penalties.get(miner_id, 0.0),
             },
             "volatility": {
@@ -565,7 +572,8 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
                 "checkpoint_durations": checkpoint_durations.get(miner_id),
                 "minimum_days_boolean": minimum_days_threshold_dict.get(miner_id),
             },
-            "plagiarism": plagiarism.get(miner_id)
+            "plagiarism": plagiarism.get(miner_id),
+            "martingale": miner_martingale_scores.get(miner_id),
         }
 
         miner_checkpoints = {

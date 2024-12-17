@@ -16,6 +16,7 @@ from time_util.time_util import TimeUtil
 from vali_objects.utils.position_filtering import PositionFiltering
 from vali_objects.utils.ledger_utils import LedgerUtils
 from vali_objects.utils.metrics import Metrics
+from vali_objects.utils.position_penalties import PositionPenalties
 
 import bittensor as bt
 
@@ -66,10 +67,10 @@ class Scoring:
             function=LedgerUtils.max_drawdown_threshold_penalty,
             input_type=PenaltyInputType.LEDGER
         ),
-        'drawdown_abnormality': PenaltyConfig(
-            function=LedgerUtils.drawdown_abnormality,
-            input_type=PenaltyInputType.LEDGER
-        )
+        'martingale': PenaltyConfig(
+            function=PositionPenalties.martingale_penalty,
+            input_type=PenaltyInputType.POSITIONS
+        ),
     }
 
     @staticmethod
@@ -105,12 +106,14 @@ class Scoring:
             (miner, 0) for miner, penalty in miner_penalties.items() if penalty == 0
         ]
         # Run all scoring functions
-        penalized_scores_dict = Scoring.score_miners(ledger_dict=ledger_dict,
-                                                     positions=full_positions,
-                                                     evaluation_time_ms=evaluation_time_ms)
+        penalized_scores_dict = Scoring.score_miners(
+            ledger_dict=ledger_dict,
+            positions=full_positions,
+            evaluation_time_ms=evaluation_time_ms
+        )
 
         # Combine and penalize scores
-        combined_scores  = Scoring.combine_scores(penalized_scores_dict)
+        combined_scores = Scoring.combine_scores(penalized_scores_dict)
 
         # Force good performance of all error metrics
         combined_weighed = Scoring.softmax_scores(list(combined_scores.items())) + full_penalty_miner_scores
@@ -195,8 +198,8 @@ class Scoring:
             percentile_scores = Scoring.miner_scores_percentiles(config["scores"])
             for miner, percentile_rank in percentile_scores:
                 if miner not in combined_scores:
-                    combined_scores[miner] = 1
-                combined_scores[miner] *= config['weight'] * percentile_rank + (1 - config['weight'])
+                    combined_scores[miner] = 0
+                combined_scores[miner] += config['weight'] * percentile_rank # + (1 - config['weight'])
 
         # Now applying the penalties post scoring
         for miner, penalty in scoring_dict["penalties"].items():

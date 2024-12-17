@@ -117,14 +117,16 @@ class Metrics:
         return base_return * risk_normalization_factor
 
     @staticmethod
-    def sharpe(log_returns: list[float]) -> float:
+    def sharpe(log_returns: list[float], bypass_confidence: bool = False) -> float:
         """
         Args:
             log_returns: list of daily log returns from the miner
+            bypass_confidence: whether to use default value if not enough trading days
         """
         # Need a large enough sample size
         if len(log_returns) < ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N:
-            return ValiConfig.SHARPE_NOCONFIDENCE_VALUE
+            if not bypass_confidence:
+                return ValiConfig.SHARPE_NOCONFIDENCE_VALUE
 
         # Hyperparameter
         min_std_dev = ValiConfig.SHARPE_STDDEV_MINIMUM
@@ -135,14 +137,16 @@ class Metrics:
         return excess_return / max(volatility, min_std_dev)
 
     @staticmethod
-    def omega(log_returns: list[float]) -> float:
+    def omega(log_returns: list[float], bypass_confidence: bool = False) -> float:
         """
         Args:
             log_returns: list of daily log returns from the miner
+            bypass_confidence: whether to use default value if not enough trading days
         """
         # Need a large enough sample size
         if len(log_returns) < ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N:
-            return ValiConfig.OMEGA_NOCONFIDENCE_VALUE
+            if not bypass_confidence:
+                return ValiConfig.OMEGA_NOCONFIDENCE_VALUE
 
         positive_sum = 0
         negative_sum = 0
@@ -159,27 +163,31 @@ class Metrics:
         return numerator / denominator
 
     @staticmethod
-    def statistical_confidence(log_returns: list[float]) -> float:
+    def statistical_confidence(log_returns: list[float], bypass_confidence: bool = False) -> float:
         """
         Args:
             log_returns: list of daily log returns from the miner
+            bypass_confidence: whether to use default value if not enough trading days
         """
         # Impose a minimum sample size on the miner
         if len(log_returns) < ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N:
-            return ValiConfig.STATISTICAL_CONFIDENCE_NOCONFIDENCE_VALUE
+            if not bypass_confidence or len(log_returns) < 2:
+                return ValiConfig.STATISTICAL_CONFIDENCE_NOCONFIDENCE_VALUE
 
         res = ttest_1samp(log_returns, 0, alternative='greater')
         return res.statistic
 
     @staticmethod
-    def sortino(log_returns: list[float]) -> float:
+    def sortino(log_returns: list[float], bypass_confidence: bool = False) -> float:
         """
         Args:
             log_returns: list of daily log returns from the miner
+            bypass_confidence: whether to use default value if not enough trading days
         """
         # Need a large enough sample size
         if len(log_returns) < ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N:
-            return ValiConfig.SORTINO_NOCONFIDENCE_VALUE
+            if not bypass_confidence:
+                return ValiConfig.SORTINO_NOCONFIDENCE_VALUE
 
         # Hyperparameter
         min_downside = ValiConfig.SORTINO_DOWNSIDE_MINIMUM
