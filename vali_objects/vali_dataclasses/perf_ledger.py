@@ -476,11 +476,11 @@ class PerfLedgerManager(CacheController):
         # order to understand timestamps needing checking, position to understand returns per timestamp (will be adjusted)
         # (order, position)
         time_sorted_orders = []
-        last_event_time_ms = None
+        last_event_time_ms = 0
 
         for p in positions:
-            if p.orders and (last_event_time_ms is None or p.orders[-1].processed_ms > last_event_time_ms):
-                last_event_time_ms = p.orders[-1].processed_ms
+            last_event_time_ms = max(p.orders[-1].processed_ms, last_event_time_ms)
+
             if p.is_closed_position and len(p.orders) < 2:
                 bt.logging.info(f"perf ledger generate_order_timeline. Skipping closed position for hk {hk} with < 2 orders: {p}")
                 continue
@@ -512,7 +512,7 @@ class PerfLedgerManager(CacheController):
         return max_cuml_return_so_far
 
     def _can_shortcut(self, tp_to_historical_positions: dict[str: Position], end_time_ms: int,
-                      realtime_position_to_pop: Position | None, start_time_ms: int, perf_ledger: PerfLedgerData) -> (bool, float, float, float, int, int):
+                      realtime_position_to_pop: Position | None, start_time_ms: int, perf_ledger: PerfLedgerData) -> (bool, float, float, float):
 
         portfolio_value = 1.0
         portfolio_spread_fee = 1.0
@@ -549,14 +549,14 @@ class PerfLedgerManager(CacheController):
         # This window would be dropped anyways
         ans |= (end_time_ms < ledger_cutoff_ms)
 
-        min_start_time_ms = self.now_ms - TARGET_LEDGER_WINDOW_MS
+        min_start_time_ms = self.now_ms - perf_ledger.target_ledger_window_ms
         start_time_ms = max(start_time_ms, min_start_time_ms)
         end_time_ms = max(start_time_ms, end_time_ms)
         # This window would be dropped anyways
         ans |= (start_time_ms == end_time_ms)
 
         if 0 and ans:
-            print(f'skipping with n_positions: {n_positions} n_open_positions {n_open_positions}, n_closed_positions: '
+            print(f'{"Skipping" if ans else "Accepting"} with n_positions: {n_positions} n_open_positions {n_open_positions}, n_closed_positions: '
                   f'{n_closed_positions}, n_positions_newly_opened: {n_positions_newly_opened}, start_time_ms '
                   f'{TimeUtil.millis_to_formatted_date_str(start_time_ms)} ledger_cutoff_ms '
                   f'{TimeUtil.millis_to_formatted_date_str(ledger_cutoff_ms)} end_time '
@@ -565,7 +565,7 @@ class PerfLedgerManager(CacheController):
                   f'final cp {perf_ledger.cps[-1]}')
             print('---------------------------------------------------------------------')
 
-        return ans, portfolio_value, portfolio_spread_fee, portfolio_carry_fee, start_time_ms, end_time_ms
+        return ans, portfolio_value, portfolio_spread_fee, portfolio_carry_fee
 
 
     def new_window_intersects_old_window(self, start_time_s, end_time_s, existing_lb_s, existing_ub_s):
@@ -752,7 +752,7 @@ class PerfLedgerManager(CacheController):
 
 
         # "Shortcut" All positions closed and one newly open position OR before the ledger lookback window.
-        can_shortcut, portfolio_return, portfolio_spread_fee, portfolio_carry_fee, start_time_ms, end_time_ms = \
+        can_shortcut, portfolio_return, portfolio_spread_fee, portfolio_carry_fee = \
             self._can_shortcut(tp_to_historical_positions, end_time_ms, realtime_position_to_pop, start_time_ms, perf_ledger)
         if can_shortcut:
             perf_ledger.update(portfolio_return, end_time_ms, miner_hotkey, False, portfolio_spread_fee, portfolio_carry_fee)
@@ -791,8 +791,11 @@ class PerfLedgerManager(CacheController):
         t0 = time.time()
         perf_ledger_candidate = existing_perf_ledgers.get(hotkey)
         if perf_ledger_candidate is None:
+            first_order_time_ms = float('inf')
+            for p in positions:
+                first_order_time_ms = min(first_order_time_ms, p.orders[0].processed_ms)
             perf_ledger_candidate = PerfLedgerData(
-                initialization_time_ms = positions[0].orders[0].processed_ms if positions else 0)
+                initialization_time_ms = first_order_time_ms if first_order_time_ms != float('inf') else 0)
             verbose = True
         else:
             perf_ledger_candidate = deepcopy(perf_ledger_candidate)
@@ -847,6 +850,7 @@ class PerfLedgerManager(CacheController):
             # We want to ensure that all positions or closed or there is only one open position and it is at the end
             n_open_positions = sum(1 for p in tp_to_historical_positions[symbol] if p.is_open_position)
             n_closed_positions = sum(1 for p in tp_to_historical_positions[symbol] if p.is_closed_position)
+
             assert n_open_positions == 0 or n_open_positions == 1, (n_open_positions, n_closed_positions, [p for p in tp_to_historical_positions[symbol] if p.is_open_position])
             if n_open_positions == 1:
                 assert tp_to_historical_positions[symbol][-1].is_open_position, (n_open_positions, n_closed_positions, [p for p in tp_to_historical_positions[symbol] if p.is_open_position])
@@ -855,9 +859,10 @@ class PerfLedgerManager(CacheController):
             if not building_from_new_orders:
                 continue
 
-            # Already processed this order. Skip until we get to the new order(s)
+            # Already processed this order. Skip until we get to the new order(s) to build up tp_to_historical_positions
             if order.processed_ms < perf_ledger_candidate.last_update_ms:
                 continue
+
             # Need to catch up from perf_ledger.last_update_ms to order.processed_ms
             eliminated = self.build_perf_ledger(perf_ledger_candidate, tp_to_historical_positions, perf_ledger_candidate.last_update_ms, order.processed_ms, hotkey, realtime_position_to_pop)
             if eliminated:
@@ -953,6 +958,7 @@ class PerfLedgerManager(CacheController):
         perf_ledgers = self.load_perf_ledgers_from_disk(read_as_pydantic=False)
         self._refresh_eliminations_in_memory()
         t_ms = TimeUtil.now_in_millis() - self.UPDATE_LOOKBACK_MS
+        """
         tt = 1734279788000
         if t_ms < tt + 1000 * 60 * 60 * 1:  # Rebuild after bug fix
             for ledger in perf_ledgers.values():
@@ -963,6 +969,7 @@ class PerfLedgerManager(CacheController):
                 except Exception as e:
                     print('trim failed', e, ledger)
                     raise
+        """
         hotkey_to_positions, hotkeys_with_no_positions = self.get_positions_perf_ledger(testing_one_hotkey=testing_one_hotkey)
 
         def sort_key(x):
@@ -1094,5 +1101,5 @@ if __name__ == "__main__":
     all_hotkeys_on_disk = CacheController.get_directory_names(all_miners_dir)
     mmg = MockMetagraph(hotkeys=all_hotkeys_on_disk)
     perf_ledger_manager = PerfLedgerManager(metagraph=mmg, running_unit_tests=False)
-    perf_ledger_manager.update(testing_one_hotkey='5GNAi7DBGfLftEsnYpY7MzSSLsMU79nD9ASC8VgLSsnHWko5')
+    perf_ledger_manager.update(testing_one_hotkey='5HDmzyhrEco9w6Jv8eE3hDMcXSE4AGg1MuezPR4u2covxKwZ')
     #perf_ledger_manager.update(regenerate_all_ledgers=True)
