@@ -105,9 +105,9 @@ class MDDChecker(CacheController):
                 bt.logging.info(f'Wrote {self.n_eliminations_this_round} new eliminations to disk')
 
         # Update in response to dereg'd miners re-registering an uneliminating
-        for x in self.hotkeys_with_flat_orders_added:
-            if not self._hotkey_in_eliminations(x):
-                self.hotkeys_with_flat_orders_added.remove(x)
+        self.hotkeys_with_flat_orders_added = {
+            x for x in self.hotkeys_with_flat_orders_added if self._hotkey_in_eliminations(x)
+        }
 
         hotkey_to_positions = self.position_manager.get_all_miner_positions_by_hotkey(
             self.metagraph.hotkeys, sort_positions=True,
