@@ -519,7 +519,7 @@ class PerfLedgerManager(CacheController):
         portfolio_carry_fee = 1.0
         n_open_positions = 0
         now_ms = TimeUtil.now_in_millis()
-        ledger_cutoff_ms = now_ms - TARGET_LEDGER_WINDOW_MS
+        ledger_cutoff_ms = now_ms - perf_ledger.target_ledger_window_ms
 
         n_positions = 0
         n_closed_positions = 0
@@ -539,30 +539,30 @@ class PerfLedgerManager(CacheController):
                 n_closed_positions += historical_position.is_closed_position
         assert portfolio_carry_fee > 0, (portfolio_carry_fee, portfolio_spread_fee)
 
+        reason = ''
+        ans = False
         # When building from orders, we will always have at least one open position. When opening a position after a
         # period of all closed positions, we can shortcut by identifying that the new position is the only open position
         # and all other positions are closed. The time before this period, we have only closed positions.
         # Alternatively, we can be attempting to build the ledger after all orders have been accounted for. In this
         # case, we simply need to check if all positions are closed.
-        ans = (n_positions == n_closed_positions + n_positions_newly_opened) and (n_positions_newly_opened == 1)
+        if (n_positions == n_closed_positions + n_positions_newly_opened) and (n_positions_newly_opened == 1):
+            reason += 'New position opened. '
+            ans = True
 
-        # This window would be dropped anyways
-        ans |= (end_time_ms < ledger_cutoff_ms)
+        # This window would be dropped anyway
+        if (end_time_ms < ledger_cutoff_ms):
+            reason += 'Ledger cutoff. '
+            ans = True
 
-        min_start_time_ms = self.now_ms - perf_ledger.target_ledger_window_ms
-        start_time_ms = max(start_time_ms, min_start_time_ms)
-        end_time_ms = max(start_time_ms, end_time_ms)
-        # This window would be dropped anyways
-        ans |= (start_time_ms == end_time_ms)
-
-        if 0 and ans:
-            print(f'{"Skipping" if ans else "Accepting"} with n_positions: {n_positions} n_open_positions {n_open_positions}, n_closed_positions: '
-                  f'{n_closed_positions}, n_positions_newly_opened: {n_positions_newly_opened}, start_time_ms '
-                  f'{TimeUtil.millis_to_formatted_date_str(start_time_ms)} ledger_cutoff_ms '
-                  f'{TimeUtil.millis_to_formatted_date_str(ledger_cutoff_ms)} end_time '
-                  f'{TimeUtil.millis_to_formatted_date_str(start_time_ms)} start_time_ms'
-                  f'{TimeUtil.millis_to_formatted_date_str(end_time_ms)} portfolio_value {portfolio_value} '
-                  f'final cp {perf_ledger.cps[-1]}')
+        if 1 and ans:
+            print(f' Skipping ({reason}) with n_positions: {n_positions} n_open_positions: {n_open_positions} n_closed_positions: '
+                  f'{n_closed_positions}, n_positions_newly_opened: {n_positions_newly_opened}, '
+                  f'start_time_ms: {TimeUtil.millis_to_formatted_date_str(start_time_ms)}, '
+                  f'end_time_ms: {TimeUtil.millis_to_formatted_date_str(end_time_ms)}, '
+                  f'portfolio_value: {portfolio_value} '
+                  f'ledger_cutoff_ms: {TimeUtil.millis_to_formatted_date_str(ledger_cutoff_ms)}, '
+                  f'final cp: {perf_ledger.cps[-1]}')
             print('---------------------------------------------------------------------')
 
         return ans, portfolio_value, portfolio_spread_fee, portfolio_carry_fee
@@ -1101,5 +1101,5 @@ if __name__ == "__main__":
     all_hotkeys_on_disk = CacheController.get_directory_names(all_miners_dir)
     mmg = MockMetagraph(hotkeys=all_hotkeys_on_disk)
     perf_ledger_manager = PerfLedgerManager(metagraph=mmg, running_unit_tests=False)
-    perf_ledger_manager.update(testing_one_hotkey='5HDmzyhrEco9w6Jv8eE3hDMcXSE4AGg1MuezPR4u2covxKwZ')
+    perf_ledger_manager.update(testing_one_hotkey='5GYxdxQU1UKhAKD3rm4Gy1vfDjrboK76jYwQkZtn6W4yuJNX')
     #perf_ledger_manager.update(regenerate_all_ledgers=True)
