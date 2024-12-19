@@ -547,6 +547,12 @@ class Validator:
 
         if method == SynapseMethod.CHECKPOINT or method == SynapseMethod.DASHBOARD:
             return False
+        elif method == SynapseMethod.POSITION_INSPECTOR:
+            # Check version 0 (old version that was opt-in)
+            if synapse.version == 0:
+                synapse.successfully_processed = False
+                synapse.error_message = "Please use the latest miner script that makes PI opt-in with the flag --run-position-inspector"
+                return True
 
         # don't process eliminated miners
         with self.eliminations_lock:
