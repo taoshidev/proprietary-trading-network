@@ -6,7 +6,7 @@ import time
 from miner_config import MinerConfig
 from template.protocol import GetPositions
 
-
+# (DEPRECATED. Please use the local dashboard instead)
 class PositionInspector:
     MAX_RETRIES = 1
     INITIAL_RETRY_DELAY = 3  # seconds
