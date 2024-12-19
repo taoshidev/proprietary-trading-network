@@ -33,9 +33,9 @@ class Miner:
         # Start the metagraph updater loop in its own thread
         self.metagraph_updater_thread = threading.Thread(target=self.metagraph_updater.run_update_loop, daemon=True)
         self.metagraph_updater_thread.start()
-        # Start position inspector loop in its own thread
-        self.position_inspector_thread = threading.Thread(target=self.position_inspector.run_update_loop, daemon=True)
-        self.position_inspector_thread.start()
+        # Start position inspector loop in its own thread (DEPRECATED. Please use the local dashboard instead)
+        #self.position_inspector_thread = threading.Thread(target=self.position_inspector.run_update_loop, daemon=True)
+        #self.position_inspector_thread.start()
 
         # Dashboard
         # Start the miner data api in its own thread
@@ -206,7 +206,7 @@ class Miner:
                     bt.logging.info("Dashboard terminated.")
                 self.metagraph_updater_thread.join()
                 self.position_inspector.stop_update_loop()
-                self.position_inspector_thread.join()
+                #self.position_inspector_thread.join()
                 # dashboard api server
                 if self.dashboard_api_thread is not None and self.dashboard_api_thread.is_alive():
                     self.dashboard_api_thread.join()
