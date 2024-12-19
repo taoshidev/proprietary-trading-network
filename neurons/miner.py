@@ -34,9 +34,11 @@ class Miner:
         self.metagraph_updater_thread = threading.Thread(target=self.metagraph_updater.run_update_loop, daemon=True)
         self.metagraph_updater_thread.start()
         # Start position inspector loop in its own thread
-        self.position_inspector_thread = threading.Thread(target=self.position_inspector.run_update_loop, daemon=True)
-        self.position_inspector_thread.start()
-
+        if self.config.run_position_inspector:
+            self.position_inspector_thread = threading.Thread(target=self.position_inspector.run_update_loop, daemon=True)
+            self.position_inspector_thread.start()
+        else:
+            self.position_inspector_thread = None
         # Dashboard
         # Start the miner data api in its own thread
         try:
@@ -116,6 +118,8 @@ class Miner:
         # We use a placeholder default value here (None) to check if the user has provided a value later
         parser.add_argument("--write_failed_signal_logs", type=bool, default=None,
                             help="Whether to write logs for failed signals. Default is True unless --subtensor.network is 'test'.")
+        # Add argument so we can check if run_position_inspector is set which tells us to start the PI thread. Default false
+        parser.add_argument("--run-position-inspector", action="store_true", help="Run the position inspector thread.")
         parser.add_argument(
             '--start-dashboard',
             action='store_true',
@@ -206,7 +210,8 @@ class Miner:
                     bt.logging.info("Dashboard terminated.")
                 self.metagraph_updater_thread.join()
                 self.position_inspector.stop_update_loop()
-                self.position_inspector_thread.join()
+                if self.position_inspector_thread:
+                    self.position_inspector_thread.join()
                 # dashboard api server
                 if self.dashboard_api_thread is not None and self.dashboard_api_thread.is_alive():
                     self.dashboard_api_thread.join()

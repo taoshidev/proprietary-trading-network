@@ -23,6 +23,8 @@ class GetPositions(bt.Synapse):
     successfully_processed: bool = Field(False, title="Successfully Processed", frozen=False)
     error_message: str = Field("", title="Error Message", frozen=False)
     computed_body_hash: str = Field("", title="Computed Body Hash", frozen=False)
+    version: int = Field(0, title="Version", frozen=False)
+
 GetPositions.required_hash_fields = ["positions"]
 
 class ValidatorCheckpoint(bt.Synapse):
