@@ -3,12 +3,12 @@
 
 import time
 import traceback
+from copy import deepcopy
 
 from vali_objects.vali_config import ValiConfig
 from shared_objects.cache_controller import CacheController
 
 import bittensor as bt
-
 
 class MetagraphUpdater(CacheController):
     def __init__(self, config, metagraph, hotkey, is_miner, position_inspector=None, position_manager=None, shutdown_dict=None):
@@ -80,7 +80,7 @@ class MetagraphUpdater(CacheController):
         else:
             n_validators = max(1, n_validators)
 
-        bt.logging.info(f"Metagraph state (approximation): {n_validators} active validators, {n_miners} active miners, hotkeys: "
+        bt.logging.info(f"metagraph state (approximation): {n_validators} active validators, {n_miners} active miners, hotkeys: "
                         f"{len(self.metagraph.hotkeys)}")
 
     def update_metagraph(self):
@@ -94,20 +94,43 @@ class MetagraphUpdater(CacheController):
         else:
             recently_acked_miners = self.position_manager.get_recently_updated_miner_hotkeys()
 
-        hotkeys_before = self.metagraph.hotkeys
+        metagraph_copy = deepcopy(self.metagraph)
+        hotkeys_before = set(metagraph_copy.hotkeys)
         bt.logging.info("Updating metagraph...")
-        self.metagraph.sync(subtensor=self.subtensor)
-        hotkeys_after = self.metagraph.hotkeys
-        if len(hotkeys_after) < len(hotkeys_before):
-            bt.logging.error(f"Metagraph has lost hotkeys: {set(hotkeys_before) - set(hotkeys_after)}"
-                             f". Verify this is due to normal deregistration. Otherwise, there could be a serious bug!")
-        elif len(hotkeys_after) > len(hotkeys_before):
-            bt.logging.info(f"Metagraph has gained hotkeys: {set(hotkeys_after) - set(hotkeys_before)}")
+        metagraph_copy.sync(subtensor=self.subtensor)
+        hotkeys_after = set(metagraph_copy.hotkeys)
+        lost_hotkeys = hotkeys_before - hotkeys_after
+        gained_hotkeys = hotkeys_after - hotkeys_before
+        if lost_hotkeys:
+            bt.logging.info(f"metagraph has lost hotkeys: {lost_hotkeys}")
+        if gained_hotkeys:
+            bt.logging.info(f"metagraph has gained hotkeys: {gained_hotkeys}")
+        if not lost_hotkeys and not gained_hotkeys:
+            bt.logging.info(f"metagraph hotkeys remain the same. n = {len(hotkeys_after)}")
+
+        percent_lost = 100 * len(lost_hotkeys) / len(hotkeys_before) if lost_hotkeys else 0
+        # failsafe condition to reject new metagraph
+        if len(lost_hotkeys) > 10 and percent_lost >= 25:
+            bt.logging.error(f"Too many hotkeys lost in metagraph update: {len(lost_hotkeys)} hotkeys lost, "
+                             f"{percent_lost:.2f}% of total hotkeys. Rejecting new metagraph. ALERT A TEAM MEMBER ASAP...")
         else:
-            bt.logging.info(f"Metagraph hotkeys remain the same. n = {len(hotkeys_after)}")
+            self.metagraph = metagraph_copy
+
         if recently_acked_miners:
             self.update_likely_miners(recently_acked_miners)
         if recently_acked_validators:
             self.update_likely_validators(recently_acked_validators)
         self.log_metagraph_state()
         self.set_last_update_time()
+
+if __name__ == "__main__":
+    from neurons.miner import Miner
+    from miner_objects.position_inspector import PositionInspector
+    config = Miner.get_config()  # Must run this via commandline to populate correctly
+    subtensor = bt.subtensor(config=config)
+    metagraph = subtensor.metagraph(config.netuid)
+    position_inspector = PositionInspector(bt.wallet(config=config), metagraph, config)
+    mgu = MetagraphUpdater(config, metagraph, "test", is_miner=True, position_inspector=position_inspector)
+    while True:
+        mgu.update_metagraph()
+        time.sleep(60)
