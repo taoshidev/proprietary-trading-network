@@ -114,7 +114,11 @@ class MetagraphUpdater(CacheController):
             bt.logging.error(f"Too many hotkeys lost in metagraph update: {len(lost_hotkeys)} hotkeys lost, "
                              f"{percent_lost:.2f}% of total hotkeys. Rejecting new metagraph. ALERT A TEAM MEMBER ASAP...")
         else:
-            self.metagraph = metagraph_copy
+            # Write every attribute in metagraph_copy to the original metagraph
+            for attr in metagraph_copy.__dict__.keys():
+                v1 = getattr(metagraph_copy, attr)
+                #print(f"Setting attribute {attr} of type {type(v1)}")
+                setattr(self.metagraph, attr, v1)
 
         if recently_acked_miners:
             self.update_likely_miners(recently_acked_miners)
