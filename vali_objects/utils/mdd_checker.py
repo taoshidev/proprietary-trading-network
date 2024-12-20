@@ -39,6 +39,8 @@ class MDDChecker(CacheController):
         self.shutdown_dict = shutdown_dict
         self.n_poly_api_requests = 0
         self.hotkeys_with_flat_orders_added = set()
+        self._refresh_eliminations_in_memory()
+        self.eliminated_hotkeys = self.get_eliminated_hotkeys()
 
     def reset_debug_counters(self):
         self.n_miners_skipped_already_eliminated = 0
@@ -83,12 +85,12 @@ class MDDChecker(CacheController):
         self.reset_debug_counters()
         self._refresh_eliminations_in_memory()
         perf_ledger_eliminations = self.get_perf_ledger_eliminations_from_disk()
-        eliminated_hotkeys = self.get_eliminated_hotkeys()
+        self.eliminated_hotkeys = self.get_eliminated_hotkeys()
         for e in perf_ledger_eliminations:
-            if e['hotkey'] in eliminated_hotkeys:
+            if e['hotkey'] in self.eliminated_hotkeys:
                 continue
 
-            eliminated_hotkeys.add(e['hotkey'])
+            self.eliminated_hotkeys.add(e['hotkey'])
             price_info = e['price_info']
             trade_pair_to_price_source_used_for_elimination_check = {}
             for k, v in price_info.items():
