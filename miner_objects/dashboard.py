@@ -71,7 +71,7 @@ class Dashboard:
         """
         for port in range(start, stop):
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                if s.connect_ex(("127.0.0.1", port)) != 0:
+                if s.connect_ex(("0.0.0.0", port)) != 0:
                     self.write_env_file(port)
                     return port  # found a free port
         raise OSError(f"All ports from [{start}, {stop}) in use. Aborting dashboard.")
@@ -82,10 +82,10 @@ class Dashboard:
         """
         env_file_path = MinerConfig.BASE_DIR + "/miner_objects/miner_dashboard/.env"
         with open(env_file_path, 'w') as env_file:
-            env_file.write(f'VITE_MINER_URL=http://127.0.0.1:{api_port}\n')
+            env_file.write(f'VITE_MINER_URL=http://0.0.0.0:{api_port}\n')
 
     def run(self):
-        uvicorn.run(self.app, host="127.0.0.1", port=self.port)
+        uvicorn.run(self.app, host="0.0.0.0", port=self.port)
 
     async def get_stats_positions_from_validator(self):
         """
