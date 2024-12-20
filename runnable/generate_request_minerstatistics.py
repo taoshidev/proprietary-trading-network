@@ -273,11 +273,11 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
         annual_volatility[hotkey] = min(Metrics.ann_volatility(miner_returns), 100)
         annual_downside_volatility[hotkey] = min(Metrics.ann_downside_volatility(miner_returns), 100)
         statistical_confidence_dict[hotkey] = Metrics.statistical_confidence(miner_returns, bypass_confidence=True)
-        concentration_dict[hotkey] = Metrics.concentration(miner_returns, positions=miner_positions)
+        concentration_dict[hotkey] = Metrics.concentration(miner_returns, positions=miner_lookback_positions)
 
         # Positional penalties
-        miner_martingale_scores[hotkey] = PositionPenalties.martingale_score(miner_positions)
-        miner_martingale_penalties[hotkey] = PositionPenalties.martingale_penalty(miner_positions)
+        miner_martingale_scores[hotkey] = PositionPenalties.martingale_score(miner_lookback_positions)
+        miner_martingale_penalties[hotkey] = PositionPenalties.martingale_penalty(miner_lookback_positions)
 
         short_return_dict[hotkey] = Metrics.base_return(short_term_miner_returns)
         return_dict[hotkey] = Metrics.base_return(miner_returns)
