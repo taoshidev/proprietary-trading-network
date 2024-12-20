@@ -798,7 +798,7 @@ class PerfLedgerManager(CacheController):
             # print if return drops by more than 2% in a single update
             if portfolio_return < perf_ledger.cps[-1].prev_portfolio_ret * 0.98:
                 time_since_last_update = t_ms - perf_ledger.cps[-1].last_update_ms
-                bt.logging.warning(f'perf ledger significant return drop from {perf_ledger.cps[-1].prev_portfolio_ret} to {portfolio_return} over {time_since_last_update} ms ({t_ms})', perf_ledger.cps[-1].to_dict(), self.trade_pair_to_position_ret)
+                bt.logging.warning(f'perf ledger for hk {miner_hotkey} significant return drop from {perf_ledger.cps[-1].prev_portfolio_ret} to {portfolio_return} over {time_since_last_update} ms ({t_ms})', perf_ledger.cps[-1].to_dict(), self.trade_pair_to_position_ret)
                 for tp, historical_positions in tp_to_historical_positions.items():
                     positions = []
                     for historical_position in historical_positions:
@@ -1169,5 +1169,5 @@ if __name__ == "__main__":
     all_hotkeys_on_disk = CacheController.get_directory_names(all_miners_dir)
     mmg = MockMetagraph(hotkeys=all_hotkeys_on_disk)
     perf_ledger_manager = PerfLedgerManager(metagraph=mmg, running_unit_tests=False)
-    perf_ledger_manager.update(testing_one_hotkey='5GuiLqgzZ7fbeb74NsUQoxVukc9tjTkh6TZuJX24g6gWMq91')
+    perf_ledger_manager.update(testing_one_hotkey='5FWa35Ye9fy1VzWUgS9bvzcTXLDzKaybZ8wL9eER3g1Mu291')
     #perf_ledger_manager.update(regenerate_all_ledgers=True)
