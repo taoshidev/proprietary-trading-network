@@ -552,6 +552,7 @@ class Validator:
             if synapse.version == 0:
                 synapse.successfully_processed = False
                 synapse.error_message = "Please use the latest miner script that makes PI opt-in with the flag --run-position-inspector"
+                #bt.logging.info((sender_hotkey, synapse.error_message))
                 return True
 
         # don't process eliminated miners
@@ -694,7 +695,7 @@ class Validator:
         try:
             hotkey = synapse.dendrite.hotkey
             # Return the last n positions
-            positions = self.position_manager.get_all_miner_positions(hotkey, sort_positions=True)[-30:]
+            positions = self.position_manager.get_all_miner_positions(hotkey, only_open_positions=True)
             synapse.positions = [position.to_dict() for position in positions]
             bt.logging.info(f"Sending {len(positions)} positions back to miner: " + hotkey)
         except Exception as e:
