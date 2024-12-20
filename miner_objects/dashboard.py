@@ -30,6 +30,8 @@ class Dashboard:
         self._add_cors_middleware()
         self._setup_routes()
 
+        asyncio.run(self.get_stats_positions_from_validator())
+
     def _add_cors_middleware(self):
         # allow the connection from the frontend
         origins.append(f"http://localhost:{self.port}")
