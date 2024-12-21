@@ -303,6 +303,7 @@ class PositionManager(CacheController):
                 miners_to_promote.remove(e['hotkey'])
 
         # Promote miners that would have passed challenge period
+        self._refresh_challengeperiod_in_memory()
         for miner in miners_to_promote:
             if miner in self.challengeperiod_testing:
                 self.challengeperiod_testing.pop(miner)
