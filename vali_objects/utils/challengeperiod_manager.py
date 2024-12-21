@@ -230,21 +230,20 @@ class ChallengePeriodManager(CacheController):
 
             if positions is None or len(positions) == 0:
                 return False
-            
-            inspection_positions = {inspection_hotkey: positions.get(inspection_hotkey, None)}
-            
-            if inspection_positions is None:
+
+            positions_list = positions.get(inspection_hotkey, None)
+
+            if positions_list is None:
                 return False
 
-            if len(inspection_positions) <= 1:
+            if len(positions_list) <= 1:
                 # We need at least more than 1 position to evaluate the challenge period
                 return False
 
+            inspection_positions = {inspection_hotkey: positions_list}
             # Get individual scoring dict for inspection
             inspection_ledger = {inspection_hotkey: ledger.get(inspection_hotkey, None)}
 
-            if inspection_ledger is None:
-                return False
             if inspection_ledger.get(inspection_hotkey) is None:
                 return False
 

@@ -24,7 +24,7 @@ from vali_objects.vali_dataclasses.order import OrderStatus, ORDER_SRC_DEPRECATI
 from vali_objects.vali_dataclasses.price_source import PriceSource
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
 
-TARGET_MS = 1734309144298 + (1000 * 60 * 60 * 3)  # + 3 hours
+TARGET_MS = 1734804443518 + (1000 * 60 * 60 * 3)  # + 3 hours
 
 
 class PositionManager(CacheController):
@@ -284,18 +284,38 @@ class PositionManager(CacheController):
         now_ms = TimeUtil.now_in_millis()
         # Wipe miners only once when dynamic challenge period launches
         miners_to_wipe = []
+        miners_to_promote = []
         if now_ms < TARGET_MS:
             # All miners that wanted their challenge period restarted
-            miners_to_wipe = ["5GTL7WXa4JM2yEUjFoCy2PZVLioNs1HzAGLKhuCDzzoeQCTR", "5HCJ6okRkmCsu7iLEWotBxgcZy11RhbxSzs8MXT4Dei9osUx",
-                          "5DcgKr6s8z75sE4c69iMSM8adfRVex7A8BZe2mouVwMVRis4", "5CB6dfQFcmjCuwkKKFguNjnQqPCS9GKWUBokzm1UMLZW5bgw",
-                          "5CthGb2xcWvBBFYxEPudSDLm4kGeF9ztkVDb2FJmSftfuJM2", "5H8X178MPpfeUMsWVAQsBkwFQ6gJMze5DvSpuFXED9Yh4ptG",
-                              "5HQnY1B1zkedLp7VtJEJcacLwtW1TNqHDKbiTRgw5hN8Xd3Z"]
+            miners_to_wipe = []
+            # All miners that should have been promoted
+            miners_to_promote = ['5FRPLyZ25mr2MTjQguXJDDDzByHbJMGRTmY9rtMBkNVVsKWG', '5GejszMStE7UMDHyFRQv1gHYqrcqCkSuVCL4ULuP8uzuKe7a', '5DswH2LoRwivzv37tGvo27XJjDvFpff2fhu5T8LHsfXmFS5u',
+                                 '5CyzSyxxCn1CFiSAn7rfYsRoiqHTR2623137if4fQZnwYJ7f', '5Ejcqv191phNqciuCCZNByd3b6R3pW52B4HMXiFhNfxoysZJ', '5GguHtBXUNDGNHF3yQreyXAmxcdEBGXKuuZp6qo8hutR4Vkv',
+                                 '5ELQLFFrkeJVxhQ9tBbzcXaujr6wCNvH8G5x9ub92FBWdc5M', '5C5W8HYYUMgQKZhpPdZgjfJXt1GK2aBm7K3WAbX25P2JgMYJ', '5GucPphXea9yp8mu81r9z2rYSQ5R2PKqsZsfBAadvGWmh3k3',
+                                 '5DWmX9m33Tu66Qh12pr41Wk87LWcVkdyM9ZSNJFsks3QritF', '5EWKUhycaBQHiHnfE3i2suZ1BvxAAE3HcsFsp8TaR6mu3JrJ', '5GYxdxQU1UKhAKD3rm4Gy1vfDjrboK76jYwQkZtn6W4yuJNX',
+                                 '5Cii2pYMVsHuc1hz3ot9oFTF7mqmiCD1fknf4G15onFEWtfX', '5D582P2vwYs3717DYZyBcbCJQecngjE6thfp3nDo8yhge9zr', '5DU7AjLT6fAY9MnA76GvUFd2rsRp1ZgUTGLBUxKrDE9cPitq',
+                                 '5DXrQ2AhJZRqVxQJWRvgVcsmGvmdqjgzZTfsWE6MEzpviUj1']
 
+        self._refresh_eliminations_in_memory()
+        #Don't accidentally promote eliminated miners
+        for e in self.eliminations:
+            if e['hotkey'] in miners_to_promote:
+                miners_to_promote.remove(e['hotkey'])
+
+        # Promote miners that would have passed challenge period
+        self._refresh_challengeperiod_in_memory()
+        for miner in miners_to_promote:
+            if miner in self.challengeperiod_testing:
+                self.challengeperiod_testing.pop(miner)
+            if miner not in self.challengeperiod_success:
+                self.challengeperiod_success[miner] = now_ms
+        self._write_challengeperiod_from_memory_to_disk()
+
+        # Wipe miners_to_wipe below
         for k in miners_to_wipe:
             if k not in hotkey_to_positions:
                 hotkey_to_positions[k] = []
 
-        self._refresh_eliminations_in_memory()
         for e in self.eliminations:
             if e['hotkey'] in miners_to_wipe:
                 bt.logging.info(f"Removed elimination for hotkey {e['hotkey']}")
