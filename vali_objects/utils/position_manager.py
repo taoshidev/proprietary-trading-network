@@ -24,7 +24,7 @@ from vali_objects.vali_dataclasses.order import OrderStatus, ORDER_SRC_DEPRECATI
 from vali_objects.vali_dataclasses.price_source import PriceSource
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
 
-TARGET_MS = 1734804443518 + (1000 * 60 * 60 * 3)  # + 3 hours
+TARGET_MS = 1734881630000 + (1000 * 60 * 60 * 3)  # + 3 hours
 
 
 class PositionManager(CacheController):
@@ -289,12 +289,7 @@ class PositionManager(CacheController):
             # All miners that wanted their challenge period restarted
             miners_to_wipe = []
             # All miners that should have been promoted
-            miners_to_promote = ['5FRPLyZ25mr2MTjQguXJDDDzByHbJMGRTmY9rtMBkNVVsKWG', '5GejszMStE7UMDHyFRQv1gHYqrcqCkSuVCL4ULuP8uzuKe7a', '5DswH2LoRwivzv37tGvo27XJjDvFpff2fhu5T8LHsfXmFS5u',
-                                 '5CyzSyxxCn1CFiSAn7rfYsRoiqHTR2623137if4fQZnwYJ7f', '5Ejcqv191phNqciuCCZNByd3b6R3pW52B4HMXiFhNfxoysZJ', '5GguHtBXUNDGNHF3yQreyXAmxcdEBGXKuuZp6qo8hutR4Vkv',
-                                 '5ELQLFFrkeJVxhQ9tBbzcXaujr6wCNvH8G5x9ub92FBWdc5M', '5C5W8HYYUMgQKZhpPdZgjfJXt1GK2aBm7K3WAbX25P2JgMYJ', '5GucPphXea9yp8mu81r9z2rYSQ5R2PKqsZsfBAadvGWmh3k3',
-                                 '5DWmX9m33Tu66Qh12pr41Wk87LWcVkdyM9ZSNJFsks3QritF', '5EWKUhycaBQHiHnfE3i2suZ1BvxAAE3HcsFsp8TaR6mu3JrJ', '5GYxdxQU1UKhAKD3rm4Gy1vfDjrboK76jYwQkZtn6W4yuJNX',
-                                 '5Cii2pYMVsHuc1hz3ot9oFTF7mqmiCD1fknf4G15onFEWtfX', '5D582P2vwYs3717DYZyBcbCJQecngjE6thfp3nDo8yhge9zr', '5DU7AjLT6fAY9MnA76GvUFd2rsRp1ZgUTGLBUxKrDE9cPitq',
-                                 '5DXrQ2AhJZRqVxQJWRvgVcsmGvmdqjgzZTfsWE6MEzpviUj1']
+            miners_to_promote = []
 
         self._refresh_eliminations_in_memory()
         #Don't accidentally promote eliminated miners
@@ -344,6 +339,11 @@ class PositionManager(CacheController):
                 print('n perf ledgers after:', len(perf_ledgers_new))
                 self.perf_ledger_manager.save_perf_ledgers_to_disk(perf_ledgers_new)
 
+            if miner_hotkey == '5Cd9bVVja2KdgsTiR7rTAh7a4UKVfnAuYAW1bs8BiedUE9JN' and now_ms < TARGET_MS:
+                positions_with_single_order = [p for p in positions if len(p.orders) == 1 and p.is_closed_position]
+                for p in positions_with_single_order:
+                    n_attempts, n_corrections = self.correct_for_tp([], None, [], None,
+                                                         unique_corrections=unique_corrections, pos=p)
 
             """
                     
