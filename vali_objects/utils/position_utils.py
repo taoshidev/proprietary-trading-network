@@ -2,6 +2,7 @@
 
 import numpy as np
 import copy
+import math
 
 from vali_objects.position import Position
 from vali_objects.vali_config import ValiConfig
@@ -212,3 +213,83 @@ class PositionUtils:
             sorted(list(trade_pairs)),
             order_list
         )
+
+    @staticmethod
+    def condense_positions(
+            positions: list[Position],
+            time_window: int = None
+    )   -> list[Position]:
+        """
+        Looks at a rolling window of length time_window and condenses positions within this window into one
+        position where each position is now represented as an order. Useful for martingale calculations.
+
+        Args:
+            positions: list[Position] - the positions of a miner
+            time_window: int - the time window to consider possible martingale positions in
+
+        Return:
+            return: list[Position] - New list of positions that
+        """
+
+        if time_window is None:
+            time_window = ValiConfig.MARTINGALE_TIME_WINDOW_MS
+
+        # Need at least two positions for this to work
+        if len(positions) <= 1:
+            return []
+
+        start_time = positions[0].open_ms
+
+        new_positions = []
+        new_position = copy.deepcopy(positions[0])
+        new_orders = []
+        new_position_type = positions[0].orders[0].order_type
+
+        # For each new condensed position, use the max return seen to understand the benefit the miner has received
+        max_return = positions[0].return_at_close
+        for i in range(len(positions)):
+
+            # Current position must match position type for the idea of cumulative leverage to work properly
+            position_time = positions[i].open_ms
+
+            position_type = None
+            if len(positions[i].orders) > 0:
+                position_type = positions[i].orders[0].order_type
+
+            if position_time < start_time + time_window and position_type is not None and position_type == new_position_type:
+
+                # Use the average time-weighted position leverage to understand the overall risk of the position
+                position_average_leverage = PositionUtils.average_leverage([positions[i]])
+                if position_type == OrderType.SHORT:
+                    position_average_leverage = -1 * position_average_leverage
+
+                max_return = max(max_return, new_position.return_at_close)
+
+                new_order = copy.deepcopy(positions[i].orders[0])
+                new_order.leverage = position_average_leverage
+
+                # Maybe we should use average price here
+                new_order.price = positions[i].orders[0].price
+                new_orders.append(new_order)
+
+            # If there are more positions, and they don't fall in the time window
+            # start a new "position"
+            if i < len(positions) - 1:
+                if positions[i + 1].open_ms > start_time + time_window and len(positions[i + 1].orders) > 0:
+                    new_position.orders = new_orders
+                    new_orders = []
+                    new_position.return_at_close = max_return
+                    new_positions.append(new_position)
+
+                    new_position = copy.deepcopy(positions[i + 1])
+                    new_position_type = positions[i + 1].orders[0].order_type
+
+                    max_return = positions[i + 1].return_at_close
+                    start_time = positions[i + 1].open_ms
+            else:
+                new_position.orders = new_orders
+                new_position.return_at_close = max_return
+                new_positions.append(new_position)
+
+        return new_positions
+

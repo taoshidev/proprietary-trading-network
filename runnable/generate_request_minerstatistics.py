@@ -217,6 +217,8 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
     positional_realized_returns_penalties = {}
     miner_martingale_scores = {}
     miner_martingale_penalties = {}
+    miner_interpositional_martingale_scores = {}
+    miner_interpositional_martingale_penalties = {}
 
     # Ledger Ratios
     ledger_daily_consistency_ratios = {}
@@ -278,6 +280,9 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
         # Positional penalties
         miner_martingale_scores[hotkey] = PositionPenalties.martingale_score(miner_lookback_positions)
         miner_martingale_penalties[hotkey] = PositionPenalties.martingale_penalty(miner_lookback_positions)
+
+        miner_interpositional_martingale_scores[hotkey] = PositionPenalties.interpositional_martingale_score(miner_lookback_positions)
+        miner_interpositional_martingale_penalties[hotkey] = PositionPenalties.interpositional_martingale_penalty(miner_lookback_positions)
 
         short_return_dict[hotkey] = Metrics.base_return(short_term_miner_returns)
         return_dict[hotkey] = Metrics.base_return(miner_returns)
@@ -495,6 +500,7 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
                 "drawdown_threshold": max_drawdown_threshold_penalties.get(miner_id),
                 "drawdown_abnormality": drawdown_abnormality_penalties.get(miner_id),
                 "martingale": miner_martingale_penalties.get(miner_id),
+                "interpositional_martingale": miner_interpositional_martingale_penalties.get(miner_id),
                 "total": miner_penalties.get(miner_id, 0.0),
             },
             "volatility": {
@@ -583,6 +589,7 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
             },
             "plagiarism": plagiarism.get(miner_id),
             "martingale": miner_martingale_scores.get(miner_id),
+            "interpositional_martingale": miner_interpositional_martingale_scores.get(miner_id),
         }
 
         miner_checkpoints = {

@@ -138,7 +138,7 @@ class PositionPenalties:
             evaluation_time_ms: int = None,
     ) -> float:
         """
-        Returns the martingale penalty for each miner
+        Returns the interpositional martingale score for each miner
 
         Args:
             positions: dict[str, list[Position]] - the list of positions with translated leverage
@@ -146,6 +146,40 @@ class PositionPenalties:
         cumulative_leverage_positions = PositionUtils.cumulative_leverage_position(positions, evaluation_time_ms)
         return PositionPenalties.martingale_percentile(cumulative_leverage_positions)
         # return FunctionalUtils.martingale_score(martingale_metrics, cumulative_leverage_positions)
+
+    @staticmethod
+    def interpositional_martingale_penalty(
+            positions: list[Position],
+            evaluation_time_ms: int = None
+    ) -> float:
+        """
+        Returns the interpositional martingale penalty for each miner
+
+        Args:
+            positions: dict[str, list[Position]] - the list of positions with translated leverage
+        """
+        martingale_score = PositionPenalties.interpositional_martingale_score(positions, evaluation_time_ms)
+        return FunctionalUtils.sigmoid(
+            martingale_score,
+            ValiConfig.INTERPOSITIONAL_MARTINGALE_SHIFT,
+            ValiConfig.INTERPOSITIONAL_MARTINGALE_SPREAD
+        )
+
+    @staticmethod
+    def interpositional_martingale_score(
+            positions: list[Position],
+            evaluation_time_ms: int = None,
+    ) -> float:
+        """
+        Returns the martingale penalty for each miner
+
+        Args:
+            positions: dict[str, list[Position]] - the list of positions with translated leverage
+        """
+        condensed_positions = PositionUtils.condense_positions(positions)
+        return PositionPenalties.martingale_percentile(condensed_positions)
+        # return FunctionalUtils.martingale_score(martingale_metrics, cumulative_leverage_positions)
+
 
     # what we want to do is determine for each position is to determine the relative drawdown percentage
     @staticmethod
