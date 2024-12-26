@@ -2,7 +2,6 @@
 
 import numpy as np
 import copy
-import math
 
 from vali_objects.position import Position
 from vali_objects.vali_config import ValiConfig
