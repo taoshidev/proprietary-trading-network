@@ -511,46 +511,55 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
                     "value": omega_dict.get(miner_id),
                     "rank": omega_rank.get(miner_id),
                     "percentile": omega_percentile.get(miner_id),
+                    "overall_contribution": omega_percentile.get(miner_id) * ValiConfig.SCORING_OMEGA_WEIGHT,
                 },
                 "sharpe": {
                     "value": sharpe_dict.get(miner_id),
                     "rank": sharpe_rank.get(miner_id),
                     "percentile": sharpe_percentile.get(miner_id),
+                    "overall_contribution": sharpe_percentile.get(miner_id) * ValiConfig.SCORING_SHARPE_WEIGHT,
                 },
                 "sortino": {
                     "value": sortino_dict.get(miner_id),
                     "rank": sortino_rank.get(miner_id),
                     "percentile": sortino_percentile.get(miner_id),
+                    "overall_contribution": sortino_percentile.get(miner_id) * ValiConfig.SCORING_SORTINO_WEIGHT,
                 },
                 "statistical_confidence": {
                     "value": statistical_confidence_dict.get(miner_id),
                     "rank": statistical_confidence_rank.get(miner_id),
                     "percentile": statistical_confidence_percentile.get(miner_id),
+                    "overall_contribution": statistical_confidence_percentile.get(miner_id) * ValiConfig.SCORING_STATISTICAL_CONFIDENCE_WEIGHT,
                 },
                 "short_return": {
                     "value": short_return_dict.get(miner_id),
                     "rank": short_return_rank.get(miner_id),
                     "percentile": short_return_percentile.get(miner_id),
+                    "overall_contribution": 0,
                 },
                 "return": {
                     "value": return_dict.get(miner_id),
                     "rank": return_rank.get(miner_id),
                     "percentile": return_percentile.get(miner_id),
+                    "overall_contribution": 0,
                 },
                 "concentration": {
                     "value": concentration_dict.get(miner_id),
                     "rank": concentration_rank.get(miner_id),
                     "percentile": concentration_percentile.get(miner_id),
+                    "overall_contribution": 0,
                 },
                 "short_risk_adjusted_return_dict": {
                     "value": short_risk_adjusted_return_dict.get(miner_id),
                     "rank": short_risk_adjusted_return_rank.get(miner_id),
                     "percentile": short_risk_adjusted_return_percentile.get(miner_id),
+                    "overall_contribution": short_risk_adjusted_return_percentile.get(miner_id) * ValiConfig.SCORING_SHORT_RETURN_LOOKBACK_WEIGHT,
                 },
                 "risk_adjusted_return": {
                     "value": risk_adjusted_return_dict.get(miner_id),
                     "rank": risk_adjusted_return_rank.get(miner_id),
                     "percentile": risk_adjusted_return_percentile.get(miner_id),
+                    "overall_contribution": risk_adjusted_return_percentile.get(miner_id) * ValiConfig.SCORING_LONG_RETURN_LOOKBACK_WEIGHT,
                 }
             },
             "penalized_scores": {
