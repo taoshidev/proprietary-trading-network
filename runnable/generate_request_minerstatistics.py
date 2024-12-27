@@ -377,9 +377,6 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
     statistical_confidence_rank = rank_dictionary(statistical_confidence_dict)
     statistical_confidence_percentile = percentile_rank_dictionary(statistical_confidence_dict)
 
-    concentration_rank = rank_dictionary(concentration_dict)
-    concentration_percentile = percentile_rank_dictionary(concentration_dict)
-
     short_risk_adjusted_return_rank = rank_dictionary(short_risk_adjusted_return_dict)
     short_risk_adjusted_return_percentile = percentile_rank_dictionary(short_risk_adjusted_return_dict)
 
@@ -394,6 +391,22 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
     sharpe_penalized_dict = apply_penalties(sharpe_dict, miner_penalties)
     sharpe_penalized_rank = rank_dictionary(sharpe_penalized_dict)
     sharpe_penalized_percentile = percentile_rank_dictionary(sharpe_penalized_dict)
+
+    sortino_penalized_dict = apply_penalties(sortino_dict, miner_penalties)
+    sortino_penalized_rank = rank_dictionary(sortino_penalized_dict)
+    sortino_penalized_percentile = percentile_rank_dictionary(sortino_penalized_dict)
+
+    short_risk_adjusted_return_penalized_dict = apply_penalties(short_risk_adjusted_return_dict, miner_penalties)
+    short_risk_adjusted_return_penalized_rank = rank_dictionary(short_risk_adjusted_return_penalized_dict)
+    short_risk_adjusted_return_penalized_percentile = percentile_rank_dictionary(short_risk_adjusted_return_penalized_dict)
+
+    risk_adjusted_return_penalized_dict = apply_penalties(risk_adjusted_return_dict, miner_penalties)
+    risk_adjusted_return_penalized_rank = rank_dictionary(risk_adjusted_return_penalized_dict)
+    risk_adjusted_return_penalized_percentile = percentile_rank_dictionary(risk_adjusted_return_penalized_dict)
+
+    statistical_confidence_penalized_dict = apply_penalties(statistical_confidence_dict, miner_penalties)
+    statistical_confidence_penalized_rank = rank_dictionary(statistical_confidence_penalized_dict)
+    statistical_confidence_penalized_percentile = percentile_rank_dictionary(statistical_confidence_penalized_dict)
 
     # Here is the full list of data in frontend format
 
@@ -543,19 +556,13 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
                     "percentile": return_percentile.get(miner_id),
                     "overall_contribution": 0,
                 },
-                "concentration": {
-                    "value": concentration_dict.get(miner_id),
-                    "rank": concentration_rank.get(miner_id),
-                    "percentile": concentration_percentile.get(miner_id),
-                    "overall_contribution": 0,
-                },
-                "short_risk_adjusted_return_dict": {
+                "short-calmar": {
                     "value": short_risk_adjusted_return_dict.get(miner_id),
                     "rank": short_risk_adjusted_return_rank.get(miner_id),
                     "percentile": short_risk_adjusted_return_percentile.get(miner_id),
                     "overall_contribution": short_risk_adjusted_return_percentile.get(miner_id) * ValiConfig.SCORING_SHORT_RETURN_LOOKBACK_WEIGHT,
                 },
-                "risk_adjusted_return": {
+                "calmar": {
                     "value": risk_adjusted_return_dict.get(miner_id),
                     "rank": risk_adjusted_return_rank.get(miner_id),
                     "percentile": risk_adjusted_return_percentile.get(miner_id),
@@ -567,11 +574,37 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
                     "value": omega_penalized_dict.get(miner_id),
                     "rank": omega_penalized_rank.get(miner_id),
                     "percentile": omega_penalized_percentile.get(miner_id),
+                    "overall_contribution": omega_penalized_percentile.get(miner_id) * ValiConfig.SCORING_OMEGA_WEIGHT,
                 },
                 "sharpe": {
                     "value": sharpe_penalized_dict.get(miner_id),
                     "rank": sharpe_penalized_rank.get(miner_id),
                     "percentile": sharpe_penalized_percentile.get(miner_id),
+                    "overall_contribution": sharpe_penalized_percentile.get(miner_id) * ValiConfig.SCORING_SHARPE_WEIGHT,
+                },
+                "sortino": {
+                    "value": sortino_penalized_rank.get(miner_id),
+                    "rank": sortino_penalized_rank.get(miner_id),
+                    "percentile": sortino_penalized_percentile.get(miner_id),
+                    "overall_contribution": sortino_penalized_percentile.get(miner_id) * ValiConfig.SCORING_SORTINO_WEIGHT,
+                },
+                "statistical_confidence": {
+                    "value": statistical_confidence_penalized_dict.get(miner_id),
+                    "rank": statistical_confidence_penalized_rank.get(miner_id),
+                    "percentile": statistical_confidence_penalized_percentile.get(miner_id),
+                    "overall_contribution": statistical_confidence_penalized_percentile.get(miner_id) * ValiConfig.SCORING_STATISTICAL_CONFIDENCE_WEIGHT,
+                },
+                "short-calmar": {
+                    "value": short_risk_adjusted_return_penalized_dict.get(miner_id),
+                    "rank": short_risk_adjusted_return_penalized_rank.get(miner_id),
+                    "percentile": short_risk_adjusted_return_penalized_percentile.get(miner_id),
+                    "overall_contribution": short_risk_adjusted_return_penalized_percentile.get(miner_id) * ValiConfig.SCORING_SHORT_RETURN_LOOKBACK_WEIGHT,
+                },
+                "calmar": {
+                    "value": risk_adjusted_return_penalized_dict.get(miner_id),
+                    "rank": risk_adjusted_return_penalized_rank.get(miner_id),
+                    "percentile": risk_adjusted_return_penalized_percentile.get(miner_id),
+                    "overall_contribution": risk_adjusted_return_penalized_percentile.get(miner_id) * ValiConfig.SCORING_LONG_RETURN_LOOKBACK_WEIGHT,
                 }
             },
             "engagement": {
