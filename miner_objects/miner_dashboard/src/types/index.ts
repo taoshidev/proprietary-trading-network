@@ -64,6 +64,8 @@ export interface Scores {
   short_risk_adjusted_return_dict: Score;
   omega: Score;
   sharpe: Score;
+  calmar: Score;
+  "short-calmar": Score;
 }
 
 export interface Penalties {
@@ -90,6 +92,8 @@ export interface PenalizedScores {
   sharpe: Score;
   risk_adjusted_return: Score;
   short_risk_adjusted_return: Score;
+  calmar: Score;
+  "short-calmar": Score;
 }
 
 export interface Drawdowns {

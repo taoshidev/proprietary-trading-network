@@ -29,7 +29,7 @@ export const Checkpoints = ({ statistics }: CheckpointsProps) => {
         <SimpleGrid mb="lg" cols={4}>
           <StatCard
             title="Risk-Adjusted Return"
-            item={scores.risk_adjusted_return}
+            item={scores.calmar}
             isPercentage={true}
             sigFigs={2}
             tooltipText="Risk-Adjusted Return measures the returns from all closed positions or open positions in loss over 90 days and normalizes by the drawdown used to capture these returns."
@@ -37,7 +37,7 @@ export const Checkpoints = ({ statistics }: CheckpointsProps) => {
 
           <StatCard
             title="Short-Term Risk-Adjusted Return"
-            item={scores.short_risk_adjusted_return_dict}
+            item={scores["short-calmar"]}
             isPercentage={true}
             sigFigs={2}
             tooltipText="Similar to the Risk-Adjusted Returns, Short-Term Risk-Adjusted Return differs in that it only considers positions closed within the past 5 days or open positions in loss."
@@ -125,6 +125,22 @@ export const Checkpoints = ({ statistics }: CheckpointsProps) => {
 
       <Box mb="xl">
         <SimpleGrid mb="lg" cols={4}>
+          <StatCard
+            title="Penalized Risk-Adjusted Return"
+            item={penalized_scores.calmar}
+            isPercentage={true}
+            sigFigs={3}
+            tooltipText="This is the final risk-adjusted return after applying all penalties."
+          />
+
+          <StatCard
+            title="Penalized Short-Term Risk-Adjusted Return"
+            item={penalized_scores["short-calmar"]}
+            isPercentage={true}
+            sigFigs={3}
+            tooltipText="This is the final short-term risk-adjusted return after applying all penalties."
+          />
+
           <StatCard
             title="Penalized Omega Ratio"
             item={penalized_scores.omega}
