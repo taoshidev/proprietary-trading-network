@@ -28,7 +28,7 @@ export const Checkpoints = ({ statistics }: CheckpointsProps) => {
         </Title>
         <SimpleGrid mb="lg" cols={4}>
           <StatCard
-            title="Risk-Adjusted Return"
+            title="Calmar"
             item={scores.calmar}
             isPercentage={true}
             sigFigs={2}
@@ -36,7 +36,7 @@ export const Checkpoints = ({ statistics }: CheckpointsProps) => {
           />
 
           <StatCard
-            title="Short-Term Risk-Adjusted Return"
+            title="Short Calmar"
             item={scores["short-calmar"]}
             isPercentage={true}
             sigFigs={2}
@@ -126,7 +126,7 @@ export const Checkpoints = ({ statistics }: CheckpointsProps) => {
       <Box mb="xl">
         <SimpleGrid mb="lg" cols={4}>
           <StatCard
-            title="Penalized Risk-Adjusted Return"
+            title="Penalized Calmar"
             item={penalized_scores.calmar}
             isPercentage={true}
             sigFigs={3}
@@ -134,7 +134,7 @@ export const Checkpoints = ({ statistics }: CheckpointsProps) => {
           />
 
           <StatCard
-            title="Penalized Short-Term Risk-Adjusted Return"
+            title="Penalized Short Calmar"
             item={penalized_scores["short-calmar"]}
             isPercentage={true}
             sigFigs={3}
