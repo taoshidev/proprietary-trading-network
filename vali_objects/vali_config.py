@@ -177,7 +177,7 @@ class ValiConfig:
     # Distributional statistics
     TOP_MINER_BENEFIT = 0.90
     TOP_MINER_PERCENT = 0.40
-    SOFTMAX_TEMPERATURE = 0.2
+    SOFTMAX_TEMPERATURE = 0.06
 
     # Qualifications to be a trusted validator sending checkpoints
     TOP_N_CHECKPOINTS = 10

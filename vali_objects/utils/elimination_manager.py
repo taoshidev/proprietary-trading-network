@@ -6,6 +6,7 @@ from time_util.time_util import TimeUtil
 from vali_objects.vali_config import ValiConfig
 from shared_objects.cache_controller import CacheController
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
+from vali_objects.utils.subtensor_weight_setter import SubtensorWeightSetter
 
 import bittensor as bt
 
@@ -33,6 +34,7 @@ class EliminationManager(CacheController):
             self.eliminations = self.get_eliminations_from_disk()
         # self._handle_plagiarism_eliminations()
         self._delete_eliminated_expired_miners()
+        self._eliminate_MDD()
         self.set_last_update_time()
 
     def _handle_plagiarism_eliminations(self):
@@ -109,4 +111,53 @@ class EliminationManager(CacheController):
                     bt.logging.info(f"Zombie miner dir removed [{miner_dir}]")
                 except FileNotFoundError:
                     bt.logging.info(f"Zombie miner dir not found. Already deleted. [{miner_dir}]")
+
+    def _eliminate_MDD(self):
+        """
+        Checks the mdd of each miner and eliminates any miners that surpass MAX_TOTAL_DRAWDOWN
+        """
+        bt.logging.debug("checking for maximum drawdown.")
+        if self.shutdown_dict:
+            return
+
+        subtensor_weight_setter = SubtensorWeightSetter(
+            config=None,
+            wallet=None,
+            metagraph=None,
+            running_unit_tests=False
+        )
+
+        # Collect information from the disk and populate variables in memory
+        subtensor_weight_setter._refresh_eliminations_in_memory()
+        subtensor_weight_setter._refresh_challengeperiod_in_memory()
+
+        # Get the hotkeys
+        challengeperiod_testing_hotkeys = subtensor_weight_setter.challengeperiod_testing.keys()
+        challengeperiod_success_hotkeys = subtensor_weight_setter.challengeperiod_success.keys()
+
+        # full ledger of all miner hotkeys
+        all_miner_hotkeys = challengeperiod_success_hotkeys + challengeperiod_testing_hotkeys
+
+        filtered_ledger = subtensor_weight_setter.filtered_ledger(hotkeys=all_miner_hotkeys)
+
+        for miner_hotkey, ledger in filtered_ledger.items():
+            if self.shutdown_dict:
+                return
+            if self._hotkey_in_eliminations(miner_hotkey):
+                continue
+
+            miner_cps = ledger.cps
+            if miner_cps is None or len(miner_cps) == 0:
+                continue
+
+            miner_mdd = max([miner_cps.mdd for miner_cps in miner_cps])
+
+            if miner_mdd < ValiConfig.MAX_TOTAL_DRAWDOWN:
+                self.position_manager.handle_eliminated_miner(miner_hotkey, {})
+                self.append_elimination_row(miner_hotkey, -1, 'MAX_TOTAL_DRAWDOWN')
+                bt.logging.info(
+                    f"miner eliminated with hotkey [{miner_hotkey}] with drawdown [{miner_mdd}]")
+        with self.eliminations_lock:
+            self._write_eliminations_from_memory_to_disk()
+
 
