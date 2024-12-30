@@ -71,6 +71,10 @@ class Scoring:
             function=PositionPenalties.martingale_penalty,
             input_type=PenaltyInputType.POSITIONS
         ),
+        'interpositional_martingale': PenaltyConfig(
+            function=PositionPenalties.interpositional_martingale_penalty,
+            input_type=PenaltyInputType.POSITIONS
+        ),
     }
 
     @staticmethod
