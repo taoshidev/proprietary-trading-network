@@ -3,7 +3,7 @@ from copy import deepcopy
 
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.vali_dataclasses.order import Order
-from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerData
+from vali_objects.vali_dataclasses.perf_ledger import PerfLedger
 from tests.shared_objects.mock_classes import (
     MockMetagraph, MockChallengePeriodManager, MockPositionManager, MockPerfLedgerManager, MockCacheController
 )
@@ -115,7 +115,7 @@ class TestChallengePeriodIntegration(TestBase):
             miner: deepcopy(self.LOSING_LEDGER) for miner in self.FAILING_MINER_NAMES
         })
 
-        self.ledger_manager.save_perf_ledgers_to_disk(self.LEDGERS)
+        self.ledger_manager.write_perf_ledgers_to_disk(self.LEDGERS)
 
         # Build base positions
         self.POSITIONS = {}
@@ -259,8 +259,8 @@ class TestChallengePeriodIntegration(TestBase):
         ledgers = self.ledger_manager.load_perf_ledgers_from_disk()
 
         # First check that there is nothing on the miner
-        self.assertEqual(ledgers.get(self.DEFAULT_MINER_HOTKEY, PerfLedgerData().cps), PerfLedgerData().cps)
-        self.assertEqual(ledgers.get(self.DEFAULT_MINER_HOTKEY, len(PerfLedgerData().cps)), 0)
+        self.assertEqual(ledgers.get(self.DEFAULT_MINER_HOTKEY, PerfLedger().cps), PerfLedger().cps)
+        self.assertEqual(ledgers.get(self.DEFAULT_MINER_HOTKEY, len(PerfLedger().cps)), 0)
 
         # Check the failing criteria initially
         failing_criteria, _ = self.challengeperiod_manager.screen_failing_criteria(
@@ -414,7 +414,7 @@ class TestChallengePeriodIntegration(TestBase):
         self.assertTrue(len(self.challengeperiod_manager.challengeperiod_success) == 0)
 
         # Now add perf ledgers to check that adding miners without positions still doesn't add them
-        self.ledger_manager.save_perf_ledgers_to_disk(self.LEDGERS)
+        self.ledger_manager.write_perf_ledgers_to_disk(self.LEDGERS)
         self.challengeperiod_manager._add_challengeperiod_testing_in_memory_and_disk(
             new_hotkeys=new_miners,
             eliminations=[],

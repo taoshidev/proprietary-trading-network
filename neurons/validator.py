@@ -141,14 +141,19 @@ class Validator:
         bt.logging.info(f"Metagraph: {self.metagraph}")
 
         #force_validator_to_restore_from_checkpoint(self.wallet.hotkey.ss58_address, self.metagraph, self.config, self.secrets)
-
+        self.position_syncer = PositionSyncer(shutdown_dict=shutdown_dict, signal_sync_lock=self.signal_sync_lock,
+                                              signal_sync_condition=self.signal_sync_condition,
+                                              n_orders_being_processed=self.n_orders_being_processed)
+        self.perf_ledger_manager = PerfLedgerManager(self.metagraph, shutdown_dict=shutdown_dict,
+                                                     position_syncer=self.position_syncer)
         self.position_manager = PositionManager(metagraph=self.metagraph, config=self.config,
                                                 perform_price_adjustment=False,
                                                 live_price_fetcher=self.live_price_fetcher,
                                                 perform_fee_structure_update=False,
                                                 perform_order_corrections=True,
                                                 apply_corrections_template=False,
-                                                perform_compaction=True)
+                                                perform_compaction=True,
+                                                perf_ledger_manager=self.perf_ledger_manager)
 
 
         self.metagraph_updater = MetagraphUpdater(self.config, self.metagraph, self.wallet.hotkey.ss58_address,
@@ -168,9 +173,7 @@ class Validator:
             )
             exit()
 
-        self.position_syncer = PositionSyncer(shutdown_dict=shutdown_dict, signal_sync_lock=self.signal_sync_lock,
-                                              signal_sync_condition=self.signal_sync_condition,
-                                              n_orders_being_processed=self.n_orders_being_processed)
+
         self.p2p_syncer = P2PSyncer(wallet=self.wallet, metagraph=self.metagraph, is_testnet=not self.is_mainnet,
                                     shutdown_dict=shutdown_dict, signal_sync_lock=self.signal_sync_lock,
                                     signal_sync_condition=self.signal_sync_condition,
@@ -179,10 +182,10 @@ class Validator:
         self.checkpoint_lock = threading.Lock()
         self.encoded_checkpoint = ""
         self.last_checkpoint_time = 0
-        self.timestamp_manager = TimestampManager(config=self.config, metagraph=self.metagraph, hotkey=self.wallet.hotkey.ss58_address)
+        self.timestamp_manager = TimestampManager(config=self.config, metagraph=self.metagraph,
+                                                  hotkey=self.wallet.hotkey.ss58_address)
 
-        self.perf_ledger_manager = PerfLedgerManager(self.metagraph, shutdown_dict=shutdown_dict, position_syncer=self.position_syncer)
-        # Start the perf ledger updater loop in its own thread
+        # Start the perf ledger updater loop in its own thread. Make sure it happens after the position manager has chances to make any fixes
         self.perf_ledger_updater_thread = threading.Thread(target=self.perf_ledger_manager.run_update_loop, daemon=True)
         self.perf_ledger_updater_thread.start()
 
@@ -279,8 +282,8 @@ class Validator:
 
         self.mdd_checker = MDDChecker(self.config, self.metagraph, self.position_manager, self.eliminations_lock,
                                       live_price_fetcher=self.live_price_fetcher, shutdown_dict=shutdown_dict)
-        self.weight_setter = SubtensorWeightSetter(self.config, self.wallet, self.metagraph)
-        self.challengeperiod_manager = ChallengePeriodManager(self.config, self.metagraph)
+        self.weight_setter = SubtensorWeightSetter(self.config, self.wallet, self.metagraph, perf_ledger_manager=self.perf_ledger_manager)
+        self.challengeperiod_manager = ChallengePeriodManager(self.config, self.metagraph, perf_ledger_manager=self.perf_ledger_manager)
 
         self.elimination_manager = EliminationManager(self.metagraph, self.position_manager, self.eliminations_lock)
 
