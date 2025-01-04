@@ -18,6 +18,12 @@ class EliminationManager(CacheController):
     we may need to handle the case where we allow the miner to participate again. In this case, the elimination
     would already be cleared and their weight would be calculated as normal.
     """
+    subtensor_weight_setter = SubtensorWeightSetter(
+        config=None,
+        wallet=None,
+        metagraph=None,
+        running_unit_tests=False
+    )
 
     def __init__(self, metagraph, position_manager, eliminations_lock, running_unit_tests=False, shutdown_dict=None):
         super().__init__(metagraph=metagraph)
@@ -32,9 +38,10 @@ class EliminationManager(CacheController):
         bt.logging.info("running elimination manager")
         with self.eliminations_lock:
             self.eliminations = self.get_eliminations_from_disk()
-        # self._handle_plagiarism_eliminations()
         self._delete_eliminated_expired_miners()
         self._eliminate_MDD()
+        # self._handle_plagiarism_eliminations()
+
         self.set_last_update_time()
 
     def _handle_plagiarism_eliminations(self):
@@ -120,15 +127,8 @@ class EliminationManager(CacheController):
         if self.shutdown_dict:
             return
 
-        subtensor_weight_setter = SubtensorWeightSetter(
-            config=None,
-            wallet=None,
-            metagraph=None,
-            running_unit_tests=False
-        )
-
+        subtensor_weight_setter = EliminationManager.subtensor_weight_setter
         # Collect information from the disk and populate variables in memory
-        subtensor_weight_setter._refresh_eliminations_in_memory()
         subtensor_weight_setter._refresh_challengeperiod_in_memory()
 
         # Get the hotkeys
@@ -139,7 +139,7 @@ class EliminationManager(CacheController):
         all_miner_hotkeys = challengeperiod_success_hotkeys + challengeperiod_testing_hotkeys
 
         filtered_ledger = subtensor_weight_setter.filtered_ledger(hotkeys=all_miner_hotkeys)
-
+        update_made = False
         for miner_hotkey, ledger in filtered_ledger.items():
             if self.shutdown_dict:
                 return
@@ -154,10 +154,14 @@ class EliminationManager(CacheController):
 
             if miner_mdd < ValiConfig.MAX_TOTAL_DRAWDOWN:
                 self.position_manager.handle_eliminated_miner(miner_hotkey, {})
-                self.append_elimination_row(miner_hotkey, -1, 'MAX_TOTAL_DRAWDOWN')
+                self.append_elimination_row(miner_hotkey, miner_mdd, 'MAX_TOTAL_DRAWDOWN')
+
+                update_made = True
                 bt.logging.info(
                     f"miner eliminated with hotkey [{miner_hotkey}] with drawdown [{miner_mdd}]")
-        with self.eliminations_lock:
-            self._write_eliminations_from_memory_to_disk()
+
+        if update_made:
+            with self.eliminations_lock:
+                self._write_eliminations_from_memory_to_disk()
 
 
