@@ -167,9 +167,8 @@ def generate_request_core(time_now:int, selected_miner_hotkeys: List[str] = None
     challengeperiod_success_dictionary = subtensor_weight_setter.challengeperiod_success
 
     try:
-        all_miner_hotkeys:list = ValiBkpUtils.get_directories_in_dir(
-            ValiBkpUtils.get_miner_dir()
-        )
+        if not os.path.exists(ValiBkpUtils.get_miner_dir()):
+            raise FileNotFoundError
     except FileNotFoundError:
         raise Exception(
             f"directory for miners doesn't exist "
@@ -177,7 +176,11 @@ def generate_request_core(time_now:int, selected_miner_hotkeys: List[str] = None
         )
 
     # only return miner hotkeys if specified
-    if selected_miner_hotkeys is not None:
+    if selected_miner_hotkeys is None:
+        all_miner_hotkeys: list = ValiBkpUtils.get_directories_in_dir(
+            ValiBkpUtils.get_miner_dir()
+        )
+    else:
         all_miner_hotkeys = selected_miner_hotkeys
 
     # we won't be able to query for eliminated hotkeys from challenge period

@@ -1,4 +1,3 @@
-import asyncio
 import socket
 
 import bittensor as bt
@@ -23,12 +22,12 @@ class Dashboard:
         self.is_testnet = is_testnet
         self.port = self.get_next_unused_port(MinerConfig.DASHBOARD_API_PORT, MinerConfig.DASHBOARD_API_PORT+100)
 
-        self.miner_data = {}
         self.dash_rate_limiter = RateLimiter(max_requests_per_window=1, rate_limit_window_duration_seconds=60)
 
         self.app = FastAPI()
         self._add_cors_middleware()
         self._setup_routes()
+        self.miner_data = {"statistics": {"data": []}, "positions": {}}
 
     def _add_cors_middleware(self):
         # allow the connection from the frontend
@@ -53,15 +52,13 @@ class Dashboard:
             allowed, wait_time = self.dash_rate_limiter.is_allowed(self.wallet.hotkey.ss58_address)
             if not allowed:
                 bt.logging.info(f"Rate limited. Please wait {wait_time} seconds before refreshing.")
-                if self.miner_data:
-                    return self.miner_data
-
-            asyncio.run(self.get_stats_positions_from_validator())
-            if self.miner_data:
                 return self.miner_data
-            else:
-                empty_data = {"statistics": {"data": []}, "positions": {}}
-                return empty_data
+
+            success = self.refresh_validator_dash_data()
+            if not success:
+                bt.logging.info("No data received from validator. Setting and returning empty data.")
+
+            return self.miner_data
 
     def get_next_unused_port(self, start, stop):
         """
@@ -85,29 +82,36 @@ class Dashboard:
     def run(self):
         uvicorn.run(self.app, host="127.0.0.1", port=self.port)
 
-    async def get_stats_positions_from_validator(self):
+    def refresh_validator_dash_data(self) -> bool:
         """
         get miner stats from validator
         """
+        success = False
         dendrite = bt.dendrite(wallet=self.wallet)
+        error_messages = []
         if self.is_testnet:
             validator_axons = self.metagraph.axons
         else:
             validator_axons = [n.axon_info for n in self.metagraph.neurons if n.hotkey == "5FFApaS75bv5pJHfAp2FVLBj9ZaXuFDjEypsaBNc1wCfe52v"]  # RT21
-
         try:
             bt.logging.info("Dashboard stats request processing")
             miner_dash_synapse = template.protocol.GetDashData()
-            validator_response = await dendrite.forward(axons=validator_axons, synapse=miner_dash_synapse, timeout=5)
-
+            validator_response = dendrite.query(axons=validator_axons, synapse=miner_dash_synapse, timeout=15)
             for response in validator_response:
                 if response.successfully_processed:
                     self.miner_data = response.data
-                    bt.logging.info("Dashboard stats request succeeded")
+                    success = True
                     break
                 else:
                     if response.error_message:
-                        bt.logging.info(f"Dashboard stats request failed with error [{response.error_message}]")
+                        error_messages.append(response.error_message)
         except Exception as e:
             bt.logging.info(
                 f"Unable to receive dashboard info from RT21 with error [{e}]")
+
+        if success:
+            bt.logging.info("Dashboard stats request succeeded")
+        else:
+            bt.logging.info(f"Dashboard stats request failed with errors [{error_messages}]")
+
+        return success
