@@ -402,7 +402,7 @@ class Validator:
         while not shutdown_dict:
             try:
                 current_time = TimeUtil.now_in_millis()
-                #self.position_syncer.sync_positions_with_cooldown(self.auto_sync)
+                self.position_syncer.sync_positions_with_cooldown(self.auto_sync)
                 self.mdd_checker.mdd_check()
                 self.challengeperiod_manager.refresh(current_time=current_time)
                 self.elimination_manager.process_eliminations()
