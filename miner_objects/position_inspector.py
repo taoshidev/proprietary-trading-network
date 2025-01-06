@@ -39,7 +39,7 @@ class PositionInspector:
         # Right now bittensor has no functionality to know if a hotkey 100% corresponds to a validator
         # Revisit this in the future.
         if self.is_testnet:
-            return self.metagraph.axons
+            return [n.axon_info for n in self.metagraph.neurons if n.hotkey == '5EALv1dv2yMFYQrxiUQNd41iCTYqXpXAK6YoEh3KL3oxhzF7']
         else:
             return [n.axon_info for n in self.metagraph.neurons
                     if n.stake > bt.Balance(MinerConfig.STAKE_MIN)
@@ -52,7 +52,7 @@ class PositionInspector:
         ret = []
         for validator, response in zip(remaining_validators_to_query, responses):
             v_trust = hotkey_to_v_trust.get(validator.hotkey, 0)
-            if response.error_message and v_trust >= MinerConfig.HIGH_V_TRUST_THRESHOLD:
+            if response.error_message:# and v_trust >= MinerConfig.HIGH_V_TRUST_THRESHOLD:
                 bt.logging.warning(f"Error getting positions from {validator}. v_trust {v_trust} Error message: {response.error_message}")
             if response.successfully_processed:
                 ret.append((validator, response.positions))
