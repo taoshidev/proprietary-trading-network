@@ -39,7 +39,7 @@ class PositionInspector:
         # Right now bittensor has no functionality to know if a hotkey 100% corresponds to a validator
         # Revisit this in the future.
         if self.is_testnet:
-            return self.metagraph.axons
+            return [n.axon_info for n in self.metagraph.neurons if n.axon_info.ip != MinerConfig.AXON_NO_IP]
         else:
             return [n.axon_info for n in self.metagraph.neurons
                     if n.stake > bt.Balance(MinerConfig.STAKE_MIN)
