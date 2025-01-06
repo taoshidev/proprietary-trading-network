@@ -1,4 +1,5 @@
 # developer: trdougherty
+import os
 from typing import List
 import copy
 import numpy as np
@@ -152,9 +153,8 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
     challengeperiod_success_hotkeys = list(challengeperiod_success_dictionary.keys())
 
     try:
-        all_miner_hotkeys: list = ValiBkpUtils.get_directories_in_dir(
-            ValiBkpUtils.get_miner_dir()
-        )
+        if not os.path.exists(ValiBkpUtils.get_miner_dir()):
+            raise FileNotFoundError
     except FileNotFoundError:
         raise Exception(
             f"directory for miners doesn't exist "
