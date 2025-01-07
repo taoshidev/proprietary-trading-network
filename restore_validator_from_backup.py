@@ -82,22 +82,21 @@ def regenerate_miner_positions(perform_backup=True, backup_from_data_dir=False, 
             bt.logging.info(f"    {key}: {value}")
     backup_creation_time_ms = data['created_timestamp_ms']
 
+    challengeperiod_manager = ChallengePeriodManager(config=None, metagraph=None)
     if DEBUG:
         from vali_objects.utils.live_price_fetcher import LivePriceFetcher
         secrets = ValiUtils.get_secrets()
 
         live_price_fetcher = LivePriceFetcher(secrets=secrets, disable_ws=True)
-        position_manager = PositionManager(live_price_fetcher=live_price_fetcher, perform_price_adjustment=False,
-                                           perform_order_corrections=True, generate_correction_templates=False,
-                                           apply_corrections_template=False, perform_fee_structure_update=False)
+        position_manager = PositionManager(live_price_fetcher=live_price_fetcher,
+                                           perform_order_corrections=True,
+                                           challengeperiod_manager=challengeperiod_manager)
         #position_manager.perform_price_recalibration(time_per_batch_s=10000000)
         perf_ledger_manager = PerfLedgerManager(live_price_fetcher=live_price_fetcher, metagraph=None)
     else:
         position_manager = PositionManager()
-        position_manager.init_cache_files()
         perf_ledger_manager = PerfLedgerManager(metagraph=None)
 
-    challengeperiod_manager = ChallengePeriodManager(config=None, metagraph=None)
     # We want to get the smallest processed_ms timestamp across all positions in the backup and then compare this to
     # the smallest processed_ms timestamp across all orders on the local filesystem. If the backup smallest timestamp is
     # older than the local smallest timestamp, we will not regenerate the positions. Similarly for the oldest timestamp.
@@ -152,7 +151,7 @@ def regenerate_miner_positions(perform_backup=True, backup_from_data_dir=False, 
         backup_validation_directory()
 
     bt.logging.info(f"regenerating {len(data['positions'].keys())} hotkeys")
-    position_manager.clear_all_miner_positions_from_disk()
+    position_manager.clear_all_miner_positions()
     for hotkey, json_positions in data['positions'].items():
         # sort positions by close_ms otherwise, writing a closed position after an open position for the same
         # trade pair will delete the open position
@@ -164,7 +163,7 @@ def regenerate_miner_positions(perform_backup=True, backup_from_data_dir=False, 
         ValiBkpUtils.make_dir(ValiBkpUtils.get_miner_all_positions_dir(hotkey))
         for p_obj in positions:
             #bt.logging.info(f'creating position {p_obj}')
-            position_manager.save_miner_position_to_disk(p_obj)
+            position_manager.save_miner_position(p_obj)
 
         # Validate that the positions were written correctly
         disk_positions = position_manager.get_all_miner_positions(hotkey, sort_positions=True)
@@ -182,7 +181,7 @@ def regenerate_miner_positions(perform_backup=True, backup_from_data_dir=False, 
 
     perf_ledgers = data.get('perf_ledgers', {})
     bt.logging.info(f"regenerating {len(perf_ledgers)} perf ledgers")
-    perf_ledger_manager.write_perf_ledgers_to_disk_and_memory(perf_ledgers)
+    perf_ledger_manager.save_perf_ledgers(perf_ledgers)
 
     ## Now sync challenge period with the disk
     challengeperiod = data.get('challengeperiod', {})

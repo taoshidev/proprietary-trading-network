@@ -17,7 +17,6 @@ from vali_objects.utils.vali_utils import ValiUtils
 from vali_objects.vali_dataclasses.order import Order, ORDER_SRC_ELIMINATION_FLAT, ORDER_SRC_DEPRECATION_FLAT
 from time_util.time_util import MS_IN_8_HOURS, MS_IN_24_HOURS
 
-
 class TestPositions(TestBase):
 
     def setUp(self):
@@ -36,12 +35,11 @@ class TestPositions(TestBase):
         )
         self.mock_metagraph = MockMetagraph([self.DEFAULT_MINER_HOTKEY])
         self.position_manager = PositionManager(metagraph=self.mock_metagraph, running_unit_tests=True, live_price_fetcher=self.live_price_fetcher)
-        self.position_manager.init_cache_files()
-        self.position_manager.clear_all_miner_positions_from_disk()
+        self.position_manager.clear_all_miner_positions()
 
-    def add_order_to_position_and_save_to_disk(self, position, order):
+    def add_order_to_position_and_save(self, position, order):
         position.add_order(order, self.position_manager.calculate_net_portfolio_leverage(self.DEFAULT_MINER_HOTKEY))
-        self.position_manager.save_miner_position_to_disk(position)
+        self.position_manager.save_miner_position(position)
 
     def _find_disk_position_from_memory_position(self, position):
         for disk_position in self.position_manager.get_all_miner_positions(position.miner_hotkey):
@@ -191,7 +189,7 @@ class TestPositions(TestBase):
                    processed_ms=FEE_V6_TIME_MS + MS_IN_8_HOURS + 1000,
                    order_uuid="2000")
 
-        self.add_order_to_position_and_save_to_disk(position, o1)
+        self.add_order_to_position_and_save(position, o1)
         self.validate_intermediate_position_state(position, {
             'orders': [o1],
             'position_type': OrderType.LONG,
@@ -208,7 +206,7 @@ class TestPositions(TestBase):
             'position_uuid': self.DEFAULT_POSITION_UUID
         })
 
-        self.add_order_to_position_and_save_to_disk(position, o2)
+        self.add_order_to_position_and_save(position, o2)
         self.validate_intermediate_position_state(position, {
             'orders': [o1, o2],
             'position_type': OrderType.FLAT,
@@ -287,7 +285,7 @@ class TestPositions(TestBase):
                    processed_ms=FEE_V6_TIME_MS + 10 * MS_IN_8_HOURS,
                    order_uuid="2000")
 
-        self.add_order_to_position_and_save_to_disk(position, o1)
+        self.add_order_to_position_and_save(position, o1)
         self.validate_intermediate_position_state(position, {
             'orders': [o1],
             'position_type': OrderType.LONG,
@@ -304,7 +302,7 @@ class TestPositions(TestBase):
             'position_uuid': self.DEFAULT_POSITION_UUID
         })
 
-        self.add_order_to_position_and_save_to_disk(position, o2)
+        self.add_order_to_position_and_save(position, o2)
         self.validate_intermediate_position_state(position, {
             'orders': [o1, o2],
             'position_type': OrderType.FLAT,
@@ -340,7 +338,7 @@ class TestPositions(TestBase):
                    processed_ms=FEE_V6_TIME_MS + 3 * MS_IN_8_HOURS + 1000,
                    order_uuid="2000")
 
-        self.add_order_to_position_and_save_to_disk(position, o1)
+        self.add_order_to_position_and_save(position, o1)
         self.assertAlmostEqual(position.get_carry_fee(o1.processed_ms)[0], 1.0)
 
         self.validate_intermediate_position_state(position, {
@@ -359,7 +357,7 @@ class TestPositions(TestBase):
             'position_uuid': self.DEFAULT_POSITION_UUID
         })
 
-        self.add_order_to_position_and_save_to_disk(position, o2)
+        self.add_order_to_position_and_save(position, o2)
         self.validate_intermediate_position_state(position, {
             'orders': [o1, o2],
             'position_type': OrderType.FLAT,
@@ -394,7 +392,7 @@ class TestPositions(TestBase):
                    processed_ms=2000,
                    order_uuid="2000")
 
-        self.add_order_to_position_and_save_to_disk(position, o1)
+        self.add_order_to_position_and_save(position, o1)
         self.validate_intermediate_position_state(position, {
             'orders': [o1],
             'position_type': OrderType.LONG,
@@ -411,7 +409,7 @@ class TestPositions(TestBase):
             'position_uuid': self.DEFAULT_POSITION_UUID
         })
 
-        self.add_order_to_position_and_save_to_disk(position, o2)
+        self.add_order_to_position_and_save(position, o2)
         self.validate_intermediate_position_state(position, {
             'orders': [o1, o2],
             'position_type': OrderType.FLAT,
@@ -446,7 +444,7 @@ class TestPositions(TestBase):
                    processed_ms=2000,
                    order_uuid="2000")
 
-        self.add_order_to_position_and_save_to_disk(position, o1)
+        self.add_order_to_position_and_save(position, o1)
         self.validate_intermediate_position_state(position, {
             'orders': [o1],
             'position_type': OrderType.SHORT,
@@ -463,7 +461,7 @@ class TestPositions(TestBase):
             'position_uuid': self.DEFAULT_POSITION_UUID
         })
 
-        self.add_order_to_position_and_save_to_disk(position, o2)
+        self.add_order_to_position_and_save(position, o2)
         self.validate_intermediate_position_state(position, {
             'orders': [o1, o2],
             'position_type': OrderType.FLAT,
@@ -503,7 +501,7 @@ class TestPositions(TestBase):
                    processed_ms=3000,
                    order_uuid="3000")
 
-        self.add_order_to_position_and_save_to_disk(position, o1)
+        self.add_order_to_position_and_save(position, o1)
         self.validate_intermediate_position_state(position, {
             'orders': [o1],
             'position_type': OrderType.SHORT,
@@ -520,7 +518,7 @@ class TestPositions(TestBase):
             'position_uuid': self.DEFAULT_POSITION_UUID
         })
 
-        self.add_order_to_position_and_save_to_disk(position, o2)
+        self.add_order_to_position_and_save(position, o2)
         self.validate_intermediate_position_state(position, {
             'orders': [o1, o2],
             'position_type': OrderType.FLAT,
@@ -539,7 +537,7 @@ class TestPositions(TestBase):
 
         # Orders post-liquidation are ignored
         with self.assertRaises(ValueError):
-            self.add_order_to_position_and_save_to_disk(position, o3)
+            self.add_order_to_position_and_save(position, o3)
         self.validate_intermediate_position_state(position, {
             'orders': [o1, o2],
             'position_type': OrderType.FLAT,
@@ -579,7 +577,7 @@ class TestPositions(TestBase):
                    order_uuid="3000")
 
         position = deepcopy(self.default_position)
-        self.add_order_to_position_and_save_to_disk(position, o1)
+        self.add_order_to_position_and_save(position, o1)
         self.validate_intermediate_position_state(position, {
             'orders': [o1],
             'position_type': OrderType.LONG,
@@ -596,7 +594,7 @@ class TestPositions(TestBase):
             'position_uuid': self.DEFAULT_POSITION_UUID
         })
 
-        self.add_order_to_position_and_save_to_disk(position, o2)
+        self.add_order_to_position_and_save(position, o2)
         self.validate_intermediate_position_state(position, {
             'orders': [o1, o2],
             'position_type': OrderType.FLAT,
@@ -615,7 +613,7 @@ class TestPositions(TestBase):
 
         # Orders post-liquidation are ignored
         with self.assertRaises(ValueError):
-            self.add_order_to_position_and_save_to_disk(position, o3)
+            self.add_order_to_position_and_save(position, o3)
         self.validate_intermediate_position_state(position, {
             'orders': [o1, o2],
             'position_type': OrderType.FLAT,
@@ -650,7 +648,7 @@ class TestPositions(TestBase):
                    order_uuid="2000")
 
         position = deepcopy(self.default_position)
-        self.add_order_to_position_and_save_to_disk(position, o1)
+        self.add_order_to_position_and_save(position, o1)
         self.validate_intermediate_position_state(position, {
             'orders': [o1],
             'position_type': OrderType.SHORT,
@@ -667,7 +665,7 @@ class TestPositions(TestBase):
             'position_uuid': self.DEFAULT_POSITION_UUID
         })
 
-        self.add_order_to_position_and_save_to_disk(position, o2)
+        self.add_order_to_position_and_save(position, o2)
         self.validate_intermediate_position_state(position, {
             'orders': [o1, o2],
             'position_type': OrderType.FLAT,
@@ -832,7 +830,7 @@ class TestPositions(TestBase):
                    processed_ms=5000,
                    order_uuid="5000")
 
-        self.add_order_to_position_and_save_to_disk(position, o1)
+        self.add_order_to_position_and_save(position, o1)
         self.validate_intermediate_position_state(position, {
             'orders': [o1],
             'position_type': OrderType.LONG,
@@ -849,7 +847,7 @@ class TestPositions(TestBase):
             'position_uuid': self.DEFAULT_POSITION_UUID
         })
 
-        self.add_order_to_position_and_save_to_disk(position, o2)
+        self.add_order_to_position_and_save(position, o2)
         self.validate_intermediate_position_state(position, {
             'orders': [o1, o2],
             'position_type': OrderType.LONG,
@@ -866,7 +864,7 @@ class TestPositions(TestBase):
             'position_uuid': self.DEFAULT_POSITION_UUID
         })
 
-        self.add_order_to_position_and_save_to_disk(position, o3)
+        self.add_order_to_position_and_save(position, o3)
         self.validate_intermediate_position_state(position, {
             'orders': [o1, o2, o3],
             'position_type': OrderType.FLAT,
@@ -900,7 +898,7 @@ class TestPositions(TestBase):
                    order_uuid="2000")
 
         position = deepcopy(self.default_position)
-        self.add_order_to_position_and_save_to_disk(position, o1)
+        self.add_order_to_position_and_save(position, o1)
         self.validate_intermediate_position_state(position, {
             'orders': [o1],
             'position_type': OrderType.LONG,
@@ -917,7 +915,7 @@ class TestPositions(TestBase):
             'position_uuid': self.DEFAULT_POSITION_UUID
         })
 
-        self.add_order_to_position_and_save_to_disk(position, o2)
+        self.add_order_to_position_and_save(position, o2)
         self.validate_intermediate_position_state(position, {
             'orders': [o1, o2],
             'position_type': OrderType.FLAT,
@@ -959,7 +957,7 @@ class TestPositions(TestBase):
                    order_uuid="5000")
 
         position = deepcopy(self.default_position)
-        self.add_order_to_position_and_save_to_disk(position, o1)
+        self.add_order_to_position_and_save(position, o1)
         self.validate_intermediate_position_state(position, {
             'orders': [o1],
             'position_type': OrderType.LONG,
@@ -976,7 +974,7 @@ class TestPositions(TestBase):
             'position_uuid': self.DEFAULT_POSITION_UUID
         })
 
-        self.add_order_to_position_and_save_to_disk(position, o2)
+        self.add_order_to_position_and_save(position, o2)
         self.validate_intermediate_position_state(position, {
             'orders': [o1, o2],
             'position_type': OrderType.LONG,
@@ -993,7 +991,7 @@ class TestPositions(TestBase):
             'position_uuid': self.DEFAULT_POSITION_UUID
         })
 
-        self.add_order_to_position_and_save_to_disk(position, o3)
+        self.add_order_to_position_and_save(position, o3)
         self.validate_intermediate_position_state(position, {
             'orders': [o1, o2, o3],
             'position_type': OrderType.LONG,
@@ -1046,11 +1044,11 @@ class TestPositions(TestBase):
                    order_uuid="5000")
         position = deepcopy(self.default_position)
 
-        self.add_order_to_position_and_save_to_disk(position, o1)
-        self.add_order_to_position_and_save_to_disk(position, o2)
-        self.add_order_to_position_and_save_to_disk(position, o3)
-        self.add_order_to_position_and_save_to_disk(position, o4)
-        self.add_order_to_position_and_save_to_disk(position, o5)
+        self.add_order_to_position_and_save(position, o1)
+        self.add_order_to_position_and_save(position, o2)
+        self.add_order_to_position_and_save(position, o3)
+        self.add_order_to_position_and_save(position, o4)
+        self.add_order_to_position_and_save(position, o5)
 
         self.validate_intermediate_position_state(position, {
             'orders': [o1, o2, o3, o4, o5],
@@ -1103,11 +1101,11 @@ class TestPositions(TestBase):
                    order_uuid="5000")
         position = deepcopy(self.default_position)
 
-        self.add_order_to_position_and_save_to_disk(position, o1)
-        self.add_order_to_position_and_save_to_disk(position, o2)
-        self.add_order_to_position_and_save_to_disk(position, o3)
-        self.add_order_to_position_and_save_to_disk(position, o4)
-        self.add_order_to_position_and_save_to_disk(position, o5)
+        self.add_order_to_position_and_save(position, o1)
+        self.add_order_to_position_and_save(position, o2)
+        self.add_order_to_position_and_save(position, o3)
+        self.add_order_to_position_and_save(position, o4)
+        self.add_order_to_position_and_save(position, o5)
 
         self.validate_intermediate_position_state(position, {
             'orders': [o1, o2, o3, o4, o5],
@@ -1160,11 +1158,11 @@ class TestPositions(TestBase):
                    order_uuid="5000")
         position = deepcopy(self.default_position)
 
-        self.add_order_to_position_and_save_to_disk(position, o1)
-        self.add_order_to_position_and_save_to_disk(position, o2)
-        self.add_order_to_position_and_save_to_disk(position, o3)
-        self.add_order_to_position_and_save_to_disk(position, o4)
-        self.add_order_to_position_and_save_to_disk(position, o5)
+        self.add_order_to_position_and_save(position, o1)
+        self.add_order_to_position_and_save(position, o2)
+        self.add_order_to_position_and_save(position, o3)
+        self.add_order_to_position_and_save(position, o4)
+        self.add_order_to_position_and_save(position, o5)
 
         self.validate_intermediate_position_state(position, {
             'orders': [o1, o2, o3, o4, o5],
@@ -1242,7 +1240,7 @@ class TestPositions(TestBase):
                    processed_ms=weekday_time_ms,
                    order_uuid="2000")
 
-        self.add_order_to_position_and_save_to_disk(position1, o1)
+        self.add_order_to_position_and_save(position1, o1)
         self.validate_intermediate_position_state(position1, {
             'orders': [o1],
             'position_type': OrderType.SHORT,
@@ -1259,7 +1257,7 @@ class TestPositions(TestBase):
             'position_uuid': self.DEFAULT_POSITION_UUID
         })
 
-        self.add_order_to_position_and_save_to_disk(position2, o2)
+        self.add_order_to_position_and_save(position2, o2)
         self.validate_intermediate_position_state(position2, {
             'orders': [o2],
             'position_type': OrderType.SHORT,
@@ -1307,9 +1305,9 @@ class TestPositions(TestBase):
                    processed_ms=LEVERAGE_BOUNDS_V2_START_TIME_MS + 1,
                    order_uuid="2000")
 
-        self.add_order_to_position_and_save_to_disk(position, o1)
+        self.add_order_to_position_and_save(position, o1)
         with self.assertRaises(ValueError):
-            self.add_order_to_position_and_save_to_disk(position, o2)
+            self.add_order_to_position_and_save(position, o2)
 
         self.validate_intermediate_position_state(position, {
             'orders': [o1],
@@ -1337,7 +1335,7 @@ class TestPositions(TestBase):
                    processed_ms=LEVERAGE_BOUNDS_V2_START_TIME_MS + 10,
                    order_uuid="3000")
 
-        self.add_order_to_position_and_save_to_disk(position, o3)
+        self.add_order_to_position_and_save(position, o3)
         self.validate_intermediate_position_state(position, {
             'orders': [o1, o3],
             'position_type': OrderType.LONG,
@@ -1370,9 +1368,9 @@ class TestPositions(TestBase):
                    processed_ms=LEVERAGE_BOUNDS_V2_START_TIME_MS + 1,
                    order_uuid="2000")
 
-        self.add_order_to_position_and_save_to_disk(position, o1)
+        self.add_order_to_position_and_save(position, o1)
         with self.assertRaises(ValueError):
-            self.add_order_to_position_and_save_to_disk(position, o2)
+            self.add_order_to_position_and_save(position, o2)
 
         self.assertEqual(position.max_leverage_seen(), ValiConfig.ORDER_MIN_LEVERAGE * 2)
         self.assertEqual(position.get_cumulative_leverage(), ValiConfig.ORDER_MIN_LEVERAGE * 2)
@@ -1384,7 +1382,7 @@ class TestPositions(TestBase):
                    processed_ms=LEVERAGE_BOUNDS_V2_START_TIME_MS + 10,
                    order_uuid="3000")
 
-        self.add_order_to_position_and_save_to_disk(position, o3)
+        self.add_order_to_position_and_save(position, o3)
         self.validate_intermediate_position_state(position, {
             'orders': [o1, o3],
             'position_type': OrderType.LONG,
@@ -1417,9 +1415,9 @@ class TestPositions(TestBase):
                    processed_ms=LEVERAGE_BOUNDS_V2_START_TIME_MS + 1,
                    order_uuid="2000")
 
-        self.add_order_to_position_and_save_to_disk(position, o1)
+        self.add_order_to_position_and_save(position, o1)
         with self.assertRaises(ValueError):
-            self.add_order_to_position_and_save_to_disk(position, o2)
+            self.add_order_to_position_and_save(position, o2)
 
         self.assertEqual(position.max_leverage_seen(), ValiConfig.ORDER_MIN_LEVERAGE * 2)
         self.assertEqual(position.get_cumulative_leverage(), ValiConfig.ORDER_MIN_LEVERAGE * 2)
@@ -1431,7 +1429,7 @@ class TestPositions(TestBase):
                    processed_ms=LEVERAGE_BOUNDS_V2_START_TIME_MS + 10,
                    order_uuid="3000")
 
-        self.add_order_to_position_and_save_to_disk(position, o3)
+        self.add_order_to_position_and_save(position, o3)
         self.validate_intermediate_position_state(position, {
             'orders': [o1, o3],
             'position_type': OrderType.SHORT,
@@ -1469,9 +1467,9 @@ class TestPositions(TestBase):
                    processed_ms=LEVERAGE_BOUNDS_V2_START_TIME_MS + 1,
                    order_uuid="2000")
 
-        self.add_order_to_position_and_save_to_disk(position, o1)
+        self.add_order_to_position_and_save(position, o1)
         with self.assertRaises(ValueError):
-            self.add_order_to_position_and_save_to_disk(position, o2)
+            self.add_order_to_position_and_save(position, o2)
 
         self.validate_intermediate_position_state(position, {
             'orders': [o1],
@@ -1499,7 +1497,7 @@ class TestPositions(TestBase):
                    processed_ms=LEVERAGE_BOUNDS_V2_START_TIME_MS + 10,
                    order_uuid="3000")
 
-        self.add_order_to_position_and_save_to_disk(position, o3)
+        self.add_order_to_position_and_save(position, o3)
         self.validate_intermediate_position_state(position, {
             'orders': [o1, o3],
             'position_type': OrderType.SHORT,
@@ -1540,7 +1538,7 @@ class TestPositions(TestBase):
         o2_clamped.leverage = 2
 
         for order in [o1, o2]:
-            self.add_order_to_position_and_save_to_disk(position, order)
+            self.add_order_to_position_and_save(position, order)
 
         self.validate_intermediate_position_state(position, {
             'orders': [o1, o2_clamped],
@@ -1581,7 +1579,7 @@ class TestPositions(TestBase):
         o2_clamped.leverage = TradePair.BTCUSD.max_leverage / 2
 
         for order in [o1, o2]:
-            self.add_order_to_position_and_save_to_disk(position, order)
+            self.add_order_to_position_and_save(position, order)
 
         self.validate_intermediate_position_state(position, {
             'orders': [o1, o2_clamped],
@@ -1621,9 +1619,9 @@ class TestPositions(TestBase):
                    processed_ms=2000,
                    order_uuid="2000")
 
-        self.add_order_to_position_and_save_to_disk(position, o1)
+        self.add_order_to_position_and_save(position, o1)
         with self.assertRaises(ValueError):
-            self.add_order_to_position_and_save_to_disk(position, o2)
+            self.add_order_to_position_and_save(position, o2)
 
         self.validate_intermediate_position_state(position, {
             'orders': [o1],
@@ -1660,9 +1658,9 @@ class TestPositions(TestBase):
                    processed_ms=LEVERAGE_BOUNDS_V2_START_TIME_MS + 2000,
                    order_uuid="2000")
 
-        self.add_order_to_position_and_save_to_disk(position, o1)
+        self.add_order_to_position_and_save(position, o1)
         with self.assertRaises(ValueError):
-            self.add_order_to_position_and_save_to_disk(position, o2)
+            self.add_order_to_position_and_save(position, o2)
 
         self.validate_intermediate_position_state(position, {
             'orders': [o1],
@@ -1705,7 +1703,7 @@ class TestPositions(TestBase):
         o2_clamped.leverage = -1.0 * (max_allowed_leverage - abs(o1.leverage))
 
         for order in [o1, o2]:
-            self.add_order_to_position_and_save_to_disk(position, order)
+            self.add_order_to_position_and_save(position, order)
 
         self.validate_intermediate_position_state(position, {
             'orders': [o1, o2_clamped],
@@ -1745,7 +1743,7 @@ class TestPositions(TestBase):
         o2_clamped.leverage = -1.0 * (TradePair.BTCUSD.max_leverage - abs(o1.leverage))
 
         for order in [o1, o2]:
-            self.add_order_to_position_and_save_to_disk(position, order)
+            self.add_order_to_position_and_save(position, order)
 
         self.validate_intermediate_position_state(position, {
             'orders': [o1, o2_clamped],
@@ -1781,12 +1779,12 @@ class TestPositions(TestBase):
                    processed_ms=LEVERAGE_BOUNDS_V2_START_TIME_MS + 2000,
                    order_uuid="2000")
 
-        self.add_order_to_position_and_save_to_disk(position, o1)
+        self.add_order_to_position_and_save(position, o1)
         # Ensure valueError is thrown. This position's leverage is too small to be conisdered valid.
         # Instead of clamping, this order should cause an error
 
         with self.assertRaises(ValueError):
-            self.add_order_to_position_and_save_to_disk(position, o2)
+            self.add_order_to_position_and_save(position, o2)
 
     def test_leverage_v1_clamping_skip_short_order(self):
         position = deepcopy(self.default_position)
@@ -1808,9 +1806,9 @@ class TestPositions(TestBase):
                    processed_ms=2000,
                    order_uuid="2000")
 
-        self.add_order_to_position_and_save_to_disk(position, o1)
+        self.add_order_to_position_and_save(position, o1)
         with self.assertRaises(ValueError):
-            self.add_order_to_position_and_save_to_disk(position, o2)
+            self.add_order_to_position_and_save(position, o2)
 
         self.validate_intermediate_position_state(position, {
             'orders': [o1],
@@ -1847,9 +1845,9 @@ class TestPositions(TestBase):
                    processed_ms=LEVERAGE_BOUNDS_V2_START_TIME_MS + 2000,
                    order_uuid="2000")
 
-        self.add_order_to_position_and_save_to_disk(position, o1)
+        self.add_order_to_position_and_save(position, o1)
         with self.assertRaises(ValueError):
-            self.add_order_to_position_and_save_to_disk(position, o2)
+            self.add_order_to_position_and_save(position, o2)
 
         self.validate_intermediate_position_state(position, {
             'orders': [o1],
@@ -1882,17 +1880,20 @@ class TestPositions(TestBase):
                    trade_pair=TradePair.AUDCAD,
                    processed_ms=leverage_utils.PORTFOLIO_LEVERAGE_BOUNDS_START_TIME_MS + 1000,
                    order_uuid="1000")
-        self.add_order_to_position_and_save_to_disk(position, o1)
+        self.add_order_to_position_and_save(position, o1)
+        self.position_manager.save_miner_position(position)
 
         position2 = deepcopy(self.default_position)
         position2.trade_pair = TradePair.BTCUSD
+        position2.position_uuid = self.DEFAULT_POSITION_UUID + "_2"
         o2 = Order(order_type=OrderType.LONG,
                    leverage=TradePair.BTCUSD.max_leverage,
                    price=100,
                    trade_pair=TradePair.BTCUSD,
                    processed_ms=leverage_utils.PORTFOLIO_LEVERAGE_BOUNDS_START_TIME_MS + 1000,
                    order_uuid="1000")
-        self.add_order_to_position_and_save_to_disk(position2, o2)
+        self.add_order_to_position_and_save(position2, o2)
+        self.position_manager.save_miner_position(position2)
         self.assertEqual(self.position_manager.calculate_net_portfolio_leverage(self.DEFAULT_MINER_HOTKEY), 10.0)
 
         position3 = deepcopy(self.default_position)
@@ -1905,7 +1906,7 @@ class TestPositions(TestBase):
                    order_uuid="2000")
 
         with self.assertRaises(ValueError):
-            self.add_order_to_position_and_save_to_disk(position3, o3)
+            self.add_order_to_position_and_save(position3, o3)
             self.assertEqual(len(position3.orders), 0)
 
     def test_long_order_crypto_leverage_exceed_portfolio_limit(self):
@@ -1920,9 +1921,11 @@ class TestPositions(TestBase):
                    trade_pair=TradePair.AUDCAD,
                    processed_ms=leverage_utils.PORTFOLIO_LEVERAGE_BOUNDS_START_TIME_MS + 1000,
                    order_uuid="1000")
-        self.add_order_to_position_and_save_to_disk(position, o1)
+        self.add_order_to_position_and_save(position, o1)
+        self.position_manager.save_miner_position(position)
 
         position2 = deepcopy(self.default_position)
+        position2.position_uuid = self.DEFAULT_POSITION_UUID + "_2"
         position2.trade_pair=TradePair.BTCUSD
         o2 = Order(order_type=OrderType.LONG,
                    leverage=TradePair.BTCUSD.max_leverage - 0.1,
@@ -1930,11 +1933,14 @@ class TestPositions(TestBase):
                    trade_pair=TradePair.BTCUSD,
                    processed_ms=leverage_utils.PORTFOLIO_LEVERAGE_BOUNDS_START_TIME_MS + 1000,
                    order_uuid="1000")
-        self.add_order_to_position_and_save_to_disk(position2, o2)
+        self.add_order_to_position_and_save(position2, o2)
+        self.position_manager.save_miner_position(position2)
+
         self.assertEqual(self.position_manager.calculate_net_portfolio_leverage(self.DEFAULT_MINER_HOTKEY), 9.0)
 
         position3 = deepcopy(self.default_position)
         position3.trade_pair=TradePair.ETHUSD
+        position3.position_uuid = self.DEFAULT_POSITION_UUID + "_3"
         o3 = Order(order_type=OrderType.LONG,
                    leverage=0.2,
                    price=100,
@@ -1943,7 +1949,7 @@ class TestPositions(TestBase):
                    order_uuid="2000")
 
         with self.assertLogs('root', level='DEBUG') as logger:
-            self.add_order_to_position_and_save_to_disk(position3, o3)
+            self.add_order_to_position_and_save(position3, o3)
             # print(logger.output)
             self.assertEqual(position3.orders[0].leverage, 0.1)
             self.assertEqual([f"WARNING:root:Miner {self.DEFAULT_MINER_HOTKEY} ETHUSD order leverage clamped to 0.1"], logger.output)
@@ -1960,21 +1966,25 @@ class TestPositions(TestBase):
                    trade_pair=TradePair.AUDCAD,
                    processed_ms=leverage_utils.PORTFOLIO_LEVERAGE_BOUNDS_START_TIME_MS + 1000,
                    order_uuid="1000")
-        self.add_order_to_position_and_save_to_disk(position, o1)
+        self.add_order_to_position_and_save(position, o1)
+        self.position_manager.save_miner_position(position)
 
         position2 = deepcopy(self.default_position)
-        position2.trade_pair=TradePair.AUDUSD
+        position2.position_uuid = self.DEFAULT_POSITION_UUID + "_2"
+        position2.trade_pair=TradePair.USDMXN
         o2 = Order(order_type=OrderType.LONG,
                    leverage=TradePair.AUDUSD.max_leverage - 1,
                    price=100,
-                   trade_pair=TradePair.AUDUSD,
+                   trade_pair=TradePair.USDMXN,
                    processed_ms=leverage_utils.PORTFOLIO_LEVERAGE_BOUNDS_START_TIME_MS + 1000,
                    order_uuid="1000")
-        self.add_order_to_position_and_save_to_disk(position2, o2)
+        self.add_order_to_position_and_save(position2, o2)
+        self.position_manager.save_miner_position(position2)
         self.assertEqual(self.position_manager.calculate_net_portfolio_leverage(self.DEFAULT_MINER_HOTKEY), 9.0)
 
         position3 = deepcopy(self.default_position)
         position3.trade_pair=TradePair.AUDJPY
+        position3.position_uuid = self.DEFAULT_POSITION_UUID + "_3"
         o3 = Order(order_type=OrderType.LONG,
                    leverage=2,
                    price=100,
@@ -1983,7 +1993,7 @@ class TestPositions(TestBase):
                    order_uuid="2000")
 
         with self.assertLogs('root', level='DEBUG') as logger:
-            self.add_order_to_position_and_save_to_disk(position3, o3)
+            self.add_order_to_position_and_save(position3, o3)
             # print(logger.output)
             self.assertEqual(position3.orders[0].leverage, 1)
             self.assertEqual([f"WARNING:root:Miner {self.DEFAULT_MINER_HOTKEY} AUDJPY order leverage clamped to 1.0"], logger.output)
@@ -2000,21 +2010,23 @@ class TestPositions(TestBase):
                    trade_pair=TradePair.AUDCAD,
                    processed_ms=leverage_utils.PORTFOLIO_LEVERAGE_BOUNDS_START_TIME_MS + 1000,
                    order_uuid="1000")
-        self.add_order_to_position_and_save_to_disk(position, o1)
+        self.add_order_to_position_and_save(position, o1)
 
         position2 = deepcopy(self.default_position)
         position2.trade_pair = TradePair.BTCUSD
+        position2.position_uuid = self.DEFAULT_POSITION_UUID + "_2"
         o2 = Order(order_type=OrderType.SHORT,
                    leverage=-(TradePair.BTCUSD.max_leverage - 0.1),
                    price=100,
                    trade_pair=TradePair.BTCUSD,
                    processed_ms=leverage_utils.PORTFOLIO_LEVERAGE_BOUNDS_START_TIME_MS + 1000,
                    order_uuid="1000")
-        self.add_order_to_position_and_save_to_disk(position2, o2)
+        self.add_order_to_position_and_save(position2, o2)
         self.assertEqual(self.position_manager.calculate_net_portfolio_leverage(self.DEFAULT_MINER_HOTKEY), 9.0)
 
         position3 = deepcopy(self.default_position)
         position3.trade_pair = TradePair.ETHUSD
+        position3.position_uuid = self.DEFAULT_POSITION_UUID + "_3"
         # position3.position_type = OrderType.SHORT
         o3 = Order(order_type=OrderType.SHORT,
                    leverage=-0.2,
@@ -2024,7 +2036,7 @@ class TestPositions(TestBase):
                    order_uuid="2000")
 
         with self.assertLogs('root', level='DEBUG') as logger:
-            self.add_order_to_position_and_save_to_disk(position3, o3)
+            self.add_order_to_position_and_save(position3, o3)
             # print(logger.output)
             self.assertEqual(position3.orders[0].leverage, -0.1)
             self.assertEqual([f"WARNING:root:Miner {self.DEFAULT_MINER_HOTKEY} ETHUSD order leverage clamped to -0.1"], logger.output)
@@ -2041,17 +2053,18 @@ class TestPositions(TestBase):
                    trade_pair=TradePair.USDCAD,
                    processed_ms=leverage_utils.LEVERAGE_BOUNDS_V2_START_TIME_MS - 1000,
                    order_uuid="1000")
-        self.add_order_to_position_and_save_to_disk(position1, o1)
+        self.add_order_to_position_and_save(position1, o1)
 
         position2 = deepcopy(self.default_position)
         position2.trade_pair = TradePair.AUDCAD
+        position2.position_uuid = self.DEFAULT_POSITION_UUID + "_2"
         o2 = Order(order_type=OrderType.LONG,
                    leverage=50,
                    price=100,
                    trade_pair=TradePair.AUDCAD,
                    processed_ms=leverage_utils.LEVERAGE_BOUNDS_V2_START_TIME_MS - 1000,
                    order_uuid="1000")
-        self.add_order_to_position_and_save_to_disk(position2, o2)
+        self.add_order_to_position_and_save(position2, o2)
 
         o3 = Order(order_type=OrderType.SHORT,
                    leverage=49.99,
@@ -2060,7 +2073,7 @@ class TestPositions(TestBase):
                    processed_ms=leverage_utils.PORTFOLIO_LEVERAGE_BOUNDS_START_TIME_MS + 1000,
                    order_uuid="1000")
         with self.assertRaises(ValueError):
-            self.add_order_to_position_and_save_to_disk(position2, o3)
+            self.add_order_to_position_and_save(position2, o3)
 
         # the o3 order should be skipped since it would bring the position net leverage below min leverage.
         self.assertEqual(position2.net_leverage, 50)
@@ -2083,7 +2096,7 @@ class TestPositions(TestBase):
                    order_uuid="2000")
 
         for order in [o1, o2]:
-            self.add_order_to_position_and_save_to_disk(position, order)
+            self.add_order_to_position_and_save(position, order)
 
         #self.assertEqual(position_json, {})
         dict_repr = position.to_dict()  # Make sure no side effects in the recreated object...
@@ -2160,7 +2173,7 @@ class TestPositions(TestBase):
                       trade_pair=TradePair.DJI,
                       processed_ms=1000 + i * 10,
                       order_uuid=str(i))
-            self.add_order_to_position_and_save_to_disk(position, o)
+            self.add_order_to_position_and_save(position, o)
         position.rebuild_position_with_updated_orders()
 
         assert len(position.orders) == 3

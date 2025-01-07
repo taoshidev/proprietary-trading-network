@@ -81,10 +81,8 @@ class TestPlagiarismUnit(TestBase):
             open_ms=self.DEFAULT_OPEN_MS,
             trade_pair=TradePair.BTCUSD,
         )
-        
-        self.plagiarism_detector.init_cache_files()
 
-        self.position_manager.clear_all_miner_positions_from_disk()
+        self.position_manager.clear_all_miner_positions()
         self.plagiarism_detector.clear_plagiarism_from_disk()
 
         self.plagiarism_detector.clear_eliminations_from_disk()
@@ -112,7 +110,7 @@ class TestPlagiarismUnit(TestBase):
 
     def add_order_to_position_and_save_to_disk(self, position, order):
         position.add_order(order)
-        self.position_manager.save_miner_position_to_disk(position)
+        self.position_manager.save_miner_position(position)
 
     def generate_one_position(self, hotkey, trade_pair, leverages, time_apart, time_after):
         self.position_counter += 1

@@ -14,13 +14,14 @@ from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager, PerfChe
 
 
 class SubtensorWeightSetter(CacheController):
-    def __init__(self, config, wallet, metagraph, perf_ledger_manager : PerfLedgerManager =None, running_unit_tests=False):
+    def __init__(self, config, wallet, metagraph, perf_ledger_manager : PerfLedgerManager =None,
+                 running_unit_tests=False, position_manager: PositionManager =None):
         super().__init__(config, metagraph, running_unit_tests=running_unit_tests)
-        self.position_manager = PositionManager(metagraph=metagraph, running_unit_tests=running_unit_tests)
-        if perf_ledger_manager is None:
-            self.perf_ledger_manager = PerfLedgerManager(metagraph=metagraph, running_unit_tests=running_unit_tests)
-        else:
-            self.perf_ledger_manager = perf_ledger_manager
+        self.position_manager = position_manager if position_manager else \
+            PositionManager(metagraph=metagraph, running_unit_tests=running_unit_tests)
+        self.perf_ledger_manager = perf_ledger_manager if perf_ledger_manager else \
+            PerfLedgerManager(metagraph=metagraph, running_unit_tests=running_unit_tests)
+
         self.wallet = wallet
         self.subnet_version = 200
 

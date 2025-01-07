@@ -28,12 +28,12 @@ class PositionSyncResultException(Exception):
         super().__init__(self.message)
 
 class ValidatorSyncBase():
-    def __init__(self, shutdown_dict=None, signal_sync_lock=None, signal_sync_condition=None, n_orders_being_processed=None, running_unit_tests=False):
+    def __init__(self, shutdown_dict=None, signal_sync_lock=None, signal_sync_condition=None,
+                 n_orders_being_processed=None, running_unit_tests=False, position_manager=None):
         self.is_mothership = 'mothership' in ValiUtils.get_secrets(running_unit_tests=running_unit_tests)
         self.challengeperiod_manager = ChallengePeriodManager(config=None, metagraph=None, running_unit_tests=running_unit_tests)
         self.SYNC_LOOK_AROUND_MS = 1000 * 60 * 3
-        self.position_manager = PositionManager(is_mothership=self.is_mothership)
-        self.position_manager.init_cache_files()
+        self.position_manager = position_manager if position_manager else PositionManager(is_mothership=self.is_mothership)
         self.shutdown_dict = shutdown_dict
         self.last_signal_sync_time_ms = 0
         self.signal_sync_lock = signal_sync_lock
@@ -184,7 +184,7 @@ class ValidatorSyncBase():
             if sync_status == PositionSyncResult.DELETED:
                 deleted -= 1
                 if not self.is_mothership:
-                    self.position_manager.delete_position_from_disk(position)
+                    self.position_manager.delete_position(position)
 
         # Updates happen next
         # First close out contradicting positions that happen if a validator is left in a bad state

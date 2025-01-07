@@ -39,8 +39,7 @@ class TestPositions(TestBase):
 
         self.mock_metagraph = MockMetagraph([self.DEFAULT_MINER_HOTKEY])
         self.position_manager = PositionManager(metagraph=self.mock_metagraph, running_unit_tests=True)
-        self.position_manager.init_cache_files()
-        self.position_manager.clear_all_miner_positions_from_disk()
+        self.position_manager.clear_all_miner_positions()
 
         self.default_open_position = Position(
             miner_hotkey=self.DEFAULT_MINER_HOTKEY,

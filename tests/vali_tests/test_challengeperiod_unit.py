@@ -11,7 +11,7 @@ from vali_objects.position import Position
 from vali_objects.vali_config import ValiConfig
 
 from tests.shared_objects.mock_classes import (
-    MockMetagraph, MockChallengePeriodManager, MockPositionManager, MockPerfLedgerManager, MockCacheController
+    MockMetagraph, MockChallengePeriodManager, MockPositionManager, MockPerfLedgerManager
 )
 
 from vali_objects.utils.ledger_utils import LedgerUtils
@@ -94,11 +94,10 @@ class TestChallengePeriodUnit(TestBase):
 
         # Initialize system components
         self.mock_metagraph = MockMetagraph(self.MINER_NAMES)
-        self.challengeperiod_manager = MockChallengePeriodManager(self.mock_metagraph)
-        self.position_manager = MockPositionManager(self.mock_metagraph, None)
         self.ledger_manager = MockPerfLedgerManager(self.mock_metagraph)
-        self.cache_controller = MockCacheController(self.mock_metagraph)
-    
+        self.position_manager = MockPositionManager(self.mock_metagraph, self.ledger_manager)
+        self.challengeperiod_manager = MockChallengePeriodManager(self.mock_metagraph, self.position_manager)
+
     def get_trial_scores(self, high_performing=True, score=None):
         """
         Args:

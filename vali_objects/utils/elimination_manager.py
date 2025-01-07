@@ -18,12 +18,19 @@ class EliminationManager(CacheController):
     would already be cleared and their weight would be calculated as normal.
     """
 
-    def __init__(self, metagraph, position_manager, eliminations_lock, running_unit_tests=False, shutdown_dict=None):
+    def __init__(self, metagraph, position_manager, eliminations_lock, challengeperiod_manager, running_unit_tests=False, shutdown_dict=None):
         super().__init__(metagraph=metagraph)
         self.position_manager = position_manager
         self.eliminations_lock = eliminations_lock
         self.shutdown_dict = shutdown_dict
+        self.challengeperiod_manager = challengeperiod_manager
         assert running_unit_tests == self.position_manager.running_unit_tests
+
+        if len(self.get_miner_eliminations_from_disk()) == 0:
+            ValiBkpUtils.write_file(
+                ValiBkpUtils.get_eliminations_dir(running_unit_tests=self.running_unit_tests),
+                {CacheController.ELIMINATIONS: []}
+            )
 
     def process_eliminations(self):
         if not self.refresh_allowed(ValiConfig.ELIMINATION_CHECK_INTERVAL_MS):
@@ -39,9 +46,9 @@ class EliminationManager(CacheController):
         bt.logging.debug("checking plagiarism.")
         if self.shutdown_dict:
             return
-        self._refresh_plagiarism_scores_in_memory_and_disk()
+        self.challengeperiod_manager._refresh_plagiarism_scores_in_memory_and_disk()
         # miner_copying_json[miner_hotkey] = current_hotkey_mc
-        for miner_hotkey, current_plagiarism_score in self.miner_plagiarism_scores.items():
+        for miner_hotkey, current_plagiarism_score in self.challengeperiod_manager.miner_plagiarism_scores.items():
             if self.shutdown_dict:
                 return
             if self._hotkey_in_eliminations(miner_hotkey):
@@ -54,9 +61,21 @@ class EliminationManager(CacheController):
         with self.eliminations_lock:
             self._write_eliminations_from_memory_to_disk()
 
+    def is_zombie_hotkey(self, hotkey):
+        if not isinstance(self.eliminations, list):
+            return False
+
+        if hotkey in self.metagraph.hotkeys:
+            return False
+
+        if any(x['hotkey'] == hotkey for x in self.eliminations):
+            return False
+
+        return True
+
     def _delete_eliminated_expired_miners(self):
         eliminated_hotkeys = set()
-        self._refresh_challengeperiod_in_memory()
+        self.challengeperiod_manager._refresh_challengeperiod_in_memory()
         # self.eliminations were just refreshed in process_eliminations
         for x in self.eliminations:
             if self.shutdown_dict:

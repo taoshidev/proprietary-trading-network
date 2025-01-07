@@ -49,8 +49,8 @@ class MockPlagiarismDetector(PlagiarismDetector):
 
 
 class MockChallengePeriodManager(ChallengePeriodManager):
-    def __init__(self, metagraph):
-        super().__init__(None, metagraph, running_unit_tests=True)
+    def __init__(self, metagraph, position_manager):
+        super().__init__(None, metagraph, running_unit_tests=True, position_manager=position_manager)
 
 class MockLivePriceFetcher(LivePriceFetcher):
     def __init__(self, secrets, disable_ws):

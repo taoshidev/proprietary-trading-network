@@ -12,6 +12,7 @@ from time_util.time_util import MS_IN_8_HOURS, MS_IN_24_HOURS
 from shared_objects.cache_controller import CacheController
 from shared_objects.retry import periodic_heartbeat
 from time_util.time_util import TimeUtil, UnifiedMarketCalendar, timeme
+from vali_objects.utils.position_manager import PositionManager
 from vali_objects.vali_config import ValiConfig
 from vali_objects.position import Position
 from vali_objects.utils.live_price_fetcher import LivePriceFetcher
@@ -308,12 +309,14 @@ class PerfLedger():
         return sum(cp.accum_ms for cp in self.cps)
 
 class PerfLedgerManager(CacheController):
-    def __init__(self, metagraph, live_price_fetcher=None, running_unit_tests=False, shutdown_dict=None, position_syncer=None):
+    def __init__(self, metagraph, live_price_fetcher=None, running_unit_tests=False, shutdown_dict=None,
+                 position_syncer=None, position_manager: PositionManager=None):
         super().__init__(metagraph=metagraph, running_unit_tests=running_unit_tests)
         self.shutdown_dict = shutdown_dict
         self.position_syncer = position_syncer
         self.live_price_fetcher = live_price_fetcher
         self.running_unit_tests = running_unit_tests
+        self.position_manager = position_manager
 
         if live_price_fetcher is None:
             secrets = ValiUtils.get_secrets(running_unit_tests=running_unit_tests)
@@ -892,7 +895,7 @@ class PerfLedgerManager(CacheController):
         if self.shutdown_dict:
             return
 
-        self.write_perf_ledgers_to_disk_and_memory(existing_perf_ledgers)
+        self.save_perf_ledgers(existing_perf_ledgers)
         if return_dict:
             return existing_perf_ledgers
 
@@ -903,11 +906,11 @@ class PerfLedgerManager(CacheController):
         #testing_one_hotkey = '5GzYKUYSD5d7TJfK4jsawtmS2bZDgFuUYw8kdLdnEDxSykTU'
         hotkeys_with_no_positions = set()
         if testing_one_hotkey:
-            hotkey_to_positions = self.get_all_miner_positions_by_hotkey(
+            hotkey_to_positions = self.position_manager.get_all_miner_positions_by_hotkey(
                 [testing_one_hotkey], sort_positions=True
             )
         else:
-            hotkey_to_positions = self.get_all_miner_positions_by_hotkey(
+            hotkey_to_positions = self.position_manager.get_all_miner_positions_by_hotkey(
                 self.metagraph.hotkeys, sort_positions=True,
                 eliminations=self.eliminations
             )
@@ -1049,8 +1052,7 @@ class PerfLedgerManager(CacheController):
             plt.legend(['Return', 'Drawdown'])
             plt.show()
 
-    def write_perf_ledgers_to_disk_and_memory(self, perf_ledgers: dict[str, PerfLedger] | dict[str, dict]):
-        # Convert to PerfLedger (pydantic validation)
+    def save_perf_ledgers(self, perf_ledgers: dict[str, PerfLedger] | dict[str, dict]):
         file_path = ValiBkpUtils.get_perf_ledgers_path(self.running_unit_tests)
         ValiBkpUtils.write_to_dir(file_path, perf_ledgers)
         self.hotkey_to_perf_ledger = perf_ledgers

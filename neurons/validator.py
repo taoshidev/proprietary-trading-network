@@ -140,20 +140,40 @@ class Validator:
         self.metagraph = subtensor.metagraph(self.config.netuid)
         bt.logging.info(f"Metagraph: {self.metagraph}")
 
-        #force_validator_to_restore_from_checkpoint(self.wallet.hotkey.ss58_address, self.metagraph, self.config, self.secrets)
         self.position_syncer = PositionSyncer(shutdown_dict=shutdown_dict, signal_sync_lock=self.signal_sync_lock,
                                               signal_sync_condition=self.signal_sync_condition,
-                                              n_orders_being_processed=self.n_orders_being_processed)
+                                              n_orders_being_processed=self.n_orders_being_processed,
+                                              position_manager=None)
+
+        self.p2p_syncer = P2PSyncer(wallet=self.wallet, metagraph=self.metagraph, is_testnet=not self.is_mainnet,
+                                    shutdown_dict=shutdown_dict, signal_sync_lock=self.signal_sync_lock,
+                                    signal_sync_condition=self.signal_sync_condition,
+                                    n_orders_being_processed=self.n_orders_being_processed,
+                                    position_manager=None
+                                    )
+
         self.perf_ledger_manager = PerfLedgerManager(self.metagraph, shutdown_dict=shutdown_dict,
-                                                     position_syncer=self.position_syncer)
+                                                     position_syncer=self.position_syncer,
+                                                     position_manager=None)  # Set after self.pm creation
+
+        self.challengeperiod_manager = ChallengePeriodManager(self.config, self.metagraph,
+                                                              perf_ledger_manager=self.perf_ledger_manager,
+                                                              position_manager=None)
+
         self.position_manager = PositionManager(metagraph=self.metagraph, config=self.config,
-                                                perform_price_adjustment=False,
                                                 live_price_fetcher=self.live_price_fetcher,
-                                                perform_fee_structure_update=False,
                                                 perform_order_corrections=True,
-                                                apply_corrections_template=False,
                                                 perform_compaction=True,
                                                 perf_ledger_manager=self.perf_ledger_manager)
+
+        # Attach the position manager to the other objects that need it
+        for obj in [self.perf_ledger_manager, self.position_manager, self.challengeperiod_manager, self.position_syncer, self.p2p_syncer]:
+            obj.position_manager = self.position_manager
+
+        #force_validator_to_restore_from_checkpoint(self.wallet.hotkey.ss58_address, self.metagraph, self.config, self.secrets)
+
+
+        self.position_manager.perf_ledger_manager = self.perf_ledger_manager
 
 
         self.metagraph_updater = MetagraphUpdater(self.config, self.metagraph, self.wallet.hotkey.ss58_address,
@@ -174,11 +194,7 @@ class Validator:
             exit()
 
 
-        self.p2p_syncer = P2PSyncer(wallet=self.wallet, metagraph=self.metagraph, is_testnet=not self.is_mainnet,
-                                    shutdown_dict=shutdown_dict, signal_sync_lock=self.signal_sync_lock,
-                                    signal_sync_condition=self.signal_sync_condition,
-                                    n_orders_being_processed=self.n_orders_being_processed
-                                    )
+
         self.checkpoint_lock = threading.Lock()
         self.encoded_checkpoint = ""
         self.last_checkpoint_time = 0
@@ -263,9 +279,6 @@ class Validator:
         bt.logging.info(f"Starting axon server on port: {self.config.axon.port}")
         self.axon.start()
 
-        # see if cache files exist and if not set them to empty
-        self.position_manager.init_cache_files()
-
         # Each hotkey gets a unique identity (UID) in the network for differentiation.
         my_subnet_uid = self.metagraph.hotkeys.index(self.wallet.hotkey.ss58_address)
         bt.logging.info(f"Running validator on uid: {my_subnet_uid}")
@@ -275,17 +288,16 @@ class Validator:
         # Since the mainloop is run synchronously, we just need to lock eliminations when writing to them and when
         # reading outside of the mainloop (validator).
         self.eliminations_lock = threading.Lock()
-        self.plagiarism_detector = PlagiarismDetector(self.config, self.metagraph, shutdown_dict=shutdown_dict)
+        self.plagiarism_detector = PlagiarismDetector(self.config, self.metagraph, shutdown_dict=shutdown_dict, position_manager=self.position_manager)
         # Start the plagiarism detector in its own thread
         self.plagiarism_thread = threading.Thread(target=self.plagiarism_detector.run_update_loop, daemon=True)
         self.plagiarism_thread.start()
 
         self.mdd_checker = MDDChecker(self.config, self.metagraph, self.position_manager, self.eliminations_lock,
                                       live_price_fetcher=self.live_price_fetcher, shutdown_dict=shutdown_dict)
-        self.weight_setter = SubtensorWeightSetter(self.config, self.wallet, self.metagraph, perf_ledger_manager=self.perf_ledger_manager)
-        self.challengeperiod_manager = ChallengePeriodManager(self.config, self.metagraph, perf_ledger_manager=self.perf_ledger_manager)
+        self.weight_setter = SubtensorWeightSetter(self.config, self.wallet, self.metagraph, perf_ledger_manager=self.perf_ledger_manager, position_manager=self.position_manager)
 
-        self.elimination_manager = EliminationManager(self.metagraph, self.position_manager, self.eliminations_lock)
+        self.elimination_manager = EliminationManager(self.metagraph, self.position_manager, self.eliminations_lock, self.challengeperiod_manager)
 
         # Validators on mainnet net to be syned for the first time or after interruption need to resync their
         # positions. Assert there are existing orders that occurred > 24hrs in the past. Assert that the newest order
@@ -654,7 +666,7 @@ class Validator:
                     net_portfolio_leverage = self.position_manager.calculate_net_portfolio_leverage(miner_hotkey)
                     self.enforce_order_cooldown(signal_to_order, open_position)
                     open_position.add_order(signal_to_order, net_portfolio_leverage)
-                    self.position_manager.save_miner_position_to_disk(open_position)
+                    self.position_manager.save_miner_position(open_position)
                     bt.logging.info(
                         f"Position {open_position.trade_pair.trade_pair_id} for miner [{miner_hotkey}] updated.")
                     # Log the open position for the miner

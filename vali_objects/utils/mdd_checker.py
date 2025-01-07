@@ -192,7 +192,7 @@ class MDDChecker(CacheController):
 
             if n_orders_updated or ret_changed:
                 is_liquidated = position.current_return == 0
-                self.position_manager.save_miner_position_to_disk(position, delete_open_position_if_exists=is_liquidated)
+                self.position_manager.save_miner_position(position, delete_open_position_if_exists=is_liquidated)
                 self.n_orders_corrected += n_orders_updated
                 self.miners_corrected.add(hotkey)
 
@@ -240,7 +240,7 @@ class MDDChecker(CacheController):
                                    leverage=0,
                                    src=ORDER_SRC_ELIMINATION_FLAT)
                 position.add_order(flat_order)
-                self.position_manager.save_miner_position_to_disk(position, delete_open_position_if_exists=True)
+                self.position_manager.save_miner_position(position, delete_open_position_if_exists=True)
                 bt.logging.info(f'Added flat order for miner {hotkey} that has been eliminated. Trade pair: {position.trade_pair.trade_pair_id}. flat order: {flat_order}. position uuid {position.position_uuid}')
 
         if not any_changes_attempted:

@@ -77,9 +77,8 @@ class TestMDDChecker(TestBase):
             trade_pair=x,
         ) for x in TradePair}
 
-        self.mdd_checker.init_cache_files()
         self.mdd_checker.clear_eliminations_from_disk()
-        self.position_manager.clear_all_miner_positions_from_disk()
+        self.position_manager.clear_all_miner_positions()
         self.mdd_checker.price_correction_enabled = False
 
     def verify_elimination_data_in_memory_and_disk(self, expected_eliminations):
@@ -113,7 +112,7 @@ class TestMDDChecker(TestBase):
 
     def add_order_to_position_and_save_to_disk(self, position, order):
         position.add_order(order)
-        self.position_manager.save_miner_position_to_disk(position)
+        self.position_manager.save_miner_position(position)
 
     def test_get_live_prices(self):
         time.sleep(5)

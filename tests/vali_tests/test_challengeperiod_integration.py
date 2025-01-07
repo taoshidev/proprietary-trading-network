@@ -75,6 +75,7 @@ class TestChallengePeriodIntegration(TestBase):
             position = deepcopy(self.DEFAULT_POSITION)
             position.open_ms = self.EVEN_TIME_DISTRIBUTION[i]
             position.close_ms = self.EVEN_TIME_DISTRIBUTION[i + 1]
+            position.position_uuid = f"test_position_{i}"
             position.is_closed_position = True
             position.return_at_close = 1.0
             position.orders[0] = Order(price=60000, processed_ms=int(position.open_ms), order_uuid="order" + str(i),
@@ -102,10 +103,16 @@ class TestChallengePeriodIntegration(TestBase):
 
         # Initialize system components
         self.mock_metagraph = MockMetagraph(self.MINER_NAMES)
-        self.challengeperiod_manager = MockChallengePeriodManager(self.mock_metagraph)
+
+        self.challengeperiod_manager = MockChallengePeriodManager(self.mock_metagraph, position_manager=None)
         self.ledger_manager = self.challengeperiod_manager.perf_ledger_manager
         self.position_manager = MockPositionManager(self.mock_metagraph,
                                                     perf_ledger_manager=self.ledger_manager)
+        self.challengeperiod_manager.position_manager = self.position_manager
+
+        self.position_manager.clear_all_miner_positions()
+
+
 
         # Build base ledgers and positions
         self.LEDGERS = {
@@ -115,7 +122,7 @@ class TestChallengePeriodIntegration(TestBase):
             miner: deepcopy(self.LOSING_LEDGER) for miner in self.FAILING_MINER_NAMES
         })
 
-        self.ledger_manager.write_perf_ledgers_to_disk_and_memory(self.LEDGERS)
+        self.ledger_manager.save_perf_ledgers(self.LEDGERS)
 
         # Build base positions
         self.POSITIONS = {}
@@ -129,10 +136,9 @@ class TestChallengePeriodIntegration(TestBase):
         for miner, positions in self.POSITIONS.items():
             for position in positions:
                 position.position_uuid = f"{miner}_position_{position.open_ms}_{position.close_ms}"
-                self.position_manager.save_miner_position_to_disk(position)
+                self.position_manager.save_miner_position(position)
 
         # Finally update the challenge period to default state
-        self.challengeperiod_manager.init_cache_files()
         self.challengeperiod_manager._clear_eliminations_in_memory_and_disk()
 
         # Set up miners that have already passed challenge period
@@ -150,7 +156,7 @@ class TestChallengePeriodIntegration(TestBase):
     def tearDown(self):
         super().tearDown()
         # Cleanup and setup
-        self.position_manager.clear_all_miner_positions_from_disk()
+        self.position_manager.clear_all_miner_positions()
         self.ledger_manager.clear_perf_ledgers_from_disk()
         self.challengeperiod_manager._clear_challengeperiod_in_memory_and_disk()
         self.challengeperiod_manager._clear_eliminations_in_memory_and_disk()
@@ -231,7 +237,7 @@ class TestChallengePeriodIntegration(TestBase):
 
     def test_single_position_no_ledger(self):
         # Cleanup all positions first
-        self.position_manager.clear_all_miner_positions_from_disk()
+        self.position_manager.clear_all_miner_positions()
         self.ledger_manager.clear_perf_ledgers_from_disk()
 
         self.challengeperiod_manager._clear_challengeperiod_in_memory_and_disk()
@@ -244,7 +250,7 @@ class TestChallengePeriodIntegration(TestBase):
         position.is_closed_position = False
         position.close_ms = None
 
-        self.position_manager.save_miner_position_to_disk(position)
+        self.position_manager.save_miner_position(position)
         self.challengeperiod_manager.challengeperiod_testing = {self.DEFAULT_MINER_HOTKEY: self.DEFAULT_OPEN_MS}
         self.challengeperiod_manager._write_challengeperiod_from_memory_to_disk()
 
@@ -351,7 +357,7 @@ class TestChallengePeriodIntegration(TestBase):
         for miner, positions in self.POSITIONS.items():
             if miner in miners_without_positions:
                 for position in positions:
-                    self.position_manager.delete_position_from_disk(position)
+                    self.position_manager.delete_position(position)
 
         self.challengeperiod_manager.refresh(current_time=self.CURRENTLY_IN_CHALLENGE)
         self.challengeperiod_manager._refresh_challengeperiod_in_memory()
@@ -405,7 +411,7 @@ class TestChallengePeriodIntegration(TestBase):
         self.assertTrue(len(self.challengeperiod_manager.challengeperiod_success) == 0)
 
         # Now add perf ledgers to check that adding miners without positions still doesn't add them
-        self.ledger_manager.write_perf_ledgers_to_disk_and_memory(self.LEDGERS)
+        self.ledger_manager.save_perf_ledgers(self.LEDGERS)
         self.challengeperiod_manager._add_challengeperiod_testing_in_memory_and_disk(
             new_hotkeys=new_miners,
             eliminations=[],
@@ -415,10 +421,10 @@ class TestChallengePeriodIntegration(TestBase):
         self.assertTrue(len(self.challengeperiod_manager.challengeperiod_testing) == 0)
         self.assertTrue(len(self.challengeperiod_manager.challengeperiod_success) == 0)
 
-        all_miners_positions = self.challengeperiod_manager.get_all_miner_positions_by_hotkey(self.MINER_NAMES)
+        all_miners_positions = self.challengeperiod_manager.position_manager.get_all_miner_positions_by_hotkey(self.MINER_NAMES)
         self.assertListEqual(list(all_miners_positions.keys()), self.MINER_NAMES)
 
-        miners_with_one_position = self.challengeperiod_manager.get_all_miner_hotkeys_with_at_least_one_position()
+        miners_with_one_position = self.challengeperiod_manager.position_manager.get_all_miner_hotkeys_with_at_least_one_position()
         miners_with_one_position_sorted = sorted(list(miners_with_one_position))
 
         self.assertListEqual(miners_with_one_position_sorted, sorted(self.MINER_NAMES))

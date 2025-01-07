@@ -3,6 +3,9 @@
 import time
 import bittensor as bt
 import copy
+
+from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
+from vali_objects.utils.vali_utils import ValiUtils
 from vali_objects.vali_config import ValiConfig
 from shared_objects.cache_controller import CacheController
 from vali_objects.scoring.scoring import Scoring
@@ -14,14 +17,48 @@ from vali_objects.position import Position
 
 
 class ChallengePeriodManager(CacheController):
-    def __init__(self, config, metagraph, perf_ledger_manager : PerfLedgerManager =None, running_unit_tests=False):
+    def __init__(self, config, metagraph, perf_ledger_manager : PerfLedgerManager =None, running_unit_tests=False,
+                 position_manager: PositionManager =None):
         super().__init__(config, metagraph, running_unit_tests=running_unit_tests)
-        if perf_ledger_manager is None:
-            self.perf_ledger_manager = PerfLedgerManager(metagraph=metagraph, running_unit_tests=running_unit_tests)
-        else:
-            self.perf_ledger_manager = perf_ledger_manager
 
-        self.position_manager = PositionManager(metagraph=metagraph, running_unit_tests=running_unit_tests)
+        self.perf_ledger_manager = perf_ledger_manager if perf_ledger_manager else \
+            PerfLedgerManager(metagraph=metagraph, running_unit_tests=running_unit_tests)
+        self.position_manager = position_manager if position_manager else\
+            PositionManager(metagraph=metagraph, running_unit_tests=running_unit_tests)
+        self.challengeperiod_testing = {}
+        self.challengeperiod_success = {}
+        if len(self.get_challengeperiod_testing()) == 0 and len(self.get_challengeperiod_success()) == 0:
+            ValiBkpUtils.write_file(
+                ValiBkpUtils.get_challengeperiod_file_location(running_unit_tests=self.running_unit_tests),
+                {"testing": {}, "success": {}}
+            )
+
+    def _add_challengeperiod_testing_in_memory_and_disk(
+            self,
+            new_hotkeys: list[str],
+            eliminations: list[dict] = None,
+            current_time: int = None
+    ):
+        if current_time is None:
+            current_time = TimeUtil.now_in_millis()
+
+        if eliminations is None:
+            eliminations = self.eliminations
+
+        elimination_hotkeys = [x['hotkey'] for x in eliminations]
+
+        # check all hotkeys which have at least one position
+        miners_with_positions = self.position_manager.get_all_miner_hotkeys_with_at_least_one_position()
+
+        for hotkey in new_hotkeys:
+            if hotkey in miners_with_positions:
+                if hotkey not in elimination_hotkeys:
+                    if hotkey not in self.challengeperiod_testing:
+                        if hotkey not in self.challengeperiod_success:
+                            bt.logging.info(f"Adding hotkey {hotkey} to challengeperiod miners.")
+                            self.challengeperiod_testing[hotkey] = current_time
+
+        self._write_challengeperiod_from_memory_to_disk()
 
     def refresh(self, current_time: int = None):
         if not self.refresh_allowed(ValiConfig.CHALLENGE_PERIOD_REFRESH_TIME_MS):
@@ -300,4 +337,90 @@ class ChallengePeriodManager(CacheController):
         max_drawdown_criteria = recorded_drawdown_percentage >= maximum_drawdown_percent
 
         return max_drawdown_criteria, recorded_drawdown_percentage
+
+
+    def get_challengeperiod_testing(self):
+        return ValiUtils.get_vali_json_file_dict(
+            ValiBkpUtils.get_challengeperiod_file_location(running_unit_tests=self.running_unit_tests)
+        ).get('testing', {})
+
+    def get_challengeperiod_success(self):
+        return ValiUtils.get_vali_json_file_dict(
+            ValiBkpUtils.get_challengeperiod_file_location(running_unit_tests=self.running_unit_tests)
+        ).get('success', {})
+
+    def _refresh_challengeperiod_in_memory(self, eliminations: list[dict] = None):
+        if eliminations is None:
+            eliminations = self.eliminations
+
+        eliminations_hotkeys = set([x['hotkey'] for x in eliminations])
+
+        location = ValiBkpUtils.get_challengeperiod_file_location(running_unit_tests=self.running_unit_tests)
+        existing_challengeperiod = ValiUtils.get_vali_json_file_dict(location)
+        existing_challengeperiod_testing = existing_challengeperiod.get('testing', {})
+        existing_challengeperiod_success = existing_challengeperiod.get('success', {})
+
+        self.challengeperiod_testing = {k: v for k, v in existing_challengeperiod_testing.items() if k not in eliminations_hotkeys}
+        self.challengeperiod_success = {k: v for k, v in existing_challengeperiod_success.items() if k not in eliminations_hotkeys}
+
+    def _refresh_challengeperiod_in_memory_and_disk(self, eliminations=None):
+        if eliminations is None:
+            eliminations = []
+
+        self._refresh_challengeperiod_in_memory(eliminations=eliminations)
+        self._write_challengeperiod_from_memory_to_disk()
+
+    def clear_challengeperiod_from_disk(self):
+        ValiBkpUtils.write_file(ValiBkpUtils.get_challengeperiod_file_location(
+            running_unit_tests=self.running_unit_tests),
+            {"testing": {}, "success": {}}
+        )
+
+    def _clear_challengeperiod_in_memory_and_disk(self):
+        self.challengeperiod_testing = {}
+        self.challengeperiod_success = {}
+        self.clear_challengeperiod_from_disk()
+
+    def _promote_challengeperiod_in_memory(self, hotkeys: list[str], current_time: int):
+        if len(hotkeys) > 0:
+            bt.logging.info(f"Promoting hotkeys {hotkeys} to challengeperiod success.")
+
+        new_success = {hotkey: current_time for hotkey in hotkeys}
+        self.challengeperiod_success = {
+            **self.challengeperiod_success,
+            **new_success
+        }
+
+        for hotkey in hotkeys:
+            if hotkey in self.challengeperiod_testing:
+                self.challengeperiod_testing.pop(hotkey)
+            else:
+                bt.logging.error(f"Hotkey {hotkey} was not in challengeperiod_testing but promotion to success was attempted.")
+
+    def _demote_challengeperiod_in_memory(self, hotkeys: list[str]):
+        for hotkey in hotkeys:
+            bt.logging.info(f"Removing hotkeys {hotkey} from challenge period.")
+            if hotkey in self.challengeperiod_testing:
+                self.challengeperiod_testing.pop(hotkey)
+            else:
+                bt.logging.error(f"Hotkey {hotkey} was not in challengeperiod_testing but demotion to failure was attempted.")
+
+        for hotkey in hotkeys:
+            bt.logging.info(f"Eliminating hotkey {hotkey}.")
+
+            # This will also add the hotkey to the in memory self.eliminations list
+            self.append_elimination_row(hotkey, -1, 'FAILED_CHALLENGE_PERIOD')
+
+    def _write_challengeperiod_from_memory_to_disk(self):
+        challengeperiod_data = {
+            "testing": self.challengeperiod_testing,
+            "success": self.challengeperiod_success
+        }
+        ValiBkpUtils.write_file(
+            ValiBkpUtils.get_challengeperiod_file_location(
+                running_unit_tests=self.running_unit_tests
+            ),
+            challengeperiod_data
+        )
+
 

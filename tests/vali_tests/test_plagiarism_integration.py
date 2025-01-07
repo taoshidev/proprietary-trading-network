@@ -37,10 +37,7 @@ class TestPlagiarismIntegration(TestBase):
         self.DEFAULT_TEST_POSITION_UUID = "test_position"
         self.DEFAULT_OPEN_MS = 1
 
-    
-        self.plagiarism_detector.init_cache_files()
-
-        self.position_manager.clear_all_miner_positions_from_disk()
+        self.position_manager.clear_all_miner_positions()
         self.plagiarism_detector.clear_plagiarism_from_disk()
 
         self.plagiarism_detector.clear_eliminations_from_disk()
@@ -158,9 +155,7 @@ class TestPlagiarismIntegration(TestBase):
 
     def add_order_to_position_and_save_to_disk(self, position, order):
         position.add_order(order)
-        if order.order_type == OrderType.FLAT:
-            position.is_closed_position = True
-        self.position_manager.save_miner_position_to_disk(position, delete_open_position_if_exists=True)
+        self.position_manager.save_miner_position(position, delete_open_position_if_exists=True)
 
     def generate_one_position(self, hotkey, trade_pair, leverages, times_apart, open_ms, close_ms=None, times_after=None):
         if times_after is None:
@@ -203,7 +198,7 @@ class TestPlagiarismIntegration(TestBase):
                 processed_ms= close_ms - 1, 
                 order_uuid=str(uuid.uuid4()))
             self.add_order_to_position_and_save_to_disk(order=close_order, position=position)
-        self.position_manager.save_miner_position_to_disk(position, delete_open_position_if_exists=True)
+        self.position_manager.save_miner_position(position, delete_open_position_if_exists=True)
 
     def check_one_plagiarist(self, plagiarist_id, victim_id, trade_pair_name):
         self.plagiarism_detector.detect()

@@ -12,7 +12,6 @@ from vali_objects.utils.position_manager import PositionManager
 
 
 class TestPositionManager(TestBase):
-
     def setUp(self):
         super().setUp()
         self.DEFAULT_MINER_HOTKEY = "test_miner"
@@ -27,12 +26,11 @@ class TestPositionManager(TestBase):
         )
         self.mock_metagraph = MockMetagraph([self.DEFAULT_MINER_HOTKEY])
         self.position_manager = PositionManager(metagraph=self.mock_metagraph, running_unit_tests=True)
-        self.position_manager.init_cache_files()
-        self.position_manager.clear_all_miner_positions_from_disk()
+        self.position_manager.clear_all_miner_positions()
 
     def add_order_to_position_and_save_to_disk(self, position, order):
         position.add_order(order)
-        self.position_manager.save_miner_position_to_disk(position)
+        self.position_manager.save_miner_position(position)
 
     def _find_disk_position_from_memory_position(self, position):
         for disk_position in self.position_manager.get_all_miner_positions(position.miner_hotkey):
@@ -62,7 +60,7 @@ class TestPositionManager(TestBase):
                 position.rebuild_position_with_updated_orders()
                 position.close_out_position(position.open_ms + 1)
                 idx_to_position[(i, j)] = position
-                self.position_manager.save_miner_position_to_disk(position)
+                self.position_manager.save_miner_position(position)
             # Create 1 open position
             j = 5
             position = deepcopy(self.default_position)
@@ -71,7 +69,7 @@ class TestPositionManager(TestBase):
             position.trade_pair = trade_pair
             position.rebuild_position_with_updated_orders()
             idx_to_position[(i, j)] = position
-            self.position_manager.save_miner_position_to_disk(position)
+            self.position_manager.save_miner_position(position)
 
         all_disk_positions = self.position_manager.get_all_miner_positions(self.DEFAULT_MINER_HOTKEY, sort_positions=True)
         self.assertEqual(len(all_disk_positions), n_trade_pairs * 6)
@@ -106,22 +104,20 @@ class TestPositionManager(TestBase):
             position = deepcopy(self.default_position)
             position.position_uuid = f"{self.DEFAULT_POSITION_UUID}_{i}"
             position.open_ms = open_ms
-            if close_ms:
-                position.close_out_position(close_ms)
-            self.position_manager.save_miner_position_to_disk(position)
+            position.close_out_position(close_ms)
+            self.position_manager.save_miner_position(position)
             positions.append(position)
 
         # Add two open positions
         for i in range(2):
             position = deepcopy(self.default_position)
-            position.position_uuid = f"{self.DEFAULT_POSITION_UUID}_{i}"
+            position.position_uuid = f"{self.DEFAULT_POSITION_UUID}_open_{i}"
             position.open_ms = random.randint(open_time_start, open_time_end)
             if i == 1:
                 with self.assertRaises(ValiRecordsMisalignmentException):
-                    self.position_manager.save_miner_position_to_disk(position)
+                    self.position_manager.save_miner_position(position)
             else:
-                self.position_manager.save_miner_position_to_disk(position)
-
+                self.position_manager.save_miner_position(position)
 
         all_disk_positions = self.position_manager.get_all_miner_positions(self.DEFAULT_MINER_HOTKEY)
         self.assertEqual(len(all_disk_positions), num_positions + 1)
@@ -147,7 +143,7 @@ class TestPositionManager(TestBase):
                 position.open_ms = open_ms
                 if close_ms:
                     position.close_out_position(close_ms)
-                self.position_manager.save_miner_position_to_disk(position)
+                self.position_manager.save_miner_position(position)
                 positions.append(position)
 
             # Fetch and sort positions from disk
@@ -185,7 +181,7 @@ class TestPositionManager(TestBase):
             position.open_ms = open_ms
             if close_ms:
                 position.close_out_position(close_ms)
-            self.position_manager.save_miner_position_to_disk(position)
+            self.position_manager.save_miner_position(position)
             positions.append(position)
 
         for i in range(len(TradePair)):
@@ -197,7 +193,7 @@ class TestPositionManager(TestBase):
             position.position_uuid = f"{self.DEFAULT_POSITION_UUID}_{i}_open"
             position.open_ms = open_ms
 
-            self.position_manager.save_miner_position_to_disk(position)
+            self.position_manager.save_miner_position(position)
             positions.append(position)
 
         # Fetch and sort positions from disk
