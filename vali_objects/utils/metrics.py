@@ -74,6 +74,20 @@ class Metrics:
         return float(np.mean(log_returns)) * ValiConfig.DAYS_IN_YEAR
 
     @staticmethod
+    def base_return_log_percentage(log_returns: list[float]) -> float:
+        """
+        Args:
+            log_returns: list of daily log returns from the miner
+
+        Returns:
+             The aggregate total return of the miner as a percentage log total
+                """
+        if len(log_returns) == 0:
+            return 0.0
+
+        return float(np.mean(log_returns)) * ValiConfig.DAYS_IN_YEAR * 100
+
+    @staticmethod
     def base_return(log_returns: list[float]) -> float:
         """
         Args:
@@ -95,10 +109,10 @@ class Metrics:
         if len(log_returns) == 0:
             return 0.0
 
-        base_return = Metrics.base_return_log(log_returns)
+        base_return_percentage = Metrics.base_return_log_percentage(log_returns)
         drawdown_normalization_factor = LedgerUtils.risk_normalization(checkpoints)
 
-        return base_return * drawdown_normalization_factor
+        return base_return_percentage * drawdown_normalization_factor
 
     @staticmethod
     def risk_adjusted_return(returns: list[float], checkpoints: list[PerfCheckpoint]) -> float:
