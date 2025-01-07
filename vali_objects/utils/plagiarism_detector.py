@@ -19,7 +19,8 @@ import bittensor as bt
 from vali_objects.utils.plagiarism_pipeline import PlagiarismPipeline
 
 class PlagiarismDetector(CacheController):
-    def __init__(self, config, metagraph, running_unit_tests=False, shutdown_dict=None, position_manager: PositionManager=None):
+    def __init__(self, config, metagraph, running_unit_tests=False, shutdown_dict=None,
+                 position_manager: PositionManager=None):
         super().__init__(config, metagraph, running_unit_tests=running_unit_tests)
         self.plagiarism_data = {}
         self.plagiarism_raster = {}
@@ -65,7 +66,7 @@ class PlagiarismDetector(CacheController):
         if hotkey_positions is None:
             hotkey_positions = self.position_manager.get_all_miner_positions_by_hotkey(
                 hotkeys,
-                eliminations=self.eliminations,
+                eliminations=self.position_manager.elimination_manager.get_eliminations_from_memory(),
             )
 
         bt.logging.info("Starting Plagiarism Detection")
@@ -76,18 +77,7 @@ class PlagiarismDetector(CacheController):
         self.write_plagiarism_raster_to_disk(raster_positions)
         self.write_plagiarism_positions_to_disk(positions)
 
-        # elimination_mapping: dict[str, bool] = PlagiarismUtils.generate_elimination_mapping(  # noqa: F841
-        #    hotkey_positions
-        #)
-
         bt.logging.info("Plagiarism Detection Complete")
-
-    def eliminate(self, elimination_mapping: dict[str, bool]):
-        """
-        Eliminate miners based on the elimination mapping.
-        """
-        for hotkey, elimination in elimination_mapping.items():
-            self.eliminations[hotkey] = elimination
 
     def clear_plagiarism_from_disk(self, target_hotkey=None):
         # Clear all files and directories in the directory specified by dir

@@ -7,6 +7,7 @@ from vali_objects.position import CRYPTO_CARRY_FEE_PER_INTERVAL, FOREX_CARRY_FEE
     INDICES_CARRY_FEE_PER_INTERVAL
 from tests.shared_objects.mock_classes import MockMetagraph, MockLivePriceFetcher
 from tests.vali_tests.base_objects.test_base import TestBase
+from vali_objects.utils.elimination_manager import EliminationManager
 from vali_objects.vali_config import TradePair, ValiConfig
 from vali_objects.utils import leverage_utils
 from vali_objects.utils.leverage_utils import LEVERAGE_BOUNDS_V2_START_TIME_MS, get_position_leverage_bounds
@@ -34,7 +35,11 @@ class TestPositions(TestBase):
             trade_pair=self.DEFAULT_TRADE_PAIR,
         )
         self.mock_metagraph = MockMetagraph([self.DEFAULT_MINER_HOTKEY])
-        self.position_manager = PositionManager(metagraph=self.mock_metagraph, running_unit_tests=True, live_price_fetcher=self.live_price_fetcher)
+        self.elimination_manager = EliminationManager(self.mock_metagraph, None, None)
+        self.position_manager = PositionManager(metagraph=self.mock_metagraph, running_unit_tests=True,
+                                                live_price_fetcher=self.live_price_fetcher,
+                                                elimination_manager=self.elimination_manager)
+        self.elimination_manager.position_manager = self.position_manager
         self.position_manager.clear_all_miner_positions()
 
     def add_order_to_position_and_save(self, position, order):

@@ -21,7 +21,7 @@ from vali_objects.vali_dataclasses.price_source import PriceSource
 
 class MDDChecker(CacheController):
 
-    def __init__(self, config, metagraph, position_manager, eliminations_lock, running_unit_tests=False,
+    def __init__(self, config, metagraph, position_manager, elimination_manager, running_unit_tests=False,
                  live_price_fetcher=None, shutdown_dict=None):
         super().__init__(config, metagraph, running_unit_tests=running_unit_tests)
         self.last_price_fetch_time_ms = None
@@ -34,13 +34,13 @@ class MDDChecker(CacheController):
             self.live_price_fetcher = LivePriceFetcher(secrets=secrets)
         else:
             self.live_price_fetcher = live_price_fetcher
-        self.eliminations_lock = eliminations_lock
+        self.elimination_manager = elimination_manager
         self.reset_debug_counters()
         self.shutdown_dict = shutdown_dict
         self.n_poly_api_requests = 0
         self.hotkeys_with_flat_orders_added = set()
-        self._refresh_eliminations_in_memory()
-        self.eliminated_hotkeys = self.get_eliminated_hotkeys()
+        self.elimination_manager._refresh_eliminations_in_memory()
+        self.eliminated_hotkeys = self.elimination_manager.get_eliminated_hotkeys()
 
     def reset_debug_counters(self):
         self.n_miners_skipped_already_eliminated = 0
@@ -83,9 +83,8 @@ class MDDChecker(CacheController):
             return
         bt.logging.info("running mdd checker")
         self.reset_debug_counters()
-        self._refresh_eliminations_in_memory()
         perf_ledger_eliminations = self.position_manager.perf_ledger_manager.pl_elimination_rows
-        self.eliminated_hotkeys = self.get_eliminated_hotkeys()
+        self.eliminated_hotkeys = self.elimination_manager.get_eliminated_hotkeys()
         for e in perf_ledger_eliminations:
             if e['hotkey'] in self.eliminated_hotkeys:
                 continue
@@ -98,12 +97,12 @@ class MDDChecker(CacheController):
                 elimination_initiated_time_ms = e['elimination_initiated_time_ms']
                 trade_pair_to_price_source_used_for_elimination_check[trade_pair] = PriceSource(source='elim', open=v, close=v, start_ms=elimination_initiated_time_ms, timespan_ms=1000, websocket=False, trade_pair=trade_pair)
             self.position_manager.handle_eliminated_miner(e['hotkey'], trade_pair_to_price_source_used_for_elimination_check)
-            self.eliminations.append(e)
+            self.elimination_manager.append_elimination_row(e)
             self.n_eliminations_this_round += 1
 
         if self.n_eliminations_this_round:
-            with self.eliminations_lock:
-                self._write_eliminations_from_memory_to_disk()
+            with self.elimination_manager.eliminations_lock:
+                self.save_eliminations()
                 bt.logging.info(f'Wrote {self.n_eliminations_this_round} new eliminations to disk')
 
         # Update in response to dereg'd miners re-registering an uneliminating
@@ -250,7 +249,7 @@ class MDDChecker(CacheController):
         if len(sorted_positions) == 0:
             return False
         # Already eliminated?
-        corresponding_elimination = self._hotkey_in_eliminations(hotkey)
+        corresponding_elimination = self.elimination_manager._hotkey_in_eliminations(hotkey)
         if corresponding_elimination:
             if hotkey not in self.hotkeys_with_flat_orders_added:
                 self.add_manual_flat_orders(hotkey, sorted_positions, corresponding_elimination)

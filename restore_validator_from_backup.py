@@ -8,6 +8,7 @@ from datetime import datetime
 
 from time_util.time_util import TimeUtil
 from vali_objects.position import Position
+from vali_objects.utils.elimination_manager import EliminationManager
 from vali_objects.utils.position_manager import PositionManager
 from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
@@ -83,6 +84,7 @@ def regenerate_miner_positions(perform_backup=True, backup_from_data_dir=False, 
     backup_creation_time_ms = data['created_timestamp_ms']
 
     challengeperiod_manager = ChallengePeriodManager(config=None, metagraph=None)
+    elimination_manager = EliminationManager(None, None, None)
     if DEBUG:
         from vali_objects.utils.live_price_fetcher import LivePriceFetcher
         secrets = ValiUtils.get_secrets()
@@ -90,11 +92,12 @@ def regenerate_miner_positions(perform_backup=True, backup_from_data_dir=False, 
         live_price_fetcher = LivePriceFetcher(secrets=secrets, disable_ws=True)
         position_manager = PositionManager(live_price_fetcher=live_price_fetcher,
                                            perform_order_corrections=True,
-                                           challengeperiod_manager=challengeperiod_manager)
+                                           challengeperiod_manager=challengeperiod_manager,
+                                           elimination_manager=elimination_manager)
         #position_manager.perform_price_recalibration(time_per_batch_s=10000000)
         perf_ledger_manager = PerfLedgerManager(live_price_fetcher=live_price_fetcher, metagraph=None)
     else:
-        position_manager = PositionManager()
+        position_manager = PositionManager(elimination_manager=elimination_manager)
         perf_ledger_manager = PerfLedgerManager(metagraph=None)
 
     # We want to get the smallest processed_ms timestamp across all positions in the backup and then compare this to
@@ -177,7 +180,7 @@ def regenerate_miner_positions(perform_backup=True, backup_from_data_dir=False, 
 
 
     bt.logging.info(f"regenerating {len(data['eliminations'])} eliminations")
-    position_manager.write_eliminations_to_disk(data['eliminations'])
+    position_manager.elimination_manager.write_eliminations_to_disk(data['eliminations'])
 
     perf_ledgers = data.get('perf_ledgers', {})
     bt.logging.info(f"regenerating {len(perf_ledgers)} perf ledgers")

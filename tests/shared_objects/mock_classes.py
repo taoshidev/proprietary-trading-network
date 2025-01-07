@@ -1,4 +1,3 @@
-import threading
 from typing import List
 from bittensor import Balance
 
@@ -13,9 +12,8 @@ from shared_objects.cache_controller import CacheController
 
 
 class MockMDDChecker(MDDChecker):
-    def __init__(self, metagraph, position_manager, live_price_fetcher):
-        lock = threading.Lock()
-        super().__init__(None, metagraph, position_manager, lock, running_unit_tests=True,
+    def __init__(self, metagraph, position_manager, live_price_fetcher, elimination_manager):
+        super().__init__(None, metagraph, position_manager, elimination_manager, running_unit_tests=True,
                          live_price_fetcher=live_price_fetcher)
 
     # Lets us bypass the wait period in MDDChecker
@@ -29,9 +27,9 @@ class MockCacheController(CacheController):
 
 
 class MockPositionManager(PositionManager):
-    def __init__(self, metagraph, perf_ledger_manager):
+    def __init__(self, metagraph, perf_ledger_manager, elimination_manager):
         super().__init__(None, metagraph, live_price_fetcher=None, running_unit_tests=True,
-                         perf_ledger_manager=perf_ledger_manager)
+                         perf_ledger_manager=perf_ledger_manager, elimination_manager=elimination_manager)
 
 
 class MockPerfLedgerManager(PerfLedgerManager):
@@ -40,8 +38,8 @@ class MockPerfLedgerManager(PerfLedgerManager):
 
 
 class MockPlagiarismDetector(PlagiarismDetector):
-    def __init__(self, metagraph):
-        super().__init__(None, metagraph, running_unit_tests=True)
+    def __init__(self, metagraph, position_manager):
+        super().__init__(None, metagraph, running_unit_tests=True, position_manager=position_manager)
 
     # Lets us bypass the wait period in PlagiarismDetector
     def get_last_update_time_ms(self):

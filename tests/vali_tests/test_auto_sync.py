@@ -4,6 +4,7 @@ from copy import deepcopy
 from vali_objects.utils.auto_sync import PositionSyncer
 from tests.shared_objects.mock_classes import MockMetagraph
 from tests.vali_tests.base_objects.test_base import TestBase
+from vali_objects.utils.elimination_manager import EliminationManager
 from vali_objects.vali_config import TradePair
 from vali_objects.decoders.generalized_json_decoder import GeneralizedJSONDecoder
 from vali_objects.enums.order_type_enum import OrderType
@@ -33,7 +34,9 @@ class TestPositions(TestBase):
             position_type=OrderType.LONG
         )
         self.mock_metagraph = MockMetagraph([self.DEFAULT_MINER_HOTKEY])
-        self.position_manager = PositionManager(metagraph=self.mock_metagraph, running_unit_tests=True)
+        self.elimination_manager = EliminationManager(self.mock_metagraph, None, None, running_unit_tests=True)
+        self.position_manager = PositionManager(metagraph=self.mock_metagraph, running_unit_tests=True, elimination_manager=self.elimination_manager)
+        self.elimination_manager.position_manager = self.position_manager
         self.position_manager.clear_all_miner_positions()
 
         self.default_open_position = Position(
@@ -55,7 +58,7 @@ class TestPositions(TestBase):
         )
         self.default_closed_position.close_out_position(self.DEFAULT_OPEN_MS + 1000 * 60 * 60 * 6)
 
-        self.position_syncer = PositionSyncer(running_unit_tests=True)
+        self.position_syncer = PositionSyncer(running_unit_tests=True, position_manager=self.position_manager)
 
     def positions_to_disk_data(self, positions: list[Position]):
         return {self.DEFAULT_MINER_HOTKEY: positions}

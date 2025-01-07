@@ -7,6 +7,10 @@ import numpy as np
 from scipy.stats import percentileofscore
 
 from time_util.time_util import TimeUtil
+from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
+from vali_objects.utils.elimination_manager import EliminationManager
+from vali_objects.utils.plagiarism_detector import PlagiarismDetector
+from vali_objects.utils.position_manager import PositionManager
 from vali_objects.vali_config import ValiConfig
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.utils.subtensor_weight_setter import SubtensorWeightSetter
@@ -130,20 +134,27 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
     if time_now is None:
         time_now = TimeUtil.now_in_millis()
 
+    challengeperiod_manager = ChallengePeriodManager(None, None, position_manager=None)
+    elimination_manager = EliminationManager(None, None, challengeperiod_manager)
+    position_manager = PositionManager(None, None, elimination_manager=elimination_manager,
+                                       challengeperiod_manager=challengeperiod_manager)
+    elimination_manager.position_manager = position_manager
+    challengeperiod_manager.position_manager = position_manager
     subtensor_weight_setter = SubtensorWeightSetter(
         config=None,
         wallet=None,
         metagraph=None,
-        running_unit_tests=False
+        running_unit_tests=False,
+        position_manager=position_manager
     )
+    plagiarism_detector = PlagiarismDetector(None, None, position_manager=position_manager)
 
     # Collect information from the disk and populate variables in memory
-    subtensor_weight_setter._refresh_eliminations_in_memory()
-    subtensor_weight_setter._refresh_challengeperiod_in_memory()
+    challengeperiod_manager._refresh_challengeperiod_in_memory()
 
     # Get the dictionaries
-    challengeperiod_testing_dictionary = subtensor_weight_setter.challengeperiod_testing
-    challengeperiod_success_dictionary = subtensor_weight_setter.challengeperiod_success
+    challengeperiod_testing_dictionary = challengeperiod_manager.challengeperiod_testing
+    challengeperiod_success_dictionary = challengeperiod_manager.challengeperiod_success
 
     # Sort dictionaries by value
     sorted_challengeperiod_testing = dict(sorted(challengeperiod_testing_dictionary.items(), key=lambda item: item[1]))
@@ -170,7 +181,7 @@ def generate_miner_statistics_data(time_now: int = None, checkpoints: bool = Tru
     filtered_positions = subtensor_weight_setter.filtered_positions(hotkeys=all_miner_hotkeys)
     filtered_returns = LedgerUtils.ledger_returns_log(filtered_ledger)
 
-    plagiarism = subtensor_weight_setter.get_plagiarism_scores_from_disk()
+    plagiarism = plagiarism_detector.get_plagiarism_scores_from_disk()
     # # Sync the ledger and positions
     # filtered_ledger, filtered_positions = subtensor_weight_setter.sync_ledger_positions(
     #     filtered_ledger,
@@ -671,3 +682,6 @@ def generate_request_minerstatistics(time_now: int, checkpoints: bool = True):
         output_file_path,
         final_dict,
     )
+
+if __name__ == "__main__":
+    generate_request_minerstatistics(1628572800000, True)

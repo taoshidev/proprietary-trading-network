@@ -7,8 +7,6 @@ from collections import defaultdict
 from time_util.time_util import TimeUtil
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.position import Position
-from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
-from vali_objects.utils.position_manager import PositionManager
 import bittensor as bt
 
 from vali_objects.utils.vali_utils import ValiUtils
@@ -31,9 +29,8 @@ class ValidatorSyncBase():
     def __init__(self, shutdown_dict=None, signal_sync_lock=None, signal_sync_condition=None,
                  n_orders_being_processed=None, running_unit_tests=False, position_manager=None):
         self.is_mothership = 'mothership' in ValiUtils.get_secrets(running_unit_tests=running_unit_tests)
-        self.challengeperiod_manager = ChallengePeriodManager(config=None, metagraph=None, running_unit_tests=running_unit_tests)
         self.SYNC_LOOK_AROUND_MS = 1000 * 60 * 3
-        self.position_manager = position_manager if position_manager else PositionManager(is_mothership=self.is_mothership)
+        self.position_manager = position_manager
         self.shutdown_dict = shutdown_dict
         self.last_signal_sync_time_ms = 0
         self.signal_sync_lock = signal_sync_lock
@@ -82,18 +79,17 @@ class ValidatorSyncBase():
             bt.logging.info("Mothership detected")
 
         if disk_positions is None:
-            disk_positions = self.position_manager.get_all_disk_positions_for_all_miners(only_open_positions=False,
-                                                                                sort_positions=True, perform_exorcism=True)
+            disk_positions = self.position_manager.get_all_disk_positions_for_all_miners(only_open_positions=False, sort_positions=True)
 
         eliminations = candidate_data['eliminations']
         if not self.is_mothership:
-            self.position_manager.write_eliminations_to_disk(eliminations)
+            self.position_manager.elimination_manager.write_eliminations_to_disk(eliminations)
 
         challenge_period_data = candidate_data.get('challengeperiod')
         if challenge_period_data:  # Only in autosync as of now.
-            self.challengeperiod_manager._refresh_challengeperiod_in_memory()
-            orig_testing_keys = set(self.challengeperiod_manager.challengeperiod_testing.keys())
-            orig_success_keys = set(self.challengeperiod_manager.challengeperiod_success.keys())
+            self.position_manager.challengeperiod_manager._refresh_challengeperiod_in_memory()
+            orig_testing_keys = set(self.position_manager.challengeperiod_manager.challengeperiod_testing.keys())
+            orig_success_keys = set(self.position_manager.challengeperiod_manager.challengeperiod_success.keys())
             new_testing_keys = set(challenge_period_data.get('testing').keys())
             new_success_keys = set(challenge_period_data.get('success').keys())
             bt.logging.info(f"Challengeperiod testing sync keys added: {new_testing_keys-orig_testing_keys}\n"
@@ -101,9 +97,9 @@ class ValidatorSyncBase():
                             f"Challengeperiod success sync keys added: {new_success_keys - orig_success_keys}\n"
                             f"Challengeperiod success sync keys removed: {orig_success_keys - new_success_keys}")
             if not shadow_mode:
-                self.challengeperiod_manager.challengeperiod_testing = challenge_period_data.get('testing', {})
-                self.challengeperiod_manager.challengeperiod_success = challenge_period_data.get('success', {})
-                self.challengeperiod_manager._write_challengeperiod_from_memory_to_disk()
+                self.position_manager.challengeperiod_manager.challengeperiod_testing = challenge_period_data.get('testing', {})
+                self.position_manager.challengeperiod_manager.challengeperiod_success = challenge_period_data.get('success', {})
+                self.position_manager.challengeperiod_manager._write_challengeperiod_from_memory_to_disk()
 
         eliminated_hotkeys = set([e['hotkey'] for e in eliminations])
         # For a healthy validator, the existing positions will always be a superset of the candidate positions

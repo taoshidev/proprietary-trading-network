@@ -5,13 +5,14 @@ import numpy as np
 
 from tests.vali_tests.base_objects.test_base import TestBase
 from tests.shared_objects.test_utilities import generate_ledger
+from vali_objects.utils.elimination_manager import EliminationManager
 
 from vali_objects.vali_config import TradePair
 from vali_objects.position import Position
 from vali_objects.vali_config import ValiConfig
 
 from tests.shared_objects.mock_classes import (
-    MockMetagraph, MockChallengePeriodManager, MockPositionManager, MockPerfLedgerManager
+    MockMetagraph, MockChallengePeriodManager, MockPositionManager
 )
 
 from vali_objects.utils.ledger_utils import LedgerUtils
@@ -94,9 +95,19 @@ class TestChallengePeriodUnit(TestBase):
 
         # Initialize system components
         self.mock_metagraph = MockMetagraph(self.MINER_NAMES)
-        self.ledger_manager = MockPerfLedgerManager(self.mock_metagraph)
-        self.position_manager = MockPositionManager(self.mock_metagraph, self.ledger_manager)
-        self.challengeperiod_manager = MockChallengePeriodManager(self.mock_metagraph, self.position_manager)
+
+        self.elimination_manager = EliminationManager(self.mock_metagraph, None, None)
+
+        self.position_manager = MockPositionManager(self.mock_metagraph,
+                                                    perf_ledger_manager=None,
+                                                    elimination_manager=self.elimination_manager)
+        self.challengeperiod_manager = MockChallengePeriodManager(self.mock_metagraph, position_manager=self.position_manager)
+        self.ledger_manager = self.challengeperiod_manager.perf_ledger_manager
+        self.position_manager.perf_ledger_manager = self.ledger_manager
+        self.elimination_manager.position_manager = self.position_manager
+        self.elimination_manager.challengeperiod_manager = self.challengeperiod_manager
+
+        self.position_manager.clear_all_miner_positions()
 
     def get_trial_scores(self, high_performing=True, score=None):
         """

@@ -8,6 +8,8 @@ from typing import List
 from google.cloud import storage
 
 from time_util.time_util import TimeUtil
+from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
+from vali_objects.utils.elimination_manager import EliminationManager
 from vali_objects.vali_config import ValiConfig
 from vali_objects.decoders.generalized_json_decoder import GeneralizedJSONDecoder
 from vali_objects.position import Position
@@ -138,33 +140,43 @@ def upload_checkpoint_to_gcloud(final_dict):
     print(f'Uploaded {blob_name} to {bucket_name}')
 
 def generate_request_core(time_now:int, selected_miner_hotkeys: List[str] = None) -> dict:
-    position_manager = PositionManager(
-        config=None,
+
+    elimination_manager = EliminationManager(None, None, None)
+    perf_ledger_manager = PerfLedgerManager(
         metagraph=None,
         running_unit_tests=False
     )
+    challengeperiod_manager = ChallengePeriodManager(None, None, perf_ledger_manager)
+    position_manager = PositionManager(
+        config=None,
+        metagraph=None,
+        running_unit_tests=False,
+        elimination_manager=elimination_manager,
+        challengeperiod_manager=challengeperiod_manager
+    )
+    elimination_manager.position_manager = position_manager
+    elimination_manager.challengeperiod_manager = challengeperiod_manager
+    challengeperiod_manager.position_manager = position_manager
 
     subtensor_weight_setter = SubtensorWeightSetter(
         config=None,
         wallet=None,
         metagraph=None,
-        running_unit_tests=False
+        running_unit_tests=False,
+        perf_ledger_manager=perf_ledger_manager,
+        position_manager=position_manager
     )
 
-    perf_ledger_manager = PerfLedgerManager(
-        metagraph=None,
-        running_unit_tests=False
-    )
 
-    eliminations = position_manager.get_eliminations_from_disk()
+
+    eliminations = position_manager.elimination_manager.get_eliminations_from_disk()
     eliminated_hotkeys = set(x['hotkey'] for x in eliminations)
 
     ## Collect information from the disk and populate variables in memory
-    subtensor_weight_setter._refresh_eliminations_in_memory()
-    subtensor_weight_setter._refresh_challengeperiod_in_memory()
+    challengeperiod_manager._refresh_challengeperiod_in_memory()
 
-    challengeperiod_testing_dictionary = subtensor_weight_setter.challengeperiod_testing
-    challengeperiod_success_dictionary = subtensor_weight_setter.challengeperiod_success
+    challengeperiod_testing_dictionary = challengeperiod_manager.challengeperiod_testing
+    challengeperiod_success_dictionary = challengeperiod_manager.challengeperiod_success
 
     try:
         if not os.path.exists(ValiBkpUtils.get_miner_dir()):

@@ -11,7 +11,8 @@ from time_util.time_util import MS_IN_8_HOURS, MS_IN_24_HOURS
 
 from shared_objects.cache_controller import CacheController
 from shared_objects.retry import periodic_heartbeat
-from time_util.time_util import TimeUtil, UnifiedMarketCalendar, timeme
+from time_util.time_util import TimeUtil, UnifiedMarketCalendar
+from vali_objects.utils.elimination_manager import EliminationManager
 from vali_objects.utils.position_manager import PositionManager
 from vali_objects.vali_config import ValiConfig
 from vali_objects.position import Position
@@ -912,7 +913,7 @@ class PerfLedgerManager(CacheController):
         else:
             hotkey_to_positions = self.position_manager.get_all_miner_positions_by_hotkey(
                 self.metagraph.hotkeys, sort_positions=True,
-                eliminations=self.eliminations
+                eliminations=self.position_manager.elimination_manager.get_eliminations_from_memory()
             )
             # Keep only hotkeys with positions
             for k, positions in hotkey_to_positions.items():
@@ -930,7 +931,6 @@ class PerfLedgerManager(CacheController):
         return self.update_all_perf_ledgers(hotkey_to_positions, existing_perf_ledgers, t_ms, return_dict=True)
 
 
-    @timeme
     def load_perf_ledgers_from_memory(self, first_fetch=False):
         if first_fetch:
             self.hotkey_to_perf_ledger = self.load_perf_ledgers_from_disk()
@@ -938,7 +938,6 @@ class PerfLedgerManager(CacheController):
 
     def update(self, testing_one_hotkey=None, regenerate_all_ledgers=False):
         perf_ledgers = self.load_perf_ledgers_from_memory()
-        self._refresh_eliminations_in_memory()
         t_ms = TimeUtil.now_in_millis() - self.UPDATE_LOOKBACK_MS
         """
         tt = 1734279788000
@@ -964,7 +963,7 @@ class PerfLedgerManager(CacheController):
         # Sort the keys with the custom sort key
         hotkeys_ordered_by_last_trade = sorted(hotkey_to_positions.keys(), key=sort_key, reverse=True)
 
-        eliminated_hotkeys = self.get_eliminated_hotkeys()
+        eliminated_hotkeys = self.position_manager.elimination_manager.get_eliminated_hotkeys()
 
         # Remove keys from perf ledgers if they aren't in the metagraph anymore
         metagraph_hotkeys = set(self.metagraph.hotkeys)
@@ -1113,6 +1112,8 @@ if __name__ == "__main__":
     all_miners_dir = ValiBkpUtils.get_miner_dir(running_unit_tests=False)
     all_hotkeys_on_disk = CacheController.get_directory_names(all_miners_dir)
     mmg = MockMetagraph(hotkeys=all_hotkeys_on_disk)
-    perf_ledger_manager = PerfLedgerManager(metagraph=mmg, running_unit_tests=False)
+    elimination_manager = EliminationManager(mmg, None, None)
+    position_manager = PositionManager(metagraph=mmg, running_unit_tests=False, elimination_manager=elimination_manager)
+    perf_ledger_manager = PerfLedgerManager(metagraph=mmg, running_unit_tests=False, position_manager=position_manager)
     perf_ledger_manager.update(testing_one_hotkey='5FWa35Ye9fy1VzWUgS9bvzcTXLDzKaybZ8wL9eER3g1Mu291')
     #perf_ledger_manager.update(regenerate_all_ledgers=True)

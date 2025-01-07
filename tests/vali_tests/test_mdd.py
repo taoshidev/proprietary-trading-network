@@ -1,11 +1,11 @@
 # developer: jbonilla
 # Copyright © 2024 Taoshi Inc
-import time
 from unittest.mock import patch
 
 from tests.shared_objects.mock_classes import MockMetagraph, MockMDDChecker
 from tests.vali_tests.base_objects.test_base import TestBase
 from time_util.time_util import TimeUtil
+from vali_objects.utils.elimination_manager import EliminationManager
 from vali_objects.vali_config import TradePair
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.position import Position
@@ -61,13 +61,15 @@ class TestMDDChecker(TestBase):
         self.MINER_HOTKEY = "test_miner"
         self.mock_metagraph = MockMetagraph([self.MINER_HOTKEY])
         self.live_price_fetcher = LivePriceFetcher(secrets=secrets, disable_ws=True)
+        self.elimination_manager = EliminationManager(self.mock_metagraph, None, None, running_unit_tests=True)
         self.perf_ledger_manager = PerfLedgerManager(metagraph=self.mock_metagraph,
                                                      live_price_fetcher=self.live_price_fetcher,
                                                      running_unit_tests=True)
         self.position_manager = PositionManager(metagraph=self.mock_metagraph, running_unit_tests=True,
-                                                perf_ledger_manager=self.perf_ledger_manager)
+                                                perf_ledger_manager=self.perf_ledger_manager, elimination_manager=self.elimination_manager)
+        self.elimination_manager.position_manager = self.position_manager
 
-        self.mdd_checker = MockMDDChecker(self.mock_metagraph, self.position_manager, self.live_price_fetcher)
+        self.mdd_checker = MockMDDChecker(self.mock_metagraph, self.position_manager, self.live_price_fetcher, self.elimination_manager)
         self.DEFAULT_TEST_POSITION_UUID = "test_position"
         self.DEFAULT_OPEN_MS = TimeUtil.now_in_millis()
         self.trade_pair_to_default_position = {x: Position(
@@ -77,20 +79,21 @@ class TestMDDChecker(TestBase):
             trade_pair=x,
         ) for x in TradePair}
 
-        self.mdd_checker.clear_eliminations_from_disk()
+        self.mdd_checker.elimination_manager.clear_eliminations()
         self.position_manager.clear_all_miner_positions()
         self.mdd_checker.price_correction_enabled = False
 
     def verify_elimination_data_in_memory_and_disk(self, expected_eliminations):
-        self.mdd_checker._refresh_eliminations_in_memory_and_disk()
+        #self.mdd_checker.elimination_manager._refresh_eliminations_in_memory_and_disk()
         expected_eliminated_hotkeys = [x['hotkey'] for x in expected_eliminations]
-        eliminated_hotkeys = [x['hotkey'] for x in self.mdd_checker.eliminations]
+
+        eliminated_hotkeys = [x['hotkey'] for x in self.mdd_checker.elimination_manager.get_eliminations_from_memory()]
         self.assertEqual(len(eliminated_hotkeys),
                          len(expected_eliminated_hotkeys),
                          "Eliminated hotkeys in memory/disk do not match expected. eliminated_hotkeys: "
                          + str(eliminated_hotkeys) + " expected_eliminated_hotkeys: " + str(expected_eliminated_hotkeys))
         self.assertEqual(set(eliminated_hotkeys), set(expected_eliminated_hotkeys))
-        for v1, v2 in zip(expected_eliminations, self.mdd_checker.eliminations):
+        for v1, v2 in zip(expected_eliminations, self.mdd_checker.elimination_manager.get_eliminations_from_memory()):
             self.assertEqual(v1['hotkey'], v2['hotkey'])
             self.assertEqual(v1['reason'], v2['reason'])
             self.assertAlmostEquals(v1['elimination_initiated_time_ms'] / 1000.0, v2['elimination_initiated_time_ms'] / 1000.0, places=1)
@@ -115,7 +118,6 @@ class TestMDDChecker(TestBase):
         self.position_manager.save_miner_position(position)
 
     def test_get_live_prices(self):
-        time.sleep(5)
         live_price, price_sources = self.live_price_fetcher.get_latest_price(trade_pair=TradePair.BTCUSD, time_ms=TimeUtil.now_in_millis() - 1000 * 180)
         for i in range(len(price_sources)):
             print('%%%%', price_sources[i], '%%%%')
@@ -166,7 +168,6 @@ class TestMDDChecker(TestBase):
                 order_uuid="2000")
 
         self.mdd_checker.last_price_fetch_time_ms = TimeUtil.now_in_millis()
-        time.sleep(5)
 
         relevant_position = self.trade_pair_to_default_position[TradePair.BTCUSD]
         self.mdd_checker.mdd_check()
@@ -198,8 +199,6 @@ class TestMDDChecker(TestBase):
                 order_uuid="1000")
 
         self.mdd_checker.last_price_fetch_time_ms = TimeUtil.now_in_millis()
-        time.sleep(5)
-
 
         self.mdd_checker.mdd_check()
         # Running mdd_check with no positions should not cause any eliminations but it should write an empty list to disk

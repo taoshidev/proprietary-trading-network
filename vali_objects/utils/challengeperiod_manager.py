@@ -1,5 +1,5 @@
 # developer: trdougherty
-
+import threading
 import time
 import bittensor as bt
 import copy
@@ -20,11 +20,11 @@ class ChallengePeriodManager(CacheController):
     def __init__(self, config, metagraph, perf_ledger_manager : PerfLedgerManager =None, running_unit_tests=False,
                  position_manager: PositionManager =None):
         super().__init__(config, metagraph, running_unit_tests=running_unit_tests)
-
+        self.lock = threading.Lock()
         self.perf_ledger_manager = perf_ledger_manager if perf_ledger_manager else \
             PerfLedgerManager(metagraph=metagraph, running_unit_tests=running_unit_tests)
-        self.position_manager = position_manager if position_manager else\
-            PositionManager(metagraph=metagraph, running_unit_tests=running_unit_tests)
+        self.position_manager = position_manager
+        self.elimination_manager = self.position_manager.elimination_manager
         self.challengeperiod_testing = {}
         self.challengeperiod_success = {}
         if len(self.get_challengeperiod_testing()) == 0 and len(self.get_challengeperiod_success()) == 0:
@@ -43,7 +43,7 @@ class ChallengePeriodManager(CacheController):
             current_time = TimeUtil.now_in_millis()
 
         if eliminations is None:
-            eliminations = self.eliminations
+            eliminations = self.elimination_manager.get_eliminations_from_memory()
 
         elimination_hotkeys = [x['hotkey'] for x in eliminations]
 
@@ -66,15 +66,15 @@ class ChallengePeriodManager(CacheController):
             return
 
         # The refresh should just read the current eliminations
-        self.eliminations = self.get_filtered_eliminations_from_disk()
+        eliminations = self.elimination_manager.get_eliminations_from_memory()
 
         # Collect challenge period and update with new eliminations criteria
-        self._refresh_challengeperiod_in_memory_and_disk(eliminations=self.eliminations)
+        self._refresh_challengeperiod_in_memory_and_disk(eliminations=eliminations)
 
         # challenge period adds to testing if not in eliminated, already in the challenge period, or in the new eliminations list from disk
         self._add_challengeperiod_testing_in_memory_and_disk(
             new_hotkeys=self.metagraph.hotkeys,
-            eliminations=self.eliminations,
+            eliminations=eliminations,
             current_time=current_time
         )
         challengeperiod_success_hotkeys = list(self.challengeperiod_success.keys())
@@ -100,14 +100,13 @@ class ChallengePeriodManager(CacheController):
 
         # Moves challenge period testing to challenge period success in memory
         self._promote_challengeperiod_in_memory(hotkeys=challengeperiod_success, current_time=current_time)
-        self._demote_challengeperiod_in_memory(hotkeys=challengeperiod_eliminations)
+        self._demote_challengeperiod(hotkeys=challengeperiod_eliminations)
 
         # Now remove any miners who are no longer in the metagraph
         self._prune_deregistered_metagraph()
 
         # Now sync challenge period with the disk
         self._write_challengeperiod_from_memory_to_disk()
-        self._write_eliminations_from_memory_to_disk()
         self.set_last_update_time()
 
     def _prune_deregistered_metagraph(self, hotkeys=None):
@@ -351,7 +350,7 @@ class ChallengePeriodManager(CacheController):
 
     def _refresh_challengeperiod_in_memory(self, eliminations: list[dict] = None):
         if eliminations is None:
-            eliminations = self.eliminations
+            eliminations = self.elimination_manager.get_eliminations_from_memory()
 
         eliminations_hotkeys = set([x['hotkey'] for x in eliminations])
 
@@ -397,7 +396,7 @@ class ChallengePeriodManager(CacheController):
             else:
                 bt.logging.error(f"Hotkey {hotkey} was not in challengeperiod_testing but promotion to success was attempted.")
 
-    def _demote_challengeperiod_in_memory(self, hotkeys: list[str]):
+    def _demote_challengeperiod(self, hotkeys: list[str]):
         for hotkey in hotkeys:
             bt.logging.info(f"Removing hotkeys {hotkey} from challenge period.")
             if hotkey in self.challengeperiod_testing:
@@ -409,18 +408,19 @@ class ChallengePeriodManager(CacheController):
             bt.logging.info(f"Eliminating hotkey {hotkey}.")
 
             # This will also add the hotkey to the in memory self.eliminations list
-            self.append_elimination_row(hotkey, -1, 'FAILED_CHALLENGE_PERIOD')
+            self.elimination_manager.append_elimination_row(hotkey, -1, 'FAILED_CHALLENGE_PERIOD')
 
     def _write_challengeperiod_from_memory_to_disk(self):
-        challengeperiod_data = {
-            "testing": self.challengeperiod_testing,
-            "success": self.challengeperiod_success
-        }
-        ValiBkpUtils.write_file(
-            ValiBkpUtils.get_challengeperiod_file_location(
-                running_unit_tests=self.running_unit_tests
-            ),
-            challengeperiod_data
-        )
+        with self.lock:
+            challengeperiod_data = {
+                "testing": self.challengeperiod_testing,
+                "success": self.challengeperiod_success
+            }
+            ValiBkpUtils.write_file(
+                ValiBkpUtils.get_challengeperiod_file_location(
+                    running_unit_tests=self.running_unit_tests
+                ),
+                challengeperiod_data
+            )
 
 

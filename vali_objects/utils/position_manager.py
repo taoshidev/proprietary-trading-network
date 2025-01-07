@@ -31,9 +31,9 @@ class PositionManager(CacheController):
     def __init__(self, config=None, metagraph=None, running_unit_tests=False,
                  live_price_fetcher=None, perform_order_corrections=False,
                  perform_compaction=False,
-                 is_mothership=False, perf_ledger_manager = None,
-                 challengeperiod_manager = False):
-
+                 is_mothership=False, perf_ledger_manager=None,
+                 challengeperiod_manager=None,
+                 elimination_manager=None):
 
         super().__init__(config=config, metagraph=metagraph, running_unit_tests=running_unit_tests)
         # Populate memory with positions
@@ -49,17 +49,26 @@ class PositionManager(CacheController):
         self.live_price_fetcher = live_price_fetcher
         self.perf_ledger_manager = perf_ledger_manager
         self.challengeperiod_manager = challengeperiod_manager
+        self.elimination_manager = elimination_manager
 
         self.recalibrated_position_uuids = set()
 
-        if perform_compaction:
+        self.is_mothership = is_mothership
+        self.perform_compaction = perform_compaction
+        self.perform_order_corrections = perform_order_corrections
+
+    def pre_run_setup(self):
+        """
+        Run this outside of init so that cross object dependencies can be set first. See validator.py
+        """
+        if self.perform_compaction:
             try:
-                self.perform_compaction()
+                self.compact_price_sources()
             except Exception as e:
                 bt.logging.error(f"Error performing compaction: {e}")
                 traceback.print_exc()
 
-        if perform_order_corrections:
+        if self.perform_order_corrections:
             try:
                 self.apply_order_corrections()
                 #time_now_ms = TimeUtil.now_in_millis()
@@ -69,15 +78,13 @@ class PositionManager(CacheController):
                 bt.logging.error(f"Error applying order corrections: {e}")
                 traceback.print_exc()
 
-        self.is_mothership = is_mothership
-
     def give_erronously_eliminated_miners_another_shot(self, hotkey_to_positions):
         time_now_ms = TimeUtil.now_in_millis()
         if time_now_ms > TARGET_MS:
             return
         # The MDD Checker will immediately eliminate miners if they exceed the maximum drawdown
-        eliminations = self.get_miner_eliminations_from_disk()
-        new_eliminations = []
+        eliminations = self.elimination_manager.get_eliminations_from_memory()
+        eliminations_to_delete = set()
         for e in eliminations:
             if e['hotkey'] in ('5EUTaAo7vCGxvLDWRXRrEuqctPjt9fKZmgkaeFZocWECUe9X',
                                '5E9Ppyn5DzHGaPQmsHVnkNJDjGd7DstqjHWZpQhWPMbqzNex',
@@ -98,10 +105,9 @@ class PositionManager(CacheController):
                 positions = hotkey_to_positions.get(e['hotkey'])
                 if positions:
                     self.reopen_force_closed_positions(positions)
-            else:
-                new_eliminations.append(e)
+                eliminations_to_delete.add(e)
 
-        self.write_eliminations_to_disk(new_eliminations)
+        self.elimination_manager.delete_eliminations(eliminations_to_delete)
 
     def strip_old_price_sources(self, position: Position, time_now_ms: int) -> int:
         n_removed = 0
@@ -177,11 +183,11 @@ class PositionManager(CacheController):
                 self.save_miner_position(position, delete_open_position_if_exists=False)
                 print(f"Reopened position {position.position_uuid} for trade pair {position.trade_pair.trade_pair_id}")
 
-    def perform_compaction(self):
+    def compact_price_sources(self):
         time_now = TimeUtil.now_in_millis()
         n_price_sources_removed = 0
         hotkey_to_positions = self.get_all_disk_positions_for_all_miners(only_open_positions=False, sort_positions=True)
-        eliminated_miners = self.get_miner_eliminations_from_disk()
+        eliminated_miners = self.elimination_manager.get_eliminations_from_memory()
         eliminated_hotkeys = set([e['hotkey'] for e in eliminated_miners])
         for hotkey, positions in hotkey_to_positions.items():
             if hotkey in eliminated_hotkeys:
@@ -280,8 +286,7 @@ class PositionManager(CacheController):
           5.31.24 - validator outage due to twelvedata thread error. add position if not exists.
 
         """
-        hotkey_to_positions = self.get_all_disk_positions_for_all_miners(sort_positions=True, only_open_positions=False,
-                                                                         perform_exorcism=True)
+        hotkey_to_positions = self.get_all_disk_positions_for_all_miners(sort_positions=True, only_open_positions=False)
         #self.give_erronously_eliminated_miners_another_shot(hotkey_to_positions)
         n_corrections = 0
         n_attempts = 0
@@ -296,9 +301,8 @@ class PositionManager(CacheController):
             # All miners that should have been promoted
             miners_to_promote = []
 
-        self._refresh_eliminations_in_memory()
         #Don't accidentally promote eliminated miners
-        for e in self.eliminations:
+        for e in self.elimination_manager.get_eliminations_from_memory():
             if e['hotkey'] in miners_to_promote:
                 miners_to_promote.remove(e['hotkey'])
 
@@ -316,11 +320,12 @@ class PositionManager(CacheController):
             if k not in hotkey_to_positions:
                 hotkey_to_positions[k] = []
 
-        for e in self.eliminations:
+        for e in self.elimination_manager.get_eliminations_from_memory():
             if e['hotkey'] in miners_to_wipe:
+                self.elimination_manager.delete_elimination(e['hotkey'])
                 bt.logging.info(f"Removed elimination for hotkey {e['hotkey']}")
-                self.eliminations.remove(e)
-        self._write_eliminations_from_memory_to_disk()
+
+
         for miner_hotkey, positions in hotkey_to_positions.items():
             n_attempts += 1
             self.dedupe_positions(positions, miner_hotkey)
@@ -330,13 +335,13 @@ class PositionManager(CacheController):
                 unique_corrections.update([p.position_uuid for p in positions])
                 for pos in positions:
                     self.delete_position(pos)
-                self._refresh_challengeperiod_in_memory()
-                if miner_hotkey in self.challengeperiod_testing:
-                    self.challengeperiod_testing.pop(miner_hotkey)
-                if miner_hotkey in self.challengeperiod_success:
-                    self.challengeperiod_success.pop(miner_hotkey)
+                self.challengeperiod_manager._refresh_challengeperiod_in_memory()
+                if miner_hotkey in self.challengeperiod_manager.challengeperiod_testing:
+                    self.challengeperiod_manager.challengeperiod_testing.pop(miner_hotkey)
+                if miner_hotkey in self.challengeperiod_manager.challengeperiod_success:
+                    self.challengeperiod_manager.challengeperiod_success.pop(miner_hotkey)
 
-                self._write_challengeperiod_from_memory_to_disk()
+                self.challengeperiod_manager._write_challengeperiod_from_memory_to_disk()
 
                 perf_ledgers = self.perf_ledger_manager.load_perf_ledgers_from_memory()
                 print('n perf ledgers before:', len(perf_ledgers))
@@ -474,7 +479,7 @@ class PositionManager(CacheController):
         if not tps_to_eliminate:
             return
         all_positions = self.get_all_disk_positions_for_all_miners(sort_positions=True, only_open_positions=False)
-        eliminations = self.get_miner_eliminations_from_disk()
+        eliminations = self.elimination_manager.get_eliminations_from_memory()
         eliminated_hotkeys = set(x['hotkey'] for x in eliminations)
         bt.logging.info(f"Found {len(eliminations)} eliminations on disk.")
         for hotkey, positions in all_positions.items():
@@ -669,7 +674,7 @@ class PositionManager(CacheController):
         elif position.is_open_position:
             self.verify_open_position_write(miner_dir, position)
 
-        print(f'Saving position {position.position_uuid} for miner {position.miner_hotkey} and trade pair {position.trade_pair.trade_pair_id} is_open {position.is_open_position}')
+        #print(f'Saving position {position.position_uuid} for miner {position.miner_hotkey} and trade pair {position.trade_pair.trade_pair_id} is_open {position.is_open_position}')
         ValiBkpUtils.write_file(miner_dir + position.position_uuid, position)
         if position.miner_hotkey not in self.hotkey_to_positions:
             self.hotkey_to_positions[position.miner_hotkey] = {}
@@ -701,10 +706,7 @@ class PositionManager(CacheController):
                 shutil.rmtree(file_path)
 
     def get_number_of_eliminations(self):
-        return len(self.get_miner_eliminations_from_disk())
-
-    def get_number_of_plagiarism_scores(self):
-        return len(self.get_plagiarism_scores_from_disk())
+        return len(self.elimination_manager.eliminations)
 
     def get_number_of_miners_with_any_positions(self):
         ans = 0

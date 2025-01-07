@@ -1,5 +1,6 @@
 from tests.shared_objects.mock_classes import MockMetagraph, MockPlagiarismDetector
 from tests.vali_tests.base_objects.test_base import TestBase
+from vali_objects.utils.elimination_manager import EliminationManager
 from vali_objects.vali_config import TradePair
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.position import Position
@@ -29,18 +30,20 @@ class TestPlagiarismIntegration(TestBase):
 
 
         self.mock_metagraph = MockMetagraph(self.MINER_NAMES)
-        self.plagiarism_detector = MockPlagiarismDetector(self.mock_metagraph)
-        self.plagiarism_detector.running_unit_tests = True
         self.current_time = ValiConfig.PLAGIARISM_LOOKBACK_RANGE_MS
+        self.elimination_manager = EliminationManager(self.mock_metagraph, None, None, running_unit_tests=True)
 
-        self.position_manager = MockPositionManager(metagraph=self.mock_metagraph, perf_ledger_manager=None)
+        self.position_manager = MockPositionManager(metagraph=self.mock_metagraph, perf_ledger_manager=None,
+                                                    elimination_manager=self.elimination_manager)
+        self.plagiarism_detector = MockPlagiarismDetector(self.mock_metagraph, self.position_manager)
+
         self.DEFAULT_TEST_POSITION_UUID = "test_position"
         self.DEFAULT_OPEN_MS = 1
 
         self.position_manager.clear_all_miner_positions()
         self.plagiarism_detector.clear_plagiarism_from_disk()
 
-        self.plagiarism_detector.clear_eliminations_from_disk()
+        self.elimination_manager.clear_eliminations()
         self.position_counter = 0
         PlagiarismEvents.clear_plagiarism_events()
 
