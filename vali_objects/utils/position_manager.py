@@ -37,13 +37,7 @@ class PositionManager(CacheController):
 
         super().__init__(config=config, metagraph=metagraph, running_unit_tests=running_unit_tests)
         # Populate memory with positions
-        temp = self.get_all_disk_positions_for_all_miners()
-        self.hotkey_to_positions = {}
-        for hk, positions in temp.items():
-            for p in positions:
-                if hk not in self.hotkey_to_positions:
-                    self.hotkey_to_positions[hk] = {}
-                self.hotkey_to_positions[hk][p.position_uuid] = p
+        self.populate_memory_positions_for_first_time()
 
         self.position_locks = PositionLocks()
         self.live_price_fetcher = live_price_fetcher
@@ -56,6 +50,16 @@ class PositionManager(CacheController):
         self.is_mothership = is_mothership
         self.perform_compaction = perform_compaction
         self.perform_order_corrections = perform_order_corrections
+
+    def populate_memory_positions_for_first_time(self):
+        temp = self.get_all_disk_positions_for_all_miners()
+        self.hotkey_to_positions = {}
+        for hk, positions in temp.items():
+            for p in positions:
+                if hk not in self.hotkey_to_positions:
+                    self.hotkey_to_positions[hk] = {}
+                self.hotkey_to_positions[hk][p.position_uuid] = p
+
 
     def pre_run_setup(self):
         """

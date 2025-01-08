@@ -10,18 +10,15 @@ from shared_objects.cache_controller import CacheController
 from vali_objects.utils.position_manager import PositionManager
 from vali_objects.position import Position
 from vali_objects.scoring.scoring import Scoring
-from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager, PerfCheckpoint, PerfLedger
+from vali_objects.vali_dataclasses.perf_ledger import PerfCheckpoint, PerfLedger
 
 
 class SubtensorWeightSetter(CacheController):
-    def __init__(self, config, wallet, metagraph, perf_ledger_manager : PerfLedgerManager =None,
-                 running_unit_tests=False, position_manager: PositionManager =None):
+    def __init__(self, config, wallet, metagraph, position_manager: PositionManager,
+                 running_unit_tests=False):
         super().__init__(config, metagraph, running_unit_tests=running_unit_tests)
-        self.position_manager = position_manager if position_manager else \
-            PositionManager(metagraph=metagraph, running_unit_tests=running_unit_tests)
-        self.perf_ledger_manager = perf_ledger_manager if perf_ledger_manager else \
-            PerfLedgerManager(metagraph=metagraph, running_unit_tests=running_unit_tests)
-
+        self.position_manager = position_manager
+        self.perf_ledger_manager = position_manager.perf_ledger_manager
         self.wallet = wallet
         self.subnet_version = 200
 

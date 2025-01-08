@@ -20,8 +20,8 @@ import json
 import gzip
 import base64
 
-from runnable.generate_request_core import generate_request_core
-from runnable.generate_request_minerstatistics import generate_miner_statistics_data
+from runnable.generate_request_core import RequestCoreManager
+from runnable.generate_request_minerstatistics import MinerStatisticsManager
 from vali_objects.utils.auto_sync import PositionSyncer
 from vali_objects.utils.p2p_syncer import P2PSyncer
 from shared_objects.rate_limiter import RateLimiter
@@ -302,8 +302,10 @@ class Validator:
 
         self.mdd_checker = MDDChecker(self.config, self.metagraph, self.position_manager, self.elimination_manager,
                                       live_price_fetcher=self.live_price_fetcher, shutdown_dict=shutdown_dict)
-        self.weight_setter = SubtensorWeightSetter(self.config, self.wallet, self.metagraph,
-                                                   perf_ledger_manager=self.perf_ledger_manager, position_manager=self.position_manager)
+        self.weight_setter = SubtensorWeightSetter(self.config, self.wallet, self.metagraph, position_manager=self.position_manager)
+
+        self.request_core_manager = RequestCoreManager(self.position_manager, self.weight_setter, self.plagiarism_detector)
+        self.miner_statistics_manager = MinerStatisticsManager(self.position_manager, self.weight_setter, self.plagiarism_detector)
 
         # Validators on mainnet net to be syned for the first time or after interruption need to resync their
         # positions. Assert there are existing orders that occurred > 24hrs in the past. Assert that the newest order
@@ -739,8 +741,8 @@ class Validator:
         miner_hotkey = synapse.dendrite.hotkey
         error_message = ""
         try:
-            stats = generate_miner_statistics_data(time_now=TimeUtil.now_in_millis(), checkpoints=True, selected_miner_hotkeys=[miner_hotkey])
-            positions = generate_request_core(time_now=TimeUtil.now_in_millis(), selected_miner_hotkeys=[miner_hotkey])
+            stats = self.miner_statistics_manager.generate_miner_statistics_data(time_now=TimeUtil.now_in_millis(), checkpoints=True, selected_miner_hotkeys=[miner_hotkey])
+            positions = self.request_core_manager.generate_request_core(time_now=TimeUtil.now_in_millis(), selected_miner_hotkeys=[miner_hotkey])
             dash_data = {"statistics": stats, **positions}
 
             if not stats["data"]:
@@ -786,7 +788,7 @@ class Validator:
                     if not self.encoded_checkpoint:
                         # get our current checkpoint
                         self.last_checkpoint_time = TimeUtil.now_in_millis()
-                        checkpoint_dict = generate_request_core(time_now=self.last_checkpoint_time)
+                        checkpoint_dict = self.request_core_manager.generate_request_core(time_now=self.last_checkpoint_time)
 
                         # compress json and encode as base64 to keep as a string
                         checkpoint_str = json.dumps(checkpoint_dict, cls=CustomEncoder)
