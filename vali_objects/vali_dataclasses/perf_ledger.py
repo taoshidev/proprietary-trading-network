@@ -416,7 +416,7 @@ class PerfLedgerManager(CacheController):
         self.hotkey_to_checkpointed_ledger = {}
 
 
-    def load_perf_ledgers_from_disk(self, read_as_pydantic=True) -> dict[str, PerfLedgerData]:
+    def load_perf_ledgers_from_disk(self, read_as_pydantic=True) -> dict[str, dict[str, PerfLedgerData]]:
         file_path = ValiBkpUtils.get_perf_ledgers_path(self.running_unit_tests)
         if not os.path.exists(file_path):
             return {}
@@ -425,13 +425,17 @@ class PerfLedgerManager(CacheController):
             data = json.load(file)
 
         perf_ledgers = {}
-        for key, ledger_data in data.items():
-            if read_as_pydantic:
-                ledger_data['cps'] = [PerfCheckpoint(**cp) for cp in ledger_data['cps']]
-                perf_ledgers[key] = PerfLedger(**ledger_data)
-            else:
-                ledger_data['cps'] = [PerfCheckpointData(**cp) for cp in ledger_data['cps']]
-                perf_ledgers[key] = PerfLedgerData(**ledger_data)
+        for hk, ledger_data in data.items():
+            perf_ledgers[hk] = {}
+            if 'initialization_time_ms' in ledger_data:
+                # V1 Perf ledger skip.
+                continue
+            print(ledger_data)
+            for key, ledger in ledger_data.items():
+                if read_as_pydantic:
+                    perf_ledgers[hk][key] = PerfLedger(**ledger)
+                else:
+                    perf_ledgers[hk][key] = PerfLedgerData(**ledger)
 
         return perf_ledgers
 
@@ -764,8 +768,12 @@ class PerfLedgerManager(CacheController):
             tp_to_historical_positions_dense[tp_id] = dense_positions
         return tp_to_initial_return, tp_to_initial_spread_fee, tp_to_initial_carry_fee, tp_to_historical_positions_dense
 
-    def build_perf_ledger(self, perf_ledger_bundle: dict[str:PerfLedgerData], tp_to_historical_positions: dict[str: Position], start_time_ms, end_time_ms, miner_hotkey, realtime_position_to_pop) -> bool:
+    def build_perf_ledger(self, perf_ledger_bundle: dict[str:dict[str, PerfLedgerData]], tp_to_historical_positions: dict[str: Position], start_time_ms, end_time_ms, miner_hotkey, realtime_position_to_pop) -> bool:
         #print(f"Building perf ledger for {miner_hotkey} from {start_time_ms} to {end_time_ms} ({(end_time_ms - start_time_ms) // 1000} s)")
+        portfolio_pl = perf_ledger_bundle[TP_ID_PORTFOLIO]
+        if len(portfolio_pl.cps) == 0:
+            portfolio_pl.init_with_first_order(end_time_ms, point_in_time_dd=1.0, current_portfolio_value=1.0,
+                                              current_portfolio_fee_spread=1.0, current_portfolio_carry=1.0)
 
         # Init per-trade-pair perf ledgers
         tp_ids_to_build = [TP_ID_PORTFOLIO]
@@ -780,8 +788,9 @@ class PerfLedgerManager(CacheController):
                 relevant_position = realtime_position_to_pop
                 initialization_time_ms = relevant_position.open_ms
                 perf_ledger_bundle[tp_id] = PerfLedgerData(initialization_time_ms=initialization_time_ms)
+                perf_ledger_bundle[tp_id].init_with_first_order(end_time_ms, point_in_time_dd=1.0, current_portfolio_value=1.0,
+                                                   current_portfolio_fee_spread=1.0, current_portfolio_carry=1.0)
 
-        portfolio_pl = perf_ledger_bundle[TP_ID_PORTFOLIO]
         if portfolio_pl.initialization_time_ms == end_time_ms:
             return False  # Can only build perf ledger between orders or after all orders have passed.
 
@@ -1037,12 +1046,16 @@ class PerfLedgerManager(CacheController):
 
         return hotkey_to_positions, hotkeys_with_no_positions
 
-    def generate_perf_ledgers_for_analysis(self, hotkey_to_positions: dict[str, List[Position]], t_ms: int = None) -> dict[str, PerfLedger]:
+    def generate_perf_ledgers_for_analysis(self, hotkey_to_positions: dict[str, List[Position]], t_ms: int = None) -> dict[str, dict[str, PerfLedger]]:
         if t_ms is None:
             t_ms = TimeUtil.now_in_millis()  # Time to build the perf ledgers up to. Goes back 30 days from this time.
         existing_perf_ledgers = {}
-        ans_data = self.update_all_perf_ledgers(hotkey_to_positions, existing_perf_ledgers, t_ms, return_dict=True)
-        ans_pydantic = {k: PerfLedger.from_data(v) for k, v in ans_data.items()}
+        dat = self.update_all_perf_ledgers(hotkey_to_positions, existing_perf_ledgers, t_ms, return_dict=True)
+        ans_pydantic = {}
+        for k, v in dat.items():
+            ans_pydantic[k] = {}
+            for tp_id, pl in v.items():
+                ans_pydantic[k][tp_id] = PerfLedger.from_data(pl)
         return ans_pydantic
 
     def update(self, testing_one_hotkey=None, regenerate_all_ledgers=False):
@@ -1167,12 +1180,14 @@ class PerfLedgerManager(CacheController):
                 print('    total loss product', pl.get_product_of_loss())
                 print('    total product', pl.get_total_product())
 
-    def save_perf_ledgers_to_disk(self, perf_ledgers: dict[str, PerfLedgerData] | dict[str, dict], raw_json=False):
+    def save_perf_ledgers_to_disk(self, perf_ledgers: dict[str, dict[str, PerfLedgerData]] | dict[str, dict], raw_json=False):
         # Convert to PerfLedger (pydantic validation)
-        if raw_json:
-            pydantic_perf_ledgers = {key: PerfLedger.from_dict(value) for key, value in perf_ledgers.items()}
-        else:
-            pydantic_perf_ledgers = {key: PerfLedger.from_data(value) for key, value in perf_ledgers.items()}
+        pydantic_perf_ledgers = {}
+        for hk, dat in perf_ledgers.items():
+            pydantic_perf_ledgers[hk] = {}
+            for tp_id, pl in dat.items():
+                pydantic_perf_ledgers[hk][tp_id] = PerfLedger.from_dict(pl) if raw_json else PerfLedger.from_data(pl)
+
         file_path = ValiBkpUtils.get_perf_ledgers_path(self.running_unit_tests)
         ValiBkpUtils.write_to_dir(file_path, pydantic_perf_ledgers)
 
@@ -1233,6 +1248,6 @@ if __name__ == "__main__":
     all_hotkeys_on_disk = CacheController.get_directory_names(all_miners_dir)
     mmg = MockMetagraph(hotkeys=all_hotkeys_on_disk)
     perf_ledger_manager = PerfLedgerManager(metagraph=mmg, running_unit_tests=False)
-    perf_ledger_manager.update(testing_one_hotkey='5FWa35Ye9fy1VzWUgS9bvzcTXLDzKaybZ8wL9eER3g1Mu291')
+    perf_ledger_manager.update(testing_one_hotkey='5Ct5amT9YmnfaksGbcZepFnL95N8D59gWStybSvcXGR3RLmv')
 
     #perf_ledger_manager.update(regenerate_all_ledgers=True)

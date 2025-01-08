@@ -6,7 +6,7 @@ from vali_objects.vali_config import TradePair
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.position import Position
 from vali_objects.vali_dataclasses.order import Order
-from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
+from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager, TP_ID_PORTFOLIO
 
 class TestPerfLedgers(TestBase):
 
@@ -36,9 +36,13 @@ class TestPerfLedgers(TestBase):
         perf_ledger_manager = PerfLedgerManager(metagraph=None, running_unit_tests=True)
         hotkey_to_positions = {self.DEFAULT_MINER_HOTKEY: [self.default_open_position]}
         ans = perf_ledger_manager.generate_perf_ledgers_for_analysis(hotkey_to_positions)
-        for x in ans[self.DEFAULT_MINER_HOTKEY].cps:
-            last_update_formated = TimeUtil.millis_to_timestamp(x.last_update_ms)
-            print(x, last_update_formated)
-        print('max_perf_ledger_return:', ans[self.DEFAULT_MINER_HOTKEY].max_return)
+        for hk, dat in ans.items():
+            for tp_id, pl in dat.items():
+                print('-----------', tp_id, '-----------')
+                for idx, x in enumerate(pl.cps):
+                    last_update_formatted = TimeUtil.millis_to_timestamp(x.last_update_ms)
+                    if idx == 0 or idx == len(pl.cps) - 1:
+                        print(x, last_update_formatted)
+                print(tp_id, 'max_perf_ledger_return:', pl.max_return)
         assert len(ans) == 1, ans
 
