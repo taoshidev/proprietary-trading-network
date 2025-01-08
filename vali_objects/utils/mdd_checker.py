@@ -102,12 +102,12 @@ class MDDChecker(CacheController):
 
         if self.n_eliminations_this_round:
             with self.elimination_manager.eliminations_lock:
-                self.save_eliminations()
+                self.elimination_manager.save_eliminations()
                 bt.logging.info(f'Wrote {self.n_eliminations_this_round} new eliminations to disk')
 
         # Update in response to dereg'd miners re-registering an uneliminating
         self.hotkeys_with_flat_orders_added = {
-            x for x in self.hotkeys_with_flat_orders_added if self._hotkey_in_eliminations(x)
+            x for x in self.hotkeys_with_flat_orders_added if self.elimination_manager.hotkey_in_eliminations(x)
         }
 
         hotkey_to_positions = self.position_manager.get_all_miner_positions_by_hotkey(
@@ -199,7 +199,7 @@ class MDDChecker(CacheController):
             return position
 
 
-    def add_manual_flat_orders(self, hotkey:str, sorted_positions:List[Position], corresponding_elimination) -> bool:
+    def add_manual_flat_orders(self, hotkey:str, sorted_positions:List[Position], corresponding_elimination):
         """
         Add flat orders to the positions for a miner that has been eliminated.
         """
@@ -249,7 +249,7 @@ class MDDChecker(CacheController):
         if len(sorted_positions) == 0:
             return False
         # Already eliminated?
-        corresponding_elimination = self.elimination_manager._hotkey_in_eliminations(hotkey)
+        corresponding_elimination = self.elimination_manager.hotkey_in_eliminations(hotkey)
         if corresponding_elimination:
             if hotkey not in self.hotkeys_with_flat_orders_added:
                 self.add_manual_flat_orders(hotkey, sorted_positions, corresponding_elimination)

@@ -35,7 +35,6 @@ class SubtensorWeightSetter(CacheController):
         metagraph_hotkeys = self.metagraph.hotkeys
 
         # we want to do this first because we will add to the eliminations list
-        self.position_manager.challengeperiod_manager._refresh_eliminations_in_memory()
         self.position_manager.challengeperiod_manager._refresh_challengeperiod_in_memory()
 
         # augmented ledger should have the gain, loss, n_updates, and time_duration

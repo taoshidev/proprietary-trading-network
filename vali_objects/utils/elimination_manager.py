@@ -54,7 +54,7 @@ class EliminationManager(CacheController):
         for miner_hotkey, current_plagiarism_score in self.challengeperiod_manager.miner_plagiarism_scores.items():
             if self.shutdown_dict:
                 return
-            if self._hotkey_in_eliminations(miner_hotkey):
+            if self.hotkey_in_eliminations(miner_hotkey):
                 continue
             if current_plagiarism_score > ValiConfig.MAX_MINER_PLAGIARISM_SCORE:
                 self.position_manager.handle_eliminated_miner(miner_hotkey, {})
@@ -74,7 +74,7 @@ class EliminationManager(CacheController):
 
         return True
 
-    def _hotkey_in_eliminations(self, hotkey):
+    def hotkey_in_eliminations(self, hotkey):
         for x in self.eliminations:
             if x['hotkey'] == hotkey:
                 return deepcopy(x)
