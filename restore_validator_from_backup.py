@@ -166,7 +166,7 @@ def regenerate_miner_positions(perform_backup=True, backup_from_data_dir=False, 
             position_manager.save_miner_position(p_obj)
 
         # Validate that the positions were written correctly
-        disk_positions = position_manager.get_all_miner_positions(hotkey, sort_positions=True)
+        disk_positions = position_manager.get_positions_for_one_hotkey(hotkey, sort_positions=True)
         #bt.logging.info(f'disk_positions: {disk_positions}, positions: {positions}')
         n_disk_positions = len(disk_positions)
         n_memory_positions = len(positions)

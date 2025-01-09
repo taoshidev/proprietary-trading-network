@@ -47,7 +47,7 @@ class TestPositions(TestBase):
         self.position_manager.save_miner_position(position)
 
     def _find_disk_position_from_memory_position(self, position):
-        for disk_position in self.position_manager.get_all_miner_positions(position.miner_hotkey):
+        for disk_position in self.position_manager.get_positions_for_one_hotkey(position.miner_hotkey):
             if disk_position.position_uuid == position.position_uuid:
                 return disk_position
         raise ValueError(f"Could not find position {position.position_uuid} in disk")

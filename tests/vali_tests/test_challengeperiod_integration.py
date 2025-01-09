@@ -264,7 +264,7 @@ class TestChallengePeriodIntegration(TestBase):
         self.challengeperiod_manager._write_challengeperiod_from_memory_to_disk()
 
         # Now loading the data
-        positions = self.position_manager.get_all_miner_positions_by_hotkey(hotkeys=[self.DEFAULT_MINER_HOTKEY])
+        positions = self.position_manager.get_positions_for_hotkeys(hotkeys=[self.DEFAULT_MINER_HOTKEY])
         ledgers = self.ledger_manager.load_perf_ledgers_from_disk()
 
         # First check that there is nothing on the miner
@@ -429,10 +429,10 @@ class TestChallengePeriodIntegration(TestBase):
         self.assertTrue(len(self.challengeperiod_manager.challengeperiod_testing) == 0)
         self.assertTrue(len(self.challengeperiod_manager.challengeperiod_success) == 0)
 
-        all_miners_positions = self.challengeperiod_manager.position_manager.get_all_miner_positions_by_hotkey(self.MINER_NAMES)
+        all_miners_positions = self.challengeperiod_manager.position_manager.get_positions_for_hotkeys(self.MINER_NAMES)
         self.assertListEqual(list(all_miners_positions.keys()), self.MINER_NAMES)
 
-        miners_with_one_position = self.challengeperiod_manager.position_manager.get_all_miner_hotkeys_with_at_least_one_position()
+        miners_with_one_position = self.challengeperiod_manager.position_manager.get_miner_hotkeys_with_at_least_one_position()
         miners_with_one_position_sorted = sorted(list(miners_with_one_position))
 
         self.assertListEqual(miners_with_one_position_sorted, sorted(self.MINER_NAMES))

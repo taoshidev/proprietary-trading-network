@@ -79,7 +79,7 @@ class ValidatorSyncBase():
             bt.logging.info("Mothership detected")
 
         if disk_positions is None:
-            disk_positions = self.position_manager.get_all_disk_positions_for_all_miners(only_open_positions=False, sort_positions=True)
+            disk_positions = self.position_manager.get_positions_for_hotkeys(sort_positions=True)
 
         eliminations = candidate_data['eliminations']
         if not self.is_mothership:

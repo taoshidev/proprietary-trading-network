@@ -108,7 +108,7 @@ class EliminationManager(CacheController):
                 self.challengeperiod_manager.challengeperiod_success.pop(hotkey)
 
             miner_dir = ValiBkpUtils.get_miner_dir(running_unit_tests=self.running_unit_tests) + hotkey
-            all_positions = self.position_manager.get_all_miner_positions_by_hotkey(hotkeys=[hotkey])
+            all_positions = self.position_manager.get_positions_for_hotkeys(hotkeys=[hotkey])
             for p in all_positions:
                 self.position_manager.delete_position(p)
             try:

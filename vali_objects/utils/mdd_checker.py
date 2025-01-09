@@ -110,7 +110,7 @@ class MDDChecker(CacheController):
             x for x in self.hotkeys_with_flat_orders_added if self.elimination_manager.hotkey_in_eliminations(x)
         }
 
-        hotkey_to_positions = self.position_manager.get_all_miner_positions_by_hotkey(
+        hotkey_to_positions = self.position_manager.get_positions_for_hotkeys(
             self.metagraph.hotkeys, sort_positions=True,
             eliminations=[{'hotkey': x} for x in self.hotkeys_with_flat_orders_added]
         )

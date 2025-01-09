@@ -907,11 +907,11 @@ class PerfLedgerManager(CacheController):
         #testing_one_hotkey = '5GzYKUYSD5d7TJfK4jsawtmS2bZDgFuUYw8kdLdnEDxSykTU'
         hotkeys_with_no_positions = set()
         if testing_one_hotkey:
-            hotkey_to_positions = self.position_manager.get_all_miner_positions_by_hotkey(
+            hotkey_to_positions = self.position_manager.get_positions_for_hotkeys(
                 [testing_one_hotkey], sort_positions=True
             )
         else:
-            hotkey_to_positions = self.position_manager.get_all_miner_positions_by_hotkey(
+            hotkey_to_positions = self.position_manager.get_positions_for_hotkeys(
                 self.metagraph.hotkeys, sort_positions=True,
                 eliminations=self.position_manager.elimination_manager.get_eliminations_from_memory()
             )

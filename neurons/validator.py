@@ -666,7 +666,7 @@ class Validator:
                 if synapse.error_message:
                     return synapse
                 # gather open positions and see which trade pairs have an open position
-                positions = self.position_manager.get_all_miner_positions(miner_hotkey, only_open_positions=True)
+                positions = self.position_manager.get_positions_for_one_hotkey(miner_hotkey, only_open_positions=True)
                 trade_pair_to_open_position = {position.trade_pair: position for position in positions}
                 self._enforce_num_open_order_limit(trade_pair_to_open_position, signal_to_order)
                 open_position = self._get_or_create_open_position(signal_to_order, miner_hotkey, trade_pair_to_open_position, miner_order_uuid)
@@ -718,7 +718,7 @@ class Validator:
         try:
             hotkey = synapse.dendrite.hotkey
             # Return the last n positions
-            positions = self.position_manager.get_all_miner_positions(hotkey, only_open_positions=True)
+            positions = self.position_manager.get_positions_for_one_hotkey(hotkey, only_open_positions=True)
             synapse.positions = [position.to_dict() for position in positions]
             bt.logging.info(f"Sending {len(positions)} positions back to miner: " + hotkey)
         except Exception as e:

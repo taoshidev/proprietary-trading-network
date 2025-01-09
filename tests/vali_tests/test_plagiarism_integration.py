@@ -248,7 +248,7 @@ class TestPlagiarismIntegration(TestBase):
 
     def test_no_plagiarism(self):
         # There should be no false positives
-        positions = self.position_manager.get_all_miner_positions_by_hotkey(
+        positions = self.position_manager.get_positions_for_hotkeys(
                 self.mock_metagraph.hotkeys
             )
         

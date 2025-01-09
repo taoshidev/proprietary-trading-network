@@ -48,7 +48,7 @@ class ChallengePeriodManager(CacheController):
         elimination_hotkeys = [x['hotkey'] for x in eliminations]
 
         # check all hotkeys which have at least one position
-        miners_with_positions = self.position_manager.get_all_miner_hotkeys_with_at_least_one_position()
+        miners_with_positions = self.position_manager.get_miner_hotkeys_with_at_least_one_position()
 
         for hotkey in new_hotkeys:
             if hotkey in miners_with_positions:
@@ -83,7 +83,7 @@ class ChallengePeriodManager(CacheController):
         all_miners = challengeperiod_success_hotkeys + challengeperiod_testing_hotkeys
 
         # Check that our miners are in challenge period - don't need to get all of them
-        positions = self.position_manager.get_all_miner_positions_by_hotkey(
+        positions = self.position_manager.get_positions_for_hotkeys(
             all_miners,
             sort_positions=True
         )

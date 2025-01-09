@@ -52,7 +52,7 @@ class PositionManager(CacheController):
         self.perform_order_corrections = perform_order_corrections
 
     def populate_memory_positions_for_first_time(self):
-        temp = self.get_all_disk_positions_for_all_miners()
+        temp = self.get_positions_for_all_miners(from_disk=True)
         self.hotkey_to_positions = {}
         for hk, positions in temp.items():
             for p in positions:
@@ -190,7 +190,7 @@ class PositionManager(CacheController):
     def compact_price_sources(self):
         time_now = TimeUtil.now_in_millis()
         n_price_sources_removed = 0
-        hotkey_to_positions = self.get_all_disk_positions_for_all_miners(only_open_positions=False, sort_positions=True)
+        hotkey_to_positions = self.get_positions_for_all_miners(sort_positions=True)
         eliminated_miners = self.elimination_manager.get_eliminations_from_memory()
         eliminated_hotkeys = set([e['hotkey'] for e in eliminated_miners])
         for hotkey, positions in hotkey_to_positions.items():
@@ -290,7 +290,7 @@ class PositionManager(CacheController):
           5.31.24 - validator outage due to twelvedata thread error. add position if not exists.
 
         """
-        hotkey_to_positions = self.get_all_disk_positions_for_all_miners(sort_positions=True, only_open_positions=False)
+        hotkey_to_positions = self.get_positions_for_all_miners(sort_positions=True)
         #self.give_erronously_eliminated_miners_another_shot(hotkey_to_positions)
         n_corrections = 0
         n_attempts = 0
@@ -482,7 +482,7 @@ class PositionManager(CacheController):
         tps_to_eliminate = [TradePair.SPX, TradePair.DJI, TradePair.NDX, TradePair.VIX]
         if not tps_to_eliminate:
             return
-        all_positions = self.get_all_disk_positions_for_all_miners(sort_positions=True, only_open_positions=False)
+        all_positions = self.get_positions_for_all_miners(sort_positions=True)
         eliminations = self.elimination_manager.get_eliminations_from_memory()
         eliminated_hotkeys = set(x['hotkey'] for x in eliminations)
         bt.logging.info(f"Found {len(eliminations)} eliminations on disk.")
@@ -564,7 +564,7 @@ class PositionManager(CacheController):
         for attr in dir(position1):
             attr_is_property = isinstance(getattr(type(position1), attr, None), property)
             if attr.startswith("_") or callable(getattr(position1, attr)) or (comparing_to_dict and attr_is_property) \
-                    or (attr in ('model_computed_fields', 'model_config', 'model_fields', 'model_fields_set')):
+                    or (attr in ('model_computed_fields', 'model_config', 'model_fields', 'model_fields_set', 'newest_order_age_ms')):
                 continue
 
             value1 = getattr(position1, attr)
@@ -582,7 +582,7 @@ class PositionManager(CacheController):
     def get_miner_position_by_uuid(self, hotkey:str, position_uuid: str) -> Position | None:
         if hotkey not in self.hotkey_to_positions:
             return None
-        return self.hotkey_to_positions[hotkey].get(position_uuid)
+        return deepcopy(self.hotkey_to_positions[hotkey].get(position_uuid))
 
     def get_recently_updated_miner_hotkeys(self):
         """
@@ -637,7 +637,7 @@ class PositionManager(CacheController):
     def verify_open_position_write(self, miner_dir, updated_position):
         all_files = ValiBkpUtils.get_all_files_in_dir(miner_dir)
         # Print all files found for dir
-        positions = [self.get_miner_position_from_disk(file) for file in all_files]
+        positions = [self._get_position_from_disk(file) for file in all_files]
         if len(positions) == 0:
             return  # First time open position is being saved
         if len(positions) > 1:
@@ -655,7 +655,7 @@ class PositionManager(CacheController):
         # -------------------------------------------------------------------------------------
         # Make sure the memory positions match the disk positions. Consider keeping this here.
         cdf = miner_dir[:-5] + 'closed/'
-        positions.extend([self.get_miner_position_from_disk(file) for file in ValiBkpUtils.get_all_files_in_dir(cdf)])
+        positions.extend([self._get_position_from_disk(file) for file in ValiBkpUtils.get_all_files_in_dir(cdf)])
 
         temp = self.hotkey_to_positions.get(updated_position.miner_hotkey, {})
         positions_memory_by_position_uuid = {}
@@ -761,7 +761,7 @@ class PositionManager(CacheController):
                 continue
             hotkey = file
             # Read all positions in this directory
-            positions = self.get_all_miner_positions(hotkey)
+            positions = self.get_positions_for_one_hotkey(hotkey)
             for p in positions:
                 for o in p.orders:
                     min_time = min(min_time, o.processed_ms)
@@ -847,7 +847,7 @@ class PositionManager(CacheController):
         Calculate leverage across all open positions
         Normalize each asset class with a multiplier
         """
-        positions = self.get_all_miner_positions(hotkey, only_open_positions=True)
+        positions = self.get_positions_for_one_hotkey(hotkey, only_open_positions=True)
 
         portfolio_leverage = 0.0
         for position in positions:
@@ -855,13 +855,16 @@ class PositionManager(CacheController):
 
         return portfolio_leverage
 
-    def get_all_disk_positions_for_all_miners(self, **args):
-        all_miner_hotkeys: list = ValiBkpUtils.get_directories_in_dir(
-            ValiBkpUtils.get_miner_dir(self.running_unit_tests)
-        )
-        return self.get_all_miner_positions_by_hotkey(all_miner_hotkeys, from_disk=True, **args)
+    def get_positions_for_all_miners(self, from_disk=False, **args):
+        if from_disk:
+            all_miner_hotkeys: list = ValiBkpUtils.get_directories_in_dir(
+                ValiBkpUtils.get_miner_dir(self.running_unit_tests)
+            )
+        else:
+            all_miner_hotkeys = list(self.hotkey_to_positions.keys())
+        return self.get_positions_for_hotkeys(all_miner_hotkeys, from_disk=from_disk, **args)
 
-    def get_miner_position_from_disk(self, file) -> Position:
+    def _get_position_from_disk(self, file) -> Position:
         # wrapping here to allow simpler error handling & original for other error handling
         # Note one position always corresponds to one file.
         file_string = None
@@ -922,19 +925,19 @@ class PositionManager(CacheController):
                 filtered_positions.append(position)
         return filtered_positions
 
-    def get_all_miner_positions(self,
-                                miner_hotkey: str,
-                                only_open_positions: bool = False,
-                                sort_positions: bool = False,
-                                acceptable_position_end_ms: int = None,
-                                from_disk: bool = False
-                                ) -> List[Position]:
+    def get_positions_for_one_hotkey(self,
+                                     miner_hotkey: str,
+                                     only_open_positions: bool = False,
+                                     sort_positions: bool = False,
+                                     acceptable_position_end_ms: int = None,
+                                     from_disk: bool = False
+                                     ) -> List[Position]:
 
         if from_disk:
             miner_dir = ValiBkpUtils.get_miner_all_positions_dir(miner_hotkey,
                                                                  running_unit_tests=self.running_unit_tests)
             all_files = ValiBkpUtils.get_all_files_in_dir(miner_dir)
-            positions = [self.get_miner_position_from_disk(file) for file in all_files]
+            positions = [self._get_position_from_disk(file) for file in all_files]
         else:
             positions = deepcopy(list(self.hotkey_to_positions.get(miner_hotkey, {}).values()))
 
@@ -955,19 +958,16 @@ class PositionManager(CacheController):
 
         return positions
 
-    def get_all_miner_positions_by_hotkey(self, hotkeys: List[str], eliminations: List = None, **args) -> Dict[
+    def get_positions_for_hotkeys(self, hotkeys: List[str], eliminations: List = None, **args) -> Dict[
         str, List[Position]]:
-        """
-        Retry due to a race condition where an open position is deleted and the file is not found.
-        """
         eliminated_hotkeys = set(x['hotkey'] for x in eliminations) if eliminations is not None else set()
 
         return {
-            hotkey: self.get_all_miner_positions(hotkey, **args)
+            hotkey: self.get_positions_for_one_hotkey(hotkey, **args)
             for hotkey in hotkeys
             if hotkey not in eliminated_hotkeys
         }
 
-    def get_all_miner_hotkeys_with_at_least_one_position(self) -> set[str]:
+    def get_miner_hotkeys_with_at_least_one_position(self) -> set[str]:
         return {k for k in self.hotkey_to_positions if self.hotkey_to_positions[k]}
 

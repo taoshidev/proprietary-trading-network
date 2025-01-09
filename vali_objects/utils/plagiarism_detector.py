@@ -64,7 +64,7 @@ class PlagiarismDetector(CacheController):
         if hotkeys is None:
             hotkeys = self.metagraph.hotkeys
         if hotkey_positions is None:
-            hotkey_positions = self.position_manager.get_all_miner_positions_by_hotkey(
+            hotkey_positions = self.position_manager.get_positions_for_hotkeys(
                 hotkeys,
                 eliminations=self.position_manager.elimination_manager.get_eliminations_from_memory(),
             )

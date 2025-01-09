@@ -177,7 +177,7 @@ class RequestCoreManager:
             all_miner_hotkeys = selected_miner_hotkeys
 
         # we won't be able to query for eliminated hotkeys from challenge period
-        hotkey_positions = self.position_manager.get_all_miner_positions_by_hotkey(
+        hotkey_positions = self.position_manager.get_positions_for_hotkeys(
             all_miner_hotkeys,
             sort_positions=True
         )

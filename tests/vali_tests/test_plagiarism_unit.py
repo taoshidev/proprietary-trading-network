@@ -100,7 +100,7 @@ class TestPlagiarismUnit(TestBase):
 
     def translate_positions_to_states(self):
         hotkeys = self.mock_metagraph.hotkeys
-        positions = self.position_manager.get_all_miner_positions_by_hotkey(hotkeys)
+        positions = self.position_manager.get_positions_for_hotkeys(hotkeys)
         flattened_positions = PositionUtils.flatten(positions)
         positions_list_translated = PositionUtils.translate_current_leverage(flattened_positions, evaluation_time_ms=self.current_time)
         miners, trade_pairs, state_list = PositionUtils.to_state_list(positions_list_translated, current_time=self.current_time)

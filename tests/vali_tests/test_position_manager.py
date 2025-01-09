@@ -33,7 +33,7 @@ class TestPositionManager(TestBase):
         self.position_manager.save_miner_position(position)
 
     def _find_disk_position_from_memory_position(self, position):
-        for disk_position in self.position_manager.get_all_miner_positions(position.miner_hotkey):
+        for disk_position in self.position_manager.get_positions_for_one_hotkey(position.miner_hotkey):
             if disk_position.position_uuid == position.position_uuid:
                 return disk_position
         raise ValueError(f"Could not find position {position.position_uuid} in disk")
@@ -71,7 +71,7 @@ class TestPositionManager(TestBase):
             idx_to_position[(i, j)] = position
             self.position_manager.save_miner_position(position)
 
-        all_disk_positions = self.position_manager.get_all_miner_positions(self.DEFAULT_MINER_HOTKEY, sort_positions=True)
+        all_disk_positions = self.position_manager.get_positions_for_one_hotkey(self.DEFAULT_MINER_HOTKEY, sort_positions=True)
         self.assertEqual(len(all_disk_positions), n_trade_pairs * 6)
         # Ensure the positions in all_disk_positions are sorted by close_ms.
         t0 = all_disk_positions[0].close_ms
@@ -119,10 +119,10 @@ class TestPositionManager(TestBase):
             else:
                 self.position_manager.save_miner_position(position)
 
-        all_disk_positions = self.position_manager.get_all_miner_positions(self.DEFAULT_MINER_HOTKEY)
+        all_disk_positions = self.position_manager.get_positions_for_one_hotkey(self.DEFAULT_MINER_HOTKEY)
         self.assertEqual(len(all_disk_positions), num_positions + 1)
 
-        open_disk_positions = self.position_manager.get_all_miner_positions(self.DEFAULT_MINER_HOTKEY, only_open_positions=True)
+        open_disk_positions = self.position_manager.get_positions_for_one_hotkey(self.DEFAULT_MINER_HOTKEY, only_open_positions=True)
         self.assertEqual(len(open_disk_positions), 1)
 
 
@@ -147,8 +147,8 @@ class TestPositionManager(TestBase):
                 positions.append(position)
 
             # Fetch and sort positions from disk
-            all_disk_positions = self.position_manager.get_all_miner_positions(self.DEFAULT_MINER_HOTKEY,
-                                                                                   sort_positions=True)
+            all_disk_positions = self.position_manager.get_positions_for_one_hotkey(self.DEFAULT_MINER_HOTKEY,
+                                                                                    sort_positions=True)
 
             # Verify the number of positions fetched matches expectations
             self.assertEqual(len(all_disk_positions), num_positions)
@@ -161,8 +161,8 @@ class TestPositionManager(TestBase):
 
 
             # Ensure no open positions are fetched
-            all_disk_positions = self.position_manager.get_all_miner_positions(self.DEFAULT_MINER_HOTKEY,
-                                                                               sort_positions=True, only_open_positions=True)
+            all_disk_positions = self.position_manager.get_positions_for_one_hotkey(self.DEFAULT_MINER_HOTKEY,
+                                                                                    sort_positions=True, only_open_positions=True)
             self.assertEqual(len(all_disk_positions), 0)
 
     def test_one_close_and_one_open_order_per_position(self):
@@ -197,8 +197,8 @@ class TestPositionManager(TestBase):
             positions.append(position)
 
         # Fetch and sort positions from disk
-        all_disk_positions = self.position_manager.get_all_miner_positions(self.DEFAULT_MINER_HOTKEY,
-                                                                           sort_positions=True)
+        all_disk_positions = self.position_manager.get_positions_for_one_hotkey(self.DEFAULT_MINER_HOTKEY,
+                                                                                sort_positions=True)
 
         # Verify the number of positions fetched matches expectations
         self.assertEqual(len(all_disk_positions), 2 * len(TradePair))
@@ -210,13 +210,13 @@ class TestPositionManager(TestBase):
             self.assertTrue(prev_close_ms <= curr_close_ms, "Positions are not sorted correctly by close_ms")
 
         # Ensure all open positions are fetched
-        open_disk_positions = self.position_manager.get_all_miner_positions(self.DEFAULT_MINER_HOTKEY,
-                                                                           sort_positions=True,
-                                                                           only_open_positions=True)
+        open_disk_positions = self.position_manager.get_positions_for_one_hotkey(self.DEFAULT_MINER_HOTKEY,
+                                                                                 sort_positions=True,
+                                                                                 only_open_positions=True)
         self.assertEqual(len(open_disk_positions), len(TradePair))
 
-        all_disk_positions = self.position_manager.get_all_miner_positions(self.DEFAULT_MINER_HOTKEY,
-                                                                           sort_positions=True)
+        all_disk_positions = self.position_manager.get_positions_for_one_hotkey(self.DEFAULT_MINER_HOTKEY,
+                                                                                sort_positions=True)
         self.assertEqual(len(all_disk_positions), 2 * len(TradePair))
 
 

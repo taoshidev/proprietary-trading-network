@@ -165,7 +165,7 @@ class SubtensorWeightSetter(CacheController):
         if hotkeys is None:
             hotkeys = self.metagraph.hotkeys
 
-        positions = self.position_manager.get_all_miner_positions_by_hotkey(
+        positions = self.position_manager.get_positions_for_hotkeys(
             hotkeys,
             sort_positions=True
         )
