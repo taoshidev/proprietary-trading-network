@@ -668,6 +668,15 @@ class PositionManager(CacheController):
                     f" position with a different position_uuid {positions[0].position_uuid}.")
                 raise ValiRecordsMisalignmentException(msg)
 
+    def _save_miner_position_to_memory(self, position: Position):
+        if position.miner_hotkey not in self.hotkey_to_positions:
+            self.hotkey_to_positions[position.miner_hotkey] = {}
+        if position.miner_hotkey in self.hotkey_to_positions and position.position_uuid in self.hotkey_to_positions[position.miner_hotkey]:
+            existing_pos = self.hotkey_to_positions[position.miner_hotkey][position.position_uuid]
+            assert existing_pos.trade_pair == position.trade_pair, f"Trade pair mismatch for position {position.position_uuid}. Existing: {existing_pos.trade_pair}, New: {position.trade_pair}"
+        self.hotkey_to_positions[position.miner_hotkey][position.position_uuid] = deepcopy(position)
+
+
     def save_miner_position(self, position: Position, delete_open_position_if_exists=True) -> None:
         miner_dir = ValiBkpUtils.get_partitioned_miner_positions_dir(position.miner_hotkey,
                                                                      position.trade_pair.trade_pair_id,
@@ -680,12 +689,7 @@ class PositionManager(CacheController):
 
         #print(f'Saving position {position.position_uuid} for miner {position.miner_hotkey} and trade pair {position.trade_pair.trade_pair_id} is_open {position.is_open_position}')
         ValiBkpUtils.write_file(miner_dir + position.position_uuid, position)
-        if position.miner_hotkey not in self.hotkey_to_positions:
-            self.hotkey_to_positions[position.miner_hotkey] = {}
-        if position.miner_hotkey in self.hotkey_to_positions and position.position_uuid in self.hotkey_to_positions[position.miner_hotkey]:
-            existing_pos = self.hotkey_to_positions[position.miner_hotkey][position.position_uuid]
-            assert existing_pos.trade_pair == position.trade_pair, f"Trade pair mismatch for position {position.position_uuid}. Existing: {existing_pos.trade_pair}, New: {position.trade_pair}"
-        self.hotkey_to_positions[position.miner_hotkey][position.position_uuid] = deepcopy(position)
+        self._save_miner_position_to_memory(position)
 
     def overwrite_position_on_disk(self, position: Position) -> None:
         # delete the position from disk. Try the open position dir and the closed position dir
@@ -695,6 +699,7 @@ class PositionManager(CacheController):
                                                                      order_status=OrderStatus.OPEN if position.is_open_position else OrderStatus.CLOSED,
                                                                      running_unit_tests=self.running_unit_tests)
         ValiBkpUtils.write_file(miner_dir + position.position_uuid, position)
+        self._save_miner_position_to_memory(position)
 
     def clear_all_miner_positions(self, target_hotkey=None):
         self.hotkey_to_positions = {}
