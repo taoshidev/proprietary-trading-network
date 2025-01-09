@@ -335,6 +335,10 @@ class TradePair(Enum):
                                           TradePairCategory.EQUITIES: 2}
         return trade_pair_leverage_multiplier[self.trade_pair_category]
 
+    @classmethod
+    def categories(cls):
+        return {tp.trade_pair_id: tp.trade_pair_category.value for tp in cls}
+
     @staticmethod
     def to_dict():
         # Convert TradePair Enum to a dictionary
