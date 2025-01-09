@@ -915,12 +915,16 @@ class PerfLedgerManager(CacheController):
                 self.metagraph.hotkeys, sort_positions=True,
                 eliminations=self.position_manager.elimination_manager.get_eliminations_from_memory()
             )
+            n_positions_total = 0
             # Keep only hotkeys with positions
             for k, positions in hotkey_to_positions.items():
-                if len(positions) == 0:
+                n_positions = len(positions)
+                n_positions_total += n_positions
+                if n_positions == 0:
                     hotkeys_with_no_positions.add(k)
             for k in hotkeys_with_no_positions:
                 del hotkey_to_positions[k]
+            bt.logging.info('TEMP DEBUG: TOTAL N POSITIONS IN MEMORY: ' + str(n_positions_total))
 
         return hotkey_to_positions, hotkeys_with_no_positions
 
