@@ -430,7 +430,6 @@ class PerfLedgerManager(CacheController):
             if 'initialization_time_ms' in ledger_data:
                 # V1 Perf ledger skip.
                 continue
-            print(ledger_data)
             for key, ledger in ledger_data.items():
                 if read_as_pydantic:
                     perf_ledgers[hk][key] = PerfLedger(**ledger)
@@ -1150,11 +1149,26 @@ class PerfLedgerManager(CacheController):
             print(f'Portfolio ledger attributes: initialization_time_ms {portfolio_ledger.initialization_time_ms},'
                     f' max_return {portfolio_ledger.max_return}')
             returns = []
-            dds = []
+            returns_muled = []
             times = []
+            n_contributing_tps = []
             for i, x in enumerate(portfolio_ledger.cps):
                 returns.append(x.prev_portfolio_ret)
-                dds.append(x.mpv)
+                foo = 1.0
+                n_contributing = 0
+                for tp_id, ledger in perf_ledger_bundles[testing_one_hotkey].items():
+                    if tp_id == TP_ID_PORTFOLIO:
+                        continue
+                    rele_cp = None
+                    for y in ledger.cps:
+                        if y.last_update_ms == x.last_update_ms:
+                            rele_cp = y
+                            break
+                    if rele_cp:
+                        n_contributing += 1
+                        foo *= rele_cp.prev_portfolio_ret
+                returns_muled.append(foo)
+                n_contributing_tps.append(n_contributing)
                 times.append(TimeUtil.millis_to_timestamp(x.last_update_ms))
 
                 last_update_formated = TimeUtil.millis_to_timestamp(x.last_update_ms)
@@ -1167,11 +1181,11 @@ class PerfLedgerManager(CacheController):
             # Make the plot bigger
             plt.figure(figsize=(10, 5))
             plt.plot(times, returns, color='red', label='Return')
-            plt.plot(times, dds, color='blue', label='Drawdown')
+            plt.plot(times, returns_muled, color='blue', label='Return_Mulled')
             # Labels
             plt.xlabel('Time')
             plt.title(f'Return vs Time for HK {testing_one_hotkey}')
-            plt.legend(['Return', 'Drawdown'])
+            plt.legend(['Return', 'Return_Mulled'])
             plt.show()
 
             for tp_id, pl in perf_ledger_bundles[testing_one_hotkey].items():
@@ -1179,6 +1193,10 @@ class PerfLedgerManager(CacheController):
                 print('    total gain product', pl.get_product_of_gains())
                 print('    total loss product', pl.get_product_of_loss())
                 print('    total product', pl.get_total_product())
+
+            print('validating returns:')
+            for z in zip(returns, returns_muled, n_contributing_tps):
+                print(z, z[0] - z[1])
 
     def save_perf_ledgers_to_disk(self, perf_ledgers: dict[str, dict[str, PerfLedgerData]] | dict[str, dict], raw_json=False):
         # Convert to PerfLedger (pydantic validation)
