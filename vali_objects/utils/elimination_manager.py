@@ -108,14 +108,17 @@ class EliminationManager(CacheController):
                 self.challengeperiod_manager.challengeperiod_success.pop(hotkey)
 
             miner_dir = ValiBkpUtils.get_miner_dir(running_unit_tests=self.running_unit_tests) + hotkey
+            all_positions = self.position_manager.get_all_miner_positions_by_hotkey(hotkeys=[hotkey])
+            for p in all_positions:
+                self.position_manager.delete_position(p)
             try:
                 shutil.rmtree(miner_dir)
-                bt.logging.info(
-                    f"miner eliminated with hotkey [{hotkey}] with max dd of [{x.get('dd', 'N/A')}]. reason: [{x['reason']}]"
-                    f"Removing miner dir [{miner_dir}]"
-                )
             except FileNotFoundError:
                 bt.logging.info(f"miner dir not found. Already deleted. [{miner_dir}]")
+            bt.logging.info(
+                f"miner eliminated with hotkey [{hotkey}] with max dd of [{x.get('dd', 'N/A')}]. reason: [{x['reason']}]"
+                f"Removing miner dir [{miner_dir}]"
+            )
             deleted_hotkeys.add(hotkey)
 
         # Write the challengeperiod information to disk
