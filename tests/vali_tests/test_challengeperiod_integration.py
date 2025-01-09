@@ -3,7 +3,7 @@ from copy import deepcopy
 
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.vali_dataclasses.order import Order
-from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerData
+from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerData, TP_ID_PORTFOLIO
 from tests.shared_objects.mock_classes import (
     MockMetagraph, MockChallengePeriodManager, MockPositionManager, MockPerfLedgerManager, MockCacheController
 )
@@ -319,7 +319,7 @@ class TestChallengePeriodIntegration(TestBase):
         # Check one of the failing miners, to see if they are screened
         failing_miner = self.FAILING_MINER_NAMES[0]
         failing_screen, _ = self.challengeperiod_manager.screen_failing_criteria(
-            ledger_element=self.LEDGERS[failing_miner]
+            ledger_element=self.LEDGERS[failing_miner][TP_ID_PORTFOLIO]
         )
 
         self.assertEqual(failing_screen, True)
@@ -327,7 +327,7 @@ class TestChallengePeriodIntegration(TestBase):
         # Now inspect all the hotkeys
         challenge_success, challenge_eliminations = self.challengeperiod_manager.inspect(
             positions=self.POSITIONS,
-            ledger=self.LEDGERS,
+            ledger={hk: v[TP_ID_PORTFOLIO] for hk, v in self.LEDGERS.items()},
             success_hotkeys=self.SUCCESS_MINER_NAMES,
             inspection_hotkeys=self.challengeperiod_manager.challengeperiod_testing,
             current_time=self.OUTSIDE_OF_CHALLENGE

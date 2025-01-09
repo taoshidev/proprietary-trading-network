@@ -6,7 +6,7 @@ from vali_objects.vali_config import TradePair
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.position import Position
 from vali_objects.vali_dataclasses.order import Order
-from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager, TP_ID_PORTFOLIO
+from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
 
 class TestPerfLedgers(TestBase):
 

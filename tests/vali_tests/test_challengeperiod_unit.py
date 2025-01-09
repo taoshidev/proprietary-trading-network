@@ -18,7 +18,7 @@ from vali_objects.utils.ledger_utils import LedgerUtils
 from vali_objects.scoring.scoring import Scoring
 from vali_objects.vali_dataclasses.order import Order
 from vali_objects.enums.order_type_enum import OrderType
-
+from vali_objects.vali_dataclasses.perf_ledger import TP_ID_PORTFOLIO
 
 class TestChallengePeriodUnit(TestBase):
 
@@ -136,15 +136,15 @@ class TestChallengePeriodUnit(TestBase):
             base_positions[i].return_at_close = 1.1
 
         # Drawdown is high - 50% drawdown on the first period
-        base_ledger.cps[0].mdd = 0.5
+        base_ledger[TP_ID_PORTFOLIO].cps[0].mdd = 0.5
 
         # Drawdown criteria
-        max_drawdown = LedgerUtils.recent_drawdown(base_ledger.cps, restricted=False)
+        max_drawdown = LedgerUtils.recent_drawdown(base_ledger[TP_ID_PORTFOLIO].cps, restricted=False)
         max_drawdown_percentage = LedgerUtils.drawdown_percentage(max_drawdown)
         self.assertGreater(max_drawdown_percentage, ValiConfig.DRAWDOWN_MAXVALUE_PERCENTAGE)
 
         # Check that the miner is successfully screened as failing
-        screening_logic, _ = self.challengeperiod_manager.screen_failing_criteria(ledger_element=base_ledger)
+        screening_logic, _ = self.challengeperiod_manager.screen_failing_criteria(ledger_element=base_ledger[TP_ID_PORTFOLIO])
         self.assertTrue(screening_logic)
 
 
@@ -163,7 +163,7 @@ class TestChallengePeriodUnit(TestBase):
         # Check that the miner is screened as failing
         passing, failing = self.challengeperiod_manager.inspect(
             positions=inspection_positions,
-            ledger=inspection_ledger,
+            ledger={hk: v[TP_ID_PORTFOLIO] for hk, v in inspection_ledger.items()},
             success_hotkeys=[],
             inspection_hotkeys={"miner": current_time},
             current_time=current_time,
@@ -190,7 +190,7 @@ class TestChallengePeriodUnit(TestBase):
         # Check that the miner is screened as failing
         passing, failing = self.challengeperiod_manager.inspect(
             positions=inspection_positions,
-            ledger=inspection_ledger,
+            ledger={hk: v[TP_ID_PORTFOLIO] for hk, v in inspection_ledger.items()},
             success_hotkeys=[],
             inspection_hotkeys=inspection_hotkeys,
             current_time=current_time,
@@ -218,7 +218,7 @@ class TestChallengePeriodUnit(TestBase):
         # Check that the miner is screened as failing
         passing, failing = self.challengeperiod_manager.inspect(
             positions=inspection_positions,
-            ledger=inspection_ledger,
+            ledger={hk: v[TP_ID_PORTFOLIO] for hk, v in inspection_ledger.items()},
             success_hotkeys=[],
             inspection_hotkeys=inspection_hotkeys,
             current_time=current_time,
@@ -245,7 +245,7 @@ class TestChallengePeriodUnit(TestBase):
         # Check that the miner is screened as failing
         passing, failing = self.challengeperiod_manager.inspect(
             positions=inspection_positions,
-            ledger=inspection_ledger,
+            ledger={hk: v[TP_ID_PORTFOLIO] for hk, v in inspection_ledger.items()},
             success_hotkeys=[],
             inspection_hotkeys=inspection_hotkeys,
             current_time=current_time,
@@ -271,7 +271,7 @@ class TestChallengePeriodUnit(TestBase):
         # Check that the miner is screened as testing still
         passing, failing = self.challengeperiod_manager.inspect(
             positions=inspection_positions,
-            ledger=inspection_ledger,
+            ledger={hk: v[TP_ID_PORTFOLIO] for hk, v in inspection_ledger.items()},
             success_hotkeys=[],
             inspection_hotkeys=inspection_hotkeys,
             current_time=current_time
@@ -289,7 +289,7 @@ class TestChallengePeriodUnit(TestBase):
         base_ledger = deepcopy(self.DEFAULT_LEDGER)
 
         base_position = deepcopy(self.DEFAULT_POSITION)
-        base_position.orders[0].processed_ms = base_ledger.start_time_ms + 1
+        base_position.orders[0].processed_ms = base_ledger[TP_ID_PORTFOLIO].start_time_ms + 1
         base_positions = [base_position]
 
         inspection_positions = {"miner": base_positions}
@@ -300,7 +300,7 @@ class TestChallengePeriodUnit(TestBase):
         # Check that the miner is screened as testing still
         passing, failing = self.challengeperiod_manager.inspect(
             positions=inspection_positions,
-            ledger=inspection_ledger,
+            ledger={hk: v[TP_ID_PORTFOLIO] for hk, v in inspection_ledger.items()},
             success_hotkeys=self.SUCCESS_MINER_NAMES,
             inspection_hotkeys=inspection_hotkeys,
             current_time=current_time,
@@ -325,7 +325,7 @@ class TestChallengePeriodUnit(TestBase):
         # Check that the miner is screened as testing still
         passing, failing = self.challengeperiod_manager.inspect(
             positions=inspection_positions,
-            ledger=inspection_ledger,
+            ledger={hk: v[TP_ID_PORTFOLIO] for hk, v in inspection_ledger.items()},
             success_hotkeys=self.SUCCESS_MINER_NAMES,
             inspection_hotkeys=inspection_hotkeys,
             current_time=current_time,
@@ -350,7 +350,7 @@ class TestChallengePeriodUnit(TestBase):
         # Check that the miner is screened as failing
         passing, failing = self.challengeperiod_manager.inspect(
             positions=inspection_positions,
-            ledger=inspection_ledger,
+            ledger={hk: v[TP_ID_PORTFOLIO] for hk, v in inspection_ledger.items()},
             success_hotkeys=[],
             inspection_hotkeys={"miner": current_time},
             current_time=current_time,
@@ -376,7 +376,7 @@ class TestChallengePeriodUnit(TestBase):
         # Check that the miner is screened as failing
         passing, failing = self.challengeperiod_manager.inspect(
             positions=inspection_positions,
-            ledger=inspection_ledger,
+            ledger={hk: v[TP_ID_PORTFOLIO] for hk, v in inspection_ledger.items()},
             success_hotkeys=[],
             inspection_hotkeys={"miner": current_time},
             current_time=current_time,
@@ -415,7 +415,7 @@ class TestChallengePeriodUnit(TestBase):
         # Check that the miner is screened as failing
         passing, failing = self.challengeperiod_manager.inspect(
             positions=inspection_positions,
-            ledger=inspection_ledger,
+            ledger={hk: v[TP_ID_PORTFOLIO] for hk, v in inspection_ledger.items()},
             success_hotkeys=[],
             inspection_hotkeys={"miner": current_time},
             current_time=current_time,

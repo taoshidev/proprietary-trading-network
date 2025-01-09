@@ -8,6 +8,7 @@ from vali_objects.vali_config import TradePair
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.vali_dataclasses.perf_ledger import PerfCheckpoint, PerfLedger
 from vali_objects.vali_config import ValiConfig
+from vali_objects.vali_dataclasses.perf_ledger import TP_ID_PORTFOLIO
 
 
 def get_time_in_range(percent, start, end):
@@ -125,7 +126,8 @@ def generate_ledger(
             )
         )
 
-    return ledger_generator(checkpoints=checkpoint_list)
+    base_ledger = ledger_generator(checkpoints=checkpoint_list)
+    return {TP_ID_PORTFOLIO: base_ledger, TradePair.BTCUSD.trade_pair_id: base_ledger}
 
 
 def ledger_generator(
