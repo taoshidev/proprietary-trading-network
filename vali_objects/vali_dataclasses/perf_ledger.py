@@ -416,7 +416,7 @@ class PerfLedgerManager(CacheController):
         self.hotkey_to_checkpointed_ledger = {}
 
 
-    def load_perf_ledgers_from_disk(self, read_as_pydantic=True) -> dict[str, dict[str, PerfLedgerData]]:
+    def load_perf_ledgers_from_disk(self, read_as_pydantic=True, portfolio_only=True) -> dict[str, dict[str, PerfLedgerData]]:
         file_path = ValiBkpUtils.get_perf_ledgers_path(self.running_unit_tests)
         if not os.path.exists(file_path):
             return {}
@@ -425,18 +425,22 @@ class PerfLedgerManager(CacheController):
             data = json.load(file)
 
         perf_ledgers = {}
+        perf_ledgers_portfolio_only = {}
         for hk, ledger_data in data.items():
             perf_ledgers[hk] = {}
             if 'initialization_time_ms' in ledger_data:
-                # V1 Perf ledger skip.
+                if portfolio_only:
+                    perf_ledgers_portfolio_only[hk] = PerfLedger(**ledger_data) if read_as_pydantic else PerfLedgerData(**ledger_data)
                 continue
+            if portfolio_only:
+                perf_ledgers_portfolio_only[hk] = PerfLedger(**ledger_data[TP_ID_PORTFOLIO]) if read_as_pydantic else PerfLedgerData(**ledger_data[TP_ID_PORTFOLIO])
             for key, ledger in ledger_data.items():
-                if read_as_pydantic:
-                    perf_ledgers[hk][key] = PerfLedger(**ledger)
-                else:
-                    perf_ledgers[hk][key] = PerfLedgerData(**ledger)
+                perf_ledgers[hk][key] = PerfLedger(**ledger) if read_as_pydantic else PerfLedgerData(**ledger)
 
-        return perf_ledgers
+        if portfolio_only:
+            return perf_ledgers_portfolio_only
+        else:
+            return perf_ledgers
 
     def write_perf_ledgers_to_disk(self, perf_ledgers: dict[str, PerfLedgerData], write_as_pydantic=True):
         file_path = ValiBkpUtils.get_perf_ledgers_path(self.running_unit_tests)
@@ -1057,7 +1061,7 @@ class PerfLedgerManager(CacheController):
         return ans_pydantic
 
     def update(self, testing_one_hotkey=None, regenerate_all_ledgers=False):
-        perf_ledger_bundles = self.load_perf_ledgers_from_disk(read_as_pydantic=False)
+        perf_ledger_bundles = self.load_perf_ledgers_from_disk(read_as_pydantic=False, portfolio_only=False)
         self._refresh_eliminations_in_memory()
         t_ms = TimeUtil.now_in_millis() - self.UPDATE_LOOKBACK_MS
         """
