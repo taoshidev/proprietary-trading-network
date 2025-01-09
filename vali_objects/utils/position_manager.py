@@ -564,7 +564,7 @@ class PositionManager(CacheController):
         for attr in dir(position1):
             attr_is_property = isinstance(getattr(type(position1), attr, None), property)
             if attr.startswith("_") or callable(getattr(position1, attr)) or (comparing_to_dict and attr_is_property) \
-                    or (attr in ('model_computed_fields', 'model_config', 'model_fields')):
+                    or (attr in ('model_computed_fields', 'model_config', 'model_fields', 'model_fields_set')):
                 continue
 
             value1 = getattr(position1, attr)
@@ -579,26 +579,10 @@ class PositionManager(CacheController):
                 return False, f"{attr} is different. {value1} != {value2}"
         return True, ""
 
-    def get_miner_position_from_disk_using_position_in_memory(self, memory_position: Position) -> Position:
-        # Position could have changed to closed
-        fp = self.get_filepath_for_position(hotkey=memory_position.miner_hotkey,
-                                            trade_pair_id=memory_position.trade_pair.trade_pair_id,
-                                            position_uuid=memory_position.position_uuid,
-                                            is_open=memory_position.is_open_position)
-        try:
-            return self.get_miner_position_from_disk(fp)
-        except Exception as e:
-            bt.logging.info(f"Error getting position from disk: {e}")
-            if memory_position.is_open_position:
-                bt.logging.warning(f"Attempting to get closed position from disk for memory position {memory_position}")
-                fp = self.get_filepath_for_position(hotkey=memory_position.miner_hotkey,
-                                                    trade_pair_id=memory_position.trade_pair.trade_pair_id,
-                                                    position_uuid=memory_position.position_uuid,
-                                                    is_open=False
-                                                    )
-                return self.get_miner_position_from_disk(fp)
-            else:
-                raise e
+    def get_miner_position_by_uuid(self, hotkey:str, position_uuid: str) -> Position | None:
+        if hotkey not in self.hotkey_to_positions:
+            return None
+        return self.hotkey_to_positions[hotkey].get(position_uuid)
 
     def get_recently_updated_miner_hotkeys(self):
         """
@@ -667,6 +651,49 @@ class PositionManager(CacheController):
                     f"and trade_pair {updated_position.trade_pair.trade_pair_id} but found an existing open"
                     f" position with a different position_uuid {positions[0].position_uuid}.")
                 raise ValiRecordsMisalignmentException(msg)
+
+        # -------------------------------------------------------------------------------------
+        # Make sure the memory positions match the disk positions. Consider keeping this here.
+        cdf = miner_dir[:-5] + 'closed/'
+        positions.extend([self.get_miner_position_from_disk(file) for file in ValiBkpUtils.get_all_files_in_dir(cdf)])
+
+        temp = self.hotkey_to_positions.get(updated_position.miner_hotkey, {})
+        positions_memory_by_position_uuid = {}
+        for position_uuid, position in temp.items():
+            if position.trade_pair == updated_position.trade_pair:
+                positions_memory_by_position_uuid[position_uuid] = position
+        positions_disk_by_uuid = {p.position_uuid: p for p in positions}
+        errors = []
+        for position_uuid, position in positions_memory_by_position_uuid.items():
+            if position_uuid not in positions_disk_by_uuid:
+                errors.append(
+                    f"Position {position_uuid} for miner {updated_position.miner_hotkey} and trade_pair {updated_position.trade_pair.trade_pair_id} "
+                    f"found in memory but not on disk.")
+                continue
+            disk_position = positions_disk_by_uuid[position_uuid]
+            is_same, diff = self.positions_are_the_same(position, disk_position)
+            if not is_same:
+                errors.append(
+                    f"Position {position_uuid} for miner {updated_position.miner_hotkey} and trade_pair {updated_position.trade_pair.trade_pair_id} "
+                    f"found in memory but does not match the position on disk. {diff}")
+
+        for position_uuid, position in positions_disk_by_uuid.items():
+            if position_uuid not in positions_memory_by_position_uuid:
+                errors.append(
+                    f"Position {position_uuid} for miner {updated_position.miner_hotkey} and trade_pair {updated_position.trade_pair.trade_pair_id} "
+                    f"found on disk but not in memory.")
+                continue
+            memory_position = positions_memory_by_position_uuid[position_uuid]
+            is_same, diff = self.positions_are_the_same(memory_position, position)
+            if not is_same:
+                errors.append(
+                    f"Position {position_uuid} for miner {updated_position.miner_hotkey} and trade_pair {updated_position.trade_pair.trade_pair_id} "
+                    f"found on disk but does not match the position in memory. {diff}")
+        if errors:
+            raise ValiRecordsMisalignmentException(
+                f"Found errors in miner {updated_position.miner_hotkey} and trade_pair {updated_position.trade_pair.trade_pair_id}. Errors: {errors}."
+                f" Disk positions: {positions_disk_by_uuid.keys()}. Memory positions: {positions_memory_by_position_uuid.keys()}. all files {all_files}")
+        # -------------------------------------------------------------------------------------
 
     def _save_miner_position_to_memory(self, position: Position):
         if position.miner_hotkey not in self.hotkey_to_positions:

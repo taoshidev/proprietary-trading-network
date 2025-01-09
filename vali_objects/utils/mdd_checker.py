@@ -152,7 +152,10 @@ class MDDChecker(CacheController):
         now_ms = TimeUtil.now_in_millis()
         with self.position_manager.position_locks.get_lock(hotkey, trade_pair_id):
             # Position could have updated in the time between mdd_check being called and this function being called
-            position = self.position_manager.get_miner_position_from_disk_using_position_in_memory(position)
+            position_refreshed = self.position_manager.get_miner_position_by_uuid(hotkey, position.position_uuid)
+            assert position_refreshed is not None, f"Unexpectedly could not find position with uuid {position.position_uuid} for hotkey {hotkey} and trade pair {trade_pair_id}."
+
+            position = position_refreshed
             n_orders_updated = 0
             for i, order in enumerate(reversed(position.orders)):
                 if not self.price_correction_enabled:
@@ -206,22 +209,15 @@ class MDDChecker(CacheController):
         any_changes_attempted = False
         elimination_time_ms = corresponding_elimination['elimination_initiated_time_ms']
 
-        # @@@@TEMP DEBUG@@@@@@
-        #for position in sorted_positions:
-        #    rewind = False
-        #    for order in position.orders:
-        #        if order.src == ORDER_SRC_ELIMINATION_FLAT:
-        #            rewind = True
-        #            break
-        #    if rewind:
-        #        position.orders = [o for o in position.orders if o.src != ORDER_SRC_ELIMINATION_FLAT]
-        #        position.rebuild_position_with_updated_orders()
-        #        assert position.is_open_position, position
-        # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
         for position in sorted_positions:
             with self.position_manager.position_locks.get_lock(hotkey, position.trade_pair.trade_pair_id):
                 # Position could have updated in the time between mdd_check being called and this function being called
-                position = self.position_manager.get_miner_position_from_disk_using_position_in_memory(position)
+                position_refreshed = self.position_manager.get_miner_position_by_uuid(hotkey, position.position_uuid)
+                if position_refreshed is None:
+                    bt.logging.warning(f"Unexpectedly could not find position with uuid {position.position_uuid} for hotkey {hotkey} and trade pair {position.trade_pair.trade_pair_id}. Not add flat orders")
+                    continue
+
+                position = position_refreshed
                 if position.is_closed_position:
                     continue
 
