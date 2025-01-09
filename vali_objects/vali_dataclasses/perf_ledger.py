@@ -383,12 +383,14 @@ class PerfLedger(BaseModel, PerfLedgerData):
 
 
 class PerfLedgerManager(CacheController):
-    def __init__(self, metagraph, live_price_fetcher=None, running_unit_tests=False, shutdown_dict=None, position_syncer=None):
+    def __init__(self, metagraph, live_price_fetcher=None, running_unit_tests=False, shutdown_dict=None,
+                 position_syncer=None, enable_rss=True):
         super().__init__(metagraph=metagraph, running_unit_tests=running_unit_tests)
         self.shutdown_dict = shutdown_dict
         self.position_syncer = position_syncer
         self.live_price_fetcher = live_price_fetcher
         self.running_unit_tests = running_unit_tests
+        self.enable_rss = enable_rss
 
         if live_price_fetcher is None:
             secrets = ValiUtils.get_secrets(running_unit_tests=running_unit_tests)
@@ -1108,7 +1110,7 @@ class PerfLedgerManager(CacheController):
                 pass  # Don't want to rebuild. Use this pass statement to avoid rss logic.
             elif not len(hotkey_to_positions.get(hotkey, [])):
                 hotkeys_to_delete.add(hotkey)
-            elif not rss_modified and hotkey not in self.random_security_screenings:
+            elif self.enable_rss and not rss_modified and hotkey not in self.random_security_screenings:
                 rss_modified = True
                 self.random_security_screenings.add(hotkey)
                 #bt.logging.info(f"perf ledger PLM added {hotkey} with {len(hotkey_to_positions.get(hotkey, []))} positions to rss.")
