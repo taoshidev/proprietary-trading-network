@@ -650,7 +650,7 @@ class PerfLedgerManager(CacheController):
                     self.new_window_intersects_old_window(start_time_ms, end_time_ms, existing_lb_ms, existing_ub_ms):
                 perform_wipe = False
 
-        attr = 'close' if mode == 'second' else 'vwap'
+        attr = 'close' if mode == 'second' else 'vwap' # TODO: @@@@@ use low if within x% of wvap. else use vwap. Do a study on optimal x.
         if perform_wipe:
             price_info = {self.align_t_ms_to_mode(a.timestamp, mode): getattr(a, attr) for a in price_info_raw}
             #for a in price_info_raw:
@@ -658,7 +658,6 @@ class PerfLedgerManager(CacheController):
             self.trade_pair_to_price_info[mode][tp.trade_pair_id] = price_info
             self.trade_pair_to_price_info[mode][tp.trade_pair_id]['lb_ms'] = start_time_ms
             self.trade_pair_to_price_info[mode][tp.trade_pair_id]['ub_ms'] = end_time_ms
-
         else:
             self.trade_pair_to_price_info[mode][tp.trade_pair_id]['ub_ms'] = max(existing_ub_ms, end_time_ms)
             self.trade_pair_to_price_info[mode][tp.trade_pair_id]['lb_ms'] = min(existing_lb_ms, start_time_ms)
@@ -847,12 +846,12 @@ class PerfLedgerManager(CacheController):
 
             if portfolio_return < perf_ledger_bundle[TP_ID_PORTFOLIO].cps[-1].prev_portfolio_ret * 0.98:
                 time_since_last_update = t_ms - perf_ledger_bundle[TP_ID_PORTFOLIO].cps[-1].last_update_ms
-                bt.logging.warning(f'perf ledger for hk {miner_hotkey} significant return drop from {perf_ledger_bundle[TP_ID_PORTFOLIO].cps[-1].prev_portfolio_ret} to {portfolio_return} over {time_since_last_update} ms ({t_ms})', perf_ledger_bundle[TP_ID_PORTFOLIO].cps[-1].to_dict(), self.trade_pair_to_position_ret)
+                print(f'perf ledger for hk {miner_hotkey} significant return drop from {perf_ledger_bundle[TP_ID_PORTFOLIO].cps[-1].prev_portfolio_ret} to {portfolio_return} over {time_since_last_update} ms ({t_ms})', perf_ledger_bundle[TP_ID_PORTFOLIO].cps[-1].to_dict(), self.trade_pair_to_position_ret)
                 for tp, historical_positions in tp_to_historical_positions.items():
                     positions = []
                     for historical_position in historical_positions:
                         positions.append((historical_position.position_uuid, [x.price for x in historical_position.orders], historical_position.return_at_close, historical_position.is_open_position))
-                    print(f'tp {tp} positions {positions}')
+                    print(f'    tp {tp} positions {positions}')
 
             for tp_id in tp_ids_to_build:
                 perf_ledger = perf_ledger_bundle[tp_id]
@@ -1266,6 +1265,6 @@ if __name__ == "__main__":
     all_hotkeys_on_disk = CacheController.get_directory_names(all_miners_dir)
     mmg = MockMetagraph(hotkeys=all_hotkeys_on_disk)
     perf_ledger_manager = PerfLedgerManager(metagraph=mmg, running_unit_tests=False)
-    perf_ledger_manager.update(testing_one_hotkey='5Ct5amT9YmnfaksGbcZepFnL95N8D59gWStybSvcXGR3RLmv')
+    #perf_ledger_manager.update(testing_one_hotkey='5Ct5amT9YmnfaksGbcZepFnL95N8D59gWStybSvcXGR3RLmv')
 
-    #perf_ledger_manager.update(regenerate_all_ledgers=True)
+    perf_ledger_manager.update(regenerate_all_ledgers=True)
