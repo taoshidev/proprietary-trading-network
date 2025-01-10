@@ -12,6 +12,7 @@ from scipy.stats import percentileofscore
 
 from vali_objects.vali_config import ValiConfig
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerData
+from vali_objects.scoring.allocation import Allocation
 from time_util.time_util import TimeUtil
 from vali_objects.utils.position_filtering import PositionFiltering
 from vali_objects.utils.ledger_utils import LedgerUtils
@@ -139,6 +140,9 @@ class Scoring:
         # Compute miner penalties
         miner_penalties = Scoring.miner_penalties(filtered_positions, ledger_dict)
 
+        # Compute miner daycounts
+        miner_daycounts = Allocation.hotkey_to_daycount(ledger_dict)
+
         # Miners with full penalty
         full_penalty_miners: list[tuple[str, float]] = set([
             miner for miner, penalty in miner_penalties.items() if penalty == 0
@@ -160,25 +164,29 @@ class Scoring:
                 if miner in full_penalty_miners:
                     continue
 
+                daycount = miner_daycounts.get(miner, ValiConfig.BASE_MINER_DAYCOUNT)
                 short_lookback_window = ValiConfig.SHORT_LOOKBACK_WINDOW
 
                 if config_name == 'return_long':
                     score = config['function'](
                         log_returns=returns,
+                        daycount=daycount,
                         checkpoints=checkpoints
                     )
                 elif config_name == 'return_short':
                     score = config['function'](
                         log_returns=returns[-short_lookback_window:],
+                        daycount=daycount,
                         checkpoints=checkpoints[-short_lookback_window:]
                     )
                 elif config_name == 'concentration':
                     score = config['function'](
                         log_returns=returns,
+                        daycount=daycount,
                         positions=positions
                     )
                 else:
-                    score = config['function'](log_returns=returns)
+                    score = config['function'](log_returns=returns, daycount=daycount)
 
                 scores.append((miner, float(score)))
 

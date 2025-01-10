@@ -60,7 +60,7 @@ class Metrics:
         return Metrics.ann_volatility(downside_returns)
 
     @staticmethod
-    def base_return_log(log_returns: list[float]) -> float:
+    def base_return_log(log_returns: list[float], daycount: float) -> float:
         """
         Args:
             log_returns: list of daily log returns from the miner
@@ -71,10 +71,10 @@ class Metrics:
         if len(log_returns) == 0:
             return 0.0
 
-        return float(np.mean(log_returns)) * ValiConfig.DAYS_IN_YEAR
+        return float(np.mean(log_returns)) * daycount
 
     @staticmethod
-    def base_return(log_returns: list[float]) -> float:
+    def base_return(log_returns: list[float], daycount: float) -> float:
         """
         Args:
             log_returns: list of daily log returns from the miner
@@ -82,10 +82,10 @@ class Metrics:
         Returns:
              The aggregate total return of the miner as a percentage
         """
-        return (math.exp(Metrics.base_return_log(log_returns)) - 1) * 100
+        return (math.exp(Metrics.base_return_log(log_returns, daycount)) - 1) * 100
 
     @staticmethod
-    def drawdown_adjusted_return(log_returns: list[float], checkpoints: list[PerfCheckpoint]) -> float:
+    def drawdown_adjusted_return(log_returns: list[float], daycount: float, checkpoints: list[PerfCheckpoint]) -> float:
         """
         Args:
             log_returns: list of daily log returns from the miner
@@ -95,13 +95,13 @@ class Metrics:
         if len(log_returns) == 0:
             return 0.0
 
-        base_return = Metrics.base_return_log(log_returns)
+        base_return = Metrics.base_return_log(log_returns, daycount)
         drawdown_normalization_factor = LedgerUtils.risk_normalization(checkpoints)
 
         return base_return * drawdown_normalization_factor
 
     @staticmethod
-    def risk_adjusted_return(returns: list[float], checkpoints: list[PerfCheckpoint]) -> float:
+    def risk_adjusted_return(returns: list[float], daycount: float, checkpoints: list[PerfCheckpoint]) -> float:
         """
         Args:
             returns: list of returns
@@ -111,7 +111,7 @@ class Metrics:
         if len(returns) == 0:
             return 0.0
 
-        base_return = Metrics.base_return_log(returns)
+        base_return = Metrics.base_return_log(returns, daycount)
         risk_normalization_factor = LedgerUtils.risk_normalization(checkpoints)
 
         return base_return * risk_normalization_factor

@@ -28,6 +28,15 @@ class ValiConfig:
     DAYS_IN_YEAR = 252  # 252 trading days in a year
     STATISTICAL_CONFIDENCE_MINIMUM_N = 60
 
+    # Daycounts
+    BASE_MINER_DAYCOUNT = 252
+    DAYCOUNTS = {
+        TradePairCategory.CRYPTO: 365,
+        TradePairCategory.FOREX: 252,
+        TradePairCategory.INDICES: 252,
+        TradePairCategory.EQUITIES: 252
+    }
+
     # Market-specific configurations
     ANNUAL_RISK_FREE_PERCENTAGE = 4.19  # From tbill rates
     ANNUAL_RISK_FREE_DECIMAL = ANNUAL_RISK_FREE_PERCENTAGE / 100
@@ -128,8 +137,6 @@ class ValiConfig:
     CHECKPOINT_DURATION_THRESHOLD = int(TARGET_LEDGER_WINDOW_MS * CHECKPOINT_DURATION_RATIO)
 
     SHORT_LOOKBACK_WINDOW = 7 * DAILY_CHECKPOINTS
-
-
 
     # Concentration
     POSITIONAL_CONCENTRATION_SIGMOID_SPREAD = 50
