@@ -124,7 +124,7 @@ class MDDChecker(CacheController):
                         f"{self.n_eliminations_this_round}. "
                         f"n orders corrected: {self.n_orders_corrected}. n miners corrected: {len(self.miners_corrected)}."
                         f" n_poly_api_requests: {self.n_poly_api_requests}")
-        self.set_last_update_time(skip_message=True)
+        self.set_last_update_time(skip_message=False)
 
     def _update_position_returns_and_persist_to_disk(self, hotkey, position, candle_data_dict) -> Position:
         """
