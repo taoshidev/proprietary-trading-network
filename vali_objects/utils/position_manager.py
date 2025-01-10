@@ -934,10 +934,12 @@ class PositionManager(CacheController):
                                      ) -> List[Position]:
 
         if from_disk:
+            t0 = time.time()
             miner_dir = ValiBkpUtils.get_miner_all_positions_dir(miner_hotkey,
                                                                  running_unit_tests=self.running_unit_tests)
             all_files = ValiBkpUtils.get_all_files_in_dir(miner_dir)
             positions = [self._get_position_from_disk(file) for file in all_files]
+            bt.logging.info(f'TEMP DEBUG: Fetched {len(positions)} positions for hotkey {miner_hotkey} from disk in {time.time() - t0:.2f} seconds.')
         else:
             positions = deepcopy(list(self.hotkey_to_positions.get(miner_hotkey, {}).values()))
 
