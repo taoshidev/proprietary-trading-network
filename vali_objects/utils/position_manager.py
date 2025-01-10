@@ -24,7 +24,7 @@ from vali_objects.vali_dataclasses.order import OrderStatus, ORDER_SRC_DEPRECATI
 from vali_objects.vali_dataclasses.price_source import PriceSource
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
 
-TARGET_MS = 1734881630000 + (1000 * 60 * 60 * 3)  # + 3 hours
+TARGET_MS = 1736481963000 + (1000 * 60 * 60 * 3)  # + 3 hours
 
 
 class PositionManager(CacheController):
@@ -340,10 +340,51 @@ class PositionManager(CacheController):
                 self.perf_ledger_manager.save_perf_ledgers_to_disk(perf_ledgers_new)
 
             if miner_hotkey == '5Cd9bVVja2KdgsTiR7rTAh7a4UKVfnAuYAW1bs8BiedUE9JN' and now_ms < TARGET_MS:
-                positions_with_single_order = [p for p in positions if len(p.orders) == 1 and p.is_closed_position]
-                for p in positions_with_single_order:
-                    n_attempts, n_corrections = self.correct_for_tp([], None, [], None,
-                                                         unique_corrections=unique_corrections, pos=p)
+                position_that_should_exist_raw = {"miner_hotkey": "5Cd9bVVja2KdgsTiR7rTAh7a4UKVfnAuYAW1bs8BiedUE9JN",
+                                                  "position_uuid": "f5a54d87-26c4-4a73-91b3-d8607b898507", "open_ms": 1734077788550,
+                                                  "trade_pair": TradePair.USDJPY, "orders":
+                                                      [{"order_type": "LONG", "leverage": 0.25, "price": 152.865, "processed_ms": 1734077788550, "order_uuid": "f5a54d87-26c4-4a73-91b3-d8607b898507", "price_sources": [], "src": 0},
+                                                       {"order_type": "LONG", "leverage": 0.25, "price": 153.846, "processed_ms": 1734424931078, "order_uuid": "a53bd995-ad81-4b98-8039-5991abc00374", "price_sources": [], "src": 0},
+                                                       {"order_type": "FLAT", "leverage": 0.25, "price": 153.656, "processed_ms": 1734517608513, "order_uuid": "3572eabe-4a4c-4fa2-8262-bf2a8e8ea394", "price_sources": [], "src": 0}],
+                                                  "current_return": 1.0009828934026757, "close_ms": 1734517608513, "return_at_close": 1.000926976973672,
+                                                  "net_leverage": 0.0, "average_entry_price": 153.3555, "position_type": "FLAT", "is_closed_position": True}
+
+                success = self.enforce_position_state(position_that_should_exist_raw, TradePair.USDJPY, miner_hotkey,
+                                                      unique_corrections, overwrite=True)
+                n_corrections += success
+                n_attempts += 1
+
+            if miner_hotkey == "5HYBzAsTcxDXxHNXBpUJAQ9ZwmaGTwTb24ZBGJpELpG7LPGf" and now_ms < TARGET_MS:
+                position_that_should_exist_raw = \
+                {"miner_hotkey": "5HYBzAsTcxDXxHNXBpUJAQ9ZwmaGTwTb24ZBGJpELpG7LPGf",
+                 "position_uuid": "c1be3244-5125-4bd6-83b7-9f56c84b3387", "open_ms": 1736389802186,
+                 "trade_pair": TradePair.BTCUSD, "orders": [
+                    {"order_type": "SHORT", "leverage": -0.5, "price": 94432.48, "processed_ms": 1736389802186,
+                     "order_uuid": "c1be3244-5125-4bd6-83b7-9f56c84b3387", "price_sources": [
+                        {"source": "Polygon_ws", "timespan_ms": 0, "open": 94432.48, "close": 94432.48,
+                         "vwap": 94432.48, "high": 94432.48, "low": 94432.48, "start_ms": 1736389802000,
+                         "websocket": False, "lag_ms": 186, "volume": 0.04655431},
+                        {"source": "Tiingo_gdax_rest", "timespan_ms": 0, "open": 94431.06, "close": 94431.06,
+                         "vwap": 94431.06, "high": 94431.06, "low": 94431.06, "start_ms": 1736389800615,
+                         "websocket": True, "lag_ms": 1571, "volume": None},
+                        {"source": "Polygon_rest", "timespan_ms": 1000, "open": 94237.5, "close": 94200.0,
+                         "vwap": 94243.0749, "high": 94246.12, "low": 94200.0, "start_ms": 1736390000000,
+                         "websocket": False, "lag_ms": 197814, "volume": 0.01125985}], "src": 0},
+                    {"order_type": "FLAT", "leverage": 0.5, "price": 93908.85, "processed_ms": 1736395887370,
+                     "order_uuid": "da0075dd-b97a-4cb4-a7d2-8c4e074101c5", "price_sources": [
+                        {"source": "Polygon_ws", "timespan_ms": 0, "open": 93908.85, "close": 93908.85,
+                         "vwap": 93908.85, "high": 93908.85, "low": 93908.85, "start_ms": 1736395887000,
+                         "websocket": True, "lag_ms": 370, "volume": 1.3e-05},
+                        {"source": "Tiingo_gdax_rest", "timespan_ms": 0, "open": 93908.85, "close": 93908.85,
+                         "vwap": 93908.85, "high": 93908.85, "low": 93908.85, "start_ms": 1736395886709,
+                         "websocket": True, "lag_ms": 661, "volume": None}], "src": 0}],
+                 "current_return": 1.0027725100516263, "close_ms": 1736395887370, "return_at_close": 1.0022180496021578,
+                 "net_leverage": 0.0, "average_entry_price": 94432.48, "position_type": "FLAT",
+                 "is_closed_position": True}
+                success = self.enforce_position_state(position_that_should_exist_raw, TradePair.BTCUSD, miner_hotkey, unique_corrections)
+                n_corrections += success
+                n_attempts += 1
+
 
             """
                     
@@ -445,6 +486,25 @@ class PositionManager(CacheController):
         #5DCzvCF22vTVhXLtGrd7dBy19iFKKJNxmdSp5uo4C4v6Xx6h
         bt.logging.warning(
             f"Applied {n_corrections} order corrections out of {n_attempts} attempts. unique positions corrected: {len(unique_corrections)}")
+
+    def enforce_position_state(self, position_that_should_exist_raw, trade_pair, miner_hotkey, unique_corrections, overwrite=False):
+        position_that_should_exist_raw['trade_pair'] = trade_pair
+        for o in position_that_should_exist_raw['orders']:
+            o['trade_pair'] = trade_pair
+        position = Position.from_dict(position_that_should_exist_raw)
+        # check if the position exists on the filesystem
+        existing_disk_positions = self.get_all_miner_positions(miner_hotkey)
+        position_exists = False
+        for p in existing_disk_positions:
+            if p.position_uuid == position.position_uuid:
+                position_exists = True
+                break
+        if not position_exists or overwrite:
+            self.save_miner_position_to_disk(position, delete_open_position_if_exists=True)
+            print(f"Added position {position.position_uuid} for trade pair {position.trade_pair.trade_pair_id}")
+            unique_corrections.add(position.position_uuid)
+            return True
+        return False
 
     def restore_from_position_override(self, miner_hotkey):
         self.clear_all_miner_positions_from_disk(target_hotkey=miner_hotkey)
@@ -1214,3 +1274,7 @@ class PositionManager(CacheController):
             portfolio_leverage += abs(position.get_net_leverage()) * position.trade_pair.leverage_multiplier
 
         return portfolio_leverage
+
+if __name__ == '__main__':
+    pm = PositionManager()
+    pm.apply_order_corrections()
