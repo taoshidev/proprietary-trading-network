@@ -22,6 +22,7 @@ import base64
 
 from runnable.generate_request_core import RequestCoreManager
 from runnable.generate_request_minerstatistics import MinerStatisticsManager
+from runnable.generate_request_outputs import RequestOutputGenerator
 from vali_objects.utils.auto_sync import PositionSyncer
 from vali_objects.utils.p2p_syncer import P2PSyncer
 from shared_objects.rate_limiter import RateLimiter
@@ -192,8 +193,6 @@ class Validator:
         self.metagraph_updater_thread = threading.Thread(target=self.metagraph_updater.run_update_loop, daemon=True)
         self.metagraph_updater_thread.start()
 
-
-
         if self.wallet.hotkey.ss58_address not in self.metagraph.hotkeys:
             bt.logging.error(
                 f"\nYour validator: {self.wallet} is not registered to chain "
@@ -307,6 +306,12 @@ class Validator:
         self.request_core_manager = RequestCoreManager(self.position_manager, self.weight_setter, self.plagiarism_detector)
         self.miner_statistics_manager = MinerStatisticsManager(self.position_manager, self.weight_setter, self.plagiarism_detector)
 
+        if self.config.start_generate:
+            self.rog = RequestOutputGenerator(self.position_manager, self.weight_setter, self.plagiarism_detector)
+            self.rog_thread = threading.Thread(target=self.rog.run_forever, daemon=True)
+            self.rog_thread.start()
+        else:
+            self.rog_thread = None
         # Validators on mainnet net to be syned for the first time or after interruption need to resync their
         # positions. Assert there are existing orders that occurred > 24hrs in the past. Assert that the newest order
         # was placed within 24 hours.
@@ -364,6 +369,9 @@ class Validator:
         # Set autosync to store true if flagged, otherwise defaults to False.
         parser.add_argument("--autosync", action='store_true',
                             help="Automatically sync order data with a validator trusted by Taoshi.")
+        # Set run_generate to store true if flagged, otherwise defaults to False.
+        parser.add_argument("--start-generate", action='store_true', dest='start_generate',
+                            help="Run the request output generator.")
         # (developer): Adds your custom arguments to the parser.
         # Adds override arguments for network and netuid.
         parser.add_argument("--netuid", type=int, default=1, help="The chain subnet uid.")
@@ -414,6 +422,9 @@ class Validator:
         self.perf_ledger_updater_thread.join()
         bt.logging.warning("Stopping plagiarism detector...")
         self.plagiarism_thread.join()
+        if self.rog_thread:
+            bt.logging.warning("Stopping request output generator...")
+            self.rog_thread.join()
         signal.alarm(0)
         print("Graceful shutdown completed")
         sys.exit(0)
@@ -482,7 +493,9 @@ class Validator:
             order_uuid=miner_order_uuid if miner_order_uuid else str(uuid.uuid4()),
             price_sources=price_sources
         )
-        bt.logging.success(f"Converted signal to order: {order}")
+        delta_t_ms = TimeUtil.now_in_millis() - now_ms
+        delta_t_s_3_decimals = round(delta_t_ms / 1000.0, 3)
+        bt.logging.success(f"Converted signal to order: {order} in {delta_t_s_3_decimals} seconds")
         return order
 
     def _enforce_num_open_order_limit(self, trade_pair_to_open_position: dict, signal_to_order):
@@ -701,7 +714,9 @@ class Validator:
             synapse.successfully_processed = False
 
         synapse.error_message = error_message
-        bt.logging.success(f"Sending ack back to miner [{miner_hotkey}]. Synapse Message: {synapse.error_message}")
+        processing_time_s_3_decimals = round((TimeUtil.now_in_millis() - now_ms) / 1000.0, 3)
+        bt.logging.success(f"Sending ack back to miner [{miner_hotkey}]. Synapse Message: {synapse.error_message}. "
+                           f"Process time {processing_time_s_3_decimals} seconds.")
         with self.signal_sync_lock:
             self.n_orders_being_processed[0] -= 1
             if self.n_orders_being_processed[0] == 0:
