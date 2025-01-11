@@ -4,7 +4,9 @@ import shutil
 from copy import deepcopy
 from typing import Dict
 
-from time_util.time_util import TimeUtil
+from setproctitle import setproctitle
+
+from time_util.time_util import TimeUtil, timeme
 from vali_objects.utils.vali_utils import ValiUtils
 from vali_objects.vali_config import ValiConfig, TradePair
 from shared_objects.cache_controller import CacheController
@@ -35,7 +37,7 @@ class EliminationManager(CacheController):
             self.eliminations = ipc_manager.list()
         else:
             self.eliminations = []
-        self.eliminations.extend(self.get_miner_eliminations_from_disk())
+        self.eliminations.extend(self.get_eliminations_from_disk())
         if len(self.eliminations) == 0:
             ValiBkpUtils.write_file(
                 ValiBkpUtils.get_eliminations_dir(running_unit_tests=self.running_unit_tests),
@@ -86,6 +88,7 @@ class EliminationManager(CacheController):
     def process_eliminations(self, position_locks):
         if not self.refresh_allowed(ValiConfig.ELIMINATION_CHECK_INTERVAL_MS):
             return
+        setproctitle(f"vali_{self.__class__.__name__}")
         bt.logging.info("running elimination manager")
         # self._handle_plagiarism_eliminations()
         self.handle_perf_ledger_eliminations(position_locks)
@@ -191,6 +194,8 @@ class EliminationManager(CacheController):
         self.write_eliminations_to_disk(self.eliminations)
 
     def write_eliminations_to_disk(self, eliminations):
+        if not isinstance(eliminations, list):
+            eliminations = list(eliminations)  # proxy list
         vali_eliminations = {CacheController.ELIMINATIONS: eliminations}
         bt.logging.trace(f"Writing [{len(eliminations)}] eliminations from memory to disk: {vali_eliminations}")
         output_location = ValiBkpUtils.get_eliminations_dir(running_unit_tests=self.running_unit_tests)
@@ -204,20 +209,17 @@ class EliminationManager(CacheController):
     def get_eliminated_hotkeys(self):
         return set([x['hotkey'] for x in self.eliminations]) if self.eliminations else set()
 
+    @timeme
     def get_eliminations_from_memory(self):
-        return deepcopy(self.eliminations)
+        return list(self.eliminations)
 
-    def get_eliminations_from_disk(self):
+    @timeme
+    def get_eliminations_from_disk(self) -> list:
         #with self.eliminations_lock:
             location = ValiBkpUtils.get_eliminations_dir(running_unit_tests=self.running_unit_tests)
             cached_eliminations = ValiUtils.get_vali_json_file(location, CacheController.ELIMINATIONS)
             bt.logging.trace(f"Loaded [{len(cached_eliminations)}] eliminations from disk. Dir: {location}")
             return cached_eliminations
-
-    def get_miner_eliminations_from_disk(self) -> list:
-        return ValiUtils.get_vali_json_file(
-            ValiBkpUtils.get_eliminations_dir(running_unit_tests=self.running_unit_tests), CacheController.ELIMINATIONS
-        )
 
     def append_elimination_row(self, hotkey, current_dd, mdd_failure, t_ms=None, price_info=None, return_info=None):
         #with self.eliminations_lock:

@@ -9,7 +9,7 @@ from typing import List
 import bittensor as bt
 from setproctitle import setproctitle
 
-from time_util.time_util import MS_IN_8_HOURS, MS_IN_24_HOURS
+from time_util.time_util import MS_IN_8_HOURS, MS_IN_24_HOURS, timeme
 
 from shared_objects.cache_controller import CacheController
 from time_util.time_util import TimeUtil, UnifiedMarketCalendar
@@ -367,6 +367,7 @@ class PerfLedgerManager(CacheController):
         temp[position.position_uuid] = deepcopy(position)
         self.hotkey_to_positions[hk] = temp  # Trigger the update on the multiprocessing Manager
 
+    @timeme
     def load_perf_ledgers_from_disk(self) -> dict[str, PerfLedger]:
         file_path = ValiBkpUtils.get_perf_ledgers_path(self.running_unit_tests)
         if not os.path.exists(file_path):
@@ -886,10 +887,12 @@ class PerfLedgerManager(CacheController):
         # Write candidate at the very end in case an exception leads to a partial update
         existing_perf_ledgers[hotkey] = perf_ledger_candidate
 
+    @timeme
     def write_perf_ledger_eliminations_to_disk(self, eliminations):
         output_location = ValiBkpUtils.get_perf_ledger_eliminations_dir(running_unit_tests=self.running_unit_tests)
         ValiBkpUtils.write_file(output_location, eliminations)
 
+    @timeme
     def get_perf_ledger_eliminations(self, first_fetch=False):
         if first_fetch:
             location = ValiBkpUtils.get_perf_ledger_eliminations_dir(running_unit_tests=self.running_unit_tests)
@@ -967,7 +970,7 @@ class PerfLedgerManager(CacheController):
         if first_fetch:
             self.hotkey_to_perf_ledger.update(self.load_perf_ledgers_from_disk())
         if dc:
-            return deepcopy(self.hotkey_to_perf_ledger)
+            return dict(self.hotkey_to_perf_ledger)
         else:
             return self.hotkey_to_perf_ledger
 
@@ -1088,6 +1091,7 @@ class PerfLedgerManager(CacheController):
             plt.legend(['Return', 'Drawdown'])
             plt.show()
 
+    @timeme
     def save_perf_ledgers(self, perf_ledgers: dict[str, PerfLedger] | dict[str, dict]):
         file_path = ValiBkpUtils.get_perf_ledgers_path(self.running_unit_tests)
         ValiBkpUtils.write_to_dir(file_path, perf_ledgers)

@@ -157,7 +157,7 @@ class PolygonDataService(BaseDataService):
             else:
                 self.websocket_manager_thread = threading.Thread(target=self.websocket_manager, daemon=True)
             self.websocket_manager_thread.start()
-            time.sleep(3) # Let the websocket_manager_thread start
+            #time.sleep(3) # Let the websocket_manager_thread start
 
     def main_forex(self):
         self.WEBSOCKET_OBJECTS[TradePairCategory.FOREX].run(self.handle_msg)

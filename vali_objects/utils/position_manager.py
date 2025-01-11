@@ -12,7 +12,7 @@ from pathlib import Path
 
 from copy import deepcopy
 from shared_objects.cache_controller import CacheController
-from time_util.time_util import TimeUtil
+from time_util.time_util import TimeUtil, timeme
 from vali_objects.exceptions.corrupt_data_exception import ValiBkpCorruptDataException
 from vali_objects.exceptions.vali_bkp_file_missing_exception import ValiFileMissingException
 from vali_objects.utils.live_price_fetcher import LivePriceFetcher
@@ -54,13 +54,17 @@ class PositionManager(CacheController):
             self.hotkey_to_positions = {}
         self.secrets = secrets
         self.populate_memory_positions_for_first_time()
+        # PROFILE TEST
+        print('testing memory disk fetch')
+        temp2 = self.get_positions_for_all_miners(from_disk=False)
 
 
+    @timeme
     def populate_memory_positions_for_first_time(self):
+        print('testing disk fetch')
         temp = self.get_positions_for_all_miners(from_disk=True)
         for hk, positions in temp.items():
-            for p in positions:
-                self._save_miner_position_to_memory(p)
+            self.hotkey_to_positions[hk] = positions
 
     def pre_run_setup(self):
         """
@@ -188,6 +192,7 @@ class PositionManager(CacheController):
                 self.save_miner_position(position, delete_open_position_if_exists=False)
                 print(f"Reopened position {position.position_uuid} for trade pair {position.trade_pair.trade_pair_id}")
 
+    @timeme
     def compact_price_sources(self):
         time_now = TimeUtil.now_in_millis()
         n_price_sources_removed = 0
@@ -250,6 +255,7 @@ class PositionManager(CacheController):
                 f"Hotkey {miner_hotkey}: Deleted {n_positions_deleted} duplicate positions and {n_orders_deleted} "
                 f"duplicate orders across {n_positions_rebuilt_with_new_orders} positions.")
 
+    @timeme
     def apply_order_corrections(self):
         """
         This is our mechanism for manually synchronizing validator orders in situations where a bug prevented an
@@ -565,7 +571,7 @@ class PositionManager(CacheController):
     def get_miner_position_by_uuid(self, hotkey:str, position_uuid: str) -> Position | None:
         if hotkey not in self.hotkey_to_positions:
             return None
-        return deepcopy(self.hotkey_to_positions[hotkey].get(position_uuid))
+        return self._position_from_list_of_position(hotkey, position_uuid)
 
     def get_recently_updated_miner_hotkeys(self):
         """
@@ -643,11 +649,11 @@ class PositionManager(CacheController):
         cdf = miner_dir[:-5] + 'closed/'
         positions.extend([self._get_position_from_disk(file) for file in ValiBkpUtils.get_all_files_in_dir(cdf)])
 
-        temp = self.hotkey_to_positions.get(updated_position.miner_hotkey, {})
+        temp = self.hotkey_to_positions.get(updated_position.miner_hotkey, [])
         positions_memory_by_position_uuid = {}
-        for position_uuid, position in temp.items():
+        for position in temp:
             if position.trade_pair == updated_position.trade_pair:
-                positions_memory_by_position_uuid[position_uuid] = position
+                positions_memory_by_position_uuid[position.position_uuid] = position
         positions_disk_by_uuid = {p.position_uuid: p for p in positions}
         errors = []
         for position_uuid, position in positions_memory_by_position_uuid.items():
@@ -681,21 +687,27 @@ class PositionManager(CacheController):
                 f" Disk positions: {positions_disk_by_uuid.keys()}. Memory positions: {positions_memory_by_position_uuid.keys()}. all files {all_files}")
         # -------------------------------------------------------------------------------------
 
+    def _position_from_list_of_position(self, hotkey, position_uuid):
+        for p in self.hotkey_to_positions.get(hotkey, []):
+            if p.position_uuid == position_uuid:
+                return p
+        return None
+
     def _save_miner_position_to_memory(self, position: Position):
         # Multiprocessing-safe
         hk = position.miner_hotkey
         if hk not in self.hotkey_to_positions:
-            self.hotkey_to_positions[hk] = {}
+            self.hotkey_to_positions[hk] = []
 
         # Santiy check
         if position.miner_hotkey in self.hotkey_to_positions and position.position_uuid in self.hotkey_to_positions[
             position.miner_hotkey]:
-            existing_pos = self.hotkey_to_positions[position.miner_hotkey][position.position_uuid]
+            existing_pos = self._position_from_list_of_position(position.miner_hotkey, position.position_uuid)
             assert existing_pos.trade_pair == position.trade_pair, f"Trade pair mismatch for position {position.position_uuid}. Existing: {existing_pos.trade_pair}, New: {position.trade_pair}"
 
-        temp = self.hotkey_to_positions[hk]
-        temp[position.position_uuid] = deepcopy(position)
-        self.hotkey_to_positions[hk] = temp  # Trigger the update on the multiprocessing Manager
+        new_positions = [p for p in self.hotkey_to_positions[hk] if p.position_uuid != position.position_uuid]
+        new_positions.append(position)
+        self.hotkey_to_positions[hk] = new_positions  # Trigger the update on the multiprocessing Manager
 
 
     def save_miner_position(self, position: Position, delete_open_position_if_exists=True) -> None:
@@ -849,6 +861,7 @@ class PositionManager(CacheController):
 
         return portfolio_leverage
 
+    @timeme
     def get_positions_for_all_miners(self, from_disk=False, **args):
         if from_disk:
             all_miner_hotkeys: list = ValiBkpUtils.get_directories_in_dir(
@@ -933,7 +946,7 @@ class PositionManager(CacheController):
             all_files = ValiBkpUtils.get_all_files_in_dir(miner_dir)
             positions = [self._get_position_from_disk(file) for file in all_files]
         else:
-            positions = deepcopy(list(self.hotkey_to_positions.get(miner_hotkey, {}).values()))
+            positions = self.hotkey_to_positions.get(miner_hotkey, [])#testing a speedup deepcopy(list(self.hotkey_to_positions.get(miner_hotkey, {}).values()))
 
         if acceptable_position_end_ms is not None:
             positions = [
@@ -952,6 +965,7 @@ class PositionManager(CacheController):
 
         return positions
 
+    @timeme
     def get_positions_for_hotkeys(self, hotkeys: List[str], eliminations: List = None, **args) -> Dict[
         str, List[Position]]:
         eliminated_hotkeys = set(x['hotkey'] for x in eliminations) if eliminations is not None else set()

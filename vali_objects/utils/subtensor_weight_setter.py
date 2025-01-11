@@ -3,6 +3,7 @@ import copy
 from typing import List
 
 import bittensor as bt
+from setproctitle import setproctitle
 
 from time_util.time_util import TimeUtil
 from vali_objects.vali_config import ValiConfig
@@ -25,7 +26,7 @@ class SubtensorWeightSetter(CacheController):
     def set_weights(self, wallet, subtensor, current_time: int = None):
         if not self.refresh_allowed(ValiConfig.SET_WEIGHT_REFRESH_TIME_MS):
             return
-
+        setproctitle(f"vali_{self.__class__.__name__}")
         bt.logging.info("running set weights")
         # First run the challenge period miner filtering
         if current_time is None:

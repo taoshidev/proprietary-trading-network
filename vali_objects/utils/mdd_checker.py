@@ -3,6 +3,8 @@
 import time
 from typing import List, Dict
 
+from setproctitle import setproctitle
+
 from time_util.time_util import TimeUtil
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.vali_config import ValiConfig, TradePair
@@ -62,6 +64,7 @@ class MDDChecker(CacheController):
 
         now = TimeUtil.now_in_millis()
         candle_data = self.live_price_fetcher.get_latest_prices(list(required_trade_pairs_for_candles))
+        bt.logging.info(f"Got candle data for {len(candle_data)} {candle_data}")
         for tp, price_and_sources in candle_data.items():
             sources = price_and_sources[1]
             if sources and any(x and not x.websocket for x in sources):
@@ -72,6 +75,7 @@ class MDDChecker(CacheController):
 
     
     def mdd_check(self, position_locks):
+        setproctitle(f"vali_{self.__class__.__name__}")
         self.n_poly_api_requests = 0
         if not self.refresh_allowed(ValiConfig.MDD_CHECK_REFRESH_TIME_MS):
             time.sleep(1)
