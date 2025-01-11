@@ -19,9 +19,9 @@ import bittensor as bt
 from vali_objects.utils.plagiarism_pipeline import PlagiarismPipeline
 
 class PlagiarismDetector(CacheController):
-    def __init__(self, config, metagraph, running_unit_tests=False, shutdown_dict=None,
+    def __init__(self, metagraph, running_unit_tests=False, shutdown_dict=None,
                  position_manager: PositionManager=None):
-        super().__init__(config, metagraph, running_unit_tests=running_unit_tests)
+        super().__init__(None, running_unit_tests=running_unit_tests)
         self.plagiarism_data = {}
         self.plagiarism_raster = {}
         self.plagiarism_positions = {}
@@ -43,7 +43,7 @@ class PlagiarismDetector(CacheController):
         while not self.shutdown_dict:
             try:
                 if self.refresh_allowed(ValiConfig.PLAGIARISM_REFRESH_TIME_MS):
-                    self.detect()
+                    self.detect(hotkeys=self.position_manager.metagraph.hotkeys)
                     self.set_last_update_time(skip_message=False)  # TODO: set True
 
             except Exception as e:
@@ -63,6 +63,8 @@ class PlagiarismDetector(CacheController):
             current_time = TimeUtil.now_in_millis()
         if hotkeys is None:
             hotkeys = self.metagraph.hotkeys
+            print(f'@@@1 {len(self.metagraph.hotkeys)} {id(self.metagraph)} {type(self.metagraph)} {self.metagraph}')
+            assert hotkeys, f"No hotkeys found in metagraph {self.metagraph}"
         if hotkey_positions is None:
             hotkey_positions = self.position_manager.get_positions_for_hotkeys(
                 hotkeys,

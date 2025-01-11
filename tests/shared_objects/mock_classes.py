@@ -75,8 +75,11 @@ class MockNeuron:
 
 class MockMetagraph():
     neurons: List[MockNeuron]
+    hotkeys: List[str]
+    uids: List[int]
 
     def __init__(self, hotkeys, neurons = None):
         self.hotkeys = hotkeys
         self.neurons = neurons
+        self.uids = []
 

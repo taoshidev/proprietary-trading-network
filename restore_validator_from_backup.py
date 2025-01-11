@@ -85,14 +85,12 @@ def regenerate_miner_positions(perform_backup=True, backup_from_data_dir=False, 
     backup_creation_time_ms = data['created_timestamp_ms']
 
     elimination_manager = EliminationManager(None, None, None)
-    live_price_fetcher = LivePriceFetcher(secrets=ValiUtils.get_secrets(), disable_ws=True)
-    position_manager = PositionManager(live_price_fetcher=live_price_fetcher,
-                                       perform_order_corrections=True,
+    position_manager = PositionManager(perform_order_corrections=True,
                                        challengeperiod_manager=None,
                                        elimination_manager=elimination_manager)
-    challengeperiod_manager = ChallengePeriodManager(config=None, metagraph=None, position_manager=position_manager)
+    challengeperiod_manager = ChallengePeriodManager(metagraph=None, position_manager=position_manager)
     challengeperiod_manager.position_manager = position_manager
-    perf_ledger_manager = PerfLedgerManager(live_price_fetcher=live_price_fetcher, metagraph=None)
+    perf_ledger_manager = PerfLedgerManager(None, {}, [])
 
     if DEBUG:
         position_manager.pre_run_setup()

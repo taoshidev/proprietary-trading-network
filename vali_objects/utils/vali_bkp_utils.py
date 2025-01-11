@@ -5,6 +5,7 @@ import json
 import os
 import pickle
 import uuid
+from multiprocessing.managers import DictProxy
 
 import bittensor as bt
 from pydantic import BaseModel
@@ -24,6 +25,9 @@ class CustomEncoder(json.JSONEncoder):
             return obj.dict()
         elif hasattr(obj, 'to_dict'):
             return obj.to_dict()
+        elif isinstance(obj, DictProxy):
+            return dict(obj)
+
         return json.JSONEncoder.default(self, obj)
 
 class ValiBkpUtils:

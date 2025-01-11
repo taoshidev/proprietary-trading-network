@@ -16,13 +16,7 @@ class CacheController:
     MAX_DAILY_DRAWDOWN = 'MAX_DAILY_DRAWDOWN'
     MAX_TOTAL_DRAWDOWN = 'MAX_TOTAL_DRAWDOWN'
 
-    def __init__(self, config=None, metagraph=None, running_unit_tests=False):
-        self.config = config
-        if config is not None:
-            self.subtensor = bt.subtensor(config=config)
-        else:
-            self.subtensor = None
-
+    def __init__(self, metagraph=None, running_unit_tests=False):
         self.running_unit_tests = running_unit_tests
         self.init_cache_files()
         self.metagraph = metagraph  # Refreshes happen on validator

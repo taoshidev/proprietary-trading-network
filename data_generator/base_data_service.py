@@ -38,7 +38,7 @@ def exception_handler_decorator():
     return decorator
 
 class BaseDataService():
-    def __init__(self, provider_name):
+    def __init__(self, provider_name, trade_pair_to_recent_events=None):
         self.DEBUG_LOG_INTERVAL_S = 180
         self.MAX_TIME_NO_EVENTS_S = 120
 
@@ -48,7 +48,9 @@ class BaseDataService():
         self.trade_pair_to_price_history = defaultdict(list)
         self.closed_market_prices = {tp: None for tp in TradePair}
         self.latest_websocket_events = {}
-        self.trade_pair_to_recent_events = defaultdict(RecentEventTracker)
+        if trade_pair_to_recent_events is None:
+            defaultdict(RecentEventTracker)
+        self.trade_pair_to_recent_events = trade_pair_to_recent_events
         self.trade_pair_category_to_longest_allowed_lag_s = {TradePairCategory.CRYPTO: 30, TradePairCategory.FOREX: 30,
                                                            TradePairCategory.INDICES: 30, TradePairCategory.EQUITIES: 30}
         self.timespan_to_ms = {'second': 1000, 'minute': 1000 * 60, 'hour': 1000 * 60 * 60, 'day': 1000 * 60 * 60 * 24}

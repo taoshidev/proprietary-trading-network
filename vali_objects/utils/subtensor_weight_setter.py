@@ -14,15 +14,15 @@ from vali_objects.vali_dataclasses.perf_ledger import PerfCheckpoint, PerfLedger
 
 
 class SubtensorWeightSetter(CacheController):
-    def __init__(self, config, wallet, metagraph, position_manager: PositionManager,
+    def __init__(self, config, metagraph, position_manager: PositionManager,
                  running_unit_tests=False):
-        super().__init__(config, metagraph, running_unit_tests=running_unit_tests)
+        super().__init__(metagraph, running_unit_tests=running_unit_tests)
         self.position_manager = position_manager
         self.perf_ledger_manager = position_manager.perf_ledger_manager
-        self.wallet = wallet
+        self.netuid = config.netuid
         self.subnet_version = 200
 
-    def set_weights(self, current_time: int = None):
+    def set_weights(self, wallet, subtensor, current_time: int = None):
         if not self.refresh_allowed(ValiConfig.SET_WEIGHT_REFRESH_TIME_MS):
             return
 
@@ -84,7 +84,7 @@ class SubtensorWeightSetter(CacheController):
             transformed_list = checkpoint_netuid_weights + challengeperiod_weights
             bt.logging.info(f"transformed list: {transformed_list}")
             
-            self._set_subtensor_weights(transformed_list)
+            self._set_subtensor_weights(wallet, subtensor, transformed_list)
         self.set_last_update_time()
 
     @staticmethod
@@ -129,7 +129,6 @@ class SubtensorWeightSetter(CacheController):
 
         # Note, eliminated miners will not appear in the dict below
         ledger = self.perf_ledger_manager.load_perf_ledgers_from_memory()
-
         filtering_ledger = {}
         for hotkey, miner_ledger in ledger.items():
             if hotkey not in hotkeys:
@@ -195,13 +194,13 @@ class SubtensorWeightSetter(CacheController):
             filtered_positions.append(position)
         return filtered_positions
 
-    def _set_subtensor_weights(self, filtered_results: list[tuple[str, float]]):
+    def _set_subtensor_weights(self, wallet, subtensor, filtered_results: list[tuple[str, float]]):
         filtered_netuids = [x[0] for x in filtered_results]
         scaled_transformed_list = [x[1] for x in filtered_results]
 
-        success, err_msg = self.subtensor.set_weights(
-            netuid=self.config.netuid,
-            wallet=self.wallet,
+        success, err_msg = subtensor.set_weights(
+            netuid=self.netuid,
+            wallet=wallet,
             uids=filtered_netuids,
             weights=scaled_transformed_list,
             version_key=self.subnet_version,

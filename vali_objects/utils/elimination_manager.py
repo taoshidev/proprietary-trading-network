@@ -1,16 +1,20 @@
 # developer: jbonilla
 # Copyright © 2024 Taoshi Inc
 import shutil
-import threading
+#from multiprocessing import Lock
 from copy import deepcopy
+from typing import Dict
 
 from time_util.time_util import TimeUtil
 from vali_objects.utils.vali_utils import ValiUtils
-from vali_objects.vali_config import ValiConfig
+from vali_objects.vali_config import ValiConfig, TradePair
 from shared_objects.cache_controller import CacheController
+from shared_objects.sn8_multiprocessing import get_ipc_metagraph
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 
 import bittensor as bt
+
+from vali_objects.vali_dataclasses.price_source import PriceSource
 
 
 class EliminationManager(CacheController):
@@ -21,31 +25,78 @@ class EliminationManager(CacheController):
     would already be cleared and their weight would be calculated as normal.
     """
 
-    def __init__(self, metagraph, position_manager, challengeperiod_manager, running_unit_tests=False, shutdown_dict=None):
+    def __init__(self, metagraph, position_manager, challengeperiod_manager,
+                 running_unit_tests=False, shutdown_dict=None, ipc_manager=None):
         super().__init__(metagraph=metagraph)
         self.position_manager = position_manager
-        self.eliminations_lock = threading.Lock()
+        #self.eliminations_lock = Lock()
         self.shutdown_dict = shutdown_dict
         self.challengeperiod_manager = challengeperiod_manager
         self.running_unit_tests = running_unit_tests
 
-        self.eliminations = self.get_miner_eliminations_from_disk()
+        if ipc_manager:
+            self.eliminations = ipc_manager.list()
+        else:
+            self.eliminations = []
+        self.eliminations.extend(self.get_miner_eliminations_from_disk())
         if len(self.eliminations) == 0:
             ValiBkpUtils.write_file(
                 ValiBkpUtils.get_eliminations_dir(running_unit_tests=self.running_unit_tests),
                 {CacheController.ELIMINATIONS: []}
             )
 
-    def process_eliminations(self):
+    def handle_perf_ledger_eliminations(self, position_locks):
+        perf_ledger_eliminations = self.position_manager.perf_ledger_manager.get_perf_ledger_eliminations()
+        n_eliminations = 0
+        for e in perf_ledger_eliminations:
+            if self.hotkey_in_eliminations(e['hotkey']):
+                continue
+
+            n_eliminations += 1
+            self.eliminations.append(e)
+
+            price_info = e['price_info']
+            trade_pair_to_price_source_used_for_elimination_check = {}
+            for k, v in price_info.items():
+                trade_pair = TradePair.get_latest_tade_pair_from_trade_pair_str(k)
+                elimination_initiated_time_ms = e['elimination_initiated_time_ms']
+                trade_pair_to_price_source_used_for_elimination_check[trade_pair] = PriceSource(source='elim', open=v, close=v, start_ms=elimination_initiated_time_ms, timespan_ms=1000, websocket=False, trade_pair=trade_pair)
+            self.handle_eliminated_miner(e['hotkey'], trade_pair_to_price_source_used_for_elimination_check, position_locks)
+
+        if n_eliminations:
+            self.save_eliminations()
+            bt.logging.info(f'Wrote {n_eliminations} perf ledger eliminations to disk')
+
+    def handle_eliminated_miner(self, hotkey: str,
+                                trade_pair_to_price_source_used_for_elimination_check: Dict[TradePair, PriceSource],
+                                position_locks,
+                                open_position_trade_pairs=None):
+
+        tps_to_iterate_over = open_position_trade_pairs if open_position_trade_pairs else TradePair
+        for trade_pair in tps_to_iterate_over:
+            with position_locks.get_lock(hotkey, trade_pair.trade_pair_id):
+                open_position = self.position_manager.get_open_position_for_a_miner_trade_pair(hotkey, trade_pair.trade_pair_id)
+                source_for_elimination = trade_pair_to_price_source_used_for_elimination_check.get(trade_pair)
+                if open_position:
+                    bt.logging.info(
+                        f"Closing open position for hotkey: {hotkey} and trade_pair: {trade_pair.trade_pair_id}. "
+                        f"Source for elimination {source_for_elimination}")
+                    open_position.close_out_position(TimeUtil.now_in_millis())
+                    if source_for_elimination:
+                        open_position.orders[-1].price_sources.append(source_for_elimination)
+                    self.position_manager.save_miner_position(open_position)
+
+    def process_eliminations(self, position_locks):
         if not self.refresh_allowed(ValiConfig.ELIMINATION_CHECK_INTERVAL_MS):
             return
         bt.logging.info("running elimination manager")
         self.eliminations = self.get_eliminations_from_disk()
         # self._handle_plagiarism_eliminations()
+        self.handle_perf_ledger_eliminations(position_locks)
         self._delete_eliminated_expired_miners()
         self.set_last_update_time()
 
-    def _handle_plagiarism_eliminations(self):
+    def _handle_plagiarism_eliminations(self, position_locks):
         bt.logging.debug("checking plagiarism.")
         if self.shutdown_dict:
             return
@@ -57,7 +108,7 @@ class EliminationManager(CacheController):
             if self.hotkey_in_eliminations(miner_hotkey):
                 continue
             if current_plagiarism_score > ValiConfig.MAX_MINER_PLAGIARISM_SCORE:
-                self.position_manager.handle_eliminated_miner(miner_hotkey, {})
+                self.handle_eliminated_miner(miner_hotkey, {}, position_locks)
                 self.append_elimination_row(miner_hotkey, -1, 'plagiarism')
                 bt.logging.info(
                     f"miner eliminated with hotkey [{miner_hotkey}] with plagiarism score of [{current_plagiarism_score}]")
@@ -152,10 +203,7 @@ class EliminationManager(CacheController):
     def clear_eliminations(self):
         ValiBkpUtils.write_file(ValiBkpUtils.get_eliminations_dir(running_unit_tests=self.running_unit_tests),
                                 {CacheController.ELIMINATIONS: []})
-        self.eliminations = []
-
-    def _refresh_eliminations_in_memory(self):
-        self.eliminations = self.get_eliminations_from_disk()
+        del self.eliminations[:]
 
     def get_eliminated_hotkeys(self):
         return set([x['hotkey'] for x in self.eliminations]) if self.eliminations else set()
@@ -164,7 +212,7 @@ class EliminationManager(CacheController):
         return deepcopy(self.eliminations)
 
     def get_eliminations_from_disk(self):
-        with self.eliminations_lock:
+        #with self.eliminations_lock:
             location = ValiBkpUtils.get_eliminations_dir(running_unit_tests=self.running_unit_tests)
             cached_eliminations = ValiUtils.get_vali_json_file(location, CacheController.ELIMINATIONS)
             bt.logging.trace(f"Loaded [{len(cached_eliminations)}] eliminations from disk. Dir: {location}")
@@ -176,18 +224,15 @@ class EliminationManager(CacheController):
         )
 
     def append_elimination_row(self, hotkey, current_dd, mdd_failure, t_ms=None, price_info=None, return_info=None):
-        with self.eliminations_lock:
+        #with self.eliminations_lock:
             elimination_row = self.generate_elimination_row(hotkey, current_dd, mdd_failure, t_ms=t_ms,
                                                             price_info=price_info, return_info=return_info)
             self.eliminations.append(elimination_row)
             self.save_eliminations()
 
-    def delete_elimination(self, hotkey):
-        with self.eliminations_lock:
-            self.eliminations = [x for x in self.eliminations if x['hotkey'] != hotkey]
-            self.save_eliminations()
-
     def delete_eliminations(self, deleted_hotkeys):
-        with self.eliminations_lock:
-            self.eliminations = [x for x in self.eliminations if x['hotkey'] not in deleted_hotkeys]
-            self.save_eliminations()
+        #with self.eliminations_lock:
+        items_to_remove = [x for x in self.eliminations if x['hotkey'] in deleted_hotkeys]
+        for item in items_to_remove:
+            self.eliminations.remove(item)
+        self.save_eliminations()

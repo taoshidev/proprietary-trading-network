@@ -20,6 +20,7 @@ from statistics import median
 class LivePriceFetcher:
     def __init__(self, secrets, disable_ws=False):
         if "tiingo_apikey" in secrets:
+
             self.tiingo_data_service = TiingoDataService(api_key=secrets["tiingo_apikey"], disable_ws=disable_ws)
         else:
             raise Exception("Tiingo API key not found in secrets.json")
@@ -35,7 +36,6 @@ class LivePriceFetcher:
 
         if self.polygon_data_service.websocket_manager_thread:
             self.polygon_data_service.websocket_manager_thread.join()
-        self.polygon_data_service.close_websockets()
         self.polygon_data_service.stop_threads()
 
     def determine_best_price(self, price_events: List[PriceSource | None], current_time_ms: int,

@@ -27,7 +27,8 @@ class PositionSyncResultException(Exception):
 
 class ValidatorSyncBase():
     def __init__(self, shutdown_dict=None, signal_sync_lock=None, signal_sync_condition=None,
-                 n_orders_being_processed=None, running_unit_tests=False, position_manager=None):
+                 n_orders_being_processed=None, running_unit_tests=False, position_manager=None,
+                 ipc_manager=None):
         self.is_mothership = 'mothership' in ValiUtils.get_secrets(running_unit_tests=running_unit_tests)
         self.SYNC_LOOK_AROUND_MS = 1000 * 60 * 3
         self.position_manager = position_manager
@@ -36,6 +37,10 @@ class ValidatorSyncBase():
         self.signal_sync_lock = signal_sync_lock
         self.signal_sync_condition = signal_sync_condition
         self.n_orders_being_processed = n_orders_being_processed
+        if ipc_manager:
+            self.perf_ledger_hks_to_invalidate = ipc_manager.dict()
+        else:
+            self.perf_ledger_hks_to_invalidate = {}  # {hk: timestamp_ms}
         self.init_data()
 
     def init_data(self):
@@ -50,7 +55,7 @@ class ValidatorSyncBase():
         self.miners_with_position_insertion = set()
         self.miners_with_position_matched = set()
         self.miners_with_position_kept = set()
-        self.perf_ledger_hks_to_invalidate = {}  # {hk: timestamp_ms}
+        self.perf_ledger_hks_to_invalidate.clear()
 
     def sync_positions(self, shadow_mode, candidate_data=None, disk_positions=None) -> dict[str: list[Position]]:
         t0 = time.time()

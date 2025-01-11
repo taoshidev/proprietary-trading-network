@@ -5,6 +5,8 @@ import time
 import traceback
 from copy import deepcopy
 
+import numpy as np
+
 from vali_objects.vali_config import ValiConfig
 from shared_objects.cache_controller import CacheController
 
@@ -12,15 +14,15 @@ import bittensor as bt
 
 class MetagraphUpdater(CacheController):
     def __init__(self, config, metagraph, hotkey, is_miner, position_inspector=None, position_manager=None, shutdown_dict=None):
-        super().__init__(config, metagraph)
+        super().__init__(metagraph)
+        self.config = config
+        self.subtensor = bt.subtensor(config=config)
         # Initialize likely validators and miners with empty dictionaries. This maps hotkey to timestamp.
         self.likely_validators = {}
         self.likely_miners = {}
         self.hotkey = hotkey
         if is_miner:
             assert position_inspector is not None, "Position inspector must be provided for miners"
-        else:
-            assert position_manager is not None, "Position manager must be provided for validators"
         self.is_miner = is_miner
         self.position_inspector = position_inspector
         self.position_manager = position_manager
@@ -83,6 +85,29 @@ class MetagraphUpdater(CacheController):
         bt.logging.info(f"metagraph state (approximation): {n_validators} active validators, {n_miners} active miners, hotkeys: "
                         f"{len(self.metagraph.hotkeys)}")
 
+    def sync_lists(self, shared_list, updated_list, brute_force=False):
+        if brute_force:
+            del shared_list[:]
+            shared_list.extend(updated_list)
+            return
+
+        # Convert to sets for fast comparison
+        current_set = set(shared_list)
+        updated_set = set(updated_list)
+
+        # Find items to remove (in current but not in updated)
+        items_to_remove = current_set - updated_set
+        # Find items to add (in updated but not in current)
+        items_to_add = updated_set - current_set
+
+        # Remove items no longer present
+        for item in items_to_remove:
+            shared_list.remove(item)
+
+        # Add new items
+        for item in items_to_add:
+            shared_list.append(item)
+
     def update_metagraph(self):
         if not self.refresh_allowed(ValiConfig.METAGRAPH_UPDATE_REFRESH_TIME_MS):
             return
@@ -92,13 +117,17 @@ class MetagraphUpdater(CacheController):
         if self.is_miner:
             recently_acked_validators = self.position_inspector.get_recently_acked_validators()
         else:
-            recently_acked_miners = self.position_manager.get_recently_updated_miner_hotkeys()
+            if self.position_manager:
+                recently_acked_miners = self.position_manager.get_recently_updated_miner_hotkeys()
+            else:
+                recently_acked_miners = []
 
-        metagraph_copy = deepcopy(self.metagraph)
-        hotkeys_before = set(metagraph_copy.hotkeys)
+        hotkeys_before = set(self.metagraph.hotkeys)
+        metagraph_clone = self.subtensor.metagraph(self.config.netuid)
+        assert hasattr(metagraph_clone, 'hotkeys'), "Metagraph clone does not have hotkeys attribute"
         bt.logging.info("Updating metagraph...")
-        metagraph_copy.sync(subtensor=self.subtensor)
-        hotkeys_after = set(metagraph_copy.hotkeys)
+        metagraph_clone.sync(subtensor=self.subtensor)
+        hotkeys_after = set(metagraph_clone.hotkeys)
         lost_hotkeys = hotkeys_before - hotkeys_after
         gained_hotkeys = hotkeys_after - hotkeys_before
         if lost_hotkeys:
@@ -114,11 +143,10 @@ class MetagraphUpdater(CacheController):
             bt.logging.error(f"Too many hotkeys lost in metagraph update: {len(lost_hotkeys)} hotkeys lost, "
                              f"{percent_lost:.2f}% of total hotkeys. Rejecting new metagraph. ALERT A TEAM MEMBER ASAP...")
         else:
-            # Write every attribute in metagraph_copy to the original metagraph
-            for attr in metagraph_copy.__dict__.keys():
-                v1 = getattr(metagraph_copy, attr)
-                #print(f"Setting attribute {attr} of type {type(v1)}")
-                setattr(self.metagraph, attr, v1)
+            # Multiprocessing (parkour)
+            self.sync_lists(self.metagraph.neurons, list(metagraph_clone.neurons), brute_force=True)
+            self.sync_lists(self.metagraph.uids, metagraph_clone.uids)
+            self.sync_lists(self.metagraph.hotkeys, metagraph_clone.hotkeys)
 
         if recently_acked_miners:
             self.update_likely_miners(recently_acked_miners)

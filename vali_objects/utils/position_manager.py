@@ -15,32 +15,30 @@ from shared_objects.cache_controller import CacheController
 from time_util.time_util import TimeUtil
 from vali_objects.exceptions.corrupt_data_exception import ValiBkpCorruptDataException
 from vali_objects.exceptions.vali_bkp_file_missing_exception import ValiFileMissingException
+from vali_objects.utils.live_price_fetcher import LivePriceFetcher
 from vali_objects.vali_config import TradePair
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.exceptions.vali_records_misalignment_exception import ValiRecordsMisalignmentException
 from vali_objects.position import Position
-from vali_objects.utils.position_lock import PositionLocks
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.vali_dataclasses.order import OrderStatus, ORDER_SRC_DEPRECATION_FLAT, Order
-from vali_objects.vali_dataclasses.price_source import PriceSource
 
 TARGET_MS = 1734881630000 + (1000 * 60 * 60 * 3)  # + 3 hours
 
 
 class PositionManager(CacheController):
-    def __init__(self, config=None, metagraph=None, running_unit_tests=False,
-                 live_price_fetcher=None, perform_order_corrections=False,
+    def __init__(self, metagraph=None, running_unit_tests=False,
+                 perform_order_corrections=False,
                  perform_compaction=False,
                  is_mothership=False, perf_ledger_manager=None,
                  challengeperiod_manager=None,
-                 elimination_manager=None):
+                 elimination_manager=None,
+                 secrets=None,
+                 ipc_manager=None):
 
-        super().__init__(config=config, metagraph=metagraph, running_unit_tests=running_unit_tests)
+        super().__init__(metagraph=metagraph, running_unit_tests=running_unit_tests)
         # Populate memory with positions
-        self.populate_memory_positions_for_first_time()
 
-        self.position_locks = PositionLocks()
-        self.live_price_fetcher = live_price_fetcher
         self.perf_ledger_manager = perf_ledger_manager
         self.challengeperiod_manager = challengeperiod_manager
         self.elimination_manager = elimination_manager
@@ -50,15 +48,21 @@ class PositionManager(CacheController):
         self.is_mothership = is_mothership
         self.perform_compaction = perform_compaction
         self.perform_order_corrections = perform_order_corrections
+        if ipc_manager:
+            self.hotkey_to_positions = ipc_manager.dict()
+        else:
+            self.hotkey_to_positions = {}
+        self.secrets = secrets
+        self.populate_memory_positions_for_first_time()
+
 
     def populate_memory_positions_for_first_time(self):
         temp = self.get_positions_for_all_miners(from_disk=True)
-        self.hotkey_to_positions = {}
         for hk, positions in temp.items():
             for p in positions:
-                if hk not in self.hotkey_to_positions:
-                    self.hotkey_to_positions[hk] = {}
-                self.hotkey_to_positions[hk][p.position_uuid] = p
+                self._save_miner_position_to_memory(p)
+
+        print('POOPulation complete', len(self.hotkey_to_positions), 'temp:', len(temp))
 
 
     def pre_run_setup(self):
@@ -326,7 +330,7 @@ class PositionManager(CacheController):
 
         for e in self.elimination_manager.get_eliminations_from_memory():
             if e['hotkey'] in miners_to_wipe:
-                self.elimination_manager.delete_elimination(e['hotkey'])
+                self.elimination_manager.delete_eliminations([e['hotkey']])
                 bt.logging.info(f"Removed elimination for hotkey {e['hotkey']}")
 
 
@@ -460,25 +464,8 @@ class PositionManager(CacheController):
         bt.logging.warning(
             f"Applied {n_corrections} order corrections out of {n_attempts} attempts. unique positions corrected: {len(unique_corrections)}")
 
-    def handle_eliminated_miner(self, hotkey: str,
-                                trade_pair_to_price_source_used_for_elimination_check: Dict[TradePair, PriceSource],
-                                open_position_trade_pairs=None):
-
-        tps_to_iterate_over = open_position_trade_pairs if open_position_trade_pairs else TradePair
-        for trade_pair in tps_to_iterate_over:
-            with self.position_locks.get_lock(hotkey, trade_pair.trade_pair_id):
-                open_position = self.get_open_position_for_a_miner_trade_pair(hotkey, trade_pair.trade_pair_id)
-                source_for_elimination = trade_pair_to_price_source_used_for_elimination_check.get(trade_pair)
-                if open_position:
-                    bt.logging.info(
-                        f"Closing open position for hotkey: {hotkey} and trade_pair: {trade_pair.trade_pair_id}. "
-                        f"Source for elimination {source_for_elimination}")
-                    open_position.close_out_position(TimeUtil.now_in_millis())
-                    if source_for_elimination:
-                        open_position.orders[-1].price_sources.append(source_for_elimination)
-                    self.save_miner_position(open_position)
-
     def close_open_orders_for_suspended_trade_pairs(self):
+        live_price_fetcher = LivePriceFetcher(secrets=self.secrets)
         tps_to_eliminate = [TradePair.SPX, TradePair.DJI, TradePair.NDX, TradePair.VIX]
         if not tps_to_eliminate:
             return
@@ -494,23 +481,22 @@ class PositionManager(CacheController):
                 if position.is_closed_position:
                     continue
                 if position.trade_pair in tps_to_eliminate:
-                    with self.position_locks.get_lock(hotkey, position.trade_pair.trade_pair_id):
-                        live_closing_price, price_sources = self.live_price_fetcher.get_latest_price(
-                            trade_pair=position.trade_pair,
-                            time_ms=TARGET_MS)
-                        flat_order = Order(price=live_closing_price,
-                                           price_sources=price_sources,
-                                           processed_ms=TARGET_MS,
-                                           order_uuid=position.position_uuid[::-1],
-                                           # determinstic across validators. Won't mess with p2p sync
-                                           trade_pair=position.trade_pair,
-                                           order_type=OrderType.FLAT,
-                                           leverage=0,
-                                           src=ORDER_SRC_DEPRECATION_FLAT)
-                        position.add_order(flat_order)
-                        self.save_miner_position(position, delete_open_position_if_exists=True)
-                    bt.logging.info(
-                        f"Position {position.position_uuid} for hotkey {hotkey} and trade pair {position.trade_pair.trade_pair_id} has been closed. Added flat order {flat_order}")
+                    live_closing_price, price_sources = live_price_fetcher.get_latest_price(
+                        trade_pair=position.trade_pair,
+                        time_ms=TARGET_MS)
+                    flat_order = Order(price=live_closing_price,
+                                       price_sources=price_sources,
+                                       processed_ms=TARGET_MS,
+                                       order_uuid=position.position_uuid[::-1],
+                                       # determinstic across validators. Won't mess with p2p sync
+                                       trade_pair=position.trade_pair,
+                                       order_type=OrderType.FLAT,
+                                       leverage=0,
+                                       src=ORDER_SRC_DEPRECATION_FLAT)
+                    position.add_order(flat_order)
+                    self.save_miner_position(position, delete_open_position_if_exists=True)
+                bt.logging.info(
+                    f"Position {position.position_uuid} for hotkey {hotkey} and trade pair {position.trade_pair.trade_pair_id} has been closed. Added flat order {flat_order}")
 
 
     def get_return_per_closed_position(self, positions: List[Position]) -> List[float]:
@@ -699,12 +685,20 @@ class PositionManager(CacheController):
         # -------------------------------------------------------------------------------------
 
     def _save_miner_position_to_memory(self, position: Position):
-        if position.miner_hotkey not in self.hotkey_to_positions:
-            self.hotkey_to_positions[position.miner_hotkey] = {}
-        if position.miner_hotkey in self.hotkey_to_positions and position.position_uuid in self.hotkey_to_positions[position.miner_hotkey]:
+        # Multiprocessing-safe
+        hk = position.miner_hotkey
+        if hk not in self.hotkey_to_positions:
+            self.hotkey_to_positions[hk] = {}
+
+        # Santiy check
+        if position.miner_hotkey in self.hotkey_to_positions and position.position_uuid in self.hotkey_to_positions[
+            position.miner_hotkey]:
             existing_pos = self.hotkey_to_positions[position.miner_hotkey][position.position_uuid]
             assert existing_pos.trade_pair == position.trade_pair, f"Trade pair mismatch for position {position.position_uuid}. Existing: {existing_pos.trade_pair}, New: {position.trade_pair}"
-        self.hotkey_to_positions[position.miner_hotkey][position.position_uuid] = deepcopy(position)
+
+        temp = self.hotkey_to_positions[hk]
+        temp[position.position_uuid] = deepcopy(position)
+        self.hotkey_to_positions[hk] = temp  # Trigger the update on the multiprocessing Manager
 
 
     def save_miner_position(self, position: Position, delete_open_position_if_exists=True) -> None:

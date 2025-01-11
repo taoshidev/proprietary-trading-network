@@ -17,9 +17,11 @@ import bittensor as bt
 
 class PositionSyncer(ValidatorSyncBase):
     def __init__(self, shutdown_dict=None, signal_sync_lock=None, signal_sync_condition=None,
-                 n_orders_being_processed=None, running_unit_tests=False, position_manager=None):
+                 n_orders_being_processed=None, running_unit_tests=False, position_manager=None,
+                 ipc_manager=None):
         super().__init__(shutdown_dict, signal_sync_lock, signal_sync_condition, n_orders_being_processed,
-                         running_unit_tests=running_unit_tests, position_manager=position_manager)
+                         running_unit_tests=running_unit_tests, position_manager=position_manager,
+                         ipc_manager=ipc_manager)
         self.force_ran_on_boot = True
 
     def read_validator_checkpoint_from_gcloud_zip(url):
@@ -90,10 +92,10 @@ class PositionSyncer(ValidatorSyncBase):
 
 if __name__ == "__main__":
     bt.logging.enable_info()
-    elimination_manager = EliminationManager(None, None, None)
-    position_manager = PositionManager(elimination_manager=elimination_manager, challengeperiod_manager=None)
-    challengeperiod_manager = ChallengePeriodManager(config=None, metagraph=None, position_manager=position_manager)
+    elimination_manager = EliminationManager(None, [], None, None)
+    position_manager = PositionManager({}, elimination_manager=elimination_manager, challengeperiod_manager=None)
+    challengeperiod_manager = ChallengePeriodManager(metagraph=None, position_manager=position_manager)
     position_manager.challengeperiod_manager = challengeperiod_manager
-    position_syncer = PositionSyncer(position_manager=position_manager)
+    position_syncer = PositionSyncer(position_manager=position_manager, perf_ledger_hks_to_invalidate={})
     candidate_data = position_syncer.read_validator_checkpoint_from_gcloud_zip()
     position_syncer.sync_positions(False, candidate_data=candidate_data)

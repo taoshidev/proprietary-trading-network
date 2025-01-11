@@ -17,12 +17,11 @@ from vali_objects.position import Position
 
 
 class ChallengePeriodManager(CacheController):
-    def __init__(self, config, metagraph, perf_ledger_manager : PerfLedgerManager =None, running_unit_tests=False,
+    def __init__(self, metagraph, perf_ledger_manager : PerfLedgerManager =None, running_unit_tests=False,
                  position_manager: PositionManager =None):
-        super().__init__(config, metagraph, running_unit_tests=running_unit_tests)
-        self.lock = threading.Lock()
+        super().__init__(metagraph, running_unit_tests=running_unit_tests)
         self.perf_ledger_manager = perf_ledger_manager if perf_ledger_manager else \
-            PerfLedgerManager(metagraph=metagraph, running_unit_tests=running_unit_tests)
+            PerfLedgerManager(metagraph, {}, [], running_unit_tests=running_unit_tests)
         self.position_manager = position_manager
         self.elimination_manager = self.position_manager.elimination_manager
         self.challengeperiod_testing = {}
@@ -411,16 +410,15 @@ class ChallengePeriodManager(CacheController):
             self.elimination_manager.append_elimination_row(hotkey, -1, 'FAILED_CHALLENGE_PERIOD')
 
     def _write_challengeperiod_from_memory_to_disk(self):
-        with self.lock:
-            challengeperiod_data = {
-                "testing": self.challengeperiod_testing,
-                "success": self.challengeperiod_success
-            }
-            ValiBkpUtils.write_file(
-                ValiBkpUtils.get_challengeperiod_file_location(
-                    running_unit_tests=self.running_unit_tests
-                ),
-                challengeperiod_data
-            )
+        challengeperiod_data = {
+            "testing": self.challengeperiod_testing,
+            "success": self.challengeperiod_success
+        }
+        ValiBkpUtils.write_file(
+            ValiBkpUtils.get_challengeperiod_file_location(
+                running_unit_tests=self.running_unit_tests
+            ),
+            challengeperiod_data
+        )
 
 

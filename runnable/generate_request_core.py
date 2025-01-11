@@ -150,7 +150,8 @@ class RequestCoreManager:
         print(f'Uploaded {blob_name} to {bucket_name}')
 
     def generate_request_core(self, time_now:int, selected_miner_hotkeys: List[str] = None) -> dict:
-        eliminations = self.elimination_manager.get_eliminations_from_memory()
+        #eliminations = self.elimination_manager.get_eliminations_from_memory()
+        eliminations = self.elimination_manager.get_eliminations_from_disk
         eliminated_hotkeys = set(x['hotkey'] for x in eliminations)
 
         ## Collect information from the disk and populate variables in memory
@@ -316,8 +317,8 @@ class RequestCoreManager:
         return checkpoint_dict
 
 if __name__ == "__main__":
-    perf_ledger_manager = PerfLedgerManager(None)
-    elimination_manager = EliminationManager(None, None, None)
+    perf_ledger_manager = PerfLedgerManager(None, {}, [])
+    elimination_manager = EliminationManager(None, [],None, None)
     position_manager = PositionManager(None, None, elimination_manager=elimination_manager,
                                        challengeperiod_manager=None,
                                        perf_ledger_manager=perf_ledger_manager)
