@@ -65,6 +65,8 @@ class PositionManager(CacheController):
         temp = self.get_positions_for_all_miners(from_disk=True)
         for hk, positions in temp.items():
             self.hotkey_to_positions[hk] = positions
+        print('testing disk fetch2 (maybe cache speedup)')
+        temp = self.get_positions_for_all_miners(from_disk=True)
 
     def pre_run_setup(self):
         """

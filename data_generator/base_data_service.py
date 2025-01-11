@@ -50,6 +50,7 @@ class BaseDataService():
         self.trade_pair_to_price_history = defaultdict(list)
         self.closed_market_prices = {tp: None for tp in TradePair}
         self.latest_websocket_events = {}
+        self.using_ipc = ipc_manager is not None
         if ipc_manager is None:
             self.trade_pair_to_recent_events = defaultdict(RecentEventTracker)
         else:
@@ -137,6 +138,13 @@ class BaseDataService():
                 self.debug_log()
 
             time.sleep(1)
+            if self.using_ipc:
+                t0 = time.time()
+                # Flush the recent events to shared memory
+                for k, v in self.trade_pair_to_recent_events.items():
+                    self.trade_pair_to_recent_events[k] = v
+                t1 = time.time()
+                bt.logging.info(f"Flushed recent events to shared memory in {t1 - t0:.2f} seconds")
 
     def close_create_websocket_objects(self, tpc: TradePairCategory = None):
         raise NotImplementedError
