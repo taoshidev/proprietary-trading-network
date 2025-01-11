@@ -1,6 +1,8 @@
 import time
 import traceback
 
+from setproctitle import setproctitle
+
 from runnable.generate_request_core import RequestCoreManager
 from runnable.generate_request_minerstatistics import MinerStatisticsManager
 
@@ -29,6 +31,7 @@ class RequestOutputGenerator:
 
 
     def run_forever(self):
+        setproctitle(f"vali_{self.__class__.__name__}")
         bt.logging.info(f'Running RequestOutputGenerator. running_deprecated: {self.running_deprecated}')
         while True:
             self.run_forever_wrap()

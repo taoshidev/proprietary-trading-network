@@ -3,6 +3,8 @@
 import os
 import shutil
 
+from setproctitle import setproctitle
+
 from time_util.time_util import TimeUtil
 from vali_objects.utils.plagiarism_definitions import FollowPercentage, LagDetection, CopySimilarity, TwoCopySimilarity, \
     ThreeCopySimilarity
@@ -40,6 +42,7 @@ class PlagiarismDetector(CacheController):
             ValiBkpUtils.make_dir(ValiBkpUtils.get_plagiarism_scores_dir(running_unit_tests=self.running_unit_tests))
 
     def run_update_loop(self):
+        setproctitle(f"vali_{self.__class__.__name__}")
         while not self.shutdown_dict:
             try:
                 if self.refresh_allowed(ValiConfig.PLAGIARISM_REFRESH_TIME_MS):

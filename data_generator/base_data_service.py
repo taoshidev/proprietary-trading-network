@@ -8,6 +8,8 @@ from typing import List, Optional
 from polygon.websocket import WebSocketClient
 
 import bittensor as bt
+from setproctitle import setproctitle
+
 from time_util.time_util import TimeUtil, UnifiedMarketCalendar
 from vali_objects.vali_config import TradePair, TradePairCategory
 from vali_objects.vali_dataclasses.recent_event_tracker import RecentEventTracker
@@ -104,6 +106,7 @@ class BaseDataService():
         return next((x for x in TradePair if x.trade_pair_category == tpc), None)
 
     def websocket_manager(self):
+        setproctitle(f"vali_{self.__class__.__name__}")
         tpc_to_prev_n_events = {x: 0 for x in TradePairCategory}
         last_ws_health_check_s = 0
         last_market_status_update_s = 0

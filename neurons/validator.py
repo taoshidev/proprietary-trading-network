@@ -8,6 +8,9 @@ import sys
 import threading
 import signal
 import uuid
+
+from setproctitle import setproctitle
+
 from shared_objects.sn8_multiprocessing import get_ipc_metagraph
 from multiprocessing import Manager, Process
 from typing import Tuple
@@ -86,6 +89,7 @@ signal.signal(signal.SIGALRM, alarm_handler)
 
 class Validator:
     def __init__(self):
+        setproctitle(f"vali_{self.__class__.__name__}")
         # Try to read the file meta/meta.json and print it out
         try:
             with open("meta/meta.json", "r") as f:

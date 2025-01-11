@@ -7,6 +7,8 @@ from collections import defaultdict
 from copy import deepcopy
 from typing import List
 import bittensor as bt
+from setproctitle import setproctitle
+
 from time_util.time_util import MS_IN_8_HOURS, MS_IN_24_HOURS
 
 from shared_objects.cache_controller import CacheController
@@ -387,6 +389,7 @@ class PerfLedgerManager(CacheController):
 
     #@periodic_heartbeat(interval=600, message="perf ledger run_update_loop still running...")
     def run_update_loop(self):
+        setproctitle(f"vali_{self.__class__.__name__}")
         while not self.shutdown_dict:
             try:
                 if self.refresh_allowed(ValiConfig.PERF_LEDGER_REFRESH_TIME_MS):
