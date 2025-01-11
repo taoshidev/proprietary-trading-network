@@ -54,19 +54,12 @@ class PositionManager(CacheController):
             self.hotkey_to_positions = {}
         self.secrets = secrets
         self.populate_memory_positions_for_first_time()
-        # PROFILE TEST
-        print('testing memory disk fetch')
-        temp2 = self.get_positions_for_all_miners(from_disk=False)
-
 
     @timeme
     def populate_memory_positions_for_first_time(self):
-        print('testing disk fetch')
         temp = self.get_positions_for_all_miners(from_disk=True)
         for hk, positions in temp.items():
             self.hotkey_to_positions[hk] = positions
-        print('testing disk fetch2 (maybe cache speedup)')
-        temp = self.get_positions_for_all_miners(from_disk=True)
 
     def pre_run_setup(self):
         """
@@ -470,7 +463,7 @@ class PositionManager(CacheController):
             f"Applied {n_corrections} order corrections out of {n_attempts} attempts. unique positions corrected: {len(unique_corrections)}")
 
     def close_open_orders_for_suspended_trade_pairs(self):
-        live_price_fetcher = LivePriceFetcher(secrets=self.secrets)
+        live_price_fetcher = LivePriceFetcher(secrets=self.secrets, disable_ws=True)
         tps_to_eliminate = [TradePair.SPX, TradePair.DJI, TradePair.NDX, TradePair.VIX]
         if not tps_to_eliminate:
             return
@@ -486,9 +479,13 @@ class PositionManager(CacheController):
                 if position.is_closed_position:
                     continue
                 if position.trade_pair in tps_to_eliminate:
-                    live_closing_price, price_sources = live_price_fetcher.get_latest_price(
-                        trade_pair=position.trade_pair,
-                        time_ms=TARGET_MS)
+                    if self.running_unit_tests:
+                        live_closing_price, price_sources = 0, []
+                    else:
+                        live_closing_price, price_sources = live_price_fetcher.get_latest_price(
+                            trade_pair=position.trade_pair,
+                            time_ms=TARGET_MS)
+
                     flat_order = Order(price=live_closing_price,
                                        price_sources=price_sources,
                                        processed_ms=TARGET_MS,
@@ -708,7 +705,7 @@ class PositionManager(CacheController):
             assert existing_pos.trade_pair == position.trade_pair, f"Trade pair mismatch for position {position.position_uuid}. Existing: {existing_pos.trade_pair}, New: {position.trade_pair}"
 
         new_positions = [p for p in self.hotkey_to_positions[hk] if p.position_uuid != position.position_uuid]
-        new_positions.append(position)
+        new_positions.append(deepcopy(position))
         self.hotkey_to_positions[hk] = new_positions  # Trigger the update on the multiprocessing Manager
 
 
@@ -777,7 +774,7 @@ class PositionManager(CacheController):
         return min_time, max_time
 
     def get_open_position_for_a_miner_trade_pair(self, hotkey: str, trade_pair_id: str) -> Position | None:
-        temp = self.hotkey_to_positions.get(hotkey, {}).values()
+        temp = self.hotkey_to_positions.get(hotkey, [])
         positions = []
         for p in temp:
             if p.trade_pair.trade_pair_id == trade_pair_id and p.is_open_position:
@@ -948,7 +945,7 @@ class PositionManager(CacheController):
             all_files = ValiBkpUtils.get_all_files_in_dir(miner_dir)
             positions = [self._get_position_from_disk(file) for file in all_files]
         else:
-            positions = self.hotkey_to_positions.get(miner_hotkey, [])#testing a speedup deepcopy(list(self.hotkey_to_positions.get(miner_hotkey, {}).values()))
+            positions = self.hotkey_to_positions.get(miner_hotkey, [])
 
         if acceptable_position_end_ms is not None:
             positions = [
@@ -967,7 +964,6 @@ class PositionManager(CacheController):
 
         return positions
 
-    @timeme
     def get_positions_for_hotkeys(self, hotkeys: List[str], eliminations: List = None, **args) -> Dict[
         str, List[Position]]:
         eliminated_hotkeys = set(x['hotkey'] for x in eliminations) if eliminations is not None else set()

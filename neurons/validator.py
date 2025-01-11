@@ -347,8 +347,7 @@ class Validator:
 
         if self.config.start_generate:
             self.rog = RequestOutputGenerator(rcm=self.request_core_manager, msm=self.miner_statistics_manager)
-            #test_picklability(self.rog, do, "rog")
-            self.rog_thread = Process(target=self.rog.run_forever, daemon=True)
+            self.rog_thread = threading.Thread(target=self.rog.start_generation, daemon=True)
             self.rog_thread.start()
         else:
             self.rog_thread = None

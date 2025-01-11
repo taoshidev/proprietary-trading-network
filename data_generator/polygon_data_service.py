@@ -211,8 +211,12 @@ class PolygonDataService(BaseDataService):
                 #print(f'Received forex message {symbol} price {new_price} time {TimeUtil.millis_to_formatted_date_str(start_timestamp)}')
                 end_timestamp = start_timestamp + 999
                 if symbol in self.trade_pair_to_recent_events and self.trade_pair_to_recent_events[symbol].timestamp_exists(start_timestamp):
-                    self.trade_pair_to_recent_events[symbol].update_prices_for_median(start_timestamp, new_price)
-                    self.trade_pair_to_recent_events[symbol].update_prices_for_median(start_timestamp + 999, new_price)
+                    if self.using_ipc:
+                        self.trade_pair_to_recent_events_realtime[symbol].update_prices_for_median(start_timestamp, new_price)
+                        self.trade_pair_to_recent_events_realtime[symbol].update_prices_for_median(start_timestamp + 999, new_price)
+                    else:
+                        self.trade_pair_to_recent_events[symbol].update_prices_for_median(start_timestamp, new_price)
+                        self.trade_pair_to_recent_events[symbol].update_prices_for_median(start_timestamp + 999, new_price)
                     return None, None
                 else:
                     open = close = vwap = high = low = new_price
@@ -313,8 +317,14 @@ class PolygonDataService(BaseDataService):
                         continue
                     self.latest_websocket_events[symbol] = ps
                     if symbol not in self.trade_pair_to_recent_events:
-                        self.trade_pair_to_recent_events[symbol] = RecentEventTracker()
-                    self.trade_pair_to_recent_events[symbol].add_event(ps, tp.is_forex, f"{self.provider_name}:{tp.trade_pair}")
+                        if self.using_ipc:
+                            self.trade_pair_to_recent_events[symbol] = RecentEventTracker()
+                        else:
+                            self.trade_pair_to_recent_events_realtime[symbol] = RecentEventTracker()
+                    if self.using_ipc:
+                        self.trade_pair_to_recent_events_realtime[symbol].add_event(ps, tp.is_forex, f"{self.provider_name}:{tp.trade_pair}")
+                    else:
+                        self.trade_pair_to_recent_events[symbol].add_event(ps, tp.is_forex, f"{self.provider_name}:{tp.trade_pair}")
 
                 if DEBUG:
                     formatted_time = TimeUtil.millis_to_formatted_date_str(TimeUtil.now_in_millis())

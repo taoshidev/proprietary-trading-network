@@ -125,12 +125,14 @@ class TiingoDataService(BaseDataService):
                 #print(tp.trade_pair, start_timestamp_orig, start_timestamp)
                 #print(f'Received forex message {symbol} price {new_price} time {TimeUtil.millis_to_formatted_date_str(start_timestamp)}')
                 #print(m, symbol in self.trade_pair_to_recent_events, self.trade_pair_to_recent_events[symbol].timestamp_exists(start_timestamp))
-                if symbol in self.trade_pair_to_recent_events and self.trade_pair_to_recent_events[symbol].timestamp_exists(start_timestamp):
+                if self.using_ipc and symbol in self.trade_pair_to_recent_events_realtime and self.trade_pair_to_recent_events_realtime[symbol].timestamp_exists(start_timestamp):
+                    self.trade_pair_to_recent_events_realtime[symbol].update_prices_for_median(start_timestamp, bid_price)
+                    return None
+                elif not self.using_ipc and symbol in self.trade_pair_to_recent_events and self.trade_pair_to_recent_events[symbol].timestamp_exists(start_timestamp):
                     self.trade_pair_to_recent_events[symbol].update_prices_for_median(start_timestamp, bid_price)
                     return None
-                else:
-                    open = vwap = high = low = bid_price
 
+                open = vwap = high = low = bid_price
                 volume = 1
             elif tp.is_crypto:
                 mode, ticker, date_str, exchange, volume, price = data
@@ -232,9 +234,16 @@ class TiingoDataService(BaseDataService):
         self.closed_market_prices[tp] = None
 
         self.latest_websocket_events[symbol] = ps1
-        if symbol not in self.trade_pair_to_recent_events:
+        if not self.using_ipc and symbol not in self.trade_pair_to_recent_events:
             self.trade_pair_to_recent_events[symbol] = RecentEventTracker()
-        self.trade_pair_to_recent_events[symbol].add_event(ps1, tp.is_forex,
+        elif self.using_ipc and symbol not in self.trade_pair_to_recent_events_realtime:
+            self.trade_pair_to_recent_events_realtime[symbol] = RecentEventTracker()
+
+        if self.using_ipc:
+            self.trade_pair_to_recent_events_realtime[symbol].add_event(ps1, tp.is_forex,
+                                                           f"{self.provider_name}:{tp.trade_pair}")
+        else:
+            self.trade_pair_to_recent_events[symbol].add_event(ps1, tp.is_forex,
                                                            f"{self.provider_name}:{tp.trade_pair}")
 
         if DEBUG:

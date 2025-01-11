@@ -892,7 +892,6 @@ class PerfLedgerManager(CacheController):
         output_location = ValiBkpUtils.get_perf_ledger_eliminations_dir(running_unit_tests=self.running_unit_tests)
         ValiBkpUtils.write_file(output_location, eliminations)
 
-    @timeme
     def get_perf_ledger_eliminations(self, first_fetch=False):
         if first_fetch:
             location = ValiBkpUtils.get_perf_ledger_eliminations_dir(running_unit_tests=self.running_unit_tests)
@@ -921,7 +920,8 @@ class PerfLedgerManager(CacheController):
         n_hotkeys_with_positions = len(hotkey_to_positions) if hotkey_to_positions else 0
         bt.logging.info(f"Done updating perf ledger for all hotkeys in {time.time() - t_init} s. n_perf_ledgers {n_perf_ledgers}. n_hotkeys_with_positions {n_hotkeys_with_positions}")
         self.write_perf_ledger_eliminations_to_disk(self.candidate_pl_elimination_rows)
-        del self.pl_elimination_rows[:] # clear list in a multiprocessing-friendly way
+        # clear and populate proxy list in a multiprocessing-friendly way
+        del self.pl_elimination_rows[:]
         self.pl_elimination_rows.extend(self.candidate_pl_elimination_rows)
 
         if self.shutdown_dict:
@@ -942,8 +942,7 @@ class PerfLedgerManager(CacheController):
                 [testing_one_hotkey], sort_positions=True
             )
         else:
-            hotkey_to_positions = self.position_manager.get_positions_for_hotkeys(
-                self.metagraph.hotkeys, sort_positions=True,
+            hotkey_to_positions = self.position_manager.get_positions_for_all_miners(sort_positions=True,
                 eliminations=self.position_manager.elimination_manager.get_eliminations_from_memory()
             )
             n_positions_total = 0
@@ -966,18 +965,15 @@ class PerfLedgerManager(CacheController):
         return self.update_all_perf_ledgers(hotkey_to_positions, existing_perf_ledgers, t_ms, return_dict=True)
 
 
-    def load_perf_ledgers_from_memory(self, first_fetch=False, dc=True):
+    def load_perf_ledgers_from_memory(self, first_fetch=False):
         if first_fetch:
             self.hotkey_to_perf_ledger.update(self.load_perf_ledgers_from_disk())
-        if dc:
-            return dict(self.hotkey_to_perf_ledger)
-        else:
-            return self.hotkey_to_perf_ledger
+        return self.hotkey_to_perf_ledger
 
     def update(self, testing_one_hotkey=None, regenerate_all_ledgers=False):
         assert self.position_manager.elimination_manager.metagraph, "Metagraph must be loaded before updating perf ledgers"
         assert self.metagraph, "Metagraph must be loaded before updating perf ledgers"
-        perf_ledgers = self.load_perf_ledgers_from_memory(dc=False)
+        perf_ledgers = self.load_perf_ledgers_from_memory()
         t_ms = TimeUtil.now_in_millis() - self.UPDATE_LOOKBACK_MS
         """
         tt = 1734279788000
@@ -1040,7 +1036,9 @@ class PerfLedgerManager(CacheController):
                 hotkeys_to_delete.add(hk)
                 bt.logging.info(f"perf ledger invalidated for hk {hk} due to position sync at time {t}")
 
-        perf_ledgers = {k: v for k, v in perf_ledgers.items() if k not in hotkeys_to_delete}
+        for k in hotkeys_to_delete:
+            del perf_ledgers[k]
+
         self.hk_to_last_order_processed_ms = {k: v for k, v in self.hk_to_last_order_processed_ms.items() if k not in hotkeys_to_delete}
 
         #hk_to_last_update_date = {k: TimeUtil.millis_to_formatted_date_str(v.last_update_ms)
@@ -1051,7 +1049,7 @@ class PerfLedgerManager(CacheController):
         if regenerate_all_ledgers or testing_one_hotkey:
             bt.logging.info("Regenerating all perf ledgers")
             for k in list(perf_ledgers.keys()):
-                perf_ledgers.pop(k, None)
+                del perf_ledgers[k]
 
         self.restore_out_of_sync_ledgers(perf_ledgers, hotkey_to_positions)
 
@@ -1095,10 +1093,10 @@ class PerfLedgerManager(CacheController):
     def save_perf_ledgers(self, perf_ledgers: dict[str, PerfLedger] | dict[str, dict]):
         file_path = ValiBkpUtils.get_perf_ledgers_path(self.running_unit_tests)
         ValiBkpUtils.write_to_dir(file_path, perf_ledgers)
-        self.hotkey_to_perf_ledger = perf_ledgers
+        #self.hotkey_to_perf_ledger = perf_ledgers # Memory has already been updated in the main loop
 
     def print_perf_ledgers_on_disk(self):
-        perf_ledgers = self.load_perf_ledgers_from_memory(dc=False)
+        perf_ledgers = self.load_perf_ledgers_from_memory()
         for hotkey, perf_ledger in perf_ledgers.items():
             print(f"perf ledger for {hotkey}")
             print('    total gain product', perf_ledger.get_product_of_gains())
@@ -1138,7 +1136,7 @@ class PerfLedgerManager(CacheController):
                 existing_perf_ledgers[hk] = self.hotkey_to_checkpointed_ledger[hk]
                 n_hotkeys_recovered += 1
             else:
-                existing_perf_ledgers.pop(hk)  # Full regeneration needed
+                del existing_perf_ledgers[hk] # Full regeneration needed
         if hotkeys_needing_recovery:
             bt.logging.info(f"Recovered {n_hotkeys_recovered} / {len(hotkeys_needing_recovery)} perf ledgers for out of sync hotkeys")
 

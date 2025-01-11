@@ -51,10 +51,12 @@ class BaseDataService():
         self.closed_market_prices = {tp: None for tp in TradePair}
         self.latest_websocket_events = {}
         self.using_ipc = ipc_manager is not None
+        self.n_flushes = 0
         if ipc_manager is None:
             self.trade_pair_to_recent_events = defaultdict(RecentEventTracker)
         else:
             self.trade_pair_to_recent_events = ipc_manager.dict()
+            self.trade_pair_to_recent_events_realtime = defaultdict(RecentEventTracker)
         self.trade_pair_category_to_longest_allowed_lag_s = {TradePairCategory.CRYPTO: 30, TradePairCategory.FOREX: 30,
                                                            TradePairCategory.INDICES: 30, TradePairCategory.EQUITIES: 30}
         self.timespan_to_ms = {'second': 1000, 'minute': 1000 * 60, 'hour': 1000 * 60 * 60, 'day': 1000 * 60 * 60 * 24}
@@ -106,6 +108,17 @@ class BaseDataService():
         # Use generator expression for efficiency
         return next((x for x in TradePair if x.trade_pair_category == tpc), None)
 
+    def check_flush(self):
+        t0 = time.time()
+        # Flush the recent events to shared memory
+        for k, v in self.trade_pair_to_recent_events_realtime.items():
+            self.trade_pair_to_recent_events[k] = v
+            self.n_flushes += 1
+        if self.n_flushes % 500 == 0:
+            t1 = time.time()
+            bt.logging.info(
+                f"Flushed recent {self.provider_name} events to shared memory in {t1 - t0:.2f} seconds, n_flushes {self.n_flushes}")
+
     def websocket_manager(self):
         setproctitle(f"vali_{self.__class__.__name__}")
         tpc_to_prev_n_events = {x: 0 for x in TradePairCategory}
@@ -139,13 +152,7 @@ class BaseDataService():
 
             time.sleep(1)
             if self.using_ipc:
-                t0 = time.time()
-                # Flush the recent events to shared memory
-                for k, v in self.trade_pair_to_recent_events.items():
-                    self.trade_pair_to_recent_events[k] = v
-                t1 = time.time()
-                bt.logging.info(f"Flushed recent events to shared memory in {t1 - t0:.2f} seconds")
-
+                self.check_flush()
     def close_create_websocket_objects(self, tpc: TradePairCategory = None):
         raise NotImplementedError
 

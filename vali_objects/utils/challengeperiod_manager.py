@@ -11,7 +11,7 @@ from vali_objects.utils.vali_utils import ValiUtils
 from vali_objects.vali_config import ValiConfig
 from shared_objects.cache_controller import CacheController
 from vali_objects.scoring.scoring import Scoring
-from time_util.time_util import TimeUtil, timeme
+from time_util.time_util import TimeUtil
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager, PerfLedger
 from vali_objects.utils.ledger_utils import LedgerUtils
 from vali_objects.utils.position_manager import PositionManager
@@ -349,7 +349,6 @@ class ChallengePeriodManager(CacheController):
             ValiBkpUtils.get_challengeperiod_file_location(running_unit_tests=self.running_unit_tests)
         ).get('success', {})
 
-    @timeme
     def _refresh_challengeperiod_in_memory(self, eliminations: list[dict] = None):
         if eliminations is None:
             eliminations_hotkeys = self.elimination_manager.get_eliminated_hotkeys()
@@ -364,7 +363,6 @@ class ChallengePeriodManager(CacheController):
         self.challengeperiod_testing = {k: v for k, v in existing_challengeperiod_testing.items() if k not in eliminations_hotkeys}
         self.challengeperiod_success = {k: v for k, v in existing_challengeperiod_success.items() if k not in eliminations_hotkeys}
 
-    @timeme
     def _refresh_challengeperiod_in_memory_and_disk(self, eliminations=None):
         if eliminations is None:
             eliminations = []

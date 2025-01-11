@@ -6,7 +6,7 @@ from typing import Dict
 
 from setproctitle import setproctitle
 
-from time_util.time_util import TimeUtil, timeme
+from time_util.time_util import TimeUtil
 from vali_objects.utils.vali_utils import ValiUtils
 from vali_objects.vali_config import ValiConfig, TradePair
 from shared_objects.cache_controller import CacheController
@@ -209,11 +209,9 @@ class EliminationManager(CacheController):
     def get_eliminated_hotkeys(self):
         return set([x['hotkey'] for x in self.eliminations]) if self.eliminations else set()
 
-    @timeme
     def get_eliminations_from_memory(self):
-        return list(self.eliminations)
+        return list(self.eliminations)  #  ListProxy is not JSON serializable
 
-    @timeme
     def get_eliminations_from_disk(self) -> list:
         #with self.eliminations_lock:
             location = ValiBkpUtils.get_eliminations_dir(running_unit_tests=self.running_unit_tests)

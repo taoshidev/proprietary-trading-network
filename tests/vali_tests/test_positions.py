@@ -23,7 +23,6 @@ class TestPositions(TestBase):
     def setUp(self):
         super().setUp()
         secrets = ValiUtils.get_secrets(running_unit_tests=True)
-        self.live_price_fetcher = MockLivePriceFetcher(secrets=secrets, disable_ws=True)
         self.DEFAULT_MINER_HOTKEY = "test_miner"
         self.DEFAULT_POSITION_UUID = "test_position"
         self.DEFAULT_OPEN_MS = 1000
@@ -37,8 +36,7 @@ class TestPositions(TestBase):
         self.mock_metagraph = MockMetagraph([self.DEFAULT_MINER_HOTKEY])
         self.elimination_manager = EliminationManager(self.mock_metagraph, None, None)
         self.position_manager = PositionManager(metagraph=self.mock_metagraph, running_unit_tests=True,
-                                                live_price_fetcher=self.live_price_fetcher,
-                                                elimination_manager=self.elimination_manager)
+                                                elimination_manager=self.elimination_manager, secrets=secrets)
         self.elimination_manager.position_manager = self.position_manager
         self.position_manager.clear_all_miner_positions()
 
