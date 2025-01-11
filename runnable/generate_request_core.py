@@ -150,8 +150,7 @@ class RequestCoreManager:
         print(f'Uploaded {blob_name} to {bucket_name}')
 
     def generate_request_core(self, time_now:int, selected_miner_hotkeys: List[str] = None) -> dict:
-        #eliminations = self.elimination_manager.get_eliminations_from_memory()
-        eliminations = self.elimination_manager.get_eliminations_from_disk
+        eliminations = self.elimination_manager.get_eliminations_from_memory()
         eliminated_hotkeys = set(x['hotkey'] for x in eliminations)
 
         ## Collect information from the disk and populate variables in memory

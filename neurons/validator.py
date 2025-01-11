@@ -8,7 +8,7 @@ import sys
 import threading
 import signal
 import uuid
-from shared_objects.sn8_multiprocessing import managerize_objects, get_ipc_metagraph
+from shared_objects.sn8_multiprocessing import get_ipc_metagraph
 from multiprocessing import Manager, Process
 from typing import Tuple
 from enum import Enum
@@ -25,7 +25,6 @@ import base64
 from runnable.generate_request_core import RequestCoreManager
 from runnable.generate_request_minerstatistics import MinerStatisticsManager
 from runnable.generate_request_outputs import RequestOutputGenerator
-from tests.shared_objects.mock_classes import MockMetagraph
 from vali_objects.utils.auto_sync import PositionSyncer
 from vali_objects.utils.p2p_syncer import P2PSyncer
 from shared_objects.rate_limiter import RateLimiter
@@ -119,7 +118,7 @@ class Validator:
         # 1. Initialize Manager for shared state
         self.ipc_manager = Manager()
 
-        self.live_price_fetcher = LivePriceFetcher(secrets=self.secrets, disable_ws=True)   # REMOVE ME (disable_ws) @@@@@@@@@@@@@@
+        self.live_price_fetcher = LivePriceFetcher(secrets=self.secrets, disable_ws=False, ipc_manager=self.ipc_manager)   # REMOVE ME (disable_ws) @@@@@@@@@@@@@@
         # Activating Bittensor's logging with the set configurations.
         bt.logging(config=self.config, logging_dir=self.config.full_path)
         bt.logging.info(
@@ -178,11 +177,11 @@ class Validator:
                                                      perf_ledger_hks_to_invalidate=self.position_syncer.perf_ledger_hks_to_invalidate,
                                                      position_manager=None)  # Set after self.pm creation
 
-        self.hotkey_to_positions = {}
-        managerize_objects(self, self.ipc_manager, {"hotkey_to_positions": self.hotkey_to_positions})
+
         self.position_manager = PositionManager(metagraph=self.metagraph,
                                                 perform_order_corrections=True,
                                                 perform_compaction=True,
+                                                ipc_manager=self.ipc_manager,
                                                 perf_ledger_manager=self.perf_ledger_manager,
                                                 elimination_manager=self.elimination_manager,
                                                 challengeperiod_manager=None,
@@ -302,7 +301,7 @@ class Validator:
         # Eliminations are written in elimination_manager, mdd_checker
         # Since the mainloop is run synchronously, we just need to lock eliminations when writing to them and when
         # reading outside of the mainloop (validator).
-        self.plagiarism_detector = PlagiarismDetector(self.config, self.metagraph, shutdown_dict=shutdown_dict,
+        self.plagiarism_detector = PlagiarismDetector(self.metagraph, shutdown_dict=shutdown_dict,
                                                       position_manager=self.position_manager)
         # Start the plagiarism detector in its own thread
         self.plagiarism_thread = Process(target=self.plagiarism_detector.run_update_loop, daemon=True)
@@ -343,7 +342,7 @@ class Validator:
         self.perf_ledger_updater_thread.start()
 
         if self.config.start_generate:
-            self.rog = RequestOutputGenerator(self.position_manager, self.weight_setter, self.plagiarism_detector)
+            self.rog = RequestOutputGenerator(rcm=self.request_core_manager, msm=self.miner_statistics_manager)
             #test_picklability(self.rog, do, "rog")
             self.rog_thread = Process(target=self.rog.run_forever, daemon=True)
             self.rog_thread.start()
@@ -475,9 +474,9 @@ class Validator:
             try:
                 #hotkey_to_positions = self.position_manager.get_positions_for_hotkeys(
                 #    self.metagraph.hotkeys, sort_positions=True).values()
-                hotkey_to_perf_ledger = self.perf_ledger_manager.load_perf_ledgers_from_memory()
+                #hotkey_to_perf_ledger = self.perf_ledger_manager.load_perf_ledgers_from_memory()
 
-                print(f'@@@ {len(self.metagraph.hotkeys)} self.hktp {len(self.position_manager.hotkey_to_positions)} self.hktpl {self.perf_ledger_manager.hotkey_to_perf_ledger} self.elims {len(self.elimination_manager.get_eliminations_from_memory())}')
+                #print(f'@@@ {len(self.metagraph.hotkeys)} self.hktp {len(self.position_manager.hotkey_to_positions)} self.hktpl {self.perf_ledger_manager.hotkey_to_perf_ledger} self.elims {len(self.elimination_manager.get_eliminations_from_memory())}')
                 current_time = TimeUtil.now_in_millis()
                 self.position_syncer.sync_positions_with_cooldown(self.auto_sync)
                 self.mdd_checker.mdd_check(self.position_locks)

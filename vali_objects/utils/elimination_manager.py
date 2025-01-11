@@ -1,7 +1,6 @@
 # developer: jbonilla
 # Copyright © 2024 Taoshi Inc
 import shutil
-#from multiprocessing import Lock
 from copy import deepcopy
 from typing import Dict
 
@@ -9,7 +8,6 @@ from time_util.time_util import TimeUtil
 from vali_objects.utils.vali_utils import ValiUtils
 from vali_objects.vali_config import ValiConfig, TradePair
 from shared_objects.cache_controller import CacheController
-from shared_objects.sn8_multiprocessing import get_ipc_metagraph
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 
 import bittensor as bt
@@ -29,7 +27,6 @@ class EliminationManager(CacheController):
                  running_unit_tests=False, shutdown_dict=None, ipc_manager=None):
         super().__init__(metagraph=metagraph)
         self.position_manager = position_manager
-        #self.eliminations_lock = Lock()
         self.shutdown_dict = shutdown_dict
         self.challengeperiod_manager = challengeperiod_manager
         self.running_unit_tests = running_unit_tests
@@ -90,7 +87,6 @@ class EliminationManager(CacheController):
         if not self.refresh_allowed(ValiConfig.ELIMINATION_CHECK_INTERVAL_MS):
             return
         bt.logging.info("running elimination manager")
-        self.eliminations = self.get_eliminations_from_disk()
         # self._handle_plagiarism_eliminations()
         self.handle_perf_ledger_eliminations(position_locks)
         self._delete_eliminated_expired_miners()

@@ -349,9 +349,9 @@ class ChallengePeriodManager(CacheController):
 
     def _refresh_challengeperiod_in_memory(self, eliminations: list[dict] = None):
         if eliminations is None:
-            eliminations = self.elimination_manager.get_eliminations_from_memory()
-
-        eliminations_hotkeys = set([x['hotkey'] for x in eliminations])
+            eliminations_hotkeys = self.elimination_manager.get_eliminated_hotkeys()
+        else:
+            eliminations_hotkeys = set([x['hotkey'] for x in eliminations])
 
         location = ValiBkpUtils.get_challengeperiod_file_location(running_unit_tests=self.running_unit_tests)
         existing_challengeperiod = ValiUtils.get_vali_json_file_dict(location)

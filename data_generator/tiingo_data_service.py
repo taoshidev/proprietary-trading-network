@@ -3,6 +3,7 @@ import traceback
 import json
 import requests
 from typing import List
+from multiprocessing import Process
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from data_generator.base_data_service import BaseDataService, TIINGO_PROVIDER_NAME, exception_handler_decorator
 from time_util.time_util import TimeUtil
@@ -16,24 +17,25 @@ from vali_objects.vali_dataclasses.price_source import PriceSource
 
 from tiingo import TiingoClient#, TiingoWebsocketClient
 
+from vali_objects.vali_dataclasses.recent_event_tracker import RecentEventTracker
+
 DEBUG = 0
 TIINGO_COINBASE_EXCHANGE_STR = 'gdax'
 
 class TiingoDataService(BaseDataService):
 
-    def __init__(self, api_key, disable_ws=False):
+    def __init__(self, api_key, disable_ws=False, ipc_manager=None):
         self.init_time = time.time()
         self._api_key = api_key
         self.disable_ws = disable_ws
 
-        super().__init__(provider_name=TIINGO_PROVIDER_NAME)
+        super().__init__(provider_name=TIINGO_PROVIDER_NAME, ipc_manager=ipc_manager)
 
         self.MARKET_STATUS = None
-        self.LOCK = threading.Lock()
         self.UNSUPPORTED_TRADE_PAIRS = (TradePair.SPX, TradePair.DJI, TradePair.NDX, TradePair.VIX, TradePair.FTSE, TradePair.GDAXI)
 
         self.config = {'api_key': self._api_key, 'session': True}
-        self.TIINGO_CLIENT = TiingoClient(self.config)
+        self.TIINGO_CLIENT = None  # Instantiate the TiingoClient after process starts
 
         self.subscribe_message = {
             'eventName': 'subscribe',
@@ -48,9 +50,15 @@ class TiingoDataService(BaseDataService):
         if disable_ws:
             self.websocket_manager_thread = None
         else:
-            self.websocket_manager_thread = threading.Thread(target=self.websocket_manager, daemon=True)
+            if ipc_manager:
+                self.websocket_manager_thread = Process(target=self.websocket_manager, daemon=True)
+            else:
+                self.websocket_manager_thread = threading.Thread(target=self.websocket_manager, daemon=True)
             self.websocket_manager_thread.start()
             time.sleep(3) # Let the websocket_manager_thread start
+
+    def instantiate_not_pickleable_objects(self):
+        self.TIINGO_CLIENT = TiingoClient(self.config)
 
     def run_pseudo_websocket(self, tpc: TradePairCategory):
         verbose = False
@@ -224,6 +232,8 @@ class TiingoDataService(BaseDataService):
         self.closed_market_prices[tp] = None
 
         self.latest_websocket_events[symbol] = ps1
+        if symbol not in self.trade_pair_to_recent_events:
+            self.trade_pair_to_recent_events[symbol] = RecentEventTracker()
         self.trade_pair_to_recent_events[symbol].add_event(ps1, tp.is_forex,
                                                            f"{self.provider_name}:{tp.trade_pair}")
 

@@ -17,15 +17,15 @@ from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
 import bittensor as bt
 
 class RequestOutputGenerator:
-    def __init__(self, position_manager, subtensor_weight_setter, plagiarism_detector, running_deprecated=False):
+    def __init__(self, running_deprecated=False, rcm=None, msm=None):
         self.running_deprecated = running_deprecated
         self.last_write_time_s = 0
         self.n_updates = 0
         if self.running_deprecated:
             self.repull_data_from_disk()
         else:
-            self.rcm = RequestCoreManager(position_manager, subtensor_weight_setter, plagiarism_detector)
-            self.msm = MinerStatisticsManager(position_manager, subtensor_weight_setter, plagiarism_detector)
+            self.rcm = rcm
+            self.msm = msm
 
 
     def run_forever(self):
@@ -99,5 +99,5 @@ class RequestOutputGenerator:
 if __name__ == "__main__":
     bt.logging.enable_info()
 
-    rog = RequestOutputGenerator(None, None, None, running_deprecated=True)
+    rog = RequestOutputGenerator(running_deprecated=True)
     rog.run_forever()

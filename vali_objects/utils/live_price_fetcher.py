@@ -18,14 +18,15 @@ from statistics import median
 
 
 class LivePriceFetcher:
-    def __init__(self, secrets, disable_ws=False):
+    def __init__(self, secrets, disable_ws=False, ipc_manager=None):
         if "tiingo_apikey" in secrets:
-
-            self.tiingo_data_service = TiingoDataService(api_key=secrets["tiingo_apikey"], disable_ws=disable_ws)
+            self.tiingo_data_service = TiingoDataService(api_key=secrets["tiingo_apikey"], disable_ws=disable_ws,
+                                                         ipc_manager=ipc_manager)
         else:
             raise Exception("Tiingo API key not found in secrets.json")
         if "polygon_apikey" in secrets:
-            self.polygon_data_service = PolygonDataService(api_key=secrets["polygon_apikey"], disable_ws=disable_ws)
+            self.polygon_data_service = PolygonDataService(api_key=secrets["polygon_apikey"], disable_ws=disable_ws,
+                                                           ipc_manager=ipc_manager)
         else:
             raise Exception("Polygon API key not found in secrets.json")
 

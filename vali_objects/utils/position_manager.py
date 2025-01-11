@@ -62,9 +62,6 @@ class PositionManager(CacheController):
             for p in positions:
                 self._save_miner_position_to_memory(p)
 
-        print('POOPulation complete', len(self.hotkey_to_positions), 'temp:', len(temp))
-
-
     def pre_run_setup(self):
         """
         Run this outside of init so that cross object dependencies can be set first. See validator.py

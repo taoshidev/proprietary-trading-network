@@ -4,7 +4,7 @@ import traceback
 import requests
 
 from typing import List
-
+from multiprocessing import Process
 from polygon.websocket import Market, EquityAgg, EquityTrade, CryptoTrade, ForexQuote, WebSocketClient
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -133,7 +133,7 @@ class ExchangeMappingHelper:
 
 class PolygonDataService(BaseDataService):
 
-    def __init__(self, api_key, disable_ws=False):
+    def __init__(self, api_key, disable_ws=False, ipc_manager=None):
         self.init_time = time.time()
         self._api_key = api_key
         ehm = ExchangeMappingHelper(api_key, fetch_live_mapping = not disable_ws)
@@ -141,19 +141,21 @@ class PolygonDataService(BaseDataService):
         self.equities_mapping = ehm.stock_mapping
         self.disable_ws = disable_ws
         self.N_CANDLES_LIMIT = 50000
-        super().__init__(provider_name=POLYGON_PROVIDER_NAME)
+        super().__init__(provider_name=POLYGON_PROVIDER_NAME, ipc_manager=ipc_manager)
 
         self.MARKET_STATUS = None
-        self.LOCK = threading.Lock()
         self.UNSUPPORTED_TRADE_PAIRS = (TradePair.SPX, TradePair.DJI, TradePair.NDX, TradePair.VIX, TradePair.FTSE, TradePair.GDAXI)
 
-        self.POLYGON_CLIENT = RESTClient(api_key=self._api_key, num_pools=20)
+        self.POLYGON_CLIENT = None  # Instantiate later to allow process to start (non picklable)
 
         # Start thread to refresh market status
         if disable_ws:
             self.websocket_manager_thread = None
         else:
-            self.websocket_manager_thread = threading.Thread(target=self.websocket_manager, daemon=True)
+            if ipc_manager:
+                self.websocket_manager_thread = Process(target=self.websocket_manager, daemon=True)
+            else:
+                self.websocket_manager_thread = threading.Thread(target=self.websocket_manager, daemon=True)
             self.websocket_manager_thread.start()
             time.sleep(3) # Let the websocket_manager_thread start
 
@@ -281,54 +283,53 @@ class PolygonDataService(BaseDataService):
                 )
             return price_source1, price_source2
 
-        with self.LOCK:
-            try:
-                m = None
-                for m in msgs:
-                    #bt.logging.info(f"Received price event: {m}")
-                    # print('received message:', m, type(m))
-                    if isinstance(m, EquityAgg):
-                        tp = self.symbol_to_trade_pair(m.symbol[2:])  # I:SPX -> SPX
-                    elif isinstance(m, CryptoTrade):
-                        tp = self.symbol_to_trade_pair(m.pair)
-                    elif isinstance(m, ForexQuote):
-                        tp = self.symbol_to_trade_pair(m.pair)
-                    elif isinstance(m, EquityTrade):
-                        tp = self.symbol_to_trade_pair(m.symbol)
-                    else:
-                        raise ValueError(f"Unknown message in POLY websocket: {m}")
+        try:
+            m = None
+            for m in msgs:
+                #bt.logging.info(f"Received price event: {m}")
+                # print('received message:', m, type(m))
+                if isinstance(m, EquityAgg):
+                    tp = self.symbol_to_trade_pair(m.symbol[2:])  # I:SPX -> SPX
+                elif isinstance(m, CryptoTrade):
+                    tp = self.symbol_to_trade_pair(m.pair)
+                elif isinstance(m, ForexQuote):
+                    tp = self.symbol_to_trade_pair(m.pair)
+                elif isinstance(m, EquityTrade):
+                    tp = self.symbol_to_trade_pair(m.symbol)
+                else:
+                    raise ValueError(f"Unknown message in POLY websocket: {m}")
 
-                    self.tpc_to_n_events[tp.trade_pair_category] += 1
-                    # This could be a candle so we can make 2 prices, one for the open and one for the close
-                    symbol = tp.trade_pair
-                    ps1, ps2 = msg_to_price_sources(m, tp)
-                    if ps1 is None and ps2 is None:
+                self.tpc_to_n_events[tp.trade_pair_category] += 1
+                # This could be a candle so we can make 2 prices, one for the open and one for the close
+                symbol = tp.trade_pair
+                ps1, ps2 = msg_to_price_sources(m, tp)
+                if ps1 is None and ps2 is None:
+                    continue
+
+                # Reset the closed market price, indicating that a new close should be fetched after the current day's close
+                self.closed_market_prices[tp] = None
+                for ps in [ps1, ps2]:
+                    if ps is None:
                         continue
+                    self.latest_websocket_events[symbol] = ps
+                    if symbol not in self.trade_pair_to_recent_events:
+                        self.trade_pair_to_recent_events[symbol] = RecentEventTracker()
+                    self.trade_pair_to_recent_events[symbol].add_event(ps, tp.is_forex, f"{self.provider_name}:{tp.trade_pair}")
 
-                    # Reset the closed market price, indicating that a new close should be fetched after the current day's close
-                    self.closed_market_prices[tp] = None
-                    if ps1:
-                        self.latest_websocket_events[symbol] = ps1
-                        self.trade_pair_to_recent_events[symbol].add_event(ps1, tp.is_forex, f"{self.provider_name}:{tp.trade_pair}")
-
-                    if ps2:
-                        self.latest_websocket_events[symbol] = ps2
-                        self.trade_pair_to_recent_events[symbol].add_event(ps2, tp.is_forex, f"{self.provider_name}:{tp.trade_pair}")
-
-                    if DEBUG:
-                        formatted_time = TimeUtil.millis_to_formatted_date_str(TimeUtil.now_in_millis())
-                        self.trade_pair_to_price_history[tp].append((formatted_time, price))
                 if DEBUG:
-                    print('last message:', m, 'n msgs total:', len(msgs))
-                    history_size = sum(len(v) for v in self.trade_pair_to_price_history.values())
-                    bt.logging.info("History Size: " + str(history_size))
-                    bt.logging.info(f"n_events_global: {sum(self.tpc_to_n_events.values())} breakdown {self.tpc_to_n_events}")
-            except Exception as e:
-                full_traceback = traceback.format_exc()
-                # Slice the last 1000 characters of the traceback
-                limited_traceback = full_traceback[-1000:]
-                bt.logging.error(f"Failed to handle POLY websocket message with error: {e}, last message {m} "
-                                 f"type: {type(e).__name__}, traceback: {limited_traceback}")
+                    formatted_time = TimeUtil.millis_to_formatted_date_str(TimeUtil.now_in_millis())
+                    self.trade_pair_to_price_history[tp].append((formatted_time, price))
+            if DEBUG:
+                print('last message:', m, 'n msgs total:', len(msgs))
+                history_size = sum(len(v) for v in self.trade_pair_to_price_history.values())
+                bt.logging.info("History Size: " + str(history_size))
+                bt.logging.info(f"n_events_global: {sum(self.tpc_to_n_events.values())} breakdown {self.tpc_to_n_events}")
+        except Exception as e:
+            full_traceback = traceback.format_exc()
+            # Slice the last 1000 characters of the traceback
+            limited_traceback = full_traceback[-1000:]
+            bt.logging.error(f"Failed to handle POLY websocket message with error: {e}, last message {m} "
+                             f"type: {type(e).__name__}, traceback: {limited_traceback}")
 
     def close_create_websocket_objects(self, tpc: TradePairCategory = None):
         websockets_to_process = self.WEBSOCKET_OBJECTS if tpc is None else {tpc: self.WEBSOCKET_OBJECTS[tpc]}
@@ -348,6 +349,8 @@ class PolygonDataService(BaseDataService):
             self.WEBSOCKET_OBJECTS[tpc] = WebSocketClient(market=market, api_key=self._api_key)
             self.subscribe_websockets(tpc=tpc)
 
+    def instantiate_not_pickleable_objects(self):
+        self.POLYGON_CLIENT = RESTClient(api_key=self._api_key, num_pools=20)
 
     def subscribe_websockets(self, tpc: TradePairCategory = None):
         for tp in TradePair:
@@ -700,6 +703,8 @@ class PolygonDataService(BaseDataService):
 
             return ans, n_quotes
 
+        if self.POLYGON_CLIENT is None:
+            self.instantiate_not_pickleable_objects()
 
         polygon_ticker = self.trade_pair_to_polygon_ticker(trade_pair)
         if trade_pair.is_forex and timespan == 'second':

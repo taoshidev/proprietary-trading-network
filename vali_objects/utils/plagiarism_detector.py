@@ -21,7 +21,7 @@ from vali_objects.utils.plagiarism_pipeline import PlagiarismPipeline
 class PlagiarismDetector(CacheController):
     def __init__(self, metagraph, running_unit_tests=False, shutdown_dict=None,
                  position_manager: PositionManager=None):
-        super().__init__(None, running_unit_tests=running_unit_tests)
+        super().__init__(metagraph, running_unit_tests=running_unit_tests)
         self.plagiarism_data = {}
         self.plagiarism_raster = {}
         self.plagiarism_positions = {}
@@ -63,7 +63,6 @@ class PlagiarismDetector(CacheController):
             current_time = TimeUtil.now_in_millis()
         if hotkeys is None:
             hotkeys = self.metagraph.hotkeys
-            print(f'@@@1 {len(self.metagraph.hotkeys)} {id(self.metagraph)} {type(self.metagraph)} {self.metagraph}')
             assert hotkeys, f"No hotkeys found in metagraph {self.metagraph}"
         if hotkey_positions is None:
             hotkey_positions = self.position_manager.get_positions_for_hotkeys(
@@ -72,6 +71,9 @@ class PlagiarismDetector(CacheController):
             )
 
         bt.logging.info("Starting Plagiarism Detection")
+        #bt.logging.error(
+        #    f'$$$$$$$ {len(hotkey_positions)} {len(self.position_manager.elimination_manager.get_eliminations_from_memory())} {len(self.metagraph.hotkeys)} {id(self.metagraph)} {type(self.metagraph)} {self.metagraph}')
+
         plagiarism_data, raster_positions, positions = self.plagiarism_pipeline.run_reporting(positions=hotkey_positions, current_time=current_time)
 
 
