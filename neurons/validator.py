@@ -775,15 +775,17 @@ class Validator:
                       ) -> template.protocol.GetPositions:
         if self.should_fail_early(synapse, SynapseMethod.POSITION_INSPECTOR):
             return synapse
-
+        t0 = time.time()
         miner_hotkey = synapse.dendrite.hotkey
         error_message = ""
+        n_positions_sent = 0
+        hotkey = None
         try:
             hotkey = synapse.dendrite.hotkey
             # Return the last n positions
             positions = self.position_manager.get_positions_for_one_hotkey(hotkey, only_open_positions=True)
             synapse.positions = [position.to_dict() for position in positions]
-            bt.logging.info(f"Sending {len(positions)} positions back to miner: " + hotkey)
+            n_positions_sent = len(synapse.positions)
         except Exception as e:
             error_message = f"Error in GetPositions for [{miner_hotkey}] with error [{e}]. Perhaps the position was being written to disk at the same time."
             bt.logging.error(traceback.format_exc())
@@ -794,6 +796,10 @@ class Validator:
             bt.logging.error(error_message)
             synapse.successfully_processed = False
         synapse.error_message = error_message
+        msg = f"Sending {n_positions_sent} positions back to miner: {hotkey} in {round(time.time() - t0, 3)} seconds."
+        if synapse.error_message:
+            msg += f" Error: {synapse.error_message}"
+        bt.logging.info(msg)
         return synapse
 
     def get_data(self, synapse: template.protocol.GetDashData,
