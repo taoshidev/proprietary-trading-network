@@ -19,10 +19,9 @@ class SubtensorWeightSetter(CacheController):
         super().__init__(metagraph, running_unit_tests=running_unit_tests)
         self.position_manager = position_manager
         self.perf_ledger_manager = position_manager.perf_ledger_manager
-        self.netuid = config.netuid
         self.subnet_version = 200
 
-    def set_weights(self, wallet, subtensor, current_time: int = None):
+    def set_weights(self, wallet, netuid, subtensor, current_time: int = None):
         if not self.refresh_allowed(ValiConfig.SET_WEIGHT_REFRESH_TIME_MS):
             return
         bt.logging.info("running set weights")
@@ -80,7 +79,7 @@ class SubtensorWeightSetter(CacheController):
             transformed_list = checkpoint_netuid_weights + challengeperiod_weights
             bt.logging.info(f"transformed list: {transformed_list}")
             
-            self._set_subtensor_weights(wallet, subtensor, transformed_list)
+            self._set_subtensor_weights(wallet, subtensor, transformed_list, netuid)
         self.set_last_update_time()
 
     @staticmethod
@@ -190,12 +189,12 @@ class SubtensorWeightSetter(CacheController):
             filtered_positions.append(position)
         return filtered_positions
 
-    def _set_subtensor_weights(self, wallet, subtensor, filtered_results: list[tuple[str, float]]):
+    def _set_subtensor_weights(self, wallet, subtensor, filtered_results: list[tuple[str, float]], netuid):
         filtered_netuids = [x[0] for x in filtered_results]
         scaled_transformed_list = [x[1] for x in filtered_results]
 
         success, err_msg = subtensor.set_weights(
-            netuid=self.netuid,
+            netuid=netuid,
             wallet=wallet,
             uids=filtered_netuids,
             weights=scaled_transformed_list,

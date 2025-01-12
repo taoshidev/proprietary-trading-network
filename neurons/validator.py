@@ -488,7 +488,7 @@ class Validator:
                 self.mdd_checker.mdd_check(self.position_locks)
                 self.challengeperiod_manager.refresh(current_time=current_time)
                 self.elimination_manager.process_eliminations(self.position_locks)
-                self.weight_setter.set_weights(self.wallet, self.subtensor, current_time=current_time)
+                self.weight_setter.set_weights(self.wallet, self.config.netuid, self.subtensor, current_time=current_time)
                 self.position_locks.cleanup_locks(self.metagraph.hotkeys)
                 self.p2p_syncer.sync_positions_with_cooldown()
 

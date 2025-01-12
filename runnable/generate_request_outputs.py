@@ -21,39 +21,44 @@ class RequestOutputGenerator:
         self.running_deprecated = running_deprecated
         self.last_write_time_s = 0
         self.n_updates = 0
-        self.msm_refresh_interval_ms = 10 * 1000
-        self.rcm_refresh_interval_ms = 10 * 1000
+        self.msm_refresh_interval_ms = 15 * 1000
+        self.rcm_refresh_interval_ms = 15 * 1000
+        self.ctx = multiprocessing.get_context("spawn")
+        self.rcm = rcm
+        self.msm = msm
 
-        if self.running_deprecated:
+
+    def run_deprecated_loop(self):
+        bt.logging.info(f'Running RequestOutputGenerator. running_deprecated: {self.running_deprecated}')
+        while True:
+            self.log_deprecation_message()
+            current_time_ms = TimeUtil.now_in_millis()
             self.repull_data_from_disk()
-        else:
-            self.ctx = multiprocessing.get_context("spawn")
-            self.rcm = rcm
-            self.msm = msm
-
+            self.rcm.generate_request_core(time_now=current_time_ms)
+            self.msm.generate_request_minerstatistics(time_now=current_time_ms, checkpoints=True)
+            time_to_wait_ms = (self.msm_refresh_interval_ms + self.rcm_refresh_interval_ms) - \
+                             (TimeUtil.now_in_millis() - current_time_ms)
+            if time_to_wait_ms > 0:
+                time.sleep(time_to_wait_ms / 1000)
 
     def start_generation(self):
-        bt.logging.info(f'Running RequestOutputGenerator. running_deprecated: {self.running_deprecated}')
         if self.running_deprecated:
-            while True:
-                current_time_ms = TimeUtil.now_in_millis()
-                self.repull_data_from_disk()
-                self.rcm.generate_request_core(time_now=current_time_ms)
-                self.msm.generate_request_minerstatistics(time_now=current_time_ms, checkpoints=True)
+            dp = self.ctx.Process(target=self.run_deprecated_loop, daemon=True)
+            dp.start()
         else:
             rcm_process = self.ctx.Process(target=self.run_rcm_loop, daemon=True)
             msm_process = self.ctx.Process(target=self.run_msm_loop, daemon=True)
-
             # Start both processes
             rcm_process.start()
             msm_process.start()
-            while True:   # Stay alive
-                time.sleep(100)
 
-    def log_warning_message(self):
-        bt.logging.warning("The generate script is no longer managed by pm2. Please update your repo and relaunch the"
-                           " run.sh script with (same arguments). This will prevent this pm2 process from being "
-                           "spawned and allow significant efficiency improvements by running this code from the"
+        while True:   # "Don't Die"
+            time.sleep(100)
+
+    def log_deprecation_message(self):
+        bt.logging.warning("The generate script is no longer managed by pm2. Please update your repo and relaunch the "
+                           "run.sh script with (same arguments). This will prevent this pm2 process from being "
+                           "spawned and allow significant efficiency improvements by running this code from the "
                            "main validator loop.")
 
     def repull_data_from_disk(self):
