@@ -362,7 +362,7 @@ class ChallengePeriodManager(CacheController):
         else:
             ans = self.challengeperiod_testing
             if self.using_ipc:
-                ans = dict(ans)
+                return copy.deepcopy(ans)
             return ans
 
     def get_challengeperiod_success(self, from_disk=False):
