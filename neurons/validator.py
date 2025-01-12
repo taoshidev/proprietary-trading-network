@@ -142,6 +142,16 @@ class Validator:
 
         #force_validator_to_restore_from_checkpoint(self.wallet.hotkey.ss58_address, self.metagraph, self.config, self.secrets)
 
+        self.position_syncer = PositionSyncer(shutdown_dict=shutdown_dict, signal_sync_lock=self.signal_sync_lock,
+                                              signal_sync_condition=self.signal_sync_condition,
+                                              n_orders_being_processed=self.n_orders_being_processed,
+                                              auto_sync_enabled=self.auto_sync)
+        self.p2p_syncer = P2PSyncer(wallet=self.wallet, metagraph=self.metagraph, is_testnet=not self.is_mainnet,
+                                    shutdown_dict=shutdown_dict, signal_sync_lock=self.signal_sync_lock,
+                                    signal_sync_condition=self.signal_sync_condition,
+                                    n_orders_being_processed=self.n_orders_being_processed
+                                    )
+
         self.position_manager = PositionManager(metagraph=self.metagraph, config=self.config,
                                                 perform_price_adjustment=False,
                                                 live_price_fetcher=self.live_price_fetcher,
@@ -168,14 +178,7 @@ class Validator:
             )
             exit()
 
-        self.position_syncer = PositionSyncer(shutdown_dict=shutdown_dict, signal_sync_lock=self.signal_sync_lock,
-                                              signal_sync_condition=self.signal_sync_condition,
-                                              n_orders_being_processed=self.n_orders_being_processed)
-        self.p2p_syncer = P2PSyncer(wallet=self.wallet, metagraph=self.metagraph, is_testnet=not self.is_mainnet,
-                                    shutdown_dict=shutdown_dict, signal_sync_lock=self.signal_sync_lock,
-                                    signal_sync_condition=self.signal_sync_condition,
-                                    n_orders_being_processed=self.n_orders_being_processed
-                                    )
+
         self.checkpoint_lock = threading.Lock()
         self.encoded_checkpoint = ""
         self.last_checkpoint_time = 0
