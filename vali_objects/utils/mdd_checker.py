@@ -21,7 +21,7 @@ from vali_objects.vali_dataclasses.price_source import PriceSource
 
 class MDDChecker(CacheController):
 
-    def __init__(self, metagraph, position_manager, elimination_manager, running_unit_tests=False,
+    def __init__(self, metagraph, position_manager, running_unit_tests=False,
                  live_price_fetcher=None, shutdown_dict=None):
         super().__init__(metagraph, running_unit_tests=running_unit_tests)
         self.last_price_fetch_time_ms = None
@@ -34,7 +34,7 @@ class MDDChecker(CacheController):
             self.live_price_fetcher = LivePriceFetcher(secrets=secrets)
         else:
             self.live_price_fetcher = live_price_fetcher
-        self.elimination_manager = elimination_manager
+        self.elimination_manager = position_manager.elimination_manager
         self.reset_debug_counters()
         self.shutdown_dict = shutdown_dict
         self.n_poly_api_requests = 0

@@ -153,11 +153,8 @@ class RequestCoreManager:
         eliminations = self.elimination_manager.get_eliminations_from_memory()
         eliminated_hotkeys = set(x['hotkey'] for x in eliminations)
 
-        ## Collect information from the disk and populate variables in memory
-        self.challengeperiod_manager._refresh_challengeperiod_in_memory()
-
-        challengeperiod_testing_dictionary = self.challengeperiod_manager.challengeperiod_testing
-        challengeperiod_success_dictionary = self.challengeperiod_manager.challengeperiod_success
+        challengeperiod_testing_dictionary = self.challengeperiod_manager.get_challengeperiod_testing()
+        challengeperiod_success_dictionary = self.challengeperiod_manager.get_challengeperiod_success()
 
         try:
             if not os.path.exists(ValiBkpUtils.get_miner_dir()):

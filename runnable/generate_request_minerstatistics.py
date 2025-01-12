@@ -144,12 +144,9 @@ class MinerStatisticsManager:
         if time_now is None:
             time_now = TimeUtil.now_in_millis()
 
-        # Collect information from the disk and populate variables in memory
-        self.challengeperiod_manager._refresh_challengeperiod_in_memory()
-
         # Get the dictionaries
-        challengeperiod_testing_dictionary = self.challengeperiod_manager.challengeperiod_testing
-        challengeperiod_success_dictionary = self.challengeperiod_manager.challengeperiod_success
+        challengeperiod_testing_dictionary = self.challengeperiod_manager.get_challengeperiod_testing()
+        challengeperiod_success_dictionary = self.challengeperiod_manager.get_challengeperiod_success()
 
         # Sort dictionaries by value
         sorted_challengeperiod_testing = dict(sorted(challengeperiod_testing_dictionary.items(), key=lambda item: item[1]))

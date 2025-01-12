@@ -34,7 +34,8 @@ class PositionManager(CacheController):
                  challengeperiod_manager=None,
                  elimination_manager=None,
                  secrets=None,
-                 ipc_manager=None):
+                 ipc_manager=None,
+                 live_price_fetcher=None):
 
         super().__init__(metagraph=metagraph, running_unit_tests=running_unit_tests)
         # Populate memory with positions
@@ -54,6 +55,7 @@ class PositionManager(CacheController):
             self.hotkey_to_positions = {}
         self.secrets = secrets
         self.populate_memory_positions_for_first_time()
+        self.live_price_fetcher = live_price_fetcher
 
     @timeme
     def populate_memory_positions_for_first_time(self):
@@ -313,7 +315,6 @@ class PositionManager(CacheController):
                 miners_to_promote.remove(e['hotkey'])
 
         # Promote miners that would have passed challenge period
-        self.challengeperiod_manager._refresh_challengeperiod_in_memory()
         for miner in miners_to_promote:
             if miner in self.challengeperiod_manager.challengeperiod_testing:
                 self.challengeperiod_manager.challengeperiod_testing.pop(miner)
@@ -341,7 +342,6 @@ class PositionManager(CacheController):
                 unique_corrections.update([p.position_uuid for p in positions])
                 for pos in positions:
                     self.delete_position(pos)
-                self.challengeperiod_manager._refresh_challengeperiod_in_memory()
                 if miner_hotkey in self.challengeperiod_manager.challengeperiod_testing:
                     self.challengeperiod_manager.challengeperiod_testing.pop(miner_hotkey)
                 if miner_hotkey in self.challengeperiod_manager.challengeperiod_success:
@@ -463,7 +463,8 @@ class PositionManager(CacheController):
             f"Applied {n_corrections} order corrections out of {n_attempts} attempts. unique positions corrected: {len(unique_corrections)}")
 
     def close_open_orders_for_suspended_trade_pairs(self):
-        live_price_fetcher = LivePriceFetcher(secrets=self.secrets, disable_ws=True)
+        if not self.live_price_fetcher:
+            self.live_price_fetcher = LivePriceFetcher(secrets=self.secrets, disable_ws=True)
         tps_to_eliminate = [TradePair.SPX, TradePair.DJI, TradePair.NDX, TradePair.VIX]
         if not tps_to_eliminate:
             return
@@ -479,10 +480,7 @@ class PositionManager(CacheController):
                 if position.is_closed_position:
                     continue
                 if position.trade_pair in tps_to_eliminate:
-                    if self.running_unit_tests:
-                        live_closing_price, price_sources = 0, []
-                    else:
-                        live_closing_price, price_sources = live_price_fetcher.get_latest_price(
+                    live_closing_price, price_sources = self.live_price_fetcher.get_latest_price(
                             trade_pair=position.trade_pair,
                             time_ms=TARGET_MS)
 
@@ -689,7 +687,7 @@ class PositionManager(CacheController):
     def _position_from_list_of_position(self, hotkey, position_uuid):
         for p in self.hotkey_to_positions.get(hotkey, []):
             if p.position_uuid == position_uuid:
-                return p
+                return deepcopy(p)  # for unit tests we deepcopy. ipc cache never returns a reference.
         return None
 
     def _save_miner_position_to_memory(self, position: Position):

@@ -26,7 +26,6 @@ if __name__ == "__main__":
     perf_ledger_manager.position_manager = position_manager
     subtensor_weight_setter = SubtensorWeightSetter(
         config=None,
-        wallet=None,
         metagraph=None,
         running_unit_tests=False,
         position_manager=position_manager,
@@ -36,8 +35,6 @@ if __name__ == "__main__":
     ## Collect the ledger
     ledger = subtensor_weight_setter.perf_ledger_manager.get_perf_ledgers_from_memory()
 
-    ## Check the current testing miners for different scenarios
-    challengeperiod_manager._refresh_challengeperiod_in_memory()
 
     inspection_hotkeys_dict = challengeperiod_manager.challengeperiod_testing
 

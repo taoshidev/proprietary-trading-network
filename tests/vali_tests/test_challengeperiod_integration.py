@@ -170,7 +170,6 @@ class TestChallengePeriodIntegration(TestBase):
     
     def test_refresh_populations(self):
         self.challengeperiod_manager.refresh(current_time=self.CURRENTLY_IN_CHALLENGE)
-        self.challengeperiod_manager._refresh_challengeperiod_in_memory()
         testing_length = len(self.challengeperiod_manager.challengeperiod_testing)
         success_length = len(self.challengeperiod_manager.challengeperiod_success)
         eliminations_length = len(self.challengeperiod_manager.elimination_manager.get_eliminations_from_memory())
@@ -191,7 +190,6 @@ class TestChallengePeriodIntegration(TestBase):
             self.assertTrue(time_criteria, f"Time criteria failed for {hotkey}")
 
         self.challengeperiod_manager.refresh(current_time=self.CURRENTLY_IN_CHALLENGE)
-        self.challengeperiod_manager._refresh_challengeperiod_in_memory()
 
         elimination_hotkeys_memory = [x['hotkey'] for x in self.challengeperiod_manager.elimination_manager.get_eliminations_from_memory()]
         elimination_hotkeys_disk = [x['hotkey'] for x in self.challengeperiod_manager.elimination_manager.get_eliminations_from_disk()]
@@ -220,7 +218,7 @@ class TestChallengePeriodIntegration(TestBase):
         eliminations = self.challengeperiod_manager.elimination_manager.get_eliminations_from_memory()
         self.assertEqual(len(eliminations), 0)
 
-        self.challengeperiod_manager._refresh_challengeperiod_in_memory_and_disk(eliminations=eliminations)
+        self.challengeperiod_manager.remove_eliminated(eliminations=eliminations)
         self.assertEqual(len(self.challengeperiod_manager.elimination_manager.get_eliminations_from_memory()), 0)
 
         self.assertEqual(len(self.challengeperiod_manager.challengeperiod_testing), len(self.NOT_MAIN_COMP_MINER_NAMES))
@@ -354,7 +352,7 @@ class TestChallengePeriodIntegration(TestBase):
             self.assertIn(miner, cached_eliminations)
     
     def test_no_positions_miner_filtered(self):
-        self.challengeperiod_manager.challengeperiod_testing = {}
+        self.challengeperiod_manager.challengeperiod_testing.clear()
         self.challengeperiod_manager._write_challengeperiod_from_memory_to_disk()
 
         self.assertEqual(len(self.challengeperiod_manager.challengeperiod_success), len(self.SUCCESS_MINER_NAMES))
@@ -369,8 +367,8 @@ class TestChallengePeriodIntegration(TestBase):
                 for position in positions:
                     self.position_manager.delete_position(position)
 
+        self.assertEqual(len(self.challengeperiod_manager.get_challengeperiod_testing()), 0)
         self.challengeperiod_manager.refresh(current_time=self.CURRENTLY_IN_CHALLENGE)
-        self.challengeperiod_manager._refresh_challengeperiod_in_memory()
 
         for miner in miners_without_positions:
             self.assertIn(miner, self.mock_metagraph.hotkeys)
@@ -379,7 +377,6 @@ class TestChallengePeriodIntegration(TestBase):
     
     def test_disjoint_testing_success(self):
         self.challengeperiod_manager.refresh(current_time=self.CURRENTLY_IN_CHALLENGE)
-        self.challengeperiod_manager._refresh_challengeperiod_in_memory()
 
         testing_set = set(self.challengeperiod_manager.challengeperiod_testing.keys())
         success_set = set(self.challengeperiod_manager.challengeperiod_success.keys())
@@ -388,7 +385,6 @@ class TestChallengePeriodIntegration(TestBase):
 
     def test_addition(self):
         self.challengeperiod_manager.refresh(current_time=self.CURRENTLY_IN_CHALLENGE)
-        self.challengeperiod_manager._refresh_challengeperiod_in_memory()
 
         self.challengeperiod_manager._add_challengeperiod_testing_in_memory_and_disk(
             new_hotkeys=self.MINER_NAMES,
@@ -444,9 +440,6 @@ class TestChallengePeriodIntegration(TestBase):
             current_time=self.CURRENTLY_IN_CHALLENGE
         )
 
-        # Refresh the challenge period
-        self.challengeperiod_manager._refresh_challengeperiod_in_memory()
-
         # All the miners should be passed to testing now
         self.assertListEqual(
             sorted(list(self.challengeperiod_manager.challengeperiod_testing.keys())),
@@ -470,7 +463,6 @@ class TestChallengePeriodIntegration(TestBase):
             self.challengeperiod_manager.elimination_manager.append_elimination_row(miner, -1, "FAILED_CHALLENGE_PERIOD")
 
         self.challengeperiod_manager.refresh(current_time=self.OUTSIDE_OF_CHALLENGE)
-        self.challengeperiod_manager._refresh_challengeperiod_in_memory()
 
         self.assertTrue(len(self.challengeperiod_manager.challengeperiod_testing) == 0)
         self.assertTrue(len(self.challengeperiod_manager.challengeperiod_success) == 0)

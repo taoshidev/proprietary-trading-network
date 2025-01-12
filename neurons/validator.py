@@ -192,7 +192,8 @@ class Validator:
 
         self.challengeperiod_manager = ChallengePeriodManager(self.metagraph,
                                                               perf_ledger_manager=self.perf_ledger_manager,
-                                                              position_manager=self.position_manager)
+                                                              position_manager=self.position_manager,
+                                                              ipc_manager=self.ipc_manager)
 
         # Attach the position manager to the other objects that need it
         for idx, obj in enumerate([self.perf_ledger_manager, self.position_manager, self.position_syncer,
@@ -311,8 +312,8 @@ class Validator:
         self.plagiarism_thread = self.ctx.Process(target=self.plagiarism_detector.run_update_loop, daemon=True)
         self.plagiarism_thread.start()
 
-        self.mdd_checker = MDDChecker(self.metagraph, self.position_manager, self.elimination_manager,
-                                      live_price_fetcher=self.live_price_fetcher, shutdown_dict=shutdown_dict)
+        self.mdd_checker = MDDChecker(self.metagraph, self.position_manager, live_price_fetcher=self.live_price_fetcher,
+                                      shutdown_dict=shutdown_dict)
         self.weight_setter = SubtensorWeightSetter(self.config, self.metagraph, position_manager=self.position_manager)
 
         self.request_core_manager = RequestCoreManager(self.position_manager, self.weight_setter, self.plagiarism_detector)

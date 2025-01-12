@@ -312,7 +312,7 @@ class PerfLedger():
 
 class PerfLedgerManager(CacheController):
     def __init__(self, metagraph, ipc_manager=None, running_unit_tests=False, shutdown_dict=None,
-                 position_manager=None, perf_ledger_hks_to_invalidate=None):
+                 position_manager=None, perf_ledger_hks_to_invalidate=None, live_price_fetcher=None):
         super().__init__(metagraph=metagraph, running_unit_tests=running_unit_tests)
         self.shutdown_dict = shutdown_dict
         if perf_ledger_hks_to_invalidate:
@@ -328,6 +328,7 @@ class PerfLedgerManager(CacheController):
         self.running_unit_tests = running_unit_tests
         self.position_manager = position_manager
         self.pds = None  # Not pickable. Load it later once the process starts
+        self.live_price_fetcher = live_price_fetcher  # For unit tests only
 
         # Every update, pick a hotkey to rebuild in case polygon 1s candle data changed.
         self.trade_pair_to_price_info = {}
@@ -387,6 +388,8 @@ class PerfLedgerManager(CacheController):
         file_path = ValiBkpUtils.get_perf_ledgers_path(self.running_unit_tests)
         if os.path.exists(file_path):
             ValiBkpUtils.write_file(file_path, {})
+        for k in list(self.hotkey_to_perf_ledger.keys()):
+            del self.hotkey_to_perf_ledger[k]
 
     #@periodic_heartbeat(interval=600, message="perf ledger run_update_loop still running...")
     def run_update_loop(self):
@@ -878,7 +881,7 @@ class PerfLedgerManager(CacheController):
         total_product = perf_ledger_candidate.get_total_product()
         last_portfolio_value = perf_ledger_candidate.prev_portfolio_ret
         if verbose:
-            bt.logging.info(
+            bt.logging.success(
                 f"Done updating perf ledger for {hotkey} {hotkey_i + 1}/{n_hotkeys} in {time.time() - t0} "
                 f"(s). Lag: {lag} (s). Total product: {total_product}. Last portfolio value: {last_portfolio_value}."
                 f" n_api_calls: {self.n_api_calls} dd stats {None}. n_price_corrections {self.n_price_corrections}"
@@ -904,7 +907,7 @@ class PerfLedgerManager(CacheController):
 
     def update_all_perf_ledgers(self, hotkey_to_positions: dict[str, List[Position]],
                                 existing_perf_ledgers: dict[str, PerfLedger],
-                                now_ms: int, return_dict=False) -> None | dict[str, PerfLedger]:
+                                now_ms: int) -> None | dict[str, PerfLedger]:
         t_init = time.time()
         self.now_ms = now_ms
         self.candidate_pl_elimination_rows = []
@@ -919,7 +922,7 @@ class PerfLedgerManager(CacheController):
 
         n_perf_ledgers = len(existing_perf_ledgers) if existing_perf_ledgers else 0
         n_hotkeys_with_positions = len(hotkey_to_positions) if hotkey_to_positions else 0
-        bt.logging.info(f"Done updating perf ledger for all hotkeys in {time.time() - t_init} s. n_perf_ledgers {n_perf_ledgers}. n_hotkeys_with_positions {n_hotkeys_with_positions}")
+        bt.logging.success(f"Done updating perf ledger for all hotkeys in {time.time() - t_init} s. n_perf_ledgers {n_perf_ledgers}. n_hotkeys_with_positions {n_hotkeys_with_positions}")
         self.write_perf_ledger_eliminations_to_disk(self.candidate_pl_elimination_rows)
         # clear and populate proxy list in a multiprocessing-friendly way
         del self.pl_elimination_rows[:]
@@ -928,9 +931,8 @@ class PerfLedgerManager(CacheController):
         if self.shutdown_dict:
             return
 
-        self.save_perf_ledgers(existing_perf_ledgers)
-        if return_dict:
-            return existing_perf_ledgers
+        # Already updated in memory
+        self.save_perf_ledgers_to_disk(existing_perf_ledgers)
 
     def get_positions_perf_ledger(self, testing_one_hotkey=None):
         """
@@ -963,7 +965,8 @@ class PerfLedgerManager(CacheController):
         if t_ms is None:
             t_ms = TimeUtil.now_in_millis()  # Time to build the perf ledgers up to. Goes back 30 days from this time.
         existing_perf_ledgers = {}
-        return self.update_all_perf_ledgers(hotkey_to_positions, existing_perf_ledgers, t_ms, return_dict=True)
+        self.update_all_perf_ledgers(hotkey_to_positions, existing_perf_ledgers, t_ms)
+        return existing_perf_ledgers
 
 
     def get_perf_ledgers_from_memory(self, first_fetch=False):
@@ -1055,7 +1058,7 @@ class PerfLedgerManager(CacheController):
         self.restore_out_of_sync_ledgers(perf_ledgers, hotkey_to_positions)
 
         # Time in the past to start updating the perf ledgers
-        self.update_all_perf_ledgers(hotkey_to_positions, perf_ledgers, t_ms, return_dict=bool(testing_one_hotkey))
+        self.update_all_perf_ledgers(hotkey_to_positions, perf_ledgers, t_ms)
 
         # Clear invalidations after successful update. Prevent race condition by only clearing if we attempted invalidations.
         if attempting_invalidations:
@@ -1090,11 +1093,21 @@ class PerfLedgerManager(CacheController):
             plt.legend(['Return', 'Drawdown'])
             plt.show()
 
-    @timeme
-    def save_perf_ledgers(self, perf_ledgers: dict[str, PerfLedger] | dict[str, dict]):
+    def save_perf_ledgers_to_disk(self, perf_ledgers):
         file_path = ValiBkpUtils.get_perf_ledgers_path(self.running_unit_tests)
         ValiBkpUtils.write_to_dir(file_path, perf_ledgers)
-        #self.hotkey_to_perf_ledger = perf_ledgers # Memory has already been updated in the main loop
+
+    @timeme
+    def save_perf_ledgers(self, perf_ledgers: dict[str, PerfLedger] | dict[str, dict]):
+        self.save_perf_ledgers_to_disk(perf_ledgers)
+
+        # Update memory
+        for k in list(self.hotkey_to_perf_ledger.keys()):
+            if k not in perf_ledgers:
+                del self.hotkey_to_perf_ledger[k]
+
+        for k, v in perf_ledgers.items():
+            self.hotkey_to_perf_ledger[k] = v
 
     def print_perf_ledgers_on_disk(self):
         perf_ledgers = self.get_perf_ledgers_from_memory()
@@ -1154,6 +1167,6 @@ if __name__ == "__main__":
     mmg = MockMetagraph(hotkeys=all_hotkeys_on_disk)
     elimination_manager = EliminationManager(mmg, None, None)
     position_manager = PositionManager(metagraph=mmg, running_unit_tests=False, elimination_manager=elimination_manager)
-    perf_ledger_manager = PerfLedgerManager(mmg, {}, [], running_unit_tests=False, position_manager=position_manager)
+    perf_ledger_manager = PerfLedgerManager(mmg, running_unit_tests=False, position_manager=position_manager)
     perf_ledger_manager.update(testing_one_hotkey='5FWa35Ye9fy1VzWUgS9bvzcTXLDzKaybZ8wL9eER3g1Mu291')
     #perf_ledger_manager.update(regenerate_all_ledgers=True)

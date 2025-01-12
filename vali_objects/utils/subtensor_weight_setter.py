@@ -33,9 +33,6 @@ class SubtensorWeightSetter(CacheController):
         # Collect metagraph hotkeys to ensure we are only setting weights for miners in the metagraph
         metagraph_hotkeys = self.metagraph.hotkeys
 
-        # we want to do this first because we will add to the eliminations list
-        self.position_manager.challengeperiod_manager._refresh_challengeperiod_in_memory()
-
         # augmented ledger should have the gain, loss, n_updates, and time_duration
         testing_hotkeys = list(self.position_manager.challengeperiod_manager.challengeperiod_testing.keys())
         success_hotkeys = list(self.position_manager.challengeperiod_manager.challengeperiod_success.keys())

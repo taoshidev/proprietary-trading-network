@@ -92,7 +92,6 @@ class ValidatorSyncBase():
 
         challenge_period_data = candidate_data.get('challengeperiod')
         if challenge_period_data:  # Only in autosync as of now.
-            self.position_manager.challengeperiod_manager._refresh_challengeperiod_in_memory()
             orig_testing_keys = set(self.position_manager.challengeperiod_manager.challengeperiod_testing.keys())
             orig_success_keys = set(self.position_manager.challengeperiod_manager.challengeperiod_success.keys())
             new_testing_keys = set(challenge_period_data.get('testing').keys())

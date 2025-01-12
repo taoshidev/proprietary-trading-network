@@ -109,9 +109,6 @@ class EliminationManager(CacheController):
                     f"miner eliminated with hotkey [{miner_hotkey}] with plagiarism score of [{current_plagiarism_score}]")
 
     def is_zombie_hotkey(self, hotkey):
-        if not isinstance(self.eliminations, list):
-            return False
-
         if hotkey in self.metagraph.hotkeys:
             return False
 
@@ -128,7 +125,6 @@ class EliminationManager(CacheController):
 
     def _delete_eliminated_expired_miners(self):
         deleted_hotkeys = set()
-        self.challengeperiod_manager._refresh_challengeperiod_in_memory()
         # self.eliminations were just refreshed in process_eliminations
         any_challenege_period_changes = False
         for x in self.eliminations:

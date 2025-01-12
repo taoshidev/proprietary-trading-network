@@ -13,9 +13,6 @@ from vali_objects.utils.position_manager import PositionManager
 from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 import bittensor as bt
-from vali_objects.utils.live_price_fetcher import LivePriceFetcher
-
-from vali_objects.utils.vali_utils import ValiUtils
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
 
 DEBUG = 0
@@ -89,8 +86,7 @@ def regenerate_miner_positions(perform_backup=True, backup_from_data_dir=False, 
                                        challengeperiod_manager=None,
                                        elimination_manager=elimination_manager)
     challengeperiod_manager = ChallengePeriodManager(metagraph=None, position_manager=position_manager)
-    challengeperiod_manager.position_manager = position_manager
-    perf_ledger_manager = PerfLedgerManager(None, {}, [])
+    perf_ledger_manager = PerfLedgerManager(None)
 
     if DEBUG:
         position_manager.pre_run_setup()

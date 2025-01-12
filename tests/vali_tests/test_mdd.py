@@ -6,6 +6,7 @@ from tests.shared_objects.mock_classes import MockMetagraph, MockMDDChecker
 from tests.vali_tests.base_objects.test_base import TestBase
 from time_util.time_util import TimeUtil
 from vali_objects.utils.elimination_manager import EliminationManager
+from vali_objects.utils.position_lock import PositionLocks
 from vali_objects.vali_config import TradePair
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.position import Position
@@ -48,6 +49,9 @@ class TestMDDChecker(TestBase):
                              high=3271.26001, low=3268.1001, start_ms=1722389640000, websocket=False, lag_ms=729470,
                              volume=None)])
         }
+        cls.position_locks = PositionLocks()
+
+
 
 
 
@@ -69,7 +73,7 @@ class TestMDDChecker(TestBase):
                                                 perf_ledger_manager=self.perf_ledger_manager, elimination_manager=self.elimination_manager)
         self.elimination_manager.position_manager = self.position_manager
 
-        self.mdd_checker = MockMDDChecker(self.mock_metagraph, self.position_manager, self.live_price_fetcher, self.elimination_manager)
+        self.mdd_checker = MockMDDChecker(self.mock_metagraph, self.position_manager, self.live_price_fetcher)
         self.DEFAULT_TEST_POSITION_UUID = "test_position"
         self.DEFAULT_OPEN_MS = TimeUtil.now_in_millis()
         self.trade_pair_to_default_position = {x: Position(
@@ -137,7 +141,7 @@ class TestMDDChecker(TestBase):
 
         relevant_position = self.trade_pair_to_default_position[TradePair.BTCUSD]
         self.mdd_checker.last_price_fetch_time_ms = TimeUtil.now_in_millis() - 1000 * 30
-        self.mdd_checker.mdd_check()
+        self.mdd_checker.mdd_check(self.position_locks)
         # Running mdd_check with no positions should not cause any eliminations but it should write an empty list to disk
         self.verify_elimination_data_in_memory_and_disk([])
 
@@ -145,7 +149,7 @@ class TestMDDChecker(TestBase):
         self.assertFalse(relevant_position.is_closed_position)
         self.verify_positions_on_disk([relevant_position], assert_all_open=True)
         self.mdd_checker.last_price_fetch_time_ms = TimeUtil.now_in_millis() - 1000 * 30
-        self.mdd_checker.mdd_check()
+        self.mdd_checker.mdd_check(self.position_locks)
         self.verify_elimination_data_in_memory_and_disk([])
         self.verify_positions_on_disk([relevant_position], assert_all_open=True)
 
@@ -170,19 +174,19 @@ class TestMDDChecker(TestBase):
         self.mdd_checker.last_price_fetch_time_ms = TimeUtil.now_in_millis()
 
         relevant_position = self.trade_pair_to_default_position[TradePair.BTCUSD]
-        self.mdd_checker.mdd_check()
+        self.mdd_checker.mdd_check(self.position_locks)
         # Running mdd_check with no positions should not cause any eliminations but it should write an empty list to disk
         self.verify_elimination_data_in_memory_and_disk([])
 
         self.add_order_to_position_and_save_to_disk(relevant_position, o1)
-        self.mdd_checker.mdd_check()
+        self.mdd_checker.mdd_check(self.position_locks)
         self.assertEqual(relevant_position.is_closed_position, False)
         self.verify_elimination_data_in_memory_and_disk([])
         self.verify_positions_on_disk([relevant_position], assert_all_open=True)
 
         self.add_order_to_position_and_save_to_disk(relevant_position, o2)
         self.assertEqual(relevant_position.is_closed_position, False)
-        self.mdd_checker.mdd_check()
+        self.mdd_checker.mdd_check(self.position_locks)
         self.verify_elimination_data_in_memory_and_disk([])
         self.verify_positions_on_disk([relevant_position], assert_all_open=True)
 
@@ -200,12 +204,12 @@ class TestMDDChecker(TestBase):
 
         self.mdd_checker.last_price_fetch_time_ms = TimeUtil.now_in_millis()
 
-        self.mdd_checker.mdd_check()
+        self.mdd_checker.mdd_check(self.position_locks)
         # Running mdd_check with no positions should not cause any eliminations but it should write an empty list to disk
         self.verify_elimination_data_in_memory_and_disk([])
 
         self.add_order_to_position_and_save_to_disk(position_btc, o1)
-        self.mdd_checker.mdd_check()
+        self.mdd_checker.mdd_check(self.position_locks)
         self.assertEqual(position_btc.is_closed_position, False)
         self.verify_elimination_data_in_memory_and_disk([])
         self.verify_positions_on_disk([position_btc], assert_all_open=True)
@@ -228,7 +232,7 @@ class TestMDDChecker(TestBase):
                    processed_ms=2000,
                    order_uuid="2000")
         self.add_order_to_position_and_save_to_disk(position_eth, o2)
-        self.mdd_checker.mdd_check()
+        self.mdd_checker.mdd_check(self.position_locks)
         positions_from_disk = self.position_manager.get_positions_for_one_hotkey(self.MINER_HOTKEY)
         for p in positions_from_disk:
             print('individual position return', p.trade_pair, p.current_return)
