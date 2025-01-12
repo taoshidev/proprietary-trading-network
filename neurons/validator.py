@@ -147,6 +147,7 @@ class Validator:
         # metagraph provides the network's current state, holding state about other participants in a subnet.
         # IMPORTANT: Only update this variable in-place. Otherwise, the reference will be lost in the helper classes.
         self.metagraph = get_ipc_metagraph(self.ipc_manager)
+
         self.metagraph_updater = MetagraphUpdater(self.config, self.metagraph, self.wallet.hotkey.ss58_address,
                                                   False, position_manager=None,
                                                   shutdown_dict=shutdown_dict)
@@ -165,7 +166,8 @@ class Validator:
                                               signal_sync_condition=self.signal_sync_condition,
                                               n_orders_being_processed=self.n_orders_being_processed,
                                               ipc_manager=self.ipc_manager,
-                                              position_manager=None) # Set after self.pm creation
+                                              position_manager=None,
+                                              auto_sync_enabled=self.auto_sync)  # Set after self.pm creation
 
         self.p2p_syncer = P2PSyncer(wallet=self.wallet, metagraph=self.metagraph, is_testnet=not self.is_mainnet,
                                     shutdown_dict=shutdown_dict, signal_sync_lock=self.signal_sync_lock,
