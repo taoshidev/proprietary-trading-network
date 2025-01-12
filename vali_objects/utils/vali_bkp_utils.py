@@ -113,6 +113,10 @@ class ValiBkpUtils:
         return ValiConfig.BASE_DIR + "/runnable/"
 
     @staticmethod
+    def get_restore_file_path() -> str:
+        return ValiConfig.BASE_DIR + "/validator_checkpoint.json"
+
+    @staticmethod
     def get_vcp_output_path() -> str:
         return ValiBkpUtils.get_vali_outputs_dir() + "validator_checkpoint.json"
 
