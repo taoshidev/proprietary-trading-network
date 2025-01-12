@@ -3,9 +3,6 @@
 import shutil
 from copy import deepcopy
 from typing import Dict
-
-from setproctitle import setproctitle
-
 from time_util.time_util import TimeUtil
 from vali_objects.utils.vali_utils import ValiUtils
 from vali_objects.vali_config import ValiConfig, TradePair
@@ -88,7 +85,6 @@ class EliminationManager(CacheController):
     def process_eliminations(self, position_locks):
         if not self.refresh_allowed(ValiConfig.ELIMINATION_CHECK_INTERVAL_MS):
             return
-        setproctitle(f"vali_{self.__class__.__name__}")
         bt.logging.info("running elimination manager")
         # self._handle_plagiarism_eliminations()
         self.handle_perf_ledger_eliminations(position_locks)

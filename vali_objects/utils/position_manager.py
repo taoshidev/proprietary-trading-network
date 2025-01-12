@@ -349,7 +349,7 @@ class PositionManager(CacheController):
 
                 self.challengeperiod_manager._write_challengeperiod_from_memory_to_disk()
 
-                perf_ledgers = self.perf_ledger_manager.load_perf_ledgers_from_memory()
+                perf_ledgers = self.perf_ledger_manager.get_perf_ledgers_from_memory()
                 print('n perf ledgers before:', len(perf_ledgers))
                 perf_ledgers_new = {k:v for k,v in perf_ledgers.items() if k != miner_hotkey}
                 print('n perf ledgers after:', len(perf_ledgers_new))

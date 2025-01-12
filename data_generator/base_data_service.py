@@ -121,6 +121,7 @@ class BaseDataService():
 
     def websocket_manager(self):
         setproctitle(f"vali_{self.__class__.__name__}")
+        bt.logging.enable_info()
         tpc_to_prev_n_events = {x: 0 for x in TradePairCategory}
         last_ws_health_check_s = 0
         last_market_status_update_s = 0

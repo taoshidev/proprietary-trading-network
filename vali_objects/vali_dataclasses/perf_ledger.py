@@ -348,7 +348,7 @@ class PerfLedgerManager(CacheController):
         self.hk_to_last_order_processed_ms = {}
         self.position_uuid_to_cache = defaultdict(FeeCache)
         self.hotkey_to_checkpointed_ledger = {}
-        self.load_perf_ledgers_from_memory(first_fetch=True)
+        self.get_perf_ledgers_from_memory(first_fetch=True)
 
 
     def _save_miner_position_to_memory(self, position: Position):
@@ -368,7 +368,7 @@ class PerfLedgerManager(CacheController):
         self.hotkey_to_positions[hk] = temp  # Trigger the update on the multiprocessing Manager
 
     @timeme
-    def load_perf_ledgers_from_disk(self) -> dict[str, PerfLedger]:
+    def get_perf_ledgers_from_disk(self) -> dict[str, PerfLedger]:
         file_path = ValiBkpUtils.get_perf_ledgers_path(self.running_unit_tests)
         if not os.path.exists(file_path):
             return {}
@@ -391,6 +391,7 @@ class PerfLedgerManager(CacheController):
     #@periodic_heartbeat(interval=600, message="perf ledger run_update_loop still running...")
     def run_update_loop(self):
         setproctitle(f"vali_{self.__class__.__name__}")
+        bt.logging.enable_info()
         while not self.shutdown_dict:
             try:
                 if self.refresh_allowed(ValiConfig.PERF_LEDGER_REFRESH_TIME_MS):
@@ -965,15 +966,15 @@ class PerfLedgerManager(CacheController):
         return self.update_all_perf_ledgers(hotkey_to_positions, existing_perf_ledgers, t_ms, return_dict=True)
 
 
-    def load_perf_ledgers_from_memory(self, first_fetch=False):
+    def get_perf_ledgers_from_memory(self, first_fetch=False):
         if first_fetch:
-            self.hotkey_to_perf_ledger.update(self.load_perf_ledgers_from_disk())
+            self.hotkey_to_perf_ledger.update(self.get_perf_ledgers_from_disk())
         return self.hotkey_to_perf_ledger
 
     def update(self, testing_one_hotkey=None, regenerate_all_ledgers=False):
         assert self.position_manager.elimination_manager.metagraph, "Metagraph must be loaded before updating perf ledgers"
         assert self.metagraph, "Metagraph must be loaded before updating perf ledgers"
-        perf_ledgers = self.load_perf_ledgers_from_memory()
+        perf_ledgers = self.get_perf_ledgers_from_memory()
         t_ms = TimeUtil.now_in_millis() - self.UPDATE_LOOKBACK_MS
         """
         tt = 1734279788000
@@ -1096,7 +1097,7 @@ class PerfLedgerManager(CacheController):
         #self.hotkey_to_perf_ledger = perf_ledgers # Memory has already been updated in the main loop
 
     def print_perf_ledgers_on_disk(self):
-        perf_ledgers = self.load_perf_ledgers_from_memory()
+        perf_ledgers = self.get_perf_ledgers_from_memory()
         for hotkey, perf_ledger in perf_ledgers.items():
             print(f"perf ledger for {hotkey}")
             print('    total gain product', perf_ledger.get_product_of_gains())

@@ -265,7 +265,9 @@ class TestChallengePeriodIntegration(TestBase):
 
         # Now loading the data
         positions = self.position_manager.get_positions_for_hotkeys(hotkeys=[self.DEFAULT_MINER_HOTKEY])
-        ledgers = self.ledger_manager.load_perf_ledgers_from_disk()
+        ledgers = self.ledger_manager.get_perf_ledgers_from_disk()
+        ledgers_memory = self.ledger_manager.get_perf_ledgers_from_memory()
+        self.assertEqual(ledgers, ledgers_memory)
 
         # First check that there is nothing on the miner
         self.assertEqual(ledgers.get(self.DEFAULT_MINER_HOTKEY, PerfLedger().cps), PerfLedger().cps)

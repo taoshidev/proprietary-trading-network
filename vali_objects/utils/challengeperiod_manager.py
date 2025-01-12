@@ -23,7 +23,7 @@ class ChallengePeriodManager(CacheController):
                  position_manager: PositionManager =None):
         super().__init__(metagraph, running_unit_tests=running_unit_tests)
         self.perf_ledger_manager = perf_ledger_manager if perf_ledger_manager else \
-            PerfLedgerManager(metagraph, {}, [], running_unit_tests=running_unit_tests)
+            PerfLedgerManager(metagraph, running_unit_tests=running_unit_tests)
         self.position_manager = position_manager
         self.elimination_manager = self.position_manager.elimination_manager
         self.challengeperiod_testing = {}
@@ -88,7 +88,7 @@ class ChallengePeriodManager(CacheController):
             all_miners,
             sort_positions=True
         )
-        ledger = self.perf_ledger_manager.load_perf_ledgers_from_memory()
+        ledger = self.perf_ledger_manager.get_perf_ledgers_from_memory()
         ledger = {hotkey: ledger.get(hotkey, None) for hotkey in all_miners}
 
         challengeperiod_success, challengeperiod_eliminations = self.inspect(

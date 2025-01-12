@@ -4,6 +4,7 @@ import traceback
 import requests
 
 from typing import List
+import multiprocessing
 from multiprocessing import Process
 from polygon.websocket import Market, EquityAgg, EquityTrade, CryptoTrade, ForexQuote, WebSocketClient
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -153,7 +154,8 @@ class PolygonDataService(BaseDataService):
             self.websocket_manager_thread = None
         else:
             if ipc_manager:
-                self.websocket_manager_thread = Process(target=self.websocket_manager, daemon=True)
+                ctx = multiprocessing.get_context('spawn')
+                self.websocket_manager_thread = ctx.Process(target=self.websocket_manager, daemon=True)
             else:
                 self.websocket_manager_thread = threading.Thread(target=self.websocket_manager, daemon=True)
             self.websocket_manager_thread.start()

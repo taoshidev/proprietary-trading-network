@@ -34,7 +34,7 @@ if __name__ == "__main__":
     plagiarism_detector = PlagiarismDetector(None, None, position_manager=position_manager)
 
     ## Collect the ledger
-    ledger = subtensor_weight_setter.perf_ledger_manager.load_perf_ledgers_from_memory()
+    ledger = subtensor_weight_setter.perf_ledger_manager.get_perf_ledgers_from_memory()
 
     ## Check the current testing miners for different scenarios
     challengeperiod_manager._refresh_challengeperiod_in_memory()

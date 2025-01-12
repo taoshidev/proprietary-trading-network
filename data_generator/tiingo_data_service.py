@@ -3,6 +3,7 @@ import traceback
 import json
 import requests
 from typing import List
+import multiprocessing
 from multiprocessing import Process
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from data_generator.base_data_service import BaseDataService, TIINGO_PROVIDER_NAME, exception_handler_decorator
@@ -51,7 +52,8 @@ class TiingoDataService(BaseDataService):
             self.websocket_manager_thread = None
         else:
             if ipc_manager:
-                self.websocket_manager_thread = Process(target=self.websocket_manager, daemon=True)
+                ctx = multiprocessing.get_context('spawn')
+                self.websocket_manager_thread = ctx.Process(target=self.websocket_manager, daemon=True)
             else:
                 self.websocket_manager_thread = threading.Thread(target=self.websocket_manager, daemon=True)
             self.websocket_manager_thread.start()

@@ -96,6 +96,6 @@ if __name__ == "__main__":
     position_manager = PositionManager({}, elimination_manager=elimination_manager, challengeperiod_manager=None)
     challengeperiod_manager = ChallengePeriodManager(metagraph=None, position_manager=position_manager)
     position_manager.challengeperiod_manager = challengeperiod_manager
-    position_syncer = PositionSyncer(position_manager=position_manager, perf_ledger_hks_to_invalidate={})
+    position_syncer = PositionSyncer(position_manager=position_manager)
     candidate_data = position_syncer.read_validator_checkpoint_from_gcloud_zip()
     position_syncer.sync_positions(False, candidate_data=candidate_data)

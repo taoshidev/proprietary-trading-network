@@ -3,8 +3,6 @@
 import time
 from typing import List, Dict
 
-from setproctitle import setproctitle
-
 from time_util.time_util import TimeUtil
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.vali_config import ValiConfig, TradePair
@@ -75,7 +73,6 @@ class MDDChecker(CacheController):
 
     
     def mdd_check(self, position_locks):
-        setproctitle(f"vali_{self.__class__.__name__}")
         self.n_poly_api_requests = 0
         if not self.refresh_allowed(ValiConfig.MDD_CHECK_REFRESH_TIME_MS):
             time.sleep(1)

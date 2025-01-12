@@ -1,3 +1,4 @@
+import multiprocessing
 import time
 import traceback
 
@@ -10,7 +11,6 @@ from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
 from vali_objects.utils.elimination_manager import EliminationManager
 from time_util.time_util import TimeUtil
 from multiprocessing import Process
-
 from vali_objects.utils.plagiarism_detector import PlagiarismDetector
 from vali_objects.utils.position_manager import PositionManager
 from vali_objects.utils.subtensor_weight_setter import SubtensorWeightSetter
@@ -28,6 +28,7 @@ class RequestOutputGenerator:
         if self.running_deprecated:
             self.repull_data_from_disk()
         else:
+            self.ctx = multiprocessing.get_context("spawn")
             self.rcm = rcm
             self.msm = msm
 
@@ -41,8 +42,8 @@ class RequestOutputGenerator:
                 self.rcm.generate_request_core(time_now=current_time_ms)
                 self.msm.generate_request_minerstatistics(time_now=current_time_ms, checkpoints=True)
         else:
-            rcm_process = Process(target=self.run_rcm_loop, daemon=True)
-            msm_process = Process(target=self.run_msm_loop, daemon=True)
+            rcm_process = self.ctx.Process(target=self.run_rcm_loop, daemon=True)
+            msm_process = self.ctx.Process(target=self.run_msm_loop, daemon=True)
 
             # Start both processes
             rcm_process.start()
@@ -83,6 +84,7 @@ class RequestOutputGenerator:
 
     def run_rcm_loop(self):
         setproctitle(f"vali_RequestCoreManager")
+        bt.logging.enable_info()
         bt.logging.info("Running RequestCoreManager process.")
         last_update_time_ms = 0
         n_updates = 0
@@ -105,6 +107,7 @@ class RequestOutputGenerator:
 
     def run_msm_loop(self):
         setproctitle(f"vali_MinerStatisticsManager")
+        bt.logging.enable_info()
         bt.logging.info("Running MinerStatisticsManager process.")
         last_update_time_ms = 0
         n_updates = 0
