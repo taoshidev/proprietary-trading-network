@@ -4,7 +4,6 @@ import json
 import requests
 from typing import List
 import multiprocessing
-from multiprocessing import Process
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from data_generator.base_data_service import BaseDataService, TIINGO_PROVIDER_NAME, exception_handler_decorator
 from time_util.time_util import TimeUtil

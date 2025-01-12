@@ -357,10 +357,10 @@ class TestChallengePeriodIntegration(TestBase):
 
         self.assertEqual(len(self.challengeperiod_manager.challengeperiod_success), len(self.SUCCESS_MINER_NAMES))
         self.assertEqual(len(self.challengeperiod_manager.elimination_manager.get_eliminated_hotkeys()), 0)
+        self.assertEqual(len(self.challengeperiod_manager.get_challengeperiod_testing()), 0)
 
         # Now going to remove the positions of the miners
         miners_without_positions = self.TESTING_MINER_NAMES[:2]
-
         # Redeploy the positions
         for miner, positions in self.POSITIONS.items():
             if miner in miners_without_positions:

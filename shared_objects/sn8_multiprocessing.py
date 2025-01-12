@@ -1,4 +1,4 @@
-from multiprocessing import Manager, Process
+from multiprocessing import Manager
 
 def get_ipc_metagraph(manager: Manager):
     metagraph = manager.Namespace()

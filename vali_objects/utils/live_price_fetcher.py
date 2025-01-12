@@ -10,7 +10,6 @@ from time_util.time_util import TimeUtil, timeme
 from vali_objects.vali_config import TradePair
 from vali_objects.position import Position
 from vali_objects.utils.vali_utils import ValiUtils
-from shared_objects.retry import retry
 import bittensor as bt
 
 from vali_objects.vali_dataclasses.price_source import PriceSource

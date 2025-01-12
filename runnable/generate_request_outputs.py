@@ -10,7 +10,6 @@ from runnable.generate_request_minerstatistics import MinerStatisticsManager
 from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
 from vali_objects.utils.elimination_manager import EliminationManager
 from time_util.time_util import TimeUtil
-from multiprocessing import Process
 from vali_objects.utils.plagiarism_detector import PlagiarismDetector
 from vali_objects.utils.position_manager import PositionManager
 from vali_objects.utils.subtensor_weight_setter import SubtensorWeightSetter
@@ -83,7 +82,7 @@ class RequestOutputGenerator:
 
 
     def run_rcm_loop(self):
-        setproctitle(f"vali_RequestCoreManager")
+        setproctitle("vali_RequestCoreManager")
         bt.logging.enable_info()
         bt.logging.info("Running RequestCoreManager process.")
         last_update_time_ms = 0
@@ -106,7 +105,7 @@ class RequestOutputGenerator:
                 time.sleep(10)
 
     def run_msm_loop(self):
-        setproctitle(f"vali_MinerStatisticsManager")
+        setproctitle("vali_MinerStatisticsManager")
         bt.logging.enable_info()
         bt.logging.info("Running MinerStatisticsManager process.")
         last_update_time_ms = 0

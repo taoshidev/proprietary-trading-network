@@ -11,7 +11,7 @@ import uuid
 
 from setproctitle import setproctitle
 from shared_objects.sn8_multiprocessing import get_ipc_metagraph
-from multiprocessing import Manager, Process
+from multiprocessing import Manager
 from typing import Tuple
 from enum import Enum
 

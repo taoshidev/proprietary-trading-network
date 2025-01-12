@@ -801,8 +801,9 @@ class PositionManager(CacheController):
             if os.path.exists(fp):
                 os.remove(fp)
                 bt.logging.info(f"Deleted position from disk: {fp}")
-            if hotkey in self.hotkey_to_positions and position_uuid in self.hotkey_to_positions[hotkey]:
-                del self.hotkey_to_positions[hotkey][position_uuid]
+            if hotkey in self.hotkey_to_positions:
+                self.hotkey_to_positions[hotkey] = \
+                    [p for p in self.hotkey_to_positions[hotkey] if p.position_uuid != position_uuid]
 
     def check_elimination(self, positions, miner_hotkey, orig_portfolio_return, ALL_MSGS, ELIM_MSGS):
         max_portfolio_return = 1.0

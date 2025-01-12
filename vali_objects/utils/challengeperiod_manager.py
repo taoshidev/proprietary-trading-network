@@ -54,11 +54,10 @@ class ChallengePeriodManager(CacheController):
         if eliminations is None:
             eliminations = self.elimination_manager.get_eliminations_from_memory()
 
-        elimination_hotkeys = [x['hotkey'] for x in eliminations]
+        elimination_hotkeys = set(x['hotkey'] for x in eliminations)
 
         # check all hotkeys which have at least one position
         miners_with_positions = self.position_manager.get_miner_hotkeys_with_at_least_one_position()
-
         any_changes = False
         for hotkey in new_hotkeys:
             if hotkey in miners_with_positions:

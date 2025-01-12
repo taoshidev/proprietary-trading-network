@@ -216,6 +216,7 @@ class EliminationManager(CacheController):
             elimination_row = self.generate_elimination_row(hotkey, current_dd, mdd_failure, t_ms=t_ms,
                                                             price_info=price_info, return_info=return_info)
             self.eliminations.append(elimination_row)
+            self.eliminations[-1] = elimination_row  # ipc list does not update the object without using __setitem__
             self.save_eliminations()
 
     def delete_eliminations(self, deleted_hotkeys):

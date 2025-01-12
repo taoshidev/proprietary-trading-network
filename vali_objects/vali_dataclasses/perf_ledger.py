@@ -344,29 +344,16 @@ class PerfLedgerManager(CacheController):
         #self.base_dd_stats = {'worst_dd':1.0, 'last_dd':0, 'mrpv':1.0, 'n_closed_pos':0, 'n_checks':0, 'current_portfolio_return': 1.0}
         #self.hk_to_dd_stats = defaultdict(lambda: deepcopy(self.base_dd_stats))
         self.n_price_corrections = 0
-        self.pl_elimination_rows.extend(self.get_perf_ledger_eliminations(first_fetch=True))
+        # ipc list does not update the object without using __setitem__
+        temp = self.get_perf_ledger_eliminations(first_fetch=True)
+        self.pl_elimination_rows.extend(temp)
+        for i, x in enumerate(temp):
+            self.pl_elimination_rows[i] = x
         self.candidate_pl_elimination_rows = []
         self.hk_to_last_order_processed_ms = {}
         self.position_uuid_to_cache = defaultdict(FeeCache)
         self.hotkey_to_checkpointed_ledger = {}
         self.get_perf_ledgers_from_memory(first_fetch=True)
-
-
-    def _save_miner_position_to_memory(self, position: Position):
-        # Multiprocessing-safe
-        hk = position.miner_hotkey
-        if hk not in self.hotkey_to_positions:
-            self.hotkey_to_positions[hk] = {}
-
-        # Santiy check
-        if position.miner_hotkey in self.hotkey_to_positions and position.position_uuid in self.hotkey_to_positions[
-            position.miner_hotkey]:
-            existing_pos = self.hotkey_to_positions[position.miner_hotkey][position.position_uuid]
-            assert existing_pos.trade_pair == position.trade_pair, f"Trade pair mismatch for position {position.position_uuid}. Existing: {existing_pos.trade_pair}, New: {position.trade_pair}"
-
-        temp = self.hotkey_to_positions[hk]
-        temp[position.position_uuid] = deepcopy(position)
-        self.hotkey_to_positions[hk] = temp  # Trigger the update on the multiprocessing Manager
 
     @timeme
     def get_perf_ledgers_from_disk(self) -> dict[str, PerfLedger]:
@@ -391,7 +378,6 @@ class PerfLedgerManager(CacheController):
         for k in list(self.hotkey_to_perf_ledger.keys()):
             del self.hotkey_to_perf_ledger[k]
 
-    #@periodic_heartbeat(interval=600, message="perf ledger run_update_loop still running...")
     def run_update_loop(self):
         setproctitle(f"vali_{self.__class__.__name__}")
         bt.logging.enable_info()
@@ -683,6 +669,7 @@ class PerfLedgerManager(CacheController):
             bt.logging.warning(f"Portfolio value is {portfolio_return} for miner {miner_hotkey} at {t_ms}. Eliminating miner.")
             elimination_row = self.generate_elimination_row(miner_hotkey, 0.0, 'LIQUIDATED', t_ms=t_ms, price_info=self.tp_to_last_price, return_info={'dd_stats': {}, 'returns': self.trade_pair_to_position_ret})
             self.candidate_pl_elimination_rows.append(elimination_row)
+            self.candidate_pl_elimination_rows[-1] = elimination_row  # Trigger the update on the multiprocessing Manager
             #self.hk_to_dd_stats[miner_hotkey]['eliminated'] = True
             for _, v in tp_to_historical_positions.items():
                 for pos in v:
@@ -927,12 +914,14 @@ class PerfLedgerManager(CacheController):
         # clear and populate proxy list in a multiprocessing-friendly way
         del self.pl_elimination_rows[:]
         self.pl_elimination_rows.extend(self.candidate_pl_elimination_rows)
+        for i, x in enumerate(self.candidate_pl_elimination_rows):
+            self.pl_elimination_rows[i] = x
 
         if self.shutdown_dict:
             return
 
         # Already updated in memory
-        self.save_perf_ledgers_to_disk(existing_perf_ledgers)
+        self.save_perf_ledgers(existing_perf_ledgers)
 
     def get_positions_perf_ledger(self, testing_one_hotkey=None):
         """
@@ -977,7 +966,7 @@ class PerfLedgerManager(CacheController):
     def update(self, testing_one_hotkey=None, regenerate_all_ledgers=False):
         assert self.position_manager.elimination_manager.metagraph, "Metagraph must be loaded before updating perf ledgers"
         assert self.metagraph, "Metagraph must be loaded before updating perf ledgers"
-        perf_ledgers = self.get_perf_ledgers_from_memory()
+        perf_ledgers = deepcopy(self.get_perf_ledgers_from_memory())
         t_ms = TimeUtil.now_in_millis() - self.UPDATE_LOOKBACK_MS
         """
         tt = 1734279788000
@@ -1098,15 +1087,15 @@ class PerfLedgerManager(CacheController):
         ValiBkpUtils.write_to_dir(file_path, perf_ledgers)
 
     @timeme
-    def save_perf_ledgers(self, perf_ledgers: dict[str, PerfLedger] | dict[str, dict]):
-        self.save_perf_ledgers_to_disk(perf_ledgers)
+    def save_perf_ledgers(self, perf_ledgers_copy: dict[str, PerfLedger] | dict[str, dict]):
+        self.save_perf_ledgers_to_disk(perf_ledgers_copy)
 
         # Update memory
         for k in list(self.hotkey_to_perf_ledger.keys()):
-            if k not in perf_ledgers:
+            if k not in perf_ledgers_copy:
                 del self.hotkey_to_perf_ledger[k]
 
-        for k, v in perf_ledgers.items():
+        for k, v in perf_ledgers_copy.items():
             self.hotkey_to_perf_ledger[k] = v
 
     def print_perf_ledgers_on_disk(self):

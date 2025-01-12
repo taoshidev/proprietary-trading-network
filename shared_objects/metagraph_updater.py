@@ -3,9 +3,6 @@
 
 import time
 import traceback
-from copy import deepcopy
-
-import numpy as np
 
 from vali_objects.vali_config import ValiConfig
 from shared_objects.cache_controller import CacheController

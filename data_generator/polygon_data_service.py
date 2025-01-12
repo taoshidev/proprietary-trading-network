@@ -5,7 +5,6 @@ import requests
 
 from typing import List
 import multiprocessing
-from multiprocessing import Process
 from polygon.websocket import Market, EquityAgg, EquityTrade, CryptoTrade, ForexQuote, WebSocketClient
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
