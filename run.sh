@@ -148,20 +148,13 @@ while [[ $# -gt 0 ]]; do
       if [[ "$arg" == "--script" ]]; then
         script="$2";
         shift 2
-      elif [[ "$arg" == "--start-generate" ]]; then
-        start_generate=true
-        shift
       else
         args+=("$arg")
         args+=("$2")
         shift 2
       fi
     else
-      if [[ "$arg" == "--start-generate" ]]; then
-        start_generate=true
-      else
         args+=("$arg")
-      fi
       shift
     fi
   else
@@ -172,7 +165,7 @@ done
 
 branch=$(git branch --show-current)
 echo "Watching branch: $branch"
-echo "PM2 process names: $proc_name, $generate_proc_name"
+echo "PM2 process names: $proc_name"
 
 current_version=$(read_version_value)
 

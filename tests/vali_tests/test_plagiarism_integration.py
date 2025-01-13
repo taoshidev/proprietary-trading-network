@@ -1,5 +1,6 @@
 from tests.shared_objects.mock_classes import MockMetagraph, MockPlagiarismDetector
 from tests.vali_tests.base_objects.test_base import TestBase
+from vali_objects.utils.elimination_manager import EliminationManager
 from vali_objects.vali_config import TradePair
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.position import Position
@@ -29,21 +30,20 @@ class TestPlagiarismIntegration(TestBase):
 
 
         self.mock_metagraph = MockMetagraph(self.MINER_NAMES)
-        self.plagiarism_detector = MockPlagiarismDetector(self.mock_metagraph)
-        self.plagiarism_detector.running_unit_tests = True
         self.current_time = ValiConfig.PLAGIARISM_LOOKBACK_RANGE_MS
+        self.elimination_manager = EliminationManager(self.mock_metagraph, None, None, running_unit_tests=True)
 
-        self.position_manager = MockPositionManager(metagraph=self.mock_metagraph)
+        self.position_manager = MockPositionManager(metagraph=self.mock_metagraph, perf_ledger_manager=None,
+                                                    elimination_manager=self.elimination_manager)
+        self.plagiarism_detector = MockPlagiarismDetector(self.mock_metagraph, self.position_manager)
+
         self.DEFAULT_TEST_POSITION_UUID = "test_position"
         self.DEFAULT_OPEN_MS = 1
 
-    
-        self.plagiarism_detector.init_cache_files()
-
-        self.position_manager.clear_all_miner_positions_from_disk()
+        self.position_manager.clear_all_miner_positions()
         self.plagiarism_detector.clear_plagiarism_from_disk()
 
-        self.plagiarism_detector.clear_eliminations_from_disk()
+        self.elimination_manager.clear_eliminations()
         self.position_counter = 0
         PlagiarismEvents.clear_plagiarism_events()
 
@@ -158,9 +158,7 @@ class TestPlagiarismIntegration(TestBase):
 
     def add_order_to_position_and_save_to_disk(self, position, order):
         position.add_order(order)
-        if order.order_type == OrderType.FLAT:
-            position.is_closed_position = True
-        self.position_manager.save_miner_position_to_disk(position, delete_open_position_if_exists=True)
+        self.position_manager.save_miner_position(position, delete_open_position_if_exists=True)
 
     def generate_one_position(self, hotkey, trade_pair, leverages, times_apart, open_ms, close_ms=None, times_after=None):
         if times_after is None:
@@ -203,7 +201,7 @@ class TestPlagiarismIntegration(TestBase):
                 processed_ms= close_ms - 1, 
                 order_uuid=str(uuid.uuid4()))
             self.add_order_to_position_and_save_to_disk(order=close_order, position=position)
-        self.position_manager.save_miner_position_to_disk(position, delete_open_position_if_exists=True)
+        self.position_manager.save_miner_position(position, delete_open_position_if_exists=True)
 
     def check_one_plagiarist(self, plagiarist_id, victim_id, trade_pair_name):
         self.plagiarism_detector.detect()
@@ -250,7 +248,7 @@ class TestPlagiarismIntegration(TestBase):
 
     def test_no_plagiarism(self):
         # There should be no false positives
-        positions = self.position_manager.get_all_miner_positions_by_hotkey(
+        positions = self.position_manager.get_positions_for_hotkeys(
                 self.mock_metagraph.hotkeys
             )
         

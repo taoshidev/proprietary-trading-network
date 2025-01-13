@@ -5,6 +5,7 @@ import json
 import os
 import pickle
 import uuid
+from multiprocessing.managers import DictProxy
 
 import bittensor as bt
 from pydantic import BaseModel
@@ -15,12 +16,18 @@ from vali_objects.vali_dataclasses.order import OrderStatus
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.vali_config import TradePair
 
+
 class CustomEncoder(json.JSONEncoder):
     def default(self, obj):
         if isinstance(obj, TradePair) or isinstance(obj, OrderType):
             return obj.__json__()
         elif isinstance(obj, BaseModel):
             return obj.dict()
+        elif hasattr(obj, 'to_dict'):
+            return obj.to_dict()
+        elif isinstance(obj, DictProxy):
+            return dict(obj)
+
         return json.JSONEncoder.default(self, obj)
 
 class ValiBkpUtils:
@@ -111,6 +118,10 @@ class ValiBkpUtils:
     @staticmethod
     def get_vali_outputs_dir() -> str:
         return ValiConfig.BASE_DIR + "/runnable/"
+
+    @staticmethod
+    def get_restore_file_path() -> str:
+        return ValiConfig.BASE_DIR + "/validator_checkpoint.json"
 
     @staticmethod
     def get_vcp_output_path() -> str:

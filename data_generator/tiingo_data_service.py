@@ -3,6 +3,7 @@ import traceback
 import json
 import requests
 from typing import List
+import multiprocessing
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from data_generator.base_data_service import BaseDataService, TIINGO_PROVIDER_NAME, exception_handler_decorator
 from time_util.time_util import TimeUtil
@@ -16,24 +17,25 @@ from vali_objects.vali_dataclasses.price_source import PriceSource
 
 from tiingo import TiingoClient#, TiingoWebsocketClient
 
+from vali_objects.vali_dataclasses.recent_event_tracker import RecentEventTracker
+
 DEBUG = 0
 TIINGO_COINBASE_EXCHANGE_STR = 'gdax'
 
 class TiingoDataService(BaseDataService):
 
-    def __init__(self, api_key, disable_ws=False):
+    def __init__(self, api_key, disable_ws=False, ipc_manager=None):
         self.init_time = time.time()
         self._api_key = api_key
         self.disable_ws = disable_ws
 
-        super().__init__(provider_name=TIINGO_PROVIDER_NAME)
+        super().__init__(provider_name=TIINGO_PROVIDER_NAME, ipc_manager=ipc_manager)
 
         self.MARKET_STATUS = None
-        self.LOCK = threading.Lock()
         self.UNSUPPORTED_TRADE_PAIRS = (TradePair.SPX, TradePair.DJI, TradePair.NDX, TradePair.VIX, TradePair.FTSE, TradePair.GDAXI)
 
         self.config = {'api_key': self._api_key, 'session': True}
-        self.TIINGO_CLIENT = TiingoClient(self.config)
+        self.TIINGO_CLIENT = None  # Instantiate the TiingoClient after process starts
 
         self.subscribe_message = {
             'eventName': 'subscribe',
@@ -48,9 +50,16 @@ class TiingoDataService(BaseDataService):
         if disable_ws:
             self.websocket_manager_thread = None
         else:
-            self.websocket_manager_thread = threading.Thread(target=self.websocket_manager, daemon=True)
+            if ipc_manager:
+                ctx = multiprocessing.get_context('spawn')
+                self.websocket_manager_thread = ctx.Process(target=self.websocket_manager, daemon=True)
+            else:
+                self.websocket_manager_thread = threading.Thread(target=self.websocket_manager, daemon=True)
             self.websocket_manager_thread.start()
-            time.sleep(3) # Let the websocket_manager_thread start
+            #time.sleep(3) # Let the websocket_manager_thread start
+
+    def instantiate_not_pickleable_objects(self):
+        self.TIINGO_CLIENT = TiingoClient(self.config)
 
     def run_pseudo_websocket(self, tpc: TradePairCategory):
         verbose = False
@@ -117,12 +126,14 @@ class TiingoDataService(BaseDataService):
                 #print(tp.trade_pair, start_timestamp_orig, start_timestamp)
                 #print(f'Received forex message {symbol} price {new_price} time {TimeUtil.millis_to_formatted_date_str(start_timestamp)}')
                 #print(m, symbol in self.trade_pair_to_recent_events, self.trade_pair_to_recent_events[symbol].timestamp_exists(start_timestamp))
-                if symbol in self.trade_pair_to_recent_events and self.trade_pair_to_recent_events[symbol].timestamp_exists(start_timestamp):
+                if self.using_ipc and symbol in self.trade_pair_to_recent_events_realtime and self.trade_pair_to_recent_events_realtime[symbol].timestamp_exists(start_timestamp):
+                    self.trade_pair_to_recent_events_realtime[symbol].update_prices_for_median(start_timestamp, bid_price)
+                    return None
+                elif not self.using_ipc and symbol in self.trade_pair_to_recent_events and self.trade_pair_to_recent_events[symbol].timestamp_exists(start_timestamp):
                     self.trade_pair_to_recent_events[symbol].update_prices_for_median(start_timestamp, bid_price)
                     return None
-                else:
-                    open = vwap = high = low = bid_price
 
+                open = vwap = high = low = bid_price
                 volume = 1
             elif tp.is_crypto:
                 mode, ticker, date_str, exchange, volume, price = data
@@ -224,7 +235,16 @@ class TiingoDataService(BaseDataService):
         self.closed_market_prices[tp] = None
 
         self.latest_websocket_events[symbol] = ps1
-        self.trade_pair_to_recent_events[symbol].add_event(ps1, tp.is_forex,
+        if not self.using_ipc and symbol not in self.trade_pair_to_recent_events:
+            self.trade_pair_to_recent_events[symbol] = RecentEventTracker()
+        elif self.using_ipc and symbol not in self.trade_pair_to_recent_events_realtime:
+            self.trade_pair_to_recent_events_realtime[symbol] = RecentEventTracker()
+
+        if self.using_ipc:
+            self.trade_pair_to_recent_events_realtime[symbol].add_event(ps1, tp.is_forex,
+                                                           f"{self.provider_name}:{tp.trade_pair}")
+        else:
+            self.trade_pair_to_recent_events[symbol].add_event(ps1, tp.is_forex,
                                                            f"{self.provider_name}:{tp.trade_pair}")
 
         if DEBUG:

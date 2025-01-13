@@ -1,47 +1,138 @@
+import multiprocessing
 import time
 import traceback
 
-from runnable.generate_request_core import generate_request_core
-from runnable.generate_request_minerstatistics import generate_request_minerstatistics
+from setproctitle import setproctitle
 
-from vali_objects.exceptions.corrupt_data_exception import ValiBkpCorruptDataException
-from vali_objects.utils.logger_utils import LoggerUtils
+from runnable.generate_request_core import RequestCoreManager
+from runnable.generate_request_minerstatistics import MinerStatisticsManager
+
+from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
+from vali_objects.utils.elimination_manager import EliminationManager
 from time_util.time_util import TimeUtil
-from json import JSONDecodeError
+from vali_objects.utils.plagiarism_detector import PlagiarismDetector
+from vali_objects.utils.position_manager import PositionManager
+from vali_objects.utils.subtensor_weight_setter import SubtensorWeightSetter
+from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
+import bittensor as bt
+
+class RequestOutputGenerator:
+    def __init__(self, running_deprecated=False, rcm=None, msm=None):
+        self.running_deprecated = running_deprecated
+        self.last_write_time_s = 0
+        self.n_updates = 0
+        self.msm_refresh_interval_ms = 15 * 1000
+        self.rcm_refresh_interval_ms = 15 * 1000
+        self.ctx = multiprocessing.get_context("spawn")
+        self.rcm = rcm
+        self.msm = msm
+
+
+    def run_deprecated_loop(self):
+        bt.logging.info(f'Running RequestOutputGenerator. running_deprecated: {self.running_deprecated}')
+        while True:
+            self.log_deprecation_message()
+            current_time_ms = TimeUtil.now_in_millis()
+            self.repull_data_from_disk()
+            self.rcm.generate_request_core(time_now=current_time_ms)
+            self.msm.generate_request_minerstatistics(time_now=current_time_ms, checkpoints=True)
+            time_to_wait_ms = (self.msm_refresh_interval_ms + self.rcm_refresh_interval_ms) - \
+                             (TimeUtil.now_in_millis() - current_time_ms)
+            if time_to_wait_ms > 0:
+                time.sleep(time_to_wait_ms / 1000)
+
+    def start_generation(self):
+        if self.running_deprecated:
+            dp = self.ctx.Process(target=self.run_deprecated_loop, daemon=True)
+            dp.start()
+        else:
+            rcm_process = self.ctx.Process(target=self.run_rcm_loop, daemon=True)
+            msm_process = self.ctx.Process(target=self.run_msm_loop, daemon=True)
+            # Start both processes
+            rcm_process.start()
+            msm_process.start()
+
+        while True:   # "Don't Die"
+            time.sleep(100)
+
+    def log_deprecation_message(self):
+        bt.logging.warning("The generate script is no longer managed by pm2. Please update your repo and relaunch the "
+                           "run.sh script with (same arguments). This will prevent this pm2 process from being "
+                           "spawned and allow significant efficiency improvements by running this code from the "
+                           "main validator loop.")
+
+    def repull_data_from_disk(self):
+        perf_ledger_manager = PerfLedgerManager(None)
+        elimination_manager = EliminationManager(None, None, None)
+        self.position_manager = PositionManager(None, None,
+                                                elimination_manager=elimination_manager,
+                                                challengeperiod_manager=None,
+                                                perf_ledger_manager=perf_ledger_manager)
+        challengeperiod_manager = ChallengePeriodManager(None, None,
+                                                         position_manager=self.position_manager)
+        elimination_manager.position_manager = self.position_manager
+        self.position_manager.challengeperiod_manager = challengeperiod_manager
+        elimination_manager.challengeperiod_manager = challengeperiod_manager
+        challengeperiod_manager.position_manager = self.position_manager
+        perf_ledger_manager.position_manager = self.position_manager
+        self.subtensor_weight_setter = SubtensorWeightSetter(
+            config=None,
+            metagraph=None,
+            running_unit_tests=False,
+            position_manager=self.position_manager,
+        )
+        self.plagiarism_detector = PlagiarismDetector(None, None, position_manager=self.position_manager)
+        self.rcm = RequestCoreManager(self.position_manager, self.subtensor_weight_setter, self.plagiarism_detector)
+        self.msm = MinerStatisticsManager(self.position_manager, self.subtensor_weight_setter, self.plagiarism_detector)
+
+
+    def run_rcm_loop(self):
+        setproctitle("vali_RequestCoreManager")
+        bt.logging.enable_info()
+        bt.logging.info("Running RequestCoreManager process.")
+        last_update_time_ms = 0
+        n_updates = 0
+        while True:
+            try:
+                current_time_ms = TimeUtil.now_in_millis()
+                if current_time_ms - last_update_time_ms < self.rcm_refresh_interval_ms:
+                    time.sleep(1)
+                    continue
+                self.rcm.generate_request_core(time_now=current_time_ms)
+                n_updates += 1
+                tf = TimeUtil.now_in_millis()
+                if n_updates % 5 == 0:
+                    bt.logging.success(f"RequestCoreManager completed a cycle in {tf - current_time_ms} ms.")
+                last_update_time_ms = tf
+            except Exception as e:
+                bt.logging.error(f"RCM Error: {str(e)}")
+                bt.logging.error(traceback.format_exc())
+                time.sleep(10)
+
+    def run_msm_loop(self):
+        setproctitle("vali_MinerStatisticsManager")
+        bt.logging.enable_info()
+        bt.logging.info("Running MinerStatisticsManager process.")
+        last_update_time_ms = 0
+        n_updates = 0
+        while True:
+            try:
+                current_time_ms = TimeUtil.now_in_millis()
+                if current_time_ms - last_update_time_ms < self.msm_refresh_interval_ms:
+                    time.sleep(1)
+                    continue
+                self.msm.generate_request_minerstatistics(time_now=current_time_ms, checkpoints=True)
+                n_updates += 1
+                tf = TimeUtil.now_in_millis()
+                if n_updates % 5 == 0:
+                    bt.logging.success(f"MinerStatisticsManager completed a cycle in {tf - current_time_ms} ms.")
+                last_update_time_ms = tf
+            except Exception as e:
+                bt.logging.error(f"MSM Error: {str(e)}")
+                bt.logging.error(traceback.format_exc())
+                time.sleep(10)
 
 if __name__ == "__main__":
-    logger = LoggerUtils.init_logger("generate_request_outputs")
-    last_write_time = time.time()
-    n_updates = 0
-    try:
-        while True:
-            current_time = time.time()
-            write_output = False
-            # Check if it's time to write the legacy output
-            if current_time - last_write_time >= 15:
-                write_output = True
-
-            current_time_ms = TimeUtil.now_in_millis()
-            if write_output:
-                # Generate the request outputs
-                generate_request_core(time_now=current_time_ms)
-                generate_request_minerstatistics(time_now=current_time_ms, checkpoints=True)
-
-            if write_output:
-                last_validator_checkpoint_time = current_time
-
-            # Log completion duration
-            if write_output:
-                n_updates += 1
-                if n_updates % 10 == 0:
-                    logger.info("Completed writing outputs in " + str(time.time() - current_time) + " seconds. n_updates: " + str(n_updates))
-    except (JSONDecodeError, ValiBkpCorruptDataException):
-        logger.error("error occurred trying to decode position json. Probably being written to simultaneously.")
-        logger.error(traceback.format_exc())
-    except Exception as e:
-        logger.error(f"An error occurred: {str(e)}")
-        # traceback
-        logger.error(traceback.format_exc())
-        time.sleep(10)
-    # Sleep for a short time to prevent tight looping, adjust as necessary
-    time.sleep(1)
+    bt.logging.enable_info()
+    rog = RequestOutputGenerator(running_deprecated=True)
+    rog.start_generation()

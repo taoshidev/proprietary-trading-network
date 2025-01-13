@@ -8,12 +8,11 @@ from datetime import datetime
 
 from time_util.time_util import TimeUtil
 from vali_objects.position import Position
+from vali_objects.utils.elimination_manager import EliminationManager
 from vali_objects.utils.position_manager import PositionManager
 from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 import bittensor as bt
-
-from vali_objects.utils.vali_utils import ValiUtils
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
 
 DEBUG = 0
@@ -82,22 +81,16 @@ def regenerate_miner_positions(perform_backup=True, backup_from_data_dir=False, 
             bt.logging.info(f"    {key}: {value}")
     backup_creation_time_ms = data['created_timestamp_ms']
 
+    elimination_manager = EliminationManager(None, None, None)
+    position_manager = PositionManager(perform_order_corrections=True,
+                                       challengeperiod_manager=None,
+                                       elimination_manager=elimination_manager)
+    challengeperiod_manager = ChallengePeriodManager(metagraph=None, position_manager=position_manager)
+    perf_ledger_manager = PerfLedgerManager(None)
+
     if DEBUG:
-        from vali_objects.utils.live_price_fetcher import LivePriceFetcher
-        secrets = ValiUtils.get_secrets()
+        position_manager.pre_run_setup()
 
-        live_price_fetcher = LivePriceFetcher(secrets=secrets, disable_ws=True)
-        position_manager = PositionManager(live_price_fetcher=live_price_fetcher, perform_price_adjustment=False,
-                                           perform_order_corrections=True, generate_correction_templates=False,
-                                           apply_corrections_template=False, perform_fee_structure_update=False)
-        #position_manager.perform_price_recalibration(time_per_batch_s=10000000)
-        perf_ledger_manager = PerfLedgerManager(live_price_fetcher=live_price_fetcher, metagraph=None)
-    else:
-        position_manager = PositionManager()
-        position_manager.init_cache_files()
-        perf_ledger_manager = PerfLedgerManager(metagraph=None)
-
-    challengeperiod_manager = ChallengePeriodManager(config=None, metagraph=None)
     # We want to get the smallest processed_ms timestamp across all positions in the backup and then compare this to
     # the smallest processed_ms timestamp across all orders on the local filesystem. If the backup smallest timestamp is
     # older than the local smallest timestamp, we will not regenerate the positions. Similarly for the oldest timestamp.
@@ -152,7 +145,7 @@ def regenerate_miner_positions(perform_backup=True, backup_from_data_dir=False, 
         backup_validation_directory()
 
     bt.logging.info(f"regenerating {len(data['positions'].keys())} hotkeys")
-    position_manager.clear_all_miner_positions_from_disk()
+    position_manager.clear_all_miner_positions()
     for hotkey, json_positions in data['positions'].items():
         # sort positions by close_ms otherwise, writing a closed position after an open position for the same
         # trade pair will delete the open position
@@ -164,10 +157,10 @@ def regenerate_miner_positions(perform_backup=True, backup_from_data_dir=False, 
         ValiBkpUtils.make_dir(ValiBkpUtils.get_miner_all_positions_dir(hotkey))
         for p_obj in positions:
             #bt.logging.info(f'creating position {p_obj}')
-            position_manager.save_miner_position_to_disk(p_obj)
+            position_manager.save_miner_position(p_obj)
 
         # Validate that the positions were written correctly
-        disk_positions = position_manager.get_all_miner_positions(hotkey, sort_positions=True)
+        disk_positions = position_manager.get_positions_for_one_hotkey(hotkey, sort_positions=True)
         #bt.logging.info(f'disk_positions: {disk_positions}, positions: {positions}')
         n_disk_positions = len(disk_positions)
         n_memory_positions = len(positions)
@@ -178,11 +171,11 @@ def regenerate_miner_positions(perform_backup=True, backup_from_data_dir=False, 
 
 
     bt.logging.info(f"regenerating {len(data['eliminations'])} eliminations")
-    position_manager.write_eliminations_to_disk(data['eliminations'])
+    position_manager.elimination_manager.write_eliminations_to_disk(data['eliminations'])
 
     perf_ledgers = data.get('perf_ledgers', {})
     bt.logging.info(f"regenerating {len(perf_ledgers)} perf ledgers")
-    perf_ledger_manager.save_perf_ledgers_to_disk(perf_ledgers, raw_json=True)
+    perf_ledger_manager.save_perf_ledgers(perf_ledgers)
 
     ## Now sync challenge period with the disk
     challengeperiod = data.get('challengeperiod', {})

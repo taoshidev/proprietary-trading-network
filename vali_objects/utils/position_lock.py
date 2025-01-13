@@ -1,5 +1,4 @@
-from threading import Lock
-
+from multiprocessing import Lock
 class PositionLocks:
     """
     Updating positions in the validator is vulnerable to race conditions on a per-miner and per-trade-pair basis. This

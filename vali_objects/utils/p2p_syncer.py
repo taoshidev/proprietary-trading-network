@@ -15,13 +15,16 @@ from time_util.time_util import TimeUtil
 from vali_objects.vali_config import TradePair
 from vali_objects.vali_config import ValiConfig
 from vali_objects.position import Position
-from vali_objects.utils.position_manager import PositionManager
 from vali_objects.vali_dataclasses.order import Order
 from vali_objects.utils.validator_sync_base import ValidatorSyncBase
 
 class P2PSyncer(ValidatorSyncBase):
-    def __init__(self, wallet=None, metagraph=None, is_testnet=None, shutdown_dict=None, signal_sync_lock=None, signal_sync_condition=None, n_orders_being_processed=None, running_unit_tests=False):
-        super().__init__(shutdown_dict, signal_sync_lock, signal_sync_condition, n_orders_being_processed, running_unit_tests=running_unit_tests)
+    def __init__(self, wallet=None, metagraph=None, is_testnet=None, shutdown_dict=None, signal_sync_lock=None,
+                 signal_sync_condition=None, n_orders_being_processed=None, running_unit_tests=False,
+                 position_manager=None, ipc_manager=None):
+        super().__init__(shutdown_dict, signal_sync_lock, signal_sync_condition, n_orders_being_processed,
+                         running_unit_tests=running_unit_tests, position_manager=position_manager,
+                         ipc_manager=ipc_manager)
         self.wallet = wallet
         self.metagraph = metagraph
         self.golden = None
@@ -102,12 +105,6 @@ class P2PSyncer(ValidatorSyncBase):
         """
         Create golden checkpoint from active validators (received order in last 10 hrs)
         """
-        position_manager = PositionManager(
-            config=None,
-            metagraph=None,
-            running_unit_tests=False
-        )
-
         valid_checkpoints = {}
 
         # checkpoint is valid/not stale if the last order is recent
@@ -132,7 +129,7 @@ class P2PSyncer(ValidatorSyncBase):
             bt.logging.info(f"{hotkey} sent checkpoint {self.checkpoint_summary(chk)}")
             bt.logging.info("--------------------------------------------------")
 
-        golden_eliminations = position_manager.get_eliminations_from_disk()
+        golden_eliminations = self.position_manager.elimination_manager.get_eliminations_from_memory()
         golden_positions = self.p2p_sync_positions(valid_checkpoints)
         golden_challengeperiod = self.p2p_sync_challengeperiod(valid_checkpoints)
 
