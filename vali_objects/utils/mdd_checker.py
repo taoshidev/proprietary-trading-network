@@ -46,14 +46,18 @@ class MDDChecker(CacheController):
         self.n_orders_corrected = 0
         self.miners_corrected = set()
 
+    def _position_is_candidate_for_price_correction(self, position: Position, now_ms):
+        return (position.is_open_position or
+                position.newest_order_age_ms(now_ms) <= RecentEventTracker.OLDEST_ALLOWED_RECORD_MS)
 
     def get_candle_data(self, hotkey_positions) -> Dict[TradePair, List[PriceSource]]:
         required_trade_pairs_for_candles = set()
         trade_pair_to_market_open = {}
+        now_ms = TimeUtil.now_in_millis()
         for sorted_positions in hotkey_positions.values():
             for position in sorted_positions:
                 # Only need live price for open positions in open markets.
-                if position.is_open_position:
+                if self._position_is_candidate_for_price_correction(position, now_ms):
                     tp = position.trade_pair
                     if tp not in trade_pair_to_market_open:
                         trade_pair_to_market_open[tp] = self.live_price_fetcher.polygon_data_service.is_market_open(tp)
@@ -104,7 +108,7 @@ class MDDChecker(CacheController):
                         f" n_poly_api_requests: {self.n_poly_api_requests}")
         self.set_last_update_time(skip_message=False)
 
-    def _update_position_returns_and_persist_to_disk(self, hotkey, position, candle_data_dict, position_locks) -> Position:
+    def _update_position_returns_and_persist_to_disk(self, hotkey, position, candle_data_dict, position_locks):
         """
         Setting the latest returns and persisting to disk for accurate MDD calculation and logging in get_positions
 
@@ -131,8 +135,9 @@ class MDDChecker(CacheController):
         with position_locks.get_lock(hotkey, trade_pair_id):
             # Position could have updated in the time between mdd_check being called and this function being called
             position_refreshed = self.position_manager.get_miner_position_by_uuid(hotkey, position.position_uuid)
-            assert position_refreshed is not None, f"Unexpectedly could not find position with uuid {position.position_uuid} for hotkey {hotkey} and trade pair {trade_pair_id}."
-
+            if position_refreshed is None:
+                bt.logging.warning(f"Unexpectedly could not find position with uuid {position.position_uuid} for hotkey {hotkey} and trade pair {trade_pair_id}.")
+                return
             position = position_refreshed
             n_orders_updated = 0
             for i, order in enumerate(reversed(position.orders)):
@@ -176,8 +181,6 @@ class MDDChecker(CacheController):
                 self.n_orders_corrected += n_orders_updated
                 self.miners_corrected.add(hotkey)
 
-            #bt.logging.info(f"updated return with fees for open position with trade pair[{open_position.trade_pair.trade_pair_id}] is [{position.return_at_close}]. position: {position}")
-            return position
 
 
     def add_manual_flat_orders(self, hotkey:str, sorted_positions:List[Position], corresponding_elimination, position_locks):
@@ -231,11 +234,12 @@ class MDDChecker(CacheController):
             self.n_miners_skipped_already_eliminated += 1
             return False
 
+        now_ms = TimeUtil.now_in_millis()
         for position in sorted_positions:
             if self.shutdown_dict:
                 return False
             # Perform needed updates
-            if position.is_open_position or position.newest_order_age_ms <= RecentEventTracker.OLDEST_ALLOWED_RECORD_MS:
+            if self._position_is_candidate_for_price_correction(position, now_ms):
                 self._update_position_returns_and_persist_to_disk(hotkey, position, candle_data, position_locks)
 
 
