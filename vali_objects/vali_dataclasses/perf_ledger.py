@@ -7,13 +7,14 @@ from collections import defaultdict
 from copy import deepcopy
 from typing import List
 import bittensor as bt
-from time_util.time_util import MS_IN_8_HOURS, MS_IN_24_HOURS
+from setproctitle import setproctitle
 
-from pydantic import BaseModel
+from time_util.time_util import MS_IN_8_HOURS, MS_IN_24_HOURS, timeme
 
 from shared_objects.cache_controller import CacheController
-from shared_objects.retry import periodic_heartbeat
 from time_util.time_util import TimeUtil, UnifiedMarketCalendar
+from vali_objects.utils.elimination_manager import EliminationManager
+from vali_objects.utils.position_manager import PositionManager
 from vali_objects.vali_config import ValiConfig
 from vali_objects.position import Position
 from vali_objects.utils.live_price_fetcher import LivePriceFetcher
@@ -66,22 +67,23 @@ class FeeCache():
         return self.carry_fee
 
 
-class PerfCheckpointData:
-    def __init__(self, last_update_ms, prev_portfolio_ret, prev_portfolio_spread_fee=1.0, prev_portfolio_carry_fee=1.0,
-                 accum_ms=0, open_ms=0, n_updates=0, gain=0.0, loss=0.0, spread_fee_loss=0.0, carry_fee_loss=0.0, mdd=1.0, mpv=0.0):
-        self.last_update_ms = last_update_ms
-        self.prev_portfolio_ret = prev_portfolio_ret
-        self.prev_portfolio_spread_fee = prev_portfolio_spread_fee
-        self.prev_portfolio_carry_fee = prev_portfolio_carry_fee
-        self.accum_ms = accum_ms
-        self.open_ms = open_ms
-        self.n_updates = n_updates
-        self.gain = gain
-        self.loss = loss
-        self.spread_fee_loss = spread_fee_loss
-        self.carry_fee_loss = carry_fee_loss
-        self.mdd = mdd
-        self.mpv = mpv
+class PerfCheckpoint:
+    def __init__(self, last_update_ms:int, prev_portfolio_ret:float, prev_portfolio_spread_fee:float=1.0,
+                 prev_portfolio_carry_fee:float=1.0, accum_ms:int=0, open_ms:int=0, n_updates:int=0, gain:float=0.0,
+                 loss:float=0.0, spread_fee_loss:float=0.0, carry_fee_loss:float=0.0, mdd:float=1.0, mpv:float=0.0):
+        self.last_update_ms = int(last_update_ms)
+        self.prev_portfolio_ret = float(prev_portfolio_ret)
+        self.prev_portfolio_spread_fee = float(prev_portfolio_spread_fee)
+        self.prev_portfolio_carry_fee = float(prev_portfolio_carry_fee)
+        self.accum_ms = int(accum_ms)
+        self.open_ms = int(open_ms)
+        self.n_updates = int(n_updates)
+        self.gain = float(gain)
+        self.loss = float(loss)
+        self.spread_fee_loss = float(spread_fee_loss)
+        self.carry_fee_loss = float(carry_fee_loss)
+        self.mdd = float(mdd)
+        self.mpv = float(mpv)
 
     def __str__(self):
         return str(self.to_dict())
@@ -95,14 +97,16 @@ class PerfCheckpointData:
         return self.last_update_ms - self.accum_ms
 
 
-class PerfLedgerData:
-    def __init__(self, initialization_time_ms: int=0, max_return=1.0, target_cp_duration_ms=TARGET_CHECKPOINT_DURATION_MS, target_ledger_window_ms=TARGET_LEDGER_WINDOW_MS, cps=None):
+class PerfLedger():
+    def __init__(self, initialization_time_ms: int=0, max_return:float=1.0,
+                 target_cp_duration_ms:int=TARGET_CHECKPOINT_DURATION_MS,
+                 target_ledger_window_ms:int=TARGET_LEDGER_WINDOW_MS, cps: list[PerfCheckpoint]=None):
         if cps is None:
             cps = []
-        self.max_return = max_return
-        self.target_cp_duration_ms = target_cp_duration_ms
-        self.target_ledger_window_ms = target_ledger_window_ms
-        self.initialization_time_ms = initialization_time_ms
+        self.max_return = float(max_return)
+        self.target_cp_duration_ms = int(target_cp_duration_ms)
+        self.target_ledger_window_ms = int(target_ledger_window_ms)
+        self.initialization_time_ms = int(initialization_time_ms)
         self.cps = cps
 
     def to_dict(self):
@@ -113,6 +117,11 @@ class PerfLedgerData:
             "target_ledger_window_ms": self.target_ledger_window_ms,
             "cps": [cp.to_dict() for cp in self.cps]
         }
+
+    @classmethod
+    def from_dict(cls, x):
+        assert isinstance(x, dict), x
+        return cls(**x)
 
     @property
     def last_update_ms(self):
@@ -151,24 +160,24 @@ class PerfLedgerData:
         time_since_last_update_ms -= delta_accum_time_ms
         assert time_since_last_update_ms >= 0, (self.cps, time_since_last_update_ms)
         while time_since_last_update_ms > self.target_cp_duration_ms:
-            new_cp = PerfCheckpointData(last_update_ms=self.cps[-1].last_update_ms + self.target_cp_duration_ms,
-                                        prev_portfolio_ret=self.cps[-1].prev_portfolio_ret,
-                                        prev_portfolio_spread_fee=self.cps[-1].prev_portfolio_spread_fee,
-                                        prev_portfolio_carry_fee=self.cps[-1].prev_portfolio_carry_fee,
-                                        accum_ms=self.target_cp_duration_ms,
-                                        mdd=self.cps[-1].mdd,
-                                        mpv=self.cps[-1].prev_portfolio_ret)
+            new_cp = PerfCheckpoint(last_update_ms=self.cps[-1].last_update_ms + self.target_cp_duration_ms,
+                                    prev_portfolio_ret=self.cps[-1].prev_portfolio_ret,
+                                    prev_portfolio_spread_fee=self.cps[-1].prev_portfolio_spread_fee,
+                                    prev_portfolio_carry_fee=self.cps[-1].prev_portfolio_carry_fee,
+                                    accum_ms=self.target_cp_duration_ms,
+                                    mdd=self.cps[-1].mdd,
+                                    mpv=self.cps[-1].prev_portfolio_ret)
             assert new_cp.last_update_ms < now_ms, (self.cps, (now_ms - new_cp.last_update_ms))
             self.cps.append(new_cp)
             time_since_last_update_ms -= self.target_cp_duration_ms
 
         assert time_since_last_update_ms >= 0
-        new_cp = PerfCheckpointData(last_update_ms=self.cps[-1].last_update_ms,
-                                    prev_portfolio_ret=self.cps[-1].prev_portfolio_ret,
-                                    prev_portfolio_spread_fee=self.cps[-1].prev_portfolio_spread_fee,
-                                    prev_portfolio_carry_fee=self.cps[-1].prev_portfolio_carry_fee,
-                                    mdd=point_in_time_dd,
-                                    mpv=self.cps[-1].prev_portfolio_ret)
+        new_cp = PerfCheckpoint(last_update_ms=self.cps[-1].last_update_ms,
+                                prev_portfolio_ret=self.cps[-1].prev_portfolio_ret,
+                                prev_portfolio_spread_fee=self.cps[-1].prev_portfolio_spread_fee,
+                                prev_portfolio_carry_fee=self.cps[-1].prev_portfolio_carry_fee,
+                                mdd=point_in_time_dd,
+                                mpv=self.cps[-1].prev_portfolio_ret)
         assert new_cp.last_update_ms <= now_ms, self.cps
         self.cps.append(new_cp)
 
@@ -191,7 +200,7 @@ class PerfLedgerData:
         else:
             accum_ms_for_utc_alignment = order_processed_ms - midday_ms
 
-        new_cp = PerfCheckpointData(last_update_ms=order_processed_ms, prev_portfolio_ret=current_portfolio_value,
+        new_cp = PerfCheckpoint(last_update_ms=order_processed_ms, prev_portfolio_ret=current_portfolio_value,
                                     mdd=point_in_time_dd, prev_portfolio_spread_fee=current_portfolio_fee_spread,
                                     prev_portfolio_carry_fee=current_portfolio_carry, accum_ms=accum_ms_for_utc_alignment, mpv=1.0)
         self.cps.append(new_cp)
@@ -214,7 +223,7 @@ class PerfLedgerData:
 
         return self.cps[-1]
 
-    def update_accumulated_time(self, cp: PerfCheckpointData, now_ms: int, miner_hotkey: str, any_open: bool):
+    def update_accumulated_time(self, cp: PerfCheckpoint, now_ms: int, miner_hotkey: str, any_open: bool):
         accumulated_time = now_ms - cp.last_update_ms
         if accumulated_time < 0:
             bt.logging.error(f"Negative accumulated time: {accumulated_time} for miner {miner_hotkey}."
@@ -228,7 +237,7 @@ class PerfLedgerData:
     def compute_delta_between_ticks(self, cur: float, prev: float):
         return math.log(cur / prev)
 
-    def update_gains_losses(self, current_cp: PerfCheckpointData, current_portfolio_value: float,
+    def update_gains_losses(self, current_cp: PerfCheckpoint, current_portfolio_value: float,
                             current_portfolio_fee_spread: float, current_portfolio_carry: float, miner_hotkey: str):
         # TODO: leave as is?
         # current_portfolio_value = current_portfolio_value * current_portfolio_carry  # spread fee already applied
@@ -301,85 +310,26 @@ class PerfLedgerData:
     def get_total_ledger_duration_ms(self):
         return sum(cp.accum_ms for cp in self.cps)
 
-
-class PerfCheckpoint(BaseModel, PerfCheckpointData):
-    last_update_ms: int
-    prev_portfolio_ret: float
-    prev_portfolio_spread_fee: float = 1.0
-    prev_portfolio_carry_fee: float = 1.0
-
-    accum_ms: int = 0
-    open_ms: int = 0
-    n_updates: int = 0
-    gain: float = 0.0
-    loss: float = 0.0
-
-    spread_fee_loss: float = 0.0
-    carry_fee_loss: float = 0.0
-
-    mdd: float = 1.0
-    mpv: float = 0.0
-
-    def __str__(self):
-        return self.to_json_string()
-
-    def to_json_string(self) -> str:
-        # Using pydantic's json method with built-in validation
-        json_str = self.json()
-        # Unfortunately, we can't tell pydantic v1 to strip certain fields so we do that here
-        json_loaded = json.loads(json_str)
-        return json.dumps(json_loaded)
-
-    @classmethod
-    def from_data(cls, data: PerfCheckpointData):
-        return cls(**data.to_dict())
-
-
-class PerfLedger(BaseModel, PerfLedgerData):
-    initialization_time_ms: int = 0
-    max_return: float = 1.0
-    target_cp_duration_ms: int = TARGET_CHECKPOINT_DURATION_MS
-    target_ledger_window_ms: int = TARGET_LEDGER_WINDOW_MS
-    cps: list[PerfCheckpoint] = []
-
-    def __str__(self):
-        return self.to_json_string()
-
-    def to_json_string(self) -> str:
-        # Using pydantic's json method with built-in validation
-        json_str = self.json()
-        # Unfortunately, we can't tell pydantic v1 to strip certain fields so we do that here
-        json_loaded = json.loads(json_str)
-        return json.dumps(json_loaded)
-
-    @classmethod
-    def from_data(cls, data: PerfLedgerData):
-        cps = [PerfCheckpoint.from_data(cp) for cp in data.cps]
-        return cls(max_return=data.max_return, target_cp_duration_ms=data.target_cp_duration_ms,
-                   target_ledger_window_ms=data.target_ledger_window_ms, cps=cps,
-                   initialization_time_ms=data.initialization_time_ms)
-
-    @classmethod
-    def from_dict(self, data: dict):
-        return PerfLedger(max_return=data['max_return'], target_cp_duration_ms=data['target_cp_duration_ms'],
-                          target_ledger_window_ms=data['target_ledger_window_ms'], cps=data['cps'],
-                          initialization_time_ms=data.get('initialization_time_ms', 0))
-
-
 class PerfLedgerManager(CacheController):
-    def __init__(self, metagraph, live_price_fetcher=None, running_unit_tests=False, shutdown_dict=None, position_syncer=None):
+    def __init__(self, metagraph, ipc_manager=None, running_unit_tests=False, shutdown_dict=None,
+                 position_manager=None, perf_ledger_hks_to_invalidate=None, live_price_fetcher=None):
         super().__init__(metagraph=metagraph, running_unit_tests=running_unit_tests)
         self.shutdown_dict = shutdown_dict
-        self.position_syncer = position_syncer
-        self.live_price_fetcher = live_price_fetcher
-        self.running_unit_tests = running_unit_tests
-
-        if live_price_fetcher is None:
-            secrets = ValiUtils.get_secrets(running_unit_tests=running_unit_tests)
-            live_price_fetcher = LivePriceFetcher(secrets, disable_ws=True)
-            self.pds = live_price_fetcher.polygon_data_service
+        if perf_ledger_hks_to_invalidate:
+            self.perf_ledger_hks_to_invalidate = perf_ledger_hks_to_invalidate
         else:
-            self.pds = live_price_fetcher.polygon_data_service
+            self.perf_ledger_hks_to_invalidate = {}
+        if ipc_manager:
+            self.pl_elimination_rows = ipc_manager.list()
+            self.hotkey_to_perf_ledger = ipc_manager.dict()
+        else:
+            self.pl_elimination_rows = []
+            self.hotkey_to_perf_ledger = {}
+        self.running_unit_tests = running_unit_tests
+        self.position_manager = position_manager
+        self.pds = None  # Not pickable. Load it later once the process starts
+        self.live_price_fetcher = live_price_fetcher  # For unit tests only
+
         # Every update, pick a hotkey to rebuild in case polygon 1s candle data changed.
         self.trade_pair_to_price_info = {}
         self.trade_pair_to_position_ret = {}
@@ -394,13 +344,19 @@ class PerfLedgerManager(CacheController):
         #self.base_dd_stats = {'worst_dd':1.0, 'last_dd':0, 'mrpv':1.0, 'n_closed_pos':0, 'n_checks':0, 'current_portfolio_return': 1.0}
         #self.hk_to_dd_stats = defaultdict(lambda: deepcopy(self.base_dd_stats))
         self.n_price_corrections = 0
-        self.elimination_rows = []
+        # ipc list does not update the object without using __setitem__
+        temp = self.get_perf_ledger_eliminations(first_fetch=True)
+        self.pl_elimination_rows.extend(temp)
+        for i, x in enumerate(temp):
+            self.pl_elimination_rows[i] = x
+        self.candidate_pl_elimination_rows = []
         self.hk_to_last_order_processed_ms = {}
         self.position_uuid_to_cache = defaultdict(FeeCache)
         self.hotkey_to_checkpointed_ledger = {}
+        self.get_perf_ledgers_from_memory(first_fetch=True)
 
-
-    def load_perf_ledgers_from_disk(self, read_as_pydantic=True) -> dict[str, PerfLedgerData]:
+    @timeme
+    def get_perf_ledgers_from_disk(self) -> dict[str, PerfLedger]:
         file_path = ValiBkpUtils.get_perf_ledgers_path(self.running_unit_tests)
         if not os.path.exists(file_path):
             return {}
@@ -410,33 +366,21 @@ class PerfLedgerManager(CacheController):
 
         perf_ledgers = {}
         for key, ledger_data in data.items():
-            if read_as_pydantic:
-                ledger_data['cps'] = [PerfCheckpoint(**cp) for cp in ledger_data['cps']]
-                perf_ledgers[key] = PerfLedger(**ledger_data)
-            else:
-                ledger_data['cps'] = [PerfCheckpointData(**cp) for cp in ledger_data['cps']]
-                perf_ledgers[key] = PerfLedgerData(**ledger_data)
+            ledger_data['cps'] = [PerfCheckpoint(**cp) for cp in ledger_data['cps']]
+            perf_ledgers[key] = PerfLedger(**ledger_data)
 
         return perf_ledgers
-
-    def write_perf_ledgers_to_disk(self, perf_ledgers: dict[str, PerfLedgerData], write_as_pydantic=True):
-        file_path = ValiBkpUtils.get_perf_ledgers_path(self.running_unit_tests)
-
-        data = {}
-        for key, ledger in perf_ledgers.items():
-            ledger_data = ledger.to_dict() if write_as_pydantic else ledger.to_dict()
-            ledger_data['cps'] = [cp.dict() if write_as_pydantic else cp.to_dict() for cp in ledger_data['cps']]
-            data[key] = ledger_data
-
-        ValiBkpUtils.write_file(file_path, data)
 
     def clear_perf_ledgers_from_disk(self):
         file_path = ValiBkpUtils.get_perf_ledgers_path(self.running_unit_tests)
         if os.path.exists(file_path):
             ValiBkpUtils.write_file(file_path, {})
+        for k in list(self.hotkey_to_perf_ledger.keys()):
+            del self.hotkey_to_perf_ledger[k]
 
-    @periodic_heartbeat(interval=600, message="perf ledger run_update_loop still running...")
     def run_update_loop(self):
+        setproctitle(f"vali_{self.__class__.__name__}")
+        bt.logging.enable_info()
         while not self.shutdown_dict:
             try:
                 if self.refresh_allowed(ValiConfig.PERF_LEDGER_REFRESH_TIME_MS):
@@ -511,8 +455,7 @@ class PerfLedgerManager(CacheController):
         return max_cuml_return_so_far
 
     def _can_shortcut(self, tp_to_historical_positions: dict[str: Position], end_time_ms: int,
-                      realtime_position_to_pop: Position | None, start_time_ms: int, perf_ledger: PerfLedgerData) -> (bool, float, float, float):
-
+                      realtime_position_to_pop: Position | None, start_time_ms: int, perf_ledger: PerfLedger) -> (bool, float, float, float):
         portfolio_value = 1.0
         portfolio_spread_fee = 1.0
         portfolio_carry_fee = 1.0
@@ -624,6 +567,11 @@ class PerfLedgerManager(CacheController):
 
         #t0 = time.time()
         #print(f"Starting #{requested_seconds} candle fetch for {tp.trade_pair}")
+        if self.pds is None:
+            secrets = ValiUtils.get_secrets(running_unit_tests=self.running_unit_tests)
+            live_price_fetcher = LivePriceFetcher(secrets, disable_ws=True)
+            self.pds = live_price_fetcher.polygon_data_service
+
         price_info_raw = self.pds.get_candles_for_trade_pair_simple(
             trade_pair=tp, start_timestamp_ms=start_time_ms, end_timestamp_ms=end_time_ms)
         self.n_api_calls += 1
@@ -720,7 +668,8 @@ class PerfLedgerManager(CacheController):
         if portfolio_return == 0:
             bt.logging.warning(f"Portfolio value is {portfolio_return} for miner {miner_hotkey} at {t_ms}. Eliminating miner.")
             elimination_row = self.generate_elimination_row(miner_hotkey, 0.0, 'LIQUIDATED', t_ms=t_ms, price_info=self.tp_to_last_price, return_info={'dd_stats': {}, 'returns': self.trade_pair_to_position_ret})
-            self.elimination_rows.append(elimination_row)
+            self.candidate_pl_elimination_rows.append(elimination_row)
+            self.candidate_pl_elimination_rows[-1] = elimination_row  # Trigger the update on the multiprocessing Manager
             #self.hk_to_dd_stats[miner_hotkey]['eliminated'] = True
             for _, v in tp_to_historical_positions.items():
                 for pos in v:
@@ -760,7 +709,7 @@ class PerfLedgerManager(CacheController):
             tp_to_historical_positions_dense[tp] = dense_positions
         return portfolio_return, portfolio_spread_fee, portfolio_carry_fee, tp_to_historical_positions_dense
 
-    def build_perf_ledger(self, perf_ledger: PerfLedgerData, tp_to_historical_positions: dict[str: Position], start_time_ms, end_time_ms, miner_hotkey, realtime_position_to_pop) -> bool:
+    def build_perf_ledger(self, perf_ledger: PerfLedger, tp_to_historical_positions: dict[str: Position], start_time_ms, end_time_ms, miner_hotkey, realtime_position_to_pop) -> bool:
         #print(f"Building perf ledger for {miner_hotkey} from {start_time_ms} to {end_time_ms} ({(end_time_ms - start_time_ms) // 1000} s)")
         if len(perf_ledger.cps) == 0:
             perf_ledger.init_with_first_order(end_time_ms, point_in_time_dd=1.0, current_portfolio_value=1.0,
@@ -816,7 +765,7 @@ class PerfLedgerManager(CacheController):
         return False
 
     def update_one_perf_ledger(self, hotkey_i: int, n_hotkeys: int, hotkey: str, positions: List[Position], now_ms:int,
-                               existing_perf_ledgers: dict[str, PerfLedgerData]) -> None:
+                               existing_perf_ledgers: dict[str, PerfLedger]) -> None:
 
         eliminated = False
         self.n_api_calls = 0
@@ -827,7 +776,7 @@ class PerfLedgerManager(CacheController):
             first_order_time_ms = float('inf')
             for p in positions:
                 first_order_time_ms = min(first_order_time_ms, p.orders[0].processed_ms)
-            perf_ledger_candidate = PerfLedgerData(
+            perf_ledger_candidate = PerfLedger(
                 initialization_time_ms = first_order_time_ms if first_order_time_ms != float('inf') else 0)
             verbose = True
         else:
@@ -919,7 +868,7 @@ class PerfLedgerManager(CacheController):
         total_product = perf_ledger_candidate.get_total_product()
         last_portfolio_value = perf_ledger_candidate.prev_portfolio_ret
         if verbose:
-            bt.logging.info(
+            bt.logging.success(
                 f"Done updating perf ledger for {hotkey} {hotkey_i + 1}/{n_hotkeys} in {time.time() - t0} "
                 f"(s). Lag: {lag} (s). Total product: {total_product}. Last portfolio value: {last_portfolio_value}."
                 f" n_api_calls: {self.n_api_calls} dd stats {None}. n_price_corrections {self.n_price_corrections}"
@@ -929,12 +878,26 @@ class PerfLedgerManager(CacheController):
         # Write candidate at the very end in case an exception leads to a partial update
         existing_perf_ledgers[hotkey] = perf_ledger_candidate
 
+    @timeme
+    def write_perf_ledger_eliminations_to_disk(self, eliminations):
+        output_location = ValiBkpUtils.get_perf_ledger_eliminations_dir(running_unit_tests=self.running_unit_tests)
+        ValiBkpUtils.write_file(output_location, eliminations)
+
+    def get_perf_ledger_eliminations(self, first_fetch=False):
+        if first_fetch:
+            location = ValiBkpUtils.get_perf_ledger_eliminations_dir(running_unit_tests=self.running_unit_tests)
+            cached_eliminations = ValiUtils.get_vali_json_file(location)
+            return cached_eliminations
+        else:
+            return self.pl_elimination_rows
+
+
     def update_all_perf_ledgers(self, hotkey_to_positions: dict[str, List[Position]],
-                                existing_perf_ledgers: dict[str, PerfLedgerData],
-                                now_ms: int, return_dict=False) -> None | dict[str, PerfLedgerData]:
+                                existing_perf_ledgers: dict[str, PerfLedger],
+                                now_ms: int) -> None | dict[str, PerfLedger]:
         t_init = time.time()
         self.now_ms = now_ms
-        self.elimination_rows = []
+        self.candidate_pl_elimination_rows = []
         n_hotkeys = len(hotkey_to_positions)
         for hotkey_i, (hotkey, positions) in enumerate(hotkey_to_positions.items()):
             try:
@@ -946,16 +909,19 @@ class PerfLedgerManager(CacheController):
 
         n_perf_ledgers = len(existing_perf_ledgers) if existing_perf_ledgers else 0
         n_hotkeys_with_positions = len(hotkey_to_positions) if hotkey_to_positions else 0
-        bt.logging.info(f"Done updating perf ledger for all hotkeys in {time.time() - t_init} s. n_perf_ledgers {n_perf_ledgers}. n_hotkeys_with_positions {n_hotkeys_with_positions}")
-        self.write_perf_ledger_eliminations_to_disk(self.elimination_rows)
+        bt.logging.success(f"Done updating perf ledger for all hotkeys in {time.time() - t_init} s. n_perf_ledgers {n_perf_ledgers}. n_hotkeys_with_positions {n_hotkeys_with_positions}")
+        self.write_perf_ledger_eliminations_to_disk(self.candidate_pl_elimination_rows)
+        # clear and populate proxy list in a multiprocessing-friendly way
+        del self.pl_elimination_rows[:]
+        self.pl_elimination_rows.extend(self.candidate_pl_elimination_rows)
+        for i, x in enumerate(self.candidate_pl_elimination_rows):
+            self.pl_elimination_rows[i] = x
 
         if self.shutdown_dict:
             return
 
-        if return_dict:
-            return existing_perf_ledgers
-        else:
-            self.save_perf_ledgers_to_disk(existing_perf_ledgers)
+        # Already updated in memory
+        self.save_perf_ledgers(existing_perf_ledgers)
 
     def get_positions_perf_ledger(self, testing_one_hotkey=None):
         """
@@ -964,20 +930,23 @@ class PerfLedgerManager(CacheController):
         #testing_one_hotkey = '5GzYKUYSD5d7TJfK4jsawtmS2bZDgFuUYw8kdLdnEDxSykTU'
         hotkeys_with_no_positions = set()
         if testing_one_hotkey:
-            hotkey_to_positions = self.get_all_miner_positions_by_hotkey(
+            hotkey_to_positions = self.position_manager.get_positions_for_hotkeys(
                 [testing_one_hotkey], sort_positions=True
             )
         else:
-            hotkey_to_positions = self.get_all_miner_positions_by_hotkey(
-                self.metagraph.hotkeys, sort_positions=True,
-                eliminations=self.eliminations
+            hotkey_to_positions = self.position_manager.get_positions_for_all_miners(sort_positions=True,
+                eliminations=self.position_manager.elimination_manager.get_eliminations_from_memory()
             )
+            n_positions_total = 0
             # Keep only hotkeys with positions
             for k, positions in hotkey_to_positions.items():
-                if len(positions) == 0:
+                n_positions = len(positions)
+                n_positions_total += n_positions
+                if n_positions == 0:
                     hotkeys_with_no_positions.add(k)
             for k in hotkeys_with_no_positions:
                 del hotkey_to_positions[k]
+            bt.logging.info('TEMP DEBUG: TOTAL N POSITIONS IN MEMORY: ' + str(n_positions_total))
 
         return hotkey_to_positions, hotkeys_with_no_positions
 
@@ -985,13 +954,19 @@ class PerfLedgerManager(CacheController):
         if t_ms is None:
             t_ms = TimeUtil.now_in_millis()  # Time to build the perf ledgers up to. Goes back 30 days from this time.
         existing_perf_ledgers = {}
-        ans_data = self.update_all_perf_ledgers(hotkey_to_positions, existing_perf_ledgers, t_ms, return_dict=True)
-        ans_pydantic = {k: PerfLedger.from_data(v) for k, v in ans_data.items()}
-        return ans_pydantic
+        self.update_all_perf_ledgers(hotkey_to_positions, existing_perf_ledgers, t_ms)
+        return existing_perf_ledgers
+
+
+    def get_perf_ledgers_from_memory(self, first_fetch=False):
+        if first_fetch:
+            self.hotkey_to_perf_ledger.update(self.get_perf_ledgers_from_disk())
+        return self.hotkey_to_perf_ledger
 
     def update(self, testing_one_hotkey=None, regenerate_all_ledgers=False):
-        perf_ledgers = self.load_perf_ledgers_from_disk(read_as_pydantic=False)
-        self._refresh_eliminations_in_memory()
+        assert self.position_manager.elimination_manager.metagraph, "Metagraph must be loaded before updating perf ledgers"
+        assert self.metagraph, "Metagraph must be loaded before updating perf ledgers"
+        perf_ledgers = deepcopy(self.get_perf_ledgers_from_memory())
         t_ms = TimeUtil.now_in_millis() - self.UPDATE_LOOKBACK_MS
         """
         tt = 1734279788000
@@ -1017,7 +992,7 @@ class PerfLedgerManager(CacheController):
         # Sort the keys with the custom sort key
         hotkeys_ordered_by_last_trade = sorted(hotkey_to_positions.keys(), key=sort_key, reverse=True)
 
-        eliminated_hotkeys = self.get_eliminated_hotkeys()
+        eliminated_hotkeys = self.position_manager.elimination_manager.get_eliminated_hotkeys()
 
         # Remove keys from perf ledgers if they aren't in the metagraph anymore
         metagraph_hotkeys = set(self.metagraph.hotkeys)
@@ -1048,14 +1023,17 @@ class PerfLedgerManager(CacheController):
             self.random_security_screenings = set()
 
         # Regenerate checkpoints if a hotkey was modified during position sync
-        attempting_invalidations = bool(self.position_syncer) and bool(self.position_syncer.perf_ledger_hks_to_invalidate)
+        attempting_invalidations = bool(self.perf_ledger_hks_to_invalidate)
         if attempting_invalidations:
-            for hk, t in self.position_syncer.perf_ledger_hks_to_invalidate.items():
+            for hk, t in self.perf_ledger_hks_to_invalidate.items():
                 hotkeys_to_delete.add(hk)
                 bt.logging.info(f"perf ledger invalidated for hk {hk} due to position sync at time {t}")
 
-        perf_ledgers = {k: v for k, v in perf_ledgers.items() if k not in hotkeys_to_delete}
+        for k in hotkeys_to_delete:
+            del perf_ledgers[k]
+
         self.hk_to_last_order_processed_ms = {k: v for k, v in self.hk_to_last_order_processed_ms.items() if k not in hotkeys_to_delete}
+
         #hk_to_last_update_date = {k: TimeUtil.millis_to_formatted_date_str(v.last_update_ms)
         #                            if v.last_update_ms else 'N/A' for k, v in perf_ledgers.items()}
 
@@ -1063,16 +1041,17 @@ class PerfLedgerManager(CacheController):
 
         if regenerate_all_ledgers or testing_one_hotkey:
             bt.logging.info("Regenerating all perf ledgers")
-            perf_ledgers = {}
+            for k in list(perf_ledgers.keys()):
+                del perf_ledgers[k]
 
         self.restore_out_of_sync_ledgers(perf_ledgers, hotkey_to_positions)
 
         # Time in the past to start updating the perf ledgers
-        self.update_all_perf_ledgers(hotkey_to_positions, perf_ledgers, t_ms, return_dict=bool(testing_one_hotkey))
+        self.update_all_perf_ledgers(hotkey_to_positions, perf_ledgers, t_ms)
 
         # Clear invalidations after successful update. Prevent race condition by only clearing if we attempted invalidations.
         if attempting_invalidations:
-            self.position_syncer.perf_ledger_hks_to_invalidate = {}
+            self.perf_ledger_hks_to_invalidate.clear()
 
         if testing_one_hotkey:
             ledger = perf_ledgers[testing_one_hotkey]
@@ -1103,17 +1082,24 @@ class PerfLedgerManager(CacheController):
             plt.legend(['Return', 'Drawdown'])
             plt.show()
 
-    def save_perf_ledgers_to_disk(self, perf_ledgers: dict[str, PerfLedgerData] | dict[str, dict], raw_json=False):
-        # Convert to PerfLedger (pydantic validation)
-        if raw_json:
-            pydantic_perf_ledgers = {key: PerfLedger.from_dict(value) for key, value in perf_ledgers.items()}
-        else:
-            pydantic_perf_ledgers = {key: PerfLedger.from_data(value) for key, value in perf_ledgers.items()}
+    def save_perf_ledgers_to_disk(self, perf_ledgers):
         file_path = ValiBkpUtils.get_perf_ledgers_path(self.running_unit_tests)
-        ValiBkpUtils.write_to_dir(file_path, pydantic_perf_ledgers)
+        ValiBkpUtils.write_to_dir(file_path, perf_ledgers)
+
+    @timeme
+    def save_perf_ledgers(self, perf_ledgers_copy: dict[str, PerfLedger] | dict[str, dict]):
+        self.save_perf_ledgers_to_disk(perf_ledgers_copy)
+
+        # Update memory
+        for k in list(self.hotkey_to_perf_ledger.keys()):
+            if k not in perf_ledgers_copy:
+                del self.hotkey_to_perf_ledger[k]
+
+        for k, v in perf_ledgers_copy.items():
+            self.hotkey_to_perf_ledger[k] = v
 
     def print_perf_ledgers_on_disk(self):
-        perf_ledgers = self.load_perf_ledgers_from_disk()
+        perf_ledgers = self.get_perf_ledgers_from_memory()
         for hotkey, perf_ledger in perf_ledgers.items():
             print(f"perf ledger for {hotkey}")
             print('    total gain product', perf_ledger.get_product_of_gains())
@@ -1153,7 +1139,7 @@ class PerfLedgerManager(CacheController):
                 existing_perf_ledgers[hk] = self.hotkey_to_checkpointed_ledger[hk]
                 n_hotkeys_recovered += 1
             else:
-                existing_perf_ledgers.pop(hk)  # Full regeneration needed
+                del existing_perf_ledgers[hk] # Full regeneration needed
         if hotkeys_needing_recovery:
             bt.logging.info(f"Recovered {n_hotkeys_recovered} / {len(hotkeys_needing_recovery)} perf ledgers for out of sync hotkeys")
 
@@ -1168,6 +1154,8 @@ if __name__ == "__main__":
     all_miners_dir = ValiBkpUtils.get_miner_dir(running_unit_tests=False)
     all_hotkeys_on_disk = CacheController.get_directory_names(all_miners_dir)
     mmg = MockMetagraph(hotkeys=all_hotkeys_on_disk)
-    perf_ledger_manager = PerfLedgerManager(metagraph=mmg, running_unit_tests=False)
+    elimination_manager = EliminationManager(mmg, None, None)
+    position_manager = PositionManager(metagraph=mmg, running_unit_tests=False, elimination_manager=elimination_manager)
+    perf_ledger_manager = PerfLedgerManager(mmg, running_unit_tests=False, position_manager=position_manager)
     perf_ledger_manager.update(testing_one_hotkey='5FWa35Ye9fy1VzWUgS9bvzcTXLDzKaybZ8wL9eER3g1Mu291')
     #perf_ledger_manager.update(regenerate_all_ledgers=True)

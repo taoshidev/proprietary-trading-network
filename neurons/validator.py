@@ -2,12 +2,16 @@
 # Copyright © 2024 Yuma Rao
 # developer: Taoshidev
 # Copyright © 2024 Taoshi Inc
-
+import multiprocessing
 import os
 import sys
 import threading
 import signal
 import uuid
+
+from setproctitle import setproctitle
+from shared_objects.sn8_multiprocessing import get_ipc_metagraph
+from multiprocessing import Manager
 from typing import Tuple
 from enum import Enum
 
@@ -20,11 +24,13 @@ import json
 import gzip
 import base64
 
-from runnable.generate_request_core import generate_request_core
-from runnable.generate_request_minerstatistics import generate_miner_statistics_data
+from runnable.generate_request_core import RequestCoreManager
+from runnable.generate_request_minerstatistics import MinerStatisticsManager
+from runnable.generate_request_outputs import RequestOutputGenerator
 from vali_objects.utils.auto_sync import PositionSyncer
 from vali_objects.utils.p2p_syncer import P2PSyncer
 from shared_objects.rate_limiter import RateLimiter
+from vali_objects.utils.position_lock import PositionLocks
 from vali_objects.utils.timestamp_manager import TimestampManager
 from vali_objects.uuid_tracker import UUIDTracker
 from time_util.time_util import TimeUtil
@@ -82,6 +88,7 @@ signal.signal(signal.SIGALRM, alarm_handler)
 
 class Validator:
     def __init__(self):
+        setproctitle(f"vali_{self.__class__.__name__}")
         # Try to read the file meta/meta.json and print it out
         try:
             with open("meta/meta.json", "r") as f:
@@ -111,7 +118,10 @@ class Validator:
                 "validation/miner_secrets.json. Please ensure it exists"
             )
 
-        self.live_price_fetcher = LivePriceFetcher(secrets=self.secrets)
+        # 1. Initialize Manager for shared state
+        self.ipc_manager = Manager()
+
+        self.live_price_fetcher = LivePriceFetcher(secrets=self.secrets, disable_ws=False, ipc_manager=self.ipc_manager)   # REMOVE ME (disable_ws) @@@@@@@@@@@@@@
         # Activating Bittensor's logging with the set configurations.
         bt.logging(config=self.config, logging_dir=self.config.full_path)
         bt.logging.info(
@@ -128,66 +138,92 @@ class Validator:
 
         # Wallet holds cryptographic information, ensuring secure transactions and communication.
         self.wallet = bt.wallet(config=self.config)
+        self.subtensor = bt.subtensor(config=self.config)
         bt.logging.info(f"Wallet: {self.wallet}")
 
         # subtensor manages the blockchain connection, facilitating interaction with the Bittensor blockchain.
-        subtensor = bt.subtensor(config=self.config)
-        bt.logging.info(f"Subtensor: {subtensor}")
-
+        bt.logging.info(f"Subtensor: {self.subtensor}")
 
         # metagraph provides the network's current state, holding state about other participants in a subnet.
         # IMPORTANT: Only update this variable in-place. Otherwise, the reference will be lost in the helper classes.
-        self.metagraph = subtensor.metagraph(self.config.netuid)
-        bt.logging.info(f"Metagraph: {self.metagraph}")
-
-        #force_validator_to_restore_from_checkpoint(self.wallet.hotkey.ss58_address, self.metagraph, self.config, self.secrets)
-
-        self.position_syncer = PositionSyncer(shutdown_dict=shutdown_dict, signal_sync_lock=self.signal_sync_lock,
-                                              signal_sync_condition=self.signal_sync_condition,
-                                              n_orders_being_processed=self.n_orders_being_processed,
-                                              auto_sync_enabled=self.auto_sync)
-        self.p2p_syncer = P2PSyncer(wallet=self.wallet, metagraph=self.metagraph, is_testnet=not self.is_mainnet,
-                                    shutdown_dict=shutdown_dict, signal_sync_lock=self.signal_sync_lock,
-                                    signal_sync_condition=self.signal_sync_condition,
-                                    n_orders_being_processed=self.n_orders_being_processed
-                                    )
-
-        self.position_manager = PositionManager(metagraph=self.metagraph, config=self.config,
-                                                perform_price_adjustment=False,
-                                                live_price_fetcher=self.live_price_fetcher,
-                                                perform_fee_structure_update=False,
-                                                perform_order_corrections=True,
-                                                apply_corrections_template=False,
-                                                perform_compaction=True)
-
+        self.metagraph = get_ipc_metagraph(self.ipc_manager)
 
         self.metagraph_updater = MetagraphUpdater(self.config, self.metagraph, self.wallet.hotkey.ss58_address,
-                                                  False, position_manager=self.position_manager,
+                                                  False, position_manager=None,
                                                   shutdown_dict=shutdown_dict)
+        self.metagraph_updater.update_metagraph()
 
         # Start the metagraph updater loop in its own thread
         self.metagraph_updater_thread = threading.Thread(target=self.metagraph_updater.run_update_loop, daemon=True)
         self.metagraph_updater_thread.start()
 
+        self.position_locks = PositionLocks()
+        self.elimination_manager = EliminationManager(self.metagraph, None,  # Set after self.pm creation
+                                                      None, shutdown_dict=shutdown_dict,
+                                                      ipc_manager=self.ipc_manager)
+
+        self.position_syncer = PositionSyncer(shutdown_dict=shutdown_dict, signal_sync_lock=self.signal_sync_lock,
+                                              signal_sync_condition=self.signal_sync_condition,
+                                              n_orders_being_processed=self.n_orders_being_processed,
+                                              ipc_manager=self.ipc_manager,
+                                              position_manager=None,
+                                              auto_sync_enabled=self.auto_sync)  # Set after self.pm creation
+
+        self.p2p_syncer = P2PSyncer(wallet=self.wallet, metagraph=self.metagraph, is_testnet=not self.is_mainnet,
+                                    shutdown_dict=shutdown_dict, signal_sync_lock=self.signal_sync_lock,
+                                    signal_sync_condition=self.signal_sync_condition,
+                                    n_orders_being_processed=self.n_orders_being_processed,
+                                    ipc_manager=self.ipc_manager,
+                                    position_manager=None)  # Set after self.pm creation
 
 
-        if self.wallet.hotkey.ss58_address not in self.metagraph.hotkeys:
-            bt.logging.error(
-                f"\nYour validator: {self.wallet} is not registered to chain "
-                f"connection: {subtensor} \nRun btcli register and try again. "
-            )
-            exit()
+        self.perf_ledger_manager = PerfLedgerManager(self.metagraph, ipc_manager=self.ipc_manager,
+                                                     shutdown_dict=shutdown_dict,
+                                                     perf_ledger_hks_to_invalidate=self.position_syncer.perf_ledger_hks_to_invalidate,
+                                                     position_manager=None)  # Set after self.pm creation
 
+
+        self.position_manager = PositionManager(metagraph=self.metagraph,
+                                                perform_order_corrections=True,
+                                                perform_compaction=True,
+                                                ipc_manager=self.ipc_manager,
+                                                perf_ledger_manager=self.perf_ledger_manager,
+                                                elimination_manager=self.elimination_manager,
+                                                challengeperiod_manager=None,
+                                                secrets=self.secrets)
+
+        self.challengeperiod_manager = ChallengePeriodManager(self.metagraph,
+                                                              perf_ledger_manager=self.perf_ledger_manager,
+                                                              position_manager=self.position_manager,
+                                                              ipc_manager=self.ipc_manager)
+
+        # Attach the position manager to the other objects that need it
+        for idx, obj in enumerate([self.perf_ledger_manager, self.position_manager, self.position_syncer,
+                                   self.p2p_syncer, self.elimination_manager, self.metagraph_updater]):
+            obj.position_manager = self.position_manager
+
+        self.position_manager.challengeperiod_manager = self.challengeperiod_manager
+
+        #force_validator_to_restore_from_checkpoint(self.wallet.hotkey.ss58_address, self.metagraph, self.config, self.secrets)
+
+        self.elimination_manager.challengeperiod_manager = self.challengeperiod_manager
+        self.position_manager.perf_ledger_manager = self.perf_ledger_manager
+
+        self.position_manager.pre_run_setup()
 
         self.checkpoint_lock = threading.Lock()
         self.encoded_checkpoint = ""
         self.last_checkpoint_time = 0
-        self.timestamp_manager = TimestampManager(config=self.config, metagraph=self.metagraph, hotkey=self.wallet.hotkey.ss58_address)
+        self.timestamp_manager = TimestampManager(metagraph=self.metagraph,
+                                                  hotkey=self.wallet.hotkey.ss58_address)
 
-        self.perf_ledger_manager = PerfLedgerManager(self.metagraph, shutdown_dict=shutdown_dict, position_syncer=self.position_syncer)
-        # Start the perf ledger updater loop in its own thread
-        self.perf_ledger_updater_thread = threading.Thread(target=self.perf_ledger_manager.run_update_loop, daemon=True)
-        self.perf_ledger_updater_thread.start()
+        bt.logging.info(f"Metagraph n_entries: {len(self.metagraph.hotkeys)}")
+        if self.wallet.hotkey.ss58_address not in self.metagraph.hotkeys:
+            bt.logging.error(
+                f"\nYour validator: {self.wallet} is not registered to chain "
+                f"connection: {self.subtensor} \nRun btcli register and try again. "
+            )
+            exit()
 
         # Build and link vali functions to the axon.
         # The axon handles request processing, allowing validators to send this process requests.
@@ -257,14 +293,11 @@ class Validator:
             f"Serving attached axons on network:"
             f" {self.config.subtensor.chain_endpoint} with netuid: {self.config.netuid}"
         )
-        self.axon.serve(netuid=self.config.netuid, subtensor=subtensor)
+        self.axon.serve(netuid=self.config.netuid, subtensor=self.subtensor)
 
         # Starts the miner's axon, making it active on the network.
         bt.logging.info(f"Starting axon server on port: {self.config.axon.port}")
         self.axon.start()
-
-        # see if cache files exist and if not set them to empty
-        self.position_manager.init_cache_files()
 
         # Each hotkey gets a unique identity (UID) in the network for differentiation.
         my_subnet_uid = self.metagraph.hotkeys.index(self.wallet.hotkey.ss58_address)
@@ -274,19 +307,53 @@ class Validator:
         # Eliminations are written in elimination_manager, mdd_checker
         # Since the mainloop is run synchronously, we just need to lock eliminations when writing to them and when
         # reading outside of the mainloop (validator).
-        self.eliminations_lock = threading.Lock()
-        self.plagiarism_detector = PlagiarismDetector(self.config, self.metagraph, shutdown_dict=shutdown_dict)
+        self.plagiarism_detector = PlagiarismDetector(self.metagraph, shutdown_dict=shutdown_dict,
+                                                      position_manager=self.position_manager)
         # Start the plagiarism detector in its own thread
-        self.plagiarism_thread = threading.Thread(target=self.plagiarism_detector.run_update_loop, daemon=True)
+        self.ctx = multiprocessing.get_context("spawn")
+        self.plagiarism_thread = self.ctx.Process(target=self.plagiarism_detector.run_update_loop, daemon=True)
         self.plagiarism_thread.start()
 
-        self.mdd_checker = MDDChecker(self.config, self.metagraph, self.position_manager, self.eliminations_lock,
-                                      live_price_fetcher=self.live_price_fetcher, shutdown_dict=shutdown_dict)
-        self.weight_setter = SubtensorWeightSetter(self.config, self.wallet, self.metagraph)
-        self.challengeperiod_manager = ChallengePeriodManager(self.config, self.metagraph)
+        self.mdd_checker = MDDChecker(self.metagraph, self.position_manager, live_price_fetcher=self.live_price_fetcher,
+                                      shutdown_dict=shutdown_dict)
+        self.weight_setter = SubtensorWeightSetter(self.config, self.metagraph, position_manager=self.position_manager)
 
-        self.elimination_manager = EliminationManager(self.metagraph, self.position_manager, self.eliminations_lock)
+        self.request_core_manager = RequestCoreManager(self.position_manager, self.weight_setter, self.plagiarism_detector)
+        self.miner_statistics_manager = MinerStatisticsManager(self.position_manager, self.weight_setter, self.plagiarism_detector)
 
+        # Start the perf ledger updater loop in its own process. Make sure it happens after the position manager has chances to make any fixes
+
+        """
+        import multiprocessing
+        import logging
+
+        multiprocessing.log_to_stderr()
+        logger = multiprocessing.get_logger()
+        logger.setLevel(logging.DEBUG)
+        def test_picklability(obj, do, obj_name="Object", ):
+            import pickle
+
+            try:
+                pickle.dumps(obj)
+                #print(f"[PASS] {obj_name} is picklable.")
+            except Exception as e:
+                print(f"[FAIL] {obj_name} is NOT picklable. Reason: {e}")
+                if hasattr(obj, '__dict__'):
+                    for attr_name, attr_value in vars(obj).items():
+                        if attr_name not in do:
+                            do.add(attr_name)
+                            test_picklability(attr_value, do,f"{obj_name}.{attr_name}")
+        do = set()
+        """
+        self.perf_ledger_updater_thread = self.ctx.Process(target=self.perf_ledger_manager.run_update_loop, daemon=True)
+        self.perf_ledger_updater_thread.start()
+
+        if self.config.start_generate:
+            self.rog = RequestOutputGenerator(rcm=self.request_core_manager, msm=self.miner_statistics_manager)
+            self.rog_thread = threading.Thread(target=self.rog.start_generation, daemon=True)
+            self.rog_thread.start()
+        else:
+            self.rog_thread = None
         # Validators on mainnet net to be syned for the first time or after interruption need to resync their
         # positions. Assert there are existing orders that occurred > 24hrs in the past. Assert that the newest order
         # was placed within 24 hours.
@@ -336,6 +403,7 @@ class Validator:
         )
         return priority
 
+
     def get_config(self):
         # Step 2: Set up the configuration parser
         # This function initializes the necessary command-line arguments.
@@ -344,6 +412,9 @@ class Validator:
         # Set autosync to store true if flagged, otherwise defaults to False.
         parser.add_argument("--autosync", action='store_true',
                             help="Automatically sync order data with a validator trusted by Taoshi.")
+        # Set run_generate to store true if flagged, otherwise defaults to False.
+        parser.add_argument("--start-generate", action='store_true', dest='start_generate',
+                            help="Run the request output generator.")
         # (developer): Adds your custom arguments to the parser.
         # Adds override arguments for network and netuid.
         parser.add_argument("--netuid", type=int, default=1, help="The chain subnet uid.")
@@ -394,6 +465,9 @@ class Validator:
         self.perf_ledger_updater_thread.join()
         bt.logging.warning("Stopping plagiarism detector...")
         self.plagiarism_thread.join()
+        if self.rog_thread:
+            bt.logging.warning("Stopping request output generator...")
+            self.rog_thread.join()
         signal.alarm(0)
         print("Graceful shutdown completed")
         sys.exit(0)
@@ -404,13 +478,18 @@ class Validator:
         bt.logging.info("Starting main loop")
         while not shutdown_dict:
             try:
+                #hotkey_to_positions = self.position_manager.get_positions_for_hotkeys(
+                #    self.metagraph.hotkeys, sort_positions=True).values()
+                #hotkey_to_perf_ledger = self.perf_ledger_manager.load_perf_ledgers_from_memory()
+
+                #print(f'@@@ {len(self.metagraph.hotkeys)} self.hktp {len(self.position_manager.hotkey_to_positions)} self.hktpl {self.perf_ledger_manager.hotkey_to_perf_ledger} self.elims {len(self.elimination_manager.get_eliminations_from_memory())}')
                 current_time = TimeUtil.now_in_millis()
                 self.position_syncer.sync_positions_with_cooldown(self.auto_sync)
-                self.mdd_checker.mdd_check()
+                self.mdd_checker.mdd_check(self.position_locks)
                 self.challengeperiod_manager.refresh(current_time=current_time)
-                self.elimination_manager.process_eliminations()
-                self.weight_setter.set_weights(current_time=current_time)
-                self.position_manager.position_locks.cleanup_locks(self.metagraph.hotkeys)
+                self.elimination_manager.process_eliminations(self.position_locks)
+                self.weight_setter.set_weights(self.wallet, self.config.netuid, self.subtensor, current_time=current_time)
+                self.position_locks.cleanup_locks(self.metagraph.hotkeys)
                 self.p2p_syncer.sync_positions_with_cooldown()
 
             # In case of unforeseen errors, the miner will log the error and continue operations.
@@ -462,7 +541,9 @@ class Validator:
             order_uuid=miner_order_uuid if miner_order_uuid else str(uuid.uuid4()),
             price_sources=price_sources
         )
-        bt.logging.success(f"Converted signal to order: {order}")
+        delta_t_ms = TimeUtil.now_in_millis() - now_ms
+        delta_t_s_3_decimals = round(delta_t_ms / 1000.0, 3)
+        bt.logging.success(f"Converted signal to order: {order} in {delta_t_s_3_decimals} seconds")
         return order
 
     def _enforce_num_open_order_limit(self, trade_pair_to_open_position: dict, signal_to_order):
@@ -641,12 +722,12 @@ class Validator:
             miner_order_uuid = self.parse_miner_uuid(synapse)
             signal_to_order = self.convert_signal_to_order(signal, miner_hotkey, now_ms, miner_order_uuid)
             # Multiple threads can run receive_signal at once. Don't allow two threads to trample each other.
-            with self.position_manager.position_locks.get_lock(miner_hotkey, signal_to_order.trade_pair.trade_pair_id):
+            with self.position_locks.get_lock(miner_hotkey, signal_to_order.trade_pair.trade_pair_id):
                 self.enforce_no_duplicate_order(synapse)
                 if synapse.error_message:
                     return synapse
                 # gather open positions and see which trade pairs have an open position
-                positions = self.position_manager.get_all_miner_positions(miner_hotkey, only_open_positions=True)
+                positions = self.position_manager.get_positions_for_one_hotkey(miner_hotkey, only_open_positions=True)
                 trade_pair_to_open_position = {position.trade_pair: position for position in positions}
                 self._enforce_num_open_order_limit(trade_pair_to_open_position, signal_to_order)
                 open_position = self._get_or_create_open_position(signal_to_order, miner_hotkey, trade_pair_to_open_position, miner_order_uuid)
@@ -654,7 +735,7 @@ class Validator:
                     net_portfolio_leverage = self.position_manager.calculate_net_portfolio_leverage(miner_hotkey)
                     self.enforce_order_cooldown(signal_to_order, open_position)
                     open_position.add_order(signal_to_order, net_portfolio_leverage)
-                    self.position_manager.save_miner_position_to_disk(open_position)
+                    self.position_manager.save_miner_position(open_position)
                     bt.logging.info(
                         f"Position {open_position.trade_pair.trade_pair_id} for miner [{miner_hotkey}] updated.")
                     # Log the open position for the miner
@@ -681,7 +762,9 @@ class Validator:
             synapse.successfully_processed = False
 
         synapse.error_message = error_message
-        bt.logging.success(f"Sending ack back to miner [{miner_hotkey}]. Synapse Message: {synapse.error_message}")
+        processing_time_s_3_decimals = round((TimeUtil.now_in_millis() - now_ms) / 1000.0, 3)
+        bt.logging.success(f"Sending ack back to miner [{miner_hotkey}]. Synapse Message: {synapse.error_message}. "
+                           f"Process time {processing_time_s_3_decimals} seconds.")
         with self.signal_sync_lock:
             self.n_orders_being_processed[0] -= 1
             if self.n_orders_being_processed[0] == 0:
@@ -692,15 +775,17 @@ class Validator:
                       ) -> template.protocol.GetPositions:
         if self.should_fail_early(synapse, SynapseMethod.POSITION_INSPECTOR):
             return synapse
-
+        t0 = time.time()
         miner_hotkey = synapse.dendrite.hotkey
         error_message = ""
+        n_positions_sent = 0
+        hotkey = None
         try:
             hotkey = synapse.dendrite.hotkey
             # Return the last n positions
-            positions = self.position_manager.get_all_miner_positions(hotkey, only_open_positions=True)
+            positions = self.position_manager.get_positions_for_one_hotkey(hotkey, only_open_positions=True)
             synapse.positions = [position.to_dict() for position in positions]
-            bt.logging.info(f"Sending {len(positions)} positions back to miner: " + hotkey)
+            n_positions_sent = len(synapse.positions)
         except Exception as e:
             error_message = f"Error in GetPositions for [{miner_hotkey}] with error [{e}]. Perhaps the position was being written to disk at the same time."
             bt.logging.error(traceback.format_exc())
@@ -711,6 +796,10 @@ class Validator:
             bt.logging.error(error_message)
             synapse.successfully_processed = False
         synapse.error_message = error_message
+        msg = f"Sending {n_positions_sent} positions back to miner: {hotkey} in {round(time.time() - t0, 3)} seconds."
+        if synapse.error_message:
+            msg += f" Error: {synapse.error_message}"
+        bt.logging.info(msg)
         return synapse
 
     def get_data(self, synapse: template.protocol.GetDashData,
@@ -721,8 +810,8 @@ class Validator:
         miner_hotkey = synapse.dendrite.hotkey
         error_message = ""
         try:
-            stats = generate_miner_statistics_data(time_now=TimeUtil.now_in_millis(), checkpoints=True, selected_miner_hotkeys=[miner_hotkey])
-            positions = generate_request_core(time_now=TimeUtil.now_in_millis(), selected_miner_hotkeys=[miner_hotkey])
+            stats = self.miner_statistics_manager.generate_miner_statistics_data(time_now=TimeUtil.now_in_millis(), checkpoints=True, selected_miner_hotkeys=[miner_hotkey])
+            positions = self.request_core_manager.generate_request_core(time_now=TimeUtil.now_in_millis(), selected_miner_hotkeys=[miner_hotkey])
             dash_data = {"statistics": stats, **positions}
 
             if not stats["data"]:
@@ -768,7 +857,7 @@ class Validator:
                     if not self.encoded_checkpoint:
                         # get our current checkpoint
                         self.last_checkpoint_time = TimeUtil.now_in_millis()
-                        checkpoint_dict = generate_request_core(time_now=self.last_checkpoint_time)
+                        checkpoint_dict = self.request_core_manager.generate_request_core(time_now=self.last_checkpoint_time)
 
                         # compress json and encode as base64 to keep as a string
                         checkpoint_str = json.dumps(checkpoint_dict, cls=CustomEncoder)

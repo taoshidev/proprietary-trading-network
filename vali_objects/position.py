@@ -230,10 +230,9 @@ class Position(BaseModel):
     def is_open_position(self):
         return not self.is_closed_position
 
-    @property
-    def newest_order_age_ms(self):
+    def newest_order_age_ms(self, now_ms):
         if len(self.orders) > 0:
-            return TimeUtil.now_in_millis() - self.orders[-1].processed_ms
+            return now_ms - self.orders[-1].processed_ms
         return -1
 
     def __str__(self):

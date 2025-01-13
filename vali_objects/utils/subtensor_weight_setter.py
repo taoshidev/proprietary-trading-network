@@ -10,21 +10,20 @@ from shared_objects.cache_controller import CacheController
 from vali_objects.utils.position_manager import PositionManager
 from vali_objects.position import Position
 from vali_objects.scoring.scoring import Scoring
-from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager, PerfCheckpoint, PerfLedger, PerfLedgerData
+from vali_objects.vali_dataclasses.perf_ledger import PerfCheckpoint, PerfLedger
 
 
 class SubtensorWeightSetter(CacheController):
-    def __init__(self, config, wallet, metagraph, running_unit_tests=False):
-        super().__init__(config, metagraph, running_unit_tests=running_unit_tests)
-        self.position_manager = PositionManager(metagraph=metagraph, running_unit_tests=running_unit_tests)
-        self.perf_manager = PerfLedgerManager(metagraph=metagraph, running_unit_tests=running_unit_tests)
-        self.wallet = wallet
+    def __init__(self, config, metagraph, position_manager: PositionManager,
+                 running_unit_tests=False):
+        super().__init__(metagraph, running_unit_tests=running_unit_tests)
+        self.position_manager = position_manager
+        self.perf_ledger_manager = position_manager.perf_ledger_manager
         self.subnet_version = 200
 
-    def set_weights(self, current_time: int = None):
+    def set_weights(self, wallet, netuid, subtensor, current_time: int = None):
         if not self.refresh_allowed(ValiConfig.SET_WEIGHT_REFRESH_TIME_MS):
             return
-
         bt.logging.info("running set weights")
         # First run the challenge period miner filtering
         if current_time is None:
@@ -33,13 +32,9 @@ class SubtensorWeightSetter(CacheController):
         # Collect metagraph hotkeys to ensure we are only setting weights for miners in the metagraph
         metagraph_hotkeys = self.metagraph.hotkeys
 
-        # we want to do this first because we will add to the eliminations list
-        self._refresh_eliminations_in_memory()
-        self._refresh_challengeperiod_in_memory()
-
         # augmented ledger should have the gain, loss, n_updates, and time_duration
-        testing_hotkeys = list(self.challengeperiod_testing.keys())
-        success_hotkeys = list(self.challengeperiod_success.keys())
+        testing_hotkeys = list(self.position_manager.challengeperiod_manager.challengeperiod_testing.keys())
+        success_hotkeys = list(self.position_manager.challengeperiod_manager.challengeperiod_success.keys())
 
         # only collect ledger elements for the miners that passed the challenge period
         filtered_ledger = self.filtered_ledger(hotkeys=success_hotkeys)
@@ -84,7 +79,7 @@ class SubtensorWeightSetter(CacheController):
             transformed_list = checkpoint_netuid_weights + challengeperiod_weights
             bt.logging.info(f"transformed list: {transformed_list}")
             
-            self._set_subtensor_weights(transformed_list)
+            self._set_subtensor_weights(wallet, subtensor, transformed_list, netuid)
         self.set_last_update_time()
 
     @staticmethod
@@ -120,7 +115,7 @@ class SubtensorWeightSetter(CacheController):
     def filtered_ledger(
             self,
             hotkeys: List[str] = None
-    ) -> dict[str, PerfLedgerData]:
+    ) -> dict[str, PerfLedger]:
         """
         Filter the ledger for a set of hotkeys.
         """
@@ -128,8 +123,7 @@ class SubtensorWeightSetter(CacheController):
             hotkeys = self.metagraph.hotkeys
 
         # Note, eliminated miners will not appear in the dict below
-        ledger = self.perf_manager.load_perf_ledgers_from_disk()
-
+        ledger = self.perf_ledger_manager.get_perf_ledgers_from_memory()
         filtering_ledger = {}
         for hotkey, miner_ledger in ledger.items():
             if hotkey not in hotkeys:
@@ -165,7 +159,7 @@ class SubtensorWeightSetter(CacheController):
         if hotkeys is None:
             hotkeys = self.metagraph.hotkeys
 
-        positions = self.position_manager.get_all_miner_positions_by_hotkey(
+        positions = self.position_manager.get_positions_for_hotkeys(
             hotkeys,
             sort_positions=True
         )
@@ -195,13 +189,13 @@ class SubtensorWeightSetter(CacheController):
             filtered_positions.append(position)
         return filtered_positions
 
-    def _set_subtensor_weights(self, filtered_results: list[tuple[str, float]]):
+    def _set_subtensor_weights(self, wallet, subtensor, filtered_results: list[tuple[str, float]], netuid):
         filtered_netuids = [x[0] for x in filtered_results]
         scaled_transformed_list = [x[1] for x in filtered_results]
 
-        success, err_msg = self.subtensor.set_weights(
-            netuid=self.config.netuid,
-            wallet=self.wallet,
+        success, err_msg = subtensor.set_weights(
+            netuid=netuid,
+            wallet=wallet,
             uids=filtered_netuids,
             weights=scaled_transformed_list,
             version_key=self.subnet_version,

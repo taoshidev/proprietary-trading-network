@@ -8,8 +8,8 @@ from vali_objects.vali_dataclasses.order import Order
 
 
 class TimestampManager(CacheController):
-    def __init__(self, config=None, metagraph=None, hotkey=None, running_unit_tests=False):
-        super().__init__(config=config, metagraph=metagraph, running_unit_tests=running_unit_tests)
+    def __init__(self, metagraph=None, hotkey=None, running_unit_tests=False):
+        super().__init__(metagraph=metagraph, running_unit_tests=running_unit_tests)
         self.hotkey = hotkey
         self.last_received_order_time_ms = 0
         self.timestamp_write_rate_limiter = RateLimiter(max_requests_per_window=1,

@@ -7,6 +7,9 @@ import zipfile
 import requests
 
 from time_util.time_util import TimeUtil
+from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
+from vali_objects.utils.elimination_manager import EliminationManager
+from vali_objects.utils.position_manager import PositionManager
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.utils.validator_sync_base import ValidatorSyncBase
 from restore_validator_from_backup import regenerate_miner_positions
@@ -16,8 +19,12 @@ import bittensor as bt
 
 class PositionSyncer(ValidatorSyncBase):
     def __init__(self, shutdown_dict=None, signal_sync_lock=None, signal_sync_condition=None,
-                 n_orders_being_processed=None, running_unit_tests=False, auto_sync_enabled=False):
-        super().__init__(shutdown_dict, signal_sync_lock, signal_sync_condition, n_orders_being_processed, running_unit_tests=running_unit_tests)
+                 n_orders_being_processed=None, running_unit_tests=False, position_manager=None,
+                 ipc_manager=None, auto_sync_enabled=False):
+        super().__init__(shutdown_dict, signal_sync_lock, signal_sync_condition, n_orders_being_processed,
+                         running_unit_tests=running_unit_tests, position_manager=position_manager,
+                         ipc_manager=ipc_manager)
+
         self.force_ran_on_boot = True
         time_now_ms = TimeUtil.now_in_millis()
         if auto_sync_enabled and time_now_ms < 1736697619000 + 3 * 1000 * 60 * 60:
@@ -100,6 +107,10 @@ class PositionSyncer(ValidatorSyncBase):
 
 if __name__ == "__main__":
     bt.logging.enable_info()
-    position_syncer = PositionSyncer()
+    elimination_manager = EliminationManager(None, [], None, None)
+    position_manager = PositionManager({}, elimination_manager=elimination_manager, challengeperiod_manager=None)
+    challengeperiod_manager = ChallengePeriodManager(metagraph=None, position_manager=position_manager)
+    position_manager.challengeperiod_manager = challengeperiod_manager
+    position_syncer = PositionSyncer(position_manager=position_manager)
     candidate_data = position_syncer.read_validator_checkpoint_from_gcloud_zip()
     position_syncer.sync_positions(False, candidate_data=candidate_data)

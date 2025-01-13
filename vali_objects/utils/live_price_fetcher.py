@@ -5,12 +5,11 @@ import numpy as np
 
 from data_generator.tiingo_data_service import TiingoDataService
 from data_generator.polygon_data_service import PolygonDataService
-from time_util.time_util import TimeUtil
+from time_util.time_util import TimeUtil, timeme
 
 from vali_objects.vali_config import TradePair
 from vali_objects.position import Position
 from vali_objects.utils.vali_utils import ValiUtils
-from shared_objects.retry import retry
 import bittensor as bt
 
 from vali_objects.vali_dataclasses.price_source import PriceSource
@@ -18,13 +17,15 @@ from statistics import median
 
 
 class LivePriceFetcher:
-    def __init__(self, secrets, disable_ws=False):
+    def __init__(self, secrets, disable_ws=False, ipc_manager=None):
         if "tiingo_apikey" in secrets:
-            self.tiingo_data_service = TiingoDataService(api_key=secrets["tiingo_apikey"], disable_ws=disable_ws)
+            self.tiingo_data_service = TiingoDataService(api_key=secrets["tiingo_apikey"], disable_ws=disable_ws,
+                                                         ipc_manager=ipc_manager)
         else:
             raise Exception("Tiingo API key not found in secrets.json")
         if "polygon_apikey" in secrets:
-            self.polygon_data_service = PolygonDataService(api_key=secrets["polygon_apikey"], disable_ws=disable_ws)
+            self.polygon_data_service = PolygonDataService(api_key=secrets["polygon_apikey"], disable_ws=disable_ws,
+                                                           ipc_manager=ipc_manager)
         else:
             raise Exception("Polygon API key not found in secrets.json")
 
@@ -35,7 +36,6 @@ class LivePriceFetcher:
 
         if self.polygon_data_service.websocket_manager_thread:
             self.polygon_data_service.websocket_manager_thread.join()
-        self.polygon_data_service.close_websockets()
         self.polygon_data_service.stop_threads()
 
     def determine_best_price(self, price_events: List[PriceSource | None], current_time_ms: int,
@@ -102,7 +102,7 @@ class LivePriceFetcher:
         t_sources = self.tiingo_data_service.trade_pair_to_recent_events[trade_pair.trade_pair].get_events_in_range(start_ms, end_ms)
         return poly_sources + t_sources
 
-    @retry(tries=2, delay=5, backoff=2)
+    @timeme
     def get_latest_price(self, trade_pair: TradePair, time_ms=None) -> Tuple[float, List[PriceSource]] | Tuple[
         None, None]:
         """
@@ -113,7 +113,7 @@ class LivePriceFetcher:
             time_ms = TimeUtil.now_in_millis()
         return self.fetch_prices([trade_pair], {trade_pair: time_ms})[trade_pair]
 
-    @retry(tries=2, delay=5, backoff=2)
+    @timeme
     def get_latest_prices(self, trade_pairs: List[TradePair],
                           trade_pair_to_last_order_time_ms: Dict[TradePair, int] = None) -> Dict:
         """

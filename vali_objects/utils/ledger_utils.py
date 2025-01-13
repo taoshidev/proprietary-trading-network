@@ -5,7 +5,7 @@ import copy
 from datetime import datetime, timezone
 
 from vali_objects.vali_config import ValiConfig
-from vali_objects.vali_dataclasses.perf_ledger import PerfCheckpoint, PerfLedgerData
+from vali_objects.vali_dataclasses.perf_ledger import PerfCheckpoint, PerfLedger
 from vali_objects.utils.functional_utils import FunctionalUtils
 
 
@@ -50,7 +50,7 @@ class LedgerUtils:
         return [(math.exp(x)-1) * 100 if x != 0 else 0 for x in LedgerUtils.daily_return_log(checkpoints)]
 
     @staticmethod
-    def ledger_returns(ledger: dict[str, PerfLedgerData]) -> dict[str, list[float]]:
+    def ledger_returns(ledger: dict[str, PerfLedger]) -> dict[str, list[float]]:
         """
         Args:
             ledger: dict[str, PerfLedger] - the ledger of the miners
@@ -63,7 +63,7 @@ class LedgerUtils:
         return miner_returns
 
     @staticmethod
-    def ledger_returns_log(ledger: dict[str, PerfLedgerData]) -> dict[str, list[float]]:
+    def ledger_returns_log(ledger: dict[str, PerfLedger]) -> dict[str, list[float]]:
         """
         Args:
             ledger: dict[str, PerfLedger] - the ledger of the miners
@@ -411,7 +411,7 @@ class LedgerUtils:
         return np.clip(abs(numerator / unrealized_return), 0, 1)
 
     @staticmethod
-    def cumulative(ledger: dict[str, PerfLedgerData]) -> dict[str, dict]:
+    def cumulative(ledger: dict[str, PerfLedger]) -> dict[str, dict]:
         """
         Adds the cumulative return of the ledger to each checkpoint.
         Args:

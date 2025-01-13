@@ -1,78 +1,97 @@
 # developer: jbonilla
 # Copyright © 2024 Taoshi Inc
-import json
 import os
 import shutil
 import time
 import traceback
 from collections import defaultdict
+from pickle import UnpicklingError
 from typing import List, Dict
 import bittensor as bt
 from pathlib import Path
 
 from copy import deepcopy
 from shared_objects.cache_controller import CacheController
-from time_util.time_util import TimeUtil
-from vali_objects.vali_config import TradePair, ValiConfig
-from vali_objects.decoders.generalized_json_decoder import GeneralizedJSONDecoder
+from time_util.time_util import TimeUtil, timeme
+from vali_objects.exceptions.corrupt_data_exception import ValiBkpCorruptDataException
+from vali_objects.exceptions.vali_bkp_file_missing_exception import ValiFileMissingException
+from vali_objects.utils.live_price_fetcher import LivePriceFetcher
+from vali_objects.vali_config import TradePair
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.exceptions.vali_records_misalignment_exception import ValiRecordsMisalignmentException
 from vali_objects.position import Position
-from vali_objects.utils.position_lock import PositionLocks
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.vali_dataclasses.order import OrderStatus, ORDER_SRC_DEPRECATION_FLAT, Order
-from vali_objects.vali_dataclasses.price_source import PriceSource
-from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
 
 TARGET_MS = 1736481963000 + (1000 * 60 * 60 * 3)  # + 3 hours
 
 
 class PositionManager(CacheController):
-    def __init__(self, config=None, metagraph=None, running_unit_tests=False, perform_price_adjustment=False,
-                 live_price_fetcher=None, perform_order_corrections=False, perform_fee_structure_update=False,
-                 generate_correction_templates=False, apply_corrections_template=False, perform_compaction=False,
-                 is_mothership=False):
-        super().__init__(config=config, metagraph=metagraph, running_unit_tests=running_unit_tests)
-        self.init_cache_files()
-        self.position_locks = PositionLocks()
-        self.live_price_fetcher = live_price_fetcher
+    def __init__(self, metagraph=None, running_unit_tests=False,
+                 perform_order_corrections=False,
+                 perform_compaction=False,
+                 is_mothership=False, perf_ledger_manager=None,
+                 challengeperiod_manager=None,
+                 elimination_manager=None,
+                 secrets=None,
+                 ipc_manager=None,
+                 live_price_fetcher=None):
+
+        super().__init__(metagraph=metagraph, running_unit_tests=running_unit_tests)
+        # Populate memory with positions
+
+        self.perf_ledger_manager = perf_ledger_manager
+        self.challengeperiod_manager = challengeperiod_manager
+        self.elimination_manager = elimination_manager
+
         self.recalibrated_position_uuids = set()
-        if perform_compaction:
+
+        self.is_mothership = is_mothership
+        self.perform_compaction = perform_compaction
+        self.perform_order_corrections = perform_order_corrections
+        if ipc_manager:
+            self.hotkey_to_positions = ipc_manager.dict()
+        else:
+            self.hotkey_to_positions = {}
+        self.secrets = secrets
+        self.populate_memory_positions_for_first_time()
+        self.live_price_fetcher = live_price_fetcher
+
+    @timeme
+    def populate_memory_positions_for_first_time(self):
+        temp = self.get_positions_for_all_miners(from_disk=True)
+        for hk, positions in temp.items():
+            if positions:  # Only populate if there are no positions in the miner dir
+                self.hotkey_to_positions[hk] = positions
+
+    def pre_run_setup(self):
+        """
+        Run this outside of init so that cross object dependencies can be set first. See validator.py
+        """
+        if self.perform_compaction:
             try:
-                self.perform_compaction()
+                self.compact_price_sources()
             except Exception as e:
                 bt.logging.error(f"Error performing compaction: {e}")
                 traceback.print_exc()
 
-        if perform_price_adjustment:
-            self.perform_price_recalibration()
-        if perform_order_corrections:
+        if self.perform_order_corrections:
             try:
-                self.perf_ledger_manager = PerfLedgerManager(metagraph=metagraph)
                 self.apply_order_corrections()
-                time_now_ms = TimeUtil.now_in_millis()
-                if time_now_ms < TARGET_MS:
-                    self.close_open_orders_for_suspended_trade_pairs()
+                #time_now_ms = TimeUtil.now_in_millis()
+                #if time_now_ms < TARGET_MS:
+                #    self.close_open_orders_for_suspended_trade_pairs()
             except Exception as e:
                 bt.logging.error(f"Error applying order corrections: {e}")
                 traceback.print_exc()
-        if generate_correction_templates:
-            self.generate_correction_templates()
-        if apply_corrections_template:
-            self.apply_corrections_from_price_audit()
-
-        if perform_fee_structure_update:
-            self.ensure_latest_fee_structure_applied()
-
-        self.is_mothership = is_mothership
 
     def give_erronously_eliminated_miners_another_shot(self, hotkey_to_positions):
         time_now_ms = TimeUtil.now_in_millis()
         if time_now_ms > TARGET_MS:
             return
         # The MDD Checker will immediately eliminate miners if they exceed the maximum drawdown
-        eliminations = self.get_miner_eliminations_from_disk()
-        new_eliminations = []
+        eliminations = self.elimination_manager.get_eliminations_from_memory()
+        eliminations_to_delete = set()
         for e in eliminations:
             if e['hotkey'] in ('5EUTaAo7vCGxvLDWRXRrEuqctPjt9fKZmgkaeFZocWECUe9X',
                                '5E9Ppyn5DzHGaPQmsHVnkNJDjGd7DstqjHWZpQhWPMbqzNex',
@@ -93,10 +112,9 @@ class PositionManager(CacheController):
                 positions = hotkey_to_positions.get(e['hotkey'])
                 if positions:
                     self.reopen_force_closed_positions(positions)
-            else:
-                new_eliminations.append(e)
+                eliminations_to_delete.add(e)
 
-        self.write_eliminations_to_disk(new_eliminations)
+        self.elimination_manager.delete_eliminations(eliminations_to_delete)
 
     def strip_old_price_sources(self, position: Position, time_now_ms: int) -> int:
         n_removed = 0
@@ -138,19 +156,19 @@ class PositionManager(CacheController):
         if not prices:
             # del position
             if pos:
-                self.delete_position_from_disk(pos)
+                self.delete_position(pos)
                 unique_corrections.add(pos.position_uuid)
                 n_corrections += 1
                 return n_attempts, n_corrections
 
         elif i == idx and pos and len(prices) <= len(pos.orders):
-            self.delete_position_from_disk(pos)
+            self.delete_position(pos)
             for i in range(len(prices)):
                 pos.orders[i].price = prices[i]
 
             old_return = pos.return_at_close  # noqa: F841
             pos.rebuild_position_with_updated_orders()
-            self.save_miner_position_to_disk(pos, delete_open_position_if_exists=False)
+            self.save_miner_position(pos, delete_open_position_if_exists=False)
             unique_corrections.add(pos.position_uuid)
             n_corrections += 1
             return n_attempts, n_corrections
@@ -165,18 +183,19 @@ class PositionManager(CacheController):
                 print('rac1:', position.return_at_close)
                 print(
                     f"Deleting position {position.position_uuid} for trade pair {position.trade_pair.trade_pair_id} nl {position.net_leverage}")
-                self.delete_position_from_disk(position)
+                self.delete_position(position)
                 position.reopen_position()
                 position.rebuild_position_with_updated_orders()
                 print('rac2:', position.return_at_close)
-                self.save_miner_position_to_disk(position, delete_open_position_if_exists=False)
+                self.save_miner_position(position, delete_open_position_if_exists=False)
                 print(f"Reopened position {position.position_uuid} for trade pair {position.trade_pair.trade_pair_id}")
 
-    def perform_compaction(self):
+    @timeme
+    def compact_price_sources(self):
         time_now = TimeUtil.now_in_millis()
         n_price_sources_removed = 0
-        hotkey_to_positions = self.get_all_disk_positions_for_all_miners(only_open_positions=False, sort_positions=True)
-        eliminated_miners = self.get_miner_eliminations_from_disk()
+        hotkey_to_positions = self.get_positions_for_all_miners(sort_positions=True)
+        eliminated_miners = self.elimination_manager.get_eliminations_from_memory()
         eliminated_hotkeys = set([e['hotkey'] for e in eliminated_miners])
         for hotkey, positions in hotkey_to_positions.items():
             if hotkey in eliminated_hotkeys:
@@ -185,7 +204,7 @@ class PositionManager(CacheController):
                 n = self.strip_old_price_sources(position, time_now)
                 if n:
                     n_price_sources_removed += n
-                    self.save_miner_position_to_disk(position, delete_open_position_if_exists=False)
+                    self.save_miner_position(position, delete_open_position_if_exists=False)
 
         bt.logging.info(f'Removed {n_price_sources_removed} price sources from old data.')
 
@@ -204,11 +223,11 @@ class PositionManager(CacheController):
                     # Replace if it has more orders
                     if len(p.orders) > len(position_uuid_to_dedupe[p.position_uuid].orders):
                         old_position = position_uuid_to_dedupe[p.position_uuid]
-                        self.delete_position_from_disk(old_position)
+                        self.delete_position(old_position)
                         position_uuid_to_dedupe[p.position_uuid] = p
                         n_positions_deleted += 1
                     else:
-                        self.delete_position_from_disk(p)
+                        self.delete_position(p)
                         n_positions_deleted += 1
                 else:
                     position_uuid_to_dedupe[p.position_uuid] = p
@@ -227,13 +246,14 @@ class PositionManager(CacheController):
                 if any_orders_deleted:
                     position.orders = new_orders
                     position.rebuild_position_with_updated_orders()
-                    self.save_miner_position_to_disk(position, delete_open_position_if_exists=False)
+                    self.save_miner_position(position, delete_open_position_if_exists=False)
                     n_positions_rebuilt_with_new_orders += 1
         if n_positions_deleted or n_orders_deleted or n_positions_rebuilt_with_new_orders:
             bt.logging.warning(
                 f"Hotkey {miner_hotkey}: Deleted {n_positions_deleted} duplicate positions and {n_orders_deleted} "
                 f"duplicate orders across {n_positions_rebuilt_with_new_orders} positions.")
 
+    @timeme
     def apply_order_corrections(self):
         """
         This is our mechanism for manually synchronizing validator orders in situations where a bug prevented an
@@ -275,8 +295,7 @@ class PositionManager(CacheController):
           5.31.24 - validator outage due to twelvedata thread error. add position if not exists.
 
         """
-        hotkey_to_positions = self.get_all_disk_positions_for_all_miners(sort_positions=True, only_open_positions=False,
-                                                                         perform_exorcism=True)
+        hotkey_to_positions = self.get_positions_for_all_miners(sort_positions=True)
         #self.give_erronously_eliminated_miners_another_shot(hotkey_to_positions)
         n_corrections = 0
         n_attempts = 0
@@ -291,31 +310,30 @@ class PositionManager(CacheController):
             # All miners that should have been promoted
             miners_to_promote = []
 
-        self._refresh_eliminations_in_memory()
         #Don't accidentally promote eliminated miners
-        for e in self.eliminations:
+        for e in self.elimination_manager.get_eliminations_from_memory():
             if e['hotkey'] in miners_to_promote:
                 miners_to_promote.remove(e['hotkey'])
 
         # Promote miners that would have passed challenge period
-        self._refresh_challengeperiod_in_memory()
         for miner in miners_to_promote:
-            if miner in self.challengeperiod_testing:
-                self.challengeperiod_testing.pop(miner)
-            if miner not in self.challengeperiod_success:
-                self.challengeperiod_success[miner] = now_ms
-        self._write_challengeperiod_from_memory_to_disk()
+            if miner in self.challengeperiod_manager.challengeperiod_testing:
+                self.challengeperiod_manager.challengeperiod_testing.pop(miner)
+            if miner not in self.challengeperiod_manager.challengeperiod_success:
+                self.challengeperiod_manager.challengeperiod_success[miner] = now_ms
+        self.challengeperiod_manager._write_challengeperiod_from_memory_to_disk()
 
         # Wipe miners_to_wipe below
         for k in miners_to_wipe:
             if k not in hotkey_to_positions:
                 hotkey_to_positions[k] = []
 
-        for e in self.eliminations:
+        for e in self.elimination_manager.get_eliminations_from_memory():
             if e['hotkey'] in miners_to_wipe:
+                self.elimination_manager.delete_eliminations([e['hotkey']])
                 bt.logging.info(f"Removed elimination for hotkey {e['hotkey']}")
-                self.eliminations.remove(e)
-        self._write_eliminations_from_memory_to_disk()
+
+
         for miner_hotkey, positions in hotkey_to_positions.items():
             n_attempts += 1
             self.dedupe_positions(positions, miner_hotkey)
@@ -324,20 +342,19 @@ class PositionManager(CacheController):
                 n_corrections += 1
                 unique_corrections.update([p.position_uuid for p in positions])
                 for pos in positions:
-                    self.delete_position_from_disk(pos)
-                self._refresh_challengeperiod_in_memory()
-                if miner_hotkey in self.challengeperiod_testing:
-                    self.challengeperiod_testing.pop(miner_hotkey)
-                if miner_hotkey in self.challengeperiod_success:
-                    self.challengeperiod_success.pop(miner_hotkey)
+                    self.delete_position(pos)
+                if miner_hotkey in self.challengeperiod_manager.challengeperiod_testing:
+                    self.challengeperiod_manager.challengeperiod_testing.pop(miner_hotkey)
+                if miner_hotkey in self.challengeperiod_manager.challengeperiod_success:
+                    self.challengeperiod_manager.challengeperiod_success.pop(miner_hotkey)
 
-                self._write_challengeperiod_from_memory_to_disk()
+                self.challengeperiod_manager._write_challengeperiod_from_memory_to_disk()
 
-                perf_ledgers = self.perf_ledger_manager.load_perf_ledgers_from_disk()
+                perf_ledgers = self.perf_ledger_manager.get_perf_ledgers_from_memory()
                 print('n perf ledgers before:', len(perf_ledgers))
                 perf_ledgers_new = {k:v for k,v in perf_ledgers.items() if k != miner_hotkey}
                 print('n perf ledgers after:', len(perf_ledgers_new))
-                self.perf_ledger_manager.save_perf_ledgers_to_disk(perf_ledgers_new)
+                self.perf_ledger_manager.save_perf_ledgers(perf_ledgers_new)
 
             if miner_hotkey == '5Cd9bVVja2KdgsTiR7rTAh7a4UKVfnAuYAW1bs8BiedUE9JN' and now_ms < TARGET_MS:
                 position_that_should_exist_raw = {"miner_hotkey": "5Cd9bVVja2KdgsTiR7rTAh7a4UKVfnAuYAW1bs8BiedUE9JN",
@@ -487,177 +504,34 @@ class PositionManager(CacheController):
         bt.logging.warning(
             f"Applied {n_corrections} order corrections out of {n_attempts} attempts. unique positions corrected: {len(unique_corrections)}")
 
+
     def enforce_position_state(self, position_that_should_exist_raw, trade_pair, miner_hotkey, unique_corrections, overwrite=False):
         position_that_should_exist_raw['trade_pair'] = trade_pair
         for o in position_that_should_exist_raw['orders']:
             o['trade_pair'] = trade_pair
         position = Position.from_dict(position_that_should_exist_raw)
         # check if the position exists on the filesystem
-        existing_disk_positions = self.get_all_miner_positions(miner_hotkey)
+        existing_disk_positions = self.get_positions_for_one_hotkey(miner_hotkey)
         position_exists = False
         for p in existing_disk_positions:
             if p.position_uuid == position.position_uuid:
                 position_exists = True
                 break
         if not position_exists or overwrite:
-            self.save_miner_position_to_disk(position, delete_open_position_if_exists=True)
+            self.save_miner_position(position, delete_open_position_if_exists=True)
             print(f"Added position {position.position_uuid} for trade pair {position.trade_pair.trade_pair_id}")
             unique_corrections.add(position.position_uuid)
             return True
         return False
 
-    def restore_from_position_override(self, miner_hotkey):
-        self.clear_all_miner_positions_from_disk(target_hotkey=miner_hotkey)
-        with open(ValiBkpUtils.get_positions_override_dir() + miner_hotkey + '.json', 'r') as f:
-            positions = json.loads(f.read(), cls=GeneralizedJSONDecoder)
-            for pos in positions:
-                position = Position(**pos)
-                ValiBkpUtils.make_dir(ValiBkpUtils.get_miner_all_positions_dir(miner_hotkey))
-                self.save_miner_position_to_disk(position, delete_open_position_if_exists=False)
-
-    def ensure_latest_fee_structure_applied(self):
-        hotkey_to_positions = self.get_all_disk_positions_for_all_miners(only_open_positions=False, sort_positions=True)
-        eliminated_miners = self.get_miner_eliminations_from_disk()
-        eliminated_hotkeys = set([e['hotkey'] for e in eliminated_miners])
-        n_positions_seen = 0
-        n_positions_updated = 0
-        n_positions_updated_significantly = 0
-        n_positions_flipped_to_positive = 0
-        n_positions_flipped_negative = 0
-        n_positions_stayed_the_same = 0
-        significant_deltas = []
-        for hotkey, positions in hotkey_to_positions.items():
-            if hotkey in eliminated_hotkeys:
-                continue
-            for position in positions:
-                # skip open positions as their returns will be updated in the next MDD check.
-                # Also once positions closes, it will make it past this check next validator boot
-                if position.is_open_position:
-                    continue
-                if not position.trade_pair.is_crypto:
-                    continue
-                n_positions_seen += 1
-                # Ensure this position is using the latest fee structure. If not, recalculate and persist the new return to disk
-                old_return_at_close = position.return_at_close
-                new_return_at_close = position.calculate_return_with_fees(position.current_return,
-                                                                          timestamp_ms=position.close_ms)
-                if old_return_at_close != new_return_at_close:
-                    n_positions_updated += 1
-                    if old_return_at_close < 1.0 and new_return_at_close > 1.0:
-                        n_positions_flipped_to_positive += 1
-                    elif old_return_at_close > 1.0 and new_return_at_close < 1.0:
-                        n_positions_flipped_negative += 1
-                    if abs(old_return_at_close - new_return_at_close) / old_return_at_close > 0.03:
-                        n_positions_updated_significantly += 1
-                        print(f"Updating return_at_close for position {position.position_uuid} trade pair "
-                              f"{position.trade_pair.trade_pair_id} from {old_return_at_close} to {new_return_at_close}")
-                        #significant_deltas.append((old_return_at_close, new_return_at_close, position.to_json_string()))
-                    position.return_at_close = new_return_at_close
-                    self.save_miner_position_to_disk(position, delete_open_position_if_exists=False)
-                else:
-                    n_positions_stayed_the_same += 1
-        bt.logging.info(f"Updated {n_positions_updated} positions. {n_positions_updated_significantly} positions "
-                        f"were updated significantly. {n_positions_stayed_the_same} stayed the same. {n_positions_seen} "
-                        f"positions were seen in total. Significant deltas: {significant_deltas} "
-                        f"n_positions_flipped_to_positive: {n_positions_flipped_to_positive}"
-                        f" n_positions_flipped_negative: {n_positions_flipped_negative}")
-
-    def handle_eliminated_miner(self, hotkey: str,
-                                trade_pair_to_price_source_used_for_elimination_check: Dict[TradePair, PriceSource],
-                                open_position_trade_pairs=None):
-
-        tps_to_iterate_over = open_position_trade_pairs if open_position_trade_pairs else TradePair
-        for trade_pair in tps_to_iterate_over:
-            with self.position_locks.get_lock(hotkey, trade_pair.trade_pair_id):
-                open_position = self.get_open_position_for_a_miner_trade_pair(hotkey, trade_pair.trade_pair_id)
-                source_for_elimination = trade_pair_to_price_source_used_for_elimination_check.get(trade_pair)
-                if open_position:
-                    bt.logging.info(
-                        f"Closing open position for hotkey: {hotkey} and trade_pair: {trade_pair.trade_pair_id}. "
-                        f"Source for elimination {source_for_elimination}")
-                    open_position.close_out_position(TimeUtil.now_in_millis())
-                    if source_for_elimination:
-                        open_position.orders[-1].price_sources.append(source_for_elimination)
-                    self.save_miner_position_to_disk(open_position)
-
-    def recalculate_return_at_close_and_write_corrected_position_to_disk(self, position: Position, hotkey: str):
-        # TODO LOCK and how to handle open positions?
-        tp = position.trade_pair
-        if tp not in (TradePair.CADJPY, TradePair.USDJPY, TradePair.CHFJPY):
-            return position.return_at_close
-
-        any_changes = False
-        disposable_clone = deepcopy(position)
-        deltas = []
-        new_orders = []
-        for o in disposable_clone.orders:
-            timestamp_ms = o.processed_ms
-            old_price = o.price
-            new_price = self.live_price_fetcher.get_close_at_date(tp, timestamp_ms)
-
-            if new_price is not None and new_price != old_price:
-                # IF the order recent, don't recalibrate
-                if o.processed_ms > 1712901063000:
-                    time_lo = TimeUtil.timestamp_ms_to_eastern_time_str(o.processed_ms)
-                    bt.logging.warning(
-                        f"Skipping recalibration for trade pair {tp.trade_pair_id}."
-                        f" Last order is recent. {time_lo}. Price would have changed from {old_price} to {new_price}.")
-                else:
-                    any_changes = True
-                    deltas.append((old_price, new_price))
-                    o.price = new_price
-            new_orders.append(o)
-
-        for i in range(len(position.orders)):
-            orders = new_orders[:i + 1]
-            disposable_clone.orders = orders
-            disposable_clone.position_type = None
-            disposable_clone._update_position()
-            if disposable_clone.orders[0].leverage < 0:
-                order_type = OrderType.SHORT
-            else:
-                order_type = OrderType.LONG
-            if 0:  #len(orders) > 1:
-                prev_order = orders[-2]
-                o = orders[-1]
-                window_start_ms = prev_order.processed_ms
-                window_end_ms = o.processed_ms
-                candles = self.live_price_fetcher.get_candles([tp], window_start_ms,
-                                                              window_end_ms) if window_start_ms else None
-                fs = TimeUtil.millis_to_formatted_date_str(window_start_ms)
-                fe = TimeUtil.millis_to_formatted_date_str(window_end_ms)
-                if tp in candles and candles[tp] and isinstance(candles[tp], list):
-                    min_price_seen = min([x.low for x in candles[tp]])
-                    max_price_seen = max([x.high for x in candles[tp]])
-                    unrealized_return = disposable_clone.calculate_unrealized_pnl(
-                        min_price_seen if order_type == OrderType.LONG else max_price_seen)
-                    unrealized_return_with_fees = disposable_clone.calculate_return_with_fees(unrealized_return,
-                                                                                              timestamp_ms=window_end_ms)
-                    drawdown = self.calculate_drawdown(unrealized_return_with_fees, 1.0)
-                    bt.logging.warning(
-                        f"Drawdown is {drawdown} for hotkey {hotkey} trade pair {tp.trade_pair_id}. Between time: {fs} and {fe}. p1: {prev_order.price} p2: {o.price}, min: {min_price_seen}.")
-                    if drawdown < ValiConfig.MAX_TOTAL_DRAWDOWN:
-                        bt.logging.error(
-                            f"Drawdown is {drawdown} for hotkey {hotkey} trade pair {tp.trade_pair_id}. Unrealized return: {unrealized_return_with_fees}.")
-
-        assert len(disposable_clone.orders) == len(position.orders)
-        if any_changes:
-            with self.position_locks.get_lock(hotkey, tp.trade_pair_id):
-                self.save_miner_position_to_disk(disposable_clone, delete_open_position_if_exists=False)
-            bt.logging.info(f"Recalculated return_at_close for position {position.position_uuid}."
-                            f" Trade pair {position.trade_pair.trade_pair_id} New value: "
-                            f"{disposable_clone.return_at_close}. Original value: {position.return_at_close}")
-            bt.logging.info(
-                f"Corrected n={len(deltas)} prices for position {position.position_uuid} Trade pair {tp.trade_pair_id}. Deltas (before/after): {deltas}")
-
-        return disposable_clone.return_at_close
-
     def close_open_orders_for_suspended_trade_pairs(self):
+        if not self.live_price_fetcher:
+            self.live_price_fetcher = LivePriceFetcher(secrets=self.secrets, disable_ws=True)
         tps_to_eliminate = [TradePair.SPX, TradePair.DJI, TradePair.NDX, TradePair.VIX]
         if not tps_to_eliminate:
             return
-        all_positions = self.get_all_disk_positions_for_all_miners(sort_positions=True, only_open_positions=False)
-        eliminations = self.get_miner_eliminations_from_disk()
+        all_positions = self.get_positions_for_all_miners(sort_positions=True)
+        eliminations = self.elimination_manager.get_eliminations_from_memory()
         eliminated_hotkeys = set(x['hotkey'] for x in eliminations)
         bt.logging.info(f"Found {len(eliminations)} eliminations on disk.")
         for hotkey, positions in all_positions.items():
@@ -668,118 +542,24 @@ class PositionManager(CacheController):
                 if position.is_closed_position:
                     continue
                 if position.trade_pair in tps_to_eliminate:
-                    with self.position_locks.get_lock(hotkey, position.trade_pair.trade_pair_id):
-                        live_closing_price, price_sources = self.live_price_fetcher.get_latest_price(
+                    live_closing_price, price_sources = self.live_price_fetcher.get_latest_price(
                             trade_pair=position.trade_pair,
                             time_ms=TARGET_MS)
-                        flat_order = Order(price=live_closing_price,
-                                           price_sources=price_sources,
-                                           processed_ms=TARGET_MS,
-                                           order_uuid=position.position_uuid[::-1],
-                                           # determinstic across validators. Won't mess with p2p sync
-                                           trade_pair=position.trade_pair,
-                                           order_type=OrderType.FLAT,
-                                           leverage=0,
-                                           src=ORDER_SRC_DEPRECATION_FLAT)
-                        position.add_order(flat_order)
-                        self.save_miner_position_to_disk(position, delete_open_position_if_exists=True)
+
+                    flat_order = Order(price=live_closing_price,
+                                       price_sources=price_sources,
+                                       processed_ms=TARGET_MS,
+                                       order_uuid=position.position_uuid[::-1],
+                                       # determinstic across validators. Won't mess with p2p sync
+                                       trade_pair=position.trade_pair,
+                                       order_type=OrderType.FLAT,
+                                       leverage=0,
+                                       src=ORDER_SRC_DEPRECATION_FLAT)
+                    position.add_order(flat_order)
+                    self.save_miner_position(position, delete_open_position_if_exists=True)
                     bt.logging.info(
-                        f"Position {position.position_uuid} for hotkey {hotkey} and trade pair {position.trade_pair.trade_pair_id} has been closed. Added flat order {flat_order}")
+                    f"Position {position.position_uuid} for hotkey {hotkey} and trade pair {position.trade_pair.trade_pair_id} has been closed. Added flat order {flat_order}")
 
-    def perform_price_recalibration(self, time_per_batch_s=90):
-        try:
-            t0 = time.time()
-            if not self.live_price_fetcher.polygon_available:
-                bt.logging.error(
-                    "Polygon API not detected. Skipping price recalibration. Your validator will fall out of consensus.")
-                return
-            self.perform_price_recalibration_arap(time_per_batch_s)
-            bt.logging.info(
-                f"Price recalibration complete for {len(self.recalibrated_position_uuids)} positions in {time.time() - t0} seconds.")
-        except Exception as e:
-            bt.logging.error(f"Error performing price recalibration: {e}")
-            bt.logging.error(traceback.format_exc())
-
-    def perform_price_recalibration_arap(self, time_per_batch_s):
-        t0 = time.time()
-        all_positions = self.get_all_disk_positions_for_all_miners(sort_positions=True, only_open_positions=False)
-        eliminations = self.get_miner_eliminations_from_disk()
-        eliminated_hotkeys = set(x['hotkey'] for x in eliminations)
-        hotkeys_eliminated_to_current_return = {}
-        hotkeys_with_return_modified = set()
-        skipped_eliminated = 0
-        n_positions_total = 0
-        n_positions_modified = 0
-        RETURNS_MODIFIED = []
-        for hotkey, positions in all_positions.items():
-            max_portfolio_return = 1.0
-            cur_portfolio_return = 1.0
-            most_recent_elimination_idx = None
-            n_positions_total += len(positions)
-
-            if len(positions) == 0:
-                continue
-
-            if hotkey in eliminated_hotkeys:
-                skipped_eliminated += len(positions)
-                continue
-
-            dd_to_log = None
-            for i, position in enumerate(positions):
-                if position.position_uuid in self.recalibrated_position_uuids:
-                    continue
-                if time.time() - t0 > time_per_batch_s:
-                    return
-                original_return = position.return_at_close
-                new_return = self.recalculate_return_at_close_and_write_corrected_position_to_disk(position, hotkey)
-                if original_return != new_return:
-                    hotkeys_with_return_modified.add(hotkey)
-                    n_positions_modified += 1
-                    RETURNS_MODIFIED.append((original_return, new_return, position.trade_pair.trade_pair_id, hotkey))
-                if position.is_open_position:
-                    continue
-                self.recalibrated_position_uuids.add(position.position_uuid)
-                cur_portfolio_return *= new_return
-                max_portfolio_return = max(max_portfolio_return, cur_portfolio_return)
-                drawdown = self.calculate_drawdown(cur_portfolio_return, max_portfolio_return)
-                mdd_failure = self.is_drawdown_beyond_mdd(drawdown,
-                                                          time_now=TimeUtil.millis_to_datetime(position.close_ms))
-                if mdd_failure:
-                    dd_to_log = drawdown
-                    most_recent_elimination_idx = i
-
-            return_with_open_positions = cur_portfolio_return
-            for p in positions:
-                if p.is_open_position:
-                    return_with_open_positions *= p.return_at_close
-
-            drawdown = self.calculate_drawdown(return_with_open_positions, max_portfolio_return)
-            mdd_failure = self.is_drawdown_beyond_mdd(drawdown)
-            if mdd_failure:
-                most_recent_elimination_idx = len(positions) - 1
-                dd_to_log = drawdown
-
-            if most_recent_elimination_idx is not None:
-                return_as_shown_on_dash = 1.0
-                for p in positions:
-                    return_as_shown_on_dash *= p.return_at_close
-                hotkeys_eliminated_to_current_return[hotkey] = return_as_shown_on_dash
-                msg = (
-                    f"MDD failure occurred at position {most_recent_elimination_idx} out of {len(positions)} positions for hotkey "
-                    f"{hotkey}. Drawdown: {dd_to_log}. MDD failure: {mdd_failure}. Portfolio return: {return_with_open_positions}. ")
-                bt.logging.warning(msg)
-
-        bt.logging.info(f"Found n= {len(hotkeys_eliminated_to_current_return)} hotkeys to eliminate. After modifying returns for n = {len(hotkeys_with_return_modified)} hotkeys.")
-        bt.logging.info(f"Total initial positions: {n_positions_total}, Modified {n_positions_modified}, Skipped {skipped_eliminated} eliminated.")
-        bt.logging.warning(f"Position returns modified: {RETURNS_MODIFIED}")
-        for rm in RETURNS_MODIFIED:
-            if abs(rm[0] - rm[1]) / rm[0] > -1:
-                bt.logging.warning(
-                    f"    Original return: {rm[0]}, New return: {rm[1]}, Trade pair: {rm[2]} hotkey: {rm[3]}")
-
-        for k, v in sorted(hotkeys_eliminated_to_current_return.items(), key=lambda x: x[1]):
-            bt.logging.info(f"hotkey: {k}. return as shown on dash: {v}")
-        return hotkeys_eliminated_to_current_return
 
     def get_return_per_closed_position(self, positions: List[Position]) -> List[float]:
         if len(positions) == 0:
@@ -832,7 +612,7 @@ class PositionManager(CacheController):
         for attr in dir(position1):
             attr_is_property = isinstance(getattr(type(position1), attr, None), property)
             if attr.startswith("_") or callable(getattr(position1, attr)) or (comparing_to_dict and attr_is_property) \
-                    or (attr in ('model_computed_fields', 'model_config', 'model_fields')):
+                    or (attr in ('model_computed_fields', 'model_config', 'model_fields', 'model_fields_set', 'newest_order_age_ms')):
                 continue
 
             value1 = getattr(position1, attr)
@@ -847,26 +627,10 @@ class PositionManager(CacheController):
                 return False, f"{attr} is different. {value1} != {value2}"
         return True, ""
 
-    def get_miner_position_from_disk_using_position_in_memory(self, memory_position: Position) -> Position:
-        # Position could have changed to closed
-        fp = self.get_filepath_for_position(hotkey=memory_position.miner_hotkey,
-                                            trade_pair_id=memory_position.trade_pair.trade_pair_id,
-                                            position_uuid=memory_position.position_uuid,
-                                            is_open=memory_position.is_open_position)
-        try:
-            return self.get_miner_position_from_disk(fp)
-        except Exception as e:
-            bt.logging.info(f"Error getting position from disk: {e}")
-            if memory_position.is_open_position:
-                bt.logging.warning(f"Attempting to get closed position from disk for memory position {memory_position}")
-                fp = self.get_filepath_for_position(hotkey=memory_position.miner_hotkey,
-                                                    trade_pair_id=memory_position.trade_pair.trade_pair_id,
-                                                    position_uuid=memory_position.position_uuid,
-                                                    is_open=False
-                                                    )
-                return self.get_miner_position_from_disk(fp)
-            else:
-                raise e
+    def get_miner_position_by_uuid(self, hotkey:str, position_uuid: str) -> Position | None:
+        if hotkey not in self.hotkey_to_positions:
+            return None
+        return self._position_from_list_of_position(hotkey, position_uuid)
 
     def get_recently_updated_miner_hotkeys(self):
         """
@@ -916,12 +680,12 @@ class PositionManager(CacheController):
         open_position = self.get_open_position_for_a_miner_trade_pair(position.miner_hotkey,
                                                                       position.trade_pair.trade_pair_id)
         if open_position:
-            self.delete_position_from_disk(open_position)
+            self.delete_position(open_position)
 
     def verify_open_position_write(self, miner_dir, updated_position):
         all_files = ValiBkpUtils.get_all_files_in_dir(miner_dir)
         # Print all files found for dir
-        positions = [self.get_miner_position_from_disk(file) for file in all_files]
+        positions = [self._get_position_from_disk(file) for file in all_files]
         if len(positions) == 0:
             return  # First time open position is being saved
         if len(positions) > 1:
@@ -936,7 +700,78 @@ class PositionManager(CacheController):
                     f" position with a different position_uuid {positions[0].position_uuid}.")
                 raise ValiRecordsMisalignmentException(msg)
 
-    def save_miner_position_to_disk(self, position: Position, delete_open_position_if_exists=True) -> None:
+        # -------------------------------------------------------------------------------------
+        # Make sure the memory positions match the disk positions. Only run this during test
+        if not self.running_unit_tests:
+            return
+
+        cdf = miner_dir[:-5] + 'closed/'
+        positions.extend([self._get_position_from_disk(file) for file in ValiBkpUtils.get_all_files_in_dir(cdf)])
+
+        temp = self.hotkey_to_positions.get(updated_position.miner_hotkey, [])
+        positions_memory_by_position_uuid = {}
+        for position in temp:
+            if position.trade_pair == updated_position.trade_pair:
+                positions_memory_by_position_uuid[position.position_uuid] = position
+        positions_disk_by_uuid = {p.position_uuid: p for p in positions}
+        errors = []
+        for position_uuid, position in positions_memory_by_position_uuid.items():
+            if position_uuid not in positions_disk_by_uuid:
+                errors.append(
+                    f"Position {position_uuid} for miner {updated_position.miner_hotkey} and trade_pair {updated_position.trade_pair.trade_pair_id} "
+                    f"found in memory but not on disk.")
+                continue
+            disk_position = positions_disk_by_uuid[position_uuid]
+            is_same, diff = self.positions_are_the_same(position, disk_position)
+            if not is_same:
+                errors.append(
+                    f"Position {position_uuid} for miner {updated_position.miner_hotkey} and trade_pair {updated_position.trade_pair.trade_pair_id} "
+                    f"found in memory but does not match the position on disk. {diff}")
+
+        for position_uuid, position in positions_disk_by_uuid.items():
+            if position_uuid not in positions_memory_by_position_uuid:
+                errors.append(
+                    f"Position {position_uuid} for miner {updated_position.miner_hotkey} and trade_pair {updated_position.trade_pair.trade_pair_id} "
+                    f"found on disk but not in memory.")
+                continue
+            memory_position = positions_memory_by_position_uuid[position_uuid]
+            is_same, diff = self.positions_are_the_same(memory_position, position)
+            if not is_same:
+                errors.append(
+                    f"Position {position_uuid} for miner {updated_position.miner_hotkey} and trade_pair {updated_position.trade_pair.trade_pair_id} "
+                    f"found on disk but does not match the position in memory. {diff}")
+        if errors:
+            raise ValiRecordsMisalignmentException(
+                f"Found errors in miner {updated_position.miner_hotkey} and trade_pair {updated_position.trade_pair.trade_pair_id}. Errors: {errors}."
+                f" Disk positions: {positions_disk_by_uuid.keys()}. Memory positions: {positions_memory_by_position_uuid.keys()}. all files {all_files}")
+        # -------------------------------------------------------------------------------------
+
+    def _position_from_list_of_position(self, hotkey, position_uuid):
+        for p in self.hotkey_to_positions.get(hotkey, []):
+            if p.position_uuid == position_uuid:
+                return deepcopy(p)  # for unit tests we deepcopy. ipc cache never returns a reference.
+        return None
+
+    def _save_miner_position_to_memory(self, position: Position):
+        # Multiprocessing-safe
+        hk = position.miner_hotkey
+        if hk not in self.hotkey_to_positions:
+            existing_positions = []
+        else:
+            existing_positions = self.hotkey_to_positions[hk]
+
+        # Santiy check
+        if position.miner_hotkey in self.hotkey_to_positions and position.position_uuid in self.hotkey_to_positions[
+            position.miner_hotkey]:
+            existing_pos = self._position_from_list_of_position(position.miner_hotkey, position.position_uuid)
+            assert existing_pos.trade_pair == position.trade_pair, f"Trade pair mismatch for position {position.position_uuid}. Existing: {existing_pos.trade_pair}, New: {position.trade_pair}"
+
+        new_positions = [p for p in existing_positions if p.position_uuid != position.position_uuid]
+        new_positions.append(deepcopy(position))
+        self.hotkey_to_positions[hk] = new_positions  # Trigger the update on the multiprocessing Manager
+
+
+    def save_miner_position(self, position: Position, delete_open_position_if_exists=True) -> None:
         miner_dir = ValiBkpUtils.get_partitioned_miner_positions_dir(position.miner_hotkey,
                                                                      position.trade_pair.trade_pair_id,
                                                                      order_status=OrderStatus.OPEN if position.is_open_position else OrderStatus.CLOSED,
@@ -946,18 +781,22 @@ class PositionManager(CacheController):
         elif position.is_open_position:
             self.verify_open_position_write(miner_dir, position)
 
+        #print(f'Saving position {position.position_uuid} for miner {position.miner_hotkey} and trade pair {position.trade_pair.trade_pair_id} is_open {position.is_open_position}')
         ValiBkpUtils.write_file(miner_dir + position.position_uuid, position)
+        self._save_miner_position_to_memory(position)
 
     def overwrite_position_on_disk(self, position: Position) -> None:
         # delete the position from disk. Try the open position dir and the closed position dir
-        self.delete_position_from_disk(position, check_open_and_closed_dirs=True)
+        self.delete_position(position, check_open_and_closed_dirs=True)
         miner_dir = ValiBkpUtils.get_partitioned_miner_positions_dir(position.miner_hotkey,
                                                                      position.trade_pair.trade_pair_id,
                                                                      order_status=OrderStatus.OPEN if position.is_open_position else OrderStatus.CLOSED,
                                                                      running_unit_tests=self.running_unit_tests)
         ValiBkpUtils.write_file(miner_dir + position.position_uuid, position)
+        self._save_miner_position_to_memory(position)
 
-    def clear_all_miner_positions_from_disk(self, target_hotkey=None):
+    def clear_all_miner_positions(self, target_hotkey=None):
+        self.hotkey_to_positions = {}
         # Clear all files and directories in the directory specified by dir
         dir = ValiBkpUtils.get_miner_dir(running_unit_tests=self.running_unit_tests)
         for file in os.listdir(dir):
@@ -970,22 +809,14 @@ class PositionManager(CacheController):
                 shutil.rmtree(file_path)
 
     def get_number_of_eliminations(self):
-        return len(self.get_miner_eliminations_from_disk())
-
-    def get_number_of_plagiarism_scores(self):
-        return len(self.get_plagiarism_scores_from_disk())
+        return len(self.elimination_manager.eliminations)
 
     def get_number_of_miners_with_any_positions(self):
-        dir = ValiBkpUtils.get_miner_dir(running_unit_tests=self.running_unit_tests)
-        ret = 0
-        try:
-            for file in os.listdir(dir):
-                file_path = os.path.join(dir, file)
-                ret += os.path.isdir(file_path)
-            bt.logging.info(f"Number of miners with any positions: {ret}. Positions dir: {dir}")
-        except FileNotFoundError:
-            bt.logging.info(f"Directory for miners doesn't exist [{dir}].")
-        return ret
+        ans = 0
+        for k, v in self.hotkey_to_positions.items():
+            if len(v) > 0:
+                ans += 1
+        return ans
 
     def get_extreme_position_order_processed_on_disk_ms(self):
         dir = ValiBkpUtils.get_miner_dir(running_unit_tests=self.running_unit_tests)
@@ -997,7 +828,7 @@ class PositionManager(CacheController):
                 continue
             hotkey = file
             # Read all positions in this directory
-            positions = self.get_all_miner_positions(hotkey)
+            positions = self.get_positions_for_one_hotkey(hotkey)
             for p in positions:
                 for o in p.orders:
                     min_time = min(min_time, o.processed_ms)
@@ -1005,22 +836,22 @@ class PositionManager(CacheController):
         return min_time, max_time
 
     def get_open_position_for_a_miner_trade_pair(self, hotkey: str, trade_pair_id: str) -> Position | None:
-        dir = ValiBkpUtils.get_partitioned_miner_positions_dir(hotkey, trade_pair_id, order_status=OrderStatus.OPEN,
-                                                               running_unit_tests=self.running_unit_tests)
-        all_files = ValiBkpUtils.get_all_files_in_dir(dir)
-        # Print all files found for dir
-        positions = [self.get_miner_position_from_disk(file) for file in all_files]
+        temp = self.hotkey_to_positions.get(hotkey, [])
+        positions = []
+        for p in temp:
+            if p.trade_pair.trade_pair_id == trade_pair_id and p.is_open_position:
+                positions.append(p)
         if len(positions) > 1:
             raise ValiRecordsMisalignmentException(f"More than one open position for miner {hotkey} and trade_pair."
                                                    f" {trade_pair_id}. Please restore cache. Positions: {positions}")
-        return positions[0] if len(positions) == 1 else None
+        return deepcopy(positions[0]) if len(positions) == 1 else None
 
     def get_filepath_for_position(self, hotkey, trade_pair_id, position_uuid, is_open):
         order_status = OrderStatus.CLOSED if not is_open else OrderStatus.OPEN
         return ValiBkpUtils.get_partitioned_miner_positions_dir(hotkey, trade_pair_id, order_status=order_status,
                                                                 running_unit_tests=self.running_unit_tests) + position_uuid
 
-    def delete_position_from_disk(self, p: Position, check_open_and_closed_dirs=False):
+    def delete_position(self, p: Position, check_open_and_closed_dirs=False):
         hotkey = p.miner_hotkey
         trade_pair_id = p.trade_pair.trade_pair_id
         position_uuid = p.position_uuid
@@ -1034,246 +865,145 @@ class PositionManager(CacheController):
             if os.path.exists(fp):
                 os.remove(fp)
                 bt.logging.info(f"Deleted position from disk: {fp}")
+            self._delete_position_from_memory(hotkey, position_uuid)
 
-    def check_elimination(self, positions, miner_hotkey, orig_portfolio_return, ALL_MSGS, ELIM_MSGS):
-        max_portfolio_return = 1.0
-        cur_portfolio_return = 1.0
-        dd_to_log = None
-        most_recent_elimination_idx = None
-        n_positions_flipped_to_loss = 0
-        n_positions_flipped_to_gain = 0
-        for i, position in enumerate(positions):
-            orig_return = position.return_at_close
-            position.rebuild_position_with_updated_orders()
-
-            new_return = position.return_at_close
-            if new_return < 1.0 and orig_return >= 1.0:
-                n_positions_flipped_to_loss += 1
-            elif new_return >= 1.0 and orig_return < 1.0:
-                n_positions_flipped_to_gain += 1
-
-            if position.is_open_position:
-                continue
-
-            cur_portfolio_return *= new_return
-            max_portfolio_return = max(max_portfolio_return, cur_portfolio_return)
-            drawdown = self.calculate_drawdown(cur_portfolio_return, max_portfolio_return)
-            mdd_failure = self.is_drawdown_beyond_mdd(drawdown,
-                                                      time_now=TimeUtil.millis_to_datetime(position.close_ms))
-            if mdd_failure:
-                dd_to_log = drawdown
-                most_recent_elimination_idx = i
-
-        if most_recent_elimination_idx is not None:
-            msg = (
-                f"MDD failure occurred at position {most_recent_elimination_idx} out of {len(positions)} positions for hotkey "
-                f"{miner_hotkey}. Drawdown: {dd_to_log}. MDD failure: {mdd_failure}. Portfolio return: {cur_portfolio_return}. ")
-            ELIM_MSGS.append(msg)
-            bt.logging.warning(msg)
-        msg = (
-            f"hotkey: {miner_hotkey}. unrealized return as shown on dash: {orig_portfolio_return} new realized return (excludes open positions): {cur_portfolio_return}"
-            f" n_positions_flipped_to_loss: {n_positions_flipped_to_loss} n_positions_flipped_to_gain: {n_positions_flipped_to_gain}")
-        ALL_MSGS.append(msg)
-        print(msg)
-
-    def apply_corrections_from_price_audit(self):
-        f_path = ValiConfig.BASE_DIR + '/price_audits/price_audit_4-18-24.txt'
-
-        trade_pair_str_to_n_times_seen_per_hk = {}
-        position_to_corrections_per_hk = {}
-        hotkey_to_positions = self.get_all_disk_positions_for_all_miners(sort_positions=True, only_open_positions=False)
-
-        order_timestamp_to_position = {}
-        for hotkey, positions in hotkey_to_positions.items():
-            for i, position in enumerate(positions):
-                for o in position.orders:
-                    assert o.processed_ms not in order_timestamp_to_position
-                    order_timestamp_to_position[o.processed_ms] = position
-
-        with open(f_path, 'r') as f:
-            miner_hotkey = None
-            position = None
-            for line in f:
-                line = line.strip()
-                if line.startswith('trade_pair'):  # Ignore header
-                    continue
-
-                parts = line.split('	')
-                if len(line) == 48:  # Assuming the hotkey is always 48 characters long
-                    if position is not None and miner_hotkey is not None:
-                        trade_pair_str_to_n_times_seen_per_hk[miner_hotkey][position.trade_pair.trade_pair] += 1
-
-                    miner_hotkey = line
-                    if miner_hotkey not in position_to_corrections_per_hk:
-                        position_to_corrections_per_hk[miner_hotkey] = defaultdict(list)
-                        trade_pair_str_to_n_times_seen_per_hk[miner_hotkey] = defaultdict(int)
-
-                elif len(parts) == 10:
-                    trade_pair = parts[0]
-                    timestamp_ms = int(parts[2])
-                    original_price = float(parts[3])
-                    corrected_price = float(parts[4]) if parts[4] != '?' else None
-                    correction_status = parts[6]
-                    if timestamp_ms not in order_timestamp_to_position:
-                        bt.logging.warning(f'Ignoring correction from missing order miner {miner_hotkey}')
-                        position = None
-                        continue
-                    assert miner_hotkey in hotkey_to_positions, f"Hotkey {miner_hotkey} not found in positions."
-                    position = order_timestamp_to_position[timestamp_ms]
-                    idx = trade_pair_str_to_n_times_seen_per_hk[miner_hotkey][trade_pair]
-                    position_to_corrections_per_hk[miner_hotkey][position.position_uuid].append(
-                        (trade_pair, timestamp_ms, original_price, corrected_price, correction_status, idx))
-                else:
-                    print('BREAKING AT LINE ', line)
-                    break  # Done
-
-                #print(f"Hotkey: {miner_hotkey}, Order Info: {order_info}")
-
-        n_attempts = 0
-        n_corrections = 0
-        n_positions_grew_since_last_audit = 0
-        unique_corrections = set()
-        for hotkey, positions in hotkey_to_positions.items():
-            position_to_corrections = position_to_corrections_per_hk.get(hotkey)
-            if not position_to_corrections:
-                continue
-
-            for position in positions:
-                assert position.position_uuid not in unique_corrections
-                corrections = position_to_corrections.get(position.position_uuid, [])
-                if not corrections:
-                    continue
-
-                new_order_prices = []
-                any_price_corrections = False
-                idx = None
-                for correction in corrections:
-                    trade_pair_str, timestamp_ms, original_price, corrected_price, correction_status, i = correction
-                    trade_pair = TradePair.get_latest_tade_pair_from_trade_pair_str(trade_pair_str)
-                    if idx is None:
-                        idx = i
-                    else:
-                        assert idx == correction[-1]
-
-                    if correction_status in ('price already accurate'):
-                        new_order_prices.append(original_price)
-                    elif corrected_price is None:
-                        new_order_prices.append(original_price)
-                    else:
-                        new_order_prices.append(corrected_price)
-                        any_price_corrections = True
-
-                if not any_price_corrections:
-                    continue
-
-                if len(new_order_prices) == 0:
-                    raise Exception("len(new_order_prices) == 0")
-                elif len(new_order_prices) < len(position.orders):
-                    n_positions_grew_since_last_audit += 1
-                elif len(new_order_prices) > len(position.orders):
-                    raise Exception(
-                        f"len(new_order_prices) {len(new_order_prices)} > len(position.orders) {len(position.orders)}")
-                elif not new_order_prices:
-                    raise Exception(f"len(new_order_prices) {len(new_order_prices)}")
-
-                #bt.logging.error(f"Hotkey: {hotkey}, Position: {position.position_uuid}, Trade Pair: {position.trade_pair.trade_pair_id},")
-                prev_n_attempts, prev_n_corrections = n_attempts, n_corrections  # noqa: F841
-                n_attempts, n_corrections = self.correct_for_tp(positions, idx, new_order_prices,
-                                                                trade_pair, n_attempts=n_attempts,
-                                                                n_corrections=n_corrections,
-                                                                unique_corrections=unique_corrections, pos=position)
-                if n_corrections == prev_n_corrections:
-                    print(f"Failed to correct for hotkey {hotkey} trade pair {trade_pair.trade_pair_id} at idx {idx}")
-        print(
-            f"n_attempts: {n_attempts}, n_corrections: {n_corrections}, n_positions_corrected: {len(unique_corrections)},"
-            f"n_positions_grew_since_last_audit: {n_positions_grew_since_last_audit}")
-        assert n_corrections == n_attempts, f"n_corrections {n_corrections} != n_attempts {n_attempts}"
-
-    def generate_correction_templates(self):
-        f = open('/Users/jbonilla/Documents/price_audit_4-18-24.txt', 'w')
-        ALL_MSGS = []
-        ELIM_MSGS = []
-
-        eliminations = self.get_miner_eliminations_from_disk()
-        eliminated_hotkeys = set(x['hotkey'] for x in eliminations)
-
-        template = ', '.join(
-            ['trade_pair', 'order_date_utc', 'order_timestamp', 'price_on_dash', 'corrected_price', 'percent_change',
-             'automated', 'price_freshness_ms', 'current position return', 'new position return'])
-        f.write(template + '\n')
-        hotkey_to_positions = self.get_all_disk_positions_for_all_miners(sort_positions=True, only_open_positions=False)
-        for miner_hotkey, positions in hotkey_to_positions.items():
-            if miner_hotkey in eliminated_hotkeys:
-                continue
-            msg = f'Processing hotkey {miner_hotkey}'
-            f.write(miner_hotkey + '\n')
-            print(msg)
-            orig_return = 1.0
-
-            for position in positions:
-                pending_rows = []
-                orig_return *= position.return_at_close
-                for order in position.orders:
-                    order_already_calibrated = bool(order.price_sources)
-                    date_utc = TimeUtil.millis_to_formatted_date_str(order.processed_ms)
-                    closest_price, smallest_delta_ms = self.live_price_fetcher.get_close_at_date(position.trade_pair, order.processed_ms)
-                    automated = 'needs human edit'
-                    corrected_price = '?'
-                    original_price = order.price
-                    if order_already_calibrated:
-                        automated = 'price already accurate'
-                        corrected_price = original_price
-                        delta_ms = order.price_sources[0].lag_ms
-                    elif smallest_delta_ms <= 1000:
-                        automated = 'automatically corrected'
-                        corrected_price = closest_price
-                        delta_ms = smallest_delta_ms
-                        order.price = corrected_price
-                    else:
-                        delta_ms = smallest_delta_ms
-                    if corrected_price != '?' and corrected_price != original_price:
-                        percent_change = f"{(corrected_price - original_price) / original_price * 100:.2f}%"
-                    else:
-                        percent_change = 'N/A'
-                    pending_rows.append(
-                        [position.trade_pair.trade_pair, date_utc, order.processed_ms, original_price, corrected_price,
-                         percent_change, automated, delta_ms, position.return_at_close])
-
-                temp = deepcopy(position)
-                temp.rebuild_position_with_updated_orders()
-                if position.is_closed_position:
-                    new_return = temp.return_at_close
-                else:
-                    new_return = 'depends on live price'
-                for row in pending_rows:
-                    row.append(new_return)
-                    f.write(', '.join([str(x) for x in row]))
-                    f.write('\n')
-
-            self.check_elimination(positions, miner_hotkey, orig_return, ALL_MSGS, ELIM_MSGS)
-
-        for x in ALL_MSGS:
-            print(x)
-            f.write(str(x) + '\n')
-
-        for x in ELIM_MSGS:
-            print(x)
-            f.write(str(x) + '\n')
-
-        f.close()
+    def _delete_position_from_memory(self, hotkey, position_uuid):
+        if hotkey in self.hotkey_to_positions:
+            new_positions = [p for p in self.hotkey_to_positions[hotkey] if p.position_uuid != position_uuid]
+            if new_positions:
+                self.hotkey_to_positions[hotkey] = new_positions
+            else:
+                del self.hotkey_to_positions[hotkey]
 
     def calculate_net_portfolio_leverage(self, hotkey: str) -> float:
         """
         Calculate leverage across all open positions
         Normalize each asset class with a multiplier
         """
-        positions = self.get_all_miner_positions(hotkey, only_open_positions=True)
+        positions = self.get_positions_for_one_hotkey(hotkey, only_open_positions=True)
 
         portfolio_leverage = 0.0
         for position in positions:
             portfolio_leverage += abs(position.get_net_leverage()) * position.trade_pair.leverage_multiplier
 
         return portfolio_leverage
+
+    @timeme
+    def get_positions_for_all_miners(self, from_disk=False, **args):
+        if from_disk:
+            all_miner_hotkeys: list = ValiBkpUtils.get_directories_in_dir(
+                ValiBkpUtils.get_miner_dir(self.running_unit_tests)
+            )
+        else:
+            all_miner_hotkeys = list(self.hotkey_to_positions.keys())
+        return self.get_positions_for_hotkeys(all_miner_hotkeys, from_disk=from_disk, **args)
+
+    def _get_position_from_disk(self, file) -> Position:
+        # wrapping here to allow simpler error handling & original for other error handling
+        # Note one position always corresponds to one file.
+        file_string = None
+        try:
+            file_string = ValiBkpUtils.get_file(file)
+            ans = Position.model_validate_json(file_string)
+            if not ans.orders:
+                bt.logging.warning(f"Anomalous position has no orders: {ans.to_dict()}")
+            return ans
+        except FileNotFoundError:
+            raise ValiFileMissingException(f"Vali position file is missing {file}")
+        except UnpicklingError as e:
+            raise ValiBkpCorruptDataException(f"file_string is {file_string}, {e}")
+        except UnicodeDecodeError as e:
+            raise ValiBkpCorruptDataException(
+                f" Error {e} for file {file} You may be running an old version of the software. Confirm with the team if you should delete your cache. file string {file_string[:2000] if file_string else None}")
+        except Exception as e:
+            raise ValiBkpCorruptDataException(f"Error {e} file_path {file} file_string: {file_string}")
+
+    def sort_by_close_ms(self, _position):
+        return (
+            _position.close_ms if _position.is_closed_position else float("inf")
+        )
+
+    def exorcise_positions(self, positions, all_files) -> List[Position]:
+        """
+        1/7/24: Not needed anymore?
+        Disk positions can be left in a bad state for a variety of reasons. Let's clean them up here.
+        If a dup is encountered, deleted both and let position syncing add the correct one back.
+        """
+        filtered_positions = []
+        position_uuid_to_count = defaultdict(int)
+        order_uuid_to_count = defaultdict(int)
+        order_uuids_to_purge = set()
+        for position in positions:
+            position_uuid_to_count[position.position_uuid] += 1
+            for order in position.orders:
+                order_uuid_to_count[order.order_uuid] += 1
+                if order_uuid_to_count[order.order_uuid] > 1:
+                    order_uuids_to_purge.add(order.order_uuid)
+
+        for file_name, position in zip(all_files, positions):
+            if position_uuid_to_count[position.position_uuid] > 1:
+                bt.logging.info(f"Exorcising position from disk due to duplicate position uuid: {file_name} {position}")
+                os.remove(file_name)
+                continue
+
+            elif not position.orders:
+                bt.logging.info(f"Exorcising position from disk due to no orders: {file_name} {position.to_dict()}")
+                os.remove(file_name)
+                continue
+
+            new_orders = [x for x in position.orders if order_uuid_to_count[x.order_uuid] == 1]
+            if len(new_orders) != len(position.orders):
+                bt.logging.info(f"Exorcising position from disk due to order mismatch: {file_name} {position}")
+                os.remove(file_name)
+            else:
+                filtered_positions.append(position)
+        return filtered_positions
+
+    def get_positions_for_one_hotkey(self,
+                                     miner_hotkey: str,
+                                     only_open_positions: bool = False,
+                                     sort_positions: bool = False,
+                                     acceptable_position_end_ms: int = None,
+                                     from_disk: bool = False
+                                     ) -> List[Position]:
+
+        if from_disk:
+            miner_dir = ValiBkpUtils.get_miner_all_positions_dir(miner_hotkey,
+                                                                 running_unit_tests=self.running_unit_tests)
+            all_files = ValiBkpUtils.get_all_files_in_dir(miner_dir)
+            positions = [self._get_position_from_disk(file) for file in all_files]
+        else:
+            positions = self.hotkey_to_positions.get(miner_hotkey, [])
+
+        if acceptable_position_end_ms is not None:
+            positions = [
+                position
+                for position in positions
+                if position.open_ms > acceptable_position_end_ms
+            ]
+
+        if only_open_positions:
+            positions = [
+                position for position in positions if position.is_open_position
+            ]
+
+        if sort_positions:
+            positions = sorted(positions, key=self.sort_by_close_ms)
+
+        return positions
+
+    def get_positions_for_hotkeys(self, hotkeys: List[str], eliminations: List = None, **args) -> Dict[
+        str, List[Position]]:
+        eliminated_hotkeys = set(x['hotkey'] for x in eliminations) if eliminations is not None else set()
+
+        return {
+            hotkey: self.get_positions_for_one_hotkey(hotkey, **args)
+            for hotkey in hotkeys
+            if hotkey not in eliminated_hotkeys
+        }
+
+    def get_miner_hotkeys_with_at_least_one_position(self) -> set[str]:
+        return set(self.hotkey_to_positions.keys())
 
 if __name__ == '__main__':
     pm = PositionManager()

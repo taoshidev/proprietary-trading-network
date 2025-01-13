@@ -2,6 +2,7 @@
 # Copyright © 2024 Taoshi Inc
 from tests.shared_objects.mock_classes import MockMetagraph, MockPlagiarismDetector
 from tests.vali_tests.base_objects.test_base import TestBase
+from vali_objects.utils.elimination_manager import EliminationManager
 from vali_objects.vali_config import TradePair
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.position import Position
@@ -32,11 +33,12 @@ class TestPlagiarismUnit(TestBase):
         self.MINER_HOTKEY3 = "test_miner3"
         self.MINER_HOTKEY4 = "test_miner4"
         self.mock_metagraph = MockMetagraph([self.MINER_HOTKEY1, self.MINER_HOTKEY2, self.MINER_HOTKEY3, self.MINER_HOTKEY4])
-        self.plagiarism_detector = MockPlagiarismDetector(self.mock_metagraph)
-        self.plagiarism_detector.running_unit_tests = True
         self.current_time = ValiConfig.PLAGIARISM_LOOKBACK_RANGE_MS
-
-        self.position_manager = PositionManager(metagraph=self.mock_metagraph, running_unit_tests=True)
+        self.elimination_manager = EliminationManager(self.mock_metagraph, None, None, running_unit_tests=True)
+        self.position_manager = PositionManager(metagraph=self.mock_metagraph, running_unit_tests=True,
+                                                elimination_manager=self.elimination_manager)
+        self.elimination_manager.position_manager = self.position_manager
+        self.plagiarism_detector = MockPlagiarismDetector(self.mock_metagraph, self.position_manager)
         self.DEFAULT_TEST_POSITION_UUID = "test_position"
         self.DEFAULT_OPEN_MS = 1000
 
@@ -81,13 +83,11 @@ class TestPlagiarismUnit(TestBase):
             open_ms=self.DEFAULT_OPEN_MS,
             trade_pair=TradePair.BTCUSD,
         )
-        
-        self.plagiarism_detector.init_cache_files()
 
-        self.position_manager.clear_all_miner_positions_from_disk()
+        self.position_manager.clear_all_miner_positions()
         self.plagiarism_detector.clear_plagiarism_from_disk()
 
-        self.plagiarism_detector.clear_eliminations_from_disk()
+        self.plagiarism_detector.position_manager.elimination_manager.clear_eliminations()
         self.position_counter = 0
         PlagiarismEvents.clear_plagiarism_events()
 
@@ -100,7 +100,7 @@ class TestPlagiarismUnit(TestBase):
 
     def translate_positions_to_states(self):
         hotkeys = self.mock_metagraph.hotkeys
-        positions = self.position_manager.get_all_miner_positions_by_hotkey(hotkeys)
+        positions = self.position_manager.get_positions_for_hotkeys(hotkeys)
         flattened_positions = PositionUtils.flatten(positions)
         positions_list_translated = PositionUtils.translate_current_leverage(flattened_positions, evaluation_time_ms=self.current_time)
         miners, trade_pairs, state_list = PositionUtils.to_state_list(positions_list_translated, current_time=self.current_time)
@@ -112,7 +112,7 @@ class TestPlagiarismUnit(TestBase):
 
     def add_order_to_position_and_save_to_disk(self, position, order):
         position.add_order(order)
-        self.position_manager.save_miner_position_to_disk(position)
+        self.position_manager.save_miner_position(position)
 
     def generate_one_position(self, hotkey, trade_pair, leverages, time_apart, time_after):
         self.position_counter += 1

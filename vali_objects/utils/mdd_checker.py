@@ -21,9 +21,9 @@ from vali_objects.vali_dataclasses.price_source import PriceSource
 
 class MDDChecker(CacheController):
 
-    def __init__(self, config, metagraph, position_manager, eliminations_lock, running_unit_tests=False,
+    def __init__(self, metagraph, position_manager, running_unit_tests=False,
                  live_price_fetcher=None, shutdown_dict=None):
-        super().__init__(config, metagraph, running_unit_tests=running_unit_tests)
+        super().__init__(metagraph, running_unit_tests=running_unit_tests)
         self.last_price_fetch_time_ms = None
         self.price_correction_enabled = True
         secrets = ValiUtils.get_secrets(running_unit_tests=running_unit_tests)
@@ -34,28 +34,30 @@ class MDDChecker(CacheController):
             self.live_price_fetcher = LivePriceFetcher(secrets=secrets)
         else:
             self.live_price_fetcher = live_price_fetcher
-        self.eliminations_lock = eliminations_lock
+        self.elimination_manager = position_manager.elimination_manager
         self.reset_debug_counters()
         self.shutdown_dict = shutdown_dict
         self.n_poly_api_requests = 0
         self.hotkeys_with_flat_orders_added = set()
-        self._refresh_eliminations_in_memory()
-        self.eliminated_hotkeys = self.get_eliminated_hotkeys()
+        self.eliminated_hotkeys = self.elimination_manager.get_eliminated_hotkeys()
 
     def reset_debug_counters(self):
         self.n_miners_skipped_already_eliminated = 0
-        self.n_eliminations_this_round = 0
         self.n_orders_corrected = 0
         self.miners_corrected = set()
 
+    def _position_is_candidate_for_price_correction(self, position: Position, now_ms):
+        return (position.is_open_position or
+                position.newest_order_age_ms(now_ms) <= RecentEventTracker.OLDEST_ALLOWED_RECORD_MS)
 
     def get_candle_data(self, hotkey_positions) -> Dict[TradePair, List[PriceSource]]:
         required_trade_pairs_for_candles = set()
         trade_pair_to_market_open = {}
+        now_ms = TimeUtil.now_in_millis()
         for sorted_positions in hotkey_positions.values():
             for position in sorted_positions:
                 # Only need live price for open positions in open markets.
-                if position.is_open_position:
+                if self._position_is_candidate_for_price_correction(position, now_ms):
                     tp = position.trade_pair
                     if tp not in trade_pair_to_market_open:
                         trade_pair_to_market_open[tp] = self.live_price_fetcher.polygon_data_service.is_market_open(tp)
@@ -64,6 +66,7 @@ class MDDChecker(CacheController):
 
         now = TimeUtil.now_in_millis()
         candle_data = self.live_price_fetcher.get_latest_prices(list(required_trade_pairs_for_candles))
+        #bt.logging.info(f"Got candle data for {len(candle_data)} {candle_data}")
         for tp, price_and_sources in candle_data.items():
             sources = price_and_sources[1]
             if sources and any(x and not x.websocket for x in sources):
@@ -73,7 +76,7 @@ class MDDChecker(CacheController):
         return candle_data
 
     
-    def mdd_check(self):
+    def mdd_check(self, position_locks):
         self.n_poly_api_requests = 0
         if not self.refresh_allowed(ValiConfig.MDD_CHECK_REFRESH_TIME_MS):
             time.sleep(1)
@@ -83,35 +86,14 @@ class MDDChecker(CacheController):
             return
         bt.logging.info("running mdd checker")
         self.reset_debug_counters()
-        self._refresh_eliminations_in_memory()
-        perf_ledger_eliminations = self.get_perf_ledger_eliminations_from_disk()
-        self.eliminated_hotkeys = self.get_eliminated_hotkeys()
-        for e in perf_ledger_eliminations:
-            if e['hotkey'] in self.eliminated_hotkeys:
-                continue
-
-            self.eliminated_hotkeys.add(e['hotkey'])
-            price_info = e['price_info']
-            trade_pair_to_price_source_used_for_elimination_check = {}
-            for k, v in price_info.items():
-                trade_pair = TradePair.get_latest_tade_pair_from_trade_pair_str(k)
-                elimination_initiated_time_ms = e['elimination_initiated_time_ms']
-                trade_pair_to_price_source_used_for_elimination_check[trade_pair] = PriceSource(source='elim', open=v, close=v, start_ms=elimination_initiated_time_ms, timespan_ms=1000, websocket=False, trade_pair=trade_pair)
-            self.position_manager.handle_eliminated_miner(e['hotkey'], trade_pair_to_price_source_used_for_elimination_check)
-            self.eliminations.append(e)
-            self.n_eliminations_this_round += 1
-
-        if self.n_eliminations_this_round:
-            with self.eliminations_lock:
-                self._write_eliminations_from_memory_to_disk()
-                bt.logging.info(f'Wrote {self.n_eliminations_this_round} new eliminations to disk')
+        self.eliminated_hotkeys = self.elimination_manager.get_eliminated_hotkeys()
 
         # Update in response to dereg'd miners re-registering an uneliminating
         self.hotkeys_with_flat_orders_added = {
-            x for x in self.hotkeys_with_flat_orders_added if self._hotkey_in_eliminations(x)
+            x for x in self.hotkeys_with_flat_orders_added if self.elimination_manager.hotkey_in_eliminations(x)
         }
 
-        hotkey_to_positions = self.position_manager.get_all_miner_positions_by_hotkey(
+        hotkey_to_positions = self.position_manager.get_positions_for_hotkeys(
             self.metagraph.hotkeys, sort_positions=True,
             eliminations=[{'hotkey': x} for x in self.hotkeys_with_flat_orders_added]
         )
@@ -119,15 +101,14 @@ class MDDChecker(CacheController):
         for hotkey, sorted_positions in hotkey_to_positions.items():
             if self.shutdown_dict:
                 return
-            self.perform_price_corrections(hotkey, sorted_positions, candle_data)
+            self.perform_price_corrections(hotkey, sorted_positions, candle_data, position_locks)
 
-        bt.logging.info(f"mdd checker completed. n_eliminations_this_round: "
-                        f"{self.n_eliminations_this_round}. "
-                        f"n orders corrected: {self.n_orders_corrected}. n miners corrected: {len(self.miners_corrected)}."
+        bt.logging.info(f"mdd checker completed."
+                        f" n orders corrected: {self.n_orders_corrected}. n miners corrected: {len(self.miners_corrected)}."
                         f" n_poly_api_requests: {self.n_poly_api_requests}")
-        self.set_last_update_time(skip_message=True)
+        self.set_last_update_time(skip_message=False)
 
-    def _update_position_returns_and_persist_to_disk(self, hotkey, position, candle_data_dict) -> Position:
+    def _update_position_returns_and_persist_to_disk(self, hotkey, position, candle_data_dict, position_locks):
         """
         Setting the latest returns and persisting to disk for accurate MDD calculation and logging in get_positions
 
@@ -151,9 +132,13 @@ class MDDChecker(CacheController):
         orig_avg_price = position.average_entry_price
         orig_iep = position.initial_entry_price
         now_ms = TimeUtil.now_in_millis()
-        with self.position_manager.position_locks.get_lock(hotkey, trade_pair_id):
+        with position_locks.get_lock(hotkey, trade_pair_id):
             # Position could have updated in the time between mdd_check being called and this function being called
-            position = self.position_manager.get_miner_position_from_disk_using_position_in_memory(position)
+            position_refreshed = self.position_manager.get_miner_position_by_uuid(hotkey, position.position_uuid)
+            if position_refreshed is None:
+                bt.logging.warning(f"Unexpectedly could not find position with uuid {position.position_uuid} for hotkey {hotkey} and trade pair {trade_pair_id}.")
+                return
+            position = position_refreshed
             n_orders_updated = 0
             for i, order in enumerate(reversed(position.orders)):
                 if not self.price_correction_enabled:
@@ -192,37 +177,28 @@ class MDDChecker(CacheController):
 
             if n_orders_updated or ret_changed:
                 is_liquidated = position.current_return == 0
-                self.position_manager.save_miner_position_to_disk(position, delete_open_position_if_exists=is_liquidated)
+                self.position_manager.save_miner_position(position, delete_open_position_if_exists=is_liquidated)
                 self.n_orders_corrected += n_orders_updated
                 self.miners_corrected.add(hotkey)
 
-            #bt.logging.info(f"updated return with fees for open position with trade pair[{open_position.trade_pair.trade_pair_id}] is [{position.return_at_close}]. position: {position}")
-            return position
 
 
-    def add_manual_flat_orders(self, hotkey:str, sorted_positions:List[Position], corresponding_elimination) -> bool:
+    def add_manual_flat_orders(self, hotkey:str, sorted_positions:List[Position], corresponding_elimination, position_locks):
         """
         Add flat orders to the positions for a miner that has been eliminated.
         """
         any_changes_attempted = False
         elimination_time_ms = corresponding_elimination['elimination_initiated_time_ms']
 
-        # @@@@TEMP DEBUG@@@@@@
-        #for position in sorted_positions:
-        #    rewind = False
-        #    for order in position.orders:
-        #        if order.src == ORDER_SRC_ELIMINATION_FLAT:
-        #            rewind = True
-        #            break
-        #    if rewind:
-        #        position.orders = [o for o in position.orders if o.src != ORDER_SRC_ELIMINATION_FLAT]
-        #        position.rebuild_position_with_updated_orders()
-        #        assert position.is_open_position, position
-        # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
         for position in sorted_positions:
-            with self.position_manager.position_locks.get_lock(hotkey, position.trade_pair.trade_pair_id):
+            with position_locks.get_lock(hotkey, position.trade_pair.trade_pair_id):
                 # Position could have updated in the time between mdd_check being called and this function being called
-                position = self.position_manager.get_miner_position_from_disk_using_position_in_memory(position)
+                position_refreshed = self.position_manager.get_miner_position_by_uuid(hotkey, position.position_uuid)
+                if position_refreshed is None:
+                    bt.logging.warning(f"Unexpectedly could not find position with uuid {position.position_uuid} for hotkey {hotkey} and trade pair {position.trade_pair.trade_pair_id}. Not add flat orders")
+                    continue
+
+                position = position_refreshed
                 if position.is_closed_position:
                     continue
 
@@ -240,30 +216,31 @@ class MDDChecker(CacheController):
                                    leverage=0,
                                    src=ORDER_SRC_ELIMINATION_FLAT)
                 position.add_order(flat_order)
-                self.position_manager.save_miner_position_to_disk(position, delete_open_position_if_exists=True)
+                self.position_manager.save_miner_position(position, delete_open_position_if_exists=True)
                 bt.logging.info(f'Added flat order for miner {hotkey} that has been eliminated. Trade pair: {position.trade_pair.trade_pair_id}. flat order: {flat_order}. position uuid {position.position_uuid}')
 
         if not any_changes_attempted:
             bt.logging.info(f'No flat order additions attempted for miner {hotkey} that has been eliminated. No open positions.')
 
-    def perform_price_corrections(self, hotkey, sorted_positions, candle_data) -> bool:
+    def perform_price_corrections(self, hotkey, sorted_positions, candle_data, position_locks) -> bool:
         if len(sorted_positions) == 0:
             return False
         # Already eliminated?
-        corresponding_elimination = self._hotkey_in_eliminations(hotkey)
+        corresponding_elimination = self.elimination_manager.hotkey_in_eliminations(hotkey)
         if corresponding_elimination:
             if hotkey not in self.hotkeys_with_flat_orders_added:
-                self.add_manual_flat_orders(hotkey, sorted_positions, corresponding_elimination)
+                self.add_manual_flat_orders(hotkey, sorted_positions, corresponding_elimination, position_locks)
                 self.hotkeys_with_flat_orders_added.add(hotkey)
             self.n_miners_skipped_already_eliminated += 1
             return False
 
+        now_ms = TimeUtil.now_in_millis()
         for position in sorted_positions:
             if self.shutdown_dict:
                 return False
             # Perform needed updates
-            if position.is_open_position or position.newest_order_age_ms <= RecentEventTracker.OLDEST_ALLOWED_RECORD_MS:
-                self._update_position_returns_and_persist_to_disk(hotkey, position, candle_data)
+            if self._position_is_candidate_for_price_correction(position, now_ms):
+                self._update_position_returns_and_persist_to_disk(hotkey, position, candle_data, position_locks)
 
 
 
