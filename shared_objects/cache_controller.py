@@ -41,6 +41,7 @@ class CacheController:
         self.plagiarism_data = {}
         self.plagiarism_raster = {}
         self.plagiarism_positions = {}
+        self.last_attempt_time_ms = 0
         self.DD_V2_TIME = TimeUtil.millis_to_datetime(1715359820000 + 1000 * 60 * 60 * 2)  # 5/10/24 TODO: Update before mainnet release
 
     def get_last_update_time_ms(self):
@@ -55,7 +56,7 @@ class CacheController:
     def set_last_update_time(self, skip_message=False):
         # Log that the class has finished updating and the time it finished updating
         if not skip_message:
-            bt.logging.success(f"Finished updating class {self.__class__.__name__}")
+            bt.logging.success(f"Finished updating class {self.__class__.__name__} in {TimeUtil.now_in_millis() - self.last_attempt_time_ms} ms")
         self._last_update_time_ms = TimeUtil.now_in_millis()
 
     @staticmethod
@@ -84,6 +85,7 @@ class CacheController:
         return ans
 
     def refresh_allowed(self, refresh_interval_ms):
+        self.last_attempt_time_ms = TimeUtil.now_in_millis()
         return TimeUtil.now_in_millis() - self.get_last_update_time_ms() > refresh_interval_ms
 
     def _write_eliminations_from_memory_to_disk(self):
