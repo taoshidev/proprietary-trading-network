@@ -379,9 +379,15 @@ class PerfLedgerManager(CacheController):
         for k, v in temp.items():
             self.hotkey_to_perf_ledger[k] = v
 
+    def _is_v1_perf_ledger(self, ledger_value):
+        ans = False
+        if 'initialization_time_ms' in ledger_value:
+            ans = True
+        return ans
+
 
     @timeme
-    def get_perf_ledgers(self, portfolio_only=True, from_disk=True) -> dict[str, dict[str, PerfLedger]]:
+    def get_perf_ledgers(self, portfolio_only=True, from_disk=True) -> dict[str, dict[str, PerfLedger]] | dict[str, PerfLedger]:
         if from_disk:
             file_path = ValiBkpUtils.get_perf_ledgers_path(self.running_unit_tests)
             if not os.path.exists(file_path):
@@ -389,25 +395,24 @@ class PerfLedgerManager(CacheController):
 
             with open(file_path, 'r') as file:
                 data = json.load(file)
+
+            for hk, possible_bundles in data.items():
+                if self._is_v1_perf_ledger(possible_bundles):
+                    if portfolio_only:
+                        data[hk] = {TP_ID_PORTFOLIO: PerfLedger(**possible_bundles)}  # v1 is portfolio ledgers. Fake it.
+                    else:
+                        pass # Incompatible
+                else:
+                    data[hk] = {k: PerfLedger(**v) for k, v in possible_bundles.items()}
         else:
             data = self.hotkey_to_perf_ledger
 
-        perf_ledgers = {}
-        perf_ledgers_portfolio_only = {}
-        for hk, ledger_data in data.items():
-            if 'initialization_time_ms' in ledger_data:  # v1 perf ledger
-                if portfolio_only:
-                    perf_ledgers_portfolio_only[hk] = PerfLedger(**ledger_data)
-                continue
-            else:  # multi trade pair (v2)
-                if portfolio_only:
-                    perf_ledgers_portfolio_only[hk] = PerfLedger(**ledger_data[TP_ID_PORTFOLIO])
-                else:
-                    perf_ledgers[hk] = {}
-                    for key, ledger in ledger_data.items():
-                        perf_ledgers[hk][key] = PerfLedger(**ledger)
+        # Everything here is in v2 format
+        if portfolio_only:
+            return {hk: ledger_data[TP_ID_PORTFOLIO] for hk, ledger_data in data.items()}
+        else:
+            return data
 
-        return perf_ledgers_portfolio_only if portfolio_only else perf_ledgers
 
 
     def clear_perf_ledgers_from_disk(self):
@@ -854,6 +859,8 @@ class PerfLedgerManager(CacheController):
 
         t0 = time.time()
         perf_ledger_bundle_candidate = existing_perf_ledger_bundles.get(hotkey)
+        if perf_ledger_bundle_candidate and self._is_v1_perf_ledger(perf_ledger_bundle_candidate):  # Wipe legacy perf ledger and build new one
+            perf_ledger_bundle_candidate = None
         if perf_ledger_bundle_candidate is None:
             first_order_time_ms = float('inf')
             for p in positions:
@@ -1044,23 +1051,13 @@ class PerfLedgerManager(CacheController):
         if t_ms is None:
             t_ms = TimeUtil.now_in_millis()  # Time to build the perf ledgers up to. Goes back 30 days from this time.
         existing_perf_ledgers = {}
-        dat = self.update_all_perf_ledgers(hotkey_to_positions, existing_perf_ledgers, t_ms)
-        ans_pydantic = {}
-        for k, v in dat.items():
-            ans_pydantic[k] = {}
-            for tp_id, pl in v.items():
-                ans_pydantic[k][tp_id] = PerfLedger.from_data(pl)
-
-        return ans_pydantic
+        return self.update_all_perf_ledgers(hotkey_to_positions, existing_perf_ledgers, t_ms)
 
 
-    def get_perf_ledgers_from_memory(self, first_fetch=False, portfolio_only=True):
-        # @@@@ NO LONGER USING FOR FETCH TO POPULATE
-        if first_fetch:
-            self.hotkey_to_perf_ledger.update(self.get_perf_ledgers_from_disk(portfolio_only=portfolio_only))
+    def get_perf_ledgers_from_memory(self, portfolio_only=True):
         if portfolio_only:
-            return self.hotkey_to_perf_ledger[TP_ID_PORTFOLIO]
-        return self.hotkey_to_perf_ledger
+            return {hk : bundle[TP_ID_PORTFOLIO] for hk, bundle in self.hotkey_to_perf_ledger.items()}
+        return deepcopy(self.hotkey_to_perf_ledger)
 
     def update(self, testing_one_hotkey=None, regenerate_all_ledgers=False):
         assert self.position_manager.elimination_manager.metagraph, "Metagraph must be loaded before updating perf ledgers"
@@ -1209,7 +1206,7 @@ class PerfLedgerManager(CacheController):
             for z in zip(returns, returns_muled, n_contributing_tps):
                 print(z, z[0] - z[1])
 
-    def save_perf_ledgers_to_disk(self, perf_ledgers: dict[str, dict[str, PerfLedger]] | dict[str, dict], raw_json=False):
+    def save_perf_ledgers_to_disk(self, perf_ledgers: dict[str, dict[str, PerfLedger]] | dict[str, dict[str, dict]], raw_json=False):
         # Convert to PerfLedger (pydantic validation)
         pydantic_perf_ledgers = {}
         for hk, dat in perf_ledgers.items():
@@ -1221,8 +1218,8 @@ class PerfLedgerManager(CacheController):
         ValiBkpUtils.write_to_dir(file_path, perf_ledgers)
 
     @timeme
-    def save_perf_ledgers(self, perf_ledgers_copy: dict[str, PerfLedger] | dict[str, dict]):
-        self.save_perf_ledgers_to_disk(perf_ledgers_copy)
+    def save_perf_ledgers(self, perf_ledgers_copy: dict[str, dict[str, PerfLedger]] | dict[str, dict[str, dict]], raw_json=False):
+        self.save_perf_ledgers_to_disk(perf_ledgers_copy, raw_json=raw_json)
 
         # Update memory
         for k in list(self.hotkey_to_perf_ledger.keys()):
