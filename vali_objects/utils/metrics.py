@@ -188,6 +188,11 @@ class Metrics:
             if not bypass_confidence or len(log_returns) < 2:
                 return ValiConfig.STATISTICAL_CONFIDENCE_NOCONFIDENCE_VALUE
 
+        # Also now check for zero variance condition
+        zero_variance_condition = bool(np.isclose(np.var(log_returns), 0))
+        if zero_variance_condition:
+            return ValiConfig.STATISTICAL_CONFIDENCE_NOCONFIDENCE_VALUE
+
         res = ttest_1samp(log_returns, 0, alternative='greater')
         return res.statistic
 
