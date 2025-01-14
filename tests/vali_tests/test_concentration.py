@@ -3,7 +3,7 @@ from tests.vali_tests.base_objects.test_base import TestBase
 from vali_objects.vali_config import TradePair
 
 from vali_objects.utils.ledger_utils import LedgerUtils
-
+from vali_objects.vali_dataclasses.perf_ledger import TP_ID_PORTFOLIO
 from vali_objects.utils.functional_utils import FunctionalUtils
 from tests.shared_objects.test_utilities import generate_ledger, ledger_generator, position_generator
 
@@ -62,17 +62,18 @@ class TestConcentration(TestBase):
 
         # Daily returns with a single element
         sample_ledger = generate_ledger(gain=0.1, loss=0.0, nterms=1)
-        log_returns = LedgerUtils.daily_return_log(sample_ledger.cps)
+        log_returns = LedgerUtils.daily_return_log(sample_ledger[TP_ID_PORTFOLIO].cps)
         concentration_penalty = FunctionalUtils.concentration(log_returns)
         self.assertEqual(concentration_penalty, 1)
 
         # Daily returns with multiple elements
         sample_ledger = generate_ledger(gain=0.1, loss=0.0, nterms=50)
         sample_concentrated = copy.deepcopy(sample_ledger)
-        sample_concentrated.cps[-1].gain = 0.5
+        for tp_id, dat in sample_concentrated.items():
+            sample_concentrated[tp_id].cps[-1].gain = 0.5
 
-        log_returns = LedgerUtils.daily_return_log(sample_ledger.cps)
-        log_returns_concentrated = LedgerUtils.daily_return_log(sample_concentrated.cps)
+        log_returns = LedgerUtils.daily_return_log(sample_ledger[TP_ID_PORTFOLIO].cps)
+        log_returns_concentrated = LedgerUtils.daily_return_log(sample_concentrated[TP_ID_PORTFOLIO].cps)
 
         concentration_penalty = FunctionalUtils.concentration(log_returns)
         concentration_penalty_concentrated = FunctionalUtils.concentration(log_returns_concentrated)

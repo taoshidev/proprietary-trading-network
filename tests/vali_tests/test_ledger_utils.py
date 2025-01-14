@@ -3,7 +3,7 @@ from tests.vali_tests.base_objects.test_base import TestBase
 from vali_objects.utils.ledger_utils import LedgerUtils
 
 from vali_objects.vali_config import ValiConfig
-
+from vali_objects.vali_dataclasses.perf_ledger import TP_ID_PORTFOLIO
 from tests.shared_objects.test_utilities import generate_ledger, checkpoint_generator
 import random
 
@@ -25,7 +25,7 @@ class TestLedgerUtils(TestBase):
         should bucket the checkpoint returns by full days
         """
         self.assertEqual(LedgerUtils.daily_return_log([]), [])
-        checkpoints = self.DEFAULT_LEDGER.cps
+        checkpoints = self.DEFAULT_LEDGER[TP_ID_PORTFOLIO].cps
 
         # One checkpoint shouldn't be enough since full day is required
         self.assertEqual(len(LedgerUtils.daily_return_log([checkpoints[0]])), 0)
@@ -44,7 +44,7 @@ class TestLedgerUtils(TestBase):
 
         self.assertEqual(len(LedgerUtils.daily_return_log(checkpoints)), 89)
         l1 = generate_ledger(0.1, start_time=10, end_time=ValiConfig.TARGET_LEDGER_WINDOW_MS, mdd=0.99)
-        l1_cps = l1.cps
+        l1_cps = l1[TP_ID_PORTFOLIO].cps
         self.assertEqual(len(LedgerUtils.daily_return_log(l1_cps)), 88)
 
     def test_daily_return(self):
@@ -56,21 +56,21 @@ class TestLedgerUtils(TestBase):
 
         # No returns
         l1 = generate_ledger(0.1)
-        l1_cps = l1.cps
+        l1_cps = l1[TP_ID_PORTFOLIO].cps
         self.assertEqual(LedgerUtils.daily_return_percentage(l1_cps)[0], 0)
         # Simple returns >= log returns
         self.assertGreaterEqual(LedgerUtils.daily_return_percentage(l1_cps)[0], LedgerUtils.daily_return_log(l1_cps)[0] * 100)
 
         # Negative returns
         l1 = generate_ledger(0.1, gain=0.1, loss=-0.2)
-        l1_cps = l1.cps
+        l1_cps = l1[TP_ID_PORTFOLIO].cps
         self.assertLess(LedgerUtils.daily_return_percentage(l1_cps)[0], 0)
         # Simple returns >= log returns
         self.assertGreaterEqual(LedgerUtils.daily_return_percentage(l1_cps)[0], LedgerUtils.daily_return_log(l1_cps)[0] * 100)
 
         # Positive returns
         l1 = generate_ledger(0.1, gain=0.2, loss=-0.1)
-        l1_cps = l1.cps
+        l1_cps = l1[TP_ID_PORTFOLIO].cps
         self.assertGreater(LedgerUtils.daily_return_percentage(l1_cps)[0], 0)
         # Simple returns >= log returns
         self.assertGreaterEqual(LedgerUtils.daily_return_percentage(l1_cps)[0], LedgerUtils.daily_return_log(l1_cps)[0] * 100)
@@ -78,7 +78,7 @@ class TestLedgerUtils(TestBase):
     # Want to test the individual functions inputs and outputs
     def test_recent_drawdown(self):
         l1 = generate_ledger(0.1, mdd=0.99)
-        l1_cps = l1.cps
+        l1_cps = l1[TP_ID_PORTFOLIO].cps
 
         self.assertEqual(LedgerUtils.recent_drawdown([]), 1)
 
@@ -86,16 +86,16 @@ class TestLedgerUtils(TestBase):
         self.assertEqual(LedgerUtils.recent_drawdown(l1_cps), 0.99)
 
         l2 = generate_ledger(0.1, mdd=0.95)
-        l2_cps = l2.cps
+        l2_cps = l2[TP_ID_PORTFOLIO].cps
         self.assertEqual(LedgerUtils.recent_drawdown(l2_cps), 0.95)
 
         l3 = generate_ledger(0.1, mdd=0.99)
-        l3_cps = l3.cps
+        l3_cps = l3[TP_ID_PORTFOLIO].cps
         l3_cps[-1].mdd = 0.5
         self.assertEqual(LedgerUtils.recent_drawdown(l3_cps), 0.5)
 
         l4 = generate_ledger(0.1, mdd=0.99)
-        l4_cps = l4.cps
+        l4_cps = l4[TP_ID_PORTFOLIO].cps
         l4_cps[0].mdd = 0.5
         self.assertEqual(LedgerUtils.recent_drawdown(l4_cps), 0.99)
 
@@ -183,24 +183,24 @@ class TestLedgerUtils(TestBase):
 
     # Test max_drawdown_threshold_penalty
     def test_max_drawdown_threshold_penalty(self):
-        checkpoints = self.DEFAULT_LEDGER.cps
+        checkpoints = self.DEFAULT_LEDGER[TP_ID_PORTFOLIO].cps
         self.assertEqual(LedgerUtils.max_drawdown_threshold_penalty([]), 0)
         self.assertEqual(LedgerUtils.max_drawdown_threshold_penalty(checkpoints), 1)
 
         l1 = copy.deepcopy(self.DEFAULT_LEDGER)
-        l1_cps = l1.cps
+        l1_cps = l1[TP_ID_PORTFOLIO].cps
         l1_cps[-1].mdd = 0.8
 
         self.assertEqual(LedgerUtils.max_drawdown_threshold_penalty(l1_cps), 0)
 
     # Test approximate_drawdown
     def test_approximate_drawdown(self):
-        checkpoints = self.DEFAULT_LEDGER.cps
+        checkpoints = self.DEFAULT_LEDGER[TP_ID_PORTFOLIO].cps
         self.assertEqual(LedgerUtils.approximate_drawdown([]), 0)
         self.assertLessEqual(LedgerUtils.approximate_drawdown(checkpoints), 1)
 
         l1 = generate_ledger(0.1, mdd=0.99)  # 1% drawdown
-        l1_cps = l1.cps
+        l1_cps = l1[TP_ID_PORTFOLIO].cps
 
         for i in range(0, len(l1_cps) - len(l1_cps)//4):
             l1_cps[i].mdd = (random.random() / 10) + 0.9
@@ -209,7 +209,7 @@ class TestLedgerUtils(TestBase):
         self.assertGreater(LedgerUtils.approximate_drawdown(l1_cps), 0.8)
 
         l2 = generate_ledger(0.1, mdd=0.99)  # 1% drawdown
-        l2_cps = l2.cps
+        l2_cps = l2[TP_ID_PORTFOLIO].cps
         l2_cps[-1].mdd = 0.8  # 20% drawdown only on the most recent checkpoint
         self.assertLessEqual(LedgerUtils.approximate_drawdown(l2_cps), 0.99)
         self.assertGreater(LedgerUtils.approximate_drawdown(l2_cps), 0.8)
@@ -248,11 +248,11 @@ class TestLedgerUtils(TestBase):
         # Should be set 0 if drawdowns are somehow negative
         self.assertEqual(LedgerUtils.mean_drawdown(checkpoints), 0)
 
-        self.assertEqual(LedgerUtils.mean_drawdown(self.DEFAULT_LEDGER.cps), 0.99)
+        self.assertEqual(LedgerUtils.mean_drawdown(self.DEFAULT_LEDGER[TP_ID_PORTFOLIO].cps), 0.99)
 
     # Test risk_normalization
     def test_risk_normalization(self):
-        checkpoints = self.DEFAULT_LEDGER.cps
+        checkpoints = self.DEFAULT_LEDGER[TP_ID_PORTFOLIO].cps
         self.assertEqual(LedgerUtils.risk_normalization([]), 0)
         self.assertLessEqual(LedgerUtils.risk_normalization(checkpoints), 1)
 

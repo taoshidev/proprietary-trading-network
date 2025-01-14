@@ -1,6 +1,7 @@
 import copy
 from copy import deepcopy
 from tests.vali_tests.base_objects.test_base import TestBase
+from vali_objects.vali_dataclasses.perf_ledger import TP_ID_PORTFOLIO
 from vali_objects.utils.ledger_utils import LedgerUtils
 
 from vali_objects.vali_config import ValiConfig
@@ -45,10 +46,10 @@ class TestLedgerPenalty(TestBase):
         )
         l4 = copy.deepcopy(l3)
 
-        l1_cps = l1.cps
-        l2_cps = l2.cps
-        l3_cps = l3.cps
-        l4_cps = l4.cps
+        l1_cps = l1[TP_ID_PORTFOLIO].cps
+        l2_cps = l2[TP_ID_PORTFOLIO].cps
+        l3_cps = l3[TP_ID_PORTFOLIO].cps
+        l4_cps = l4[TP_ID_PORTFOLIO].cps
 
         # Inconsistent growth period - one interval
         l2_cps[len(l2_cps) // 2].gain = 1.0
@@ -65,7 +66,7 @@ class TestLedgerPenalty(TestBase):
 
         # Many days, but all in one week
         l5 = deepcopy(self.DEFAULT_LEDGER)
-        l5_cps = l5.cps
+        l5_cps = l5[TP_ID_PORTFOLIO].cps
 
         # Set all gains to 1.0 for these days
         n_days_in_biweekly = biweekly_window // daily_window
@@ -113,10 +114,10 @@ class TestLedgerPenalty(TestBase):
         )
         l4 = copy.deepcopy(l3)
 
-        l1_cps = l1.cps
-        l2_cps = l2.cps
-        l3_cps = l3.cps
-        l4_cps = l4.cps
+        l1_cps = l1[TP_ID_PORTFOLIO].cps
+        l2_cps = l2[TP_ID_PORTFOLIO].cps
+        l3_cps = l3[TP_ID_PORTFOLIO].cps
+        l4_cps = l4[TP_ID_PORTFOLIO].cps
 
         # Inconsistent growth period - one interval
         l2_cps[len(l2_cps) // 2].gain = 1.0
@@ -132,7 +133,7 @@ class TestLedgerPenalty(TestBase):
 
         # Many days, but all in one week
         l5 = generate_ledger(0.1)
-        l5_cps = l5.cps
+        l5_cps = l5[TP_ID_PORTFOLIO].cps
 
         # Set all gains to 1.0 for these days
         for i in range(0, biweekly_window, daily_window):
@@ -180,7 +181,7 @@ class TestLedgerPenalty(TestBase):
         # Drawdown abnormality should work for only a few checkpoints
         self.assertLess(LedgerUtils.drawdown_abnormality(checkpoints), 1.0)
         l1 = generate_ledger(0.1, mdd=0.98)
-        l1_cps = l1.cps
+        l1_cps = l1[TP_ID_PORTFOLIO].cps
 
         # All recent drawdowns equal to 0 should return low abnormality
         for i in range(1, ValiConfig.RETURN_SHORT_LOOKBACK_LEDGER_WINDOWS + 1):
@@ -190,27 +191,27 @@ class TestLedgerPenalty(TestBase):
 
         # All equal drawdown
         l2 = generate_ledger(0.1, mdd=0.98)
-        self.assertAlmostEqual(LedgerUtils.drawdown_abnormality(l2.cps), 1.0, places=2) # Essentially no penalty
+        self.assertAlmostEqual(LedgerUtils.drawdown_abnormality(l2[TP_ID_PORTFOLIO].cps), 1.0, places=2) # Essentially no penalty
 
         # Large abnormality near maximum drawdown threshold should have a score of 0 (i.e., high penalty)
         l3 = generate_ledger(0.1, mdd=0.99)
-        l3_cps = l3.cps
+        l3_cps = l3[TP_ID_PORTFOLIO].cps
         l3_cps[-1].mdd = 0.91
-        self.assertAlmostEqual(LedgerUtils.drawdown_abnormality(l3.cps), 0.0, places=6)
+        self.assertAlmostEqual(LedgerUtils.drawdown_abnormality(l3[TP_ID_PORTFOLIO].cps), 0.0, places=6)
 
     def test_max_drawdown_threshold(self):
         l1 = generate_ledger(0.1, mdd=0.99)  # 1% drawdown
-        l1_cps = l1.cps
+        l1_cps = l1[TP_ID_PORTFOLIO].cps
         l2 = copy.deepcopy(l1)
-        l2_cps = l2.cps
+        l2_cps = l2[TP_ID_PORTFOLIO].cps
         l2_cps[-1].mdd = 0.8  # 20% drawdown only on the most recent checkpoint
 
         l3 = copy.deepcopy(l1)
-        l3_cps = l3.cps
+        l3_cps = l3[TP_ID_PORTFOLIO].cps
         l3_cps[0].mdd = 0.8  # 20% drawdown only on the first checkpoint
 
         l4 = generate_ledger(0.1, mdd=0.8)  # 20% drawdown
-        l4_cps = l4.cps
+        l4_cps = l4[TP_ID_PORTFOLIO].cps
 
         self.assertEqual(LedgerUtils.max_drawdown_threshold_penalty(l1_cps), 1.0)
         self.assertEqual(LedgerUtils.max_drawdown_threshold_penalty(l2_cps), 0.0)
