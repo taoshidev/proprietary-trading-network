@@ -158,7 +158,7 @@ class Miner:
         starts the miner dashboard. Allows the use of npm, yarn, or pnpm
         """
         try:
-            dashboard_dir = "miner_objects/miner_dashboard"
+            dashboard_dir = "miner_objects/dashboard"
             # Determine which package manager is available
             package_manager = None
             for pm in ['pnpm', 'yarn', 'npm']:
@@ -225,4 +225,3 @@ class Miner:
 if __name__ == "__main__":
     miner = Miner()
     miner.run()
-
