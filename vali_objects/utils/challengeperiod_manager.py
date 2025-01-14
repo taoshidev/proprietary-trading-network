@@ -373,7 +373,7 @@ class ChallengePeriodManager(CacheController):
         else:
             ans = self.challengeperiod_success
             if self.using_ipc:
-                ans = dict(ans)
+                return copy.deepcopy(ans)
             return ans
 
     def _remove_eliminated_from_memory(self, eliminations: list[dict] = None) -> bool:

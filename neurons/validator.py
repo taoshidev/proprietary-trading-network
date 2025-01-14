@@ -121,7 +121,7 @@ class Validator:
         # 1. Initialize Manager for shared state
         self.ipc_manager = Manager()
 
-        self.live_price_fetcher = LivePriceFetcher(secrets=self.secrets, disable_ws=False, ipc_manager=self.ipc_manager)   # REMOVE ME (disable_ws) @@@@@@@@@@@@@@
+        self.live_price_fetcher = LivePriceFetcher(secrets=self.secrets, disable_ws=False, ipc_manager=self.ipc_manager)
         # Activating Bittensor's logging with the set configurations.
         bt.logging(config=self.config, logging_dir=self.config.full_path)
         bt.logging.info(
