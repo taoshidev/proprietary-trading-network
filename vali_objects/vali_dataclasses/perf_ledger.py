@@ -961,12 +961,12 @@ class PerfLedgerManager(CacheController):
     def get_perf_ledgers_from_memory(self, first_fetch=False):
         if first_fetch:
             self.hotkey_to_perf_ledger.update(self.get_perf_ledgers_from_disk())
-        return self.hotkey_to_perf_ledger
+        return deepcopy(self.hotkey_to_perf_ledger)
 
     def update(self, testing_one_hotkey=None, regenerate_all_ledgers=False):
         assert self.position_manager.elimination_manager.metagraph, "Metagraph must be loaded before updating perf ledgers"
         assert self.metagraph, "Metagraph must be loaded before updating perf ledgers"
-        perf_ledgers = deepcopy(self.get_perf_ledgers_from_memory())
+        perf_ledgers = self.get_perf_ledgers_from_memory()
         t_ms = TimeUtil.now_in_millis() - self.UPDATE_LOOKBACK_MS
         """
         tt = 1734279788000
