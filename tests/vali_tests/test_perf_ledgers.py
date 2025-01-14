@@ -32,7 +32,7 @@ class TestPerfLedgers(TestBase):
         )
         elimination_manager = EliminationManager(None, None, None)
         position_manager = PositionManager(metagraph=None, running_unit_tests=True, elimination_manager=elimination_manager)
-        self.perf_ledger_manager = PerfLedgerManager(metagraph=None, running_unit_tests=True)
+        self.perf_ledger_manager = PerfLedgerManager(metagraph=None, running_unit_tests=True, position_manager=position_manager)
 
     @patch('data_generator.polygon_data_service.PolygonDataService.unified_candle_fetcher')
     def test_basic(self, mock_unified_candle_fetcher):

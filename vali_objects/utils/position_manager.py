@@ -61,7 +61,8 @@ class PositionManager(CacheController):
     def populate_memory_positions_for_first_time(self):
         temp = self.get_positions_for_all_miners(from_disk=True)
         for hk, positions in temp.items():
-            self.hotkey_to_positions[hk] = positions
+            if positions:  # Only populate if there are no positions in the miner dir
+                self.hotkey_to_positions[hk] = positions
 
     def pre_run_setup(self):
         """
@@ -755,7 +756,9 @@ class PositionManager(CacheController):
         # Multiprocessing-safe
         hk = position.miner_hotkey
         if hk not in self.hotkey_to_positions:
-            self.hotkey_to_positions[hk] = []
+            existing_positions = []
+        else:
+            existing_positions = self.hotkey_to_positions[hk]
 
         # Santiy check
         if position.miner_hotkey in self.hotkey_to_positions and position.position_uuid in self.hotkey_to_positions[
@@ -763,7 +766,7 @@ class PositionManager(CacheController):
             existing_pos = self._position_from_list_of_position(position.miner_hotkey, position.position_uuid)
             assert existing_pos.trade_pair == position.trade_pair, f"Trade pair mismatch for position {position.position_uuid}. Existing: {existing_pos.trade_pair}, New: {position.trade_pair}"
 
-        new_positions = [p for p in self.hotkey_to_positions[hk] if p.position_uuid != position.position_uuid]
+        new_positions = [p for p in existing_positions if p.position_uuid != position.position_uuid]
         new_positions.append(deepcopy(position))
         self.hotkey_to_positions[hk] = new_positions  # Trigger the update on the multiprocessing Manager
 
@@ -862,9 +865,15 @@ class PositionManager(CacheController):
             if os.path.exists(fp):
                 os.remove(fp)
                 bt.logging.info(f"Deleted position from disk: {fp}")
-            if hotkey in self.hotkey_to_positions:
-                self.hotkey_to_positions[hotkey] = \
-                    [p for p in self.hotkey_to_positions[hotkey] if p.position_uuid != position_uuid]
+            self._delete_position_from_memory(hotkey, position_uuid)
+
+    def _delete_position_from_memory(self, hotkey, position_uuid):
+        if hotkey in self.hotkey_to_positions:
+            new_positions = [p for p in self.hotkey_to_positions[hotkey] if p.position_uuid != position_uuid]
+            if new_positions:
+                self.hotkey_to_positions[hotkey] = new_positions
+            else:
+                del self.hotkey_to_positions[hotkey]
 
     def calculate_net_portfolio_leverage(self, hotkey: str) -> float:
         """
@@ -994,7 +1003,7 @@ class PositionManager(CacheController):
         }
 
     def get_miner_hotkeys_with_at_least_one_position(self) -> set[str]:
-        return {k for k in self.hotkey_to_positions if self.hotkey_to_positions[k]}
+        return set(self.hotkey_to_positions.keys())
 
 if __name__ == '__main__':
     pm = PositionManager()
