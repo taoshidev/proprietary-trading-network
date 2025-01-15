@@ -1,0 +1,3 @@
+[submodule "miner_objects/dashboard"]
+	path = miner_objects/dashboard
+	url = git@work:taoshidev/dashboard.git
