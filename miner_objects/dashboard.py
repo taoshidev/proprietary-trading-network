@@ -5,6 +5,7 @@ import uvicorn
 import template.protocol
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from pathlib import Path
 
 from miner_config import MinerConfig
 from shared_objects.rate_limiter import RateLimiter
@@ -73,11 +74,18 @@ class Dashboard:
 
     def write_env_file(self, api_port):
         """
-        write the miner_url to the miner_dashboard .env file
+        Write the miner_url to the miner_dashboard .env file.
+        Create the file if it doesn't exist.
         """
-        env_file_path = MinerConfig.BASE_DIR + "/miner_objects/miner_dashboard/.env"
-        with open(env_file_path, 'w') as env_file:
-            env_file.write(f'VITE_MINER_URL=http://127.0.0.1:{api_port}\n')
+        env_file_path = Path(MinerConfig.BASE_DIR) / "miner_objects/dashboard/.env"
+
+        # Ensure the directory exists
+        env_file_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Write multiple lines to the file
+        with env_file_path.open('w') as env_file:
+            env_file.write(f'DATA_URL=http://127.0.0.1:{api_port}\n')
+            env_file.write('LOCAL=true\n')
 
     def run(self):
         uvicorn.run(self.app, host="127.0.0.1", port=self.port)
