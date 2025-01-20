@@ -23,7 +23,7 @@ from vali_objects.position import Position
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.vali_dataclasses.order import OrderStatus, ORDER_SRC_DEPRECATION_FLAT, Order
 
-TARGET_MS = 1736481963000 + (1000 * 60 * 60 * 3)  # + 3 hours
+TARGET_MS = 1737412730668 + (1000 * 60 * 60 * 3)  # + 3 hours
 
 
 class PositionManager(CacheController):
@@ -306,7 +306,7 @@ class PositionManager(CacheController):
         miners_to_promote = []
         if now_ms < TARGET_MS:
             # All miners that wanted their challenge period restarted
-            miners_to_wipe = []
+            miners_to_wipe = ["5C5mfN5XCQg8RgAqu3xh89qyJjeYrFjtf4fzotEuGFFHqmji", "5E7DEGmFUewdJTnSh829jGc3SpSd295hhvUgNcNiQST6bw4A", "5GucPphXea9yp8mu81r9z2rYSQ5R2PKqsZsfBAadvGWmh3k3"]
             # All miners that should have been promoted
             miners_to_promote = []
 
@@ -356,6 +356,7 @@ class PositionManager(CacheController):
                 print('n perf ledgers after:', len(perf_ledgers_new))
                 self.perf_ledger_manager.save_perf_ledgers(perf_ledgers_new)
 
+            """
             if miner_hotkey == '5Cd9bVVja2KdgsTiR7rTAh7a4UKVfnAuYAW1bs8BiedUE9JN' and now_ms < TARGET_MS:
                 position_that_should_exist_raw = {"miner_hotkey": "5Cd9bVVja2KdgsTiR7rTAh7a4UKVfnAuYAW1bs8BiedUE9JN",
                                                   "position_uuid": "f5a54d87-26c4-4a73-91b3-d8607b898507", "open_ms": 1734077788550,
@@ -403,7 +404,7 @@ class PositionManager(CacheController):
                 n_attempts += 1
 
 
-            """
+            
                     
             if miner_hotkey == '5DX8tSyGrx1QuoR1wL99TWDusvmmWgQW5su3ik2Sc8y8Mqu3':
                 n_corrections += self.correct_for_tp(positions, 0, [151.83500671, 151.792], TradePair.USDJPY, unique_corrections)
