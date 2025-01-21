@@ -10,11 +10,10 @@ from time_util.time_util import TimeUtil
 from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
 from vali_objects.utils.elimination_manager import EliminationManager
 from vali_objects.utils.position_manager import PositionManager
-from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.utils.validator_sync_base import ValidatorSyncBase
-from restore_validator_from_backup import regenerate_miner_positions
 import bittensor as bt
-
+#from restore_validator_from_backup import regenerate_miner_positions
+#from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 
 
 class PositionSyncer(ValidatorSyncBase):
@@ -26,6 +25,8 @@ class PositionSyncer(ValidatorSyncBase):
                          ipc_manager=ipc_manager)
 
         self.force_ran_on_boot = True
+        print(f'PositionSyncer: auto_sync_enabled: {auto_sync_enabled}')
+        """
         time_now_ms = TimeUtil.now_in_millis()
         if auto_sync_enabled and time_now_ms < 1736697619000 + 3 * 1000 * 60 * 60:
             response = requests.get(self.fname_to_url('validator_checkpoint.json'))
@@ -35,6 +36,7 @@ class PositionSyncer(ValidatorSyncBase):
             with open(output_path, 'wb') as f:
                 f.write(response.content)
             regenerate_miner_positions(False, ignore_timestamp_checks=True)
+        """
 
     def fname_to_url(self, fname):
         return f"https://storage.googleapis.com/validator_checkpoint/{fname}"

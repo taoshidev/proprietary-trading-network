@@ -1,6 +1,6 @@
-import multiprocessing
 import time
 import traceback
+from multiprocessing import Process
 
 from setproctitle import setproctitle
 
@@ -23,7 +23,6 @@ class RequestOutputGenerator:
         self.n_updates = 0
         self.msm_refresh_interval_ms = 15 * 1000
         self.rcm_refresh_interval_ms = 15 * 1000
-        self.ctx = multiprocessing.get_context("spawn")
         self.rcm = rcm
         self.msm = msm
 
@@ -43,11 +42,11 @@ class RequestOutputGenerator:
 
     def start_generation(self):
         if self.running_deprecated:
-            dp = self.ctx.Process(target=self.run_deprecated_loop, daemon=True)
+            dp = Process(target=self.run_deprecated_loop, daemon=True)
             dp.start()
         else:
-            rcm_process = self.ctx.Process(target=self.run_rcm_loop, daemon=True)
-            msm_process = self.ctx.Process(target=self.run_msm_loop, daemon=True)
+            rcm_process = Process(target=self.run_rcm_loop, daemon=True)
+            msm_process = Process(target=self.run_msm_loop, daemon=True)
             # Start both processes
             rcm_process.start()
             msm_process.start()

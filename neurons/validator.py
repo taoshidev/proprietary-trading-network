@@ -2,7 +2,6 @@
 # Copyright © 2024 Yuma Rao
 # developer: Taoshidev
 # Copyright © 2024 Taoshi Inc
-import multiprocessing
 import os
 import sys
 import threading
@@ -11,7 +10,7 @@ import uuid
 
 from setproctitle import setproctitle
 from shared_objects.sn8_multiprocessing import get_ipc_metagraph
-from multiprocessing import Manager
+from multiprocessing import Manager, Process
 from typing import Tuple
 from enum import Enum
 
@@ -121,7 +120,7 @@ class Validator:
         # 1. Initialize Manager for shared state
         self.ipc_manager = Manager()
 
-        self.live_price_fetcher = LivePriceFetcher(secrets=self.secrets, disable_ws=False, ipc_manager=self.ipc_manager)   # REMOVE ME (disable_ws) @@@@@@@@@@@@@@
+        self.live_price_fetcher = LivePriceFetcher(secrets=self.secrets, disable_ws=False, ipc_manager=self.ipc_manager)
         # Activating Bittensor's logging with the set configurations.
         bt.logging(config=self.config, logging_dir=self.config.full_path)
         bt.logging.info(
@@ -310,8 +309,7 @@ class Validator:
         self.plagiarism_detector = PlagiarismDetector(self.metagraph, shutdown_dict=shutdown_dict,
                                                       position_manager=self.position_manager)
         # Start the plagiarism detector in its own thread
-        self.ctx = multiprocessing.get_context("spawn")
-        self.plagiarism_thread = self.ctx.Process(target=self.plagiarism_detector.run_update_loop, daemon=True)
+        self.plagiarism_thread = Process(target=self.plagiarism_detector.run_update_loop, daemon=True)
         self.plagiarism_thread.start()
 
         self.mdd_checker = MDDChecker(self.metagraph, self.position_manager, live_price_fetcher=self.live_price_fetcher,
@@ -345,7 +343,7 @@ class Validator:
                             test_picklability(attr_value, do,f"{obj_name}.{attr_name}")
         do = set()
         """
-        self.perf_ledger_updater_thread = self.ctx.Process(target=self.perf_ledger_manager.run_update_loop, daemon=True)
+        self.perf_ledger_updater_thread = Process(target=self.perf_ledger_manager.run_update_loop, daemon=True)
         self.perf_ledger_updater_thread.start()
 
         if self.config.start_generate:

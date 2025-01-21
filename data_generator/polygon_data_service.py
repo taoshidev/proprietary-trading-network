@@ -1,10 +1,11 @@
 import asyncio
 import threading
 import traceback
+from multiprocessing import Process
+
 import requests
 
 from typing import List
-import multiprocessing
 from polygon.websocket import Market, EquityAgg, EquityTrade, CryptoTrade, ForexQuote, WebSocketClient
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -153,8 +154,7 @@ class PolygonDataService(BaseDataService):
             self.websocket_manager_thread = None
         else:
             if ipc_manager:
-                ctx = multiprocessing.get_context('spawn')
-                self.websocket_manager_thread = ctx.Process(target=self.websocket_manager, daemon=True)
+                self.websocket_manager_thread = Process(target=self.websocket_manager, daemon=True)
             else:
                 self.websocket_manager_thread = threading.Thread(target=self.websocket_manager, daemon=True)
             self.websocket_manager_thread.start()
@@ -832,18 +832,58 @@ if __name__ == "__main__":
     #tp = TradePair.TSLA
     # Initialize client
     #aggs = polygon_data_provider.get_close_at_date_second(tp, target_timestamp_ms, return_aggs=True)
-
+    import numpy as np
     #uu = {a.timestamp: [a] for a in aggs}
-    for tp in [TradePair.CADJPY, TradePair.BTCUSD, TradePair.NVDA]:#[x for x in TradePair if x.is_equities]:
+    for tp in [x for x in TradePair if x.is_forex]:
         t0 = time.time()
         quotes = polygon_data_provider.unified_candle_fetcher(tp,
-                                                              target_timestamp_ms - 1000 * 60 * 20,
-                                                              target_timestamp_ms + 1000 * 60 * 20,
+                                                              target_timestamp_ms - 1000 * 60 * 60 * 24 * 12,
+                                                              target_timestamp_ms + 1000 * 60 * 60 * 24 * 12,
                                                               "minute")
         quotes = list(quotes)
-        print(f'fetched data for {tp} in {time.time() - t0} s. quotes: {quotes}')
-        for q in quotes:
-            print(q)
+        print(f'fetched data for {tp.trade_pair_id} in {time.time() - t0} s. quotes: {len(quotes)}')
+        deltas = []
+        n_wonky = 0
+        worst_offender = None
+        worst_delta = 0
+        for i,  q in enumerate(quotes):
+            if 1:#q.low <= q.vwap <= q.high:
+                delta = abs(q.vwap - q.low) / q.low
+                #assert delta > 0, q
+                deltas.append(delta)
+                if delta > worst_delta:
+                    worst_delta = delta
+                    worst_offender = q
+            else:
+                n_wonky += 1
+
+
+
+
+        mean_delta = np.mean(deltas)
+        std_delta = np.std(deltas)
+        min_delta = np.min(deltas)
+        max_delta = np.max(deltas)
+        q1 = np.percentile(deltas, 25)
+        median_delta = np.median(deltas)
+        q3 = np.percentile(deltas, 75)
+
+        threshold_filter = .003
+        n_deltas_meeting_threshold = len([x for x in deltas if x >= threshold_filter])
+        ptbf = n_deltas_meeting_threshold / len(deltas) * 100
+        if ptbf > .3:
+            print(f"Statistics for {tp.trade_pair_id} deltas {len(deltas)}. percent to be filtered out: {ptbf:.4f}")
+            print(f"  Mean: {mean_delta:.4f}  Standard Deviation: {std_delta:.4f}")
+            print(f"  Min: {min_delta:.4f}  Max: {max_delta:.4f}")
+            print(f"  25th Percentile (Q1): {q1:.4f}  Median: {median_delta:.4f}  75th Percentile (Q3): {q3:.4f}")
+            # print the worst offender
+            print(f"  Worst offender: {TimeUtil.timestamp_ms_to_eastern_time_str(worst_offender.timestamp)} "
+                  f"vwap: {worst_offender.vwap} low: {worst_offender.low} high: {worst_offender.high}"
+                  f" raw: {worst_offender}")
+
+
+
+
 
     ##trades = polygon_data_provider.POLYGON_CLIENT.list_trades(ticker='C:CAD-JPY',
     #                                                         timestamp_gt=target_timestamp_ms * 1000000 - 1000 * 1000000 * 10,

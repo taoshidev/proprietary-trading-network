@@ -84,8 +84,9 @@ class MetagraphUpdater(CacheController):
 
     def sync_lists(self, shared_list, updated_list, brute_force=False):
         if brute_force:
-            del shared_list[:]
-            shared_list.extend(updated_list)
+            prev_memory_location = id(shared_list)
+            shared_list[:] = updated_list  # Update the proxy list in place without changing the reference
+            assert prev_memory_location == id(shared_list), f"Memory location changed after brute force update from {prev_memory_location} to {id(shared_list)}"
             return
 
         # Convert to sets for fast comparison
@@ -142,8 +143,8 @@ class MetagraphUpdater(CacheController):
         else:
             # Multiprocessing (parkour)
             self.sync_lists(self.metagraph.neurons, list(metagraph_clone.neurons), brute_force=True)
-            self.sync_lists(self.metagraph.uids, metagraph_clone.uids)
-            self.sync_lists(self.metagraph.hotkeys, metagraph_clone.hotkeys)
+            self.sync_lists(self.metagraph.uids, metagraph_clone.uids, brute_force=True)
+            self.sync_lists(self.metagraph.hotkeys, metagraph_clone.hotkeys, brute_force=True)
 
         if recently_acked_miners:
             self.update_likely_miners(recently_acked_miners)

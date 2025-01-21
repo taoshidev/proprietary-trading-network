@@ -135,6 +135,12 @@ class PerfLedger():
         return cls(**x)
 
     @property
+    def total_open_ms(self):
+        if len(self.cps) == 0:
+            return 0
+        return sum(cp.open_ms for cp in self.cps)
+
+    @property
     def last_update_ms(self):
         if len(self.cps) == 0:
             return 0
@@ -574,6 +580,23 @@ class PerfLedgerManager(CacheController):
             raise Exception(f"Unknown mode: {mode}")
 
     def refresh_price_info(self, t_ms, end_time_ms, tp, mode, min_candles_per_request=3600):
+        def _agg_to_best_attr(agg):
+            if mode == 'second':
+                attr = 'close'
+            elif mode == 'minute':
+                if tp.is_forex:
+                    if not agg.vwap:
+                        attr = 'low'
+                    elif abs(agg.vwap - agg.low) / agg.low > .003:
+                        attr = 'vwap'
+                    else:
+                        attr = 'low'
+                else:
+                    attr = 'low'
+            else:
+                raise Exception(f"Unknown mode: {mode}")
+            return attr
+
         t_ms = self.align_t_ms_to_mode(t_ms, mode)
 
         existing_lb_ms = None
@@ -625,9 +648,15 @@ class PerfLedgerManager(CacheController):
                     self.new_window_intersects_old_window(start_time_ms, end_time_ms, existing_lb_ms, existing_ub_ms):
                 perform_wipe = False
 
-        attr = 'close' if mode == 'second' else 'vwap' # TODO: @@@@@ use low if within x% of wvap. else use vwap. Do a study on optimal x.
+
         if perform_wipe:
-            price_info = {self.align_t_ms_to_mode(a.timestamp, mode): getattr(a, attr) for a in price_info_raw}
+            price_info = {}
+            for a in price_info_raw:
+                k = self.align_t_ms_to_mode(a.timestamp, mode)
+                attr = _agg_to_best_attr(a)
+                v = getattr(a, attr)
+                price_info[k] = v
+
             #for a in price_info_raw:
             #    price_info[a.timestamp // 1000] = a.close
             self.trade_pair_to_price_info[mode][tp.trade_pair_id] = price_info
@@ -637,6 +666,7 @@ class PerfLedgerManager(CacheController):
             self.trade_pair_to_price_info[mode][tp.trade_pair_id]['ub_ms'] = max(existing_ub_ms, end_time_ms)
             self.trade_pair_to_price_info[mode][tp.trade_pair_id]['lb_ms'] = min(existing_lb_ms, start_time_ms)
             for a in price_info_raw:
+                attr = _agg_to_best_attr(a)
                 self.trade_pair_to_price_info[mode][tp.trade_pair_id][self.align_t_ms_to_mode(a.timestamp, mode)] = getattr(a, attr)
 
         #print(f'Fetched {requested_seconds} s of candles for tp {tp.trade_pair} in {time.time() - t0}s')
@@ -760,8 +790,7 @@ class PerfLedgerManager(CacheController):
                 assert len(positions) == 1
                 assert len(positions[0].orders) == 0
                 assert realtime_position_to_pop and tp_id == realtime_position_to_pop.trade_pair.trade_pair_id
-                relevant_position = realtime_position_to_pop
-                initialization_time_ms = relevant_position.open_ms
+                initialization_time_ms = realtime_position_to_pop.open_ms
                 perf_ledger_bundle[tp_id] = PerfLedger(initialization_time_ms=initialization_time_ms)
                 perf_ledger_bundle[tp_id].init_with_first_order(end_time_ms, point_in_time_dd=1.0, current_portfolio_value=1.0,
                                                    current_portfolio_fee_spread=1.0, current_portfolio_carry=1.0)
@@ -1056,13 +1085,14 @@ class PerfLedgerManager(CacheController):
 
     def get_perf_ledgers_from_memory(self, portfolio_only=True):
         if portfolio_only:
-            return {hk : bundle[TP_ID_PORTFOLIO] for hk, bundle in self.hotkey_to_perf_ledger.items()}
+            return {hk: bundle[TP_ID_PORTFOLIO] for hk, bundle in self.hotkey_to_perf_ledger.items()}
+
         return deepcopy(self.hotkey_to_perf_ledger)
 
     def update(self, testing_one_hotkey=None, regenerate_all_ledgers=False):
         assert self.position_manager.elimination_manager.metagraph, "Metagraph must be loaded before updating perf ledgers"
         assert self.metagraph, "Metagraph must be loaded before updating perf ledgers"
-        perf_ledger_bundles = deepcopy(self.get_perf_ledgers_from_memory(portfolio_only=False))
+        perf_ledger_bundles = self.get_perf_ledgers_from_memory(portfolio_only=False)
         t_ms = TimeUtil.now_in_millis() - self.UPDATE_LOOKBACK_MS
         """
         tt = 1734279788000
@@ -1094,6 +1124,18 @@ class PerfLedgerManager(CacheController):
         metagraph_hotkeys = set(self.metagraph.hotkeys)
         hotkeys_to_delete = set([x for x in hotkeys_with_no_positions if x in perf_ledger_bundles])
         rss_modified = False
+        # Recently re-registered
+        hotkeys_rrr = set()
+        for hotkey in hotkey_to_positions:
+            corresponding_ledger_bundle = perf_ledger_bundles.get(hotkey)
+            if corresponding_ledger_bundle is None:
+                continue
+            portfolio_ledger = corresponding_ledger_bundle[TP_ID_PORTFOLIO]
+            first_order_time_ms = min(x.open_ms for x in hotkey_to_positions[hotkey])
+            if portfolio_ledger.initialization_time_ms != first_order_time_ms:
+                hotkeys_rrr.add(hotkey)
+        bt.logging.warning(f'Removing recently re-registered hotkeys from perf ledgers{hotkeys_rrr}')
+        hotkeys_to_delete.update(hotkeys_rrr)
 
         # Determine which hotkeys to remove from the perf ledger
         hotkeys_to_iterate = [x for x in hotkeys_ordered_by_last_trade if x in perf_ledger_bundles]
@@ -1287,6 +1329,6 @@ if __name__ == "__main__":
     mmg = MockMetagraph(hotkeys=all_hotkeys_on_disk)
     elimination_manager = EliminationManager(mmg, None, None)
     position_manager = PositionManager(metagraph=mmg, running_unit_tests=False, elimination_manager=elimination_manager)
-    perf_ledger_manager = PerfLedgerManager(mmg, running_unit_tests=False)
+    perf_ledger_manager = PerfLedgerManager(mmg, position_manager=position_manager, running_unit_tests=False)
     perf_ledger_manager.update(testing_one_hotkey='5EWKUhycaBQHiHnfE3i2suZ1BvxAAE3HcsFsp8TaR6mu3JrJ')
     #perf_ledger_manager.update(regenerate_all_ledgers=True)
