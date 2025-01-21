@@ -447,6 +447,9 @@ class MinerStatisticsManager:
                 # Calculate percentiles for each metric
                 percentile_dict = self.percentiles_config(scores_dict=success_scores_dict, inspection_dict=inspection_scoring_dict)
 
+                # Update penalties for inspection miner
+                percentile_dict["penalties"].update(inspection_scoring_dict["penalties"])
+
                 # Combine scores and apply penalties
                 combined_scores = Scoring.combine_scores(scoring_dict=percentile_dict)
 

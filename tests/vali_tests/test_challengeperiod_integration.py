@@ -5,8 +5,10 @@ from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.utils.elimination_manager import EliminationManager
 from vali_objects.vali_dataclasses.order import Order
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedger
+from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
+from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
 from tests.shared_objects.mock_classes import (
-    MockMetagraph, MockChallengePeriodManager, MockPositionManager
+    MockMetagraph, MockPositionManager
 )
 from tests.vali_tests.base_objects.test_base import TestBase
 from tests.shared_objects.test_utilities import generate_ledger
@@ -106,12 +108,11 @@ class TestChallengePeriodIntegration(TestBase):
         self.mock_metagraph = MockMetagraph(self.MINER_NAMES)
 
         self.elimination_manager = EliminationManager(self.mock_metagraph, None, None)
-
+        self.ledger_manager = PerfLedgerManager(self.mock_metagraph, None, None)
         self.position_manager = MockPositionManager(self.mock_metagraph,
-                                                    perf_ledger_manager=None,
+                                                    perf_ledger_manager=self.ledger_manager,
                                                     elimination_manager=self.elimination_manager)
-        self.challengeperiod_manager = MockChallengePeriodManager(self.mock_metagraph, position_manager=self.position_manager)
-        self.ledger_manager = self.challengeperiod_manager.perf_ledger_manager
+        self.challengeperiod_manager = ChallengePeriodManager(self.mock_metagraph, position_manager=self.position_manager)
         self.position_manager.perf_ledger_manager = self.ledger_manager
         self.elimination_manager.position_manager = self.position_manager
         self.challengeperiod_manager.position_manager = self.position_manager
