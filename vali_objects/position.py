@@ -43,10 +43,10 @@ class Position(BaseModel):
     open_ms: int
     trade_pair: TradePair
     orders: List[Order] = Field(default_factory=list)
-    current_return: float = 1.0
+    current_return: float = 1.0  # excludes fees
     close_ms: Optional[int] = None
-    return_at_close: float = 1.0
     net_leverage: float = 0.0
+    return_at_close: float = 1.0  # includes all fees
     average_entry_price: float = 0.0
     position_type: Optional[OrderType] = None
     is_closed_position: bool = False

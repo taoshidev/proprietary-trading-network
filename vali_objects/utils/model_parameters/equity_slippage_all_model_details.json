@@ -1,0 +1,1421 @@
+{
+    "AAPL": {
+        "buy": {
+            "1k_10k": {
+                "intercept": 7.355427328427277e-06,
+                "spread/price": 0.5895427136933359,
+                "annualized_vol": -6.47943442556654e-05,
+                "buy_order_value/adv": 0.017696787377055843
+            },
+            "10k_50k": {
+                "intercept": 5.9130917213679626e-05,
+                "spread/price": 0.7846954687597261,
+                "annualized_vol": -0.0003612274074297243,
+                "buy_order_value/adv": 0.015458182000359222
+            },
+            "50k_100k": {
+                "intercept": 0.00011611145732161036,
+                "spread/price": 1.0294374298863895,
+                "annualized_vol": -0.0006315365386438771,
+                "buy_order_value/adv": 0.008534576104001388
+            },
+            "100k_300k": {
+                "202410": {
+                    "model_config": {
+                        "calc_adv_lookback": 10,
+                        "calc_vol_lookback": 30,
+                        "train_start": "2024-10-01",
+                        "train_end": "2024-10-31",
+                        "train_samples": 10000,
+                        "train_sample_ob_random_seed": 10,
+                        "train_simulate_orders_random_seed": 20,
+                        "test_start": "2024-11-01",
+                        "test_end": "2024-11-30",
+                        "test_samples": 10000,
+                        "test_sample_ob_random_seed": 30,
+                        "test_simulate_orders_random_seed": 40
+                    },
+                    "intercept": 0.00010738981398107654,
+                    "features_info": [
+                        {
+                            "feature": "spread/price",
+                            "coefficient": 1.529110983700657,
+                            "standard_error": 0.011568517752954264,
+                            "t_statistic": 132.1786434835324
+                        },
+                        {
+                            "feature": "annualized_vol",
+                            "coefficient": -0.0006492705406534996,
+                            "standard_error": 0.00015800391345816538,
+                            "t_statistic": -4.109205439556449
+                        },
+                        {
+                            "feature": "buy_order_value/adv",
+                            "coefficient": 0.008506217418420923,
+                            "standard_error": 0.000848718780828471,
+                            "t_statistic": 10.022421573041704
+                        }
+                    ],
+                    "training_results": {
+                        "training_rmse": 0.00014739175030540635,
+                        "training_r_squared": 0.6379613672928709
+                    },
+                    "testing_results": {
+                        "testing_rmse": 0.00015631202117237088,
+                        "testing_r_squared": 0.5773490036445894
+                    }
+                }
+            }
+        },
+        "sell": {
+            "1k_10k": {
+                "202407": {
+                    "model_config": {
+                        "calc_adv_lookback": 10,
+                        "calc_vol_lookback": 30,
+                        "train_start": "2024-07-01",
+                        "train_end": "2024-07-31",
+                        "train_samples": 10000,
+                        "train_sample_ob_random_seed": 10,
+                        "train_simulate_orders_random_seed": 20,
+                        "test_start": "2024-08-01",
+                        "test_end": "2024-08-31",
+                        "test_samples": 10000,
+                        "test_sample_ob_random_seed": 30,
+                        "test_simulate_orders_random_seed": 40
+                    },
+                    "intercept": -1.156706720095904e-05,
+                    "features_info": [
+                        {
+                            "feature": "spread/price",
+                            "coefficient": 0.5740447053672235,
+                            "standard_error": 0.0023131981829490646,
+                            "t_statistic": 248.16062436785327
+                        },
+                        {
+                            "feature": "annualized_vol",
+                            "coefficient": 2.1960921484586407e-05,
+                            "standard_error": 7.780046970451156e-06,
+                            "t_statistic": 2.8227235089961056
+                        },
+                        {
+                            "feature": "sell_order_value/adv",
+                            "coefficient": 0.01678527300766469,
+                            "standard_error": 0.004287124471737266,
+                            "t_statistic": 3.9152754062358297
+                        }
+                    ],
+                    "training_results": {
+                        "training_rmse": 2.0519823375738516e-05,
+                        "training_r_squared": 0.8608721799832166
+                    },
+                    "testing_results": {
+                        "testing_rmse": 3.4961582976617555e-05,
+                        "testing_r_squared": 0.9028982185276492
+                    }
+                },
+                "202408": {
+                    "model_config": {
+                        "calc_adv_lookback": 10,
+                        "calc_vol_lookback": 30,
+                        "train_start": "2024-08-01",
+                        "train_end": "2024-08-31",
+                        "train_samples": 10000,
+                        "train_sample_ob_random_seed": 10,
+                        "train_simulate_orders_random_seed": 20,
+                        "test_start": "2024-09-01",
+                        "test_end": "2024-09-30",
+                        "test_samples": 10000,
+                        "test_sample_ob_random_seed": 30,
+                        "test_simulate_orders_random_seed": 40
+                    },
+                    "intercept": -1.38952595028435e-05,
+                    "features_info": [
+                        {
+                            "feature": "spread/price",
+                            "coefficient": 0.5574238863980402,
+                            "standard_error": 0.0017309857981703792,
+                            "t_statistic": 322.0268398430693
+                        },
+                        {
+                            "feature": "annualized_vol",
+                            "coefficient": 2.9279589458766278e-05,
+                            "standard_error": 1.6687678219472416e-05,
+                            "t_statistic": 1.7545634014323628
+                        },
+                        {
+                            "feature": "sell_order_value/adv",
+                            "coefficient": 0.03434985634787348,
+                            "standard_error": 0.005410613997325536,
+                            "t_statistic": 6.348605974266986
+                        }
+                    ],
+                    "training_results": {
+                        "training_rmse": 3.0411149718764463e-05,
+                        "training_r_squared": 0.9131866149539802
+                    },
+                    "testing_results": {
+                        "testing_rmse": 2.178606469235661e-05,
+                        "testing_r_squared": 0.9130957866501879
+                    }
+                },
+                "202410": {
+                    "model_config": {
+                        "calc_adv_lookback": 10,
+                        "calc_vol_lookback": 30,
+                        "train_start": "2024-10-01",
+                        "train_end": "2024-10-31",
+                        "train_samples": 10000,
+                        "train_sample_ob_random_seed": 10,
+                        "train_simulate_orders_random_seed": 20,
+                        "test_start": "2024-11-01",
+                        "test_end": "2024-11-30",
+                        "test_samples": 10000,
+                        "test_sample_ob_random_seed": 30,
+                        "test_simulate_orders_random_seed": 40
+                    },
+                    "intercept": 1.5752348169116497e-05,
+                    "features_info": [
+                        {
+                            "feature": "spread/price",
+                            "coefficient": 0.5490977067776865,
+                            "standard_error": 0.0020297287417739376,
+                            "t_statistic": 270.527630356058
+                        },
+                        {
+                            "feature": "annualized_vol",
+                            "coefficient": -8.563689362171674e-05,
+                            "standard_error": 2.754797113730422e-05,
+                            "t_statistic": -3.108646121156673
+                        },
+                        {
+                            "feature": "sell_order_value/adv",
+                            "coefficient": 0.017836581811602727,
+                            "standard_error": 0.0036940458575223955,
+                            "t_statistic": 4.828467891182531
+                        }
+                    ],
+                    "training_results": {
+                        "training_rmse": 2.586336571799718e-05,
+                        "training_r_squared": 0.8803394085650615
+                    },
+                    "testing_results": {
+                        "testing_rmse": 1.7221545062343886e-05,
+                        "testing_r_squared": 0.9296870198435621
+                    }
+                }
+            },
+            "10k_50k": {
+                "202410": {
+                    "model_config": {
+                        "calc_adv_lookback": 10,
+                        "calc_vol_lookback": 30,
+                        "train_start": "2024-10-01",
+                        "train_end": "2024-10-31",
+                        "train_samples": 10000,
+                        "train_sample_ob_random_seed": 10,
+                        "train_simulate_orders_random_seed": 20,
+                        "test_start": "2024-11-01",
+                        "test_end": "2024-11-30",
+                        "test_samples": 10000,
+                        "test_sample_ob_random_seed": 30,
+                        "test_simulate_orders_random_seed": 40
+                    },
+                    "intercept": 7.453804806643105e-05,
+                    "features_info": [
+                        {
+                            "feature": "spread/price",
+                            "coefficient": 0.7044041290793809,
+                            "standard_error": 0.004244465381889709,
+                            "t_statistic": 165.95826934646078
+                        },
+                        {
+                            "feature": "annualized_vol",
+                            "coefficient": -0.0003996870679090628,
+                            "standard_error": 5.7730603079044e-05,
+                            "t_statistic": -6.923313573596596
+                        },
+                        {
+                            "feature": "sell_order_value/adv",
+                            "coefficient": 0.017081296196243264,
+                            "standard_error": 0.0016755959275647748,
+                            "t_statistic": 10.194161918899113
+                        }
+                    ],
+                    "training_results": {
+                        "training_rmse": 5.4082643521422566e-05,
+                        "training_r_squared": 0.73632630426015
+                    },
+                    "testing_results": {
+                        "testing_rmse": 6.40976734228198e-05,
+                        "testing_r_squared": 0.5594832680298728
+                    }
+                }
+            },
+            "50k_100k": {
+                "202410": {
+                    "model_config": {
+                        "calc_adv_lookback": 10,
+                        "calc_vol_lookback": 30,
+                        "train_start": "2024-10-01",
+                        "train_end": "2024-10-31",
+                        "train_samples": 10000,
+                        "train_sample_ob_random_seed": 10,
+                        "train_simulate_orders_random_seed": 20,
+                        "test_start": "2024-11-01",
+                        "test_end": "2024-11-30",
+                        "test_samples": 10000,
+                        "test_sample_ob_random_seed": 30,
+                        "test_simulate_orders_random_seed": 40
+                    },
+                    "intercept": 0.00014498787948547193,
+                    "features_info": [
+                        {
+                            "feature": "spread/price",
+                            "coefficient": 0.9195880187331317,
+                            "standard_error": 0.007228048722465488,
+                            "t_statistic": 127.22493359445149
+                        },
+                        {
+                            "feature": "annualized_vol",
+                            "coefficient": -0.0007322769514696724,
+                            "standard_error": 9.938176654993617e-05,
+                            "t_statistic": -7.368322951894063
+                        },
+                        {
+                            "feature": "sell_order_value/adv",
+                            "coefficient": 0.0109065703183842,
+                            "standard_error": 0.0017857042353611205,
+                            "t_statistic": 6.107713753716096
+                        }
+                    ],
+                    "training_results": {
+                        "training_rmse": 9.20929725319375e-05,
+                        "training_r_squared": 0.6217203946833437
+                    },
+                    "testing_results": {
+                        "testing_rmse": 9.664203501596775e-05,
+                        "testing_r_squared": 0.4917567240951328
+                    }
+                }
+            },
+            "100k_300k": {
+                "202410": {
+                    "model_config": {
+                        "calc_adv_lookback": 10,
+                        "calc_vol_lookback": 30,
+                        "train_start": "2024-10-01",
+                        "train_end": "2024-10-31",
+                        "train_samples": 10000,
+                        "train_sample_ob_random_seed": 10,
+                        "train_simulate_orders_random_seed": 20,
+                        "test_start": "2024-11-01",
+                        "test_end": "2024-11-30",
+                        "test_samples": 10000,
+                        "test_sample_ob_random_seed": 30,
+                        "test_simulate_orders_random_seed": 40
+                    },
+                    "intercept": 0.00014536775181087802,
+                    "features_info": [
+                        {
+                            "feature": "spread/price",
+                            "coefficient": 1.3620321377610978,
+                            "standard_error": 0.013373594415431114,
+                            "t_statistic": 101.84488144709383
+                        },
+                        {
+                            "feature": "annualized_vol",
+                            "coefficient": -0.00077496938099168,
+                            "standard_error": 0.0001826937870891031,
+                            "t_statistic": -4.241903314499213
+                        },
+                        {
+                            "feature": "sell_order_value/adv",
+                            "coefficient": 0.00931946299266407,
+                            "standard_error": 0.0009805826259441522,
+                            "t_statistic": 9.50400582887224
+                        }
+                    ],
+                    "training_results": {
+                        "training_rmse": 0.00017037718283910108,
+                        "training_r_squared": 0.5120083278897063
+                    },
+                    "testing_results": {
+                        "testing_rmse": 0.0001776782122866537,
+                        "testing_r_squared": 0.5038388657737739
+                    }
+                }
+            }
+        }
+    },
+    "TSLA": {
+        "buy": {
+            "1k_10k": {
+                "202411": {
+                    "model_config": {
+                        "calc_adv_lookback": 10,
+                        "calc_vol_lookback": 30,
+                        "train_start": "2024-11-01",
+                        "train_end": "2024-11-30",
+                        "train_samples": 10000,
+                        "train_sample_ob_random_seed": 10,
+                        "train_simulate_orders_random_seed": 20,
+                        "test_start": "2024-12-01",
+                        "test_end": "2024-12-31",
+                        "test_samples": 10000,
+                        "test_sample_ob_random_seed": 30,
+                        "test_simulate_orders_random_seed": 40
+                    },
+                    "intercept": 8.516625007387792e-07,
+                    "features_info": [
+                        {
+                            "feature": "spread/price",
+                            "coefficient": 0.5406976022709994,
+                            "standard_error": 0.0024704456089091878,
+                            "t_statistic": 218.8664264945066
+                        },
+                        {
+                            "feature": "annualized_vol",
+                            "coefficient": -1.11627470118839e-05,
+                            "standard_error": 7.492449073740317e-06,
+                            "t_statistic": -1.4898662509442093
+                        },
+                        {
+                            "feature": "buy_order_value/adv",
+                            "coefficient": 0.11190154437836912,
+                            "standard_error": 0.01696762678619912,
+                            "t_statistic": 6.595002694742553
+                        }
+                    ],
+                    "training_results": {
+                        "training_rmse": 4.176590139347139e-05,
+                        "training_r_squared": 0.8288958721758645
+                    },
+                    "testing_results": {
+                        "testing_rmse": 3.0233918931999298e-05,
+                        "testing_r_squared": 0.9106125924956312
+                    }
+                },
+                "202412": {
+                    "model_config": {
+                        "calc_adv_lookback": 10,
+                        "calc_vol_lookback": 30,
+                        "train_start": "2024-12-01",
+                        "train_end": "2024-12-31",
+                        "train_samples": 10000,
+                        "train_sample_ob_random_seed": 10,
+                        "train_simulate_orders_random_seed": 20,
+                        "test_start": "2025-01-01",
+                        "test_end": "2025-01-31",
+                        "test_samples": 10000,
+                        "test_sample_ob_random_seed": 30,
+                        "test_simulate_orders_random_seed": 40
+                    },
+                    "intercept": 7.440165037256167e-06,
+                    "features_info": [
+                        {
+                            "feature": "spread/price",
+                            "coefficient": 0.49826317636653694,
+                            "standard_error": 0.0014091467666166172,
+                            "t_statistic": 353.5921084805626
+                        },
+                        {
+                            "feature": "annualized_vol",
+                            "coefficient": -6.557533486326686e-06,
+                            "standard_error": 3.2080061492529183e-06,
+                            "t_statistic": -2.0441149989234924
+                        },
+                        {
+                            "feature": "buy_order_value/adv",
+                            "coefficient": 0.05661007176496723,
+                            "standard_error": 0.007732974502506191,
+                            "t_statistic": 7.320607580772495
+                        }
+                    ],
+                    "training_results": {
+                        "training_rmse": 2.5577445243963663e-05,
+                        "training_r_squared": 0.9275213362124294
+                    }
+                },
+                "202410": {
+                    "model_config": {
+                        "calc_adv_lookback": 10,
+                        "calc_vol_lookback": 30,
+                        "train_start": "2024-10-01",
+                        "train_end": "2024-10-31",
+                        "train_samples": 10000,
+                        "train_sample_ob_random_seed": 10,
+                        "train_simulate_orders_random_seed": 20,
+                        "test_start": "2024-11-01",
+                        "test_end": "2024-11-30",
+                        "test_samples": 10000,
+                        "test_sample_ob_random_seed": 30,
+                        "test_simulate_orders_random_seed": 40
+                    },
+                    "intercept": -3.93283894391381e-06,
+                    "features_info": [
+                        {
+                            "feature": "spread/price",
+                            "coefficient": 0.55091581596924,
+                            "standard_error": 0.0021720261298555058,
+                            "t_statistic": 253.64143110280617
+                        },
+                        {
+                            "feature": "annualized_vol",
+                            "coefficient": -8.33700395834649e-06,
+                            "standard_error": 3.2489475112483526e-06,
+                            "t_statistic": -2.566062987931479
+                        },
+                        {
+                            "feature": "buy_order_value/adv",
+                            "coefficient": 0.09245410531575551,
+                            "standard_error": 0.010005952775859923,
+                            "t_statistic": 9.23991022012493
+                        }
+                    ],
+                    "training_results": {
+                        "training_rmse": 3.345075066010257e-05,
+                        "training_r_squared": 0.8658511657382064
+                    },
+                    "testing_results": {
+                        "testing_rmse": 2.800908789656546e-05,
+                        "testing_r_squared": 0.9136392283315877
+                    }
+                }
+            },
+            "10k_50k": {
+                "202410": {
+                    "model_config": {
+                        "calc_adv_lookback": 10,
+                        "calc_vol_lookback": 30,
+                        "train_start": "2024-10-01",
+                        "train_end": "2024-10-31",
+                        "train_samples": 10000,
+                        "train_sample_ob_random_seed": 10,
+                        "train_simulate_orders_random_seed": 20,
+                        "test_start": "2024-11-01",
+                        "test_end": "2024-11-30",
+                        "test_samples": 10000,
+                        "test_sample_ob_random_seed": 30,
+                        "test_simulate_orders_random_seed": 40
+                    },
+                    "intercept": -4.905335258744606e-05,
+                    "features_info": [
+                        {
+                            "feature": "spread/price",
+                            "coefficient": 0.9074079338641592,
+                            "standard_error": 0.009227987886592822,
+                            "t_statistic": 98.33215485496204
+                        },
+                        {
+                            "feature": "annualized_vol",
+                            "coefficient": -4.2273372538597484e-05,
+                            "standard_error": 1.3821213042609802e-05,
+                            "t_statistic": -3.0585862766366256
+                        },
+                        {
+                            "feature": "buy_order_value/adv",
+                            "coefficient": 0.09262157698623975,
+                            "standard_error": 0.009516452622334531,
+                            "t_statistic": 9.732783912448909
+                        }
+                    ],
+                    "training_results": {
+                        "training_rmse": 0.00014211797584629058,
+                        "training_r_squared": 0.4953619521534677
+                    },
+                    "testing_results": {
+                        "testing_rmse": 8.706723973779954e-05,
+                        "testing_r_squared": 0.4072158691293828
+                    }
+                },
+                "202411": {
+                    "model_config": {
+                        "calc_adv_lookback": 10,
+                        "calc_vol_lookback": 30,
+                        "train_start": "2024-11-01",
+                        "train_end": "2024-11-30",
+                        "train_samples": 10000,
+                        "train_sample_ob_random_seed": 10,
+                        "train_simulate_orders_random_seed": 20,
+                        "test_start": "2024-12-01",
+                        "test_end": "2024-12-31",
+                        "test_samples": 10000,
+                        "test_sample_ob_random_seed": 30,
+                        "test_simulate_orders_random_seed": 40
+                    },
+                    "intercept": -1.1274041664635276e-05,
+                    "features_info": [
+                        {
+                            "feature": "spread/price",
+                            "coefficient": 0.588488144670523,
+                            "standard_error": 0.004209330329086526,
+                            "t_statistic": 139.80564571140033
+                        },
+                        {
+                            "feature": "annualized_vol",
+                            "coefficient": -8.486207968302437e-06,
+                            "standard_error": 1.29118126421922e-05,
+                            "t_statistic": -0.6572437351338167
+                        },
+                        {
+                            "feature": "buy_order_value/adv",
+                            "coefficient": 0.10129835884635158,
+                            "standard_error": 0.006423803962119325,
+                            "t_statistic": 15.769217031481684
+                        }
+                    ],
+                    "training_results": {
+                        "training_rmse": 7.115406029470683e-05,
+                        "training_r_squared": 0.6671659402492649
+                    },
+                    "testing_results": {
+                        "testing_rmse": 6.629152652273086e-05,
+                        "testing_r_squared": 0.7128387825455322
+                    }
+                },
+                "202412": {
+                    "model_config": {
+                        "calc_adv_lookback": 10,
+                        "calc_vol_lookback": 30,
+                        "train_start": "2024-12-01",
+                        "train_end": "2024-12-31",
+                        "train_samples": 10000,
+                        "train_sample_ob_random_seed": 10,
+                        "train_simulate_orders_random_seed": 20,
+                        "test_start": "2025-01-01",
+                        "test_end": "2025-01-31",
+                        "test_samples": 10000,
+                        "test_sample_ob_random_seed": 30,
+                        "test_simulate_orders_random_seed": 40
+                    },
+                    "intercept": 1.841229708102764e-05,
+                    "features_info": [
+                        {
+                            "feature": "spread/price",
+                            "coefficient": 0.5241268584949835,
+                            "standard_error": 0.003283171739462927,
+                            "t_statistic": 159.64040266158054
+                        },
+                        {
+                            "feature": "annualized_vol",
+                            "coefficient": -2.3031650009930643e-05,
+                            "standard_error": 7.52778816925428e-06,
+                            "t_statistic": -3.059550759411474
+                        },
+                        {
+                            "feature": "buy_order_value/adv",
+                            "coefficient": 0.050817845281149104,
+                            "standard_error": 0.003963096286151658,
+                            "t_statistic": 12.822763216408118
+                        }
+                    ],
+                    "training_results": {
+                        "training_rmse": 5.9540553112036345e-05,
+                        "training_r_squared": 0.7224603819687041
+                    }
+                }
+            },
+            "50k_100k": {
+                "202410": {
+                    "model_config": {
+                        "calc_adv_lookback": 10,
+                        "calc_vol_lookback": 30,
+                        "train_start": "2024-10-01",
+                        "train_end": "2024-10-31",
+                        "train_samples": 10000,
+                        "train_sample_ob_random_seed": 10,
+                        "train_simulate_orders_random_seed": 20,
+                        "test_start": "2024-11-01",
+                        "test_end": "2024-11-30",
+                        "test_samples": 10000,
+                        "test_sample_ob_random_seed": 30,
+                        "test_simulate_orders_random_seed": 40
+                    },
+                    "intercept": -7.559641877622488e-05,
+                    "features_info": [
+                        {
+                            "feature": "spread/price",
+                            "coefficient": 1.1740378431268428,
+                            "standard_error": 0.014043666375999695,
+                            "t_statistic": 83.59909810540975
+                        },
+                        {
+                            "feature": "annualized_vol",
+                            "coefficient": -7.336174453254462e-05,
+                            "standard_error": 2.1241465743795207e-05,
+                            "t_statistic": -3.453704439109817
+                        },
+                        {
+                            "feature": "buy_order_value/adv",
+                            "coefficient": 0.07983232049428668,
+                            "standard_error": 0.011091180171080503,
+                            "t_statistic": 7.197820183504368
+                        }
+                    ],
+                    "training_results": {
+                        "training_rmse": 0.00021629031429941048,
+                        "training_r_squared": 0.41468219196890654
+                    },
+                    "testing_results": {
+                        "testing_rmse": 0.00013583521427112797,
+                        "testing_r_squared": 0.043100281672717844
+                    }
+                },
+                "202411": {
+                    "model_config": {
+                        "calc_adv_lookback": 10,
+                        "calc_vol_lookback": 30,
+                        "train_start": "2024-11-01",
+                        "train_end": "2024-11-30",
+                        "train_samples": 10000,
+                        "train_sample_ob_random_seed": 10,
+                        "train_simulate_orders_random_seed": 20,
+                        "test_start": "2024-12-01",
+                        "test_end": "2024-12-31",
+                        "test_samples": 10000,
+                        "test_sample_ob_random_seed": 30,
+                        "test_simulate_orders_random_seed": 40
+                    },
+                    "intercept": 2.204370450761725e-06,
+                    "features_info": [
+                        {
+                            "feature": "spread/price",
+                            "coefficient": 0.6679328835961907,
+                            "standard_error": 0.0060573657940444885,
+                            "t_statistic": 110.26787985181485
+                        },
+                        {
+                            "feature": "annualized_vol",
+                            "coefficient": -2.4535854848761488e-05,
+                            "standard_error": 2.002480260081603e-05,
+                            "t_statistic": -1.225273244279653
+                        },
+                        {
+                            "feature": "buy_order_value/adv",
+                            "coefficient": 0.07341320810476172,
+                            "standard_error": 0.006690555890177694,
+                            "t_statistic": 10.972661959604666
+                        }
+                    ],
+                    "training_results": {
+                        "training_rmse": 0.00010230754667238756,
+                        "training_r_squared": 0.5547829719581545
+                    },
+                    "testing_results": {
+                        "testing_rmse": 0.00010236392309195783,
+                        "testing_r_squared": 0.534459830951623
+                    }
+                },
+                "202412": {
+                    "model_config": {
+                        "calc_adv_lookback": 10,
+                        "calc_vol_lookback": 30,
+                        "train_start": "2024-12-01",
+                        "train_end": "2024-12-31",
+                        "train_samples": 10000,
+                        "train_sample_ob_random_seed": 10,
+                        "train_simulate_orders_random_seed": 20,
+                        "test_start": "2025-01-01",
+                        "test_end": "2025-01-31",
+                        "test_samples": 10000,
+                        "test_sample_ob_random_seed": 30,
+                        "test_simulate_orders_random_seed": 40
+                    },
+                    "intercept": 4.970738825162221e-05,
+                    "features_info": [
+                        {
+                            "feature": "spread/price",
+                            "coefficient": 0.5648548895521156,
+                            "standard_error": 0.005065735092742107,
+                            "t_statistic": 111.50501935275041
+                        },
+                        {
+                            "feature": "annualized_vol",
+                            "coefficient": -3.151880050238726e-05,
+                            "standard_error": 1.2107111687252775e-05,
+                            "t_statistic": -2.603329457642031
+                        },
+                        {
+                            "feature": "buy_order_value/adv",
+                            "coefficient": 0.020018593626257953,
+                            "standard_error": 0.004142744156833369,
+                            "t_statistic": 4.832206109865053
+                        }
+                    ],
+                    "training_results": {
+                        "training_rmse": 9.136671248372247e-05,
+                        "training_r_squared": 0.5617762721485977
+                    }
+                }
+            },
+            "100k_300k": {
+                "202410": {
+                    "model_config": {
+                        "calc_adv_lookback": 10,
+                        "calc_vol_lookback": 30,
+                        "train_start": "2024-10-01",
+                        "train_end": "2024-10-31",
+                        "train_samples": 10000,
+                        "train_sample_ob_random_seed": 10,
+                        "train_simulate_orders_random_seed": 20,
+                        "test_start": "2024-11-01",
+                        "test_end": "2024-11-30",
+                        "test_samples": 10000,
+                        "test_sample_ob_random_seed": 30,
+                        "test_simulate_orders_random_seed": 40
+                    },
+                    "intercept": 6.346068248834322e-07,
+                    "features_info": [
+                        {
+                            "feature": "spread/price",
+                            "coefficient": 1.3508222421152862,
+                            "standard_error": 0.015955754391995546,
+                            "t_statistic": 84.660506105117
+                        },
+                        {
+                            "feature": "annualized_vol",
+                            "coefficient": -0.00012497787790202573,
+                            "standard_error": 2.394669873431626e-05,
+                            "t_statistic": -5.219002388956816
+                        },
+                        {
+                            "feature": "buy_order_value/adv",
+                            "coefficient": 0.03373022686660272,
+                            "standard_error": 0.0033221516034116156,
+                            "t_statistic": 10.153126916894507
+                        }
+                    ],
+                    "training_results": {
+                        "training_rmse": 0.00024557365995589203,
+                        "training_r_squared": 0.4209818583893914
+                    },
+                    "testing_results": {
+                        "testing_rmse": 0.00017181654272178633,
+                        "testing_r_squared": 0.2319916355862084
+                    }
+                },
+                "202411": {
+                    "model_config": {
+                        "calc_adv_lookback": 10,
+                        "calc_vol_lookback": 30,
+                        "train_start": "2024-11-01",
+                        "train_end": "2024-11-30",
+                        "train_samples": 10000,
+                        "train_sample_ob_random_seed": 10,
+                        "train_simulate_orders_random_seed": 20,
+                        "test_start": "2024-12-01",
+                        "test_end": "2024-12-31",
+                        "test_samples": 10000,
+                        "test_sample_ob_random_seed": 30,
+                        "test_simulate_orders_random_seed": 40
+                    },
+                    "intercept": 1.6041247746993315e-05,
+                    "features_info": [
+                        {
+                            "feature": "spread/price",
+                            "coefficient": 0.8612021202787467,
+                            "standard_error": 0.008734315757654766,
+                            "t_statistic": 98.59983817553056
+                        },
+                        {
+                            "feature": "annualized_vol",
+                            "coefficient": -2.6343431062587472e-05,
+                            "standard_error": 2.7573665390427254e-05,
+                            "t_statistic": -0.9553837217352001
+                        },
+                        {
+                            "feature": "buy_order_value/adv",
+                            "coefficient": 0.044436842764330596,
+                            "standard_error": 0.002673707810423839,
+                            "t_statistic": 16.619932286948895
+                        }
+                    ],
+                    "training_results": {
+                        "training_rmse": 0.00014768620108003257,
+                        "training_r_squared": 0.502017032140332
+                    },
+                    "testing_results": {
+                        "testing_rmse": 0.00016179198311022408,
+                        "testing_r_squared": 0.3674804085497515
+                    }
+                },
+                "202412": {
+                    "model_config": {
+                        "calc_adv_lookback": 10,
+                        "calc_vol_lookback": 30,
+                        "train_start": "2024-12-01",
+                        "train_end": "2024-12-31",
+                        "train_samples": 10000,
+                        "train_sample_ob_random_seed": 10,
+                        "train_simulate_orders_random_seed": 20,
+                        "test_start": "2025-01-01",
+                        "test_end": "2025-01-31",
+                        "test_samples": 10000,
+                        "test_sample_ob_random_seed": 30,
+                        "test_simulate_orders_random_seed": 40
+                    },
+                    "intercept": 9.746669391712368e-05,
+                    "features_info": [
+                        {
+                            "feature": "spread/price",
+                            "coefficient": 0.6724837364294445,
+                            "standard_error": 0.00795784186494312,
+                            "t_statistic": 84.50579288235845
+                        },
+                        {
+                            "feature": "annualized_vol",
+                            "coefficient": -5.85155391212574e-05,
+                            "standard_error": 1.8518856435560394e-05,
+                            "t_statistic": -3.1597814543717897
+                        },
+                        {
+                            "feature": "buy_order_value/adv",
+                            "coefficient": 0.016163675434005258,
+                            "standard_error": 0.0018630063645214674,
+                            "t_statistic": 8.676124645530702
+                        }
+                    ],
+                    "training_results": {
+                        "training_rmse": 0.00014401949266583527,
+                        "training_r_squared": 0.4222615245866267
+                    }
+                }
+            }
+        },
+        "sell": {
+            "1k_10k": {
+                "202411": {
+                    "model_config": {
+                        "calc_adv_lookback": 10,
+                        "calc_vol_lookback": 30,
+                        "train_start": "2024-11-01",
+                        "train_end": "2024-11-30",
+                        "train_samples": 10000,
+                        "train_sample_ob_random_seed": 10,
+                        "train_simulate_orders_random_seed": 20,
+                        "test_start": "2024-12-01",
+                        "test_end": "2024-12-31",
+                        "test_samples": 10000,
+                        "test_sample_ob_random_seed": 30,
+                        "test_simulate_orders_random_seed": 40
+                    },
+                    "intercept": -7.327487337379859e-06,
+                    "features_info": [
+                        {
+                            "feature": "spread/price",
+                            "coefficient": 0.5075140339807851,
+                            "standard_error": 0.0016637295997221524,
+                            "t_statistic": 305.04598467535914
+                        },
+                        {
+                            "feature": "annualized_vol",
+                            "coefficient": 7.6280773375701134e-06,
+                            "standard_error": 5.04581410472608e-06,
+                            "t_statistic": 1.5117634497127823
+                        },
+                        {
+                            "feature": "sell_order_value/adv",
+                            "coefficient": 0.12866791391809038,
+                            "standard_error": 0.011426903235365111,
+                            "t_statistic": 11.260086067752475
+                        }
+                    ],
+                    "training_results": {
+                        "training_rmse": 2.8127381617633243e-05,
+                        "training_r_squared": 0.9041816739860186
+                    },
+                    "testing_results": {
+                        "testing_rmse": 3.402431155745012e-05,
+                        "testing_r_squared": 0.8908557155542268
+                    }
+                },
+                "202410": {
+                    "model_config": {
+                        "calc_adv_lookback": 10,
+                        "calc_vol_lookback": 30,
+                        "train_start": "2024-10-01",
+                        "train_end": "2024-10-31",
+                        "train_samples": 10000,
+                        "train_sample_ob_random_seed": 10,
+                        "train_simulate_orders_random_seed": 20,
+                        "test_start": "2024-11-01",
+                        "test_end": "2024-11-30",
+                        "test_samples": 10000,
+                        "test_sample_ob_random_seed": 30,
+                        "test_simulate_orders_random_seed": 40
+                    },
+                    "intercept": -9.385462664241706e-07,
+                    "features_info": [
+                        {
+                            "feature": "spread/price",
+                            "coefficient": 0.546283854256298,
+                            "standard_error": 0.001999472486297325,
+                            "t_statistic": 273.21398918967907
+                        },
+                        {
+                            "feature": "annualized_vol",
+                            "coefficient": -9.85813047963134e-06,
+                            "standard_error": 2.990839322267916e-06,
+                            "t_statistic": -3.2961083553482378
+                        },
+                        {
+                            "feature": "sell_order_value/adv",
+                            "coefficient": 0.08272502367145082,
+                            "standard_error": 0.009211043550315493,
+                            "t_statistic": 8.981069649661721
+                        }
+                    ],
+                    "training_results": {
+                        "training_rmse": 3.079330154988358e-05,
+                        "training_r_squared": 0.8821731483965458
+                    },
+                    "testing_results": {
+                        "testing_rmse": 2.9174583044890012e-05,
+                        "testing_r_squared": 0.9075721614821667
+                    }
+                },
+                "202412": {
+                    "model_config": {
+                        "calc_adv_lookback": 10,
+                        "calc_vol_lookback": 30,
+                        "train_start": "2024-12-01",
+                        "train_end": "2024-12-31",
+                        "train_samples": 10000,
+                        "train_sample_ob_random_seed": 10,
+                        "train_simulate_orders_random_seed": 20,
+                        "test_start": "2025-01-01",
+                        "test_end": "2025-01-31",
+                        "test_samples": 10000,
+                        "test_sample_ob_random_seed": 30,
+                        "test_simulate_orders_random_seed": 40
+                    },
+                    "intercept": 3.3397283841004984e-06,
+                    "features_info": [
+                        {
+                            "feature": "spread/price",
+                            "coefficient": 0.5026391697901857,
+                            "standard_error": 0.0016008401589886058,
+                            "t_statistic": 313.9846079996818
+                        },
+                        {
+                            "feature": "annualized_vol",
+                            "coefficient": -1.395530660196453e-06,
+                            "standard_error": 3.644407520684941e-06,
+                            "t_statistic": -0.3829238778253242
+                        },
+                        {
+                            "feature": "sell_order_value/adv",
+                            "coefficient": 0.06072709901669234,
+                            "standard_error": 0.008784930303441442,
+                            "t_statistic": 6.912644371566941
+                        }
+                    ],
+                    "training_results": {
+                        "training_rmse": 2.905687504019165e-05,
+                        "training_r_squared": 0.9097118795506871
+                    }
+                }
+            },
+            "10k_50k": {
+                "202410": {
+                    "model_config": {
+                        "calc_adv_lookback": 10,
+                        "calc_vol_lookback": 30,
+                        "train_start": "2024-10-01",
+                        "train_end": "2024-10-31",
+                        "train_samples": 10000,
+                        "train_sample_ob_random_seed": 10,
+                        "train_simulate_orders_random_seed": 20,
+                        "test_start": "2024-11-01",
+                        "test_end": "2024-11-30",
+                        "test_samples": 10000,
+                        "test_sample_ob_random_seed": 30,
+                        "test_simulate_orders_random_seed": 40
+                    },
+                    "intercept": -5.5780808572411294e-06,
+                    "features_info": [
+                        {
+                            "feature": "spread/price",
+                            "coefficient": 0.6742245948376457,
+                            "standard_error": 0.004137076993982514,
+                            "t_statistic": 162.97124656329163
+                        },
+                        {
+                            "feature": "annualized_vol",
+                            "coefficient": -3.471019698359951e-05,
+                            "standard_error": 6.196335364272327e-06,
+                            "t_statistic": -5.601729884366215
+                        },
+                        {
+                            "feature": "sell_order_value/adv",
+                            "coefficient": 0.07471550089113374,
+                            "standard_error": 0.00426758151464848,
+                            "t_statistic": 17.507691565977748
+                        }
+                    ],
+                    "training_results": {
+                        "training_rmse": 6.37150580890612e-05,
+                        "training_r_squared": 0.7298614940279726
+                    },
+                    "testing_results": {
+                        "testing_rmse": 6.408136441866455e-05,
+                        "testing_r_squared": 0.6882842430865259
+                    }
+                },
+                "202411": {
+                    "model_config": {
+                        "calc_adv_lookback": 10,
+                        "calc_vol_lookback": 30,
+                        "train_start": "2024-11-01",
+                        "train_end": "2024-11-30",
+                        "train_samples": 10000,
+                        "train_sample_ob_random_seed": 10,
+                        "train_simulate_orders_random_seed": 20,
+                        "test_start": "2024-12-01",
+                        "test_end": "2024-12-31",
+                        "test_samples": 10000,
+                        "test_sample_ob_random_seed": 30,
+                        "test_simulate_orders_random_seed": 40
+                    },
+                    "intercept": -3.4173944819287755e-05,
+                    "features_info": [
+                        {
+                            "feature": "spread/price",
+                            "coefficient": 0.5391271061499563,
+                            "standard_error": 0.003331352628382521,
+                            "t_statistic": 161.8342956421638
+                        },
+                        {
+                            "feature": "annualized_vol",
+                            "coefficient": 3.1617201557217963e-05,
+                            "standard_error": 1.0218626615556768e-05,
+                            "t_statistic": 3.0940754317301455
+                        },
+                        {
+                            "feature": "sell_order_value/adv",
+                            "coefficient": 0.10783483829073662,
+                            "standard_error": 0.005084127442800694,
+                            "t_statistic": 21.210097406868627
+                        }
+                    ],
+                    "training_results": {
+                        "training_rmse": 5.6313603129497504e-05,
+                        "training_r_squared": 0.73032224815858
+                    },
+                    "testing_results": {
+                        "testing_rmse": 6.642946976341026e-05,
+                        "testing_r_squared": 0.7004657569245076
+                    }
+                },
+                "202412": {
+                    "model_config": {
+                        "calc_adv_lookback": 10,
+                        "calc_vol_lookback": 30,
+                        "train_start": "2024-12-01",
+                        "train_end": "2024-12-31",
+                        "train_samples": 10000,
+                        "train_sample_ob_random_seed": 10,
+                        "train_simulate_orders_random_seed": 20,
+                        "test_start": "2025-01-01",
+                        "test_end": "2025-01-31",
+                        "test_samples": 10000,
+                        "test_sample_ob_random_seed": 30,
+                        "test_simulate_orders_random_seed": 40
+                    },
+                    "intercept": 1.6053759284084523e-05,
+                    "features_info": [
+                        {
+                            "feature": "spread/price",
+                            "coefficient": 0.5186460681748486,
+                            "standard_error": 0.003261383059767916,
+                            "t_statistic": 159.02641875246513
+                        },
+                        {
+                            "feature": "annualized_vol",
+                            "coefficient": -1.736999293219511e-05,
+                            "standard_error": 7.478085447608968e-06,
+                            "t_statistic": -2.3227860999835146
+                        },
+                        {
+                            "feature": "sell_order_value/adv",
+                            "coefficient": 0.0542395721248356,
+                            "standard_error": 0.003936932473727675,
+                            "t_statistic": 13.777115174515298
+                        }
+                    ],
+                    "training_results": {
+                        "training_rmse": 5.914573316097209e-05,
+                        "training_r_squared": 0.72058218297989
+                    }
+                }
+            },
+            "50k_100k": {
+                "202410": {
+                    "model_config": {
+                        "calc_adv_lookback": 10,
+                        "calc_vol_lookback": 30,
+                        "train_start": "2024-10-01",
+                        "train_end": "2024-10-31",
+                        "train_samples": 10000,
+                        "train_sample_ob_random_seed": 10,
+                        "train_simulate_orders_random_seed": 20,
+                        "test_start": "2024-11-01",
+                        "test_end": "2024-11-30",
+                        "test_samples": 10000,
+                        "test_sample_ob_random_seed": 30,
+                        "test_simulate_orders_random_seed": 40
+                    },
+                    "intercept": 1.307177775767745e-06,
+                    "features_info": [
+                        {
+                            "feature": "spread/price",
+                            "coefficient": 0.8329704276661127,
+                            "standard_error": 0.006377182395320981,
+                            "t_statistic": 130.61731279275838
+                        },
+                        {
+                            "feature": "annualized_vol",
+                            "coefficient": -6.60364949884325e-05,
+                            "standard_error": 9.64388652532819e-06,
+                            "t_statistic": -6.847498134180423
+                        },
+                        {
+                            "feature": "sell_order_value/adv",
+                            "coefficient": 0.05649390008354481,
+                            "standard_error": 0.0050264368712396035,
+                            "t_statistic": 11.239353349246873
+                        }
+                    ],
+                    "training_results": {
+                        "training_rmse": 9.822061734600147e-05,
+                        "training_r_squared": 0.6336843116739915
+                    },
+                    "testing_results": {
+                        "testing_rmse": 9.851010646309185e-05,
+                        "testing_r_squared": 0.5137992633142603
+                    }
+                },
+                "202411": {
+                    "model_config": {
+                        "calc_adv_lookback": 10,
+                        "calc_vol_lookback": 30,
+                        "train_start": "2024-11-01",
+                        "train_end": "2024-11-30",
+                        "train_samples": 10000,
+                        "train_sample_ob_random_seed": 10,
+                        "train_simulate_orders_random_seed": 20,
+                        "test_start": "2024-12-01",
+                        "test_end": "2024-12-31",
+                        "test_samples": 10000,
+                        "test_sample_ob_random_seed": 30,
+                        "test_simulate_orders_random_seed": 40
+                    },
+                    "intercept": -4.059242391799553e-05,
+                    "features_info": [
+                        {
+                            "feature": "spread/price",
+                            "coefficient": 0.6150651594219759,
+                            "standard_error": 0.00510201161185939,
+                            "t_statistic": 120.55346130382875
+                        },
+                        {
+                            "feature": "annualized_vol",
+                            "coefficient": 4.132957700357623e-05,
+                            "standard_error": 1.6854943116662662e-05,
+                            "t_statistic": 2.4520745467671223
+                        },
+                        {
+                            "feature": "sell_order_value/adv",
+                            "coefficient": 0.07358666977332771,
+                            "standard_error": 0.005632585272003902,
+                            "t_statistic": 13.06445729975568
+                        }
+                    ],
+                    "training_results": {
+                        "training_rmse": 8.619052286458267e-05,
+                        "training_r_squared": 0.5994155853707591
+                    },
+                    "testing_results": {
+                        "testing_rmse": 0.00010111402125799536,
+                        "testing_r_squared": 0.5413359535490432
+                    }
+                },
+                "202412": {
+                    "model_config": {
+                        "calc_adv_lookback": 10,
+                        "calc_vol_lookback": 30,
+                        "train_start": "2024-12-01",
+                        "train_end": "2024-12-31",
+                        "train_samples": 10000,
+                        "train_sample_ob_random_seed": 10,
+                        "train_simulate_orders_random_seed": 20,
+                        "test_start": "2025-01-01",
+                        "test_end": "2025-01-31",
+                        "test_samples": 10000,
+                        "test_sample_ob_random_seed": 30,
+                        "test_simulate_orders_random_seed": 40
+                    },
+                    "intercept": 3.834522018584514e-05,
+                    "features_info": [
+                        {
+                            "feature": "spread/price",
+                            "coefficient": 0.5581381489451931,
+                            "standard_error": 0.0050078044650138705,
+                            "t_statistic": 111.4536625470354
+                        },
+                        {
+                            "feature": "annualized_vol",
+                            "coefficient": -1.2840168206701454e-05,
+                            "standard_error": 1.1972516451300137e-05,
+                            "t_statistic": -1.0724702913485742
+                        },
+                        {
+                            "feature": "sell_order_value/adv",
+                            "coefficient": 0.02155081834351572,
+                            "standard_error": 0.004091681772284772,
+                            "t_statistic": 5.266983001828576
+                        }
+                    ],
+                    "training_results": {
+                        "training_rmse": 9.032568002615258e-05,
+                        "training_r_squared": 0.5602290372425172
+                    }
+                }
+            },
+            "100k_300k": {
+                "202410": {
+                    "model_config": {
+                        "calc_adv_lookback": 10,
+                        "calc_vol_lookback": 30,
+                        "train_start": "2024-10-01",
+                        "train_end": "2024-10-31",
+                        "train_samples": 10000,
+                        "train_sample_ob_random_seed": 10,
+                        "train_simulate_orders_random_seed": 20,
+                        "test_start": "2024-11-01",
+                        "test_end": "2024-11-30",
+                        "test_samples": 10000,
+                        "test_sample_ob_random_seed": 30,
+                        "test_simulate_orders_random_seed": 40
+                    },
+                    "intercept": 4.85245312815521e-05,
+                    "features_info": [
+                        {
+                            "feature": "spread/price",
+                            "coefficient": 1.02706171918197,
+                            "standard_error": 0.009173982868786136,
+                            "t_statistic": 111.95374286957511
+                        },
+                        {
+                            "feature": "annualized_vol",
+                            "coefficient": -0.00011020714647191729,
+                            "standard_error": 1.3750049943427092e-05,
+                            "t_statistic": -8.015036085348868
+                        },
+                        {
+                            "feature": "sell_order_value/adv",
+                            "coefficient": 0.03227146189756852,
+                            "standard_error": 0.0018885417979469697,
+                            "t_statistic": 17.08803158746646
+                        }
+                    ],
+                    "training_results": {
+                        "training_rmse": 0.00014106178290803175,
+                        "training_r_squared": 0.5608930245362251
+                    },
+                    "testing_results": {
+                        "testing_rmse": 0.00014608919820665944,
+                        "testing_r_squared": 0.45887613051886456
+                    }
+                },
+                "202411": {
+                    "model_config": {
+                        "calc_adv_lookback": 10,
+                        "calc_vol_lookback": 30,
+                        "train_start": "2024-11-01",
+                        "train_end": "2024-11-30",
+                        "train_samples": 10000,
+                        "train_sample_ob_random_seed": 10,
+                        "train_simulate_orders_random_seed": 20,
+                        "test_start": "2024-12-01",
+                        "test_end": "2024-12-31",
+                        "test_samples": 10000,
+                        "test_sample_ob_random_seed": 30,
+                        "test_simulate_orders_random_seed": 40
+                    },
+                    "intercept": -1.2635032248926657e-05,
+                    "features_info": [
+                        {
+                            "feature": "spread/price",
+                            "coefficient": 0.8124869772235292,
+                            "standard_error": 0.007944189505114272,
+                            "t_statistic": 102.2743700537947
+                        },
+                        {
+                            "feature": "annualized_vol",
+                            "coefficient": 3.2708465507761176e-05,
+                            "standard_error": 2.5204738006345063e-05,
+                            "t_statistic": 1.2977109898752812
+                        },
+                        {
+                            "feature": "sell_order_value/adv",
+                            "coefficient": 0.03727632092537407,
+                            "standard_error": 0.002434731736494578,
+                            "t_statistic": 15.310237414099229
+                        }
+                    ],
+                    "training_results": {
+                        "training_rmse": 0.000134352196159466,
+                        "training_r_squared": 0.518066765834502
+                    },
+                    "testing_results": {
+                        "testing_rmse": 0.0001556053501093934,
+                        "testing_r_squared": 0.3932959296844706
+                    }
+                },
+                "202412": {
+                    "model_config": {
+                        "calc_adv_lookback": 10,
+                        "calc_vol_lookback": 30,
+                        "train_start": "2024-12-01",
+                        "train_end": "2024-12-31",
+                        "train_samples": 10000,
+                        "train_sample_ob_random_seed": 10,
+                        "train_simulate_orders_random_seed": 20,
+                        "test_start": "2025-01-01",
+                        "test_end": "2025-01-31",
+                        "test_samples": 10000,
+                        "test_sample_ob_random_seed": 30,
+                        "test_simulate_orders_random_seed": 40
+                    },
+                    "intercept": 9.368449755713803e-05,
+                    "features_info": [
+                        {
+                            "feature": "spread/price",
+                            "coefficient": 0.6622139078347792,
+                            "standard_error": 0.007795793970223865,
+                            "t_statistic": 84.94502424821816
+                        },
+                        {
+                            "feature": "annualized_vol",
+                            "coefficient": -4.302371260901777e-05,
+                            "standard_error": 1.8128038397324362e-05,
+                            "t_statistic": -2.3733242210788745
+                        },
+                        {
+                            "feature": "sell_order_value/adv",
+                            "coefficient": 0.015110026284105111,
+                            "standard_error": 0.0018312885187162895,
+                            "t_statistic": 8.251035339148553
+                        }
+                    ],
+                    "training_results": {
+                        "training_rmse": 0.00014104006142234707,
+                        "training_r_squared": 0.4242238247733163
+                    }
+                }
+            }
+        }
+    }
+}

@@ -1,6 +1,8 @@
 # pickling and json files
 *.json
 *.pickle
+# model parameters
+!vali_objects/utils/model_parameters/*.json
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
