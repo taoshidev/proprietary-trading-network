@@ -13,21 +13,16 @@ from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager, PerfLed
 from vali_objects.utils.ledger_utils import LedgerUtils
 from vali_objects.utils.position_manager import PositionManager
 from vali_objects.position import Position
-from vali_objects.utils.subtensor_weight_setter import SubtensorWeightSetter
 
 
 class ChallengePeriodManager(CacheController):
     def __init__(self, metagraph, perf_ledger_manager : PerfLedgerManager =None, running_unit_tests=False,
-                 position_manager: PositionManager =None, ipc_manager=None, config=None):
+                 position_manager: PositionManager =None, ipc_manager=None):
         super().__init__(metagraph, running_unit_tests=running_unit_tests)
         self.perf_ledger_manager = perf_ledger_manager if perf_ledger_manager else \
             PerfLedgerManager(metagraph, running_unit_tests=running_unit_tests)
         self.position_manager = position_manager
         self.elimination_manager = self.position_manager.elimination_manager
-        self.subtensor_weight_setter = SubtensorWeightSetter(metagraph=metagraph,
-                                                             config=config,
-                                                             position_manager=position_manager,
-                                                             running_unit_tests=running_unit_tests)
         disk_challenegeperiod_testing = self.get_challengeperiod_testing(from_disk=True)
         disk_challenegeperiod_success = self.get_challengeperiod_success(from_disk=True)
         self.using_ipc = bool(ipc_manager)
@@ -96,9 +91,9 @@ class ChallengePeriodManager(CacheController):
 
         all_miners = challengeperiod_success_hotkeys + challengeperiod_testing_hotkeys
 
-        positions = self.subtensor_weight_setter.filtered_positions(hotkeys=all_miners)
+        positions = self.position_manager.filtered_positions_for_scoring(hotkeys=all_miners)
 
-        ledger = self.subtensor_weight_setter.filtered_ledger(hotkeys=all_miners)
+        ledger = self.perf_ledger_manager.filtered_ledger_for_scoring(hotkeys=all_miners)
         ledger = {hotkey: ledger.get(hotkey, None) for hotkey in all_miners}
 
         challengeperiod_success, challengeperiod_eliminations = self.inspect(

@@ -1,7 +1,4 @@
 # developer: jbonilla
-import copy
-from typing import List
-
 import bittensor as bt
 
 from time_util.time_util import TimeUtil
@@ -10,7 +7,7 @@ from shared_objects.cache_controller import CacheController
 from vali_objects.utils.position_manager import PositionManager
 from vali_objects.position import Position
 from vali_objects.scoring.scoring import Scoring
-from vali_objects.vali_dataclasses.perf_ledger import PerfCheckpoint, PerfLedger
+from vali_objects.vali_dataclasses.perf_ledger import PerfLedger
 
 
 class SubtensorWeightSetter(CacheController):
@@ -37,8 +34,8 @@ class SubtensorWeightSetter(CacheController):
         success_hotkeys = list(self.position_manager.challengeperiod_manager.challengeperiod_success.keys())
 
         # only collect ledger elements for the miners that passed the challenge period
-        filtered_ledger = self.filtered_ledger(hotkeys=success_hotkeys)
-        filtered_positions = self.filtered_positions(hotkeys=success_hotkeys)
+        filtered_ledger = self.perf_ledger_manager.filtered_ledger_for_scoring(hotkeys=success_hotkeys)
+        filtered_positions = self.position_manager.filtered_positions_for_scoring(hotkeys=success_hotkeys)
 
         # synced_ledger, synced_positions = self.sync_ledger_positions(
         #     filtered_ledger,
@@ -111,83 +108,6 @@ class SubtensorWeightSetter(CacheController):
         #             bt.logging.warning(f"Hotkey found in positions but not ledger: {hotkey}")
 
         return synced_ledger, synced_positions
-
-    def filtered_ledger(
-            self,
-            hotkeys: List[str] = None
-    ) -> dict[str, PerfLedger]:
-        """
-        Filter the ledger for a set of hotkeys.
-        """
-        if hotkeys is None:
-            hotkeys = self.metagraph.hotkeys
-
-        # Note, eliminated miners will not appear in the dict below
-        ledger = self.perf_ledger_manager.get_perf_ledgers_from_memory()
-        filtering_ledger = {}
-        for hotkey, miner_ledger in ledger.items():
-            if hotkey not in hotkeys:
-                continue
-
-            if miner_ledger is None:
-                continue
-
-            ledger_copy = copy.deepcopy(miner_ledger)
-            if not self._filter_checkpoint_list(ledger_copy.cps):
-                continue
-
-            filtering_ledger[hotkey] = ledger_copy
-
-        return filtering_ledger
-
-    def _filter_checkpoint_list(self, checkpoints: list[PerfCheckpoint]):
-        """
-        Filter out miners based on a minimum total duration of interaction with the system.
-        """
-        if len(checkpoints) == 0:
-            return False
-
-        return True
-
-    def filtered_positions(
-            self,
-            hotkeys: List[str] = None
-    ) -> dict[str, list[Position]]:
-        """
-        Filter the positions for a set of hotkeys.
-        """
-        if hotkeys is None:
-            hotkeys = self.metagraph.hotkeys
-
-        positions = self.position_manager.get_positions_for_hotkeys(
-            hotkeys,
-            sort_positions=True
-        )
-
-        filtering_positions = {}
-        for hotkey, miner_positions in positions.items():
-            if hotkey not in hotkeys:
-                continue
-
-            filtered_positions = self._filter_positions(miner_positions)
-            filtering_positions[hotkey] = filtered_positions
-
-        return filtering_positions
-
-    def _filter_positions(self, positions: list[Position]):
-        """
-        Filter out positions that are not within the lookback range.
-        """
-        filtered_positions = []
-        for position in positions:
-            if not position.is_closed_position:
-                continue
-
-            if position.close_ms - position.open_ms < ValiConfig.MINIMUM_POSITION_DURATION_MS:
-                continue
-
-            filtered_positions.append(position)
-        return filtered_positions
 
     def _set_subtensor_weights(self, wallet, subtensor, filtered_results: list[tuple[str, float]], netuid):
         filtered_netuids = [x[0] for x in filtered_results]

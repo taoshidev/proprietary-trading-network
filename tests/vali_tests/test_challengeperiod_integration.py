@@ -107,12 +107,13 @@ class TestChallengePeriodIntegration(TestBase):
         # Initialize system components
         self.mock_metagraph = MockMetagraph(self.MINER_NAMES)
 
-        self.elimination_manager = EliminationManager(self.mock_metagraph, None, None)
-        self.ledger_manager = PerfLedgerManager(self.mock_metagraph, None, None)
+        self.elimination_manager = EliminationManager(self.mock_metagraph, None, None, running_unit_tests=True)
+        self.ledger_manager = PerfLedgerManager(self.mock_metagraph, running_unit_tests=True)
         self.position_manager = MockPositionManager(self.mock_metagraph,
                                                     perf_ledger_manager=self.ledger_manager,
                                                     elimination_manager=self.elimination_manager)
-        self.challengeperiod_manager = ChallengePeriodManager(self.mock_metagraph, position_manager=self.position_manager)
+        self.challengeperiod_manager = ChallengePeriodManager(self.mock_metagraph,
+          position_manager=self.position_manager, perf_ledger_manager=self.ledger_manager, running_unit_tests=True)
         self.position_manager.perf_ledger_manager = self.ledger_manager
         self.elimination_manager.position_manager = self.position_manager
         self.challengeperiod_manager.position_manager = self.position_manager

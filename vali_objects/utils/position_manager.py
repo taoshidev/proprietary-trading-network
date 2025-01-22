@@ -16,7 +16,7 @@ from time_util.time_util import TimeUtil, timeme
 from vali_objects.exceptions.corrupt_data_exception import ValiBkpCorruptDataException
 from vali_objects.exceptions.vali_bkp_file_missing_exception import ValiFileMissingException
 from vali_objects.utils.live_price_fetcher import LivePriceFetcher
-from vali_objects.vali_config import TradePair
+from vali_objects.vali_config import TradePair, ValiConfig
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.exceptions.vali_records_misalignment_exception import ValiRecordsMisalignmentException
 from vali_objects.position import Position
@@ -63,6 +63,40 @@ class PositionManager(CacheController):
         for hk, positions in temp.items():
             if positions:  # Only populate if there are no positions in the miner dir
                 self.hotkey_to_positions[hk] = positions
+
+
+    def filtered_positions_for_scoring(
+            self,
+            hotkeys: List[str] = None
+    ) -> dict[str, list[Position]]:
+        """
+        Filter the positions for a set of hotkeys.
+        """
+
+        def _filter_positions(positions: list[Position]):
+            """
+            Filter out positions that are not within the lookback range.
+            """
+            filtered_positions = []
+            for position in positions:
+                if not position.is_closed_position:
+                    continue
+
+                if position.close_ms - position.open_ms < ValiConfig.MINIMUM_POSITION_DURATION_MS:
+                    continue
+
+                filtered_positions.append(position)
+            return filtered_positions
+
+
+        if hotkeys is None:
+            hotkeys = self.get_miner_hotkeys_with_at_least_one_position()
+
+        filtered_positions = {}
+        for hotkey, miner_positions in self.get_positions_for_hotkeys(hotkeys, sort_positions=True).items():
+            filtered_positions[hotkey] = _filter_positions(miner_positions)
+
+        return filtered_positions
 
     def pre_run_setup(self):
         """
