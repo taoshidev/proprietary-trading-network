@@ -18,6 +18,7 @@ from vali_objects.utils.position_manager import PositionManager
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils, CustomEncoder
 from vali_objects.utils.subtensor_weight_setter import SubtensorWeightSetter
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
+from vali_objects.utils.position_filtering import PositionFiltering
 
 from vali_objects.utils.validator_sync_base import AUTO_SYNC_ORDER_LAG_MS
 
@@ -206,13 +207,13 @@ class RequestCoreManager:
             ]
 
             if k not in eliminated_hotkeys:
-                ps_30_days = self.subtensor_weight_setter._filter_positions(positions_30_days)
+                ps_30_days = PositionFiltering.filter_positions_for_duration(positions_30_days)
                 return_per_position = self.position_manager.get_return_per_closed_position(ps_30_days)
                 if len(return_per_position) > 0:
                     curr_return = return_per_position[len(return_per_position) - 1]
                     dict_hotkey_position_map[k]["thirty_day_returns"] = curr_return
 
-                ps_all_time = self.subtensor_weight_setter._filter_positions(original_positions)
+                ps_all_time = PositionFiltering.filter_positions_for_duration(original_positions)
                 return_per_position = self.position_manager.get_return_per_closed_position(ps_all_time)
                 if len(return_per_position) > 0:
                     curr_return = return_per_position[len(return_per_position) - 1]

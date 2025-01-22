@@ -22,8 +22,9 @@ from vali_objects.exceptions.vali_records_misalignment_exception import ValiReco
 from vali_objects.position import Position
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.vali_dataclasses.order import OrderStatus, ORDER_SRC_DEPRECATION_FLAT, Order
+from vali_objects.utils.position_filtering import PositionFiltering
 
-TARGET_MS = 1737412730668 + (1000 * 60 * 60 * 3)  # + 3 hours
+TARGET_MS = 1737556629958 + (1000 * 60 * 60 * 3)  # + 3 hours
 
 
 class PositionManager(CacheController):
@@ -64,7 +65,6 @@ class PositionManager(CacheController):
             if positions:  # Only populate if there are no positions in the miner dir
                 self.hotkey_to_positions[hk] = positions
 
-
     def filtered_positions_for_scoring(
             self,
             hotkeys: List[str] = None
@@ -72,29 +72,12 @@ class PositionManager(CacheController):
         """
         Filter the positions for a set of hotkeys.
         """
-
-        def _filter_positions(positions: list[Position]):
-            """
-            Filter out positions that are not within the lookback range.
-            """
-            filtered_positions = []
-            for position in positions:
-                if not position.is_closed_position:
-                    continue
-
-                if position.close_ms - position.open_ms < ValiConfig.MINIMUM_POSITION_DURATION_MS:
-                    continue
-
-                filtered_positions.append(position)
-            return filtered_positions
-
-
         if hotkeys is None:
             hotkeys = self.get_miner_hotkeys_with_at_least_one_position()
 
         filtered_positions = {}
         for hotkey, miner_positions in self.get_positions_for_hotkeys(hotkeys, sort_positions=True).items():
-            filtered_positions[hotkey] = _filter_positions(miner_positions)
+            filtered_positions[hotkey] = PositionFiltering.filter_positions_for_duration(miner_positions)
 
         return filtered_positions
 
