@@ -169,8 +169,8 @@ class MinerStatisticsManager:
         if selected_miner_hotkeys is None:
             selected_miner_hotkeys = all_miner_hotkeys
 
-        filtered_ledger = self.subtensor_weight_setter.filtered_ledger(hotkeys=all_miner_hotkeys)
-        filtered_positions = self.subtensor_weight_setter.filtered_positions(hotkeys=all_miner_hotkeys)
+        filtered_ledger = self.perf_ledger_manager.filtered_ledger_for_scoring(hotkeys=all_miner_hotkeys)
+        filtered_positions = self.position_manager.filtered_positions_for_scoring(hotkeys=all_miner_hotkeys)
         filtered_returns = LedgerUtils.ledger_returns_log(filtered_ledger)
 
         plagiarism = self.plagiarism_detector.get_plagiarism_scores_from_disk()
@@ -335,8 +335,8 @@ class MinerStatisticsManager:
         cumulative_return_ledger = LedgerUtils.cumulative(filtered_ledger)
 
         # This is when we only want to look at the successful miners
-        successful_ledger = self.subtensor_weight_setter.filtered_ledger(hotkeys=challengeperiod_success_hotkeys)
-        successful_positions = self.subtensor_weight_setter.filtered_positions(hotkeys=challengeperiod_success_hotkeys)
+        successful_ledger = self.perf_ledger_manager.filtered_ledger_for_scoring(hotkeys=challengeperiod_success_hotkeys)
+        successful_positions = self.position_manager.filtered_positions_for_scoring(hotkeys=challengeperiod_success_hotkeys)
 
         # successful_ledger, successful_positions = subtensor_weight_setter.sync_ledger_positions(
         #     successful_ledger,
@@ -446,6 +446,9 @@ class MinerStatisticsManager:
 
                 # Calculate percentiles for each metric
                 percentile_dict = self.percentiles_config(scores_dict=success_scores_dict, inspection_dict=inspection_scoring_dict)
+
+                # Update penalties for inspection miner
+                percentile_dict["penalties"].update(inspection_scoring_dict["penalties"])
 
                 # Combine scores and apply penalties
                 combined_scores = Scoring.combine_scores(scoring_dict=percentile_dict)

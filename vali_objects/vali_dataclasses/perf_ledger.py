@@ -371,6 +371,34 @@ class PerfLedgerManager(CacheController):
 
         return perf_ledgers
 
+
+    def filtered_ledger_for_scoring(
+            self,
+            hotkeys: List[str] = None
+    ) -> dict[str, PerfLedger]:
+        """
+        Filter the ledger for a set of hotkeys.
+        """
+
+        if hotkeys is None:
+            hotkeys = self.metagraph.hotkeys
+
+        # Note, eliminated miners will not appear in the dict below
+        filtered_ledger = {}
+        for hotkey, miner_ledger in self.get_perf_ledgers_from_memory().items():
+            if hotkey not in hotkeys:
+                continue
+
+            if miner_ledger is None:
+                continue
+
+            if len(miner_ledger.cps) == 0:
+                continue
+
+            filtered_ledger[hotkey] = miner_ledger
+
+        return filtered_ledger
+
     def clear_perf_ledgers_from_disk(self):
         file_path = ValiBkpUtils.get_perf_ledgers_path(self.running_unit_tests)
         if os.path.exists(file_path):

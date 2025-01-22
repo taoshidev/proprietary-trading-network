@@ -83,3 +83,20 @@ class PositionFiltering:
             updated_positions[miner_hotkey] = recent_filtered_miner_positions
 
         return updated_positions
+
+    @staticmethod
+    def filter_positions_for_duration(positions: list[Position]):
+        """
+        Filter out positions that are not at least the minimum position duration.
+        """
+        filtered_positions = []
+        for position in positions:
+            if not position.is_closed_position:
+                continue
+
+            if position.close_ms - position.open_ms < ValiConfig.MINIMUM_POSITION_DURATION_MS:
+                continue
+
+            filtered_positions.append(position)
+        return filtered_positions
+
