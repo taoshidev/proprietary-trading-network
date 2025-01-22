@@ -38,6 +38,7 @@ from vali_objects.exceptions.signal_exception import SignalException
 from shared_objects.metagraph_updater import MetagraphUpdater
 from vali_objects.utils.elimination_manager import EliminationManager
 from vali_objects.utils.live_price_fetcher import LivePriceFetcher
+from vali_objects.utils.price_slippage_model import PriceSlippageModel
 from vali_objects.utils.subtensor_weight_setter import SubtensorWeightSetter
 from vali_objects.utils.mdd_checker import MDDChecker
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils, CustomEncoder
@@ -120,7 +121,8 @@ class Validator:
         # 1. Initialize Manager for shared state
         self.ipc_manager = Manager()
 
-        self.live_price_fetcher = LivePriceFetcher(secrets=self.secrets, disable_ws=False, ipc_manager=self.ipc_manager)
+        self.live_price_fetcher = LivePriceFetcher(secrets=self.secrets, disable_ws=False, ipc_manager=self.ipc_manager)   # REMOVE ME (disable_ws) @@@@@@@@@@@@@@
+        self.price_slippage_model = PriceSlippageModel(parameters=self.parameters, live_price_fetcher=self.live_price_fetcher)  # TODO: read the parameters from a config file? or a dict
         # Activating Bittensor's logging with the set configurations.
         bt.logging(config=self.config, logging_dir=self.config.full_path)
         bt.logging.info(
@@ -546,6 +548,29 @@ class Validator:
         bt.logging.success(f"Converted signal to order: {order} in {delta_t_s_3_decimals} seconds")
         return order
 
+    def order_price_slippage_adjustment(self, signal_to_order: Order, open_position: Position):
+        """
+        adjusts the orders price to reflect slippage.
+        """
+        trade_pair = signal_to_order.trade_pair
+        size = signal_to_order.leverage * ValiConfig.LEVERAGE_TO_CAPITAL
+        if signal_to_order.order_type == OrderType.LONG:
+            side = "buy"
+        elif signal_to_order.order_type == OrderType.SHORT:
+            side = "sell"
+        else:  # if the order_type is FLAT, then side depends on current position_type
+            if open_position.position_type == OrderType.LONG:
+                side = "sell"
+            else:
+                side = "buy"
+        order_ms = signal_to_order.processed_ms
+        slippage_percentage = self.price_slippage_model.calculate_slippage(trade_pair, side, size, order_ms)
+
+        if side == "buy":
+            signal_to_order.price *= 1 + slippage_percentage
+        else:
+            signal_to_order.price *= 1 - slippage_percentage
+
     def _enforce_num_open_order_limit(self, trade_pair_to_open_position: dict, signal_to_order):
         # Check if there are too many orders across all open positions.
         # If so, check if the current order is a FLAT order (reduces number of open orders). If not, raise an exception
@@ -734,6 +759,8 @@ class Validator:
                 if open_position:
                     net_portfolio_leverage = self.position_manager.calculate_net_portfolio_leverage(miner_hotkey)
                     self.enforce_order_cooldown(signal_to_order, open_position)
+                    # adjust order price for slippage
+                    self.order_price_slippage_adjustment(signal_to_order, open_position)
                     open_position.add_order(signal_to_order, net_portfolio_leverage)
                     self.position_manager.save_miner_position(open_position)
                     bt.logging.info(

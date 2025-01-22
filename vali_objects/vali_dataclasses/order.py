@@ -9,9 +9,9 @@ from vali_objects.vali_dataclasses.price_source import PriceSource
 from vali_objects.vali_dataclasses.order_signal import Signal
 from enum import Enum, auto
 
-ORDER_SRC_ORGANIC = 0
-ORDER_SRC_ELIMINATION_FLAT = 1
-ORDER_SRC_DEPRECATION_FLAT = 2
+ORDER_SRC_ORGANIC = 0               # order generated from a miner's signal
+ORDER_SRC_ELIMINATION_FLAT = 1      # order inserted when a miner is eliminated
+ORDER_SRC_DEPRECATION_FLAT = 2      # order inserted when a trade pair is removed
 
 class Order(Signal):
     price: float
