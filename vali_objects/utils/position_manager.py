@@ -16,7 +16,7 @@ from time_util.time_util import TimeUtil, timeme
 from vali_objects.exceptions.corrupt_data_exception import ValiBkpCorruptDataException
 from vali_objects.exceptions.vali_bkp_file_missing_exception import ValiFileMissingException
 from vali_objects.utils.live_price_fetcher import LivePriceFetcher
-from vali_objects.vali_config import TradePair, ValiConfig
+from vali_objects.vali_config import TradePair
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.exceptions.vali_records_misalignment_exception import ValiRecordsMisalignmentException
 from vali_objects.position import Position
