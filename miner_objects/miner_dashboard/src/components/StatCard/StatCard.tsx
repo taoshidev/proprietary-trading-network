@@ -1,17 +1,10 @@
-import {
-  Card,
-  Group,
-  Text,
-  Tooltip,
-  ThemeIcon,
-  Title,
-  Box,
-} from "@mantine/core";
+import { Card, Group, Text, Tooltip, ThemeIcon, Box } from "@mantine/core";
 import { IconHelp } from "@tabler/icons-react";
 
 import { Score } from "../../types";
 
 type StatCardProps = {
+  disabled?: boolean;
   title: string;
   item: Score | number; // Accept both Score and number
   isPercentage?: boolean;
@@ -20,6 +13,7 @@ type StatCardProps = {
 };
 
 export const StatCard = ({
+  disabled,
   title,
   item,
   isPercentage = false,
@@ -29,38 +23,44 @@ export const StatCard = ({
   const { value, rank, percentile } = item as Score;
 
   return (
-    <Card withBorder>
+    <Card
+      withBorder
+      style={
+        disabled
+          ? { filter: "saturate(0)", opacity: 0.7, borderStyle: "dashed" }
+          : {}
+      }
+    >
       <Group align="center" gap="xs" justify="space-between" mb="lg">
-        <Title order={3}>
-          {value !== undefined && value !== null && !isNaN(value)
-            ? isPercentage
-              ? `${(value * 100).toFixed(sigFigs)}%`
-              : value.toFixed(sigFigs)
-            : "N/A"}
-        </Title>
-        <Tooltip
-          label={tooltipText}
-          withArrow
-          multiline
-          styles={{
-            tooltip: {
-              maxWidth: "20vw",
-              padding: "8px",
-              whiteSpace: "normal", // Ensures text wraps
-            },
-          }}
-        >
-          <ThemeIcon variant="transparent" color="gray">
-            <IconHelp size={16} stroke={1.4} />
-          </ThemeIcon>
-        </Tooltip>
+        <Group align="center" gap="0" justify="space-between">
+          <Text fw="bold">{title}</Text>
+          <Tooltip
+            label={tooltipText}
+            withArrow
+            multiline
+            styles={{
+              tooltip: {
+                maxWidth: "20vw",
+                padding: "8px",
+                whiteSpace: "normal", // Ensures text wraps
+              },
+            }}
+          >
+            <ThemeIcon variant="transparent" color="gray">
+              <IconHelp size={16} stroke={1.4} />
+            </ThemeIcon>
+          </Tooltip>
+        </Group>
+        <Box>
+          <Text fw="bold" c="orange">
+            {value !== undefined && value !== null && !isNaN(value)
+              ? isPercentage
+                ? `${(value * 100).toFixed(sigFigs)}%`
+                : value.toFixed(sigFigs)
+              : "N/A"}
+          </Text>
+        </Box>
       </Group>
-
-      <Box mb="sm">
-        <Text size="sm" fw="bold">
-          {title}
-        </Text>
-      </Box>
 
       {rank !== null && (
         <Group justify="space-between" align="center" mb="xs">

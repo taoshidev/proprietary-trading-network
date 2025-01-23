@@ -63,8 +63,12 @@ export interface Scores {
   risk_adjusted_return: Score;
   short_risk_adjusted_return_dict: Score;
   omega: Score;
+  sortino: Score;
+  statistical_confidence: Score;
   sharpe: Score;
   calmar: Score;
+  return: Score;
+  short_return: Score;
   "short-calmar": Score;
 }
 
