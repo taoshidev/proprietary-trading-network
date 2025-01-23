@@ -25,7 +25,7 @@ export const Checkpoints = ({ statistics }: CheckpointsProps) => {
     <Box>
       <Box mb="xl">
         <Title order={3} mb="sm">
-          Scoring Metricss
+          Scoring Metrics
         </Title>
         <SimpleGrid mb="lg" cols={4}>
           <StatCard
@@ -33,7 +33,7 @@ export const Checkpoints = ({ statistics }: CheckpointsProps) => {
             item={scores.calmar}
             isPercentage={true}
             sigFigs={2}
-            tooltipText="Risk-Adjusted Return measures the returns from all closed positions or open positions in loss over 90 days and normalizes by the drawdown used to capture these returns."
+            tooltipText="The Calmar ratio looks at a ratio between the annualized 90 day return and the max drawdown."
           />
           <StatCard
             title="Omega Ratio"
@@ -48,11 +48,11 @@ export const Checkpoints = ({ statistics }: CheckpointsProps) => {
             tooltipText="The Sharpe Ratio assesses the return of an investment compared to the std. dev. of returns. A higher Sharpe ratio indicates higher returns at greater predictability."
           />
           <StatCard
-            title="Short-Term Calmar Ratio (%)"
+            title="Recent Calmar Ratio (%)"
             item={scores["short-calmar"]}
             isPercentage={true}
             sigFigs={2}
-            tooltipText="Similar to the Risk-Adjusted Returns, Short-Term Risk-Adjusted Return differs in that it only considers positions closed within the past 5 days or open positions in loss."
+            tooltipText="Similar to the Calmar ratio, the Recent Calmar Ratio differs in that it only considers daily returns within the past 5 days."
           />
         </SimpleGrid>
         <SimpleGrid mb="lg" cols={4}>
@@ -61,20 +61,20 @@ export const Checkpoints = ({ statistics }: CheckpointsProps) => {
             item={scores.statistical_confidence}
             isPercentage={true}
             sigFigs={2}
-            tooltipText="Risk-Adjusted Return measures the returns from all closed positions or open positions in loss over 90 days and normalizes by the drawdown used to capture these returns."
+            tooltipText="Statistical Confidence (t-statistic) is the measure of statistical likelihood of the daily return distribution to come from a random distribution. The higher the value, the lower the probability that the returns are likely random."
           />
           <StatCard
             title="Sortino Ratio"
             item={scores.sortino}
             sigFigs={2}
-            tooltipText="The Omega Ratio is a ratio between the gains over the losses. The higher the ratio, the more gains dominated the historical behavior."
+            tooltipText="The Sortino Ratio measures the risk-adjusted return, similar to Sharpe, but only penalizes downside volatility rather than all volatility."
           />
           <StatCard
             disabled
             title="Return (%)"
             item={scores.return}
             sigFigs={2}
-            tooltipText="The Sharpe Ratio assesses the return of an investment compared to the std. dev. of returns. A higher Sharpe ratio indicates higher returns at greater predictability."
+            tooltipText="Estimated Annualized Return, based on daily returns from the past 90 days."
           />
           <StatCard
             disabled
@@ -82,7 +82,7 @@ export const Checkpoints = ({ statistics }: CheckpointsProps) => {
             item={scores.short_return}
             isPercentage={true}
             sigFigs={2}
-            tooltipText="Similar to the Risk-Adjusted Returns, Short-Term Risk-Adjusted Return differs in that it only considers positions closed within the past 5 days or open positions in loss."
+            tooltipText="Estimated Annualized Return, based on daily returns from the past 7 days."
           />
         </SimpleGrid>
       </Box>

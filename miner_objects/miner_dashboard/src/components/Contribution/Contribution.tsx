@@ -48,7 +48,7 @@ export function Contribution({ statistics }: StatisticsProps) {
             value={shortCalmar.overall_contribution * 100}
             color="#C95E2F"
           >
-            <Progress.Label>Short Ad. Return</Progress.Label>
+            <Progress.Label>Recent Calmar</Progress.Label>
           </Progress.Section>
           <Progress.Section
             value={sortino.overall_contribution * 100}
