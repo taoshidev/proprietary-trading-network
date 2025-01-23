@@ -40,7 +40,7 @@ if __name__ == "__main__":
 
     ## filter the ledger for the miners that passed the challenge period
     success_hotkeys = list(inspection_hotkeys_dict.keys())
-    filtered_ledger = subtensor_weight_setter.filtered_ledger(hotkeys=success_hotkeys)
+    filtered_ledger = perf_ledger_manager.filtered_ledger_for_scoring(hotkeys=success_hotkeys)
 
     # Get all possible positions, even beyond the lookback range
     success, eliminations = challengeperiod_manager.inspect(
