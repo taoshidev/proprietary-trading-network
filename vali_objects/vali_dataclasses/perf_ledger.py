@@ -295,11 +295,15 @@ class PerfLedger():
 
     def trim_checkpoints(self, cutoff_ms: int):
         new_cps = []
+        any_changes = False
         for cp in self.cps:
             if cp.lowerbound_time_created_ms + self.target_cp_duration_ms >= cutoff_ms:
+                any_changes = True
                 continue
             new_cps.append(cp)
-        self.cps = new_cps
+        if any_changes:
+            self.cps = new_cps
+            self.init_max_portfolio_value()
 
     def update_pl(self, current_portfolio_value: float, now_ms: int, miner_hotkey: str, any_open: TradePairReturnStatus,
               current_portfolio_fee_spread: float, current_portfolio_carry: float, tp_debug=None):
@@ -380,7 +384,6 @@ class PerfLedgerManager(CacheController):
         self.candidate_pl_elimination_rows = []
         self.hk_to_last_order_processed_ms = {}
         self.position_uuid_to_cache = defaultdict(FeeCache)
-        self.hotkey_to_checkpointed_ledger = {}
         temp = self.get_perf_ledgers(from_disk=True, portfolio_only=False)
         for k, v in temp.items():
             self.hotkey_to_perf_ledger[k] = v
@@ -394,10 +397,11 @@ class PerfLedgerManager(CacheController):
 
     @timeme
     def get_perf_ledgers(self, portfolio_only=True, from_disk=True) -> dict[str, dict[str, PerfLedger]] | dict[str, PerfLedger]:
+        ret = {}
         if from_disk:
             file_path = ValiBkpUtils.get_perf_ledgers_path(self.running_unit_tests)
             if not os.path.exists(file_path):
-                return {}
+                return ret
 
             with open(file_path, 'r') as file:
                 data = json.load(file)
@@ -405,14 +409,14 @@ class PerfLedgerManager(CacheController):
             for hk, possible_bundles in data.items():
                 if self._is_v1_perf_ledger(possible_bundles):
                     if portfolio_only:
-                        data[hk] = {TP_ID_PORTFOLIO: PerfLedger(**possible_bundles)}  # v1 is portfolio ledgers. Fake it.
+                        ret[hk] = {TP_ID_PORTFOLIO: PerfLedger(**possible_bundles)}  # v1 is portfolio ledgers. Fake it.
                     else:
                         pass # Incompatible
                 else:
-                    data[hk] = {k: PerfLedger(**v) for k, v in possible_bundles.items()}
-        else:
-            data = self.hotkey_to_perf_ledger
+                    ret[hk] = {k: PerfLedger(**v) for k, v in possible_bundles.items()}
+            return ret
 
+        data = self.hotkey_to_perf_ledger
         # Everything here is in v2 format
         if portfolio_only:
             return {hk: ledger_data[TP_ID_PORTFOLIO] for hk, ledger_data in data.items()}
@@ -850,14 +854,14 @@ class PerfLedgerManager(CacheController):
             if portfolio_return == 0 and self.check_liquidated(miner_hotkey, portfolio_return, t_ms, tp_to_historical_positions):
                 return True
 
-            if portfolio_return < perf_ledger_bundle[TP_ID_PORTFOLIO].cps[-1].prev_portfolio_ret * 0.98:
-                time_since_last_update = t_ms - perf_ledger_bundle[TP_ID_PORTFOLIO].cps[-1].last_update_ms
-                print(f'perf ledger for hk {miner_hotkey} significant return drop from {perf_ledger_bundle[TP_ID_PORTFOLIO].cps[-1].prev_portfolio_ret} to {portfolio_return} over {time_since_last_update} ms ({t_ms})', perf_ledger_bundle[TP_ID_PORTFOLIO].cps[-1].to_dict(), self.trade_pair_to_position_ret)
-                for tp, historical_positions in tp_to_historical_positions.items():
-                    positions = []
-                    for historical_position in historical_positions:
-                        positions.append((historical_position.position_uuid, [x.price for x in historical_position.orders], historical_position.return_at_close, historical_position.is_open_position))
-                    print(f'    tp {tp} positions {positions}')
+            #if portfolio_return < perf_ledger_bundle[TP_ID_PORTFOLIO].cps[-1].prev_portfolio_ret * 0.98:
+            #    time_since_last_update = t_ms - perf_ledger_bundle[TP_ID_PORTFOLIO].cps[-1].last_update_ms
+            #    print(f'perf ledger for hk {miner_hotkey} significant return drop from {perf_ledger_bundle[TP_ID_PORTFOLIO].cps[-1].prev_portfolio_ret} to {portfolio_return} over {time_since_last_update} ms ({t_ms})', perf_ledger_bundle[TP_ID_PORTFOLIO].cps[-1].to_dict(), self.trade_pair_to_position_ret)
+            #    for tp, historical_positions in tp_to_historical_positions.items():
+            #        positions = []
+            #        for historical_position in historical_positions:
+            #            positions.append((historical_position.position_uuid, [x.price for x in historical_position.orders], historical_position.return_at_close, historical_position.is_open_position))
+            #        print(f'    tp {tp} positions {positions}')
 
             for tp_id in tp_ids_to_build:
                 perf_ledger = perf_ledger_bundle[tp_id]
@@ -968,8 +972,6 @@ class PerfLedgerManager(CacheController):
 
             # Need to catch up from perf_ledger.last_update_ms to order.processed_ms
             eliminated = self.build_perf_ledger(perf_ledger_bundle_candidate, tp_to_historical_positions, portfolio_last_update_ms, order.processed_ms, hotkey, realtime_position_to_pop)
-            if event_idx == len(sorted_timeline) - 1:
-                self.hotkey_to_checkpointed_ledger[hotkey] = deepcopy(perf_ledger_bundle_candidate)
 
             if eliminated:
                 break
@@ -1134,7 +1136,7 @@ class PerfLedgerManager(CacheController):
             first_order_time_ms = min(x.open_ms for x in hotkey_to_positions[hotkey])
             if portfolio_ledger.initialization_time_ms != first_order_time_ms:
                 hotkeys_rrr.add(hotkey)
-        bt.logging.warning(f'Removing recently re-registered hotkeys from perf ledgers{hotkeys_rrr}')
+        bt.logging.warning(f'Removing recently re-registered hotkeys from perf ledgers {hotkeys_rrr}')
         hotkeys_to_delete.update(hotkeys_rrr)
 
         # Determine which hotkeys to remove from the perf ledger
@@ -1170,7 +1172,7 @@ class PerfLedgerManager(CacheController):
         for k in hotkeys_to_delete:
             del perf_ledger_bundles[k]
 
-        self.hk_to_last_order_processed_ms = {k: v for k, v in self.hk_to_last_order_processed_ms.items() if k not in hotkeys_to_delete}
+        self.hk_to_last_order_processed_ms = {k: v for k, v in self.hk_to_last_order_processed_ms.items() if k in perf_ledger_bundles}
 
         #hk_to_last_update_date = {k: TimeUtil.millis_to_formatted_date_str(v.last_update_ms)
         #                            if v.last_update_ms else 'N/A' for k, v in perf_ledgers.items()}
@@ -1183,10 +1185,13 @@ class PerfLedgerManager(CacheController):
             for k in list(perf_ledger_bundles.keys()):
                 del perf_ledger_bundles[k]
 
-        self.restore_out_of_sync_ledgers(perf_ledger_bundles, hotkey_to_positions)
+        try:
+            self.restore_out_of_sync_ledgers(perf_ledger_bundles, hotkey_to_positions)
+        except Exception as e:
+            bt.logging.warning(f"Couldn't restore out of sync ledgers: {e}. Continuing...")
+            bt.logging.warning(traceback.format_exc())
 
         # Time in the past to start updating the perf ledgers
-
         self.update_all_perf_ledgers(hotkey_to_positions, perf_ledger_bundles, t_ms)
 
         # Clear invalidations after successful update. Prevent race condition by only clearing if we attempted invalidations.
@@ -1279,42 +1284,38 @@ class PerfLedgerManager(CacheController):
             print('    total loss product', perf_ledger.get_product_of_loss())
             print('    total product', perf_ledger.get_total_product())
 
-    def restore_out_of_sync_ledgers(self, existing_perf_ledgers, hotkey_to_positions):
+    def restore_out_of_sync_ledgers(self, existing_bundles, hotkey_to_positions):
+        # TODO: Write tests
         """
-        REstore ledgers subject to race condition. Perf ledger fully update loop can take 30 min.
+        Restore ledgers subject to race condition. Perf ledger fully update loop can take 30 min.
         An order can come in during update.
 
         We can only build perf ledgers between orders or after all orders
         """
-        hotkeys_needing_recovery = []
-        for hk, ledger in existing_perf_ledgers.items():
+        for hk, bundle in existing_bundles.items():
             last_acked_order_time_ms = self.hk_to_last_order_processed_ms.get(hk)
             if not last_acked_order_time_ms:
                 continue
-            ledger_last_update_time = ledger.last_update_ms
+            ledger_last_update_time = bundle[TP_ID_PORTFOLIO].last_update_ms
             positions = hotkey_to_positions.get(hk)
             if positions is None:
                 continue
+            smallest_conflict_time_ms = float('inf')
             for p in positions:
                 for o in p.orders:
                     # An order came in while the perf ledger was being updated. Trim the checkpoints to avoid a race condition.
                     if last_acked_order_time_ms < o.processed_ms < ledger_last_update_time:
-                        order_time_str = TimeUtil.millis_to_formatted_date_str(o.processed_ms)
-                        last_acked_time_str = TimeUtil.millis_to_formatted_date_str(last_acked_order_time_ms)
-                        ledger_last_update_time_str = TimeUtil.millis_to_formatted_date_str(ledger_last_update_time)
-                        bt.logging.info(f"Recovering checkpoints for {hk}. Order came in at {order_time_str} after last acked time {last_acked_time_str} but before perf ledger update time {ledger_last_update_time_str}")
-                        hotkeys_needing_recovery.append(hk)
+                        smallest_conflict_time_ms = min(smallest_conflict_time_ms, o.processed_ms)
+            if smallest_conflict_time_ms != float('inf'):
+                order_time_str = TimeUtil.millis_to_formatted_date_str(smallest_conflict_time_ms)
+                last_acked_time_str = TimeUtil.millis_to_formatted_date_str(last_acked_order_time_ms)
+                ledger_last_update_time_str = TimeUtil.millis_to_formatted_date_str(ledger_last_update_time)
+                bt.logging.info(f"Recovering checkpoints for {hk}. Order came in at {order_time_str} after last acked time {last_acked_time_str} but before perf ledger update time {ledger_last_update_time_str}")
+                for tp_id, pl in bundle.items():
+                    pl.trim_checkpoints(smallest_conflict_time_ms)
+                    if len(pl.cps) == 0:
+                        pl.max_return = 1.0
 
-
-        n_hotkeys_recovered = 0
-        for hk in hotkeys_needing_recovery:
-            if hk in self.hotkey_to_checkpointed_ledger:
-                existing_perf_ledgers[hk] = self.hotkey_to_checkpointed_ledger[hk]
-                n_hotkeys_recovered += 1
-            else:
-                del existing_perf_ledgers[hk] # Full regeneration needed
-        if hotkeys_needing_recovery:
-            bt.logging.info(f"Recovered {n_hotkeys_recovered} / {len(hotkeys_needing_recovery)} perf ledgers for out of sync hotkeys")
 
 
 class MockMetagraph():
@@ -1330,5 +1331,5 @@ if __name__ == "__main__":
     elimination_manager = EliminationManager(mmg, None, None)
     position_manager = PositionManager(metagraph=mmg, running_unit_tests=False, elimination_manager=elimination_manager)
     perf_ledger_manager = PerfLedgerManager(mmg, position_manager=position_manager, running_unit_tests=False)
-    perf_ledger_manager.update(testing_one_hotkey='5EWKUhycaBQHiHnfE3i2suZ1BvxAAE3HcsFsp8TaR6mu3JrJ')
+    perf_ledger_manager.update(testing_one_hotkey='5FNsVBuDPkNhP5R46p5NHHr3xgW8Zqn5A1zoqbgPvxaYmDVV')
     #perf_ledger_manager.update(regenerate_all_ledgers=True)
