@@ -132,6 +132,7 @@ class PerfLedger():
     @classmethod
     def from_dict(cls, x):
         assert isinstance(x, dict), x
+        x['cps'] = [PerfCheckpoint(**cp) for cp in x['cps']]
         return cls(**x)
 
     @property
@@ -353,10 +354,10 @@ class PerfLedgerManager(CacheController):
 
         if ipc_manager:
             self.pl_elimination_rows = ipc_manager.list()
-            self.hotkey_to_perf_ledger = ipc_manager.dict()
+            self.hotkey_to_perf_bundle = ipc_manager.dict()
         else:
             self.pl_elimination_rows = []
-            self.hotkey_to_perf_ledger = {}
+            self.hotkey_to_perf_bundle = {}
         self.running_unit_tests = running_unit_tests
         self.position_manager = position_manager
         self.pds = None  # Not pickable. Load it later once the process starts
@@ -384,9 +385,8 @@ class PerfLedgerManager(CacheController):
         self.candidate_pl_elimination_rows = []
         self.hk_to_last_order_processed_ms = {}
         self.position_uuid_to_cache = defaultdict(FeeCache)
-        temp = self.get_perf_ledgers(from_disk=True, portfolio_only=False)
-        for k, v in temp.items():
-            self.hotkey_to_perf_ledger[k] = v
+        for k, v in self.get_perf_ledgers(from_disk=True, portfolio_only=False).items():
+            self.hotkey_to_perf_bundle[k] = v
 
     def _is_v1_perf_ledger(self, ledger_value):
         ans = False
@@ -396,7 +396,7 @@ class PerfLedgerManager(CacheController):
 
 
     @timeme
-    def get_perf_ledgers(self, portfolio_only=True, from_disk=True) -> dict[str, dict[str, PerfLedger]] | dict[str, PerfLedger]:
+    def get_perf_ledgers(self, portfolio_only=True, from_disk=False) -> dict[str, dict[str, PerfLedger]] | dict[str, PerfLedger]:
         ret = {}
         if from_disk:
             file_path = ValiBkpUtils.get_perf_ledgers_path(self.running_unit_tests)
@@ -409,20 +409,21 @@ class PerfLedgerManager(CacheController):
             for hk, possible_bundles in data.items():
                 if self._is_v1_perf_ledger(possible_bundles):
                     if portfolio_only:
-                        ret[hk] = {TP_ID_PORTFOLIO: PerfLedger(**possible_bundles)}  # v1 is portfolio ledgers. Fake it.
+                        ret[hk] = PerfLedger.from_dict(possible_bundles)  # v1 is portfolio ledgers. Fake it.
                     else:
-                        pass # Incompatible
+                        pass  # Incompatible
                 else:
-                    ret[hk] = {k: PerfLedger(**v) for k, v in possible_bundles.items()}
+                    if portfolio_only:
+                        ret[hk] = PerfLedger.from_dict(possible_bundles[TP_ID_PORTFOLIO])
+                    else:
+                        ret[hk] = {k: PerfLedger.from_dict(v) for k, v in possible_bundles.items()}
             return ret
 
-        data = self.hotkey_to_perf_ledger
         # Everything here is in v2 format
         if portfolio_only:
-            return {hk: ledger_data[TP_ID_PORTFOLIO] for hk, ledger_data in data.items()}
+            return {hk: bundle[TP_ID_PORTFOLIO] for hk, bundle in self.hotkey_to_perf_bundle.items()}
         else:
-            return data
-
+            return deepcopy(self.hotkey_to_perf_bundle)
 
 
 
@@ -439,17 +440,17 @@ class PerfLedgerManager(CacheController):
 
         # Note, eliminated miners will not appear in the dict below
         filtered_ledger = {}
-        for hotkey, miner_ledger in self.get_perf_ledgers_from_memory().items():
+        for hotkey, miner_portfolio_ledger in self.get_perf_ledgers().items():
             if hotkey not in hotkeys:
                 continue
 
-            if miner_ledger is None:
+            if miner_portfolio_ledger is None:
                 continue
 
-            if len(miner_ledger.cps) == 0:
+            if len(miner_portfolio_ledger.cps) == 0:
                 continue
 
-            filtered_ledger[hotkey] = miner_ledger
+            filtered_ledger[hotkey] = miner_portfolio_ledger
 
         return filtered_ledger
 
@@ -457,8 +458,8 @@ class PerfLedgerManager(CacheController):
         file_path = ValiBkpUtils.get_perf_ledgers_path(self.running_unit_tests)
         if os.path.exists(file_path):
             ValiBkpUtils.write_file(file_path, {})
-        for k in list(self.hotkey_to_perf_ledger.keys()):
-            del self.hotkey_to_perf_ledger[k]
+        for k in list(self.hotkey_to_perf_bundle.keys()):
+            del self.hotkey_to_perf_bundle[k]
 
     def run_update_loop(self):
         setproctitle(f"vali_{self.__class__.__name__}")
@@ -1112,17 +1113,10 @@ class PerfLedgerManager(CacheController):
         existing_perf_ledgers = {}
         return self.update_all_perf_ledgers(hotkey_to_positions, existing_perf_ledgers, t_ms)
 
-
-    def get_perf_ledgers_from_memory(self, portfolio_only=True):
-        if portfolio_only:
-            return {hk: bundle[TP_ID_PORTFOLIO] for hk, bundle in self.hotkey_to_perf_ledger.items()}
-
-        return deepcopy(self.hotkey_to_perf_ledger)
-
     def update(self, testing_one_hotkey=None, regenerate_all_ledgers=False):
         assert self.position_manager.elimination_manager.metagraph, "Metagraph must be loaded before updating perf ledgers"
         assert self.metagraph, "Metagraph must be loaded before updating perf ledgers"
-        perf_ledger_bundles = self.get_perf_ledgers_from_memory(portfolio_only=False)
+        perf_ledger_bundles = self.get_perf_ledgers(portfolio_only=False)
         t_ms = TimeUtil.now_in_millis() - self.UPDATE_LOOKBACK_MS
         """
         tt = 1734279788000
@@ -1297,20 +1291,12 @@ class PerfLedgerManager(CacheController):
         self.save_perf_ledgers_to_disk(perf_ledgers_copy, raw_json=raw_json)
 
         # Update memory
-        for k in list(self.hotkey_to_perf_ledger.keys()):
+        for k in list(self.hotkey_to_perf_bundle.keys()):
             if k not in perf_ledgers_copy:
-                del self.hotkey_to_perf_ledger[k]
+                del self.hotkey_to_perf_bundle[k]
 
         for k, v in perf_ledgers_copy.items():
-            self.hotkey_to_perf_ledger[k] = v
-
-    def print_perf_ledgers_on_disk(self):
-        perf_ledgers = self.get_perf_ledgers_from_memory()
-        for hotkey, perf_ledger in perf_ledgers.items():
-            print(f"perf ledger for {hotkey}")
-            print('    total gain product', perf_ledger.get_product_of_gains())
-            print('    total loss product', perf_ledger.get_product_of_loss())
-            print('    total product', perf_ledger.get_total_product())
+            self.hotkey_to_perf_bundle[k] = v
 
     def restore_out_of_sync_ledgers(self, existing_bundles, hotkey_to_positions):
         # TODO: Write tests

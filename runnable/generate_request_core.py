@@ -257,7 +257,7 @@ class RequestCoreManager:
 
         assert n_orders_original == n_positions_new, f"n_orders_original: {n_orders_original}, n_positions_new: {n_positions_new}"
 
-        perf_ledgers = self.perf_ledger_manager.get_perf_ledgers_from_memory()
+        perf_ledgers = self.perf_ledger_manager.get_perf_ledgers()
         final_dict = {
             'version': ValiConfig.VERSION,
             'created_timestamp_ms': time_now,

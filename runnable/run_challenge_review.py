@@ -33,7 +33,7 @@ if __name__ == "__main__":
     plagiarism_detector = PlagiarismDetector(None, None, position_manager=position_manager)
 
     ## Collect the ledger
-    ledger = subtensor_weight_setter.perf_ledger_manager.get_perf_ledgers_from_memory()
+    ledger = subtensor_weight_setter.perf_ledger_manager.get_perf_ledgers()
 
 
     inspection_hotkeys_dict = challengeperiod_manager.challengeperiod_testing
