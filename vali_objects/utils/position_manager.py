@@ -68,18 +68,20 @@ class PositionManager(CacheController):
     def filtered_positions_for_scoring(
             self,
             hotkeys: List[str] = None
-    ) -> dict[str, list[Position]]:
+    ) -> (Dict[str, List[Position]], Dict[str, int]):
         """
         Filter the positions for a set of hotkeys.
         """
         if hotkeys is None:
             hotkeys = self.get_miner_hotkeys_with_at_least_one_position()
 
+        hk_to_first_order_time = {}
         filtered_positions = {}
         for hotkey, miner_positions in self.get_positions_for_hotkeys(hotkeys, sort_positions=True).items():
+            hk_to_first_order_time[hotkey] = min([p.orders[0].processed_ms for p in miner_positions]) if miner_positions else 0
             filtered_positions[hotkey] = PositionFiltering.filter_positions_for_duration(miner_positions)
 
-        return filtered_positions
+        return filtered_positions, hk_to_first_order_time
 
     def pre_run_setup(self):
         """

@@ -945,7 +945,7 @@ class PerfLedgerManager(CacheController):
         if perf_ledger_bundle_candidate is None:
             first_order_time_ms = float('inf')
             for p in positions:
-                first_order_time_ms = min(first_order_time_ms, p.orders[0].processed_ms)
+                first_order_time_ms = min(first_order_time_ms, p.open_ms)
             perf_ledger_bundle_candidate = {TP_ID_PORTFOLIO:
                 PerfLedger(initialization_time_ms=first_order_time_ms if first_order_time_ms != float('inf') else 0)}
 
@@ -1164,18 +1164,27 @@ class PerfLedgerManager(CacheController):
         hotkeys_to_delete = set([x for x in hotkeys_with_no_positions if x in perf_ledger_bundles])
         rss_modified = False
         # Recently re-registered
-        hotkeys_rrr = set()
+        hotkeys_rrr = []
+        deltas = []
+        n_valid_times = 0
+        total_n_times = 0
         for hotkey in hotkey_to_positions:
             corresponding_ledger_bundle = perf_ledger_bundles.get(hotkey)
             if corresponding_ledger_bundle is None:
                 continue
             portfolio_ledger = corresponding_ledger_bundle[TP_ID_PORTFOLIO]
-            first_order_time_ms = min(x.open_ms for x in hotkey_to_positions[hotkey])
+            first_order_time_ms = min(p.orders[0].processed_ms for p in hotkey_to_positions[hotkey])
+            total_n_times += 1
             if portfolio_ledger.initialization_time_ms != first_order_time_ms:
-                hotkeys_rrr.add(hotkey)
+                hotkeys_rrr.append(hotkey)
+                deltas.append(portfolio_ledger.initialization_time_ms - first_order_time_ms)
+            else:
+                n_valid_times += 1
 
         if hotkeys_rrr:
-            bt.logging.warning(f'Removing recently re-registered hotkeys from perf ledgers {hotkeys_rrr}')
+            bt.logging.warning(f'Removing recently re-registered hotkeys from perf ledgers. n_valid_times {n_valid_times} total_n_times {total_n_times}. pct valid {n_valid_times / total_n_times * 100:.2f}%')
+            for x in list(zip(hotkeys_rrr, deltas)):
+                bt.logging.warning(x)
             hotkeys_to_delete.update(hotkeys_rrr)
 
         # Determine which hotkeys to remove from the perf ledger
@@ -1354,5 +1363,5 @@ if __name__ == "__main__":
     elimination_manager = EliminationManager(mmg, None, None)
     position_manager = PositionManager(metagraph=mmg, running_unit_tests=False, elimination_manager=elimination_manager)
     perf_ledger_manager = PerfLedgerManager(mmg, position_manager=position_manager, running_unit_tests=False, enable_rss=False)
-    perf_ledger_manager.update(testing_one_hotkey='5Dhvpvr7aTkZ7oMsbe5q5gr44Nm7dJtrASsLPXDGNfJ97VTG')
-    #perf_ledger_manager.update(regenerate_all_ledgers=True)
+    perf_ledger_manager.update(regenerate_all_ledgers=True)
+    #perf_ledger_manager.update(testing_one_hotkey='5Dhvpvr7aTkZ7oMsbe5q5gr44Nm7dJtrASsLPXDGNfJ97VTG')

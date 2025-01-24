@@ -35,7 +35,7 @@ class SubtensorWeightSetter(CacheController):
 
         # only collect ledger elements for the miners that passed the challenge period
         filtered_ledger = self.perf_ledger_manager.filtered_ledger_for_scoring(hotkeys=success_hotkeys)
-        filtered_positions = self.position_manager.filtered_positions_for_scoring(hotkeys=success_hotkeys)
+        filtered_positions, _ = self.position_manager.filtered_positions_for_scoring(hotkeys=success_hotkeys)
 
         # synced_ledger, synced_positions = self.sync_ledger_positions(
         #     filtered_ledger,
