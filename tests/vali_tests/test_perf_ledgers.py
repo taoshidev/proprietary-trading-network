@@ -8,7 +8,8 @@ from vali_objects.vali_config import TradePair
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.position import Position
 from vali_objects.vali_dataclasses.order import Order
-from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager, TP_ID_PORTFOLIO
+from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager, TP_ID_PORTFOLIO, MockMetagraph
+
 
 class TestPerfLedgers(TestBase):
 
@@ -53,10 +54,15 @@ class TestPerfLedgers(TestBase):
             position_type=OrderType.LONG
         )
         self.default_usdjpy_position.rebuild_position_with_updated_orders()
+        mmg = MockMetagraph(hotkeys=[self.DEFAULT_MINER_HOTKEY])
+        elimination_manager = EliminationManager(mmg, None, None)
+        position_manager = PositionManager(metagraph=mmg, running_unit_tests=True, elimination_manager=elimination_manager)
+        position_manager.clear_all_miner_positions()
 
-        elimination_manager = EliminationManager(None, None, None)
-        position_manager = PositionManager(metagraph=None, running_unit_tests=True, elimination_manager=elimination_manager)
-        self.perf_ledger_manager = PerfLedgerManager(metagraph=None, running_unit_tests=True, position_manager=position_manager)
+        for p in [self.default_usdjpy_position, self.default_nvda_position, self.default_btc_position]:
+            position_manager.save_miner_position(p)
+        self.perf_ledger_manager = PerfLedgerManager(metagraph=mmg, running_unit_tests=True, position_manager=position_manager)
+        self.perf_ledger_manager.clear_perf_ledgers_from_disk()
 
     @patch('data_generator.polygon_data_service.PolygonDataService.unified_candle_fetcher')
     def test_basic(self, mock_unified_candle_fetcher):
@@ -79,7 +85,10 @@ class TestPerfLedgers(TestBase):
         mock_unified_candle_fetcher.return_value = {}
         hotkey_to_positions = {self.DEFAULT_MINER_HOTKEY:
                                    [self.default_btc_position, self.default_nvda_position, self.default_usdjpy_position]}
-        ans = self.perf_ledger_manager.generate_perf_ledgers_for_analysis(hotkey_to_positions)
+        for p in hotkey_to_positions[self.DEFAULT_MINER_HOTKEY]:
+            self.perf_ledger_manager.position_manager.save_miner_position(p)
+
+        self.perf_ledger_manager.update()
 
         tp_to_position_start_time = {}
         for position in hotkey_to_positions[self.DEFAULT_MINER_HOTKEY]:
@@ -90,6 +99,7 @@ class TestPerfLedgers(TestBase):
             elif position.trade_pair == TradePair.USDJPY:
                 tp_to_position_start_time[position.trade_pair.trade_pair_id] = self.default_usdjpy_position.open_ms
 
+        ans = self.perf_ledger_manager.get_perf_ledgers(portfolio_only=False)
         self.assertEqual(len(ans), 1)
         self.assertEqual(len(ans[self.DEFAULT_MINER_HOTKEY]), 4)
         self.assertIn(TP_ID_PORTFOLIO, ans[self.DEFAULT_MINER_HOTKEY])
@@ -133,10 +143,12 @@ class TestPerfLedgers(TestBase):
         close_order = Order(price=61000, processed_ms=last_update_portfolio, order_uuid="test_order_btc_close",
                                      trade_pair=self.DEFAULT_TRADE_PAIR, order_type=OrderType.FLAT, leverage=0)
         self.default_btc_position.add_order(close_order)
+        self.perf_ledger_manager.position_manager.save_miner_position(self.default_btc_position)
 
         # Waiting a few days
         fast_forward_time_ms = TimeUtil.now_in_millis() + 1000 * 60 * 60 * 24 * 10
-        ans = self.perf_ledger_manager.generate_perf_ledgers_for_analysis(hotkey_to_positions, t_ms=fast_forward_time_ms)
+        self.perf_ledger_manager.update(t_ms=fast_forward_time_ms)
+        ans = self.perf_ledger_manager.get_perf_ledgers(portfolio_only=False)
 
 
         for hk, dat in ans.items():

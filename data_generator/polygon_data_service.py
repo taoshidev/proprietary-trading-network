@@ -811,7 +811,7 @@ if __name__ == "__main__":
     #time.sleep(100000)
 
     polygon_data_provider = PolygonDataService(api_key=secrets['polygon_apikey'], disable_ws=True)
-    target_timestamp_ms = 1715288494000
+    target_timestamp_ms = 1715288504000#1715288494000
 
     """
     aggs = []
@@ -834,12 +834,15 @@ if __name__ == "__main__":
     #aggs = polygon_data_provider.get_close_at_date_second(tp, target_timestamp_ms, return_aggs=True)
     import numpy as np
     #uu = {a.timestamp: [a] for a in aggs}
-    for tp in [x for x in TradePair if x.is_forex]:
+    for tp in [TradePair.CADJPY]:#[x for x in TradePair if x.is_forex]:
         t0 = time.time()
         quotes = polygon_data_provider.unified_candle_fetcher(tp,
-                                                              target_timestamp_ms - 1000 * 60 * 60 * 24 * 12,
-                                                              target_timestamp_ms + 1000 * 60 * 60 * 24 * 12,
+                                                              target_timestamp_ms - 1000 * 60 * 2,
+                                                              target_timestamp_ms + 1000 * 60 * 2,
                                                               "minute")
+        for q in quotes:
+            print(q)
+        assert 0
         quotes = list(quotes)
         print(f'fetched data for {tp.trade_pair_id} in {time.time() - t0} s. quotes: {len(quotes)}')
         deltas = []
@@ -848,7 +851,7 @@ if __name__ == "__main__":
         worst_delta = 0
         for i,  q in enumerate(quotes):
             if 1:#q.low <= q.vwap <= q.high:
-                delta = abs(q.vwap - q.low) / q.low
+                delta = abs(q.vwap - q.close) / q.close
                 #assert delta > 0, q
                 deltas.append(delta)
                 if delta > worst_delta:
@@ -868,10 +871,10 @@ if __name__ == "__main__":
         median_delta = np.median(deltas)
         q3 = np.percentile(deltas, 75)
 
-        threshold_filter = .003
+        threshold_filter = .002
         n_deltas_meeting_threshold = len([x for x in deltas if x >= threshold_filter])
         ptbf = n_deltas_meeting_threshold / len(deltas) * 100
-        if ptbf > .3:
+        if ptbf > .1:
             print(f"Statistics for {tp.trade_pair_id} deltas {len(deltas)}. percent to be filtered out: {ptbf:.4f}")
             print(f"  Mean: {mean_delta:.4f}  Standard Deviation: {std_delta:.4f}")
             print(f"  Min: {min_delta:.4f}  Max: {max_delta:.4f}")
