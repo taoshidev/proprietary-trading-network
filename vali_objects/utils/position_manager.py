@@ -24,7 +24,7 @@ from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.vali_dataclasses.order import OrderStatus, ORDER_SRC_DEPRECATION_FLAT, Order
 from vali_objects.utils.position_filtering import PositionFiltering
 
-TARGET_MS = 1737556629958 + (1000 * 60 * 60 * 3)  # + 3 hours
+TARGET_MS = 1737735585504 + (1000 * 60 * 60 * 3)  # + 3 hours
 
 
 class PositionManager(CacheController):
@@ -323,7 +323,7 @@ class PositionManager(CacheController):
         miners_to_promote = []
         if now_ms < TARGET_MS:
             # All miners that wanted their challenge period restarted
-            miners_to_wipe = ["5C5mfN5XCQg8RgAqu3xh89qyJjeYrFjtf4fzotEuGFFHqmji", "5E7DEGmFUewdJTnSh829jGc3SpSd295hhvUgNcNiQST6bw4A", "5GucPphXea9yp8mu81r9z2rYSQ5R2PKqsZsfBAadvGWmh3k3"]
+            miners_to_wipe = ["5GTL7WXa4JM2yEUjFoCy2PZVLioNs1HzAGLKhuCDzzoeQCTR"]
             # All miners that should have been promoted
             miners_to_promote = []
 
