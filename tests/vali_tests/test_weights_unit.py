@@ -12,7 +12,7 @@ from vali_objects.vali_config import TradePair
 from vali_objects.vali_config import ValiConfig
 
 from tests.shared_objects.test_utilities import generate_ledger
-
+from vali_objects.vali_dataclasses.perf_ledger import TP_ID_PORTFOLIO
 
 class TestWeights(TestBase):
 
@@ -48,7 +48,7 @@ class TestWeights(TestBase):
 
         # Test the default values
         scaled_transformed_list: list[tuple[str, float]] = Scoring.compute_results_checkpoint(
-            ledger,
+            {hk: v[TP_ID_PORTFOLIO] for hk, v in ledger.items()},
             miner_positions,
             evaluation_time_ms=self.EVALUATION_TIME_MS
         )

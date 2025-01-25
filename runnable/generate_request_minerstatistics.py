@@ -170,7 +170,7 @@ class MinerStatisticsManager:
             selected_miner_hotkeys = all_miner_hotkeys
 
         filtered_ledger = self.perf_ledger_manager.filtered_ledger_for_scoring(hotkeys=all_miner_hotkeys)
-        filtered_positions = self.position_manager.filtered_positions_for_scoring(hotkeys=all_miner_hotkeys)
+        filtered_positions, _ = self.position_manager.filtered_positions_for_scoring(hotkeys=all_miner_hotkeys)
         filtered_returns = LedgerUtils.ledger_returns_log(filtered_ledger)
 
         plagiarism = self.plagiarism_detector.get_plagiarism_scores_from_disk()
@@ -336,7 +336,7 @@ class MinerStatisticsManager:
 
         # This is when we only want to look at the successful miners
         successful_ledger = self.perf_ledger_manager.filtered_ledger_for_scoring(hotkeys=challengeperiod_success_hotkeys)
-        successful_positions = self.position_manager.filtered_positions_for_scoring(hotkeys=challengeperiod_success_hotkeys)
+        successful_positions, _ = self.position_manager.filtered_positions_for_scoring(hotkeys=challengeperiod_success_hotkeys)
 
         # successful_ledger, successful_positions = subtensor_weight_setter.sync_ledger_positions(
         #     successful_ledger,

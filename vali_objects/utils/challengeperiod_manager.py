@@ -91,17 +91,18 @@ class ChallengePeriodManager(CacheController):
 
         all_miners = challengeperiod_success_hotkeys + challengeperiod_testing_hotkeys
 
-        positions = self.position_manager.filtered_positions_for_scoring(hotkeys=all_miners)
+        hk_to_positions, hk_to_first_order_time = self.position_manager.filtered_positions_for_scoring(hotkeys=all_miners)
 
         ledger = self.perf_ledger_manager.filtered_ledger_for_scoring(hotkeys=all_miners)
         ledger = {hotkey: ledger.get(hotkey, None) for hotkey in all_miners}
 
         challengeperiod_success, challengeperiod_eliminations = self.inspect(
-            positions=positions,
+            positions=hk_to_positions,
             ledger=ledger,
             success_hotkeys=challengeperiod_success_hotkeys,
             inspection_hotkeys=self.challengeperiod_testing,
-            current_time=current_time
+            current_time=current_time,
+            hk_to_first_order_time=hk_to_first_order_time
         )
 
         any_changes = bool(challengeperiod_success) or bool(challengeperiod_eliminations)
@@ -139,30 +140,32 @@ class ChallengePeriodManager(CacheController):
         return any_changes
 
 
-    def is_recently_re_registered(self, ledger, positions, hotkey):
+    def is_recently_re_registered(self, ledger, hotkey, hk_to_first_order_time):
         """
         A miner can re-register and their perf ledger may still be old.
         This function checks for that condition and blocks challenge period failure so that
         the perf ledger can rebuild.
         """
+        if not hk_to_first_order_time:
+            return False
         if ledger:
             time_of_ledger_start = ledger.start_time_ms
         else:
             # No ledger? No edge case.
             return False
-        if positions and all(p.orders for p in positions):
-            time_of_first_order = min(p.orders[0].processed_ms for p in positions)
-        else:
+
+        first_order_time = hk_to_first_order_time.get(hotkey, None)
+        if first_order_time is None:
             # No positions? Perf ledger must be stale.
             msg = f'No positions for hotkey {hotkey} - ledger start time: {time_of_ledger_start}'
             print(msg)
             return True
 
         # A perf ledger can never begin before the first order. Edge case confirmed.
-        ans = time_of_ledger_start < time_of_first_order
+        ans = time_of_ledger_start < first_order_time
         if ans:
             msg = (f'Hotkey {hotkey} has a ledger start time of {TimeUtil.millis_to_formatted_date_str(time_of_ledger_start)},'
-                   f' a first order time of {TimeUtil.millis_to_formatted_date_str(time_of_first_order)}, and an'
+                   f' a first order time of {TimeUtil.millis_to_formatted_date_str(first_order_time)}, and an'
                    f' initialization time of {TimeUtil.millis_to_formatted_date_str(ledger.initialization_time_ms)}.')
             print(msg)
         return ans
@@ -175,7 +178,8 @@ class ChallengePeriodManager(CacheController):
         inspection_hotkeys: dict[str, int] = None,
         current_time: int = None,
         success_scores_dict: dict[str, dict] = None,
-        inspection_scores_dict: dict[str, dict] = None
+        inspection_scores_dict: dict[str, dict] = None,
+        hk_to_first_order_time: dict[str, int] = None
     ):
         """
         Runs a screening process to eliminate miners who didn't pass the challenge period. Does not modify the challenge period in memory.
@@ -203,7 +207,7 @@ class ChallengePeriodManager(CacheController):
         
 
         for hotkey, inspection_time in inspection_hotkeys.items():
-            if self.is_recently_re_registered(ledger.get(hotkey), positions.get(hotkey), hotkey):
+            if self.is_recently_re_registered(ledger.get(hotkey), hotkey, hk_to_first_order_time):
                 miners_rrr.add(hotkey)
                 continue
             # Default starts as true

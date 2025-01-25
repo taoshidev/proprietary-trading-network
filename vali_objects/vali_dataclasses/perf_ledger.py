@@ -5,6 +5,7 @@ import time
 import traceback
 from collections import defaultdict
 from copy import deepcopy
+from enum import Enum
 from typing import List
 import bittensor as bt
 from setproctitle import setproctitle
@@ -24,7 +25,7 @@ from vali_objects.utils.vali_utils import ValiUtils
 TARGET_CHECKPOINT_DURATION_MS = ValiConfig.TARGET_CHECKPOINT_DURATION_MS
 TARGET_LEDGER_WINDOW_MS = ValiConfig.TARGET_LEDGER_WINDOW_MS
 
-
+TP_ID_PORTFOLIO = 'portfolio'
 class FeeCache():
     def __init__(self):
         self.spread_fee: float = 1.0
@@ -66,6 +67,16 @@ class FeeCache():
         self.carry_fee_next_increase_time_ms = next_update_time_ms
         return self.carry_fee
 
+# Enum class TradePairReturnStatus with 3 options 1. TP_MARKET_NOT_OPEN, TP_MARKET_OPEN_NO_PRICE_CHANGE, TP_MARKET_OPEN_PRICE_CHANGE
+class TradePairReturnStatus(Enum):
+    TP_NO_OPEN_POSITIONS = 0
+    TP_MARKET_NOT_OPEN = 1
+    TP_MARKET_OPEN_NO_PRICE_CHANGE = 2
+    TP_MARKET_OPEN_PRICE_CHANGE = 3
+
+    # Define greater than oeprator for TradePairReturnStatus
+    def __gt__(self, other):
+        return self.value > other.value
 
 class PerfCheckpoint:
     def __init__(self, last_update_ms:int, prev_portfolio_ret:float, prev_portfolio_spread_fee:float=1.0,
@@ -121,7 +132,14 @@ class PerfLedger():
     @classmethod
     def from_dict(cls, x):
         assert isinstance(x, dict), x
+        x['cps'] = [PerfCheckpoint(**cp) for cp in x['cps']]
         return cls(**x)
+
+    @property
+    def total_open_ms(self):
+        if len(self.cps) == 0:
+            return 0
+        return sum(cp.open_ms for cp in self.cps)
 
     @property
     def last_update_ms(self):
@@ -146,17 +164,17 @@ class PerfLedger():
 
     def init_max_portfolio_value(self):
         if self.cps:
-            if all(x.mpv != 0 for x in self.cps):  #Some will be 0 if the perf ledger is being incrementally updated right after this PR was merged.
-                # Update portfolio max after all trimming and purging has completed.
-                self.max_return = max(x.mpv for x in self.cps)
+            self.max_return = max(x.mpv for x in self.cps)
         # Initial portfolio value is 1.0
         self.max_return = max(self.max_return, 1.0)
 
-    def create_cps_to_fill_void(self, time_since_last_update_ms: int, now_ms: int, point_in_time_dd: float):
+    def create_cps_to_fill_void(self, time_since_last_update_ms: int, now_ms: int, point_in_time_dd: float, any_open: TradePairReturnStatus):
         original_accum_time = self.cps[-1].accum_ms
         delta_accum_time_ms = self.target_cp_duration_ms - original_accum_time
         self.cps[-1].accum_ms += delta_accum_time_ms
         self.cps[-1].last_update_ms += delta_accum_time_ms
+        if any_open > TradePairReturnStatus.TP_MARKET_NOT_OPEN:
+            self.cps[-1].open_ms += delta_accum_time_ms
         time_since_last_update_ms -= delta_accum_time_ms
         assert time_since_last_update_ms >= 0, (self.cps, time_since_last_update_ms)
         while time_since_last_update_ms > self.target_cp_duration_ms:
@@ -205,7 +223,7 @@ class PerfLedger():
                                     prev_portfolio_carry_fee=current_portfolio_carry, accum_ms=accum_ms_for_utc_alignment, mpv=1.0)
         self.cps.append(new_cp)
 
-    def get_or_create_latest_cp_with_mdd(self, now_ms: int, current_portfolio_value:float, current_portfolio_fee_spread:float, current_portfolio_carry:float):
+    def get_or_create_latest_cp_with_mdd(self, now_ms: int, current_portfolio_value:float, current_portfolio_fee_spread:float, current_portfolio_carry:float, any_open: TradePairReturnStatus) -> PerfCheckpoint:
         point_in_time_dd = CacheController.calculate_drawdown(current_portfolio_value, self.max_return)
 
         assert point_in_time_dd, point_in_time_dd
@@ -217,13 +235,13 @@ class PerfLedger():
         time_since_last_update_ms = now_ms - self.cps[-1].last_update_ms
         assert time_since_last_update_ms >= 0, self.cps
         if time_since_last_update_ms + self.cps[-1].accum_ms > self.target_cp_duration_ms:
-            self.create_cps_to_fill_void(time_since_last_update_ms, now_ms, point_in_time_dd)
+            self.create_cps_to_fill_void(time_since_last_update_ms, now_ms, point_in_time_dd, any_open)
         else:
             self.cps[-1].mdd = min(self.cps[-1].mdd, point_in_time_dd)
 
         return self.cps[-1]
 
-    def update_accumulated_time(self, cp: PerfCheckpoint, now_ms: int, miner_hotkey: str, any_open: bool):
+    def update_accumulated_time(self, cp: PerfCheckpoint, now_ms: int, miner_hotkey: str, any_open: TradePairReturnStatus, tp_debug):
         accumulated_time = now_ms - cp.last_update_ms
         if accumulated_time < 0:
             bt.logging.error(f"Negative accumulated time: {accumulated_time} for miner {miner_hotkey}."
@@ -231,19 +249,20 @@ class PerfLedger():
             accumulated_time = 0
         cp.accum_ms += accumulated_time
         cp.last_update_ms = now_ms
-        if any_open:
+        if any_open == TradePairReturnStatus.TP_NO_OPEN_POSITIONS or any_open == TradePairReturnStatus.TP_MARKET_NOT_OPEN:
+            pass
+            #print(f' {any_open} Blocked {accumulated_time} ms of open time for miner {miner_hotkey}. Time {TimeUtil.millis_to_verbose_formatted_date_str(now_ms)} tp_debug {tp_debug}')
+        else:
             cp.open_ms += accumulated_time
 
     def compute_delta_between_ticks(self, cur: float, prev: float):
         return math.log(cur / prev)
 
     def update_gains_losses(self, current_cp: PerfCheckpoint, current_portfolio_value: float,
-                            current_portfolio_fee_spread: float, current_portfolio_carry: float, miner_hotkey: str):
+                            current_portfolio_fee_spread: float, current_portfolio_carry: float, miner_hotkey: str, any_open: TradePairReturnStatus):
         # TODO: leave as is?
         # current_portfolio_value = current_portfolio_value * current_portfolio_carry  # spread fee already applied
-        if current_portfolio_value == current_cp.prev_portfolio_ret:
-            n_new_updates = 0
-        else:
+        if any_open == TradePairReturnStatus.TP_MARKET_OPEN_PRICE_CHANGE:
             n_new_updates = 1
             try:
                 delta_return = self.compute_delta_between_ticks(current_portfolio_value, current_cp.prev_portfolio_ret)
@@ -255,6 +274,8 @@ class PerfLedger():
                 current_cp.gain += delta_return
             else:
                 current_cp.loss += delta_return
+        else:
+            n_new_updates = 0
 
         if current_cp.prev_portfolio_carry_fee != current_portfolio_carry:
             current_cp.carry_fee_loss += self.compute_delta_between_ticks(current_portfolio_carry, current_cp.prev_portfolio_carry_fee)
@@ -275,19 +296,26 @@ class PerfLedger():
 
     def trim_checkpoints(self, cutoff_ms: int):
         new_cps = []
+        any_changes = False
         for cp in self.cps:
             if cp.lowerbound_time_created_ms + self.target_cp_duration_ms >= cutoff_ms:
+                any_changes = True
                 continue
             new_cps.append(cp)
-        self.cps = new_cps
+        if any_changes:
+            self.cps = new_cps
+            self.init_max_portfolio_value()
 
-    def update(self, current_portfolio_value: float, now_ms: int, miner_hotkey: str, any_open: bool,
-              current_portfolio_fee_spread: float, current_portfolio_carry: float):
+    def update_pl(self, current_portfolio_value: float, now_ms: int, miner_hotkey: str, any_open: TradePairReturnStatus,
+              current_portfolio_fee_spread: float, current_portfolio_carry: float, tp_debug=None):
+        if len(self.cps) == 0:
+            self.init_with_first_order(now_ms, point_in_time_dd=1.0, current_portfolio_value=1.0,
+                                           current_portfolio_fee_spread=1.0, current_portfolio_carry=1.0)
         self.max_return = max(self.max_return, current_portfolio_value)
-        current_cp = self.get_or_create_latest_cp_with_mdd(now_ms, current_portfolio_value, current_portfolio_fee_spread, current_portfolio_carry)
+        current_cp = self.get_or_create_latest_cp_with_mdd(now_ms, current_portfolio_value, current_portfolio_fee_spread, current_portfolio_carry, any_open)
         self.update_gains_losses(current_cp, current_portfolio_value, current_portfolio_fee_spread,
-                                 current_portfolio_carry, miner_hotkey)
-        self.update_accumulated_time(current_cp, now_ms, miner_hotkey, any_open)
+                                 current_portfolio_carry, miner_hotkey, any_open)
+        self.update_accumulated_time(current_cp, now_ms, miner_hotkey, any_open, tp_debug)
 
 
     def count_events(self):
@@ -312,26 +340,31 @@ class PerfLedger():
 
 class PerfLedgerManager(CacheController):
     def __init__(self, metagraph, ipc_manager=None, running_unit_tests=False, shutdown_dict=None,
-                 position_manager=None, perf_ledger_hks_to_invalidate=None, live_price_fetcher=None):
+                 perf_ledger_hks_to_invalidate=None, live_price_fetcher=None, position_manager=None,
+                 enable_rss=True):
         super().__init__(metagraph=metagraph, running_unit_tests=running_unit_tests)
         self.shutdown_dict = shutdown_dict
+        self.live_price_fetcher = live_price_fetcher
+        self.running_unit_tests = running_unit_tests
+        self.enable_rss = enable_rss
         if perf_ledger_hks_to_invalidate:
             self.perf_ledger_hks_to_invalidate = perf_ledger_hks_to_invalidate
         else:
             self.perf_ledger_hks_to_invalidate = {}
+
         if ipc_manager:
             self.pl_elimination_rows = ipc_manager.list()
-            self.hotkey_to_perf_ledger = ipc_manager.dict()
+            self.hotkey_to_perf_bundle = ipc_manager.dict()
         else:
             self.pl_elimination_rows = []
-            self.hotkey_to_perf_ledger = {}
+            self.hotkey_to_perf_bundle = {}
         self.running_unit_tests = running_unit_tests
         self.position_manager = position_manager
         self.pds = None  # Not pickable. Load it later once the process starts
         self.live_price_fetcher = live_price_fetcher  # For unit tests only
 
         # Every update, pick a hotkey to rebuild in case polygon 1s candle data changed.
-        self.trade_pair_to_price_info = {}
+        self.trade_pair_to_price_info = {'second':{}, 'minute':{}}
         self.trade_pair_to_position_ret = {}
 
         self.random_security_screenings = set()
@@ -343,7 +376,6 @@ class PerfLedgerManager(CacheController):
         self.now_ms = 0  # The largest timestamp we want to buffer candles for. time.time() - UPDATE_LOOKBACK_S
         #self.base_dd_stats = {'worst_dd':1.0, 'last_dd':0, 'mrpv':1.0, 'n_closed_pos':0, 'n_checks':0, 'current_portfolio_return': 1.0}
         #self.hk_to_dd_stats = defaultdict(lambda: deepcopy(self.base_dd_stats))
-        self.n_price_corrections = 0
         # ipc list does not update the object without using __setitem__
         temp = self.get_perf_ledger_eliminations(first_fetch=True)
         self.pl_elimination_rows.extend(temp)
@@ -351,25 +383,57 @@ class PerfLedgerManager(CacheController):
             self.pl_elimination_rows[i] = x
         self.candidate_pl_elimination_rows = []
         self.hk_to_last_order_processed_ms = {}
+        self.mode_to_n_updates = {}
+        self.update_to_n_open_positions = {}
         self.position_uuid_to_cache = defaultdict(FeeCache)
-        self.hotkey_to_checkpointed_ledger = {}
-        self.get_perf_ledgers_from_memory(first_fetch=True)
+        for k, v in self.get_perf_ledgers(from_disk=True, portfolio_only=False).items():
+            self.hotkey_to_perf_bundle[k] = v
+
+    def _is_v1_perf_ledger(self, ledger_value):
+        ans = False
+        if 'initialization_time_ms' in ledger_value:
+            ans = True
+        # "Faked" v2 ledger
+        elif 'portfolio' in ledger_value and len(ledger_value) == 1:
+            ans = True
+        return ans
+
 
     @timeme
-    def get_perf_ledgers_from_disk(self) -> dict[str, PerfLedger]:
-        file_path = ValiBkpUtils.get_perf_ledgers_path(self.running_unit_tests)
-        if not os.path.exists(file_path):
-            return {}
+    def get_perf_ledgers(self, portfolio_only=True, from_disk=False) -> dict[str, dict[str, PerfLedger]] | dict[str, PerfLedger]:
+        ret = {}
+        if from_disk:
+            file_path = ValiBkpUtils.get_perf_ledgers_path(self.running_unit_tests)
+            if not os.path.exists(file_path):
+                return ret
 
-        with open(file_path, 'r') as file:
-            data = json.load(file)
+            with open(file_path, 'r') as file:
+                data = json.load(file)
 
-        perf_ledgers = {}
-        for key, ledger_data in data.items():
-            ledger_data['cps'] = [PerfCheckpoint(**cp) for cp in ledger_data['cps']]
-            perf_ledgers[key] = PerfLedger(**ledger_data)
+            for hk, possible_bundles in data.items():
+                if self._is_v1_perf_ledger(possible_bundles):
+                    if portfolio_only:
+                        ret[hk] = PerfLedger.from_dict(possible_bundles)  # v1 is portfolio ledgers. Fake it.
+                    else:
+                        # Incompatible but we can fake it for now.
+                        if 'initialization_time_ms' in possible_bundles:
+                            ret[hk] = {TP_ID_PORTFOLIO: PerfLedger.from_dict(possible_bundles)}
+                        elif TP_ID_PORTFOLIO in possible_bundles:
+                            ret[hk] = {TP_ID_PORTFOLIO: PerfLedger.from_dict(possible_bundles[TP_ID_PORTFOLIO])}
 
-        return perf_ledgers
+                else:
+                    if portfolio_only:
+                        ret[hk] = PerfLedger.from_dict(possible_bundles[TP_ID_PORTFOLIO])
+                    else:
+                        ret[hk] = {k: PerfLedger.from_dict(v) for k, v in possible_bundles.items()}
+            return ret
+
+        # Everything here is in v2 format
+        if portfolio_only:
+            return {hk: bundle[TP_ID_PORTFOLIO] for hk, bundle in self.hotkey_to_perf_bundle.items()}
+        else:
+            return deepcopy(self.hotkey_to_perf_bundle)
+
 
 
     def filtered_ledger_for_scoring(
@@ -385,26 +449,28 @@ class PerfLedgerManager(CacheController):
 
         # Note, eliminated miners will not appear in the dict below
         filtered_ledger = {}
-        for hotkey, miner_ledger in self.get_perf_ledgers_from_memory().items():
+        for hotkey, miner_portfolio_ledger in self.get_perf_ledgers().items():
             if hotkey not in hotkeys:
                 continue
 
-            if miner_ledger is None:
+            if miner_portfolio_ledger is None:
                 continue
 
-            if len(miner_ledger.cps) == 0:
+            if len(miner_portfolio_ledger.cps) == 0:
                 continue
 
-            filtered_ledger[hotkey] = miner_ledger
+            filtered_ledger[hotkey] = miner_portfolio_ledger
 
         return filtered_ledger
 
     def clear_perf_ledgers_from_disk(self):
+        assert self.running_unit_tests, 'this is only valid for unit tests'
+        self.hotkey_to_perf_bundle = {}
         file_path = ValiBkpUtils.get_perf_ledgers_path(self.running_unit_tests)
         if os.path.exists(file_path):
             ValiBkpUtils.write_file(file_path, {})
-        for k in list(self.hotkey_to_perf_ledger.keys()):
-            del self.hotkey_to_perf_ledger[k]
+        for k in list(self.hotkey_to_perf_bundle.keys()):
+            del self.hotkey_to_perf_bundle[k]
 
     def run_update_loop(self):
         setproctitle(f"vali_{self.__class__.__name__}")
@@ -462,53 +528,41 @@ class PerfLedgerManager(CacheController):
         time_sorted_orders.sort(key=lambda x: x[0].processed_ms)
         return time_sorted_orders, last_event_time_ms
 
-    def replay_all_closed_positions(self, miner_hotkey, tp_to_historical_positions: dict[str:Position]) -> (bool, float):
-        max_cuml_return_so_far = 1.0
-        cuml_return = 1.0
-        n_closed_positions = 0
-
-        # Already sorted
-        for _, positions in tp_to_historical_positions.items():
-            for position in positions:
-                if position.is_open_position:
-                    continue
-                cuml_return *= position.return_at_close
-                n_closed_positions += 1
-                max_cuml_return_so_far = max(cuml_return, max_cuml_return_so_far)
-
-        # Replay of closed positions complete.
-        #stats = self.hk_to_dd_stats[miner_hotkey]
-        #stats['mrpv'] = max_cuml_return_so_far
-        #stats['n_closed_pos'] = n_closed_positions
-        return max_cuml_return_so_far
 
     def _can_shortcut(self, tp_to_historical_positions: dict[str: Position], end_time_ms: int,
-                      realtime_position_to_pop: Position | None, start_time_ms: int, perf_ledger: PerfLedger) -> (bool, float, float, float):
-        portfolio_value = 1.0
-        portfolio_spread_fee = 1.0
-        portfolio_carry_fee = 1.0
+                      realtime_position_to_pop: Position | None, start_time_ms: int, perf_ledger_bundle: dict[str, PerfLedger]) -> (bool, float, float, float):
+
+        tp_to_return = defaultdict(lambda: 1.0)
+        tp_to_spread_fee = defaultdict(lambda: 1.0)
+        tp_to_carry_fee = defaultdict(lambda: 1.0)
+
         n_open_positions = 0
         now_ms = TimeUtil.now_in_millis()
-        ledger_cutoff_ms = now_ms - perf_ledger.target_ledger_window_ms
+        ledger_cutoff_ms = now_ms - perf_ledger_bundle[TP_ID_PORTFOLIO].target_ledger_window_ms
 
         n_positions = 0
         n_closed_positions = 0
         n_positions_newly_opened = 0
 
-        for tp, historical_positions in tp_to_historical_positions.items():
+        for tp_id, historical_positions in tp_to_historical_positions.items():
             for i, historical_position in enumerate(historical_positions):
                 n_positions += 1
                 if len(historical_position.orders) == 0:
                     n_positions_newly_opened += 1
-                if realtime_position_to_pop and tp == realtime_position_to_pop.trade_pair.trade_pair and i == len(historical_positions) - 1:
+                elif historical_position.is_open_position:
+                    n_open_positions += 1
+                else:
+                    n_closed_positions += 1
+                if realtime_position_to_pop and tp_id == realtime_position_to_pop.trade_pair.trade_pair_id and i == len(historical_positions) - 1:
                     historical_position = realtime_position_to_pop
-                portfolio_spread_fee *= self.position_uuid_to_cache[historical_position.position_uuid].get_spread_fee(historical_position)
-                portfolio_carry_fee *= self.position_uuid_to_cache[historical_position.position_uuid].get_carry_fee(end_time_ms, historical_position)
-                portfolio_value *= historical_position.return_at_close
-                n_open_positions += historical_position.is_open_position
-                n_closed_positions += historical_position.is_closed_position
-                self.trade_pair_to_position_ret[tp] = historical_position.return_at_close
-        assert portfolio_carry_fee > 0, (portfolio_carry_fee, portfolio_spread_fee)
+
+                for tp_id in [TP_ID_PORTFOLIO, tp_id]:
+                    tp_to_spread_fee[tp_id] *= self.position_uuid_to_cache[historical_position.position_uuid].get_spread_fee(historical_position)
+                    tp_to_carry_fee[tp_id] *= self.position_uuid_to_cache[historical_position.position_uuid].get_carry_fee(end_time_ms, historical_position)
+                    tp_to_return[tp_id] *= historical_position.return_at_close
+
+                self.trade_pair_to_position_ret[tp_id] = historical_position.return_at_close
+        assert tp_to_carry_fee[TP_ID_PORTFOLIO] > 0, (tp_to_carry_fee[TP_ID_PORTFOLIO], tp_to_spread_fee[TP_ID_PORTFOLIO])
 
         reason = ''
         ans = False
@@ -517,8 +571,16 @@ class PerfLedgerManager(CacheController):
         # and all other positions are closed. The time before this period, we have only closed positions.
         # Alternatively, we can be attempting to build the ledger after all orders have been accounted for. In this
         # case, we simply need to check if all positions are closed.
-        if (n_positions == n_closed_positions + n_positions_newly_opened) and (n_positions_newly_opened == 1):
-            reason += 'New position opened. '
+        if n_open_positions == 0:
+            if n_positions_newly_opened not in (0, 1):
+                for tp, historical_positions in tp_to_historical_positions.items():
+                    for i, historical_position in enumerate(historical_positions):
+                        if len(historical_position.orders) == 0:
+                            print(historical_position)
+
+                raise Exception(f'n_positions_newly_opened should be 0 or 1 but got {n_positions_newly_opened}')
+
+            reason += 'No open positions. '
             ans = True
 
         # This window would be dropped anyway
@@ -527,10 +589,10 @@ class PerfLedgerManager(CacheController):
             ans = True
 
         if 0 and ans:
-            for tp, historical_positions in tp_to_historical_positions.items():
+            for tp_id, historical_positions in tp_to_historical_positions.items():
                 positions = []
                 for i, historical_position in enumerate(historical_positions):
-                    if realtime_position_to_pop and tp == realtime_position_to_pop.trade_pair.trade_pair and i == len(
+                    if realtime_position_to_pop and tp_id == realtime_position_to_pop.trade_pair.trade_pair_id and i == len(
                             historical_positions) - 1:
                         historical_position = realtime_position_to_pop
                         foo = True
@@ -538,60 +600,84 @@ class PerfLedgerManager(CacheController):
                         foo = False
                     positions.append((historical_position.position_uuid, [x.price for x in historical_position.orders],
                                       historical_position.return_at_close, foo, historical_position.is_open_position))
-                print(f'{tp}: {positions}')
+                print(f'{tp_id}: {positions}')
 
+            final_cp = None
+            if perf_ledger_bundle and TP_ID_PORTFOLIO in perf_ledger_bundle and perf_ledger_bundle[TP_ID_PORTFOLIO].cps:
+                final_cp = perf_ledger_bundle[TP_ID_PORTFOLIO].cps[-1]
             print('---------------------------------------------------------------------')
             print(f' Skipping ({reason}) with n_positions: {n_positions} n_open_positions: {n_open_positions} n_closed_positions: '
                   f'{n_closed_positions}, n_positions_newly_opened: {n_positions_newly_opened}, '
                   f'start_time_ms: {TimeUtil.millis_to_formatted_date_str(start_time_ms)} ({start_time_ms}) , '
                   f'end_time_ms: {TimeUtil.millis_to_formatted_date_str(end_time_ms)} ({end_time_ms}) , '
-                  f'portfolio_value: {portfolio_value} '
+                  f'portfolio_value: {tp_to_return[TP_ID_PORTFOLIO]} '
                   f'ledger_cutoff_ms: {TimeUtil.millis_to_formatted_date_str(ledger_cutoff_ms)}, '
-                  f'final cp: {perf_ledger.cps[-1]}, '
                   f'realtime_position_to_pop.trade_pair.trade_pair: {realtime_position_to_pop.trade_pair.trade_pair if realtime_position_to_pop else None}, '
                   f'trade_pair_to_position_ret: {self.trade_pair_to_position_ret} '
-                  )
+                  f'final portfolio cp {final_cp}')
             print('---------------------------------------------------------------------')
 
-        return ans, portfolio_value, portfolio_spread_fee, portfolio_carry_fee
+        return ans, tp_to_return, tp_to_spread_fee, tp_to_carry_fee, start_time_ms, end_time_ms
 
 
-    def new_window_intersects_old_window(self, start_time_s, end_time_s, existing_lb_s, existing_ub_s):
+    def new_window_intersects_old_window(self, start_time_ms, end_time_ms, existing_lb_ms, existing_ub_ms):
         # Check if new window intersects with the old window
         # An intersection occurs if the start of the new window is before the end of the old window,
         # and the end of the new window is after the start of the old window
-        return start_time_s <= existing_ub_s and end_time_s >= existing_lb_s
+        return start_time_ms <= existing_ub_ms and end_time_ms >= existing_lb_ms
 
-    def refresh_price_info(self, t_ms, end_time_ms, tp):
-        t_s = t_ms // 1000
-        existing_lb_s = None
-        existing_ub_s = None
-        existing_window_s = None
-        if tp.trade_pair in self.trade_pair_to_price_info:
-            price_info = self.trade_pair_to_price_info[tp.trade_pair]
-            existing_ub_s = price_info['ub_s']
-            existing_lb_s = price_info['lb_s']
-            existing_window_s = existing_ub_s - existing_lb_s
-            if existing_lb_s <= t_s <= existing_ub_s:  # No refresh needed
+    def align_t_ms_to_mode(self, t_ms, mode):
+        if mode == 'second':
+            return t_ms - (t_ms % 1000)
+        elif mode == 'minute':
+            return t_ms - (t_ms % 60000)
+        else:
+            raise Exception(f"Unknown mode: {mode}")
+
+    def refresh_price_info(self, t_ms, end_time_ms, tp, mode):
+        def _agg_to_payload(agg):
+            if mode == 'second':
+                return agg.close
+            elif mode == 'minute':
+                if not tp.is_forex:
+                    return agg.close
+                # forex candles are subject to spikes.
+                if not agg.vwap:
+                    return agg.close
+                elif abs(agg.vwap - agg.close) / agg.close < .003:
+                    return agg.close
+                else:  #spike detected
+                    valid_vwap = agg.low <= agg.vwap <= agg.high
+                    return agg.vwap if valid_vwap else (agg.high + agg.low) / 2
+            else:
+                raise Exception(f"Unknown mode: {mode}")
+
+
+        t_ms = self.align_t_ms_to_mode(t_ms, mode)
+        min_candles_per_request = 3600 if mode == 'second' else 1440
+        existing_lb_ms = None
+        existing_ub_ms = None
+        existing_window_ms = None
+        if tp.trade_pair_id in self.trade_pair_to_price_info[mode]:
+            price_info = self.trade_pair_to_price_info[mode][tp.trade_pair_id]
+            existing_ub_ms = price_info['ub_ms']
+            existing_lb_ms = price_info['lb_ms']
+            existing_window_ms = existing_ub_ms - existing_lb_ms
+            if existing_lb_ms <= t_ms <= existing_ub_ms:  # No refresh needed
                 return
         #else:
         #    print('11111', tp.trade_pair, trade_pair_to_price_info.keys())
 
-        start_time_s = t_s
+        start_time_ms = t_ms
+        requested_milliseconds = end_time_ms - start_time_ms
+        n_candles_requested = requested_milliseconds // 1000 if mode == 'second' else requested_milliseconds // 60000
+        if n_candles_requested > self.POLYGON_MAX_CANDLE_LIMIT:  # Polygon limit
+            end_time_ms = start_time_ms + self.POLYGON_MAX_CANDLE_LIMIT * 1000 if mode == 'second' else start_time_ms + self.POLYGON_MAX_CANDLE_LIMIT * 60000
+        elif n_candles_requested < min_candles_per_request:  # Get a batch of candles to minimize number of fetches
+            offset = min_candles_per_request * 1000 if mode == 'second' else min_candles_per_request * 60000
+            end_time_ms = start_time_ms + offset
 
-        end_time_s = end_time_ms // 1000
-        requested_seconds = end_time_s - start_time_s
-        if requested_seconds > self.POLYGON_MAX_CANDLE_LIMIT:  # Polygon limit
-            end_time_s = start_time_s + self.POLYGON_MAX_CANDLE_LIMIT
-        elif requested_seconds < 3600:  # Get a batch of candles to minimize number of fetches
-            end_time_s = start_time_s + 3600
-
-        end_time_s = min(self.now_ms // 1000, end_time_s)  # Don't fetch candles beyond check time or will fill in null.
-
-        # Always fetch the max number of candles possible to minimize number of fetches
-        #end_time_s = start_time_s + self.POLYGON_MAX_CANDLE_LIMIT
-        start_time_ms = start_time_s * 1000
-        end_time_ms = end_time_s * 1000
+        end_time_ms = min(int(self.now_ms * 1000), end_time_ms)  # Don't fetch candles beyond check time or will fill in null.
 
         #t0 = time.time()
         #print(f"Starting #{requested_seconds} candle fetch for {tp.trade_pair}")
@@ -601,7 +687,7 @@ class PerfLedgerManager(CacheController):
             self.pds = live_price_fetcher.polygon_data_service
 
         price_info_raw = self.pds.get_candles_for_trade_pair_simple(
-            trade_pair=tp, start_timestamp_ms=start_time_ms, end_timestamp_ms=end_time_ms)
+            trade_pair=tp, start_timestamp_ms=start_time_ms, end_timestamp_ms=end_time_ms, timespan=mode)
         self.n_api_calls += 1
         #print(f'Fetched candles for tp {tp.trade_pair} for window {TimeUtil.millis_to_formatted_date_str(start_time_ms)} to {TimeUtil.millis_to_formatted_date_str(end_time_ms)}')
         #print(f'Got {len(price_info)} candles after request of {requested_seconds} candles for tp {tp.trade_pair} in {time.time() - t0}s')
@@ -610,89 +696,90 @@ class PerfLedgerManager(CacheController):
         #assert ub_ms <= end_time_ms, (ub_ms, end_time_ms)
         # Can we build on top of existing data or should we wipe?
         perform_wipe = True
-        if tp.trade_pair in self.trade_pair_to_price_info:
-            new_window_size = end_time_s - start_time_s
-            if new_window_size + existing_window_s < self.POLYGON_MAX_CANDLE_LIMIT and \
-                    self.new_window_intersects_old_window(start_time_s, end_time_s, existing_lb_s, existing_ub_s):
+        if tp.trade_pair_id in self.trade_pair_to_price_info:
+            new_window_size_ms = end_time_ms - start_time_ms
+            candidate_window_size = new_window_size_ms + existing_window_ms
+            candidate_n_candles_in_memory = candidate_window_size // 1000 if mode == 'second' else candidate_window_size // 60000
+            if candidate_n_candles_in_memory < self.POLYGON_MAX_CANDLE_LIMIT and \
+                    self.new_window_intersects_old_window(start_time_ms, end_time_ms, existing_lb_ms, existing_ub_ms):
                 perform_wipe = False
 
+
         if perform_wipe:
-            price_info = {a.timestamp // 1000: a.close for a in price_info_raw}
+            price_info = {}
+            for a in price_info_raw:
+                k = self.align_t_ms_to_mode(a.timestamp, mode)
+                v = _agg_to_payload(a)
+                price_info[k] = v
+
             #for a in price_info_raw:
             #    price_info[a.timestamp // 1000] = a.close
-            self.trade_pair_to_price_info[tp.trade_pair] = price_info
-            self.trade_pair_to_price_info[tp.trade_pair]['lb_s'] = start_time_s
-            self.trade_pair_to_price_info[tp.trade_pair]['ub_s'] = end_time_s
-
+            self.trade_pair_to_price_info[mode][tp.trade_pair_id] = price_info
+            self.trade_pair_to_price_info[mode][tp.trade_pair_id]['lb_ms'] = start_time_ms
+            self.trade_pair_to_price_info[mode][tp.trade_pair_id]['ub_ms'] = end_time_ms
         else:
-            self.trade_pair_to_price_info[tp.trade_pair]['ub_s'] = max(existing_ub_s, end_time_s)
-            self.trade_pair_to_price_info[tp.trade_pair]['lb_s'] = min(existing_lb_s, start_time_s)
+            self.trade_pair_to_price_info[mode][tp.trade_pair_id]['ub_ms'] = max(existing_ub_ms, end_time_ms)
+            self.trade_pair_to_price_info[mode][tp.trade_pair_id]['lb_ms'] = min(existing_lb_ms, start_time_ms)
             for a in price_info_raw:
-                self.trade_pair_to_price_info[tp.trade_pair][a.timestamp // 1000] = a.close
+                self.trade_pair_to_price_info[mode][tp.trade_pair_id][self.align_t_ms_to_mode(a.timestamp, mode)] = _agg_to_payload(a)
 
         #print(f'Fetched {requested_seconds} s of candles for tp {tp.trade_pair} in {time.time() - t0}s')
         #print('22222', tp.trade_pair, trade_pair_to_price_info.keys())
 
-    def positions_to_portfolio_return(self, tp_to_historical_positions_dense: dict[str: Position], t_ms, miner_hotkey, end_time_ms, portfolio_return, portfolio_spread_fee, portfolio_carry_fee):
+    def positions_to_portfolio_return(self, tp_to_historical_positions_dense: dict[str: Position], t_ms, mode, end_time_ms, tp_to_initial_return, tp_to_initial_spread_fee, tp_to_initial_carry_fee):
         # Answers "What is the portfolio return at this time t_ms?"
-        t_s = t_ms // 1000
-        any_open = False
-        #if miner_hotkey.endswith('9osUx') and abs(t_ms - end_time_ms) < 1000:
-        #    print('------------------')
-
-        for tp, historical_positions in tp_to_historical_positions_dense.items():  # TODO: multithread over trade pairs?
+        all_tp_ids = list(tp_to_historical_positions_dense.keys()) + [TP_ID_PORTFOLIO]
+        tp_to_any_open = {x: TradePairReturnStatus.TP_NO_OPEN_POSITIONS for x in all_tp_ids}
+        tp_to_return = tp_to_initial_return.copy()
+        tp_to_spread_fee = tp_to_initial_spread_fee.copy()
+        tp_to_carry_fee = tp_to_initial_carry_fee.copy()
+        t_ms = self.align_t_ms_to_mode(t_ms, mode)
+        for tp_id, historical_positions in tp_to_historical_positions_dense.items():  # TODO: multithread over trade pairs?
+            #historical_position = historical_positions[0]
+            assert len(historical_positions) < 2, ('maybe a recently opened position?', historical_positions)
             for historical_position in historical_positions:
-                #if miner_hotkey.endswith('9osUx') and abs(t_ms - end_time_ms) < 1000:
-                #    print(f"time {TimeUtil.millis_to_formatted_date_str(t_ms)} hk {miner_hotkey[-5:]} {historical_position.trade_pair.trade_pair} n_orders {len(historical_position.orders)} return {historical_position.current_return} return_at_close {historical_position.return_at_close} closed@{'NA' if historical_position.is_open_position else TimeUtil.millis_to_formatted_date_str(historical_position.orders[-1].processed_ms)}")
-                #    if historical_position.trade_pair == TradePair.USDCAD:
-                #        for i, order in enumerate(historical_position.orders):
-                #            print(f"    {historical_position.trade_pair.trade_pair} order price {order.price} leverage {order.leverage}")
                 if self.shutdown_dict:
-                    return portfolio_return, any_open, portfolio_spread_fee, portfolio_carry_fee
-                #if len(historical_position.orders) == 0:  # Just opened an order. We will revisit this on the next event as there is no history to replay
-                #    continue
+                    return tp_to_return, tp_to_any_open, tp_to_spread_fee, tp_to_carry_fee
 
                 position_spread_fee = self.position_uuid_to_cache[historical_position.position_uuid].get_spread_fee(historical_position)
                 position_carry_fee = self.position_uuid_to_cache[historical_position.position_uuid].get_carry_fee(t_ms, historical_position)
-                portfolio_spread_fee *= position_spread_fee
-                portfolio_carry_fee *= position_carry_fee
+                tp_to_spread_fee[tp_id] *= position_spread_fee
+                tp_to_spread_fee[TP_ID_PORTFOLIO] *= position_spread_fee
+                tp_to_carry_fee[tp_id] *= position_carry_fee
+                tp_to_carry_fee[TP_ID_PORTFOLIO] *= position_carry_fee
 
-                #if t_ms > 1720749609000:
-                #    man = historical_position.get_carry_fee(t_ms)
-                #    cache_valid_til_time = self.position_uuid_to_cache[historical_position.position_uuid].carry_fee_next_increase_time_ms
-                #    cache_valid_til_time_formatted = TimeUtil.millis_to_formatted_date_str(cache_valid_til_time)
-                #    fee_accural_time = TimeUtil.millis_to_formatted_date_str(historical_position.start_carry_fee_accrual_ms)
-                #    position_open_ms = historical_position.open_ms
-                #    assert position_carry_fee == man[0], \
-                #        f"@@@@ cache value/expiry: {position_carry_fee}/{cache_valid_til_time_formatted} manual value: {man}, t_ms: {t_ms}/{TimeUtil.millis_to_formatted_date_str(t_ms)}). Fee accrural time {fee_accural_time}. open_ms {position_open_ms}"
-
-                #if historical_position.is_closed_position:  # We want to process just-closed positions. wont be closed if we are on the corresponding event
-                #    continue
 
                 if not self.market_calendar.is_market_open(historical_position.trade_pair, t_ms):
-                    portfolio_return *= historical_position.return_at_close
+                    tp_to_return[tp_id] *= historical_position.return_at_close
+                    tp_to_return[TP_ID_PORTFOLIO] *= historical_position.return_at_close
+                    tp_to_any_open[tp_id] = TradePairReturnStatus.TP_MARKET_NOT_OPEN
+                    tp_to_any_open[TP_ID_PORTFOLIO] = max(TradePairReturnStatus.TP_MARKET_NOT_OPEN, tp_to_any_open[TP_ID_PORTFOLIO])
                     continue
 
-                any_open = True
-                self.refresh_price_info(t_ms, end_time_ms, historical_position.trade_pair)
-                price_at_t_s = self.trade_pair_to_price_info[tp][t_s] if t_s in self.trade_pair_to_price_info[tp] else None
-                if price_at_t_s is not None:
-                    self.tp_to_last_price[tp] = price_at_t_s
-                    # We are retoractively updating the last order's price if it is the same as the candle price. This is a retro fix for forex bid price propagation as well as nondeterministic failed price filling.
-                    #if t_ms == historical_position.orders[-1].processed_ms and historical_position.orders[-1].price != price_at_t_s:
-                    #    self.n_price_corrections += 1
-                    #    #percent_change = (price_at_t_s - historical_position.orders[-1].price) / historical_position.orders[-1].price
-                    #    #bt.logging.warning(f"Price at t_s {TimeUtil.millis_to_formatted_date_str(t_ms)} {historical_position.trade_pair.trade_pair} is the same as the last order processed time. Changing price from {historical_position.orders[-1].price} to {price_at_t_s}. percent change {percent_change}")
-                    #    historical_position.orders[-1].price = price_at_t_s
-                    #    historical_position.rebuild_position_with_updated_orders()
-                    historical_position.set_returns(price_at_t_s, time_ms=t_ms, total_fees=position_spread_fee * position_carry_fee)
-                    self.trade_pair_to_position_ret[tp] = historical_position.return_at_close
+                tp_to_any_open[tp_id] = TradePairReturnStatus.TP_MARKET_OPEN_NO_PRICE_CHANGE
+                tp_to_any_open[TP_ID_PORTFOLIO] = max(TradePairReturnStatus.TP_MARKET_OPEN_NO_PRICE_CHANGE, tp_to_any_open[TP_ID_PORTFOLIO])
+                self.refresh_price_info(t_ms, end_time_ms, historical_position.trade_pair, mode)
+                price_at_t_ms = self.trade_pair_to_price_info[mode][tp_id].get(t_ms)
+                if price_at_t_ms is not None:
+                    prev_price = self.tp_to_last_price.get(tp_id, None)
+                    price_changed = price_at_t_ms != prev_price
+                    if price_changed:
+                        tp_to_any_open[tp_id] = TradePairReturnStatus.TP_MARKET_OPEN_PRICE_CHANGE
+                        tp_to_any_open[TP_ID_PORTFOLIO] = TradePairReturnStatus.TP_MARKET_OPEN_PRICE_CHANGE
+                    self.tp_to_last_price[tp_id] = price_at_t_ms
 
-                portfolio_return *= historical_position.return_at_close
+                    historical_position.set_returns(price_at_t_ms, time_ms=t_ms, total_fees=position_spread_fee * position_carry_fee)
+                    self.trade_pair_to_position_ret[tp_id] = historical_position.return_at_close
+
+                tp_to_return[tp_id] *= historical_position.return_at_close
+                tp_to_return[TP_ID_PORTFOLIO] *= historical_position.return_at_close
                 #assert portfolio_return > 0, f"Portfolio value is {portfolio_return} for miner {miner_hotkey} at {t_s}. opr {opr} rtp {price_at_t_s}, historical position {historical_position}"
-        return portfolio_return, any_open, portfolio_spread_fee, portfolio_carry_fee
 
-    def check_liquidated(self, miner_hotkey, portfolio_return, t_ms, tp_to_historical_positions, perf_ledger):
+        return tp_to_return, tp_to_any_open, tp_to_spread_fee, tp_to_carry_fee
+
+
+
+    def check_liquidated(self, miner_hotkey, portfolio_return, t_ms, tp_to_historical_positions):
         if portfolio_return == 0:
             bt.logging.warning(f"Portfolio value is {portfolio_return} for miner {miner_hotkey} at {t_ms}. Eliminating miner.")
             elimination_row = self.generate_elimination_row(miner_hotkey, 0.0, 'LIQUIDATED', t_ms=t_ms, price_info=self.tp_to_last_price, return_info={'dd_stats': {}, 'returns': self.trade_pair_to_position_ret})
@@ -702,7 +789,7 @@ class PerfLedgerManager(CacheController):
             for _, v in tp_to_historical_positions.items():
                 for pos in v:
                     print(
-                        f"    time {TimeUtil.millis_to_formatted_date_str(t_ms)} hk {miner_hotkey[-5:]} {pos.trade_pair.trade_pair} return {pos.current_return} return_at_close {pos.return_at_close} closed@{'NA' if pos.is_open_position else TimeUtil.millis_to_formatted_date_str(pos.orders[-1].processed_ms)}")
+                        f"    time {TimeUtil.millis_to_formatted_date_str(t_ms)} hk {miner_hotkey[-5:]} {pos.trade_pair.trade_pair_id} return {pos.current_return} return_at_close {pos.return_at_close} closed@{'NA' if pos.is_open_position else TimeUtil.millis_to_formatted_date_str(pos.orders[-1].processed_ms)}")
             return True
         return False
 
@@ -719,135 +806,233 @@ class PerfLedgerManager(CacheController):
             self.tp_to_last_price[k] = last_order_price
 
     def condense_positions(self, tp_to_historical_positions: dict[str: Position]) -> (float, float, float, dict[str: Position]):
-        portfolio_return = 1.0
-        portfolio_spread_fee = 1.0
-        portfolio_carry_fee = 1.0
+        all_tp_ids = list(tp_to_historical_positions.keys()) + [TP_ID_PORTFOLIO]
+        tp_to_initial_return = {x: 1.0 for x in all_tp_ids}
+        tp_to_initial_spread_fee = {x: 1.0 for x in all_tp_ids}
+        tp_to_initial_carry_fee = {x: 1.0 for x in all_tp_ids}
         tp_to_historical_positions_dense = {}
-        for tp, historical_positions in tp_to_historical_positions.items():
+        open_positions_tp_ids = set()
+        for tp_id, historical_positions in tp_to_historical_positions.items():
             dense_positions = []
             for historical_position in historical_positions:
                 if historical_position.is_closed_position:
-                    portfolio_return *= historical_position.return_at_close
-                    portfolio_spread_fee *= self.position_uuid_to_cache[historical_position.position_uuid].get_spread_fee(historical_position)
-                    portfolio_carry_fee *= self.position_uuid_to_cache[historical_position.position_uuid].get_carry_fee(historical_position.orders[-1].processed_ms, historical_position)
+                    for x in [TP_ID_PORTFOLIO, tp_id]:
+                        tp_to_initial_return[x] *= historical_position.return_at_close
+                        tp_to_initial_spread_fee[x] *= self.position_uuid_to_cache[historical_position.position_uuid].get_spread_fee(historical_position)
+                        tp_to_initial_carry_fee[x] *= self.position_uuid_to_cache[historical_position.position_uuid].get_carry_fee(historical_position.orders[-1].processed_ms, historical_position)
                 elif len(historical_position.orders) == 0:
                     continue
                 else:
                     dense_positions.append(historical_position)
-            tp_to_historical_positions_dense[tp] = dense_positions
-        return portfolio_return, portfolio_spread_fee, portfolio_carry_fee, tp_to_historical_positions_dense
+                    assert historical_position.trade_pair.trade_pair_id not in open_positions_tp_ids
+                    open_positions_tp_ids.add(historical_position.trade_pair.trade_pair_id)
+            tp_to_historical_positions_dense[tp_id] = dense_positions
+        return tp_to_initial_return, tp_to_initial_spread_fee, tp_to_initial_carry_fee, tp_to_historical_positions_dense, open_positions_tp_ids
 
-    def build_perf_ledger(self, perf_ledger: PerfLedger, tp_to_historical_positions: dict[str: Position], start_time_ms, end_time_ms, miner_hotkey, realtime_position_to_pop) -> bool:
-        #print(f"Building perf ledger for {miner_hotkey} from {start_time_ms} to {end_time_ms} ({(end_time_ms - start_time_ms) // 1000} s)")
-        if len(perf_ledger.cps) == 0:
-            perf_ledger.init_with_first_order(end_time_ms, point_in_time_dd=1.0, current_portfolio_value=1.0,
+    def get_default_update_mode(self, start_time_ms, end_time_ms, n_open_positions):
+        # Minutely mode requires only one open position since intervals are represented with 2 prices.
+        if n_open_positions > 1:
+            default_mode = 'second'
+        # Default mode becomes minute if there are at least x minutes between start and end time
+        elif (end_time_ms - start_time_ms) > 1200000:
+            default_mode = 'minute'
+        else:
+            default_mode = 'second'
+        return default_mode
+
+    def get_current_update_mode(self, default_mode, start_time_ms, end_time_ms, accumulated_time_ms):
+        mode = default_mode
+        if default_mode == 'minute':
+            candidate_t_ms = int((start_time_ms + accumulated_time_ms) // 1000) * 1000
+            ms_from_minute_boundary = candidate_t_ms % 60000
+            if ms_from_minute_boundary != 0:
+                mode = 'second'
+            elif candidate_t_ms + 60000 >= end_time_ms:
+                mode = 'second'
+        return mode
+
+    def debug_significant_portfolio_drop(self, mode, portfolio_return, perf_ledger_bundle, t_ms, miner_hotkey, tp_to_historical_positions):
+        if mode == 'second' and portfolio_return < perf_ledger_bundle[TP_ID_PORTFOLIO].cps[-1].prev_portfolio_ret * 0.98:
+            time_since_last_update = t_ms - perf_ledger_bundle[TP_ID_PORTFOLIO].cps[-1].last_update_ms
+            print(
+                f'perf ledger for hk {miner_hotkey} significant return drop from {perf_ledger_bundle[TP_ID_PORTFOLIO].cps[-1].prev_portfolio_ret} to {portfolio_return} over {time_since_last_update} ms ({t_ms})',
+                perf_ledger_bundle[TP_ID_PORTFOLIO].cps[-1].to_dict(), self.trade_pair_to_position_ret)
+            for tp, historical_positions in tp_to_historical_positions.items():
+                positions = []
+                for historical_position in historical_positions:
+                    positions.append((historical_position.position_uuid, [x.price for x in historical_position.orders],
+                                      historical_position.return_at_close, historical_position.is_open_position))
+                print(f'    tp {tp} positions {positions}')
+
+
+    def inc_accumulated_time(self, mode, accumulated_time_ms):
+        if mode == 'second':
+            accumulated_time_ms += 1000
+            self.mode_to_n_updates['second'] += 1
+        elif mode == 'minute':
+            accumulated_time_ms += 60000
+            self.mode_to_n_updates['minute'] += 1
+        else:
+            raise Exception(f"Unknown mode: {mode}")
+        return accumulated_time_ms
+
+
+    def build_perf_ledger(self, perf_ledger_bundle: dict[str:dict[str, PerfLedger]], tp_to_historical_positions: dict[str: Position], start_time_ms, end_time_ms, miner_hotkey, realtime_position_to_pop) -> bool:
+        portfolio_pl = perf_ledger_bundle[TP_ID_PORTFOLIO]
+        if len(portfolio_pl.cps) == 0:
+            portfolio_pl.init_with_first_order(end_time_ms, point_in_time_dd=1.0, current_portfolio_value=1.0,
                                               current_portfolio_fee_spread=1.0, current_portfolio_carry=1.0)
+
+        # Init per-trade-pair perf ledgers
+        tp_ids_to_build = [TP_ID_PORTFOLIO]
+        for i, (tp_id, positions) in enumerate(tp_to_historical_positions.items()):
+            if tp_id in perf_ledger_bundle:
+                # Can only build perf ledger between orders or after all orders have passed.
+                tp_ids_to_build.append(tp_id)
+            else:
+                assert len(positions) == 1
+                assert len(positions[0].orders) == 0, (tp_id, positions[0], list(perf_ledger_bundle.keys()))
+                assert realtime_position_to_pop and tp_id == realtime_position_to_pop.trade_pair.trade_pair_id
+                initialization_time_ms = realtime_position_to_pop.open_ms
+                perf_ledger_bundle[tp_id] = PerfLedger(initialization_time_ms=initialization_time_ms)
+                perf_ledger_bundle[tp_id].init_with_first_order(end_time_ms, point_in_time_dd=1.0, current_portfolio_value=1.0,
+                                                   current_portfolio_fee_spread=1.0, current_portfolio_carry=1.0)
+
+        if portfolio_pl.initialization_time_ms == end_time_ms:
             return False  # Can only build perf ledger between orders or after all orders have passed.
 
-
         # "Shortcut" All positions closed and one newly open position OR before the ledger lookback window.
-        can_shortcut, portfolio_return, portfolio_spread_fee, portfolio_carry_fee = \
-            self._can_shortcut(tp_to_historical_positions, end_time_ms, realtime_position_to_pop, start_time_ms, perf_ledger)
+        can_shortcut, tp_to_return, tp_to_spread_fee, tp_to_carry_fee, start_time_ms, end_time_ms = \
+            self._can_shortcut(tp_to_historical_positions, end_time_ms, realtime_position_to_pop, start_time_ms, perf_ledger_bundle)
         if can_shortcut:
-            perf_ledger.update(portfolio_return, end_time_ms, miner_hotkey, False, portfolio_spread_fee, portfolio_carry_fee)
-            perf_ledger.purge_old_cps()
+            for tp_id in tp_ids_to_build:
+                perf_ledger = perf_ledger_bundle[tp_id]
+                tp_return = tp_to_return[tp_id]
+                tp_spread_fee = tp_to_spread_fee[tp_id]
+                tp_carry_fee = tp_to_carry_fee[tp_id]
+                perf_ledger.update_pl(tp_return, end_time_ms, miner_hotkey, TradePairReturnStatus.TP_MARKET_NOT_OPEN, tp_spread_fee, tp_carry_fee, tp_debug=tp_id + '_shortcut')
+                perf_ledger.purge_old_cps()
             return False
 
-        any_update = any_open = False
-
+        #print(f"Building perf ledger for {miner_hotkey} from {TimeUtil.millis_to_verbose_formatted_date_str(start_time_ms)} to {TimeUtil.millis_to_verbose_formatted_date_str(end_time_ms)} ({(end_time_ms - start_time_ms) // 1000} s) \
+        #       mode_to_n_updates {self.mode_to_n_updates}. update_to_n_open_positions {self.update_to_n_open_positions}")
         self.init_tp_to_last_price(tp_to_historical_positions)
-        initial_portfolio_return, initial_portfolio_spread_fee, initial_portfolio_carry_fee, tp_to_historical_positions_dense = self.condense_positions(tp_to_historical_positions)
-        for t_ms in range(start_time_ms, end_time_ms, 1000):
-            if self.shutdown_dict:
-                return False
-            assert t_ms >= perf_ledger.last_update_ms, f"t_ms: {t_ms}, last_update_ms: {perf_ledger.last_update_ms}, delta_s: {(t_ms - perf_ledger.last_update_ms) // 1000} s. perf ledger {perf_ledger}"
-            portfolio_return, any_open, portfolio_spread_fee, portfolio_carry_fee = self.positions_to_portfolio_return(tp_to_historical_positions_dense, t_ms, miner_hotkey, end_time_ms, initial_portfolio_return, initial_portfolio_spread_fee, initial_portfolio_carry_fee)
-            if portfolio_return == 0 and self.check_liquidated(miner_hotkey, portfolio_return, t_ms, tp_to_historical_positions, perf_ledger):
+        tp_to_initial_return, tp_to_initial_spread_fee, tp_to_initial_carry_fee, tp_to_historical_positions_dense, \
+            open_positions_tp_ids = self.condense_positions(tp_to_historical_positions)
+        # We avoided a shortcut. Any trade pairs from open positions (tp_to_historical_positions_dense) need to be in the ledgers bundle.
+
+        n_open_positions = len(open_positions_tp_ids)
+        assert n_open_positions, ('zero open positions implies a shortcut should have been taken')
+        self.update_to_n_open_positions[n_open_positions] += 1
+        default_mode = self.get_default_update_mode(start_time_ms, end_time_ms, n_open_positions)
+
+
+        #time_list = list(range(start_time_ms, end_time_ms, step_ms))
+        accumulated_time_ms = 0
+        #mode_to_ticks = {'second': 0, 'minute': 0}
+        while start_time_ms + accumulated_time_ms < end_time_ms:
+            # Need high resolution at the start and end of the time window
+            mode = self.get_current_update_mode(default_mode, start_time_ms, end_time_ms, accumulated_time_ms)
+            t_ms = start_time_ms + accumulated_time_ms
+
+            assert t_ms >= portfolio_pl.last_update_ms, (f"t_ms: {t_ms}, "
+                                                         f"last_update_ms: {TimeUtil.millis_to_formatted_date_str(portfolio_pl.last_update_ms)},"
+                                                         f"mode: {mode},"
+                                                         f" delta_ms: {(t_ms - portfolio_pl.last_update_ms)} s. perf ledger {portfolio_pl}")
+
+            tp_to_current_return, tp_to_any_open, tp_to_current_spread_fee, tp_to_current_carry_fee = \
+                self.positions_to_portfolio_return(tp_to_historical_positions_dense, t_ms, mode, end_time_ms, tp_to_initial_return, tp_to_initial_spread_fee, tp_to_initial_carry_fee)
+            portfolio_return = tp_to_current_return[TP_ID_PORTFOLIO]
+            if portfolio_return == 0 and self.check_liquidated(miner_hotkey, portfolio_return, t_ms, tp_to_historical_positions):
                 return True
 
-            #for z in target_times:
-            #    if abs(z - t_ms) < 10000:
-            #        time_since_last_update = t_ms - perf_ledger.cps[-1].last_update_ms
-            #        print(
-            #            f'debug. portfolio changes from {perf_ledger.cps[-1].prev_portfolio_ret} to {portfolio_return} over {time_since_last_update} ms ({t_ms})',
-            #            perf_ledger.cps[-1].to_dict(), self.trade_pair_to_position_ret)
+            self.debug_significant_portfolio_drop(mode, portfolio_return, perf_ledger_bundle, t_ms, miner_hotkey, tp_to_historical_positions)
 
-            # print if return drops by more than 2% in a single update
-            if portfolio_return < perf_ledger.cps[-1].prev_portfolio_ret * 0.98:
-                time_since_last_update = t_ms - perf_ledger.cps[-1].last_update_ms
-                bt.logging.warning(f'perf ledger for hk {miner_hotkey} significant return drop from {perf_ledger.cps[-1].prev_portfolio_ret} to {portfolio_return} over {time_since_last_update} ms ({t_ms})', perf_ledger.cps[-1].to_dict(), self.trade_pair_to_position_ret)
-                for tp, historical_positions in tp_to_historical_positions.items():
-                    positions = []
-                    for historical_position in historical_positions:
-                        positions.append((historical_position.position_uuid, [x.price for x in historical_position.orders], historical_position.return_at_close, historical_position.is_open_position))
-                    print(f'tp {tp} positions {positions}')
+            for tp_id in open_positions_tp_ids:
+                perf_ledger_bundle[tp_id].update_pl(tp_to_current_return[tp_id], t_ms, miner_hotkey, tp_to_any_open[tp_id], tp_to_spread_fee[tp_id], tp_to_current_carry_fee[tp_id], tp_debug=tp_id)
+            perf_ledger_bundle[TP_ID_PORTFOLIO].update_pl(tp_to_current_return[TP_ID_PORTFOLIO], t_ms, miner_hotkey, tp_to_any_open[TP_ID_PORTFOLIO],
+                                  tp_to_spread_fee[TP_ID_PORTFOLIO], tp_to_current_carry_fee[TP_ID_PORTFOLIO], tp_debug=TP_ID_PORTFOLIO)
 
-            perf_ledger.update(portfolio_return, t_ms, miner_hotkey, any_open, portfolio_spread_fee, portfolio_carry_fee)
-            any_update = True
+            accumulated_time_ms = self.inc_accumulated_time(mode, accumulated_time_ms)
 
-        # Get last sliver of time
-        if any_update and perf_ledger.last_update_ms != end_time_ms:
-            perf_ledger.update(portfolio_return, end_time_ms, miner_hotkey, any_open, portfolio_spread_fee, portfolio_carry_fee)
 
-        perf_ledger.purge_old_cps()
+        # Get last sliver of time for open positions and fill the void for closed positions.
+        # Note - nothing changes on closed positions over time, not even fees.
+        for tp_id in tp_ids_to_build:
+           perf_ledger = perf_ledger_bundle[tp_id]
+           if perf_ledger.last_update_ms != end_time_ms:
+               assert perf_ledger.last_update_ms < end_time_ms, (perf_ledger.last_update_ms, end_time_ms)
+               perf_ledger.update_pl(tp_to_current_return[tp_id], end_time_ms, miner_hotkey, tp_to_any_open[tp_id], tp_to_spread_fee[tp_id], tp_to_current_carry_fee[tp_id])
+
+           perf_ledger.purge_old_cps()
+
+        #n_minutes_between_intervals = (end_time_ms - start_time_ms) // 60000
+        #print(f'Updated between {TimeUtil.millis_to_formatted_date_str(start_time_ms)} and {TimeUtil.millis_to_formatted_date_str(end_time_ms)} ({n_minutes_between_intervals} min). mode_to_ticks {mode_to_ticks}. Default mode {default_mode}')
         return False
 
-    def update_one_perf_ledger(self, hotkey_i: int, n_hotkeys: int, hotkey: str, positions: List[Position], now_ms:int,
-                               existing_perf_ledgers: dict[str, PerfLedger]) -> None:
+    def update_one_perf_ledger_bundle(self, hotkey_i: int, n_hotkeys: int, hotkey: str, positions: List[Position], now_ms:int,
+                                      existing_perf_ledger_bundles: dict[str, dict[str, PerfLedger]]) -> None:
 
         eliminated = False
         self.n_api_calls = 0
+        self.mode_to_n_updates = {'second': 0, 'minute': 0}
+        self.update_to_n_open_positions = defaultdict(int)
 
         t0 = time.time()
-        perf_ledger_candidate = existing_perf_ledgers.get(hotkey)
-        if perf_ledger_candidate is None:
+        perf_ledger_bundle_candidate = existing_perf_ledger_bundles.get(hotkey)
+        if perf_ledger_bundle_candidate and self._is_v1_perf_ledger(perf_ledger_bundle_candidate):
+            bt.logging.warning(f"hotkey {hotkey} has legacy perf ledger. Wiping.")
+            perf_ledger_bundle_candidate = None
+
+        if perf_ledger_bundle_candidate is None:
             first_order_time_ms = float('inf')
             for p in positions:
-                first_order_time_ms = min(first_order_time_ms, p.orders[0].processed_ms)
-            perf_ledger_candidate = PerfLedger(
-                initialization_time_ms = first_order_time_ms if first_order_time_ms != float('inf') else 0)
+                first_order_time_ms = min(first_order_time_ms, p.open_ms)
+            perf_ledger_bundle_candidate = {TP_ID_PORTFOLIO:
+                PerfLedger(initialization_time_ms=first_order_time_ms if first_order_time_ms != float('inf') else 0)}
+
             verbose = True
         else:
-            perf_ledger_candidate = deepcopy(perf_ledger_candidate)
+            perf_ledger_bundle_candidate = deepcopy(perf_ledger_bundle_candidate)
             verbose = False
 
-        perf_ledger_candidate.init_max_portfolio_value()
+        for tp_id, perf_ledger in perf_ledger_bundle_candidate.items():
+            perf_ledger.init_max_portfolio_value()
+
         self.trade_pair_to_position_ret = {}
         #if hotkey in self.hk_to_dd_stats:
         #    del self.hk_to_dd_stats[hotkey]
-        self.n_price_corrections = 0
 
         tp_to_historical_positions = defaultdict(list)
         sorted_timeline, last_event_time_ms = self.generate_order_timeline(positions, now_ms, hotkey)  # Enforces our "now_ms" constraint
-        self.hk_to_last_order_processed_ms[hotkey] = last_event_time_ms
         # There hasn't been a new order since the last update time. Just need to update for open positions
         building_from_new_orders = True
-        if last_event_time_ms <= perf_ledger_candidate.last_update_ms:
+        if last_event_time_ms <= perf_ledger_bundle_candidate[TP_ID_PORTFOLIO].last_update_ms:
             building_from_new_orders = False
             # Preserve returns from realtime positions
             sorted_timeline = []
             tp_to_historical_positions = {}
             for p in positions:
-                if p.trade_pair.trade_pair in tp_to_historical_positions:
-                    tp_to_historical_positions[p.trade_pair.trade_pair].append(p)
+                symbol = p.trade_pair.trade_pair_id
+                if symbol in tp_to_historical_positions:
+                    tp_to_historical_positions[symbol].append(p)
                 else:
-                    tp_to_historical_positions[p.trade_pair.trade_pair] = [p]
+                    tp_to_historical_positions[symbol] = [p]
             
 
         # Building for scratch or there have been order(s) since the last update time
         realtime_position_to_pop = None
         for event_idx, event in enumerate(sorted_timeline):
             if realtime_position_to_pop:
-                symbol = realtime_position_to_pop.trade_pair.trade_pair
+                symbol = realtime_position_to_pop.trade_pair.trade_pair_id
                 tp_to_historical_positions[symbol][-1] = realtime_position_to_pop
                 if realtime_position_to_pop.return_at_close == 0:  # liquidated
-                    self.check_liquidated(hotkey, 0.0, realtime_position_to_pop.close_ms, tp_to_historical_positions,
-                                          perf_ledger_candidate)
+                    self.check_liquidated(hotkey, 0.0, realtime_position_to_pop.close_ms, tp_to_historical_positions)
                     eliminated = True
                     break
 
             order, position = event
-            symbol = position.trade_pair.trade_pair
+            symbol = position.trade_pair.trade_pair_id
             pos, realtime_position_to_pop = self.get_historical_position(position, order.processed_ms)
 
             if (symbol in tp_to_historical_positions and
@@ -870,13 +1055,13 @@ class PerfLedgerManager(CacheController):
                 continue
 
             # Building from a checkpoint ledger. Skip until we get to the new order(s). We are only running this to build up tp_to_historical_positions.
-            if order.processed_ms <= perf_ledger_candidate.last_update_ms:
+            portfolio_last_update_ms = perf_ledger_bundle_candidate[TP_ID_PORTFOLIO].last_update_ms
+            if order.processed_ms < portfolio_last_update_ms:
                 continue
 
             # Need to catch up from perf_ledger.last_update_ms to order.processed_ms
-            eliminated = self.build_perf_ledger(perf_ledger_candidate, tp_to_historical_positions, perf_ledger_candidate.last_update_ms, order.processed_ms, hotkey, realtime_position_to_pop)
-            if event_idx == len(sorted_timeline) - 1:
-                self.hotkey_to_checkpointed_ledger[hotkey] = deepcopy(perf_ledger_candidate)
+            eliminated = self.build_perf_ledger(perf_ledger_bundle_candidate, tp_to_historical_positions, portfolio_last_update_ms, order.processed_ms, hotkey, realtime_position_to_pop)
+
             if eliminated:
                 break
             # print(f"Done processing order {order}. perf ledger {perf_ledger}")
@@ -885,26 +1070,30 @@ class PerfLedgerManager(CacheController):
             return
         # We have processed all orders. Need to catch up to now_ms
         if realtime_position_to_pop:
-            symbol = realtime_position_to_pop.trade_pair.trade_pair
+            symbol = realtime_position_to_pop.trade_pair.trade_pair_id
             tp_to_historical_positions[symbol][-1] = realtime_position_to_pop
-        if now_ms > perf_ledger_candidate.last_update_ms:
-            self.build_perf_ledger(perf_ledger_candidate, tp_to_historical_positions,
-                                   perf_ledger_candidate.last_update_ms, now_ms, hotkey,
-                                   None)
 
-        lag = (TimeUtil.now_in_millis() - perf_ledger_candidate.last_update_ms) // 1000
-        total_product = perf_ledger_candidate.get_total_product()
-        last_portfolio_value = perf_ledger_candidate.prev_portfolio_ret
+        portfolio_perf_ledger = perf_ledger_bundle_candidate[TP_ID_PORTFOLIO]
+        if now_ms > portfolio_perf_ledger.last_update_ms:
+            portfolio_last_update_ms = portfolio_perf_ledger.last_update_ms
+            self.build_perf_ledger(perf_ledger_bundle_candidate, tp_to_historical_positions,
+                                   portfolio_last_update_ms, now_ms, hotkey,None)
+
+        self.hk_to_last_order_processed_ms[hotkey] = last_event_time_ms
+
+        lag = (TimeUtil.now_in_millis() - portfolio_perf_ledger.last_update_ms) // 1000
+        total_product = portfolio_perf_ledger.get_total_product()
+        last_portfolio_value = portfolio_perf_ledger.prev_portfolio_ret
         if verbose:
             bt.logging.success(
                 f"Done updating perf ledger for {hotkey} {hotkey_i + 1}/{n_hotkeys} in {time.time() - t0} "
                 f"(s). Lag: {lag} (s). Total product: {total_product}. Last portfolio value: {last_portfolio_value}."
-                f" n_api_calls: {self.n_api_calls} dd stats {None}. n_price_corrections {self.n_price_corrections}"
-                f" last cp {perf_ledger_candidate.cps[-1]}. perf_ledger_mpv {perf_ledger_candidate.max_return} "
-                f"perf_ledger_initialization_time {TimeUtil.millis_to_formatted_date_str(perf_ledger_candidate.initialization_time_ms)}")
-
+                f" n_api_calls: {self.n_api_calls} dd stats {None}. "
+                f" last cp {portfolio_perf_ledger.cps[-1] if portfolio_perf_ledger.cps else None}. perf_ledger_mpv {portfolio_perf_ledger.max_return} "
+                f"perf_ledger_initialization_time {TimeUtil.millis_to_formatted_date_str(portfolio_perf_ledger.initialization_time_ms)}. "
+                f"mode_to_n_updates {self.mode_to_n_updates}. update_to_n_open_positions {self.update_to_n_open_positions}")
         # Write candidate at the very end in case an exception leads to a partial update
-        existing_perf_ledgers[hotkey] = perf_ledger_candidate
+        existing_perf_ledger_bundles[hotkey] = perf_ledger_bundle_candidate
 
     @timeme
     def write_perf_ledger_eliminations_to_disk(self, eliminations):
@@ -921,15 +1110,15 @@ class PerfLedgerManager(CacheController):
 
 
     def update_all_perf_ledgers(self, hotkey_to_positions: dict[str, List[Position]],
-                                existing_perf_ledgers: dict[str, PerfLedger],
-                                now_ms: int) -> None | dict[str, PerfLedger]:
+                                existing_perf_ledgers: dict[str, dict[str, PerfLedger]],
+                                now_ms: int) -> None | dict[str, dict[str, PerfLedger]]:
         t_init = time.time()
         self.now_ms = now_ms
         self.candidate_pl_elimination_rows = []
         n_hotkeys = len(hotkey_to_positions)
         for hotkey_i, (hotkey, positions) in enumerate(hotkey_to_positions.items()):
             try:
-                self.update_one_perf_ledger(hotkey_i, n_hotkeys, hotkey, positions, now_ms, existing_perf_ledgers)
+                self.update_one_perf_ledger_bundle(hotkey_i, n_hotkeys, hotkey, positions, now_ms, existing_perf_ledgers)
             except Exception as e:
                 bt.logging.error(f"Error updating perf ledger for {hotkey}: {e}. Please alert a team member ASAP!")
                 bt.logging.error(traceback.format_exc())
@@ -948,13 +1137,11 @@ class PerfLedgerManager(CacheController):
         if self.shutdown_dict:
             return
 
-        # Already updated in memory
         self.save_perf_ledgers(existing_perf_ledgers)
+        return existing_perf_ledgers
+
 
     def get_positions_perf_ledger(self, testing_one_hotkey=None):
-        """
-        Since we are running in our own thread, we need to retry in case positions are being written to simultaneously.
-        """
         #testing_one_hotkey = '5GzYKUYSD5d7TJfK4jsawtmS2bZDgFuUYw8kdLdnEDxSykTU'
         hotkeys_with_no_positions = set()
         if testing_one_hotkey:
@@ -974,28 +1161,22 @@ class PerfLedgerManager(CacheController):
                     hotkeys_with_no_positions.add(k)
             for k in hotkeys_with_no_positions:
                 del hotkey_to_positions[k]
-            bt.logging.info('TEMP DEBUG: TOTAL N POSITIONS IN MEMORY: ' + str(n_positions_total))
+            bt.logging.info('TOTAL N POSITIONS IN MEMORY: ' + str(n_positions_total))
 
         return hotkey_to_positions, hotkeys_with_no_positions
 
-    def generate_perf_ledgers_for_analysis(self, hotkey_to_positions: dict[str, List[Position]], t_ms: int = None) -> dict[str, PerfLedger]:
+    def generate_perf_ledgers_for_analysis(self, hotkey_to_positions: dict[str, List[Position]], t_ms: int = None) -> dict[str, dict[str, PerfLedger]]:
         if t_ms is None:
             t_ms = TimeUtil.now_in_millis()  # Time to build the perf ledgers up to. Goes back 30 days from this time.
         existing_perf_ledgers = {}
-        self.update_all_perf_ledgers(hotkey_to_positions, existing_perf_ledgers, t_ms)
-        return existing_perf_ledgers
+        return self.update_all_perf_ledgers(hotkey_to_positions, existing_perf_ledgers, t_ms)
 
-
-    def get_perf_ledgers_from_memory(self, first_fetch=False):
-        if first_fetch:
-            self.hotkey_to_perf_ledger.update(self.get_perf_ledgers_from_disk())
-        return deepcopy(self.hotkey_to_perf_ledger)
-
-    def update(self, testing_one_hotkey=None, regenerate_all_ledgers=False):
+    def update(self, testing_one_hotkey=None, regenerate_all_ledgers=False, t_ms=None):
         assert self.position_manager.elimination_manager.metagraph, "Metagraph must be loaded before updating perf ledgers"
         assert self.metagraph, "Metagraph must be loaded before updating perf ledgers"
-        perf_ledgers = self.get_perf_ledgers_from_memory()
-        t_ms = TimeUtil.now_in_millis() - self.UPDATE_LOOKBACK_MS
+        perf_ledger_bundles = self.get_perf_ledgers(portfolio_only=False)
+        if t_ms is None:
+            t_ms = TimeUtil.now_in_millis() - self.UPDATE_LOOKBACK_MS
         """
         tt = 1734279788000
         if t_ms < tt + 1000 * 60 * 60 * 1:  # Rebuild after bug fix
@@ -1024,12 +1205,35 @@ class PerfLedgerManager(CacheController):
 
         # Remove keys from perf ledgers if they aren't in the metagraph anymore
         metagraph_hotkeys = set(self.metagraph.hotkeys)
-        hotkeys_to_delete = set([x for x in hotkeys_with_no_positions if x in perf_ledgers])
+        hotkeys_to_delete = set([x for x in hotkeys_with_no_positions if x in perf_ledger_bundles])
         rss_modified = False
+        # Recently re-registered
+        hotkeys_rrr = []
+        deltas = []
+        n_valid_times = 0
+        total_n_times = 0
+        for hotkey in hotkey_to_positions:
+            corresponding_ledger_bundle = perf_ledger_bundles.get(hotkey)
+            if corresponding_ledger_bundle is None:
+                continue
+            portfolio_ledger = corresponding_ledger_bundle[TP_ID_PORTFOLIO]
+            first_order_time_ms = min(p.orders[0].processed_ms for p in hotkey_to_positions[hotkey])
+            total_n_times += 1
+            if portfolio_ledger.initialization_time_ms != first_order_time_ms:
+                hotkeys_rrr.append(hotkey)
+                deltas.append(portfolio_ledger.initialization_time_ms - first_order_time_ms)
+            else:
+                n_valid_times += 1
+
+        if hotkeys_rrr:
+            bt.logging.warning(f'Removing recently re-registered hotkeys from perf ledgers. n_valid_times {n_valid_times} total_n_times {total_n_times}. pct valid {n_valid_times / total_n_times * 100:.2f}%')
+            for x in list(zip(hotkeys_rrr, deltas)):
+                bt.logging.warning(x)
+            hotkeys_to_delete.update(hotkeys_rrr)
 
         # Determine which hotkeys to remove from the perf ledger
-        hotkeys_to_iterate = [x for x in hotkeys_ordered_by_last_trade if x in perf_ledgers]
-        for k in perf_ledgers.keys():  # Some hotkeys may not be in the positions (old, bugged, etc.)
+        hotkeys_to_iterate = [x for x in hotkeys_ordered_by_last_trade if x in perf_ledger_bundles]
+        for k in perf_ledger_bundles.keys():  # Some hotkeys may not be in the positions (old, bugged, etc.)
             if k not in hotkeys_to_iterate:
                 hotkeys_to_iterate.append(k)
 
@@ -1040,7 +1244,7 @@ class PerfLedgerManager(CacheController):
                 pass  # Don't want to rebuild. Use this pass statement to avoid rss logic.
             elif not len(hotkey_to_positions.get(hotkey, [])):
                 hotkeys_to_delete.add(hotkey)
-            elif not rss_modified and hotkey not in self.random_security_screenings:
+            elif self.enable_rss and not rss_modified and hotkey not in self.random_security_screenings:
                 rss_modified = True
                 self.random_security_screenings.add(hotkey)
                 #bt.logging.info(f"perf ledger PLM added {hotkey} with {len(hotkey_to_positions.get(hotkey, []))} positions to rss.")
@@ -1058,9 +1262,9 @@ class PerfLedgerManager(CacheController):
                 bt.logging.info(f"perf ledger invalidated for hk {hk} due to position sync at time {t}")
 
         for k in hotkeys_to_delete:
-            del perf_ledgers[k]
+            del perf_ledger_bundles[k]
 
-        self.hk_to_last_order_processed_ms = {k: v for k, v in self.hk_to_last_order_processed_ms.items() if k not in hotkeys_to_delete}
+        self.hk_to_last_order_processed_ms = {k: v for k, v in self.hk_to_last_order_processed_ms.items() if k in perf_ledger_bundles}
 
         #hk_to_last_update_date = {k: TimeUtil.millis_to_formatted_date_str(v.last_update_ms)
         #                            if v.last_update_ms else 'N/A' for k, v in perf_ledgers.items()}
@@ -1069,107 +1273,125 @@ class PerfLedgerManager(CacheController):
 
         if regenerate_all_ledgers or testing_one_hotkey:
             bt.logging.info("Regenerating all perf ledgers")
-            for k in list(perf_ledgers.keys()):
-                del perf_ledgers[k]
+            for k in list(perf_ledger_bundles.keys()):
+                del perf_ledger_bundles[k]
 
-        self.restore_out_of_sync_ledgers(perf_ledgers, hotkey_to_positions)
+        try:
+            self.restore_out_of_sync_ledgers(perf_ledger_bundles, hotkey_to_positions)
+        except Exception as e:
+            bt.logging.warning(f"Couldn't restore out of sync ledgers: {e}. Continuing...")
+            bt.logging.warning(traceback.format_exc())
 
         # Time in the past to start updating the perf ledgers
-        self.update_all_perf_ledgers(hotkey_to_positions, perf_ledgers, t_ms)
+        self.update_all_perf_ledgers(hotkey_to_positions, perf_ledger_bundles, t_ms)
 
         # Clear invalidations after successful update. Prevent race condition by only clearing if we attempted invalidations.
         if attempting_invalidations:
             self.perf_ledger_hks_to_invalidate.clear()
 
         if testing_one_hotkey:
-            ledger = perf_ledgers[testing_one_hotkey]
+            portfolio_ledger = perf_ledger_bundles[testing_one_hotkey][TP_ID_PORTFOLIO]
             # print all attributes except cps: Note ledger is an object
-            print(f'Ledger attributes: initialization_time_ms {ledger.initialization_time_ms},'
-                  f' max_return {ledger.max_return}')
+            print(f'Portfolio ledger attributes: initialization_time_ms {portfolio_ledger.initialization_time_ms},'
+                    f' max_return {portfolio_ledger.max_return}')
             returns = []
-            dds = []
+            returns_muled = []
             times = []
-            for i, x in enumerate(ledger.cps):
+            n_contributing_tps = []
+            for i, x in enumerate(portfolio_ledger.cps):
                 returns.append(x.prev_portfolio_ret)
-                dds.append(x.mpv)
+                foo = 1.0
+                n_contributing = 0
+                for tp_id, ledger in perf_ledger_bundles[testing_one_hotkey].items():
+                    if tp_id == TP_ID_PORTFOLIO:
+                        continue
+                    rele_cp = None
+                    for y in ledger.cps:
+                        if y.last_update_ms == x.last_update_ms:
+                            rele_cp = y
+                            break
+                    if rele_cp:
+                        n_contributing += 1
+                        foo *= rele_cp.prev_portfolio_ret
+                returns_muled.append(foo)
+                n_contributing_tps.append(n_contributing)
                 times.append(TimeUtil.millis_to_timestamp(x.last_update_ms))
+
                 last_update_formated = TimeUtil.millis_to_timestamp(x.last_update_ms)
                 # assert the checkpoint ends on a 12 hour boundary
-                if i != len(ledger.cps) - 1:
-                    assert x.last_update_ms % ledger.target_cp_duration_ms == 0, x.last_update_ms
+                if i != len(portfolio_ledger.cps) - 1:
+                    assert x.last_update_ms % portfolio_ledger.target_cp_duration_ms == 0, x.last_update_ms
                 print(x, last_update_formated)
             # Plot time vs return using matplotlib as well as time vs dd. use a legend.
             import matplotlib.pyplot as plt
             # Make the plot bigger
             plt.figure(figsize=(10, 5))
             plt.plot(times, returns, color='red', label='Return')
-            plt.plot(times, dds, color='blue', label='Drawdown')
+            plt.plot(times, returns_muled, color='blue', label='Return_Mulled')
             # Labels
             plt.xlabel('Time')
             plt.title(f'Return vs Time for HK {testing_one_hotkey}')
-            plt.legend(['Return', 'Drawdown'])
+            plt.legend(['Return', 'Return_Mulled'])
             plt.show()
 
-    def save_perf_ledgers_to_disk(self, perf_ledgers):
+            for tp_id, pl in perf_ledger_bundles[testing_one_hotkey].items():
+                print(f"perf ledger for {tp_id} last cp {pl.cps[-1]}")
+                print('    total gain product', pl.get_product_of_gains())
+                print('    total loss product', pl.get_product_of_loss())
+                print('    total product', pl.get_total_product())
+
+            print('validating returns:')
+            for z in zip(returns, returns_muled, n_contributing_tps):
+                print(z, z[0] - z[1])
+
+    def save_perf_ledgers_to_disk(self, perf_ledgers: dict[str, dict[str, PerfLedger]] | dict[str, dict[str, dict]], raw_json=False):
         file_path = ValiBkpUtils.get_perf_ledgers_path(self.running_unit_tests)
         ValiBkpUtils.write_to_dir(file_path, perf_ledgers)
 
     @timeme
-    def save_perf_ledgers(self, perf_ledgers_copy: dict[str, PerfLedger] | dict[str, dict]):
-        self.save_perf_ledgers_to_disk(perf_ledgers_copy)
+    def save_perf_ledgers(self, perf_ledgers_copy: dict[str, dict[str, PerfLedger]] | dict[str, dict[str, dict]], raw_json=False):
+        self.save_perf_ledgers_to_disk(perf_ledgers_copy, raw_json=raw_json)
 
         # Update memory
-        for k in list(self.hotkey_to_perf_ledger.keys()):
+        for k in list(self.hotkey_to_perf_bundle.keys()):
             if k not in perf_ledgers_copy:
-                del self.hotkey_to_perf_ledger[k]
+                del self.hotkey_to_perf_bundle[k]
 
         for k, v in perf_ledgers_copy.items():
-            self.hotkey_to_perf_ledger[k] = v
+            self.hotkey_to_perf_bundle[k] = v
 
-    def print_perf_ledgers_on_disk(self):
-        perf_ledgers = self.get_perf_ledgers_from_memory()
-        for hotkey, perf_ledger in perf_ledgers.items():
-            print(f"perf ledger for {hotkey}")
-            print('    total gain product', perf_ledger.get_product_of_gains())
-            print('    total loss product', perf_ledger.get_product_of_loss())
-            print('    total product', perf_ledger.get_total_product())
-
-    def restore_out_of_sync_ledgers(self, existing_perf_ledgers, hotkey_to_positions):
+    def restore_out_of_sync_ledgers(self, existing_bundles, hotkey_to_positions):
+        # TODO: Write tests
         """
-        REstore ledgers subject to race condition. Perf ledger fully update loop can take 30 min.
+        Restore ledgers subject to race condition. Perf ledger fully update loop can take 30 min.
         An order can come in during update.
 
         We can only build perf ledgers between orders or after all orders
         """
-        hotkeys_needing_recovery = []
-        for hk, ledger in existing_perf_ledgers.items():
+        for hk, bundle in existing_bundles.items():
             last_acked_order_time_ms = self.hk_to_last_order_processed_ms.get(hk)
             if not last_acked_order_time_ms:
                 continue
-            ledger_last_update_time = ledger.last_update_ms
+            ledger_last_update_time = bundle[TP_ID_PORTFOLIO].last_update_ms
             positions = hotkey_to_positions.get(hk)
             if positions is None:
                 continue
+            smallest_conflict_time_ms = float('inf')
             for p in positions:
                 for o in p.orders:
                     # An order came in while the perf ledger was being updated. Trim the checkpoints to avoid a race condition.
                     if last_acked_order_time_ms < o.processed_ms < ledger_last_update_time:
-                        order_time_str = TimeUtil.millis_to_formatted_date_str(o.processed_ms)
-                        last_acked_time_str = TimeUtil.millis_to_formatted_date_str(last_acked_order_time_ms)
-                        ledger_last_update_time_str = TimeUtil.millis_to_formatted_date_str(ledger_last_update_time)
-                        bt.logging.info(f"Recovering checkpoints for {hk}. Order came in at {order_time_str} after last acked time {last_acked_time_str} but before perf ledger update time {ledger_last_update_time_str}")
-                        hotkeys_needing_recovery.append(hk)
+                        smallest_conflict_time_ms = min(smallest_conflict_time_ms, o.processed_ms)
+            if smallest_conflict_time_ms != float('inf'):
+                order_time_str = TimeUtil.millis_to_formatted_date_str(smallest_conflict_time_ms)
+                last_acked_time_str = TimeUtil.millis_to_formatted_date_str(last_acked_order_time_ms)
+                ledger_last_update_time_str = TimeUtil.millis_to_formatted_date_str(ledger_last_update_time)
+                bt.logging.info(f"Recovering checkpoints for {hk}. Order came in at {order_time_str} after last acked time {last_acked_time_str} but before perf ledger update time {ledger_last_update_time_str}")
+                for tp_id, pl in bundle.items():
+                    pl.trim_checkpoints(smallest_conflict_time_ms)
+                    if len(pl.cps) == 0:
+                        pl.max_return = 1.0
 
-
-        n_hotkeys_recovered = 0
-        for hk in hotkeys_needing_recovery:
-            if hk in self.hotkey_to_checkpointed_ledger:
-                existing_perf_ledgers[hk] = self.hotkey_to_checkpointed_ledger[hk]
-                n_hotkeys_recovered += 1
-            else:
-                del existing_perf_ledgers[hk] # Full regeneration needed
-        if hotkeys_needing_recovery:
-            bt.logging.info(f"Recovered {n_hotkeys_recovered} / {len(hotkeys_needing_recovery)} perf ledgers for out of sync hotkeys")
 
 
 class MockMetagraph():
@@ -1184,6 +1406,6 @@ if __name__ == "__main__":
     mmg = MockMetagraph(hotkeys=all_hotkeys_on_disk)
     elimination_manager = EliminationManager(mmg, None, None)
     position_manager = PositionManager(metagraph=mmg, running_unit_tests=False, elimination_manager=elimination_manager)
-    perf_ledger_manager = PerfLedgerManager(mmg, running_unit_tests=False, position_manager=position_manager)
-    perf_ledger_manager.update(testing_one_hotkey='5FWa35Ye9fy1VzWUgS9bvzcTXLDzKaybZ8wL9eER3g1Mu291')
+    perf_ledger_manager = PerfLedgerManager(mmg, position_manager=position_manager, running_unit_tests=False, enable_rss=False)
     #perf_ledger_manager.update(regenerate_all_ledgers=True)
+    perf_ledger_manager.update(testing_one_hotkey='5F1Dk6TyMrsx3dhiG1hLWhPnACNFKz4mfLkgG3s7n1Q9qpJ4')

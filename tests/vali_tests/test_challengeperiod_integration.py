@@ -4,7 +4,8 @@ from copy import deepcopy
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.utils.elimination_manager import EliminationManager
 from vali_objects.vali_dataclasses.order import Order
-from vali_objects.vali_dataclasses.perf_ledger import PerfLedger
+
+from vali_objects.vali_dataclasses.perf_ledger import PerfLedger, TP_ID_PORTFOLIO
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
 from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
 from tests.shared_objects.mock_classes import (
@@ -265,8 +266,8 @@ class TestChallengePeriodIntegration(TestBase):
 
         # Now loading the data
         positions = self.position_manager.get_positions_for_hotkeys(hotkeys=[self.DEFAULT_MINER_HOTKEY])
-        ledgers = self.ledger_manager.get_perf_ledgers_from_disk()
-        ledgers_memory = self.ledger_manager.get_perf_ledgers_from_memory()
+        ledgers = self.ledger_manager.get_perf_ledgers(from_disk=True)
+        ledgers_memory = self.ledger_manager.get_perf_ledgers(from_disk=False)
         self.assertEqual(ledgers, ledgers_memory)
 
         # First check that there is nothing on the miner
@@ -330,7 +331,7 @@ class TestChallengePeriodIntegration(TestBase):
         # Check one of the failing miners, to see if they are screened
         failing_miner = self.FAILING_MINER_NAMES[0]
         failing_screen, _ = self.challengeperiod_manager.screen_failing_criteria(
-            ledger_element=self.LEDGERS[failing_miner]
+            ledger_element=self.LEDGERS[failing_miner][TP_ID_PORTFOLIO]
         )
 
         self.assertEqual(failing_screen, True)
@@ -338,7 +339,7 @@ class TestChallengePeriodIntegration(TestBase):
         # Now inspect all the hotkeys
         challenge_success, challenge_eliminations = self.challengeperiod_manager.inspect(
             positions=self.POSITIONS,
-            ledger=self.LEDGERS,
+            ledger={hk: v[TP_ID_PORTFOLIO] for hk, v in self.LEDGERS.items()},
             success_hotkeys=self.SUCCESS_MINER_NAMES,
             inspection_hotkeys=self.challengeperiod_manager.challengeperiod_testing,
             current_time=self.OUTSIDE_OF_CHALLENGE

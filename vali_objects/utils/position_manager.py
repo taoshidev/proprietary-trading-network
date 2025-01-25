@@ -68,18 +68,20 @@ class PositionManager(CacheController):
     def filtered_positions_for_scoring(
             self,
             hotkeys: List[str] = None
-    ) -> dict[str, list[Position]]:
+    ) -> (Dict[str, List[Position]], Dict[str, int]):
         """
         Filter the positions for a set of hotkeys.
         """
         if hotkeys is None:
             hotkeys = self.get_miner_hotkeys_with_at_least_one_position()
 
+        hk_to_first_order_time = {}
         filtered_positions = {}
         for hotkey, miner_positions in self.get_positions_for_hotkeys(hotkeys, sort_positions=True).items():
+            hk_to_first_order_time[hotkey] = min([p.orders[0].processed_ms for p in miner_positions]) if miner_positions else None
             filtered_positions[hotkey] = PositionFiltering.filter_positions_for_duration(miner_positions)
 
-        return filtered_positions
+        return filtered_positions, hk_to_first_order_time
 
     def pre_run_setup(self):
         """
@@ -367,7 +369,7 @@ class PositionManager(CacheController):
 
                 self.challengeperiod_manager._write_challengeperiod_from_memory_to_disk()
 
-                perf_ledgers = self.perf_ledger_manager.get_perf_ledgers_from_memory()
+                perf_ledgers = self.perf_ledger_manager.get_perf_ledgers()
                 print('n perf ledgers before:', len(perf_ledgers))
                 perf_ledgers_new = {k:v for k,v in perf_ledgers.items() if k != miner_hotkey}
                 print('n perf ledgers after:', len(perf_ledgers_new))

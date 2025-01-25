@@ -8,40 +8,220 @@ from vali_objects.vali_config import TradePair
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.position import Position
 from vali_objects.vali_dataclasses.order import Order
-from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
+from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager, TP_ID_PORTFOLIO, MockMetagraph
+
 
 class TestPerfLedgers(TestBase):
 
     def setUp(self):
         super().setUp()
         self.DEFAULT_MINER_HOTKEY = "test_miner"
-        self.DEFAULT_POSITION_UUID = "test_position"
-        self.DEFAULT_ORDER_UUID = "test_order"
-        self.DEFAULT_OPEN_MS = 1718071209000
+        self.DEFAULT_OPEN_MS = TimeUtil.now_in_millis() - 1000 * 60 * 60 * 24 * 60  # 60 days ago
         self.DEFAULT_TRADE_PAIR = TradePair.BTCUSD
-        self.default_order = Order(price=60000, processed_ms=self.DEFAULT_OPEN_MS, order_uuid=self.DEFAULT_ORDER_UUID, trade_pair=self.DEFAULT_TRADE_PAIR,
+        self.default_btc_order = Order(price=60000, processed_ms=self.DEFAULT_OPEN_MS, order_uuid="test_order_btc", trade_pair=self.DEFAULT_TRADE_PAIR,
+                                     order_type=OrderType.LONG, leverage=.5)
+        self.default_nvda_order = Order(price=100, processed_ms=self.DEFAULT_OPEN_MS + 1000 * 60 * 60 * 24 * 5, order_uuid="test_order_nvda", trade_pair=TradePair.NVDA,
                                      order_type=OrderType.LONG, leverage=1)
+        self.default_usdjpy_order = Order(price=156, processed_ms=self.DEFAULT_OPEN_MS + 1000 * 60 * 60 * 24 * 10, order_uuid="test_order_usdjpy",
+                                          trade_pair=TradePair.USDJPY, order_type=OrderType.LONG, leverage=1)
 
-        self.default_open_position = Position(
+        self.default_btc_position = Position(
             miner_hotkey=self.DEFAULT_MINER_HOTKEY,
-            position_uuid=self.DEFAULT_POSITION_UUID,
+            position_uuid="test_position_btc",
             open_ms=self.DEFAULT_OPEN_MS,
             trade_pair=self.DEFAULT_TRADE_PAIR,
-            orders=[self.default_order],
+            orders=[self.default_btc_order],
             position_type=OrderType.LONG
         )
-        elimination_manager = EliminationManager(None, None, None)
-        position_manager = PositionManager(metagraph=None, running_unit_tests=True, elimination_manager=elimination_manager)
-        self.perf_ledger_manager = PerfLedgerManager(metagraph=None, running_unit_tests=True, position_manager=position_manager)
+        self.default_btc_position.rebuild_position_with_updated_orders()
+
+        self.default_nvda_position = Position(
+            miner_hotkey=self.DEFAULT_MINER_HOTKEY,
+            position_uuid="test_position_nvda",
+            open_ms=self.DEFAULT_OPEN_MS,
+            trade_pair=TradePair.NVDA,
+            orders=[self.default_nvda_order],
+            position_type=OrderType.LONG
+        )
+        self.default_nvda_position.rebuild_position_with_updated_orders()
+
+        self.default_usdjpy_position = Position(
+            miner_hotkey=self.DEFAULT_MINER_HOTKEY,
+            position_uuid="test_position_usdjpy",
+            open_ms=self.DEFAULT_OPEN_MS,
+            trade_pair=TradePair.USDJPY,
+            orders=[self.default_usdjpy_order],
+            position_type=OrderType.LONG
+        )
+        self.default_usdjpy_position.rebuild_position_with_updated_orders()
+        mmg = MockMetagraph(hotkeys=[self.DEFAULT_MINER_HOTKEY])
+        elimination_manager = EliminationManager(mmg, None, None)
+        position_manager = PositionManager(metagraph=mmg, running_unit_tests=True, elimination_manager=elimination_manager)
+        position_manager.clear_all_miner_positions()
+
+        for p in [self.default_usdjpy_position, self.default_nvda_position, self.default_btc_position]:
+            position_manager.save_miner_position(p)
+        self.perf_ledger_manager = PerfLedgerManager(metagraph=mmg, running_unit_tests=True, position_manager=position_manager)
+        self.perf_ledger_manager.clear_perf_ledgers_from_disk()
 
     @patch('data_generator.polygon_data_service.PolygonDataService.unified_candle_fetcher')
     def test_basic(self, mock_unified_candle_fetcher):
         mock_unified_candle_fetcher.return_value = {}
-        hotkey_to_positions = {self.DEFAULT_MINER_HOTKEY: [self.default_open_position]}
+        hotkey_to_positions = {self.DEFAULT_MINER_HOTKEY: [self.default_btc_position]}
         ans = self.perf_ledger_manager.generate_perf_ledgers_for_analysis(hotkey_to_positions)
-        for x in ans[self.DEFAULT_MINER_HOTKEY].cps:
-            last_update_formated = TimeUtil.millis_to_timestamp(x.last_update_ms)
-            print(x, last_update_formated)
-        print('max_perf_ledger_return:', ans[self.DEFAULT_MINER_HOTKEY].max_return)
+        for hk, dat in ans.items():
+            for tp_id, pl in dat.items():
+                print('-----------', tp_id, '-----------')
+                for idx, x in enumerate(pl.cps):
+                    last_update_formatted = TimeUtil.millis_to_timestamp(x.last_update_ms)
+                    if idx == 0 or idx == len(pl.cps) - 1:
+                        print(x, last_update_formatted)
+                print(tp_id, 'max_perf_ledger_return:', pl.max_return)
+
         assert len(ans) == 1, ans
+
+    @patch('data_generator.polygon_data_service.PolygonDataService.unified_candle_fetcher')
+    def test_multiple_tps(self, mock_unified_candle_fetcher):
+        mock_unified_candle_fetcher.return_value = {}
+        hotkey_to_positions = {self.DEFAULT_MINER_HOTKEY:
+                                   [self.default_btc_position, self.default_nvda_position, self.default_usdjpy_position]}
+        for p in hotkey_to_positions[self.DEFAULT_MINER_HOTKEY]:
+            self.perf_ledger_manager.position_manager.save_miner_position(p)
+
+        self.perf_ledger_manager.update()
+
+        tp_to_position_start_time = {}
+        for position in hotkey_to_positions[self.DEFAULT_MINER_HOTKEY]:
+            if position.trade_pair == TradePair.BTCUSD:
+                tp_to_position_start_time[position.trade_pair.trade_pair_id] = self.default_btc_position.open_ms
+            elif position.trade_pair == TradePair.NVDA:
+                tp_to_position_start_time[position.trade_pair.trade_pair_id] = self.default_nvda_position.open_ms
+            elif position.trade_pair == TradePair.USDJPY:
+                tp_to_position_start_time[position.trade_pair.trade_pair_id] = self.default_usdjpy_position.open_ms
+
+        ans = self.perf_ledger_manager.get_perf_ledgers(portfolio_only=False)
+        self.assertEqual(len(ans), 1)
+        self.assertEqual(len(ans[self.DEFAULT_MINER_HOTKEY]), 4)
+        self.assertIn(TP_ID_PORTFOLIO, ans[self.DEFAULT_MINER_HOTKEY])
+        last_update_portfolio = ans[self.DEFAULT_MINER_HOTKEY][TP_ID_PORTFOLIO].last_update_ms
+        last_accum_ms_portfolio = ans[self.DEFAULT_MINER_HOTKEY][TP_ID_PORTFOLIO].cps[-1].accum_ms
+        for tp_id in tp_to_position_start_time:
+            bundle = ans[self.DEFAULT_MINER_HOTKEY]
+            self.assertIn(tp_id, ans[self.DEFAULT_MINER_HOTKEY])
+            self.assertEqual(tp_to_position_start_time[tp_id], bundle[tp_id].initialization_time_ms, tp_id + f'initialization time off by {tp_to_position_start_time[tp_id] - bundle[tp_id].initialization_time_ms} ms')
+            self.assertEqual(bundle[tp_id].last_update_ms, last_update_portfolio, f'last update time off by {last_update_portfolio - bundle[tp_id].last_update_ms} ms for tp_id {tp_id}')
+            self.assertEqual(bundle[tp_id].cps[-1].accum_ms, last_accum_ms_portfolio, f'accum time off by {last_accum_ms_portfolio - bundle[tp_id].cps[-1].accum_ms} ms for tp_id {tp_id}')
+        assert len(ans) == 1, ans
+        original_ret = ans[self.DEFAULT_MINER_HOTKEY][TP_ID_PORTFOLIO].cps[-1].prev_portfolio_ret
+        tp_to_ret = {}
+        manual_portfolio_ret = 1.0
+        for tp_id, pl in ans[self.DEFAULT_MINER_HOTKEY].items():
+            tp_to_ret[tp_id] = pl.cps[-1].prev_portfolio_ret
+            if tp_id != TP_ID_PORTFOLIO:
+                manual_portfolio_ret *= tp_to_ret[tp_id]
+
+
+        self.assertEqual(original_ret, manual_portfolio_ret, f'original_ret {original_ret} != manual_portfolio_ret {manual_portfolio_ret}. {tp_to_ret}')
+        self.assertLess(ans[self.DEFAULT_MINER_HOTKEY][TradePair.NVDA.trade_pair_id].total_open_ms,
+                        ans[self.DEFAULT_MINER_HOTKEY][TradePair.USDJPY.trade_pair_id].total_open_ms)
+        self.assertLess(ans[self.DEFAULT_MINER_HOTKEY][TradePair.USDJPY.trade_pair_id].total_open_ms,
+                        ans[self.DEFAULT_MINER_HOTKEY][TradePair.BTCUSD.trade_pair_id].total_open_ms)
+        self.assertEqual(ans[self.DEFAULT_MINER_HOTKEY][TradePair.BTCUSD.trade_pair_id].total_open_ms,
+                        ans[self.DEFAULT_MINER_HOTKEY][TP_ID_PORTFOLIO].total_open_ms)
+
+        assert all(x.open_ms == x.accum_ms for x in ans[self.DEFAULT_MINER_HOTKEY][TP_ID_PORTFOLIO].cps[1:])  # first cp truncated due to 12 hr boundary
+        assert all(x.open_ms == x.accum_ms for x in ans[self.DEFAULT_MINER_HOTKEY][TradePair.BTCUSD.trade_pair_id].cps[1:])
+
+        assert all(x.open_ms < x.accum_ms for x in ans[self.DEFAULT_MINER_HOTKEY][TradePair.NVDA.trade_pair_id].cps[1:])
+        assert any(x.open_ms == 0 for x in ans[self.DEFAULT_MINER_HOTKEY][TradePair.NVDA.trade_pair_id].cps[1:])
+
+        assert any(x.open_ms == 0 for x in ans[self.DEFAULT_MINER_HOTKEY][TradePair.USDJPY.trade_pair_id].cps[1:])
+        assert any(x.open_ms < x.accum_ms for x in ans[self.DEFAULT_MINER_HOTKEY][TradePair.USDJPY.trade_pair_id].cps[1:])
+        assert any(x.open_ms == x.accum_ms for x in ans[self.DEFAULT_MINER_HOTKEY][TradePair.USDJPY.trade_pair_id].cps[1:])
+
+        # Close the btc position now
+        close_order = Order(price=61000, processed_ms=last_update_portfolio, order_uuid="test_order_btc_close",
+                                     trade_pair=self.DEFAULT_TRADE_PAIR, order_type=OrderType.FLAT, leverage=0)
+        self.default_btc_position.add_order(close_order)
+        self.perf_ledger_manager.position_manager.save_miner_position(self.default_btc_position)
+
+        # Waiting a few days
+        fast_forward_time_ms = TimeUtil.now_in_millis() + 1000 * 60 * 60 * 24 * 10
+        self.perf_ledger_manager.update(t_ms=fast_forward_time_ms)
+        ans = self.perf_ledger_manager.get_perf_ledgers(portfolio_only=False)
+
+
+        for hk, dat in ans.items():
+            for tp_id, pl in dat.items():
+                print('-----------', tp_id, '-----------')
+                for idx, x in enumerate(pl.cps):
+                    last_update_formatted = TimeUtil.millis_to_timestamp(x.last_update_ms)
+                    if idx == 0 or idx == len(pl.cps) - 1:
+                        print(x, last_update_formatted)
+                print(tp_id, 'max_perf_ledger_return:', pl.max_return)
+
+        original_ret = ans[self.DEFAULT_MINER_HOTKEY][TP_ID_PORTFOLIO].cps[-1].prev_portfolio_ret
+        original_mdd = ans[self.DEFAULT_MINER_HOTKEY][TP_ID_PORTFOLIO].cps[-1].mdd
+        original_carry_fee = ans[self.DEFAULT_MINER_HOTKEY][TP_ID_PORTFOLIO].cps[-1].prev_portfolio_carry_fee
+        tp_to_ret = {}
+        tp_to_mdd = {}
+        tp_to_cf = {}
+        manual_portfolio_ret = 1.0
+        manual_portfolio_mdd = 1.0
+        manual_portfolio_carry_fee = 1.0
+        for tp_id, pl in ans[self.DEFAULT_MINER_HOTKEY].items():
+            tp_to_ret[tp_id] = pl.cps[-1].prev_portfolio_ret
+            tp_to_mdd[tp_id] = pl.cps[-1].mdd
+            tp_to_cf[tp_id] = pl.cps[-1].prev_portfolio_carry_fee
+            if tp_id != TP_ID_PORTFOLIO:
+                manual_portfolio_ret *= tp_to_ret[tp_id]
+                manual_portfolio_mdd *= tp_to_mdd[tp_id]
+                manual_portfolio_carry_fee *= tp_to_cf[tp_id]
+
+        self.assertEqual(original_ret, manual_portfolio_ret,
+                         f'original_ret {original_ret} != manual_portfolio_ret {manual_portfolio_ret}. {tp_to_ret}')
+
+        self.assertEqual(original_mdd, manual_portfolio_mdd,
+                         f'original {original_mdd} != manual {manual_portfolio_mdd}. {tp_to_mdd}')
+
+        self.assertEqual(original_carry_fee, manual_portfolio_carry_fee,
+                         f'original {original_carry_fee} != manual {manual_portfolio_carry_fee}. {tp_to_cf}')
+
+        self.assertLess(ans[self.DEFAULT_MINER_HOTKEY][TradePair.NVDA.trade_pair_id].total_open_ms,
+                        ans[self.DEFAULT_MINER_HOTKEY][TradePair.USDJPY.trade_pair_id].total_open_ms)
+        self.assertLess(ans[self.DEFAULT_MINER_HOTKEY][TradePair.BTCUSD.trade_pair_id].total_open_ms,
+                        ans[self.DEFAULT_MINER_HOTKEY][TP_ID_PORTFOLIO].total_open_ms)
+
+        assert any(x.open_ms != x.accum_ms for x in ans[self.DEFAULT_MINER_HOTKEY][TP_ID_PORTFOLIO].cps[1:])  # first cp truncated due to 12 hr boundary
+        assert any(x.open_ms == x.accum_ms for x in ans[self.DEFAULT_MINER_HOTKEY][TP_ID_PORTFOLIO].cps[1:])  # first cp truncated due to 12 hr boundary
+
+        assert any(x.open_ms == x.accum_ms for x in ans[self.DEFAULT_MINER_HOTKEY][TradePair.BTCUSD.trade_pair_id].cps[1:])
+        assert any(x.open_ms == 0 for x in ans[self.DEFAULT_MINER_HOTKEY][TradePair.BTCUSD.trade_pair_id].cps[1:])
+
+        assert all(x.open_ms < x.accum_ms for x in ans[self.DEFAULT_MINER_HOTKEY][TradePair.NVDA.trade_pair_id].cps[1:])
+        assert any(x.open_ms == 0 for x in ans[self.DEFAULT_MINER_HOTKEY][TradePair.NVDA.trade_pair_id].cps[1:])
+
+        assert any(x.open_ms == 0 for x in ans[self.DEFAULT_MINER_HOTKEY][TradePair.USDJPY.trade_pair_id].cps[1:])
+        assert any(x.open_ms < x.accum_ms for x in ans[self.DEFAULT_MINER_HOTKEY][TradePair.USDJPY.trade_pair_id].cps[1:])
+        assert any(x.open_ms == x.accum_ms for x in ans[self.DEFAULT_MINER_HOTKEY][TradePair.USDJPY.trade_pair_id].cps[1:])
+
+
+        last_update_portfolio2 = ans[self.DEFAULT_MINER_HOTKEY][TP_ID_PORTFOLIO].last_update_ms
+        portfolio_last_open_ms2 = ans[self.DEFAULT_MINER_HOTKEY][TP_ID_PORTFOLIO].cps[-1].open_ms
+        last_accum_ms_portfolio2 = ans[self.DEFAULT_MINER_HOTKEY][TP_ID_PORTFOLIO].cps[-1].accum_ms
+        for tp_id in tp_to_position_start_time:
+            bundle = ans[self.DEFAULT_MINER_HOTKEY]
+            self.assertIn(tp_id, ans[self.DEFAULT_MINER_HOTKEY])
+            self.assertEqual(tp_to_position_start_time[tp_id], bundle[tp_id].initialization_time_ms,
+                             tp_id + f'initialization time off by {tp_to_position_start_time[tp_id] - bundle[tp_id].initialization_time_ms} ms')
+            expected_last_update = last_update_portfolio2
+            self.assertLessEqual(bundle[tp_id].cps[-1].open_ms, portfolio_last_open_ms2, f'open time off by {last_update_portfolio2 - bundle[tp_id].cps[-1].open_ms} ms for tp_id {tp_id}')
+            self.assertEqual(bundle[tp_id].last_update_ms, expected_last_update, f'last update time off by {expected_last_update - bundle[tp_id].last_update_ms} ms for tp_id {tp_id}')
+            self.assertEqual(bundle[tp_id].cps[-1].accum_ms, last_accum_ms_portfolio2, f'accum time off by {last_accum_ms_portfolio - bundle[tp_id].cps[-1].accum_ms} ms for tp_id {tp_id}')
+
+
+
+
+
+
 
