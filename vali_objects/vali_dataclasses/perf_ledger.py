@@ -589,10 +589,10 @@ class PerfLedgerManager(CacheController):
             ans = True
 
         if 0 and ans:
-            for tp, historical_positions in tp_to_historical_positions.items():
+            for tp_id, historical_positions in tp_to_historical_positions.items():
                 positions = []
                 for i, historical_position in enumerate(historical_positions):
-                    if realtime_position_to_pop and tp == realtime_position_to_pop.trade_pair.trade_pair and i == len(
+                    if realtime_position_to_pop and tp_id == realtime_position_to_pop.trade_pair.trade_pair_id and i == len(
                             historical_positions) - 1:
                         historical_position = realtime_position_to_pop
                         foo = True
@@ -600,7 +600,7 @@ class PerfLedgerManager(CacheController):
                         foo = False
                     positions.append((historical_position.position_uuid, [x.price for x in historical_position.orders],
                                       historical_position.return_at_close, foo, historical_position.is_open_position))
-                print(f'{tp}: {positions}')
+                print(f'{tp_id}: {positions}')
 
             final_cp = None
             if perf_ledger_bundle and TP_ID_PORTFOLIO in perf_ledger_bundle and perf_ledger_bundle[TP_ID_PORTFOLIO].cps:
@@ -789,7 +789,7 @@ class PerfLedgerManager(CacheController):
             for _, v in tp_to_historical_positions.items():
                 for pos in v:
                     print(
-                        f"    time {TimeUtil.millis_to_formatted_date_str(t_ms)} hk {miner_hotkey[-5:]} {pos.trade_pair.trade_pair} return {pos.current_return} return_at_close {pos.return_at_close} closed@{'NA' if pos.is_open_position else TimeUtil.millis_to_formatted_date_str(pos.orders[-1].processed_ms)}")
+                        f"    time {TimeUtil.millis_to_formatted_date_str(t_ms)} hk {miner_hotkey[-5:]} {pos.trade_pair.trade_pair_id} return {pos.current_return} return_at_close {pos.return_at_close} closed@{'NA' if pos.is_open_position else TimeUtil.millis_to_formatted_date_str(pos.orders[-1].processed_ms)}")
             return True
         return False
 
@@ -1013,10 +1013,11 @@ class PerfLedgerManager(CacheController):
             sorted_timeline = []
             tp_to_historical_positions = {}
             for p in positions:
-                if p.trade_pair.trade_pair in tp_to_historical_positions:
-                    tp_to_historical_positions[p.trade_pair.trade_pair].append(p)
+                symbol = p.trade_pair.trade_pair_id
+                if symbol in tp_to_historical_positions:
+                    tp_to_historical_positions[symbol].append(p)
                 else:
-                    tp_to_historical_positions[p.trade_pair.trade_pair] = [p]
+                    tp_to_historical_positions[symbol] = [p]
             
 
         # Building for scratch or there have been order(s) since the last update time
