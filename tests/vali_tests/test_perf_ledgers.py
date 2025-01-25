@@ -161,14 +161,32 @@ class TestPerfLedgers(TestBase):
                 print(tp_id, 'max_perf_ledger_return:', pl.max_return)
 
         original_ret = ans[self.DEFAULT_MINER_HOTKEY][TP_ID_PORTFOLIO].cps[-1].prev_portfolio_ret
+        original_mdd = ans[self.DEFAULT_MINER_HOTKEY][TP_ID_PORTFOLIO].cps[-1].mdd
+        original_carry_fee = ans[self.DEFAULT_MINER_HOTKEY][TP_ID_PORTFOLIO].cps[-1].prev_portfolio_carry_fee
         tp_to_ret = {}
+        tp_to_mdd = {}
+        tp_to_cf = {}
         manual_portfolio_ret = 1.0
+        manual_portfolio_mdd = 1.0
+        manual_portfolio_carry_fee = 1.0
         for tp_id, pl in ans[self.DEFAULT_MINER_HOTKEY].items():
             tp_to_ret[tp_id] = pl.cps[-1].prev_portfolio_ret
+            tp_to_mdd[tp_id] = pl.cps[-1].mdd
+            tp_to_cf[tp_id] = pl.cps[-1].prev_portfolio_carry_fee
             if tp_id != TP_ID_PORTFOLIO:
                 manual_portfolio_ret *= tp_to_ret[tp_id]
+                manual_portfolio_mdd *= tp_to_mdd[tp_id]
+                manual_portfolio_carry_fee *= tp_to_cf[tp_id]
+
         self.assertEqual(original_ret, manual_portfolio_ret,
                          f'original_ret {original_ret} != manual_portfolio_ret {manual_portfolio_ret}. {tp_to_ret}')
+
+        self.assertEqual(original_mdd, manual_portfolio_mdd,
+                         f'original {original_mdd} != manual {manual_portfolio_mdd}. {tp_to_mdd}')
+
+        self.assertEqual(original_carry_fee, manual_portfolio_carry_fee,
+                         f'original {original_carry_fee} != manual {manual_portfolio_carry_fee}. {tp_to_cf}')
+
         self.assertLess(ans[self.DEFAULT_MINER_HOTKEY][TradePair.NVDA.trade_pair_id].total_open_ms,
                         ans[self.DEFAULT_MINER_HOTKEY][TradePair.USDJPY.trade_pair_id].total_open_ms)
         self.assertLess(ans[self.DEFAULT_MINER_HOTKEY][TradePair.BTCUSD.trade_pair_id].total_open_ms,

@@ -28,7 +28,7 @@ class TestChallengePeriodUnit(TestBase):
 
         # For the positions and ledger creation
         self.START_TIME = 0
-        self.END_TIME = ValiConfig.CHALLENGE_PERIOD_MS - 1
+        self.END_TIME = self.START_TIME + ValiConfig.CHALLENGE_PERIOD_MS - 1
 
         # For time management
         self.CURRENTLY_IN_CHALLENGE = ValiConfig.CHALLENGE_PERIOD_MS  # Evaluation time when inside the challenge period
@@ -42,7 +42,7 @@ class TestChallengePeriodUnit(TestBase):
                                        for i
                                        in range(self.N_POSITIONS_BOUNDS)]
 
-        self.MINER_NAMES = [f"miner{i}" for i in range(self.N_POSITIONS)]
+        self.MINER_NAMES = [f"miner{i}" for i in range(self.N_POSITIONS)] + ["miner"]
         self.SUCCESS_MINER_NAMES = [f"miner{i}" for i in range(1, 5)]
         self.DEFAULT_POSITION = Position(
             miner_hotkey="miner",
@@ -60,9 +60,10 @@ class TestChallengePeriodUnit(TestBase):
         self.DEFAULT_POSITIONS = []
         for i in range(self.N_POSITIONS):
             position = deepcopy(self.DEFAULT_POSITION)
-            position.open_ms = self.EVEN_TIME_DISTRIBUTION[i]
-            position.close_ms = self.EVEN_TIME_DISTRIBUTION[i + 1]
+            position.open_ms = int(self.EVEN_TIME_DISTRIBUTION[i])
+            position.close_ms = int(self.EVEN_TIME_DISTRIBUTION[i + 1])
             position.is_closed_position = True
+            position.position_uuid += str(i)
             position.return_at_close = 1.0
             position.orders[0] = Order(price=60000, processed_ms=int(position.open_ms), order_uuid="order" + str(i), trade_pair=TradePair.BTCUSD,  order_type=OrderType.LONG, leverage=0.1)
             self.DEFAULT_POSITIONS.append(position)
@@ -167,8 +168,11 @@ class TestChallengePeriodUnit(TestBase):
         base_positions = deepcopy(self.DEFAULT_POSITIONS)
         base_ledger = deepcopy(self.DEFAULT_LEDGER)
 
-        inspection_positions = {"miner": base_positions}
+        for p in base_positions:
+            self.position_manager.save_miner_position(p)
         inspection_ledger = {"miner": base_ledger}
+
+        inspection_positions, hk_to_first_order_time = self.position_manager.filtered_positions_for_scoring(hotkeys=["miner"])
 
         # Check that the miner is screened as failing
         passing, failing = self.challengeperiod_manager.inspect(
@@ -178,7 +182,8 @@ class TestChallengePeriodUnit(TestBase):
             inspection_hotkeys={"miner": current_time},
             current_time=current_time,
             success_scores_dict=self.success_scores_dict,
-            inspection_scores_dict=trial_scoring_dict
+            inspection_scores_dict=trial_scoring_dict,
+            hk_to_first_order_time=hk_to_first_order_time
         )
         self.assertNotIn("miner", passing)
         self.assertNotIn("miner", failing)
@@ -191,7 +196,12 @@ class TestChallengePeriodUnit(TestBase):
         base_positions = deepcopy(self.DEFAULT_POSITIONS)
         base_ledger = deepcopy(self.DEFAULT_LEDGER)
 
-        inspection_positions = {"miner": base_positions}
+        for p in base_positions:
+            self.position_manager.save_miner_position(p)
+
+        inspection_positions, hk_to_first_order_time = self.position_manager.filtered_positions_for_scoring(hotkeys=["miner"])
+
+
         inspection_ledger = {"miner": base_ledger}
 
         inspection_hotkeys = {"miner": self.START_TIME}
@@ -205,7 +215,8 @@ class TestChallengePeriodUnit(TestBase):
             inspection_hotkeys=inspection_hotkeys,
             current_time=current_time,
             success_scores_dict=self.success_scores_dict,
-            inspection_scores_dict=trial_scoring_dict
+            inspection_scores_dict=trial_scoring_dict,
+            hk_to_first_order_time=hk_to_first_order_time
         )
 
         self.assertNotIn("miner", passing)
@@ -219,7 +230,12 @@ class TestChallengePeriodUnit(TestBase):
         base_positions = deepcopy(self.DEFAULT_POSITIONS)
         base_ledger = deepcopy(self.DEFAULT_LEDGER)
 
-        inspection_positions = {"miner": base_positions}
+        for p in base_positions:
+            self.position_manager.save_miner_position(p)
+
+        inspection_positions, hk_to_first_order_time = self.position_manager.filtered_positions_for_scoring(
+            hotkeys=["miner"])
+
         inspection_ledger = {"miner": base_ledger}
 
         inspection_hotkeys = {"miner": self.START_TIME}
@@ -233,7 +249,8 @@ class TestChallengePeriodUnit(TestBase):
             inspection_hotkeys=inspection_hotkeys,
             current_time=current_time,
             success_scores_dict=self.success_scores_dict,
-            inspection_scores_dict=trial_scoring_dict
+            inspection_scores_dict=trial_scoring_dict,
+            hk_to_first_order_time=hk_to_first_order_time
         )
 
         self.assertIn("miner", passing)
@@ -246,7 +263,12 @@ class TestChallengePeriodUnit(TestBase):
         base_positions = deepcopy(self.DEFAULT_POSITIONS)
         base_ledger = deepcopy(self.DEFAULT_LEDGER)
 
-        inspection_positions = {"miner": base_positions}
+        for p in base_positions:
+            self.position_manager.save_miner_position(p)
+
+        inspection_positions, hk_to_first_order_time = self.position_manager.filtered_positions_for_scoring(
+            hotkeys=["miner"])
+
         inspection_ledger = {"miner": base_ledger}
 
         inspection_hotkeys = {"miner": self.START_TIME}
@@ -260,7 +282,8 @@ class TestChallengePeriodUnit(TestBase):
             inspection_hotkeys=inspection_hotkeys,
             current_time=current_time,
             success_scores_dict=self.success_scores_dict,
-            inspection_scores_dict=trial_scoring_dict
+            inspection_scores_dict=trial_scoring_dict,
+            hk_to_first_order_time=hk_to_first_order_time
         )
 
         self.assertListEqual(passing, ["miner"])
@@ -274,6 +297,10 @@ class TestChallengePeriodUnit(TestBase):
         base_positions = []
 
         inspection_positions = {"miner": base_positions}
+
+        _, hk_to_first_order_time = self.position_manager.filtered_positions_for_scoring(
+            hotkeys=["miner"])
+
         inspection_ledger = {}
         inspection_hotkeys = {"miner": self.START_TIME}
         current_time = self.OUTSIDE_OF_CHALLENGE
@@ -284,7 +311,8 @@ class TestChallengePeriodUnit(TestBase):
             ledger={hk: v[TP_ID_PORTFOLIO] for hk, v in inspection_ledger.items()},
             success_hotkeys=[],
             inspection_hotkeys=inspection_hotkeys,
-            current_time=current_time
+            current_time=current_time,
+            hk_to_first_order_time=hk_to_first_order_time
         )
 
         self.assertNotIn("miner", passing)
@@ -300,9 +328,11 @@ class TestChallengePeriodUnit(TestBase):
 
         base_position = deepcopy(self.DEFAULT_POSITION)
         base_position.orders[0].processed_ms = base_ledger[TP_ID_PORTFOLIO].start_time_ms + 1
-        base_positions = [base_position]
+        self.position_manager.save_miner_position(base_position)
 
-        inspection_positions = {"miner": base_positions}
+        inspection_positions, hk_to_first_order_time = self.position_manager.filtered_positions_for_scoring(
+            hotkeys=["miner"])
+
         inspection_ledger = {"miner": base_ledger}
         inspection_hotkeys = {"miner": self.START_TIME}
         current_time = self.OUTSIDE_OF_CHALLENGE
@@ -314,7 +344,8 @@ class TestChallengePeriodUnit(TestBase):
             success_hotkeys=self.SUCCESS_MINER_NAMES,
             inspection_hotkeys=inspection_hotkeys,
             current_time=current_time,
-            success_scores_dict=self.success_scores_dict
+            success_scores_dict=self.success_scores_dict,
+            hk_to_first_order_time=hk_to_first_order_time
         )
 
         self.assertNotIn("miner", passing)
@@ -327,7 +358,12 @@ class TestChallengePeriodUnit(TestBase):
 
         base_ledger = deepcopy(self.DEFAULT_LEDGER)
 
-        inspection_positions = {"miner": base_positions}
+        for p in base_positions:
+            self.position_manager.save_miner_position(p)
+
+        inspection_positions, hk_to_first_order_time = self.position_manager.filtered_positions_for_scoring(
+            hotkeys=["miner"])
+
         inspection_ledger = {"miner": base_ledger}
         inspection_hotkeys = {"miner": self.START_TIME}
         current_time = self.OUTSIDE_OF_CHALLENGE
@@ -339,7 +375,8 @@ class TestChallengePeriodUnit(TestBase):
             success_hotkeys=self.SUCCESS_MINER_NAMES,
             inspection_hotkeys=inspection_hotkeys,
             current_time=current_time,
-            success_scores_dict=self.success_scores_dict
+            success_scores_dict=self.success_scores_dict,
+            hk_to_first_order_time=hk_to_first_order_time
         )
 
         self.assertNotIn("miner", passing)
@@ -352,7 +389,12 @@ class TestChallengePeriodUnit(TestBase):
         base_positions = deepcopy(self.DEFAULT_POSITIONS)
         base_ledger = deepcopy(self.DEFAULT_LEDGER)
 
-        inspection_positions = {"miner": base_positions}
+        for p in base_positions:
+            self.position_manager.save_miner_position(p)
+
+        inspection_positions, hk_to_first_order_time = self.position_manager.filtered_positions_for_scoring(
+            hotkeys=["miner"])
+
         inspection_ledger = {"miner": base_ledger}
 
         trial_scoring_dict = self.get_trial_scores(score=0.75)
@@ -365,7 +407,8 @@ class TestChallengePeriodUnit(TestBase):
             inspection_hotkeys={"miner": current_time},
             current_time=current_time,
             success_scores_dict=self.success_scores_dict,
-            inspection_scores_dict=trial_scoring_dict
+            inspection_scores_dict=trial_scoring_dict,
+            hk_to_first_order_time=hk_to_first_order_time
         )
         self.assertIn("miner", passing)
         self.assertNotIn("miner", failing)
@@ -378,7 +421,11 @@ class TestChallengePeriodUnit(TestBase):
         base_positions = deepcopy(self.DEFAULT_POSITIONS)
         base_ledger = deepcopy(self.DEFAULT_LEDGER)
 
-        inspection_positions = {"miner": base_positions}
+        for p in base_positions:
+            self.position_manager.save_miner_position(p)
+
+        inspection_positions, hk_to_first_order_time = self.position_manager.filtered_positions_for_scoring(
+            hotkeys=["miner"])
         inspection_ledger = {"miner": base_ledger}
 
         trial_scoring_dict = self.get_trial_scores(score=0.5)
@@ -391,7 +438,8 @@ class TestChallengePeriodUnit(TestBase):
             inspection_hotkeys={"miner": current_time},
             current_time=current_time,
             success_scores_dict=self.success_scores_dict,
-            inspection_scores_dict=trial_scoring_dict
+            inspection_scores_dict=trial_scoring_dict,
+            hk_to_first_order_time=hk_to_first_order_time
         )
         self.assertNotIn("miner", passing)
         self.assertNotIn("miner", failing)
@@ -403,7 +451,12 @@ class TestChallengePeriodUnit(TestBase):
         base_positions = deepcopy(self.DEFAULT_POSITIONS)
         base_ledger = deepcopy(self.DEFAULT_LEDGER)
 
-        inspection_positions = {"miner": base_positions}
+        for p in base_positions:
+            self.position_manager.save_miner_position(p)
+
+        inspection_positions, hk_to_first_order_time = self.position_manager.filtered_positions_for_scoring(
+            hotkeys=["miner"])
+        assert inspection_positions, inspection_positions
         inspection_ledger = {"miner": base_ledger}
 
         trial_scoring_dict = self.get_trial_scores(score=0.75)
@@ -430,7 +483,8 @@ class TestChallengePeriodUnit(TestBase):
             inspection_hotkeys={"miner": current_time},
             current_time=current_time,
             success_scores_dict=success_scores_dict,
-            inspection_scores_dict=trial_scoring_dict
+            inspection_scores_dict=trial_scoring_dict,
+            hk_to_first_order_time=hk_to_first_order_time
         )
 
         self.assertIn("miner", passing)

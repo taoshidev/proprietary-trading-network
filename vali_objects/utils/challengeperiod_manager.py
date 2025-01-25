@@ -155,7 +155,7 @@ class ChallengePeriodManager(CacheController):
             return False
 
         first_order_time = hk_to_first_order_time.get(hotkey, None)
-        if not first_order_time:
+        if first_order_time is None:
             # No positions? Perf ledger must be stale.
             msg = f'No positions for hotkey {hotkey} - ledger start time: {time_of_ledger_start}'
             print(msg)
