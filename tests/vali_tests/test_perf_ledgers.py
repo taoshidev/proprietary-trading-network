@@ -100,6 +100,8 @@ class TestPerfLedgers(TestBase):
                 tp_to_position_start_time[position.trade_pair.trade_pair_id] = self.default_usdjpy_position.open_ms
 
         ans = self.perf_ledger_manager.get_perf_ledgers(portfolio_only=False)
+        pl = ans[self.DEFAULT_MINER_HOTKEY][TP_ID_PORTFOLIO]
+        self.assertAlmostEqual(pl.get_total_product(), pl.cps[-1].prev_portfolio_ret, 13)
         self.assertEqual(len(ans), 1)
         self.assertEqual(len(ans[self.DEFAULT_MINER_HOTKEY]), 4)
         self.assertIn(TP_ID_PORTFOLIO, ans[self.DEFAULT_MINER_HOTKEY])
@@ -149,6 +151,9 @@ class TestPerfLedgers(TestBase):
         fast_forward_time_ms = TimeUtil.now_in_millis() + 1000 * 60 * 60 * 24 * 10
         self.perf_ledger_manager.update(t_ms=fast_forward_time_ms)
         ans = self.perf_ledger_manager.get_perf_ledgers(portfolio_only=False)
+
+        pl = ans[self.DEFAULT_MINER_HOTKEY][TP_ID_PORTFOLIO]
+        self.assertAlmostEqual(pl.get_total_product(), pl.cps[-1].prev_portfolio_ret, 13)
 
 
         for hk, dat in ans.items():

@@ -36,15 +36,15 @@ class FeeCache():
         self.carry_fee: float = 1.0  # product of all individual interval fees.
         self.carry_fee_next_increase_time_ms: int = 0  # Compute fees based off the prior interval
 
-    def get_spread_fee(self, position: Position) -> float:
+    def get_spread_fee(self, position: Position) -> (float, bool):
         if position.orders[-1].processed_ms == self.spread_fee_last_order_processed_ms:
-            return self.spread_fee
+            return self.spread_fee, False
 
         self.spread_fee = position.get_spread_fee()
         self.spread_fee_last_order_processed_ms = position.orders[-1].processed_ms
-        return self.spread_fee
+        return self.spread_fee, True
 
-    def get_carry_fee(self, current_time_ms, position: Position) -> float:
+    def get_carry_fee(self, current_time_ms, position: Position) -> (float, bool):
         # Calculate the number of times a new day occurred (UTC). If a position is opened at 23:59:58 and this function is
         # called at 00:00:02, the carry fee will be calculated as if a day has passed. Another example: if a position is
         # opened at 23:59:58 and this function is called at 23:59:59, the carry fee will be calculated as 0 days have passed
@@ -58,7 +58,7 @@ class FeeCache():
         else:
             raise Exception(f"Unknown trade pair type: {position.trade_pair}")
         if start_time_cache_hit <= current_time_ms < self.carry_fee_next_increase_time_ms:
-            return self.carry_fee
+            return self.carry_fee, False
 
         # cache miss
         carry_fee, next_update_time_ms = position.get_carry_fee(current_time_ms)
@@ -67,7 +67,7 @@ class FeeCache():
         assert carry_fee >= 0, (carry_fee, next_update_time_ms, position)
         self.carry_fee = carry_fee
         self.carry_fee_next_increase_time_ms = next_update_time_ms
-        return self.carry_fee
+        return self.carry_fee, True
 
 # Enum class TradePairReturnStatus with 3 options 1. TP_MARKET_NOT_OPEN, TP_MARKET_OPEN_NO_PRICE_CHANGE, TP_MARKET_OPEN_PRICE_CHANGE
 class TradePairReturnStatus(Enum):
@@ -264,18 +264,12 @@ class PerfLedger():
                             current_portfolio_fee_spread: float, current_portfolio_carry: float, miner_hotkey: str, any_open: TradePairReturnStatus):
         # TODO: leave as is?
         # current_portfolio_value = current_portfolio_value * current_portfolio_carry  # spread fee already applied
-        if any_open == TradePairReturnStatus.TP_MARKET_OPEN_PRICE_CHANGE:
-            n_new_updates = 1
-            try:
-                delta_return = self.compute_delta_between_ticks(current_portfolio_value, current_cp.prev_portfolio_ret)
-            except Exception:
-                # print debug info
-                raise (Exception(
-                    f"hk {miner_hotkey} Error computing delta between ticks. cur: {current_portfolio_value}, prev: {current_cp.prev_portfolio_ret}. cp {current_cp} cpc {current_portfolio_carry}"))
-            if delta_return > 0:
-                current_cp.gain += delta_return
-            else:
-                current_cp.loss += delta_return
+        n_new_updates = 1
+        delta_return = self.compute_delta_between_ticks(current_portfolio_value, current_cp.prev_portfolio_ret)
+        if delta_return > 0:
+            current_cp.gain += delta_return
+        elif delta_return < 0:
+            current_cp.loss += delta_return
         else:
             n_new_updates = 0
 
@@ -535,9 +529,13 @@ class PerfLedgerManager(CacheController):
     def _can_shortcut(self, tp_to_historical_positions: dict[str: Position], end_time_ms: int,
                       realtime_position_to_pop: Position | None, start_time_ms: int, perf_ledger_bundle: dict[str, PerfLedger]) -> (bool, float, float, float):
 
-        tp_to_return = defaultdict(lambda: 1.0)
-        tp_to_spread_fee = defaultdict(lambda: 1.0)
-        tp_to_carry_fee = defaultdict(lambda: 1.0)
+        tp_to_return = {}
+        tp_to_spread_fee = {}
+        tp_to_carry_fee = {}
+        for k in list(tp_to_historical_positions.keys()) + [TP_ID_PORTFOLIO]:
+            tp_to_return[k] = 1.0
+            tp_to_spread_fee[k] = 1.0
+            tp_to_carry_fee[k] = 1.0
 
         n_open_positions = 0
         now_ms = TimeUtil.now_in_millis()
@@ -560,8 +558,10 @@ class PerfLedgerManager(CacheController):
                     historical_position = realtime_position_to_pop
 
                 for tp_id in [TP_ID_PORTFOLIO, tp_id]:
-                    tp_to_spread_fee[tp_id] *= self.position_uuid_to_cache[historical_position.position_uuid].get_spread_fee(historical_position)
-                    tp_to_carry_fee[tp_id] *= self.position_uuid_to_cache[historical_position.position_uuid].get_carry_fee(end_time_ms, historical_position)
+                    csf, _ = self.position_uuid_to_cache[historical_position.position_uuid].get_spread_fee(historical_position)
+                    tp_to_spread_fee[tp_id] *= csf
+                    ccf, _ = self.position_uuid_to_cache[historical_position.position_uuid].get_carry_fee(end_time_ms, historical_position)
+                    tp_to_carry_fee[tp_id] *= ccf
                     tp_to_return[tp_id] *= historical_position.return_at_close
 
                 self.trade_pair_to_position_ret[tp_id] = historical_position.return_at_close
@@ -669,7 +669,7 @@ class PerfLedgerManager(CacheController):
             for i in range(n_points):
                 a = price_info_raw[i]
                 k = a.timestamp
-                if not tp.is_forex:
+                if not (tp.is_forex and mode == 'minute'):
                     pi[k] = a.close
                     continue
                 prev = price_info_raw[i - 1] if i > 0 else None
@@ -769,8 +769,8 @@ class PerfLedgerManager(CacheController):
                 if self.shutdown_dict:
                     return tp_to_return, tp_to_any_open, tp_to_spread_fee, tp_to_carry_fee
 
-                position_spread_fee = self.position_uuid_to_cache[historical_position.position_uuid].get_spread_fee(historical_position)
-                position_carry_fee = self.position_uuid_to_cache[historical_position.position_uuid].get_carry_fee(t_ms, historical_position)
+                position_spread_fee, psf_updated = self.position_uuid_to_cache[historical_position.position_uuid].get_spread_fee(historical_position)
+                position_carry_fee, pcf_updated = self.position_uuid_to_cache[historical_position.position_uuid].get_carry_fee(t_ms, historical_position)
                 tp_to_spread_fee[tp_id] *= position_spread_fee
                 tp_to_spread_fee[TP_ID_PORTFOLIO] *= position_spread_fee
                 tp_to_carry_fee[tp_id] *= position_carry_fee
@@ -795,7 +795,11 @@ class PerfLedgerManager(CacheController):
                         tp_to_any_open[tp_id] = TradePairReturnStatus.TP_MARKET_OPEN_PRICE_CHANGE
                         tp_to_any_open[TP_ID_PORTFOLIO] = TradePairReturnStatus.TP_MARKET_OPEN_PRICE_CHANGE
                     self.tp_to_last_price[tp_id] = price_at_t_ms
+                else:
+                    price_changed = False
+                    price_at_t_ms = self.tp_to_last_price.get(tp_id, None)
 
+                if price_at_t_ms and (price_changed or psf_updated or pcf_updated):
                     historical_position.set_returns(price_at_t_ms, time_ms=t_ms, total_fees=position_spread_fee * position_carry_fee)
                     self.trade_pair_to_position_ret[tp_id] = historical_position.return_at_close
 
@@ -846,8 +850,8 @@ class PerfLedgerManager(CacheController):
                 if historical_position.is_closed_position:
                     for x in [TP_ID_PORTFOLIO, tp_id]:
                         tp_to_initial_return[x] *= historical_position.return_at_close
-                        tp_to_initial_spread_fee[x] *= self.position_uuid_to_cache[historical_position.position_uuid].get_spread_fee(historical_position)
-                        tp_to_initial_carry_fee[x] *= self.position_uuid_to_cache[historical_position.position_uuid].get_carry_fee(historical_position.orders[-1].processed_ms, historical_position)
+                        tp_to_initial_spread_fee[x] *= self.position_uuid_to_cache[historical_position.position_uuid].get_spread_fee(historical_position)[0]
+                        tp_to_initial_carry_fee[x] *= self.position_uuid_to_cache[historical_position.position_uuid].get_carry_fee(historical_position.orders[-1].processed_ms, historical_position)[0]
                 elif len(historical_position.orders) == 0:
                     continue
                 else:
@@ -1436,4 +1440,4 @@ if __name__ == "__main__":
     position_manager = PositionManager(metagraph=mmg, running_unit_tests=False, elimination_manager=elimination_manager)
     perf_ledger_manager = PerfLedgerManager(mmg, position_manager=position_manager, running_unit_tests=False, enable_rss=False)
     #perf_ledger_manager.update(regenerate_all_ledgers=True)
-    perf_ledger_manager.update(testing_one_hotkey='5G9yGe6TEDxx7wD2mpM2XSu8P7gVt6wwUvuXRrHGAYJDA955')
+    perf_ledger_manager.update(testing_one_hotkey='5Cz4ETkXaZFjTxDLJuZiP9eyZbr7SrEjRwQCT3hLNyjCZLV1')
