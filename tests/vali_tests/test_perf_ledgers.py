@@ -38,7 +38,7 @@ class TestPerfLedgers(TestBase):
         self.default_nvda_position = Position(
             miner_hotkey=self.DEFAULT_MINER_HOTKEY,
             position_uuid="test_position_nvda",
-            open_ms=self.DEFAULT_OPEN_MS,
+            open_ms=self.default_nvda_order.processed_ms,
             trade_pair=TradePair.NVDA,
             orders=[self.default_nvda_order],
             position_type=OrderType.LONG
@@ -48,7 +48,7 @@ class TestPerfLedgers(TestBase):
         self.default_usdjpy_position = Position(
             miner_hotkey=self.DEFAULT_MINER_HOTKEY,
             position_uuid="test_position_usdjpy",
-            open_ms=self.DEFAULT_OPEN_MS,
+            open_ms=self.default_usdjpy_order.processed_ms,
             trade_pair=TradePair.USDJPY,
             orders=[self.default_usdjpy_order],
             position_type=OrderType.LONG
@@ -64,6 +64,88 @@ class TestPerfLedgers(TestBase):
         self.perf_ledger_manager = PerfLedgerManager(metagraph=mmg, running_unit_tests=True, position_manager=position_manager)
         self.perf_ledger_manager.clear_perf_ledgers_from_disk()
 
+    def print_bundles(self, ans):
+        for hk, dat in ans.items():
+            for tp_id, pl in dat.items():
+                print('-----------', tp_id, '-----------')
+                for idx, x in enumerate(pl.cps):
+                    last_update_formatted = TimeUtil.millis_to_timestamp(x.last_update_ms)
+                    if idx > 118:#== 0 or idx == len(pl.cps) - 1:
+                        print(x, last_update_formatted)
+                print(tp_id, 'max_perf_ledger_return:', pl.max_return)
+    def check_alignment_per_cp(self, ans):
+        original_ret = ans[self.DEFAULT_MINER_HOTKEY][TP_ID_PORTFOLIO].cps[-1].prev_portfolio_ret
+        original_mdd = ans[self.DEFAULT_MINER_HOTKEY][TP_ID_PORTFOLIO].cps[-1].mdd
+        original_carry_fee = ans[self.DEFAULT_MINER_HOTKEY][TP_ID_PORTFOLIO].cps[-1].prev_portfolio_carry_fee
+        tp_to_ret = {}
+        tp_to_mdd = {}
+        tp_to_cf = {}
+        manual_portfolio_ret = 1.0
+        manual_portfolio_mdd = 1.0
+        manual_portfolio_carry_fee = 1.0
+        for tp_id, pl in ans[self.DEFAULT_MINER_HOTKEY].items():
+            tp_to_ret[tp_id] = pl.cps[-1].prev_portfolio_ret
+            tp_to_mdd[tp_id] = pl.cps[-1].mdd
+            tp_to_cf[tp_id] = pl.cps[-1].prev_portfolio_carry_fee
+            if tp_id != TP_ID_PORTFOLIO:
+                manual_portfolio_ret *= tp_to_ret[tp_id]
+                manual_portfolio_mdd *= tp_to_mdd[tp_id]
+                manual_portfolio_carry_fee *= tp_to_cf[tp_id]
+
+        self.assertEqual(original_ret, manual_portfolio_ret,
+                         f'original_ret {original_ret} != manual_portfolio_ret {manual_portfolio_ret}. {tp_to_ret}')
+
+        self.assertEqual(original_mdd, manual_portfolio_mdd,
+                         f'original {original_mdd} != manual {manual_portfolio_mdd}. {tp_to_mdd}')
+
+        self.assertEqual(original_carry_fee, manual_portfolio_carry_fee,
+                         f'original {original_carry_fee} != manual {manual_portfolio_carry_fee}. {tp_to_cf}')
+
+
+
+        failures = []
+        portfolio_pl = ans[self.DEFAULT_MINER_HOTKEY][TP_ID_PORTFOLIO]
+        for i in range(len(portfolio_pl.cps)):
+            portfolio_cp = portfolio_pl.cps[i]
+            manual_portfolio_ret = 1.0
+            manual_portfolio_spread_fee = 1.0
+            manual_portfolio_carry_fee = 1.0
+            automatic_portfolio_ret = None
+            automatic_portfolio_spread_fee = None
+            automatic_portfolio_carry_fee = None
+
+            contributing_tps = set()
+            # expected_last_updated_ms = None
+            debug = {}
+            for tp_id, pl in ans[self.DEFAULT_MINER_HOTKEY].items():
+                if tp_id == TP_ID_PORTFOLIO:
+                    automatic_portfolio_ret = pl.cps[i].prev_portfolio_ret
+                    automatic_portfolio_spread_fee = pl.cps[i].prev_portfolio_spread_fee
+                    automatic_portfolio_carry_fee = pl.cps[i].prev_portfolio_carry_fee
+                    continue
+
+                match = [x for x in pl.cps if x.last_update_ms == portfolio_cp.last_update_ms]
+                if match:
+                    assert len(match) == 1
+                    match = match[0]
+                    manual_portfolio_ret *= match.prev_portfolio_ret
+                    debug[tp_id] = match.prev_portfolio_ret
+                    contributing_tps.add(tp_id)
+                    manual_portfolio_spread_fee *= match.prev_portfolio_spread_fee
+                    manual_portfolio_carry_fee *= match.prev_portfolio_carry_fee
+
+            if automatic_portfolio_ret != manual_portfolio_ret:
+                failures.append(f'automatic_portfolio_ret {automatic_portfolio_ret}, manual_portfolio_ret {manual_portfolio_ret},  debug {debug}, contributing_tps {contributing_tps} i {i}/{len(portfolio_pl.cps)} t_ms {portfolio_cp.last_update_ms}')
+                print(failures[-1])
+
+            if automatic_portfolio_spread_fee != manual_portfolio_spread_fee:
+                failures.append(f'automatic_portfolio_spread_fee {automatic_portfolio_spread_fee}, manual_portfolio_spread_fee {manual_portfolio_spread_fee}, debug {debug}, contributing_tps {contributing_tps} i {i}/{len(portfolio_pl.cps)} t_ms {portfolio_cp.last_update_ms}')
+                print(failures[-1])
+
+            if automatic_portfolio_carry_fee != manual_portfolio_carry_fee:
+                failures.append(f'automatic_portfolio_carry_fee {automatic_portfolio_carry_fee}, manual_portfolio_carry_fee {manual_portfolio_carry_fee}, contributing_tps {contributing_tps} i {i}/{len(portfolio_pl.cps)} t_ms {portfolio_cp.last_update_ms}')
+
+        assert not failures
     @patch('data_generator.polygon_data_service.PolygonDataService.unified_candle_fetcher')
     def test_basic(self, mock_unified_candle_fetcher):
         mock_unified_candle_fetcher.return_value = {}
@@ -100,6 +182,7 @@ class TestPerfLedgers(TestBase):
                 tp_to_position_start_time[position.trade_pair.trade_pair_id] = self.default_usdjpy_position.open_ms
 
         ans = self.perf_ledger_manager.get_perf_ledgers(portfolio_only=False)
+        self.print_bundles(ans)
         pl = ans[self.DEFAULT_MINER_HOTKEY][TP_ID_PORTFOLIO]
         self.assertAlmostEqual(pl.get_total_product(), pl.cps[-1].prev_portfolio_ret, 13)
         self.assertEqual(len(ans), 1)
@@ -114,16 +197,10 @@ class TestPerfLedgers(TestBase):
             self.assertEqual(bundle[tp_id].last_update_ms, last_update_portfolio, f'last update time off by {last_update_portfolio - bundle[tp_id].last_update_ms} ms for tp_id {tp_id}')
             self.assertEqual(bundle[tp_id].cps[-1].accum_ms, last_accum_ms_portfolio, f'accum time off by {last_accum_ms_portfolio - bundle[tp_id].cps[-1].accum_ms} ms for tp_id {tp_id}')
         assert len(ans) == 1, ans
-        original_ret = ans[self.DEFAULT_MINER_HOTKEY][TP_ID_PORTFOLIO].cps[-1].prev_portfolio_ret
-        tp_to_ret = {}
-        manual_portfolio_ret = 1.0
-        for tp_id, pl in ans[self.DEFAULT_MINER_HOTKEY].items():
-            tp_to_ret[tp_id] = pl.cps[-1].prev_portfolio_ret
-            if tp_id != TP_ID_PORTFOLIO:
-                manual_portfolio_ret *= tp_to_ret[tp_id]
 
+        self.check_alignment_per_cp(ans)
 
-        self.assertEqual(original_ret, manual_portfolio_ret, f'original_ret {original_ret} != manual_portfolio_ret {manual_portfolio_ret}. {tp_to_ret}')
+        #self.assertEqual(original_ret, manual_portfolio_ret, f'original_ret {original_ret} != manual_portfolio_ret {manual_portfolio_ret}. {tp_to_ret}')
         self.assertLess(ans[self.DEFAULT_MINER_HOTKEY][TradePair.NVDA.trade_pair_id].total_open_ms,
                         ans[self.DEFAULT_MINER_HOTKEY][TradePair.USDJPY.trade_pair_id].total_open_ms)
         self.assertLess(ans[self.DEFAULT_MINER_HOTKEY][TradePair.USDJPY.trade_pair_id].total_open_ms,
@@ -156,42 +233,9 @@ class TestPerfLedgers(TestBase):
         self.assertAlmostEqual(pl.get_total_product(), pl.cps[-1].prev_portfolio_ret, 13)
 
 
-        for hk, dat in ans.items():
-            for tp_id, pl in dat.items():
-                print('-----------', tp_id, '-----------')
-                for idx, x in enumerate(pl.cps):
-                    last_update_formatted = TimeUtil.millis_to_timestamp(x.last_update_ms)
-                    if idx == 0 or idx == len(pl.cps) - 1:
-                        print(x, last_update_formatted)
-                print(tp_id, 'max_perf_ledger_return:', pl.max_return)
+        self.print_bundles(ans)
 
-        original_ret = ans[self.DEFAULT_MINER_HOTKEY][TP_ID_PORTFOLIO].cps[-1].prev_portfolio_ret
-        original_mdd = ans[self.DEFAULT_MINER_HOTKEY][TP_ID_PORTFOLIO].cps[-1].mdd
-        original_carry_fee = ans[self.DEFAULT_MINER_HOTKEY][TP_ID_PORTFOLIO].cps[-1].prev_portfolio_carry_fee
-        tp_to_ret = {}
-        tp_to_mdd = {}
-        tp_to_cf = {}
-        manual_portfolio_ret = 1.0
-        manual_portfolio_mdd = 1.0
-        manual_portfolio_carry_fee = 1.0
-        for tp_id, pl in ans[self.DEFAULT_MINER_HOTKEY].items():
-            tp_to_ret[tp_id] = pl.cps[-1].prev_portfolio_ret
-            tp_to_mdd[tp_id] = pl.cps[-1].mdd
-            tp_to_cf[tp_id] = pl.cps[-1].prev_portfolio_carry_fee
-            if tp_id != TP_ID_PORTFOLIO:
-                manual_portfolio_ret *= tp_to_ret[tp_id]
-                manual_portfolio_mdd *= tp_to_mdd[tp_id]
-                manual_portfolio_carry_fee *= tp_to_cf[tp_id]
-
-        self.assertEqual(original_ret, manual_portfolio_ret,
-                         f'original_ret {original_ret} != manual_portfolio_ret {manual_portfolio_ret}. {tp_to_ret}')
-
-        self.assertEqual(original_mdd, manual_portfolio_mdd,
-                         f'original {original_mdd} != manual {manual_portfolio_mdd}. {tp_to_mdd}')
-
-        self.assertEqual(original_carry_fee, manual_portfolio_carry_fee,
-                         f'original {original_carry_fee} != manual {manual_portfolio_carry_fee}. {tp_to_cf}')
-
+        self.check_alignment_per_cp(ans)
         self.assertLess(ans[self.DEFAULT_MINER_HOTKEY][TradePair.NVDA.trade_pair_id].total_open_ms,
                         ans[self.DEFAULT_MINER_HOTKEY][TradePair.USDJPY.trade_pair_id].total_open_ms)
         self.assertLess(ans[self.DEFAULT_MINER_HOTKEY][TradePair.BTCUSD.trade_pair_id].total_open_ms,
