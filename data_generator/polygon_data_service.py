@@ -36,6 +36,21 @@ class Agg:
         self.vwap = vwap
         self.timestamp = timestamp
 
+    def __str__(self):
+        return (
+            f"Agg("
+            f"open={self.open}, close={self.close}, high={self.high}, low={self.low}, "
+            f"volume={self.volume}, vwap={self.vwap}, timestamp={self.timestamp})"
+        )
+
+    # Optional: Add a __repr__ method for better representation in debugging and interactive sessions
+    def __repr__(self):
+        return (
+            f"Agg(open={self.open}, close={self.close}, high={self.high}, low={self.low}, "
+            f"volume={self.volume}, vwap={self.vwap}, timestamp={self.timestamp})"
+        )
+
+
 class ExchangeMappingHelper:
     def __init__(self, api_key, fetch_live_mapping=True):
         self.fetch_live_mapping = fetch_live_mapping
@@ -811,7 +826,7 @@ if __name__ == "__main__":
     #time.sleep(100000)
 
     polygon_data_provider = PolygonDataService(api_key=secrets['polygon_apikey'], disable_ws=True)
-    target_timestamp_ms = 1715288504000#1715288494000
+    target_timestamp_ms = 1731707940000#1715288494000
 
     """
     aggs = []
@@ -834,16 +849,24 @@ if __name__ == "__main__":
     #aggs = polygon_data_provider.get_close_at_date_second(tp, target_timestamp_ms, return_aggs=True)
     import numpy as np
     #uu = {a.timestamp: [a] for a in aggs}
-    for tp in [TradePair.CADJPY]:#[x for x in TradePair if x.is_forex]:
+    for tp in [x for x in TradePair if x.is_forex]:
         t0 = time.time()
         quotes = polygon_data_provider.unified_candle_fetcher(tp,
-                                                              target_timestamp_ms - 1000 * 60 * 2,
-                                                              target_timestamp_ms + 1000 * 60 * 2,
+                                                              target_timestamp_ms - 1000 * 60 * 60 * 24 * 4,
+                                                              target_timestamp_ms + 1000 * 60 * 60 * 24 * 4,
                                                               "minute")
-        for q in quotes:
-            print(q)
-        assert 0
         quotes = list(quotes)
+        n_quotes = len(quotes)
+        n_spikes = 0
+        for prev, next in zip(quotes, quotes[1:]):
+            delta_close = abs(prev.close - next.open) / prev.close
+            if delta_close > .01:
+                n_spikes += 1
+                time_of_spike = TimeUtil.millis_to_verbose_formatted_date_str(next.timestamp)
+                print(time_of_spike, delta_close, prev.close, next.close, prev, next)
+        print(f'tp {tp.trade_pair} Found {n_spikes} spikes in {n_quotes} quotes. pct: {n_spikes / n_quotes * 100:.4f}')
+
+        continue
         print(f'fetched data for {tp.trade_pair_id} in {time.time() - t0} s. quotes: {len(quotes)}')
         deltas = []
         n_wonky = 0

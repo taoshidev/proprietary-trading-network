@@ -26,6 +26,8 @@ TARGET_CHECKPOINT_DURATION_MS = ValiConfig.TARGET_CHECKPOINT_DURATION_MS
 TARGET_LEDGER_WINDOW_MS = ValiConfig.TARGET_LEDGER_WINDOW_MS
 
 TP_ID_PORTFOLIO = 'portfolio'
+
+
 class FeeCache():
     def __init__(self):
         self.spread_fee: float = 1.0
@@ -636,25 +638,56 @@ class PerfLedgerManager(CacheController):
             raise Exception(f"Unknown mode: {mode}")
 
     def refresh_price_info(self, t_ms, end_time_ms, tp, mode):
-        def _agg_to_payload(agg):
+
+        def _agg_to_payload(agg, prev, next, mode, tp):
             if mode == 'second':
                 return agg.close
             elif mode == 'minute':
                 if not tp.is_forex:
                     return agg.close
-                # forex candles are subject to spikes.
-                if not agg.vwap:
-                    return agg.close
+                # forex candles are subject to spikes. particularly at the end of day.
+                if prev and next:
+                    pass
+                elif prev:  # spike detected
+                    if abs(agg.close - prev.close) / prev.close > .015:
+                        return prev.vwap
+                elif next:  # spike detected
+                    if abs(agg.close - next.close) / next.close > .015:
+                        return next.vwap
+
                 elif abs(agg.vwap - agg.close) / agg.close < .003:
                     return agg.close
-                else:  #spike detected
+                else:  # spike detected
                     valid_vwap = agg.low <= agg.vwap <= agg.high
                     return agg.vwap if valid_vwap else (agg.high + agg.low) / 2
             else:
                 raise Exception(f"Unknown mode: {mode}")
 
+        def populate_price_info(pi, price_info_raw, mode, tp):
+            price_info_raw = list(price_info_raw)
+            n_points = len(price_info_raw)
+            for i in range(n_points):
+                a = price_info_raw[i]
+                k = a.timestamp
+                if not tp.is_forex:
+                    pi[k] = a.close
+                    continue
+                prev = price_info_raw[i - 1] if i > 0 else None
+                next = price_info_raw[i + 1] if i < n_points - 1 else None
+                # if tp.trade_pair_id == 'NZDUSD' and k == 1.7317031e+12:
+                #    print('snare', a, prev, i, mode)
+                #    for x in price_info_raw:
+                #        print(x)
+                #    raise Exception
+                v = _agg_to_payload(a, prev, next, mode, tp)
+                # if tp.trade_pair_id == 'NZDUSD' and k == 1.7317031e+12:
+                #    print(f'@@@ Writing {v} to {k}. mode {mode}')
+                #if k == 1731707940000 and tp.trade_pair_id == 'NZDUSD':
+                #    print(f'@@@ Writing {v} to {k}. mode {mode} tp {tp.trade_pair_id}')
+                #    print(print('snare', prev, a, next, i, n_points, mode))
+                pi[k] = v
 
-        t_ms = self.align_t_ms_to_mode(t_ms, mode)
+
         min_candles_per_request = 3600 if mode == 'second' else 1440
         existing_lb_ms = None
         existing_ub_ms = None
@@ -697,7 +730,7 @@ class PerfLedgerManager(CacheController):
         #assert ub_ms <= end_time_ms, (ub_ms, end_time_ms)
         # Can we build on top of existing data or should we wipe?
         perform_wipe = True
-        if tp.trade_pair_id in self.trade_pair_to_price_info:
+        if tp.trade_pair_id in self.trade_pair_to_price_info[mode]:
             new_window_size_ms = end_time_ms - start_time_ms
             candidate_window_size = new_window_size_ms + existing_window_ms
             candidate_n_candles_in_memory = candidate_window_size // 1000 if mode == 'second' else candidate_window_size // 60000
@@ -708,24 +741,18 @@ class PerfLedgerManager(CacheController):
 
         if perform_wipe:
             price_info = {}
-            for a in price_info_raw:
-                k = self.align_t_ms_to_mode(a.timestamp, mode)
-                v = _agg_to_payload(a)
-                price_info[k] = v
-
-            #for a in price_info_raw:
-            #    price_info[a.timestamp // 1000] = a.close
+            populate_price_info(price_info, price_info_raw, mode, tp)
             self.trade_pair_to_price_info[mode][tp.trade_pair_id] = price_info
             self.trade_pair_to_price_info[mode][tp.trade_pair_id]['lb_ms'] = start_time_ms
             self.trade_pair_to_price_info[mode][tp.trade_pair_id]['ub_ms'] = end_time_ms
         else:
             self.trade_pair_to_price_info[mode][tp.trade_pair_id]['ub_ms'] = max(existing_ub_ms, end_time_ms)
             self.trade_pair_to_price_info[mode][tp.trade_pair_id]['lb_ms'] = min(existing_lb_ms, start_time_ms)
-            for a in price_info_raw:
-                self.trade_pair_to_price_info[mode][tp.trade_pair_id][self.align_t_ms_to_mode(a.timestamp, mode)] = _agg_to_payload(a)
+            populate_price_info(self.trade_pair_to_price_info[mode][tp.trade_pair_id], price_info_raw, mode, tp)
 
         #print(f'Fetched {requested_seconds} s of candles for tp {tp.trade_pair} in {time.time() - t0}s')
         #print('22222', tp.trade_pair, trade_pair_to_price_info.keys())
+
 
     def positions_to_portfolio_return(self, tp_to_historical_positions_dense: dict[str: Position], t_ms, mode, end_time_ms, tp_to_initial_return, tp_to_initial_spread_fee, tp_to_initial_carry_fee):
         # Answers "What is the portfolio return at this time t_ms?"
@@ -832,10 +859,10 @@ class PerfLedgerManager(CacheController):
 
     def get_default_update_mode(self, start_time_ms, end_time_ms, n_open_positions):
         # Minutely mode requires only one open position since intervals are represented with 2 prices.
-        if n_open_positions > 1:
+        if False:#n_open_positions > 1:
             default_mode = 'second'
-        # Default mode becomes minute if there are at least x minutes between start and end time
-        elif (end_time_ms - start_time_ms) > 1200000:
+        # Default mode becomes minute if there are at least 30 minutes between start and end time
+        elif (end_time_ms - start_time_ms) > 1.8e+6:
             default_mode = 'minute'
         else:
             default_mode = 'second'
@@ -848,7 +875,7 @@ class PerfLedgerManager(CacheController):
             ms_from_minute_boundary = candidate_t_ms % 60000
             if ms_from_minute_boundary != 0:
                 mode = 'second'
-            elif candidate_t_ms + 60000 >= end_time_ms:
+            elif end_time_ms - candidate_t_ms <= 60000:  # one min or less from end. go fine grained
                 mode = 'second'
         return mode
 
@@ -944,6 +971,10 @@ class PerfLedgerManager(CacheController):
             tp_to_current_return, tp_to_any_open, tp_to_current_spread_fee, tp_to_current_carry_fee = \
                 self.positions_to_portfolio_return(tp_to_historical_positions_dense, t_ms, mode, end_time_ms, tp_to_initial_return, tp_to_initial_spread_fee, tp_to_initial_carry_fee)
             portfolio_return = tp_to_current_return[TP_ID_PORTFOLIO]
+            #if tp_to_current_return.get('NZDUSD', 0) > 1.10:
+            #    print('snare')
+            #if t_ms == 1731707940524 - 60000:
+            #    print('snare')
             if portfolio_return == 0 and self.check_liquidated(miner_hotkey, portfolio_return, t_ms, tp_to_historical_positions):
                 return True
 
@@ -1405,4 +1436,4 @@ if __name__ == "__main__":
     position_manager = PositionManager(metagraph=mmg, running_unit_tests=False, elimination_manager=elimination_manager)
     perf_ledger_manager = PerfLedgerManager(mmg, position_manager=position_manager, running_unit_tests=False, enable_rss=False)
     #perf_ledger_manager.update(regenerate_all_ledgers=True)
-    perf_ledger_manager.update(testing_one_hotkey='5F1Dk6TyMrsx3dhiG1hLWhPnACNFKz4mfLkgG3s7n1Q9qpJ4')
+    perf_ledger_manager.update(testing_one_hotkey='5G9yGe6TEDxx7wD2mpM2XSu8P7gVt6wwUvuXRrHGAYJDA955')
