@@ -430,9 +430,10 @@ class PerfLedgerManager(CacheController):
 
         # Everything here is in v2 format
         if portfolio_only:
-            return {hk: bundle[TP_ID_PORTFOLIO] for hk, bundle in self.hotkey_to_perf_bundle.items()}
+            dat = dict(self.hotkey_to_perf_bundle)
+            return {hk: bundle[TP_ID_PORTFOLIO] for hk, bundle in dat.items()}
         else:
-            return deepcopy(self.hotkey_to_perf_bundle)
+            return dict(self.hotkey_to_perf_bundle)
 
 
 
