@@ -851,11 +851,11 @@ class PerfLedgerManager(CacheController):
                 mode = 'second'
         return mode
 
-    def debug_significant_portfolio_drop(self, mode, portfolio_return, perf_ledger_bundle, t_ms, miner_hotkey, tp_to_historical_positions):
+    def debug_significant_portfolio_drop(self, mode, portfolio_return, perf_ledger_bundle, t_ms, miner_hotkey, tp_to_historical_positions, open_positions_tp_ids):
         if mode == 'second' and portfolio_return < perf_ledger_bundle[TP_ID_PORTFOLIO].cps[-1].prev_portfolio_ret * 0.98:
             time_since_last_update = t_ms - perf_ledger_bundle[TP_ID_PORTFOLIO].cps[-1].last_update_ms
             print(
-                f'perf ledger for hk {miner_hotkey} significant return drop from {perf_ledger_bundle[TP_ID_PORTFOLIO].cps[-1].prev_portfolio_ret} to {portfolio_return} over {time_since_last_update} ms ({t_ms})',
+                f'perf ledger for hk {miner_hotkey} significant return drop from {perf_ledger_bundle[TP_ID_PORTFOLIO].cps[-1].prev_portfolio_ret} to {portfolio_return} over {time_since_last_update} ms ({t_ms}) with {open_positions_tp_ids} open_positions_tp_ids',
                 perf_ledger_bundle[TP_ID_PORTFOLIO].cps[-1].to_dict(), self.trade_pair_to_position_ret)
             for tp, historical_positions in tp_to_historical_positions.items():
                 positions = []
@@ -893,7 +893,7 @@ class PerfLedgerManager(CacheController):
                 assert len(positions) == 1
                 assert len(positions[0].orders) == 0, (tp_id, positions[0], list(perf_ledger_bundle.keys()))
                 assert realtime_position_to_pop and tp_id == realtime_position_to_pop.trade_pair.trade_pair_id
-                initialization_time_ms = realtime_position_to_pop.open_ms
+                initialization_time_ms = realtime_position_to_pop.orders[0].processed_ms
                 perf_ledger_bundle[tp_id] = PerfLedger(initialization_time_ms=initialization_time_ms)
                 perf_ledger_bundle[tp_id].init_with_first_order(end_time_ms, point_in_time_dd=1.0, current_portfolio_value=1.0,
                                                    current_portfolio_fee_spread=1.0, current_portfolio_carry=1.0)
@@ -946,7 +946,7 @@ class PerfLedgerManager(CacheController):
             if portfolio_return == 0 and self.check_liquidated(miner_hotkey, portfolio_return, t_ms, tp_to_historical_positions):
                 return True
 
-            self.debug_significant_portfolio_drop(mode, portfolio_return, perf_ledger_bundle, t_ms, miner_hotkey, tp_to_historical_positions)
+            self.debug_significant_portfolio_drop(mode, portfolio_return, perf_ledger_bundle, t_ms, miner_hotkey, tp_to_historical_positions, open_positions_tp_ids)
 
             for tp_id in open_positions_tp_ids:
                 perf_ledger_bundle[tp_id].update_pl(tp_to_current_return[tp_id], t_ms, miner_hotkey, tp_to_any_open[tp_id], tp_to_spread_fee[tp_id], tp_to_current_carry_fee[tp_id], tp_debug=tp_id)
@@ -985,12 +985,8 @@ class PerfLedgerManager(CacheController):
             perf_ledger_bundle_candidate = None
 
         if perf_ledger_bundle_candidate is None:
-            first_order_time_ms = float('inf')
-            for p in positions:
-                first_order_time_ms = min(first_order_time_ms, p.open_ms)
-            perf_ledger_bundle_candidate = {TP_ID_PORTFOLIO:
-                PerfLedger(initialization_time_ms=first_order_time_ms if first_order_time_ms != float('inf') else 0)}
-
+            first_order_time_ms = min(p.orders[0].processed_ms for p in positions)
+            perf_ledger_bundle_candidate = {TP_ID_PORTFOLIO: PerfLedger(initialization_time_ms=first_order_time_ms)}
             verbose = True
         else:
             perf_ledger_bundle_candidate = deepcopy(perf_ledger_bundle_candidate)
