@@ -656,50 +656,9 @@ class PerfLedgerManager(CacheController):
             raise Exception(f"Unknown mode: {mode}")
 
     def refresh_price_info(self, t_ms, end_time_ms, tp, mode):
-
-        def _agg_to_payload(agg, prev, next, mode, tp):
-            if mode == 'second':
-                return agg.close
-            elif mode == 'minute':
-                if not tp.is_forex:
-                    return agg.close
-                # forex candles are subject to spikes. particularly at the end of day.
-                if prev and next is None and abs(agg.close - prev.close) / prev.close > .015:
-                    return prev.vwap
-                elif next and prev is None and abs(agg.close - next.close) / next.close > .015:
-                    return next.vwap
-                elif abs(agg.vwap - agg.close) / agg.close < .003:
-                    return agg.close
-                else:  # spike detected
-                    valid_vwap = agg.low <= agg.vwap <= agg.high
-                    return agg.vwap if valid_vwap else (agg.high + agg.low) / 2
-            else:
-                raise Exception(f"Unknown mode: {mode}")
-
-        def populate_price_info(pi, price_info_raw, mode, tp):
-            price_info_raw = list(price_info_raw)
-            n_points = len(price_info_raw)
-            for i in range(n_points):
-                a = price_info_raw[i]
-                k = a.timestamp
-                if not (tp.is_forex and mode == 'minute'):
-                    pi[k] = a.close
-                    continue
-                prev = price_info_raw[i - 1] if i > 0 else None
-                next = price_info_raw[i + 1] if i < n_points - 1 else None
-                # if tp.trade_pair_id == 'NZDUSD' and k == 1.7317031e+12:
-                #    print('snare', a, prev, i, mode)
-                #    for x in price_info_raw:
-                #        print(x)
-                #    raise Exception
-                v = _agg_to_payload(a, prev, next, mode, tp)
-                # if tp.trade_pair_id == 'NZDUSD' and k == 1.7317031e+12:
-                #    print(f'@@@ Writing {v} to {k}. mode {mode}')
-                #if k == 1731707940000 and tp.trade_pair_id == 'NZDUSD':
-                #    print(f'@@@ Writing {v} to {k}. mode {mode} tp {tp.trade_pair_id}')
-                #    print(print('snare', prev, a, next, i, n_points, mode))
-                pi[k] = v
-
+        def populate_price_info(pi, price_info_raw):
+            for a in price_info_raw:
+                pi[a.timestamp] = a.close
 
         min_candles_per_request = 3600 if mode == 'second' else 1440
         existing_lb_ms = None
@@ -733,8 +692,9 @@ class PerfLedgerManager(CacheController):
             live_price_fetcher = LivePriceFetcher(secrets, disable_ws=True)
             self.pds = live_price_fetcher.polygon_data_service
 
-        price_info_raw = self.pds.get_candles_for_trade_pair_simple(
+        price_info_raw = self.pds.unified_candle_fetcher(
             trade_pair=tp, start_timestamp_ms=start_time_ms, end_timestamp_ms=end_time_ms, timespan=mode)
+        self.tp_to_mfs.update(self.pds.tp_to_mfs)
         self.n_api_calls += 1
         #print(f'Fetched candles for tp {tp.trade_pair} for window {TimeUtil.millis_to_formatted_date_str(start_time_ms)} to {TimeUtil.millis_to_formatted_date_str(end_time_ms)}')
         #print(f'Got {len(price_info)} candles after request of {requested_seconds} candles for tp {tp.trade_pair} in {time.time() - t0}s')
@@ -754,14 +714,14 @@ class PerfLedgerManager(CacheController):
 
         if perform_wipe:
             price_info = {}
-            populate_price_info(price_info, price_info_raw, mode, tp)
+            populate_price_info(price_info, price_info_raw)
             self.trade_pair_to_price_info[mode][tp.trade_pair_id] = price_info
             self.trade_pair_to_price_info[mode][tp.trade_pair_id]['lb_ms'] = start_time_ms
             self.trade_pair_to_price_info[mode][tp.trade_pair_id]['ub_ms'] = end_time_ms
         else:
             self.trade_pair_to_price_info[mode][tp.trade_pair_id]['ub_ms'] = max(existing_ub_ms, end_time_ms)
             self.trade_pair_to_price_info[mode][tp.trade_pair_id]['lb_ms'] = min(existing_lb_ms, start_time_ms)
-            populate_price_info(self.trade_pair_to_price_info[mode][tp.trade_pair_id], price_info_raw, mode, tp)
+            populate_price_info(self.trade_pair_to_price_info[mode][tp.trade_pair_id], price_info_raw)
 
         #print(f'Fetched {requested_seconds} s of candles for tp {tp.trade_pair} in {time.time() - t0}s')
         #print('22222', tp.trade_pair, trade_pair_to_price_info.keys())
@@ -912,7 +872,7 @@ class PerfLedgerManager(CacheController):
                     if historical_position.is_open_position and len(historical_position.orders):
                         time_since_last_order_ms = t_ms - historical_position.orders[-1].processed_ms
                         time_since_last_order_min = time_since_last_order_ms / (1000 * 60)
-                        positions.append((historical_position.position_uuid, [x.price for x in historical_position.orders],
+                        positions.append((historical_position.position_uuid, historical_position.net_leverage, [x.price for x in historical_position.orders],
                                       historical_position.return_at_close, time_since_last_order_min))
                 if positions:
                     print(f'    tp_id {tp_id} tp_to_last_price {self.tp_to_last_price.get(tp_id)} trade_pair_to_position_ret {self.trade_pair_to_position_ret.get(tp_id)}')
@@ -1003,6 +963,9 @@ class PerfLedgerManager(CacheController):
             mode = self.get_current_update_mode(default_mode, start_time_ms, end_time_ms, accumulated_time_ms)
             t_ms = start_time_ms + accumulated_time_ms
 
+            #if t_ms + 60000 > 1737496980446:
+            #    print('snare')
+
             assert t_ms >= portfolio_pl.last_update_ms, (f"t_ms: {t_ms}, "
                                                          f"last_update_ms: {TimeUtil.millis_to_formatted_date_str(portfolio_pl.last_update_ms)},"
                                                          f"mode: {mode},"
@@ -1055,6 +1018,7 @@ class PerfLedgerManager(CacheController):
         eliminated = False
         self.n_api_calls = 0
         self.mode_to_n_updates = {'second': 0, 'minute': 0}
+        self.tp_to_mfs = {}
         self.update_to_n_open_positions = defaultdict(int)
 
         t0 = time.time()
@@ -1166,7 +1130,7 @@ class PerfLedgerManager(CacheController):
                 f" n_api_calls: {self.n_api_calls} dd stats {None}. "
                 f" last cp {portfolio_perf_ledger.cps[-1] if portfolio_perf_ledger.cps else None}. perf_ledger_mpv {portfolio_perf_ledger.max_return} "
                 f"perf_ledger_initialization_time {TimeUtil.millis_to_formatted_date_str(portfolio_perf_ledger.initialization_time_ms)}. "
-                f"mode_to_n_updates {self.mode_to_n_updates}. update_to_n_open_positions {self.update_to_n_open_positions}")
+                f"mode_to_n_updates {self.mode_to_n_updates}. update_to_n_open_positions {self.update_to_n_open_positions}, self.tp_to_mfs {self.tp_to_mfs}")
         # Write candidate at the very end in case an exception leads to a partial update
         existing_perf_ledger_bundles[hotkey] = perf_ledger_bundle_candidate
 
@@ -1482,5 +1446,5 @@ if __name__ == "__main__":
     elimination_manager = EliminationManager(mmg, None, None)
     position_manager = PositionManager(metagraph=mmg, running_unit_tests=False, elimination_manager=elimination_manager)
     perf_ledger_manager = PerfLedgerManager(mmg, position_manager=position_manager, running_unit_tests=False, enable_rss=False)
-    #perf_ledger_manager.update(regenerate_all_ledgers=True)
-    perf_ledger_manager.update(testing_one_hotkey='5EUXGiE1vL3LpkJnrBX2gowcUdc6YeYZkmuHD9DuTaPT9Xx5')
+    perf_ledger_manager.update(regenerate_all_ledgers=True)
+    #perf_ledger_manager.update(testing_one_hotkey='5D582P2vwYs3717DYZyBcbCJQecngjE6thfp3nDo8yhge9zr')
