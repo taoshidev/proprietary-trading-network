@@ -140,7 +140,7 @@ def regenerate_miner_positions(perform_backup=True, backup_from_data_dir=False, 
     msg = (f"Detected {n_existing_position} hotkeys with positions, {n_existing_eliminations} eliminations")
     bt.logging.info(msg)
 
-    bt.logging.info("Backing up and overwriting all existing positions, eliminations, and plagiarism scores.")
+    bt.logging.info("Overwriting all existing positions, eliminations, and plagiarism scores.")
     if perform_backup:
         backup_validation_directory()
 

@@ -1446,5 +1446,5 @@ if __name__ == "__main__":
     elimination_manager = EliminationManager(mmg, None, None)
     position_manager = PositionManager(metagraph=mmg, running_unit_tests=False, elimination_manager=elimination_manager)
     perf_ledger_manager = PerfLedgerManager(mmg, position_manager=position_manager, running_unit_tests=False, enable_rss=False)
-    perf_ledger_manager.update(regenerate_all_ledgers=True)
-    #perf_ledger_manager.update(testing_one_hotkey='5D582P2vwYs3717DYZyBcbCJQecngjE6thfp3nDo8yhge9zr')
+    #perf_ledger_manager.update(regenerate_all_ledgers=True)
+    perf_ledger_manager.update(testing_one_hotkey='5HCJ6okRkmCsu7iLEWotBxgcZy11RhbxSzs8MXT4Dei9osUx')
