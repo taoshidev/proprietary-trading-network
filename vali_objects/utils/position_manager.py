@@ -24,7 +24,7 @@ from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.vali_dataclasses.order import OrderStatus, ORDER_SRC_DEPRECATION_FLAT, Order
 from vali_objects.utils.position_filtering import PositionFiltering
 
-TARGET_MS = 1737735585504 + (1000 * 60 * 60 * 3)  # + 3 hours
+TARGET_MS = 1738019972000 + (1000 * 60 * 60 * 3)  # + 3 hours
 
 
 class PositionManager(CacheController):
@@ -323,9 +323,10 @@ class PositionManager(CacheController):
         # Wipe miners only once when dynamic challenge period launches
         miners_to_wipe = []
         miners_to_promote = []
+        wipe_positions = False
         if now_ms < TARGET_MS:
             # All miners that wanted their challenge period restarted
-            miners_to_wipe = ["5GTL7WXa4JM2yEUjFoCy2PZVLioNs1HzAGLKhuCDzzoeQCTR"]
+            miners_to_wipe = ["5EBz3poHAksnoPDz2a7xrjTpirE8LtUQUPGhkqGApiL2zU2t", "5CwnLFrary94P6nZMqhzhUwpkuHM1AmFs8JzTgQUu7qLonjX", "5HCJ6okRkmCsu7iLEWotBxgcZy11RhbxSzs8MXT4Dei9osUx"]
             # All miners that should have been promoted
             miners_to_promote = []
 
@@ -347,12 +348,13 @@ class PositionManager(CacheController):
             if k not in hotkey_to_positions:
                 hotkey_to_positions[k] = []
 
+        n_eliminations_before = len(self.elimination_manager.get_eliminations_from_memory())
         for e in self.elimination_manager.get_eliminations_from_memory():
             if e['hotkey'] in miners_to_wipe:
                 self.elimination_manager.delete_eliminations([e['hotkey']])
-                bt.logging.info(f"Removed elimination for hotkey {e['hotkey']}")
-
-
+                print(f"Removed elimination for hotkey {e['hotkey']}")
+        n_eliminations_after = len(self.elimination_manager.get_eliminations_from_memory())
+        print(f'    n_eliminations_before {n_eliminations_before} n_eliminations_after {n_eliminations_after}')
         for miner_hotkey, positions in hotkey_to_positions.items():
             n_attempts += 1
             self.dedupe_positions(positions, miner_hotkey)
@@ -361,15 +363,24 @@ class PositionManager(CacheController):
                 n_corrections += 1
                 unique_corrections.update([p.position_uuid for p in positions])
                 for pos in positions:
-                    self.delete_position(pos)
+                    if wipe_positions:
+                        self.delete_position(pos)
+                    else:
+                        if any(o.src == 1 for o in pos.orders):
+                            pos.orders = [o for o in pos.orders if o.src != 1]
+                            pos.rebuild_position_with_updated_orders()
+                            self.save_miner_position(pos)
+                            print(f'Removed eliminated orders from position {pos}')
                 if miner_hotkey in self.challengeperiod_manager.challengeperiod_testing:
                     self.challengeperiod_manager.challengeperiod_testing.pop(miner_hotkey)
+                    print(f'Removed challengeperiod testing for {miner_hotkey}')
                 if miner_hotkey in self.challengeperiod_manager.challengeperiod_success:
                     self.challengeperiod_manager.challengeperiod_success.pop(miner_hotkey)
+                    print(f'Removed challengeperiod success for {miner_hotkey}')
 
                 self.challengeperiod_manager._write_challengeperiod_from_memory_to_disk()
 
-                perf_ledgers = self.perf_ledger_manager.get_perf_ledgers()
+                perf_ledgers = self.perf_ledger_manager.get_perf_ledgers(portfolio_only=False)
                 print('n perf ledgers before:', len(perf_ledgers))
                 perf_ledgers_new = {k:v for k,v in perf_ledgers.items() if k != miner_hotkey}
                 print('n perf ledgers after:', len(perf_ledgers_new))
@@ -1026,5 +1037,15 @@ class PositionManager(CacheController):
         return set(self.hotkey_to_positions.keys())
 
 if __name__ == '__main__':
-    pm = PositionManager()
+    from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
+    from vali_objects.utils.elimination_manager import EliminationManager
+    from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
+    bt.logging.enable_info()
+
+    plm = PerfLedgerManager(None)
+    pm = PositionManager(perf_ledger_manager=plm)
+    elimination_manager = EliminationManager(None, pm, None)
+    cpm = ChallengePeriodManager(None, position_manager=pm)
+    pm.challengeperiod_manager = cpm
+    pm.elimination_manager = elimination_manager
     pm.apply_order_corrections()
