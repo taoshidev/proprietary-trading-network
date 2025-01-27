@@ -592,6 +592,23 @@ class PerfLedgerManager(CacheController):
             reason += 'Ledger cutoff. '
             ans = True
 
+        # simultaneous orders were placed
+        if start_time_ms == end_time_ms:
+            reason += 'start_time_ms == end_time_ms. Simultaneous orders.'
+            ans = True
+
+            #print('start and end time the same.')
+            #for tp, positions in tp_to_historical_positions.items():
+            #    for p in positions:
+            #        if realtime_position_to_pop and realtime_position_to_pop.trade_pair == p.trade_pair and p.is_open_position:
+            #            p = realtime_position_to_pop
+            #        if any(o.processed_ms == end_time_ms for o in p.orders):
+            #            p2 = deepcopy(p.__dict__)
+            #            orders = p2.pop('orders')
+            #            print(f'    tp {tp} position {p2}')
+            #            for o in orders:
+            #                print(f'        order {o}')
+
         if 0 and ans:
             for tp_id, historical_positions in tp_to_historical_positions.items():
                 positions = []
@@ -621,7 +638,7 @@ class PerfLedgerManager(CacheController):
                   f'final portfolio cp {final_cp}')
             print('---------------------------------------------------------------------')
 
-        return ans, tp_to_return, tp_to_spread_fee, tp_to_carry_fee, start_time_ms, end_time_ms
+        return ans, tp_to_return, tp_to_spread_fee, tp_to_carry_fee
 
 
     def new_window_intersects_old_window(self, start_time_ms, end_time_ms, existing_lb_ms, existing_ub_ms):
@@ -647,15 +664,10 @@ class PerfLedgerManager(CacheController):
                 if not tp.is_forex:
                     return agg.close
                 # forex candles are subject to spikes. particularly at the end of day.
-                if prev and next:
-                    pass
-                elif prev:  # spike detected
-                    if abs(agg.close - prev.close) / prev.close > .015:
-                        return prev.vwap
-                elif next:  # spike detected
-                    if abs(agg.close - next.close) / next.close > .015:
-                        return next.vwap
-
+                if prev and next is None and abs(agg.close - prev.close) / prev.close > .015:
+                    return prev.vwap
+                elif next and prev is None and abs(agg.close - next.close) / next.close > .015:
+                    return next.vwap
                 elif abs(agg.vwap - agg.close) / agg.close < .003:
                     return agg.close
                 else:  # spike detected
@@ -885,17 +897,27 @@ class PerfLedgerManager(CacheController):
         return mode
 
     def debug_significant_portfolio_drop(self, mode, portfolio_return, perf_ledger_bundle, t_ms, miner_hotkey, tp_to_historical_positions, open_positions_tp_ids):
-        if mode == 'second' and portfolio_return < perf_ledger_bundle[TP_ID_PORTFOLIO].cps[-1].prev_portfolio_ret * 0.98:
+        ratio_drop = portfolio_return / perf_ledger_bundle[TP_ID_PORTFOLIO].cps[-1].prev_portfolio_ret
+        if mode == 'second' and ratio_drop < 0.98 or mode == 'minute' and ratio_drop < .90:
             time_since_last_update = t_ms - perf_ledger_bundle[TP_ID_PORTFOLIO].cps[-1].last_update_ms
+            time_formatted = TimeUtil.millis_to_formatted_date_str(t_ms)
             print(
-                f'perf ledger for hk {miner_hotkey} significant return drop from {perf_ledger_bundle[TP_ID_PORTFOLIO].cps[-1].prev_portfolio_ret} to {portfolio_return} over {time_since_last_update} ms ({t_ms}) with {open_positions_tp_ids} open_positions_tp_ids',
-                perf_ledger_bundle[TP_ID_PORTFOLIO].cps[-1].to_dict(), self.trade_pair_to_position_ret)
-            for tp, historical_positions in tp_to_historical_positions.items():
+                f'perf ledger for hk {miner_hotkey} significant return drop on {time_formatted} from '
+                f'{perf_ledger_bundle[TP_ID_PORTFOLIO].cps[-1].prev_portfolio_ret} to {portfolio_return} over'
+                f' {time_since_last_update} ms ({t_ms}) with open_positions_tp_ids {open_positions_tp_ids} ',
+                perf_ledger_bundle[TP_ID_PORTFOLIO].cps[-1].to_dict(), self.trade_pair_to_position_ret, mode)
+            for tp_id, historical_positions in tp_to_historical_positions.items():
                 positions = []
                 for historical_position in historical_positions:
-                    positions.append((historical_position.position_uuid, [x.price for x in historical_position.orders],
-                                      historical_position.return_at_close, historical_position.is_open_position))
-                print(f'    tp {tp} positions {positions}')
+                    if historical_position.is_open_position:
+                        time_since_last_order_ms = t_ms - historical_position.orders[-1].processed_ms
+                        time_since_last_order_min = time_since_last_order_ms / (1000 * 60)
+                        positions.append((historical_position.position_uuid, [x.price for x in historical_position.orders],
+                                      historical_position.return_at_close, time_since_last_order_min))
+                if positions:
+                    print(f'    tp_id {tp_id} tp_to_last_price {self.tp_to_last_price.get(tp_id)}')
+                for p in positions:
+                    print(f'        position {p} ')
 
 
     def inc_accumulated_time(self, mode, accumulated_time_ms):
@@ -935,7 +957,7 @@ class PerfLedgerManager(CacheController):
             return False  # Can only build perf ledger between orders or after all orders have passed.
 
         # "Shortcut" All positions closed and one newly open position OR before the ledger lookback window.
-        can_shortcut, initial_tp_to_return, initial_tp_to_spread_fee, initial_tp_to_carry_fee, start_time_ms, end_time_ms = \
+        can_shortcut, initial_tp_to_return, initial_tp_to_spread_fee, initial_tp_to_carry_fee = \
             self._can_shortcut(tp_to_historical_positions, end_time_ms, realtime_position_to_pop, start_time_ms, perf_ledger_bundle)
         if can_shortcut:
             for tp_id in tp_ids_to_build:
@@ -972,7 +994,7 @@ class PerfLedgerManager(CacheController):
             if tp_id in open_positions_tp_ids or tp_id == TP_ID_PORTFOLIO:
                 continue
             perf_ledger = perf_ledger_bundle[tp_id]
-            assert perf_ledger.last_update_ms < end_time_ms, (perf_ledger.last_update_ms, end_time_ms)
+            assert perf_ledger.last_update_ms < end_time_ms, (perf_ledger.last_update_ms, end_time_ms, tp_id, perf_ledger.last_update_ms - end_time_ms)
             perf_ledger.update_pl(tp_to_initial_return[tp_id], start_time_ms, miner_hotkey, TradePairReturnStatus.TP_NO_OPEN_POSITIONS,
                                   tp_to_initial_spread_fee[tp_id], tp_to_initial_carry_fee[tp_id])
 
@@ -1461,4 +1483,4 @@ if __name__ == "__main__":
     position_manager = PositionManager(metagraph=mmg, running_unit_tests=False, elimination_manager=elimination_manager)
     perf_ledger_manager = PerfLedgerManager(mmg, position_manager=position_manager, running_unit_tests=False, enable_rss=False)
     #perf_ledger_manager.update(regenerate_all_ledgers=True)
-    perf_ledger_manager.update(testing_one_hotkey='5Cz4ETkXaZFjTxDLJuZiP9eyZbr7SrEjRwQCT3hLNyjCZLV1')
+    perf_ledger_manager.update(testing_one_hotkey='5GqMmDM4BaH9Ndg8ASWhwwSgSiC76T2m2no1qDbh2ZZ3iJrs')
