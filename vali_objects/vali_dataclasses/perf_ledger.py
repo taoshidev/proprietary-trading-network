@@ -909,13 +909,13 @@ class PerfLedgerManager(CacheController):
             for tp_id, historical_positions in tp_to_historical_positions.items():
                 positions = []
                 for historical_position in historical_positions:
-                    if historical_position.is_open_position:
+                    if historical_position.is_open_position and len(historical_position.orders):
                         time_since_last_order_ms = t_ms - historical_position.orders[-1].processed_ms
                         time_since_last_order_min = time_since_last_order_ms / (1000 * 60)
                         positions.append((historical_position.position_uuid, [x.price for x in historical_position.orders],
                                       historical_position.return_at_close, time_since_last_order_min))
                 if positions:
-                    print(f'    tp_id {tp_id} tp_to_last_price {self.tp_to_last_price.get(tp_id)}')
+                    print(f'    tp_id {tp_id} tp_to_last_price {self.tp_to_last_price.get(tp_id)} trade_pair_to_position_ret {self.trade_pair_to_position_ret.get(tp_id)}')
                 for p in positions:
                     print(f'        position {p} ')
 
@@ -1483,4 +1483,4 @@ if __name__ == "__main__":
     position_manager = PositionManager(metagraph=mmg, running_unit_tests=False, elimination_manager=elimination_manager)
     perf_ledger_manager = PerfLedgerManager(mmg, position_manager=position_manager, running_unit_tests=False, enable_rss=False)
     #perf_ledger_manager.update(regenerate_all_ledgers=True)
-    perf_ledger_manager.update(testing_one_hotkey='5GqMmDM4BaH9Ndg8ASWhwwSgSiC76T2m2no1qDbh2ZZ3iJrs')
+    perf_ledger_manager.update(testing_one_hotkey='5EUXGiE1vL3LpkJnrBX2gowcUdc6YeYZkmuHD9DuTaPT9Xx5')
