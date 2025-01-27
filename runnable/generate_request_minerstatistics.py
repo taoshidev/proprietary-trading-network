@@ -258,6 +258,7 @@ class MinerStatisticsManager:
 
             miner_checkpoints = hotkey_ledger.cps
 
+            short_term_miner_checkpoints = hotkey_ledger.cps[-ValiConfig.SHORT_LOOKBACK_WINDOW:]
             # Lookback window positions
             miner_lookback_positions = lookback_positions.get(hotkey, [])
 
@@ -286,8 +287,8 @@ class MinerStatisticsManager:
             return_dict[hotkey] = Metrics.base_return(miner_returns)
 
             short_risk_adjusted_return_dict[hotkey] = Metrics.drawdown_adjusted_return(
-                miner_returns,
-                miner_checkpoints
+                short_term_miner_returns,
+                short_term_miner_checkpoints
             )
 
             risk_adjusted_return_dict[hotkey] = Metrics.drawdown_adjusted_return(
