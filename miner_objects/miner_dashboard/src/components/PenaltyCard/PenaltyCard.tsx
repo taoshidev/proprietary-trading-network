@@ -1,43 +1,23 @@
 import { Card, Group, Text, ThemeIcon, Tooltip } from "@mantine/core";
 import { IconHelp } from "@tabler/icons-react";
-import chroma from "chroma-js";
 
-import { orange } from "../../theme/colors";
-import { isColorDark } from "../../utils";
+import { toShortFloat } from "../../utils";
 
 type PenaltyCardProps = {
-  title: string;
   item: number;
   isPercentage?: boolean;
   sigFigs?: number;
   tooltipText: string;
 };
 
-export const PenaltyCard = ({
-  title,
-  item,
-  isPercentage = false,
-  sigFigs = 4,
-  tooltipText,
-}: PenaltyCardProps) => {
-  const value = item;
-  const multiplier = 10000000;
-  
-  const getColors = () => {
-    const baseColor = orange[6];
-    const background = chroma(baseColor).brighten(value * multiplier);
-    
-    return {
-      background: background.hex(),
-      foreground: isColorDark(background.hex()) ? "#ffffff" : "#000000",
-    };
-  };
-  
+export const PenaltyCard = ({ item, tooltipText }: PenaltyCardProps) => {
+  const { drawdown_threshold, total, martingale } = item;
+
   return (
-    <Card withBorder flex="1" h="100%" bg={getColors().background}>
+    <Card withBorder flex="1" h="100%">
       <Group justify="space-between" align="center">
         <Group align="center" gap="xs">
-          <Text size="sm" fw="bold" c={getColors().foreground}>{title}</Text>
+          <Text fw="bold">Penalties</Text>
           <Tooltip
             label={tooltipText}
             withArrow
@@ -55,14 +35,39 @@ export const PenaltyCard = ({
             </ThemeIcon>
           </Tooltip>
         </Group>
-        
-        <Text size="sm" c={getColors().foreground}>
-          {value !== undefined && value !== null && !isNaN(value)
-            ? isPercentage
-              ? `${(value * 100).toFixed(sigFigs)}%`
-              : value.toFixed(sigFigs)
-            : "N/A"}
-        </Text>
+
+        {drawdown_threshold !== null && (
+          <Group justify="space-between" align="center">
+            <Text size="xs" c="gray">
+              Drawdown Threshold
+            </Text>
+            <Text size="xs" fw="bold" style={{ textAlign: "right" }}>
+              {toShortFloat(drawdown_threshold)}
+            </Text>
+          </Group>
+        )}
+
+        {martingale !== null && (
+          <Group justify="space-between" align="center">
+            <Text size="xs" c="gray">
+              Martingale
+            </Text>
+            <Text size="xs" fw="bold" style={{ textAlign: "right" }}>
+              {toShortFloat(martingale)}
+            </Text>
+          </Group>
+        )}
+
+        {total !== null && (
+          <Group justify="space-between" align="center">
+            <Text size="xs" c="gray">
+              Total
+            </Text>
+            <Text size="xs" fw="bold" style={{ textAlign: "right" }}>
+              {total}
+            </Text>
+          </Group>
+        )}
       </Group>
     </Card>
   );
