@@ -157,6 +157,7 @@ class PolygonDataService(BaseDataService):
         self.equities_mapping = ehm.stock_mapping
         self.disable_ws = disable_ws
         self.N_CANDLES_LIMIT = 50000
+        self.tp_to_mfs = {}
         super().__init__(provider_name=POLYGON_PROVIDER_NAME, ipc_manager=ipc_manager)
 
         self.MARKET_STATUS = None
@@ -665,25 +666,90 @@ class PolygonDataService(BaseDataService):
         # Return the collected results
         return ret
 
-    def get_candles_for_trade_pair_simple(self, trade_pair: TradePair, start_timestamp_ms: int, end_timestamp_ms: int, timespan='second'):
-        # ans = {}
-        # ub = 0
-        # lb = float('inf')
-        raw = self.unified_candle_fetcher(trade_pair, start_timestamp_ms, end_timestamp_ms, timespan)
-        #for a in raw:
-            #ans[a.timestamp // 1000] = a.close
-            #ub = max(ub, a.timestamp)
-            #lb = min(lb, a.timestamp)
-        return raw#, lb, ub
-
-
     def unified_candle_fetcher(self, trade_pair: TradePair, start_timestamp_ms: int, end_timestamp_ms: int, timespan: str=None):
-        def build_quotes(start_timestamp_ms, end_timestamp_ms):
-            #nonlocal stats
 
+        def _fetch_raw_polygon_aggs():
+            return self.POLYGON_CLIENT.list_aggs(
+                polygon_ticker,
+                1,
+                timespan,
+                start_timestamp_ms,
+                end_timestamp_ms,
+                limit=self.N_CANDLES_LIMIT
+            )
+        def _intra_vwap_valid(agg):
+            return abs(agg.vwap - agg.close) / agg.close < .004
+
+        def _consecutive_candle_spiked(a, b):
+            return abs(b.close - a.close) / a.close > .015
+
+        def _agg_to_payload(agg, prev, nxt, last_valid_price, waiting_for_valid_payload, tp_id, verbose=False):
+            if waiting_for_valid_payload > 20 and prev and nxt:  # waited long enough
+                return _agg_to_payload(agg, prev, nxt, None, 0, tp_id)
+            elif waiting_for_valid_payload > 0:
+                delta = abs(agg.close - last_valid_price) / last_valid_price
+                vv = _intra_vwap_valid(agg)
+                price_valid = delta < .005 and vv  # close enough to the tether
+                if verbose:
+                    if price_valid:
+                        print(f'Breaking out. tp_id {tp_id}, waiting_for_valid_payload {waiting_for_valid_payload}, delta {delta} last_valid_price {last_valid_price} agg {agg}')
+                    else:
+                        print(f'tp_id {tp_id}, waiting_for_valid_payload {waiting_for_valid_payload}, delta {delta} vv {vv} last_valid_price {last_valid_price} agg.close {agg.close} agg.vwap {agg.vwap}')
+                return agg, price_valid
+
+            # forex candles are subject to spikes. particularly at the end of day.
+            if prev and nxt is None and _consecutive_candle_spiked(prev, agg):
+                agg.close = prev.vwap
+                return agg, True  # Don't enter the waiting_for_valid_payload state machine as this is likely a one-off
+            elif nxt and prev is None and _consecutive_candle_spiked(agg, nxt):
+                agg.close = nxt.vwap
+                return agg, True  # Don't enter the waiting_for_valid_payload state machine as this is likely a one-off
+            elif _intra_vwap_valid(agg):
+                return agg, True
+            else:  # spike detected
+                vv = agg.low <= agg.vwap <= agg.high
+                smoothed_price = agg.vwap if vv else (agg.high + agg.low) / 2
+                agg.close = smoothed_price
+                if verbose:
+                    print('--------------------------------------')
+                    print(f'Rejecting {tp_id}. delta {abs(agg.vwap - agg.close) / agg.close}. vv {vv} last_valid_price {last_valid_price} agg {agg}')
+                return agg, False
+
+        def _get_filtered_forex_minute_data():
+            price_info_raw = list(_fetch_raw_polygon_aggs())
+            n_points = len(price_info_raw)
+            last_valid_price = None
+            tp_id = trade_pair.trade_pair_id
+            waiting_for_valid_payload = 0  # minutes we've been ignoring data
+            ans = []
+            self.tp_to_mfs = {}
+            for i in range(n_points):
+                a = price_info_raw[i]
+
+                prev = price_info_raw[i - 1] if i > 0 else None
+                nxt = price_info_raw[i + 1] if i < n_points - 1 else None
+
+                agg, is_valid = _agg_to_payload(a, prev, nxt, last_valid_price, waiting_for_valid_payload, tp_id)
+                if is_valid:
+                    last_valid_price = agg.close
+                    waiting_for_valid_payload = 0
+                    ans.append(agg)
+                if not is_valid:
+                    if last_valid_price:
+                        waiting_for_valid_payload += 1
+                    else:
+                        ans.append(agg)  # smoothed price. Don't enter state machine as we have no valid last price to tether to
+                    # debug/metrics
+                    if tp_id not in self.tp_to_mfs:
+                        self.tp_to_mfs[tp_id] = waiting_for_valid_payload
+                    else:
+                        self.tp_to_mfs[tp_id] = max(self.tp_to_mfs[tp_id], waiting_for_valid_payload)
+            return ans
+
+
+        def _get_filtered_forex_second_data():
             ans = []
             prev_t_ms = None
-
             raw = self.POLYGON_CLIENT.list_quotes(ticker=polygon_ticker,
                                                                    timestamp_gte=start_timestamp_ms * 1000000,
                                                                    timestamp_lte=end_timestamp_ms * 1000000,
@@ -702,7 +768,6 @@ class PolygonDataService(BaseDataService):
                 price, current_delta = self.parse_price_for_forex(r, stats=None)
                 if price is None:
                     continue
-
 
                 if best_delta == float('inf'):
                     best_delta = current_delta
@@ -733,35 +798,16 @@ class PolygonDataService(BaseDataService):
             self.instantiate_not_pickleable_objects()
 
         polygon_ticker = self.trade_pair_to_polygon_ticker(trade_pair)
-        if trade_pair.is_forex and timespan == 'second':
-            #stats = None#{'sum_deltas': 0, 'n_skipped': 0, 'avg_delta': None, 'max_delta':-float('inf'), 'n': 0}
-            ans, n = build_quotes(start_timestamp_ms, end_timestamp_ms)
-            #if stats:
-            #    c = Counter(x.volume for x in ans)
-            #    stats['counter'] = c
-            #    stats['n_ret'] = n
-            #    stats.pop('sum_deltas')
-            #    print('stats for tp ', trade_pair.trade_pair_id)
-            #    for k, v in stats.items():
-            #        print('   ', k, v)
-
-            #while n == self.N_CANDLES_LIMIT:
-            #    ans, n = build_quotes(ans[-1].timestamp + 1000, end_timestamp_ms, ans=ans)
-            #    bt.logging.warning(f'Double fetching quotes due to limit being hit. (n {n},'
-            #                       f' start_timestamp_ms{start_timestamp_ms}, end_timestamp_ms{end_timestamp_ms},'
-            #                       f' trade_pair.trade_pair_id{trade_pair.trade_pair_id})')
-
-
+        if trade_pair.is_forex:
+            if timespan == 'second':
+                ans, n = _get_filtered_forex_second_data()
+            elif timespan == 'minute':
+                ans = _get_filtered_forex_minute_data()
+            else:
+                raise Exception(f'Invalid timespan {timespan}')
             return ans
         else:
-            return self.POLYGON_CLIENT.list_aggs(
-                polygon_ticker,
-                1,
-                timespan,
-                start_timestamp_ms,
-                end_timestamp_ms,
-                limit=self.N_CANDLES_LIMIT
-            )
+            return _fetch_raw_polygon_aggs()
 
     def get_candles_for_trade_pair(
         self,
@@ -826,7 +872,7 @@ if __name__ == "__main__":
     #time.sleep(100000)
 
     polygon_data_provider = PolygonDataService(api_key=secrets['polygon_apikey'], disable_ws=True)
-    target_timestamp_ms = 1733313300067#1715288494000
+    target_timestamp_ms = 1737496980446#1715288494000
 
     """
     aggs = []
@@ -849,11 +895,11 @@ if __name__ == "__main__":
     #aggs = polygon_data_provider.get_close_at_date_second(tp, target_timestamp_ms, return_aggs=True)
     import numpy as np
     #uu = {a.timestamp: [a] for a in aggs}
-    for tp in [TradePair.AUDUSD]:#[x for x in TradePair if x.is_forex]:
+    for tp in [TradePair.NZDUSD]:#[x for x in TradePair if x.is_forex]:
         t0 = time.time()
         quotes = polygon_data_provider.unified_candle_fetcher(tp,
-                                                              target_timestamp_ms - 1000 * 60 * 3,
-                                                              target_timestamp_ms + 1000 * 60 * 3,
+                                                              target_timestamp_ms - 1000 * 60 * 12,
+                                                              target_timestamp_ms + 1000 * 60 * 25,
                                                               "minute")
         for q in quotes:
             print(q)
