@@ -341,7 +341,6 @@ class PerfLedgerManager(CacheController):
                  enable_rss=True):
         super().__init__(metagraph=metagraph, running_unit_tests=running_unit_tests)
         self.shutdown_dict = shutdown_dict
-        self.live_price_fetcher = live_price_fetcher
         self.running_unit_tests = running_unit_tests
         self.enable_rss = enable_rss
         if perf_ledger_hks_to_invalidate:
@@ -962,9 +961,6 @@ class PerfLedgerManager(CacheController):
             mode = self.get_current_update_mode(default_mode, start_time_ms, end_time_ms, accumulated_time_ms)
             t_ms = start_time_ms + accumulated_time_ms
 
-            #if t_ms + 60000 > 1737496980446:
-            #    print('snare')
-
             assert t_ms >= portfolio_pl.last_update_ms, (f"t_ms: {t_ms}, "
                                                          f"last_update_ms: {TimeUtil.millis_to_formatted_date_str(portfolio_pl.last_update_ms)},"
                                                          f"mode: {mode},"
@@ -1045,18 +1041,34 @@ class PerfLedgerManager(CacheController):
         sorted_timeline, last_event_time_ms = self.generate_order_timeline(positions, now_ms, hotkey)  # Enforces our "now_ms" constraint
         # There hasn't been a new order since the last update time. Just need to update for open positions
         building_from_new_orders = True
-        if last_event_time_ms <= perf_ledger_bundle_candidate[TP_ID_PORTFOLIO].last_update_ms:
+        portfolio_last_update_time_ms = perf_ledger_bundle_candidate[TP_ID_PORTFOLIO].last_update_ms
+        if last_event_time_ms <= portfolio_last_update_time_ms:
             building_from_new_orders = False
             # Preserve returns from realtime positions
+
+            # TODO: seed all open positions with the return corresponding to the current price of the asset (or as close as possible).
             sorted_timeline = []
             tp_to_historical_positions = {}
+            tp_realtime_prices_needed = []
+            positions_needing_realtime_prices = []
             for p in positions:
                 symbol = p.trade_pair.trade_pair_id
+                if p.is_open_position:
+                    tp_realtime_prices_needed.append(p.trade_pair)
+                    positions_needing_realtime_prices.append(p)
                 if symbol in tp_to_historical_positions:
                     tp_to_historical_positions[symbol].append(p)
                 else:
                     tp_to_historical_positions[symbol] = [p]
-            
+            # TODO: verify behavior if market closed, gets the last price before close.
+            trade_pair_to_last_order_time_ms = {tp: portfolio_last_update_time_ms for tp in tp_realtime_prices_needed}
+            tp_to_realtime_price = self.live_price_fetcher.get_prices(trade_pair_to_last_order_time_ms=trade_pair_to_last_order_time_ms)
+            for p in positions_needing_realtime_prices:
+                p.set_returns(tp_to_realtime_price[p.trade_pair], portfolio_last_update_time_ms)
+            # TODO: perform seeding for cases where delta update is being performed but there isn't a full rebuild
+            #  (general seeding except when all positions closed OR a full rebuild is happening)
+
+
 
         # Building for scratch or there have been order(s) since the last update time
         realtime_position_to_pop = None
@@ -1458,3 +1470,4 @@ if __name__ == "__main__":
     perf_ledger_manager = PerfLedgerManager(mmg, position_manager=position_manager, running_unit_tests=False, enable_rss=False)
     #perf_ledger_manager.update(regenerate_all_ledgers=True)
     perf_ledger_manager.update(testing_one_hotkey='5HCJ6okRkmCsu7iLEWotBxgcZy11RhbxSzs8MXT4Dei9osUx')
+
