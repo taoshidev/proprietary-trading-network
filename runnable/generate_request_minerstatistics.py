@@ -245,6 +245,7 @@ class MinerStatisticsManager:
         n_positions = {}
         positional_return = {}
         positional_duration = {}
+        percentage_profitable = {}
 
         # Volatility Metrics
         annual_volatility = {}
@@ -331,6 +332,7 @@ class MinerStatisticsManager:
             n_positions[hotkey] = len(miner_positions)
             positional_return[hotkey] = Metrics.base_return(miner_returns)
             positional_duration[hotkey] = PositionUtils.total_duration(miner_positions)
+            percentage_profitable[hotkey] = self.position_manager.get_percent_profitable_positions(miner_positions)
 
         # Cumulative ledger, for printing
         cumulative_return_ledger = LedgerUtils.cumulative(filtered_ledger)
@@ -620,6 +622,7 @@ class MinerStatisticsManager:
                     "position_duration": positional_duration.get(miner_id),
                     "checkpoint_durations": checkpoint_durations.get(miner_id),
                     "minimum_days_boolean": minimum_days_threshold_dict.get(miner_id),
+                    "percentage_profitable": percentage_profitable.get(miner_id)
                 },
                 "plagiarism": plagiarism.get(miner_id),
                 "martingale": miner_martingale_scores.get(miner_id),
