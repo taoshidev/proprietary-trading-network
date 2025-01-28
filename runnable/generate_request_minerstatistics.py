@@ -495,7 +495,7 @@ class MinerStatisticsManager:
                 challengeperiod_success_time = sorted_challengeperiod_success[miner_id]
                 challengeperiod_specific = {
                     "status": "success",
-                    "start_time": challengeperiod_success_time,
+                    "start_time_ms": challengeperiod_success_time,
                 }
 
             # checkpoint specific data
