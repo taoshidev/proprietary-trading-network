@@ -14,17 +14,18 @@ export const Challenges = ({ statistics }: ChallengesProps) => {
   const { omega, overall, return_long, return_short, sharpe_ratio, sortino, statistical_confidence } = scores
 
   const scoreData = [
-    { label: "Overall", value: overall.percentile, target: overall.target_percentile},
-    { label: "Omega", value: omega.value, target: omega.target_score},
-    { label: "Return Long", value: return_long.value, target: return_long.target_score, isPercentage: true },
-    { label: "Return Short", value: return_short.value, target: return_short.target_score, isPercentage: true },
-    { label: "Sharpe Ratio", value: sharpe_ratio.value, target: sharpe_ratio.target_score },
-    { label: "Sortino", value: sortino.value, target: sortino.target_score },
-    { label: "Statistical Confidence", value: statistical_confidence.value, target: statistical_confidence.target_score },
+    { label: "Overall", score: overall },
+    { label: "Omega", score: omega },
+    { label: "Return Long", score: return_long },
+    { label: "Return Short", score: return_short },
+    { label: "Sharpe Ratio", score: sharpe_ratio },
+    { label: "Sortino", score: sortino },
+    { label: "Statistical Confidence", score: statistical_confidence },
   ];
   
   // if anything is in challenge period show element
   const isInChallenge = !isNil(scores)  && status === "testing";
+  const passingThreshold = overall.target_percentile
 
   return (
     <Fragment>
@@ -34,15 +35,14 @@ export const Challenges = ({ statistics }: ChallengesProps) => {
             Challenge Period
           </Title>
           <div className="flex gap-4">
-            {scoreData.map(({ label, value, target, isPercentage }) => {
-              if (!isNil(value)) {
+            {scoreData.map(({ label, score }) => {
+              if (!isNil(score)) {
                 return (
                   <ScoreCard
                     key={label}
                     label={label}
-                    value={value}
-                    target={target}
-                    isPercentage={isPercentage}
+                    value={score.percentile}
+                    target={passingThreshold}
                   />
                 );
               }
