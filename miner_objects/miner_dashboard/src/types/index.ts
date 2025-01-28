@@ -1,17 +1,25 @@
 export interface Challenge {
-  passing: boolean;
-  target: number;
+  percentile: number;
+  target_score: number;
   value: number;
+  target_percentile: number;
+}
+
+export interface ChallengeMetric {
+  omega: Challenge;
+  overall: Challenge;
+  return_long: Challenge;
+  return_short: Challenge;
+  sharpe_ratio: Challenge;
+  sortino: Challenge;
+  statistical_confidence: Challenge;
 }
 
 export interface ChallengePeriod {
   remaining_time_ms: number;
   start_time_ms: number;
   status: "testing" | "success";
-  positions: Challenge;
-  return: Challenge;
-  return_ratio: Challenge;
-  unrealized_ratio: Challenge;
+  scores: ChallengeMetric;
 }
 
 export interface Source {

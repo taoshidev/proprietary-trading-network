@@ -1,9 +1,8 @@
-import { Card, Title } from "@mantine/core";
+import { Title } from "@mantine/core";
 import { isNil } from "lodash";
 import { Fragment } from "react";
 import { Statistics as StatisticsType } from "../../types";
-
-import { ProgressBar, Badge } from "../Tremor";
+import { ScoreCard } from "../ScoreCard";
 
 interface ChallengesProps {
   statistics: StatisticsType;
@@ -11,148 +10,47 @@ interface ChallengesProps {
 
 export const Challenges = ({ statistics }: ChallengesProps) => {
   const { challengeperiod } = statistics.data[0];
-  const { positions, "return": challengeReturn, return_ratio, unrealized_ratio } = challengeperiod;
+  const { status, scores } = challengeperiod;
+  const { omega, overall, return_long, return_short, sharpe_ratio, sortino, statistical_confidence } = scores
+
+  const scoreData = [
+    { label: "Overall", value: overall.percentile, target: overall.target_percentile},
+    { label: "Omega", value: omega.value, target: omega.target_score},
+    { label: "Return Long", value: return_long.value, target: return_long.target_score, isPercentage: true },
+    { label: "Return Short", value: return_short.value, target: return_short.target_score, isPercentage: true },
+    { label: "Sharpe Ratio", value: sharpe_ratio.value, target: sharpe_ratio.target_score },
+    { label: "Sortino", value: sortino.value, target: sortino.target_score },
+    { label: "Statistical Confidence", value: statistical_confidence.value, target: statistical_confidence.target_score },
+  ];
   
   // if anything is in challenge period show element
-  const isInChallenge = !isNil(positions) || !isNil(challengeReturn) || !isNil(return_ratio) || !isNil(unrealized_ratio);
-  
+  const isInChallenge = !isNil(scores)  && status === "testing";
+
   return (
     <Fragment>
       {isInChallenge && (
         <div className="mb-8">
-          <Title order={3} mb="sm">Challenge Period</Title>
+          <Title order={3} mb="sm">
+            Challenge Period
+          </Title>
           <div className="flex gap-4">
-            {!isNil(positions) && (
-              <Card withBorder className="flex-1">
-                <div>
-                  <div className="flex justify-between text-sm mb-2">
-                    <p className="font-medium text-gray-900">Positions</p>
-                    <span
-                      className="font-medium text-gray-900 dark:text-gray-50">{positions.value}<span
-                      className="font-normal text-gray-500">/{positions.target.toFixed(2).toString()}</span></span>
-                  </div>
-                  <ProgressBar
-                    showAnimation
-                    className="mb-4"
-                    variant={positions.passing ? "success" : "default"}
-                    value={positions.value}
-                    max={positions.target}
+            {scoreData.map(({ label, value, target, isPercentage }) => {
+              if (!isNil(value)) {
+                return (
+                  <ScoreCard
+                    key={label}
+                    label={label}
+                    value={value}
+                    target={target}
+                    isPercentage={isPercentage}
                   />
-                  <div className="flex justify-between text-sm">
-                    {positions.passing ? (
-                      <Badge variant="success">
-                        Passing
-                      </Badge>
-                    ) : (
-                      <Badge>
-                        Not Passing
-                      </Badge>
-                    )}
-                  </div>
-                </div>
-              </Card>
-            )}
-            
-            {!isNil(challengeReturn) && (
-              <Card withBorder className="flex-1">
-                <div>
-                  <p className="flex justify-between text-sm mb-2">
-                    <span className="font-medium text-gray-900">Return</span>
-                    <span
-                      className="font-medium text-gray-900 dark:text-gray-50">{challengeReturn.value.toFixed(2)}<span
-                      className="font-normal text-gray-500">/{challengeReturn.target.toFixed(2).toString()+'%'}</span></span>
-                  </p>
-                  <ProgressBar
-                    showAnimation
-                    className="mb-4"
-                    variant={challengeReturn.passing ? "success" : "default"}
-                    value={challengeReturn.value}
-                    max={challengeReturn.target}
-                  />
-                  
-                  <div>
-                    {challengeReturn.passing ? (
-                      <Badge variant="success">
-                        Passing
-                      </Badge>
-                    ) : (
-                      <Badge>
-                        Not Passing
-                      </Badge>
-                    )}
-                  </div>
-                </div>
-              </Card>
-            )}
-            
-            {!isNil(return_ratio) && (
-              <Card withBorder className="flex-1">
-                <div>
-                  <p className="flex justify-between text-sm mb-2">
-                    <span className="font-medium text-gray-900">Return Ratio</span>
-                    <span
-                      className="font-medium text-gray-900 dark:text-gray-50">{return_ratio.value}<span
-                      className="font-normal text-gray-500">/{return_ratio.target.toFixed(2).toString()}</span></span>
-                  </p>
-                  <ProgressBar
-                    showAnimation
-                    className="mb-4"
-                    variant={return_ratio.passing ? "success" : "default"}
-                    value={return_ratio.value}
-                    max={return_ratio.target}
-                  />
-                  
-                  <div>
-                    {return_ratio.passing ? (
-                      <Badge variant="success">
-                        Passing
-                      </Badge>
-                    ) : (
-                      <Badge>
-                        Not Passing
-                      </Badge>
-                    )}
-                  </div>
-                </div>
-              </Card>
-            )}
-            
-            {!isNil(unrealized_ratio) && (
-              <Card withBorder className="flex-1">
-                <div>
-                  <p className="flex justify-between text-sm mb-2">
-                    <span className="font-medium text-gray-900">Unrealized Ratio</span>
-                    <span
-                      className="font-medium text-gray-900 dark:text-gray-50">{unrealized_ratio.value.toFixed(2)}<span
-                      className="font-normal text-gray-500">/{unrealized_ratio.target.toFixed(2).toString()}</span></span>
-                  </p>
-                  <ProgressBar
-                    showAnimation
-                    className="mb-4"
-                    variant={unrealized_ratio.passing ? "success" : "default"}
-                    value={unrealized_ratio.value}
-                    max={unrealized_ratio.target}
-                  />
-                  
-                  <div>
-                    {unrealized_ratio.passing ? (
-                      <Badge variant="success">
-                        Passing
-                      </Badge>
-                    ) : (
-                      <Badge>
-                        Not Passing
-                      </Badge>
-                    )}
-                  </div>
-                </div>
-              </Card>
-            )}
-          
+                );
+              }
+              return null;
+            })}
           </div>
         </div>
       )}
     </Fragment>
-  
   );
 };
