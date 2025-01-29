@@ -62,7 +62,8 @@ class CacheController:
 
     def refresh_allowed(self, refresh_interval_ms):
         self.attempted_start_time_ms = TimeUtil.now_in_millis()
-        return self.attempted_start_time_ms - self.get_last_update_time_ms() > refresh_interval_ms
+        return self.running_unit_tests or \
+                    self.attempted_start_time_ms - self.get_last_update_time_ms() > refresh_interval_ms
 
     def init_cache_files(self) -> None:
         ValiBkpUtils.make_dir(ValiBkpUtils.get_vali_dir(running_unit_tests=self.running_unit_tests))

@@ -70,7 +70,7 @@ class ChallengePeriodManager(CacheController):
                         if hotkey not in self.challengeperiod_success:
                             bt.logging.info(f"Adding hotkey {hotkey} to challengeperiod miners.")
                             any_changes = True
-                            self.challengeperiod_testing[hotkey] = hk_to_first_order_time[hotkey] if not self.running_unit_tests else current_time
+                            self.challengeperiod_testing[hotkey] = hk_to_first_order_time[hotkey]
         if any_changes:
             self._write_challengeperiod_from_memory_to_disk()
 
