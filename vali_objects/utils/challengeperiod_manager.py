@@ -48,10 +48,8 @@ class ChallengePeriodManager(CacheController):
             self,
             new_hotkeys: list[str],
             eliminations: list[dict] = None,
-            current_time: int = None
+            hk_to_first_order_time: dict[str, int] = None
     ):
-        if current_time is None:
-            current_time = TimeUtil.now_in_millis()
 
         if eliminations is None:
             eliminations = self.elimination_manager.get_eliminations_from_memory()
@@ -60,7 +58,6 @@ class ChallengePeriodManager(CacheController):
 
         # check all hotkeys which have at least one position
         miners_with_positions = self.position_manager.get_miner_hotkeys_with_at_least_one_position()
-        _, hk_to_first_order_time = self.position_manager.filtered_positions_for_scoring(hotkeys=list(miners_with_positions))
 
         any_changes = False
         for hotkey in new_hotkeys:
@@ -102,19 +99,20 @@ class ChallengePeriodManager(CacheController):
 
         # Collect challenge period and update with new eliminations criteria
         self.remove_eliminated(eliminations=eliminations)
-
-        # challenge period adds to testing if not in eliminated, already in the challenge period, or in the new eliminations list from disk
-        self._add_challengeperiod_testing_in_memory_and_disk(
-            new_hotkeys=self.metagraph.hotkeys,
-            eliminations=eliminations,
-            current_time=current_time
-        )
         challengeperiod_success_hotkeys = list(self.challengeperiod_success.keys())
         challengeperiod_testing_hotkeys = list(self.challengeperiod_testing.keys())
 
         all_miners = challengeperiod_success_hotkeys + challengeperiod_testing_hotkeys
 
         hk_to_positions, hk_to_first_order_time = self.position_manager.filtered_positions_for_scoring(hotkeys=all_miners)
+
+        # challenge period adds to testing if not in eliminated, already in the challenge period, or in the new eliminations list from disk
+        self._add_challengeperiod_testing_in_memory_and_disk(
+            new_hotkeys=self.metagraph.hotkeys,
+            eliminations=eliminations,
+            hk_to_first_order_time=hk_to_first_order_time
+        )
+
         if not self.refreshed_challengeperiod_start_time:
             self.refreshed_challengeperiod_start_time = True
             self._refresh_challengeperiod_start_time(hk_to_first_order_time)
