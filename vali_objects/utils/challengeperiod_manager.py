@@ -3,6 +3,7 @@ import time
 import bittensor as bt
 import copy
 
+from datetime import datetime
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.utils.vali_utils import ValiUtils
 from vali_objects.vali_config import ValiConfig
@@ -76,11 +77,13 @@ class ChallengePeriodManager(CacheController):
         retroactively update the challengeperiod_testing start time based on time of first order.
         used when a miner is un-eliminated, and positions are preserved.
         """
+        bt.logging.info(f"Refreshing challengeperiod start times")
         any_changes = False
         for hotkey, start_time in self.challengeperiod_testing.items():
             first_order_time = hk_to_first_order_time[hotkey]
             if start_time != first_order_time:
-                bt.logging.info(f"Challengeperiod start time for {hotkey} updated from: {start_time} to: {first_order_time}")
+                bt.logging.info(f"Challengeperiod start time for {hotkey} updated from: {datetime.utcfromtimestamp(start_time)} "
+                                f"to: {datetime.utcfromtimestamp(first_order_time)}, {(start_time-first_order_time)/1000}s delta")
                 self.challengeperiod_testing[hotkey] = first_order_time
                 any_changes = True
         if any_changes:
@@ -109,8 +112,8 @@ class ChallengePeriodManager(CacheController):
 
         hk_to_positions, hk_to_first_order_time = self.position_manager.filtered_positions_for_scoring(hotkeys=all_miners)
         if not self.refreshed_challengeperiod_start_time:
-            self._refresh_challengeperiod_start_time(hk_to_first_order_time)
             self.refreshed_challengeperiod_start_time = True
+            self._refresh_challengeperiod_start_time(hk_to_first_order_time)
 
         ledger = self.perf_ledger_manager.filtered_ledger_for_scoring(hotkeys=all_miners)
         ledger = {hotkey: ledger.get(hotkey, None) for hotkey in all_miners}
