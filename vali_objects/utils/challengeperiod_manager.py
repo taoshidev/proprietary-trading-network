@@ -60,6 +60,8 @@ class ChallengePeriodManager(CacheController):
 
         # check all hotkeys which have at least one position
         miners_with_positions = self.position_manager.get_miner_hotkeys_with_at_least_one_position()
+        _, hk_to_first_order_time = self.position_manager.filtered_positions_for_scoring(hotkeys=list(miners_with_positions))
+
         any_changes = False
         for hotkey in new_hotkeys:
             if hotkey in miners_with_positions:
@@ -68,7 +70,7 @@ class ChallengePeriodManager(CacheController):
                         if hotkey not in self.challengeperiod_success:
                             bt.logging.info(f"Adding hotkey {hotkey} to challengeperiod miners.")
                             any_changes = True
-                            self.challengeperiod_testing[hotkey] = current_time
+                            self.challengeperiod_testing[hotkey] = hk_to_first_order_time[hotkey] if not self.running_unit_tests else current_time
         if any_changes:
             self._write_challengeperiod_from_memory_to_disk()
 
@@ -77,7 +79,7 @@ class ChallengePeriodManager(CacheController):
         retroactively update the challengeperiod_testing start time based on time of first order.
         used when a miner is un-eliminated, and positions are preserved.
         """
-        bt.logging.info(f"Refreshing challengeperiod start times")
+        bt.logging.info("Refreshing challengeperiod start times")
         any_changes = False
         for hotkey, start_time in self.challengeperiod_testing.items():
             first_order_time = hk_to_first_order_time[hotkey]
@@ -88,6 +90,8 @@ class ChallengePeriodManager(CacheController):
                 any_changes = True
         if any_changes:
             self._write_challengeperiod_from_memory_to_disk()
+        else:
+            bt.logging.info("All challengeperiod start times up to date")
 
     def refresh(self, current_time: int = None):
         if not self.refresh_allowed(ValiConfig.CHALLENGE_PERIOD_REFRESH_TIME_MS):
