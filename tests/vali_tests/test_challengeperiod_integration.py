@@ -288,9 +288,9 @@ class TestChallengePeriodIntegration(TestBase):
         self.assertEqual(ledgers.get(self.DEFAULT_MINER_HOTKEY, len(PerfLedger().cps)), 0)
 
         # Check the failing criteria initially
-        l = ledgers.get(self.DEFAULT_MINER_HOTKEY)
+        ledger = ledgers.get(self.DEFAULT_MINER_HOTKEY)
         failing_criteria, _ = self.challengeperiod_manager.screen_failing_criteria(
-            ledger_element=l[TP_ID_PORTFOLIO] if l else None
+            ledger_element=ledger[TP_ID_PORTFOLIO] if ledger else None
         )
 
         self.assertFalse(failing_criteria)
