@@ -173,7 +173,7 @@ class TestChallengePeriodIntegration(TestBase):
         self.challengeperiod_manager._add_challengeperiod_testing_in_memory_and_disk(
             self.MINER_NAMES,
             eliminations=[],
-            current_time=self.START_TIME
+            hk_to_first_order_time=self.HK_TO_OPEN_MS
         )
 
     def tearDown(self):
@@ -242,7 +242,7 @@ class TestChallengePeriodIntegration(TestBase):
         self.challengeperiod_manager._add_challengeperiod_testing_in_memory_and_disk(
             new_hotkeys=self.challengeperiod_manager.metagraph.hotkeys,
             eliminations=self.challengeperiod_manager.elimination_manager.get_eliminations_from_memory(),
-            current_time=self.max_open_ms
+            hk_to_first_order_time=self.HK_TO_OPEN_MS
         )
 
         self.assertEqual(len(self.challengeperiod_manager.challengeperiod_testing), len(self.NOT_MAIN_COMP_MINER_NAMES))
@@ -415,7 +415,7 @@ class TestChallengePeriodIntegration(TestBase):
         self.challengeperiod_manager._add_challengeperiod_testing_in_memory_and_disk(
             new_hotkeys=self.MINER_NAMES,
             eliminations=[],
-            current_time=self.max_open_ms
+            hk_to_first_order_time=self.HK_TO_OPEN_MS
         )
 
         testing_set = set(self.challengeperiod_manager.challengeperiod_testing.keys())
@@ -436,7 +436,7 @@ class TestChallengePeriodIntegration(TestBase):
         self.challengeperiod_manager._add_challengeperiod_testing_in_memory_and_disk(
             new_hotkeys=new_miners,
             eliminations=[],
-            current_time=self.max_open_ms
+            hk_to_first_order_time=self.HK_TO_OPEN_MS
         )
 
         self.assertTrue(len(self.challengeperiod_manager.challengeperiod_testing) == 0)
@@ -447,7 +447,7 @@ class TestChallengePeriodIntegration(TestBase):
         self.challengeperiod_manager._add_challengeperiod_testing_in_memory_and_disk(
             new_hotkeys=new_miners,
             eliminations=[],
-            current_time=self.max_open_ms
+            hk_to_first_order_time=self.HK_TO_OPEN_MS
         )
 
         self.assertTrue(len(self.challengeperiod_manager.challengeperiod_testing) == 0)
@@ -463,7 +463,7 @@ class TestChallengePeriodIntegration(TestBase):
         self.challengeperiod_manager._add_challengeperiod_testing_in_memory_and_disk(
             new_hotkeys=self.MINER_NAMES,
             eliminations=[],
-            current_time=self.max_open_ms
+            hk_to_first_order_time=self.HK_TO_OPEN_MS
         )
 
         # All the miners should be passed to testing now
