@@ -86,10 +86,11 @@ class EliminationManager(CacheController):
         if not self.refresh_allowed(ValiConfig.ELIMINATION_CHECK_INTERVAL_MS):
             return
         bt.logging.info("running elimination manager")
-        # self._handle_plagiarism_eliminations()
         self.handle_perf_ledger_eliminations(position_locks)
         self._delete_eliminated_expired_miners()
         self.set_last_update_time()
+        self._eliminate_MDD()
+        # self._handle_plagiarism_eliminations()
 
     def _handle_plagiarism_eliminations(self, position_locks):
         bt.logging.debug("checking plagiarism.")
@@ -225,3 +226,43 @@ class EliminationManager(CacheController):
         for item in items_to_remove:
             self.eliminations.remove(item)
         self.save_eliminations()
+
+    def _eliminate_MDD(self):
+        """
+        Checks the mdd of each miner and eliminates any miners that surpass MAX_TOTAL_DRAWDOWN
+        """
+        bt.logging.debug("checking for maximum drawdown.")
+        if self.shutdown_dict:
+            return
+
+        challengeperiod_testing_hotkeys = list(self.challengeperiod_manager.get_challengeperiod_testing().keys())
+        challengeperiod_success_hotkeys = list(self.challengeperiod_manager.get_challengeperiod_success().keys())
+
+        # full ledger of all miner hotkeys
+        all_miner_hotkeys = challengeperiod_success_hotkeys + challengeperiod_testing_hotkeys
+
+        filtered_ledger = self.position_manager.perf_ledger_manager.filtered_ledger_for_scoring(hotkeys=all_miner_hotkeys)
+        update_made = False
+        for miner_hotkey, ledger in filtered_ledger.items():
+            if self.shutdown_dict:
+                return
+            if self.hotkey_in_eliminations(miner_hotkey):
+                continue
+
+            miner_cps = ledger.cps
+            if miner_cps is None or len(miner_cps) == 0:
+                continue
+
+            miner_mdd = max([miner_cps.mdd for miner_cps in miner_cps])
+
+            if miner_mdd < ValiConfig.MAX_TOTAL_DRAWDOWN:
+                self.position_manager.handle_eliminated_miner(miner_hotkey, {})
+                self.append_elimination_row(miner_hotkey, miner_mdd, 'MAX_TOTAL_DRAWDOWN')
+
+                update_made = True
+                bt.logging.info(
+                    f"miner eliminated with hotkey [{miner_hotkey}] with drawdown [{miner_mdd}]")
+
+        if update_made:
+            #TODO is a lock needed here?
+            self.write_eliminations_to_disk(self.eliminations)

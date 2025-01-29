@@ -258,7 +258,6 @@ class Scoring:
         # normalized_scores = sorted(normalized_scores, key=lambda x: x[1], reverse=True)
         return normalized_scores
 
-    # TODO Remove the methods below when challenge period is modified
     @staticmethod
     def base_return(positions: list[Position]) -> float:
         """
@@ -277,80 +276,6 @@ class Scoring:
             aggregate_return += positional_return
 
         return aggregate_return
-
-    @staticmethod
-    def risk_adjusted_return(positions: list[Position], ledger: PerfLedger) -> float:
-        """
-        Args:
-            positions: list of positions from the miner
-            ledger: the ledger of the miner
-        """
-        # Positional Component
-        if len(positions) == 0:
-            return 0.0
-
-        base_return = Scoring.base_return(positions)
-        risk_normalization_factor = LedgerUtils.risk_normalization(ledger.cps)
-
-        return base_return * risk_normalization_factor
-
-    @staticmethod
-    def sharpe(positions: list[Position], ledger: PerfLedger) -> float:
-        """
-        Args:
-            positions: list of positions from the miner
-            ledger: the ledger of the miner
-        """
-        if len(positions) == 0:
-            return 0.0
-
-        # Hyperparameter
-        min_std_dev = ValiConfig.SHARPE_STDDEV_MINIMUM
-
-        # Return at close should already accommodate the risk-free rate as a cost of carry
-        positional_log_returns = [math.log(
-            max(position.return_at_close, .00001))  # Prevent math domain error)
-            for position in positions]
-
-        # Sharpe ratio is calculated as the mean of the returns divided by the standard deviation of the returns
-        mean_return = np.mean(positional_log_returns)
-        std_dev = max(np.std(positional_log_returns), min_std_dev)
-
-        if std_dev == 0:
-            return 0.0
-
-        return mean_return / std_dev
-
-    @staticmethod
-    def omega(positions: list[Position], ledger: PerfLedger) -> float:
-        """
-        Args:
-            positions: list of positions from the miner
-            ledger: the ledger of the miner
-        """
-        if len(positions) == 0:
-            return 0.0
-
-        # Return at close should already accommodate the risk-free rate as a cost of carry
-        positional_log_returns = [math.log(
-            max(position.return_at_close, .00001))  # Prevent math domain error
-            for position in positions]
-
-        positive_sum = 0
-        negative_sum = 0
-
-        for log_return in positional_log_returns:
-            if log_return > 0:
-                positive_sum += log_return
-            else:
-                negative_sum += log_return
-
-        numerator = positive_sum
-        denominator = max(abs(negative_sum), ValiConfig.OMEGA_LOSS_MINIMUM)
-
-        return numerator / denominator
-
-    # TODO Remove the methods above when challenge period is modified
 
     @staticmethod
     def softmax_scores(returns: list[tuple[str, float]]) -> list[tuple[str, float]]:
