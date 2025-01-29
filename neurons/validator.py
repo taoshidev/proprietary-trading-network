@@ -156,7 +156,6 @@ class Validator:
         self.metagraph_updater_thread = threading.Thread(target=self.metagraph_updater.run_update_loop, daemon=True)
         self.metagraph_updater_thread.start()
 
-        self.position_locks = PositionLocks()
         self.elimination_manager = EliminationManager(self.metagraph, None,  # Set after self.pm creation
                                                       None, shutdown_dict=shutdown_dict,
                                                       ipc_manager=self.ipc_manager)
@@ -190,6 +189,9 @@ class Validator:
                                                 elimination_manager=self.elimination_manager,
                                                 challengeperiod_manager=None,
                                                 secrets=self.secrets)
+
+        self.position_locks = PositionLocks(hotkey_to_positions=self.position_manager.get_positions_for_all_miners())
+
 
         self.challengeperiod_manager = ChallengePeriodManager(self.metagraph,
                                                               perf_ledger_manager=self.perf_ledger_manager,
@@ -487,7 +489,7 @@ class Validator:
                 self.challengeperiod_manager.refresh(current_time=current_time)
                 self.elimination_manager.process_eliminations(self.position_locks)
                 self.weight_setter.set_weights(self.wallet, self.config.netuid, self.subtensor, current_time=current_time)
-                self.position_locks.cleanup_locks(self.metagraph.hotkeys)
+                #self.position_locks.cleanup_locks(self.metagraph.hotkeys)
                 self.p2p_syncer.sync_positions_with_cooldown()
 
             # In case of unforeseen errors, the miner will log the error and continue operations.
