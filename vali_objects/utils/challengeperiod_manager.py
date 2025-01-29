@@ -104,7 +104,7 @@ class ChallengePeriodManager(CacheController):
 
         all_miners = challengeperiod_success_hotkeys + challengeperiod_testing_hotkeys
 
-        hk_to_positions, hk_to_first_order_time = self.position_manager.filtered_positions_for_scoring(hotkeys=all_miners)
+        hk_to_positions, hk_to_first_order_time = self.position_manager.filtered_positions_for_scoring(hotkeys=self.metagraph.hotkeys)
 
         # challenge period adds to testing if not in eliminated, already in the challenge period, or in the new eliminations list from disk
         self._add_challengeperiod_testing_in_memory_and_disk(
