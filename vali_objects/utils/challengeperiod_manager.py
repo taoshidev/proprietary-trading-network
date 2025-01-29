@@ -70,6 +70,19 @@ class ChallengePeriodManager(CacheController):
         if any_changes:
             self._write_challengeperiod_from_memory_to_disk()
 
+    def _refresh_challengeperiod_start_time(self, hk_to_first_order_time):
+        """
+        retroactively update the challengeperiod start time based on time of first order.
+        used when a miner is un-eliminated, and positions are preserved.
+        """
+        any_changes = False
+        for hotkey, _ in self.challengeperiod_testing.items():
+            if self.challengeperiod_testing[hotkey] != hk_to_first_order_time[hotkey]:
+                self.challengeperiod_testing[hotkey] = hk_to_first_order_time[hotkey]
+                any_changes = True
+        if any_changes:
+            self._write_challengeperiod_from_memory_to_disk()
+
     def refresh(self, current_time: int = None):
         if not self.refresh_allowed(ValiConfig.CHALLENGE_PERIOD_REFRESH_TIME_MS):
             time.sleep(1)
@@ -92,6 +105,7 @@ class ChallengePeriodManager(CacheController):
         all_miners = challengeperiod_success_hotkeys + challengeperiod_testing_hotkeys
 
         hk_to_positions, hk_to_first_order_time = self.position_manager.filtered_positions_for_scoring(hotkeys=all_miners)
+        self._refresh_challengeperiod_start_time(hk_to_first_order_time)
 
         ledger = self.perf_ledger_manager.filtered_ledger_for_scoring(hotkeys=all_miners)
         ledger = {hotkey: ledger.get(hotkey, None) for hotkey in all_miners}
