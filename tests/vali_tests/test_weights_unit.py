@@ -1,15 +1,11 @@
 # developer: trdougherty
-import numpy as np
 import copy
-import math
 
 from tests.vali_tests.base_objects.test_base import TestBase
 from vali_objects.scoring.scoring import Scoring
 from vali_objects.position import Position
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.vali_config import TradePair
-
-from vali_objects.vali_config import ValiConfig
 
 from tests.shared_objects.test_utilities import generate_ledger
 from vali_objects.vali_dataclasses.perf_ledger import TP_ID_PORTFOLIO
