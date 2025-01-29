@@ -41,6 +41,7 @@ class ChallengePeriodManager(CacheController):
                 ValiBkpUtils.get_challengeperiod_file_location(running_unit_tests=self.running_unit_tests),
                 {"testing": {}, "success": {}}
             )
+        self.refreshed_challengeperiod_start_time = False
 
     def _add_challengeperiod_testing_in_memory_and_disk(
             self,
@@ -70,15 +71,17 @@ class ChallengePeriodManager(CacheController):
         if any_changes:
             self._write_challengeperiod_from_memory_to_disk()
 
-    def _refresh_challengeperiod_start_time(self, hk_to_first_order_time):
+    def _refresh_challengeperiod_start_time(self, hk_to_first_order_time: dict[str, int]):
         """
-        retroactively update the challengeperiod start time based on time of first order.
+        retroactively update the challengeperiod_testing start time based on time of first order.
         used when a miner is un-eliminated, and positions are preserved.
         """
         any_changes = False
-        for hotkey, _ in self.challengeperiod_testing.items():
-            if self.challengeperiod_testing[hotkey] != hk_to_first_order_time[hotkey]:
-                self.challengeperiod_testing[hotkey] = hk_to_first_order_time[hotkey]
+        for hotkey, start_time in self.challengeperiod_testing.items():
+            first_order_time = hk_to_first_order_time[hotkey]
+            if start_time != first_order_time:
+                bt.logging.info(f"Challengeperiod start time for {hotkey} updated from: {start_time} to: {first_order_time}")
+                self.challengeperiod_testing[hotkey] = first_order_time
                 any_changes = True
         if any_changes:
             self._write_challengeperiod_from_memory_to_disk()
@@ -105,7 +108,9 @@ class ChallengePeriodManager(CacheController):
         all_miners = challengeperiod_success_hotkeys + challengeperiod_testing_hotkeys
 
         hk_to_positions, hk_to_first_order_time = self.position_manager.filtered_positions_for_scoring(hotkeys=all_miners)
-        self._refresh_challengeperiod_start_time(hk_to_first_order_time)
+        if not self.refreshed_challengeperiod_start_time:
+            self._refresh_challengeperiod_start_time(hk_to_first_order_time)
+            self.refreshed_challengeperiod_start_time = True
 
         ledger = self.perf_ledger_manager.filtered_ledger_for_scoring(hotkeys=all_miners)
         ledger = {hotkey: ledger.get(hotkey, None) for hotkey in all_miners}
@@ -469,5 +474,3 @@ class ChallengePeriodManager(CacheController):
             ),
             challengeperiod_data
         )
-
-
