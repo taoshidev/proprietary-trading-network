@@ -322,12 +322,18 @@ class ChallengePeriodManager(CacheController):
                 return False
 
             inspection_positions = {inspection_hotkey: positions_list}
+
             # Get individual scoring dict for inspection
             inspection_ledger = {inspection_hotkey: ledger.get(inspection_hotkey, None)}
 
-            if inspection_ledger.get(inspection_hotkey) is None:
+            if inspection_ledger.get(inspection_hotkey, None) is None:
                 return False
 
+            min_interaction_criteria = ChallengePeriodManager.screen_minimum_interaction(
+                ledger_element=inspection_ledger.get(inspection_hotkey))
+
+            if not min_interaction_criteria:
+                return False
 
             # Get penalized scores of inspection miner
             inspection_scores_dict = Scoring.score_miners(
@@ -377,6 +383,17 @@ class ChallengePeriodManager(CacheController):
         max_drawdown_criteria = recorded_drawdown_percentage >= maximum_drawdown_percent
 
         return max_drawdown_criteria, recorded_drawdown_percentage
+
+    @staticmethod
+    def screen_minimum_interaction(
+            ledger_element: PerfLedger
+    ) -> (bool, float):
+        """
+        Returns False if the miner doesn't have the minimum number of trading days.
+        """
+        miner_returns = LedgerUtils.daily_return_log(ledger_element.cps if ledger_element else [])
+
+        return len(miner_returns) >= ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N
 
     def get_challengeperiod_testing(self, from_disk=False):
         if from_disk:
