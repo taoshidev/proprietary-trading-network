@@ -315,28 +315,6 @@ class Scoring:
         return weighted_returns
 
     @staticmethod
-    def exponential_decay_returns(scale: int) -> np.ndarray:
-        """
-        Args: scale: int - the number of miners
-        """
-        top_miner_benefit = ValiConfig.TOP_MINER_BENEFIT
-        top_miner_percent = ValiConfig.TOP_MINER_PERCENT
-
-        top_miner_benefit = np.clip(top_miner_benefit, a_min=0, a_max=0.99999999)
-        top_miner_percent = np.clip(top_miner_percent, a_min=0.00000001, a_max=1)
-        scale = np.clip(scale, a_min=1, a_max=None)
-        if scale == 1:
-            # base case, if there is only one miner
-            return np.array([1])
-
-        k = -np.log(1 - top_miner_benefit) / (top_miner_percent * scale)
-        xdecay = np.linspace(0, scale - 1, scale)
-        decayed_returns = np.exp((-k) * xdecay)
-
-        # Normalize the decayed_returns so that they sum up to 1
-        return decayed_returns / np.sum(decayed_returns)
-
-    @staticmethod
     def miner_scores_percentiles(miner_scores: list[tuple[str, float]]) -> list[tuple[str, float]]:
         """
         Args: miner_scores: list[tuple[str, float]] - the scores of the miners
@@ -362,24 +340,3 @@ class Scoring:
         miner_percentiles = list(zip(miner_hotkeys, percentiles))
 
         return miner_percentiles
-
-    @staticmethod
-    def weigh_miner_scores(returns: list[tuple[str, float]]) -> list[tuple[str, float]]:
-        """
-        Assign weights to the returns based on their relative position.
-        """
-        if not returns:
-            bt.logging.debug("No returns to score, returning empty list")
-            return []
-
-        if len(returns) == 1:
-            bt.logging.info("Only one miner, returning 1.0 for the solo miner weight")
-            return [(returns[0][0], 1.0)]
-
-        sorted_returns = sorted(returns, key=lambda x: x[1], reverse=True)
-        n_miners = len(sorted_returns)
-        decayed_returns = Scoring.exponential_decay_returns(n_miners)
-
-        weighted_returns = [(miner, decayed_returns[i]) for i, (miner, _) in enumerate(sorted_returns)]
-        return weighted_returns
-
