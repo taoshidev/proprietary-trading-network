@@ -16,10 +16,11 @@ class CacheController:
     MAX_DAILY_DRAWDOWN = 'MAX_DAILY_DRAWDOWN'
     MAX_TOTAL_DRAWDOWN = 'MAX_TOTAL_DRAWDOWN'
 
-    def __init__(self, metagraph=None, running_unit_tests=False):
+    def __init__(self, metagraph=None, running_unit_tests=False, is_backtesting=False):
         self.running_unit_tests = running_unit_tests
         self.init_cache_files()
         self.metagraph = metagraph  # Refreshes happen on validator
+        self.is_backtesting = is_backtesting
         self._last_update_time_ms = 0
         self.DD_V2_TIME = TimeUtil.millis_to_datetime(1715359820000 + 1000 * 60 * 60 * 2)  # 5/10/24 TODO: Update before mainnet release
 
@@ -62,8 +63,13 @@ class CacheController:
 
     def refresh_allowed(self, refresh_interval_ms):
         self.attempted_start_time_ms = TimeUtil.now_in_millis()
+
+        if self.is_backtesting:
+            return True
+
         return self.running_unit_tests or \
                     self.attempted_start_time_ms - self.get_last_update_time_ms() > refresh_interval_ms
+
 
     def init_cache_files(self) -> None:
         ValiBkpUtils.make_dir(ValiBkpUtils.get_vali_dir(running_unit_tests=self.running_unit_tests))

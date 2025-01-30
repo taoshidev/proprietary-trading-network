@@ -22,26 +22,31 @@ class FailedChallengeReason(Enum):
 
 class ChallengePeriodManager(CacheController):
     def __init__(self, metagraph, perf_ledger_manager : PerfLedgerManager =None, running_unit_tests=False,
-                 position_manager: PositionManager =None, ipc_manager=None):
-        super().__init__(metagraph, running_unit_tests=running_unit_tests)
+                 position_manager: PositionManager =None, ipc_manager=None, is_backtesting=False):
+        super().__init__(metagraph, running_unit_tests=running_unit_tests, is_backtesting=is_backtesting)
         self.perf_ledger_manager = perf_ledger_manager if perf_ledger_manager else \
             PerfLedgerManager(metagraph, running_unit_tests=running_unit_tests)
         self.position_manager = position_manager
         self.elimination_manager = self.position_manager.elimination_manager
-        disk_challenegeperiod_testing = self.get_challengeperiod_testing(from_disk=True)
-        disk_challenegeperiod_success = self.get_challengeperiod_success(from_disk=True)
+
+        if self.is_backtesting:
+            initial_challenegeperiod_testing = {}
+            initial_challenegeperiod_success = {}
+        else:
+            initial_challenegeperiod_testing = self.get_challengeperiod_testing(from_disk=True)
+            initial_challenegeperiod_success = self.get_challengeperiod_success(from_disk=True)
         self.using_ipc = bool(ipc_manager)
         if ipc_manager:
             self.challengeperiod_testing = ipc_manager.dict()
             self.challengeperiod_success = ipc_manager.dict()
-            for k, v in disk_challenegeperiod_testing.items():
+            for k, v in initial_challenegeperiod_testing.items():
                 self.challengeperiod_testing[k] = v
-            for k, v in disk_challenegeperiod_success.items():
+            for k, v in initial_challenegeperiod_success.items():
                 self.challengeperiod_success[k] = v
         else:
-            self.challengeperiod_testing = disk_challenegeperiod_testing
-            self.challengeperiod_success = disk_challenegeperiod_success
-        if len(self.get_challengeperiod_testing()) == 0 and len(self.get_challengeperiod_success()) == 0:
+            self.challengeperiod_testing = initial_challenegeperiod_testing
+            self.challengeperiod_success = initial_challenegeperiod_success
+        if not self.is_backtesting and len(self.get_challengeperiod_testing()) == 0 and len(self.get_challengeperiod_success()) == 0:
             ValiBkpUtils.write_file(
                 ValiBkpUtils.get_challengeperiod_file_location(running_unit_tests=self.running_unit_tests),
                 {"testing": {}, "success": {}}
@@ -534,6 +539,8 @@ class ChallengePeriodManager(CacheController):
             self.elimination_manager.append_elimination_row(hotkey=hotkey,current_dd=elim_mdd,mdd_failure=elim_reason)
 
     def _write_challengeperiod_from_memory_to_disk(self):
+        if self.is_backtesting:
+            return
         challengeperiod_data = {
             "testing": self.get_challengeperiod_testing(),
             "success": self.get_challengeperiod_success()

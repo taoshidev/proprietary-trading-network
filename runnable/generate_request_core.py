@@ -330,8 +330,6 @@ if __name__ == "__main__":
     challengeperiod_manager.position_manager = position_manager
     perf_ledger_manager.position_manager = position_manager
     subtensor_weight_setter = SubtensorWeightSetter(
-        config=None,
-        wallet=None,
         metagraph=None,
         running_unit_tests=False,
         position_manager=position_manager,
