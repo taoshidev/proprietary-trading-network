@@ -75,7 +75,6 @@ class RequestOutputGenerator:
         challengeperiod_manager.position_manager = self.position_manager
         perf_ledger_manager.position_manager = self.position_manager
         self.subtensor_weight_setter = SubtensorWeightSetter(
-            config=None,
             metagraph=None,
             running_unit_tests=False,
             position_manager=self.position_manager,
