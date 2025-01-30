@@ -87,9 +87,9 @@ class EliminationManager(CacheController):
             return
         bt.logging.info("running elimination manager")
         self.handle_perf_ledger_eliminations(position_locks)
+        self._eliminate_MDD(position_locks)
         self._delete_eliminated_expired_miners()
         self.set_last_update_time()
-        self._eliminate_MDD(position_locks)
         # self._handle_plagiarism_eliminations()
 
     def _handle_plagiarism_eliminations(self, position_locks):
