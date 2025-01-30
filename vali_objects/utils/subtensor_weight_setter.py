@@ -1,28 +1,26 @@
 # developer: jbonilla
+from functools import partial
+
 import bittensor as bt
 
-from time_util.time_util import TimeUtil
+from time_util.time_util import TimeUtil, timeme
 from vali_objects.vali_config import ValiConfig
 from shared_objects.cache_controller import CacheController
 from vali_objects.utils.position_manager import PositionManager
-from vali_objects.position import Position
 from vali_objects.scoring.scoring import Scoring
-from vali_objects.vali_dataclasses.perf_ledger import PerfLedger
-
 
 class SubtensorWeightSetter(CacheController):
-    def __init__(self, config, metagraph, position_manager: PositionManager,
-                 running_unit_tests=False):
-        super().__init__(metagraph, running_unit_tests=running_unit_tests)
+    def __init__(self, metagraph, position_manager: PositionManager,
+                 running_unit_tests=False, is_backtesting=False):
+        super().__init__(metagraph, running_unit_tests=running_unit_tests, is_backtesting=is_backtesting)
         self.position_manager = position_manager
         self.perf_ledger_manager = position_manager.perf_ledger_manager
         self.subnet_version = 200
+        # Store weights for use in backtesting
+        self.checkpoint_results = []
+        self.transformed_list = []
 
-    def set_weights(self, wallet, netuid, subtensor, current_time: int = None):
-        if not self.refresh_allowed(ValiConfig.SET_WEIGHT_REFRESH_TIME_MS):
-            return
-        bt.logging.info("running set weights")
-        # First run the challenge period miner filtering
+    def compute_weights_default(self, current_time: int) -> tuple[list[tuple[str, float]], list[tuple[str, float]]]:
         if current_time is None:
             current_time = TimeUtil.now_in_millis()
 
@@ -40,9 +38,13 @@ class SubtensorWeightSetter(CacheController):
         testing_hotkeys = list(self.position_manager.challengeperiod_manager.challengeperiod_testing.keys())
         success_hotkeys = list(self.position_manager.challengeperiod_manager.challengeperiod_success.keys())
 
+        if self.is_backtesting:
+            hotkeys_to_compute_weights_for = testing_hotkeys + success_hotkeys
+        else:
+            hotkeys_to_compute_weights_for = success_hotkeys
         # only collect ledger elements for the miners that passed the challenge period
-        filtered_ledger = self.perf_ledger_manager.filtered_ledger_for_scoring(hotkeys=success_hotkeys)
-        filtered_positions, _ = self.position_manager.filtered_positions_for_scoring(hotkeys=success_hotkeys)
+        filtered_ledger = self.perf_ledger_manager.filtered_ledger_for_scoring(hotkeys=hotkeys_to_compute_weights_for)
+        filtered_positions, _ = self.position_manager.filtered_positions_for_scoring(hotkeys=hotkeys_to_compute_weights_for)
 
         # synced_ledger, synced_positions = self.sync_ledger_positions(
         #     filtered_ledger,
@@ -51,14 +53,17 @@ class SubtensorWeightSetter(CacheController):
 
         if len(filtered_ledger) == 0:
             bt.logging.info("No returns to set weights with. Do nothing for now.")
+            return [], []
         else:
             bt.logging.info("Calculating new subtensor weights...")
-            checkpoint_results = Scoring.compute_results_checkpoint(
+            checkpoint_results = sorted(Scoring.compute_results_checkpoint(
                 filtered_ledger,
                 filtered_positions,
                 evaluation_time_ms=current_time
-            )
-            bt.logging.info(f"Sorted results for weight setting: [{sorted(checkpoint_results, key=lambda x: x[1], reverse=True)}]")
+            ), key=lambda x: x[1], reverse=True)
+
+            bt.logging.info(f"Sorted results for weight setting: [{checkpoint_results}]")
+
             checkpoint_netuid_weights = []
             for miner, score in checkpoint_results:
                 if miner in hotkey_to_idx:
@@ -97,41 +102,35 @@ class SubtensorWeightSetter(CacheController):
                 bt.logging.info(f"Miners with registration blocks after target DTAO block: {block_reg_failures}")
 
             self._set_subtensor_weights(wallet, subtensor, transformed_list, netuid)
+            return checkpoint_results, transformed_list
+    def _store_weights(self, checkpoint_results: list[tuple[str, float]], transformed_list: list[tuple[str, float]]):
+        self.checkpoint_results = checkpoint_results
+        self.transformed_list = transformed_list
+
+    @timeme
+    def set_weights(self, wallet, netuid, subtensor, current_time: int = None, scoring_function: callable = None, scoring_func_args: dict = None):
+        if not self.refresh_allowed(ValiConfig.SET_WEIGHT_REFRESH_TIME_MS):
+            return
+        bt.logging.info("running set weights")
+        if scoring_func_args is None:
+            scoring_func_args = {'current_time': current_time}
+
+        if scoring_function is None:
+            scoring_function = self.compute_weights_default  # Uses instance method
+        elif not hasattr(scoring_function, '__self__'):
+            scoring_function = partial(scoring_function, self)  # Only bind if external
+
+        checkpoint_results, transformed_list = scoring_function(**scoring_func_args)
+        self.checkpoint_results = checkpoint_results
+        self.transformed_list = transformed_list
+        if not self.is_backtesting:
+            self._set_subtensor_weights(wallet, subtensor, netuid)
         self.set_last_update_time()
 
-    @staticmethod
-    def sync_ledger_positions(
-            ledger,
-            positions
-    ) -> tuple[dict[str, PerfLedger], dict[str, list[Position]]]:
-        """
-        Sync the ledger and positions to ensure that the ledger and positions are in the same state.
-        """
-        ledger_keys = set(ledger.keys())
-        position_keys = set(positions.keys())
 
-        common_keys = ledger_keys.intersection(position_keys)
-        # uncommon_keys = ledger_keys.union(position_keys) - common_keys
-
-        synced_ledger = {}
-        synced_positions = {}
-
-        for hotkey in common_keys:
-            synced_ledger[hotkey] = ledger[hotkey]
-            synced_positions[hotkey] = positions[hotkey]
-
-        # if len(uncommon_keys) > 0:
-        #     for hotkey in uncommon_keys:
-        #         if hotkey in ledger_keys:
-        #             bt.logging.warning(f"Hotkey found in ledger but not positions: {hotkey}")
-        #         elif hotkey in position_keys:
-        #             bt.logging.warning(f"Hotkey found in positions but not ledger: {hotkey}")
-
-        return synced_ledger, synced_positions
-
-    def _set_subtensor_weights(self, wallet, subtensor, filtered_results: list[tuple[str, float]], netuid):
-        filtered_netuids = [x[0] for x in filtered_results]
-        scaled_transformed_list = [x[1] for x in filtered_results]
+    def _set_subtensor_weights(self, wallet, subtensor, netuid):
+        filtered_netuids = [x[0] for x in self.transformed_list]
+        scaled_transformed_list = [x[1] for x in self.transformed_list]
 
         success, err_msg = subtensor.set_weights(
             netuid=netuid,

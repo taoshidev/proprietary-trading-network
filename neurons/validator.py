@@ -318,7 +318,7 @@ class Validator:
 
         self.mdd_checker = MDDChecker(self.metagraph, self.position_manager, live_price_fetcher=self.live_price_fetcher,
                                       shutdown_dict=shutdown_dict)
-        self.weight_setter = SubtensorWeightSetter(self.config, self.metagraph, position_manager=self.position_manager)
+        self.weight_setter = SubtensorWeightSetter(self.metagraph, position_manager=self.position_manager)
 
         self.request_core_manager = RequestCoreManager(self.position_manager, self.weight_setter, self.plagiarism_detector)
         self.miner_statistics_manager = MinerStatisticsManager(self.position_manager, self.weight_setter, self.plagiarism_detector)

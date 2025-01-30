@@ -341,8 +341,8 @@ class PerfLedger():
 class PerfLedgerManager(CacheController):
     def __init__(self, metagraph, ipc_manager=None, running_unit_tests=False, shutdown_dict=None,
                  perf_ledger_hks_to_invalidate=None, live_price_fetcher=None, position_manager=None,
-                 enable_rss=True):
-        super().__init__(metagraph=metagraph, running_unit_tests=running_unit_tests)
+                 enable_rss=True, is_backtesting=False):
+        super().__init__(metagraph=metagraph, running_unit_tests=running_unit_tests, is_backtesting=is_backtesting)
         self.shutdown_dict = shutdown_dict
         self.live_price_fetcher = live_price_fetcher
         self.running_unit_tests = running_unit_tests
@@ -360,7 +360,7 @@ class PerfLedgerManager(CacheController):
             self.hotkey_to_perf_bundle = {}
         self.running_unit_tests = running_unit_tests
         self.position_manager = position_manager
-        self.pds = None  # Not pickable. Load it later once the process starts
+        self.pds = live_price_fetcher.polygon_data_service if live_price_fetcher else None  # Load it later once the process starts so ipc works.
         self.live_price_fetcher = live_price_fetcher  # For unit tests only
 
         # Every update, pick a hotkey to rebuild in case polygon 1s candle data changed.
@@ -386,7 +386,8 @@ class PerfLedgerManager(CacheController):
         self.mode_to_n_updates = {}
         self.update_to_n_open_positions = {}
         self.position_uuid_to_cache = defaultdict(FeeCache)
-        for k, v in self.get_perf_ledgers(from_disk=True, portfolio_only=False).items():
+        initial_perf_ledgers = {} if self.is_backtesting else self.get_perf_ledgers(from_disk=True, portfolio_only=False)
+        for k, v in initial_perf_ledgers.items():
             self.hotkey_to_perf_bundle[k] = v
 
     def _is_v1_perf_ledger(self, ledger_value):
@@ -1169,7 +1170,8 @@ class PerfLedgerManager(CacheController):
         n_perf_ledgers = len(existing_perf_ledgers) if existing_perf_ledgers else 0
         n_hotkeys_with_positions = len(hotkey_to_positions) if hotkey_to_positions else 0
         bt.logging.success(f"Done updating perf ledger for all hotkeys in {time.time() - t_init} s. n_perf_ledgers {n_perf_ledgers}. n_hotkeys_with_positions {n_hotkeys_with_positions}")
-        self.write_perf_ledger_eliminations_to_disk(self.candidate_pl_elimination_rows)
+        if not self.is_backtesting:
+            self.write_perf_ledger_eliminations_to_disk(self.candidate_pl_elimination_rows)
         # clear and populate proxy list in a multiprocessing-friendly way
         del self.pl_elimination_rows[:]
         self.pl_elimination_rows.extend(self.candidate_pl_elimination_rows)
@@ -1213,6 +1215,7 @@ class PerfLedgerManager(CacheController):
         existing_perf_ledgers = {}
         return self.update_all_perf_ledgers(hotkey_to_positions, existing_perf_ledgers, t_ms)
 
+    @timeme
     def update(self, testing_one_hotkey=None, regenerate_all_ledgers=False, t_ms=None):
         assert self.position_manager.elimination_manager.metagraph, "Metagraph must be loaded before updating perf ledgers"
         assert self.metagraph, "Metagraph must be loaded before updating perf ledgers"
@@ -1395,7 +1398,8 @@ class PerfLedgerManager(CacheController):
 
     @timeme
     def save_perf_ledgers(self, perf_ledgers_copy: dict[str, dict[str, PerfLedger]] | dict[str, dict[str, dict]], raw_json=False):
-        self.save_perf_ledgers_to_disk(perf_ledgers_copy, raw_json=raw_json)
+        if not self.is_backtesting:
+            self.save_perf_ledgers_to_disk(perf_ledgers_copy, raw_json=raw_json)
 
         # Update memory
         for k in list(self.hotkey_to_perf_bundle.keys()):
