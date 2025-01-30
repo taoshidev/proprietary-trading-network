@@ -206,31 +206,17 @@ class MinerStatisticsManager:
         short_risk_adjusted_return_dict = {}
         risk_adjusted_return_dict = {}
         statistical_confidence_dict = {}
-        concentration_dict = {}
 
         # Scoring criteria metrics
         minimum_days_threshold_dict = {}
 
-        # Positional ratios
-        positional_return_time_consistency_ratios = {}
-        positional_realized_returns_ratios = {}
 
         # Positional penalties
-        positional_return_time_consistency_penalties = {}
-        positional_realized_returns_penalties = {}
         miner_martingale_scores = {}
         miner_martingale_penalties = {}
 
-        # Ledger Ratios
-        ledger_daily_consistency_ratios = {}
-        ledger_biweekly_consistency_ratios = {}
-
         # Ledger Penalties
-        daily_consistency_penalty = {}
-        biweekly_consistency_penalty = {}
-        drawdown_penalties = {}
         max_drawdown_threshold_penalties = {}
-        drawdown_abnormality_penalties = {}
 
         # Ledger Drawdowns
         recent_drawdowns = {}
@@ -278,7 +264,6 @@ class MinerStatisticsManager:
             annual_volatility[hotkey] = min(Metrics.ann_volatility(miner_returns), 100)
             annual_downside_volatility[hotkey] = min(Metrics.ann_downside_volatility(miner_returns), 100)
             statistical_confidence_dict[hotkey] = Metrics.statistical_confidence(miner_returns, bypass_confidence=True)
-            concentration_dict[hotkey] = Metrics.concentration(miner_returns, positions=miner_lookback_positions)
 
             # Positional penalties
             miner_martingale_scores[hotkey] = PositionPenalties.martingale_score(miner_lookback_positions)
@@ -297,7 +282,7 @@ class MinerStatisticsManager:
                 miner_checkpoints
             )
 
-            # Ledger consistency penalties
+            # Ledger drawdowns
             recent_drawdown = LedgerUtils.recent_drawdown(miner_checkpoints)
             recent_drawdowns[hotkey] = recent_drawdown
 
@@ -305,24 +290,8 @@ class MinerStatisticsManager:
             approximate_drawdowns[hotkey] = approximate_drawdown
 
             effective_drawdowns[hotkey] = LedgerUtils.effective_drawdown(recent_drawdown, approximate_drawdown)
-            drawdown_penalties[hotkey] = LedgerUtils.risk_normalization(miner_checkpoints)
 
-            ledger_daily_consistency_ratios[hotkey] = LedgerUtils.daily_consistency_ratio(miner_checkpoints)
-            daily_consistency_penalty[hotkey] = LedgerUtils.daily_consistency_penalty(miner_checkpoints)
-
-            ledger_biweekly_consistency_ratios[hotkey] = LedgerUtils.biweekly_consistency_ratio(miner_checkpoints)
-            biweekly_consistency_penalty[hotkey] = LedgerUtils.biweekly_consistency_penalty(miner_checkpoints)
-
-            drawdown_abnormality_penalties[hotkey] = LedgerUtils.drawdown_abnormality(miner_checkpoints)
             max_drawdown_threshold_penalties[hotkey] = LedgerUtils.max_drawdown_threshold_penalty(miner_checkpoints)
-
-            # Positional consistency ratios
-            positional_realized_returns_ratios[hotkey] = PositionPenalties.returns_ratio(miner_lookback_positions)
-            positional_realized_returns_penalties[hotkey] = PositionPenalties.returns_ratio_penalty(miner_lookback_positions)
-
-            positional_return_time_consistency_ratios[hotkey] = PositionPenalties.time_consistency_ratio(miner_lookback_positions)
-            positional_return_time_consistency_penalty = PositionPenalties.time_consistency_penalty(miner_lookback_positions)
-            positional_return_time_consistency_penalties[hotkey] = positional_return_time_consistency_penalty
 
             # Now for the ledger statistics
             n_checkpoints[hotkey] = len([x for x in miner_checkpoints if x.open_ms > 0])
@@ -515,7 +484,6 @@ class MinerStatisticsManager:
                 "challengeperiod": challengeperiod_specific,
                 "penalties": {
                     "drawdown_threshold": max_drawdown_threshold_penalties.get(miner_id),
-                    "drawdown_abnormality": drawdown_abnormality_penalties.get(miner_id),
                     "martingale": miner_martingale_penalties.get(miner_id),
                     "total": miner_penalties.get(miner_id, 0.0),
                 },

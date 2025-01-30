@@ -6,8 +6,6 @@ from scipy.stats import ttest_1samp
 from vali_objects.vali_config import ValiConfig
 from vali_objects.utils.ledger_utils import LedgerUtils
 from vali_objects.vali_dataclasses.perf_ledger import PerfCheckpoint
-from vali_objects.position import Position
-from vali_objects.utils.functional_utils import FunctionalUtils
 
 class Metrics:
     @staticmethod
@@ -216,24 +214,3 @@ class Metrics:
         downside_volatility = Metrics.ann_downside_volatility(log_returns)
 
         return excess_return / max(downside_volatility, min_downside)
-
-    @staticmethod
-    def concentration(log_returns: list[float], positions: list[Position]) -> float:
-        """
-        Args:
-            log_returns: list of daily log returns from the miner
-            positions: list of positions
-        """
-
-        if len(log_returns) == 0:
-            return 0
-
-        if len(positions) == 0:
-            return 0
-
-        positional_returns = [(position.return_at_close-1)*100 for position in positions]
-
-        pnl_concentration = FunctionalUtils.concentration(log_returns)
-        position_concentration = FunctionalUtils.concentration(positional_returns)
-
-        return 1-max(pnl_concentration, position_concentration)
