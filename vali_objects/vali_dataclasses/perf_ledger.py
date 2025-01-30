@@ -396,7 +396,6 @@ class PerfLedgerManager(CacheController):
         return ans
 
 
-    @timeme
     def get_perf_ledgers(self, portfolio_only=True, from_disk=False) -> dict[str, dict[str, PerfLedger]] | dict[str, PerfLedger]:
         ret = {}
         if from_disk:
@@ -1245,7 +1244,8 @@ class PerfLedgerManager(CacheController):
         # Remove keys from perf ledgers if they aren't in the metagraph anymore
         metagraph_hotkeys = set(self.metagraph.hotkeys)
         hotkeys_to_delete = set([x for x in hotkeys_with_no_positions if x in perf_ledger_bundles])
-        rss_modified = False
+        rss_hotkey_added = None
+        rss_original_ledger = None
         # Recently re-registered
         hotkeys_rrr = []
         deltas = []
@@ -1283,30 +1283,30 @@ class PerfLedgerManager(CacheController):
                 pass  # Don't want to rebuild. Use this pass statement to avoid rss logic.
             elif not len(hotkey_to_positions.get(hotkey, [])):
                 hotkeys_to_delete.add(hotkey)
-            elif self.enable_rss and not rss_modified and hotkey not in self.random_security_screenings:
-                rss_modified = True
+            elif self.enable_rss and not rss_hotkey_added and hotkey not in self.random_security_screenings:
+                rss_hotkey_added = hotkey
                 self.random_security_screenings.add(hotkey)
-                #bt.logging.info(f"perf ledger PLM added {hotkey} with {len(hotkey_to_positions.get(hotkey, []))} positions to rss.")
+                rss_original_ledger = perf_ledger_bundles.get(hotkey)
                 hotkeys_to_delete.add(hotkey)
 
         # Start over again
-        if not rss_modified:
+        if not rss_hotkey_added:
             self.random_security_screenings = set()
 
-        # Regenerate checkpoints if a hotkey was modified during position sync
-        attempting_invalidations = bool(self.perf_ledger_hks_to_invalidate)
-        if attempting_invalidations:
-            for hk, t in self.perf_ledger_hks_to_invalidate.items():
-                hotkeys_to_delete.add(hk)
-                bt.logging.info(f"perf ledger invalidated for hk {hk} due to position sync at time {t}")
+        # Trim checkpoints if a hotkey was modified during position sync
+        auto_sync_invalidation_hks = list(self.perf_ledger_hks_to_invalidate.keys())
+        for hk in auto_sync_invalidation_hks:
+            required_trim_time = self.perf_ledger_hks_to_invalidate[hk]
+            bundle = perf_ledger_bundles.get(hk)
+            if bundle:
+                for tp_id, ledger in bundle.items():
+                    ledger.trim_checkpoints(required_trim_time)
+                bt.logging.info(f"perf ledger trimmed for hk {hk} due to position sync at time {required_trim_time}")
 
         for k in hotkeys_to_delete:
             del perf_ledger_bundles[k]
 
         self.hk_to_last_order_processed_ms = {k: v for k, v in self.hk_to_last_order_processed_ms.items() if k in perf_ledger_bundles}
-
-        #hk_to_last_update_date = {k: TimeUtil.millis_to_formatted_date_str(v.last_update_ms)
-        #                            if v.last_update_ms else 'N/A' for k, v in perf_ledgers.items()}
 
         bt.logging.info(f"perf ledger PLM hotkeys to delete: {hotkeys_to_delete}. rss: {self.random_security_screenings}")
 
@@ -1325,63 +1325,73 @@ class PerfLedgerManager(CacheController):
         self.update_all_perf_ledgers(hotkey_to_positions, perf_ledger_bundles, t_ms)
 
         # Clear invalidations after successful update. Prevent race condition by only clearing if we attempted invalidations.
-        if attempting_invalidations:
+        if auto_sync_invalidation_hks:
             self.perf_ledger_hks_to_invalidate.clear()
 
         if testing_one_hotkey:
-            portfolio_ledger = perf_ledger_bundles[testing_one_hotkey][TP_ID_PORTFOLIO]
-            # print all attributes except cps: Note ledger is an object
-            print(f'Portfolio ledger attributes: initialization_time_ms {portfolio_ledger.initialization_time_ms},'
-                    f' max_return {portfolio_ledger.max_return}')
-            returns = []
-            returns_muled = []
-            times = []
-            n_contributing_tps = []
-            for i, x in enumerate(portfolio_ledger.cps):
-                returns.append(x.prev_portfolio_ret)
-                foo = 1.0
-                n_contributing = 0
-                for tp_id, ledger in perf_ledger_bundles[testing_one_hotkey].items():
-                    if tp_id == TP_ID_PORTFOLIO:
-                        continue
-                    rele_cp = None
-                    for y in ledger.cps:
-                        if y.last_update_ms == x.last_update_ms:
-                            rele_cp = y
-                            break
-                    if rele_cp:
-                        n_contributing += 1
-                        foo *= rele_cp.prev_portfolio_ret
-                returns_muled.append(foo)
-                n_contributing_tps.append(n_contributing)
-                times.append(TimeUtil.millis_to_timestamp(x.last_update_ms))
+            self.analyze_hotkey_locally(perf_ledger_bundles, testing_one_hotkey)
 
-                last_update_formated = TimeUtil.millis_to_timestamp(x.last_update_ms)
-                # assert the checkpoint ends on a 12 hour boundary
-                if i != len(portfolio_ledger.cps) - 1:
-                    assert x.last_update_ms % portfolio_ledger.target_cp_duration_ms == 0, x.last_update_ms
-                print(x, last_update_formated)
-            # Plot time vs return using matplotlib as well as time vs dd. use a legend.
-            import matplotlib.pyplot as plt
-            # Make the plot bigger
-            plt.figure(figsize=(10, 5))
-            plt.plot(times, returns, color='red', label='Return')
-            plt.plot(times, returns_muled, color='blue', label='Return_Mulled')
-            # Labels
-            plt.xlabel('Time')
-            plt.title(f'Return vs Time for HK {testing_one_hotkey}')
-            plt.legend(['Return', 'Return_Mulled'])
-            plt.show()
+        if rss_hotkey_added and rss_hotkey_added not in perf_ledger_bundles:
+            # Update failed for some reason (hopefully temporary API issue. revert back to original ledger
+            #self.random_security_screenings.remove(rss_hotkey_added)
+            perf_ledger_bundles[rss_hotkey_added] = rss_original_ledger
+            bt.logging.warning(f'failed to update rss hotkey {rss_hotkey_added}. reverting back to original ledger')
 
-            for tp_id, pl in perf_ledger_bundles[testing_one_hotkey].items():
-                print(f"perf ledger for {tp_id} last cp {pl.cps[-1]}")
-                print('    total gain product', pl.get_product_of_gains())
-                print('    total loss product', pl.get_product_of_loss())
-                print('    total product', pl.get_total_product())
 
-            print('validating returns:')
-            for z in zip(returns, returns_muled, n_contributing_tps):
-                print(z, z[0] - z[1])
+    def analyze_hotkey_locally(self, perf_ledger_bundles, testing_one_hotkey):
+        portfolio_ledger = perf_ledger_bundles[testing_one_hotkey][TP_ID_PORTFOLIO]
+        # print all attributes except cps: Note ledger is an object
+        print(f'Portfolio ledger attributes: initialization_time_ms {portfolio_ledger.initialization_time_ms},'
+              f' max_return {portfolio_ledger.max_return}')
+        returns = []
+        returns_muled = []
+        times = []
+        n_contributing_tps = []
+        for i, x in enumerate(portfolio_ledger.cps):
+            returns.append(x.prev_portfolio_ret)
+            foo = 1.0
+            n_contributing = 0
+            for tp_id, ledger in perf_ledger_bundles[testing_one_hotkey].items():
+                if tp_id == TP_ID_PORTFOLIO:
+                    continue
+                rele_cp = None
+                for y in ledger.cps:
+                    if y.last_update_ms == x.last_update_ms:
+                        rele_cp = y
+                        break
+                if rele_cp:
+                    n_contributing += 1
+                    foo *= rele_cp.prev_portfolio_ret
+            returns_muled.append(foo)
+            n_contributing_tps.append(n_contributing)
+            times.append(TimeUtil.millis_to_timestamp(x.last_update_ms))
+
+            last_update_formated = TimeUtil.millis_to_timestamp(x.last_update_ms)
+            # assert the checkpoint ends on a 12 hour boundary
+            if i != len(portfolio_ledger.cps) - 1:
+                assert x.last_update_ms % portfolio_ledger.target_cp_duration_ms == 0, x.last_update_ms
+            print(x, last_update_formated)
+        # Plot time vs return using matplotlib as well as time vs dd. use a legend.
+        import matplotlib.pyplot as plt
+        # Make the plot bigger
+        plt.figure(figsize=(10, 5))
+        plt.plot(times, returns, color='red', label='Return')
+        plt.plot(times, returns_muled, color='blue', label='Return_Mulled')
+        # Labels
+        plt.xlabel('Time')
+        plt.title(f'Return vs Time for HK {testing_one_hotkey}')
+        plt.legend(['Return', 'Return_Mulled'])
+        plt.show()
+
+        for tp_id, pl in perf_ledger_bundles[testing_one_hotkey].items():
+            print(f"perf ledger for {tp_id} last cp {pl.cps[-1]}")
+            print('    total gain product', pl.get_product_of_gains())
+            print('    total loss product', pl.get_product_of_loss())
+            print('    total product', pl.get_total_product())
+
+        print('validating returns:')
+        for z in zip(returns, returns_muled, n_contributing_tps):
+            print(z, z[0] - z[1])
 
     def save_perf_ledgers_to_disk(self, perf_ledgers: dict[str, dict[str, PerfLedger]] | dict[str, dict[str, dict]], raw_json=False):
         file_path = ValiBkpUtils.get_perf_ledgers_path(self.running_unit_tests)
