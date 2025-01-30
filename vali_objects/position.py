@@ -10,6 +10,7 @@ from vali_objects.vali_dataclasses.order import Order, ORDER_SRC_ELIMINATION_FLA
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.utils import leverage_utils
 import bittensor as bt
+import re
 import math
 
 CRYPTO_CARRY_FEE_PER_INTERVAL = math.exp(math.log(1 - 0.1095) / (365.0*3.0))  # 10.95% per year for 1x leverage. Each interval is 8 hrs
@@ -237,6 +238,20 @@ class Position(BaseModel):
 
     def __str__(self):
         return self.to_json_string()
+
+    def to_copyable_str(self):
+        ans = self.dict()
+        ans['trade_pair'] = f'TradePair.{self.trade_pair.trade_pair_id}'
+        ans['position_type'] = f'OrderType.{self.position_type.name}'
+        for o in ans['orders']:
+            o['trade_pair'] = f'TradePair.{self.trade_pair.trade_pair_id}'
+            o['order_type'] = f'OrderType.{o["order_type"].name}'
+
+        s = str(ans)
+        s = re.sub(r"'(TradePair\.[A-Z]+|OrderType\.[A-Z]+|FLAT|SHORT|LONG)'", r"\1", s)
+
+        return s
+
 
     def to_json_string(self) -> str:
         # Using pydantic's json method with built-in validation
