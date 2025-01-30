@@ -1,4 +1,3 @@
-import copy
 from tests.vali_tests.base_objects.test_base import TestBase
 from vali_objects.utils.ledger_utils import LedgerUtils
 
@@ -180,18 +179,6 @@ class TestLedgerUtils(TestBase):
         self.assertEqual(LedgerUtils.mdd_augmentation(1 - (ValiConfig.DRAWDOWN_MAXVALUE_PERCENTAGE / 100) - 0.001), 0)
 
         self.assertAlmostEqual(LedgerUtils.mdd_augmentation(1 - (ValiConfig.DRAWDOWN_MINVALUE_PERCENTAGE / 100) + 0.001), 0)
-
-    # Test max_drawdown_threshold_penalty
-    def test_max_drawdown_threshold_penalty(self):
-        checkpoints = self.DEFAULT_LEDGER[TP_ID_PORTFOLIO].cps
-        self.assertEqual(LedgerUtils.max_drawdown_threshold_penalty([]), 0)
-        self.assertEqual(LedgerUtils.max_drawdown_threshold_penalty(checkpoints), 1)
-
-        l1 = copy.deepcopy(self.DEFAULT_LEDGER)
-        l1_cps = l1[TP_ID_PORTFOLIO].cps
-        l1_cps[-1].mdd = 0.8
-
-        self.assertEqual(LedgerUtils.max_drawdown_threshold_penalty(l1_cps), 0)
 
     # Test approximate_drawdown
     def test_approximate_drawdown(self):

@@ -172,11 +172,6 @@ class Scoring:
                         log_returns=returns[-short_lookback_window:],
                         checkpoints=checkpoints[-short_lookback_window:]
                     )
-                elif config_name == 'concentration':
-                    score = config['function'](
-                        log_returns=returns,
-                        positions=positions
-                    )
                 else:
                     score = config['function'](log_returns=returns)
 

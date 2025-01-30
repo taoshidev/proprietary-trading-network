@@ -6,7 +6,6 @@ from datetime import datetime, timezone
 
 from vali_objects.vali_config import ValiConfig
 from vali_objects.vali_dataclasses.perf_ledger import PerfCheckpoint, PerfLedger
-from vali_objects.utils.functional_utils import FunctionalUtils
 
 
 class LedgerUtils:
@@ -280,30 +279,6 @@ class LedgerUtils:
         return min(recent_drawdown, approximate_drawdown)
 
     @staticmethod
-    def drawdown_abnormality(checkpoints: list[PerfCheckpoint]) -> float:
-        """
-        Args:
-            checkpoints: list[PerfCheckpoint] - the list of checkpoints
-        """
-        if len(checkpoints) == 0:
-            return 0
-
-        recent_drawdown = LedgerUtils.recent_drawdown(checkpoints)
-        approximate_drawdown = LedgerUtils.approximate_drawdown(checkpoints)
-
-        numerator = LedgerUtils.drawdown_percentage(recent_drawdown)
-        denominator = max(LedgerUtils.drawdown_percentage(approximate_drawdown), ValiConfig.ABNORMALITY_BASELINE)
-
-        abnormality_score = numerator / denominator
-        abnormality_augmentation = FunctionalUtils.sigmoid(
-            abnormality_score,
-            ValiConfig.ABNORMALITY_SIGMOID_SHIFT,
-            ValiConfig.ABNORMALITY_SIGMOID_SPREAD
-        )
-
-        return abnormality_augmentation
-
-    @staticmethod
     def risk_normalization(checkpoints: list[PerfCheckpoint]) -> float:
         """
         Args:
@@ -318,97 +293,6 @@ class LedgerUtils:
         # effective_drawdown = LedgerUtils.effective_drawdown(approximate_drawdown)
         drawdown_penalty = LedgerUtils.mdd_augmentation(approximate_drawdown)
         return drawdown_penalty
-
-    @staticmethod
-    def daily_consistency_ratio(checkpoints: list[PerfCheckpoint]) -> float:
-        """
-        Args:
-            checkpoints: list[PerfCheckpoint] - the list of checkpoints
-
-        Returns:
-            float - the daily consistency ratio
-        """
-        return LedgerUtils.time_consistency_ratio(
-            checkpoints,
-            ValiConfig.DAILY_CHECKPOINTS
-        )
-
-    @staticmethod
-    def daily_consistency_penalty(checkpoints: list[PerfCheckpoint]) -> float:
-        """
-        Args:
-            checkpoints: list[PerfCheckpoint] - the list of checkpoints
-
-        Returns:
-            float - the daily consistency penalty
-        """
-        return FunctionalUtils.sigmoid(
-            LedgerUtils.daily_consistency_ratio(checkpoints),
-            ValiConfig.DAILY_SIGMOID_SHIFT,
-            ValiConfig.DAILY_SIGMOID_SPREAD
-        )
-
-    @staticmethod
-    def biweekly_consistency_ratio(checkpoints: list[PerfCheckpoint]) -> float:
-        """
-        Args:
-            checkpoints: list[PerfCheckpoint] - the list of checkpoints
-
-        Returns:
-            float - the biweekly consistency ratio
-        """
-        return LedgerUtils.time_consistency_ratio(
-            checkpoints,
-            ValiConfig.BIWEEKLY_CHECKPOINTS
-        )
-
-    @staticmethod
-    def biweekly_consistency_penalty(checkpoints: list[PerfCheckpoint]) -> float:
-        """
-        Args:
-            checkpoints: list[PerfCheckpoint] - the list of checkpoints
-
-        Returns:
-            float - the biweekly consistency penalty
-        """
-        return FunctionalUtils.sigmoid(
-            LedgerUtils.biweekly_consistency_ratio(checkpoints),
-            ValiConfig.BIWEEKLY_SIGMOID_SHIFT,
-            ValiConfig.BIWEEKLY_SIGMOID_SPREAD
-        )
-
-    @staticmethod
-    def time_consistency_ratio(
-            checkpoints: list[PerfCheckpoint],
-            window_length: int
-    ) -> float:
-        """
-        Args:
-            checkpoints: list[PerfCheckpoint] - the list of checkpoints
-            window_length: int - the length of the window
-
-        Returns:
-            float - the ledger consistency ratio
-        """
-        if len(checkpoints) <= 0:
-            return 1
-
-        checkpoint_margins = np.array([checkpoint.gain + checkpoint.loss for checkpoint in checkpoints])
-        unrealized_return = sum(checkpoint_margins)
-
-        if unrealized_return == 0:
-            # all the returns are zero, so ratio between larger element and total is 1
-            return 1
-
-        convolution_window = np.ones(window_length)
-        convolution_margins = np.convolve(checkpoint_margins, convolution_window, mode='valid')
-
-        if unrealized_return < 0:
-            numerator = min(convolution_margins)
-        else:
-            numerator = max(convolution_margins)
-
-        return np.clip(abs(numerator / unrealized_return), 0, 1)
 
     @staticmethod
     def cumulative(ledger: dict[str, PerfLedger]) -> dict[str, dict]:
