@@ -306,35 +306,36 @@ class ChallengePeriodManager(CacheController):
             function names of metrics and values having "scores" (scores of miners that passed challenge)
             and "weight" which is the weight of the metric
         """
+        if positions is None or len(positions) == 0:
+            return False
+
+        positions_list = positions.get(inspection_hotkey, None)
+
+        if positions_list is None:
+            return False
+
+        if len(positions_list) <= 1:
+            # We need at least more than 1 position to evaluate the challenge period
+            return False
+
+        inspection_positions = {inspection_hotkey: positions_list}
+
+        # Get individual scoring dict for inspection
+        single_ledger = ledger.get(inspection_hotkey, None)
+        if single_ledger is None:
+            return False
+
+        inspection_ledger = {inspection_hotkey: single_ledger}
+
+        # Before scoring, check that the miner has enough trading days to be promoted
+        min_interaction_criteria = ChallengePeriodManager.screen_minimum_interaction(
+            ledger_element=single_ledger)
+
+        if not min_interaction_criteria:
+            return False
+
         # inspection_scores_dict is used to bypass running scoring when testing
         if inspection_scores_dict is None:
-
-            if positions is None or len(positions) == 0:
-                return False
-
-            positions_list = positions.get(inspection_hotkey, None)
-
-            if positions_list is None:
-                return False
-
-            if len(positions_list) <= 1:
-                # We need at least more than 1 position to evaluate the challenge period
-                return False
-
-            inspection_positions = {inspection_hotkey: positions_list}
-
-            # Get individual scoring dict for inspection
-            inspection_ledger = {inspection_hotkey: ledger.get(inspection_hotkey, None)}
-
-            if inspection_ledger.get(inspection_hotkey, None) is None:
-                return False
-
-            min_interaction_criteria = ChallengePeriodManager.screen_minimum_interaction(
-                ledger_element=inspection_ledger.get(inspection_hotkey))
-
-            if not min_interaction_criteria:
-                return False
-
             # Get penalized scores of inspection miner
             inspection_scores_dict = Scoring.score_miners(
                 ledger_dict=inspection_ledger,
