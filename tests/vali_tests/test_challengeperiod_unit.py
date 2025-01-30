@@ -6,6 +6,7 @@ import numpy as np
 from tests.vali_tests.base_objects.test_base import TestBase
 from tests.shared_objects.test_utilities import generate_ledger
 from vali_objects.utils.elimination_manager import EliminationManager
+from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
 
 from vali_objects.vali_config import TradePair
 from vali_objects.position import Position
@@ -30,9 +31,14 @@ class TestChallengePeriodUnit(TestBase):
         self.START_TIME = 0
         self.END_TIME = self.START_TIME + ValiConfig.CHALLENGE_PERIOD_MS - 1
 
+
         # For time management
         self.CURRENTLY_IN_CHALLENGE = ValiConfig.CHALLENGE_PERIOD_MS  # Evaluation time when inside the challenge period
         self.OUTSIDE_OF_CHALLENGE = ValiConfig.CHALLENGE_PERIOD_MS + 1  # Evaluation time when the challenge period is over
+
+        # Challenge miners must have a minimum amount of trading days before promotion
+        self.MIN_PROMOTION_TIME = (ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N + 1) * 24 * 60 * 60 * 1000 # Evaluation time when miner can now be promoted
+        self.BEFORE_PROMOTION_TIME = (ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N - 1) * 24 * 60 * 60 * 1000 # Evaluation time before miner has enough trading days
 
         # Number of positions
         self.N_POSITIONS_BOUNDS = 20 + 1
@@ -137,6 +143,18 @@ class TestChallengePeriodUnit(TestBase):
         return trial_scores_dict
 
 
+    def save_and_get_positions(self, base_positions, hotkeys):
+
+        for p in base_positions:
+            self.position_manager.save_miner_position(p)
+
+        positions, hk_to_first_order_time = self.position_manager.filtered_positions_for_scoring(
+            hotkeys=hotkeys)
+        assert positions, positions
+
+        return positions, hk_to_first_order_time
+
+
     def test_screen_drawdown(self):
         """Test that a high drawdown miner is screened"""
         base_positions = deepcopy(self.DEFAULT_POSITIONS)
@@ -168,11 +186,8 @@ class TestChallengePeriodUnit(TestBase):
         base_positions = deepcopy(self.DEFAULT_POSITIONS)
         base_ledger = deepcopy(self.DEFAULT_LEDGER)
 
-        for p in base_positions:
-            self.position_manager.save_miner_position(p)
         inspection_ledger = {"miner": base_ledger}
-
-        inspection_positions, hk_to_first_order_time = self.position_manager.filtered_positions_for_scoring(hotkeys=["miner"])
+        inspection_positions, hk_to_first_order_time = self.save_and_get_positions(base_positions, ["miner"])
 
         # Check that the miner is screened as failing
         passing, failing = self.challengeperiod_manager.inspect(
@@ -196,12 +211,7 @@ class TestChallengePeriodUnit(TestBase):
         base_positions = deepcopy(self.DEFAULT_POSITIONS)
         base_ledger = deepcopy(self.DEFAULT_LEDGER)
 
-        for p in base_positions:
-            self.position_manager.save_miner_position(p)
-
-        inspection_positions, hk_to_first_order_time = self.position_manager.filtered_positions_for_scoring(hotkeys=["miner"])
-
-
+        inspection_positions, hk_to_first_order_time = self.save_and_get_positions(base_positions, ["miner"])
         inspection_ledger = {"miner": base_ledger}
 
         inspection_hotkeys = {"miner": self.START_TIME}
@@ -230,12 +240,7 @@ class TestChallengePeriodUnit(TestBase):
         base_positions = deepcopy(self.DEFAULT_POSITIONS)
         base_ledger = deepcopy(self.DEFAULT_LEDGER)
 
-        for p in base_positions:
-            self.position_manager.save_miner_position(p)
-
-        inspection_positions, hk_to_first_order_time = self.position_manager.filtered_positions_for_scoring(
-            hotkeys=["miner"])
-
+        inspection_positions, hk_to_first_order_time = self.save_and_get_positions(base_positions, ["miner"])
         inspection_ledger = {"miner": base_ledger}
 
         inspection_hotkeys = {"miner": self.START_TIME}
@@ -263,12 +268,7 @@ class TestChallengePeriodUnit(TestBase):
         base_positions = deepcopy(self.DEFAULT_POSITIONS)
         base_ledger = deepcopy(self.DEFAULT_LEDGER)
 
-        for p in base_positions:
-            self.position_manager.save_miner_position(p)
-
-        inspection_positions, hk_to_first_order_time = self.position_manager.filtered_positions_for_scoring(
-            hotkeys=["miner"])
-
+        inspection_positions, hk_to_first_order_time = self.save_and_get_positions(base_positions, ["miner"])
         inspection_ledger = {"miner": base_ledger}
 
         inspection_hotkeys = {"miner": self.START_TIME}
@@ -328,12 +328,10 @@ class TestChallengePeriodUnit(TestBase):
 
         base_position = deepcopy(self.DEFAULT_POSITION)
         base_position.orders[0].processed_ms = base_ledger[TP_ID_PORTFOLIO].start_time_ms + 1
-        self.position_manager.save_miner_position(base_position)
 
-        inspection_positions, hk_to_first_order_time = self.position_manager.filtered_positions_for_scoring(
-            hotkeys=["miner"])
-
+        inspection_positions, hk_to_first_order_time = self.save_and_get_positions([base_position], ["miner"])
         inspection_ledger = {"miner": base_ledger}
+
         inspection_hotkeys = {"miner": self.START_TIME}
         current_time = self.OUTSIDE_OF_CHALLENGE
 
@@ -358,13 +356,9 @@ class TestChallengePeriodUnit(TestBase):
 
         base_ledger = deepcopy(self.DEFAULT_LEDGER)
 
-        for p in base_positions:
-            self.position_manager.save_miner_position(p)
-
-        inspection_positions, hk_to_first_order_time = self.position_manager.filtered_positions_for_scoring(
-            hotkeys=["miner"])
-
+        inspection_positions, hk_to_first_order_time = self.save_and_get_positions(base_positions, ["miner"])
         inspection_ledger = {"miner": base_ledger}
+
         inspection_hotkeys = {"miner": self.START_TIME}
         current_time = self.OUTSIDE_OF_CHALLENGE
 
@@ -381,25 +375,21 @@ class TestChallengePeriodUnit(TestBase):
 
         self.assertNotIn("miner", passing)
         self.assertIn("miner", failing)
-    def test_just_above_threshold(self):
 
-        # Miner performing 80th percentile should pass
+    def test_just_above_threshold(self):
+        """Miner performing 80th percentile should pass"""
+
         current_time = self.CURRENTLY_IN_CHALLENGE
 
         base_positions = deepcopy(self.DEFAULT_POSITIONS)
         base_ledger = deepcopy(self.DEFAULT_LEDGER)
 
-        for p in base_positions:
-            self.position_manager.save_miner_position(p)
-
-        inspection_positions, hk_to_first_order_time = self.position_manager.filtered_positions_for_scoring(
-            hotkeys=["miner"])
-
+        inspection_positions, hk_to_first_order_time = self.save_and_get_positions(base_positions, ["miner"])
         inspection_ledger = {"miner": base_ledger}
 
         trial_scoring_dict = self.get_trial_scores(score=0.75)
 
-        # Check that the miner is screened as failing
+        # Check that the miner is screened as passing
         passing, failing = self.challengeperiod_manager.inspect(
             positions=inspection_positions,
             ledger={hk: v[TP_ID_PORTFOLIO] for hk, v in inspection_ledger.items()},
@@ -414,23 +404,19 @@ class TestChallengePeriodUnit(TestBase):
         self.assertNotIn("miner", failing)
 
     def test_just_below_threshold(self):
+        """Miner performing 50th percentile should fail, but continue testing"""
 
-        # Miner performing 60th percentile should fail, but continue testing
         current_time = self.CURRENTLY_IN_CHALLENGE
 
         base_positions = deepcopy(self.DEFAULT_POSITIONS)
         base_ledger = deepcopy(self.DEFAULT_LEDGER)
 
-        for p in base_positions:
-            self.position_manager.save_miner_position(p)
-
-        inspection_positions, hk_to_first_order_time = self.position_manager.filtered_positions_for_scoring(
-            hotkeys=["miner"])
+        inspection_positions, hk_to_first_order_time = self.save_and_get_positions(base_positions, ["miner"])
         inspection_ledger = {"miner": base_ledger}
 
         trial_scoring_dict = self.get_trial_scores(score=0.5)
 
-        # Check that the miner is screened as failing
+        # Check that the miner continues in challenge
         passing, failing = self.challengeperiod_manager.inspect(
             positions=inspection_positions,
             ledger={hk: v[TP_ID_PORTFOLIO] for hk, v in inspection_ledger.items()},
@@ -445,20 +431,18 @@ class TestChallengePeriodUnit(TestBase):
         self.assertNotIn("miner", failing)
 
     def test_at_threshold(self):
-        # Miner performing exactly at 75th percentile should pass
+        """Miner performing exactly at 75th percentile should pass"""
+
         current_time = self.CURRENTLY_IN_CHALLENGE
 
         base_positions = deepcopy(self.DEFAULT_POSITIONS)
         base_ledger = deepcopy(self.DEFAULT_LEDGER)
 
-        for p in base_positions:
-            self.position_manager.save_miner_position(p)
-
-        inspection_positions, hk_to_first_order_time = self.position_manager.filtered_positions_for_scoring(
-            hotkeys=["miner"])
-        assert inspection_positions, inspection_positions
+        inspection_positions, hk_to_first_order_time = self.save_and_get_positions(base_positions, ["miner"])
         inspection_ledger = {"miner": base_ledger}
 
+        # Note that this score is not the percentile. The success miners dict has to be modified so that
+        # the miner ends up with a percentile at 0.75.
         trial_scoring_dict = self.get_trial_scores(score=0.75)
 
         success_scores_dict = {"metrics": {}}
@@ -475,7 +459,7 @@ class TestChallengePeriodUnit(TestBase):
 
         success_scores_dict["penalties"] = copy.deepcopy(success_penalties)
 
-        # Check that the miner is screened as failing
+        # Check that the miner is screened as passing
         passing, failing = self.challengeperiod_manager.inspect(
             positions=inspection_positions,
             ledger={hk: v[TP_ID_PORTFOLIO] for hk, v in inspection_ledger.items()},
@@ -490,4 +474,80 @@ class TestChallengePeriodUnit(TestBase):
         self.assertIn("miner", passing)
         self.assertNotIn("miner", failing)
 
+    def test_screen_minimum_interaction(self):
+        """
+        Miner with passing score and enough trading days should be promoted
+        Also includes tests for base cases
+        """
+        base_ledger = deepcopy(self.DEFAULT_LEDGER)
 
+        base_ledger_portfolio = base_ledger[TP_ID_PORTFOLIO]
+        base_positions = deepcopy(self.DEFAULT_POSITIONS)
+
+        # Return True if there are enough trading days
+        self.assertEqual(ChallengePeriodManager.screen_minimum_interaction(base_ledger_portfolio), True)
+
+        inspection_positions, hk_to_first_order_time = self.save_and_get_positions(base_positions, ["miner"])
+        inspection_ledger = {"miner": base_ledger_portfolio}
+
+        current_time = self.MIN_PROMOTION_TIME
+
+        trial_scoring_dict = self.get_trial_scores(score=0.75)
+        portfolio_cps = [cp for cp in base_ledger_portfolio.cps if cp.last_update_ms < current_time]
+        base_ledger_portfolio.cps = portfolio_cps
+
+        # Check that miner with a passing score passes when they have enough trading days
+        passing, failing = self.challengeperiod_manager.inspect(
+            positions=inspection_positions,
+            ledger=inspection_ledger,
+            success_hotkeys=[],
+            inspection_hotkeys={"miner": current_time},
+            current_time=current_time,
+            success_scores_dict=self.success_scores_dict,
+            inspection_scores_dict=trial_scoring_dict,
+            hk_to_first_order_time=hk_to_first_order_time
+        )
+
+        self.assertIn("miner", passing)
+        self.assertNotIn("miner", failing)
+
+        # Check two base cases
+
+        base_ledger_portfolio.cps = []
+        # Return False if there are no checkpoints
+        self.assertEqual(ChallengePeriodManager.screen_minimum_interaction(base_ledger_portfolio), False)
+
+        # Return False if ledger is none
+        self.assertEqual(ChallengePeriodManager.screen_minimum_interaction(None), False)
+
+
+    def test_not_enough_days(self):
+        """A miner with a passing score but not enough trading days shouldn't be promoted"""
+        base_ledger = deepcopy(self.DEFAULT_LEDGER)
+        base_ledger_portfolio = base_ledger[TP_ID_PORTFOLIO]
+
+        base_positions = deepcopy(self.DEFAULT_POSITIONS)
+
+        inspection_positions, hk_to_first_order_time = self.save_and_get_positions(base_positions, ["miner"])
+        inspection_ledger = {"miner": base_ledger_portfolio}
+
+        current_time = self.BEFORE_PROMOTION_TIME
+
+        portfolio_cps = [cp for cp in base_ledger_portfolio.cps if cp.last_update_ms < current_time]
+        print("len of cps: ", len(portfolio_cps))
+        base_ledger_portfolio.cps = portfolio_cps
+        trial_scoring_dict = self.get_trial_scores(score=0.75)
+
+        passing, failing = self.challengeperiod_manager.inspect(
+            positions=inspection_positions,
+            ledger=inspection_ledger,
+            success_hotkeys=[],
+            inspection_hotkeys={"miner": current_time},
+            current_time=current_time,
+            success_scores_dict=self.success_scores_dict,
+            inspection_scores_dict=trial_scoring_dict,
+            hk_to_first_order_time=hk_to_first_order_time
+        )
+
+        self.assertNotIn("miner", passing)
+        self.assertNotIn("miner", failing)

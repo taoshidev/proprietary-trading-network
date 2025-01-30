@@ -89,7 +89,7 @@ class EliminationManager(CacheController):
         self.handle_perf_ledger_eliminations(position_locks)
         self._delete_eliminated_expired_miners()
         self.set_last_update_time()
-        self._eliminate_MDD()
+        self._eliminate_MDD(position_locks)
         # self._handle_plagiarism_eliminations()
 
     def _handle_plagiarism_eliminations(self, position_locks):
@@ -227,7 +227,7 @@ class EliminationManager(CacheController):
             self.eliminations.remove(item)
         self.save_eliminations()
 
-    def _eliminate_MDD(self):
+    def _eliminate_MDD(self, position_locks):
         """
         Checks the mdd of each miner and eliminates any miners that surpass MAX_TOTAL_DRAWDOWN
         """
@@ -242,7 +242,6 @@ class EliminationManager(CacheController):
         all_miner_hotkeys = challengeperiod_success_hotkeys + challengeperiod_testing_hotkeys
 
         filtered_ledger = self.position_manager.perf_ledger_manager.filtered_ledger_for_scoring(hotkeys=all_miner_hotkeys)
-        update_made = False
         for miner_hotkey, ledger in filtered_ledger.items():
             if self.shutdown_dict:
                 return
@@ -253,16 +252,11 @@ class EliminationManager(CacheController):
             if miner_cps is None or len(miner_cps) == 0:
                 continue
 
-            miner_mdd = max([miner_cps.mdd for miner_cps in miner_cps])
+            miner_mdd = min([miner_cps.mdd for miner_cps in miner_cps])
 
             if miner_mdd < ValiConfig.MAX_TOTAL_DRAWDOWN:
-                self.position_manager.handle_eliminated_miner(miner_hotkey, {})
+                self.handle_eliminated_miner(miner_hotkey, {}, position_locks)
                 self.append_elimination_row(miner_hotkey, miner_mdd, 'MAX_TOTAL_DRAWDOWN')
 
-                update_made = True
                 bt.logging.info(
                     f"miner eliminated with hotkey [{miner_hotkey}] with drawdown [{miner_mdd}]")
-
-        if update_made:
-            #TODO is a lock needed here?
-            self.write_eliminations_to_disk(self.eliminations)
