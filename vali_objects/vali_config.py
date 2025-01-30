@@ -175,8 +175,6 @@ class ValiConfig:
     ELIMINATION_FILE_DELETION_DELAY_MS = 60 * 30 * 1000  # 30 min
 
     # Distributional statistics
-    TOP_MINER_BENEFIT = 0.90
-    TOP_MINER_PERCENT = 0.40
     SOFTMAX_TEMPERATURE = 0.06
 
     # Qualifications to be a trusted validator sending checkpoints
