@@ -7,10 +7,12 @@ The first time a miner places an order on a trade pair, they will open a **posit
 A long position is a bet that the trade pair will increase, while a short position is a bet that the trade pair will decrease. Even if the overall position is LONG, a miner can submit a number of orders within this position to manage their risk exposure by adjusting the leverage. SHORT orders on a long position will reduce the overall leverage of the position, reducing the miner's exposure to the trade pair. LONG orders on a long position will increase the overall leverage of the position, increasing the miner's exposure to the trade pair.
 
 ## Basic Rules
-1. Your miner will start in the challenge period upon entry. This 90-day period will require your miner to demonstrate consistent performance, after which they will be released from the challenge period, which may happen before 90 days has expired. During this period, they will receive a small amount of TAO that will help them avoid getting deregistered. The minimum requirements to pass the challenge period:
-   - Score at or above the 75th percentile relative to miners in the main competition. The details may be found [here](https://docs.taoshi.io/tips/p13/).
-   - 10% Max Drawdown
-2. Miner will be penalized if they are not providing consistent predictions to the system or if their drawdown is too high. The details of this may be found [here](https://github.com/taoshidev/proprietary-trading-network/blob/main/vali_objects/utils/position_utils.py).
+1. Your miner will start in the challenge period upon entry. Miners must demonstrate consistent performance within 90 days to pass the challenge period. During this period, they will receive a small amount of TAO that will help them avoid getting deregistered. The minimum requirements to pass the challenge period:
+   - Score at or above the 75th percentile relative to the miners in the main competition. The details may be found [here](https://docs.taoshi.io/tips/p13/).
+   - Have at least 60 full days of trading
+   - Don't exceed 10% max drawdown
+
+2. Miners that have passed challenge period will be eliminated for a drawdown that exceeds 10%.
 3. A miner can have a maximum of 1 open position per trade pair. No limit on the number of closed positions.
 4. A miner's order will be ignored if placing a trade outside of market hours.
 5. A miner's order will be ignored if they are rate limited (maliciously sending too many requests)

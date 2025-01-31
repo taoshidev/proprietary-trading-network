@@ -8,6 +8,7 @@ from vali_objects.vali_dataclasses.order import Order
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedger, TP_ID_PORTFOLIO
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
 from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
+from vali_objects.utils.ledger_utils import LedgerUtils
 from tests.shared_objects.mock_classes import (
     MockMetagraph, MockPositionManager
 )
