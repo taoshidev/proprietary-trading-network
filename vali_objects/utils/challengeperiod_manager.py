@@ -71,19 +71,19 @@ class ChallengePeriodManager(CacheController):
         if any_changes:
             self._write_challengeperiod_from_memory_to_disk()
 
-    def _refresh_challengeperiod_start_time(self, hk_to_first_order_time: dict[str, int]):
+    def _refresh_challengeperiod_start_time(self, hk_to_first_order_time_ms: dict[str, int]):
         """
         retroactively update the challengeperiod_testing start time based on time of first order.
         used when a miner is un-eliminated, and positions are preserved.
         """
         bt.logging.info("Refreshing challengeperiod start times")
         any_changes = False
-        for hotkey, start_time in self.challengeperiod_testing.items():
-            first_order_time = hk_to_first_order_time[hotkey]
-            if start_time != first_order_time:
-                bt.logging.info(f"Challengeperiod start time for {hotkey} updated from: {datetime.utcfromtimestamp(start_time)} "
-                                f"to: {datetime.utcfromtimestamp(first_order_time)}, {(start_time-first_order_time)/1000}s delta")
-                self.challengeperiod_testing[hotkey] = first_order_time
+        for hotkey, start_time_ms in self.challengeperiod_testing.items():
+            first_order_time_ms = hk_to_first_order_time_ms[hotkey]
+            if start_time_ms != first_order_time_ms:
+                bt.logging.info(f"Challengeperiod start time for {hotkey} updated from: {datetime.utcfromtimestamp(start_time_ms/1000)} "
+                                f"to: {datetime.utcfromtimestamp(first_order_time_ms/1000)}, {(start_time_ms-first_order_time_ms)/1000}s delta")
+                self.challengeperiod_testing[hotkey] = first_order_time_ms
                 any_changes = True
         if any_changes:
             self._write_challengeperiod_from_memory_to_disk()
