@@ -87,8 +87,7 @@ class ChallengePeriodManager(CacheController):
                 any_changes = True
         if any_changes:
             self._write_challengeperiod_from_memory_to_disk()
-        else:
-            bt.logging.info("All challengeperiod start times up to date")
+        bt.logging.info("All challengeperiod start times up to date")
 
     def refresh(self, current_time: int = None):
         if not self.refresh_allowed(ValiConfig.CHALLENGE_PERIOD_REFRESH_TIME_MS):
