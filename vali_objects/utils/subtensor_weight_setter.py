@@ -1,7 +1,9 @@
 # developer: jbonilla
+from functools import partial
+
 import bittensor as bt
 
-from time_util.time_util import TimeUtil
+from time_util.time_util import TimeUtil, timeme
 from vali_objects.vali_config import ValiConfig
 from shared_objects.cache_controller import CacheController
 from vali_objects.utils.position_manager import PositionManager
@@ -9,8 +11,8 @@ from vali_objects.scoring.scoring import Scoring
 
 class SubtensorWeightSetter(CacheController):
     def __init__(self, metagraph, position_manager: PositionManager,
-                 running_unit_tests=False):
-        super().__init__(metagraph, running_unit_tests=running_unit_tests)
+                 running_unit_tests=False, is_backtesting=False):
+        super().__init__(metagraph, running_unit_tests=running_unit_tests, is_backtesting=is_backtesting)
         self.position_manager = position_manager
         self.perf_ledger_manager = position_manager.perf_ledger_manager
         self.subnet_version = 200
@@ -18,16 +20,20 @@ class SubtensorWeightSetter(CacheController):
         self.checkpoint_results = []
         self.transformed_list = []
 
-    def compute_weights_default(self, current_time: int, metagraph_hotkeys: list[int], ) -> tuple[list[tuple[str, float]], list[tuple[str, float]]]:
+    def compute_weights_default(self, current_time: int) -> tuple[list[tuple[str, float]], list[tuple[str, float]]]:
         if current_time is None:
             current_time = TimeUtil.now_in_millis()
 
         testing_hotkeys = list(self.position_manager.challengeperiod_manager.challengeperiod_testing.keys())
         success_hotkeys = list(self.position_manager.challengeperiod_manager.challengeperiod_success.keys())
 
+        if self.is_backtesting:
+            hotkeys_to_compute_weights_for = testing_hotkeys + success_hotkeys
+        else:
+            hotkeys_to_compute_weights_for = success_hotkeys
         # only collect ledger elements for the miners that passed the challenge period
-        filtered_ledger = self.perf_ledger_manager.filtered_ledger_for_scoring(hotkeys=success_hotkeys)
-        filtered_positions, _ = self.position_manager.filtered_positions_for_scoring(hotkeys=success_hotkeys)
+        filtered_ledger = self.perf_ledger_manager.filtered_ledger_for_scoring(hotkeys=hotkeys_to_compute_weights_for)
+        filtered_positions, _ = self.position_manager.filtered_positions_for_scoring(hotkeys=hotkeys_to_compute_weights_for)
 
 
         if len(filtered_ledger) == 0:
@@ -45,9 +51,9 @@ class SubtensorWeightSetter(CacheController):
 
             checkpoint_netuid_weights = []
             for miner, score in checkpoint_results:
-                if miner in metagraph_hotkeys:
+                if miner in self.metagraph.hotkeys:
                     checkpoint_netuid_weights.append((
-                        metagraph_hotkeys.index(miner),
+                        self.metagraph.hotkeys.index(miner),
                         score
                     ))
                 else:
@@ -55,9 +61,9 @@ class SubtensorWeightSetter(CacheController):
 
             challengeperiod_weights = []
             for miner in testing_hotkeys:
-                if miner in metagraph_hotkeys:
+                if miner in self.metagraph.hotkeys:
                     challengeperiod_weights.append((
-                        metagraph_hotkeys.index(miner),
+                        self.metagraph.hotkeys.index(miner),
                         ValiConfig.CHALLENGE_PERIOD_WEIGHT
                     ))
                 else:
@@ -70,21 +76,24 @@ class SubtensorWeightSetter(CacheController):
         self.checkpoint_results = checkpoint_results
         self.transformed_list = transformed_list
 
+    @timeme
     def set_weights(self, wallet, netuid, subtensor, current_time: int = None, scoring_function: callable = None, scoring_func_args: dict = None):
         if not self.refresh_allowed(ValiConfig.SET_WEIGHT_REFRESH_TIME_MS):
             return
         bt.logging.info("running set weights")
+        if scoring_func_args is None:
+            scoring_func_args = {'current_time': current_time}
+
         if scoring_function is None:
-            scoring_function = self.compute_weights_default
-            scoring_func_args = {'current_time': current_time,
-                                 'metagraph': self.metagraph.hotkeys,
-                                 }
-        else:
-            assert scoring_func_args is not None, "scoring_func_args must be provided if scoring_function is not None."
+            scoring_function = self.compute_weights_default  # Uses instance method
+        elif not hasattr(scoring_function, '__self__'):
+            scoring_function = partial(scoring_function, self)  # Only bind if external
 
         checkpoint_results, transformed_list = scoring_function(**scoring_func_args)
-        self._store_weights(checkpoint_results, transformed_list)
-        self._set_subtensor_weights(wallet, subtensor, netuid)
+        self.checkpoint_results = checkpoint_results
+        self.transformed_list = transformed_list
+        if not self.is_backtesting:
+            self._set_subtensor_weights(wallet, subtensor, netuid)
         self.set_last_update_time()
 
 
