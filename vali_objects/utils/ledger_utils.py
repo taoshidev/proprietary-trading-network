@@ -294,7 +294,7 @@ class LedgerUtils:
 
         # Drawdown is less than our maximum permitted drawdown
         max_drawdown_criteria = recorded_drawdown_percentage >= maximum_drawdown_percent
-        recorded_drawdown_percentage = round(recorded_drawdown_percentage, 2)
+        recorded_drawdown_percentage = float(round(recorded_drawdown_percentage, 2))
 
         return max_drawdown_criteria, recorded_drawdown_percentage
 
