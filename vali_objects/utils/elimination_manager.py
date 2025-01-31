@@ -232,7 +232,7 @@ class EliminationManager(CacheController):
         Checks the mdd of each miner and eliminates any miners that surpass MAX_TOTAL_DRAWDOWN
         """
         from vali_objects.utils.ledger_utils import LedgerUtils
-        bt.logging.debug("checking main competition for maximum drawdown eliminations.")
+        bt.logging.info("checking main competition for maximum drawdown eliminations.")
         if self.shutdown_dict:
             return
         challengeperiod_success_hotkeys = list(self.challengeperiod_manager.get_challengeperiod_success().keys())
