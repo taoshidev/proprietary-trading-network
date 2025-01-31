@@ -622,7 +622,7 @@ class MinerStatisticsManager:
                     "position_duration": positional_duration.get(miner_id),
                     "checkpoint_durations": checkpoint_durations.get(miner_id),
                     "minimum_days_boolean": minimum_days_threshold_dict.get(miner_id),
-                    "percentage_profitable": percentage_profitable.get(miner_id)
+                    "percentage_profitable": percentage_profitable.get(miner_id),
                 },
                 "plagiarism": plagiarism.get(miner_id),
                 "martingale": miner_martingale_scores.get(miner_id),
@@ -697,7 +697,6 @@ if __name__ == "__main__":
     perf_ledger_manager.position_manager = position_manager
     subtensor_weight_setter = SubtensorWeightSetter(
         config=None,
-        wallet=None,
         metagraph=None,
         running_unit_tests=False,
         position_manager=position_manager,
