@@ -254,8 +254,8 @@ class ChallengePeriodManager(CacheController):
                     failing_miners.append(hotkey)
 
                 continue  # Moving on, as the miner is already failing
-            # This step we want to check their failure criteria. If they fail, we can move on.
-            failing_criteria, recorded_drawdown_percentage = ChallengePeriodManager.screen_failing_criteria(ledger_element=ledger[hotkey])
+            # This step we want to check their drawdown. If they fail, we can move on.
+            failing_criteria, recorded_drawdown_percentage = LedgerUtils.is_beyond_max_drawdown(ledger_element=ledger[hotkey])
 
             if failing_criteria:
                 bt.logging.info(f'Hotkey {hotkey} has failed the challenge period due to drawdown {recorded_drawdown_percentage}. cp_failed')
@@ -361,29 +361,6 @@ class ChallengePeriodManager(CacheController):
         passed = inspection_percentile >= ValiConfig.CHALLENGE_PERIOD_PERCENTILE_THRESHOLD
 
         return passed
-
-    @staticmethod
-    def screen_failing_criteria(
-        ledger_element: PerfLedger
-    ) -> (bool, float):
-        """
-        Runs a screening process to eliminate miners who didn't pass the challenge period. Returns True if they fail.
-        """
-        if ledger_element is None:
-            return False, 0
-
-        if len(ledger_element.cps) == 0:
-            return False, 0
-
-        maximum_drawdown_percent = ValiConfig.DRAWDOWN_MAXVALUE_PERCENTAGE
-
-        max_drawdown = LedgerUtils.recent_drawdown(ledger_element.cps, restricted=False)
-        recorded_drawdown_percentage = LedgerUtils.drawdown_percentage(max_drawdown)
-
-        # Drawdown is less than our maximum permitted drawdown
-        max_drawdown_criteria = recorded_drawdown_percentage >= maximum_drawdown_percent
-
-        return max_drawdown_criteria, recorded_drawdown_percentage
 
     @staticmethod
     def screen_minimum_interaction(

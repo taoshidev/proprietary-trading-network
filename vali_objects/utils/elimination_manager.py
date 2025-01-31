@@ -87,7 +87,7 @@ class EliminationManager(CacheController):
             return
         bt.logging.info("running elimination manager")
         self.handle_perf_ledger_eliminations(position_locks)
-        self._eliminate_MDD(position_locks)
+        self._eliminate_mdd(position_locks)
         self._delete_eliminated_expired_miners()
         self.set_last_update_time()
         # self._handle_plagiarism_eliminations()
@@ -227,36 +227,28 @@ class EliminationManager(CacheController):
             self.eliminations.remove(item)
         self.save_eliminations()
 
-    def _eliminate_MDD(self, position_locks):
+    def _eliminate_mdd(self, position_locks):
         """
         Checks the mdd of each miner and eliminates any miners that surpass MAX_TOTAL_DRAWDOWN
         """
-        bt.logging.debug("checking for maximum drawdown.")
+        from vali_objects.utils.ledger_utils import LedgerUtils
+        bt.logging.debug("checking main competition for maximum drawdown eliminations.")
         if self.shutdown_dict:
             return
-
-        challengeperiod_testing_hotkeys = list(self.challengeperiod_manager.get_challengeperiod_testing().keys())
         challengeperiod_success_hotkeys = list(self.challengeperiod_manager.get_challengeperiod_success().keys())
 
-        # full ledger of all miner hotkeys
-        all_miner_hotkeys = challengeperiod_success_hotkeys + challengeperiod_testing_hotkeys
-
-        filtered_ledger = self.position_manager.perf_ledger_manager.filtered_ledger_for_scoring(hotkeys=all_miner_hotkeys)
+        filtered_ledger = self.position_manager.perf_ledger_manager.filtered_ledger_for_scoring(hotkeys=challengeperiod_success_hotkeys)
         for miner_hotkey, ledger in filtered_ledger.items():
             if self.shutdown_dict:
                 return
             if self.hotkey_in_eliminations(miner_hotkey):
                 continue
 
-            miner_cps = ledger.cps
-            if miner_cps is None or len(miner_cps) == 0:
-                continue
+            miner_exceeds_mdd, drawdown_percentage = LedgerUtils.is_beyond_max_drawdown(ledger_element=ledger)
 
-            miner_mdd = min([miner_cps.mdd for miner_cps in miner_cps])
-
-            if miner_mdd < ValiConfig.MAX_TOTAL_DRAWDOWN:
+            if miner_exceeds_mdd:
                 self.handle_eliminated_miner(miner_hotkey, {}, position_locks)
-                self.append_elimination_row(miner_hotkey, miner_mdd, 'MAX_TOTAL_DRAWDOWN')
+                self.append_elimination_row(miner_hotkey, drawdown_percentage, 'MAX_TOTAL_DRAWDOWN')
 
                 bt.logging.info(
-                    f"miner eliminated with hotkey [{miner_hotkey}] with drawdown [{miner_mdd}]")
+                    f"miner eliminated with hotkey [{miner_hotkey}] with drawdown [{drawdown_percentage}]")

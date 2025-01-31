@@ -173,7 +173,7 @@ class TestChallengePeriodUnit(TestBase):
         self.assertGreater(max_drawdown_percentage, ValiConfig.DRAWDOWN_MAXVALUE_PERCENTAGE)
 
         # Check that the miner is successfully screened as failing
-        screening_logic, _ = self.challengeperiod_manager.screen_failing_criteria(ledger_element=base_ledger[TP_ID_PORTFOLIO])
+        screening_logic, _ = LedgerUtils.is_beyond_max_drawdown(ledger_element=base_ledger[TP_ID_PORTFOLIO])
         self.assertTrue(screening_logic)
 
 
