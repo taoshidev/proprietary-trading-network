@@ -279,7 +279,7 @@ class LedgerUtils:
         return min(recent_drawdown, approximate_drawdown)
 
     @staticmethod
-    def is_beyond_max_drawdown(ledger_element: PerfLedger):
+    def is_beyond_max_drawdown(ledger_element: PerfLedger, restricted: bool=False):
         """Checks if the maximum drawdown percentage is surpassed"""
         if ledger_element is None:
             return False, 0
@@ -289,11 +289,12 @@ class LedgerUtils:
 
         maximum_drawdown_percent = ValiConfig.DRAWDOWN_MAXVALUE_PERCENTAGE
 
-        max_drawdown = LedgerUtils.recent_drawdown(ledger_element.cps, restricted=False)
+        max_drawdown = LedgerUtils.recent_drawdown(ledger_element.cps, restricted=restricted)
         recorded_drawdown_percentage = LedgerUtils.drawdown_percentage(max_drawdown)
 
         # Drawdown is less than our maximum permitted drawdown
         max_drawdown_criteria = recorded_drawdown_percentage >= maximum_drawdown_percent
+        recorded_drawdown_percentage = round(recorded_drawdown_percentage, 2)
 
         return max_drawdown_criteria, recorded_drawdown_percentage
 
