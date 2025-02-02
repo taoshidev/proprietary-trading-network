@@ -666,6 +666,18 @@ class PolygonDataService(BaseDataService):
         # Return the collected results
         return ret
 
+    def get_candles_for_trade_pair_simple(self, trade_pair: TradePair, start_timestamp_ms: int, end_timestamp_ms: int, timespan: str="second"):
+        # ans = {}
+        # ub = 0
+        # lb = float('inf')
+        raw = self.unified_candle_fetcher(trade_pair, start_timestamp_ms, end_timestamp_ms, timespan)
+        #for a in raw:
+            #ans[a.timestamp // 1000] = a.close
+            #ub = max(ub, a.timestamp)
+            #lb = min(lb, a.timestamp)
+        return raw#, lb, ub
+
+
     def unified_candle_fetcher(self, trade_pair: TradePair, start_timestamp_ms: int, end_timestamp_ms: int, timespan: str=None):
 
         def _fetch_raw_polygon_aggs():
@@ -862,6 +874,55 @@ class PolygonDataService(BaseDataService):
 
         return aggs
 
+    def get_last_quote(self, trade_pair: TradePair) -> (float, float):
+        """
+        returns the most recent ask price and bid price for a trade_pair
+        """
+        polygon_ticker = self.trade_pair_to_polygon_ticker(trade_pair)
+
+        if self.POLYGON_CLIENT is None:
+            self.instantiate_not_pickleable_objects()
+
+        if trade_pair.is_forex:
+            base, quote = trade_pair.trade_pair.split("/")
+            quote = self.POLYGON_CLIENT.get_last_forex_quote(
+                base,
+                quote,
+            )
+            return quote.last.ask, quote.last.bid
+        elif trade_pair.is_equities:
+            quote = self.POLYGON_CLIENT.get_last_quote(
+                trade_pair.trade_pair_id,
+            )
+            return quote.results.P, quote.results.p
+
+        # quotes = []
+        # for t in self.POLYGON_CLIENT.list_quotes("C:EUR-USD", "2023-02-01", limit=1000):
+        #     # print(t)
+        #     quotes.append(t)
+        # # print(quotes)
+        #
+        #
+        # quotes = []
+        # for t in self.POLYGON_CLIENT.list_quotes("IBIO", "2023-02-01", limit=1000):
+        #     quotes.append(t)
+        # # print(quotes)
+        # quotes = []
+        # for q in self.POLYGON_CLIENT.list_quotes(trade_pair.trade_pair_id, timestamp="2024-01-23", limit=1):
+        #     quotes.append(q)
+        # print(quotes)
+        print("done quoting")
+        return
+
+
+    def get_market_holidays(self):
+        """
+        returns list of all upcoming market holidays in the next year
+        """
+        if self.POLYGON_CLIENT is None:
+            self.instantiate_not_pickleable_objects()
+
+        return list(set([holiday.date for holiday in self.POLYGON_CLIENT.get_market_holidays()]))
 
 
 if __name__ == "__main__":

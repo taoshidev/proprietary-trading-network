@@ -122,7 +122,7 @@ class Validator:
         self.ipc_manager = Manager()
 
         self.live_price_fetcher = LivePriceFetcher(secrets=self.secrets, disable_ws=False, ipc_manager=self.ipc_manager)   # REMOVE ME (disable_ws) @@@@@@@@@@@@@@
-        self.price_slippage_model = PriceSlippageModel(parameters=self.parameters, live_price_fetcher=self.live_price_fetcher)  # TODO: read the parameters from a config file? or a dict
+        self.price_slippage_model = PriceSlippageModel(live_price_fetcher=self.live_price_fetcher)  # TODO: read the parameters from a config file? or a dict
         # Activating Bittensor's logging with the set configurations.
         bt.logging(config=self.config, logging_dir=self.config.full_path)
         bt.logging.info(
@@ -459,7 +459,7 @@ class Validator:
         bt.logging.warning("Performing graceful exit...")
         bt.logging.warning("Stopping axon...")
         self.axon.stop()
-        bt.logging.warning("Stopping metagrpah update...")
+        bt.logging.warning("Stopping metagraph update...")
         self.metagraph_updater_thread.join()
         bt.logging.warning("Stopping live price fetcher...")
         self.live_price_fetcher.stop_all_threads()

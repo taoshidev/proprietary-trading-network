@@ -96,16 +96,6 @@ class LivePriceFetcher:
 
         return results
 
-    def get_lowest_ask(self, trade_pair: TradePair, time_ms=None):
-        if not time_ms:
-            time_ms = TimeUtil.now_in_millis()
-        return self.polygon_data_service.POLYGON_CLIENT.list_quotes(trade_pair.trade_pair_id, timestamp=time_ms).ask_price
-
-    def get_highest_bid(self, trade_pair: TradePair, time_ms=None):
-        if not time_ms:
-            time_ms = TimeUtil.now_in_millis()
-        return self.polygon_data_service.POLYGON_CLIENT.get_last_quote(trade_pair.trade_pair_id, timestamp=time_ms).bid_price
-
     def get_ws_price_sources_in_window(self, trade_pair: TradePair, start_ms: int, end_ms: int) -> List[PriceSource]:
         # Utilize get_events_in_range
         poly_sources = self.polygon_data_service.trade_pair_to_recent_events[trade_pair.trade_pair].get_events_in_range(start_ms, end_ms)
