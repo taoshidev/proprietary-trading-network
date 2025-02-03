@@ -71,7 +71,7 @@ class BacktestManager:
 
 
     def update_current_hk_to_positions(self, cutoff_ms):
-        cutoff_ms_formatted = TimeUtil.millis_to_formatted_date_str(cutoff_ms)
+        #cutoff_ms_formatted = TimeUtil.millis_to_formatted_date_str(cutoff_ms)
         #current_oq = [TimeUtil.millis_to_formatted_date_str(o[0].processed_ms) for o in self.order_queue]
         #print(f'current_oq {current_oq}')
         while self.order_queue and self.order_queue[-1][0].processed_ms <= cutoff_ms:
@@ -82,12 +82,12 @@ class BacktestManager:
             assert len(existing_positions) <= 1, f"Found multiple positions with the same UUID: {existing_positions}"
             existing_position = existing_positions[0] if existing_positions else None
             if existing_position:
-                print(f'OQU: Added order to existing position {position.trade_pair.trade_pair_id} at {time_formatted}. cutoff_ms {cutoff_ms_formatted}')
+                print(f'OQU: Added order to existing position {position.trade_pair.trade_pair_id} at {time_formatted}')
                 existing_position.orders.append(order)
                 existing_position.rebuild_position_with_updated_orders()
                 self.position_manager.save_miner_position(existing_position)
             else:  # first order. position must be inserted into list
-                print(f'OQU: Created new position {position.trade_pair.trade_pair_id} at {time_formatted}. cutoff_ms {cutoff_ms_formatted}')
+                print(f'OQU: Created new position {position.trade_pair.trade_pair_id} at {time_formatted} for hk {position.miner_hotkey}')
                 position.orders = [order]
                 position.rebuild_position_with_updated_orders()
                 self.position_manager.save_miner_position(position)
@@ -242,7 +242,8 @@ if __name__ == '__main__':
     for pos in test_positions:
         hk_to_positions[pos['miner_hotkey']].append(Position(**pos))
 
-    btm = BacktestManager(hk_to_positions, start_time_ms, ValiUtils.get_secrets(), None)
+    secrets = ValiUtils.get_secrets()  # {'polygon_apikey': '123', 'tiingo_apikey': '456'}
+    btm = BacktestManager(hk_to_positions, start_time_ms, secrets, None)
     for t_ms in range(start_time_ms, max_order_time_ms + 1, 1000 * 60 * 60 * 24):
         btm.update(t_ms)
         perf_ledger_bundles = btm.perf_ledger_manager.get_perf_ledgers(portfolio_only=False)
