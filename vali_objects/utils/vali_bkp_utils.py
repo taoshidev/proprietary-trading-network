@@ -161,7 +161,7 @@ class ValiBkpUtils:
 
     @staticmethod
     def get_equity_slippage_model_parameters_file() -> str:
-        return ValiConfig.BASE_DIR + "/vali_objects/utils/model_parameters/equity_slippage_all_model_details.json"
+        return ValiConfig.BASE_DIR + "/vali_objects/utils/model_parameters/all_model_parameters.json"
 
     @staticmethod
     def get_response_filename(request_uuid: str) -> str:
