@@ -122,7 +122,7 @@ class Validator:
         self.ipc_manager = Manager()
 
         self.live_price_fetcher = LivePriceFetcher(secrets=self.secrets, disable_ws=False, ipc_manager=self.ipc_manager)   # REMOVE ME (disable_ws) @@@@@@@@@@@@@@
-        self.price_slippage_model = PriceSlippageModel(live_price_fetcher=self.live_price_fetcher)  # TODO: read the parameters from a config file? or a dict
+        self.price_slippage_model = PriceSlippageModel(live_price_fetcher=self.live_price_fetcher)
         # Activating Bittensor's logging with the set configurations.
         bt.logging(config=self.config, logging_dir=self.config.full_path)
         bt.logging.info(
