@@ -46,14 +46,14 @@ class PriceSlippageModel:
         """
         # bucket size
         size_str = self.get_order_size_bucket(size)
-        model_config = self.parameters[trade_pair.trade_pair_id][side][size_str]
+        model_config = self.parameters["equity"][trade_pair.trade_pair_id][side][size_str]
         print(model_config)
         intercept, c1, c2, c3 = (model_config[key] for key in ["intercept", "spread/price", "annualized_vol", "buy_order_value/adv"])
 
         annualized_volatility, avg_daily_volume = self.get_bar_features(trade_pair, processed_ms)
 
         print(annualized_volatility, avg_daily_volume)
-        ask, bid = self.pds.get_last_quote(trade_pair)
+        ask, bid = self.pds.get_last_quote(trade_pair, processed_ms)
         print(ask, bid)
         spread = bid - ask
         mid_price = (bid + ask) / 2
@@ -83,7 +83,7 @@ class PriceSlippageModel:
         """
         annualized_volatility, avg_daily_volume = self.get_bar_features(trade_pair, processed_ms)
         print(annualized_volatility, avg_daily_volume)
-        ask, bid = self.pds.get_last_quote(trade_pair)
+        ask, bid = self.pds.get_last_quote(trade_pair, processed_ms)
         print(ask, bid)
         spread = bid - ask
         mid_price = (bid + ask) / 2
@@ -161,8 +161,8 @@ class PriceSlippageModel:
         """
         bucket the order size float into a string for reading from model parameters file
         """
-        all_order_value_ranges = [(1_000, 10_000), (10_000, 50_000), (50_000, 100_000), (100_000, 300_000)]
-        order_value_labels = ["1k_10k", "10k_50k", "50k_100k", "100k_300k"]
+        all_order_value_ranges = [(1_000, 10_000), (10_000, 50_000), (50_000, 100_000), (100_000, 200_000), (200_000, 300_000)]
+        order_value_labels = ["1k_10k", "10k_50k", "50k_100k", "100k_200k", "200k_300k"]
 
         for (low, high), label in zip(all_order_value_ranges, order_value_labels):
             if low <= size < high:
@@ -184,5 +184,5 @@ class PriceSlippageModel:
 
 if __name__ == "__main__":
     psm = PriceSlippageModel()
-    slippage = psm.calculate_slippage(TradePair.USDCAD, "buy", 75000, 1737655200000)
+    slippage = psm.calculate_slippage(TradePair.AAPL, "buy", 75000, 1737655200000)
     print(slippage)

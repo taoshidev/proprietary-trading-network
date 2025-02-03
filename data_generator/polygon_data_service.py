@@ -874,7 +874,7 @@ class PolygonDataService(BaseDataService):
 
         return aggs
 
-    def get_last_quote(self, trade_pair: TradePair) -> (float, float):
+    def get_last_quote(self, trade_pair: TradePair, processed_ms: int) -> (float, float):
         """
         returns the most recent ask price and bid price for a trade_pair
         """
@@ -882,6 +882,12 @@ class PolygonDataService(BaseDataService):
 
         if self.POLYGON_CLIENT is None:
             self.instantiate_not_pickleable_objects()
+
+        # quotes = []
+        # for t in self.POLYGON_CLIENT.list_quotes(polygon_ticker, timestamp="2025-01-23"):# timestamp_lte=processed_ms*1000, timestamp_gte=1737619200):
+        #     quotes.append(t)
+        #
+        # print(quotes)
 
         if trade_pair.is_forex:
             base, quote = trade_pair.trade_pair.split("/")
@@ -896,24 +902,8 @@ class PolygonDataService(BaseDataService):
             )
             return quote.results.P, quote.results.p
 
-        # quotes = []
-        # for t in self.POLYGON_CLIENT.list_quotes("C:EUR-USD", "2023-02-01", limit=1000):
-        #     # print(t)
-        #     quotes.append(t)
-        # # print(quotes)
-        #
-        #
-        # quotes = []
-        # for t in self.POLYGON_CLIENT.list_quotes("IBIO", "2023-02-01", limit=1000):
-        #     quotes.append(t)
-        # # print(quotes)
-        # quotes = []
-        # for q in self.POLYGON_CLIENT.list_quotes(trade_pair.trade_pair_id, timestamp="2024-01-23", limit=1):
-        #     quotes.append(q)
-        # print(quotes)
         print("done quoting")
         return
-
 
     def get_market_holidays(self):
         """

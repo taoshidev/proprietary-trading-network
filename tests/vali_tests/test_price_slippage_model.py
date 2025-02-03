@@ -7,6 +7,9 @@ class TestPriceSlippageModel(TestBase):
         super().setUp()
         pass
 
+    # TODO: test each, also outside of traded hours
+    # TODO: test each with large and small size
+
     def test_equities_slippage(self):
         pass
 
