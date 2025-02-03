@@ -878,7 +878,7 @@ class PolygonDataService(BaseDataService):
         """
         returns the most recent ask price and bid price for a trade_pair
         """
-        polygon_ticker = self.trade_pair_to_polygon_ticker(trade_pair)
+        # polygon_ticker = self.trade_pair_to_polygon_ticker(trade_pair)
 
         if self.POLYGON_CLIENT is None:
             self.instantiate_not_pickleable_objects()
@@ -900,7 +900,7 @@ class PolygonDataService(BaseDataService):
             quote = self.POLYGON_CLIENT.get_last_quote(
                 trade_pair.trade_pair_id,
             )
-            return quote.results.P, quote.results.p
+            return quote.ask_price, quote.bid_price
 
         print("done quoting")
         return
