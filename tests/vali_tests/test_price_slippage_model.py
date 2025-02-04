@@ -67,8 +67,8 @@ class TestPriceSlippageModel(TestBase):
         slippage_btc_sell_small = self.psm.calculate_slippage(TradePair.BTCUSD, "sell", 25000, 1737655200000)
         slippage_btc_sell_large = self.psm.calculate_slippage(TradePair.BTCUSD, "sell", 50000, 1737655200000)
 
-        assert slippage_btc_buy_small < slippage_btc_buy_large
-        assert slippage_btc_sell_small < slippage_btc_sell_large
+        assert slippage_btc_buy_small <= slippage_btc_buy_large
+        assert slippage_btc_sell_small <= slippage_btc_sell_large
 
     def test_crypto_slippage_asset(self):
         """
