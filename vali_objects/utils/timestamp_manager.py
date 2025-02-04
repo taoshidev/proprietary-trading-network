@@ -17,6 +17,10 @@ class TimestampManager(CacheController):
         self.timestamp_lock = threading.Lock()
 
     def update_timestamp(self, order: Order):
+        """
+        keep track of most recent order timestamp
+        write timestamp to file periodically so that timestamp is preserved on a reboot
+        """
         with self.timestamp_lock:
             self.last_received_order_time_ms = max(self.last_received_order_time_ms, order.processed_ms)
             allowed, wait_time = self.timestamp_write_rate_limiter.is_allowed(self.hotkey)
@@ -24,7 +28,10 @@ class TimestampManager(CacheController):
                 self.write_last_order_timestamp_from_memory_to_disk(self.last_received_order_time_ms)
 
     def get_last_order_timestamp(self) -> int:
-        # if we haven't received any signals, read our timestamp file to get the last order received
+        """
+        get the timestamp of the last received order
+        if we haven't received any signals, read our timestamp file to get the last order received
+        """
         if self.last_received_order_time_ms == 0:
             self.last_received_order_time_ms = self.read_last_order_timestamp()
         return self.last_received_order_time_ms
