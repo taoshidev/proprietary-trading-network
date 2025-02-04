@@ -1,11 +1,13 @@
 from typing import List
 from bittensor import Balance
 
+from data_generator.polygon_data_service import PolygonDataService
 from vali_objects.utils.live_price_fetcher import LivePriceFetcher
 from vali_objects.utils.mdd_checker import MDDChecker
 from vali_objects.utils.plagiarism_detector import PlagiarismDetector
 from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
 from vali_objects.utils.position_manager import PositionManager
+from vali_objects.utils.price_slippage_model import PriceSlippageModel
 from vali_objects.vali_config import TradePair
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
 from shared_objects.cache_controller import CacheController
@@ -53,9 +55,41 @@ class MockChallengePeriodManager(ChallengePeriodManager):
 class MockLivePriceFetcher(LivePriceFetcher):
     def __init__(self, secrets, disable_ws):
         super().__init__(secrets=secrets, disable_ws=disable_ws)
+        self.polygon_data_service = MockPolygonDataService(api_key=secrets["polygon_apikey"])
 
     def get_latest_price(self, trade_pair: TradePair, time_ms=None):
         return [0, []]
+
+class MockPolygonDataService(PolygonDataService):
+    def __init__(self, api_key):
+        super().__init__(api_key)
+
+    def get_last_quote(self, trade_pair: TradePair, processed_ms: int) -> (float, float):
+        ask = 1.10
+        bid = 1.08
+        return ask, bid
+
+    def get_currency_conversion(self, trade_pair: TradePair=None, base: str=None, quote: str=None) -> float:
+        if (base and quote) and base == quote:
+            return 1
+        else:
+            return 0.5  # 1 base = 0.5 quote
+
+    # def get_candles_for_trade_pair_simple(self, trade_pair: TradePair, start_timestamp_ms: int, end_timestamp_ms: int, timespan: str="second"):
+    #     pass
+    #
+    # def get_market_holidays(self):
+    #     pass
+
+class MockPriceSlippageModel(PriceSlippageModel):
+    def __init__(self, live_price_fetcher):
+        super().__init__(live_price_fetcher)
+
+    def get_bar_features(self, trade_pair: TradePair, processed_ms: int) -> (float, float):
+        annualized_volatility = 0.1
+        avg_daily_volume = 0.01
+        return annualized_volatility, avg_daily_volume
+
 
 class MockAxonInfo:
     ip: str
