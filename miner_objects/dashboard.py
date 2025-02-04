@@ -27,7 +27,7 @@ class Dashboard:
         self.app = FastAPI()
         self._add_cors_middleware()
         self._setup_routes()
-        self.miner_data = {"statistics": {"data": []}, "positions": {}}
+        self.miner_data = {"timestamp": 0, "statistics": {"data": []}, "positions": {}}
 
     def _add_cors_middleware(self):
         # allow the connection from the frontend
@@ -99,18 +99,19 @@ class Dashboard:
             validator_response = dendrite.query(axons=validator_axons, synapse=miner_dash_synapse, timeout=15)
             for response in validator_response:
                 if response.successfully_processed:
-                    self.miner_data = response.data
-                    success = True
-                    break
+                    if response.data["timestamp"] >= self.miner_data["timestamp"]:  # use the validator with the freshest data
+                        self.miner_data = response.data
+                        validator_hotkey = response.axon.hotkey
+                        success = True
                 else:
                     if response.error_message:
                         error_messages.append(response.error_message)
         except Exception as e:
             bt.logging.info(
-                f"Unable to receive dashboard info from RT21 with error [{e}]")
+                f"Unable to receive dashboard info from validators with error [{e}]")
 
         if success:
-            bt.logging.info("Dashboard stats request succeeded")
+            bt.logging.info(f"Dashboard stats request succeeded from validator {validator_hotkey}, most recent order time_ms: {self.miner_data['timestamp']}")
         else:
             bt.logging.info(f"Dashboard stats request failed with errors [{error_messages}]")
 
