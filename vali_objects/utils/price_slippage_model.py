@@ -3,6 +3,7 @@ from datetime import datetime
 
 import numpy as np
 import pandas as pd
+import bittensor as bt
 
 from vali_objects.utils.live_price_fetcher import LivePriceFetcher
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
@@ -23,6 +24,8 @@ class PriceSlippageModel:
     # TODO: uses model and parameters to calculate slippage percentage. in the validator we take the slippage percentage
     #  and multiply it by the price to get the avg execution price
 
+    # TODO: replace print with bt.logging.info
+
     def calculate_slippage(self, trade_pair: TradePair, side: str, size: float, processed_ms: int) -> float:
         """
         returns the percentage slippage of the current order.
@@ -36,7 +39,7 @@ class PriceSlippageModel:
         elif trade_pair.is_forex:
             slippage_percentage = self.calc_slippage_forex(trade_pair, size, processed_ms)
         elif trade_pair.is_crypto:
-            slippage_percentage = self.calc_slippage_crypto(trade_pair)
+            slippage_percentage = self.calc_slippage_crypto(trade_pair, size)
         else:
             raise ValueError(f"Invalid trade pair {trade_pair.trade_pair_id} to calculate slippage")
         return slippage_percentage
@@ -84,7 +87,7 @@ class PriceSlippageModel:
 
         return slippage_pct
 
-    def calc_slippage_crypto(self, trade_pair: TradePair) -> float:
+    def calc_slippage_crypto(self, trade_pair: TradePair, size: float) -> float:
         """
         slippage values for crypto
         """
@@ -101,7 +104,7 @@ class PriceSlippageModel:
 
         bars_df = self.get_bars_with_features(trade_pair, processed_ms)
         row_selected = bars_df[bars_df['datetime'] == order_date]
-        print(row_selected)
+        # print(row_selected)
         annualized_volatility = row_selected['annualized_vol'].values[0]
         avg_daily_volume = row_selected[f'adv_last_{ValiConfig.AVERAGE_DAILY_VOLUME_LOOKBACK_DAYS}_days'].values[0]
 
@@ -137,7 +140,7 @@ class PriceSlippageModel:
         get the date n trading days ago
         excludes weekends and trading holidays
         """
-        holidays = ["2024-12-25", "2025-01-01", "2025-01-09", "2025-01-20"] + self.pds.get_market_holidays()  # TODO: holidays
+        holidays = ["2024-12-25", "2025-01-01", "2025-01-09", "2025-01-20"] # + self.pds.get_market_holidays()  # TODO: holidays
         # print("holidays:", holidays)
         date_np = np.datetime64(date_str)
         past_date = np.busday_offset(date_np, -days_ago, roll='backward', holidays=holidays) # subtract trading days (weekends and holidays are skipped)
