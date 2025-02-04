@@ -666,17 +666,9 @@ class PolygonDataService(BaseDataService):
         # Return the collected results
         return ret
 
-    def get_candles_for_trade_pair_simple(self, trade_pair: TradePair, start_timestamp_ms: int, end_timestamp_ms: int, timespan: str="second"):
-        # ans = {}
-        # ub = 0
-        # lb = float('inf')
+    def get_candles_for_trade_pair_simple(self, trade_pair: TradePair, start_timestamp_ms: int, end_timestamp_ms: int, timespan: str):
         raw = self.unified_candle_fetcher(trade_pair, start_timestamp_ms, end_timestamp_ms, timespan)
-        #for a in raw:
-            #ans[a.timestamp // 1000] = a.close
-            #ub = max(ub, a.timestamp)
-            #lb = min(lb, a.timestamp)
-        return raw#, lb, ub
-
+        return raw
 
     def unified_candle_fetcher(self, trade_pair: TradePair, start_timestamp_ms: int, end_timestamp_ms: int, timespan: str=None):
 
@@ -815,6 +807,8 @@ class PolygonDataService(BaseDataService):
                 ans, n = _get_filtered_forex_second_data()
             elif timespan == 'minute':
                 ans = _get_filtered_forex_minute_data()
+            elif timespan == 'day':
+                return _fetch_raw_polygon_aggs()
             else:
                 raise Exception(f'Invalid timespan {timespan}')
             return ans
