@@ -7,13 +7,13 @@ from vali_objects.vali_dataclasses.order import Order
 
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedger, TP_ID_PORTFOLIO
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
-from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
+from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager, FailedChallengeReason
 from vali_objects.utils.ledger_utils import LedgerUtils
 from tests.shared_objects.mock_classes import (
     MockMetagraph, MockPositionManager
 )
 from tests.vali_tests.base_objects.test_base import TestBase
-from tests.shared_objects.test_utilities import generate_ledger
+from tests.shared_objects.test_utilities import generate_winning_ledger, generate_losing_ledger
 
 from vali_objects.vali_config import TradePair
 from vali_objects.position import Position
@@ -32,7 +32,7 @@ class TestChallengePeriodIntegration(TestBase):
         self.END_TIME = ValiConfig.CHALLENGE_PERIOD_MS - 1
 
         # For time management
-        self.OUTSIDE_OF_CHALLENGE = ValiConfig.CHALLENGE_PERIOD_MS + 1  # Evaluation time when the challenge period is over
+        self.OUTSIDE_OF_CHALLENGE = (2 * ValiConfig.CHALLENGE_PERIOD_MS) + 1  # Evaluation time when the challenge period is over
 
         self.N_POSITIONS_BOUNDS = 21
         self.N_POSITIONS = 20
@@ -88,22 +88,7 @@ class TestChallengePeriodIntegration(TestBase):
 
             self.DEFAULT_POSITIONS.append(position)
 
-        def generate_winning_ledger(start):
-            return generate_ledger(
-            start_time=start,
-            end_time=self.END_TIME,
-            gain=0.1,
-            loss=-0.08,
-            mdd=0.99
-            )
-        def generate_losing_ledger(start):
-            return generate_ledger(
-            gain=0.1,
-            loss=-0.2,
-            mdd=1 - (ValiConfig.DRAWDOWN_MAXVALUE_PERCENTAGE / 100) - 0.01,
-            start_time=start,
-            end_time=self.END_TIME
-            )
+
 
         # Testing information
         self.TESTING_INFORMATION = {x: self.START_TIME for x in self.MINER_NAMES}
@@ -142,12 +127,13 @@ class TestChallengePeriodIntegration(TestBase):
             positions = positions[i_cutoff:]
             for position in positions:
                 position.miner_hotkey = miner
-                self.HK_TO_OPEN_MS[miner] = position.open_ms if miner not in self.HK_TO_OPEN_MS else min(self.HK_TO_OPEN_MS[miner], position.open_ms)
 
+                self.HK_TO_OPEN_MS[miner] = position.open_ms if miner not in self.HK_TO_OPEN_MS else min(self.HK_TO_OPEN_MS[miner], position.open_ms)
+            print(self.HK_TO_OPEN_MS[miner])
             if miner in self.FAILING_MINER_NAMES:
-                ledger = generate_losing_ledger(self.HK_TO_OPEN_MS[miner])
+                ledger = generate_losing_ledger(self.HK_TO_OPEN_MS[miner], self.END_TIME)
             elif miner in self.NOT_FAILING_MINER_NAMES:
-                ledger = generate_winning_ledger(self.HK_TO_OPEN_MS[miner])
+                ledger = generate_winning_ledger(self.HK_TO_OPEN_MS[miner], self.END_TIME)
             self.LEDGERS[miner] = ledger
 
 
@@ -290,7 +276,7 @@ class TestChallengePeriodIntegration(TestBase):
 
         # Check the failing criteria initially
         ledger = ledgers.get(self.DEFAULT_MINER_HOTKEY)
-        failing_criteria, _ = self.challengeperiod_manager.screen_failing_criteria(
+        failing_criteria, _ = LedgerUtils.is_beyond_max_drawdown(
             ledger_element=ledger[TP_ID_PORTFOLIO] if ledger else None
         )
 
@@ -308,7 +294,7 @@ class TestChallengePeriodIntegration(TestBase):
 
         # There should be no promotion or demotion
         self.assertListEqual(challenge_success, [])
-        self.assertListEqual(challenge_eliminations, [])
+        self.assertDictEqual(challenge_eliminations, {})
 
     
     def test_promote_testing_miner(self):
@@ -345,13 +331,13 @@ class TestChallengePeriodIntegration(TestBase):
 
         # Check the failing miners, to see if they are screened
         for miner in self.FAILING_MINER_NAMES:
-            failing_screen, _ = self.challengeperiod_manager.screen_failing_criteria(
+            failing_screen, _ = LedgerUtils.is_beyond_max_drawdown(
                 ledger_element=self.LEDGERS[miner][TP_ID_PORTFOLIO]
             )
             self.assertEqual(failing_screen, True)
 
         for miner in self.NOT_FAILING_MINER_NAMES:
-            failing_screen, _ = self.challengeperiod_manager.screen_failing_criteria(
+            failing_screen, _ = LedgerUtils.is_beyond_max_drawdown(
                 ledger_element=self.LEDGERS[miner][TP_ID_PORTFOLIO]
             )
             self.assertEqual(failing_screen, False)
@@ -511,6 +497,38 @@ class TestChallengePeriodIntegration(TestBase):
 
         self.assertEqual(testing_keys, [])
         self.assertEqual(success_keys, [])
+
+    def test_miner_elimination_reasons_mdd(self):
+        """Test that miners are properly being eliminated when beyond mdd"""
+        self.challengeperiod_manager.refresh(current_time=self.max_open_ms)
+
+        eliminations_length = len(self.challengeperiod_manager.elimination_manager.get_eliminations_from_memory())
+
+        # Ensure that all miners that aren't failing end up in testing or success
+        self.assertEqual(eliminations_length, len(self.FAILING_MINER_NAMES))
+        for elimination in self.challengeperiod_manager.elimination_manager.get_eliminations_from_disk():
+            self.assertEqual(elimination["reason"], FailedChallengeReason.mdd.value)
+
+    def test_miner_elimination_reasons_time(self):
+        """Test that miners who aren't passing challenge period are properly eliminated for time."""
+        self.challengeperiod_manager.refresh(current_time=self.OUTSIDE_OF_CHALLENGE)
+        eliminations_length = len(self.challengeperiod_manager.elimination_manager.get_eliminations_from_memory())
+
+        # Ensure that all miners that aren't failing end up in testing or success
+        self.assertEqual(eliminations_length, len(self.NOT_MAIN_COMP_MINER_NAMES))
+        eliminated_for_time = set()
+        eliminated_for_mdd = set()
+
+        for elimination in self.challengeperiod_manager.elimination_manager.get_eliminations_from_disk():
+            if elimination["hotkey"] in self.FAILING_MINER_NAMES:
+                eliminated_for_mdd.add(elimination["hotkey"])
+                continue
+            else:
+                eliminated_for_time.add(elimination["hotkey"])
+                self.assertEqual(elimination["reason"], FailedChallengeReason.time.value)
+        self.assertEqual(len(eliminated_for_mdd), len(self.FAILING_MINER_NAMES))
+        self.assertEqual(len(eliminated_for_time), len(self.TESTING_MINER_NAMES))
+
  #TODO
  #   def test_no_miners_in_main_competition(self):
         

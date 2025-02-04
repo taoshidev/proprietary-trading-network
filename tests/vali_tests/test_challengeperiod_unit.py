@@ -201,7 +201,7 @@ class TestChallengePeriodUnit(TestBase):
             hk_to_first_order_time=hk_to_first_order_time
         )
         self.assertNotIn("miner", passing)
-        self.assertNotIn("miner", failing)
+        self.assertNotIn("miner", list(failing.keys()))
     
     def test_failing_no_remaining_time(self):
         """Miner is not passing, and there is no time remaining"""
@@ -230,7 +230,7 @@ class TestChallengePeriodUnit(TestBase):
         )
 
         self.assertNotIn("miner", passing)
-        self.assertIn("miner", failing)
+        self.assertIn("miner", list(failing.keys()))
 
     def test_passing_remaining_time(self):
         """Miner is passing and there is remaining time - they should be promoted"""
@@ -259,7 +259,7 @@ class TestChallengePeriodUnit(TestBase):
         )
 
         self.assertIn("miner", passing)
-        self.assertNotIn("miner", failing)
+        self.assertNotIn("miner", list(failing.keys()))
 
     def test_passing_no_remaining_time(self):
         """Redemption, if they pass right before the challenge period ends and before the next evaluation cycle"""
@@ -287,10 +287,10 @@ class TestChallengePeriodUnit(TestBase):
         )
 
         self.assertListEqual(passing, ["miner"])
-        self.assertListEqual(failing, [])
+        self.assertDictEqual(failing, {})
 
         self.assertIn("miner", passing)
-        self.assertNotIn("miner", failing)
+        self.assertNotIn("miner", list(failing.keys()))
 
     def test_lingering_no_positions(self):
         """Test the scenario where the miner has no positions and has been in the system for a while"""
@@ -316,7 +316,7 @@ class TestChallengePeriodUnit(TestBase):
         )
 
         self.assertNotIn("miner", passing)
-        self.assertIn("miner", failing)
+        self.assertIn("miner", list(failing.keys()))
 
     def test_recently_re_registered_miner(self):
         """
@@ -347,7 +347,7 @@ class TestChallengePeriodUnit(TestBase):
         )
 
         self.assertNotIn("miner", passing)
-        self.assertNotIn("miner", failing)
+        self.assertNotIn("miner", list(failing.keys()))
 
     def test_lingering_with_positions(self):
         """Test the scenario where the miner has positions and has been in the system for a while"""
@@ -374,7 +374,7 @@ class TestChallengePeriodUnit(TestBase):
         )
 
         self.assertNotIn("miner", passing)
-        self.assertIn("miner", failing)
+        self.assertIn("miner", list(failing.keys()))
 
     def test_just_above_threshold(self):
         """Miner performing 80th percentile should pass"""
@@ -401,7 +401,7 @@ class TestChallengePeriodUnit(TestBase):
             hk_to_first_order_time=hk_to_first_order_time
         )
         self.assertIn("miner", passing)
-        self.assertNotIn("miner", failing)
+        self.assertNotIn("miner", list(failing.keys()))
 
     def test_just_below_threshold(self):
         """Miner performing 50th percentile should fail, but continue testing"""
@@ -428,7 +428,7 @@ class TestChallengePeriodUnit(TestBase):
             hk_to_first_order_time=hk_to_first_order_time
         )
         self.assertNotIn("miner", passing)
-        self.assertNotIn("miner", failing)
+        self.assertNotIn("miner", list(failing.keys()))
 
     def test_at_threshold(self):
         """Miner performing exactly at 75th percentile should pass"""
@@ -472,7 +472,7 @@ class TestChallengePeriodUnit(TestBase):
         )
 
         self.assertIn("miner", passing)
-        self.assertNotIn("miner", failing)
+        self.assertNotIn("miner", list(failing.keys()))
 
     def test_screen_minimum_interaction(self):
         """
@@ -509,7 +509,7 @@ class TestChallengePeriodUnit(TestBase):
         )
 
         self.assertIn("miner", passing)
-        self.assertNotIn("miner", failing)
+        self.assertNotIn("miner", list(failing.keys()))
 
         # Check two base cases
 
@@ -550,4 +550,4 @@ class TestChallengePeriodUnit(TestBase):
         )
 
         self.assertNotIn("miner", passing)
-        self.assertNotIn("miner", failing)
+        self.assertNotIn("miner", list(failing.keys()))

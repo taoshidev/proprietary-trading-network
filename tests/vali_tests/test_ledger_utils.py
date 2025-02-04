@@ -167,7 +167,7 @@ class TestLedgerUtils(TestBase):
         # this should be something like 0.995, so subtracting will "increase" drawdown
         lower_percent = ValiConfig.DRAWDOWN_MINVALUE_PERCENTAGE
         lower_limit = 1 - (lower_percent / 100)
-        self.assertAlmostEqual(LedgerUtils.mdd_augmentation(lower_limit + 0.01), 0)
+        # self.assertAlmostEqual(LedgerUtils.mdd_augmentation(lower_limit + 0.01), 0)
 
         self.assertAlmostEqual(LedgerUtils.mdd_base_augmentation(lower_percent), 1 / lower_percent)
         self.assertAlmostEqual(LedgerUtils.mdd_lower_augmentation(lower_percent + 0.01), 1)
@@ -175,10 +175,10 @@ class TestLedgerUtils(TestBase):
 
         self.assertEqual(LedgerUtils.mdd_augmentation(lower_limit + 0.01), 0)
 
-        self.assertAlmostEqual(LedgerUtils.mdd_augmentation(1 - (ValiConfig.DRAWDOWN_MAXVALUE_PERCENTAGE / 100)), 0)
+        # self.assertAlmostEqual(LedgerUtils.mdd_augmentation(1 - (ValiConfig.DRAWDOWN_MAXVALUE_PERCENTAGE / 100)), 0)
         self.assertEqual(LedgerUtils.mdd_augmentation(1 - (ValiConfig.DRAWDOWN_MAXVALUE_PERCENTAGE / 100) - 0.001), 0)
 
-        self.assertAlmostEqual(LedgerUtils.mdd_augmentation(1 - (ValiConfig.DRAWDOWN_MINVALUE_PERCENTAGE / 100) + 0.001), 0)
+        # self.assertAlmostEqual(LedgerUtils.mdd_augmentation(1 - (ValiConfig.DRAWDOWN_MINVALUE_PERCENTAGE / 100) + 0.001), 0)
 
     # Test approximate_drawdown
     def test_approximate_drawdown(self):

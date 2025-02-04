@@ -51,11 +51,11 @@ if __name__ == "__main__":
 
     prior_challengeperiod_miners = set(inspection_hotkeys_dict.keys())
     success_miners = set(success)
-    eliminations = set(eliminations)
+    eliminated_miners = set(eliminations.keys())
 
-    post_challengeperiod_miners = prior_challengeperiod_miners - eliminations - success_miners
+    post_challengeperiod_miners = prior_challengeperiod_miners - eliminated_miners - success_miners
 
     logger.info(f"{len(prior_challengeperiod_miners)} prior_challengeperiod_miners [{prior_challengeperiod_miners}]")
     logger.info(f"{len(success_miners)} success_miners [{success_miners}]")
-    logger.info(f"{len(eliminations)} challengeperiod_eliminations [{eliminations}]")
+    logger.info(f"{len(eliminated_miners)} challengeperiod_eliminations [{eliminations}]")
     logger.info(f"{len(post_challengeperiod_miners)} challenge period remaining [{post_challengeperiod_miners}]")
