@@ -892,18 +892,39 @@ class PolygonDataService(BaseDataService):
         if trade_pair.is_forex:
             base, quote = trade_pair.trade_pair.split("/")
             quote = self.POLYGON_CLIENT.get_last_forex_quote(
-                base,
-                quote,
+                from_=base,
+                to=quote,
             )
             return quote.last.ask, quote.last.bid
         elif trade_pair.is_equities:
             quote = self.POLYGON_CLIENT.get_last_quote(
-                trade_pair.trade_pair_id,
+                ticker=trade_pair.trade_pair_id,
             )
             return quote.ask_price, quote.bid_price
 
         print("done quoting")
         return
+
+    def get_currency_conversion(self, trade_pair: TradePair=None, base: str=None, quote: str=None) -> float:
+        """
+        get the currency conversion rate from base currency to quote currency
+        """
+        if self.POLYGON_CLIENT is None:
+            self.instantiate_not_pickleable_objects()
+
+        if not (base and quote):
+            if trade_pair and trade_pair.is_forex:
+                base, quote = trade_pair.trade_pair.split("/")
+            else:
+                raise ValueError("Must provide either a valid forex pair or a base and quote for currency conversion")
+
+        rate = self.POLYGON_CLIENT.get_real_time_currency_conversion(
+            from_=base,
+            to=quote,
+            precision=4,
+        )
+
+        return rate.converted
 
     def get_market_holidays(self):
         """
