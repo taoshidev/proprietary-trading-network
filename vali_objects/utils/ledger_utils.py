@@ -179,17 +179,17 @@ class LedgerUtils:
             return 0
 
         recent_drawdown_percentage = LedgerUtils.drawdown_percentage(drawdown)
-        if recent_drawdown_percentage <= ValiConfig.DRAWDOWN_MINVALUE_PERCENTAGE:
-            return 0
+        # if recent_drawdown_percentage <= ValiConfig.DRAWDOWN_MINVALUE_PERCENTAGE:
+        #     return 0
 
         if recent_drawdown_percentage >= ValiConfig.DRAWDOWN_MAXVALUE_PERCENTAGE:
             return 0
 
         base_augmentation = LedgerUtils.mdd_base_augmentation(recent_drawdown_percentage)
-        lower_augmentation = LedgerUtils.mdd_lower_augmentation(recent_drawdown_percentage)
-        upper_augmentation = LedgerUtils.mdd_upper_augmentation(recent_drawdown_percentage)
+        # lower_augmentation = LedgerUtils.mdd_lower_augmentation(recent_drawdown_percentage)
+        # upper_augmentation = LedgerUtils.mdd_upper_augmentation(recent_drawdown_percentage)
 
-        drawdown_penalty = base_augmentation * lower_augmentation * upper_augmentation
+        drawdown_penalty = base_augmentation # * lower_augmentation * upper_augmentation
         return float(drawdown_penalty)
 
     @staticmethod
@@ -311,6 +311,7 @@ class LedgerUtils:
         approximate_drawdown = LedgerUtils.max_drawdown(checkpoints)
 
         # effective_drawdown = LedgerUtils.effective_drawdown(approximate_drawdown)
+
         drawdown_penalty = LedgerUtils.mdd_augmentation(approximate_drawdown)
         return drawdown_penalty
 

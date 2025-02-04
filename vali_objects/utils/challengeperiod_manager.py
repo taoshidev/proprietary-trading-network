@@ -14,7 +14,11 @@ from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager, PerfLed
 from vali_objects.utils.ledger_utils import LedgerUtils
 from vali_objects.utils.position_manager import PositionManager
 from vali_objects.position import Position
+from enum import Enum
 
+class FailedChallengeReason(Enum):
+    time = "FAILED_CHALLENGE_PERIOD_TIME"
+    mdd = "FAILED_CHALLENGE_PERIOD_DRAWDOWN"
 
 class ChallengePeriodManager(CacheController):
     def __init__(self, metagraph, perf_ledger_manager : PerfLedgerManager =None, running_unit_tests=False,
@@ -132,7 +136,7 @@ class ChallengePeriodManager(CacheController):
 
         # Moves challenge period testing to challenge period success in memory
         self._promote_challengeperiod_in_memory(hotkeys=challengeperiod_success, current_time=current_time)
-        self._demote_challengeperiod_in_memory(hotkeys=challengeperiod_eliminations)
+        self._demote_challengeperiod_in_memory(eliminations_with_reasons=challengeperiod_eliminations)
 
         # Now remove any miners who are no longer in the metagraph
         any_changes |= self._prune_deregistered_metagraph()
@@ -203,18 +207,31 @@ class ChallengePeriodManager(CacheController):
         success_scores_dict: dict[str, dict] = None,
         inspection_scores_dict: dict[str, dict] = None,
         hk_to_first_order_time: dict[str, int] = None
-    ):
+
+    ) -> tuple[list[str], dict[str, tuple[str, float]]]:
         """
         Runs a screening process to eliminate miners who didn't pass the challenge period. Does not modify the challenge period in memory.
+
+        Args:
+            success_scores_dict (dict[str, dict]) - a dictionary with a similar structure to config with keys being
+            function names of metrics and values having "scores" (scores of miners that passed challenge)
+            and "weight" which is the weight of the metric. Only provided if running tests
+
+            inspection_scores_dict (dict[str, dict]) - identical to success_scores_dict in structure, but only has data
+            for one inspection hotkey. Only provided if running tests
+
+        Returns:
+            passing_miners - list of miners that passed the challenge period.
+            failing_miner - dictionary of hotkey to a tuple of the form (reason failed challenge period, maximum drawdown)
         """
         if inspection_hotkeys is None:
-            return [], []  # no hotkeys to inspect
+            return [], {}  # no hotkeys to inspect
 
         if current_time is None:
             current_time = TimeUtil.now_in_millis()
 
         passing_miners = []
-        failing_miners = []
+        failing_miners = {}
         miners_rrr = set()        
 
         # If success_scoring_dict is already calculated, no need to calculate scores. Useful for testing
@@ -251,7 +268,7 @@ class ChallengePeriodManager(CacheController):
                 if not time_criteria:
                     # If the miner registers, never interacts
                     bt.logging.info(f'Hotkey {hotkey} has no positions or ledger, and has not interacted since registration. cp_failed')
-                    failing_miners.append(hotkey)
+                    failing_miners[hotkey] = (FailedChallengeReason.time.value, -1)
 
                 continue  # Moving on, as the miner is already failing
             # This step we want to check their drawdown. If they fail, we can move on.
@@ -259,7 +276,7 @@ class ChallengePeriodManager(CacheController):
 
             if failing_criteria:
                 bt.logging.info(f'Hotkey {hotkey} has failed the challenge period due to drawdown {recorded_drawdown_percentage}. cp_failed')
-                failing_miners.append(hotkey)
+                failing_miners[hotkey] = (FailedChallengeReason.mdd.value, recorded_drawdown_percentage)
                 continue
             
 
@@ -281,7 +298,7 @@ class ChallengePeriodManager(CacheController):
             # If their time is ever up, they fail
             if not time_criteria:
                 bt.logging.info(f'Hotkey {hotkey} has failed the challenge period due to time. cp_failed')
-                failing_miners.append(hotkey)
+                failing_miners[hotkey] = (FailedChallengeReason.time.value, recorded_drawdown_percentage)
                 continue
 
         bt.logging.info(f'Challenge Period - n_miners_passing: {len(passing_miners)}'
@@ -449,7 +466,9 @@ class ChallengePeriodManager(CacheController):
             else:
                 bt.logging.error(f"Hotkey {hotkey} was not in challengeperiod_testing but promotion to success was attempted.")
 
-    def _demote_challengeperiod_in_memory(self, hotkeys: list[str]):
+    def _demote_challengeperiod_in_memory(self, eliminations_with_reasons: dict[str, tuple[str, float]]):
+        hotkeys = list(eliminations_with_reasons.keys())
+
         for hotkey in hotkeys:
             bt.logging.info(f"Removing hotkeys {hotkey} from challenge period.")
             if hotkey in self.challengeperiod_testing:
@@ -460,7 +479,9 @@ class ChallengePeriodManager(CacheController):
         for hotkey in hotkeys:
             bt.logging.info(f"Eliminating hotkey {hotkey}.")
             # This will also add the hotkey to the in memory self.eliminations list
-            self.elimination_manager.append_elimination_row(hotkey, -1, 'FAILED_CHALLENGE_PERIOD')
+            elim_reason = eliminations_with_reasons[hotkey][0]
+            elim_mdd = eliminations_with_reasons[hotkey][1]
+            self.elimination_manager.append_elimination_row(hotkey=hotkey,current_dd=elim_mdd,mdd_failure=elim_reason)
 
     def _write_challengeperiod_from_memory_to_disk(self):
         challengeperiod_data = {

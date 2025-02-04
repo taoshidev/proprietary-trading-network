@@ -193,3 +193,23 @@ def add_orders_to_position(
             order_uuid=uuid
         )
         position.add_order(order)
+
+def generate_winning_ledger(start, end):
+    # Designed with challenge period in mind
+    return generate_ledger(
+        start_time=start,
+        end_time=end,
+        gain=0.1,
+        loss=-0.08,
+        mdd=0.99
+    )
+
+def generate_losing_ledger(start, end):
+    # Designed with challenge period in mind
+    return generate_ledger(
+        gain=0.1,
+        loss=-0.2,
+        mdd=(1 - (ValiConfig.DRAWDOWN_MAXVALUE_PERCENTAGE / 100)) - 0.01,
+        start_time=start,
+        end_time=end
+    )
