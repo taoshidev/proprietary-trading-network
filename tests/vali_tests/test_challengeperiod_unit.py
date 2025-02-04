@@ -305,7 +305,7 @@ class TestChallengePeriodUnit(TestBase):
         inspection_hotkeys = {"miner": self.START_TIME}
         current_time = self.OUTSIDE_OF_CHALLENGE
 
-        # Check that the miner is screened as testing still
+        # Check that the miner is screened as failing
         passing, failing = self.challengeperiod_manager.inspect(
             positions=inspection_positions,
             ledger={hk: v[TP_ID_PORTFOLIO] for hk, v in inspection_ledger.items()},
@@ -349,32 +349,34 @@ class TestChallengePeriodUnit(TestBase):
         self.assertNotIn("miner", passing)
         self.assertNotIn("miner", list(failing.keys()))
 
-    def test_lingering_with_positions(self):
-        """Test the scenario where the miner has positions and has been in the system for a while"""
-        base_positions = deepcopy(self.DEFAULT_POSITIONS)
-        base_positions = [base_positions[0]]  # Only one position
-
-        base_ledger = deepcopy(self.DEFAULT_LEDGER)
-
-        inspection_positions, hk_to_first_order_time = self.save_and_get_positions(base_positions, ["miner"])
-        inspection_ledger = {"miner": base_ledger}
-
-        inspection_hotkeys = {"miner": self.START_TIME}
-        current_time = self.OUTSIDE_OF_CHALLENGE
-
-        # Check that the miner is screened as testing still
-        passing, failing = self.challengeperiod_manager.inspect(
-            positions=inspection_positions,
-            ledger={hk: v[TP_ID_PORTFOLIO] for hk, v in inspection_ledger.items()},
-            success_hotkeys=self.SUCCESS_MINER_NAMES,
-            inspection_hotkeys=inspection_hotkeys,
-            current_time=current_time,
-            success_scores_dict=self.success_scores_dict,
-            hk_to_first_order_time=hk_to_first_order_time
-        )
-
-        self.assertNotIn("miner", passing)
-        self.assertIn("miner", list(failing.keys()))
+    # def test_lingering_with_positions(self):
+    #     """Test the scenario where the miner has positions and has been in the system for a while"""
+    #     base_positions = deepcopy(self.DEFAULT_POSITIONS)
+    #
+    #     # Removed requirement of more than one position since it isn't required for dynamic challenge period
+    #     base_positions = [base_positions[0]]  # Only one position
+    #
+    #     base_ledger = deepcopy(self.DEFAULT_LEDGER)
+    #
+    #     inspection_positions, hk_to_first_order_time = self.save_and_get_positions(base_positions, ["miner"])
+    #     inspection_ledger = {"miner": base_ledger}
+    #
+    #     inspection_hotkeys = {"miner": self.START_TIME}
+    #     current_time = self.OUTSIDE_OF_CHALLENGE
+    #
+    #     # Check that the miner is screened as testing still
+    #     passing, failing = self.challengeperiod_manager.inspect(
+    #         positions=inspection_positions,
+    #         ledger={hk: v[TP_ID_PORTFOLIO] for hk, v in inspection_ledger.items()},
+    #         success_hotkeys=self.SUCCESS_MINER_NAMES,
+    #         inspection_hotkeys=inspection_hotkeys,
+    #         current_time=current_time,
+    #         success_scores_dict=self.success_scores_dict,
+    #         hk_to_first_order_time=hk_to_first_order_time
+    #     )
+    #
+    #     self.assertNotIn("miner", passing)
+    #     self.assertIn("miner", list(failing.keys()))
 
     def test_just_above_threshold(self):
         """Miner performing 80th percentile should pass"""
@@ -534,7 +536,6 @@ class TestChallengePeriodUnit(TestBase):
         current_time = self.BEFORE_PROMOTION_TIME
 
         portfolio_cps = [cp for cp in base_ledger_portfolio.cps if cp.last_update_ms < current_time]
-        print("len of cps: ", len(portfolio_cps))
         base_ledger_portfolio.cps = portfolio_cps
         trial_scoring_dict = self.get_trial_scores(score=0.75)
 

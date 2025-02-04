@@ -255,12 +255,15 @@ class ChallengePeriodManager(CacheController):
 
             # We want to know if the miner still has time, as we know the criteria to pass is not met
             time_criteria = current_time - inspection_time <= ValiConfig.CHALLENGE_PERIOD_MS
-            # Check if hotkey is in ledger and has checkpoints (cps)
-            if hotkey not in ledger:
+
+            # Get hotkey to positions dict that only includes the inspection miner
+            has_minimum_positions, inspection_positions = ChallengePeriodManager.screen_minimum_positions(positions=positions, inspection_hotkey=hotkey)
+            if not has_minimum_positions:
                 passing_criteria = False
 
-            # Check if hotkey is in positions and has at least one position
-            if hotkey not in positions:
+            # Get hotkey to ledger dict that only includes the inspection miner
+            has_minimum_ledger, inspection_ledger = ChallengePeriodManager.screen_minimum_ledger(ledger=ledger, inspection_hotkey=hotkey)
+            if not has_minimum_ledger:
                 passing_criteria = False
 
             # This step is meant to ensure no positions or ledgers reference missing hotkeys, we need them to evaluate
@@ -282,8 +285,8 @@ class ChallengePeriodManager(CacheController):
 
             # The main logic loop. They are in the competition but haven't passed yet, need to check the time after.
             passing_criteria = ChallengePeriodManager.screen_passing_criteria(
-                positions=positions,
-                ledger=ledger,
+                inspection_positions=inspection_positions,
+                inspection_ledger=inspection_ledger,
                 inspection_hotkey=hotkey,
                 success_scores_dict=success_scores_dict,
                 current_time=current_time,
@@ -309,8 +312,8 @@ class ChallengePeriodManager(CacheController):
     
     @staticmethod
     def screen_passing_criteria(
-        positions: dict[str, list[Position]],
-        ledger: dict[str, PerfLedger],
+        inspection_positions: dict[str, list[Position]],
+        inspection_ledger: dict[str, PerfLedger],
         success_scores_dict: dict[str, dict],
         inspection_hotkey: str,
         current_time: int,
@@ -323,31 +326,9 @@ class ChallengePeriodManager(CacheController):
             function names of metrics and values having "scores" (scores of miners that passed challenge)
             and "weight" which is the weight of the metric
         """
-        if positions is None or len(positions) == 0:
-            return False
-
-        positions_list = positions.get(inspection_hotkey, None)
-
-        if positions_list is None:
-            return False
-
-        if len(positions_list) <= 1:
-            # We need at least more than 1 position to evaluate the challenge period
-            return False
-
-        inspection_positions = {inspection_hotkey: positions_list}
-
-        # Get individual scoring dict for inspection
-        single_ledger = ledger.get(inspection_hotkey, None)
-        if single_ledger is None:
-            return False
-
-        inspection_ledger = {inspection_hotkey: single_ledger}
-
         # Before scoring, check that the miner has enough trading days to be promoted
         min_interaction_criteria = ChallengePeriodManager.screen_minimum_interaction(
-            ledger_element=single_ledger)
-
+            ledger_element=inspection_ledger.get(inspection_hotkey))
         if not min_interaction_criteria:
             return False
 
@@ -389,6 +370,53 @@ class ChallengePeriodManager(CacheController):
         miner_returns = LedgerUtils.daily_return_log(ledger_element.cps if ledger_element else [])
 
         return len(miner_returns) >= ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N
+
+
+    @staticmethod
+    def screen_minimum_ledger(
+            ledger: dict[str, PerfLedger],
+            inspection_hotkey: str
+    ) -> tuple[bool, dict[str, PerfLedger]]:
+        """
+        Ensures there is enough ledger data globally and for the specific miner to evaluate challenge period.
+        """
+
+        if ledger is None or len(ledger) == 0:
+            bt.logging.info(f"No ledgers for any miner to evaluate for challenge period. ledger: {ledger}")
+            return False, {}
+
+        single_ledger = ledger.get(inspection_hotkey, None)
+        has_minimum_ledger = single_ledger is not None and len(single_ledger.cps) > 0
+        if not has_minimum_ledger:
+            bt.logging.info(f"Hotkey: {inspection_hotkey} doesn't have the minimum ledger for challenge period. ledger: {ledger}")
+
+        inspection_ledger = {inspection_hotkey: single_ledger} if has_minimum_ledger else {}
+
+        return has_minimum_ledger, inspection_ledger
+
+
+    @staticmethod
+    def screen_minimum_positions(
+            positions: dict[str, list[Position]],
+            inspection_hotkey: str
+    ) -> tuple[bool, dict[str, list[Position]]]:
+        """
+        Ensures there are enough positions globally and for the specific miner to evaluate challenge period.
+        """
+
+        if positions is None or len(positions) == 0:
+            bt.logging.info(f"No positions for any miner to evaluate for challenge period. positions: {positions}")
+            return False, {}
+
+        positions_list = positions.get(inspection_hotkey, None)
+        has_minimum_positions = positions_list is not None and len(positions_list) > 0
+        if not has_minimum_positions:
+            bt.logging.info(f"Hotkey: {inspection_hotkey} doesn't have the minimum positions for challenge period. positions: {positions_list}")
+
+        inspection_positions = {inspection_hotkey: positions_list} if has_minimum_positions else {}
+
+        return has_minimum_positions, inspection_positions
+
 
     def get_challengeperiod_testing(self, from_disk=False):
         if from_disk:
