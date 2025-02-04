@@ -49,7 +49,7 @@ class PriceSlippageModel:
         size_str = self.get_order_size_bucket(size)
         model_config = self.parameters["equity"][trade_pair.trade_pair_id][side][size_str]
         print(model_config)
-        intercept, c1, c2, c3 = (model_config[key] for key in ["intercept", "spread/price", "annualized_vol", "buy_order_value/adv"])
+        intercept, c1, c2, c3 = (model_config[key] for key in ["intercept", "spread/price", "annualized_vol", f"{side}_order_value/adv"])
 
         annualized_volatility, avg_daily_volume = self.get_bar_features(trade_pair, processed_ms)
 
@@ -60,20 +60,22 @@ class PriceSlippageModel:
         mid_price = (bid + ask) / 2
 
         slippage_pct = intercept + (c1 * spread / mid_price) + (c2 * annualized_volatility) + (c3 * size / avg_daily_volume)
-        return slippage_pct
+        return abs(slippage_pct)
 
     def calc_slippage_forex(self, trade_pair: TradePair, size: float, processed_ms: int) -> float:
         """
         Using the BB+ model as a stand-in for forex
-        volume(standard lots)
-        slippage percentage = 0.433 * spread/mid_price + 0.335 * sqrt( TODO
+        slippage percentage = 0.433 * spread/mid_price + 0.335 * sqrt(annualized_volatility**2 / 3 / 250) * sqrt(volume / (0.3 * estimated daily volume))
         """
         annualized_volatility, avg_daily_volume = self.get_bar_features(trade_pair, processed_ms)
         ask, bid = self.pds.get_last_quote(trade_pair, processed_ms)
         spread = bid - ask
         mid_price = (bid + ask) / 2
 
-        volume_standard_lots = size / 100_000  # TODO: convert the usd dollar amt to standard lots
+        base, _ = trade_pair.trade_pair.split("/")
+        base_to_usd_conversion = self.pds.get_currency_conversion(base=base, quote="USD") if base != "USD" else 1
+        # print(base_to_usd_conversion)
+        volume_standard_lots = size / (100_000 * base_to_usd_conversion)  # Volume expressed in terms of standard lots (1 std lot = 100,000 base currency)
 
         term1 = 0.433 * spread / mid_price
         term2 = 0.335 * math.sqrt(annualized_volatility ** 2 / 3 / 250)
