@@ -872,7 +872,7 @@ if __name__ == "__main__":
     #time.sleep(100000)
 
     polygon_data_provider = PolygonDataService(api_key=secrets['polygon_apikey'], disable_ws=True)
-    target_timestamp_ms = 1737496980446#1715288494000
+    target_timestamp_ms = 1735088280163#1715288494000
 
     """
     aggs = []
@@ -895,14 +895,14 @@ if __name__ == "__main__":
     #aggs = polygon_data_provider.get_close_at_date_second(tp, target_timestamp_ms, return_aggs=True)
     import numpy as np
     #uu = {a.timestamp: [a] for a in aggs}
-    for tp in [TradePair.NZDUSD]:#[x for x in TradePair if x.is_forex]:
+    for tp in [TradePair.AUDJPY]:#[x for x in TradePair if x.is_forex]:
         t0 = time.time()
         quotes = polygon_data_provider.unified_candle_fetcher(tp,
-                                                              target_timestamp_ms - 1000 * 60 * 12,
-                                                              target_timestamp_ms + 1000 * 60 * 25,
+                                                              target_timestamp_ms - 1000 * 60 * 15,
+                                                              target_timestamp_ms + 1000 * 60 * 15,
                                                               "minute")
         for q in quotes:
-            print(q)
+            print(TimeUtil.millis_to_formatted_date_str(q.timestamp), q)
         assert 0
         quotes = list(quotes)
         n_quotes = len(quotes)

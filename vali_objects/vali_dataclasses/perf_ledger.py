@@ -1337,10 +1337,12 @@ class PerfLedgerManager(CacheController):
             returns_muled = []
             times = []
             n_contributing_tps = []
+            mdds = []
             for i, x in enumerate(portfolio_ledger.cps):
                 returns.append(x.prev_portfolio_ret)
                 foo = 1.0
                 n_contributing = 0
+                mdds.append(x.mdd)
                 for tp_id, ledger in perf_ledger_bundles[testing_one_hotkey].items():
                     if tp_id == TP_ID_PORTFOLIO:
                         continue
@@ -1367,10 +1369,11 @@ class PerfLedgerManager(CacheController):
             plt.figure(figsize=(10, 5))
             plt.plot(times, returns, color='red', label='Return')
             plt.plot(times, returns_muled, color='blue', label='Return_Mulled')
+            plt.plot(times, mdds, color='green', label='MDD')
             # Labels
             plt.xlabel('Time')
             plt.title(f'Return vs Time for HK {testing_one_hotkey}')
-            plt.legend(['Return', 'Return_Mulled'])
+            plt.legend(['Return', 'Return_Mulled', 'MDD'])
             plt.show()
 
             for tp_id, pl in perf_ledger_bundles[testing_one_hotkey].items():
@@ -1447,4 +1450,4 @@ if __name__ == "__main__":
     position_manager = PositionManager(metagraph=mmg, running_unit_tests=False, elimination_manager=elimination_manager)
     perf_ledger_manager = PerfLedgerManager(mmg, position_manager=position_manager, running_unit_tests=False, enable_rss=False)
     #perf_ledger_manager.update(regenerate_all_ledgers=True)
-    perf_ledger_manager.update(testing_one_hotkey='5HCJ6okRkmCsu7iLEWotBxgcZy11RhbxSzs8MXT4Dei9osUx')
+    perf_ledger_manager.update(testing_one_hotkey='5GbRFisQqn5xkcLJX8wEAciL62ZnfJdrdhytTqRZesWj5Ftr')
