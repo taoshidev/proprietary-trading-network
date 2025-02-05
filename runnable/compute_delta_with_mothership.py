@@ -67,12 +67,13 @@ def compute_delta(mothership_json, min_time_ms):
     position_uuids_added = set()
     delta_orders = []
     delta_order_positions = []
-    for hotkey, json_positions in mothership_json['positions'].items():
+    for hotkey in position_manager.get_miner_hotkeys_with_at_least_one_position():
         # sort positions by close_ms otherwise, writing a closed position after an open position for the same
         # trade pair will delete the open position
-        remote_positions = [Position(**json_positions_dict) for json_positions_dict in json_positions['positions']]
-        if not remote_positions:
-            continue
+        remote_positions = mothership_json['positions'].get(hotkey, [])
+        if remote_positions:
+            remote_positions = [Position(**json_dict) for json_dict in remote_positions['positions']]
+
         my_positions = position_manager.get_positions_for_one_hotkey(hotkey)
         if min_time_ms:
             remote_positions = [p for p in remote_positions if any(o.processed_ms >= min_time_ms for o in p.orders)]
