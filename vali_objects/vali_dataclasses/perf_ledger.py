@@ -13,6 +13,7 @@ from setproctitle import setproctitle
 from time_util.time_util import MS_IN_8_HOURS, MS_IN_24_HOURS, timeme
 
 from shared_objects.cache_controller import CacheController
+from shared_objects.sn8_multiprocessing import CachedIPCPerfLedgerBundles
 from time_util.time_util import TimeUtil, UnifiedMarketCalendar
 from vali_objects.utils.elimination_manager import EliminationManager
 from vali_objects.utils.position_manager import PositionManager
@@ -349,9 +350,10 @@ class PerfLedgerManager(CacheController):
         else:
             self.perf_ledger_hks_to_invalidate = {}
 
+        self.using_ipc = bool(ipc_manager)
         if ipc_manager:
             self.pl_elimination_rows = ipc_manager.list()
-            self.hotkey_to_perf_bundle = ipc_manager.dict()
+            self.hotkey_to_perf_bundle = CachedIPCPerfLedgerBundles(ipc_manager, PerfLedger)
         else:
             self.pl_elimination_rows = []
             self.hotkey_to_perf_bundle = {}
@@ -426,11 +428,11 @@ class PerfLedgerManager(CacheController):
             return ret
 
         # Everything here is in v2 format
+        dat = self.hotkey_to_perf_bundle.get_read_only_dict() if self.using_ipc else self.hotkey_to_perf_bundle
         if portfolio_only:
-            dat = dict(self.hotkey_to_perf_bundle)
             return {hk: bundle[TP_ID_PORTFOLIO] for hk, bundle in dat.items()}
         else:
-            return dict(self.hotkey_to_perf_bundle)
+            return dat
 
 
 
@@ -1213,7 +1215,11 @@ class PerfLedgerManager(CacheController):
     def update(self, testing_one_hotkey=None, regenerate_all_ledgers=False, t_ms=None):
         assert self.position_manager.elimination_manager.metagraph, "Metagraph must be loaded before updating perf ledgers"
         assert self.metagraph, "Metagraph must be loaded before updating perf ledgers"
-        perf_ledger_bundles = self.get_perf_ledgers(portfolio_only=False)
+        if self.using_ipc:
+            perf_ledger_bundles = self.hotkey_to_perf_bundle.get_deepcopied_dict()
+        else:
+            perf_ledger_bundles = self.get_perf_ledgers(portfolio_only=False)
+
         if t_ms is None:
             t_ms = TimeUtil.now_in_millis() - self.UPDATE_LOOKBACK_MS
         """
