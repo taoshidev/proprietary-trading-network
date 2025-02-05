@@ -12,6 +12,7 @@ from pathlib import Path
 
 from copy import deepcopy
 from shared_objects.cache_controller import CacheController
+from shared_objects.sn8_multiprocessing import CachedIPCDict
 from time_util.time_util import TimeUtil, timeme
 from vali_objects.exceptions.corrupt_data_exception import ValiBkpCorruptDataException
 from vali_objects.exceptions.vali_bkp_file_missing_exception import ValiFileMissingException
@@ -50,8 +51,9 @@ class PositionManager(CacheController):
         self.is_mothership = is_mothership
         self.perform_compaction = perform_compaction
         self.perform_order_corrections = perform_order_corrections
+        self.using_ipc = bool(ipc_manager)
         if ipc_manager:
-            self.hotkey_to_positions = ipc_manager.dict()
+            self.hotkey_to_positions = CachedIPCDict(ipc_manager, PositionManager)
         else:
             self.hotkey_to_positions = {}
         self.secrets = secrets
@@ -65,6 +67,7 @@ class PositionManager(CacheController):
             if positions:  # Only populate if there are no positions in the miner dir
                 self.hotkey_to_positions[hk] = positions
 
+    @timeme
     def filtered_positions_for_scoring(
             self,
             hotkeys: List[str] = None

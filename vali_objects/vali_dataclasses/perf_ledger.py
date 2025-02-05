@@ -13,7 +13,7 @@ from setproctitle import setproctitle
 from time_util.time_util import MS_IN_8_HOURS, MS_IN_24_HOURS, timeme
 
 from shared_objects.cache_controller import CacheController
-from shared_objects.sn8_multiprocessing import CachedIPCPerfLedgerBundles
+from shared_objects.sn8_multiprocessing import CachedIPCDict
 from time_util.time_util import TimeUtil, UnifiedMarketCalendar
 from vali_objects.utils.elimination_manager import EliminationManager
 from vali_objects.utils.position_manager import PositionManager
@@ -353,7 +353,7 @@ class PerfLedgerManager(CacheController):
         self.using_ipc = bool(ipc_manager)
         if ipc_manager:
             self.pl_elimination_rows = ipc_manager.list()
-            self.hotkey_to_perf_bundle = CachedIPCPerfLedgerBundles(ipc_manager, PerfLedger)
+            self.hotkey_to_perf_bundle = CachedIPCDict(ipc_manager, PerfLedgerManager)
         else:
             self.pl_elimination_rows = []
             self.hotkey_to_perf_bundle = {}
@@ -428,11 +428,10 @@ class PerfLedgerManager(CacheController):
             return ret
 
         # Everything here is in v2 format
-        dat = self.hotkey_to_perf_bundle.get_read_only_dict() if self.using_ipc else self.hotkey_to_perf_bundle
         if portfolio_only:
-            return {hk: bundle[TP_ID_PORTFOLIO] for hk, bundle in dat.items()}
+            return {hk: deepcopy(bundle[TP_ID_PORTFOLIO]) for hk, bundle in self.hotkey_to_perf_bundle.items()}
         else:
-            return dat
+            return self.hotkey_to_perf_bundle.get_read_only_dict() if self.using_ipc else self.hotkey_to_perf_bundle
 
 
 
