@@ -111,8 +111,8 @@ class BaseDataService():
     def check_flush(self):
         t0 = time.time()
         # Flush the recent events to shared memory
-        for k, v in self.trade_pair_to_recent_events_realtime.items():
-            self.trade_pair_to_recent_events[k] = v
+        for k in list(self.trade_pair_to_recent_events_realtime.keys()):
+            self.trade_pair_to_recent_events[k] = self.trade_pair_to_recent_events_realtime[k]
             self.n_flushes += 1
         if self.n_flushes % 500 == 0:
             t1 = time.time()
