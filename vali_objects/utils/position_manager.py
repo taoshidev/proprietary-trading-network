@@ -24,7 +24,7 @@ from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.vali_dataclasses.order import OrderStatus, ORDER_SRC_DEPRECATION_FLAT, Order
 from vali_objects.utils.position_filtering import PositionFiltering
 
-TARGET_MS = 1738210302000 + (1000 * 60 * 60 * 3)  # + 3 hours
+TARGET_MS = 1738727350000 + (1000 * 60 * 60 * 3)  # + 3 hours
 
 
 class PositionManager(CacheController):
@@ -330,117 +330,144 @@ class PositionManager(CacheController):
             miners_to_wipe = []# All miners that should have been promoted
             miners_to_promote = []
             positions_to_snap = [
-                {'miner_hotkey': '5DaW56UxJ9Dk14mvraGSEZhy1c91WyLuT2JnNrnKrwnzmZxk',
-                 'position_uuid': '51c02f65-ff69-3180-e035-524d01f178fe', 'open_ms': 1738199964405,
+                {'miner_hotkey': '5C511WZdVSCAcTVLTcheFAwvDvmDH7une5h7cXsUEJjnYWPs',
+                 'position_uuid': 'fd416279-12d2-4f43-9d51-6f0df028198c', 'open_ms': 1738720494956,
+                 'trade_pair': TradePair.EURUSD, 'orders': [
+                    {'trade_pair': TradePair.EURUSD, 'order_type': OrderType.SHORT, 'leverage': -0.3, 'price': 1.03744,
+                     'processed_ms': 1738720494956, 'order_uuid': 'fd416279-12d2-4f43-9d51-6f0df028198c',
+                     'price_sources': [
+                         {'source': 'Polygon_ws', 'timespan_ms': 0, 'open': 1.03744, 'close': 1.03744, 'vwap': 1.03744,
+                          'high': 1.03744, 'low': 1.03744, 'start_ms': 1738720494999, 'websocket': True, 'lag_ms': 43,
+                          'volume': 1.0},
+                         {'source': 'Tiingo_rest', 'timespan_ms': 0, 'open': 1.03743, 'close': 1.03743, 'vwap': 1.03743,
+                          'high': 1.03743, 'low': 1.03743, 'start_ms': 1738720497201, 'websocket': True, 'lag_ms': 2245,
+                          'volume': None}], 'src': 0}], 'current_return': 0.9998554133251079, 'close_ms': None,
+                 'return_at_close': 0.9998449148432679, 'net_leverage': -0.3, 'average_entry_price': 1.03744,
+                 'position_type': OrderType.SHORT, 'is_closed_position': False},
+
+                {'miner_hotkey': '5ELPSQg4kr45ftDMKis5oDR9iHzUr8ReM6tCVWktEAapDz6D',
+                 'position_uuid': '066497be-05c3-2dcd-7f11-8933289548ca', 'open_ms': 1738719528067,
+                 'trade_pair': TradePair.GBPJPY, 'orders': [
+                    {'trade_pair': TradePair.GBPJPY, 'order_type': OrderType.LONG, 'leverage': 4.5, 'price': 191.6825,
+                     'processed_ms': 1738719528067, 'order_uuid': '066497be-05c3-2dcd-7f11-8933289548ca',
+                     'price_sources': [{'source': 'Polygon_ws', 'timespan_ms': 0, 'open': 191.6825, 'close': 191.6825,
+                                        'vwap': 191.682, 'high': 191.6825, 'low': 191.6825, 'start_ms': 1738719528000,
+                                        'websocket': True, 'lag_ms': 67, 'volume': 1.0},
+                                       {'source': 'Tiingo_rest', 'timespan_ms': 0, 'open': 191.672, 'close': 191.672,
+                                        'vwap': 191.672, 'high': 191.672, 'low': 191.672, 'start_ms': 1738719530369,
+                                        'websocket': True, 'lag_ms': 2302, 'volume': None}], 'src': 0},
+                    {'trade_pair': TradePair.GBPJPY, 'order_type': OrderType.FLAT, 'leverage': 0.0, 'price': 191.7095,
+                     'processed_ms': 1738719642903, 'order_uuid': 'bcbc21a8-0373-7cc9-644c-53dddbe36f96',
+                     'price_sources': [{'source': 'Polygon_ws', 'timespan_ms': 0, 'open': 191.7095, 'close': 191.7095,
+                                        'vwap': 191.709, 'high': 191.7095, 'low': 191.7095, 'start_ms': 1738719642999,
+                                        'websocket': True, 'lag_ms': 96, 'volume': 1.0},
+                                       {'source': 'Polygon_rest', 'timespan_ms': 1000, 'open': 191.698,
+                                        'close': 191.698, 'vwap': None, 'high': 191.698, 'low': 191.698,
+                                        'start_ms': 1738719642000, 'websocket': False, 'lag_ms': 96, 'volume': 2.0},
+                                       {'source': 'Tiingo_rest', 'timespan_ms': 0, 'open': 191.697, 'close': 191.697,
+                                        'vwap': 191.697, 'high': 191.697, 'low': 191.697, 'start_ms': 1738719640013,
+                                        'websocket': True, 'lag_ms': 2890, 'volume': None}], 'src': 0}],
+                 'current_return': 1.0006338606810739, 'close_ms': 1738719642903, 'return_at_close': 1.0003186610149593,
+                 'net_leverage': 0.0, 'average_entry_price': 191.6825, 'position_type': OrderType.FLAT,
+                 'is_closed_position': True},
+
+                {'miner_hotkey': '5ELPSQg4kr45ftDMKis5oDR9iHzUr8ReM6tCVWktEAapDz6D',
+                 'position_uuid': '8cdc4258-5d8f-d28d-adef-d46c00570c7a', 'open_ms': 1738719510366,
                  'trade_pair': TradePair.NZDJPY, 'orders': [
-                    {'trade_pair': TradePair.NZDJPY, 'order_type': OrderType.SHORT, 'leverage': -5.0, 'price': 87.446,
-                     'processed_ms': 1738199964405, 'order_uuid': '51c02f65-ff69-3180-e035-524d01f178fe',
+                    {'trade_pair': TradePair.NZDJPY, 'order_type': OrderType.LONG, 'leverage': 5.0, 'price': 86.845,
+                     'processed_ms': 1738719510366, 'order_uuid': '8cdc4258-5d8f-d28d-adef-d46c00570c7a',
                      'price_sources': [
-                         {'source': 'Polygon_ws', 'timespan_ms': 0, 'open': 87.446, 'close': 87.446, 'vwap': 87.446,
-                          'high': 87.446, 'low': 87.446, 'start_ms': 1738199964000, 'websocket': True, 'lag_ms': 405,
+                         {'source': 'Polygon_ws', 'timespan_ms': 0, 'open': 86.845, 'close': 86.845, 'vwap': 86.845,
+                          'high': 86.845, 'low': 86.845, 'start_ms': 1738719510000, 'websocket': True, 'lag_ms': 366,
                           'volume': 1.0},
-                         {'source': 'Tiingo_rest', 'timespan_ms': 0, 'open': 87.443, 'close': 87.443, 'vwap': 87.443,
-                          'high': 87.443, 'low': 87.443, 'start_ms': 1738199966615, 'websocket': True, 'lag_ms': 2210,
+                         {'source': 'Tiingo_rest', 'timespan_ms': 0, 'open': 86.815, 'close': 86.815, 'vwap': 86.815,
+                          'high': 86.815, 'low': 86.815, 'start_ms': 1738719512033, 'websocket': True, 'lag_ms': 1667,
                           'volume': None}], 'src': 0},
-                    {'trade_pair': TradePair.NZDJPY, 'order_type': OrderType.FLAT, 'leverage': 0.0, 'price': 87.419,
-                     'processed_ms': 1738203392320, 'order_uuid': '4463ff0f-beb2-7a24-468d-cb4401647f70',
+                    {'trade_pair': TradePair.NZDJPY, 'order_type': OrderType.FLAT, 'leverage': 0.0, 'price': 86.866,
+                     'processed_ms': 1738719624663, 'order_uuid': '3c0ca04e-4e75-cc9f-ad33-c20732c74423',
                      'price_sources': [
-                         {'source': 'Polygon_ws', 'timespan_ms': 0, 'open': 87.419, 'close': 87.419, 'vwap': 87.419,
-                          'high': 87.419, 'low': 87.419, 'start_ms': 1738203392000, 'websocket': True, 'lag_ms': 320,
+                         {'source': 'Polygon_ws', 'timespan_ms': 0, 'open': 86.866, 'close': 86.866, 'vwap': 86.866,
+                          'high': 86.866, 'low': 86.866, 'start_ms': 1738719624999, 'websocket': True, 'lag_ms': 336,
                           'volume': 1.0},
-                         {'source': 'Tiingo_rest', 'timespan_ms': 0, 'open': 87.419, 'close': 87.419, 'vwap': 87.419,
-                          'high': 87.419, 'low': 87.419, 'start_ms': 1738203393228, 'websocket': True, 'lag_ms': 908,
-                          'volume': None}], 'src': 0}], 'current_return': 1.001543809894106, 'close_ms': 1738203392320,
-                 'return_at_close': 1.0011932695606431, 'net_leverage': 0.0, 'average_entry_price': 87.446,
+                         {'source': 'Tiingo_rest', 'timespan_ms': 0, 'open': 86.837, 'close': 86.837, 'vwap': 86.837,
+                          'high': 86.837, 'low': 86.837, 'start_ms': 1738719623132, 'websocket': True, 'lag_ms': 1531,
+                          'volume': None}], 'src': 0}], 'current_return': 1.001209050607404, 'close_ms': 1738719624663,
+                 'return_at_close': 1.0008586274396916, 'net_leverage': 0.0, 'average_entry_price': 86.845,
                  'position_type': OrderType.FLAT, 'is_closed_position': True},
 
-            {'miner_hotkey': '5F7RwQwCK2NCZaiUWoSnvH4G5QF99FSuhrXwZbsFB8aW3Ft4',
-             'position_uuid': '72170a0a-07cd-4554-899c-7df31dc0eb32', 'open_ms': 1738085801452,
-             'trade_pair': TradePair.ETHUSD, 'orders': [
-                {'trade_pair': TradePair.ETHUSD, 'order_type': OrderType.LONG, 'leverage': 0.02, 'price': 3174.78,
-                 'processed_ms': 1738085801452, 'order_uuid': 'd677bb77-2d52-4091-946c-0c30a929702d', 'price_sources': [
-                    {'source': 'Polygon_ws', 'timespan_ms': 0, 'open': 3174.78, 'close': 3174.78, 'vwap': 3174.78,
-                     'high': 3174.78, 'low': 3174.78, 'start_ms': 1738085802000, 'websocket': True, 'lag_ms': 548,
-                     'volume': 0.01436904},
-                    {'source': 'Tiingo_gdax_rest', 'timespan_ms': 0, 'open': 3174.49, 'close': 3174.49, 'vwap': 3174.49,
-                     'high': 3174.49, 'low': 3174.49, 'start_ms': 1738085803198, 'websocket': True, 'lag_ms': 1746,
-                     'volume': None},
-                    {'source': 'Polygon_rest', 'timespan_ms': 1000, 'open': 3174.8, 'close': 3174.7, 'vwap': 3174.5739,
-                     'high': 3174.8, 'low': 3174.44, 'start_ms': 1738085798000, 'websocket': False, 'lag_ms': 2453,
-                     'volume': 0.09203032}], 'src': 0}], 'current_return': 1.0001816188838282, 'close_ms': 0,
-             'return_at_close': 1.000161024239802, 'net_leverage': 0.02, 'average_entry_price': 3174.78,
-             'position_type': OrderType.LONG, 'is_closed_position': False},
+                {'miner_hotkey': '5HN1ogjYW4rNYzCkyNLKWJQ8qmiojfRe3XcTmZxTmRruJTp2',
+                 'position_uuid': '499e1be3-fc32-4ac9-a8b4-aea60e3fe2a0', 'open_ms': 1738720477309,
+                 'trade_pair': TradePair.EURUSD, 'orders': [
+                    {'trade_pair': TradePair.EURUSD, 'order_type': OrderType.SHORT, 'leverage': -0.3, 'price': 1.0374,
+                     'processed_ms': 1738720477309, 'order_uuid': '499e1be3-fc32-4ac9-a8b4-aea60e3fe2a0',
+                     'price_sources': [
+                         {'source': 'Polygon_ws', 'timespan_ms': 0, 'open': 1.0374, 'close': 1.0374, 'vwap': 1.0374,
+                          'high': 1.0374, 'low': 1.0374, 'start_ms': 1738720476999, 'websocket': True, 'lag_ms': 310,
+                          'volume': 1.0},
+                         {'source': 'Tiingo_rest', 'timespan_ms': 0, 'open': 1.0374, 'close': 1.0374, 'vwap': 1.0374,
+                          'high': 1.0374, 'low': 1.0374, 'start_ms': 1738720475224, 'websocket': True, 'lag_ms': 2085,
+                          'volume': None}], 'src': 0}], 'current_return': 0.9998438403701562, 'close_ms': None,
+                 'return_at_close': 0.9998333420098322, 'net_leverage': -0.3, 'average_entry_price': 1.0374,
+                 'position_type': OrderType.SHORT, 'is_closed_position': False},
 
-            {'miner_hotkey': '5FkMNsY29L9BFbk68RWrPHvQys2L9JKdm9Fua6LTEt9gMPvw',
-             'position_uuid': '6f764448-c805-48fe-9090-28a6ff7aab7c', 'open_ms': 1737989160817,
-             'trade_pair': TradePair.ETHUSD, 'orders': [
-                {'trade_pair': TradePair.ETHUSD, 'order_type': OrderType.LONG, 'leverage': 0.05, 'price': 3128.73,
-                 'processed_ms': 1737989160817, 'order_uuid': 'd845bf92-bca6-40c2-bfbf-67410a40970b', 'price_sources': [
-                    {'source': 'Tiingo_gdax_rest', 'timespan_ms': 0, 'open': 3128.73, 'close': 3128.73, 'vwap': 3128.73,
-                     'high': 3128.73, 'low': 3128.73, 'start_ms': 1737989160117, 'websocket': True, 'lag_ms': 700,
-                     'volume': None}, {'source': 'Polygon_rest', 'timespan_ms': 1000, 'open': 3127.42, 'close': 3127.42,
-                                       'vwap': 3127.4146, 'high': 3127.42, 'low': 3126.8, 'start_ms': 1737989157000,
-                                       'websocket': False, 'lag_ms': 2818, 'volume': 11.5375611},
-                    {'source': 'Polygon_ws', 'timespan_ms': 0, 'open': 3103.18, 'close': 3103.18, 'vwap': 3103.18,
-                     'high': 3103.18, 'low': 3103.18, 'start_ms': 1737988201000, 'websocket': True, 'lag_ms': 959817,
-                     'volume': 0.06100116}], 'src': 0}], 'current_return': 1.001196651676559, 'close_ms': 0,
-             'return_at_close': 1.0011292087584787, 'net_leverage': 0.05, 'average_entry_price': 3128.7300000000005,
-             'position_type': OrderType.LONG, 'is_closed_position': False},
+                {'miner_hotkey': '5HnCPqPM3kaY6wjt9mjHjKd6e85pw5obhiQ7J2vWBjvc7XDD',
+                 'position_uuid': 'e3fae465-cabe-000a-aa61-485b963cf310', 'open_ms': 1738720256945,
+                 'trade_pair': TradePair.GBPJPY, 'orders': [
+                    {'trade_pair': TradePair.GBPJPY, 'order_type': OrderType.LONG, 'leverage': 5.0, 'price': 191.613,
+                     'processed_ms': 1738720256945, 'order_uuid': 'e3fae465-cabe-000a-aa61-485b963cf310',
+                     'price_sources': [
+                         {'source': 'Polygon_ws', 'timespan_ms': 0, 'open': 191.613, 'close': 191.613, 'vwap': 191.613,
+                          'high': 191.613, 'low': 191.613, 'start_ms': 1738720256999, 'websocket': True, 'lag_ms': 54,
+                          'volume': 1.0},
+                         {'source': 'Tiingo_rest', 'timespan_ms': 0, 'open': 191.605, 'close': 191.605, 'vwap': 191.605,
+                          'high': 191.605, 'low': 191.605, 'start_ms': 1738720255564, 'websocket': True, 'lag_ms': 1381,
+                          'volume': None}], 'src': 0}], 'current_return': 0.9865353603356768, 'close_ms': None,
+                 'return_at_close': 0.986362716647618, 'net_leverage': 5.0, 'average_entry_price': 191.613,
+                 'position_type': OrderType.LONG, 'is_closed_position': False},
 
-            {'miner_hotkey': '5HCJ6okRkmCsu7iLEWotBxgcZy11RhbxSzs8MXT4Dei9osUx',
-             'position_uuid': 'ad0bec72-7727-49fa-8007-7079514432a5', 'open_ms': 1737364369013,
-             'trade_pair': TradePair.GBPUSD, 'orders': [
-                {'trade_pair': TradePair.GBPUSD, 'order_type': OrderType.SHORT, 'leverage': -0.25, 'price': 1.218715,
-                 'processed_ms': 1737364369013, 'order_uuid': 'ad0bec72-7727-49fa-8007-7079514432a5',
-                 'price_sources': [], 'src': 0},
-                {'trade_pair': TradePair.GBPUSD, 'order_type': OrderType.FLAT, 'leverage': 0.0, 'price': 0.0,
-                 'processed_ms': 1738011582117, 'order_uuid': '5a2344159707-7008-af94-7277-27ceb0da',
-                 'price_sources': [], 'src': 1}], 'current_return': 1.0, 'close_ms': 1738011582117,
-             'return_at_close': 0.9999825, 'net_leverage': 0.0, 'average_entry_price': 1.218715,
-             'position_type': OrderType.FLAT, 'is_closed_position': True},
+                {'miner_hotkey': '5HnCPqPM3kaY6wjt9mjHjKd6e85pw5obhiQ7J2vWBjvc7XDD',
+                 'position_uuid': 'ee6b2ca1-7581-51e5-6089-52ff10b55424', 'open_ms': 1738720239566,
+                 'trade_pair': TradePair.NZDJPY, 'orders': [
+                    {'trade_pair': TradePair.NZDJPY, 'order_type': OrderType.LONG, 'leverage': 5.0, 'price': 86.795,
+                     'processed_ms': 1738720239566, 'order_uuid': 'ee6b2ca1-7581-51e5-6089-52ff10b55424',
+                     'price_sources': [
+                         {'source': 'Polygon_ws', 'timespan_ms': 0, 'open': 86.795, 'close': 86.795, 'vwap': 86.795,
+                          'high': 86.795, 'low': 86.795, 'start_ms': 1738720239999, 'websocket': True, 'lag_ms': 433,
+                          'volume': 1.0},
+                         {'source': 'Tiingo_rest', 'timespan_ms': 0, 'open': 86.761, 'close': 86.761, 'vwap': 86.761,
+                          'high': 86.761, 'low': 86.761, 'start_ms': 1738720238625, 'websocket': True, 'lag_ms': 941,
+                          'volume': None}], 'src': 0}], 'current_return': 0.9925974998559823, 'close_ms': None,
+                 'return_at_close': 0.9924237952935075, 'net_leverage': 5.0, 'average_entry_price': 86.795,
+                 'position_type': OrderType.LONG, 'is_closed_position': False},
 
-            {'miner_hotkey': '5HCJ6okRkmCsu7iLEWotBxgcZy11RhbxSzs8MXT4Dei9osUx',
-             'position_uuid': '4f6ebe79-0204-45a1-9966-d766a77f6143', 'open_ms': 1737364362020,
-             'trade_pair': TradePair.NZDUSD, 'orders': [
-                {'trade_pair': TradePair.NZDUSD, 'order_type': OrderType.SHORT, 'leverage': -0.25, 'price': 0.56035,
-                 'processed_ms': 1737364362020, 'order_uuid': '4f6ebe79-0204-45a1-9966-d766a77f6143',
-                 'price_sources': [], 'src': 0},
-                {'trade_pair': TradePair.NZDUSD, 'order_type': OrderType.FLAT, 'leverage': 0.0, 'price': 0.0,
-                 'processed_ms': 1738011582117, 'order_uuid': '3416f77a667d-6699-1a54-4020-97ebe6f4',
-                 'price_sources': [], 'src': 1}], 'current_return': 1.0, 'close_ms': 1738011582117,
-             'return_at_close': 0.9999825, 'net_leverage': 0.0, 'average_entry_price': 0.56035,
-             'position_type': OrderType.FLAT, 'is_closed_position': True},
-
-            {'miner_hotkey': '5HCJ6okRkmCsu7iLEWotBxgcZy11RhbxSzs8MXT4Dei9osUx',
-             'position_uuid': '5fcfe64b-b2f0-4060-addc-6379f44cf53c', 'open_ms': 1736151925629,
-             'trade_pair': TradePair.EURUSD, 'orders': [
-                {'trade_pair': TradePair.EURUSD, 'order_type': OrderType.SHORT, 'leverage': -0.5, 'price': 1.03342,
-                 'processed_ms': 1736151925629, 'order_uuid': '5fcfe64b-b2f0-4060-addc-6379f44cf53c',
-                 'price_sources': [], 'src': 0},
-                {'trade_pair': TradePair.EURUSD, 'order_type': OrderType.SHORT, 'leverage': -0.25, 'price': 1.0292,
-                 'processed_ms': 1737102024911, 'order_uuid': '3c5512b5-741c-4d38-9656-6b50f48bfe24',
-                 'price_sources': [], 'src': 0},
-                {'trade_pair': TradePair.EURUSD, 'order_type': OrderType.FLAT, 'leverage': 0.0, 'price': 0.0,
-                 'processed_ms': 1738011582117, 'order_uuid': 'c35fc44f9736-cdda-0604-0f2b-b46efcf5',
-                 'price_sources': [], 'src': 1}], 'current_return': 1.0020417642391284, 'close_ms': 1738011582117,
-             'return_at_close': 1.0012786740908333, 'net_leverage': 0.0, 'average_entry_price': 1.0320133333333332,
-             'position_type': OrderType.FLAT, 'is_closed_position': True},
-
-            {'miner_hotkey': '5HCJ6okRkmCsu7iLEWotBxgcZy11RhbxSzs8MXT4Dei9osUx',
-             'position_uuid': '2a003e6f-2835-4e33-aa3f-ea50e0e1ed08', 'open_ms': 1736843416198,
-             'trade_pair': TradePair.AUDUSD, 'orders': [
-                {'trade_pair': TradePair.AUDUSD, 'order_type': OrderType.SHORT, 'leverage': -0.4, 'price': 0.62034,
-                 'processed_ms': 1736843416198, 'order_uuid': '2a003e6f-2835-4e33-aa3f-ea50e0e1ed08',
-                 'price_sources': [], 'src': 0},
-                {'trade_pair': TradePair.AUDUSD, 'order_type': OrderType.FLAT, 'leverage': 0.0, 'price': 0.0,
-                 'processed_ms': 1738011582117, 'order_uuid': '80de1e0e05ae-f3aa-33e4-5382-f6e300a2',
-                 'price_sources': [], 'src': 1}], 'current_return': 1.0, 'close_ms': 1738011582117,
-             'return_at_close': 0.999972, 'net_leverage': 0.0, 'average_entry_price': 0.62034,
-             'position_type': OrderType.FLAT, 'is_closed_position': True}
+                {'miner_hotkey': '5EUTaAo7vCGxvLDWRXRrEuqctPjt9fKZmgkaeFZocWECUe9X',
+                 'position_uuid': '98e8b108-02de-4a6c-8f9e-28e2c06cb9cf', 'open_ms': 1738714075396,
+                 'trade_pair': TradePair.BTCUSD, 'orders': [
+                    {'trade_pair': TradePair.BTCUSD, 'order_type': OrderType.SHORT, 'leverage': -0.25,
+                     'price': 98049.02, 'processed_ms': 1738714075396,
+                     'order_uuid': '98e8b108-02de-4a6c-8f9e-28e2c06cb9cf', 'price_sources': [
+                        {'source': 'Polygon_ws', 'timespan_ms': 0, 'open': 98049.02, 'close': 98049.02,
+                         'vwap': 98049.02, 'high': 98049.02, 'low': 98049.02, 'start_ms': 1738714075000,
+                         'websocket': True, 'lag_ms': 396, 'volume': 3.376e-05},
+                        {'source': 'Tiingo_gdax_rest', 'timespan_ms': 0, 'open': 98063.61, 'close': 98063.61,
+                         'vwap': 98063.61, 'high': 98063.61, 'low': 98063.61, 'start_ms': 1738714073965,
+                         'websocket': True, 'lag_ms': 1431, 'volume': None}], 'src': 0},
+                    {'trade_pair': TradePair.BTCUSD, 'order_type': OrderType.FLAT, 'leverage': 1.0, 'price': 98862.99,
+                     'processed_ms': 1738717758730, 'order_uuid': '71bf1f1e-7995-4d70-9244-28678d2bdb1c',
+                     'price_sources': [{'source': 'Polygon_ws', 'timespan_ms': 0, 'open': 98862.99, 'close': 98862.99,
+                                        'vwap': 98862.99, 'high': 98862.99, 'low': 98862.99, 'start_ms': 1738717759000,
+                                        'websocket': True, 'lag_ms': 270, 'volume': 0.00064447},
+                                       {'source': 'Tiingo_gdax_rest', 'timespan_ms': 0, 'open': 98826.8,
+                                        'close': 98826.8, 'vwap': 98826.8, 'high': 98826.8, 'low': 98826.8,
+                                        'start_ms': 1738717756897, 'websocket': True, 'lag_ms': 1833, 'volume': None}],
+                     'src': 0}], 'current_return': 0.9979245840498967, 'close_ms': 1738717758730,
+                 'return_at_close': 0.9976751029038843, 'net_leverage': 0.0, 'average_entry_price': 98049.02,
+                 'position_type': OrderType.FLAT, 'is_closed_position': True}
             ]
             for p in positions_to_snap:
                 try:
                     pos = Position(**p)
+                    self.delete_open_position_if_exists(pos)
                     self.save_miner_position(pos)
                     print(f"Added position {pos.position_uuid} for trade pair {pos.trade_pair.trade_pair_id} for hk {pos.miner_hotkey}")
                 except Exception as e:

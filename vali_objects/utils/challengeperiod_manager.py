@@ -388,7 +388,7 @@ class ChallengePeriodManager(CacheController):
         single_ledger = ledger.get(inspection_hotkey, None)
         has_minimum_ledger = single_ledger is not None and len(single_ledger.cps) > 0
         if not has_minimum_ledger:
-            bt.logging.info(f"Hotkey: {inspection_hotkey} doesn't have the minimum ledger for challenge period. ledger: {ledger}")
+            bt.logging.info(f"Hotkey: {inspection_hotkey} doesn't have the minimum ledger for challenge period. ledger: {single_ledger}")
 
         inspection_ledger = {inspection_hotkey: single_ledger} if has_minimum_ledger else {}
 
