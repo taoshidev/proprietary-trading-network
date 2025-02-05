@@ -70,18 +70,18 @@ def compute_delta(mothership_json, min_time_ms):
     for hotkey, json_positions in mothership_json['positions'].items():
         # sort positions by close_ms otherwise, writing a closed position after an open position for the same
         # trade pair will delete the open position
-        mothership_positions = [Position(**json_positions_dict) for json_positions_dict in json_positions['positions']]
-        if not mothership_positions:
+        remote_positions = [Position(**json_positions_dict) for json_positions_dict in json_positions['positions']]
+        if not remote_positions:
             continue
-        disk_positions = position_manager.get_positions_for_one_hotkey(hotkey)
+        my_positions = position_manager.get_positions_for_one_hotkey(hotkey)
         if min_time_ms:
-            disk_positions = [p for p in disk_positions if any(o.processed_ms >= min_time_ms for o in p.orders)]
-            mothership_positions = [p for p in mothership_positions if any(o.processed_ms >= min_time_ms for o in p.orders)]
-        for mp in mothership_positions:
+            remote_positions = [p for p in remote_positions if any(o.processed_ms >= min_time_ms for o in p.orders)]
+            my_positions = [p for p in my_positions if any(o.processed_ms >= min_time_ms for o in p.orders)]
+        for mp in my_positions:
             corresponding_position = None
-            for dp in disk_positions:
-                if mp.position_uuid == dp.position_uuid:
-                    corresponding_position = dp
+            for rp in remote_positions:
+                if mp.position_uuid == rp.position_uuid:
+                    corresponding_position = rp
                     break
             if corresponding_position is None:
                 delta_positions.append(mp)
@@ -90,9 +90,9 @@ def compute_delta(mothership_json, min_time_ms):
 
             for mo in mp.orders:
                 corresponding_order = None
-                for do in corresponding_position.orders:
-                    if mo.order_uuid == do.order_uuid:
-                        corresponding_order = do
+                for ro in corresponding_position.orders:
+                    if mo.order_uuid == ro.order_uuid:
+                        corresponding_order = ro
                         break
                 if corresponding_order is None:
                     delta_orders.append((corresponding_position.orders, mp.orders))
@@ -102,11 +102,8 @@ def compute_delta(mothership_json, min_time_ms):
                     break
 
     print(f"Found {len(delta_positions)} positions to snap to and {len(delta_orders)} order deltas to snap to ")
-    for position in delta_positions:
-        print(position.to_copyable_str(), '\n\n')
-
-    for position in delta_order_positions:
-        print(position.to_copyable_str(), '\n\n')
+    ans = ',\n\n'.join([p.to_copyable_str() for p in delta_positions + delta_order_positions])
+    print(ans)
 
 def get_mothership_checkpoint(url, api_key):
     data = {
