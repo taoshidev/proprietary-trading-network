@@ -10,7 +10,7 @@ from vali_objects.utils.position_manager import PositionManager
 import bittensor as bt
 
 
-def compute_delta(mothership_json):
+def compute_delta(mothership_json, min_time_ms):
 
     bt.logging.info("Found mothership data with the following attributes:")
     # Log every key and value apir in the data except for positions, eliminations, and plagiarism scores
@@ -74,6 +74,9 @@ def compute_delta(mothership_json):
         if not mothership_positions:
             continue
         disk_positions = position_manager.get_positions_for_one_hotkey(hotkey)
+        if min_time_ms:
+            disk_positions = [p for p in disk_positions if any(o.processed_ms >= min_time_ms for o in p.orders)]
+            mothership_positions = [p for p in mothership_positions if any(o.processed_ms >= min_time_ms for o in p.orders)]
         for mp in mothership_positions:
             corresponding_position = None
             for dp in disk_positions:
@@ -122,6 +125,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Compute a delta with mothership in a format that can be used with PM.")
     parser.add_argument('--api-key', type=str, default=None)
     parser.add_argument('--url', type=str, default=None)
+    parser.add_argument('--min-time-ms', type=int, default=None)
 
     t0 = time.time()
     # Parse command-line arguments
@@ -132,11 +136,12 @@ if __name__ == "__main__":
     # Use the disable_backup argument to control backup
     api_key = args.api_key
     url = args.url
-    bt.logging.info(f"Computing delta. api_key: {api_key}, url: {url}")
+    min_time_ms = args.min_time_ms
+    bt.logging.info(f"Computing delta. api_key: {api_key}, url: {url}, min_time_ms: {min_time_ms}")
 
     mothership_json = get_mothership_checkpoint(url, api_key)
     #with open('validator_checkpoint.json', 'r') as f:
     #    mothership_json = json.loads(f.read())
 
-    compute_delta(mothership_json)
+    compute_delta(mothership_json, min_time_ms)
     bt.logging.info("Delta complete in %.2f seconds" % (time.time() - t0))
