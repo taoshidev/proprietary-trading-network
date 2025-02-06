@@ -12,6 +12,7 @@ from scipy.stats import percentileofscore
 
 from vali_objects.vali_config import ValiConfig
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedger
+from vali_objects.utils.position_utils import PositionUtils
 from time_util.time_util import TimeUtil
 from vali_objects.utils.position_filtering import PositionFiltering
 from vali_objects.utils.ledger_utils import LedgerUtils
@@ -24,7 +25,7 @@ import bittensor as bt
 class PenaltyInputType(Enum):
     LEDGER = auto()
     POSITIONS = auto()
-
+    POSITION_EQUIVALENCE = auto()
 
 @dataclass
 class PenaltyConfig:
@@ -67,10 +68,10 @@ class Scoring:
             function=LedgerUtils.max_drawdown_threshold_penalty,
             input_type=PenaltyInputType.LEDGER
         ),
-        'martingale': PenaltyConfig(
-            function=PositionPenalties.martingale_penalty,
-            input_type=PenaltyInputType.POSITIONS
-        ),
+        'risk_profile': PenaltyConfig(
+            function=PositionPenalties.risk_profile_score,
+            input_type=PenaltyInputType.POSITION_EQUIVALENCE
+        )
     }
 
     @staticmethod
@@ -127,7 +128,7 @@ class Scoring:
     def score_miners(
             ledger_dict: dict[str, PerfLedger],
             positions: dict[str, list[Position]],
-            evaluation_time_ms: int= None):
+            evaluation_time_ms: int = None):
 
         if evaluation_time_ms is None:
             evaluation_time_ms = TimeUtil.now_in_millis()
@@ -213,6 +214,9 @@ class Scoring:
 
         for miner, ledger in ledger_dict.items():
             positions = hotkey_positions.get(miner, [])
+
+            cumulative_positions = PositionUtils.cumulative_leverage_position(positions)
+            position_equivalence = PositionUtils.positional_equivalence(cumulative_positions)
             if not ledger:
                 bt.logging.warning(f"Unexpectedly skipping miner {miner} with empty ledger and {len(positions)} positions")
             ledger_checkpoints = ledger.cps if ledger else []
@@ -224,7 +228,9 @@ class Scoring:
                 if penalty_config.input_type == PenaltyInputType.LEDGER:
                     penalty = penalty_config.function(ledger_checkpoints)
                 elif penalty_config.input_type == PenaltyInputType.POSITIONS:
-                    penalty = penalty_config.function(positions)
+                    penalty = penalty_config.function(cumulative_positions)
+                elif penalty_config.input_type == PenaltyInputType.POSITION_EQUIVALENCE:
+                    penalty = penalty_config.function(cumulative_positions, position_equivalence)
 
                 cumulative_penalty *= penalty
 

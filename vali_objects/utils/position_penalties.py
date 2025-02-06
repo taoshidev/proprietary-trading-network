@@ -11,17 +11,17 @@ from vali_objects.utils.position_utils import PositionUtils
 class PositionPenalties:
 
     @staticmethod
-    def martingale_penalty(
-            positions: list[Position],
+    def unit_risk_profile_penalty(
+            positions_object: list[Position],
             evaluation_time_ms: int = None
     ) -> float:
         """
         Returns the martingale penalty for each miner
 
         Args:
-            positions: dict[str, list[Position]] - the list of positions with translated leverage
+            positions_object: dict[str, list[Position]] - the list of equivalent positions for processing
         """
-        martingale_score = PositionPenalties.martingale_score(positions, evaluation_time_ms)
+        martingale_score = PositionPenalties.risk_profile_score(positions_object, evaluation_time_ms)
         return FunctionalUtils.sigmoid(
             martingale_score,
             ValiConfig.MARTINGALE_SHIFT,
@@ -29,24 +29,54 @@ class PositionPenalties:
         )
 
     @staticmethod
-    def martingale_score(
-            positions: list[Position],
-            evaluation_time_ms: int = None,
+    def risk_profile_score(
+            positions,
+            positions_equivalence
     ) -> float:
         """
         Returns the martingale penalty for each miner
 
         Args:
-            positions: dict[str, list[Position]] - the list of positions with translated leverage
+            positions: dict[str, list[Position]] - the list of equivalent positions for processing
+            positions_equivalence: dict[str, list[Position]] - the list of equivalent positions for processing
         """
-        cumulative_leverage_positions = PositionUtils.cumulative_leverage_position(positions, evaluation_time_ms)
-        return PositionPenalties.martingale_percentile(cumulative_leverage_positions)
+        clean_position_penalty = PositionPenalties.risk_profile_raw_score(positions)
+        equivalence_position_penalty = PositionPenalties.risk_profile_raw_score(positions_equivalence)
+        return max(clean_position_penalty, equivalence_position_penalty)
+
+    @staticmethod
+    def risk_profile_raw_score(
+            positions_object: list[Position],
+            positional_equivalence_window_ms: int = None,
+    ) -> float:
+        """
+        Returns the martingale penalty for each miner
+
+        Args:
+            positions_object: dict[str, list[Position]] - the list of equivalent positions for processing
+        """
+        if positional_equivalence_window_ms is None:
+            positional_equivalence_window_ms = ValiConfig.POSITIONAL_EQUIVALENCE_WINDOW_MS
+
+        # Looking for a few things here
+        # 1. Losing positions
+        # 2. Exponential increase in leverage
+        # 3. Clean relationship between loss percentage and leverage increase
+        # 4. Random entries timing
+
+        """Risk Profiling Score
+        For forex, we are looking for naive strategies which increase leverage as they lose. These naive strategies are likely to 
+        not be using a signal as part of their trading strategy, but instead based on some form of martingale betting.
+        """
+
+        return PositionPenalties.risk_profile_percentile(positions_object)
         # return FunctionalUtils.martingale_score(martingale_metrics, cumulative_leverage_positions)
 
     # what we want to do is determine for each position is to determine the relative drawdown percentage
     @staticmethod
-    def martingale_percentile(
-            positions: list[Position]
+    def risk_profile_percentile(
+            positions: list[Position],
+
     ) -> float:
         """
         Returns the penalty associated with uneven distributions for realized returns
