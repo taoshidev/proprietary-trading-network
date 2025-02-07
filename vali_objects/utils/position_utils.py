@@ -36,8 +36,6 @@ class PositionUtils:
             cumulative_leverage_positions: list[Position],
             evaluation_window_ms: int = None
     ) -> list[Position]:
-        # ... (rest of the docstring)
-
         if evaluation_window_ms is None:
             evaluation_window_ms = ValiConfig.POSITIONAL_EQUIVALENCE_WINDOW_MS
 
@@ -73,8 +71,8 @@ class PositionUtils:
                     logging.warning("Encountered empty window_orders. Skipping pseudo-position creation.")
                     continue  # Or raise an exception if that's more appropriate
 
-                open_ms = window_orders[0].open_ms if window_orders else None
-                close_ms = window_orders[-1].close_ms if window_orders else None
+                open_ms = window_orders[0].processed_ms if window_orders else None
+                close_ms = window_orders[-1].processed_ms if window_orders else None
                 return_at_close = 1.0
 
                 pseudo_positions.append(Position(

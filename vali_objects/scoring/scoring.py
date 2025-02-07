@@ -25,7 +25,6 @@ import bittensor as bt
 class PenaltyInputType(Enum):
     LEDGER = auto()
     POSITIONS = auto()
-    POSITION_EQUIVALENCE = auto()
 
 @dataclass
 class PenaltyConfig:
@@ -69,8 +68,8 @@ class Scoring:
             input_type=PenaltyInputType.LEDGER
         ),
         'risk_profile': PenaltyConfig(
-            function=PositionPenalties.risk_profile_score,
-            input_type=PenaltyInputType.POSITION_EQUIVALENCE
+            function=PositionPenalties.risk_profile_penalty,
+            input_type=PenaltyInputType.POSITIONS
         )
     }
 
@@ -215,8 +214,6 @@ class Scoring:
         for miner, ledger in ledger_dict.items():
             positions = hotkey_positions.get(miner, [])
 
-            cumulative_positions = PositionUtils.cumulative_leverage_position(positions)
-            position_equivalence = PositionUtils.positional_equivalence(cumulative_positions)
             if not ledger:
                 bt.logging.warning(f"Unexpectedly skipping miner {miner} with empty ledger and {len(positions)} positions")
             ledger_checkpoints = ledger.cps if ledger else []
@@ -228,9 +225,7 @@ class Scoring:
                 if penalty_config.input_type == PenaltyInputType.LEDGER:
                     penalty = penalty_config.function(ledger_checkpoints)
                 elif penalty_config.input_type == PenaltyInputType.POSITIONS:
-                    penalty = penalty_config.function(cumulative_positions)
-                elif penalty_config.input_type == PenaltyInputType.POSITION_EQUIVALENCE:
-                    penalty = penalty_config.function(cumulative_positions, position_equivalence)
+                    penalty = penalty_config.function(positions)
 
                 cumulative_penalty *= penalty
 

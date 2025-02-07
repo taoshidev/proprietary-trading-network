@@ -11,9 +11,8 @@ from vali_objects.utils.position_utils import PositionUtils
 class PositionPenalties:
 
     @staticmethod
-    def unit_risk_profile_penalty(
-            positions_object: list[Position],
-            evaluation_time_ms: int = None
+    def risk_profile_penalty(
+            positions_object: list[Position]
     ) -> float:
         """
         Returns the martingale penalty for each miner
@@ -21,43 +20,40 @@ class PositionPenalties:
         Args:
             positions_object: dict[str, list[Position]] - the list of equivalent positions for processing
         """
-        martingale_score = PositionPenalties.risk_profile_score(positions_object, evaluation_time_ms)
+        risk_profile_score = PositionPenalties.risk_profile_score(positions_object)
         return FunctionalUtils.sigmoid(
-            martingale_score,
+            risk_profile_score,
             ValiConfig.MARTINGALE_SHIFT,
             ValiConfig.MARTINGALE_SPREAD
         )
 
     @staticmethod
     def risk_profile_score(
-            positions,
-            positions_equivalence
+            positions
     ) -> float:
         """
         Returns the martingale penalty for each miner
 
         Args:
             positions: dict[str, list[Position]] - the list of equivalent positions for processing
-            positions_equivalence: dict[str, list[Position]] - the list of equivalent positions for processing
         """
-        clean_position_penalty = PositionPenalties.risk_profile_raw_score(positions)
+        cumulative_positions = PositionUtils.cumulative_leverage_position(positions)
+        positions_equivalence = PositionUtils.positional_equivalence(cumulative_positions)
+
+        # Now track the positions
+        clean_position_penalty = PositionPenalties.risk_profile_raw_score(cumulative_positions)
         equivalence_position_penalty = PositionPenalties.risk_profile_raw_score(positions_equivalence)
         return max(clean_position_penalty, equivalence_position_penalty)
 
     @staticmethod
-    def risk_profile_raw_score(
-            positions_object: list[Position],
-            positional_equivalence_window_ms: int = None,
-    ) -> float:
+    def risk_profile_raw_score(positions_object: list[Position]) -> float:
         """
         Returns the martingale penalty for each miner
 
         Args:
             positions_object: dict[str, list[Position]] - the list of equivalent positions for processing
+            positional_equivalence_window_ms: int - the window for positional equivalence
         """
-        if positional_equivalence_window_ms is None:
-            positional_equivalence_window_ms = ValiConfig.POSITIONAL_EQUIVALENCE_WINDOW_MS
-
         # Looking for a few things here
         # 1. Losing positions
         # 2. Exponential increase in leverage
@@ -68,6 +64,48 @@ class PositionPenalties:
         For forex, we are looking for naive strategies which increase leverage as they lose. These naive strategies are likely to 
         not be using a signal as part of their trading strategy, but instead based on some form of martingale betting.
         """
+        risk_profile_score = 0.0
+
+        for position in positions_object:
+            positional_orders = position.orders
+            entry_order = positional_orders[0]
+            exit_order = positional_orders[-1]
+
+            # tracking deltas
+            max_leverage = abs(entry_order.leverage)
+            furthest_price = entry_order.price
+
+            leverage_deltas = []
+            price_deltas = []
+
+            for c, order in enumerate(positional_orders, start=1):
+                # losing_position
+                losing_order = order.price < entry_order.price and entry_order.leverage > 0 \
+                                  or order.price > entry_order.price and entry_order.leverage < 0
+
+                # define the losing direction on price movement
+                losing_direction = entry_order.leverage < 0
+
+                # Tracking leverage change
+                leverage_delta = (abs(order.leverage) - max_leverage) / max_leverage
+                price_delta = abs(order.price - furthest_price) / abs(furthest_price) * (1 if losing_order else -1)
+
+                if losing_order:
+                    leverage_deltas.append(leverage_delta)
+                    price_deltas.append(price_delta)
+
+                    if leverage_delta > 0:
+                        max_leverage = abs(order.leverage)
+
+                    if price_delta > 0:
+                        furthest_price = order.price
+
+
+                # Tracking value change delta
+                value_delta = (order.price - furthest_price) / furthest_price
+                # if value_delta > max_value_change_delta:
+                #     max_value_change_delta = value_delta
+                #     furthest_price = order.price
 
         return PositionPenalties.risk_profile_percentile(positions_object)
         # return FunctionalUtils.martingale_score(martingale_metrics, cumulative_leverage_positions)
