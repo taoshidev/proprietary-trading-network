@@ -59,6 +59,8 @@ class ValiConfig:
     EQUITIES_MIN_LEVERAGE = 0.1
     EQUITIES_MAX_LEVERAGE = 5
 
+    LEVERAGE_TO_CAPITAL = 100_000  # conversion of 1x leverage to $100K in capital
+
     MAX_DAILY_DRAWDOWN = 0.95  # Portfolio should never fall below .95 x of initial value when measured day to day
     MAX_TOTAL_DRAWDOWN = 0.9  # Portfolio should never fall below .90 x of initial value when measured at any instant
     MAX_TOTAL_DRAWDOWN_V2 = 0.95
@@ -158,15 +160,15 @@ assert ValiConfig.EQUITIES_MAX_LEVERAGE <= ValiConfig.ORDER_MAX_LEVERAGE
 class TradePair(Enum):
     # crypto
     BTCUSD = ["BTCUSD", "BTC/USD", 0.001, ValiConfig.CRYPTO_MIN_LEVERAGE, ValiConfig.CRYPTO_MAX_LEVERAGE,
-              TradePairCategory.CRYPTO]
+              TradePairCategory.CRYPTO, 0.00000001]
     ETHUSD = ["ETHUSD", "ETH/USD", 0.001, ValiConfig.CRYPTO_MIN_LEVERAGE, ValiConfig.CRYPTO_MAX_LEVERAGE,
-              TradePairCategory.CRYPTO]
+              TradePairCategory.CRYPTO, 0.000000000000000001]
     SOLUSD = ["SOLUSD", "SOL/USD", 0.001, ValiConfig.CRYPTO_MIN_LEVERAGE, ValiConfig.CRYPTO_MAX_LEVERAGE,
-              TradePairCategory.CRYPTO]
+              TradePairCategory.CRYPTO, 0.000000001]
     XRPUSD = ["XRPUSD", "XRP/USD", 0.001, ValiConfig.CRYPTO_MIN_LEVERAGE, ValiConfig.CRYPTO_MAX_LEVERAGE,
-                TradePairCategory.CRYPTO]
+                TradePairCategory.CRYPTO, 0.000001]
     DOGEUSD = ["DOGEUSD", "DOGE/USD", 0.001, ValiConfig.CRYPTO_MIN_LEVERAGE, ValiConfig.CRYPTO_MAX_LEVERAGE,
-                TradePairCategory.CRYPTO]
+                TradePairCategory.CRYPTO, 1]
 
 
     # forex
@@ -266,6 +268,10 @@ class TradePair(Enum):
     @property
     def trade_pair_category(self):
         return self.value[5]
+
+    @property
+    def smallest_unit(self):
+        return self.value[6]
 
     @property
     def is_crypto(self):

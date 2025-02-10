@@ -160,6 +160,14 @@ class ValiBkpUtils:
         return ValiConfig.BASE_DIR + "/validation/predictions/"
 
     @staticmethod
+    def get_slippage_model_parameters_file() -> str:
+        return ValiConfig.BASE_DIR + "/vali_objects/utils/model_parameters/all_model_parameters.json"
+
+    @staticmethod
+    def get_slippage_model_features_file() -> str:
+        return ValiConfig.BASE_DIR + "/vali_objects/utils/model_parameters/model_features.json"
+
+    @staticmethod
     def get_response_filename(request_uuid: str) -> str:
         return str(request_uuid) + ".pickle"
 

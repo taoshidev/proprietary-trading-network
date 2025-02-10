@@ -38,6 +38,7 @@ from vali_objects.exceptions.signal_exception import SignalException
 from shared_objects.metagraph_updater import MetagraphUpdater
 from vali_objects.utils.elimination_manager import EliminationManager
 from vali_objects.utils.live_price_fetcher import LivePriceFetcher
+from vali_objects.utils.price_slippage_model import PriceSlippageModel
 from vali_objects.utils.subtensor_weight_setter import SubtensorWeightSetter
 from vali_objects.utils.mdd_checker import MDDChecker
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils, CustomEncoder
@@ -121,6 +122,7 @@ class Validator:
         self.ipc_manager = Manager()
 
         self.live_price_fetcher = LivePriceFetcher(secrets=self.secrets, disable_ws=False, ipc_manager=self.ipc_manager)
+        self.price_slippage_model = PriceSlippageModel(live_price_fetcher=self.live_price_fetcher)
         # Activating Bittensor's logging with the set configurations.
         bt.logging(config=self.config, logging_dir=self.config.full_path)
         bt.logging.info(
@@ -457,7 +459,7 @@ class Validator:
         bt.logging.warning("Performing graceful exit...")
         bt.logging.warning("Stopping axon...")
         self.axon.stop()
-        bt.logging.warning("Stopping metagrpah update...")
+        bt.logging.warning("Stopping metagraph update...")
         self.metagraph_updater_thread.join()
         bt.logging.warning("Stopping live price fetcher...")
         self.live_price_fetcher.stop_all_threads()
@@ -484,6 +486,7 @@ class Validator:
 
                 #print(f'@@@ {len(self.metagraph.hotkeys)} self.hktp {len(self.position_manager.hotkey_to_positions)} self.hktpl {self.perf_ledger_manager.hotkey_to_perf_ledger} self.elims {len(self.elimination_manager.get_eliminations_from_memory())}')
                 current_time = TimeUtil.now_in_millis()
+                self.price_slippage_model.refresh_features_daily()
                 self.position_syncer.sync_positions_with_cooldown(self.auto_sync)
                 self.mdd_checker.mdd_check(self.position_locks)
                 self.challengeperiod_manager.refresh(current_time=current_time)
@@ -531,6 +534,7 @@ class Validator:
         bt.logging.info("Attempting to get live price for trade pair: " + trade_pair.trade_pair_id)
         live_closing_price, price_sources = self.live_price_fetcher.get_latest_price(trade_pair=trade_pair,
                                                                                      time_ms=now_ms)
+        _, quote_sources = self.live_price_fetcher.get_latest_quote(trade_pair=trade_pair, time_ms=now_ms)
 
         order = Order(
             trade_pair=trade_pair,
@@ -539,12 +543,27 @@ class Validator:
             price=live_closing_price,
             processed_ms=now_ms,
             order_uuid=miner_order_uuid if miner_order_uuid else str(uuid.uuid4()),
-            price_sources=price_sources
+            price_sources=price_sources,
+            quote_sources=quote_sources
         )
         delta_t_ms = TimeUtil.now_in_millis() - now_ms
         delta_t_s_3_decimals = round(delta_t_ms / 1000.0, 3)
         bt.logging.success(f"Converted signal to order: {order} in {delta_t_s_3_decimals} seconds")
         return order
+
+    def set_order_side(self, order: Order, position: Position):
+        """
+        set the order side. a flat order requires the position in order to determine it's side
+        """
+        if order.order_type == OrderType.LONG:
+            order.side = "buy"
+        elif order.order_type == OrderType.SHORT:
+            order.side = "sell"
+        else:  # if the order_type is FLAT, then side depends on current position_type
+            if position.position_type == OrderType.LONG:
+                order.side = "sell"
+            else:
+                order.side = "buy"
 
     def _enforce_num_open_order_limit(self, trade_pair_to_open_position: dict, signal_to_order):
         # Check if there are too many orders across all open positions.
@@ -734,6 +753,7 @@ class Validator:
                 if open_position:
                     net_portfolio_leverage = self.position_manager.calculate_net_portfolio_leverage(miner_hotkey)
                     self.enforce_order_cooldown(signal_to_order, open_position)
+                    self.set_order_side(signal_to_order, open_position)
                     open_position.add_order(signal_to_order, net_portfolio_leverage)
                     self.position_manager.save_miner_position(open_position)
                     bt.logging.info(

@@ -43,10 +43,10 @@ class Position(BaseModel):
     open_ms: int
     trade_pair: TradePair
     orders: List[Order] = Field(default_factory=list)
-    current_return: float = 1.0
+    current_return: float = 1.0  # excludes fees
     close_ms: Optional[int] = None
-    return_at_close: float = 1.0
     net_leverage: float = 0.0
+    return_at_close: float = 1.0  # includes all fees
     average_entry_price: float = 0.0
     position_type: Optional[OrderType] = None
     is_closed_position: bool = False
@@ -483,7 +483,10 @@ class Position(BaseModel):
         For example, it can take a negative value. A more accurate name for this variable is the weighted average
         entry price.
         """
-        realtime_price = order.price
+        if order.side == "buy":
+            realtime_price = order.price * (1 + order.slippage)  # realtime_price is inclusive of slippage
+        else:
+            realtime_price = order.price * (1 - order.slippage)
         assert self.initial_entry_price > 0, self.initial_entry_price
         new_net_leverage = self.net_leverage + delta_leverage
         if order.src == ORDER_SRC_ELIMINATION_FLAT:
