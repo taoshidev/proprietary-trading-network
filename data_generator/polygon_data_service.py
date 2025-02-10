@@ -1,6 +1,7 @@
 import asyncio
 import threading
 import traceback
+from datetime import datetime
 from multiprocessing import Process
 
 import requests
@@ -19,6 +20,7 @@ import bittensor as bt
 from polygon import RESTClient
 
 from vali_objects.vali_dataclasses.price_source import PriceSource
+from vali_objects.vali_dataclasses.quote_source import QuoteSource
 from vali_objects.vali_dataclasses.recent_event_tracker import RecentEventTracker
 
 DEBUG = 0
@@ -432,6 +434,26 @@ class PolygonDataService(BaseDataService):
 
         return all_trade_pair_closes
 
+    def get_quotes_rest(self, pairs: List[TradePair]) -> dict:
+        all_trade_pair_quotes = {}
+        # Multi-threaded fetching of REST data over all requested trade pairs. Max parallelism is 5.
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            # Dictionary to keep track of futures
+            future_to_trade_pair = {executor.submit(self.get_quote_rest, p): p for p in pairs}
+
+            for future in as_completed(future_to_trade_pair):
+                tp = future_to_trade_pair[future]
+                try:
+                    result = future.result()
+                    if result is None:
+                        result = {}
+                    all_trade_pair_quotes[tp] = result
+                except Exception as exc:
+                    bt.logging.error(f"{tp} generated an exception: {exc}. Continuing...")
+                    bt.logging.error(traceback.format_exc())
+
+        return all_trade_pair_quotes
+
     def agg_to_price_source(self, a, now_ms:int, timespan:str, attempting_prev_close:bool=False):
         p_name = f'{POLYGON_PROVIDER_NAME}_rest'
         if attempting_prev_close:
@@ -449,6 +471,20 @@ class PolygonDataService(BaseDataService):
                 websocket=False,
                 lag_ms=now_ms - a.timestamp,
                 volume=a.volume
+            )
+
+    def agg_to_quote_source(self, bid:float, ask:float, timestamp:int, now_ms:int, attempting_prev_close:bool=False):
+        q_name = f'{POLYGON_PROVIDER_NAME}_rest'
+        # if attempting_prev_close:
+        #     p_name += '_prev_close'
+        return \
+            QuoteSource(
+                source=q_name,
+                timestamp_ms=timestamp,
+                bid=bid,
+                ask=ask,
+                websocket=False,
+                lag_ms=now_ms - timestamp
             )
 
     def get_close_rest(
@@ -484,6 +520,26 @@ class PolygonDataService(BaseDataService):
 
         return final_agg
 
+    def get_quote_rest(
+        self,
+        trade_pair: TradePair
+    ) -> QuoteSource | None:
+        polygon_ticker = self.trade_pair_to_polygon_ticker(trade_pair)
+        #bt.logging.info(f"Fetching REST data for {polygon_ticker}")
+
+        # if not self.is_market_open(trade_pair):
+        #     return self.get_quote_event_before_market_close(trade_pair)
+
+        now_ms = TimeUtil.now_in_millis()
+        bid, ask, timestamp = self.get_quote(trade_pair, now_ms)
+        final_quote = self.agg_to_quote_source(bid, ask, timestamp, now_ms)
+
+        if not final_quote:
+            bt.logging.warning(f"Polygon failed to fetch quote REST data for {trade_pair.trade_pair}. If you keep seeing this warning, report it to the team ASAP")
+            final_quote = None
+
+        return final_quote
+
 
     def trade_pair_to_polygon_ticker(self, trade_pair: TradePair):
         if trade_pair.is_crypto:
@@ -514,6 +570,24 @@ class PolygonDataService(BaseDataService):
         ans = candles[-1]
         self.closed_market_prices[trade_pair] = ans
         return self.closed_market_prices[trade_pair]
+
+    # def get_quote_event_before_market_close(self, trade_pair: TradePair) -> QuoteSource | None:
+    #     if self.closed_market_prices[trade_pair] is not None:
+    #         return self.closed_market_prices[trade_pair]
+    #     elif trade_pair in self.UNSUPPORTED_TRADE_PAIRS:
+    #         return None
+    #
+    #     # start 7 days ago
+    #     end_time_ms = TimeUtil.now_in_millis()
+    #     start_time_ms = TimeUtil.now_in_millis() - 1000 * 60 * 60 * 24 * 7
+    #     candles = self.get_candles_for_trade_pair(trade_pair, start_time_ms, end_time_ms, attempting_prev_close=True)
+    #     if len(candles) == 0:
+    #         msg = f"Failed to fetch market close for {trade_pair.trade_pair}"
+    #         raise ValueError(msg)
+    #
+    #     ans = candles[-1]
+    #     self.closed_market_prices[trade_pair] = ans
+    #     return self.closed_market_prices[trade_pair]
 
     def get_websocket_event(self, trade_pair: TradePair) -> PriceSource | None:
         symbol = trade_pair.trade_pair
@@ -665,10 +739,6 @@ class PolygonDataService(BaseDataService):
 
         # Return the collected results
         return ret
-
-    def get_candles_for_trade_pair_simple(self, trade_pair: TradePair, start_timestamp_ms: int, end_timestamp_ms: int, timespan: str):
-        raw = self.unified_candle_fetcher(trade_pair, start_timestamp_ms, end_timestamp_ms, timespan)
-        return raw
 
     def unified_candle_fetcher(self, trade_pair: TradePair, start_timestamp_ms: int, end_timestamp_ms: int, timespan: str=None):
 
@@ -868,36 +938,30 @@ class PolygonDataService(BaseDataService):
 
         return aggs
 
-    def get_last_quote(self, trade_pair: TradePair, processed_ms: int) -> (float, float):
+    def get_quote(self, trade_pair: TradePair, processed_ms: int) -> (float, float, int):
         """
-        returns the most recent ask price and bid price for a trade_pair
+        returns the bid and ask quote for a trade_pair at processed_ms
         """
         # polygon_ticker = self.trade_pair_to_polygon_ticker(trade_pair)
 
         if self.POLYGON_CLIENT is None:
             self.instantiate_not_pickleable_objects()
 
-        # quotes = []
-        # for t in self.POLYGON_CLIENT.list_quotes(polygon_ticker, timestamp="2025-01-23"):# timestamp_lte=processed_ms*1000, timestamp_gte=1737619200):
-        #     quotes.append(t)
-        #
-        # print(quotes)
-
-        if trade_pair.is_forex:
-            base, quote = trade_pair.trade_pair.split("/")
-            quote = self.POLYGON_CLIENT.get_last_forex_quote(
-                from_=base,
-                to=quote,
+        if trade_pair.is_forex or trade_pair.is_equities:
+            polygon_ticker = self.trade_pair_to_polygon_ticker(trade_pair)
+            dt = datetime.utcfromtimestamp(processed_ms/1000)
+            quotes = self.POLYGON_CLIENT.list_quotes(
+                ticker=polygon_ticker,
+                timestamp_lte=dt,
+                sort="participant_timestamp",
+                order="desc",
+                limit=1
             )
-            return quote.last.ask, quote.last.bid
-        elif trade_pair.is_equities:
-            quote = self.POLYGON_CLIENT.get_last_quote(
-                ticker=trade_pair.trade_pair_id,
-            )
-            return quote.ask_price, quote.bid_price
-
-        print("done quoting")
-        return
+            for q in quotes:
+                return q.bid_price, q.ask_price, q.participant_timestamp/1_000_000  # convert ns back to ms
+        else:
+            # crypto
+            return 0, 0, 0
 
     def get_currency_conversion(self, trade_pair: TradePair=None, base: str=None, quote: str=None) -> float:
         """
@@ -919,15 +983,6 @@ class PolygonDataService(BaseDataService):
         )
 
         return rate.converted
-
-    def get_market_holidays(self):
-        """
-        returns list of all upcoming market holidays in the next year
-        """
-        if self.POLYGON_CLIENT is None:
-            self.instantiate_not_pickleable_objects()
-
-        return list(set([holiday.date for holiday in self.POLYGON_CLIENT.get_market_holidays()]))
 
 
 if __name__ == "__main__":

@@ -2,7 +2,7 @@
 *.json
 *.pickle
 # model parameters
-!vali_objects/utils/model_parameters/*.json
+!vali_objects/utils/model_parameters/all_model_parameters.json
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

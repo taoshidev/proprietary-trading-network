@@ -8,6 +8,7 @@ from functools import lru_cache
 from zoneinfo import ZoneInfo  # Make sure to use Python 3.9 or later
 
 import pandas as pd
+import numpy as np
 
 from vali_objects.vali_config import TradePair
 
@@ -286,6 +287,11 @@ class TimeUtil:
         return datetime.fromtimestamp(seconds, tz=timezone.utc)
 
     @staticmethod
+    def millis_to_short_date_str(millis: int) -> str:
+        temp = TimeUtil.millis_to_datetime(millis)
+        return temp.strftime("%Y-%m-%d")
+
+    @staticmethod
     def millis_to_formatted_date_str(millis: int) -> str:
         temp = TimeUtil.millis_to_datetime(millis)
         return temp.strftime("%Y-%m-%d %H:%M:%S")
@@ -471,3 +477,18 @@ class TimeUtil:
         day_of_week = dt.weekday()
 
         return day_of_week
+
+    @staticmethod
+    def get_n_business_days_ago(start_date: str, days_ago: int) -> str:
+        """
+        get the date n business days ago
+        excludes weekends and public holidays
+        """
+        holidays = ['2024-01-01', '2024-01-15', '2024-02-19', '2024-03-29', '2024-05-27', '2024-06-19', '2024-07-04',
+                    '2024-09-02', '2024-11-28', '2024-12-25', '2025-01-01', '2025-01-20', '2025-02-17', '2025-04-18',
+                    '2025-05-26', '2025-06-19', '2025-07-04', '2025-09-01', '2025-11-27', '2025-12-25', '2025-01-09',
+                    '2026-01-01', '2026-01-19', '2026-02-16', '2026-04-03', '2026-05-25', '2026-06-19', '2026-07-03',
+                    '2026-09-07', '2026-11-26', '2026-12-25']
+        date_np = np.datetime64(start_date)
+        past_date = np.busday_offset(date_np, -days_ago, roll='backward', holidays=holidays) # subtract non trading days (weekends and holidays are skipped)
+        return str(past_date)
