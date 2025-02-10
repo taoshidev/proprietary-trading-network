@@ -1,7 +1,6 @@
 # developer: Taoshidev
 # Copyright © 2024 Taoshi Inc
 import bittensor as bt
-from typing import Optional
 from pydantic import BaseModel
 
 # from vali_objects.utils.price_slippage_model import PriceSlippageModel
@@ -66,7 +65,7 @@ class QuoteSource(BaseModel):
                 new_quote_sources.append(existing_ps)
 
         bid, ask = QuoteSource.get_winning_quote(new_quote_sources, order_time_ms)
-        new_slippage = 0#PriceSlippageModel().calculate_slippage(bid, ask, order)
+        new_slippage = PriceSlippageModel.calculate_slippage(bid, ask, order)
         new_quote_sources = QuoteSource.non_null_events_sorted(new_quote_sources, order_time_ms)
         if any_changes:
             order.quote_sources = new_quote_sources

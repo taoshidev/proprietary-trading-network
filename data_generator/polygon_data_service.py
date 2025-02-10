@@ -524,7 +524,7 @@ class PolygonDataService(BaseDataService):
         self,
         trade_pair: TradePair
     ) -> QuoteSource | None:
-        polygon_ticker = self.trade_pair_to_polygon_ticker(trade_pair)
+        # polygon_ticker = self.trade_pair_to_polygon_ticker(trade_pair)
         #bt.logging.info(f"Fetching REST data for {polygon_ticker}")
 
         # if not self.is_market_open(trade_pair):

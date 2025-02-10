@@ -57,7 +57,7 @@ class ValiConfig:
     INDICES_MIN_LEVERAGE = 0.1
     INDICES_MAX_LEVERAGE = 5
     EQUITIES_MIN_LEVERAGE = 0.1
-    EQUITIES_MAX_LEVERAGE = 5
+    EQUITIES_MAX_LEVERAGE = 3
 
     LEVERAGE_TO_CAPITAL = 100_000  # conversion of 1x leverage to $100K in capital
 
