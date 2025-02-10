@@ -148,11 +148,6 @@ class ValiConfig:
     # Cap leverage across miner's entire portfolio
     PORTFOLIO_LEVERAGE_CAP = 10
 
-    # Price slippage model
-    AVERAGE_DAILY_VOLUME_LOOKBACK_DAYS = 10
-    ANNUALIZED_VOLATILITY_LOOKBACK_DAYS = 30
-    FOREX_ANNUAL_TRADING_DAYS = 252 # TODO:
-
 assert ValiConfig.CRYPTO_MIN_LEVERAGE >= ValiConfig.ORDER_MIN_LEVERAGE
 assert ValiConfig.CRYPTO_MAX_LEVERAGE <= ValiConfig.ORDER_MAX_LEVERAGE
 assert ValiConfig.FOREX_MIN_LEVERAGE >= ValiConfig.ORDER_MIN_LEVERAGE

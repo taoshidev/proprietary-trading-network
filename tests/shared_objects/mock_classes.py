@@ -77,9 +77,6 @@ class MockPolygonDataService(PolygonDataService):
 
     # def get_candles_for_trade_pair_simple(self, trade_pair: TradePair, start_timestamp_ms: int, end_timestamp_ms: int, timespan: str="second"):
     #     pass
-    #
-    # def get_market_holidays(self):
-    #     pass
 
 class MockPriceSlippageModel(PriceSlippageModel):
     def __init__(self, live_price_fetcher):
