@@ -24,7 +24,7 @@ from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.vali_dataclasses.order import OrderStatus, ORDER_SRC_DEPRECATION_FLAT, Order
 from vali_objects.utils.position_filtering import PositionFiltering
 
-TARGET_MS = 1738727350000 + (1000 * 60 * 60 * 3)  # + 3 hours
+TARGET_MS = 1739302624000 + (1000 * 60 * 60 * 3)  # + 3 hours
 
 
 class PositionManager(CacheController):
@@ -331,32 +331,147 @@ class PositionManager(CacheController):
             miners_to_wipe = []# All miners that should have been promoted
             miners_to_promote = []
             positions_to_snap = [
-                {'miner_hotkey': '5GixML7kjvYnTbSA3xL1Kx9Eo2AfNDMwpCyb8tD2kMY9qbup',
-                 'position_uuid': 'b11f10f2-6082-b30a-6aab-fd1e892c2b54', 'open_ms': 1738728327530,
-                 'trade_pair': TradePair.USDJPY, 'orders': [
-                    {'trade_pair': TradePair.USDJPY, 'order_type': OrderType.LONG, 'leverage': 5.0, 'price': 153.194,
-                     'processed_ms': 1738728327530, 'order_uuid': 'b11f10f2-6082-b30a-6aab-fd1e892c2b54',
+                {'miner_hotkey': '5G1FFNUrq9UBoZjaA1Bw7JZ79EkQg9QqZpGrdNki1zvPa1e8',
+                 'position_uuid': '162e5391-1fb0-46cd-9724-70b714021069', 'open_ms': 1738800017652,
+                 'trade_pair': TradePair.BTCUSD, 'orders': [
+                    {'trade_pair': TradePair.BTCUSD, 'order_type': OrderType.LONG, 'leverage': 0.015, 'price': 96626.12,
+                     'processed_ms': 1738800017652, 'order_uuid': '162e5391-1fb0-46cd-9724-70b714021069',
+                     'price_sources': [{'source': 'Polygon_ws', 'timespan_ms': 0, 'open': 96626.12, 'close': 96626.12,
+                                        'vwap': 96626.12, 'high': 96626.12, 'low': 96626.12, 'start_ms': 1738800018000,
+                                        'websocket': True, 'lag_ms': 348, 'volume': 0.001},
+                                       {'source': 'Tiingo_gdax_rest', 'timespan_ms': 0, 'open': 96576.12,
+                                        'close': 96576.12, 'vwap': 96576.12, 'high': 96576.12, 'low': 96576.12,
+                                        'start_ms': 1738800019260, 'websocket': True, 'lag_ms': 1608, 'volume': None}],
+                     'src': 0}, {'trade_pair': TradePair.BTCUSD, 'order_type': OrderType.LONG, 'leverage': 0.0075,
+                                 'price': 95868.65, 'processed_ms': 1738872024713,
+                                 'order_uuid': '38374bc1-f180-4a76-955c-a44c8ce5c022', 'price_sources': [
+                            {'source': 'Polygon_ws', 'timespan_ms': 0, 'open': 95868.65, 'close': 95868.65,
+                             'vwap': 95868.65, 'high': 95868.65, 'low': 95868.65, 'start_ms': 1738872025000,
+                             'websocket': True, 'lag_ms': 287, 'volume': 4.019e-05},
+                            {'source': 'Tiingo_gdax_rest', 'timespan_ms': 0, 'open': 95873.26, 'close': 95873.26,
+                             'vwap': 95873.26, 'high': 95873.26, 'low': 95873.26, 'start_ms': 1738872025748,
+                             'websocket': True, 'lag_ms': 1035, 'volume': None}], 'src': 0},
+                    {'trade_pair': TradePair.BTCUSD, 'order_type': OrderType.LONG, 'leverage': 0.0075,
+                     'price': 95901.26, 'processed_ms': 1739030420531,
+                     'order_uuid': '4f297bf0-1c49-49fc-8b45-e8d4d91d443c', 'price_sources': [
+                        {'source': 'Polygon_ws', 'timespan_ms': 0, 'open': 95901.26, 'close': 95901.26,
+                         'vwap': 95901.26, 'high': 95901.26, 'low': 95901.26, 'start_ms': 1739030421000,
+                         'websocket': True, 'lag_ms': 469, 'volume': 2.155e-05},
+                        {'source': 'Tiingo_gdax_rest', 'timespan_ms': 0, 'open': 95901.25, 'close': 95901.25,
+                         'vwap': 95901.25, 'high': 95901.25, 'low': 95901.25, 'start_ms': 1739030422061,
+                         'websocket': True, 'lag_ms': 1530, 'volume': None}], 'src': 0},
+                    {'trade_pair': TradePair.BTCUSD, 'order_type': OrderType.LONG, 'leverage': 0.0075,
+                     'price': 95027.27, 'processed_ms': 1739304033515,
+                     'order_uuid': '87ef0eff-202b-47c8-9fb3-162e385af50d', 'price_sources': [
+                        {'source': 'Polygon_ws', 'timespan_ms': 0, 'open': 95027.27, 'close': 95027.27,
+                         'vwap': 95027.27, 'high': 95027.27, 'low': 95027.27, 'start_ms': 1739304034000,
+                         'websocket': True, 'lag_ms': 485, 'volume': 4.4e-07},
+                        {'source': 'Tiingo_gdax_rest', 'timespan_ms': 0, 'open': 95000.0, 'close': 95000.0,
+                         'vwap': 95000.0, 'high': 95000.0, 'low': 95000.0, 'start_ms': 1739304031211, 'websocket': True,
+                         'lag_ms': 2304, 'volume': None}], 'src': 0}], 'current_return': 0.9996391992662026,
+                 'close_ms': None, 'return_at_close': 0.9995704334879162, 'net_leverage': 0.0375,
+                 'average_entry_price': 96009.884, 'position_type': OrderType.LONG, 'is_closed_position': False},
+
+                {'miner_hotkey': '5G1gfbyRTL9VQPhx9CC312XTxz54doSiFxcPWTM7v4RXL6RZ',
+                 'position_uuid': '01f62a71-9b25-807f-d7f9-2ad90598dedf', 'open_ms': 1739303263086,
+                 'trade_pair': TradePair.NZDJPY, 'orders': [
+                    {'trade_pair': TradePair.NZDJPY, 'order_type': OrderType.SHORT, 'leverage': -5.0, 'price': 86.193,
+                     'processed_ms': 1739303263086, 'order_uuid': '01f62a71-9b25-807f-d7f9-2ad90598dedf',
                      'price_sources': [
-                         {'source': 'Polygon_ws', 'timespan_ms': 0, 'open': 153.194, 'close': 153.194, 'vwap': 153.194,
-                          'high': 153.194, 'low': 153.194, 'start_ms': 1738728327999, 'websocket': True, 'lag_ms': 469,
+                         {'source': 'Polygon_ws', 'timespan_ms': 0, 'open': 86.193, 'close': 86.193, 'vwap': 86.193,
+                          'high': 86.193, 'low': 86.193, 'start_ms': 1739303263000, 'websocket': True, 'lag_ms': 86,
                           'volume': 1.0},
-                         {'source': 'Tiingo_rest', 'timespan_ms': 0, 'open': 153.193, 'close': 153.193, 'vwap': 153.193,
-                          'high': 153.193, 'low': 153.193, 'start_ms': 1738728328114, 'websocket': True, 'lag_ms': 584,
+                         {'source': 'Polygon_rest', 'timespan_ms': 1000, 'open': 86.195, 'close': 86.195, 'vwap': None,
+                          'high': 86.195, 'low': 86.195, 'start_ms': 1739303261000, 'websocket': False, 'lag_ms': 1087,
+                          'volume': 2.0},
+                         {'source': 'Tiingo_rest', 'timespan_ms': 0, 'open': 86.19, 'close': 86.19, 'vwap': 86.19,
+                          'high': 86.19, 'low': 86.19, 'start_ms': 1739303261570, 'websocket': True, 'lag_ms': 1516,
                           'volume': None}], 'src': 0},
-                    {'trade_pair': TradePair.USDJPY, 'order_type': OrderType.FLAT, 'leverage': 0.0, 'price': 153.238,
-                     'processed_ms': 1738728429332, 'order_uuid': '0fec1185-9fdf-42dc-7409-8dfb65dac60b',
+                    {'trade_pair': TradePair.NZDJPY, 'order_type': OrderType.FLAT, 'leverage': 0.0, 'price': 86.185,
+                     'processed_ms': 1739303317319, 'order_uuid': '881627b4-50d8-8589-cc2d-2d7823374dd4',
                      'price_sources': [
-                         {'source': 'Polygon_ws', 'timespan_ms': 0, 'open': 153.238, 'close': 153.238, 'vwap': 153.238,
-                          'high': 153.238, 'low': 153.238, 'start_ms': 1738728429000, 'websocket': True, 'lag_ms': 332,
-                          'volume': 1.0},
-                         {'source': 'Polygon_rest', 'timespan_ms': 1000, 'open': 153.238, 'close': 153.238,
-                          'vwap': None, 'high': 153.238, 'low': 153.238, 'start_ms': 1738728429000, 'websocket': False,
-                          'lag_ms': 332, 'volume': 1.0},
-                         {'source': 'Tiingo_rest', 'timespan_ms': 0, 'open': 153.235, 'close': 153.235, 'vwap': 153.235,
-                          'high': 153.235, 'low': 153.235, 'start_ms': 1738728428375, 'websocket': True, 'lag_ms': 957,
-                          'volume': None}], 'src': 0}], 'current_return': 1.0014360875752317, 'close_ms': 1738728429332,
-                 'return_at_close': 1.0010855849445803, 'net_leverage': 0.0, 'average_entry_price': 153.194,
-                 'position_type': OrderType.FLAT, 'is_closed_position': True}
+                         {'source': 'Polygon_rest', 'timespan_ms': 1000, 'open': 86.185, 'close': 86.185, 'vwap': None,
+                          'high': 86.185, 'low': 86.185, 'start_ms': 1739303316000, 'websocket': False, 'lag_ms': 320,
+                          'volume': 3.0},
+                         {'source': 'Tiingo_rest', 'timespan_ms': 0, 'open': 86.177, 'close': 86.177, 'vwap': 86.177,
+                          'high': 86.177, 'low': 86.177, 'start_ms': 1739303318243, 'websocket': True, 'lag_ms': 924,
+                          'volume': None},
+                         {'source': 'Polygon_ws', 'timespan_ms': 0, 'open': 86.195, 'close': 86.195, 'vwap': 86.195,
+                          'high': 86.195, 'low': 86.195, 'start_ms': 1739303284999, 'websocket': True, 'lag_ms': 32320,
+                          'volume': 1.0}], 'src': 0}], 'current_return': 1.000464074808859, 'close_ms': 1739303317319,
+                 'return_at_close': 1.0001139123826759, 'net_leverage': 0.0, 'average_entry_price': 86.193,
+                 'position_type': OrderType.FLAT, 'is_closed_position': True},
+
+                {'miner_hotkey': '5G1gfbyRTL9VQPhx9CC312XTxz54doSiFxcPWTM7v4RXL6RZ',
+                 'position_uuid': 'fa762df4-7fe8-b9a5-c382-b5b9488a7bbf', 'open_ms': 1739303245609,
+                 'trade_pair': TradePair.USDMXN, 'orders': [
+                    {'trade_pair': TradePair.USDMXN, 'order_type': OrderType.LONG, 'leverage': 5.0, 'price': 20.53435,
+                     'processed_ms': 1739303245609, 'order_uuid': 'fa762df4-7fe8-b9a5-c382-b5b9488a7bbf',
+                     'price_sources': [{'source': 'Polygon_ws', 'timespan_ms': 0, 'open': 20.53435, 'close': 20.53435,
+                                        'vwap': 20.53435, 'high': 20.53435, 'low': 20.53435, 'start_ms': 1739303245999,
+                                        'websocket': True, 'lag_ms': 390, 'volume': 1.0},
+                                       {'source': 'Polygon_rest', 'timespan_ms': 1000, 'open': 20.53435,
+                                        'close': 20.53435, 'vwap': None, 'high': 20.53435, 'low': 20.53435,
+                                        'start_ms': 1739303245000, 'websocket': False, 'lag_ms': 390, 'volume': 1.0},
+                                       {'source': 'Tiingo_rest', 'timespan_ms': 0, 'open': 20.53219, 'close': 20.53219,
+                                        'vwap': 20.53219, 'high': 20.53219, 'low': 20.53219, 'start_ms': 1739303247175,
+                                        'websocket': True, 'lag_ms': 1566, 'volume': None}], 'src': 0},
+                    {'trade_pair': TradePair.USDMXN, 'order_type': OrderType.FLAT, 'leverage': 0.0, 'price': 20.53926,
+                     'processed_ms': 1739303299451, 'order_uuid': 'ff3b5b4b-b4e6-79df-78f5-adb39098c636',
+                     'price_sources': [
+                         {'source': 'Polygon_rest', 'timespan_ms': 1000, 'open': 20.53926, 'close': 20.53926,
+                          'vwap': None, 'high': 20.53926, 'low': 20.53926, 'start_ms': 1739303298000,
+                          'websocket': False, 'lag_ms': 452, 'volume': 1.0},
+                         {'source': 'Tiingo_rest', 'timespan_ms': 0, 'open': 20.53752, 'close': 20.53752,
+                          'vwap': 20.53752, 'high': 20.53752, 'low': 20.53752, 'start_ms': 1739303296863,
+                          'websocket': True, 'lag_ms': 2588, 'volume': None},
+                         {'source': 'Polygon_ws', 'timespan_ms': 0, 'open': 20.53612, 'close': 20.53612,
+                          'vwap': 20.53612, 'high': 20.53612, 'low': 20.53612, 'start_ms': 1739303284999,
+                          'websocket': True, 'lag_ms': 14452, 'volume': 1.0}], 'src': 0}],
+                 'current_return': 1.0011955576874842, 'close_ms': 1739303299451, 'return_at_close': 1.0008451392422937,
+                 'net_leverage': 0.0, 'average_entry_price': 20.53435, 'position_type': OrderType.FLAT,
+                 'is_closed_position': True},
+
+                {'miner_hotkey': '5Ct5amT9YmnfaksGbcZepFnL95N8D59gWStybSvcXGR3RLmv',
+                 'position_uuid': '40f7d72c-d490-447c-b21a-b9885d1c5a0d', 'open_ms': 1738800011939,
+                 'trade_pair': TradePair.BTCUSD, 'orders': [
+                    {'trade_pair': TradePair.BTCUSD, 'order_type': OrderType.LONG, 'leverage': 0.015, 'price': 96501.94,
+                     'processed_ms': 1738800011939, 'order_uuid': '40f7d72c-d490-447c-b21a-b9885d1c5a0d',
+                     'price_sources': [{'source': 'Polygon_ws', 'timespan_ms': 0, 'open': 96501.94, 'close': 96501.94,
+                                        'vwap': 96501.94, 'high': 96501.94, 'low': 96501.94, 'start_ms': 1738800012000,
+                                        'websocket': True, 'lag_ms': 61, 'volume': 2.889e-05},
+                                       {'source': 'Tiingo_gdax_rest', 'timespan_ms': 0, 'open': 96488.16,
+                                        'close': 96488.16, 'vwap': 96488.16, 'high': 96488.16, 'low': 96488.16,
+                                        'start_ms': 1738800010550, 'websocket': True, 'lag_ms': 1389, 'volume': None}],
+                     'src': 0}, {'trade_pair': TradePair.BTCUSD, 'order_type': OrderType.LONG, 'leverage': 0.0075,
+                                 'price': 95810.69, 'processed_ms': 1738872013662,
+                                 'order_uuid': '7d465528-d9a9-4b62-870f-48c26cbf545c', 'price_sources': [
+                            {'source': 'Polygon_ws', 'timespan_ms': 0, 'open': 95810.69, 'close': 95810.69,
+                             'vwap': 95810.69, 'high': 95810.69, 'low': 95810.69, 'start_ms': 1738872014000,
+                             'websocket': True, 'lag_ms': 338, 'volume': 0.001},
+                            {'source': 'Tiingo_gdax_rest', 'timespan_ms': 0, 'open': 95857.04, 'close': 95857.04,
+                             'vwap': 95857.04, 'high': 95857.04, 'low': 95857.04, 'start_ms': 1738872014973,
+                             'websocket': True, 'lag_ms': 1311, 'volume': None}], 'src': 0},
+                    {'trade_pair': TradePair.BTCUSD, 'order_type': OrderType.LONG, 'leverage': 0.0075,
+                     'price': 95908.67, 'processed_ms': 1739030414485,
+                     'order_uuid': '10b36caf-c278-4ba9-ba20-24c56f8461f8', 'price_sources': [
+                        {'source': 'Polygon_ws', 'timespan_ms': 0, 'open': 95908.67, 'close': 95908.67,
+                         'vwap': 95908.67, 'high': 95908.67, 'low': 95908.67, 'start_ms': 1739030414000,
+                         'websocket': True, 'lag_ms': 485, 'volume': 0.00055429},
+                        {'source': 'Tiingo_gdax_rest', 'timespan_ms': 0, 'open': 95908.67, 'close': 95908.67,
+                         'vwap': 95908.67, 'high': 95908.67, 'low': 95908.67, 'start_ms': 1739030416942,
+                         'websocket': True, 'lag_ms': 2457, 'volume': None}], 'src': 0},
+                    {'trade_pair': TradePair.BTCUSD, 'order_type': OrderType.LONG, 'leverage': 0.0075,
+                     'price': 95038.09, 'processed_ms': 1739304041400,
+                     'order_uuid': '604137ef-74e3-4c57-9459-16227d92db45', 'price_sources': [
+                        {'source': 'Tiingo_gdax_rest', 'timespan_ms': 0, 'open': 95038.09, 'close': 95038.09,
+                         'vwap': 95038.09, 'high': 95038.09, 'low': 95038.09, 'start_ms': 1739304041481,
+                         'websocket': True, 'lag_ms': 81, 'volume': None},
+                        {'source': 'Polygon_ws', 'timespan_ms': 0, 'open': 95038.1, 'close': 95038.1, 'vwap': 95038.1,
+                         'high': 95038.1, 'low': 95038.1, 'start_ms': 1739304041000, 'websocket': True, 'lag_ms': 400,
+                         'volume': 0.00511131}], 'src': 0}], 'current_return': 0.9996611249473326, 'close_ms': None,
+                 'return_at_close': 0.9995923576607655, 'net_leverage': 0.0375, 'average_entry_price': 95952.266,
+                 'position_type': OrderType.LONG, 'is_closed_position': False}
             ]
             for p in positions_to_snap:
                 try:
