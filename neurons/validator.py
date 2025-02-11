@@ -534,7 +534,6 @@ class Validator:
         bt.logging.info("Attempting to get live price for trade pair: " + trade_pair.trade_pair_id)
         live_closing_price, price_sources = self.live_price_fetcher.get_latest_price(trade_pair=trade_pair,
                                                                                      time_ms=now_ms)
-        _, quote_sources = self.live_price_fetcher.get_latest_quote(trade_pair=trade_pair, time_ms=now_ms)
 
         order = Order(
             trade_pair=trade_pair,
@@ -543,8 +542,7 @@ class Validator:
             price=live_closing_price,
             processed_ms=now_ms,
             order_uuid=miner_order_uuid if miner_order_uuid else str(uuid.uuid4()),
-            price_sources=price_sources,
-            quote_sources=quote_sources
+            price_sources=price_sources
         )
         delta_t_ms = TimeUtil.now_in_millis() - now_ms
         delta_t_s_3_decimals = round(delta_t_ms / 1000.0, 3)

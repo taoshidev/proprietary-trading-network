@@ -1,3 +1,4 @@
+from collections import defaultdict
 from typing import List
 from bittensor import Balance
 
@@ -63,6 +64,7 @@ class MockLivePriceFetcher(LivePriceFetcher):
 class MockPolygonDataService(PolygonDataService):
     def __init__(self, api_key):
         super().__init__(api_key)
+        self.trade_pair_to_recent_events_realtime = defaultdict()
 
     def get_last_quote(self, trade_pair: TradePair, processed_ms: int) -> (float, float):
         ask = 1.10

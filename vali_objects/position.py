@@ -485,8 +485,10 @@ class Position(BaseModel):
         """
         if order.side == "buy":
             realtime_price = order.price * (1 + order.slippage)  # realtime_price is inclusive of slippage
-        else:
+        elif order.side == "sell":
             realtime_price = order.price * (1 - order.slippage)
+        else:
+            realtime_price = order.price
         assert self.initial_entry_price > 0, self.initial_entry_price
         new_net_leverage = self.net_leverage + delta_leverage
         if order.src == ORDER_SRC_ELIMINATION_FLAT:

@@ -38,9 +38,8 @@ class PriceSlippageModel:
         each asset class uses a unique model
         """
         trade_pair = order.trade_pair
-        size = order.leverage * ValiConfig.LEVERAGE_TO_CAPITAL
-
-        if size < 1000:
+        size = abs(order.leverage) * ValiConfig.LEVERAGE_TO_CAPITAL
+        if size <= 1000:
             return 0  # assume 0 slippage when order size is under 1k
 
         if trade_pair.is_equities:
@@ -59,7 +58,7 @@ class PriceSlippageModel:
         Slippage percentage = intercept + c1 * spread/price + c2 * annualized_volatility + c3 * order_value/avg_daily_volume
         """
         # bucket size
-        size = order.leverage * ValiConfig.LEVERAGE_TO_CAPITAL
+        size = abs(order.leverage) * ValiConfig.LEVERAGE_TO_CAPITAL
         size_str = cls.get_order_size_bucket(size)
         model_config = cls.parameters["equity"][order.trade_pair.trade_pair_id][order.side][size_str]
         intercept, c1, c2, c3 = (model_config[key] for key in ["intercept", "spread/price", "annualized_vol", f"{order.side}_order_value/adv"])
@@ -67,11 +66,11 @@ class PriceSlippageModel:
         annualized_volatility = cls.tp_to_vol[order.trade_pair.trade_pair_id]
         avg_daily_volume = cls.tp_to_adv[order.trade_pair.trade_pair_id]
 
-        spread = bid - ask
+        spread = ask - bid
         mid_price = (bid + ask) / 2
 
         slippage_pct = intercept + (c1 * spread / mid_price) + (c2 * annualized_volatility) + (c3 * size / avg_daily_volume)
-        return abs(slippage_pct)
+        return slippage_pct
 
     @classmethod
     def calc_slippage_forex(cls, bid:float, ask:float, order:Order) -> float:
@@ -81,10 +80,12 @@ class PriceSlippageModel:
         """
         annualized_volatility = cls.tp_to_vol[order.trade_pair.trade_pair_id]
         avg_daily_volume = cls.tp_to_adv[order.trade_pair.trade_pair_id]
-        spread = bid - ask
+        spread = ask - bid
         mid_price = (bid + ask) / 2
 
-        size = order.leverage * ValiConfig.LEVERAGE_TO_CAPITAL
+        # bt.logging.info(f"bid: {bid}, ask: {ask}, adv: {avg_daily_volume}, vol: {annualized_volatility}")
+
+        size = abs(order.leverage) * ValiConfig.LEVERAGE_TO_CAPITAL
         base, _ = order.trade_pair.trade_pair.split("/")
         base_to_usd_conversion = cls.pds.get_currency_conversion(base=base, quote="USD") if base != "USD" else 1  # TODO: fallback?
         # print(base_to_usd_conversion)
@@ -94,6 +95,7 @@ class PriceSlippageModel:
         term2 = 0.335 * math.sqrt(annualized_volatility ** 2 / 3 / 250)
         term3 = math.sqrt(volume_standard_lots / (0.3 * avg_daily_volume))
         slippage_pct = term1 + term2 * term3
+        # bt.logging.info(f"slippage_pct: {slippage_pct}")
         return slippage_pct
 
     @classmethod
@@ -110,7 +112,7 @@ class PriceSlippageModel:
             raise ValueError(f"Unknown crypto slippage for trade pair {trade_pair.trade_pair_id}")
 
     @classmethod
-    def refresh_features_daily(cls):
+    def refresh_features_daily(cls, write_to_disk:bool=True):
         """
         update the values for average daily volume and annualized volatility for all trade pairs once a day
         """
@@ -120,7 +122,8 @@ class PriceSlippageModel:
                 f"Refreshing avg daily volume and annualized volatility for new day UTC {datetime.utcnow().date()}")
             trade_pairs = [tp for tp in TradePair if tp.is_forex or tp.is_equities]
             cls.calculate_features(trade_pairs=trade_pairs, processed_ms=TimeUtil.now_in_millis())
-            cls.write_features_from_memory_to_disk()
+            if write_to_disk:
+                cls.write_features_from_memory_to_disk()
             cls.last_day_refreshed = current_day
             bt.logging.info(
                 f"Completed refreshing avg daily volume and annualized volatility for new day UTC {datetime.utcnow().date()}")
@@ -183,7 +186,7 @@ class PriceSlippageModel:
         order_value_labels = ["1k_10k", "10k_50k", "50k_100k", "100k_200k", "200k_300k"]
 
         for (low, high), label in zip(all_order_value_ranges, order_value_labels):
-            if low <= size < high:
+            if low < size <= high:
                 return label
 
         # TODO: order size range
