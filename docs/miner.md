@@ -122,7 +122,7 @@ We also set limits on leverage usage, to ensure that the network has a level of 
 |----------|----------------|
 | Forex    | 0.1x - 5x      |
 | Crypto   | 0.01x - 0.5x   |
-| Equities | 0.1x - 5x      |
+| Equities | 0.1x - 3x      |
 
 We also implement a [portfolio level leverage limit](https://docs.taoshi.io/tips/p10/), which is the sum of all the leverages from each open position. This limit is set at 10x a "typical" position, where a typical position would be 1x leverage for forex, 2x for equities, and 0.1x leverage for crypto. You can therefore open 10 forex positions at 1x leverage each, 5 equities positions at 2x leverage each, 5 forex positions at 2x leverage each, 5 forex positions at 1x and 5 crypto positions at 0.1x, etc.
 
