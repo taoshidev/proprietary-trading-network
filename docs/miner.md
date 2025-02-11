@@ -94,11 +94,11 @@ The Max Drawdown penalty and Martingale penalty help us detect the absolute and 
 
 
 ### Fees and Transaction Costs
-We want to simulate real costs of trading for our miners, to make signals from PTN more valuable outside our platform. To do this, we have incorporated two primary costs: **Transaction Fees** and **Cost of Carry**. 
-
-Transaction fees are proportional to the leverage used. The higher the leverage, the higher the transaction fee. We use cumulative leverage to determine the transaction fee, so any order placed on a position will increase the fees proportional to the change in leverage.
+We want to simulate real costs of trading for our miners, to make signals from PTN more valuable outside our platform. To do this, we have incorporated two primary costs: **Cost of Carry** and **Slippage**. 
 
 Cost of carry is reflective of real exchanges, and how they manage the cost of holding a position overnight. This rate changes depending on the asset class, the logic of which may be found in [our proposal 4](https://docs.taoshi.io/tips/p4/).
+
+Slippage costs are modeled to estimate the difference between a trade's expected price (typically the last traded price or mid-price between the best bid and ask) and its actual execution price. This cost is higher for larger orders, as well as for assets with lower liquidity and higher volatility. Read more in [proposal 16](https://docs.taoshi.io/tips/p16/).
 
 ##### Implementation Details
 | Market   | Fee Period     | Times                   | Rates Applied       | Triple Wednesday |

@@ -110,8 +110,8 @@ of size .25x leverage to reduce the size of the position. LONG and SHORT signals
 directions in this way.
 8. Miners can explicitly close out a position by sending in a FLAT signal. 
 9. Miners are eliminated if they are detected as plagiarising other miners. (more info in  the "Eliminations" section).
-10. There is a fee per order "spread fee". The fee scales with leverage. e.x a 3x leveraged order will have a 3x higher fee.
-11. There is a fee for leaving positions open "carry fee". The fee is equal to 10.95/5.25/3% per year for a 1x leverage position (crypto/equities/forex) <a href="https://docs.taoshi.io/tips/p4/">More info</a>
+10. There is a fee for leaving positions open "carry fee". The fee is equal to 10.95/5.25/3% per year for a 1x leverage position (crypto/equities/forex) <a href="https://docs.taoshi.io/tips/p4/">More info</a>
+11. There is a slippage assessed per order. The slippage cost is is greater for orders with higher leverages, and in assets with lower liquidity. 
 12. There is a minimum registration fee of 2.5 TAO on the mainnet subnet.
 13. There is an immunity period of 9 days to help miners submit orders to become competitive with existing miners. Eliminated miners do not benefit from being in the immunity period.
 14. Based on portfolio metrics such as omega score and total portfolio return, weights/incentive get set to reward the best miners.

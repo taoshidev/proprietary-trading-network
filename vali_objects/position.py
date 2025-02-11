@@ -444,10 +444,13 @@ class Position(BaseModel):
         # V4 calculation. Fees are now based on cumulative leverage
         # V5 Crypto fees cut in half
         # V6 introduce "carry fee"
+        # V7 replace spread fee with included slippage cost
         if timestamp_ms < 1713198680000:  # V4 PR merged
             fee = 1.0 - self.trade_pair.fees * self.max_leverage_seen()
-        else:
+        elif timestamp_ms < 1739313844000:  # slippage PR merged
             fee = self.get_carry_fee(timestamp_ms)[0] * self.get_spread_fee()
+        else:
+            fee = self.get_carry_fee(timestamp_ms)[0]
         return current_return_no_fees * fee
 
     def get_open_position_return_with_fees(self, realtime_price, time_ms):
