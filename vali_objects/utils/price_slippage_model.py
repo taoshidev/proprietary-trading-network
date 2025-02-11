@@ -60,8 +60,9 @@ class PriceSlippageModel:
         # bucket size
         size = abs(order.leverage) * ValiConfig.LEVERAGE_TO_CAPITAL
         size_str = cls.get_order_size_bucket(size)
-        model_config = cls.parameters["equity"][order.trade_pair.trade_pair_id][order.side][size_str]
-        intercept, c1, c2, c3 = (model_config[key] for key in ["intercept", "spread/price", "annualized_vol", f"{order.side}_order_value/adv"])
+        side = "buy" if order.leverage > 0 else "sell"
+        model_config = cls.parameters["equity"][order.trade_pair.trade_pair_id][side][size_str]
+        intercept, c1, c2, c3 = (model_config[key] for key in ["intercept", "spread/price", "annualized_vol", f"{side}_order_value/adv"])
 
         annualized_volatility = cls.tp_to_vol[order.trade_pair.trade_pair_id]
         avg_daily_volume = cls.tp_to_adv[order.trade_pair.trade_pair_id]

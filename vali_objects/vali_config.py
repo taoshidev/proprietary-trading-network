@@ -160,15 +160,15 @@ assert ValiConfig.EQUITIES_MAX_LEVERAGE <= ValiConfig.ORDER_MAX_LEVERAGE
 class TradePair(Enum):
     # crypto
     BTCUSD = ["BTCUSD", "BTC/USD", 0.001, ValiConfig.CRYPTO_MIN_LEVERAGE, ValiConfig.CRYPTO_MAX_LEVERAGE,
-              TradePairCategory.CRYPTO, 0.00000001]
+              TradePairCategory.CRYPTO]
     ETHUSD = ["ETHUSD", "ETH/USD", 0.001, ValiConfig.CRYPTO_MIN_LEVERAGE, ValiConfig.CRYPTO_MAX_LEVERAGE,
-              TradePairCategory.CRYPTO, 0.000000000000000001]
+              TradePairCategory.CRYPTO]
     SOLUSD = ["SOLUSD", "SOL/USD", 0.001, ValiConfig.CRYPTO_MIN_LEVERAGE, ValiConfig.CRYPTO_MAX_LEVERAGE,
-              TradePairCategory.CRYPTO, 0.000000001]
+              TradePairCategory.CRYPTO]
     XRPUSD = ["XRPUSD", "XRP/USD", 0.001, ValiConfig.CRYPTO_MIN_LEVERAGE, ValiConfig.CRYPTO_MAX_LEVERAGE,
-                TradePairCategory.CRYPTO, 0.000001]
+                TradePairCategory.CRYPTO]
     DOGEUSD = ["DOGEUSD", "DOGE/USD", 0.001, ValiConfig.CRYPTO_MIN_LEVERAGE, ValiConfig.CRYPTO_MAX_LEVERAGE,
-                TradePairCategory.CRYPTO, 1]
+                TradePairCategory.CRYPTO]
 
 
     # forex
@@ -268,10 +268,6 @@ class TradePair(Enum):
     @property
     def trade_pair_category(self):
         return self.value[5]
-
-    @property
-    def smallest_unit(self):
-        return self.value[6]
 
     @property
     def is_crypto(self):

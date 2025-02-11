@@ -549,19 +549,13 @@ class Validator:
         bt.logging.success(f"Converted signal to order: {order} in {delta_t_s_3_decimals} seconds")
         return order
 
-    def set_order_side(self, order: Order, position: Position):
+    def set_flat_order_leverage(self, order: Order, position: Position):
         """
-        set the order side. a flat order requires the position in order to determine it's side
+        set the order leverage for a flat order.
         """
-        if order.order_type == OrderType.LONG:
-            order.side = "buy"
-        elif order.order_type == OrderType.SHORT:
-            order.side = "sell"
-        else:  # if the order_type is FLAT, then side depends on current position_type
-            if position.position_type == OrderType.LONG:
-                order.side = "sell"
-            else:
-                order.side = "buy"
+        if order.order_type == OrderType.FLAT and order.leverage != -position.net_leverage:
+            bt.logging.info(f"Updating FLAT order leverage from {order.leverage} in received signal to {-position.net_leverage}")
+            order.leverage = -position.net_leverage
 
     def _enforce_num_open_order_limit(self, trade_pair_to_open_position: dict, signal_to_order):
         # Check if there are too many orders across all open positions.
@@ -751,7 +745,7 @@ class Validator:
                 if open_position:
                     net_portfolio_leverage = self.position_manager.calculate_net_portfolio_leverage(miner_hotkey)
                     self.enforce_order_cooldown(signal_to_order, open_position)
-                    self.set_order_side(signal_to_order, open_position)
+                    self.set_flat_order_leverage(signal_to_order, open_position)
                     open_position.add_order(signal_to_order, net_portfolio_leverage)
                     self.position_manager.save_miner_position(open_position)
                     bt.logging.info(

@@ -486,9 +486,9 @@ class Position(BaseModel):
         For example, it can take a negative value. A more accurate name for this variable is the weighted average
         entry price.
         """
-        if order.side == "buy":
+        if order.leverage > 0:
             realtime_price = order.price * (1 + order.slippage)  # realtime_price is inclusive of slippage
-        elif order.side == "sell":
+        elif order.leverage < 0:
             realtime_price = order.price * (1 - order.slippage)
         else:
             realtime_price = order.price
