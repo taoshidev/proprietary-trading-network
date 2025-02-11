@@ -60,18 +60,33 @@ class ChallengePeriodManager(CacheController):
 
         elimination_hotkeys = set(x['hotkey'] for x in eliminations)
 
-        # check all hotkeys which have at least one position
-        miners_with_positions = self.position_manager.get_miner_hotkeys_with_at_least_one_position()
-
         any_changes = False
         for hotkey in new_hotkeys:
-            if hotkey in miners_with_positions:
-                if hotkey not in elimination_hotkeys:
-                    if hotkey not in self.challengeperiod_testing:
-                        if hotkey not in self.challengeperiod_success:
-                            bt.logging.info(f"Adding hotkey {hotkey} to challengeperiod miners.")
-                            any_changes = True
-                            self.challengeperiod_testing[hotkey] = hk_to_first_order_time[hotkey]
+            if hotkey not in hk_to_first_order_time:  # miner has no positions
+                continue
+
+            start_time_ms = hk_to_first_order_time[hotkey]
+
+            if start_time_ms is None:
+                bt.logging.warning(f"Hotkey {hotkey} has invalid first order time. Skipping.")
+                continue
+
+            if hotkey in elimination_hotkeys:
+                continue
+
+            if hotkey in self.challengeperiod_success:
+                continue
+
+            if hotkey in self.challengeperiod_testing:
+                if self.challengeperiod_testing[hotkey] is None:
+                    bt.logging.info(f"Fixing challengeperiod hotkey {hotkey} to to valid start time {start_time_ms}")
+                    any_changes = True
+                    self.challengeperiod_testing[hotkey] = start_time_ms
+            else:
+                bt.logging.info(f"Adding hotkey {hotkey} to challengeperiod miners with start time {start_time_ms}")
+                any_changes = True
+                self.challengeperiod_testing[hotkey] = start_time_ms
+
         if any_changes:
             self._write_challengeperiod_from_memory_to_disk()
 
