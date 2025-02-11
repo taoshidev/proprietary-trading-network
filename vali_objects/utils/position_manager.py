@@ -78,8 +78,9 @@ class PositionManager(CacheController):
         hk_to_first_order_time = {}
         filtered_positions = {}
         for hotkey, miner_positions in self.get_positions_for_hotkeys(hotkeys, sort_positions=True).items():
-            hk_to_first_order_time[hotkey] = min([p.orders[0].processed_ms for p in miner_positions]) if miner_positions else None
-            filtered_positions[hotkey] = PositionFiltering.filter_positions_for_duration(miner_positions)
+            if miner_positions:
+                hk_to_first_order_time[hotkey] = min([p.orders[0].processed_ms for p in miner_positions])
+                filtered_positions[hotkey] = PositionFiltering.filter_positions_for_duration(miner_positions)
 
         return filtered_positions, hk_to_first_order_time
 
