@@ -186,7 +186,8 @@ class Position(BaseModel):
     def initial_entry_price(self) -> float:
         if not self.orders or len(self.orders) == 0:
             return 0.0
-        return self.orders[0].price
+        first_order = self.orders[0]
+        return first_order.price * (1 + first_order.slippage) if first_order.leverage > 0 else first_order.price * (1 - first_order.slippage)
 
     def __hash__(self):
         # Include specified fields in the hash, assuming trade_pair is accessible and immutable
@@ -343,12 +344,19 @@ class Position(BaseModel):
         self.orders.append(order)
         self._update_position()
 
-    def calculate_unrealized_pnl(self, current_price):
+    def calculate_pnl(self, current_price):
         if self.initial_entry_price == 0 or self.average_entry_price is None:
             return 1
 
+        if self.position_type == OrderType.FLAT:  # realized PnL
+            # apply slippage on exit
+            last_order = self.orders[-1]
+            exit_price = current_price * (1 + last_order.slippage) if last_order.leverage > 0 else current_price * (1 - last_order.slippage)
+        else:  # unrealized PnL
+            exit_price = current_price
+
         gain = (
-            (current_price - self.average_entry_price)
+            (exit_price - self.average_entry_price)
             * self.net_leverage
             / self.initial_entry_price
         )
@@ -466,7 +474,7 @@ class Position(BaseModel):
     def set_returns(self, realtime_price, time_ms=None, total_fees=None):
         # We used to multiple trade_pair.fees by net_leverage. Eventually we will
         # Update this calculation to approximate actual exchange fees.
-        self.current_return = self.calculate_unrealized_pnl(realtime_price)
+        self.current_return = self.calculate_pnl(realtime_price)
         if total_fees is None:
             self.return_at_close = self.calculate_return_with_fees(self.current_return,
                                timestamp_ms=TimeUtil.now_in_millis() if time_ms is None else time_ms)
@@ -486,12 +494,7 @@ class Position(BaseModel):
         For example, it can take a negative value. A more accurate name for this variable is the weighted average
         entry price.
         """
-        if order.leverage > 0:
-            realtime_price = order.price * (1 + order.slippage)  # realtime_price is inclusive of slippage
-        elif order.leverage < 0:
-            realtime_price = order.price * (1 - order.slippage)
-        else:
-            realtime_price = order.price
+        realtime_price = order.price
         assert self.initial_entry_price > 0, self.initial_entry_price
         new_net_leverage = self.net_leverage + delta_leverage
         if order.src == ORDER_SRC_ELIMINATION_FLAT:
@@ -508,9 +511,10 @@ class Position(BaseModel):
         if self.position_type == OrderType.FLAT:
             self.net_leverage = 0.0
         else:
+            entry_price = order.price * (1 + order.slippage) if order.leverage > 0 else order.price * (1 - order.slippage)
             self.average_entry_price = (
                 self.average_entry_price * self.net_leverage
-                + realtime_price * delta_leverage
+                + entry_price * delta_leverage
             ) / new_net_leverage
             self.net_leverage = new_net_leverage
 

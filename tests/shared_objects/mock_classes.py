@@ -1,5 +1,7 @@
 from collections import defaultdict
 from typing import List
+
+import pandas as pd
 from bittensor import Balance
 
 from data_generator.polygon_data_service import PolygonDataService
@@ -84,10 +86,16 @@ class MockPriceSlippageModel(PriceSlippageModel):
     def __init__(self, live_price_fetcher):
         super().__init__(live_price_fetcher)
 
-    def get_bar_features(self, trade_pair: TradePair, processed_ms: int) -> (float, float):
-        annualized_volatility = 0.1
-        avg_daily_volume = 0.01
-        return annualized_volatility, avg_daily_volume
+    @classmethod
+    def get_bars_with_features(cls, trade_pair: TradePair, processed_ms: int, adv_lookback_window: int=10, calc_vol_window: int=30, trading_days_in_a_year: int=252) -> pd.DataFrame:
+        adv_lookback_window = 10  # 10-day average daily volume
+
+        # Create a single-row DataFrame
+        bars_df = pd.DataFrame({
+            'annualized_vol': [0.5],  # Mock annualized volatility
+            f'adv_last_{adv_lookback_window}_days': [10_000]  # Mock 10-day average daily volume
+        })
+        return bars_df
 
 
 class MockAxonInfo:
