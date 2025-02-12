@@ -25,7 +25,7 @@ from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.vali_dataclasses.order import OrderStatus, ORDER_SRC_DEPRECATION_FLAT, Order
 from vali_objects.utils.position_filtering import PositionFiltering
 
-TARGET_MS = 1739318723000 + (1000 * 60 * 60 * 3)  # + 3 hours
+TARGET_MS = 1739331784000 + (1000 * 60 * 60 * 1)  # + 1 hours
 
 
 class PositionManager(CacheController):
