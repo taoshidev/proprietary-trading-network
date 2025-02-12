@@ -1,6 +1,6 @@
 pydantic == 2.10.3
 git+https://github.com/jbonilla-tao/client-python.git@patch-1#egg=polygon-api-client
-bittensor == 8.5.1
+bittensor == 9.0.0rc5
 scikit-learn == 1.5.0
 scipy == 1.13.0
 pandas == 2.2.2
