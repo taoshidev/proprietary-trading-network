@@ -17,6 +17,7 @@ CRYPTO_CARRY_FEE_PER_INTERVAL = math.exp(math.log(1 - 0.1095) / (365.0*3.0))  # 
 FOREX_CARRY_FEE_PER_INTERVAL = math.exp(math.log(1 - .03) / 365.0)  # 3% per year for 1x leverage. Each interval is 24 hrs
 INDICES_CARRY_FEE_PER_INTERVAL = math.exp(math.log(1 - .0525) / 365.0)  # 5.25% per year for 1x leverage. Each interval is 24 hrs
 FEE_V6_TIME_MS = 1720843707000  # V6 PR merged
+SLIPPAGE_V1_TIME_MS = 1739313844000  # Slippage PR merged
 
 class Position(BaseModel):
     """Represents a position in a trading system.
@@ -100,8 +101,11 @@ class Position(BaseModel):
         return cumulative_leverage
 
 
-    def get_spread_fee(self) -> float:
-        return 1.0 - (self.get_cumulative_leverage() * self.trade_pair.fees * 0.5)
+    def get_spread_fee(self, timestamp_ms) -> float:
+        if timestamp_ms < SLIPPAGE_V1_TIME_MS:
+            return 1.0 - (self.get_cumulative_leverage() * self.trade_pair.fees * 0.5)
+        else:  # slippage will replace the spread fee
+            return 1
 
     def crypto_carry_fee(self, current_time_ms: int) -> (float, int):
         #print(f'accrual time {TimeUtil.millis_to_formatted_date_str(self.start_carry_fee_accrual_ms)} now {TimeUtil.millis_to_formatted_date_str(current_time_ms)}')
@@ -452,13 +456,10 @@ class Position(BaseModel):
         # V4 calculation. Fees are now based on cumulative leverage
         # V5 Crypto fees cut in half
         # V6 introduce "carry fee"
-        # V7 replace spread fee with included slippage cost
         if timestamp_ms < 1713198680000:  # V4 PR merged
             fee = 1.0 - self.trade_pair.fees * self.max_leverage_seen()
-        elif timestamp_ms < 1739313844000:  # slippage PR merged
-            fee = self.get_carry_fee(timestamp_ms)[0] * self.get_spread_fee()
         else:
-            fee = self.get_carry_fee(timestamp_ms)[0]
+            fee = self.get_carry_fee(timestamp_ms)[0] * self.get_spread_fee(timestamp_ms)
         return current_return_no_fees * fee
 
     def get_open_position_return_with_fees(self, realtime_price, time_ms):
