@@ -102,7 +102,7 @@ class LivePriceFetcher:
             return results
 
         rest_prices_polygon = self.polygon_data_service.get_closes_rest(trade_pairs_needing_rest_data)
-        rest_prices_tiingo_data = self.tiingo_data_service.get_closes_rest(trade_pairs_needing_rest_data)
+        rest_prices_tiingo_data, _ = self.tiingo_data_service.get_closes_rest(trade_pairs_needing_rest_data)
 
         for trade_pair in trade_pairs_needing_rest_data:
             current_time_ms = trade_pair_to_last_order_time_ms[trade_pair]
@@ -142,12 +142,14 @@ class LivePriceFetcher:
         #     return results
 
         rest_quotes_polygon = self.polygon_data_service.get_quotes_rest(trade_pairs_needing_rest_data)
+        _, rest_quotes_tiingo_data = self.tiingo_data_service.get_closes_rest(trade_pairs_needing_rest_data)
 
         for trade_pair in trade_pairs_needing_rest_data:
             current_time_ms = trade_pair_to_last_order_time_ms[trade_pair]
             events = [
                 # websocket_quotes_polygon.get(trade_pair),
-                rest_quotes_polygon.get(trade_pair)
+                rest_quotes_polygon.get(trade_pair),
+                rest_quotes_tiingo_data.get(trade_pair)
             ]
             results[trade_pair] = self.determine_best_quote(events, current_time_ms, filter_recent_only=False)
 
