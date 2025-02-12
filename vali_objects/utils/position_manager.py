@@ -142,8 +142,9 @@ class PositionManager(CacheController):
         one_week_ago_ms = time_now_ms - 1000 * 60 * 60 * 24 * 7
         for o in position.orders:
             if o.processed_ms < one_week_ago_ms:
-                if o.price_sources:
+                if o.price_sources or o.quote_sources:
                     o.price_sources = []
+                    o.quote_sources = []
                     n_removed += 1
         return n_removed
 
