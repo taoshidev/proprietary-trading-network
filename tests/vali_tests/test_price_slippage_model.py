@@ -22,7 +22,7 @@ class TestPriceSlippageModel(TestBase):
         self.DEFAULT_POSITION_UUID = "test_position"
         self.DEFAULT_ORDER_UUID = "test_order"
         self.DEFAULT_OPEN_MS = TimeUtil.now_in_millis()  # 1718071209000
-        self.default_bid = 80
+        self.default_bid = 99
         self.default_ask = 100
 
 
@@ -99,27 +99,27 @@ class TestPriceSlippageModel(TestBase):
         """
         test buy and sell order slippage, using slippage model
         """
-        self.equities_order_buy = Order(price=1, processed_ms=self.DEFAULT_OPEN_MS,
+        self.equities_order_buy = Order(price=100, processed_ms=self.DEFAULT_OPEN_MS,
                                             order_uuid=self.DEFAULT_ORDER_UUID,
                                             trade_pair=TradePair.NVDA,
                                             order_type=OrderType.LONG, leverage=1)
         slippage_buy = PriceSlippageModel.calculate_slippage(self.default_bid, self.default_ask, self.equities_order_buy)
 
-        self.equities_order_sell = Order(price=1, processed_ms=self.DEFAULT_OPEN_MS,
+        self.equities_order_sell = Order(price=100, processed_ms=self.DEFAULT_OPEN_MS,
                                             order_uuid=self.DEFAULT_ORDER_UUID,
                                             trade_pair=TradePair.NVDA,
                                             order_type=OrderType.SHORT, leverage=-1)
         slippage_sell = PriceSlippageModel.calculate_slippage(self.default_bid, self.default_ask, self.equities_order_sell)
 
         ## assert slippage is proportional to order size
-        self.equities_order_buy_large = Order(price=1, processed_ms=self.DEFAULT_OPEN_MS,
+        self.equities_order_buy_large = Order(price=100, processed_ms=self.DEFAULT_OPEN_MS,
                                         order_uuid=self.DEFAULT_ORDER_UUID,
                                         trade_pair=TradePair.NVDA,
                                         order_type=OrderType.LONG, leverage=3)
         large_slippage_buy = PriceSlippageModel.calculate_slippage(self.default_bid, self.default_ask, self.equities_order_buy_large)
         assert large_slippage_buy > slippage_buy
 
-        self.equities_order_sell_small = Order(price=1, processed_ms=self.DEFAULT_OPEN_MS,
+        self.equities_order_sell_small = Order(price=100, processed_ms=self.DEFAULT_OPEN_MS,
                                          order_uuid=self.DEFAULT_ORDER_UUID,
                                          trade_pair=TradePair.NVDA,
                                          order_type=OrderType.SHORT, leverage=-0.1)
@@ -133,14 +133,14 @@ class TestPriceSlippageModel(TestBase):
         """
         test buy and sell order slippage, using BB+ model
         """
-        self.forex_order_buy = Order(price=1, processed_ms=self.DEFAULT_OPEN_MS,
+        self.forex_order_buy = Order(price=100, processed_ms=self.DEFAULT_OPEN_MS,
                                         order_uuid=self.DEFAULT_ORDER_UUID,
                                         trade_pair=TradePair.USDCAD,
                                         order_type=OrderType.LONG, leverage=1)
         slippage_buy = PriceSlippageModel.calculate_slippage(self.default_bid, self.default_ask,
                                                              self.forex_order_buy)
 
-        self.forex_order_sell = Order(price=1, processed_ms=self.DEFAULT_OPEN_MS,
+        self.forex_order_sell = Order(price=100, processed_ms=self.DEFAULT_OPEN_MS,
                                          order_uuid=self.DEFAULT_ORDER_UUID,
                                          trade_pair=TradePair.USDCAD,
                                          order_type=OrderType.SHORT, leverage=-1)
@@ -148,7 +148,7 @@ class TestPriceSlippageModel(TestBase):
                                                               self.forex_order_sell)
 
         ## assert slippage is proportional to order size
-        self.forex_order_buy_large = Order(price=1, processed_ms=self.DEFAULT_OPEN_MS,
+        self.forex_order_buy_large = Order(price=100, processed_ms=self.DEFAULT_OPEN_MS,
                                               order_uuid=self.DEFAULT_ORDER_UUID,
                                               trade_pair=TradePair.USDCAD,
                                               order_type=OrderType.LONG, leverage=3)
@@ -156,7 +156,7 @@ class TestPriceSlippageModel(TestBase):
                                                                    self.forex_order_buy_large)
         assert large_slippage_buy > slippage_buy
 
-        self.forex_order_sell_small = Order(price=1, processed_ms=self.DEFAULT_OPEN_MS,
+        self.forex_order_sell_small = Order(price=100, processed_ms=self.DEFAULT_OPEN_MS,
                                                order_uuid=self.DEFAULT_ORDER_UUID,
                                                trade_pair=TradePair.USDCAD,
                                                order_type=OrderType.SHORT, leverage=-0.1)
@@ -168,14 +168,14 @@ class TestPriceSlippageModel(TestBase):
         """
         test buy and sell order slippage
         """
-        self.crypto_order_buy = Order(price=1, processed_ms=self.DEFAULT_OPEN_MS,
+        self.crypto_order_buy = Order(price=100, processed_ms=self.DEFAULT_OPEN_MS,
                                      order_uuid=self.DEFAULT_ORDER_UUID,
                                      trade_pair=TradePair.BTCUSD,
                                      order_type=OrderType.LONG, leverage=0.25)
         slippage_buy = PriceSlippageModel.calculate_slippage(self.default_bid, self.default_ask,
                                                              self.crypto_order_buy)
 
-        self.crypto_order_sell = Order(price=1, processed_ms=self.DEFAULT_OPEN_MS,
+        self.crypto_order_sell = Order(price=100, processed_ms=self.DEFAULT_OPEN_MS,
                                       order_uuid=self.DEFAULT_ORDER_UUID,
                                       trade_pair=TradePair.SOLUSD,
                                       order_type=OrderType.SHORT, leverage=-0.25)
@@ -183,7 +183,7 @@ class TestPriceSlippageModel(TestBase):
                                                               self.crypto_order_sell)
 
         ## assert slippage is proportional to order size
-        self.crypto_order_buy_large = Order(price=1, processed_ms=self.DEFAULT_OPEN_MS,
+        self.crypto_order_buy_large = Order(price=100, processed_ms=self.DEFAULT_OPEN_MS,
                                            order_uuid=self.DEFAULT_ORDER_UUID,
                                            trade_pair=TradePair.BTCUSD,
                                            order_type=OrderType.LONG, leverage=0.5)
@@ -192,7 +192,7 @@ class TestPriceSlippageModel(TestBase):
         ## crypto slippage does not depend on size
         assert large_slippage_buy == slippage_buy
 
-        self.crypto_order_sell_small = Order(price=1, processed_ms=self.DEFAULT_OPEN_MS,
+        self.crypto_order_sell_small = Order(price=100, processed_ms=self.DEFAULT_OPEN_MS,
                                             order_uuid=self.DEFAULT_ORDER_UUID,
                                             trade_pair=TradePair.SOLUSD,
                                             order_type=OrderType.SHORT, leverage=-0.1)

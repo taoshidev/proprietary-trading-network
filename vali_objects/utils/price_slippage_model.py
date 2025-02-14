@@ -50,7 +50,7 @@ class PriceSlippageModel:
             slippage_percentage = cls.calc_slippage_crypto(order)
         else:
             raise ValueError(f"Invalid trade pair {trade_pair.trade_pair_id} to calculate slippage")
-        return slippage_percentage
+        return np.clip(slippage_percentage, 0.0, 0.03)
 
     @classmethod
     def calc_slippage_equities(cls, bid:float, ask:float, order:Order) -> float:

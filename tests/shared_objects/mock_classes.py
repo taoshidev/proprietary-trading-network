@@ -91,10 +91,16 @@ class MockPriceSlippageModel(PriceSlippageModel):
         adv_lookback_window = 10  # 10-day average daily volume
 
         # Create a single-row DataFrame
-        bars_df = pd.DataFrame({
-            'annualized_vol': [0.5],  # Mock annualized volatility
-            f'adv_last_{adv_lookback_window}_days': [10_000]  # Mock 10-day average daily volume
-        })
+        if trade_pair.is_forex:
+            bars_df = pd.DataFrame({
+                'annualized_vol': [0.5],  # Mock annualized volatility
+                f'adv_last_{adv_lookback_window}_days': [100_000]  # Mock 10-day average daily volume
+            })
+        else:  # equities
+            bars_df = pd.DataFrame({
+                'annualized_vol': [0.5],  # Mock annualized volatility
+                f'adv_last_{adv_lookback_window}_days': [100_000_000]  # Mock 10-day average daily volume
+            })
         return bars_df
 
 
