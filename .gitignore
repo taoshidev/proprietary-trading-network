@@ -171,5 +171,8 @@ validation/plagiarism/
 tests/validation/miners/
 tests/validation/plagiarism/
 
+# Miner build files
+miner_objects/miner_dashboard/*.tsbuildinfo
+
 # macOS files
 .DS_Store

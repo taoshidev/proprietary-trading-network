@@ -1,74 +1,66 @@
-import { Card, Group, Text, ThemeIcon, Tooltip } from "@mantine/core";
-import { IconHelp } from "@tabler/icons-react";
+"use client";
+
+import { Card, Group, Text, Tooltip, ThemeIcon, Box } from "@mantine/core";
+import { IconQuestionMark } from "@tabler/icons-react";
 
 import { toShortFloat } from "../../utils";
 
-type PenaltyCardProps = {
-  item: number;
-  isPercentage?: boolean;
-  sigFigs?: number;
+interface PenaltiesGroup {
+  drawdown_threshold: number;
+  martingale: number;
+  total: number;
+}
+
+interface PenaltyCardProps {
+  title: string;
+  penalties: PenaltiesGroup;
   tooltipText: string;
-};
+}
 
-export const PenaltyCard = ({ item, tooltipText }: PenaltyCardProps) => {
-  const { drawdown_threshold, total, martingale } = item;
-
+export const PenaltyCard = ({
+  title,
+  penalties,
+  tooltipText,
+}: PenaltyCardProps) => {
   return (
-    <Card withBorder flex="1" h="100%">
-      <Group justify="space-between" align="center">
-        <Group align="center" gap="xs">
-          <Text fw="bold">Penalties</Text>
-          <Tooltip
-            label={tooltipText}
-            withArrow
-            multiline
-            styles={{
-              tooltip: {
-                maxWidth: "20vw",
-                padding: "8px",
-                whiteSpace: "normal", // Ensures text wraps
-              },
-            }}
-          >
-            <ThemeIcon variant="transparent" color="gray">
-              <IconHelp size={16} stroke={1.4} />
+    <Card withBorder h="100%">
+      <Group justify="space-between" align="center" mb="sm">
+        <Group gap="xs">
+          <Text fw="bold">{title}</Text>
+          <Tooltip label={tooltipText} withArrow multiline w={300}>
+            <ThemeIcon variant="light" radius="xl" size="xs">
+              <IconQuestionMark style={{ width: "70%", height: "70%" }} />
             </ThemeIcon>
           </Tooltip>
         </Group>
-
-        {drawdown_threshold !== null && (
-          <Group justify="space-between" align="center">
-            <Text size="xs" c="gray">
-              Drawdown Threshold
-            </Text>
-            <Text size="xs" fw="bold" style={{ textAlign: "right" }}>
-              {toShortFloat(drawdown_threshold)}
-            </Text>
-          </Group>
-        )}
-
-        {martingale !== null && (
-          <Group justify="space-between" align="center">
-            <Text size="xs" c="gray">
-              Martingale
-            </Text>
-            <Text size="xs" fw="bold" style={{ textAlign: "right" }}>
-              {toShortFloat(martingale)}
-            </Text>
-          </Group>
-        )}
-
-        {total !== null && (
-          <Group justify="space-between" align="center">
-            <Text size="xs" c="gray">
-              Total
-            </Text>
-            <Text size="xs" fw="bold" style={{ textAlign: "right" }}>
-              {total}
-            </Text>
-          </Group>
-        )}
       </Group>
+
+      <Box mb="xs">
+        <Text size="xs">
+          Drawdown Threshold:{" "}
+          <Text size="xs" fw="bold" component="span">
+            {toShortFloat(penalties.drawdown_threshold)}
+          </Text>
+        </Text>
+      </Box>
+
+      <Box mb="xs">
+        <Text size="xs">
+          Total:{" "}
+          <Text size="xs" fw="bold" component="span">
+            {toShortFloat(penalties.total)}
+          </Text>
+        </Text>
+      </Box>
+
+      <Box>
+        <Text size="xs">
+          Martingale:{" "}
+          <Text size="xs" fw="bold" component="span">
+            {toShortFloat(penalties.martingale)}
+          </Text>
+        </Text>
+      </Box>
     </Card>
   );
 };
