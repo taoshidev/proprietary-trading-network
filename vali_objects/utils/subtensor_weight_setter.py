@@ -75,7 +75,15 @@ class SubtensorWeightSetter(CacheController):
 
             transformed_list = checkpoint_netuid_weights + challengeperiod_weights
             bt.logging.info(f"transformed list: {transformed_list}")
-            
+
+            # finally check if the block condition was violated
+            hotkey_registration_blocks = list(self.metagraph.block_at_registration)
+            target_dtao_block = 4941752
+            for c, i in enumerate(hotkey_registration_blocks):
+                if i > target_dtao_block:
+                    bt.logging.info(f"Hotkey {metagraph_hotkeys[c]} was registered at block {i} which is greater than the target block {target_dtao_block}. No weight.")
+                    transformed_list[c] = (transformed_list[c][0], 0.0)
+
             self._set_subtensor_weights(wallet, subtensor, transformed_list, netuid)
         self.set_last_update_time()
 
