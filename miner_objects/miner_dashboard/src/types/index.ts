@@ -65,6 +65,7 @@ export interface Score {
   value: number;
   rank: number;
   percentile: number;
+  overall_contribution: number;
 }
 
 export interface Scores {
@@ -80,12 +81,10 @@ export interface Scores {
   "short-calmar": Score;
 }
 
+// unused
 export interface Penalties {
-  biweekly: number;
-  daily: number;
-  drawdown: number;
-  returns_ratio: number;
-  time_consistency: number;
+  drawdown_threshold: number;
+  martingale: number;
   total: number;
 }
 
