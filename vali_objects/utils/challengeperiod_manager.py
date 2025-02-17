@@ -265,6 +265,9 @@ class ChallengePeriodManager(CacheController):
             if self.is_recently_re_registered(ledger.get(hotkey), hotkey, hk_to_first_order_time):
                 miners_rrr.add(hotkey)
                 continue
+            elif inspection_time is None:
+                bt.logging.warning(f'Hotkey {hotkey} has no inspection time. Unexpected.')
+                continue
             # Default starts as true
             passing_criteria = True
 

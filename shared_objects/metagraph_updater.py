@@ -145,6 +145,7 @@ class MetagraphUpdater(CacheController):
             self.sync_lists(self.metagraph.neurons, list(metagraph_clone.neurons), brute_force=True)
             self.sync_lists(self.metagraph.uids, metagraph_clone.uids, brute_force=True)
             self.sync_lists(self.metagraph.hotkeys, metagraph_clone.hotkeys, brute_force=True)
+            self.sync_lists(self.metagraph.block_at_registration, metagraph_clone.block_at_registration, brute_force=True)
 
         if recently_acked_miners:
             self.update_likely_miners(recently_acked_miners)
