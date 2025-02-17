@@ -140,11 +140,14 @@ class MetagraphUpdater(CacheController):
         if len(lost_hotkeys) > 10 and percent_lost >= 25:
             bt.logging.error(f"Too many hotkeys lost in metagraph update: {len(lost_hotkeys)} hotkeys lost, "
                              f"{percent_lost:.2f}% of total hotkeys. Rejecting new metagraph. ALERT A TEAM MEMBER ASAP...")
+        elif self.is_miner:
+            self.metagraph = metagraph_clone
         else:
-            # Multiprocessing (parkour)
+            # Multiprocessing (validator only)
             self.sync_lists(self.metagraph.neurons, list(metagraph_clone.neurons), brute_force=True)
             self.sync_lists(self.metagraph.uids, metagraph_clone.uids, brute_force=True)
             self.sync_lists(self.metagraph.hotkeys, metagraph_clone.hotkeys, brute_force=True)
+            # Tuple doesn't support item assignment.
             self.sync_lists(self.metagraph.block_at_registration, metagraph_clone.block_at_registration, brute_force=True)
 
         if recently_acked_miners:
@@ -154,6 +157,7 @@ class MetagraphUpdater(CacheController):
         self.log_metagraph_state()
         self.set_last_update_time()
 
+# len([x for x in self.metagraph.axons if '0.0.0.0' not in x.ip]), len([x for x in self.metagraph.neurons if '0.0.0.0' not in x.axon_info.for ip])
 if __name__ == "__main__":
     from neurons.miner import Miner
     from miner_objects.position_inspector import PositionInspector
