@@ -8,6 +8,7 @@ from vali_objects.utils.position_manager import PositionManager
 from vali_objects.position import Position
 from vali_objects.scoring.scoring import Scoring
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedger
+from vali_objects.utils.registration_contract_util import RegistrationContractUtil
 
 
 class SubtensorWeightSetter(CacheController):
@@ -74,15 +75,24 @@ class SubtensorWeightSetter(CacheController):
                     bt.logging.error(f"Challengeperiod miner {miner} not found in the metagraph.")
 
             transformed_list = checkpoint_netuid_weights + challengeperiod_weights
-            bt.logging.info(f"transformed list: {transformed_list}")
 
             # finally check if the block condition was violated
             hotkey_registration_blocks = list(self.metagraph.block_at_registration)
-            target_dtao_block = 4941752
+            target_dtao_block_start = 4941752
+            target_dtao_block_end = 4941752 + 1000
             for c, i in enumerate(hotkey_registration_blocks):
-                if i > target_dtao_block:
+                if target_dtao_block_start < i < target_dtao_block_end:
                     bt.logging.info(f"Hotkey {metagraph_hotkeys[c]} was registered at block {i} which is greater than the target block {target_dtao_block}. No weight.")
                     transformed_list[c] = (transformed_list[c][0], 0.0)
+
+            # Now check the logic from the contract, if the miner is indeed still registered for competition
+            contract_registered_miners = RegistrationContractUtil.get_registered()
+            for c, i in enumerate(transformed_list):
+                if metagraph_hotkeys[c] not in contract_registered_miners:
+                    bt.logging.info(f"Hotkey {metagraph_hotkeys[c]} is not registered in the contract. No weight.")
+                    transformed_list[c] = (transformed_list[c][0], 0.0)
+
+            bt.logging.info(f"transformed list: {transformed_list}")
 
             self._set_subtensor_weights(wallet, subtensor, transformed_list, netuid)
         self.set_last_update_time()

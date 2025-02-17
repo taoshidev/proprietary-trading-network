@@ -8,6 +8,7 @@ from vali_objects.utils.vali_utils import ValiUtils
 from vali_objects.vali_config import ValiConfig, TradePair
 from shared_objects.cache_controller import CacheController
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
+from vali_objects.utils.registration_contract_util import RegistrationContractUtil
 
 import bittensor as bt
 
@@ -89,6 +90,7 @@ class EliminationManager(CacheController):
         self.handle_perf_ledger_eliminations(position_locks)
         self._eliminate_mdd(position_locks)
         self._delete_eliminated_expired_miners()
+        self._dispatch_contract_deregistrations()
         self.set_last_update_time()
         # self._handle_plagiarism_eliminations()
 
@@ -182,6 +184,14 @@ class EliminationManager(CacheController):
                     bt.logging.info(f"Zombie miner dir removed [{miner_dir}]")
                 except FileNotFoundError:
                     bt.logging.info(f"Zombie miner dir not found. Already deleted. [{miner_dir}]")
+
+    def _dispatch_contract_deregistrations(self):
+        if self.shutdown_dict:
+            return
+
+        hotkeys_to_check = RegistrationContractUtil.get_registered()
+        hotkeys_to_deregister = [hotkey for hotkey in hotkeys_to_check if self.is_zombie_hotkey(hotkey)]
+        RegistrationContractUtil.deregister_hotkeys(hotkeys_to_deregister)
 
     def save_eliminations(self):
         self.write_eliminations_to_disk(self.eliminations)
