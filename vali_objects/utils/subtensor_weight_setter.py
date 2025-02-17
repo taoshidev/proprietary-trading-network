@@ -27,7 +27,12 @@ class SubtensorWeightSetter(CacheController):
             current_time = TimeUtil.now_in_millis()
 
         # Collect metagraph hotkeys to ensure we are only setting weights for miners in the metagraph
-        metagraph_hotkeys = self.metagraph.hotkeys
+        metagraph_hotkeys = list(self.metagraph.hotkeys)
+        hotkey_to_idx = {hotkey: idx for idx, hotkey in enumerate(metagraph_hotkeys)}
+        idx_to_hotkey = {idx: hotkey for idx, hotkey in enumerate(metagraph_hotkeys)}
+        hotkey_registration_blocks = list(self.metagraph.block_at_registration)
+        target_dtao_block = 4941752
+        block_reg_failures = set()
 
         # augmented ledger should have the gain, loss, n_updates, and time_duration
         testing_hotkeys = list(self.position_manager.challengeperiod_manager.challengeperiod_testing.keys())
@@ -52,12 +57,11 @@ class SubtensorWeightSetter(CacheController):
                 evaluation_time_ms=current_time
             )
             bt.logging.info(f"Sorted results for weight setting: [{sorted(checkpoint_results, key=lambda x: x[1], reverse=True)}]")
-
             checkpoint_netuid_weights = []
             for miner, score in checkpoint_results:
-                if miner in metagraph_hotkeys:
+                if miner in hotkey_to_idx:
                     checkpoint_netuid_weights.append((
-                        metagraph_hotkeys.index(miner),
+                        hotkey_to_idx[miner],
                         score
                     ))
                 else:
@@ -65,24 +69,23 @@ class SubtensorWeightSetter(CacheController):
 
             challengeperiod_weights = []
             for miner in testing_hotkeys:
-                if miner in metagraph_hotkeys:
+                if miner in hotkey_to_idx:
                     challengeperiod_weights.append((
-                        metagraph_hotkeys.index(miner),
+                        hotkey_to_idx[miner],
                         ValiConfig.CHALLENGE_PERIOD_WEIGHT
                     ))
                 else:
                     bt.logging.error(f"Challengeperiod miner {miner} not found in the metagraph.")
 
             transformed_list = checkpoint_netuid_weights + challengeperiod_weights
-            bt.logging.info(f"transformed list: {transformed_list}")
+            for idx, score in transformed_list:
+                if hotkey_registration_blocks[idx] > target_dtao_block:
+                    block_reg_failures.add(idx_to_hotkey[idx])
+                    transformed_list[idx] = (idx, 0.0)
 
-            # finally check if the block condition was violated
-            hotkey_registration_blocks = list(self.metagraph.block_at_registration)
-            target_dtao_block = 4941752
-            for c, i in enumerate(hotkey_registration_blocks):
-                if i > target_dtao_block:
-                    bt.logging.info(f"Hotkey {metagraph_hotkeys[c]} was registered at block {i} which is greater than the target block {target_dtao_block}. No weight.")
-                    transformed_list[c] = (transformed_list[c][0], 0.0)
+            bt.logging.info(f"transformed list: {transformed_list}")
+            if block_reg_failures:
+                bt.logging.info(f"Miners with registration blocks after target DTAO block: {block_reg_failures}")
 
             self._set_subtensor_weights(wallet, subtensor, transformed_list, netuid)
         self.set_last_update_time()
