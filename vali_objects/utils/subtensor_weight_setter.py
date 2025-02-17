@@ -77,7 +77,8 @@ class SubtensorWeightSetter(CacheController):
             bt.logging.info(f"transformed list: {transformed_list}")
 
             # finally check if the block condition was violated
-            hotkey_registration_blocks = list(self.metagraph.block_at_registration)
+            hotkey_registration_blocks = list(self.metagraph.uids)
+            print("uids: ", hotkey_registration_blocks)
             target_dtao_block = 4941752
             for c, i in enumerate(hotkey_registration_blocks):
                 if i > target_dtao_block:
