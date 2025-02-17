@@ -80,9 +80,16 @@ class SubtensorWeightSetter(CacheController):
             transformed_list = checkpoint_netuid_weights + challengeperiod_weights
             for idx, score in transformed_list:
                 if hotkey_registration_blocks[idx] > target_dtao_block:
-                    block_reg_failures.add(idx_to_hotkey[idx])
-                    transformed_list[idx] = (idx, 0.0)
-
+                    try:
+                        block_reg_failures.add(idx_to_hotkey[idx])
+                        transformed_list[idx] = (idx, 0.0)
+                    except Exception as e:
+                        warning_str = (f"idx {idx} ({idx_to_hotkey.get(idx)}),"
+                                       f" hotkey_registration_blocks {hotkey_registration_blocks} ({len(hotkey_registration_blocks)}),"
+                                       f" block_reg_failures {block_reg_failures}, "
+                                       f"idx_to_hotkey {idx_to_hotkey} ({len(idx_to_hotkey)}), ")
+                        bt.logging.warning(warning_str)
+                        raise e
             bt.logging.info(f"transformed list: {transformed_list}")
             if block_reg_failures:
                 bt.logging.info(f"Miners with registration blocks after target DTAO block: {block_reg_failures}")
