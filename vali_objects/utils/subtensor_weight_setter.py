@@ -32,6 +32,16 @@ class SubtensorWeightSetter(CacheController):
         idx_to_hotkey = {idx: hotkey for idx, hotkey in enumerate(metagraph_hotkeys)}
         hotkey_registration_blocks = list(self.metagraph.block_at_registration)
         target_dtao_block = 4941752
+
+        # buidling out a range for differential in dusting
+        min_block = min(hotkey_registration_blocks)
+        max_block = max(hotkey_registration_blocks)
+        block_duration_range = max(max_block - min_block, 1_000_000)
+        relative_challenge_dusting = [
+            (1 - ((block - min_block) / block_duration_range)) * ValiConfig.CHALLENGE_PERIOD_WEIGHT
+            for block in hotkey_registration_blocks
+        ]
+
         block_reg_failures = set()
 
         # augmented ledger should have the gain, loss, n_updates, and time_duration
@@ -72,7 +82,7 @@ class SubtensorWeightSetter(CacheController):
                 if miner in hotkey_to_idx:
                     challengeperiod_weights.append((
                         hotkey_to_idx[miner],
-                        ValiConfig.CHALLENGE_PERIOD_WEIGHT
+                        ValiConfig.CHALLENGE_PERIOD_WEIGHT + relative_challenge_dusting[hotkey_to_idx[miner]]
                     ))
                 else:
                     bt.logging.error(f"Challengeperiod miner {miner} not found in the metagraph.")
