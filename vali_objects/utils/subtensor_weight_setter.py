@@ -78,12 +78,9 @@ class SubtensorWeightSetter(CacheController):
 
             # finally check if the block condition was violated
             uids = list(self.metagraph.uids)
-            print("uids: ", uids)
             target_dtao_block = 4941752
             for uid in uids:
                 block_at_registration = subtensor.query_subtensor("BlockAtRegistration",block=None, params=[netuid, uid])
-                print("uid: ", uid)
-                print("block_at_registration: ", block_at_registration)
                 hotkey = metagraph_hotkeys[uid]
 
                 if block_at_registration > target_dtao_block:
