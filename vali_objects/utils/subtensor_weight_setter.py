@@ -84,7 +84,7 @@ class SubtensorWeightSetter(CacheController):
                 hotkey = metagraph_hotkeys[uid]
 
                 if block_at_registration > target_dtao_block:
-                    bt.logging.info(f"Hotkey {hotkey} was registered at block {i} which is greater than the target block {target_dtao_block}. No weight.")
+                    bt.logging.info(f"Hotkey {hotkey} was registered at block {block_at_registration} which is greater than the target block {target_dtao_block}. No weight.")
                     transformed_list[uid] = (transformed_list[uid][0], 0.0)
 
             self._set_subtensor_weights(wallet, subtensor, transformed_list, netuid)
