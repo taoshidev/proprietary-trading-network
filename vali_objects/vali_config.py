@@ -25,6 +25,11 @@ class TradePairCategory(str, Enum):
 class ValiConfig:
     # versioning
     VERSION = meta_version
+
+    # Contract infromation
+    REGISTRATION_CONTRACT_ADDRESS = "0xA"
+
+    # Statistical time-based metrics
     DAYS_IN_YEAR = 252  # 252 trading days in a year
     STATISTICAL_CONFIDENCE_MINIMUM_N = 60
 

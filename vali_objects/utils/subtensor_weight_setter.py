@@ -8,6 +8,7 @@ from vali_objects.utils.position_manager import PositionManager
 from vali_objects.position import Position
 from vali_objects.scoring.scoring import Scoring
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedger
+from vali_objects.utils.registration_contract_util import RegistrationContractUtil
 
 
 class SubtensorWeightSetter(CacheController):
@@ -59,6 +60,7 @@ class SubtensorWeightSetter(CacheController):
                 evaluation_time_ms=current_time
             )
             bt.logging.info(f"Sorted results for weight setting: [{sorted(checkpoint_results, key=lambda x: x[1], reverse=True)}]")
+
             checkpoint_netuid_weights = []
             for miner, score in checkpoint_results:
                 if miner in hotkey_to_idx:
@@ -95,6 +97,15 @@ class SubtensorWeightSetter(CacheController):
             bt.logging.info(f"transformed list: {transformed_list}")
             if block_reg_failures:
                 bt.logging.info(f"Miners with registration blocks after target DTAO block: {block_reg_failures}")
+
+            # Now check the logic from the contract, if the miner is indeed still registered for competition
+            contract_registered_miners = RegistrationContractUtil.get_registered()
+            for c, i in enumerate(transformed_list):
+                if metagraph_hotkeys[c] not in contract_registered_miners:
+                    bt.logging.info(f"Hotkey {metagraph_hotkeys[c]} is not registered in the contract. No weight.")
+                    transformed_list[c] = (transformed_list[c][0], 0.0)
+
+            bt.logging.info(f"transformed list: {transformed_list}")
 
             self._set_subtensor_weights(wallet, subtensor, transformed_list, netuid)
         self.set_last_update_time()
