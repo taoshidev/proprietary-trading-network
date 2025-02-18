@@ -11,6 +11,11 @@ interface ChallengesProps {
 export const Challenges = ({ statistics }: ChallengesProps) => {
   const { challengeperiod } = statistics.data[0];
   const { status, scores } = challengeperiod;
+
+  // if anything is in challenge period show element
+  const isInChallenge = !isNil(scores)  && status === "testing";
+  if (!isInChallenge) return null;
+
   const { omega, overall, return_long, return_short, sharpe_ratio, sortino, statistical_confidence } = scores
 
   const scoreData = [
@@ -22,9 +27,7 @@ export const Challenges = ({ statistics }: ChallengesProps) => {
     { label: "Sortino", score: sortino },
     { label: "Statistical Confidence", score: statistical_confidence },
   ];
-  
-  // if anything is in challenge period show element
-  const isInChallenge = !isNil(scores)  && status === "testing";
+
   const passingThreshold = overall.target_percentile
 
   return (
