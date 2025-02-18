@@ -74,7 +74,7 @@ class LivePriceFetcher:
         if filter_recent_only and best_event.time_delta_from_now_ms(current_time_ms) > 2000:
             return None, None
 
-        return (best_event.bid, best_event.ask), QuoteSource.non_null_events_sorted(valid_events, current_time_ms)
+        return best_event.bid, best_event.ask, QuoteSource.non_null_events_sorted(valid_events, current_time_ms)
 
     def fetch_prices(self, tps: List[TradePair], trade_pair_to_last_order_time_ms, ws_only=False) -> (
             dict[str: Tuple[float, List[PriceSource]]] | dict[str: Tuple[None, None]]):
@@ -117,9 +117,10 @@ class LivePriceFetcher:
         return results
 
     def fetch_quotes(self, tps: List[TradePair], trade_pair_to_last_order_time_ms, ws_only=False) -> (
-            dict[str: Tuple[float, List[QuoteSource]]] | dict[str: Tuple[None, None]]):
+            dict[str: Tuple[float, float, List[QuoteSource]]] | dict[str: Tuple[None, None, None]]):
         """
         Fetches quote data using WebSockets first; uses REST APIs if WebSocket data is outdated or missing.
+        Returns a dict mapping trade pair to a tuple of [(bid, ask), [QuoteSource]]
         """
         # TODO: websocket
         # websocket_quotes_polygon = self.polygon_data_service.get_quotes_websocket(trade_pairs=tps, trade_pair_to_last_order_time_ms=trade_pair_to_last_order_time_ms)
@@ -173,11 +174,12 @@ class LivePriceFetcher:
         return self.fetch_prices([trade_pair], {trade_pair: time_ms})[trade_pair]
 
     @timeme
-    def get_latest_quote(self, trade_pair: TradePair, time_ms=None) -> Tuple[float, List[QuoteSource]] | Tuple[
-        None, None]:
+    def get_latest_quote(self, trade_pair: TradePair, time_ms=None) -> Tuple[float, float, List[QuoteSource]] | Tuple[
+        None, None, None]:
         """
         Gets the latest quote for a single trade pair by utilizing WebSocket and possibly REST data sources.
         Tries to get the quote as close to time_ms as possible.
+        Returns a tuple of bid, ask, [QuoteSource]
         """
         if not time_ms:
             time_ms = TimeUtil.now_in_millis()

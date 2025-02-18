@@ -154,7 +154,7 @@ class MDDChecker(CacheController):
                                                         ws_only=False).get(trade_pair, (None, None))[1]
             quote_sources = self.live_price_fetcher.fetch_quotes([trade_pair],
                                                         {trade_pair: order.processed_ms},
-                                                        ws_only=False).get(trade_pair, (None, None))[1]
+                                                        ws_only=False).get(trade_pair, (None, None, None))[2]
             return price_sources, quote_sources
 
         trade_pair = position.trade_pair
