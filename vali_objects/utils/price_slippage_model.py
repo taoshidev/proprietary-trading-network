@@ -2,6 +2,7 @@ import math
 from collections import defaultdict
 from datetime import datetime
 
+import holidays
 import numpy as np
 import pandas as pd
 import bittensor as bt
@@ -21,9 +22,11 @@ class PriceSlippageModel:
     last_day_refreshed = -1
     parameters: dict = {}
     pds: PolygonDataService = None
+    holidays_nyse = None
 
     def __init__(self, live_price_fetcher=None, running_unit_tests=False):
         if not PriceSlippageModel.parameters:
+            PriceSlippageModel.holidays_nyse = holidays.financial_holidays('NYSE')
             PriceSlippageModel.parameters = self.read_slippage_model_parameters()
 
             if live_price_fetcher is None:
@@ -147,7 +150,8 @@ class PriceSlippageModel:
         fetch data for average daily volume (estimated daily volume) and annualized volatility
         """
         order_date = TimeUtil.millis_to_short_date_str(processed_ms)
-        start_date = TimeUtil.get_n_business_days_ago(order_date, max(adv_lookback_window+1, calc_vol_window+2) + 1)
+        days_ago = max(adv_lookback_window, calc_vol_window) + 4  # +1 for last day, +1 because daily_returns is NaN for 1st day, +2 for padding (unexpected holidays)
+        start_date = cls.holidays_nyse.get_nth_working_day(order_date, -days_ago).strftime("%Y-%m-%d")
 
         price_info_raw = cls.pds.unified_candle_fetcher(trade_pair, start_date, order_date, timespan="day")
         aggs = []
