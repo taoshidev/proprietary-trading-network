@@ -69,8 +69,6 @@ export interface Score {
 }
 
 export interface Scores {
-  risk_adjusted_return: Score;
-  short_risk_adjusted_return_dict: Score;
   omega: Score;
   sortino: Score;
   statistical_confidence: Score;
@@ -100,10 +98,12 @@ export interface Checkpoint {
 
 export interface PenalizedScores {
   omega: Score;
+  sortino: Score;
+  statistical_confidence: Score;
   sharpe: Score;
-  risk_adjusted_return: Score;
-  short_risk_adjusted_return: Score;
   calmar: Score;
+  return: Score;
+  short_return: Score;
   "short-calmar": Score;
 }
 
