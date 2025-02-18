@@ -17,7 +17,7 @@ CRYPTO_CARRY_FEE_PER_INTERVAL = math.exp(math.log(1 - 0.1095) / (365.0*3.0))  # 
 FOREX_CARRY_FEE_PER_INTERVAL = math.exp(math.log(1 - .03) / 365.0)  # 3% per year for 1x leverage. Each interval is 24 hrs
 INDICES_CARRY_FEE_PER_INTERVAL = math.exp(math.log(1 - .0525) / 365.0)  # 5.25% per year for 1x leverage. Each interval is 24 hrs
 FEE_V6_TIME_MS = 1720843707000  # V6 PR merged
-SLIPPAGE_V1_TIME_MS = 1739664000000  # Slippage PR merged
+SLIPPAGE_V1_TIME_MS = 1739948400000  # Slippage PR merged
 ALWAYS_USE_LATEST = False  # use either the latest or time-gated (post slippage release) calculations for spread, entry, exit price
 
 class Position(BaseModel):
