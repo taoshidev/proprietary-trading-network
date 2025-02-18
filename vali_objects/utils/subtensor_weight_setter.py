@@ -31,7 +31,9 @@ class SubtensorWeightSetter(CacheController):
         hotkey_to_idx = {hotkey: idx for idx, hotkey in enumerate(metagraph_hotkeys)}
         idx_to_hotkey = {idx: hotkey for idx, hotkey in enumerate(metagraph_hotkeys)}
         hotkey_registration_blocks = list(self.metagraph.block_at_registration)
-        target_dtao_block = 4941752
+        target_dtao_block_zero_incentive_start = 4916273
+        target_dtao_block_zero_incentive_end = 4951874
+
         block_reg_failures = set()
 
         # augmented ledger should have the gain, loss, n_updates, and time_duration
@@ -79,7 +81,7 @@ class SubtensorWeightSetter(CacheController):
 
             transformed_list = checkpoint_netuid_weights + challengeperiod_weights
             for tl_idx, (metagraph_idx, score) in enumerate(transformed_list):
-                if hotkey_registration_blocks[metagraph_idx] > target_dtao_block:
+                if target_dtao_block_zero_incentive_start < hotkey_registration_blocks[metagraph_idx] <= target_dtao_block_zero_incentive_end:
                     try:
                         block_reg_failures.add(idx_to_hotkey[metagraph_idx])
                         transformed_list[tl_idx] = (metagraph_idx, 0.0)
