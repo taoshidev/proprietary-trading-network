@@ -147,7 +147,7 @@ class PriceSlippageModel:
         fetch data for average daily volume (estimated daily volume) and annualized volatility
         """
         order_date = TimeUtil.millis_to_short_date_str(processed_ms)
-        start_date = TimeUtil.get_n_business_days_ago(order_date, max(adv_lookback_window+1, calc_vol_window+2))
+        start_date = TimeUtil.get_n_business_days_ago(order_date, max(adv_lookback_window+1, calc_vol_window+2) + 1)
 
         price_info_raw = cls.pds.unified_candle_fetcher(trade_pair, start_date, order_date, timespan="day")
         aggs = []
