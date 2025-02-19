@@ -1,7 +1,6 @@
 import asyncio
 import threading
 import traceback
-from datetime import datetime
 from multiprocessing import Process
 
 import requests
@@ -953,7 +952,7 @@ class PolygonDataService(BaseDataService):
             polygon_ticker = self.trade_pair_to_polygon_ticker(trade_pair)
             quotes = self.POLYGON_CLIENT.list_quotes(
                 ticker=polygon_ticker,
-                timestamp_lt=processed_ms * 1_000_000,
+                timestamp_lte=processed_ms * 1_000_000,
                 sort="participant_timestamp",
                 order="desc",
                 limit=1
