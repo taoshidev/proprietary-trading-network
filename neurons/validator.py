@@ -762,7 +762,7 @@ class Validator:
                     net_portfolio_leverage = self.position_manager.calculate_net_portfolio_leverage(miner_hotkey)
                     self.enforce_order_cooldown(signal_to_order, open_position)
                     self.set_flat_order_leverage(signal_to_order, open_position)
-                    self.set_quote_and_slippage(signal_to_order)
+                    # self.set_quote_and_slippage(signal_to_order)  # disabled to avoid slowing order processing. slippage updated by mdd_checker
                     open_position.add_order(signal_to_order, net_portfolio_leverage)
                     self.position_manager.save_miner_position(open_position)
                     bt.logging.info(
