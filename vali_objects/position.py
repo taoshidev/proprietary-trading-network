@@ -563,6 +563,7 @@ class Position(BaseModel):
         """
         should_ignore_order = False
         if order.order_type == OrderType.FLAT:
+            order.leverage = -self.net_leverage
             return should_ignore_order
 
         is_first_order = len(self.orders) == 0

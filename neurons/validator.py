@@ -549,31 +549,6 @@ class Validator:
         bt.logging.success(f"Converted signal to order: {order} in {delta_t_s_3_decimals} seconds")
         return order
 
-    def set_flat_order_leverage(self, order: Order, position: Position):
-        """
-        set the order leverage to be -position.net_leverage if the order is FLAT or if the order would flatten the position.
-        """
-        if ((order.order_type == OrderType.FLAT or (order.leverage * position.net_leverage < 0 and abs(order.leverage) > abs(position.net_leverage)))
-                and order.leverage != -position.net_leverage):
-            bt.logging.info(f"Updating FLAT order leverage from {order.leverage} in received signal to {-position.net_leverage}")
-            order.leverage = -position.net_leverage
-
-    def set_quote_and_slippage(self, order: Order):
-        """
-        adds the quote and calculates slippage attribute for order
-        """
-        bt.logging.info("Attempting to get live quote for trade pair: " + order.trade_pair.trade_pair_id)
-        bid, ask, quote_sources = self.live_price_fetcher.get_latest_quote(trade_pair=order.trade_pair, time_ms=order.processed_ms)
-        slippage = PriceSlippageModel.calculate_slippage(bid, ask, order)
-
-        order.quote_sources = quote_sources
-        order.bid = bid
-        order.ask = ask
-        order.slippage = slippage
-        delta_t_ms = TimeUtil.now_in_millis() - order.processed_ms
-        delta_t_s_3_decimals = round(delta_t_ms / 1000.0, 3)
-        bt.logging.success(f"Added quote and slippage to order: {order} in {delta_t_s_3_decimals} seconds")
-
     def _enforce_num_open_order_limit(self, trade_pair_to_open_position: dict, signal_to_order):
         # Check if there are too many orders across all open positions.
         # If so, check if the current order is a FLAT order (reduces number of open orders). If not, raise an exception
@@ -762,8 +737,6 @@ class Validator:
                 if open_position:
                     net_portfolio_leverage = self.position_manager.calculate_net_portfolio_leverage(miner_hotkey)
                     self.enforce_order_cooldown(signal_to_order, open_position)
-                    self.set_flat_order_leverage(signal_to_order, open_position)
-                    self.set_quote_and_slippage(signal_to_order)
                     open_position.add_order(signal_to_order, net_portfolio_leverage)
                     self.position_manager.save_miner_position(open_position)
                     bt.logging.info(

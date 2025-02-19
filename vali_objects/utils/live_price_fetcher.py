@@ -142,7 +142,7 @@ class LivePriceFetcher:
         # if not trade_pairs_needing_rest_data or ws_only:
         #     return results
 
-        rest_quotes_polygon = self.polygon_data_service.get_quotes_rest(trade_pairs_needing_rest_data)
+        rest_quotes_polygon = self.polygon_data_service.get_quotes_rest(trade_pairs_needing_rest_data, trade_pair_to_last_order_time_ms)
         _, rest_quotes_tiingo_data = self.tiingo_data_service.get_closes_rest(trade_pairs_needing_rest_data)
 
         for trade_pair in trade_pairs_needing_rest_data:

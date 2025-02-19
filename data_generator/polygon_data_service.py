@@ -434,12 +434,12 @@ class PolygonDataService(BaseDataService):
 
         return all_trade_pair_closes
 
-    def get_quotes_rest(self, pairs: List[TradePair]) -> dict:
+    def get_quotes_rest(self, pairs: List[TradePair], trade_pair_to_last_order_time_ms: dict) -> dict:
         all_trade_pair_quotes = {}
         # Multi-threaded fetching of REST data over all requested trade pairs. Max parallelism is 5.
         with ThreadPoolExecutor(max_workers=5) as executor:
             # Dictionary to keep track of futures
-            future_to_trade_pair = {executor.submit(self.get_quote_rest, p): p for p in pairs}
+            future_to_trade_pair = {executor.submit(self.get_quote_rest, p, trade_pair_to_last_order_time_ms[p]): p for p in pairs}
 
             for future in as_completed(future_to_trade_pair):
                 tp = future_to_trade_pair[future]
@@ -473,7 +473,7 @@ class PolygonDataService(BaseDataService):
                 volume=a.volume
             )
 
-    def agg_to_quote_source(self, bid:float, ask:float, timestamp:int, now_ms:int, attempting_prev_close:bool=False):
+    def agg_to_quote_source(self, bid:float, ask:float, timestamp:int, time_ms:int, attempting_prev_close:bool=False):
         q_name = f'{POLYGON_PROVIDER_NAME}_rest'
         # if attempting_prev_close:
         #     p_name += '_prev_close'
@@ -484,7 +484,7 @@ class PolygonDataService(BaseDataService):
                 bid=bid,
                 ask=ask,
                 websocket=False,
-                lag_ms=now_ms - timestamp
+                lag_ms=time_ms - timestamp
             )
 
     def get_close_rest(
@@ -522,7 +522,8 @@ class PolygonDataService(BaseDataService):
 
     def get_quote_rest(
         self,
-        trade_pair: TradePair
+        trade_pair: TradePair,
+        time_ms: int = None
     ) -> QuoteSource | None:
         # polygon_ticker = self.trade_pair_to_polygon_ticker(trade_pair)
         #bt.logging.info(f"Fetching REST data for {polygon_ticker}")
@@ -530,9 +531,10 @@ class PolygonDataService(BaseDataService):
         # if not self.is_market_open(trade_pair):
         #     return self.get_quote_event_before_market_close(trade_pair)
 
-        now_ms = TimeUtil.now_in_millis()
-        bid, ask, timestamp = self.get_quote(trade_pair, now_ms)
-        final_quote = self.agg_to_quote_source(bid, ask, timestamp, now_ms)
+        if time_ms is None:
+            time_ms = TimeUtil.now_in_millis()
+        bid, ask, timestamp = self.get_quote(trade_pair, time_ms)
+        final_quote = self.agg_to_quote_source(bid, ask, timestamp, time_ms)
 
         if not final_quote:
             bt.logging.warning(f"Polygon failed to fetch quote REST data for {trade_pair.trade_pair}. If you keep seeing this warning, report it to the team ASAP")
@@ -949,10 +951,9 @@ class PolygonDataService(BaseDataService):
 
         if trade_pair.is_forex or trade_pair.is_equities:
             polygon_ticker = self.trade_pair_to_polygon_ticker(trade_pair)
-            dt = datetime.utcfromtimestamp(processed_ms/1000)
             quotes = self.POLYGON_CLIENT.list_quotes(
                 ticker=polygon_ticker,
-                timestamp_lte=dt,
+                timestamp_lt=processed_ms * 1_000_000,
                 sort="participant_timestamp",
                 order="desc",
                 limit=1

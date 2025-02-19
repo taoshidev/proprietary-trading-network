@@ -77,31 +77,6 @@ class MDDChecker(CacheController):
         self.last_price_fetch_time_ms = now
         return candle_data
 
-    def get_quote_data(self, hotkey_positions) -> Dict[TradePair, List[QuoteSource]]:
-        required_trade_pairs_for_quotes = set()
-        trade_pair_to_market_open = {}
-        now_ms = TimeUtil.now_in_millis()
-        for sorted_positions in hotkey_positions.values():
-            for position in sorted_positions:
-                # Only need live quote for open positions in open markets.
-                if self._position_is_candidate_for_price_correction(position, now_ms):
-                    tp = position.trade_pair
-                    if tp not in trade_pair_to_market_open:
-                        trade_pair_to_market_open[tp] = self.live_price_fetcher.polygon_data_service.is_market_open(tp)
-                    if trade_pair_to_market_open[tp]:
-                        required_trade_pairs_for_quotes.add(tp)
-
-        now = TimeUtil.now_in_millis()
-        quote_data = self.live_price_fetcher.get_latest_quotes(list(required_trade_pairs_for_quotes))
-        # bt.logging.info(f"Got quote data for {len(quote_data)} {quote_data}")
-        for tp, price_and_sources in quote_data.items():
-            sources = price_and_sources[1]
-            if sources and any(x and not x.websocket for x in sources):
-                self.n_poly_api_requests += 1  # TODO: does this matter?
-
-        self.last_quote_fetch_time_ms = now
-        return quote_data
-
     
     def mdd_check(self, position_locks):
         self.n_poly_api_requests = 0
@@ -125,7 +100,6 @@ class MDDChecker(CacheController):
             eliminations=[{'hotkey': x} for x in self.hotkeys_with_flat_orders_added]
         )
         candle_data = self.get_candle_data(hotkey_to_positions)
-        # quote_data = self.get_quote_data(hotkey_to_positions)
         for hotkey, sorted_positions in hotkey_to_positions.items():
             if self.shutdown_dict:
                 return
