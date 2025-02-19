@@ -17,6 +17,8 @@ ORDER_SRC_DEPRECATION_FLAT = 2      # order inserted when a trade pair is remove
 
 class Order(Signal):
     price: float
+    bid: float = 0
+    ask: float = 0
     slippage: float = 0
     processed_ms: int
     order_uuid: str
@@ -60,6 +62,8 @@ class Order(Signal):
                     'order_type': self.order_type.name,
                     'leverage': self.leverage,
                     'price': self.price,
+                    'bid': self.bid,
+                    'ask': self.ask,
                     'slippage': self.slippage,
                     'processed_ms': self.processed_ms,
                     'price_sources': self.price_sources,

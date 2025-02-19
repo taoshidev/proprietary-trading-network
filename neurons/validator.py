@@ -566,6 +566,8 @@ class Validator:
         slippage = PriceSlippageModel.calculate_slippage(bid, ask, order)
 
         order.quote_sources = quote_sources
+        order.bid = bid
+        order.ask = ask
         order.slippage = slippage
         delta_t_ms = TimeUtil.now_in_millis() - order.processed_ms
         delta_t_s_3_decimals = round(delta_t_ms / 1000.0, 3)

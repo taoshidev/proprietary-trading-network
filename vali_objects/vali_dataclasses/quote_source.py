@@ -69,6 +69,8 @@ class QuoteSource(BaseModel):
         new_quote_sources = QuoteSource.non_null_events_sorted(new_quote_sources, order_time_ms)
         if any_changes:
             order.quote_sources = new_quote_sources
+            order.bid = bid
+            order.ask = ask
             order.slippage = new_slippage
             return True
         return False
