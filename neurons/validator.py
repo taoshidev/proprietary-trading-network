@@ -551,9 +551,10 @@ class Validator:
 
     def set_flat_order_leverage(self, order: Order, position: Position):
         """
-        set the order leverage for a flat order.
+        set the order leverage to be -position.net_leverage if the order is FLAT or if the order would flatten the position.
         """
-        if order.order_type == OrderType.FLAT and order.leverage != -position.net_leverage:
+        if ((order.order_type == OrderType.FLAT or (order.leverage * position.net_leverage < 0 and abs(order.leverage) > abs(position.net_leverage)))
+                and order.leverage != -position.net_leverage):
             bt.logging.info(f"Updating FLAT order leverage from {order.leverage} in received signal to {-position.net_leverage}")
             order.leverage = -position.net_leverage
 
@@ -762,7 +763,7 @@ class Validator:
                     net_portfolio_leverage = self.position_manager.calculate_net_portfolio_leverage(miner_hotkey)
                     self.enforce_order_cooldown(signal_to_order, open_position)
                     self.set_flat_order_leverage(signal_to_order, open_position)
-                    # self.set_quote_and_slippage(signal_to_order)  # disabled to avoid slowing order processing. slippage updated by mdd_checker
+                    self.set_quote_and_slippage(signal_to_order)
                     open_position.add_order(signal_to_order, net_portfolio_leverage)
                     self.position_manager.save_miner_position(open_position)
                     bt.logging.info(
