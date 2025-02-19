@@ -10,6 +10,7 @@ from shared_objects.cache_controller import CacheController
 from vali_objects.position import Position
 from vali_objects.utils.live_price_fetcher import LivePriceFetcher
 from vali_objects.vali_dataclasses.order import Order, ORDER_SRC_ELIMINATION_FLAT
+from vali_objects.vali_dataclasses.quote_source import QuoteSource
 from vali_objects.vali_dataclasses.recent_event_tracker import RecentEventTracker
 
 from vali_objects.utils.vali_utils import ValiUtils
@@ -25,6 +26,7 @@ class MDDChecker(CacheController):
                  live_price_fetcher=None, shutdown_dict=None):
         super().__init__(metagraph, running_unit_tests=running_unit_tests)
         self.last_price_fetch_time_ms = None
+        self.last_quote_fetch_time_ms = None
         self.price_correction_enabled = True
         secrets = ValiUtils.get_secrets(running_unit_tests=running_unit_tests)
         self.position_manager = position_manager
@@ -75,6 +77,31 @@ class MDDChecker(CacheController):
         self.last_price_fetch_time_ms = now
         return candle_data
 
+    def get_quote_data(self, hotkey_positions) -> Dict[TradePair, List[QuoteSource]]:
+        required_trade_pairs_for_quotes = set()
+        trade_pair_to_market_open = {}
+        now_ms = TimeUtil.now_in_millis()
+        for sorted_positions in hotkey_positions.values():
+            for position in sorted_positions:
+                # Only need live quote for open positions in open markets.
+                if self._position_is_candidate_for_price_correction(position, now_ms):
+                    tp = position.trade_pair
+                    if tp not in trade_pair_to_market_open:
+                        trade_pair_to_market_open[tp] = self.live_price_fetcher.polygon_data_service.is_market_open(tp)
+                    if trade_pair_to_market_open[tp]:
+                        required_trade_pairs_for_quotes.add(tp)
+
+        now = TimeUtil.now_in_millis()
+        quote_data = self.live_price_fetcher.get_latest_quotes(list(required_trade_pairs_for_quotes))
+        # bt.logging.info(f"Got quote data for {len(quote_data)} {quote_data}")
+        for tp, price_and_sources in quote_data.items():
+            sources = price_and_sources[1]
+            if sources and any(x and not x.websocket for x in sources):
+                self.n_poly_api_requests += 1  # TODO: does this matter?
+
+        self.last_quote_fetch_time_ms = now
+        return quote_data
+
     
     def mdd_check(self, position_locks):
         self.n_poly_api_requests = 0
@@ -98,6 +125,7 @@ class MDDChecker(CacheController):
             eliminations=[{'hotkey': x} for x in self.hotkeys_with_flat_orders_added]
         )
         candle_data = self.get_candle_data(hotkey_to_positions)
+        # quote_data = self.get_quote_data(hotkey_to_positions)
         for hotkey, sorted_positions in hotkey_to_positions.items():
             if self.shutdown_dict:
                 return
@@ -121,10 +149,13 @@ class MDDChecker(CacheController):
             # By a flurry of recent orders.
             #ws_only = not is_last_order
             self.n_poly_api_requests += 1#0 if ws_only else 1
-            sources = self.live_price_fetcher.fetch_prices([trade_pair],
+            price_sources = self.live_price_fetcher.fetch_prices([trade_pair],
                                                         {trade_pair: order.processed_ms},
                                                         ws_only=False).get(trade_pair, (None, None))[1]
-            return sources
+            quote_sources = self.live_price_fetcher.fetch_quotes([trade_pair],
+                                                        {trade_pair: order.processed_ms},
+                                                        ws_only=False).get(trade_pair, (None, None, None))[2]
+            return price_sources, quote_sources
 
         trade_pair = position.trade_pair
         trade_pair_id = trade_pair.trade_pair_id
@@ -132,7 +163,7 @@ class MDDChecker(CacheController):
         orig_avg_price = position.average_entry_price
         orig_iep = position.initial_entry_price
         now_ms = TimeUtil.now_in_millis()
-        with position_locks.get_lock(hotkey, trade_pair_id):
+        with (position_locks.get_lock(hotkey, trade_pair_id)):
             # Position could have updated in the time between mdd_check being called and this function being called
             position_refreshed = self.position_manager.get_miner_position_by_uuid(hotkey, position.position_uuid)
             if position_refreshed is None:
@@ -148,14 +179,16 @@ class MDDChecker(CacheController):
                 if order_age > RecentEventTracker.OLDEST_ALLOWED_RECORD_MS:
                     break  # No need to check older records
 
-                sources = _get_sources_for_order(order, position.trade_pair, is_last_order=i == 0)
-                if not sources:
+                price_sources, quote_sources = _get_sources_for_order(order, position.trade_pair, is_last_order=i == 0)
+                if not price_sources and not quote_sources:
                     bt.logging.warning(f"Unexpectedly could not find any new price sources for order"
                                      f" {order.order_uuid} in {hotkey} {position.trade_pair.trade_pair}. If this"
                                      f"issue persist, alert the team.")
                     continue
-                if PriceSource.update_order_with_newest_price_sources(order, sources, hotkey, position.trade_pair.trade_pair):
-                    n_orders_updated += 1
+                else:
+                    if (price_sources and PriceSource.update_order_with_newest_price_sources(order, price_sources, hotkey, position.trade_pair.trade_pair)) or (
+                            quote_sources and QuoteSource.update_order_with_newest_quote_sources(order, quote_sources, hotkey, position.trade_pair.trade_pair)):
+                        n_orders_updated += 1
 
             # Rebuild the position with the newest price
             if n_orders_updated:

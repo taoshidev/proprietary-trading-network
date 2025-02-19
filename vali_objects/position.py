@@ -17,6 +17,8 @@ CRYPTO_CARRY_FEE_PER_INTERVAL = math.exp(math.log(1 - 0.1095) / (365.0*3.0))  # 
 FOREX_CARRY_FEE_PER_INTERVAL = math.exp(math.log(1 - .03) / 365.0)  # 3% per year for 1x leverage. Each interval is 24 hrs
 INDICES_CARRY_FEE_PER_INTERVAL = math.exp(math.log(1 - .0525) / 365.0)  # 5.25% per year for 1x leverage. Each interval is 24 hrs
 FEE_V6_TIME_MS = 1720843707000  # V6 PR merged
+SLIPPAGE_V1_TIME_MS = 1739937600000  # Slippage PR merged
+ALWAYS_USE_LATEST = False  # use either the latest or time-gated (post slippage release) calculations for spread, entry, exit price
 
 class Position(BaseModel):
     """Represents a position in a trading system.
@@ -43,10 +45,10 @@ class Position(BaseModel):
     open_ms: int
     trade_pair: TradePair
     orders: List[Order] = Field(default_factory=list)
-    current_return: float = 1.0
+    current_return: float = 1.0  # excludes fees
     close_ms: Optional[int] = None
-    return_at_close: float = 1.0
     net_leverage: float = 0.0
+    return_at_close: float = 1.0  # includes all fees
     average_entry_price: float = 0.0
     position_type: Optional[OrderType] = None
     is_closed_position: bool = False
@@ -100,8 +102,11 @@ class Position(BaseModel):
         return cumulative_leverage
 
 
-    def get_spread_fee(self) -> float:
-        return 1.0 - (self.get_cumulative_leverage() * self.trade_pair.fees * 0.5)
+    def get_spread_fee(self, timestamp_ms) -> float:
+        if timestamp_ms < SLIPPAGE_V1_TIME_MS and not ALWAYS_USE_LATEST:
+            return 1.0 - (self.get_cumulative_leverage() * self.trade_pair.fees * 0.5)
+        else:  # slippage will replace the spread fee
+            return 1
 
     def crypto_carry_fee(self, current_time_ms: int) -> (float, int):
         #print(f'accrual time {TimeUtil.millis_to_formatted_date_str(self.start_carry_fee_accrual_ms)} now {TimeUtil.millis_to_formatted_date_str(current_time_ms)}')
@@ -186,7 +191,11 @@ class Position(BaseModel):
     def initial_entry_price(self) -> float:
         if not self.orders or len(self.orders) == 0:
             return 0.0
-        return self.orders[0].price
+        first_order = self.orders[0]
+        if TimeUtil.now_in_millis() < SLIPPAGE_V1_TIME_MS and not ALWAYS_USE_LATEST:
+            return first_order.price
+        else:
+            return first_order.price * (1 + first_order.slippage) if first_order.leverage > 0 else first_order.price * (1 - first_order.slippage)
 
     def __hash__(self):
         # Include specified fields in the hash, assuming trade_pair is accessible and immutable
@@ -343,12 +352,19 @@ class Position(BaseModel):
         self.orders.append(order)
         self._update_position()
 
-    def calculate_unrealized_pnl(self, current_price):
+    def calculate_pnl(self, current_price):
         if self.initial_entry_price == 0 or self.average_entry_price is None:
             return 1
 
+        if (TimeUtil.now_in_millis() >= SLIPPAGE_V1_TIME_MS or ALWAYS_USE_LATEST) and self.position_type == OrderType.FLAT:  # realized PnL
+            # apply slippage on exit
+            last_order = self.orders[-1]
+            exit_price = current_price * (1 + last_order.slippage) if last_order.leverage > 0 else current_price * (1 - last_order.slippage)
+        else:  # unrealized PnL
+            exit_price = current_price
+
         gain = (
-            (current_price - self.average_entry_price)
+            (exit_price - self.average_entry_price)
             * self.net_leverage
             / self.initial_entry_price
         )
@@ -447,7 +463,7 @@ class Position(BaseModel):
         if timestamp_ms < 1713198680000:  # V4 PR merged
             fee = 1.0 - self.trade_pair.fees * self.max_leverage_seen()
         else:
-            fee = self.get_carry_fee(timestamp_ms)[0] * self.get_spread_fee()
+            fee = self.get_carry_fee(timestamp_ms)[0] * self.get_spread_fee(timestamp_ms)
         return current_return_no_fees * fee
 
     def get_open_position_return_with_fees(self, realtime_price, time_ms):
@@ -463,7 +479,7 @@ class Position(BaseModel):
     def set_returns(self, realtime_price, time_ms=None, total_fees=None):
         # We used to multiple trade_pair.fees by net_leverage. Eventually we will
         # Update this calculation to approximate actual exchange fees.
-        self.current_return = self.calculate_unrealized_pnl(realtime_price)
+        self.current_return = self.calculate_pnl(realtime_price)
         if total_fees is None:
             self.return_at_close = self.calculate_return_with_fees(self.current_return,
                                timestamp_ms=TimeUtil.now_in_millis() if time_ms is None else time_ms)
@@ -500,9 +516,13 @@ class Position(BaseModel):
         if self.position_type == OrderType.FLAT:
             self.net_leverage = 0.0
         else:
+            if TimeUtil.now_in_millis() < SLIPPAGE_V1_TIME_MS and not ALWAYS_USE_LATEST:
+                entry_price = realtime_price
+            else:
+                entry_price = order.price * (1 + order.slippage) if order.leverage > 0 else order.price * (1 - order.slippage)
             self.average_entry_price = (
                 self.average_entry_price * self.net_leverage
-                + realtime_price * delta_leverage
+                + entry_price * delta_leverage
             ) / new_net_leverage
             self.net_leverage = new_net_leverage
 

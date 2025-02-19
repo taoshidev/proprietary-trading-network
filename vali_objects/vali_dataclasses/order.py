@@ -9,15 +9,21 @@ from vali_objects.vali_dataclasses.price_source import PriceSource
 from vali_objects.vali_dataclasses.order_signal import Signal
 from enum import Enum, auto
 
-ORDER_SRC_ORGANIC = 0
-ORDER_SRC_ELIMINATION_FLAT = 1
-ORDER_SRC_DEPRECATION_FLAT = 2
+from vali_objects.vali_dataclasses.quote_source import QuoteSource
+
+ORDER_SRC_ORGANIC = 0               # order generated from a miner's signal
+ORDER_SRC_ELIMINATION_FLAT = 1      # order inserted when a miner is eliminated
+ORDER_SRC_DEPRECATION_FLAT = 2      # order inserted when a trade pair is removed
 
 class Order(Signal):
     price: float
+    bid: float = 0
+    ask: float = 0
+    slippage: float = 0
     processed_ms: int
     order_uuid: str
     price_sources: list[PriceSource] = []
+    quote_sources: list[QuoteSource] = []
     src: int = ORDER_SRC_ORGANIC
 
     @field_validator('price', 'processed_ms', 'leverage', mode='before')
@@ -56,8 +62,12 @@ class Order(Signal):
                     'order_type': self.order_type.name,
                     'leverage': self.leverage,
                     'price': self.price,
+                    'bid': self.bid,
+                    'ask': self.ask,
+                    'slippage': self.slippage,
                     'processed_ms': self.processed_ms,
                     'price_sources': self.price_sources,
+                    'quote_sources': self.quote_sources,
                     'order_uuid': self.order_uuid,
                     'src': self.src})
 

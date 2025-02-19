@@ -1,0 +1,642 @@
+{
+    "equity": {
+        "AAPL": {
+            "buy": {
+                "1k_10k": {
+                    "intercept": -3.818266486007179e-06,
+                    "spread/price": 0.54681373875299,
+                    "annualized_vol": -3.241125629445065e-06,
+                    "buy_order_value/adv": 0.02135552660644369
+                },
+                "10k_50k": {
+                    "intercept": -2.62896262032884e-05,
+                    "spread/price": 0.6986771613177597,
+                    "annualized_vol": 5.081992589491772e-05,
+                    "buy_order_value/adv": 0.016258375164221846
+                },
+                "50k_100k": {
+                    "intercept": -0.0001031735279372684,
+                    "spread/price": 1.048877838564952,
+                    "annualized_vol": 0.00033652800716444634,
+                    "buy_order_value/adv": 0.01734527588947377
+                },
+                "100k_300k": {
+                    "intercept": 0.00010738981398107654,
+                    "spread/price": 1.529110983700657,
+                    "annualized_vol": -0.0006492705406534996,
+                    "buy_order_value/adv": 0.008506217418420923
+                },
+                "100k_200k": {
+                    "intercept": -0.00021952373535608156,
+                    "spread/price": 1.5596424293370523,
+                    "annualized_vol": 0.0008587867823784879,
+                    "buy_order_value/adv": 0.014508217533817026
+                },
+                "200k_300k": {
+                    "intercept": -0.00026200701324189226,
+                    "spread/price": 1.8709833299830867,
+                    "annualized_vol": 0.001278167179477884,
+                    "buy_order_value/adv": 0.006066495743427299
+                }
+            },
+            "sell": {
+                "1k_10k": {
+                    "intercept": 3.150721322992118e-06,
+                    "spread/price": 0.5351310819900821,
+                    "annualized_vol": -4.3359557457118826e-05,
+                    "sell_order_value/adv": 0.023885911806186187
+                },
+                "10k_50k": {
+                    "intercept": 6.130113763437713e-06,
+                    "spread/price": 0.5791018288055974,
+                    "annualized_vol": -8.484521158940483e-05,
+                    "sell_order_value/adv": 0.013683733790903178
+                },
+                "50k_100k": {
+                    "intercept": -4.131017194693146e-06,
+                    "spread/price": 0.707259997140622,
+                    "annualized_vol": -6.647898353007323e-05,
+                    "sell_order_value/adv": 0.01149945424001487
+                },
+                "100k_300k": {
+                    "intercept": 0.00014536775181087802,
+                    "spread/price": 1.3620321377610978,
+                    "annualized_vol": -0.00077496938099168,
+                    "sell_order_value/adv": 0.00931946299266407
+                },
+                "100k_200k": {
+                    "intercept": -3.670693358543329e-05,
+                    "spread/price": 0.98466435181178,
+                    "annualized_vol": 4.952213563886557e-05,
+                    "sell_order_value/adv": 0.010085794959681373
+                },
+                "200k_300k": {
+                    "intercept": -5.2254541865866154e-05,
+                    "spread/price": 1.2762783344122544,
+                    "annualized_vol": 0.0002803391860174083,
+                    "sell_order_value/adv": 0.0036278793728240027
+                }
+            }
+        },
+        "TSLA": {
+            "buy": {
+                "1k_10k": {
+                    "intercept": 3.955655277990359e-06,
+                    "spread/price": 0.5018077498674459,
+                    "annualized_vol": -3.1233904854952904e-06,
+                    "buy_order_value/adv": 0.05977475583622329
+                },
+                "10k_50k": {
+                    "intercept": 1.841229708102764e-05,
+                    "spread/price": 0.5241268584949835,
+                    "annualized_vol": -2.3031650009930643e-05,
+                    "buy_order_value/adv": 0.050817845281149104
+                },
+                "50k_100k": {
+                    "intercept": 4.970738825162221e-05,
+                    "spread/price": 0.5648548895521156,
+                    "annualized_vol": -3.151880050238726e-05,
+                    "buy_order_value/adv": 0.020018593626257953
+                },
+                "100k_300k": {
+                    "intercept": 9.746669391712368e-05,
+                    "spread/price": 0.6724837364294445,
+                    "annualized_vol": -5.85155391212574e-05,
+                    "buy_order_value/adv": 0.016163675434005258
+                },
+                "100k_200k": {
+                    "intercept": 5.753350794032076e-05,
+                    "spread/price": 0.7372362971187633,
+                    "annualized_vol": -5.144912760433896e-05,
+                    "buy_order_value/adv": 0.014690826682587574
+                },
+                "200k_300k": {
+                    "intercept": 8.45404853566736e-05,
+                    "spread/price": 0.8315742413220091,
+                    "annualized_vol": 5.605063898326037e-05,
+                    "buy_order_value/adv": -0.01747286266269192
+                }
+            },
+            "sell": {
+                "1k_10k": {
+                    "intercept": 1.30865321819443e-06,
+                    "spread/price": 0.5085490942082043,
+                    "annualized_vol": -1.0111412246459952e-06,
+                    "sell_order_value/adv": 0.061589268134458065
+                },
+                "10k_50k": {
+                    "intercept": 1.6053759284084523e-05,
+                    "spread/price": 0.5186460681748486,
+                    "annualized_vol": -1.736999293219511e-05,
+                    "sell_order_value/adv": 0.0542395721248356
+                },
+                "50k_100k": {
+                    "intercept": 3.834522018584514e-05,
+                    "spread/price": 0.5581381489451931,
+                    "annualized_vol": -1.2840168206701454e-05,
+                    "sell_order_value/adv": 0.02155081834351572
+                },
+                "100k_300k": {
+                    "intercept": 9.368449755713803e-05,
+                    "spread/price": 0.6622139078347792,
+                    "annualized_vol": -4.302371260901777e-05,
+                    "sell_order_value/adv": 0.015110026284105111
+                },
+                "100k_200k": {
+                    "intercept": 4.9464201603339375e-05,
+                    "spread/price": 0.6867333431969144,
+                    "annualized_vol": 1.705341746709276e-05,
+                    "sell_order_value/adv": 0.003333931821486696
+                },
+                "200k_300k": {
+                    "intercept": 8.132836530167601e-05,
+                    "spread/price": 0.7559497992522716,
+                    "annualized_vol": 0.00012001537169361031,
+                    "sell_order_value/adv": -0.022817904185451383
+                }
+            }
+        },
+        "NVDA": {
+            "buy": {
+                "1k_10k": {
+                    "intercept": 7.153932853554354e-07,
+                    "spread/price": 0.5224824339147692,
+                    "annualized_vol": -8.45997009218215e-06,
+                    "buy_order_value/adv": 0.09948071405726402
+                },
+                "10k_50k": {
+                    "intercept": 2.147808350624333e-05,
+                    "spread/price": 0.5910098690221284,
+                    "annualized_vol": -0.00010156975985961675,
+                    "buy_order_value/adv": 0.15792516786249966
+                },
+                "50k_100k": {
+                    "intercept": 6.543771161352087e-05,
+                    "spread/price": 0.7247614096986674,
+                    "annualized_vol": -0.000271601724218219,
+                    "buy_order_value/adv": 0.15333929196623294
+                },
+                "100k_200k": {
+                    "intercept": 0.0001333619638196525,
+                    "spread/price": 0.9524088605441315,
+                    "annualized_vol": -0.0005147632805328049,
+                    "buy_order_value/adv": 0.12887156803520203
+                },
+                "200k_300k": {
+                    "intercept": 0.00024681571859062537,
+                    "spread/price": 1.18861911605449,
+                    "annualized_vol": -0.0007947904683314468,
+                    "buy_order_value/adv": 0.08671794974010925
+                }
+            },
+            "sell": {
+                "1k_10k": {
+                    "intercept": 2.948515892907491e-06,
+                    "spread/price": 0.5307618225109876,
+                    "annualized_vol": -1.59033395634386e-05,
+                    "sell_order_value/adv": 0.09045730833711997
+                },
+                "10k_50k": {
+                    "intercept": 3.294115606157271e-05,
+                    "spread/price": 0.6118720522703418,
+                    "annualized_vol": -0.00013074811158553256,
+                    "sell_order_value/adv": 0.13746010719730548
+                },
+                "50k_100k": {
+                    "intercept": 9.912624782090664e-05,
+                    "spread/price": 0.733075813289165,
+                    "annualized_vol": -0.00034006931694274963,
+                    "sell_order_value/adv": 0.12733589872846934
+                },
+                "100k_200k": {
+                    "intercept": 0.00019642209190359297,
+                    "spread/price": 0.9003721502864861,
+                    "annualized_vol": -0.0006228372823196113,
+                    "sell_order_value/adv": 0.10407838961983311
+                },
+                "200k_300k": {
+                    "intercept": 0.0003514516046398088,
+                    "spread/price": 1.0758036601161496,
+                    "annualized_vol": -0.000962801985281971,
+                    "sell_order_value/adv": 0.060565587221893084
+                }
+            }
+        },
+        "AMZN": {
+            "buy": {
+                "1k_10k": {
+                    "intercept": -1.6962744705782803e-05,
+                    "spread/price": 0.5326668717363028,
+                    "annualized_vol": 3.936762876144843e-05,
+                    "buy_order_value/adv": 0.041993876544186334
+                },
+                "10k_50k": {
+                    "intercept": -6.01978379970876e-05,
+                    "spread/price": 0.6113827066449437,
+                    "annualized_vol": 0.00015834724849621453,
+                    "buy_order_value/adv": 0.026583057443545093
+                },
+                "50k_100k": {
+                    "intercept": -0.00014068943416303747,
+                    "spread/price": 0.784817888290676,
+                    "annualized_vol": 0.00035224516978104307,
+                    "buy_order_value/adv": 0.024587406446988366
+                },
+                "100k_200k": {
+                    "intercept": -0.00028825802435905595,
+                    "spread/price": 1.1699209695541326,
+                    "annualized_vol": 0.0007131146176300914,
+                    "buy_order_value/adv": 0.02027849432065341
+                },
+                "200k_300k": {
+                    "intercept": -0.00019970159184082563,
+                    "spread/price": 1.5366584304278106,
+                    "annualized_vol": 0.0008470541285043728,
+                    "buy_order_value/adv": -0.0053445818916679
+                }
+            },
+            "sell": {
+                "1k_10k": {
+                    "intercept": -1.2736752614251583e-05,
+                    "spread/price": 0.5517569036799452,
+                    "annualized_vol": 2.450442755383784e-05,
+                    "sell_order_value/adv": 0.0397160234597358
+                },
+                "10k_50k": {
+                    "intercept": -4.681554402709963e-05,
+                    "spread/price": 0.6270800682045202,
+                    "annualized_vol": 0.00012101071106858652,
+                    "sell_order_value/adv": 0.025772856382252702
+                },
+                "50k_100k": {
+                    "intercept": -0.00013106412718480166,
+                    "spread/price": 0.7903197624029429,
+                    "annualized_vol": 0.00032252699954060876,
+                    "sell_order_value/adv": 0.02610034224858455
+                },
+                "100k_200k": {
+                    "intercept": -0.0002513888504168689,
+                    "spread/price": 1.1427254771297175,
+                    "annualized_vol": 0.0006530843244709186,
+                    "sell_order_value/adv": 0.017873428354661564
+                },
+                "200k_300k": {
+                    "intercept": -0.00014618252969060872,
+                    "spread/price": 1.4520561827529157,
+                    "annualized_vol": 0.0007590989318661425,
+                    "sell_order_value/adv": -0.0071609375801213425
+                }
+            }
+        },
+        "GOOG": {
+            "buy": {
+                "1k_10k": {
+                    "intercept": 3.28237928674389e-06,
+                    "spread/price": 0.5283619381942177,
+                    "annualized_vol": -2.1319220431912897e-05,
+                    "buy_order_value/adv": 0.017340504283159554
+                },
+                "10k_50k": {
+                    "intercept": 2.0814972108456147e-06,
+                    "spread/price": 0.7211924856133364,
+                    "annualized_vol": -9.696865587521083e-05,
+                    "buy_order_value/adv": 0.01979331205735769
+                },
+                "50k_100k": {
+                    "intercept": 0.00011071195614669112,
+                    "spread/price": 1.15328980307576,
+                    "annualized_vol": -0.0005240026453256447,
+                    "buy_order_value/adv": 0.01315204741211335
+                },
+                "100k_200k": {
+                    "intercept": 0.0004591620455233985,
+                    "spread/price": 1.9896906407150186,
+                    "annualized_vol": -0.001445642119759596,
+                    "buy_order_value/adv": -0.004660410841521575
+                },
+                "200k_300k": {
+                    "intercept": 0.0013567150092989877,
+                    "spread/price": 2.3910984726107074,
+                    "annualized_vol": -0.0029754727777344934,
+                    "buy_order_value/adv": -0.03310596913173099
+                }
+            },
+            "sell": {
+                "1k_10k": {
+                    "intercept": 4.82082519366683e-07,
+                    "spread/price": 0.5225370350865399,
+                    "annualized_vol": -1.1705549831462848e-05,
+                    "sell_order_value/adv": 0.018909861776263626
+                },
+                "10k_50k": {
+                    "intercept": 1.3471217835611137e-06,
+                    "spread/price": 0.7664393790720876,
+                    "annualized_vol": -0.00012900075025978986,
+                    "sell_order_value/adv": 0.022947786344885368
+                },
+                "50k_100k": {
+                    "intercept": 0.00010515876650657774,
+                    "spread/price": 1.1310571455817156,
+                    "annualized_vol": -0.0004839619739233592,
+                    "sell_order_value/adv": 0.01071994968809398
+                },
+                "100k_200k": {
+                    "intercept": 0.00033002610412204375,
+                    "spread/price": 1.6774588455732822,
+                    "annualized_vol": -0.0010663170592080785,
+                    "sell_order_value/adv": -0.0007017233031473483
+                },
+                "200k_300k": {
+                    "intercept": 0.0008841363346522537,
+                    "spread/price": 1.8948137162686236,
+                    "annualized_vol": -0.0019340528523016439,
+                    "sell_order_value/adv": -0.01942834782733817
+                }
+            }
+        },
+        "META": {
+            "buy": {
+                "1k_10k": {
+                    "intercept": -5.054739998835888e-05,
+                    "spread/price": 0.5080608014869218,
+                    "annualized_vol": 0.00018269497339884168,
+                    "buy_order_value/adv": 0.025981640486708146
+                },
+                "10k_50k": {
+                    "intercept": -9.311475953503483e-05,
+                    "spread/price": 0.5495960131833264,
+                    "annualized_vol": 0.00034277704954843014,
+                    "buy_order_value/adv": 0.012520163381948966
+                },
+                "50k_100k": {
+                    "intercept": -0.00011190787499129358,
+                    "spread/price": 0.6337707473220602,
+                    "annualized_vol": 0.00036443646029946444,
+                    "buy_order_value/adv": 0.008804224036773023
+                },
+                "100k_200k": {
+                    "intercept": -0.00024810156223464586,
+                    "spread/price": 0.8637801634039479,
+                    "annualized_vol": 0.0006461830607927351,
+                    "buy_order_value/adv": 0.007463960965160067
+                },
+                "200k_300k": {
+                    "intercept": -0.0005251810269198243,
+                    "spread/price": 1.2137009085536068,
+                    "annualized_vol": 0.001653714252975549,
+                    "buy_order_value/adv": 0.0019052839959638568
+                }
+            },
+            "sell": {
+                "1k_10k": {
+                    "intercept": -4.5052673472191204e-05,
+                    "spread/price": 0.5199032324548916,
+                    "annualized_vol": 0.00014629531138140122,
+                    "sell_order_value/adv": 0.03339704754176517
+                },
+                "10k_50k": {
+                    "intercept": 2.3507407892382668e-05,
+                    "spread/price": 0.6054073147222263,
+                    "annualized_vol": -0.00016820529460965936,
+                    "sell_order_value/adv": 0.016937147089077762
+                },
+                "50k_100k": {
+                    "intercept": 4.992579367830475e-05,
+                    "spread/price": 0.714243939656072,
+                    "annualized_vol": -0.00024964900637801607,
+                    "sell_order_value/adv": 0.0067899511025586515
+                },
+                "100k_200k": {
+                    "intercept": -4.038209965677028e-05,
+                    "spread/price": 1.05928350150875,
+                    "annualized_vol": -6.26272653019657e-05,
+                    "sell_order_value/adv": 0.0017774239163765573
+                },
+                "200k_300k": {
+                    "intercept": -0.00028872641375004535,
+                    "spread/price": 1.4001931062936295,
+                    "annualized_vol": 0.0011578103027763908,
+                    "sell_order_value/adv": -0.006299062005902472
+                }
+            }
+        },
+        "MSFT": {
+            "buy": {
+                "1k_10k": {
+                    "intercept": -1.549955505830503e-05,
+                    "spread/price": 0.5387222296440671,
+                    "annualized_vol": 3.5291689545597905e-05,
+                    "buy_order_value/adv": 0.025765257628344623
+                },
+                "10k_50k": {
+                    "intercept": -4.3111466192905786e-05,
+                    "spread/price": 0.6527436759467913,
+                    "annualized_vol": 7.069303832004729e-05,
+                    "buy_order_value/adv": 0.014789339802204524
+                },
+                "50k_100k": {
+                    "intercept": -7.321614285309804e-05,
+                    "spread/price": 0.8276922222620977,
+                    "annualized_vol": 6.95111444669244e-05,
+                    "buy_order_value/adv": 0.011091579476676924
+                },
+                "100k_200k": {
+                    "intercept": -0.00013765481760649127,
+                    "spread/price": 1.1387352617524886,
+                    "annualized_vol": 0.00014071486108949266,
+                    "buy_order_value/adv": 0.009017163108639564
+                },
+                "200k_300k": {
+                    "intercept": -9.777977992666832e-05,
+                    "spread/price": 1.4418334957944832,
+                    "annualized_vol": 0.0003184035157439708,
+                    "buy_order_value/adv": -0.0015563993228285232
+                }
+            },
+            "sell": {
+                "1k_10k": {
+                    "intercept": -4.274220884659369e-06,
+                    "spread/price": 0.5247120071777855,
+                    "annualized_vol": 5.278477790323939e-06,
+                    "sell_order_value/adv": 0.02201388631937549
+                },
+                "10k_50k": {
+                    "intercept": -2.28362157803063e-05,
+                    "spread/price": 0.6188492777157143,
+                    "annualized_vol": 7.375626316585724e-06,
+                    "sell_order_value/adv": 0.0160711854137968
+                },
+                "50k_100k": {
+                    "intercept": -4.8320529532445024e-05,
+                    "spread/price": 0.7646636926723002,
+                    "annualized_vol": 3.022152977764423e-06,
+                    "sell_order_value/adv": 0.012974548612430453
+                },
+                "100k_200k": {
+                    "intercept": -0.00010334954772071525,
+                    "spread/price": 1.0267119626564083,
+                    "annualized_vol": 0.00011471531159663764,
+                    "sell_order_value/adv": 0.009416120416011366
+                },
+                "200k_300k": {
+                    "intercept": -0.00013819064237672544,
+                    "spread/price": 1.3348089784564812,
+                    "annualized_vol": 0.0003981992084584864,
+                    "sell_order_value/adv": 0.002640815860083915
+                }
+            }
+        }
+    },
+    "crypto spot": {
+        "BTCUSDT": {
+            "buy": {
+                "1k_10k": {
+                    "intercept": 9.752463599937117e-07,
+                    "spread/price": 0.5410694715795732,
+                    "annualized_vol": -1.5271772037924648e-07,
+                    "buy_order_value/adv": -1.2953699682107823e-06
+                },
+                "10k_50k": {
+                    "intercept": 4.06123390883249e-07,
+                    "spread/price": 0.8198776290041212,
+                    "annualized_vol": 4.036332849292434e-06,
+                    "buy_order_value/adv": -8.567605941742932e-07
+                }
+            },
+            "sell": {
+                "1k_10k": {
+                    "intercept": 9.491869160232067e-07,
+                    "spread/price": 0.5273329691400875,
+                    "annualized_vol": 5.427078687358567e-08,
+                    "sell_order_value/adv": -1.5020814542813992e-06
+                },
+                "10k_50k": {
+                    "intercept": 3.8638443304061135e-07,
+                    "spread/price": 0.6200132498942394,
+                    "annualized_vol": 4.46626738572828e-06,
+                    "sell_order_value/adv": -9.108154949940314e-07
+                }
+            }
+        },
+        "ETHUSDT": {
+            "buy": {
+                "1k_10k": {
+                    "intercept": -2.4138629466810966e-06,
+                    "spread/price": 0.7507778406737279,
+                    "annualized_vol": 6.829119230420519e-06,
+                    "buy_order_value/adv": -3.300670421134514e-05
+                },
+                "10k_50k": {
+                    "intercept": -7.502392197422659e-07,
+                    "spread/price": 0.9670503702853999,
+                    "annualized_vol": 1.3758648043376708e-05,
+                    "buy_order_value/adv": -3.2449184783438876e-05
+                }
+            },
+            "sell": {
+                "1k_10k": {
+                    "intercept": 1.0093642741861535e-06,
+                    "spread/price": 0.6110268025149824,
+                    "annualized_vol": 3.0861035170988563e-06,
+                    "sell_order_value/adv": -2.9979078931525363e-05
+                },
+                "10k_50k": {
+                    "intercept": 9.637673755685923e-06,
+                    "spread/price": 0.6510076018375645,
+                    "annualized_vol": 4.315211347086334e-06,
+                    "sell_order_value/adv": -4.1887947061095054e-05
+                }
+            }
+        },
+        "SOLUSDT": {
+            "buy": {
+                "1k_10k": {
+                    "intercept": 2.187508982225604e-05,
+                    "spread/price": 0.6345985282086488,
+                    "annualized_vol": -3.283508131058799e-05,
+                    "buy_order_value/adv": 0.0007445587950044262
+                },
+                "10k_50k": {
+                    "intercept": 0.00010389744073948535,
+                    "spread/price": 0.8792206712294846,
+                    "annualized_vol": -0.00015268864875051845,
+                    "buy_order_value/adv": 0.0012129388782143448
+                }
+            },
+            "sell": {
+                "1k_10k": {
+                    "intercept": 1.334615675551708e-05,
+                    "spread/price": 0.6525678932683764,
+                    "annualized_vol": -2.333440805231402e-05,
+                    "sell_order_value/adv": 0.0008486849900319897
+                },
+                "10k_50k": {
+                    "intercept": 7.802998038312719e-05,
+                    "spread/price": 1.0018649992351079,
+                    "annualized_vol": -0.0001264416245549588,
+                    "sell_order_value/adv": 0.0012030320369938732
+                }
+            }
+        },
+        "XRPUSDT": {
+            "buy": {
+                "1k_10k": {
+                    "intercept": 7.670177003266932e-06,
+                    "spread/price": 0.7161080549501463,
+                    "annualized_vol": -4.9734470090009345e-06,
+                    "buy_order_value/adv": 0.19981001754895167
+                },
+                "10k_50k": {
+                    "intercept": -1.6140407849005763e-05,
+                    "spread/price": 1.0600370204236294,
+                    "annualized_vol": 1.7974784250762897e-05,
+                    "buy_order_value/adv": 0.17560647218158507
+                }
+            },
+            "sell": {
+                "1k_10k": {
+                    "intercept": 7.504882880806411e-06,
+                    "spread/price": 0.6274375336245018,
+                    "annualized_vol": -2.68811068432935e-06,
+                    "sell_order_value/adv": 0.2250282014331463
+                },
+                "10k_50k": {
+                    "intercept": -1.21541502921505e-06,
+                    "spread/price": 0.9622418633564734,
+                    "annualized_vol": 1.0846467195941469e-05,
+                    "sell_order_value/adv": 0.19204059958529
+                }
+            }
+        },
+        "DOGEUSDT": {
+            "buy": {
+                "1k_10k": {
+                    "intercept": 1.2289537198107313e-05,
+                    "spread/price": 0.5782442126485855,
+                    "annualized_vol": -6.963808973550111e-06,
+                    "buy_order_value/adv": 1.033159667974101
+                },
+                "10k_50k": {
+                    "intercept": 2.799943436822732e-05,
+                    "spread/price": 0.8388986624433944,
+                    "annualized_vol": -5.66535334572537e-06,
+                    "buy_order_value/adv": 0.3993095834367539
+                }
+            },
+            "sell": {
+                "1k_10k": {
+                    "intercept": 7.909064330898649e-06,
+                    "spread/price": 0.5888429163900487,
+                    "annualized_vol": -3.291214391811283e-06,
+                    "sell_order_value/adv": 1.0766142924378912
+                },
+                "10k_50k": {
+                    "intercept": 2.779040859288055e-05,
+                    "spread/price": 0.8726295301489456,
+                    "annualized_vol": -3.714649825417972e-06,
+                    "sell_order_value/adv": 0.3559708924850948
+                }
+            }
+        }
+    }
+}

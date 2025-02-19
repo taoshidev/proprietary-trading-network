@@ -36,11 +36,14 @@ class FeeCache():
         self.carry_fee: float = 1.0  # product of all individual interval fees.
         self.carry_fee_next_increase_time_ms: int = 0  # Compute fees based off the prior interval
 
-    def get_spread_fee(self, position: Position) -> (float, bool):
+    def get_spread_fee(self, position: Position, current_time_ms: int) -> (float, bool):
         if position.orders[-1].processed_ms == self.spread_fee_last_order_processed_ms:
             return self.spread_fee, False
 
-        self.spread_fee = position.get_spread_fee()
+        if position.is_closed_position:
+            current_time_ms = min(current_time_ms, position.close_ms)
+
+        self.spread_fee = position.get_spread_fee(current_time_ms)
         self.spread_fee_last_order_processed_ms = position.orders[-1].processed_ms
         return self.spread_fee, True
 
@@ -559,7 +562,7 @@ class PerfLedgerManager(CacheController):
                     historical_position = realtime_position_to_pop
 
                 for tp_id in [TP_ID_PORTFOLIO, tp_id]:
-                    csf, _ = self.position_uuid_to_cache[historical_position.position_uuid].get_spread_fee(historical_position)
+                    csf, _ = self.position_uuid_to_cache[historical_position.position_uuid].get_spread_fee(historical_position, end_time_ms)
                     tp_to_spread_fee[tp_id] *= csf
                     ccf, _ = self.position_uuid_to_cache[historical_position.position_uuid].get_carry_fee(end_time_ms, historical_position)
                     tp_to_carry_fee[tp_id] *= ccf
@@ -741,7 +744,7 @@ class PerfLedgerManager(CacheController):
                 if self.shutdown_dict:
                     return tp_to_return, tp_to_any_open, tp_to_spread_fee, tp_to_carry_fee
 
-                position_spread_fee, psf_updated = self.position_uuid_to_cache[historical_position.position_uuid].get_spread_fee(historical_position)
+                position_spread_fee, psf_updated = self.position_uuid_to_cache[historical_position.position_uuid].get_spread_fee(historical_position, t_ms)
                 position_carry_fee, pcf_updated = self.position_uuid_to_cache[historical_position.position_uuid].get_carry_fee(t_ms, historical_position)
                 tp_to_spread_fee[tp_id] *= position_spread_fee
                 tp_to_spread_fee[TP_ID_PORTFOLIO] *= position_spread_fee
@@ -822,7 +825,7 @@ class PerfLedgerManager(CacheController):
                 if historical_position.is_closed_position:
                     for x in [TP_ID_PORTFOLIO, tp_id]:
                         tp_to_initial_return[x] *= historical_position.return_at_close
-                        tp_to_initial_spread_fee[x] *= self.position_uuid_to_cache[historical_position.position_uuid].get_spread_fee(historical_position)[0]
+                        tp_to_initial_spread_fee[x] *= self.position_uuid_to_cache[historical_position.position_uuid].get_spread_fee(historical_position, historical_position.orders[-1].processed_ms)[0]
                         tp_to_initial_carry_fee[x] *= self.position_uuid_to_cache[historical_position.position_uuid].get_carry_fee(historical_position.orders[-1].processed_ms, historical_position)[0]
                 elif len(historical_position.orders) == 0:
                     continue

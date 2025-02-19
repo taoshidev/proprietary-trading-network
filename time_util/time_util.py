@@ -286,6 +286,11 @@ class TimeUtil:
         return datetime.fromtimestamp(seconds, tz=timezone.utc)
 
     @staticmethod
+    def millis_to_short_date_str(millis: int) -> str:
+        temp = TimeUtil.millis_to_datetime(millis)
+        return temp.strftime("%Y-%m-%d")
+
+    @staticmethod
     def millis_to_formatted_date_str(millis: int) -> str:
         temp = TimeUtil.millis_to_datetime(millis)
         return temp.strftime("%Y-%m-%d %H:%M:%S")
