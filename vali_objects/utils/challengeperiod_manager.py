@@ -277,7 +277,7 @@ class ChallengePeriodManager(CacheController):
             # Get hotkey to positions dict that only includes the inspection miner
             has_minimum_positions, inspection_positions = ChallengePeriodManager.screen_minimum_positions(positions=positions, inspection_hotkey=hotkey)
             if not has_minimum_positions:
-                miners_not_enough_positions.append((hotkey, positions))
+                miners_not_enough_positions.append((hotkey, positions.get(hotkey, [])))
                 passing_criteria = False
 
             # Get hotkey to ledger dict that only includes the inspection miner
