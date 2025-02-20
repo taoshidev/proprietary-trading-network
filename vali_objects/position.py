@@ -192,7 +192,7 @@ class Position(BaseModel):
         if not self.orders or len(self.orders) == 0:
             return 0.0
         first_order = self.orders[0]
-        if TimeUtil.now_in_millis() < SLIPPAGE_V1_TIME_MS and not ALWAYS_USE_LATEST:
+        if first_order.processed_ms < SLIPPAGE_V1_TIME_MS and not ALWAYS_USE_LATEST:
             return first_order.price
         else:
             return first_order.price * (1 + first_order.slippage) if first_order.leverage > 0 else first_order.price * (1 - first_order.slippage)
