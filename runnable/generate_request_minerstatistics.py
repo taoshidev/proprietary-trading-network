@@ -319,7 +319,8 @@ class MinerStatisticsManager:
             successful_ledger,
             successful_positions,
             evaluation_time_ms=time_now,
-            verbose=False
+            verbose=False,
+            weighting=True
         )
 
         challengeperiod_scores = [

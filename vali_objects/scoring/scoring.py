@@ -39,10 +39,6 @@ class Scoring:
             'function': Metrics.drawdown_adjusted_return,
             'weight': ValiConfig.SCORING_LONG_RETURN_LOOKBACK_WEIGHT
         },
-        'return_short': {
-            'function': Metrics.drawdown_adjusted_return,
-            'weight': ValiConfig.SCORING_SHORT_RETURN_LOOKBACK_WEIGHT
-        },
         'sharpe_ratio': {
             'function': Metrics.sharpe,
             'weight': ValiConfig.SCORING_SHARPE_WEIGHT
@@ -78,7 +74,8 @@ class Scoring:
             ledger_dict: dict[str, PerfLedger],
             full_positions: dict[str, list[Position]],
             evaluation_time_ms: int = None,
-            verbose=True
+            verbose=True,
+            weighting=False
     ) -> List[Tuple[str, float]]:
         if len(ledger_dict) == 0:
             bt.logging.debug("No results to compute, returning empty list")
@@ -109,7 +106,8 @@ class Scoring:
         penalized_scores_dict = Scoring.score_miners(
             ledger_dict=ledger_dict,
             positions=full_positions,
-            evaluation_time_ms=evaluation_time_ms
+            evaluation_time_ms=evaluation_time_ms,
+            weighting=weighting
         )
 
         # Combine and penalize scores
@@ -127,7 +125,9 @@ class Scoring:
     def score_miners(
             ledger_dict: dict[str, PerfLedger],
             positions: dict[str, list[Position]],
-            evaluation_time_ms: int= None):
+            evaluation_time_ms: int= None,
+            weighting: bool = False
+    ):
 
         if evaluation_time_ms is None:
             evaluation_time_ms = TimeUtil.now_in_millis()
@@ -165,15 +165,11 @@ class Scoring:
                 if config_name == 'return_long':
                     score = config['function'](
                         log_returns=returns,
-                        checkpoints=checkpoints
-                    )
-                elif config_name == 'return_short':
-                    score = config['function'](
-                        log_returns=returns[-short_lookback_window:],
-                        checkpoints=checkpoints[-short_lookback_window:]
+                        checkpoints=checkpoints,
+                        weighting=weighting
                     )
                 else:
-                    score = config['function'](log_returns=returns)
+                    score = config['function'](log_returns=returns, weighting=weighting)
 
                 scores.append((miner, float(score)))
 
