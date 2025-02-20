@@ -260,7 +260,7 @@ class ChallengePeriodManager(CacheController):
                                                             positions=success_positions,
                                                             evaluation_time_ms=current_time)
         
-
+        miners_not_enough_positions = []
         for hotkey, inspection_time in inspection_hotkeys.items():
             if self.is_recently_re_registered(ledger.get(hotkey), hotkey, hk_to_first_order_time):
                 miners_rrr.add(hotkey)
@@ -277,6 +277,7 @@ class ChallengePeriodManager(CacheController):
             # Get hotkey to positions dict that only includes the inspection miner
             has_minimum_positions, inspection_positions = ChallengePeriodManager.screen_minimum_positions(positions=positions, inspection_hotkey=hotkey)
             if not has_minimum_positions:
+                miners_not_enough_positions.append((hotkey, positions))
                 passing_criteria = False
 
             # Get hotkey to ledger dict that only includes the inspection miner
@@ -322,6 +323,8 @@ class ChallengePeriodManager(CacheController):
                 failing_miners[hotkey] = (FailedChallengeReason.time.value, recorded_drawdown_percentage)
                 continue
 
+        if miners_not_enough_positions:
+            bt.logging.info(f'Challenge Period - miners with not enough positions: {miners_not_enough_positions}')
         bt.logging.info(f'Challenge Period - n_miners_passing: {len(passing_miners)}'
                         f' n_miners_failing: {len(failing_miners)} '
                         f'recently_re_registered: {miners_rrr} '
@@ -428,8 +431,6 @@ class ChallengePeriodManager(CacheController):
 
         positions_list = positions.get(inspection_hotkey, None)
         has_minimum_positions = positions_list is not None and len(positions_list) > 0
-        if not has_minimum_positions:
-            bt.logging.info(f"Hotkey: {inspection_hotkey} doesn't have the minimum positions for challenge period. positions: {positions_list}")
 
         inspection_positions = {inspection_hotkey: positions_list} if has_minimum_positions else {}
 
