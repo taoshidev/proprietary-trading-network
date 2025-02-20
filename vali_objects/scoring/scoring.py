@@ -211,10 +211,11 @@ class Scoring:
         # Compute miner penalties
         miner_penalties = {}
 
+        empty_ledger_miners = []
         for miner, ledger in ledger_dict.items():
             positions = hotkey_positions.get(miner, [])
             if not ledger:
-                bt.logging.warning(f"Unexpectedly skipping miner {miner} with empty ledger and {len(positions)} positions")
+                empty_ledger_miners.append((miner, len(positions)))
             ledger_checkpoints = ledger.cps if ledger else []
 
             cumulative_penalty = 1
@@ -229,6 +230,9 @@ class Scoring:
                 cumulative_penalty *= penalty
 
             miner_penalties[miner] = cumulative_penalty
+
+        if empty_ledger_miners:
+            bt.logging.warning(f"Unexpectedly skipping miners with empty ledgers [(hk, n_positions)]: {empty_ledger_miners}")
 
         return miner_penalties
 

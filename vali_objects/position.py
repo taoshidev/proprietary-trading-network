@@ -192,7 +192,7 @@ class Position(BaseModel):
         if not self.orders or len(self.orders) == 0:
             return 0.0
         first_order = self.orders[0]
-        if TimeUtil.now_in_millis() < SLIPPAGE_V1_TIME_MS and not ALWAYS_USE_LATEST:
+        if first_order.processed_ms < SLIPPAGE_V1_TIME_MS and not ALWAYS_USE_LATEST:
             return first_order.price
         else:
             return first_order.price * (1 + first_order.slippage) if first_order.leverage > 0 else first_order.price * (1 - first_order.slippage)
@@ -352,11 +352,14 @@ class Position(BaseModel):
         self.orders.append(order)
         self._update_position()
 
-    def calculate_pnl(self, current_price):
+    def calculate_pnl(self, current_price, t_ms=None):
         if self.initial_entry_price == 0 or self.average_entry_price is None:
             return 1
 
-        if (TimeUtil.now_in_millis() >= SLIPPAGE_V1_TIME_MS or ALWAYS_USE_LATEST) and self.position_type == OrderType.FLAT:  # realized PnL
+        if (self.position_type == OrderType.FLAT and
+                (ALWAYS_USE_LATEST or
+                 (t_ms and t_ms >= SLIPPAGE_V1_TIME_MS) or
+                 (TimeUtil.now_in_millis() >= SLIPPAGE_V1_TIME_MS))):  # realized PnL
             # apply slippage on exit
             last_order = self.orders[-1]
             exit_price = current_price * (1 + last_order.slippage) if last_order.leverage > 0 else current_price * (1 - last_order.slippage)
@@ -479,7 +482,7 @@ class Position(BaseModel):
     def set_returns(self, realtime_price, time_ms=None, total_fees=None):
         # We used to multiple trade_pair.fees by net_leverage. Eventually we will
         # Update this calculation to approximate actual exchange fees.
-        self.current_return = self.calculate_pnl(realtime_price)
+        self.current_return = self.calculate_pnl(realtime_price, t_ms=time_ms)
         if total_fees is None:
             self.return_at_close = self.calculate_return_with_fees(self.current_return,
                                timestamp_ms=TimeUtil.now_in_millis() if time_ms is None else time_ms)
@@ -516,7 +519,7 @@ class Position(BaseModel):
         if self.position_type == OrderType.FLAT:
             self.net_leverage = 0.0
         else:
-            if TimeUtil.now_in_millis() < SLIPPAGE_V1_TIME_MS and not ALWAYS_USE_LATEST:
+            if order.processed_ms < SLIPPAGE_V1_TIME_MS and not ALWAYS_USE_LATEST:
                 entry_price = realtime_price
             else:
                 entry_price = order.price * (1 + order.slippage) if order.leverage > 0 else order.price * (1 - order.slippage)
