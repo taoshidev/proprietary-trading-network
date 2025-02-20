@@ -17,6 +17,7 @@ from vali_objects.exceptions.corrupt_data_exception import ValiBkpCorruptDataExc
 from vali_objects.exceptions.vali_bkp_file_missing_exception import ValiFileMissingException
 from vali_objects.utils.live_price_fetcher import LivePriceFetcher
 from vali_objects.utils.positions_to_snap import positions_to_snap
+from vali_objects.utils.price_slippage_model import PriceSlippageModel
 from vali_objects.vali_config import TradePair
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.exceptions.vali_records_misalignment_exception import ValiRecordsMisalignmentException
@@ -401,6 +402,24 @@ class PositionManager(CacheController):
                 perf_ledgers_new = {k:v for k,v in perf_ledgers.items() if k != miner_hotkey}
                 print('n perf ledgers after:', len(perf_ledgers_new))
                 self.perf_ledger_manager.save_perf_ledgers(perf_ledgers_new)
+
+            # update the order attributes for bid, ask, slippage
+            # TODO: this should only run once on startup?
+            # TODO: update corrections count?
+            if not self.live_price_fetcher:
+                self.live_price_fetcher = LivePriceFetcher(secrets=self.secrets, disable_ws=True)
+            for p in positions:
+                for o in p.orders:
+                    if o.processed_ms < 1739937600000:  # SLIPPAGE_V1_TIME_MS
+                        bt.logging.info(f"updating order attributes {o}")
+                        bid, ask, _ = self.live_price_fetcher.get_latest_quote(trade_pair=o.trade_pair, time_ms=o.processed_ms)
+                        slippage = PriceSlippageModel.calculate_slippage(bid, ask, o)
+                        o.bid = bid
+                        o.ask = ask
+                        o.slippage = slippage
+                        bt.logging.info(f"updated order attributes {o}")
+                p.rebuild_position_with_updated_orders()
+                self.save_miner_position(p)
 
             """
             if miner_hotkey == '5Cd9bVVja2KdgsTiR7rTAh7a4UKVfnAuYAW1bs8BiedUE9JN' and now_ms < TARGET_MS:
