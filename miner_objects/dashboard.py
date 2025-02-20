@@ -96,7 +96,7 @@ class Dashboard:
         try:
             bt.logging.info("Dashboard stats request processing")
             miner_dash_synapse = template.protocol.GetDashData()
-            validator_response = await dendrite.aquery(axons=validator_axons, synapse=miner_dash_synapse, timeout=15)
+            validator_response = await dendrite.aquery(axons=validator_axons, synapse=miner_dash_synapse, timeout=30)
             for response in validator_response:
                 if response.successfully_processed:
                     if response.data["timestamp"] >= self.miner_data["timestamp"]:  # use the validator with the freshest data
