@@ -1,9 +1,9 @@
-# developer: trdougherty
 import os
-from typing import List
+from typing import List, Dict, Any, Optional
+from dataclasses import dataclass
+from enum import Enum
 import copy
 import numpy as np
-
 from scipy.stats import percentileofscore
 
 from time_util.time_util import TimeUtil
@@ -23,9 +23,128 @@ from vali_objects.utils.metrics import Metrics
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
 
 
-class MinerStatisticsManager:
+# ---------------------------------------------------------------------------
+# Enums and Dataclasses
+# ---------------------------------------------------------------------------
+class ScoreType(Enum):
+    """Enum for different types of scores that can be calculated"""
+    BASE = "base"
+    PENALIZED = "penalized"
+    AUGMENTED = "augmented"
 
-    def __init__(self, position_manager, subtensor_weight_setter, plagiarism_detector):
+
+@dataclass
+class ScoreMetric:
+    """Class to hold metric calculation configuration"""
+    name: str
+    metric_func: callable
+    weight: float = 1.0
+    requires_penalties: bool = False
+    requires_weighting: bool = False
+
+
+class ScoreResult:
+    """Class to hold score calculation results"""
+
+    def __init__(self, value: float, rank: int, percentile: float, overall_contribution: float = 0):
+        self.value = value
+        self.rank = rank
+        self.percentile = percentile
+        self.overall_contribution = overall_contribution
+
+    def to_dict(self) -> Dict[str, float]:
+        return {
+            "value": self.value,
+            "rank": self.rank,
+            "percentile": self.percentile,
+            "overall_contribution": self.overall_contribution
+        }
+
+
+# ---------------------------------------------------------------------------
+# MetricsCalculator
+# ---------------------------------------------------------------------------
+class MetricsCalculator:
+    """Class to handle all metrics calculations"""
+
+    def __init__(self):
+        # Add or remove metrics as desired. Excluding short-term metrics as requested.
+        self.metrics = {
+            "omega": ScoreMetric(
+                name="omega",
+                metric_func=Metrics.omega,
+                weight=ValiConfig.SCORING_OMEGA_WEIGHT
+            ),
+            "sharpe": ScoreMetric(
+                name="sharpe",
+                metric_func=Metrics.sharpe,
+                weight=ValiConfig.SCORING_SHARPE_WEIGHT
+            ),
+            "sortino": ScoreMetric(
+                name="sortino",
+                metric_func=Metrics.sortino,
+                weight=ValiConfig.SCORING_SORTINO_WEIGHT
+            ),
+            "statistical_confidence": ScoreMetric(
+                name="statistical_confidence",
+                metric_func=Metrics.statistical_confidence,
+                weight=ValiConfig.SCORING_STATISTICAL_CONFIDENCE_WEIGHT
+            ),
+            "risk_adjusted_return": ScoreMetric(
+                name="calmar",
+                metric_func=Metrics.drawdown_adjusted_return,
+                weight=ValiConfig.SCORING_LONG_RETURN_LOOKBACK_WEIGHT
+            ),
+        }
+
+    def calculate_metric(
+        self,
+        metric: ScoreMetric,
+        data: Dict[str, Dict[str, Any]],
+        penalties: Optional[Dict[str, float]] = None,
+        weighting: bool = False
+    ) -> Dict[str, float]:
+        """
+        Calculate a single metric for all miners.
+        Optionally applies penalty or weighting based on the metric's flags and ScoreType.
+        """
+        scores = {}
+        for hotkey, miner_data in data.items():
+            log_returns = miner_data.get("log_returns", [])
+            checkpoints = miner_data.get("checkpoints", [])
+            # Compute raw metric
+            value = 0.0
+            try:
+                value = metric.metric_func(
+                    log_returns=log_returns,
+                    checkpoints=checkpoints
+                )
+            except Exception:
+                # If an error occurs in the metric function, set to 0
+                value = 0.0
+
+            # Penalty
+            if penalties and metric.requires_penalties:
+                value *= penalties.get(hotkey, 1.0)
+
+            # Weighting
+            if weighting and metric.requires_weighting:
+                value *= metric.weight
+
+            scores[hotkey] = value
+        return scores
+
+
+# ---------------------------------------------------------------------------
+# MinerStatisticsManager
+# ---------------------------------------------------------------------------
+class MinerStatisticsManager:
+    def __init__(
+        self,
+        position_manager: PositionManager,
+        subtensor_weight_setter: SubtensorWeightSetter,
+        plagiarism_detector: PlagiarismDetector
+    ):
         self.position_manager = position_manager
         self.perf_ledger_manager = position_manager.perf_ledger_manager
         self.elimination_manager = position_manager.elimination_manager
@@ -33,637 +152,431 @@ class MinerStatisticsManager:
         self.subtensor_weight_setter = subtensor_weight_setter
         self.plagiarism_detector = plagiarism_detector
 
-    def rank_dictionary(self, d, ascending=False):
-        """
-        Rank the values in a dictionary. Higher values get lower ranks by default.
+        self.metrics_calculator = MetricsCalculator()
 
-        Args:
-        d (dict): The dictionary to rank.
-        ascending (bool): If True, ranks in ascending order. Default is False.
-
-        Returns:
-        dict: A dictionary with the same keys and ranked values.
-        """
-        # Sort the dictionary by value
+    # -------------------------------------------
+    # Ranking / Percentile Helpers
+    # -------------------------------------------
+    def rank_dictionary(self, d: Dict[str, float], ascending: bool = False) -> Dict[str, int]:
+        """Rank the values in a dictionary (descending by default)."""
         sorted_items = sorted(d.items(), key=lambda item: item[1], reverse=not ascending)
+        return {item[0]: rank + 1 for rank, item in enumerate(sorted_items)}
 
-        # Assign ranks
-        ranks = {item[0]: rank + 1 for rank, item in enumerate(sorted_items)}
+    def percentile_rank_dictionary(self, d: Dict[str, float], ascending: bool = False) -> Dict[str, float]:
+        """Calculate percentile ranks for dictionary values."""
+        keys = list(d.keys())
+        values = list(d.values())
+        percentiles = []
+        for val in values:
+            p = percentileofscore(values, val, kind='rank') / 100.0
+            percentiles.append(p)
+        return dict(zip(keys, percentiles))
 
-        return ranks
-
-
-    def apply_penalties(self, scores: dict[str, float], penalties: dict[str, float]) -> dict[str, float]:
+    # -------------------------------------------
+    # Gather Extra Stats (drawdowns, volatility, etc.)
+    # -------------------------------------------
+    def gather_extra_data(self, hotkey: str, ledger_dict: Dict[str, Any], positions_dict: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Apply penalties to scores.
-
-        Args:
-        scores (dict): The scores to penalize.
-        penalties (dict): The penalties to apply.
-
-        Returns:
-        dict: A dictionary with the same keys and penalized values.
+        Gathers additional data such as volatility, drawdowns, engagement stats,
+        ignoring short-term metrics.
         """
-        penalized_scores = {k: scores[k] * penalties.get(k, 1.0) for k in scores.keys()}
+        miner_ledger = ledger_dict.get(hotkey)
+        miner_cps = miner_ledger.cps if miner_ledger else []
+        miner_positions = positions_dict.get(hotkey, [])
+        # ledger_returns_log returns {hotkey: [returns...], ...}
+        miner_returns = LedgerUtils.ledger_returns_log(ledger_dict).get(hotkey, [])
 
-        return penalized_scores
+        # Volatility
+        ann_volatility = min(Metrics.ann_volatility(miner_returns), 100)
+        ann_downside_volatility = min(Metrics.ann_downside_volatility(miner_returns), 100)
 
+        # Drawdowns
+        recent_dd = LedgerUtils.recent_drawdown(miner_cps)
+        approx_dd = LedgerUtils.approximate_drawdown(miner_cps)
+        effective_dd = LedgerUtils.effective_drawdown(recent_dd, approx_dd)
 
-    def percentile_rank_dictionary(self, d, ascending=False) -> dict:
+        # Engagement: positions
+        n_positions = len(miner_positions)
+        pos_duration = PositionUtils.total_duration(miner_positions)
+        percentage_profitable = self.position_manager.get_percent_profitable_positions(miner_positions)
+
+        # Engagement: checkpoints
+        n_checkpoints = len([cp for cp in miner_cps if cp.open_ms > 0])
+        checkpoint_durations = sum(cp.open_ms for cp in miner_cps)
+
+        # Minimum days boolean
+        meets_min_days = (len(miner_returns) >= ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N)
+
+        # Martingale
+        martingale_score = PositionPenalties.martingale_score(miner_positions)
+
+        return {
+            "annual_volatility": ann_volatility,
+            "annual_downside_volatility": ann_downside_volatility,
+            "drawdowns": {
+                "recent": recent_dd,
+                "approximate": approx_dd,
+                "effective": effective_dd
+            },
+            "positions_info": {
+                "n_positions": n_positions,
+                "positional_duration": pos_duration,
+                "percentage_profitable": percentage_profitable
+            },
+            "checkpoints_info": {
+                "n_checkpoints": n_checkpoints,
+                "checkpoint_durations": checkpoint_durations
+            },
+            "minimum_days_boolean": meets_min_days,
+            "martingale_score": martingale_score
+        }
+
+    # -------------------------------------------
+    # Prepare data for metric calculations
+    # -------------------------------------------
+    def prepare_miner_data(self, hotkey: str, filtered_ledger: Dict[str, Any], filtered_positions: Dict[str, Any], time_now: int) -> Dict[str, Any]:
         """
-        Rank the values in a dictionary as a percentile. Higher values get lower ranks by default.
-
-        Args:
-        d (dict): The dictionary to rank.
-        ascending (bool): If True, ranks in ascending order. Default is False.
-
-        Returns:
-        dict: A dictionary with the same keys and ranked values.
+        Combines the minimal fields needed for the metrics plus the extra data.
         """
-        # Sort the dictionary by value
-        miner_names = list(d.keys())
-        scores = list(d.values())
+        miner_ledger = filtered_ledger.get(hotkey)
+        miner_returns = LedgerUtils.ledger_returns_log(filtered_ledger).get(hotkey, [])
+        miner_cps = miner_ledger.cps if miner_ledger else []
+        miner_positions = filtered_positions.get(hotkey, [])
 
-        percentiles = percentileofscore(scores, scores, kind='rank') / 100
-        miner_percentiles = dict(zip(miner_names, percentiles))
+        extra_data = self.gather_extra_data(hotkey, filtered_ledger, filtered_positions)
 
-        return miner_percentiles
+        return {
+            "log_returns": miner_returns,
+            "checkpoints": miner_cps,
+            "positions": miner_positions,
+            "ledger": miner_ledger,
+            "evaluation_time": time_now,
+            "extra_data": extra_data
+        }
 
-    def percentiles_config(self, scores_dict: dict[str, dict], inspection_dict: dict[str, dict]):
+    # -------------------------------------------
+    # Penalties: store them individually so we can show them
+    # -------------------------------------------
+    def calculate_penalties_breakdown(self, miner_data: Dict[str, Dict[str, Any]]) -> Dict[str, Dict[str, float]]:
         """
-        Args:
-            scores_dict: a dictionary with function names as keys to values that have:
-            "scores" which is a list of tuples with (miner, score) for that metric,
-            "weight" which is the weight of the metric
-
-        Returns:
-            percentile_dict: which just adds a field for each function that has a percentiles
-            dictionary for that metric under "percentiles"
+        Returns a dict:
+            {
+               hotkey: {
+                  "drawdown_threshold": ...,
+                  "martingale": ...,
+                  "total": ...
+               }
+            }
         """
-        percentile_dict = copy.deepcopy(scores_dict)
-        target_percentile = ValiConfig.CHALLENGE_PERIOD_PERCENTILE_THRESHOLD * 100
+        results = {}
+        for hotkey, data in miner_data.items():
+            cps = data.get("checkpoints", [])
+            positions = data.get("positions", [])
 
-        # Calculate target percentile with only successful miners for combined scores
-        combined_scores = Scoring.combine_scores(percentile_dict)
-        combined_percentiles = [score for miner, score in combined_scores.items()]
+            drawdown_threshold_penalty = LedgerUtils.max_drawdown_threshold_penalty(cps)
+            martingale_penalty = PositionPenalties.martingale_penalty(positions)
 
-        if len(combined_percentiles) > 0:
-            overall_target = np.percentile(combined_percentiles, target_percentile, method="higher")
+            total_penalty = drawdown_threshold_penalty * martingale_penalty
+
+            results[hotkey] = {
+                "drawdown_threshold": drawdown_threshold_penalty,
+                "martingale": martingale_penalty,
+                "total": total_penalty
+            }
+        return results
+
+    # -------------------------------------------
+    # Compute a single penalty factor per miner for "PENALIZED" metrics
+    # (the "total" from the breakdown).
+    # -------------------------------------------
+    def calculate_penalties(self, miner_data: Dict[str, Dict[str, Any]]) -> Dict[str, float]:
+        breakdown = self.calculate_penalties_breakdown(miner_data)
+        return {hk: breakdown[hk]["total"] for hk in breakdown}
+
+    # -------------------------------------------
+    # Main scoring wrapper
+    # -------------------------------------------
+    def calculate_all_scores(
+        self,
+        miner_data: Dict[str, Dict[str, Any]],
+        score_type: ScoreType = ScoreType.BASE
+    ) -> Dict[str, Dict[str, ScoreResult]]:
+        """Calculate all metrics for all miners (BASE, PENALIZED, AUGMENTED)."""
+        # By default, no penalty or weighting
+        penalties = None
+        weighting = False
+
+        # If penalized, compute penalty factor
+        if score_type == ScoreType.PENALIZED:
+            penalties = self.calculate_penalties(miner_data)
+            # Mark metrics that they require penalties
+            for metric in self.metrics_calculator.metrics.values():
+                metric.requires_penalties = True
         else:
-            # If no one in main competition, target score is 0
-            overall_target = 0
-        percentile_dict["overall_target_score"] = overall_target
+            # Reset or ensure no penalty flag
+            for metric in self.metrics_calculator.metrics.values():
+                metric.requires_penalties = False
 
-        # Calculate target scores for each metric of only successful miners
-        for config_name, config in percentile_dict["metrics"].items():
+        # If augmented, apply weighting
+        if score_type == ScoreType.AUGMENTED:
+            weighting = True
+            for metric in self.metrics_calculator.metrics.values():
+                metric.requires_weighting = True
+        else:
+            for metric in self.metrics_calculator.metrics.values():
+                metric.requires_weighting = False
 
-            scores = [score for miner, score in config['scores']]
+        # Calculate for each metric
+        metric_results = {}
+        for metric_name, metric in self.metrics_calculator.metrics.items():
+            numeric_scores = self.metrics_calculator.calculate_metric(
+                metric, miner_data, penalties=penalties, weighting=weighting
+            )
+            ranks = self.rank_dictionary(numeric_scores)
+            percentiles = self.percentile_rank_dictionary(numeric_scores)
 
-            # If no one in main competition, target score is 0
-            if len(scores) > 0:
-                target_score = np.percentile(scores, target_percentile, method="higher")
-            else:
-                target_score = 0
-            config["target_score"] = target_score
+            # Build ScoreResult objects
+            metric_results[metric_name] = {
+                hotkey: ScoreResult(
+                    value=numeric_scores[hotkey],
+                    rank=ranks[hotkey],
+                    percentile=percentiles[hotkey],
+                    overall_contribution=percentiles[hotkey] * metric.weight
+                )
+                for hotkey in numeric_scores
+            }
 
-        # Append testing miner scores to successful miners
-        for config_name, config in percentile_dict["metrics"].items():
+        return metric_results
 
-            miner_scores = config["scores"]
-            miner_scores += inspection_dict["metrics"][config_name]["scores"]
+    # -------------------------------------------
+    # Generate final data
+    # -------------------------------------------
+    def generate_miner_statistics_data(
+        self,
+        time_now: int = None,
+        checkpoints: bool = True,
+        selected_miner_hotkeys: List[str] = None
+    ) -> Dict[str, Any]:
 
-        for config_name, config in percentile_dict["metrics"].items():
-
-            weighted_scores = Scoring.miner_scores_percentiles(config["scores"])
-            config["percentiles"] = dict(weighted_scores)
-
-        return percentile_dict
-
-
-    def generate_miner_statistics_data(self, time_now: int = None, checkpoints: bool = True, selected_miner_hotkeys: List[str] = None):
         if time_now is None:
             time_now = TimeUtil.now_in_millis()
 
-        # Get the dictionaries
-        challengeperiod_testing_dictionary = self.challengeperiod_manager.get_challengeperiod_testing()
-        challengeperiod_success_dictionary = self.challengeperiod_manager.get_challengeperiod_success()
+        # ChallengePeriod: success + testing
+        challengeperiod_testing_dict = self.challengeperiod_manager.get_challengeperiod_testing()
+        challengeperiod_success_dict = self.challengeperiod_manager.get_challengeperiod_success()
 
-        # Sort dictionaries by value
-        sorted_challengeperiod_testing = dict(sorted(challengeperiod_testing_dictionary.items(), key=lambda item: item[1]))
-        sorted_challengeperiod_success = dict(sorted(challengeperiod_success_dictionary.items(), key=lambda item: item[1]))
+        sorted_challengeperiod_testing = dict(sorted(challengeperiod_testing_dict.items(), key=lambda x: x[1]))
+        sorted_challengeperiod_success = dict(sorted(challengeperiod_success_dict.items(), key=lambda x: x[1]))
 
-        challengeperiod_testing_hotkeys = list(challengeperiod_testing_dictionary.keys())
-        challengeperiod_success_hotkeys = list(challengeperiod_success_dictionary.keys())
+        challengeperiod_testing_hotkeys = list(sorted_challengeperiod_testing.keys())
+        challengeperiod_success_hotkeys = list(sorted_challengeperiod_success.keys())
 
-        try:
-            if not os.path.exists(ValiBkpUtils.get_miner_dir()):
-                raise FileNotFoundError
-        except FileNotFoundError:
-            raise Exception(
-                f"directory for miners doesn't exist "
-                f"[{ValiBkpUtils.get_miner_dir()}]. Skip run for now."
-            )
-
-        # full ledger of all miner hotkeys
-        all_miner_hotkeys = challengeperiod_success_hotkeys + challengeperiod_testing_hotkeys
+        all_miner_hotkeys = list(set(challengeperiod_testing_hotkeys + challengeperiod_success_hotkeys))
         if selected_miner_hotkeys is None:
             selected_miner_hotkeys = all_miner_hotkeys
 
-        filtered_ledger = self.perf_ledger_manager.filtered_ledger_for_scoring(hotkeys=all_miner_hotkeys)
-        filtered_positions, _ = self.position_manager.filtered_positions_for_scoring(hotkeys=all_miner_hotkeys)
-        filtered_returns = LedgerUtils.ledger_returns_log(filtered_ledger)
+        # Filter ledger/positions
+        filtered_ledger = self.perf_ledger_manager.filtered_ledger_for_scoring(all_miner_hotkeys)
+        filtered_positions, _ = self.position_manager.filtered_positions_for_scoring(all_miner_hotkeys)
 
-        plagiarism = self.plagiarism_detector.get_plagiarism_scores_from_disk()
-        # # Sync the ledger and positions
-        # filtered_ledger, filtered_positions = subtensor_weight_setter.sync_ledger_positions(
-        #     filtered_ledger,
-        #     filtered_positions
-        # )
+        # For weighting logic: gather "successful" checkpoint-based results
+        successful_ledger = self.perf_ledger_manager.filtered_ledger_for_scoring(challengeperiod_success_hotkeys)
+        successful_positions, _ = self.position_manager.filtered_positions_for_scoring(challengeperiod_success_hotkeys)
 
-        # Lookback window positions
-        lookback_positions = PositionFiltering.filter(
-            filtered_positions,
-            evaluation_time_ms=time_now
-        )
-
-        # lookback_positions_recent = PositionFiltering.filter_recent(
-        #     filtered_positions,
-        #     evaluation_time_ms=time_now
-        # )
-
-        # Penalties
-        miner_penalties = Scoring.miner_penalties(
-            lookback_positions,
-            filtered_ledger
-        )
-
-        # Scoring metrics
-        omega_dict = {}
-        sharpe_dict = {}
-        sortino_dict = {}
-        short_return_dict = {}
-        return_dict = {}
-        short_risk_adjusted_return_dict = {}
-        risk_adjusted_return_dict = {}
-        statistical_confidence_dict = {}
-
-        # Scoring criteria metrics
-        minimum_days_threshold_dict = {}
-
-
-        # Positional penalties
-        miner_martingale_scores = {}
-        miner_martingale_penalties = {}
-
-        # Ledger Penalties
-        max_drawdown_threshold_penalties = {}
-
-        # Ledger Drawdowns
-        recent_drawdowns = {}
-        approximate_drawdowns = {}
-        effective_drawdowns = {}
-
-        # Perf Ledger Calculations
-        n_checkpoints = {}
-        checkpoint_durations = {}
-
-        # Positional Statistics
-        n_positions = {}
-        positional_return = {}
-        positional_duration = {}
-        percentage_profitable = {}
-
-        # Volatility Metrics
-        annual_volatility = {}
-        annual_downside_volatility = {}
-
-        for hotkey, hotkey_ledger in filtered_ledger.items():
-            # Collect miner positions
-            miner_positions = filtered_positions.get(hotkey, [])
-            miner_returns = filtered_returns.get(hotkey, [])
-            short_term_miner_returns = miner_returns[-ValiConfig.SHORT_LOOKBACK_WINDOW:]
-
-            miner_checkpoints = hotkey_ledger.cps
-
-            short_term_miner_checkpoints = hotkey_ledger.cps[-ValiConfig.SHORT_LOOKBACK_WINDOW:]
-            # Lookback window positions
-            miner_lookback_positions = lookback_positions.get(hotkey, [])
-
-            scoring_input = {
-                "log_returns": miner_returns,
-                # "ledger": hotkey_ledger
-            }
-
-            # Track the positional thresholds
-            minimum_days_threshold_dict[hotkey] = len(miner_returns) >= ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N
-
-            # Positional Scoring
-            omega_dict[hotkey] = Metrics.omega(**scoring_input, bypass_confidence=True)
-            sharpe_dict[hotkey] = Metrics.sharpe(**scoring_input, bypass_confidence=True)
-            sortino_dict[hotkey] = Metrics.sortino(**scoring_input, bypass_confidence=True)
-            annual_volatility[hotkey] = min(Metrics.ann_volatility(miner_returns), 100)
-            annual_downside_volatility[hotkey] = min(Metrics.ann_downside_volatility(miner_returns), 100)
-            statistical_confidence_dict[hotkey] = Metrics.statistical_confidence(miner_returns, bypass_confidence=True)
-
-            # Positional penalties
-            miner_martingale_scores[hotkey] = PositionPenalties.martingale_score(miner_lookback_positions)
-            miner_martingale_penalties[hotkey] = PositionPenalties.martingale_penalty(miner_lookback_positions)
-
-            short_return_dict[hotkey] = Metrics.base_return(short_term_miner_returns)
-            return_dict[hotkey] = Metrics.base_return(miner_returns)
-
-            short_risk_adjusted_return_dict[hotkey] = Metrics.drawdown_adjusted_return(
-                short_term_miner_returns,
-                short_term_miner_checkpoints
-            )
-
-            risk_adjusted_return_dict[hotkey] = Metrics.drawdown_adjusted_return(
-                miner_returns,
-                miner_checkpoints
-            )
-
-            # Ledger drawdowns
-            recent_drawdown = LedgerUtils.recent_drawdown(miner_checkpoints)
-            recent_drawdowns[hotkey] = recent_drawdown
-
-            approximate_drawdown = LedgerUtils.approximate_drawdown(miner_checkpoints)
-            approximate_drawdowns[hotkey] = approximate_drawdown
-
-            effective_drawdowns[hotkey] = LedgerUtils.effective_drawdown(recent_drawdown, approximate_drawdown)
-
-            max_drawdown_threshold_penalties[hotkey] = LedgerUtils.max_drawdown_threshold_penalty(miner_checkpoints)
-
-            # Now for the ledger statistics
-            n_checkpoints[hotkey] = len([x for x in miner_checkpoints if x.open_ms > 0])
-            checkpoint_durations[hotkey] = sum([x.open_ms for x in miner_checkpoints])
-
-            # Now for the full positions statistics
-            n_positions[hotkey] = len(miner_positions)
-            positional_return[hotkey] = Metrics.base_return(miner_returns)
-            positional_duration[hotkey] = PositionUtils.total_duration(miner_positions)
-            percentage_profitable[hotkey] = self.position_manager.get_percent_profitable_positions(miner_positions)
-
-        # Cumulative ledger, for printing
-        cumulative_return_ledger = LedgerUtils.cumulative(filtered_ledger)
-
-        # This is when we only want to look at the successful miners
-        successful_ledger = self.perf_ledger_manager.filtered_ledger_for_scoring(hotkeys=challengeperiod_success_hotkeys)
-        successful_positions, _ = self.position_manager.filtered_positions_for_scoring(hotkeys=challengeperiod_success_hotkeys)
-
-        # successful_ledger, successful_positions = subtensor_weight_setter.sync_ledger_positions(
-        #     successful_ledger,
-        #     successful_positions
-        # )
-
+        # Compute the checkpoint-based weighting for successful miners
         checkpoint_results = Scoring.compute_results_checkpoint(
-            successful_ledger,
-            successful_positions,
-            evaluation_time_ms=time_now,
-            verbose=False,
-            weighting=True
-        )
+            successful_ledger, successful_positions,
+            evaluation_time_ms=time_now, verbose=False, weighting=True
+        )  # returns list of (hotkey, weightVal)
 
+        # For testing miners, we might just give them a default "CHALLENGE_PERIOD_WEIGHT"
         challengeperiod_scores = [
-            (x, ValiConfig.CHALLENGE_PERIOD_WEIGHT) for x in challengeperiod_testing_hotkeys
+            (hk, ValiConfig.CHALLENGE_PERIOD_WEIGHT) for hk in challengeperiod_testing_hotkeys
         ]
 
-        scoring_results = checkpoint_results + challengeperiod_scores
-        weights = dict(scoring_results)
+        # Combine them
+        combined_weights_list = checkpoint_results + challengeperiod_scores
+        weights_dict = dict(combined_weights_list)
+        weights_rank = self.rank_dictionary(weights_dict)
+        weights_percentile = self.percentile_rank_dictionary(weights_dict)
 
-        # Rankings
-        weights_rank = self.rank_dictionary(weights)
-        weights_percentile = self.percentile_rank_dictionary(weights)
+        # Load plagiarism once
+        plagiarism_scores = self.plagiarism_detector.get_plagiarism_scores_from_disk()
 
-        # Rankings on Traditional Metrics
-        omega_rank = self.rank_dictionary(omega_dict)
-        omega_percentile = self.percentile_rank_dictionary(omega_dict)
+        # Prepare data for each miner
+        miner_data = {}
+        for hotkey in selected_miner_hotkeys:
+            miner_data[hotkey] = self.prepare_miner_data(hotkey, filtered_ledger, filtered_positions, time_now)
 
-        sortino_rank = self.rank_dictionary(sortino_dict)
-        sortino_percentile = self.percentile_rank_dictionary(sortino_dict)
+        # Compute the base, penalized, and augmented scores
+        base_scores = self.calculate_all_scores(miner_data, ScoreType.BASE)
+        penalized_scores = self.calculate_all_scores(miner_data, ScoreType.PENALIZED)
+        augmented_scores = self.calculate_all_scores(miner_data, ScoreType.AUGMENTED)
 
-        sharpe_rank = self.rank_dictionary(sharpe_dict)
-        sharpe_percentile = self.percentile_rank_dictionary(sharpe_dict)
+        # Also compute penalty breakdown (for display in final "penalties" dict).
+        penalty_breakdown = self.calculate_penalties_breakdown(miner_data)
 
-        short_return_rank = self.rank_dictionary(short_return_dict)
-        short_return_percentile = self.percentile_rank_dictionary(short_return_dict)
+        # Build the final list
+        results = []
+        for hotkey in selected_miner_hotkeys:
 
-        return_rank = self.rank_dictionary(return_dict)
-        return_percentile = self.percentile_rank_dictionary(return_dict)
-
-        statistical_confidence_rank = self.rank_dictionary(statistical_confidence_dict)
-        statistical_confidence_percentile = self.percentile_rank_dictionary(statistical_confidence_dict)
-
-        short_risk_adjusted_return_rank = self.rank_dictionary(short_risk_adjusted_return_dict)
-        short_risk_adjusted_return_percentile = self.percentile_rank_dictionary(short_risk_adjusted_return_dict)
-
-        risk_adjusted_return_rank = self.rank_dictionary(risk_adjusted_return_dict)
-        risk_adjusted_return_percentile = self.percentile_rank_dictionary(risk_adjusted_return_dict)
-
-        # Rankings on Penalized Metrics
-        omega_penalized_dict = self.apply_penalties(omega_dict, miner_penalties)
-        omega_penalized_rank = self.rank_dictionary(omega_penalized_dict)
-        omega_penalized_percentile = self.percentile_rank_dictionary(omega_penalized_dict)
-
-        sharpe_penalized_dict = self.apply_penalties(sharpe_dict, miner_penalties)
-        sharpe_penalized_rank = self.rank_dictionary(sharpe_penalized_dict)
-        sharpe_penalized_percentile = self.percentile_rank_dictionary(sharpe_penalized_dict)
-
-        sortino_penalized_dict = self.apply_penalties(sortino_dict, miner_penalties)
-        sortino_penalized_rank = self.rank_dictionary(sortino_penalized_dict)
-        sortino_penalized_percentile = self.percentile_rank_dictionary(sortino_penalized_dict)
-
-        short_risk_adjusted_return_penalized_dict = self.apply_penalties(short_risk_adjusted_return_dict, miner_penalties)
-        short_risk_adjusted_return_penalized_rank = self.rank_dictionary(short_risk_adjusted_return_penalized_dict)
-        short_risk_adjusted_return_penalized_percentile = self.percentile_rank_dictionary(short_risk_adjusted_return_penalized_dict)
-
-        risk_adjusted_return_penalized_dict = self.apply_penalties(risk_adjusted_return_dict, miner_penalties)
-        risk_adjusted_return_penalized_rank = self.rank_dictionary(risk_adjusted_return_penalized_dict)
-        risk_adjusted_return_penalized_percentile = self.percentile_rank_dictionary(risk_adjusted_return_penalized_dict)
-
-        statistical_confidence_penalized_dict = self.apply_penalties(statistical_confidence_dict, miner_penalties)
-        statistical_confidence_penalized_rank = self.rank_dictionary(statistical_confidence_penalized_dict)
-        statistical_confidence_penalized_percentile = self.percentile_rank_dictionary(statistical_confidence_penalized_dict)
-
-        # Here is the full list of data in frontend format
-
-        # Get scores of successful miners for each metric
-        success_scores_dict = Scoring.score_miners(ledger_dict=successful_ledger,
-                                                   positions=successful_positions,
-                                                   evaluation_time_ms=time_now)
-
-        combined_data = []
-        for miner_id in selected_miner_hotkeys:
-            # challenge period specific data
-            challengeperiod_specific = {}
-
-            if miner_id in sorted_challengeperiod_testing:
-                challengeperiod_testing_time = sorted_challengeperiod_testing[miner_id]
-                chellengeperiod_end_time = challengeperiod_testing_time + ValiConfig.CHALLENGE_PERIOD_MS
-                remaining_time = chellengeperiod_end_time - time_now
-                challengeperiod_specific = {
+            # ChallengePeriod info
+            challengeperiod_info = {}
+            if hotkey in sorted_challengeperiod_testing:
+                cp_start = sorted_challengeperiod_testing[hotkey]
+                cp_end = cp_start + ValiConfig.CHALLENGE_PERIOD_MS
+                remaining = cp_end - time_now
+                challengeperiod_info = {
                     "status": "testing",
-                    "start_time_ms": challengeperiod_testing_time,
-                    "remaining_time_ms": remaining_time,
+                    "start_time_ms": cp_start,
+                    "remaining_time_ms": max(remaining, 0)
                 }
-                inspection_positions = {miner_id: lookback_positions.get(miner_id, None)}
-
-                # Get individual scoring dict for inspection
-                inspection_ledger = {miner_id: filtered_ledger.get(miner_id, None)}
-
-                # Get the scores for this miner for each metric
-                inspection_scoring_dict = Scoring.score_miners(
-                    ledger_dict=inspection_ledger,
-                    positions=inspection_positions,
-                    evaluation_time_ms=time_now)
-
-
-                # Calculate percentiles for each metric
-                percentile_dict = self.percentiles_config(scores_dict=success_scores_dict, inspection_dict=inspection_scoring_dict)
-
-                # Update penalties for inspection miner
-                percentile_dict["penalties"].update(inspection_scoring_dict["penalties"])
-
-                # Combine scores and apply penalties
-                combined_scores = Scoring.combine_scores(scoring_dict=percentile_dict)
-
-                challengeperiod_trial_percentiles = self.percentile_rank_dictionary(dict(combined_scores))
-
-                challengeperiod_trial_score = combined_scores.get(miner_id, 0)
-                challengeperiod_trial_percentile = challengeperiod_trial_percentiles.get(miner_id, 0)
-
-                challengeperiod_passing = bool(challengeperiod_trial_percentile >= ValiConfig.CHALLENGE_PERIOD_PERCENTILE_THRESHOLD)
-
-                challengeperiod_specific["scores"] = {}
-                for config_name, config in percentile_dict["metrics"].items():
-
-                    inspection_metrics = inspection_scoring_dict["metrics"]
-                    testing_score = inspection_metrics[config_name]["scores"]
-
-                    # If not the right number of scores for any reason, skip metric since there was some error earlier
-                    if len(testing_score) != 1:
-                        continue
-
-                    # There is only one score in the inspection_scoring_dict: the testing miner
-                    value = testing_score[0][1]
-
-                    # Show value and percentile for each metric
-                    challengeperiod_specific["scores"][config_name] = {
-                        "value": value,
-                        "percentile": config["percentiles"].get(miner_id, 0),
-                        "target_score": config["target_score"]
-                    }
-                # Show stats for overall score
-                challengeperiod_specific["scores"]["overall"] = {
-                        "value": challengeperiod_trial_score,
-                        "percentile": challengeperiod_trial_percentile,
-                        "target_percentile": ValiConfig.CHALLENGE_PERIOD_PERCENTILE_THRESHOLD,
-                        "target_score": percentile_dict["overall_target_score"],
-                        "passing": challengeperiod_passing,
-                    }
-
-            elif miner_id in sorted_challengeperiod_success:
-                challengeperiod_success_time = sorted_challengeperiod_success[miner_id]
-                challengeperiod_specific = {
+            elif hotkey in sorted_challengeperiod_success:
+                cp_start = sorted_challengeperiod_success[hotkey]
+                challengeperiod_info = {
                     "status": "success",
-                    "start_time_ms": challengeperiod_success_time,
+                    "start_time_ms": cp_start
                 }
 
-            # checkpoint specific data
-            miner_cumulative_return_ledger = cumulative_return_ledger.get(miner_id)
-            miner_standard_ledger = filtered_ledger.get(miner_id)
+            # Build a small function to extract ScoreResult -> dict for each metric
+            def build_scores_dict(metric_set: Dict[str, Dict[str, ScoreResult]]) -> Dict[str, Dict[str, float]]:
+                out = {}
+                for metric_name, hotkey_map in metric_set.items():
+                    sr = hotkey_map.get(hotkey)
+                    if sr is not None:
+                        out[metric_name] = sr.to_dict()
+                    else:
+                        out[metric_name] = {}
+                return out
 
-            if miner_standard_ledger is None:
-                continue
+            base_dict = build_scores_dict(base_scores)
+            penalized_dict = build_scores_dict(penalized_scores)
+            augmented_dict = build_scores_dict(augmented_scores)
 
-            miner_data = {
-                "hotkey": miner_id,
-                "weight": {
-                    "value": weights.get(miner_id),
-                    "rank": weights_rank.get(miner_id),
-                    "percentile": weights_percentile.get(miner_id),
-                },
-                "challengeperiod": challengeperiod_specific,
+            # Extra data
+            extra = miner_data[hotkey].get("extra_data", {})
+
+            # Volatility
+            volatility_subdict = {
+                "annual": extra.get("annual_volatility"),
+                "annual_downside": extra.get("annual_downside_volatility"),
+            }
+            # Drawdowns
+            drawdowns_subdict = extra.get("drawdowns", {})
+            # Engagement
+            engagement_subdict = {
+                "n_checkpoints": extra.get("checkpoints_info", {}).get("n_checkpoints"),
+                "n_positions": extra.get("positions_info", {}).get("n_positions"),
+                "position_duration": extra.get("positions_info", {}).get("positional_duration"),
+                "checkpoint_durations": extra.get("checkpoints_info", {}).get("checkpoint_durations"),
+                "minimum_days_boolean": extra.get("minimum_days_boolean"),
+                "percentage_profitable": extra.get("positions_info", {}).get("percentage_profitable"),
+            }
+            # Plagiarism
+            plagiarism_val = plagiarism_scores.get(hotkey)
+            # Martingale (score)
+            martingale_val = extra.get("martingale_score")
+
+            # Weight
+            w_val = weights_dict.get(hotkey)
+            w_rank = weights_rank.get(hotkey)
+            w_pct = weights_percentile.get(hotkey)
+
+            # Penalties breakdown for display
+            pen_break = penalty_breakdown.get(hotkey, {})
+            # e.g. {"drawdown_threshold": x, "martingale": y, "total": z}
+
+            final_miner_dict = {
+                "hotkey": hotkey,
+                "challengeperiod": challengeperiod_info,
+                "scores": base_dict,
+                "penalized_scores": penalized_dict,
+                "augmented_scores": augmented_dict,
+                "volatility": volatility_subdict,
+                "drawdowns": drawdowns_subdict,
+                "plagiarism": plagiarism_val,
+                "martingale": martingale_val,
+                "engagement": engagement_subdict,
                 "penalties": {
-                    "drawdown_threshold": max_drawdown_threshold_penalties.get(miner_id),
-                    "martingale": miner_martingale_penalties.get(miner_id),
-                    "total": miner_penalties.get(miner_id, 0.0),
+                    "drawdown_threshold": pen_break.get("drawdown_threshold", 1.0),
+                    "martingale": pen_break.get("martingale", 1.0),
+                    "total": pen_break.get("total", 1.0),
                 },
-                "volatility": {
-                    "annual": annual_volatility.get(miner_id),
-                    "annual_downside": annual_downside_volatility.get(miner_id),
-                },
-                "drawdowns": {
-                    "recent": recent_drawdowns.get(miner_id),
-                    "approximate": approximate_drawdowns.get(miner_id),
-                    "effective": effective_drawdowns.get(miner_id),
-                },
-                "scores": {
-                    "omega": {
-                        "value": omega_dict.get(miner_id),
-                        "rank": omega_rank.get(miner_id),
-                        "percentile": omega_percentile.get(miner_id),
-                        "overall_contribution": omega_percentile.get(miner_id) * ValiConfig.SCORING_OMEGA_WEIGHT,
-                    },
-                    "sharpe": {
-                        "value": sharpe_dict.get(miner_id),
-                        "rank": sharpe_rank.get(miner_id),
-                        "percentile": sharpe_percentile.get(miner_id),
-                        "overall_contribution": sharpe_percentile.get(miner_id) * ValiConfig.SCORING_SHARPE_WEIGHT,
-                    },
-                    "sortino": {
-                        "value": sortino_dict.get(miner_id),
-                        "rank": sortino_rank.get(miner_id),
-                        "percentile": sortino_percentile.get(miner_id),
-                        "overall_contribution": sortino_percentile.get(miner_id) * ValiConfig.SCORING_SORTINO_WEIGHT,
-                    },
-                    "statistical_confidence": {
-                        "value": statistical_confidence_dict.get(miner_id),
-                        "rank": statistical_confidence_rank.get(miner_id),
-                        "percentile": statistical_confidence_percentile.get(miner_id),
-                        "overall_contribution": statistical_confidence_percentile.get(miner_id) * ValiConfig.SCORING_STATISTICAL_CONFIDENCE_WEIGHT,
-                    },
-                    "short_return": {
-                        "value": short_return_dict.get(miner_id),
-                        "rank": short_return_rank.get(miner_id),
-                        "percentile": short_return_percentile.get(miner_id),
-                        "overall_contribution": 0,
-                    },
-                    "return": {
-                        "value": return_dict.get(miner_id),
-                        "rank": return_rank.get(miner_id),
-                        "percentile": return_percentile.get(miner_id),
-                        "overall_contribution": 0,
-                    },
-                    "short-calmar": {
-                        "value": short_risk_adjusted_return_dict.get(miner_id),
-                        "rank": short_risk_adjusted_return_rank.get(miner_id),
-                        "percentile": short_risk_adjusted_return_percentile.get(miner_id),
-                        "overall_contribution": short_risk_adjusted_return_percentile.get(miner_id) * ValiConfig.SCORING_SHORT_RETURN_LOOKBACK_WEIGHT,
-                    },
-                    "calmar": {
-                        "value": risk_adjusted_return_dict.get(miner_id),
-                        "rank": risk_adjusted_return_rank.get(miner_id),
-                        "percentile": risk_adjusted_return_percentile.get(miner_id),
-                        "overall_contribution": risk_adjusted_return_percentile.get(miner_id) * ValiConfig.SCORING_LONG_RETURN_LOOKBACK_WEIGHT,
-                    }
-                },
-                "penalized_scores": {
-                    "omega": {
-                        "value": omega_penalized_dict.get(miner_id),
-                        "rank": omega_penalized_rank.get(miner_id),
-                        "percentile": omega_penalized_percentile.get(miner_id),
-                        "overall_contribution": omega_penalized_percentile.get(miner_id) * ValiConfig.SCORING_OMEGA_WEIGHT,
-                    },
-                    "sharpe": {
-                        "value": sharpe_penalized_dict.get(miner_id),
-                        "rank": sharpe_penalized_rank.get(miner_id),
-                        "percentile": sharpe_penalized_percentile.get(miner_id),
-                        "overall_contribution": sharpe_penalized_percentile.get(miner_id) * ValiConfig.SCORING_SHARPE_WEIGHT,
-                    },
-                    "sortino": {
-                        "value": sortino_penalized_rank.get(miner_id),
-                        "rank": sortino_penalized_rank.get(miner_id),
-                        "percentile": sortino_penalized_percentile.get(miner_id),
-                        "overall_contribution": sortino_penalized_percentile.get(miner_id) * ValiConfig.SCORING_SORTINO_WEIGHT,
-                    },
-                    "statistical_confidence": {
-                        "value": statistical_confidence_penalized_dict.get(miner_id),
-                        "rank": statistical_confidence_penalized_rank.get(miner_id),
-                        "percentile": statistical_confidence_penalized_percentile.get(miner_id),
-                        "overall_contribution": statistical_confidence_penalized_percentile.get(miner_id) * ValiConfig.SCORING_STATISTICAL_CONFIDENCE_WEIGHT,
-                    },
-                    "short-calmar": {
-                        "value": short_risk_adjusted_return_penalized_dict.get(miner_id),
-                        "rank": short_risk_adjusted_return_penalized_rank.get(miner_id),
-                        "percentile": short_risk_adjusted_return_penalized_percentile.get(miner_id),
-                        "overall_contribution": short_risk_adjusted_return_penalized_percentile.get(miner_id) * ValiConfig.SCORING_SHORT_RETURN_LOOKBACK_WEIGHT,
-                    },
-                    "calmar": {
-                        "value": risk_adjusted_return_penalized_dict.get(miner_id),
-                        "rank": risk_adjusted_return_penalized_rank.get(miner_id),
-                        "percentile": risk_adjusted_return_penalized_percentile.get(miner_id),
-                        "overall_contribution": risk_adjusted_return_penalized_percentile.get(miner_id) * ValiConfig.SCORING_LONG_RETURN_LOOKBACK_WEIGHT,
-                    }
-                },
-                "engagement": {
-                    "n_checkpoints": n_checkpoints.get(miner_id),
-                    "n_positions": n_positions.get(miner_id),
-                    "position_duration": positional_duration.get(miner_id),
-                    "checkpoint_durations": checkpoint_durations.get(miner_id),
-                    "minimum_days_boolean": minimum_days_threshold_dict.get(miner_id),
-                    "percentage_profitable": percentage_profitable.get(miner_id),
-                },
-                "plagiarism": plagiarism.get(miner_id),
-                "martingale": miner_martingale_scores.get(miner_id),
+                "weight": {
+                    "value": w_val,
+                    "rank": w_rank,
+                    "percentile": w_pct,
+                }
             }
 
-            miner_checkpoints = {
-                "checkpoints": miner_cumulative_return_ledger.get('cps', [])
-            }
-
+            # Optionally attach actual checkpoints (like the original first script)
             if checkpoints:
-                miner_data = {**miner_data, **miner_checkpoints}
+                ledger_obj = miner_data[hotkey].get("ledger")
+                if ledger_obj and hasattr(ledger_obj, "cps"):
+                    final_miner_dict["checkpoints"] = ledger_obj.cps
 
-            combined_data.append(miner_data)
+            results.append(final_miner_dict)
 
-        # Now pipe the vali_config data into the final dictionary
-        ldconfig_data = dict(ValiConfig.__dict__)
-        ldconfig_printable = {
-            key: value for key, value in ldconfig_data.items()
-            if isinstance(value, (int, float, str))
-               and key not in ['BASE_DIR', 'base_directory']
-        }
+        # (Optional) sort by weight rank if you want the final data sorted in that manner:
+        # Filter out any miners lacking a weight, then sort.
+        # If you want to keep them all, remove this filtering:
+        results_with_weight = [r for r in results if r["weight"]["rank"] is not None]
+        # Sort by ascending rank
+        results_sorted = sorted(results_with_weight, key=lambda x: x["weight"]["rank"])
 
-        # Filter out invalid entries
-        valid_data = [item for item in combined_data if item is not None and
-                      item.get('weight') is not None and
-                      item['weight'].get('rank') is not None]
-
-        # If there's no valid data, return an empty dict or handle accordingly
-        if not valid_data:
-            return {
-                'version': ValiConfig.VERSION,
-                'created_timestamp_ms': time_now,
-                'created_date': TimeUtil.millis_to_formatted_date_str(time_now),
-                'data': [],  # empty list as there's no valid data
-                'constants': ldconfig_printable,
-            }
-
+        # If you'd prefer not to filter out those without weight, you could keep them at the end
+        # Or you can unify them in a single list. For simplicity, let's keep it consistent:
         final_dict = {
             'version': ValiConfig.VERSION,
             'created_timestamp_ms': time_now,
             'created_date': TimeUtil.millis_to_formatted_date_str(time_now),
-            'data': sorted(valid_data, key=lambda x: x['weight']['rank']),
-            'constants': ldconfig_printable,
+            'data': results_sorted,
+            'constants': self.get_printable_config()
         }
-
         return final_dict
 
+    # -------------------------------------------
+    # Printable config
+    # -------------------------------------------
+    def get_printable_config(self) -> Dict[str, Any]:
+        """Get printable configuration values."""
+        config_data = dict(ValiConfig.__dict__)
+        return {
+            key: value for key, value in config_data.items()
+            if isinstance(value, (int, float, str))
+               and key not in ['BASE_DIR', 'base_directory']
+        }
 
+    # -------------------------------------------
+    # Write to disk
+    # -------------------------------------------
     def generate_request_minerstatistics(self, time_now: int, checkpoints: bool = True):
-
         final_dict = self.generate_miner_statistics_data(time_now, checkpoints)
-
-        output_file_path = ValiBkpUtils.get_vali_outputs_dir() + "minerstatistics.json"
-        ValiBkpUtils.write_file(
-            output_file_path,
-            final_dict,
-        )
+        output_file_path = os.path.join(ValiBkpUtils.get_vali_outputs_dir(), "minerstatistics.json")
+        ValiBkpUtils.write_file(output_file_path, final_dict)
 
 
+# ---------------------------------------------------------------------------
+# Example usage
+# ---------------------------------------------------------------------------
 if __name__ == "__main__":
     perf_ledger_manager = PerfLedgerManager(None)
     elimination_manager = EliminationManager(None, None, None)
-    position_manager = PositionManager(None, None, elimination_manager=elimination_manager,
-                                       challengeperiod_manager=None,
-                                       perf_ledger_manager=perf_ledger_manager)
+    position_manager = PositionManager(
+        None, None,
+        elimination_manager=elimination_manager,
+        challengeperiod_manager=None,
+        perf_ledger_manager=perf_ledger_manager
+    )
     challengeperiod_manager = ChallengePeriodManager(None, None, position_manager=position_manager)
 
+    # Cross-wire references
     elimination_manager.position_manager = position_manager
     position_manager.challengeperiod_manager = challengeperiod_manager
     elimination_manager.challengeperiod_manager = challengeperiod_manager
     challengeperiod_manager.position_manager = position_manager
     perf_ledger_manager.position_manager = position_manager
+
     subtensor_weight_setter = SubtensorWeightSetter(
         config=None,
         metagraph=None,
@@ -671,5 +584,7 @@ if __name__ == "__main__":
         position_manager=position_manager,
     )
     plagiarism_detector = PlagiarismDetector(None, None, position_manager=position_manager)
+
     msm = MinerStatisticsManager(position_manager, subtensor_weight_setter, plagiarism_detector)
     msm.generate_request_minerstatistics(1628572800000, True)
+

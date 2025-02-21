@@ -165,7 +165,7 @@ class Metrics:
         return (math.exp(Metrics.base_return_log(log_returns, weighting=weighting)) - 1) * 100
 
     @staticmethod
-    def drawdown_adjusted_return(log_returns: list[float], checkpoints: list[PerfCheckpoint], weighting: bool = False) -> float:
+    def drawdown_adjusted_return(log_returns: list[float], checkpoints: list[PerfCheckpoint], weighting: bool = False, **kwargs) -> float:
         """
         Args:
             log_returns: list of daily log returns from the miner
@@ -181,23 +181,7 @@ class Metrics:
         return base_return_percentage * drawdown_normalization_factor
 
     @staticmethod
-    def risk_adjusted_return(returns: list[float], checkpoints: list[PerfCheckpoint], weighting: bool = False) -> float:
-        """
-        Args:
-            returns: list of returns
-            checkpoints: the ledger of the miner
-        """
-        # Positional Component
-        if len(returns) == 0:
-            return 0.0
-
-        base_return = Metrics.base_return_log(returns, weighting=weighting)
-        risk_normalization_factor = LedgerUtils.risk_normalization(checkpoints)
-
-        return base_return * risk_normalization_factor
-
-    @staticmethod
-    def sharpe(log_returns: list[float], bypass_confidence: bool = False, weighting: bool = False) -> float:
+    def sharpe(log_returns: list[float], bypass_confidence: bool = False, weighting: bool = False, **kwargs) -> float:
         """
         Args:
             log_returns: list of daily log returns from the miner
@@ -218,7 +202,7 @@ class Metrics:
         return excess_return / max(volatility, min_std_dev)
 
     @staticmethod
-    def omega(log_returns: list[float], bypass_confidence: bool = False, weighting: bool = False) -> float:
+    def omega(log_returns: list[float], bypass_confidence: bool = False, weighting: bool = False, **kwargs) -> float:
         """
         Args:
             log_returns: list of daily log returns from the miner
@@ -247,7 +231,7 @@ class Metrics:
         return numerator / denominator
 
     @staticmethod
-    def statistical_confidence(log_returns: list[float], bypass_confidence: bool = False, weighting: bool = False) -> float:
+    def statistical_confidence(log_returns: list[float], bypass_confidence: bool = False, weighting: bool = False, **kwargs) -> float:
         """
         Args:
             log_returns: list of daily log returns from the miner
@@ -271,7 +255,7 @@ class Metrics:
         return res.statistic
 
     @staticmethod
-    def sortino(log_returns: list[float], bypass_confidence: bool = False, weighting: bool = False) -> float:
+    def sortino(log_returns: list[float], bypass_confidence: bool = False, weighting: bool = False, **kwargs) -> float:
         """
         Args:
             log_returns: list of daily log returns from the miner
