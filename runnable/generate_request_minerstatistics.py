@@ -297,34 +297,31 @@ class MinerStatisticsManager:
     # Main scoring wrapper
     # -------------------------------------------
     def calculate_all_scores(
-        self,
-        miner_data: Dict[str, Dict[str, Any]],
-        score_type: ScoreType = ScoreType.BASE
+            self,
+            miner_data: Dict[str, Dict[str, Any]],
+            score_type: ScoreType = ScoreType.BASE
     ) -> Dict[str, Dict[str, ScoreResult]]:
         """Calculate all metrics for all miners (BASE, PENALIZED, AUGMENTED)."""
-        # By default, no penalty or weighting
+        # Initialize flags
         penalties = None
         weighting = False
 
-        # If penalized, compute penalty factor
+        # Reset all flags first
+        for metric in self.metrics_calculator.metrics.values():
+            metric.requires_penalties = False
+            metric.requires_weighting = False
+
+        # Set flags based on score type
         if score_type == ScoreType.PENALIZED:
             penalties = self.calculate_penalties(miner_data)
-            # Mark metrics that they require penalties
+            weighting = True
             for metric in self.metrics_calculator.metrics.values():
                 metric.requires_penalties = True
-        else:
-            # Reset or ensure no penalty flag
-            for metric in self.metrics_calculator.metrics.values():
-                metric.requires_penalties = False
-
-        # If augmented, apply weighting
-        if score_type == ScoreType.AUGMENTED:
+                metric.requires_weighting = True
+        elif score_type == ScoreType.AUGMENTED:
             weighting = True
             for metric in self.metrics_calculator.metrics.values():
                 metric.requires_weighting = True
-        else:
-            for metric in self.metrics_calculator.metrics.values():
-                metric.requires_weighting = False
 
         # Calculate for each metric
         metric_results = {}
@@ -396,6 +393,24 @@ class MinerStatisticsManager:
 
         # Combine them
         combined_weights_list = checkpoint_results + challengeperiod_scores
+
+        ######## TEMPORARY LOGIC FOR BLOCK REMOVALS ON MINERS - REMOVE WHEN CLEARED
+        dtao_registration_bug_registrations = set(['5Dvep8Psc5ASQf6jGJHz5qsi8x1HS2sefRbkKxNNjPcQYPfH', '5DnViSacXqrP8FnQMtpAFGyahUPvU2A6pbrX7wcexb3bmVjb', '5Grgb5e4aHrGzhAd1ZSFQwUHQSM5yaJw5Dp7T7ss7yLY17jB',
+         '5FbaR3qjbbnYpkDCkuh4TUqqen1UMSscqjmhoDWQgGRh189o', '5FqSBwa7KXvv8piHdMyVbcXQwNWvT9WjHZGHAQwtoGVQD3vo', '5F25maVPbzV4fojdABw5Jmawr43UAc5uNRJ3VjgKCUZrYFQh',
+         '5DjqgrgQcKdrwGDg7RhSkxjnAVWwVgYTBodAdss233s3zJ6T', '5FpypsPpSFUBpByFXMkJ34sV88PRjAKSSBkHkmGXMqFHR19Q', '5CXsrszdjWooHK3tfQH4Zk6spkkSsduFrEHzMemxU7P2wh7H',
+         '5EFbAfq4dsGL6Fu6Z4jMkQUF3WiGG7XczadUvT48b9U7gRYW', '5GyBmAHFSFRca5BYY5yHC3S8VEcvZwgamsxyZTXep5prVz9f', '5EXWvBCADJo1JVv6jHZPTRuV19YuuJBnjG3stBm3bF5cR9oy',
+         '5HDjwdba5EvQy27CD6HksabaHaPP4NSHLLaH2o9CiD3aA5hv', '5EWSKDmic7fnR89AzVmqLL14YZbJK53pxSc6t3Y7qbYm5SaV', '5DQ1XPp8KuDEwGP1eC9eRacpLoA1RBLGX22kk5vAMBtp3kGj',
+         '5ERorZ39jVQJ7cMx8j8osuEV8dAHHCbpx8kGZP4Ygt5dxf93', '5GsNcT3ENpxQdNnM2LTSC5beBneEddZjpUhNVCcrdUbicp1w'])
+
+        combined_weights_dict = dict(combined_weights_list)
+        for hotkey, w_val in combined_weights_dict.items():
+            if hotkey in dtao_registration_bug_registrations:
+                combined_weights_dict[hotkey] = 0.0
+
+        # Rebuild the list
+        combined_weights_list = list(combined_weights_dict.items())
+        #################################
+
         weights_dict = dict(combined_weights_list)
         weights_rank = self.rank_dictionary(weights_dict)
         weights_percentile = self.percentile_rank_dictionary(weights_dict)
