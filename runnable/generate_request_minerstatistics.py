@@ -2,8 +2,7 @@ import os
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 from enum import Enum
-import copy
-import numpy as np
+
 from scipy.stats import percentileofscore
 
 from time_util.time_util import TimeUtil
@@ -16,7 +15,6 @@ from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.utils.subtensor_weight_setter import SubtensorWeightSetter
 from vali_objects.utils.position_utils import PositionUtils
 from vali_objects.utils.position_penalties import PositionPenalties
-from vali_objects.utils.position_filtering import PositionFiltering
 from vali_objects.utils.ledger_utils import LedgerUtils
 from vali_objects.scoring.scoring import Scoring
 from vali_objects.utils.metrics import Metrics

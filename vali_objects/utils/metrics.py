@@ -30,7 +30,7 @@ class Metrics:
         decay_rate = ValiConfig.WEIGHTED_AVERAGE_DECAY_RATE
 
         if len(log_returns) < 1:
-            return np.ones(len(log_returns))
+            return np.ones(0)
 
         weighting_distribution_days = np.arange(0, len(log_returns))
 
@@ -51,6 +51,7 @@ class Metrics:
         weighting_distribution = Metrics.weighting_distribution(log_returns)
 
         if indices is not None and len(indices) != 0:
+            indices = [i for i in indices if i in range(len(log_returns))]
             log_returns = [log_returns[i] for i in indices]
             weighting_distribution = [weighting_distribution[i] for i in indices]
 
@@ -62,12 +63,16 @@ class Metrics:
         return avg_value
 
     @staticmethod
-    def variance(log_returns: list[float], weighting=False, indices:Union[list[int], None] = None) -> float:
+    def variance(log_returns: list[float], ddof: int = 1, weighting=False, indices: Union[list[int], None] = None) -> float:
         """
         Returns the standard deviation of the log returns
         """
         if len(log_returns) == 0:
             return 0.0
+
+        window = len(indices) if indices is not None else len(log_returns)
+        if window < ddof + 1:
+            return np.inf
 
         return Metrics.average((np.array(log_returns) - Metrics.average(log_returns, weighting=weighting, indices=indices)) ** 2, weighting=weighting, indices=indices)
 
@@ -108,7 +113,7 @@ class Metrics:
         if window < ddof + 1:
             return np.inf
 
-        annualized_volatility = np.sqrt(Metrics.variance(log_returns, weighting=weighting, indices=indices) * days_in_year)
+        annualized_volatility = np.sqrt(Metrics.variance(log_returns, ddof=ddof, weighting=weighting, indices=indices) * days_in_year)
 
         return annualized_volatility
 

@@ -1,6 +1,7 @@
 import copy
 
 import numpy as np
+import random
 
 from tests.vali_tests.base_objects.test_base import TestBase
 
@@ -228,6 +229,53 @@ class TestMetrics(TestBase):
         e = copy.deepcopy(c)
         e.append(12/252)
         self.assertEqual(Metrics.ann_downside_volatility(e), Metrics.ann_downside_volatility(c))
+
+    def test_weighting(self):
+        log_returns = []
+        empty_distribution = Metrics.weighting_distribution(log_returns).tolist()
+        self.assertEqual(log_returns, empty_distribution)
+
+        self.assertEqual(log_returns, Metrics.weighted_log_returns(log_returns))
+
+
+        log_returns = [float('-inf')]
+        one_entry_dist = Metrics.weighting_distribution(log_returns).tolist()
+        self.assertEqual([1], one_entry_dist)
+
+        #Test distribution
+        log_returns = [random.uniform(-1, 1) for _ in range(ValiConfig.TARGET_LEDGER_WINDOW_DAYS)]
+        large_distribution = Metrics.weighting_distribution(log_returns).tolist()
+        for value in large_distribution:
+            self.assertGreaterEqual(value, ValiConfig.WEIGHTED_AVERAGE_DECAY_MIN)
+            self.assertLessEqual(value, ValiConfig.WEIGHTED_AVERAGE_DECAY_MAX)
+        #first day should be minimum
+        self.assertAlmostEqual(large_distribution[0], ValiConfig.WEIGHTED_AVERAGE_DECAY_MIN, places=2)
+        #most recent day should be maximum
+        self.assertAlmostEqual(large_distribution[-1], ValiConfig.WEIGHTED_AVERAGE_DECAY_MAX, places=2)
+
+    def test_variance(self):
+        log_returns = []
+        self.assertEqual(0, Metrics.variance(log_returns))
+
+        #Case for degrees of freedom
+        log_returns = [1]
+        self.assertEqual(np.inf, Metrics.variance(log_returns))
+
+        log_returns = [1, 2]
+        self.assertNotEqual(np.inf, Metrics.variance(log_returns))
+        self.assertNotEqual(0, Metrics.variance(log_returns))
+
+    def test_average(self):
+        log_returns = []
+        self.assertEqual(0, Metrics.average(log_returns))
+        self.assertEqual(0, Metrics.average(log_returns, weighting=True))
+        log_returns = [0.01, -20, 0.01]
+
+        #The negative returns shouldn't be included in the average
+        self.assertGreaterEqual(Metrics.average(log_returns, weighting=True, indices=[0, 2]), 0)
+
+        #Without indices it should be negative
+        self.assertLessEqual(Metrics.average(log_returns, weighting=True, indices=None), 0)
 
     # def test_risk_free_adjustment(self):
     #     """
