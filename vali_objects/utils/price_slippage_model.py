@@ -58,28 +58,39 @@ class PriceSlippageModel:
     @classmethod
     def calc_slippage_equities(cls, bid:float, ask:float, order:Order) -> float:
         """
-        Slippage percentage = intercept + c1 * spread/price + c2 * annualized_volatility + c3 * order_value/avg_daily_volume
-        """
-        # bucket size
-        size = abs(order.leverage) * ValiConfig.LEVERAGE_TO_CAPITAL
-        size_str = cls.get_order_size_bucket(size)
-        side = "buy" if order.leverage > 0 else "sell"
-        model_config = cls.parameters["equity"][order.trade_pair.trade_pair_id][side][size_str]
-        intercept, c1, c2, c3 = (model_config[key] for key in ["intercept", "spread/price", "annualized_vol", f"{side}_order_value/adv"])
+        Fitted BB+ model (dec 2024)
+        Slippage percentage = intercept + c1 * spread/price + c2 * annualized_volatility + c3 * order_volume/avg_daily_volume
 
+        Use the direct BB+ model for pre dec 2024 orders
+        slippage percentage = 0.433 * spread/mid_price + 0.335 * sqrt(annualized_volatility**2 / 3 / 250) * sqrt(volume / (0.3 * estimated daily volume))
+        """
         order_date = TimeUtil.millis_to_short_date_str(order.processed_ms)
         annualized_volatility = cls.features[order_date]["vol"][order.trade_pair.trade_pair_id]
         avg_daily_volume = cls.features[order_date]["adv"][order.trade_pair.trade_pair_id]
         spread = ask - bid
         mid_price = (bid + ask) / 2
 
-        slippage_pct = intercept + (c1 * spread / mid_price) + (c2 * annualized_volatility) + (c3 * size / avg_daily_volume)
+        size = abs(order.leverage) * ValiConfig.LEVERAGE_TO_CAPITAL
+        volume_shares = size / mid_price
+
+        if order.processed_ms > 1733040000000:  # Use fitted BB+ for orders after dec 1, 2024, 08:00:00 UTC
+            size_str = cls.get_order_size_bucket(size)
+            side = "buy" if order.leverage > 0 else "sell"
+            model_config = cls.parameters["equity"][order.trade_pair.trade_pair_id][side][size_str]
+            intercept, c1, c2, c3 = (model_config[key] for key in ["intercept", "spread/price", "annualized_vol", f"{side}_order_value/adv"])
+            slippage_pct = intercept + (c1 * spread / mid_price) + (c2 * annualized_volatility) + (c3 * volume_shares / avg_daily_volume)
+        else:
+            # direct BB+ model for orders before
+            term1 = 0.433 * spread / mid_price
+            term2 = 0.335 * math.sqrt(annualized_volatility ** 2 / 3 / 250)
+            term3 = math.sqrt(volume_shares / (0.3 * avg_daily_volume))
+            slippage_pct = term1 + term2 * term3
         return slippage_pct
 
     @classmethod
     def calc_slippage_forex(cls, bid:float, ask:float, order:Order) -> float:
         """
-        Using the BB+ model as a stand-in for forex
+        Using the direct BB+ model as a stand-in for forex
         slippage percentage = 0.433 * spread/mid_price + 0.335 * sqrt(annualized_volatility**2 / 3 / 250) * sqrt(volume / (0.3 * estimated daily volume))
         """
         order_date = TimeUtil.millis_to_short_date_str(order.processed_ms)
@@ -153,7 +164,7 @@ class PriceSlippageModel:
 
             tp_to_vol[trade_pair.trade_pair_id] = annualized_volatility
             tp_to_adv[trade_pair.trade_pair_id] = avg_daily_volume
-        return tp_to_vol, tp_to_adv
+        return tp_to_adv, tp_to_vol
 
     @classmethod
     def get_bars_with_features(cls, trade_pair: TradePair, processed_ms: int, adv_lookback_window: int=10, calc_vol_window: int=30, trading_days_in_a_year: int=252) -> pd.DataFrame:
