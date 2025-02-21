@@ -35,11 +35,11 @@ class PenaltyConfig:
 class Scoring:
     # Set the scoring configuration
     scoring_config = {
-        'return_long': {
-            'function': Metrics.drawdown_adjusted_return,
-            'weight': ValiConfig.SCORING_LONG_RETURN_LOOKBACK_WEIGHT
+        'calmar': {
+            'function': Metrics.calmar,
+            'weight': ValiConfig.SCORING_CALMAR_WEIGHT
         },
-        'sharpe_ratio': {
+        'sharpe': {
             'function': Metrics.sharpe,
             'weight': ValiConfig.SCORING_SHARPE_WEIGHT
         },
@@ -160,14 +160,11 @@ class Scoring:
                 if miner in full_penalty_miners:
                     continue
 
-                if config_name == 'return_long':
-                    score = config['function'](
-                        log_returns=returns,
-                        checkpoints=checkpoints,
-                        weighting=weighting
-                    )
-                else:
-                    score = config['function'](log_returns=returns, weighting=weighting)
+                score = config['function'](
+                    log_returns=returns,
+                    checkpoints=checkpoints,
+                    weighting=weighting
+                )
 
                 scores.append((miner, float(score)))
 

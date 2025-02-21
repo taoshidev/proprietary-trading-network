@@ -170,7 +170,7 @@ class Metrics:
         return (math.exp(Metrics.base_return_log(log_returns, weighting=weighting)) - 1) * 100
 
     @staticmethod
-    def drawdown_adjusted_return(log_returns: list[float], checkpoints: list[PerfCheckpoint], weighting: bool = False, **kwargs) -> float:
+    def calmar(log_returns: list[float], checkpoints: list[PerfCheckpoint], weighting: bool = False, **kwargs) -> float:
         """
         Args:
             log_returns: list of daily log returns from the miner

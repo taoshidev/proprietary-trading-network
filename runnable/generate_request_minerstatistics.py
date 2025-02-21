@@ -88,10 +88,15 @@ class MetricsCalculator:
                 metric_func=Metrics.statistical_confidence,
                 weight=ValiConfig.SCORING_STATISTICAL_CONFIDENCE_WEIGHT
             ),
-            "risk_adjusted_return": ScoreMetric(
+            "calmar": ScoreMetric(
                 name="calmar",
-                metric_func=Metrics.drawdown_adjusted_return,
-                weight=ValiConfig.SCORING_LONG_RETURN_LOOKBACK_WEIGHT
+                metric_func=Metrics.calmar,
+                weight=ValiConfig.SCORING_CALMAR_WEIGHT
+            ),
+            "return": ScoreMetric(
+                name="return",
+                metric_func=Metrics.base_return,
+                weight=ValiConfig.SCORING_RETURN_WEIGHT
             ),
         }
 
