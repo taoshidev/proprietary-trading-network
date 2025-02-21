@@ -140,7 +140,7 @@ class Scoring:
         miner_penalties = Scoring.miner_penalties(filtered_positions, ledger_dict)
 
         # Miners with full penalty
-        full_penalty_miners: list[tuple[str, float]] = set([
+        full_penalty_miners = set([
             miner for miner, penalty in miner_penalties.items() if penalty == 0
         ])
 
@@ -159,8 +159,6 @@ class Scoring:
                 # Check if the miner has full penalty - if not include them in the scoring competition
                 if miner in full_penalty_miners:
                     continue
-
-                short_lookback_window = ValiConfig.SHORT_LOOKBACK_WINDOW
 
                 if config_name == 'return_long':
                     score = config['function'](

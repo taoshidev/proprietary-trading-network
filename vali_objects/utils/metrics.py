@@ -89,7 +89,7 @@ class Metrics:
         return annualized_excess_return
 
     @staticmethod
-    def ann_volatility(log_returns: list[float], ddof: int = 1, weighting=False, indices: list[int] = []) -> float:
+    def ann_volatility(log_returns: list[float], ddof: int = 1, weighting=False, indices: list[int]=None) -> float:
         """
         Calculates annualized volatility ASSUMING DAILY OBSERVATIONS
         Parameters:
@@ -98,10 +98,13 @@ class Metrics:
         weighting bool: Whether to use weighted average.
         indices list[int]: The indices of the log returns to consider.
         """
+        if indices is None:
+            indices = list(range(len(log_returns)))
+            
         # Annualize volatility of the daily log returns assuming sample variance
         days_in_year = ValiConfig.DAYS_IN_YEAR
 
-        window = len(log_returns)
+        window = len(indices)
         if window < ddof + 1:
             return np.inf
 
