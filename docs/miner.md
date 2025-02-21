@@ -20,34 +20,30 @@ A long position is a bet that the trade pair will increase, while a short positi
 
 ## Scoring Details
 
-*Risk-Adjusted Returns* is a heavily weighted scoring mechanism in our system. We calculate this metric using a combination of average daily returns and a drawdown term, assessed over different lookback periods. This approach allows us to measure each miner’s returns while factoring in the level of risk undertaken to achieve those returns. 
+PTN relies on a number of scoring metrics to build a comprehensive measure of *Risk-Adjusted Returns*. In practice, these metrics are often highly correlated, but each offers a unique lens through which to see the miners.  
 
-While returns is a significant scoring mechanic, consistency and statistical confidence each play a substantial role in scoring our miners as we look to prioritize miners with a consistent track record of success. Additionally, we have a layer of costs and penalties baked into PTN, to simulate the real costs of trading.
+While returns is a significant scoring mechanic, we also use penalties to prioritize different aspects of trading, such as the risk undertaken by the miners or their likelihood to engage in risky strategies.
 
 We calculate daily returns for all positions and the entire portfolio, spanning from 12:00 AM UTC to 12:00 AM UTC the following day. However, if a trading day is still ongoing, we still monitor real-time performance and risks. 
 
 This daily calculation and evaluation framework closely aligns with real-world financial practices, enabling accurate, consistent, and meaningful performance measurement and comparison across strategies. This remains effective even for strategies trading different asset classes at different trading frequencies. This approach can also enhance the precision of volatility measurement for strategies.
 
-Annualization is used for the Sharpe ratio, Sortino ratio, and risk adjusted return with either volatility or returns being annualized to better evaluate the long-term value of strategies and standardize our metrics. Volatility is the standard deviation of returns and is a key factor in the Sharpe and Sortino calculations.
+Annualization is used for the Sharpe ratio, Sortino ratio, and risk adjusted return with either volatility or returns being annualized to better evaluate the long-term value of strategies and standardize our metrics. In determining the correct annualization factor, we weight more recent trading days slightly higher than older trading days. This should encourage miners to regularly update their strategies and adapt to changing market conditions, continually providing the network with the most relevant signals. The most recent daily returns have a significance of about 2.5 relative to the oldest daily returns, with a pattern that tapers exponentially over time.
 
 Additionally, normalization with annual risk-free rate of T-bills further standardizes our metrics and allows us to measure miner performance on a more consistent basis.
 
 
 ### Scoring Metrics
 
-We use six scoring metrics to evaluate miners based on daily returns:  **Long Term Risk Adjusted Returns**,  **Short Term Risk Adjusted Returns**, **Sharpe**, **Omega**, **Sortino**, and **Statistical Confidence**.
+We use five scoring metrics to evaluate miners based on daily returns:  **Calmar Ratio**, **Sharpe Ratio**, **Omega Ratio**, **Sortino Ratio**, and **Statistical Confidence (T-Statistic)**.
 
-The miner risk used in the risk adjusted returns is the miner’s average portfolio drawdown, the average of the maximum drops in value seen while we have been tracking the behavior of the miner. Once the drawdown surpasses 5%, it is no longer used directly as the denominator; instead, it is multiplied by a larger factor to amplify its effect. This emphasizes that a miner in the range between 5% and 10% average drawdown is riskier than a miner below 5% average drawdown.
+The miner risk used in the risk adjusted returns is the miner’s maximum portfolio drawdown.
 
-To find the risk adjusted return, we take the annualized daily returns as the current miner return. We then divide this by the drawdown term. If, for example, a miner has a total 90-day return of 7.5% and a mean drawdown of 2.5%, their long term risk adjusted return would be 3.0.
-
-_Long term returns_ will look at daily returns in the prior 90 days and is normalized by the drawdown term.
+_Calmar Ratio_ will look at daily returns in the prior 90 days and is normalized by the max drawdown.
 
 $$
 \text{Return / Drawdown} = \frac{(\frac{365}{n}\sum_{i=0}^n{R_i}) - R_{rf}}{\sum_i^{n}{\text{MDD}_i} / n}
 $$
-
-_Short term returns_ will look at daily returns in the prior 7 days. Besides the shorter lookback window, this calculation is the same as long term returns. 
 
 The _sharpe ratio_ will look at the annualized excess return, returns normalized with the risk-free rate, divided by the annualized volatility which is the standard deviation of the returns. To avoid gaming on the bottom, a minimum value of 1% is used for the volatility.
 
@@ -73,21 +69,19 @@ $$
 t = \frac{\bar{R} - \mu}{s / \sqrt{n}}
 $$
 
-| Metric                     | Scoring Weight                 |
-|---------------------------------------|-----------------------|
-| Long Term Risk Adjusted Returns | 20%           |
-| Short Term Realized Returns| 10%                   |
-| Sharpe Ratio                         | 17.5%                   |
-| Omega Ratio                         | 17.5%                   |
-| Sortino Ratio 		 | 17.5%
-| Statistical Confidence	 | 17.5%	                 |
+| Metric                  | Scoring Weight |
+|-------------------------|----------------|
+| Calmar Ratio            | 20%            |
+| Sharpe Ratio            | 20%            |
+| Omega Ratio             | 20%            |
+| Sortino Ratio 		        | 20%            
+| Statistical Confidence	 | 20%	           |
 
 ### Scoring Penalties
 
 There are two primary penalties in place for each miner:
 
-1. Max Drawdown: PTN penalizes miners whose maximum drawdown over the past 5 days exceeds the predefined 10% limit.
-
+1. Max Drawdown: PTN eliminates miners who exceed 10% max drawdown.
 2. Martingale: Miners are penalized for having positions that resemble a martingale strategy. Two or more orders that increase leverage beyond the maximum leverage already seen while a position has unrealized loss may result in a penalty. More details on this can be found [here](https://docs.taoshi.io/tips/p15/).
 
 The Max Drawdown penalty and Martingale penalty help us detect the absolute and relative risks of a miner's trading strategy in real time.
