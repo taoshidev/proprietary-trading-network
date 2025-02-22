@@ -454,7 +454,9 @@ class MinerStatisticsManager:
                 "annual_downside": extra.get("annual_downside_volatility"),
             }
             # Drawdowns
-            drawdowns_subdict = extra.get("drawdowns", {})
+            drawdowns_subdict = {
+                "max_drawdown": extra.get("max_drawdown"),
+            }
             # Engagement
             engagement_subdict = {
                 "n_checkpoints": extra.get("checkpoints_info", {}).get("n_checkpoints"),

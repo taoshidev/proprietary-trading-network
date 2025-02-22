@@ -58,23 +58,9 @@ export const Statistics = ({ statistics, positions }: StatisticsProps) => {
           
           <Group justify="space-between" align="center" mb="xs">
             <Text size="xs" c="gray">
-              Approximate Drawdown
+              Max Drawdown
             </Text>
-            <Text size="xs">{toRemainingPercent(drawdowns.approximate, 2)}</Text>
-          </Group>
-          
-          <Group justify="space-between" align="center" mb="xs">
-            <Text size="xs" c="gray">
-              Recent Drawdown
-            </Text>
-            <Text size="xs">{toRemainingPercent(drawdowns.recent, 2)}</Text>
-          </Group>
-          
-          <Group justify="space-between" align="center" mb="xs">
-            <Text size="xs" c="gray" fw="bold">
-              Effective Drawdown
-            </Text>
-            <Text size="xs">{toRemainingPercent(drawdowns.effective, 2)}</Text>
+            <Text size="xs">{toRemainingPercent(drawdowns.max_drawdown, 2)}</Text>
           </Group>
         </Card>
         

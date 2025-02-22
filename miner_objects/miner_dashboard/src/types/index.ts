@@ -101,9 +101,7 @@ export interface PenalizedScores {
 }
 
 export interface Drawdowns {
-  approximate: number;
-  effective: number;
-  recent: number;
+  max_drawdown: number;
 }
 
 export interface StatisticsData {
