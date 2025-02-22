@@ -16,7 +16,7 @@ export function Contribution({ statistics }: StatisticsProps) {
     sharpe,
     sortino,
     statistical_confidence,
-    "short-calmar": shortCalmar,
+    return:returnScore,
   } = scores;
 
   return (
@@ -45,22 +45,22 @@ export function Contribution({ statistics }: StatisticsProps) {
             <Progress.Label>Sharpe</Progress.Label>
           </Progress.Section>
           <Progress.Section
-            value={shortCalmar.overall_contribution * 100}
-            color="#C95E2F"
-          >
-            <Progress.Label>Recent Calmar</Progress.Label>
-          </Progress.Section>
-          <Progress.Section
             value={sortino.overall_contribution * 100}
-            color="#CF6638"
+            color="#C95E2F"
           >
             <Progress.Label>Sortino</Progress.Label>
           </Progress.Section>
           <Progress.Section
             value={statistical_confidence.overall_contribution * 100}
-            color="#D26F44"
+            color="#CF6638"
           >
             <Progress.Label>Statistical Confidence</Progress.Label>
+          </Progress.Section>
+          <Progress.Section
+            value={returnScore.overall_contribution * 100}
+            color="#D26F44"
+          >
+            <Progress.Label>Return</Progress.Label>
           </Progress.Section>
         </Progress.Root>
       </Box>

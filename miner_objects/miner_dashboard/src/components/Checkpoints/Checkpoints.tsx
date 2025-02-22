@@ -48,21 +48,14 @@ export const Checkpoints = ({ statistics }: CheckpointsProps) => {
             tooltipText="The Sharpe Ratio assesses the return of an investment compared to the std. dev. of returns. A higher Sharpe ratio indicates higher returns at greater predictability."
           />
           <StatCard
-            title="Recent Calmar Ratio (%)"
-            item={scores["short-calmar"]}
-            isPercentage={true}
-            sigFigs={2}
-            tooltipText="Similar to the Calmar ratio, the Recent Calmar Ratio differs in that it only considers daily returns within the past 5 days."
-          />
-        </SimpleGrid>
-        <SimpleGrid mb="lg" cols={4}>
-          <StatCard
             title="Statistical Confidence"
             item={scores.statistical_confidence}
             isPercentage={true}
             sigFigs={2}
             tooltipText="Statistical Confidence (t-statistic) is the measure of statistical likelihood of the daily return distribution to come from a random distribution. The higher the value, the lower the probability that the returns are likely random."
           />
+        </SimpleGrid>
+        <SimpleGrid mb="lg" cols={4}>
           <StatCard
             title="Sortino Ratio"
             item={scores.sortino}
@@ -75,14 +68,6 @@ export const Checkpoints = ({ statistics }: CheckpointsProps) => {
             item={scores.return}
             sigFigs={2}
             tooltipText="Estimated Annualized Return, based on daily returns from the past 90 days."
-          />
-          <StatCard
-            disabled
-            title="Short-Term Return (%)"
-            item={scores.short_return}
-            isPercentage={true}
-            sigFigs={2}
-            tooltipText="Estimated Annualized Return, based on daily returns from the past 7 days."
           />
         </SimpleGrid>
       </Box>
