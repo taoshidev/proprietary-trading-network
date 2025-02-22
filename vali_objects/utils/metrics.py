@@ -60,7 +60,7 @@ class Metrics:
         else:
             avg_value = np.mean(log_returns)
 
-        return avg_value
+        return float(avg_value)
 
     @staticmethod
     def variance(log_returns: list[float], ddof: int = 1, weighting=False, indices: Union[list[int], None] = None) -> float:
@@ -145,7 +145,7 @@ class Metrics:
         return float(Metrics.average(log_returns, weighting=weighting)) * ValiConfig.DAYS_IN_YEAR
 
     @staticmethod
-    def base_return_log_percentage(log_returns: list[float], weighting=False) -> float:
+    def base_return_log_percentage(log_returns: list[float], weighting=False, **kwargs) -> float:
         """
         Args:
             log_returns: list of daily log returns from the miner
@@ -156,7 +156,7 @@ class Metrics:
         if len(log_returns) == 0:
             return 0.0
 
-        return float(Metrics.average(log_returns, weighting=weighting)) * ValiConfig.DAYS_IN_YEAR * 100
+        return Metrics.average(log_returns, weighting=weighting) * ValiConfig.DAYS_IN_YEAR * 100
 
     @staticmethod
     def base_return(log_returns: list[float], weighting: bool = False) -> float:

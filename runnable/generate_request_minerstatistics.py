@@ -95,7 +95,7 @@ class MetricsCalculator:
             ),
             "return": ScoreMetric(
                 name="return",
-                metric_func=Metrics.base_return,
+                metric_func=Metrics.base_return_log_percentage,
                 weight=ValiConfig.SCORING_RETURN_WEIGHT
             ),
         }
@@ -104,7 +104,6 @@ class MetricsCalculator:
         self,
         metric: ScoreMetric,
         data: Dict[str, Dict[str, Any]],
-        penalties: Optional[Dict[str, float]] = None,
         weighting: bool = False
     ) -> Dict[str, float]:
         """
@@ -115,24 +114,12 @@ class MetricsCalculator:
         for hotkey, miner_data in data.items():
             log_returns = miner_data.get("log_returns", [])
             checkpoints = miner_data.get("checkpoints", [])
-            # Compute raw metric
-            value = 0.0
-            try:
-                value = metric.metric_func(
-                    log_returns=log_returns,
-                    checkpoints=checkpoints
-                )
-            except Exception:
-                # If an error occurs in the metric function, set to 0
-                value = 0.0
 
-            # Penalty
-            if penalties and metric.requires_penalties:
-                value *= penalties.get(hotkey, 1.0)
-
-            # Weighting
-            if weighting and metric.requires_weighting:
-                value *= metric.weight
+            value = metric.metric_func(
+                log_returns=log_returns,
+                checkpoints=checkpoints,
+                weighting=weighting
+            )
 
             scores[hotkey] = value
         return scores
@@ -306,7 +293,7 @@ class MinerStatisticsManager:
     ) -> Dict[str, Dict[str, ScoreResult]]:
         """Calculate all metrics for all miners (BASE, PENALIZED, AUGMENTED)."""
         # Initialize flags
-        penalties = None
+        penalties = {}
         weighting = False
 
         # Reset all flags first
@@ -330,8 +317,12 @@ class MinerStatisticsManager:
         metric_results = {}
         for metric_name, metric in self.metrics_calculator.metrics.items():
             numeric_scores = self.metrics_calculator.calculate_metric(
-                metric, miner_data, penalties=penalties, weighting=weighting
+                metric, miner_data, weighting=weighting
             )
+
+            # Apply the penalties if we need them
+            numeric_scores = { key: value * penalties.get(key, 1.0) for key, value in numeric_scores.items() }
+
             ranks = self.rank_dictionary(numeric_scores)
             percentiles = self.percentile_rank_dictionary(numeric_scores)
 
