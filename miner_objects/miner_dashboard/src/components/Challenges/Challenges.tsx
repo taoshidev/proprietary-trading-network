@@ -9,26 +9,24 @@ interface ChallengesProps {
 }
 
 export const Challenges = ({ statistics }: ChallengesProps) => {
-  const { challengeperiod } = statistics.data[0];
-  const { status, scores } = challengeperiod;
+  const { challengeperiod, scores } = statistics.data[0];
+  const { status } = challengeperiod;
+  const { CHALLENGE_PERIOD_PERCENTILE_THRESHOLD } = statistics.constants;
 
   // if anything is in challenge period show element
-  const isInChallenge = !isNil(scores)  && status === "testing";
+  const isInChallenge = status === "testing";
   if (!isInChallenge) return null;
 
-  const { omega, overall, return_long, return_short, sharpe_ratio, sortino, statistical_confidence } = scores
+  const { omega, calmar, return:returnScore, sharpe, sortino, statistical_confidence } = scores
 
   const scoreData = [
-    { label: "Overall", score: overall },
     { label: "Omega", score: omega },
-    { label: "Return Long", score: return_long },
-    { label: "Return Short", score: return_short },
-    { label: "Sharpe Ratio", score: sharpe_ratio },
+    { label: "Sharpe Ratio", score: sharpe },
     { label: "Sortino", score: sortino },
     { label: "Statistical Confidence", score: statistical_confidence },
+    { label: "Calmar", score: calmar },
+    { label: "Return", score: returnScore },
   ];
-
-  const passingThreshold = overall.target_percentile
 
   return (
     <Fragment>
@@ -45,7 +43,7 @@ export const Challenges = ({ statistics }: ChallengesProps) => {
                     key={label}
                     label={label}
                     value={score.percentile}
-                    target={passingThreshold}
+                    target={CHALLENGE_PERIOD_PERCENTILE_THRESHOLD}
                   />
                 );
               }

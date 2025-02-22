@@ -1,16 +1,13 @@
 export interface Challenge {
   percentile: number;
-  target_score: number;
   value: number;
-  target_percentile: number;
 }
 
 export interface ChallengeMetric {
   omega: Challenge;
-  overall: Challenge;
-  return_long: Challenge;
-  return_short: Challenge;
-  sharpe_ratio: Challenge;
+  calmar: Challenge;
+  return: Challenge;
+  sharpe: Challenge;
   sortino: Challenge;
   statistical_confidence: Challenge;
 }
@@ -123,6 +120,11 @@ export interface StatisticsData {
 
 export interface Statistics {
   data: StatisticsData[];
+  constants: Constants;
+}
+
+export interface Constants {
+  CHALLENGE_PERIOD_PERCENTILE_THRESHOLD: number;
 }
 
 export interface Positions {
