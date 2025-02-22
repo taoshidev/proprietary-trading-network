@@ -27,7 +27,6 @@ from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
 class ScoreType(Enum):
     """Enum for different types of scores that can be calculated"""
     BASE = "base"
-    PENALIZED = "penalized"
     AUGMENTED = "augmented"
 
 
@@ -181,9 +180,7 @@ class MinerStatisticsManager:
         ann_downside_volatility = min(Metrics.ann_downside_volatility(miner_returns), 100)
 
         # Drawdowns
-        recent_dd = LedgerUtils.recent_drawdown(miner_cps)
-        approx_dd = LedgerUtils.approximate_drawdown(miner_cps)
-        effective_dd = LedgerUtils.effective_drawdown(recent_dd, approx_dd)
+        mdd = LedgerUtils.max_drawdown(miner_cps)
 
         # Engagement: positions
         n_positions = len(miner_positions)
@@ -203,11 +200,7 @@ class MinerStatisticsManager:
         return {
             "annual_volatility": ann_volatility,
             "annual_downside_volatility": ann_downside_volatility,
-            "drawdowns": {
-                "recent": recent_dd,
-                "approximate": approx_dd,
-                "effective": effective_dd
-            },
+            "max_drawdown": mdd,
             "positions_info": {
                 "n_positions": n_positions,
                 "positional_duration": pos_duration,
@@ -276,9 +269,6 @@ class MinerStatisticsManager:
         return results
 
     # -------------------------------------------
-    # Compute a single penalty factor per miner for "PENALIZED" metrics
-    # (the "total" from the breakdown).
-    # -------------------------------------------
     def calculate_penalties(self, miner_data: Dict[str, Dict[str, Any]]) -> Dict[str, float]:
         breakdown = self.calculate_penalties_breakdown(miner_data)
         return {hk: breakdown[hk]["total"] for hk in breakdown}
@@ -291,7 +281,7 @@ class MinerStatisticsManager:
             miner_data: Dict[str, Dict[str, Any]],
             score_type: ScoreType = ScoreType.BASE
     ) -> Dict[str, Dict[str, ScoreResult]]:
-        """Calculate all metrics for all miners (BASE, PENALIZED, AUGMENTED)."""
+        """Calculate all metrics for all miners (BASE, AUGMENTED)."""
         # Initialize flags
         penalties = {}
         weighting = False
@@ -301,14 +291,7 @@ class MinerStatisticsManager:
             metric.requires_penalties = False
             metric.requires_weighting = False
 
-        # Set flags based on score type
-        if score_type == ScoreType.PENALIZED:
-            penalties = self.calculate_penalties(miner_data)
-            weighting = True
-            for metric in self.metrics_calculator.metrics.values():
-                metric.requires_penalties = True
-                metric.requires_weighting = True
-        elif score_type == ScoreType.AUGMENTED:
+        if score_type == ScoreType.AUGMENTED:
             weighting = True
             for metric in self.metrics_calculator.metrics.values():
                 metric.requires_weighting = True
@@ -317,11 +300,10 @@ class MinerStatisticsManager:
         metric_results = {}
         for metric_name, metric in self.metrics_calculator.metrics.items():
             numeric_scores = self.metrics_calculator.calculate_metric(
-                metric, miner_data, weighting=weighting
+                metric,
+                miner_data,
+                weighting=weighting
             )
-
-            # Apply the penalties if we need them
-            numeric_scores = { key: value * penalties.get(key, 1.0) for key, value in numeric_scores.items() }
 
             ranks = self.rank_dictionary(numeric_scores)
             percentiles = self.percentile_rank_dictionary(numeric_scores)
@@ -376,8 +358,11 @@ class MinerStatisticsManager:
 
         # Compute the checkpoint-based weighting for successful miners
         checkpoint_results = Scoring.compute_results_checkpoint(
-            successful_ledger, successful_positions,
-            evaluation_time_ms=time_now, verbose=False, weighting=True
+            successful_ledger,
+            successful_positions,
+            evaluation_time_ms=time_now,
+            verbose=False,
+            weighting=True
         )  # returns list of (hotkey, weightVal)
 
         # For testing miners, we might just give them a default "CHALLENGE_PERIOD_WEIGHT"
@@ -417,9 +402,8 @@ class MinerStatisticsManager:
         for hotkey in selected_miner_hotkeys:
             miner_data[hotkey] = self.prepare_miner_data(hotkey, filtered_ledger, filtered_positions, time_now)
 
-        # Compute the base, penalized, and augmented scores
+        # Compute the base, and augmented scores
         base_scores = self.calculate_all_scores(miner_data, ScoreType.BASE)
-        penalized_scores = self.calculate_all_scores(miner_data, ScoreType.PENALIZED)
         augmented_scores = self.calculate_all_scores(miner_data, ScoreType.AUGMENTED)
 
         # Also compute penalty breakdown (for display in final "penalties" dict).
@@ -459,7 +443,6 @@ class MinerStatisticsManager:
                 return out
 
             base_dict = build_scores_dict(base_scores)
-            penalized_dict = build_scores_dict(penalized_scores)
             augmented_dict = build_scores_dict(augmented_scores)
 
             # Extra data
@@ -499,7 +482,6 @@ class MinerStatisticsManager:
                 "hotkey": hotkey,
                 "challengeperiod": challengeperiod_info,
                 "scores": base_dict,
-                "penalized_scores": penalized_dict,
                 "augmented_scores": augmented_dict,
                 "volatility": volatility_subdict,
                 "drawdowns": drawdowns_subdict,

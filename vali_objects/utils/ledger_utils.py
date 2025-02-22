@@ -75,36 +75,6 @@ class LedgerUtils:
         return miner_returns
 
     @staticmethod
-    def recent_drawdown(checkpoints: list[PerfCheckpoint], restricted: bool = True) -> float:
-        """
-        Args:
-            checkpoints: list[PerfCheckpoint] - the list of checkpoints
-            restricted: bool - whether to restrict the lookback window
-
-        Returns:
-            float - the most recent drawdown
-        """
-        drawdown_lookback_window = ValiConfig.RETURN_SHORT_LOOKBACK_LEDGER_WINDOWS
-        if drawdown_lookback_window <= 0:
-            raise ValueError("Drawdown lookback window must be greater than 0")
-
-        if len(checkpoints) == 0:
-            return 1.0
-        # Use the number of checkpoints if there aren't enough for the entire window
-        #drawdown_lookback_window = min(drawdown_lookback_window, len(checkpoints))
-
-        # Compute the drawdown of the checkpoints
-        if restricted:
-            checkpoints = checkpoints[-drawdown_lookback_window:]
-
-        drawdowns = [checkpoint.mdd for checkpoint in checkpoints]
-
-        recent_drawdown = min(drawdowns)
-        recent_drawdown = np.clip(recent_drawdown, 0.0, 1.0)
-
-        return recent_drawdown
-
-    @staticmethod
     def drawdown_percentage(drawdown_decimal: float) -> float:
         """
         Args:
@@ -203,7 +173,7 @@ class LedgerUtils:
         if len(checkpoints) == 0:
             return 0
 
-        effective_drawdown = LedgerUtils.recent_drawdown(checkpoints)
+        effective_drawdown = LedgerUtils.max_drawdown(checkpoints)
         effective_drawdown_percentage = LedgerUtils.drawdown_percentage(effective_drawdown)
 
         if effective_drawdown_percentage >= drawdown_limit:
