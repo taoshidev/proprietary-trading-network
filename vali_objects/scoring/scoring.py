@@ -25,7 +25,6 @@ class PenaltyInputType(Enum):
     LEDGER = auto()
     POSITIONS = auto()
 
-
 @dataclass
 class PenaltyConfig:
     function: Callable
@@ -63,10 +62,10 @@ class Scoring:
             function=LedgerUtils.max_drawdown_threshold_penalty,
             input_type=PenaltyInputType.LEDGER
         ),
-        'martingale': PenaltyConfig(
-            function=PositionPenalties.martingale_penalty,
+        'risk_profile': PenaltyConfig(
+            function=PositionPenalties.risk_profile_penalty,
             input_type=PenaltyInputType.POSITIONS
-        ),
+        )
     }
 
     @staticmethod
@@ -187,7 +186,7 @@ class Scoring:
             for miner, percentile_rank in percentile_scores:
                 if miner not in combined_scores:
                     combined_scores[miner] = 0
-                combined_scores[miner] += config['weight'] * percentile_rank # + (1 - config['weight'])
+                combined_scores[miner] += config['weight'] * percentile_rank  # + (1 - config['weight'])
 
         # Now applying the penalties post scoring
         for miner, penalty in scoring_dict["penalties"].items():
@@ -207,6 +206,7 @@ class Scoring:
         empty_ledger_miners = []
         for miner, ledger in ledger_dict.items():
             positions = hotkey_positions.get(miner, [])
+
             if not ledger:
                 empty_ledger_miners.append((miner, len(positions)))
             ledger_checkpoints = ledger.cps if ledger else []
