@@ -17,6 +17,7 @@ from vali_objects.utils.ledger_utils import LedgerUtils
 from vali_objects.scoring.scoring import Scoring
 from vali_objects.utils.metrics import Metrics
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
+from vali_objects.utils.risk_profiling import RiskProfiling
 
 
 # ---------------------------------------------------------------------------
