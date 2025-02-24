@@ -222,8 +222,9 @@ class MinerStatisticsManager:
         Combines the minimal fields needed for the metrics plus the extra data.
         """
         miner_ledger = filtered_ledger.get(hotkey)
-        miner_returns = LedgerUtils.ledger_returns_log(filtered_ledger).get(hotkey, [])
-        miner_cps = miner_ledger.cps if miner_ledger else []
+        miner_returns_ledger = LedgerUtils.cumulative(miner_ledger)
+        miner_returns = LedgerUtils.ledger_returns_log({hotkey: miner_returns_ledger}).get(hotkey, [])
+        miner_cps = miner_returns_ledger.cps if miner_returns_ledger else []
         miner_positions = filtered_positions.get(hotkey, [])
 
         extra_data = self.gather_extra_data(hotkey, filtered_ledger, filtered_positions)
@@ -232,7 +233,7 @@ class MinerStatisticsManager:
             "log_returns": miner_returns,
             "checkpoints": miner_cps,
             "positions": miner_positions,
-            "ledger": miner_ledger,
+            "ledger": miner_returns_ledger,
             "evaluation_time": time_now,
             "extra_data": extra_data
         }

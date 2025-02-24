@@ -288,7 +288,7 @@ class LedgerUtils:
         return drawdown_penalty
 
     @staticmethod
-    def cumulative(ledger: dict[str, PerfLedger]) -> dict[str, dict]:
+    def cumulative(ledger: PerfLedger) -> PerfLedger:
         """
         Adds the cumulative return of the ledger to each checkpoint.
         Args:
@@ -297,17 +297,17 @@ class LedgerUtils:
         Returns:
             dict[str, dict] - the cumulative return of the ledger
         """
-        ledger_dict = {k: v.to_dict() for k, v in ledger.items()}
+        ledger_dict = ledger.to_dict()
         ledger_copy = copy.deepcopy(ledger_dict)
 
-        for miner, miner_ledger in ledger_copy.items():
-            return_overall = 1.0
-            if len(miner_ledger['cps']) == 0:
-                continue
-
-            for cp in miner_ledger['cps']:
+        # for miner, miner_ledger in ledger_copy.items():
+        return_overall = 1.0
+        if len(ledger_copy['cps']) > 0:
+            for cp in ledger_copy['cps']:
                 return_value = math.exp(cp['gain'] + cp['loss'])
                 return_overall *= return_value
                 cp['overall_returns'] = return_overall
+
+            ledger_copy = PerfLedger.from_dict(ledger_copy)
 
         return ledger_copy
