@@ -242,7 +242,7 @@ class Metrics:
         return float(numerator / denominator)
 
     @staticmethod
-    def statistical_confidence(log_returns: list[float], bypass_confidence: bool = False, weighting: bool = False, **kwargs) -> float:
+    def statistical_confidence(log_returns: list[float], bypass_confidence: bool = False, **kwargs) -> float:
         """
         Args:
             log_returns: list of daily log returns from the miner
@@ -253,10 +253,6 @@ class Metrics:
         if len(log_returns) < ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N:
             if not bypass_confidence or len(log_returns) < 2:
                 return ValiConfig.STATISTICAL_CONFIDENCE_NOCONFIDENCE_VALUE
-
-        if weighting:
-            # Weighted distribution
-            log_returns = Metrics.weighted_log_returns(log_returns)
 
         # Also now check for zero variance condition
         zero_variance_condition = bool(np.isclose(np.var(log_returns), 0))
