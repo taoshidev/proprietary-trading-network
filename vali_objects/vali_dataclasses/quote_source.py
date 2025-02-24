@@ -37,7 +37,9 @@ class QuoteSource(BaseModel):
         return abs(now_ms - self.timestamp_ms)
 
     @staticmethod
-    def update_order_with_newest_quote_sources(order, candidate_quote_sources, hotkey, trade_pair_str):
+    def update_order_with_newest_quote_sources(order, candidate_quote_sources, hotkey, trade_pair_str) -> bool:
+        if not candidate_quote_sources:
+            return False
         from vali_objects.utils.price_slippage_model import PriceSlippageModel
         order_time_ms = order.processed_ms
         existing_dict = {ps.source: ps for ps in order.quote_sources}
