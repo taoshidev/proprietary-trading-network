@@ -3,8 +3,6 @@ from typing import List, Dict, Any
 from dataclasses import dataclass
 from enum import Enum
 
-from scipy.stats import percentileofscore
-
 from time_util.time_util import TimeUtil
 from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
 from vali_objects.utils.elimination_manager import EliminationManager

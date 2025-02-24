@@ -75,37 +75,37 @@ class TestLedgerUtils(TestBase):
         self.assertGreaterEqual(LedgerUtils.daily_return_percentage(l1_cps)[0], LedgerUtils.daily_return_log(l1_cps)[0] * 100)
 
     # Want to test the individual functions inputs and outputs
-    def test_recent_drawdown(self):
+    def test_max_drawdown(self):
         l1 = generate_ledger(0.1, mdd=0.99)
         l1_cps = l1[TP_ID_PORTFOLIO].cps
 
-        self.assertEqual(LedgerUtils.recent_drawdown([]), 1)
+        self.assertEqual(LedgerUtils.max_drawdown([]), 0.0)
 
-        LedgerUtils.recent_drawdown(l1_cps)
-        self.assertEqual(LedgerUtils.recent_drawdown(l1_cps), 0.99)
+        LedgerUtils.max_drawdown(l1_cps)
+        self.assertEqual(LedgerUtils.max_drawdown(l1_cps), 0.99)
 
         l2 = generate_ledger(0.1, mdd=0.95)
         l2_cps = l2[TP_ID_PORTFOLIO].cps
-        self.assertEqual(LedgerUtils.recent_drawdown(l2_cps), 0.95)
+        self.assertEqual(LedgerUtils.max_drawdown(l2_cps), 0.95)
 
         l3 = generate_ledger(0.1, mdd=0.99)
         l3_cps = l3[TP_ID_PORTFOLIO].cps
         l3_cps[-1].mdd = 0.5
-        self.assertEqual(LedgerUtils.recent_drawdown(l3_cps), 0.5)
+        self.assertEqual(LedgerUtils.max_drawdown(l3_cps), 0.5)
 
         l4 = generate_ledger(0.1, mdd=0.99)
         l4_cps = l4[TP_ID_PORTFOLIO].cps
         l4_cps[0].mdd = 0.5
-        self.assertEqual(LedgerUtils.recent_drawdown(l4_cps), 0.99)
+        self.assertEqual(LedgerUtils.max_drawdown(l4_cps), 0.5)
 
         for element in [l1_cps, l2_cps, l3_cps, l4_cps]:
-            self.assertGreaterEqual(LedgerUtils.recent_drawdown(element), 0)
-            self.assertLessEqual(LedgerUtils.recent_drawdown(element), 1)
+            self.assertGreaterEqual(LedgerUtils.max_drawdown(element), 0)
+            self.assertLessEqual(LedgerUtils.max_drawdown(element), 1)
 
         # Recent drawdown should work even if there is only one checkpoint
         drawdowns = [0.99, 0.98]
         checkpoints = [checkpoint_generator(mdd=mdd) for mdd in drawdowns]
-        self.assertEqual(LedgerUtils.recent_drawdown(checkpoints), 0.98)
+        self.assertEqual(LedgerUtils.max_drawdown(checkpoints), 0.98)
 
     def test_drawdown_percentage(self):
         self.assertAlmostEqual(LedgerUtils.drawdown_percentage(1), 0)

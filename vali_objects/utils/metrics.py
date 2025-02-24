@@ -123,6 +123,7 @@ class Metrics:
         Args:
             log_returns: list[float] - Daily Series of log returns.
             target: int: The target return (default: 0).
+            weighting: bool: Whether to use weighted average.
 
         Returns:
             The downside annualized volatility as a float assuming sample variance
@@ -135,6 +136,7 @@ class Metrics:
         """
         Args:
             log_returns: list of daily log returns from the miner
+            weighting: whether to use weighted average
 
         Returns:
              The aggregate total return of the miner as a log total
@@ -149,6 +151,7 @@ class Metrics:
         """
         Args:
             log_returns: list of daily log returns from the miner
+            weighting: whether to use weighted average
 
         Returns:
              The aggregate total return of the miner as a percentage log total
@@ -163,6 +166,7 @@ class Metrics:
         """
         Args:
             log_returns: list of daily log returns from the miner
+            weighting: whether to use weighted average
 
         Returns:
              The aggregate total return of the miner as a percentage
@@ -175,6 +179,7 @@ class Metrics:
         Args:
             log_returns: list of daily log returns from the miner
             checkpoints: the ledger of the miner
+            weighting: whether to use weighted average
         """
         # Positional Component
         if len(log_returns) == 0:
@@ -212,6 +217,7 @@ class Metrics:
         Args:
             log_returns: list of daily log returns from the miner
             bypass_confidence: whether to use default value if not enough trading days
+            weighting: whether to use weighted average
         """
         # Need a large enough sample size
         if len(log_returns) < ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N:
@@ -241,6 +247,7 @@ class Metrics:
         Args:
             log_returns: list of daily log returns from the miner
             bypass_confidence: whether to use default value if not enough trading days
+            weighting: whether to use weighted average
         """
         # Impose a minimum sample size on the miner
         if len(log_returns) < ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N:
