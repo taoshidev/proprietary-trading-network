@@ -46,11 +46,6 @@ class SubtensorWeightSetter(CacheController):
         filtered_ledger = self.perf_ledger_manager.filtered_ledger_for_scoring(hotkeys=hotkeys_to_compute_weights_for)
         filtered_positions, _ = self.position_manager.filtered_positions_for_scoring(hotkeys=hotkeys_to_compute_weights_for)
 
-        # synced_ledger, synced_positions = self.sync_ledger_positions(
-        #     filtered_ledger,
-        #     filtered_positions
-        # )
-
         if len(filtered_ledger) == 0:
             bt.logging.info("No returns to set weights with. Do nothing for now.")
             return [], []
@@ -100,8 +95,8 @@ class SubtensorWeightSetter(CacheController):
             bt.logging.info(f"transformed list: {transformed_list}")
             if block_reg_failures:
                 bt.logging.info(f"Miners with registration blocks after target DTAO block: {block_reg_failures}")
-
-            self._set_subtensor_weights(wallet, subtensor, transformed_list, netuid)
+            if not self.is_backtesting:
+                self._set_subtensor_weights(wallet, subtensor, netuid)
             return checkpoint_results, transformed_list
     def _store_weights(self, checkpoint_results: list[tuple[str, float]], transformed_list: list[tuple[str, float]]):
         self.checkpoint_results = checkpoint_results
@@ -111,6 +106,9 @@ class SubtensorWeightSetter(CacheController):
     def set_weights(self, wallet, netuid, subtensor, current_time: int = None, scoring_function: callable = None, scoring_func_args: dict = None):
         if not self.refresh_allowed(ValiConfig.SET_WEIGHT_REFRESH_TIME_MS):
             return
+        #TODO remove this
+        if self.is_backtesting:
+            return [], []
         bt.logging.info("running set weights")
         if scoring_func_args is None:
             scoring_func_args = {'current_time': current_time}
