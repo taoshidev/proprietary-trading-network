@@ -1,5 +1,6 @@
 import time
 import traceback
+import argparse
 from multiprocessing import Process
 
 from setproctitle import setproctitle
@@ -17,7 +18,7 @@ from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
 import bittensor as bt
 
 class RequestOutputGenerator:
-    def __init__(self, running_deprecated=False, rcm=None, msm=None):
+    def __init__(self, running_deprecated=False, rcm=None, msm=None, checkpoints=True):
         self.running_deprecated = running_deprecated
         self.last_write_time_s = 0
         self.n_updates = 0
@@ -25,6 +26,7 @@ class RequestOutputGenerator:
         self.rcm_refresh_interval_ms = 15 * 1000
         self.rcm = rcm
         self.msm = msm
+        self.checkpoints = checkpoints
 
 
     def run_deprecated_loop(self):
@@ -119,7 +121,7 @@ class RequestOutputGenerator:
                 if current_time_ms - last_update_time_ms < self.msm_refresh_interval_ms:
                     time.sleep(1)
                     continue
-                self.msm.generate_request_minerstatistics(time_now=current_time_ms, checkpoints=True)
+                self.msm.generate_request_minerstatistics(time_now=current_time_ms, checkpoints=self.checkpoints)
                 n_updates += 1
                 tf = TimeUtil.now_in_millis()
                 if n_updates % 5 == 0:
@@ -132,5 +134,20 @@ class RequestOutputGenerator:
 
 if __name__ == "__main__":
     bt.logging.enable_info()
-    rog = RequestOutputGenerator(running_deprecated=True)
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--checkpoints",
+        action="store_true",
+        default=True,
+        help="Flag indicating if generation should be with checkpoints (default: True)."
+    )
+    parser.add_argument(
+        "--no-checkpoints",
+        dest="checkpoints",
+        action="store_false",
+        help="If present, disables checkpoints."
+    )
+
+    args = parser.parse_args()
+    rog = RequestOutputGenerator(running_deprecated=True, checkpoints=args.checkpoints)
     rog.start_generation()
