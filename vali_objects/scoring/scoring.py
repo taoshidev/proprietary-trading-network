@@ -154,7 +154,6 @@ class Scoring:
                     checkpoints = []
                 else:
                     checkpoints = ledger_dict[miner].cps
-                positions = filtered_positions.get(miner, [])
 
                 # Check if the miner has full penalty - if not include them in the scoring competition
                 if miner in full_penalty_miners:
@@ -168,8 +167,11 @@ class Scoring:
 
                 scores.append((miner, float(score)))
 
-            scores_dict["metrics"][config_name] = {"scores": scores[:],
-                                                   "weight": config["weight"]}
+            scores_dict["metrics"][config_name] = {
+                "scores": scores[:],
+                "weight": config["weight"]
+            }
+
         scores_dict["penalties"] = copy.deepcopy(miner_penalties)
 
 

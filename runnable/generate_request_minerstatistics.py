@@ -104,10 +104,9 @@ class MetricsCalculator:
         metric: ScoreMetric,
         data: Dict[str, Dict[str, Any]],
         weighting: bool = False
-    ) -> Dict[str, float]:
+    ) -> list[tuple[str, float]]:
         """
         Calculate a single metric for all miners.
-        Optionally applies penalty or weighting based on the metric's flags and ScoreType.
         """
         scores = {}
         for hotkey, miner_data in data.items():
@@ -121,7 +120,8 @@ class MetricsCalculator:
             )
 
             scores[hotkey] = value
-        return scores
+
+        return list(scores.items())
 
 
 # ---------------------------------------------------------------------------
@@ -146,21 +146,15 @@ class MinerStatisticsManager:
     # -------------------------------------------
     # Ranking / Percentile Helpers
     # -------------------------------------------
-    def rank_dictionary(self, d: Dict[str, float], ascending: bool = False) -> Dict[str, int]:
+    def rank_dictionary(self, d: list[tuple[str, float]], ascending: bool = False) -> list[tuple[str, int]]:
         """Rank the values in a dictionary (descending by default)."""
-        sorted_items = sorted(d.items(), key=lambda item: item[1], reverse=not ascending)
+        sorted_items = sorted(d, key=lambda item: item[1], reverse=not ascending)
         return {item[0]: rank + 1 for rank, item in enumerate(sorted_items)}
 
-    def percentile_rank_dictionary(self, d: Dict[str, float], ascending: bool = False) -> Dict[str, float]:
+    def percentile_rank_dictionary(self, d: list[tuple[str, float]], ascending: bool = False) -> list[tuple[str, float]]:
         """Calculate percentile ranks for dictionary values."""
-        keys = list(d.keys())
-        values = list(d.values())
-        percentiles = []
-        for val in values:
-            p = percentileofscore(values, val, kind='rank') / 100.0
-            percentiles.append(p)
-        return dict(zip(keys, percentiles))
-
+        percentiles = Scoring.miner_scores_percentiles(d)
+        return dict(percentiles)
     # -------------------------------------------
     # Gather Extra Stats (drawdowns, volatility, etc.)
     # -------------------------------------------
@@ -307,16 +301,17 @@ class MinerStatisticsManager:
 
             ranks = self.rank_dictionary(numeric_scores)
             percentiles = self.percentile_rank_dictionary(numeric_scores)
+            numeric_dict = dict(numeric_scores)
 
             # Build ScoreResult objects
             metric_results[metric_name] = {
                 hotkey: ScoreResult(
-                    value=numeric_scores[hotkey],
+                    value=numeric_dict[hotkey],
                     rank=ranks[hotkey],
                     percentile=percentiles[hotkey],
                     overall_contribution=percentiles[hotkey] * metric.weight
                 )
-                for hotkey in numeric_scores
+                for hotkey in numeric_dict
             }
 
         return metric_results
@@ -391,8 +386,8 @@ class MinerStatisticsManager:
         #################################
 
         weights_dict = dict(combined_weights_list)
-        weights_rank = self.rank_dictionary(weights_dict)
-        weights_percentile = self.percentile_rank_dictionary(weights_dict)
+        weights_rank = self.rank_dictionary(combined_weights_list)
+        weights_percentile = self.percentile_rank_dictionary(combined_weights_list)
 
         # Load plagiarism once
         plagiarism_scores = self.plagiarism_detector.get_plagiarism_scores_from_disk()

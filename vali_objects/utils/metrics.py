@@ -115,7 +115,7 @@ class Metrics:
 
         annualized_volatility = np.sqrt(Metrics.variance(log_returns, ddof=ddof, weighting=weighting, indices=indices) * days_in_year)
 
-        return annualized_volatility
+        return float(annualized_volatility)
 
     @staticmethod
     def ann_downside_volatility(log_returns: list[float], target: int = ValiConfig.DAILY_LOG_RISK_FREE_RATE, weighting=False) -> float:
@@ -167,7 +167,7 @@ class Metrics:
         Returns:
              The aggregate total return of the miner as a percentage
         """
-        return (math.exp(Metrics.base_return_log(log_returns, weighting=weighting)) - 1) * 100
+        return float((math.exp(Metrics.base_return_log(log_returns, weighting=weighting)) - 1) * 100)
 
     @staticmethod
     def calmar(log_returns: list[float], checkpoints: list[PerfCheckpoint], weighting: bool = False, **kwargs) -> float:
@@ -183,7 +183,7 @@ class Metrics:
         base_return_percentage = Metrics.base_return_log_percentage(log_returns, weighting=weighting)
         drawdown_normalization_factor = LedgerUtils.risk_normalization(checkpoints)
 
-        return base_return_percentage * drawdown_normalization_factor
+        return float(base_return_percentage * drawdown_normalization_factor)
 
     @staticmethod
     def sharpe(log_returns: list[float], bypass_confidence: bool = False, weighting: bool = False, **kwargs) -> float:
@@ -204,7 +204,7 @@ class Metrics:
         excess_return = Metrics.ann_excess_return(log_returns, weighting=weighting)
         volatility = Metrics.ann_volatility(log_returns, weighting=weighting)
         
-        return excess_return / max(volatility, min_std_dev)
+        return float(excess_return / max(volatility, min_std_dev))
 
     @staticmethod
     def omega(log_returns: list[float], bypass_confidence: bool = False, weighting: bool = False, **kwargs) -> float:
@@ -233,7 +233,7 @@ class Metrics:
         numerator = positive_sum
         denominator = max(abs(negative_sum), ValiConfig.OMEGA_LOSS_MINIMUM)
 
-        return numerator / denominator
+        return float(numerator / denominator)
 
     @staticmethod
     def statistical_confidence(log_returns: list[float], bypass_confidence: bool = False, weighting: bool = False, **kwargs) -> float:
@@ -257,7 +257,7 @@ class Metrics:
             return ValiConfig.STATISTICAL_CONFIDENCE_NOCONFIDENCE_VALUE
 
         res = ttest_1samp(log_returns, 0, alternative='greater')
-        return res.statistic
+        return float(res.statistic)
 
     @staticmethod
     def sortino(log_returns: list[float], bypass_confidence: bool = False, weighting: bool = False, **kwargs) -> float:
@@ -279,4 +279,4 @@ class Metrics:
         excess_return = Metrics.ann_excess_return(log_returns, weighting=weighting)
         downside_volatility = Metrics.ann_downside_volatility(log_returns, weighting=weighting)
 
-        return excess_return / max(downside_volatility, min_downside)
+        return float(excess_return / max(downside_volatility, min_downside))
