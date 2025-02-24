@@ -1,10 +1,12 @@
 from collections import defaultdict
 
+from runnable.generate_request_minerstatistics import MinerStatisticsManager
 from time_util.time_util import TimeUtil
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.position import Position
 from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
 from vali_objects.utils.elimination_manager import EliminationManager
+from vali_objects.utils.plagiarism_detector import PlagiarismDetector
 from vali_objects.utils.live_price_fetcher import LivePriceFetcher
 from vali_objects.utils.position_lock import PositionLocks
 from vali_objects.utils.position_manager import PositionManager
@@ -16,7 +18,7 @@ from vali_objects.vali_dataclasses.perf_ledger import MockMetagraph, PerfLedgerM
 
 class BacktestManager:
 
-    def __init__(self, positions_at_t_f, start_time_ms, secrets, scoring_func):
+    def __init__(self, positions_at_t_f, start_time_ms, secrets, scoring_func, rebuild_all_positions=False):
         if not secrets:
             raise Exception(
                 "unable to get secrets data from "
@@ -66,8 +68,10 @@ class BacktestManager:
 
         self.weight_setter = SubtensorWeightSetter(self.metagraph, position_manager=self.position_manager, is_backtesting=True)
         self.position_locks = PositionLocks(hotkey_to_positions=positions_at_t_f)
+        self.plagiarism_detector = PlagiarismDetector(btm.metagraph)
+        self.miner_statistics_manager = MinerStatisticsManager(position_manager=self.position_manager, subtensor_weight_setter=self.weight_setter, plagiarism_detector=self.plagiarism_detector)
 
-        self.init_order_queue_and_current_positions(self.start_time_ms, positions_at_t_f)
+        self.init_order_queue_and_current_positions(self.start_time_ms, positions_at_t_f, rebuild_all_positions=rebuild_all_positions)
 
 
     def update_current_hk_to_positions(self, cutoff_ms):
@@ -92,11 +96,13 @@ class BacktestManager:
                 position.rebuild_position_with_updated_orders()
                 self.position_manager.save_miner_position(position)
 
-    def init_order_queue_and_current_positions(self, cutoff_ms, positions_at_t_f):
+    def init_order_queue_and_current_positions(self, cutoff_ms, positions_at_t_f, rebuild_all_positions=False):
         self.order_queue = []  # (order, position)
         for hk, positions in positions_at_t_f.items():
             for position in positions:
                 if all(o.processed_ms <= cutoff_ms for o in position.orders):
+                    if rebuild_all_positions:
+                        position.rebuild_position_with_updated_orders()
                     self.position_manager.save_miner_position(position)
                     continue
                 orders_to_keep = []
@@ -117,11 +123,40 @@ class BacktestManager:
               f' Current positions n hotkeys: {len(current_hk_to_positions)},'
               f' Current positions n total: {sum(len(v) for v in current_hk_to_positions.values())}')
 
-    def update(self, current_time_ms:int):
+    #Used to bypass running challenge period, but still adds miners to success for statistics
+    def add_all_miners_to_success(self, current_time_ms, run_elimination=True):
+        eliminations = []
+        if run_elimination:
+            # The refresh should just read the current eliminations
+            eliminations = self.elimination_manager.get_eliminations_from_memory()
+
+            # Collect challenge period and update with new eliminations criteria
+            self.challengeperiod_manager.remove_eliminated(eliminations=eliminations)
+
+        challenge_hk_to_positions, challenge_hk_to_first_order_time = self.position_manager.filtered_positions_for_scoring(
+            hotkeys=self.metagraph.hotkeys)
+
+        self.challengeperiod_manager._add_challengeperiod_testing_in_memory_and_disk(
+            new_hotkeys=self.metagraph.hotkeys,
+            eliminations=eliminations,
+            hk_to_first_order_time=challenge_hk_to_first_order_time
+        )
+
+        miners_to_promote = list(self.challengeperiod_manager.challengeperiod_testing.keys())
+
+        #Finally promote all testing miners to success
+        self.challengeperiod_manager._promote_challengeperiod_in_memory(hotkeys=miners_to_promote, current_time=current_time_ms)
+
+
+    def update(self, current_time_ms:int, run_challenge=True, run_elimination=True):
         self.update_current_hk_to_positions(current_time_ms)
         self.perf_ledger_manager.update(t_ms=current_time_ms)
-        self.challengeperiod_manager.refresh(current_time=current_time_ms)
-        self.elimination_manager.process_eliminations(self.position_locks)
+        if run_challenge:
+            self.challengeperiod_manager.refresh(current_time=current_time_ms)
+        else:
+            self.add_all_miners_to_success(current_time_ms=current_time_ms, run_elimination=run_elimination)
+        if run_elimination:
+            self.elimination_manager.process_eliminations(self.position_locks)
         self.weight_setter.set_weights(None, None, None, current_time=current_time_ms)
 
 
