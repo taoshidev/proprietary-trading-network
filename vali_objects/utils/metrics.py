@@ -225,16 +225,35 @@ class Metrics:
                 return ValiConfig.OMEGA_NOCONFIDENCE_VALUE
 
         if weighting:
-            log_returns = Metrics.weighted_log_returns(log_returns)
+            weighing_array = Metrics.weighting_distribution(log_returns)
 
-        positive_sum = 0
-        negative_sum = 0
+            positive_indices = []
+            negative_indices = []
 
-        for log_return in log_returns:
-            if log_return > 0:
-                positive_sum += log_return
-            else:
-                negative_sum += log_return
+            for c,log_return in enumerate(log_returns):
+                if log_return > 0:
+                    positive_indices.append(c)
+                else:
+                    negative_indices.append(c)
+
+            positive_indices_arr = np.array(positive_indices)
+            negative_indices_arr = np.array(negative_indices)
+
+            log_return_arr = np.array(log_returns)
+            sum_of_weights_positive = max(np.sum(weighing_array[positive_indices_arr]), ValiConfig.OMEGA_LOSS_MINIMUM)
+            sum_of_weights_negative = max(np.sum(weighing_array[negative_indices_arr]), ValiConfig.OMEGA_LOSS_MINIMUM)
+
+            positive_sum = np.sum(np.multiply(log_return_arr[positive_indices_arr], weighing_array[positive_indices_arr])) * sum_of_weights_negative
+            negative_sum = np.sum(np.multiply(log_return_arr[negative_indices_arr], weighing_array[negative_indices_arr])) * sum_of_weights_positive
+        else:
+            positive_sum = 0
+            negative_sum = 0
+
+            for log_return in log_returns:
+                if log_return > 0:
+                    positive_sum += log_return
+                else:
+                    negative_sum += log_return
 
         numerator = positive_sum
         denominator = max(abs(negative_sum), ValiConfig.OMEGA_LOSS_MINIMUM)
