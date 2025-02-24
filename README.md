@@ -109,7 +109,7 @@ leverage and you want to reduce it to a .25x leverage position to start taking p
 of size .25x leverage to reduce the size of the position. LONG and SHORT signals can be thought of working in opposite 
 directions in this way.
 8. Miners can explicitly close out a position by sending in a FLAT signal. 
-9. Miners are eliminated if they are detected as plagiarising other miners. (more info in  the "Eliminations" section).
+9. Miners are eliminated if they are detected as plagiarising other miners, or if they exceed 10% max drawdown (more info in  the "Eliminations" section).
 10. There is a fee for leaving positions open "carry fee". The fee is equal to 10.95/5.25/3% per year for a 1x leverage position (crypto/equities/forex) <a href="https://docs.taoshi.io/tips/p4/">More info</a>
 11. There is a slippage assessed per order. The slippage cost is is greater for orders with higher leverages, and in assets with lower liquidity. 
 12. There is a minimum registration fee of 2.5 TAO on the mainnet subnet.
@@ -121,12 +121,16 @@ With this system only the world's best traders & deep learning / quant based tra
 
 # Eliminations
 
-In the Proprietary Trading Network, Eliminations occur for miners that commit Plagiarism.
+In the Proprietary Trading Network, Eliminations occur for miners that commit Plagiarism, or exceed 10% Max Drawdown.
 
 
 ### Plagiarism Eliminations
 
 Miners who repeatedly copy another miner's trades will be eliminated. Our system analyzes the uniqueness of each submitted order. If an order is found to be a copy (plagiarized), it triggers the miner's elimination.
+
+### Max Drawdown Elimination
+
+Miners who exceed 10% max drawdowns will be eliminated. Our system continuously tracks each miner’s performance, measuring the maximum drop from peak portfolio value. If a miner’s drawdown exceeds the allowed threshold, they will be eliminated to maintain risk control.
 
 ### Post-Elimination
 

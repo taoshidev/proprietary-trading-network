@@ -1,5 +1,5 @@
 import os
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 from dataclasses import dataclass
 from enum import Enum
 
@@ -284,7 +284,6 @@ class MinerStatisticsManager:
     ) -> Dict[str, Dict[str, ScoreResult]]:
         """Calculate all metrics for all miners (BASE, AUGMENTED)."""
         # Initialize flags
-        penalties = {}
         weighting = False
 
         # Reset all flags first
