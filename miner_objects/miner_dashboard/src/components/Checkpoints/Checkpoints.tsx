@@ -29,7 +29,7 @@ export const Checkpoints = ({ statistics }: CheckpointsProps) => {
         </Title>
         <SimpleGrid mb="lg" cols={4}>
           <StatCard
-            title="Calmar Ratio (%)"
+            title="Calmar Ratio"
             item={scores.calmar}
             isPercentage={true}
             sigFigs={2}
