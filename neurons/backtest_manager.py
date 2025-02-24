@@ -68,7 +68,7 @@ class BacktestManager:
 
         self.weight_setter = SubtensorWeightSetter(self.metagraph, position_manager=self.position_manager, is_backtesting=True)
         self.position_locks = PositionLocks(hotkey_to_positions=positions_at_t_f)
-        self.plagiarism_detector = PlagiarismDetector(btm.metagraph)
+        self.plagiarism_detector = PlagiarismDetector(self.metagraph)
         self.miner_statistics_manager = MinerStatisticsManager(position_manager=self.position_manager, subtensor_weight_setter=self.weight_setter, plagiarism_detector=self.plagiarism_detector)
 
         self.init_order_queue_and_current_positions(self.start_time_ms, positions_at_t_f, rebuild_all_positions=rebuild_all_positions)
