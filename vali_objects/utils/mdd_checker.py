@@ -160,9 +160,10 @@ class MDDChecker(CacheController):
                                      f"issue persist, alert the team.")
                     continue
                 else:
-                    if (price_sources and PriceSource.update_order_with_newest_price_sources(order, price_sources, hotkey, position.trade_pair.trade_pair)) or (
-                            quote_sources and QuoteSource.update_order_with_newest_quote_sources(order, quote_sources, hotkey, position.trade_pair.trade_pair)):
-                        n_orders_updated += 1
+                    any_order_updates = False
+                    any_order_updates |= PriceSource.update_order_with_newest_price_sources(order, price_sources, hotkey, position.trade_pair.trade_pair)
+                    any_order_updates |= QuoteSource.update_order_with_newest_quote_sources(order, quote_sources, hotkey, position.trade_pair.trade_pair)
+                    n_orders_updated += int(any_order_updates)
 
             # Rebuild the position with the newest price
             if n_orders_updated:

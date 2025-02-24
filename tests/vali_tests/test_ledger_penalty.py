@@ -30,7 +30,7 @@ class TestLedgerPenalty(TestBase):
 
         self.assertEqual(LedgerUtils.max_drawdown_threshold_penalty(l1_cps), 1.0)
         self.assertEqual(LedgerUtils.max_drawdown_threshold_penalty(l2_cps), 0.0)
-        self.assertEqual(LedgerUtils.max_drawdown_threshold_penalty(l3_cps), 1.0)
+        self.assertEqual(LedgerUtils.max_drawdown_threshold_penalty(l3_cps), 0.0)
         self.assertEqual(LedgerUtils.max_drawdown_threshold_penalty(l4_cps), 0.0)
 
     def test_is_beyond_max_drawdown(self):

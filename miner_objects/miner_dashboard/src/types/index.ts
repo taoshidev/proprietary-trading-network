@@ -1,16 +1,13 @@
 export interface Challenge {
   percentile: number;
-  target_score: number;
   value: number;
-  target_percentile: number;
 }
 
 export interface ChallengeMetric {
   omega: Challenge;
-  overall: Challenge;
-  return_long: Challenge;
-  return_short: Challenge;
-  sharpe_ratio: Challenge;
+  calmar: Challenge;
+  return: Challenge;
+  sharpe: Challenge;
   sortino: Challenge;
   statistical_confidence: Challenge;
 }
@@ -69,16 +66,12 @@ export interface Score {
 }
 
 export interface Scores {
-  risk_adjusted_return: Score;
-  short_risk_adjusted_return_dict: Score;
+  return: Score;
   omega: Score;
   sortino: Score;
   statistical_confidence: Score;
   sharpe: Score;
   calmar: Score;
-  return: Score;
-  short_return: Score;
-  "short-calmar": Score;
 }
 
 // unused
@@ -108,9 +101,7 @@ export interface PenalizedScores {
 }
 
 export interface Drawdowns {
-  approximate: number;
-  effective: number;
-  recent: number;
+  max_drawdown: number;
 }
 
 export interface StatisticsData {
@@ -127,6 +118,11 @@ export interface StatisticsData {
 
 export interface Statistics {
   data: StatisticsData[];
+  constants: Constants;
+}
+
+export interface Constants {
+  CHALLENGE_PERIOD_PERCENTILE_THRESHOLD: number;
 }
 
 export interface Positions {

@@ -280,7 +280,7 @@ class Validator:
             priority_fn=gp_priority_fn,
         )
         self.axon.attach(
-            forward_fn=self.get_data,
+            forward_fn=self.get_dash_data,
             blacklist_fn=gd_blacklist_fn,
             priority_fn=gd_priority_fn,
         )
@@ -618,7 +618,7 @@ class Validator:
         elif method == SynapseMethod.CHECKPOINT:
             allowed, wait_time = self.checkpoint_rate_limiter.is_allowed(sender_hotkey)
         else:
-            msg = "Received synapse does not match one of expected methods for: receive_signal, get_positions, get_data, or receive_checkpoint"
+            msg = "Received synapse does not match one of expected methods for: receive_signal, get_positions, get_dash_data, or receive_checkpoint"
             bt.logging.trace(msg)
             synapse.successfully_processed = False
             synapse.error_message = msg
@@ -805,11 +805,12 @@ class Validator:
         bt.logging.info(msg)
         return synapse
 
-    def get_data(self, synapse: template.protocol.GetDashData,
+    def get_dash_data(self, synapse: template.protocol.GetDashData,
                       ) -> template.protocol.GetDashData:
         if self.should_fail_early(synapse, SynapseMethod.DASHBOARD):
             return synapse
 
+        now_ms = TimeUtil.now_in_millis()
         miner_hotkey = synapse.dendrite.hotkey
         error_message = ""
         try:
@@ -835,6 +836,10 @@ class Validator:
             bt.logging.error(error_message)
             synapse.successfully_processed = False
         synapse.error_message = error_message
+        processing_time_s_3_decimals = round((TimeUtil.now_in_millis() - now_ms) / 1000.0, 3)
+        bt.logging.info(
+            f"Sending dash data back to miner [{miner_hotkey}]. Synapse Message: {synapse.error_message}. "
+            f"Process time {processing_time_s_3_decimals} seconds.")
         return synapse
 
     def receive_checkpoint(self, synapse: template.protocol.ValidatorCheckpoint) -> template.protocol.ValidatorCheckpoint:

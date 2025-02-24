@@ -35,15 +35,11 @@ class PenaltyConfig:
 class Scoring:
     # Set the scoring configuration
     scoring_config = {
-        'return_long': {
-            'function': Metrics.drawdown_adjusted_return,
-            'weight': ValiConfig.SCORING_LONG_RETURN_LOOKBACK_WEIGHT
+        'calmar': {
+            'function': Metrics.calmar,
+            'weight': ValiConfig.SCORING_CALMAR_WEIGHT
         },
-        'return_short': {
-            'function': Metrics.drawdown_adjusted_return,
-            'weight': ValiConfig.SCORING_SHORT_RETURN_LOOKBACK_WEIGHT
-        },
-        'sharpe_ratio': {
+        'sharpe': {
             'function': Metrics.sharpe,
             'weight': ValiConfig.SCORING_SHARPE_WEIGHT
         },
@@ -78,7 +74,8 @@ class Scoring:
             ledger_dict: dict[str, PerfLedger],
             full_positions: dict[str, list[Position]],
             evaluation_time_ms: int = None,
-            verbose=True
+            verbose=True,
+            weighting=False
     ) -> List[Tuple[str, float]]:
         if len(ledger_dict) == 0:
             bt.logging.debug("No results to compute, returning empty list")
@@ -109,7 +106,8 @@ class Scoring:
         penalized_scores_dict = Scoring.score_miners(
             ledger_dict=ledger_dict,
             positions=full_positions,
-            evaluation_time_ms=evaluation_time_ms
+            evaluation_time_ms=evaluation_time_ms,
+            weighting=weighting
         )
 
         # Combine and penalize scores
@@ -127,7 +125,9 @@ class Scoring:
     def score_miners(
             ledger_dict: dict[str, PerfLedger],
             positions: dict[str, list[Position]],
-            evaluation_time_ms: int= None):
+            evaluation_time_ms: int= None,
+            weighting: bool = False
+    ):
 
         if evaluation_time_ms is None:
             evaluation_time_ms = TimeUtil.now_in_millis()
@@ -140,7 +140,7 @@ class Scoring:
         miner_penalties = Scoring.miner_penalties(filtered_positions, ledger_dict)
 
         # Miners with full penalty
-        full_penalty_miners: list[tuple[str, float]] = set([
+        full_penalty_miners = set([
             miner for miner, penalty in miner_penalties.items() if penalty == 0
         ])
 
@@ -154,31 +154,24 @@ class Scoring:
                     checkpoints = []
                 else:
                     checkpoints = ledger_dict[miner].cps
-                positions = filtered_positions.get(miner, [])
 
                 # Check if the miner has full penalty - if not include them in the scoring competition
                 if miner in full_penalty_miners:
                     continue
 
-                short_lookback_window = ValiConfig.SHORT_LOOKBACK_WINDOW
-
-                if config_name == 'return_long':
-                    score = config['function'](
-                        log_returns=returns,
-                        checkpoints=checkpoints
-                    )
-                elif config_name == 'return_short':
-                    score = config['function'](
-                        log_returns=returns[-short_lookback_window:],
-                        checkpoints=checkpoints[-short_lookback_window:]
-                    )
-                else:
-                    score = config['function'](log_returns=returns)
+                score = config['function'](
+                    log_returns=returns,
+                    checkpoints=checkpoints,
+                    weighting=weighting
+                )
 
                 scores.append((miner, float(score)))
 
-            scores_dict["metrics"][config_name] = {"scores": scores[:],
-                                                   "weight": config["weight"]}
+            scores_dict["metrics"][config_name] = {
+                "scores": scores[:],
+                "weight": config["weight"]
+            }
+
         scores_dict["penalties"] = copy.deepcopy(miner_penalties)
 
 

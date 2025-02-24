@@ -8,6 +8,7 @@ from copy import deepcopy
 from enum import Enum
 from typing import List
 import bittensor as bt
+from pydantic import BaseModel, ConfigDict
 from setproctitle import setproctitle
 
 from time_util.time_util import MS_IN_8_HOURS, MS_IN_24_HOURS, timeme
@@ -83,23 +84,22 @@ class TradePairReturnStatus(Enum):
     def __gt__(self, other):
         return self.value > other.value
 
-class PerfCheckpoint:
-    def __init__(self, last_update_ms:int, prev_portfolio_ret:float, prev_portfolio_spread_fee:float=1.0,
-                 prev_portfolio_carry_fee:float=1.0, accum_ms:int=0, open_ms:int=0, n_updates:int=0, gain:float=0.0,
-                 loss:float=0.0, spread_fee_loss:float=0.0, carry_fee_loss:float=0.0, mdd:float=1.0, mpv:float=0.0):
-        self.last_update_ms = int(last_update_ms)
-        self.prev_portfolio_ret = float(prev_portfolio_ret)
-        self.prev_portfolio_spread_fee = float(prev_portfolio_spread_fee)
-        self.prev_portfolio_carry_fee = float(prev_portfolio_carry_fee)
-        self.accum_ms = int(accum_ms)
-        self.open_ms = int(open_ms)
-        self.n_updates = int(n_updates)
-        self.gain = float(gain)
-        self.loss = float(loss)
-        self.spread_fee_loss = float(spread_fee_loss)
-        self.carry_fee_loss = float(carry_fee_loss)
-        self.mdd = float(mdd)
-        self.mpv = float(mpv)
+class PerfCheckpoint(BaseModel):
+    last_update_ms: int
+    prev_portfolio_ret: float
+    prev_portfolio_spread_fee: float = 1.0
+    prev_portfolio_carry_fee: float = 1.0
+    accum_ms: int = 0
+    open_ms: int = 0
+    n_updates: int = 0
+    gain: float = 0.0
+    loss: float = 0.0
+    spread_fee_loss: float = 0.0
+    carry_fee_loss: float = 0.0
+    mdd: float = 1.0
+    mpv: float = 0.0
+
+    model_config = ConfigDict(extra="allow")
 
     def __str__(self):
         return str(self.to_dict())

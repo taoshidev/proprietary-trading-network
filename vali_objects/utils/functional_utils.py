@@ -17,4 +17,4 @@ class FunctionalUtils:
             raise ValueError("The spread parameter must be different from 0")
 
         exp_term = np.clip(spread * (x - shift), -100, 100)
-        return np.clip(1 / (1 + np.exp(exp_term)), 0, 1)
+        return float(np.clip(1 / (1 + np.exp(exp_term)), 0, 1))
