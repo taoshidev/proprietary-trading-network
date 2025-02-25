@@ -170,7 +170,15 @@ class RiskProfiling:
         if position.is_closed_position:
             order_times = order_times[:-1]      # excluding the last TP/SL order
         time_deltas = np.diff(order_times) / 1000   # convert ms to s
+
+        # If there's nothing or only one element in time_deltas, variance would be 0
+        if len(time_deltas) < 2:
+            return 0.0
+
+        # Calculate variance safely
         time_deltas_var = float(np.var(time_deltas))
+        if np.isnan(time_deltas_var):
+            return 0.0
 
         return time_deltas_var
 
