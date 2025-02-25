@@ -70,6 +70,22 @@ class TestMetrics(TestBase):
 
         # Expected value is zero
         self.assertEqual(omega, ValiConfig.OMEGA_NOCONFIDENCE_VALUE)
+    def test_omega_weighting(self):
+        #No positive returns means empty numerator
+        returns = [-0.01] * (ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N + 1)
+        omega = Metrics.omega(returns, weighting=True)
+        #Numerator is 0 so will be 0
+        self.assertEqual(omega, 0)
+
+        #No negative returns means empty denominator
+        returns = [0.01] * (ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N + 1)
+        omega = Metrics.omega(returns, weighting=True)
+        #Should be small in magnitude, but positive
+        self.assertGreater(omega, 0)
+
+
+
+
 
     def test_sharpe_positive(self):
         """Test that the sharpe function is positive when all returns are positive"""
