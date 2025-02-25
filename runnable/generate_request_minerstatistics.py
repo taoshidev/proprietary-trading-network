@@ -523,7 +523,6 @@ class MinerStatisticsManager:
                 "volatility": volatility_subdict,
                 "drawdowns": drawdowns_subdict,
                 "plagiarism": plagiarism_val,
-                "martingale": martingale_val,
                 "engagement": engagement_subdict,
                 "risk_profile": risk_profile_single_dict,
                 "penalties": {
