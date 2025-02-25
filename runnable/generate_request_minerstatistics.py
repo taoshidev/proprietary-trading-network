@@ -187,9 +187,6 @@ class MinerStatisticsManager:
         # Minimum days boolean
         meets_min_days = (len(miner_returns) >= ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N)
 
-        # Martingale
-        martingale_score = PositionPenalties.martingale_score(miner_positions)
-
         return {
             "annual_volatility": ann_volatility,
             "annual_downside_volatility": ann_downside_volatility,
@@ -203,8 +200,7 @@ class MinerStatisticsManager:
                 "n_checkpoints": n_checkpoints,
                 "checkpoint_durations": checkpoint_durations
             },
-            "minimum_days_boolean": meets_min_days,
-            "martingale_score": martingale_score
+            "minimum_days_boolean": meets_min_days
         }
 
     # -------------------------------------------
@@ -253,13 +249,13 @@ class MinerStatisticsManager:
             positions = data.get("positions", [])
 
             drawdown_threshold_penalty = LedgerUtils.max_drawdown_threshold_penalty(cps)
-            martingale_penalty = PositionPenalties.martingale_penalty(positions)
+            risk_profile_penalty = PositionPenalties.risk_profile_penalty(positions)
 
-            total_penalty = drawdown_threshold_penalty * martingale_penalty
+            total_penalty = drawdown_threshold_penalty * risk_profile_penalty
 
             results[hotkey] = {
                 "drawdown_threshold": drawdown_threshold_penalty,
-                "martingale": martingale_penalty,
+                "risk_profile": risk_profile_penalty,
                 "total": total_penalty
             }
         return results
@@ -268,6 +264,42 @@ class MinerStatisticsManager:
     def calculate_penalties(self, miner_data: Dict[str, Dict[str, Any]]) -> Dict[str, float]:
         breakdown = self.calculate_penalties_breakdown(miner_data)
         return {hk: breakdown[hk]["total"] for hk in breakdown}
+
+    # -------------------------------------------
+    # Risk Profile
+    # -------------------------------------------
+    def calculate_risk_profile(
+        self,
+        miner_data: dict[str, dict[str, Any]]
+    ) -> dict[str, float]:
+        """Computes all statistics associated with the risk profiling system"""
+        miner_data_positions = {hk: data.get("positions", []) for hk, data in miner_data.items()}
+
+        risk_score = RiskProfiling.risk_profile_score(miner_data_positions)
+        risk_penalty = RiskProfiling.risk_profile_penalty(miner_data_positions)
+
+        risk_dictionary = {
+            hotkey: {
+                "risk_profile_score": risk_score.get(hotkey),
+                "risk_profile_penalty": risk_penalty.get(hotkey)
+            } for hotkey in miner_data_positions.keys()
+        }
+
+        return risk_dictionary
+
+    def calculate_risk_report(
+        self,
+        miner_data: dict[str, dict[str, Any]]
+    ) -> dict[str, dict[str, Any]]:
+        """Computes all statistics associated with the risk profiling system"""
+        miner_data_positions = {hk: data.get("positions", []) for hk, data in miner_data.items()}
+
+        miner_risk_report = {}
+        for hotkey, positions in miner_data_positions.items():
+            risk_report = RiskProfiling.risk_profile_reporting(positions)
+            miner_risk_report[hotkey] = risk_report
+
+        return miner_risk_report
 
     # -------------------------------------------
     # Main scoring wrapper
@@ -359,6 +391,8 @@ class MinerStatisticsManager:
 
         return miner_scores
 
+
+
     # -------------------------------------------
     # Generate final data
     # -------------------------------------------
@@ -366,6 +400,7 @@ class MinerStatisticsManager:
         self,
         time_now: int = None,
         checkpoints: bool = True,
+        risk_report: bool = False,
         selected_miner_hotkeys: List[str] = None
     ) -> Dict[str, Any]:
 
@@ -447,6 +482,10 @@ class MinerStatisticsManager:
         # Also compute penalty breakdown (for display in final "penalties" dict).
         penalty_breakdown = self.calculate_penalties_breakdown(miner_data)
 
+        # Risk profiling
+        risk_profile_dict = self.calculate_risk_profile(miner_data)
+        risk_profile_report_dict = self.calculate_risk_report(miner_data)
+
         # Build the final list
         results = []
         for hotkey in selected_miner_hotkeys:
@@ -506,8 +545,6 @@ class MinerStatisticsManager:
             }
             # Plagiarism
             plagiarism_val = plagiarism_scores.get(hotkey)
-            # Martingale (score)
-            martingale_val = extra.get("martingale_score")
 
             # Weight
             w_val = weights_dict.get(hotkey)
@@ -517,6 +554,10 @@ class MinerStatisticsManager:
             # Penalties breakdown for display
             pen_break = penalty_breakdown.get(hotkey, {})
             # e.g. {"drawdown_threshold": x, "martingale": y, "total": z}
+
+            # Risk Profile
+            risk_profile_single_dict = risk_profile_dict.get(hotkey, {})
+            risk_profile_report = risk_profile_report_dict.get(hotkey, {})
 
             final_miner_dict = {
                 "hotkey": hotkey,
@@ -528,9 +569,10 @@ class MinerStatisticsManager:
                 "plagiarism": plagiarism_val,
                 "martingale": martingale_val,
                 "engagement": engagement_subdict,
+                "risk_profile": risk_profile_single_dict,
                 "penalties": {
                     "drawdown_threshold": pen_break.get("drawdown_threshold", 1.0),
-                    "martingale": pen_break.get("martingale", 1.0),
+                    "risk_profile": pen_break.get("risk_profile", 1.0),
                     "total": pen_break.get("total", 1.0),
                 },
                 "weight": {
@@ -539,6 +581,9 @@ class MinerStatisticsManager:
                     "percentile": w_pct,
                 }
             }
+
+            if risk_report:
+                final_miner_dict["risk_profile_report"] = risk_profile_report
 
             # Optionally attach actual checkpoints (like the original first script)
             if checkpoints:
@@ -609,6 +654,7 @@ if __name__ == "__main__":
     perf_ledger_manager.position_manager = position_manager
 
     subtensor_weight_setter = SubtensorWeightSetter(
+        config=None,
         metagraph=None,
         running_unit_tests=False,
         position_manager=position_manager,
