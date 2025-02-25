@@ -23,12 +23,13 @@ from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 class Miner:
     def __init__(self):
         self.config = self.get_config()
-        self.is_testnet = self.config.subtensor.network == "test"
+        assert self.config.netuid in (8, 116), "Taoshi runs on netuid 8 (mainnet) and 116 (testnet)"
+        self.is_testnet = self.config.netuid == 116
         self.setup_logging_directory()
         self.initialize_bittensor_objects()
         self.check_miner_registration()
         self.my_subnet_uid = self.metagraph.hotkeys.index(self.wallet.hotkey.ss58_address)
-        bt.logging.info(f"Running miner on uid: {self.my_subnet_uid}")
+        bt.logging.info(f"Running miner on netuid {self.config.netuid} with uid: {self.my_subnet_uid}")
 
         # Start the metagraph updater loop in its own thread
         self.metagraph_updater_thread = threading.Thread(target=self.metagraph_updater.run_update_loop, daemon=True)
