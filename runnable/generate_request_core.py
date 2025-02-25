@@ -150,13 +150,59 @@ class RequestCoreManager:
         blob.upload_from_string(zip_buffer)
         print(f'Uploaded {blob_name} to {bucket_name}')
 
-    def generate_request_core(self, time_now:int, selected_miner_hotkeys: List[str] = None) -> dict:
+    def create_and_upload_production_files(self, eliminations, ord_dict_hotkey_position_map, time_now,
+                                           youngest_order_processed_ms, oldest_order_processed_ms,
+                                           challengeperiod_testing_dictionary, challengeperiod_success_dictionary):
+
+        perf_ledgers = self.perf_ledger_manager.get_perf_ledgers()
+        final_dict = {
+            'version': ValiConfig.VERSION,
+            'created_timestamp_ms': time_now,
+            'created_date': TimeUtil.millis_to_formatted_date_str(time_now),
+            'challengeperiod': {
+                "testing": challengeperiod_testing_dictionary,
+                "success": challengeperiod_success_dictionary
+            },
+            'eliminations': eliminations,
+            'youngest_order_processed_ms': youngest_order_processed_ms,
+            'oldest_order_processed_ms': oldest_order_processed_ms,
+            'positions': ord_dict_hotkey_position_map,
+            'perf_ledgers': perf_ledgers
+        }
+
+        vcp_output_file_path = ValiBkpUtils.get_vcp_output_path()
+        ValiBkpUtils.write_file(
+            vcp_output_file_path,
+            final_dict,
+        )
+
+        # Write positions data (sellable via RN) at the different tiers. Each iteration, the number of orders (possibly) decreases
+        for t in PERCENT_NEW_POSITIONS_TIERS:
+            if t == 100:  # no filtering
+                # Write legacy location as well. no compression
+                ValiBkpUtils.write_file(
+                    ValiBkpUtils.get_miner_positions_output_path(suffix_dir=None),
+                    ord_dict_hotkey_position_map,
+                )
+            else:
+                self.filter_new_positions_random_sample(t, ord_dict_hotkey_position_map, time_now)
+
+            # "v2" add a tier. compress the data. This is a location in a subdir
+            for hotkey, dat in ord_dict_hotkey_position_map.items():
+                dat['tier'] = t
+
+            compressed_positions = self.compress_dict(ord_dict_hotkey_position_map)
+            ValiBkpUtils.write_file(
+                ValiBkpUtils.get_miner_positions_output_path(suffix_dir=str(t)),
+                compressed_positions, is_binary=True
+            )
+
+        # Max filtering
+        self.upload_checkpoint_to_gcloud(final_dict)
+
+    def generate_request_core(self, get_dash_data_hotkey: str | None = None, write_and_upload_production_files=False) -> dict:
         eliminations = self.elimination_manager.get_eliminations_from_memory()
         eliminated_hotkeys = set(x['hotkey'] for x in eliminations)
-
-        challengeperiod_testing_dictionary = self.challengeperiod_manager.get_challengeperiod_testing()
-        challengeperiod_success_dictionary = self.challengeperiod_manager.get_challengeperiod_success()
-
         try:
             if not os.path.exists(ValiBkpUtils.get_miner_dir()):
                 raise FileNotFoundError
@@ -166,13 +212,10 @@ class RequestCoreManager:
                 f"[{ValiBkpUtils.get_miner_dir()}]. Skip run for now."
             )
 
-        # only return miner hotkeys if specified
-        if selected_miner_hotkeys is None:
-            all_miner_hotkeys: list = ValiBkpUtils.get_directories_in_dir(
-                ValiBkpUtils.get_miner_dir()
-            )
+        if get_dash_data_hotkey:
+            all_miner_hotkeys: list = [get_dash_data_hotkey]
         else:
-            all_miner_hotkeys = selected_miner_hotkeys
+            all_miner_hotkeys: list = ValiBkpUtils.get_directories_in_dir(ValiBkpUtils.get_miner_dir())
 
         # we won't be able to query for eliminated hotkeys from challenge period
         hotkey_positions = self.position_manager.get_positions_for_hotkeys(
@@ -257,52 +300,13 @@ class RequestCoreManager:
 
         assert n_orders_original == n_positions_new, f"n_orders_original: {n_orders_original}, n_positions_new: {n_positions_new}"
 
-        perf_ledgers = self.perf_ledger_manager.get_perf_ledgers()
-        final_dict = {
-            'version': ValiConfig.VERSION,
-            'created_timestamp_ms': time_now,
-            'created_date': TimeUtil.millis_to_formatted_date_str(time_now),
-            'challengeperiod': {
-                "testing": challengeperiod_testing_dictionary,
-                "success": challengeperiod_success_dictionary
-            },
-            'eliminations': eliminations,
-            'youngest_order_processed_ms': youngest_order_processed_ms,
-            'oldest_order_processed_ms': oldest_order_processed_ms,
-            'positions': ord_dict_hotkey_position_map,
-            'perf_ledgers': perf_ledgers
-        }
+        challengeperiod_testing_dictionary = self.challengeperiod_manager.get_challengeperiod_testing()
+        challengeperiod_success_dictionary = self.challengeperiod_manager.get_challengeperiod_success()
 
-        vcp_output_file_path = ValiBkpUtils.get_vcp_output_path()
-        ValiBkpUtils.write_file(
-            vcp_output_file_path,
-            final_dict,
-        )
-
-        # Write positions data (sellable via RN) at the different tiers. Each iteration, the number of orders (possibly) decreases
-        for t in PERCENT_NEW_POSITIONS_TIERS:
-            if t == 100: #no filtering
-                # Write legacy location as well. no compression
-                ValiBkpUtils.write_file(
-                    ValiBkpUtils.get_miner_positions_output_path(suffix_dir=None),
-                    ord_dict_hotkey_position_map,
-                )
-            else:
-                self.filter_new_positions_random_sample(t, ord_dict_hotkey_position_map, time_now)
-
-            # "v2" add a tier. compress the data. This is a location in a subdir
-            for hotkey, dat in ord_dict_hotkey_position_map.items():
-                dat['tier'] = t
-
-            compressed_positions = self.compress_dict(ord_dict_hotkey_position_map)
-            ValiBkpUtils.write_file(
-                ValiBkpUtils.get_miner_positions_output_path(suffix_dir=str(t)),
-                compressed_positions, is_binary=True
-            )
-
-
-        # Max filtering
-        self.upload_checkpoint_to_gcloud(final_dict)
+        if write_and_upload_production_files:
+            self.create_and_upload_production_files(eliminations, ord_dict_hotkey_position_map, time_now,
+                                           youngest_order_processed_ms, oldest_order_processed_ms,
+                                           challengeperiod_testing_dictionary, challengeperiod_success_dictionary)
 
         checkpoint_dict = {
             'challengeperiod': {
@@ -336,4 +340,4 @@ if __name__ == "__main__":
     plagiarism_detector = PlagiarismDetector(None, None, position_manager=position_manager)
 
     rcm = RequestCoreManager(position_manager, subtensor_weight_setter, plagiarism_detector)
-    rcm.generate_request_core(1628572800000)
+    rcm.generate_request_core(write_and_upload_production_files=True)

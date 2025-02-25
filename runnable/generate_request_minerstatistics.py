@@ -538,7 +538,7 @@ class MinerStatisticsManager:
     # -------------------------------------------
     def generate_request_minerstatistics(self, time_now: int, checkpoints: bool = True):
         final_dict = self.generate_miner_statistics_data(time_now, checkpoints)
-        output_file_path = os.path.join(ValiBkpUtils.get_vali_outputs_dir(), "minerstatistics.json")
+        output_file_path = ValiBkpUtils.get_miner_stats_dir()
         ValiBkpUtils.write_file(output_file_path, final_dict)
 
 

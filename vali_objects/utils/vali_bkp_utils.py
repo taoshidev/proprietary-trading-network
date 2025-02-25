@@ -120,6 +120,10 @@ class ValiBkpUtils:
         return ValiConfig.BASE_DIR + "/runnable/"
 
     @staticmethod
+    def get_miner_stats_dir(running_unit_tests=False) -> str:
+        return ValiBkpUtils.get_vali_outputs_dir() + "minerstatistics.json"
+
+    @staticmethod
     def get_restore_file_path() -> str:
         return ValiConfig.BASE_DIR + "/validator_checkpoint.json"
 
