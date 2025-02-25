@@ -815,8 +815,9 @@ class Validator:
         error_message = ""
         try:
             timestamp = self.timestamp_manager.get_last_order_timestamp()
-            stats = self.miner_statistics_manager.generate_miner_statistics_data(time_now=TimeUtil.now_in_millis(), checkpoints=True, selected_miner_hotkeys=[miner_hotkey])
-            positions = self.request_core_manager.generate_request_core(time_now=TimeUtil.now_in_millis(), selected_miner_hotkeys=[miner_hotkey])
+            stats = ValiBkpUtils.get_file(ValiBkpUtils.get_miner_stats_dir())
+            # TODO filter stats to just this hotkey
+            positions = self.request_core_manager.generate_request_core(get_dash_data_hotkey=miner_hotkey)
             dash_data = {"timestamp": timestamp, "statistics": stats, **positions}
 
             if not stats["data"]:
@@ -866,7 +867,7 @@ class Validator:
                     if not self.encoded_checkpoint:
                         # get our current checkpoint
                         self.last_checkpoint_time = TimeUtil.now_in_millis()
-                        checkpoint_dict = self.request_core_manager.generate_request_core(time_now=self.last_checkpoint_time)
+                        checkpoint_dict = self.request_core_manager.generate_request_core()
 
                         # compress json and encode as base64 to keep as a string
                         checkpoint_str = json.dumps(checkpoint_dict, cls=CustomEncoder)
