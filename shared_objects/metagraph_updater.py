@@ -154,7 +154,7 @@ class MetagraphUpdater(CacheController):
             self.update_likely_miners(recently_acked_miners)
         if recently_acked_validators:
             self.update_likely_validators(recently_acked_validators)
-        self.log_metagraph_state()
+        #self.log_metagraph_state()
         self.set_last_update_time()
 
 # len([x for x in self.metagraph.axons if '0.0.0.0' not in x.ip]), len([x for x in self.metagraph.neurons if '0.0.0.0' not in x.axon_info.for ip])
