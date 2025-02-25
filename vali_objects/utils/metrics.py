@@ -229,6 +229,8 @@ class Metrics:
 
             positive_indices = []
             negative_indices = []
+            product_sum_positive = product_sum_negative = 0
+            sum_of_weights_positive = sum_of_weights_negative = ValiConfig.OMEGA_LOSS_MINIMUM
 
             for c,log_return in enumerate(log_returns):
                 if log_return > 0:
@@ -236,15 +238,24 @@ class Metrics:
                 else:
                     negative_indices.append(c)
 
-            positive_indices_arr = np.array(positive_indices)
-            negative_indices_arr = np.array(negative_indices)
-
             log_return_arr = np.array(log_returns)
-            sum_of_weights_positive = max(np.sum(weighing_array[positive_indices_arr]), ValiConfig.OMEGA_LOSS_MINIMUM)
-            sum_of_weights_negative = max(np.sum(weighing_array[negative_indices_arr]), ValiConfig.OMEGA_LOSS_MINIMUM)
 
-            positive_sum = np.sum(np.multiply(log_return_arr[positive_indices_arr], weighing_array[positive_indices_arr])) * sum_of_weights_negative
-            negative_sum = np.sum(np.multiply(log_return_arr[negative_indices_arr], weighing_array[negative_indices_arr])) * sum_of_weights_positive
+            if len(positive_indices) > 0:
+                positive_indices_arr = np.array(positive_indices)
+                sum_of_weights_positive = max(np.sum(weighing_array[positive_indices_arr]),
+                                              ValiConfig.OMEGA_LOSS_MINIMUM)
+
+                product_sum_positive = np.sum(np.multiply(log_return_arr[positive_indices_arr], weighing_array[positive_indices_arr]))
+
+            if len(negative_indices) > 0:
+                negative_indices_arr = np.array(negative_indices)
+                sum_of_weights_negative = max(np.sum(weighing_array[negative_indices_arr]),
+                                              ValiConfig.OMEGA_LOSS_MINIMUM)
+                product_sum_negative = np.sum(np.multiply(log_return_arr[negative_indices_arr], weighing_array[negative_indices_arr]))
+
+            positive_sum = product_sum_positive * sum_of_weights_negative
+            negative_sum = product_sum_negative * sum_of_weights_positive
+
         else:
             positive_sum = 0
             negative_sum = 0
