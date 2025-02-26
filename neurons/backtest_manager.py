@@ -4,6 +4,7 @@ from runnable.generate_request_minerstatistics import MinerStatisticsManager
 from time_util.time_util import TimeUtil
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.position import Position
+import vali_objects.position as position_file
 from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
 from vali_objects.utils.elimination_manager import EliminationManager
 from vali_objects.utils.plagiarism_detector import PlagiarismDetector
@@ -14,11 +15,13 @@ from vali_objects.utils.subtensor_weight_setter import SubtensorWeightSetter
 from vali_objects.utils.vali_utils import ValiUtils
 from vali_objects.vali_config import TradePair
 from vali_objects.vali_dataclasses.perf_ledger import MockMetagraph, PerfLedgerManager
+import bittensor as bt
+from vali_objects.utils.price_slippage_model import PriceSlippageModel
 
 
 class BacktestManager:
 
-    def __init__(self, positions_at_t_f, start_time_ms, secrets, scoring_func, rebuild_all_positions=False):
+    def __init__(self, positions_at_t_f, start_time_ms, secrets, scoring_func, rebuild_all_positions=False, calculate_historical_slippage=True):
         if not secrets:
             raise Exception(
                 "unable to get secrets data from "
@@ -70,8 +73,17 @@ class BacktestManager:
         self.position_locks = PositionLocks(hotkey_to_positions=positions_at_t_f)
         self.plagiarism_detector = PlagiarismDetector(self.metagraph)
         self.miner_statistics_manager = MinerStatisticsManager(position_manager=self.position_manager, subtensor_weight_setter=self.weight_setter, plagiarism_detector=self.plagiarism_detector)
+        self.psm = PriceSlippageModel(self.live_price_fetcher, is_backtesting=True)
 
-        self.init_order_queue_and_current_positions(self.start_time_ms, positions_at_t_f, rebuild_all_positions=rebuild_all_positions)
+        #Used in calculating position attributes
+        position_file.ALWAYS_USE_LATEST = True
+        #Until slippage is added to the db, this will always have to be done since positions are sometimes rebuilt and would require slippage attributes on orders and initial_entry_price calculation
+        if calculate_historical_slippage:
+            updated_hk_to_positions = self.update_historical_slippage(positions_at_t_f)
+        else:
+            updated_hk_to_positions = positions_at_t_f
+
+        self.init_order_queue_and_current_positions(self.start_time_ms, updated_hk_to_positions, rebuild_all_positions=rebuild_all_positions)
 
 
     def update_current_hk_to_positions(self, cutoff_ms):
@@ -147,6 +159,29 @@ class BacktestManager:
         #Finally promote all testing miners to success
         self.challengeperiod_manager._promote_challengeperiod_in_memory(hotkeys=miners_to_promote, current_time=current_time_ms)
 
+    def update_historical_slippage(self, positions_at_t_f):
+        #mutates the original orders
+        bt.logging.info("Starting slippage order pre-processing.")
+        new_hk_to_positions = defaultdict(list)
+        for hk, positions in positions_at_t_f.items():
+            for position in positions:
+                order_updated = False
+                for o in position.orders:
+                    if o.bid == 0 and o.ask == 0 and o.slippage == 0:#o.processed_ms < 1739937600000:  # SLIPPAGE_V1_TIME_MS
+                        bt.logging.info(f"updating order attributes {o}")
+                        bid, ask, _ = self.live_price_fetcher.get_latest_quote(trade_pair=o.trade_pair,
+                                                                               time_ms=o.processed_ms)
+                        slippage = self.psm.calculate_slippage(bid, ask, o)
+                        o.bid = bid
+                        o.ask = ask
+                        o.slippage = slippage
+                        bt.logging.info(f"updated order attributes {o}")
+                        order_updated = True
+                if order_updated:
+                    position.rebuild_position_with_updated_orders()
+                new_hk_to_positions[hk].append(position)
+
+        return new_hk_to_positions
 
     def update(self, current_time_ms:int, run_challenge=True, run_elimination=True):
         self.update_current_hk_to_positions(current_time_ms)

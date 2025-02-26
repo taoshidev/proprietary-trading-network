@@ -21,8 +21,9 @@ class PriceSlippageModel:
     parameters: dict = {}
     pds: PolygonDataService = None
     holidays_nyse = None
+    is_backtesting = False
 
-    def __init__(self, live_price_fetcher=None, running_unit_tests=False):
+    def __init__(self, live_price_fetcher=None, running_unit_tests=False, is_backtesting=False):
         if not PriceSlippageModel.parameters:
             PriceSlippageModel.holidays_nyse = holidays.financial_holidays('NYSE')
             PriceSlippageModel.parameters = self.read_slippage_model_parameters()
@@ -31,6 +32,7 @@ class PriceSlippageModel:
                 secrets = ValiUtils.get_secrets(running_unit_tests=running_unit_tests)
                 live_price_fetcher = LivePriceFetcher(secrets, disable_ws=False)
             PriceSlippageModel.pds = live_price_fetcher.polygon_data_service
+        PriceSlippageModel.is_backtesting = is_backtesting
 
     @classmethod
     def calculate_slippage(cls, bid:float, ask:float, order:Order):
@@ -42,8 +44,10 @@ class PriceSlippageModel:
         size = abs(order.leverage) * ValiConfig.LEVERAGE_TO_CAPITAL
         if size <= 1000:
             return 0  # assume 0 slippage when order size is under 1k
-
-        cls.refresh_features_daily(order.processed_ms)
+        if cls.is_backtesting:
+            cls.refresh_features_daily(order.processed_ms, write_to_disk=False)
+        else:
+            cls.refresh_features_daily(order.processed_ms, write_to_disk=True)
 
         if trade_pair.is_equities:
             slippage_percentage = cls.calc_slippage_equities(bid, ask, order)
@@ -77,7 +81,7 @@ class PriceSlippageModel:
             size_str = cls.get_order_size_bucket(size)
             side = "buy" if order.leverage > 0 else "sell"
             model_config = cls.parameters["equity"][order.trade_pair.trade_pair_id][side][size_str]
-            intercept, c1, c2, c3 = (model_config[key] for key in ["intercept", "spread/price", "annualized_vol", f"{side}_order_value/adv"])
+            intercept, c1, c2, c3 = (model_config[key] for key in ["intercept", "spread/price", "annualized_vol", f"{side}_order_size/adv"])
             slippage_pct = intercept + (c1 * spread / mid_price) + (c2 * annualized_volatility) + (c3 * volume_shares / avg_daily_volume)
         else:
             # direct BB+ model for orders before
