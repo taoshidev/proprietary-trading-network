@@ -69,7 +69,7 @@ class SubtensorWeightSetter(CacheController):
                 evaluation_time_ms=current_time
             )
             tao_price, _ = self.live_price_fetcher.get_latest_price(TradePair.TAOUSD)
-            checkpoint_results = Scoring.burn_excess_weight(checkpoint_results, filtered_ledger, subtensor, tao_price)
+            checkpoint_results = Scoring.burn_excess_weight(checkpoint_results, filtered_ledger, self.metagraph, tao_price)
 
             bt.logging.info(f"Sorted results for weight setting: [{sorted(checkpoint_results, key=lambda x: x[1], reverse=True)}]")
             checkpoint_netuid_weights = []

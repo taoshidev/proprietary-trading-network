@@ -122,7 +122,7 @@ class Scoring:
         return sorted(normalized_scores.items(), key=lambda x: x[1], reverse=True)
 
     @staticmethod
-    def burn_excess_weight(miner_scores, ledger, subtensor, tao_price) -> List[Tuple[str, float]]:
+    def burn_excess_weight(miner_scores, ledger, metagraph, tao_price) -> List[Tuple[str, float]]:
         """
         Caps a miner's weight/score based on the realtime price of alpha and emissions.
         Excess alpha is burnt.
@@ -133,7 +133,6 @@ class Scoring:
         The $ emitted per tempo to a miner should be capped at 10x the $ returns a miner would have made from the actual trades
         """
         bt.logging.info(f"Weights before burning: {miner_scores}")
-        metagraph = subtensor.metagraph(netuid=8)
         alpha_token_price = metagraph.pool.tao_in / metagraph.pool.alpha_in
         emissions_per_tempo = metagraph.emissions.pending_alpha_emission * 0.41  #TODO: need to verify
         daily_blocks = (60 * 60 * 24) / 12  # each block is 12 seconds
