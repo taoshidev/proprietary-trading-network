@@ -9,6 +9,7 @@ import bittensor as bt
 
 from data_generator.polygon_data_service import PolygonDataService
 from time_util.time_util import TimeUtil
+from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.utils.live_price_fetcher import LivePriceFetcher
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.utils.vali_utils import ValiUtils
@@ -17,9 +18,7 @@ from vali_objects.vali_dataclasses.order import Order
 
 
 class PriceSlippageModel:
-    tp_to_adv = defaultdict()
-    tp_to_vol = defaultdict()
-    last_day_refreshed = -1
+    features = defaultdict(dict)
     parameters: dict = {}
     pds: PolygonDataService = None
     holidays_nyse = None
@@ -45,6 +44,8 @@ class PriceSlippageModel:
         if size <= 1000:
             return 0  # assume 0 slippage when order size is under 1k
 
+        cls.refresh_features_daily(order.processed_ms)
+
         if trade_pair.is_equities:
             slippage_percentage = cls.calc_slippage_equities(bid, ask, order)
         elif trade_pair.is_forex:
@@ -58,32 +59,44 @@ class PriceSlippageModel:
     @classmethod
     def calc_slippage_equities(cls, bid:float, ask:float, order:Order) -> float:
         """
-        Slippage percentage = intercept + c1 * spread/price + c2 * annualized_volatility + c3 * order_value/avg_daily_volume
+        Fitted BB+ model (dec 2024)
+        Slippage percentage = intercept + c1 * spread/price + c2 * annualized_volatility + c3 * order_volume/avg_daily_volume
+
+        Use the direct BB+ model for pre jan 2025 orders
+        slippage percentage = 0.433 * spread/mid_price + 0.335 * sqrt(annualized_volatility**2 / 3 / 250) * sqrt(volume / (0.3 * estimated daily volume))
         """
-        # bucket size
-        size = abs(order.leverage) * ValiConfig.LEVERAGE_TO_CAPITAL
-        size_str = cls.get_order_size_bucket(size)
-        side = "buy" if order.leverage > 0 else "sell"
-        model_config = cls.parameters["equity"][order.trade_pair.trade_pair_id][side][size_str]
-        intercept, c1, c2, c3 = (model_config[key] for key in ["intercept", "spread/price", "annualized_vol", f"{side}_order_value/adv"])
-
-        annualized_volatility = cls.tp_to_vol[order.trade_pair.trade_pair_id]
-        avg_daily_volume = cls.tp_to_adv[order.trade_pair.trade_pair_id]
-
+        order_date = TimeUtil.millis_to_short_date_str(order.processed_ms)
+        annualized_volatility = cls.features[order_date]["vol"][order.trade_pair.trade_pair_id]
+        avg_daily_volume = cls.features[order_date]["adv"][order.trade_pair.trade_pair_id]
         spread = ask - bid
         mid_price = (bid + ask) / 2
 
-        slippage_pct = intercept + (c1 * spread / mid_price) + (c2 * annualized_volatility) + (c3 * size / avg_daily_volume)
+        size = abs(order.leverage) * ValiConfig.LEVERAGE_TO_CAPITAL
+        volume_shares = size / mid_price
+
+        if order.processed_ms > 1735718400000:  # Use fitted BB+ for orders after Jan 1, 2025, 08:00:00 UTC
+            size_str = cls.get_order_size_bucket(size)
+            side = "buy" if order.leverage > 0 else "sell"
+            model_config = cls.parameters["equity"][order.trade_pair.trade_pair_id][side][size_str]
+            intercept, c1, c2, c3 = (model_config[key] for key in ["intercept", "spread/price", "annualized_vol", f"{side}_order_size/adv"])
+            slippage_pct = intercept + (c1 * spread / mid_price) + (c2 * annualized_volatility) + (c3 * volume_shares / avg_daily_volume)
+        else:
+            # direct BB+ model for orders before
+            term1 = 0.433 * spread / mid_price
+            term2 = 0.335 * math.sqrt(annualized_volatility ** 2 / 3 / 250)
+            term3 = math.sqrt(volume_shares / (0.3 * avg_daily_volume))
+            slippage_pct = term1 + term2 * term3
         return slippage_pct
 
     @classmethod
     def calc_slippage_forex(cls, bid:float, ask:float, order:Order) -> float:
         """
-        Using the BB+ model as a stand-in for forex
+        Using the direct BB+ model as a stand-in for forex
         slippage percentage = 0.433 * spread/mid_price + 0.335 * sqrt(annualized_volatility**2 / 3 / 250) * sqrt(volume / (0.3 * estimated daily volume))
         """
-        annualized_volatility = cls.tp_to_vol[order.trade_pair.trade_pair_id]
-        avg_daily_volume = cls.tp_to_adv[order.trade_pair.trade_pair_id]
+        order_date = TimeUtil.millis_to_short_date_str(order.processed_ms)
+        annualized_volatility = cls.features[order_date]["vol"][order.trade_pair.trade_pair_id]
+        avg_daily_volume = cls.features[order_date]["adv"][order.trade_pair.trade_pair_id]
         spread = ask - bid
         mid_price = (bid + ask) / 2
 
@@ -116,33 +129,43 @@ class PriceSlippageModel:
             raise ValueError(f"Unknown crypto slippage for trade pair {trade_pair.trade_pair_id}")
 
     @classmethod
-    def refresh_features_daily(cls, write_to_disk:bool=True):
+    def refresh_features_daily(cls, time_ms:int=None, write_to_disk:bool=True):
         """
-        update the values for average daily volume and annualized volatility for all trade pairs once a day
+        Calculate and store model features (average daily volume and annualized volatility) for new days
         """
-        current_day = datetime.utcnow().weekday()
-        if current_day != cls.last_day_refreshed:
+        if not time_ms:
+            time_ms = TimeUtil.now_in_millis()
+        current_date = TimeUtil.millis_to_short_date_str(time_ms)
+
+        if current_date not in cls.features:
             bt.logging.info(
-                f"Refreshing avg daily volume and annualized volatility for new day UTC {datetime.utcnow().date()}")
+                f"Calculating avg daily volume and annualized volatility for new day UTC {datetime.utcnow().date()}")
             trade_pairs = [tp for tp in TradePair if tp.is_forex or tp.is_equities]
-            cls.calculate_features(trade_pairs=trade_pairs, processed_ms=TimeUtil.now_in_millis())
+            tp_to_adv, tp_to_vol = cls.get_features(trade_pairs=trade_pairs, processed_ms=time_ms)
+            cls.features[current_date]["adv"] = tp_to_adv
+            cls.features[current_date]["vol"] = tp_to_vol
             if write_to_disk:
                 cls.write_features_from_memory_to_disk()
-            cls.last_day_refreshed = current_day
             bt.logging.info(
-                f"Completed refreshing avg daily volume and annualized volatility for new day UTC {datetime.utcnow().date()}")
+                    f"Completed refreshing avg daily volume and annualized volatility for new day UTC {datetime.utcnow().date()}")
 
     @classmethod
-    def calculate_features(cls, trade_pairs: list[TradePair], processed_ms: int, adv_lookback_window: int = 10,
-                           calc_vol_window: int = 30):
+    def get_features(cls, trade_pairs: list[TradePair], processed_ms: int, adv_lookback_window: int = 10,
+                     calc_vol_window: int = 30):
+        """
+        return dict of features (avg daily volume and annualized volatility) for each trade pair
+        """
+        tp_to_adv = defaultdict()
+        tp_to_vol = defaultdict()
         for trade_pair in trade_pairs:
             bars_df = cls.get_bars_with_features(trade_pair, processed_ms, adv_lookback_window, calc_vol_window)
             row_selected = bars_df.iloc[-1]
             annualized_volatility = row_selected['annualized_vol']
             avg_daily_volume = row_selected[f'adv_last_{adv_lookback_window}_days']
 
-            cls.tp_to_vol[trade_pair.trade_pair_id] = annualized_volatility
-            cls.tp_to_adv[trade_pair.trade_pair_id] = avg_daily_volume
+            tp_to_vol[trade_pair.trade_pair_id] = annualized_volatility
+            tp_to_adv[trade_pair.trade_pair_id] = avg_daily_volume
+        return tp_to_adv, tp_to_vol
 
     @classmethod
     def get_bars_with_features(cls, trade_pair: TradePair, processed_ms: int, adv_lookback_window: int=10, calc_vol_window: int=30, trading_days_in_a_year: int=252) -> pd.DataFrame:
@@ -172,14 +195,9 @@ class PriceSlippageModel:
 
     @classmethod
     def write_features_from_memory_to_disk(cls):
-        features = {
-            "adv": cls.tp_to_adv,
-            "vol": cls.tp_to_vol,
-            "timestamp": TimeUtil.now_in_millis()
-        }
         ValiBkpUtils.write_file(
             ValiBkpUtils.get_slippage_model_features_file(),
-            features
+            cls.features
         )
 
     @staticmethod
@@ -209,5 +227,9 @@ class PriceSlippageModel:
 
 if __name__ == "__main__":
     psm = PriceSlippageModel()
-    slippage = psm.calculate_slippage(TradePair.AAPL, "buy", 75000, 1737655200000)
-    print(slippage)
+    equities_order_buy = Order(price=100, processed_ms=TimeUtil.now_in_millis(),
+                                    order_uuid="test_order",
+                                    trade_pair=TradePair.NVDA,
+                                    order_type=OrderType.LONG, leverage=1)
+    slippage_buy = PriceSlippageModel.calculate_slippage(bid=99, ask=100, order=equities_order_buy)
+    print(slippage_buy)
