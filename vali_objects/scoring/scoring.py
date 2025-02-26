@@ -122,7 +122,7 @@ class Scoring:
         return sorted(normalized_scores.items(), key=lambda x: x[1], reverse=True)
 
     @staticmethod
-    def burn_excess_weight(miner_scores, ledger, metagraph, tao_price) -> List[Tuple[str, float]]:
+    def burn_excess_weight(miner_scores:List[Tuple[str, float]], ledger, metagraph, tao_price:float) -> List[Tuple[str, float]]:
         """
         Caps a miner's weight/score based on the realtime price of alpha and emissions.
         Excess alpha is burnt.
@@ -137,34 +137,40 @@ class Scoring:
         emissions_per_tempo = metagraph.emissions.pending_alpha_emission * 0.41  #TODO: need to verify
         daily_blocks = (60 * 60 * 24) / 12  # each block is 12 seconds
         num_tempos_per_day = daily_blocks / metagraph.tempo
+        dollar_emissions_per_tempo = emissions_per_tempo * alpha_token_price * tao_price
 
         print("alpha_token_price: ", alpha_token_price)
         print("emissions_per_tempo: ", emissions_per_tempo)
         print("tao price: ", tao_price)
         print("tempos per day: ", num_tempos_per_day)
+        bt.logging.info(f"dollar_emissions_per_tempo: {dollar_emissions_per_tempo}")
 
-        ledger_returns = LedgerUtils.ledger_returns(ledger)
+        ledger_returns = LedgerUtils.ledger_returns_log(ledger)
         scores_sum = 0
 
+        burn_miner_scores = []
+
         for miner_hk, score in miner_scores:
-            bt.logging.info(f"ledger_returns: {miner_hk}, {ledger_returns[miner_hk]}")
-            miner_returns_per_day = ledger_returns[miner_hk][-1]
-            dollar_returns_per_tempo = miner_returns_per_day / num_tempos_per_day * 100_000
+            miner_returns_annualized = Metrics.base_return_log_percentage(ledger_returns[miner_hk])
+            bt.logging.info(f"miner_returns_annualized: {miner_hk}, {miner_returns_annualized}")
+            dollar_returns_per_tempo = (miner_returns_annualized / 100) / (num_tempos_per_day * ValiConfig.DAYS_IN_YEAR) * 100_000
+            bt.logging.info(f"dollar_returns_per_tempo: {dollar_returns_per_tempo}")
 
-            dollar_emissions_per_tempo = emissions_per_tempo * alpha_token_price * tao_price
-
-            weight_cap = (dollar_returns_per_tempo * 10) / dollar_emissions_per_tempo
+            weight_cap = max((dollar_returns_per_tempo * 10) / dollar_emissions_per_tempo, 0)
 
             if score > weight_cap:
-                bt.logging.info(f"Miner scores adjusted from {score} to {weight_cap}")
-            miner_scores[miner_hk] = min(score, weight_cap)
-            scores_sum += miner_scores[miner_hk]
+                bt.logging.info(f"--Miner scores adjusted from {score} to {weight_cap} based on miner returns {miner_returns_annualized}")
+            else:
+                bt.logging.info(f"Miner scores unchanged from {score}. weight cap is {weight_cap} based on miner returns {miner_returns_annualized}")
 
-        amount_to_burn = 1 - scores_sum
-        miner_scores["burn_hk"] = amount_to_burn
+            burn_miner_scores.append((miner_hk, min(score, weight_cap)))
+            scores_sum += min(score, weight_cap)
 
-        bt.logging.info(f"Weights after burning: {miner_scores}")
-        return miner_scores
+        amount_to_burn = max(1 - scores_sum, 0)
+        burn_miner_scores.append(("burn_hk", amount_to_burn))
+
+        bt.logging.info(f"Weights after burning: {burn_miner_scores}")
+        return burn_miner_scores
 
     @staticmethod
     def score_miners(
