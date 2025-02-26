@@ -88,7 +88,7 @@ class ValiConfig:
     RISK_PROFILING_SIGMOID_SPREAD = 50
     # RISK_PROFILING_TIME_DECAY = 5
     # RISK_PROFILING_TIME_CYCLE = POSITIONAL_EQUIVALENCE_WINDOW_MS
-    RISK_PROFILING_TIME_CRITERIA = 300  # in seconds, threshold for variance of order time intervals
+    RISK_PROFILING_TIME_CRITERIA = 0.185  # threshold for the normalized error of a position’s order time intervals
 
     PLAGIARISM_MATCHING_TIME_RESOLUTION_MS = 60 * 1000 * 2  # 2 minutes
     PLAGIARISM_MAX_LAGS = 60
