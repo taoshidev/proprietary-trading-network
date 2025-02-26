@@ -175,6 +175,7 @@ class TradePair(Enum):
                 TradePairCategory.CRYPTO]
     DOGEUSD = ["DOGEUSD", "DOGE/USD", 0.001, ValiConfig.CRYPTO_MIN_LEVERAGE, ValiConfig.CRYPTO_MAX_LEVERAGE,
                 TradePairCategory.CRYPTO]
+    TAOUSD = ["TAOUSD", "TAO/USD", 0, 0, 0, TradePairCategory.CRYPTO]  # not allowed to trade, only used to calculate dollar value of emissions
 
 
     # forex

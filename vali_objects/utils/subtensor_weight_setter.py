@@ -2,7 +2,9 @@
 import bittensor as bt
 
 from time_util.time_util import TimeUtil
-from vali_objects.vali_config import ValiConfig
+from vali_objects.utils.live_price_fetcher import LivePriceFetcher
+from vali_objects.utils.vali_utils import ValiUtils
+from vali_objects.vali_config import ValiConfig, TradePair
 from shared_objects.cache_controller import CacheController
 from vali_objects.utils.position_manager import PositionManager
 from vali_objects.position import Position
@@ -12,11 +14,18 @@ from vali_objects.vali_dataclasses.perf_ledger import PerfLedger
 
 class SubtensorWeightSetter(CacheController):
     def __init__(self, config, metagraph, position_manager: PositionManager,
-                 running_unit_tests=False):
+                 running_unit_tests=False, live_price_fetcher=None):
         super().__init__(metagraph, running_unit_tests=running_unit_tests)
         self.position_manager = position_manager
         self.perf_ledger_manager = position_manager.perf_ledger_manager
         self.subnet_version = 200
+        # self.is_mainnet = config.netuid == 8
+
+        secrets = ValiUtils.get_secrets(running_unit_tests=running_unit_tests)
+        if live_price_fetcher is None:
+            self.live_price_fetcher = LivePriceFetcher(secrets=secrets)
+        else:
+            self.live_price_fetcher = live_price_fetcher
 
     def set_weights(self, wallet, netuid, subtensor, current_time: int = None):
         if not self.refresh_allowed(ValiConfig.SET_WEIGHT_REFRESH_TIME_MS):
@@ -29,6 +38,7 @@ class SubtensorWeightSetter(CacheController):
         # Collect metagraph hotkeys to ensure we are only setting weights for miners in the metagraph
         metagraph_hotkeys = list(self.metagraph.hotkeys)
         hotkey_to_idx = {hotkey: idx for idx, hotkey in enumerate(metagraph_hotkeys)}
+        hotkey_to_idx["burn_hk"] = 0  # TODO:ideal way to burn?
         idx_to_hotkey = {idx: hotkey for idx, hotkey in enumerate(metagraph_hotkeys)}
         hotkey_registration_blocks = list(self.metagraph.block_at_registration)
         target_dtao_block_zero_incentive_start = 4916273
@@ -58,6 +68,9 @@ class SubtensorWeightSetter(CacheController):
                 filtered_positions,
                 evaluation_time_ms=current_time
             )
+            tao_price, _ = self.live_price_fetcher.get_latest_price(TradePair.TAOUSD)
+            checkpoint_results = Scoring.burn_excess_weight(checkpoint_results, filtered_ledger, subtensor, tao_price)
+
             bt.logging.info(f"Sorted results for weight setting: [{sorted(checkpoint_results, key=lambda x: x[1], reverse=True)}]")
             checkpoint_netuid_weights = []
             for miner, score in checkpoint_results:

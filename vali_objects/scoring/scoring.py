@@ -122,6 +122,52 @@ class Scoring:
         return sorted(normalized_scores.items(), key=lambda x: x[1], reverse=True)
 
     @staticmethod
+    def burn_excess_weight(miner_scores, ledger, subtensor, tao_price) -> List[Tuple[str, float]]:
+        """
+        Caps a miner's weight/score based on the realtime price of alpha and emissions.
+        Excess alpha is burnt.
+
+        $ a miner makes per tempo based on returns = (miner_returns_per_day / # num_tempos_per_day) * $100,000
+        $ emitted to a miner per tempo = miner_weight * (emissions_per_tempo * 41%) * alpha_token_price * $ tao_price
+
+        The $ emitted per tempo to a miner should be capped at 10x the $ returns a miner would have made from the actual trades
+        """
+        bt.logging.info(f"Weights before burning: {miner_scores}")
+        metagraph = subtensor.metagraph(netuid=8)
+        alpha_token_price = metagraph.pool.tao_in / metagraph.pool.alpha_in
+        emissions_per_tempo = metagraph.emissions.pending_alpha_emission * 0.41  #TODO: need to verify
+        daily_blocks = (60 * 60 * 24) / 12  # each block is 12 seconds
+        num_tempos_per_day = daily_blocks / metagraph.tempo
+
+        print("alpha_token_price: ", alpha_token_price)
+        print("emissions_per_tempo: ", emissions_per_tempo)
+        print("tao price: ", tao_price)
+        print("tempos per day: ", num_tempos_per_day)
+
+        ledger_returns = LedgerUtils.ledger_returns(ledger)
+        scores_sum = 0
+
+        for miner_hk, score in miner_scores:
+            bt.logging.info(f"ledger_returns: {miner_hk}, {ledger_returns[miner_hk]}")
+            miner_returns_per_day = ledger_returns[miner_hk][-1]
+            dollar_returns_per_tempo = miner_returns_per_day / num_tempos_per_day * 100_000
+
+            dollar_emissions_per_tempo = emissions_per_tempo * alpha_token_price * tao_price
+
+            weight_cap = (dollar_returns_per_tempo * 10) / dollar_emissions_per_tempo
+
+            if score > weight_cap:
+                bt.logging.info(f"Miner scores adjusted from {score} to {weight_cap}")
+            miner_scores[miner_hk] = min(score, weight_cap)
+            scores_sum += miner_scores[miner_hk]
+
+        amount_to_burn = 1 - scores_sum
+        miner_scores["burn_hk"] = amount_to_burn
+
+        bt.logging.info(f"Weights after burning: {miner_scores}")
+        return miner_scores
+
+    @staticmethod
     def score_miners(
             ledger_dict: dict[str, PerfLedger],
             positions: dict[str, list[Position]],
