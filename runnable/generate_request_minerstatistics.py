@@ -214,6 +214,8 @@ class MinerStatisticsManager:
         Combines the minimal fields needed for the metrics plus the extra data.
         """
         miner_ledger = filtered_ledger.get(hotkey)
+        if not miner_ledger:
+            return {}
         miner_returns_ledger = LedgerUtils.cumulative(miner_ledger)
         miner_returns = LedgerUtils.ledger_returns_log({hotkey: miner_returns_ledger}).get(hotkey, [])
         miner_cps = miner_returns_ledger.cps if miner_returns_ledger else []
