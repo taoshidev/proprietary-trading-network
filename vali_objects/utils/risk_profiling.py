@@ -155,32 +155,43 @@ class RiskProfiling:
 
     @staticmethod
     def risk_assessment_time_utilization(position: Position) -> float:
-        """Flags the position if the time based criteria is not met"""
+        """Flags the position if it is determined not to contain TWAP orders"""
 
         position_orders = position.orders
-        if len(position_orders) < 2:
-            return 0    # less than two steps will never flag the position
+        if len(position_orders) < 3:
+            return 0.0    # less than 3 orders (ie 1 or 2) is not meaningful in TWAP detection
 
-        # TWAP orders are monatome_orders
-        monatome_position = RiskProfiling.monatome_positions(position)
-        monatome_orders = monatome_position.orders
+        # using only the orders up to (and including) the one that brings the position’s leverage to its maximum level
+        # first finding the idx where the max leverage is reached, if there are multiple indices, record the first idx
+        leverage_delta_arr = [order.leverage for order in position_orders]
+        aggregate_leverage_arr = np.cumsum(leverage_delta_arr)
+        max_leverage_index = int(np.argmax(np.abs(aggregate_leverage_arr)))
 
-        # now look at the time deltas between orders
-        order_times = [order.processed_ms for order in monatome_orders]
-        if position.is_closed_position:
-            order_times = order_times[:-1]      # excluding the last TP/SL order
-        time_deltas = np.diff(order_times) / 1000   # convert ms to s
+        # then collecting orders
+        position_order_subset = []
+        for i in range(0, max_leverage_index + 1):    # including the order at last_max_idx
+            order_copy = copy.deepcopy(position_orders[i])
+            position_order_subset.append(order_copy)
 
-        # If there's nothing or only one element in time_deltas, variance would be 0
-        if len(time_deltas) < 2:
+        # make sure we have at least 3 meaningful orders for TWAP detection
+        if len(position_order_subset) < 3:
             return 0.0
 
-        # Calculate variance safely
-        time_deltas_var = float(np.var(time_deltas))
-        if np.isnan(time_deltas_var):
+        # now we are ready to calculate order time intervals (time_deltas)
+        order_times = [order.processed_ms for order in position_order_subset]
+        time_deltas = np.diff(order_times)      # no need to convert ms, it will be normalized
+        total_order_time = order_times[-1] - order_times[0]
+        ideal_interval = total_order_time / (len(position_order_subset) - 1)    # there are at least 3 orders
+
+        # to avoid 0 division error
+        if ideal_interval == 0:
             return 0.0
 
-        return time_deltas_var
+        norm_errors = np.abs(time_deltas - ideal_interval) / ideal_interval
+        avg_norm_error = float(np.mean(norm_errors))
+
+        return avg_norm_error
+
 
     @staticmethod
     def risk_assessment_time_criteria(position: Position) -> bool:
