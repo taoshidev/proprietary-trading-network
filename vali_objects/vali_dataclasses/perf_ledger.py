@@ -368,7 +368,7 @@ class PerfLedgerManager(CacheController):
         self.running_unit_tests = running_unit_tests
         self.enable_rss = enable_rss
         self.parallel_mode = parallel_mode
-        bt.logging.info(f"Running performance ledger updates in parallel with {self.parallel_mode.name}")
+        bt.logging.info(f"Running performance ledger manager with parallel_mode {self.parallel_mode.name}")
 
         self.build_portfolio_ledgers_only = build_portfolio_ledgers_only
         if perf_ledger_hks_to_invalidate is None:

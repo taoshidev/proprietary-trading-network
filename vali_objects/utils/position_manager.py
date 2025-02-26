@@ -38,7 +38,8 @@ class PositionManager(CacheController):
                  secrets=None,
                  ipc_manager=None,
                  live_price_fetcher=None,
-                 is_backtesting=False):
+                 is_backtesting=False,
+                 shared_queue_websockets=None):
 
         super().__init__(metagraph=metagraph, running_unit_tests=running_unit_tests, is_backtesting=is_backtesting)
         # Populate memory with positions
@@ -46,6 +47,7 @@ class PositionManager(CacheController):
         self.perf_ledger_manager = perf_ledger_manager
         self.challengeperiod_manager = challengeperiod_manager
         self.elimination_manager = elimination_manager
+        self.shared_queue_websockets = shared_queue_websockets
 
         self.recalibrated_position_uuids = set()
 
@@ -603,6 +605,8 @@ class PositionManager(CacheController):
 
                     position.add_order(flat_order)
                     self.save_miner_position(position, delete_open_position_if_exists=True)
+                    if self.shared_queue_websockets:
+                        self.shared_queue_websockets.put(position.to_websocket_dict())
                     bt.logging.info(
                     f"Position {position.position_uuid} for hotkey {hotkey} and trade pair {position.trade_pair.trade_pair_id} has been closed. Added flat order {flat_order}")
 

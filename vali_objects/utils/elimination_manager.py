@@ -32,13 +32,15 @@ class EliminationManager(CacheController):
     """
 
     def __init__(self, metagraph, position_manager, challengeperiod_manager,
-                 running_unit_tests=False, shutdown_dict=None, ipc_manager=None, is_backtesting=False):
+                 running_unit_tests=False, shutdown_dict=None, ipc_manager=None, is_backtesting=False,
+                 shared_queue_websockets=None):
         super().__init__(metagraph=metagraph, is_backtesting=is_backtesting)
         self.position_manager = position_manager
         self.shutdown_dict = shutdown_dict
         self.challengeperiod_manager = challengeperiod_manager
         self.running_unit_tests = running_unit_tests
         self.first_refresh_ran = False
+        self.shared_queue_websockets = shared_queue_websockets
 
         if ipc_manager:
             self.eliminations = ipc_manager.list()
@@ -108,6 +110,8 @@ class EliminationManager(CacheController):
             if source_for_elimination:
                 position.orders[-1].price_sources.append(source_for_elimination)
             self.position_manager.save_miner_position(position, delete_open_position_if_exists=True)
+            if self.shared_queue_websockets:
+                self.shared_queue_websockets.put(position.to_websocket_dict())
             bt.logging.info(f'Added flat order for miner {hotkey} that has been eliminated. '
                             f'Trade pair: {position.trade_pair.trade_pair_id}. flat order: {flat_order}. '
                             f'position uuid {position.position_uuid}. Source for elimination {source_for_elimination}')

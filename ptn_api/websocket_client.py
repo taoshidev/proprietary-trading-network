@@ -1,0 +1,507 @@
+import asyncio
+import json
+import os
+import sys
+import signal
+import random
+import websockets
+import traceback
+from typing import Callable, List, Optional, Dict, Any
+
+from vali_objects.position import Position
+from vali_objects.utils.vali_bkp_utils import CustomEncoder
+from time_util.time_util import TimeUtil
+
+
+class PTNWebSocketMessage:
+    """Wrapper for websocket messages with helpful accessors."""
+
+    def __init__(self, raw_message: Dict[str, Any], clock_offset_ms):
+        #print('raw_message', raw_message)
+        if isinstance(raw_message, dict):
+            raw_data = raw_message['data']
+        elif isinstance(raw_message, str):
+            raw_data = json.loads(raw_message)['data']
+        else:
+            raise Exception(f'Invalid message format: {raw_message}')
+
+        data = raw_data['position']
+        #tp_id = data['trade_pair_id']
+        #data['trade_pair'] = TradePair.get_latest_trade_pair_from_trade_pair_id(tp_id)
+        self.position = Position(**data)
+        self.new_order = self.position.orders[-1]
+
+        self.sequence = raw_message.get("sequence")
+        self.timestamp = raw_message.get("timestamp")
+        now_ms = TimeUtil.now_in_millis()
+        self.timelag_from_order = abs(now_ms - self.new_order.processed_ms) - clock_offset_ms
+        if self.timelag_from_order > 10000:
+            print(f"WARNING: Timelag from new order is unusually high: {self.timelag_from_order}ms. Consider ignoring this order.")
+        self.timelag_from_queue = abs(now_ms - self.timestamp) - clock_offset_ms
+
+
+    def __str__(self) -> str:
+
+        # Format the position summary in a more readable way
+        position_summary = json.dumps(self.position.compact_dict_no_orders(), indent=2, cls=CustomEncoder)
+
+        # Format the new order in a more readable way
+        new_order = json.dumps(self.new_order.to_python_dict(), indent=2, cls=CustomEncoder)
+
+        return (f"PTNWebSocketMessage(seq={self.sequence})\n"
+                f"Position Summary:\n{position_summary}\n"
+                f"New Order:\n{new_order}\n"
+                f"Approx Timelag (ms): from_queue={self.timelag_from_queue}, from_order={self.timelag_from_order}")
+
+    def __repr__(self) -> str:
+        return self.__str__()
+
+
+
+class PTNWebSocketClient:
+    """Client for connecting to WebSocket server with authentication and subscription capabilities."""
+
+    def __init__(self,
+                 api_key: Optional[str] = None,
+                 host: str = "localhost",
+                 port: int = 8765,
+                 secure: bool = False):
+        """Initialize the WebSocket client.
+
+        Args:
+            api_key: API key for authentication
+            host: WebSocket server hostname
+            port: WebSocket server port
+            secure: Whether to use secure WebSocket (wss://) or not
+        """
+        protocol = "wss" if secure else "ws"
+        self.uri = f"{protocol}://{host}:{port}"
+        self.api_key = api_key
+
+        # Connection state
+        self.connected = False
+        self.websocket = None
+
+        # Sequence tracking
+        self.last_sequence = -1
+        self._sequence_file = f"client_sequence_{api_key}.txt"
+        self._load_sequence()
+
+        # Subscription management
+        self.subscribed = False
+
+        # Message processing
+        self.message_handlers = []
+        self.message_buffer = {}
+
+        # Statistics
+        self.messages_received = 0
+        self.messages_processed = 0
+
+        # Retry logic
+        self._initial_backoff = 1
+        self._max_backoff = 60
+        self._jitter = 0.1
+        self.force_quit = False
+        self.clock_offset_estimate_ms = 0
+        self.n_pongs = 0
+
+        print(f"WebSocketClient initialized with URI: {self.uri}")
+
+    def stop(self):
+        """Signal the client to shut down."""
+        self.force_quit = True
+        if self.websocket:
+            try:
+                # schedule a clean close; close() returns a coroutine
+                asyncio.get_event_loop().create_task(self.websocket.close())
+            except Exception:
+                # if the loop is gone or websocket is already closing, ignore
+                pass
+
+    # Add to WebSocketClient class
+    async def _periodic_ping(self):
+        """Send periodic pings to measure latency."""
+        while self.connected and not self.force_quit:
+            if await self.send_ping():
+                #print("Ping sent")
+                pass
+            await asyncio.sleep(30)  # Send ping every 30 seconds
+
+    # Add to the WebSocketClient class
+    async def send_ping(self):
+        """Send a ping message to the server and track when it was sent."""
+        if not self.connected or not self.websocket:
+            return False
+
+        ping_timestamp = TimeUtil.now_in_millis()
+        ping_message = {
+            "type": "ping",
+            "timestamp": ping_timestamp
+        }
+
+        try:
+            await self.websocket.send(json.dumps(ping_message))
+            return True
+        except Exception as e:
+            print(f"Error sending ping: {e}")
+            return False
+
+    def _load_sequence(self) -> None:
+        """Load the last processed sequence number from disk."""
+        try:
+            if os.path.exists(self._sequence_file):
+                with open(self._sequence_file, 'r') as f:
+                    self.last_sequence = int(f.read().strip())
+        except Exception as e:
+            print(f"Error loading sequence number: {e}")
+            self.last_sequence = -1
+
+    def _save_sequence(self) -> None:
+        """Save the current sequence number to disk."""
+        try:
+            with open(self._sequence_file, 'w') as f:
+                f.write(str(self.last_sequence))
+        except Exception as e:
+            print(f"Error saving sequence number: {e}")
+
+    def subscribe(self) -> None:
+        """Subscribe to all market data."""
+        print("Subscribing to all market data")
+        self.subscribed = True  # Mark as subscribed regardless of connection state
+
+        # If already connected, send subscription message
+        if self.connected and self.websocket:
+            asyncio.create_task(self._send_subscription())
+
+    def unsubscribe(self) -> None:
+        """Unsubscribe from all market data."""
+        print("Unsubscribing from all market data")
+
+        # If connected, send unsubscription message
+        if self.connected and self.websocket:
+            asyncio.create_task(self._send_unsubscription())
+
+    async def _send_subscription(self) -> None:
+        """Send subscription message to the server."""
+        if not self.connected or not self.websocket:
+            return
+
+        sub_message = {
+            "type": "subscribe",
+            "sender_timestamp": TimeUtil.now_in_millis(),
+            "all": True
+        }
+        await self.websocket.send(json.dumps(sub_message))
+        self.subscribed = True
+
+    async def _send_unsubscription(self) -> None:
+        """Send unsubscription message to the server."""
+        if not self.connected or not self.websocket:
+            return
+
+        unsub_message = {
+            "type": "unsubscribe",
+            "all": True
+        }
+        await self.websocket.send(json.dumps(unsub_message))
+        self.subscribed = False
+
+    async def _authenticate(self) -> None:
+        """Send authentication message with API key and last sequence number."""
+        if not self.api_key:
+            raise ValueError("API key is required for authentication")
+
+        auth_message = {
+            "api_key": self.api_key,
+            "last_sequence": self.last_sequence
+        }
+
+        await self.websocket.send(json.dumps(auth_message))
+
+        # Wait for auth response
+        response = await self.websocket.recv()
+        response_data = json.loads(response)
+
+        if response_data.get("status") != "success":
+            error_msg = response_data.get("message", "Authentication failed")
+            raise Exception(f"Authentication error: {error_msg}")
+
+        # Update sequence if needed
+        server_sequence = response_data.get("current_sequence", 0)
+        if server_sequence > self.last_sequence:
+            self.last_sequence = server_sequence
+            self._save_sequence()
+
+        print(f"Authentication successful, server sequence: {server_sequence}")
+
+    async def _process_messages(self) -> None:
+        """Process incoming messages and dispatch to handlers."""
+        while True:
+            try:
+                # Add a timeout to detect server disconnection faster
+                message = await asyncio.wait_for(self.websocket.recv(), timeout=60)
+                data = json.loads(message)
+
+                # Handle batch messages
+                if data.get("type") == "batch" and "messages" in data:
+                    messages = []
+                    for item in data["messages"]:
+                        if "sequence" in item:
+                            self.last_sequence = max(self.last_sequence, item["sequence"])
+                            messages.append(PTNWebSocketMessage(item, self.clock_offset_estimate_ms))
+
+                    # Call handlers with the batch of messages
+                    if messages and self.message_handlers:
+                        for handler in self.message_handlers:
+                            await self._call_handler(handler, messages)
+
+                # Handle single messages
+                elif "sequence" in data:
+                    self.last_sequence = max(self.last_sequence, data["sequence"])
+                    message_obj = PTNWebSocketMessage(data, self.clock_offset_estimate_ms)
+
+                    # Call handlers with a list containing one message
+                    if self.message_handlers:
+                        for handler in self.message_handlers:
+                            await self._call_handler(handler, [message_obj])
+
+                # Handle subscription status messages
+                elif data.get("type") == "subscription_status":
+                    now_ms = TimeUtil.now_in_millis()
+                    roundtrip_lag = now_ms - data.get("sender_timestamp", 0)
+                    # Clocks on the sender and receiver are offset. Lets quantify this.
+                    one_way_travel_time =  roundtrip_lag // 2
+                    expected_received_timestamp = data.get("sender_timestamp", 0) + one_way_travel_time
+                    clock_offset = data.get("received_timestamp", 0) - expected_received_timestamp
+                    self.clock_offset_estimate_ms = abs(clock_offset)
+                    formatted_lags = f"roundtrip: {roundtrip_lag}ms. detected clock offset {clock_offset}ms"
+                    print(f"Subscription status: {data.get('status')} for action: {data.get('action')} "
+                          f"with time lags: {formatted_lags}")
+
+
+                # Update the part in _process_messages that handles pong messages
+                elif data.get("type") == "pong":
+                    self.n_pongs += 1
+                    send_timestamp = data.get("client_timestamp", 0)
+                    server_timestamp = data.get("server_timestamp", 0)
+                    received_timestamp = TimeUtil.now_in_millis()
+                    roundtrip_ms = received_timestamp - send_timestamp
+                    expected_server_timestamp = send_timestamp + roundtrip_ms // 2
+                    clock_offset_estimate_ms = server_timestamp - expected_server_timestamp
+                    if self.n_pongs % 5 == 0:
+                        print(f"Ping roundtrip: {roundtrip_ms}ms, clock offset estimate: {clock_offset_estimate_ms}ms")
+                    self.clock_offset_estimate_ms = abs(clock_offset_estimate_ms)
+
+            except asyncio.TimeoutError:
+                # No message received within timeout, check if connection is still alive
+                try:
+                    # Send a ping frame to check connection
+                    pong_waiter = await self.websocket.ping()
+                    await asyncio.wait_for(pong_waiter, timeout=5)
+                    print("Connection still alive (ping-pong successful)")
+                except Exception:
+                    print("Connection appears to be dead (ping failed)")
+                    # Let connection be re-established by breaking out of the loop
+                    break
+            except websockets.exceptions.ConnectionClosed:
+                print("Connection closed by server")
+                break
+            except json.JSONDecodeError as e:
+                print(f"Received invalid JSON: {e}")
+                # Continue processing other messages
+            except Exception as e:
+                print(f"Error processing message: {e}")
+                traceback.print_exc()
+                # Continue processing other messages
+
+    async def _call_handler(self, handler: Callable, messages: List[PTNWebSocketMessage]) -> None:
+        """Call a message handler with proper error handling.
+
+        Args:
+            handler: Handler function/coroutine to call
+            messages: List of PTNWebSocketMessage objects to pass to the handler
+        """
+        try:
+            if asyncio.iscoroutinefunction(handler):
+                await handler(messages)
+            else:
+                # Call synchronous handler
+                handler(messages)
+
+            self.messages_processed += len(messages)
+        except Exception as e:
+            print(f"Error in message handler: {e}")
+            traceback.print_exc()
+
+    async def _connect(self) -> None:
+        """Connect to the WebSocket server with retry logic."""
+        backoff = self._initial_backoff
+
+        while not self.force_quit:
+            try:
+                # First try to establish a connection
+                try:
+                    websocket = await websockets.connect(
+                        self.uri,
+                        ping_interval=30,
+                        close_timeout=5,  # Give more time for graceful close
+                        max_size=None  # No limit on message size
+                    )
+                    self.websocket = websocket
+                    self.connected = True
+                    print(f"Connected to {self.uri}")
+                except Exception as conn_err:
+                    print(f"Connection error: {conn_err}")
+                    # Apply exponential backoff with jitter
+                    jitter_amount = random.uniform(-self._jitter, self._jitter)
+                    adjusted_backoff = backoff * (1 + jitter_amount)
+
+                    print(f"Reconnecting in {adjusted_backoff:.2f} seconds...")
+                    await asyncio.sleep(adjusted_backoff)
+
+                    # Increase backoff for next attempt
+                    backoff = min(backoff * 2, self._max_backoff)
+                    continue  # Skip to next iteration to retry connection
+
+                # Now that we have a connection, try to authenticate
+                try:
+                    # Authenticate
+                    await self._authenticate()
+
+                    # Reset backoff on successful connection and authentication
+                    backoff = self._initial_backoff
+
+                    # Always resubscribe after authentication, regardless of previous state
+                    print("Sending subscription after authentication")
+                    await self._send_subscription()
+                    self.subscribed = True
+
+                    # Start periodic ping for latency measurement
+                    ping_task = asyncio.create_task(self._periodic_ping())
+
+                    try:
+                        # Process messages until connection closes
+                        await self._process_messages()
+                    finally:
+                        # Ensure ping task is cancelled when message processing ends
+                        ping_task.cancel()
+                        try:
+                            await ping_task
+                        except asyncio.CancelledError:
+                            pass
+
+                except (websockets.exceptions.ConnectionClosed, EOFError) as e:
+                    print(f"Connection closed: {e}")
+                    self.connected = False
+                    self.websocket = None
+
+                    # We'll automatically resubscribe on reconnection, so no need to reset subscribed flag
+                    print("Connection lost. Will resubscribe on reconnection.")
+
+                    # Use a shorter backoff for connection loss after successful connection
+                    backoff = self._initial_backoff
+                    await asyncio.sleep(1)  # Short delay before reconnect attempt
+                    continue
+                except Exception as e:
+                    if "Authentication error" in str(e):
+                        print(f"{e}. Invalid API key — stopping retries.")
+                        self.stop()
+                        return
+
+                    print(f"Error during communication: {e}")
+                    if self.websocket:
+                        await self.websocket.close()
+                    self.connected = False
+                    self.websocket = None
+                    await asyncio.sleep(1)  # Short delay before reconnect attempt
+                    continue
+
+            except Exception as e:
+                print(f"Unexpected error in connection loop: {e}")
+                traceback.print_exc()
+                self.connected = False
+                self.websocket = None
+
+                # Apply exponential backoff with jitter
+                jitter_amount = random.uniform(-self._jitter, self._jitter)
+                adjusted_backoff = backoff * (1 + jitter_amount)
+
+                print(f"Reconnecting in {adjusted_backoff:.2f} seconds...")
+                await asyncio.sleep(adjusted_backoff)
+
+                # Increase backoff for next attempt
+                backoff = min(backoff * 2, self._max_backoff)
+    def run(self, handler: Optional[Callable[[List[PTNWebSocketMessage]], None]] = None) -> None:
+        """Run the client with the given message handler.
+
+        Args:
+            handler: Function to call for each batch of messages
+        """
+        if handler:
+            self.message_handlers.append(handler)
+
+        try:
+            # Set up proper signal handling
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+
+            # Add signal handlers for graceful shutdown
+            for signal_name in ('SIGINT', 'SIGTERM'):
+                try:
+                    loop.add_signal_handler(
+                        getattr(signal, signal_name),
+                        lambda: asyncio.create_task(self._shutdown(loop))
+                    )
+                except (NotImplementedError, AttributeError):
+                    # Windows doesn't support SIGTERM
+                    pass
+
+            # Run the connection loop
+            loop.run_until_complete(self._connect())
+            loop.close()
+        except KeyboardInterrupt:
+            print("Client shutting down due to keyboard interrupt...")
+            self._save_sequence()
+        except Exception as e:
+            print(f"Client error: {e}")
+            traceback.print_exc()
+            self._save_sequence()
+
+    async def _shutdown(self, loop):
+        """Handle graceful shutdown."""
+        print("Shutting down client...")
+
+        # Save sequence number
+        self._save_sequence()
+
+        # Close the websocket if it's open
+        if self.websocket and self.connected:
+            try:
+                await self.websocket.close()
+            except Exception as e:
+                print(f"Error closing websocket: {e}")
+
+        # Stop the event loop
+        loop.stop()
+
+
+# For standalone testing
+if __name__ == "__main__":
+    # Get API key from command line argument or use default
+    api_key = sys.argv[1] if len(sys.argv) > 1 else "test_key"
+    host = sys.argv[2] if len(sys.argv) > 2 else "localhost"
+    port = int(sys.argv[3]) if len(sys.argv) > 3 else 8765
+
+
+    # Define a simple message handler
+    def handle_messages(messages):
+        for msg in messages:
+            print(f"\nReceived message {msg}\n--------------------------------------------------------------------")
+
+    # Create client
+    print(f"Connecting to ws://{host}:{port} with API key: {api_key}")
+    client = PTNWebSocketClient(api_key=api_key, host=host, port=port)
+
+    # Run client
+    client.run(handle_messages)
