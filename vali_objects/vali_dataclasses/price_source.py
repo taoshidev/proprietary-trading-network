@@ -98,7 +98,7 @@ class PriceSource(BaseModel):
                 ans = self.open
             else:
                 ans = self.close
-        bt.logging.success(f'Parsed appropriate price {ans} from price_source {self} for order type {order_type} and position {position}')
+        #bt.logging.success(f'Parsed appropriate price {ans} from price_source {self} for order type {order_type} and trade_pair {position.trade_pair.trade_pair_id}')
         return ans
 
     @staticmethod

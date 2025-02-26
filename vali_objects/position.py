@@ -241,6 +241,14 @@ class Position(BaseModel):
         d = deepcopy(self.dict())
         return self._handle_trade_pair_encoding(d)
 
+    def compact_dict_no_orders(self):
+        temp = self.to_dict()
+        temp.pop('orders')
+        return temp
+
+    def to_websocket_dict(self):
+        return {'position': self.to_dict()}
+
     @property
     def is_open_position(self):
         return not self.is_closed_position
