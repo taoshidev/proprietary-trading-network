@@ -3,7 +3,6 @@ import gzip
 import json
 import os
 import hashlib
-from typing import List
 
 from google.cloud import storage
 
