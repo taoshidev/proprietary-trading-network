@@ -38,7 +38,7 @@ class PositionPenalties:
         Args:
             positions: dict[str, list[Position]] - the list of equivalent positions for processing
         """
-        positions_equivalence = PositionUtils.positional_equivalence(positions)
+        # positions_equivalence = PositionUtils.positional_equivalence(positions)
 
         # Now track the positions
         clean_position_penalty = RiskProfiling.risk_profile_score_list(positions)

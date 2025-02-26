@@ -32,6 +32,19 @@ class PositionUtils:
         )
 
     @staticmethod
+    def build_pseudo_positions(
+            positions: dict[str, list[Position]]
+    ) -> dict[str, list[Position]]:
+        """
+        Args:
+            positions: dict[str, list[Position]] - the positions
+        """
+        pseudo_positions = {}
+        for miner_key, miner_positions in positions.items():
+            pseudo_positions[miner_key] = PositionUtils.positional_equivalence(miner_positions)
+        return pseudo_positions
+
+    @staticmethod
     def positional_equivalence(
             cumulative_leverage_positions: list[Position],
             evaluation_window_ms: int = None

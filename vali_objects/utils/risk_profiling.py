@@ -11,113 +11,230 @@ from vali_objects.utils.functional_utils import FunctionalUtils
 
 class RiskProfiling:
     @staticmethod
-    def monatome_positions(position: Position) -> Position:
-        """Return the length of monatomically increasing leverage on losing positions"""
+    def monotonic_positions(position: Position) -> Position:
+        """
+        Extract orders with monotonically increasing leverage on losing positions.
+
+        This function identifies orders that increase leverage while the position is losing,
+        which may indicate risky trading behavior such as "doubling down" on losing trades.
+
+        Args:
+            position: Position object containing order history
+
+        Returns:
+            Position: A copy of the position with only the monotonically increasing leverage orders
+                     on losing trades. Returns an empty position if no such orders are found.
+        """
         position_copy = copy.deepcopy(position)
-        position_orders = position.orders
+        position_orders = position_copy.orders
         position_order_subset = []
 
         if len(position_orders) < 2:
-            return 0  # less than two steps will never flag the position
+            position_copy.orders = []
+            return position_copy
 
-        position_direction = 1 if position_orders[0].order_type == OrderType.LONG else -1  # dot product with this and price delta will yield the return
+        # Determine if it's a LONG or SHORT position
+        is_long = position_orders[0].order_type == OrderType.LONG
+        position_direction = 1 if is_long else -1
+
         final_active_order = len(position_orders) if not position.is_closed_position else len(position_orders) - 1
 
-        # We now need to track aggregate leverages
-        aggregate_leverage = position_orders[0].leverage
-        total_weighted_price = position_orders[0].price * position_orders[0].leverage
+        # For SHORT positions, leverage is negative, so we need to take the absolute value for calculations
+        # but preserve the sign for direction checks
+        initial_leverage = position_orders[0].leverage
+        aggregate_leverage = abs(initial_leverage)
+
+        total_weighted_price = position_orders[0].price * abs(initial_leverage)
         avg_in_price = total_weighted_price / aggregate_leverage
 
+        # Previous order's leverage, used to determine if leverage is increasing
+        prev_leverage = initial_leverage
+
         for i in range(1, final_active_order):
-            price_delta = ((position_orders[i].price - avg_in_price) / avg_in_price) * 100
-            leverage_delta = position_orders[i].leverage
-            aggregate_leverage += leverage_delta
+            current_order = position_orders[i]
+            current_leverage = current_order.leverage
 
-            if price_delta * position_direction < 0:  # price is moving against the position
-                if leverage_delta * position_direction > 0:  # leverage is increasing in the original direction
-                    # now we know that leverage is increasing against a losing position
-                    order_copy = copy.deepcopy(position_orders[i])
-                    order_copy.leverage = aggregate_leverage
-                    position_order_subset.append(order_copy)
+            # Price movement is against the position if:
+            # - For LONG: price decreases (current < avg)
+            # - For SHORT: price increases (current > avg)
+            price_delta = ((current_order.price - avg_in_price) / avg_in_price) * 100
+            is_losing = (price_delta * position_direction < 0)
 
-            # updating the average cost of the position
-            total_weighted_price += position_orders[i].price * position_orders[i].leverage
+            # Calculate the new aggregate leverage after adding this order
+            new_aggregate_leverage = aggregate_leverage + abs(current_leverage)
+
+            # Leverage is increasing if the new aggregate leverage is greater than the previous aggregate
+            leverage_increased = new_aggregate_leverage > aggregate_leverage
+
+            # Calculate absolute leverage delta for weighted average calculation
+            leverage_delta_abs = abs(current_leverage)
+            new_aggregate_leverage = aggregate_leverage + leverage_delta_abs
+
+            # Flag if position is losing and leverage increased
+            if is_losing and leverage_increased:
+                order_copy = copy.deepcopy(current_order)
+                # Store the aggregate leverage for monotonicity check later
+                order_copy.leverage = aggregate_leverage if is_long else -aggregate_leverage
+                position_order_subset.append(order_copy)
+
+            # Update aggregate leverage for next iteration
+            aggregate_leverage = new_aggregate_leverage
+
+            # Update weighted price and average entry price
+            total_weighted_price += current_order.price * leverage_delta_abs
             avg_in_price = total_weighted_price / aggregate_leverage
+            prev_leverage = current_leverage
 
-        # now filter for leverages that are non-monatome -> i.e. just parse out the monotone elements
+        # Filter for monotonically increasing leverage
         monotone_component = []
         prior_max_leverage = 0
+
         for position_order in position_order_subset:
-            if abs(position_order.leverage) > prior_max_leverage:
+            current_abs_leverage = abs(position_order.leverage)
+            if current_abs_leverage > prior_max_leverage:
                 monotone_component.append(position_order)
-                prior_max_leverage = abs(position_order.leverage)
+                prior_max_leverage = current_abs_leverage
 
         position_copy.orders = monotone_component
         return position_copy
 
     @staticmethod
     def risk_assessment_steps_utilization(position: Position) -> int:
-        """Flags if the number of steps for a losing position is a concern"""
+        """
+        Count the number of steps where leverage was increased on a losing position.
+
+        This function identifies how many times a trader increased leverage while
+        the position was already losing, which may indicate risky trading behavior.
+
+        Args:
+            position: Position object containing order history
+
+        Returns:
+            int: The number of orders where leverage was increased on a losing position.
+                 Higher values indicate more aggressive risk-taking.
+        """
         position_orders = position.orders
         position_flagged_orders = []
 
         if len(position_orders) < 2:
             return 0  # less than two steps will never flag the position
 
-        position_direction = 1 if position_orders[0].order_type == OrderType.LONG else -1  # dot product with this
+        # Determine if it's a LONG or SHORT position
+        is_long = position_orders[0].order_type == OrderType.LONG
+        position_direction = 1 if is_long else -1
+
         final_active_order = len(position_orders) if not position.is_closed_position else len(position_orders) - 1
 
-        aggregate_leverage = position_orders[0].leverage
-        total_weighted_price = position_orders[0].price * position_orders[0].leverage
+        # Initialize with first order
+        initial_leverage = position_orders[0].leverage
+        aggregate_leverage = max(abs(initial_leverage), ValiConfig.RISK_PROFILING_STEPS_MIN_LEVERAGE)
+
+        total_weighted_price = position_orders[0].price * aggregate_leverage
         avg_in_price = total_weighted_price / aggregate_leverage
 
         for i in range(1, final_active_order):
-            price_delta = ((position_orders[i].price - avg_in_price) / avg_in_price) * 100
-            leverage_delta = position_orders[i].leverage
-            aggregate_leverage += leverage_delta
+            current_order = position_orders[i]
+            current_leverage = current_order.leverage
 
-            if price_delta * position_direction < 0:  # price is moving against the position
-                if leverage_delta * position_direction > 0:  # leverage is increasing in the original direction
-                    # now we know that leverage is increasing against a losing position
-                    position_flagged_orders.append(position_orders[i])
+            # Check if position is losing
+            price_delta = ((current_order.price - avg_in_price) / avg_in_price) * 100
+            is_losing = (price_delta * position_direction < 0)
 
-            # updating average cost of the position
-            total_weighted_price += position_orders[i].price * position_orders[i].leverage
+            # Check if leverage is being added in the same direction as the position
+            is_adding_leverage = (current_leverage > 0 and is_long) or (current_leverage < 0 and not is_long)
+
+            # Flag if position is losing and adding leverage in the same direction
+            if is_losing and is_adding_leverage:
+                position_flagged_orders.append(current_order)
+
+            # Update aggregate leverage (add absolute value for calculations)
+            aggregate_leverage += abs(current_leverage)
+
+            # Update weighted average price
+            total_weighted_price += current_order.price * abs(current_leverage)
             avg_in_price = total_weighted_price / aggregate_leverage
 
         return len(position_flagged_orders)
 
     @staticmethod
     def risk_assessment_steps_criteria(position: Position) -> bool:
+        """
+        Determine if a position exceeds the steps criteria threshold for risk.
+
+        This function checks if the number of steps where leverage was increased
+        on a losing position exceeds the configured threshold.
+
+        Args:
+            position: Position object containing order history
+
+        Returns:
+            bool: True if the position exceeds the steps criteria threshold, False otherwise.
+        """
         utilization = RiskProfiling.risk_assessment_steps_utilization(position)
         return utilization >= ValiConfig.RISK_PROFILING_STEPS_CRITERIA
 
     @staticmethod
-    def risk_assessment_monatome_utilization(position: Position) -> int:
-        """Return the length of monatomically increasing leverage on losing positions"""
-        monotone_position = RiskProfiling.monatome_positions(position)
+    def risk_assessment_monotonic_utilization(position: Position) -> int:
+        """
+        Count the number of orders with monotonically increasing leverage on losing positions.
+
+        This function measures how many orders are part of a monotonically increasing
+        leverage pattern on a losing position, which may indicate risky trading behavior.
+
+        Args:
+            position: Position object containing order history
+
+        Returns:
+            int: The number of orders with monotonically increasing leverage on losing trades.
+        """
+        monotone_position = RiskProfiling.monotonic_positions(position)
+        if monotone_position == 0:  # if there are less than 2 orders, monotone_positions method returns 0
+            return 0
         monotone_orders = monotone_position.orders
 
         return len(monotone_orders)
 
     @staticmethod
-    def risk_assessment_monatome_criteria(position: Position) -> bool:
-        utilization = RiskProfiling.risk_assessment_monatome_utilization(position)
-        return utilization >= ValiConfig.RISK_PROFILING_MONOTONE_CRITERIA
+    def risk_assessment_monotonic_criteria(position: Position) -> bool:
+        """
+        Determine if a position exceeds the monotonic criteria threshold for risk.
+
+        This function checks if the number of orders with monotonically increasing leverage
+        on a losing position exceeds the configured threshold.
+
+        Args:
+            position: Position object containing order history
+
+        Returns:
+            bool: True if the position exceeds the monotonic criteria threshold, False otherwise.
+        """
+        utilization = RiskProfiling.risk_assessment_monotonic_utilization(position)
+        return utilization >= ValiConfig.RISK_PROFILING_MONOTONIC_CRITERIA
 
     @staticmethod
     def risk_assessment_margin_utilization(position: Position) -> float:
-        """Flags if the position was using high levels of margin for the position"""
+        """
+        Calculate the margin utilization ratio of a position.
+
+        This function measures how much of the available margin range the position
+        utilizes, which indicates the relative risk in terms of leverage usage.
+
+        Args:
+            position: Position object containing order history
+
+        Returns:
+            float: A value between 0 and 1 representing the margin utilization,
+                  where higher values indicate higher utilization of available margin.
+        """
         # First track the margin range
         position_trade_pair: TradePair = position.trade_pair
         position_trade_pair_min_leverage = position_trade_pair.min_leverage
         position_trade_pair_max_leverage = position_trade_pair.max_leverage
+        assert position_trade_pair_min_leverage < position_trade_pair_max_leverage, "Min leverage must be less than max leverage for all trade pairs"
 
         # Now compute the cumulative leverages on the position since inception
         positional_delta_leverages = [x.leverage for x in position.orders]
         positional_aggregate_leverages = np.abs(np.cumsum(positional_delta_leverages))
-
-        base_leverage = positional_aggregate_leverages[0]
         max_utilized_leverage = max(positional_aggregate_leverages)
 
         margin_utilization = (max_utilized_leverage - position_trade_pair_min_leverage) / (position_trade_pair_max_leverage - position_trade_pair_min_leverage)
@@ -126,36 +243,83 @@ class RiskProfiling:
 
     @staticmethod
     def risk_assessment_margin_criteria(position: Position) -> bool:
+        """
+        Determine if a position exceeds the margin criteria threshold for risk.
+
+        This function checks if the margin utilization ratio exceeds the configured threshold.
+
+        Args:
+            position: Position object containing order history
+
+        Returns:
+            bool: True if the position exceeds the margin criteria threshold, False otherwise.
+        """
         utilization = RiskProfiling.risk_assessment_margin_utilization(position)
         return utilization >= ValiConfig.RISK_PROFILING_MARGIN_CRITERIA
 
     @staticmethod
     def risk_assessment_leverage_advancement_utilization(position: Position) -> float:
-        """Flags if the position was using high levels of margin for the position"""
-        # First track the leverage range
-        position_trade_pair: TradePair = position.trade_pair
-        position_trade_pair_min_leverage = position_trade_pair.min_leverage
-        position_trade_pair_max_leverage = position_trade_pair.max_leverage
+        """
+        Calculate the leverage advancement ratio for a position.
 
+        This function measures how much the position's leverage has increased from
+        its initial level, which indicates increasing risk-taking behavior.
+
+        Args:
+            position: Position object containing order history
+
+        Returns:
+            float: The ratio of maximum leverage to initial leverage.
+                  A value of 1.0 means no increase, while higher values indicate
+                  more aggressive leverage increases.
+        """
         # Now compute the cumulative leverages on the position since inception
         positional_delta_leverages = [x.leverage for x in position.orders]
+        if not positional_delta_leverages:
+            return 0.0  # Default to no advancement for empty positions
+
+        # if the position is closed, excluding the last closing order from analysis
+        if position.is_closed_position and len(position.orders) > 1:
+            positional_delta_leverages = positional_delta_leverages[:-1]
+
         positional_aggregate_leverages = np.abs(np.cumsum(positional_delta_leverages))
-
-        base_leverage = positional_aggregate_leverages[0]
         max_utilized_leverage = max(positional_aggregate_leverages)
-
-        leverage_advancement = max_utilized_leverage / base_leverage
+        min_utilized_leverage = max(min(positional_aggregate_leverages), ValiConfig.RISK_PROFILING_STEPS_MIN_LEVERAGE)
+        leverage_advancement = max_utilized_leverage / min_utilized_leverage
 
         return leverage_advancement
 
     @staticmethod
     def risk_assessment_leverage_advancement_criteria(position: Position) -> bool:
+        """
+        Determine if a position exceeds the leverage advancement criteria threshold for risk.
+
+        This function checks if the leverage advancement ratio exceeds the configured threshold.
+
+        Args:
+            position: Position object containing order history
+
+        Returns:
+            bool: True if the position exceeds the leverage advancement criteria threshold, False otherwise.
+        """
         utilization = RiskProfiling.risk_assessment_leverage_advancement_utilization(position)
         return utilization >= ValiConfig.RISK_PROFILING_LEVERAGE_ADVANCE
 
     @staticmethod
     def risk_assessment_time_utilization(position: Position) -> float:
-        """Flags the position if it is determined not to contain TWAP orders"""
+        """
+        Calculate the time utilization metric for a position.
+
+        This function measures how evenly spaced the orders are in time, which can
+        help identify suspicious trading patterns like TWAP avoidance.
+
+        Args:
+            position: Position object containing order history
+
+        Returns:
+            float: The average normalized error of order time intervals.
+                  Higher values indicate more uneven time spacing between orders.
+        """
 
         position_orders = position.orders
         if len(position_orders) < 3:
@@ -163,9 +327,9 @@ class RiskProfiling:
 
         # using only the orders up to (and including) the one that brings the position’s leverage to its maximum level
         # first finding the idx where the max leverage is reached, if there are multiple indices, record the first idx
-        leverage_delta_arr = [order.leverage for order in position_orders]
-        aggregate_leverage_arr = np.cumsum(leverage_delta_arr)
-        max_leverage_index = int(np.argmax(np.abs(aggregate_leverage_arr)))
+        positional_leverage_deltas = [order.leverage for order in position_orders]
+        positional_aggregate_leverages = np.abs(np.cumsum(positional_leverage_deltas))
+        max_leverage_index = int(np.argmax(positional_aggregate_leverages))
 
         # then collecting orders
         position_order_subset = []
@@ -195,19 +359,45 @@ class RiskProfiling:
 
     @staticmethod
     def risk_assessment_time_criteria(position: Position) -> bool:
+        """
+        Determine if a position exceeds the time criteria threshold for risk.
+
+        This function checks if the time utilization metric exceeds the configured threshold.
+
+        Args:
+            position: Position object containing order history
+
+        Returns:
+            bool: True if the position exceeds the time criteria threshold, False otherwise.
+        """
         utilization = RiskProfiling.risk_assessment_time_utilization(position)
         return utilization >= ValiConfig.RISK_PROFILING_TIME_CRITERIA
 
 
     @staticmethod
     def risk_profile_single(position: Position) -> dict:
-        """Determines the relative risk profile of various assets."""
+        """
+        Create a comprehensive risk profile for a single position.
+
+        This function evaluates a position against all risk criteria and produces
+        a detailed report of the risk factors and overall risk assessment.
+
+        Args:
+            position: Position object containing order history
+
+        Returns:
+            dict: A dictionary containing the position's risk profile, including:
+                - position_return: The percentage return of the position
+                - relative_weighting_strength: The weighting strength based on return
+                - overall_flag: Whether the position is flagged as risky (1=risky, 0=not risky)
+                - Individual risk utilization and criteria results for all risk factors
+        """
         # Apply the appropriate classifier based on the asset class
         steps_utilization = RiskProfiling.risk_assessment_steps_utilization(position)
         steps_criteria = int(RiskProfiling.risk_assessment_steps_criteria(position))
 
-        monatome_utilization = RiskProfiling.risk_assessment_monatome_utilization(position)
-        monatome_criteria = int(RiskProfiling.risk_assessment_monatome_criteria(position))
+        monotonic_utilization = RiskProfiling.risk_assessment_monotonic_utilization(position)
+        monotonic_criteria = int(RiskProfiling.risk_assessment_monotonic_criteria(position))
 
         margin_utilization = RiskProfiling.risk_assessment_margin_utilization(position)
         margin_criteria = int(RiskProfiling.risk_assessment_margin_criteria(position))
@@ -227,8 +417,8 @@ class RiskProfiling:
             "overall_flag": overall_flag,
             "steps_utilization": steps_utilization,
             "steps_criteria": steps_criteria,
-            "monatome_utilization": monatome_utilization,
-            "monatome_criteria": monatome_criteria,
+            "monotonic_utilization": monotonic_utilization,
+            "monotonic_criteria": monotonic_criteria,
             "margin_utilization": margin_utilization,
             "margin_criteria": margin_criteria,
             "leverage_advancement_utilization": leverage_advancement_utilization,
@@ -239,37 +429,103 @@ class RiskProfiling:
 
     @staticmethod
     def risk_profile_reporting(positions: list[Position]) -> dict:
-        """Determines the relative risk profile of various assets."""
+        """
+        Generate risk profiles for a list of positions.
+
+        Args:
+            positions: List of Position objects to evaluate
+
+        Returns:
+            dict: A dictionary mapping position UUIDs to their risk profiles
+        """
         return {position.position_uuid: RiskProfiling.risk_profile_single(position) for position in positions}
 
     @staticmethod
     def risk_profile_full_criteria(position: Position) -> bool:
-        """Determines the relative risk profile of various assets. False meaning no risk, True meaning full risk."""
+        """
+        Determines the relative risk profile of various assets.
+
+        Returns:
+            bool: False meaning no risk, True meaning full risk.
+
+        Risk factors are grouped into three categories:
+        1. Step-based factors (steps_criteria or monotonic_criteria)
+        2. Leverage-based factors (margin_criteria or leverage_advancement_criteria)
+        3. Time-based factors (time_criteria)
+
+        ALL three categories must be triggered for a position to be flagged as risky.
+        """
+        # Step-based risk factors
         steps_criteria = RiskProfiling.risk_assessment_steps_criteria(position)
-        monotone_criteria = RiskProfiling.risk_assessment_monatome_criteria(position)
+        monotonic_criteria = RiskProfiling.risk_assessment_monotonic_criteria(position)
+        step_risk_triggered = steps_criteria or monotonic_criteria
+
+        # Leverage-based risk factors
         margin_criteria = RiskProfiling.risk_assessment_margin_criteria(position)
         leverage_advancement_criteria = RiskProfiling.risk_assessment_leverage_advancement_criteria(position)
-        time_criteria = RiskProfiling.risk_assessment_time_criteria(position)
+        leverage_risk_triggered = margin_criteria or leverage_advancement_criteria
 
-        return (steps_criteria or monotone_criteria) and (margin_criteria or leverage_advancement_criteria) and time_criteria
+        # Time-based risk factors
+        time_risk_triggered = RiskProfiling.risk_assessment_time_criteria(position)
+
+        # All three risk categories must be triggered for a full risk flag
+        return step_risk_triggered and leverage_risk_triggered and time_risk_triggered
 
     @staticmethod
     def risk_profile_score_list(miner_positions: list[Position]) -> float:
-        """Determines the relative risk profile of various assets. 0 meaning no risk, 1 meaning full risk."""
+        """
+        Calculate the overall risk score for a list of positions with improved numerical stability.
+
+        Args:
+            miner_positions: List of Position objects to evaluate
+
+        Returns:
+            float: A value between 0.0 and 1.0 representing the overall risk score
+        """
         if len(miner_positions) == 0:
             return 0.0
 
-        return_values = np.array([p.return_at_close for p in miner_positions])
-        return_weight = return_values ** ValiConfig.RISK_PROFILING_SCOPING_MECHANIC
-
+        # Compute risk flags for all positions
         criteria_weight = np.array([int(RiskProfiling.risk_profile_full_criteria(position)) for position in miner_positions])
 
-        profile_score = np.average(criteria_weight, weights=return_weight)
+        # If no positions are flagged as risky, return 0.0
+        if np.sum(criteria_weight) == 0:
+            return 0.0
+
+        # Get return values for all positions
+        return_values = np.array([p.return_at_close for p in miner_positions])
+
+        # Calculate return weights in a numerically stable way
+        scoping_mechanic = ValiConfig.RISK_PROFILING_SCOPING_MECHANIC
+
+        # Compute log(return_values) * scoping_mechanic to avoid numerical issues
+        log_returns = np.log(np.maximum(return_values, 1e-10))  # Avoid log(0)
+        log_weights = log_returns * scoping_mechanic
+
+        # Normalize log weights to prevent underflow/overflow
+        max_log_weight = np.max(log_weights)
+        normalized_weights = np.exp(log_weights - max_log_weight)
+
+        # Ensure weights are positive and sum to a non-zero value
+        if np.sum(normalized_weights) < 1e-10:
+            # If all weights are effectively zero, use uniform weights
+            normalized_weights = np.ones_like(normalized_weights) / len(normalized_weights)
+
+        # Compute weighted average of risk flags
+        profile_score = np.average(criteria_weight, weights=normalized_weights)
         return profile_score
 
     @staticmethod
     def risk_profile_score(miner_positions: dict[str, list[Position]]) -> dict[str, float]:
-        """Determines the relative risk profile of various assets. 0 meaning no risk, 1 meaning full risk."""
+        """
+        Calculate risk scores for multiple miners.
+
+        Args:
+            miner_positions: Dictionary mapping miner hotkeys to lists of their positions
+
+        Returns:
+            dict: Dictionary mapping miner hotkeys to their risk scores (0.0-1.0)
+        """
         risk_profile_scoping_mechanic = ValiConfig.RISK_PROFILING_SCOPING_MECHANIC
         miner_scores = {}
 
@@ -280,7 +536,20 @@ class RiskProfiling:
 
     @staticmethod
     def risk_profile_penalty(miner_positions: dict[str, list[Position]]) -> dict[str, float]:
-        """Determines the relative risk profile of various assets. 0 meaning no risk, 1 meaning full risk."""
+        """
+        Calculate risk penalty multipliers for multiple miners.
+
+        This function computes penalty multipliers based on risk scores,
+        which are used to scale miners' rewards. Miners with higher risk
+        scores receive lower penalty multipliers, reducing their rewards.
+
+        Args:
+            miner_positions: Dictionary mapping miner hotkeys to lists of their positions
+
+        Returns:
+            dict: Dictionary mapping miner hotkeys to their penalty multipliers (0.0-1.0),
+                 where 1.0 means no penalty and values close to 0.0 mean heavy penalties.
+        """
         risk_profile_scores = RiskProfiling.risk_profile_score(miner_positions)
         risk_profile_penalty = {}
 

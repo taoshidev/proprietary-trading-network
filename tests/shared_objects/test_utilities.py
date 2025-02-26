@@ -173,16 +173,28 @@ def add_orders_to_position(
         times: list[int] = [],
         order_uuid: int = 1000 ):
     assert len(leverages) == len(prices), "The lengths of 'leverages' and 'prices' do not match."
+    cumsum_leverages = [sum(leverages[:i+1]) for i in range(len(leverages))]
+
     uuid_counter = 0
     for i in range(len(leverages)):
         uuid = order_uuid + uuid_counter
         uuid_counter += 1
+        if cumsum_leverages[i] == 0 or (cumsum_leverages[i] < 0 and leverages[0] > 0) or (cumsum_leverages[i] > 0 and leverages[0] < 0):
+            order = Order(
+                order_type=OrderType.FLAT,
+                leverage=0,
+                price=prices[i],
+                trade_pair=trade_pair,
+                processed_ms=times[i],
+                order_uuid=uuid
+            )
+            position.add_order(order)
+            return
+
         if leverages[i] > 0:
             order_type = OrderType.LONG
         elif leverages[i] < 0:
             order_type = OrderType.SHORT
-        else:
-            order_type = OrderType.FLAT
 
         order = Order(
             order_type=order_type,

@@ -17,6 +17,7 @@ from vali_objects.utils.position_filtering import PositionFiltering
 from vali_objects.utils.ledger_utils import LedgerUtils
 from vali_objects.utils.metrics import Metrics
 from vali_objects.utils.position_penalties import PositionPenalties
+from vali_objects.utils.position_utils import PositionUtils
 
 import bittensor as bt
 
@@ -24,6 +25,7 @@ import bittensor as bt
 class PenaltyInputType(Enum):
     LEDGER = auto()
     POSITIONS = auto()
+    PSEUDO_POSITIONS = auto()
 
 @dataclass
 class PenaltyConfig:
@@ -135,12 +137,21 @@ class Scoring:
             positions,
             evaluation_time_ms=evaluation_time_ms
         )
+        # psuedo_positions = PositionUtils.build_pseudo_positions(filtered_positions)
+
         # Compute miner penalties
         miner_penalties = Scoring.miner_penalties(filtered_positions, ledger_dict)
+        # miner_psuedo_penalties = Scoring.miner_penalties(psuedo_positions, ledger_dict)
+
+        # full_miner_penalties = {
+        #     miner: min(miner_penalties[miner], miner_psuedo_penalties[miner]) for miner in filtered_positions.keys()
+        # }
+
+        full_miner_penalties = miner_penalties
 
         # Miners with full penalty
         full_penalty_miners = set([
-            miner for miner, penalty in miner_penalties.items() if penalty == 0
+            miner for miner, penalty in full_miner_penalties.items() if penalty == 0
         ])
 
         filtered_ledger_returns = LedgerUtils.ledger_returns_log(ledger_dict)
@@ -171,7 +182,7 @@ class Scoring:
                 "weight": config["weight"]
             }
 
-        scores_dict["penalties"] = copy.deepcopy(miner_penalties)
+        scores_dict["penalties"] = copy.deepcopy(full_miner_penalties)
 
 
         return scores_dict
