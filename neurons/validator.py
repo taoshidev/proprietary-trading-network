@@ -9,6 +9,8 @@ import signal
 import uuid
 
 from setproctitle import setproctitle
+
+from ptn_api.api_manager import APIManager
 from shared_objects.sn8_multiprocessing import get_ipc_metagraph
 from multiprocessing import Manager, Process
 from typing import Tuple
@@ -120,6 +122,7 @@ class Validator:
 
         # 1. Initialize Manager for shared state
         self.ipc_manager = Manager()
+        self.shared_queue_websockets = self.ipc_manager.Queue()
 
         self.live_price_fetcher = LivePriceFetcher(secrets=self.secrets, disable_ws=False, ipc_manager=self.ipc_manager)
         self.price_slippage_model = PriceSlippageModel(live_price_fetcher=self.live_price_fetcher)
@@ -160,7 +163,8 @@ class Validator:
 
         self.elimination_manager = EliminationManager(self.metagraph, None,  # Set after self.pm creation
                                                       None, shutdown_dict=shutdown_dict,
-                                                      ipc_manager=self.ipc_manager)
+                                                      ipc_manager=self.ipc_manager,
+                                                      shared_queue_websockets=self.shared_queue_websockets)
 
         self.position_syncer = PositionSyncer(shutdown_dict=shutdown_dict, signal_sync_lock=self.signal_sync_lock,
                                               signal_sync_condition=self.signal_sync_condition,
@@ -190,7 +194,8 @@ class Validator:
                                                 perf_ledger_manager=self.perf_ledger_manager,
                                                 elimination_manager=self.elimination_manager,
                                                 challengeperiod_manager=None,
-                                                secrets=self.secrets)
+                                                secrets=self.secrets,
+                                                shared_queue_websockets=self.shared_queue_websockets)
 
         self.position_locks = PositionLocks(hotkey_to_positions=self.position_manager.get_positions_for_all_miners())
 
@@ -356,6 +361,24 @@ class Validator:
             self.rog_thread.start()
         else:
             self.rog_thread = None
+
+        if self.config.serve:
+            # Create API Manager with configuration options
+            self.api_manager = APIManager(
+                shared_queue=self.shared_queue_websockets,
+                ws_host=self.config.api_host,
+                ws_port=self.config.api_ws_port,
+                rest_host=self.config.api_host,
+                rest_port=self.config.api_rest_port
+            )
+
+            # Start the API Manager in a separate process
+            self.api_thread = threading.Thread(target=self.api_manager.run, daemon=True)
+            self.api_thread.start()
+            bt.logging.info(
+                f"API services started - REST: {self.config.api_host}:{self.config.api_rest_port}, WebSocket: {self.config.api_host}:{self.config.api_ws_port}")
+        else:
+            self.api_thread = None
         # Validators on mainnet net to be syned for the first time or after interruption need to resync their
         # positions. Assert there are existing orders that occurred > 24hrs in the past. Assert that the newest order
         # was placed within 24 hours.
@@ -403,7 +426,6 @@ class Validator:
         )
         return priority
 
-
     def get_config(self):
         # Step 2: Set up the configuration parser
         # This function initializes the necessary command-line arguments.
@@ -415,6 +437,17 @@ class Validator:
         # Set run_generate to store true if flagged, otherwise defaults to False.
         parser.add_argument("--start-generate", action='store_true', dest='start_generate',
                             help="Run the request output generator.")
+
+        # API Server related arguments
+        parser.add_argument("--serve", action='store_true',
+                            help="Start the API server for REST and WebSocket endpoints")
+        parser.add_argument("--api-host", type=str, default="127.0.0.1",
+                            help="Host address for the API server")
+        parser.add_argument("--api-rest-port", type=int, default=48888,
+                            help="Port for the REST API server")
+        parser.add_argument("--api-ws-port", type=int, default=8765,
+                            help="Port for the WebSocket server")
+
         # (developer): Adds your custom arguments to the parser.
         # Adds override arguments for network and netuid.
         parser.add_argument("--netuid", type=int, default=1, help="The chain subnet uid.")
@@ -435,7 +468,6 @@ class Validator:
         if config.logging.trace:
             bt.logging.enable_trace()
 
-
         # Step 3: Set up logging directory
         # Logging captures events for diagnosis or understanding miner's behavior.
         config.full_path = os.path.expanduser(
@@ -444,7 +476,7 @@ class Validator:
                 config.wallet.name,
                 config.wallet.hotkey,
                 config.netuid,
-                "miner",
+                "validator",
             )
         )
         return config
@@ -468,6 +500,9 @@ class Validator:
         if self.rog_thread:
             bt.logging.warning("Stopping request output generator...")
             self.rog_thread.join()
+        if self.api_thread:
+            bt.logging.warning("Stopping API manager...")
+            self.api_thread.join()
         signal.alarm(0)
         print("Graceful shutdown completed")
         sys.exit(0)
@@ -704,16 +739,16 @@ class Validator:
                 # gather open positions and see which trade pairs have an open position
                 positions = self.position_manager.get_positions_for_one_hotkey(miner_hotkey, only_open_positions=True)
                 trade_pair_to_open_position = {position.trade_pair: position for position in positions}
-                open_position = self._get_or_create_open_position_from_new_order(trade_pair, signal_order_type, now_ms,
+                existing_position = self._get_or_create_open_position_from_new_order(trade_pair, signal_order_type, now_ms,
                                                          miner_hotkey, trade_pair_to_open_position, miner_order_uuid)
 
-                if open_position:
+                if existing_position:
                     order = Order(
                         trade_pair=trade_pair,
                         order_type=signal_order_type,
                         leverage=signal_leverage,
                         price=best_price_source.parse_appropriate_price(now_ms, trade_pair.is_forex, signal_order_type,
-                                                                        open_position),
+                                                                        existing_position),
                         processed_ms=now_ms,
                         order_uuid=miner_order_uuid if miner_order_uuid else str(uuid.uuid4()),
                         price_sources=price_sources,
@@ -723,17 +758,18 @@ class Validator:
                     self.price_slippage_model.refresh_features_daily()
                     order.slippage = PriceSlippageModel.calculate_slippage(order.bid, order.ask, order)
                     self._enforce_num_open_order_limit(trade_pair_to_open_position, order)
-                    self.enforce_order_cooldown(order, open_position)
+                    self.enforce_order_cooldown(order, existing_position)
                     net_portfolio_leverage = self.position_manager.calculate_net_portfolio_leverage(miner_hotkey)
-                    open_position.add_order(order, net_portfolio_leverage)
-                    self.position_manager.save_miner_position(open_position)
-                    # Log the open position for the miner
-                    open_position.log_position_status()
+                    existing_position.add_order(order, net_portfolio_leverage)
+                    self.position_manager.save_miner_position(existing_position)
                     synapse.order_json = order.__str__()
                     if miner_order_uuid:
                         self.uuid_tracker.add(miner_order_uuid)
+                    if self.config.serve:
+                        # Add the position to the queue for broadcasting
+                        self.shared_queue_websockets.put(existing_position.to_websocket_dict())
                 else:
-                    # Happens if a FLAT is sent when no order exists
+                    # Happens if a FLAT is sent when no position exists
                     pass
                 # Update the last received order time
                 self.timestamp_manager.update_timestamp(now_ms)
