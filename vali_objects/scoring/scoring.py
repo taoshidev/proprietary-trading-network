@@ -84,7 +84,7 @@ class Scoring:
         if len(ledger_dict) == 1:
             miner = list(ledger_dict.keys())[0]
             if verbose:
-                bt.logging.info(f"Only one miner: {miner}, returning 1.0 for the solo miner weight")
+                bt.logging.info(f"compute_results_checkpoint - Only one miner: {miner}, returning 1.0 for the solo miner weight")
             return [(miner, 1.0)]
         
         if evaluation_time_ms is None:
@@ -292,7 +292,7 @@ class Scoring:
             return []
     
         if len(returns) == 1:
-            bt.logging.info("Only one miner, returning 1.0 for the solo miner weight")
+            bt.logging.info("softmax_scores - Only one miner, returning 1.0 for the solo miner weight")
             return [(returns[0][0], 1.0)]
     
         # Extract scores and apply softmax with temperature
@@ -317,7 +317,7 @@ class Scoring:
 
         if len(miner_scores) == 1:
             miner, score = miner_scores[0]
-            bt.logging.info(f"Only one miner: {miner}, returning 1.0 for the solo miner weight")
+            bt.logging.info(f"miner_scores_percentiles - Only one miner: {miner}, returning 1.0 for the solo miner weight")
             return [(miner, 1.0)]
 
         miner_hotkeys = []

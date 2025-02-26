@@ -815,12 +815,18 @@ class Validator:
         error_message = ""
         try:
             timestamp = self.timestamp_manager.get_last_order_timestamp()
-            stats = ValiBkpUtils.get_file(ValiBkpUtils.get_miner_stats_dir())
-            # TODO filter stats to just this hotkey
-            positions = self.request_core_manager.generate_request_core(get_dash_data_hotkey=miner_hotkey)
-            dash_data = {"timestamp": timestamp, "statistics": stats, **positions}
 
-            if not stats["data"]:
+            stats_all = json.loads(ValiBkpUtils.get_file(ValiBkpUtils.get_miner_stats_dir()))
+            new_data = []
+            for payload in stats_all['data']:
+                if payload['hotkey'] == miner_hotkey:
+                    new_data = [payload]
+                    break
+            stats_all['data'] = new_data
+            positions = self.request_core_manager.generate_request_core(get_dash_data_hotkey=miner_hotkey)
+            dash_data = {"timestamp": timestamp, "statistics": stats_all, **positions}
+
+            if not stats_all["data"]:
                 error_message = f"Validator {self.wallet.hotkey.ss58_address} has no stats for miner {miner_hotkey}"
             elif not positions:
                 error_message = f"Validator {self.wallet.hotkey.ss58_address} has no positions for miner {miner_hotkey}"

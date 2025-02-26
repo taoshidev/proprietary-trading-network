@@ -98,6 +98,9 @@ class ChallengePeriodManager(CacheController):
         bt.logging.info("Refreshing challengeperiod start times")
         any_changes = False
         for hotkey, start_time_ms in self.challengeperiod_testing.items():
+            if hotkey not in hk_to_first_order_time_ms:
+                bt.logging.warning(f"Hotkey {hotkey} in challenge period has no first order time. Skipping for now.")
+                continue
             first_order_time_ms = hk_to_first_order_time_ms[hotkey]
             if start_time_ms != first_order_time_ms:
                 bt.logging.info(f"Challengeperiod start time for {hotkey} updated from: {datetime.utcfromtimestamp(start_time_ms/1000)} "
