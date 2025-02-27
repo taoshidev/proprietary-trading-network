@@ -11,8 +11,8 @@ from vali_objects.utils.functional_utils import FunctionalUtils
 
 class RiskProfiling:
     @staticmethod
-    def monatome_positions(position: Position) -> Position:
-        """Return the length of monatomically increasing leverage on losing positions"""
+    def monotone_positions(position: Position) -> Position:
+        """Return the length of monotonically increasing leverage on losing positions"""
         position_copy = copy.deepcopy(position)
         position_orders = position.orders
         position_order_subset = []
@@ -44,7 +44,7 @@ class RiskProfiling:
             total_weighted_price += position_orders[i].price * position_orders[i].leverage
             avg_in_price = total_weighted_price / aggregate_leverage
 
-        # now filter for leverages that are non-monatome -> i.e. just parse out the monotone elements
+        # now filter for leverages that are non-monotone -> i.e. just parse out the monotone elements
         monotone_component = []
         prior_max_leverage = 0
         for position_order in position_order_subset:
@@ -93,22 +93,24 @@ class RiskProfiling:
         return utilization >= ValiConfig.RISK_PROFILING_STEPS_CRITERIA
 
     @staticmethod
-    def risk_assessment_monatome_utilization(position: Position) -> int:
+    def risk_assessment_monotone_utilization(position: Position) -> int:
         """Return the length of monatomically increasing leverage on losing positions"""
-        monotone_position = RiskProfiling.monatome_positions(position)
+        monotone_position = RiskProfiling.monotone_positions(position)
+        if monotone_position == 0:  # if there are less than 2 orders, monotone_positions method returns 0
+            return 0
         monotone_orders = monotone_position.orders
 
         return len(monotone_orders)
 
     @staticmethod
-    def risk_assessment_monatome_criteria(position: Position) -> bool:
-        utilization = RiskProfiling.risk_assessment_monatome_utilization(position)
+    def risk_assessment_monotone_criteria(position: Position) -> bool:
+        utilization = RiskProfiling.risk_assessment_monotone_utilization(position)
         return utilization >= ValiConfig.RISK_PROFILING_MONOTONE_CRITERIA
 
     @staticmethod
     def risk_assessment_margin_utilization(position: Position) -> float:
         """Flags if the position was using high levels of margin for the position"""
-        # First track the margin range
+        # First track the leverage range
         position_trade_pair: TradePair = position.trade_pair
         position_trade_pair_min_leverage = position_trade_pair.min_leverage
         position_trade_pair_max_leverage = position_trade_pair.max_leverage
@@ -116,8 +118,6 @@ class RiskProfiling:
         # Now compute the cumulative leverages on the position since inception
         positional_delta_leverages = [x.leverage for x in position.orders]
         positional_aggregate_leverages = np.abs(np.cumsum(positional_delta_leverages))
-
-        base_leverage = positional_aggregate_leverages[0]
         max_utilized_leverage = max(positional_aggregate_leverages)
 
         margin_utilization = (max_utilized_leverage - position_trade_pair_min_leverage) / (position_trade_pair_max_leverage - position_trade_pair_min_leverage)
@@ -131,20 +131,19 @@ class RiskProfiling:
 
     @staticmethod
     def risk_assessment_leverage_advancement_utilization(position: Position) -> float:
-        """Flags if the position was using high levels of margin for the position"""
-        # First track the leverage range
-        position_trade_pair: TradePair = position.trade_pair
-        position_trade_pair_min_leverage = position_trade_pair.min_leverage
-        position_trade_pair_max_leverage = position_trade_pair.max_leverage
+        """Flags if the position experienced significant fluctuations in utilized leverage"""
 
-        # Now compute the cumulative leverages on the position since inception
+        # Compute the cumulative leverages on the position since inception
         positional_delta_leverages = [x.leverage for x in position.orders]
+
+        # if the position is closed, excluding the last closing order from analysis
+        if position.is_closed_position and len(position.orders) > 1:
+            positional_delta_leverages = positional_delta_leverages[:-1]
+
         positional_aggregate_leverages = np.abs(np.cumsum(positional_delta_leverages))
-
-        base_leverage = positional_aggregate_leverages[0]
         max_utilized_leverage = max(positional_aggregate_leverages)
-
-        leverage_advancement = max_utilized_leverage / base_leverage
+        min_utilized_leverage = min(positional_aggregate_leverages)
+        leverage_advancement = max_utilized_leverage / min_utilized_leverage
 
         return leverage_advancement
 
@@ -163,9 +162,9 @@ class RiskProfiling:
 
         # using only the orders up to (and including) the one that brings the position’s leverage to its maximum level
         # first finding the idx where the max leverage is reached, if there are multiple indices, record the first idx
-        leverage_delta_arr = [order.leverage for order in position_orders]
-        aggregate_leverage_arr = np.cumsum(leverage_delta_arr)
-        max_leverage_index = int(np.argmax(np.abs(aggregate_leverage_arr)))
+        positional_leverage_deltas = [order.leverage for order in position_orders]
+        positional_aggregate_leverages = np.abs(np.cumsum(positional_leverage_deltas))
+        max_leverage_index = int(np.argmax(positional_aggregate_leverages))
 
         # then collecting orders
         position_order_subset = []
@@ -206,8 +205,8 @@ class RiskProfiling:
         steps_utilization = RiskProfiling.risk_assessment_steps_utilization(position)
         steps_criteria = int(RiskProfiling.risk_assessment_steps_criteria(position))
 
-        monatome_utilization = RiskProfiling.risk_assessment_monatome_utilization(position)
-        monatome_criteria = int(RiskProfiling.risk_assessment_monatome_criteria(position))
+        monotone_utilization = RiskProfiling.risk_assessment_monotone_utilization(position)
+        monotone_criteria = int(RiskProfiling.risk_assessment_monotone_criteria(position))
 
         margin_utilization = RiskProfiling.risk_assessment_margin_utilization(position)
         margin_criteria = int(RiskProfiling.risk_assessment_margin_criteria(position))
@@ -227,8 +226,8 @@ class RiskProfiling:
             "overall_flag": overall_flag,
             "steps_utilization": steps_utilization,
             "steps_criteria": steps_criteria,
-            "monatome_utilization": monatome_utilization,
-            "monatome_criteria": monatome_criteria,
+            "monotone_utilization": monotone_utilization,
+            "monotone_criteria": monotone_criteria,
             "margin_utilization": margin_utilization,
             "margin_criteria": margin_criteria,
             "leverage_advancement_utilization": leverage_advancement_utilization,
@@ -246,7 +245,7 @@ class RiskProfiling:
     def risk_profile_full_criteria(position: Position) -> bool:
         """Determines the relative risk profile of various assets. False meaning no risk, True meaning full risk."""
         steps_criteria = RiskProfiling.risk_assessment_steps_criteria(position)
-        monotone_criteria = RiskProfiling.risk_assessment_monatome_criteria(position)
+        monotone_criteria = RiskProfiling.risk_assessment_monotone_criteria(position)
         margin_criteria = RiskProfiling.risk_assessment_margin_criteria(position)
         leverage_advancement_criteria = RiskProfiling.risk_assessment_leverage_advancement_criteria(position)
         time_criteria = RiskProfiling.risk_assessment_time_criteria(position)
@@ -264,7 +263,8 @@ class RiskProfiling:
 
         criteria_weight = np.array([int(RiskProfiling.risk_profile_full_criteria(position)) for position in miner_positions])
 
-        profile_score = np.average(criteria_weight, weights=return_weight)
+        profile_score = float(np.average(criteria_weight, weights=return_weight))
+
         return profile_score
 
     @staticmethod
