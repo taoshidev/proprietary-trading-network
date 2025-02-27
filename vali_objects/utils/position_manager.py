@@ -17,6 +17,7 @@ from vali_objects.exceptions.corrupt_data_exception import ValiBkpCorruptDataExc
 from vali_objects.exceptions.vali_bkp_file_missing_exception import ValiFileMissingException
 from vali_objects.utils.live_price_fetcher import LivePriceFetcher
 from vali_objects.utils.positions_to_snap import positions_to_snap
+from vali_objects.utils.price_slippage_model import PriceSlippageModel
 from vali_objects.vali_config import TradePair
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.exceptions.vali_records_misalignment_exception import ValiRecordsMisalignmentException
@@ -37,9 +38,10 @@ class PositionManager(CacheController):
                  elimination_manager=None,
                  secrets=None,
                  ipc_manager=None,
-                 live_price_fetcher=None):
+                 live_price_fetcher=None,
+                 is_backtesting=False):
 
-        super().__init__(metagraph=metagraph, running_unit_tests=running_unit_tests)
+        super().__init__(metagraph=metagraph, running_unit_tests=running_unit_tests, is_backtesting=is_backtesting)
         # Populate memory with positions
 
         self.perf_ledger_manager = perf_ledger_manager
@@ -56,13 +58,16 @@ class PositionManager(CacheController):
         else:
             self.hotkey_to_positions = {}
         self.secrets = secrets
-        self.populate_memory_positions_for_first_time()
+        self._populate_memory_positions_for_first_time()
         self.live_price_fetcher = live_price_fetcher
 
     @timeme
-    def populate_memory_positions_for_first_time(self):
-        temp = self.get_positions_for_all_miners(from_disk=True)
-        for hk, positions in temp.items():
+    def _populate_memory_positions_for_first_time(self):
+        if self.is_backtesting:
+            return
+
+        initial_hk_to_positions = self.get_positions_for_all_miners(from_disk=True)
+        for hk, positions in initial_hk_to_positions.items():
             if positions:  # Only populate if there are no positions in the miner dir
                 self.hotkey_to_positions[hk] = positions
 
@@ -397,6 +402,24 @@ class PositionManager(CacheController):
                 perf_ledgers_new = {k:v for k,v in perf_ledgers.items() if k != miner_hotkey}
                 print('n perf ledgers after:', len(perf_ledgers_new))
                 self.perf_ledger_manager.save_perf_ledgers(perf_ledgers_new)
+
+            # update the order attributes for bid, ask, slippage
+            # TODO: this should only run once on startup?
+            # TODO: update corrections count?
+            if not self.live_price_fetcher:
+                self.live_price_fetcher = LivePriceFetcher(secrets=self.secrets, disable_ws=True)
+            for p in positions:
+                for o in p.orders:
+                    if o.processed_ms < 1739937600000:  # SLIPPAGE_V1_TIME_MS
+                        bt.logging.info(f"updating order attributes {o}")
+                        bid, ask, _ = self.live_price_fetcher.get_latest_quote(trade_pair=o.trade_pair, time_ms=o.processed_ms)
+                        slippage = PriceSlippageModel.calculate_slippage(bid, ask, o)
+                        o.bid = bid
+                        o.ask = ask
+                        o.slippage = slippage
+                        bt.logging.info(f"updated order attributes {o}")
+                p.rebuild_position_with_updated_orders()
+                self.save_miner_position(p)
 
             """
             if miner_hotkey == '5Cd9bVVja2KdgsTiR7rTAh7a4UKVfnAuYAW1bs8BiedUE9JN' and now_ms < TARGET_MS:
@@ -815,17 +838,18 @@ class PositionManager(CacheController):
 
 
     def save_miner_position(self, position: Position, delete_open_position_if_exists=True) -> None:
-        miner_dir = ValiBkpUtils.get_partitioned_miner_positions_dir(position.miner_hotkey,
-                                                                     position.trade_pair.trade_pair_id,
-                                                                     order_status=OrderStatus.OPEN if position.is_open_position else OrderStatus.CLOSED,
-                                                                     running_unit_tests=self.running_unit_tests)
-        if position.is_closed_position and delete_open_position_if_exists:
-            self.delete_open_position_if_exists(position)
-        elif position.is_open_position:
-            self.verify_open_position_write(miner_dir, position)
+        if not self.is_backtesting:
+            miner_dir = ValiBkpUtils.get_partitioned_miner_positions_dir(position.miner_hotkey,
+                                                                         position.trade_pair.trade_pair_id,
+                                                                         order_status=OrderStatus.OPEN if position.is_open_position else OrderStatus.CLOSED,
+                                                                         running_unit_tests=self.running_unit_tests)
+            if position.is_closed_position and delete_open_position_if_exists:
+                self.delete_open_position_if_exists(position)
+            elif position.is_open_position:
+                self.verify_open_position_write(miner_dir, position)
 
-        #print(f'Saving position {position.position_uuid} for miner {position.miner_hotkey} and trade pair {position.trade_pair.trade_pair_id} is_open {position.is_open_position}')
-        ValiBkpUtils.write_file(miner_dir + position.position_uuid, position)
+            #print(f'Saving position {position.position_uuid} for miner {position.miner_hotkey} and trade pair {position.trade_pair.trade_pair_id} is_open {position.is_open_position}')
+            ValiBkpUtils.write_file(miner_dir + position.position_uuid, position)
         self._save_miner_position_to_memory(position)
 
     def overwrite_position_on_disk(self, position: Position) -> None:
@@ -905,9 +929,10 @@ class PositionManager(CacheController):
         else:
             file_paths = [self.get_filepath_for_position(hotkey, trade_pair_id, position_uuid, is_open)]
         for fp in file_paths:
-            if os.path.exists(fp):
-                os.remove(fp)
-                bt.logging.info(f"Deleted position from disk: {fp}")
+            if not self.is_backtesting:
+                if os.path.exists(fp):
+                    os.remove(fp)
+                    bt.logging.info(f"Deleted position from disk: {fp}")
             self._delete_position_from_memory(hotkey, position_uuid)
 
     def _delete_position_from_memory(self, hotkey, position_uuid):

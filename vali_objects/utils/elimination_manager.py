@@ -23,8 +23,8 @@ class EliminationManager(CacheController):
     """
 
     def __init__(self, metagraph, position_manager, challengeperiod_manager,
-                 running_unit_tests=False, shutdown_dict=None, ipc_manager=None):
-        super().__init__(metagraph=metagraph)
+                 running_unit_tests=False, shutdown_dict=None, ipc_manager=None, is_backtesting=False):
+        super().__init__(metagraph=metagraph, is_backtesting=is_backtesting)
         self.position_manager = position_manager
         self.shutdown_dict = shutdown_dict
         self.challengeperiod_manager = challengeperiod_manager
@@ -184,7 +184,8 @@ class EliminationManager(CacheController):
                     bt.logging.info(f"Zombie miner dir not found. Already deleted. [{miner_dir}]")
 
     def save_eliminations(self):
-        self.write_eliminations_to_disk(self.eliminations)
+        if not self.is_backtesting:
+            self.write_eliminations_to_disk(self.eliminations)
 
     def write_eliminations_to_disk(self, eliminations):
         if not isinstance(eliminations, list):
