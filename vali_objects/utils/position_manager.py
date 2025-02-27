@@ -16,6 +16,8 @@ from time_util.time_util import TimeUtil, timeme
 from vali_objects.exceptions.corrupt_data_exception import ValiBkpCorruptDataException
 from vali_objects.exceptions.vali_bkp_file_missing_exception import ValiFileMissingException
 from vali_objects.utils.live_price_fetcher import LivePriceFetcher
+from vali_objects.utils.positions_to_snap import positions_to_snap
+from vali_objects.utils.price_slippage_model import PriceSlippageModel
 from vali_objects.vali_config import TradePair
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.exceptions.vali_records_misalignment_exception import ValiRecordsMisalignmentException
@@ -24,7 +26,7 @@ from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.vali_dataclasses.order import OrderStatus, ORDER_SRC_DEPRECATION_FLAT, Order
 from vali_objects.utils.position_filtering import PositionFiltering
 
-TARGET_MS = 1738727350000 + (1000 * 60 * 60 * 3)  # + 3 hours
+TARGET_MS = 1739861961000 + (1000 * 60 * 60 * 3)  # + 3 hours
 
 
 class PositionManager(CacheController):
@@ -82,8 +84,9 @@ class PositionManager(CacheController):
         hk_to_first_order_time = {}
         filtered_positions = {}
         for hotkey, miner_positions in self.get_positions_for_hotkeys(hotkeys, sort_positions=True).items():
-            hk_to_first_order_time[hotkey] = min([p.orders[0].processed_ms for p in miner_positions]) if miner_positions else None
-            filtered_positions[hotkey] = PositionFiltering.filter_positions_for_duration(miner_positions)
+            if miner_positions:
+                hk_to_first_order_time[hotkey] = min([p.orders[0].processed_ms for p in miner_positions])
+                filtered_positions[hotkey] = PositionFiltering.filter_positions_for_duration(miner_positions)
 
         return filtered_positions, hk_to_first_order_time
 
@@ -144,8 +147,9 @@ class PositionManager(CacheController):
         one_week_ago_ms = time_now_ms - 1000 * 60 * 60 * 24 * 7
         for o in position.orders:
             if o.processed_ms < one_week_ago_ms:
-                if o.price_sources:
+                if o.price_sources or o.quote_sources:
                     o.price_sources = []
+                    o.quote_sources = []
                     n_removed += 1
         return n_removed
 
@@ -328,39 +332,11 @@ class PositionManager(CacheController):
         miners_to_wipe = []
         miners_to_promote = []
         wipe_positions = False
-        positions_to_snap = []
         if now_ms < TARGET_MS:
             # All miners that wanted their challenge period restarted
             miners_to_wipe = []# All miners that should have been promoted
             miners_to_promote = []
-            positions_to_snap = [
-                {'miner_hotkey': '5GixML7kjvYnTbSA3xL1Kx9Eo2AfNDMwpCyb8tD2kMY9qbup',
-                 'position_uuid': 'b11f10f2-6082-b30a-6aab-fd1e892c2b54', 'open_ms': 1738728327530,
-                 'trade_pair': TradePair.USDJPY, 'orders': [
-                    {'trade_pair': TradePair.USDJPY, 'order_type': OrderType.LONG, 'leverage': 5.0, 'price': 153.194,
-                     'processed_ms': 1738728327530, 'order_uuid': 'b11f10f2-6082-b30a-6aab-fd1e892c2b54',
-                     'price_sources': [
-                         {'source': 'Polygon_ws', 'timespan_ms': 0, 'open': 153.194, 'close': 153.194, 'vwap': 153.194,
-                          'high': 153.194, 'low': 153.194, 'start_ms': 1738728327999, 'websocket': True, 'lag_ms': 469,
-                          'volume': 1.0},
-                         {'source': 'Tiingo_rest', 'timespan_ms': 0, 'open': 153.193, 'close': 153.193, 'vwap': 153.193,
-                          'high': 153.193, 'low': 153.193, 'start_ms': 1738728328114, 'websocket': True, 'lag_ms': 584,
-                          'volume': None}], 'src': 0},
-                    {'trade_pair': TradePair.USDJPY, 'order_type': OrderType.FLAT, 'leverage': 0.0, 'price': 153.238,
-                     'processed_ms': 1738728429332, 'order_uuid': '0fec1185-9fdf-42dc-7409-8dfb65dac60b',
-                     'price_sources': [
-                         {'source': 'Polygon_ws', 'timespan_ms': 0, 'open': 153.238, 'close': 153.238, 'vwap': 153.238,
-                          'high': 153.238, 'low': 153.238, 'start_ms': 1738728429000, 'websocket': True, 'lag_ms': 332,
-                          'volume': 1.0},
-                         {'source': 'Polygon_rest', 'timespan_ms': 1000, 'open': 153.238, 'close': 153.238,
-                          'vwap': None, 'high': 153.238, 'low': 153.238, 'start_ms': 1738728429000, 'websocket': False,
-                          'lag_ms': 332, 'volume': 1.0},
-                         {'source': 'Tiingo_rest', 'timespan_ms': 0, 'open': 153.235, 'close': 153.235, 'vwap': 153.235,
-                          'high': 153.235, 'low': 153.235, 'start_ms': 1738728428375, 'websocket': True, 'lag_ms': 957,
-                          'volume': None}], 'src': 0}], 'current_return': 1.0014360875752317, 'close_ms': 1738728429332,
-                 'return_at_close': 1.0010855849445803, 'net_leverage': 0.0, 'average_entry_price': 153.194,
-                 'position_type': OrderType.FLAT, 'is_closed_position': True}
-            ]
+
             for p in positions_to_snap:
                 try:
                     pos = Position(**p)
@@ -426,6 +402,24 @@ class PositionManager(CacheController):
                 perf_ledgers_new = {k:v for k,v in perf_ledgers.items() if k != miner_hotkey}
                 print('n perf ledgers after:', len(perf_ledgers_new))
                 self.perf_ledger_manager.save_perf_ledgers(perf_ledgers_new)
+
+            # update the order attributes for bid, ask, slippage
+            # TODO: this should only run once on startup?
+            # TODO: update corrections count?
+            if not self.live_price_fetcher:
+                self.live_price_fetcher = LivePriceFetcher(secrets=self.secrets, disable_ws=True)
+            for p in positions:
+                for o in p.orders:
+                    if o.processed_ms < 1739937600000:  # SLIPPAGE_V1_TIME_MS
+                        bt.logging.info(f"updating order attributes {o}")
+                        bid, ask, _ = self.live_price_fetcher.get_latest_quote(trade_pair=o.trade_pair, time_ms=o.processed_ms)
+                        slippage = PriceSlippageModel.calculate_slippage(bid, ask, o)
+                        o.bid = bid
+                        o.ask = ask
+                        o.slippage = slippage
+                        bt.logging.info(f"updated order attributes {o}")
+                p.rebuild_position_with_updated_orders()
+                self.save_miner_position(p)
 
             """
             if miner_hotkey == '5Cd9bVVja2KdgsTiR7rTAh7a4UKVfnAuYAW1bs8BiedUE9JN' and now_ms < TARGET_MS:

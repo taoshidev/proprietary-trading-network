@@ -54,7 +54,7 @@ class Dashboard:
                 bt.logging.info(f"Rate limited. Please wait {wait_time} seconds before refreshing.")
                 return self.miner_data
 
-            success = self.refresh_validator_dash_data()
+            success = await self.refresh_validator_dash_data()
             if not success:
                 bt.logging.info("No data received from validator. Setting and returning empty data.")
 
@@ -82,7 +82,7 @@ class Dashboard:
     def run(self):
         uvicorn.run(self.app, host="127.0.0.1", port=self.port)
 
-    def refresh_validator_dash_data(self) -> bool:
+    async def refresh_validator_dash_data(self) -> bool:
         """
         get miner stats from validator
         """
@@ -96,7 +96,7 @@ class Dashboard:
         try:
             bt.logging.info("Dashboard stats request processing")
             miner_dash_synapse = template.protocol.GetDashData()
-            validator_response = dendrite.query(axons=validator_axons, synapse=miner_dash_synapse, timeout=15)
+            validator_response = await dendrite.aquery(axons=validator_axons, synapse=miner_dash_synapse, timeout=15)
             for response in validator_response:
                 if response.successfully_processed:
                     if response.data["timestamp"] >= self.miner_data["timestamp"]:  # use the validator with the freshest data

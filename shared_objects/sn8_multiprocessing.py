@@ -5,6 +5,7 @@ def get_ipc_metagraph(manager: Manager):
     metagraph.neurons = manager.list()
     metagraph.hotkeys = manager.list()
     metagraph.uids = manager.list()
+    metagraph.block_at_registration = manager.list()
     return metagraph
 
 def managerize_objects(cls, manager, obj_dict) -> None:

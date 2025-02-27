@@ -2,7 +2,7 @@
 
 import { Card, Box, Title, Progress } from "@mantine/core";
 
-import { type Statistics } from "@/types";
+import { type Statistics } from "../../types";
 
 interface StatisticsProps {
   statistics: Statistics;

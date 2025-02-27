@@ -1,6 +1,8 @@
 # pickling and json files
 *.json
 *.pickle
+# model parameters
+!vali_objects/utils/model_parameters/all_model_parameters.json
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
@@ -170,6 +172,9 @@ validation/outputs/
 validation/plagiarism/
 tests/validation/miners/
 tests/validation/plagiarism/
+
+# Miner build files
+miner_objects/miner_dashboard/*.tsbuildinfo
 
 # macOS files
 .DS_Store

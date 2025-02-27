@@ -38,6 +38,7 @@ from vali_objects.exceptions.signal_exception import SignalException
 from shared_objects.metagraph_updater import MetagraphUpdater
 from vali_objects.utils.elimination_manager import EliminationManager
 from vali_objects.utils.live_price_fetcher import LivePriceFetcher
+from vali_objects.utils.price_slippage_model import PriceSlippageModel
 from vali_objects.utils.subtensor_weight_setter import SubtensorWeightSetter
 from vali_objects.utils.mdd_checker import MDDChecker
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils, CustomEncoder
@@ -121,6 +122,7 @@ class Validator:
         self.ipc_manager = Manager()
 
         self.live_price_fetcher = LivePriceFetcher(secrets=self.secrets, disable_ws=False, ipc_manager=self.ipc_manager)
+        self.price_slippage_model = PriceSlippageModel(live_price_fetcher=self.live_price_fetcher)
         # Activating Bittensor's logging with the set configurations.
         bt.logging(config=self.config, logging_dir=self.config.full_path)
         bt.logging.info(
@@ -457,7 +459,7 @@ class Validator:
         bt.logging.warning("Performing graceful exit...")
         bt.logging.warning("Stopping axon...")
         self.axon.stop()
-        bt.logging.warning("Stopping metagrpah update...")
+        bt.logging.warning("Stopping metagraph update...")
         self.metagraph_updater_thread.join()
         bt.logging.warning("Stopping live price fetcher...")
         self.live_price_fetcher.stop_all_threads()
@@ -484,6 +486,7 @@ class Validator:
 
                 #print(f'@@@ {len(self.metagraph.hotkeys)} self.hktp {len(self.position_manager.hotkey_to_positions)} self.hktpl {self.perf_ledger_manager.hotkey_to_perf_ledger} self.elims {len(self.elimination_manager.get_eliminations_from_memory())}')
                 current_time = TimeUtil.now_in_millis()
+                self.price_slippage_model.refresh_features_daily()
                 self.position_syncer.sync_positions_with_cooldown(self.auto_sync)
                 self.mdd_checker.mdd_check(self.position_locks)
                 self.challengeperiod_manager.refresh(current_time=current_time)
