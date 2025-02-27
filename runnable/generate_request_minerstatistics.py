@@ -534,16 +534,16 @@ class MinerStatisticsManager:
                     "value": w_val,
                     "rank": w_rank,
                     "percentile": w_pct,
-                }
+                },
             }
 
             final_miner_dict["risk_profile_report"] = risk_profile_report
 
             # Optionally attach actual checkpoints (like the original first script)
-            # if checkpoints:
-            #     ledger_obj = miner_data[hotkey].get("ledger")
-            #     if ledger_obj and hasattr(ledger_obj, "cps"):
-            #         final_miner_dict["checkpoints"] = ledger_obj.cps
+            if checkpoints:
+                ledger_obj = miner_data[hotkey].get("ledger")
+                if ledger_obj and hasattr(ledger_obj, "cps"):
+                    final_miner_dict["checkpoints"] = ledger_obj.cps
 
             results.append(final_miner_dict)
 

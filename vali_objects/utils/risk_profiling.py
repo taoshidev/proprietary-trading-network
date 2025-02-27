@@ -11,9 +11,9 @@ from vali_objects.utils.functional_utils import FunctionalUtils
 
 class RiskProfiling:
     @staticmethod
-    def monatome_positions(position: Position) -> Position:
+    def monotonic_positions(position: Position) -> Position:
         """
-        Extract orders with monatomically increasing leverage on losing positions.
+        Extract orders with monotonically increasing leverage on losing positions.
 
         This function identifies orders that increase leverage while the position is losing,
         which may indicate risky trading behavior such as "doubling down" on losing trades.
@@ -22,7 +22,7 @@ class RiskProfiling:
             position: Position object containing order history
 
         Returns:
-            Position: A copy of the position with only the monatomically increasing leverage orders
+            Position: A copy of the position with only the monotonically increasing leverage orders
                      on losing trades. Returns an empty position if no such orders are found.
         """
         position_copy = copy.deepcopy(position)
@@ -33,39 +33,69 @@ class RiskProfiling:
             position_copy.orders = []
             return position_copy
 
-        position_direction = 1 if position_orders[0].order_type == OrderType.LONG else -1  # dot product with this and price delta will yield the return
+        # Determine if it's a LONG or SHORT position
+        is_long = position_orders[0].order_type == OrderType.LONG
+        position_direction = 1 if is_long else -1
+
         final_active_order = len(position_orders) if not position.is_closed_position else len(position_orders) - 1
 
-        # We now need to track aggregate leverages
-        aggregate_leverage = position_orders[0].leverage
-        total_weighted_price = position_orders[0].price * position_orders[0].leverage
+        # For SHORT positions, leverage is negative, so we need to take the absolute value for calculations
+        # but preserve the sign for direction checks
+        initial_leverage = position_orders[0].leverage
+        aggregate_leverage = abs(initial_leverage)
+
+        total_weighted_price = position_orders[0].price * abs(initial_leverage)
         avg_in_price = total_weighted_price / aggregate_leverage
 
+        # Previous order's leverage, used to determine if leverage is increasing
+        prev_leverage = initial_leverage
+
         for i in range(1, final_active_order):
-            price_delta = ((position_orders[i].price - avg_in_price) / avg_in_price) * 100
-            leverage_delta = position_orders[i].leverage
-            aggregate_leverage += leverage_delta
+            current_order = position_orders[i]
+            current_leverage = current_order.leverage
 
-            if price_delta * position_direction < 0:  # price is moving against the position
-                if leverage_delta * position_direction > 0:  # leverage is increasing in the original direction
-                    # now we know that leverage is increasing against a losing position
-                    order_copy = copy.deepcopy(position_orders[i])
-                    order_copy.leverage = aggregate_leverage
-                    position_order_subset.append(order_copy)
+            # Price movement is against the position if:
+            # - For LONG: price decreases (current < avg)
+            # - For SHORT: price increases (current > avg)
+            price_delta = ((current_order.price - avg_in_price) / avg_in_price) * 100
+            is_losing = (price_delta * position_direction < 0)
 
-            # updating the average cost of the position
-            total_weighted_price += position_orders[i].price * position_orders[i].leverage
+            # Calculate the new aggregate leverage after adding this order
+            new_aggregate_leverage = aggregate_leverage + abs(current_leverage)
+
+            # Leverage is increasing if the new aggregate leverage is greater than the previous aggregate
+            leverage_increased = new_aggregate_leverage > aggregate_leverage
+
+            # Calculate absolute leverage delta for weighted average calculation
+            leverage_delta_abs = abs(current_leverage)
+            new_aggregate_leverage = aggregate_leverage + leverage_delta_abs
+
+            # Flag if position is losing and leverage increased
+            if is_losing and leverage_increased:
+                order_copy = copy.deepcopy(current_order)
+                # Store the aggregate leverage for monotonicity check later
+                order_copy.leverage = aggregate_leverage if is_long else -aggregate_leverage
+                position_order_subset.append(order_copy)
+
+            # Update aggregate leverage for next iteration
+            aggregate_leverage = new_aggregate_leverage
+
+            # Update weighted price and average entry price
+            total_weighted_price += current_order.price * leverage_delta_abs
             avg_in_price = total_weighted_price / aggregate_leverage
+            prev_leverage = current_leverage
 
-        # now filter for leverages that are non-monatome -> i.e. just parse out the monatome elements
-        monatome_component = []
+        # Filter for monotonically increasing leverage
+        monotone_component = []
         prior_max_leverage = 0
-        for position_order in position_order_subset:
-            if abs(position_order.leverage) > prior_max_leverage:
-                monatome_component.append(position_order)
-                prior_max_leverage = abs(position_order.leverage)
 
-        position_copy.orders = monatome_component
+        for position_order in position_order_subset:
+            current_abs_leverage = abs(position_order.leverage)
+            if current_abs_leverage > prior_max_leverage:
+                monotone_component.append(position_order)
+                prior_max_leverage = current_abs_leverage
+
+        position_copy.orders = monotone_component
         return position_copy
 
     @staticmethod
@@ -89,25 +119,39 @@ class RiskProfiling:
         if len(position_orders) < 2:
             return 0  # less than two steps will never flag the position
 
-        position_direction = 1 if position_orders[0].order_type == OrderType.LONG else -1  # dot product with this
+        # Determine if it's a LONG or SHORT position
+        is_long = position_orders[0].order_type == OrderType.LONG
+        position_direction = 1 if is_long else -1
+
         final_active_order = len(position_orders) if not position.is_closed_position else len(position_orders) - 1
 
-        aggregate_leverage = max(position_orders[0].leverage, ValiConfig.RISK_PROFILING_STEPS_MIN_LEVERAGE) # coverage of the zero condition
-        total_weighted_price = position_orders[0].price * position_orders[0].leverage
+        # Initialize with first order
+        initial_leverage = position_orders[0].leverage
+        aggregate_leverage = max(abs(initial_leverage), ValiConfig.RISK_PROFILING_STEPS_MIN_LEVERAGE)
+
+        total_weighted_price = position_orders[0].price * aggregate_leverage
         avg_in_price = total_weighted_price / aggregate_leverage
 
         for i in range(1, final_active_order):
-            price_delta = ((position_orders[i].price - avg_in_price) / avg_in_price) * 100
-            leverage_delta = position_orders[i].leverage
-            aggregate_leverage += leverage_delta
+            current_order = position_orders[i]
+            current_leverage = current_order.leverage
 
-            if price_delta * position_direction < 0:  # price is moving against the position
-                if leverage_delta * position_direction > 0:  # leverage is increasing in the original direction
-                    # now we know that leverage is increasing against a losing position
-                    position_flagged_orders.append(position_orders[i])
+            # Check if position is losing
+            price_delta = ((current_order.price - avg_in_price) / avg_in_price) * 100
+            is_losing = (price_delta * position_direction < 0)
 
-            # updating average cost of the position
-            total_weighted_price += position_orders[i].price * position_orders[i].leverage
+            # Check if leverage is being added in the same direction as the position
+            is_adding_leverage = (current_leverage > 0 and is_long) or (current_leverage < 0 and not is_long)
+
+            # Flag if position is losing and adding leverage in the same direction
+            if is_losing and is_adding_leverage:
+                position_flagged_orders.append(current_order)
+
+            # Update aggregate leverage (add absolute value for calculations)
+            aggregate_leverage += abs(current_leverage)
+
+            # Update weighted average price
+            total_weighted_price += current_order.price * abs(current_leverage)
             avg_in_price = total_weighted_price / aggregate_leverage
 
         return len(position_flagged_orders)
@@ -130,20 +174,20 @@ class RiskProfiling:
         return utilization >= ValiConfig.RISK_PROFILING_STEPS_CRITERIA
 
     @staticmethod
-    def risk_assessment_monatome_utilization(position: Position) -> int:
+    def risk_assessment_monotonic_utilization(position: Position) -> int:
         """
-        Count the number of orders with monatomically increasing leverage on losing positions.
+        Count the number of orders with monotonically increasing leverage on losing positions.
 
-        This function measures how many orders are part of a monatomically increasing
+        This function measures how many orders are part of a monotonically increasing
         leverage pattern on a losing position, which may indicate risky trading behavior.
 
         Args:
             position: Position object containing order history
 
         Returns:
-            int: The number of orders with monatomically increasing leverage on losing trades.
+            int: The number of orders with monotonically increasing leverage on losing trades.
         """
-        monotone_position = RiskProfiling.monotone_positions(position)
+        monotone_position = RiskProfiling.monotonic_positions(position)
         if monotone_position == 0:  # if there are less than 2 orders, monotone_positions method returns 0
             return 0
         monotone_orders = monotone_position.orders
@@ -151,21 +195,21 @@ class RiskProfiling:
         return len(monotone_orders)
 
     @staticmethod
-    def risk_assessment_monatome_criteria(position: Position) -> bool:
+    def risk_assessment_monotonic_criteria(position: Position) -> bool:
         """
-        Determine if a position exceeds the monatome criteria threshold for risk.
+        Determine if a position exceeds the monotonic criteria threshold for risk.
 
-        This function checks if the number of orders with monatomically increasing leverage
+        This function checks if the number of orders with monotonically increasing leverage
         on a losing position exceeds the configured threshold.
 
         Args:
             position: Position object containing order history
 
         Returns:
-            bool: True if the position exceeds the monatome criteria threshold, False otherwise.
+            bool: True if the position exceeds the monotonic criteria threshold, False otherwise.
         """
-        utilization = RiskProfiling.risk_assessment_monatome_utilization(position)
-        return utilization >= ValiConfig.RISK_PROFILING_MONATOME_CRITERIA
+        utilization = RiskProfiling.risk_assessment_monotonic_utilization(position)
+        return utilization >= ValiConfig.RISK_PROFILING_MONOTONIC_CRITERIA
 
     @staticmethod
     def risk_assessment_margin_utilization(position: Position) -> float:
@@ -352,8 +396,8 @@ class RiskProfiling:
         steps_utilization = RiskProfiling.risk_assessment_steps_utilization(position)
         steps_criteria = int(RiskProfiling.risk_assessment_steps_criteria(position))
 
-        monatome_utilization = RiskProfiling.risk_assessment_monatome_utilization(position)
-        monatome_criteria = int(RiskProfiling.risk_assessment_monatome_criteria(position))
+        monotonic_utilization = RiskProfiling.risk_assessment_monotonic_utilization(position)
+        monotonic_criteria = int(RiskProfiling.risk_assessment_monotonic_criteria(position))
 
         margin_utilization = RiskProfiling.risk_assessment_margin_utilization(position)
         margin_criteria = int(RiskProfiling.risk_assessment_margin_criteria(position))
@@ -373,8 +417,8 @@ class RiskProfiling:
             "overall_flag": overall_flag,
             "steps_utilization": steps_utilization,
             "steps_criteria": steps_criteria,
-            "monatome_utilization": monatome_utilization,
-            "monatome_criteria": monatome_criteria,
+            "monotonic_utilization": monotonic_utilization,
+            "monotonic_criteria": monotonic_criteria,
             "margin_utilization": margin_utilization,
             "margin_criteria": margin_criteria,
             "leverage_advancement_utilization": leverage_advancement_utilization,
@@ -405,7 +449,7 @@ class RiskProfiling:
             bool: False meaning no risk, True meaning full risk.
 
         Risk factors are grouped into three categories:
-        1. Step-based factors (steps_criteria or monatome_criteria)
+        1. Step-based factors (steps_criteria or monotonic_criteria)
         2. Leverage-based factors (margin_criteria or leverage_advancement_criteria)
         3. Time-based factors (time_criteria)
 
@@ -413,8 +457,8 @@ class RiskProfiling:
         """
         # Step-based risk factors
         steps_criteria = RiskProfiling.risk_assessment_steps_criteria(position)
-        monatome_criteria = RiskProfiling.risk_assessment_monatome_criteria(position)
-        step_risk_triggered = steps_criteria or monatome_criteria
+        monotonic_criteria = RiskProfiling.risk_assessment_monotonic_criteria(position)
+        step_risk_triggered = steps_criteria or monotonic_criteria
 
         # Leverage-based risk factors
         margin_criteria = RiskProfiling.risk_assessment_margin_criteria(position)
