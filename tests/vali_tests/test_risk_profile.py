@@ -37,11 +37,24 @@ class TestRiskProfile(TestBase):
         super().tearDown()
 
     def test_monatome_positions(self):
-        """Test the monatomically increasing leverage detection"""
+        """Test the monatomically increasing leverage detection with various edge cases"""
         # Test with empty position (no orders)
         position = deepcopy(self.default_position)
         result = RiskProfiling.monatome_positions(position)
         self.assertEqual(len(result.orders), 0, "Empty position should result in empty monatome position")
+        
+        # Test with zero initial leverage (edge case)
+        position = deepcopy(self.default_position)
+        add_orders_to_position(
+            position=position,
+            order_type=OrderType.LONG,
+            trade_pair=self.DEFAULT_TRADE_PAIR,
+            leverages=[0.0, 0.2, 0.3],
+            prices=[100, 90, 80],
+            times=[self.DEFAULT_ORDER_MS, self.DEFAULT_ORDER_MS + 100, self.DEFAULT_ORDER_MS + 200]
+        )
+        result = RiskProfiling.monatome_positions(position)
+        self.assertEqual(len(result.orders), 0, "Position with zero initial leverage should be handled gracefully")
 
         # Test with single order
         position = deepcopy(self.default_position)
@@ -299,7 +312,7 @@ class TestRiskProfile(TestBase):
     def test_risk_assessment_monatome_criteria(self):
         """Test the monotome criteria function"""
         # Save the original threshold
-        original_threshold = ValiConfig.RISK_PROFILING_MONOTONE_CRITERIA
+        original_threshold = ValiConfig.RISK_PROFILING_MONATOME_CRITERIA
         
         # Test with different thresholds
         thresholds_to_test = [0, 0.5, 1, 2, 3]
@@ -314,13 +327,13 @@ class TestRiskProfile(TestBase):
         )
         
         for threshold in thresholds_to_test:
-            ValiConfig.RISK_PROFILING_MONOTONE_CRITERIA = threshold
+            ValiConfig.RISK_PROFILING_MONATOME_CRITERIA = threshold
             result = RiskProfiling.risk_assessment_monatome_criteria(position)
             expected = (2 >= threshold)
             self.assertEqual(result, expected, f"Monotone criteria check with threshold {threshold} should be {expected}")
         
         # Restore the original threshold
-        ValiConfig.RISK_PROFILING_MONOTONE_CRITERIA = original_threshold
+        ValiConfig.RISK_PROFILING_MONATOME_CRITERIA = original_threshold
 
     def test_risk_assessment_margin_utilization(self):
         """Test the margin utilization function"""
@@ -424,6 +437,19 @@ class TestRiskProfile(TestBase):
         )
         result = RiskProfiling.risk_assessment_leverage_advancement_utilization(position)
         self.assertLess(result, 1.5, "Position with small leverage advancement should have low utilization")
+        
+        # Test with position having zero initial leverage (edge case)
+        position = deepcopy(self.default_position)
+        add_orders_to_position(
+            position=position,
+            order_type=OrderType.LONG,
+            trade_pair=self.DEFAULT_TRADE_PAIR,
+            leverages=[0.0, 0.1, 0.2],
+            prices=[100, 110, 120],
+            times=[self.DEFAULT_ORDER_MS, self.DEFAULT_ORDER_MS + 100, self.DEFAULT_ORDER_MS + 200]
+        )
+        result = RiskProfiling.risk_assessment_leverage_advancement_utilization(position)
+        self.assertGreaterEqual(result, 1.0, "Position with zero initial leverage should return at least 1.0")
 
         # Test with position having high leverage advancement
         position = deepcopy(self.default_position)
@@ -498,6 +524,11 @@ class TestRiskProfile(TestBase):
         )
         result = RiskProfiling.risk_assessment_time_utilization(position)
         self.assertEqual(result, 0.0, "Position with fewer than 3 orders should have 0 time utilization")
+        
+        # Test with empty position
+        position = deepcopy(self.default_position)
+        result = RiskProfiling.risk_assessment_time_utilization(position)
+        self.assertEqual(result, 0.0, "Empty position should have 0 time utilization")
 
         # Test with position having perfectly even time intervals
         position = deepcopy(self.default_position)
@@ -661,14 +692,14 @@ class TestRiskProfile(TestBase):
         """Test the full risk profile criteria function"""
         # Save original thresholds
         original_steps = ValiConfig.RISK_PROFILING_STEPS_CRITERIA
-        original_monotone = ValiConfig.RISK_PROFILING_MONOTONE_CRITERIA
+        original_monotone = ValiConfig.RISK_PROFILING_MONATOME_CRITERIA
         original_margin = ValiConfig.RISK_PROFILING_MARGIN_CRITERIA
         original_leverage = ValiConfig.RISK_PROFILING_LEVERAGE_ADVANCE
         original_time = ValiConfig.RISK_PROFILING_TIME_CRITERIA
         
         # Set thresholds to test values
         ValiConfig.RISK_PROFILING_STEPS_CRITERIA = 2
-        ValiConfig.RISK_PROFILING_MONOTONE_CRITERIA = 2
+        ValiConfig.RISK_PROFILING_MONATOME_CRITERIA = 2
         ValiConfig.RISK_PROFILING_MARGIN_CRITERIA = 0.5
         ValiConfig.RISK_PROFILING_LEVERAGE_ADVANCE = 4.0
         ValiConfig.RISK_PROFILING_TIME_CRITERIA = 0.1
@@ -712,22 +743,50 @@ class TestRiskProfile(TestBase):
         result = RiskProfiling.risk_profile_full_criteria(risky_position)
         self.assertTrue(result, "Should still be risky (monotone criteria passes)")
         
-        ValiConfig.RISK_PROFILING_MONOTONE_CRITERIA = 4  # Won't trigger for our test position
+        ValiConfig.RISK_PROFILING_MONATOME_CRITERIA = 4  # Won't trigger for our test position
         result = RiskProfiling.risk_profile_full_criteria(risky_position)
         self.assertFalse(result, "Should not be risky (neither steps nor monotone criteria pass)")
         
         # Restore original thresholds
         ValiConfig.RISK_PROFILING_STEPS_CRITERIA = original_steps
-        ValiConfig.RISK_PROFILING_MONOTONE_CRITERIA = original_monotone
+        ValiConfig.RISK_PROFILING_MONATOME_CRITERIA = original_monotone
         ValiConfig.RISK_PROFILING_MARGIN_CRITERIA = original_margin
         ValiConfig.RISK_PROFILING_LEVERAGE_ADVANCE = original_leverage
         ValiConfig.RISK_PROFILING_TIME_CRITERIA = original_time
 
     def test_risk_profile_score_list(self):
-        """Test the risk profile score list function"""
+        """Test the risk profile score list function with numerical stability cases"""
         # Test with empty list
         result = RiskProfiling.risk_profile_score_list([])
         self.assertEqual(result, 0.0, "Empty position list should return 0.0")
+        
+        # Test with extremely small return values (to check numerical stability)
+        small_return_position = deepcopy(self.default_position)
+        add_orders_to_position(
+            position=small_return_position,
+            order_type=OrderType.LONG,
+            trade_pair=self.DEFAULT_TRADE_PAIR,
+            leverages=[0.1, 0.1, 0.1],
+            prices=[100, 90, 80],
+            times=[self.DEFAULT_ORDER_MS, self.DEFAULT_ORDER_MS + 100, self.DEFAULT_ORDER_MS + 200]
+        )
+        # Set a very small return value to test numerical stability
+        small_return_position.return_at_close = 0.0001  # 99.99% loss
+        
+        # Configure for guaranteed risk flagging
+        original_steps = ValiConfig.RISK_PROFILING_STEPS_CRITERIA
+        original_time = ValiConfig.RISK_PROFILING_TIME_CRITERIA
+        ValiConfig.RISK_PROFILING_STEPS_CRITERIA = 1
+        ValiConfig.RISK_PROFILING_TIME_CRITERIA = 0.0
+
+        # The function should handle this edge case without numerical errors
+        result = RiskProfiling.risk_profile_score_list([small_return_position])
+        self.assertGreaterEqual(result, 0.0, "Function should handle extremely small return values")
+        self.assertLessEqual(result, 1.0, "Function should handle extremely small return values")
+        
+        # Restore original values
+        ValiConfig.RISK_PROFILING_STEPS_CRITERIA = original_steps
+        ValiConfig.RISK_PROFILING_TIME_CRITERIA = original_time
         
         # Test with single non-risky position
         safe_position = deepcopy(self.default_position)
@@ -743,13 +802,13 @@ class TestRiskProfile(TestBase):
         
         # Save original thresholds to ensure position is safe
         original_steps = ValiConfig.RISK_PROFILING_STEPS_CRITERIA
-        original_monotone = ValiConfig.RISK_PROFILING_MONOTONE_CRITERIA
+        original_monotone = ValiConfig.RISK_PROFILING_MONATOME_CRITERIA
         original_margin = ValiConfig.RISK_PROFILING_MARGIN_CRITERIA
         original_leverage = ValiConfig.RISK_PROFILING_LEVERAGE_ADVANCE
         original_time = ValiConfig.RISK_PROFILING_TIME_CRITERIA
         
         ValiConfig.RISK_PROFILING_STEPS_CRITERIA = 2
-        ValiConfig.RISK_PROFILING_MONOTONE_CRITERIA = 2
+        ValiConfig.RISK_PROFILING_MONATOME_CRITERIA = 2
         ValiConfig.RISK_PROFILING_MARGIN_CRITERIA = 0.2
         ValiConfig.RISK_PROFILING_LEVERAGE_ADVANCE = 2.0
         ValiConfig.RISK_PROFILING_TIME_CRITERIA = 0.0
@@ -785,7 +844,7 @@ class TestRiskProfile(TestBase):
         
         # Restore original thresholds
         ValiConfig.RISK_PROFILING_STEPS_CRITERIA = original_steps
-        ValiConfig.RISK_PROFILING_MONOTONE_CRITERIA = original_monotone
+        ValiConfig.RISK_PROFILING_MONATOME_CRITERIA = original_monotone
         ValiConfig.RISK_PROFILING_MARGIN_CRITERIA = original_margin
         ValiConfig.RISK_PROFILING_LEVERAGE_ADVANCE = original_leverage
         ValiConfig.RISK_PROFILING_TIME_CRITERIA = original_time
@@ -818,13 +877,13 @@ class TestRiskProfile(TestBase):
         
         # Make the risky position actually trigger risk criteria
         original_steps = ValiConfig.RISK_PROFILING_STEPS_CRITERIA
-        original_monotone = ValiConfig.RISK_PROFILING_MONOTONE_CRITERIA
+        original_monotone = ValiConfig.RISK_PROFILING_MONATOME_CRITERIA
         original_margin = ValiConfig.RISK_PROFILING_MARGIN_CRITERIA
         original_leverage = ValiConfig.RISK_PROFILING_LEVERAGE_ADVANCE
         original_time = ValiConfig.RISK_PROFILING_TIME_CRITERIA
         
         ValiConfig.RISK_PROFILING_STEPS_CRITERIA = 2
-        ValiConfig.RISK_PROFILING_MONOTONE_CRITERIA = 2
+        ValiConfig.RISK_PROFILING_MONATOME_CRITERIA = 2
         ValiConfig.RISK_PROFILING_MARGIN_CRITERIA = 0.2
         ValiConfig.RISK_PROFILING_TIME_CRITERIA = 0.1
         
@@ -844,7 +903,7 @@ class TestRiskProfile(TestBase):
         
         # Restore original values
         ValiConfig.RISK_PROFILING_STEPS_CRITERIA = original_steps
-        ValiConfig.RISK_PROFILING_MONOTONE_CRITERIA = original_monotone
+        ValiConfig.RISK_PROFILING_MONATOME_CRITERIA = original_monotone
         ValiConfig.RISK_PROFILING_MARGIN_CRITERIA = original_margin
         ValiConfig.RISK_PROFILING_LEVERAGE_ADVANCE = original_leverage
         ValiConfig.RISK_PROFILING_TIME_CRITERIA = original_time
@@ -881,13 +940,13 @@ class TestRiskProfile(TestBase):
         
         # Make the risky position actually trigger risk criteria
         original_steps = ValiConfig.RISK_PROFILING_STEPS_CRITERIA
-        original_monotone = ValiConfig.RISK_PROFILING_MONOTONE_CRITERIA
+        original_monotone = ValiConfig.RISK_PROFILING_MONATOME_CRITERIA
         original_margin = ValiConfig.RISK_PROFILING_MARGIN_CRITERIA
         original_leverage = ValiConfig.RISK_PROFILING_LEVERAGE_ADVANCE
         original_time = ValiConfig.RISK_PROFILING_TIME_CRITERIA
         
         ValiConfig.RISK_PROFILING_STEPS_CRITERIA = 2
-        ValiConfig.RISK_PROFILING_MONOTONE_CRITERIA = 2
+        ValiConfig.RISK_PROFILING_MONATOME_CRITERIA = 2
         ValiConfig.RISK_PROFILING_MARGIN_CRITERIA = 0.2
         ValiConfig.RISK_PROFILING_TIME_CRITERIA = 0.1
         
@@ -910,7 +969,7 @@ class TestRiskProfile(TestBase):
         
         # Restore original values
         ValiConfig.RISK_PROFILING_STEPS_CRITERIA = original_steps
-        ValiConfig.RISK_PROFILING_MONOTONE_CRITERIA = original_monotone
+        ValiConfig.RISK_PROFILING_MONATOME_CRITERIA = original_monotone
         ValiConfig.RISK_PROFILING_MARGIN_CRITERIA = original_margin
         ValiConfig.RISK_PROFILING_LEVERAGE_ADVANCE = original_leverage
         ValiConfig.RISK_PROFILING_TIME_CRITERIA = original_time
@@ -979,13 +1038,13 @@ class TestRiskProfile(TestBase):
         
         # Make sure the risky positions actually trigger risk criteria
         original_steps = ValiConfig.RISK_PROFILING_STEPS_CRITERIA
-        original_monotone = ValiConfig.RISK_PROFILING_MONOTONE_CRITERIA
+        original_monotone = ValiConfig.RISK_PROFILING_MONATOME_CRITERIA
         original_margin = ValiConfig.RISK_PROFILING_MARGIN_CRITERIA
         original_leverage = ValiConfig.RISK_PROFILING_LEVERAGE_ADVANCE
         original_time = ValiConfig.RISK_PROFILING_TIME_CRITERIA
         
         ValiConfig.RISK_PROFILING_STEPS_CRITERIA = 2
-        ValiConfig.RISK_PROFILING_MONOTONE_CRITERIA = 2
+        ValiConfig.RISK_PROFILING_MONATOME_CRITERIA = 2
         ValiConfig.RISK_PROFILING_MARGIN_CRITERIA = 0.4
         ValiConfig.RISK_PROFILING_LEVERAGE_ADVANCE = 3.0
         ValiConfig.RISK_PROFILING_TIME_CRITERIA = 0.1
@@ -1095,7 +1154,7 @@ class TestRiskProfile(TestBase):
         
         # Restore original values
         ValiConfig.RISK_PROFILING_STEPS_CRITERIA = original_steps
-        ValiConfig.RISK_PROFILING_MONOTONE_CRITERIA = original_monotone
+        ValiConfig.RISK_PROFILING_MONATOME_CRITERIA = original_monotone
         ValiConfig.RISK_PROFILING_MARGIN_CRITERIA = original_margin
         ValiConfig.RISK_PROFILING_LEVERAGE_ADVANCE = original_leverage
         ValiConfig.RISK_PROFILING_TIME_CRITERIA = original_time
