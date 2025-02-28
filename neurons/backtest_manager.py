@@ -24,7 +24,7 @@ class BacktestManager:
 
     def __init__(self, positions_at_t_f, start_time_ms, secrets, scoring_func,
                  leverage_to_capital=ValiConfig.LEVERAGE_TO_CAPITAL, use_slippage=False,
-                 fetch_slippage_data=False, rebuild_all_positions=False):
+                 fetch_slippage_data=False, recalculate_slippage=False, rebuild_all_positions=False):
         if not secrets:
             raise Exception(
                 "unable to get secrets data from "
@@ -35,6 +35,7 @@ class BacktestManager:
         self.start_time_ms = start_time_ms
         self.leverage_to_capital = leverage_to_capital
         self.fetch_slippage_data = fetch_slippage_data
+        self.recalculate_slippage = recalculate_slippage
         # Used in calculating position attributes
         position_file.ALWAYS_USE_LATEST = use_slippage
 
@@ -85,12 +86,9 @@ class BacktestManager:
 
 
         #Until slippage is added to the db, this will always have to be done since positions are sometimes rebuilt and would require slippage attributes on orders and initial_entry_price calculation
-        if self.fetch_slippage_data:
-            updated_hk_to_positions = self.update_historical_slippage(positions_at_t_f)
-        else:
-            updated_hk_to_positions = positions_at_t_f
+        self.update_historical_slippage(positions_at_t_f)
 
-        self.init_order_queue_and_current_positions(self.start_time_ms, updated_hk_to_positions, rebuild_all_positions=rebuild_all_positions)
+        self.init_order_queue_and_current_positions(self.start_time_ms, positions_at_t_f, rebuild_all_positions=rebuild_all_positions)
 
 
     def update_current_hk_to_positions(self, cutoff_ms):
@@ -169,27 +167,32 @@ class BacktestManager:
     def update_historical_slippage(self, positions_at_t_f):
         #mutates the original orders
         bt.logging.info("Starting slippage order pre-processing.")
-        new_hk_to_positions = defaultdict(list)
         for hk, positions in positions_at_t_f.items():
             for position in positions:
                 order_updated = False
                 for o in position.orders:
-                    #if orders don't have bid and ask fetched
-                    if self.fetch_slippage_data or (o.bid == 0 and o.ask == 0 and o.slippage == 0):#o.processed_ms < 1739937600000:  # SLIPPAGE_V1_TIME_MS
-                        bt.logging.info(f"updating order attributes {o}")
+                    #Check if orders need to have slippage calculations
+                    if o.bid == 0 and o.ask == 0 and o.slippage == 0 and not (self.recalculate_slippage or self.fetch_slippage_data):
+                        bt.logging.info(f"Not recalculating slippage, but order doesn't have these attributes set: {o}")
+                        break
+
+                    if not (self.recalculate_slippage or self.fetch_slippage_data):
+                        break
+
+                    bt.logging.info(f"updating order attributes {o}")
+                    bid = o.bid
+                    ask = o.ask
+                    if self.fetch_slippage_data:
                         bid, ask, _ = self.live_price_fetcher.get_latest_quote(trade_pair=o.trade_pair,
                                                                                time_ms=o.processed_ms)
-                        slippage = self.psm.calculate_slippage(bid, ask, o, leverage_to_capital=self.leverage_to_capital)
-                        o.bid = bid
-                        o.ask = ask
-                        o.slippage = slippage
-                        bt.logging.info(f"updated order attributes {o}")
-                        order_updated = True
+                    slippage = self.psm.calculate_slippage(bid, ask, o, leverage_to_capital=self.leverage_to_capital)
+                    o.bid = bid
+                    o.ask = ask
+                    o.slippage = slippage
+                    bt.logging.info(f"updated order attributes {o}")
+                    order_updated = True
                 if order_updated:
                     position.rebuild_position_with_updated_orders()
-                new_hk_to_positions[hk].append(position)
-
-        return new_hk_to_positions
 
     def update(self, current_time_ms:int, run_challenge=True, run_elimination=True):
         self.update_current_hk_to_positions(current_time_ms)
@@ -321,7 +324,7 @@ if __name__ == '__main__':
         hk_to_positions[pos['miner_hotkey']].append(Position(**pos))
 
     secrets = ValiUtils.get_secrets()  # {'polygon_apikey': '123', 'tiingo_apikey': '456'}
-    btm = BacktestManager(hk_to_positions, start_time_ms, secrets, None, leverage_to_capital=500_000, use_slippage=True, fetch_slippage_data=True, )
+    btm = BacktestManager(hk_to_positions, start_time_ms, secrets, None, leverage_to_capital=500_000, use_slippage=True, fetch_slippage_data=False, recalculate_slippage=False )
     for t_ms in range(start_time_ms, max_order_time_ms + 1, 1000 * 60 * 60 * 24):
         btm.update(t_ms, run_challenge=False)
         perf_ledger_bundles = btm.perf_ledger_manager.get_perf_ledgers(portfolio_only=False)
