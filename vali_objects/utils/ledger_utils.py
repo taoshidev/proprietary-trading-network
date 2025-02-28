@@ -10,67 +10,164 @@ from vali_objects.vali_dataclasses.perf_ledger import PerfCheckpoint, PerfLedger
 
 class LedgerUtils:
     @staticmethod
-    def daily_return_log(checkpoints: list[PerfCheckpoint]) -> list[float]:
+    def daily_returns(ledger: PerfLedger) -> list[float]:
+        """
+        Calculate daily returns from performance checkpoints, only including full days
+        :param ledger: PerfLedger - the ledger of the miner
+        :return: list[float] - list of daily returns for complete days as a percentage
+        """
+        daily_returns_logged = LedgerUtils.daily_return_log(ledger)
+        daily_returns_percentage = [(math.exp(x) - 1) * 100 for x in daily_returns_logged]
+        return daily_returns_percentage
+
+    @staticmethod
+    def daily_returns_by_date(ledger: PerfLedger) -> dict[datetime.date, float]:
+        """
+        Calculate daily returns from performance checkpoints, only including full days
+        :param ledger: PerfLedger - the ledger of the miner
+        :return: dict[datetime.date, float] - dictionary mapping dates to daily returns as a percentage
+        """
+        date_return_map = LedgerUtils.daily_return_log_by_date(ledger)
+        return {date: (math.exp(log_return) - 1) * 100
+                for date, log_return in date_return_map.items()}
+                
+    @staticmethod
+    def daily_returns_by_date_json(ledger: PerfLedger) -> dict[str, float]:
+        """
+        Calculate daily returns from performance checkpoints, with date keys as strings (YYYY-MM-DD)
+        to ensure JSON compatibility.
+        
+        :param ledger: PerfLedger - the ledger of the miner
+        :return: dict[str, float] - dictionary mapping date strings to daily returns as percentages
+        """
+        date_return_map = LedgerUtils.daily_returns_by_date(ledger)
+        return {date.isoformat(): round(return_value, 3)
+                for date, return_value in date_return_map.items()}
+
+    @staticmethod
+    def daily_return_log(ledger: PerfLedger) -> list[float]:
         """
         Calculate daily returns from performance checkpoints, only including full days
         with complete data and correct total accumulated time.
 
         Args:
-            checkpoints: List[PerfCheckpoint] - list of checkpoints ordered by timestamp
+            ledger: PerfLedger - the ledger of the miner
         Returns:
             List[float] - list of daily returns for complete days
         """
-        if not checkpoints:
+        if not ledger.cps:
             return []
+
+        date_return_map = LedgerUtils.daily_return_log_by_date(ledger)
+        return list(date_return_map.values())
+
+    @staticmethod
+    def daily_return_log_by_date(ledger: PerfLedger) -> dict[datetime.date, float]:
+        """
+        Calculate daily returns from performance checkpoints, only including full days
+        with complete data and correct total accumulated time.
+        Returns results as a dictionary mapping dates to returns.
+
+        Args:
+            ledger: PerfLedger - the ledger of the miner
+        Returns:
+            dict[datetime.date, float] - dictionary mapping dates to daily log returns
+        """
+        if not ledger.cps:
+            return {}
+
+        checkpoints = ledger.cps
 
         daily_groups = {}
         n_checkpoints_per_day = int(ValiConfig.DAILY_CHECKPOINTS)
 
         # Group checkpoints by date
         for cp in checkpoints:
-            running_date = datetime.fromtimestamp(cp.last_update_ms / 1000, tz=timezone.utc).date()
-            if cp.accum_ms == ValiConfig.TARGET_CHECKPOINT_DURATION_MS:
+            # Need to use the beginning of the cell, otherwise it may bleed into the next day
+            start_time = (cp.last_update_ms - cp.accum_ms)
+            full_cell = cp.accum_ms == ValiConfig.TARGET_CHECKPOINT_DURATION_MS
+
+            running_date = datetime.fromtimestamp(start_time / 1000, tz=timezone.utc).date()
+            if full_cell:
                 if running_date not in daily_groups:
                     daily_groups[running_date] = []
                 daily_groups[running_date].append(cp)
 
         # Calculate returns for complete days
-        returns = []
+        date_return_map = {}
         for running_date, day_checkpoints in sorted(daily_groups.items()):
             if len(day_checkpoints) == n_checkpoints_per_day:
                 daily_return = sum(cp.gain + cp.loss for cp in day_checkpoints)
-                returns.append(daily_return)
+                date_return_map[running_date] = daily_return
 
-        return returns
+        return date_return_map
 
     @staticmethod
-    def daily_return_percentage(checkpoints: list[PerfCheckpoint]) -> list[float]:
-        # First risk-free adjustment
-        return [(math.exp(x)-1) * 100 if x != 0 else 0 for x in LedgerUtils.daily_return_log(checkpoints)]
+    def ledger_drawdowns(ledger: PerfLedger) -> list[float]:
+        """
+        Extracts all drawdown values from a ledger.
+        
+        Args:
+            ledger: PerfLedger - the ledger of the miner
+            
+        Returns:
+            list[float]: List of drawdown values from all checkpoints
+        """
+        if not ledger or not ledger.cps:
+            return []
+
+        drawdowns = []
+        for cp in ledger.cps:
+            drawdowns.append(cp.mdd)
+
+        return drawdowns
+
+    @staticmethod
+    def daily_return_percentage(ledger: PerfLedger) -> list[float]:
+        """
+        Calculate daily returns as percentages.
+        
+        Args:
+            ledger: PerfLedger - the ledger of the miner
+        
+        Returns:
+            list[float] - list of daily returns for complete days as percentages
+        """
+        return [(math.exp(x)-1) * 100 if x != 0 else 0 for x in LedgerUtils.daily_return_log(ledger)]
 
     @staticmethod
     def ledger_returns(ledger: dict[str, PerfLedger]) -> dict[str, list[float]]:
         """
+        Calculate percentage returns for multiple miners.
+        
         Args:
             ledger: dict[str, PerfLedger] - the ledger of the miners
+            
+        Returns:
+            dict[str, list[float]] - Dictionary mapping miner hotkeys to daily returns as percentages
         """
         miner_returns = {}
 
         for miner, miner_ledger in ledger.items():
-            miner_returns[miner] = LedgerUtils.daily_return_percentage(miner_ledger.cps if miner_ledger else [])
+            miner_returns[miner] = LedgerUtils.daily_return_percentage(miner_ledger if miner_ledger else PerfLedger())
 
         return miner_returns
 
     @staticmethod
     def ledger_returns_log(ledger: dict[str, PerfLedger]) -> dict[str, list[float]]:
         """
+        Calculate logarithmic returns for multiple miners.
+        
         Args:
             ledger: dict[str, PerfLedger] - the ledger of the miners
+            
+        Returns:
+            dict[str, list[float]] - Dictionary mapping miner hotkeys to daily returns as logarithmic values
         """
         miner_returns = {}
 
         for miner, miner_ledger in ledger.items():
-            miner_returns[miner] = LedgerUtils.daily_return_log(miner_ledger.cps if miner_ledger else [])
+            miner_returns[miner] = LedgerUtils.daily_return_log(miner_ledger if miner_ledger else PerfLedger())
 
         return miner_returns
 

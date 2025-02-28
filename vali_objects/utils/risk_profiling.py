@@ -1,7 +1,6 @@
 import copy
 
 import numpy as np
-from time_util.time_util import TimeUtil
 from vali_objects.vali_config import ValiConfig
 
 from vali_objects.position import Position, Order
@@ -25,78 +24,69 @@ class RiskProfiling:
             Position: A copy of the position with only the monotonically increasing leverage orders
                      on losing trades. Returns an empty position if no such orders are found.
         """
-        position_copy = copy.deepcopy(position)
-        position_orders = position_copy.orders
+        # Copy attributes from the original position
+        result_position: Position = copy.deepcopy(position)
+        position_orders: list[Order] = [order for order in position.orders]
+
+        # Copy orders from the original position for analysis
         position_order_subset = []
 
         if len(position_orders) < 2:
-            position_copy.orders = []
-            return position_copy
+            # Return the new position with empty orders
+            result_position.orders = []
+            return result_position
 
         # Determine if it's a LONG or SHORT position
-        is_long = position_orders[0].order_type == OrderType.LONG
-        position_direction = 1 if is_long else -1
-
-        final_active_order = len(position_orders) if not position.is_closed_position else len(position_orders) - 1
+        is_long: bool = position.position_type == OrderType.LONG
+        position_direction: int = 1 if is_long else -1
+        final_active_order: int = len(position_orders) if not position.is_closed_position else len(position_orders) - 1
 
         # For SHORT positions, leverage is negative, so we need to take the absolute value for calculations
         # but preserve the sign for direction checks
         initial_leverage = position_orders[0].leverage
-        aggregate_leverage = abs(initial_leverage)
+        max_leverage = initial_leverage
+        aggregate_leverage = initial_leverage
 
-        total_weighted_price = position_orders[0].price * abs(initial_leverage)
-        avg_in_price = total_weighted_price / aggregate_leverage
-
-        # Previous order's leverage, used to determine if leverage is increasing
-        prev_leverage = initial_leverage
+        total_weighted_price = position_orders[0].price * initial_leverage  # need this to be "negative" for SHORT positions
+        avg_in_price = total_weighted_price / aggregate_leverage  # this should always be positive though
 
         for i in range(1, final_active_order):
             current_order = position_orders[i]
-            current_leverage = current_order.leverage
+            current_leverage_delta: float = current_order.leverage
 
             # Price movement is against the position if:
-            # - For LONG: price decreases (current < avg)
-            # - For SHORT: price increases (current > avg)
-            price_delta = ((current_order.price - avg_in_price) / avg_in_price) * 100
-            is_losing = (price_delta * position_direction < 0)
+            # - For LONG: current price < avg_in_price
+            # - For SHORT: current price > avg_in_price
+            order_price_direction: bool = current_order.price - avg_in_price  # how is the price of the most recent order changing relative to the average entry price
 
-            # Calculate the new aggregate leverage after adding this order
-            new_aggregate_leverage = aggregate_leverage + abs(current_leverage)
+            # If the price direction is going the same way as the position, it's winning. If they are opposite (less than zero), it's losing.
+            losing_order: bool = order_price_direction * position_direction < 0
+
+            # Update aggregate leverage with the current order's leverage
+            new_aggregate_leverage = aggregate_leverage + current_leverage_delta
 
             # Leverage is increasing if the new aggregate leverage is greater than the previous aggregate
-            leverage_increased = new_aggregate_leverage > aggregate_leverage
-
-            # Calculate absolute leverage delta for weighted average calculation
-            leverage_delta_abs = abs(current_leverage)
-            new_aggregate_leverage = aggregate_leverage + leverage_delta_abs
+            leverage_increased_beyond_max = abs(new_aggregate_leverage) > abs(max_leverage)
 
             # Flag if position is losing and leverage increased
-            if is_losing and leverage_increased:
+            if losing_order and leverage_increased_beyond_max:
+                # Add the order to the subset
                 order_copy = copy.deepcopy(current_order)
-                # Store the aggregate leverage for monotonicity check later
-                order_copy.leverage = aggregate_leverage if is_long else -aggregate_leverage
+                order_copy.leverage = new_aggregate_leverage
                 position_order_subset.append(order_copy)
 
-            # Update aggregate leverage for next iteration
+                # Update max leverage for the next iteration
+                max_leverage = new_aggregate_leverage
+
+            # Update weighted price and average entry price for the next iteration
+            total_weighted_price += current_order.price * current_leverage_delta  # this will actually be "negative" for SHORT positions
+            avg_in_price = total_weighted_price / new_aggregate_leverage  # don't want to use absolute value here, as the avg in price should always be positive
+
             aggregate_leverage = new_aggregate_leverage
 
-            # Update weighted price and average entry price
-            total_weighted_price += current_order.price * leverage_delta_abs
-            avg_in_price = total_weighted_price / aggregate_leverage
-            prev_leverage = current_leverage
-
-        # Filter for monotonically increasing leverage
-        monotone_component = []
-        prior_max_leverage = 0
-
-        for position_order in position_order_subset:
-            current_abs_leverage = abs(position_order.leverage)
-            if current_abs_leverage > prior_max_leverage:
-                monotone_component.append(position_order)
-                prior_max_leverage = current_abs_leverage
-
-        position_copy.orders = monotone_component
-        return position_copy
+        # Use the new position object
+        result_position.orders = position_order_subset
+        return result_position
 
     @staticmethod
     def risk_assessment_steps_utilization(position: Position) -> int:
@@ -188,11 +178,7 @@ class RiskProfiling:
             int: The number of orders with monotonically increasing leverage on losing trades.
         """
         monotone_position = RiskProfiling.monotonic_positions(position)
-        if monotone_position == 0:  # if there are less than 2 orders, monotone_positions method returns 0
-            return 0
-        monotone_orders = monotone_position.orders
-
-        return len(monotone_orders)
+        return len(monotone_position.orders)
 
     @staticmethod
     def risk_assessment_monotonic_criteria(position: Position) -> bool:
@@ -342,7 +328,10 @@ class RiskProfiling:
             return 0.0
 
         # now we are ready to calculate order time intervals (time_deltas)
-        order_times = [order.processed_ms for order in position_order_subset]
+        # ensure all processed_ms values are positive before calculating time deltas
+        order_times = [max(1, order.processed_ms) for order in position_order_subset]
+        # sort the times to ensure they are monotonically increasing to avoid negative time deltas
+        order_times.sort()
         time_deltas = np.diff(order_times)      # no need to convert ms, it will be normalized
         total_order_time = order_times[-1] - order_times[0]
         ideal_interval = total_order_time / (len(position_order_subset) - 1)    # there are at least 3 orders
@@ -526,7 +515,6 @@ class RiskProfiling:
         Returns:
             dict: Dictionary mapping miner hotkeys to their risk scores (0.0-1.0)
         """
-        risk_profile_scoping_mechanic = ValiConfig.RISK_PROFILING_SCOPING_MECHANIC
         miner_scores = {}
 
         for miner, positions in miner_positions.items():

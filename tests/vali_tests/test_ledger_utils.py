@@ -2,9 +2,12 @@ from tests.vali_tests.base_objects.test_base import TestBase
 from vali_objects.utils.ledger_utils import LedgerUtils
 
 from vali_objects.vali_config import ValiConfig
-from vali_objects.vali_dataclasses.perf_ledger import TP_ID_PORTFOLIO
-from tests.shared_objects.test_utilities import generate_ledger, checkpoint_generator
+from vali_objects.vali_dataclasses.perf_ledger import TP_ID_PORTFOLIO, PerfLedger, PerfCheckpoint
+from tests.shared_objects.test_utilities import generate_ledger, checkpoint_generator, ledger_generator
 import random
+from datetime import datetime, timezone, date as date_type
+import math
+import copy
 
 
 class TestLedgerUtils(TestBase):
@@ -23,65 +26,259 @@ class TestLedgerUtils(TestBase):
         """
         should bucket the checkpoint returns by full days
         """
-        self.assertEqual(LedgerUtils.daily_return_log([]), [])
-        checkpoints = self.DEFAULT_LEDGER[TP_ID_PORTFOLIO].cps
+        # Test with empty ledger
+        empty_ledger = PerfLedger()
+        self.assertEqual(LedgerUtils.daily_return_log(empty_ledger), [])
+        
+        ledger = self.DEFAULT_LEDGER[TP_ID_PORTFOLIO]
+        checkpoints = ledger.cps
 
         # One checkpoint shouldn't be enough since full day is required
-        self.assertEqual(len(LedgerUtils.daily_return_log([checkpoints[0]])), 0)
+        single_cp_ledger = ledger_generator(checkpoints=[checkpoints[0]])
+        self.assertEqual(len(LedgerUtils.daily_return_log(single_cp_ledger)), 0)
 
         # Two checkpoints with one not having enough accumulation time doesn't count as a full day
-        self.assertEqual(len(LedgerUtils.daily_return_log(checkpoints[:2])), 0)
+        two_cp_ledger = ledger_generator(checkpoints=checkpoints[:2])
+        self.assertEqual(len(LedgerUtils.daily_return_log(two_cp_ledger)), 0)
 
-        # Three checkpoints but no two starting on the same day that have full accumulation time doesn't count
-        self.assertEqual(len(LedgerUtils.daily_return_log(checkpoints[:3])), 0)
+        # Test: Only full cells count towards the daily returns
+        cp1 = copy.deepcopy(checkpoints[0])
+        cp2 = copy.deepcopy(checkpoints[1])
+        
+        # Set invalid accum_ms to prevent a full day - only full cells should count
+        cp1.accum_ms = ValiConfig.TARGET_CHECKPOINT_DURATION_MS  # Full duration
+        cp2.accum_ms = ValiConfig.TARGET_CHECKPOINT_DURATION_MS // 2  # Half duration (not full)
+        
+        # Set timestamps to be on the same day (UTC)
+        base_ts = 1672531200000  # 2023-01-01 00:00:00 UTC
+        cp1.last_update_ms = base_ts + 43200000  # 12:00:00 (noon)
+        cp2.last_update_ms = base_ts + 64800000  # 18:00:00 (evening)
+        
+        partial_day_ledger = ledger_generator(checkpoints=[cp1, cp2])
+        self.assertEqual(len(LedgerUtils.daily_return_log(partial_day_ledger)), 0, 
+                        "Day with not enough full cells should return 0 days")
+        
+        # We need to mock checkpoints that will pass the full_cell check 
+        # and have exact timestamps that will be categorized by day
+        
+        # Create a ledger with 4 checkpoints (assuming DAILY_CHECKPOINTS = 2)
+        # Day 1: 2 checkpoints at 00:00 and 12:00
+        # Day 2: 2 checkpoints at 00:00 and 12:00
+        day1_date = datetime(2023, 1, 1, tzinfo=timezone.utc)
+        day2_date = datetime(2023, 1, 2, tzinfo=timezone.utc)
+        
+        checkpoint_duration = ValiConfig.TARGET_CHECKPOINT_DURATION_MS
+        
+        # Make sure that last_update_ms - accum_ms will be on the correct day
+        day1_midnight_ms = int(day1_date.timestamp() * 1000) + checkpoint_duration  # ensures start time is on day1
+        day1_noon_ms = day1_midnight_ms + (12 * 60 * 60 * 1000)  # 12 hours later, still on day1
+        day2_midnight_ms = int(day2_date.timestamp() * 1000) + checkpoint_duration  # ensures start time is on day2
+        day2_noon_ms = day2_midnight_ms + (12 * 60 * 60 * 1000)  # 12 hours later, still on day2
+        
+        # Create explicit checkpoints with controlled timestamps
+        mock_checkpoints = [
+            # Day 1 checkpoints
+            PerfCheckpoint(
+                last_update_ms=day1_midnight_ms,
+                accum_ms=checkpoint_duration,
+                open_ms=day1_midnight_ms - checkpoint_duration,
+                gain=0.1,
+                loss=-0.05,
+                prev_portfolio_ret=1.0,
+                n_updates=1,
+                mdd=0.99
+            ),
+            PerfCheckpoint(
+                last_update_ms=day1_noon_ms,
+                accum_ms=checkpoint_duration,
+                open_ms=day1_noon_ms - checkpoint_duration,
+                gain=0.1,
+                loss=-0.05,
+                prev_portfolio_ret=1.0,
+                n_updates=1,
+                mdd=0.99
+            ),
+            # Day 2 checkpoints
+            PerfCheckpoint(
+                last_update_ms=day2_midnight_ms,
+                accum_ms=checkpoint_duration,
+                open_ms=day2_midnight_ms - checkpoint_duration,
+                gain=0.2,
+                loss=-0.1,
+                prev_portfolio_ret=1.0,
+                n_updates=1,
+                mdd=0.99
+            ),
+            PerfCheckpoint(
+                last_update_ms=day2_noon_ms,
+                accum_ms=checkpoint_duration,
+                open_ms=day2_noon_ms - checkpoint_duration,
+                gain=0.2,
+                loss=-0.1,
+                prev_portfolio_ret=1.0,
+                n_updates=1,
+                mdd=0.99
+            )
+        ]
+        
+        # Filter only day 1 checkpoints
+        day1_checkpoints = mock_checkpoints[:2]
+        day1_ledger = ledger_generator(checkpoints=day1_checkpoints)
+        day1_returns = LedgerUtils.daily_return_log(day1_ledger)
+        self.assertEqual(len(day1_returns), 1, 
+                        "A full day of checkpoints should return 1 day")
+        
+        # Filter only day 2 checkpoints
+        day2_checkpoints = mock_checkpoints[2:4]
+        day2_ledger = ledger_generator(checkpoints=day2_checkpoints)
+        day2_returns = LedgerUtils.daily_return_log(day2_ledger)
+        self.assertEqual(len(day2_returns), 1, 
+                        "A full day of checkpoints should return 1 day")
+        
+        # Test with both days
+        two_day_ledger = ledger_generator(checkpoints=mock_checkpoints)
+        daily_returns = LedgerUtils.daily_return_log(two_day_ledger)
+        self.assertEqual(len(daily_returns), 2, 
+                        "Two complete days should return 2 days of returns")
+        
+        # Check date-based returns
+        date_returns = LedgerUtils.daily_return_log_by_date(two_day_ledger)
+        self.assertEqual(len(date_returns), 2,
+                        "Two complete days should return 2 dates with returns")
+        
+        dates = list(date_returns.keys())
+        self.assertEqual(dates[0], day1_date.date(), "First date should be 2023-01-01")
+        self.assertEqual(dates[1], day2_date.date(), "Second date should be 2023-01-02")
+        
+        # Verify return values
+        day1_expected_return = 2 * (0.1 - 0.05)  # 2 checkpoints with 0.1 gain, -0.05 loss each
+        day2_expected_return = 2 * (0.2 - 0.1)   # 2 checkpoints with 0.2 gain, -0.1 loss each
+        
+        self.assertAlmostEqual(daily_returns[0], day1_expected_return,
+                             msg="Day 1 return should match the expected value")
+        self.assertAlmostEqual(daily_returns[1], day2_expected_return,
+                             msg="Day 2 return should match the expected value")
+                
+        # Test the problematic day-boundary case by creating checkpoints spanning from day 1 to day 2
+        # This checkpoint starts at end of day 1 and ends at beginning of day 2
+        # Create a day1 checkpoint that will match the exact format expected
+        # Looking at the _daily_return_log_by_date code:
+        # 1. It calculates start_time = (cp.last_update_ms - cp.accum_ms)
+        # 2. It groups by dates from that start_time
+        # This checkpoint must have:
+        # - Full accum_ms to pass the full_cell check
+        # - correct start time to be on day1
 
-        # Single day should return a value
-        # 2 is used in the product since the first full day of checkpoints is the second day here
-        num_checkpoints = ValiConfig.DAILY_CHECKPOINTS
-        self.assertEqual(len(LedgerUtils.daily_return_log(checkpoints[:num_checkpoints * 2])), 1)
-        self.assertEqual(LedgerUtils.daily_return_log(checkpoints[:num_checkpoints * 2])[0], 0)
-
-        self.assertEqual(len(LedgerUtils.daily_return_log(checkpoints)), 89)
-        l1 = generate_ledger(0.1, start_time=10, end_time=ValiConfig.TARGET_LEDGER_WINDOW_MS, mdd=0.99)
-        l1_cps = l1[TP_ID_PORTFOLIO].cps
-        self.assertEqual(len(LedgerUtils.daily_return_log(l1_cps)), 88)
+        # Add exactly enough checkpoints to form a complete day
+        num_cp_needed = int(ValiConfig.DAILY_CHECKPOINTS)
+        day1_checkpoints = []
+        
+        # Create multiple checkpoints for day1 that all have the proper characteristics
+        for i in range(num_cp_needed):
+            hour = 6 + i * (24 // num_cp_needed)  # Space them out across the day
+            checkpoint_start = int(day1_date.timestamp() * 1000) + (hour * 3600 * 1000)
+            day1_checkpoints.append(
+                PerfCheckpoint(
+                    last_update_ms=checkpoint_start + checkpoint_duration,
+                    accum_ms=checkpoint_duration,
+                    open_ms=checkpoint_start,
+                    gain=0.1,
+                    loss=-0.05,
+                    prev_portfolio_ret=1.0,
+                    n_updates=1,
+                    mdd=0.99
+                )
+            )
+            
+        full_day1_ledger = ledger_generator(checkpoints=day1_checkpoints)
+        date_returns = LedgerUtils.daily_return_log_by_date(full_day1_ledger)
+        
+        # Now we should have a full day's worth of data
+        self.assertIn(day1_date.date(), date_returns.keys(),
+                    "Day with enough checkpoints should be included")
+        self.assertNotIn(day2_date.date(), date_returns.keys(),
+                      "No checkpoints were on day 2")
+        
+        # Verify our understanding of the ledger_utils.py algorithm:
+        # 1. It groups checkpoints by date (the date of the start time)
+        # 2. It only includes days with EXACTLY n_checkpoints_per_day checkpoints
+        
+        # Test with one checkpoint less than required - should NOT have any daily returns
+        insufficient_day_cps = day1_checkpoints[:-1]  # One less than required
+        insufficient_ledger = ledger_generator(checkpoints=insufficient_day_cps)
+        self.assertEqual(len(LedgerUtils.daily_return_log(insufficient_ledger)), 0,
+                       "Day with less than required checkpoints should return 0 days")
+                       
+        # Verify we have the right number of checkpoints per day for this test
+        self.assertEqual(len(day1_checkpoints), int(ValiConfig.DAILY_CHECKPOINTS),
+                       "Test setup should have the exact number of required checkpoints")
+        
+        # The key observation about the ledger_utils.py implementation:
+        # It requires EXACTLY the number of checkpoints per day - not more, not less
+        
+        # Add one more checkpoint - this actually breaks the day count because
+        # the implementation requires EXACTLY the right number
+        hour = 18  # 6 PM
+        checkpoint_start = int(day1_date.timestamp() * 1000) + (hour * 3600 * 1000)
+        extra_cp = PerfCheckpoint(
+            last_update_ms=checkpoint_start + checkpoint_duration,
+            accum_ms=checkpoint_duration,
+            open_ms=checkpoint_start,
+            gain=0.1,
+            loss=-0.05,
+            prev_portfolio_ret=1.0,
+            n_updates=1,
+            mdd=0.99
+        )
+        
+        extra_day_cps = day1_checkpoints + [extra_cp]
+        extra_ledger = ledger_generator(checkpoints=extra_day_cps)
+        
+        # According to the current implementation, we should have 0 daily returns
+        # because the day has MORE than n_checkpoints_per_day checkpoints
+        self.assertEqual(len(LedgerUtils.daily_return_log(extra_ledger)), 0,
+                       "Day with more than required checkpoints should return 0 days")
 
     def test_daily_return(self):
         """
         exponentiate daily return log and convert to percentage
         """
         # Base case
-        self.assertEqual(len(LedgerUtils.daily_return_percentage([])), 0)
+        empty_ledger = PerfLedger()
+        self.assertEqual(len(LedgerUtils.daily_returns(empty_ledger)), 0)
 
         # No returns
         l1 = generate_ledger(0.1)
-        l1_cps = l1[TP_ID_PORTFOLIO].cps
-        self.assertEqual(LedgerUtils.daily_return_percentage(l1_cps)[0], 0)
+        l1_ledger = l1[TP_ID_PORTFOLIO]
+        self.assertEqual(LedgerUtils.daily_returns(l1_ledger)[0], 0)
         # Simple returns >= log returns
-        self.assertGreaterEqual(LedgerUtils.daily_return_percentage(l1_cps)[0], LedgerUtils.daily_return_log(l1_cps)[0] * 100)
+        self.assertGreaterEqual(LedgerUtils.daily_returns(l1_ledger)[0], LedgerUtils.daily_return_log(l1_ledger)[0] * 100)
 
         # Negative returns
         l1 = generate_ledger(0.1, gain=0.1, loss=-0.2)
-        l1_cps = l1[TP_ID_PORTFOLIO].cps
-        self.assertLess(LedgerUtils.daily_return_percentage(l1_cps)[0], 0)
+        l1_ledger = l1[TP_ID_PORTFOLIO]
+        self.assertLess(LedgerUtils.daily_returns(l1_ledger)[0], 0)
         # Simple returns >= log returns
-        self.assertGreaterEqual(LedgerUtils.daily_return_percentage(l1_cps)[0], LedgerUtils.daily_return_log(l1_cps)[0] * 100)
+        self.assertGreaterEqual(LedgerUtils.daily_returns(l1_ledger)[0], LedgerUtils.daily_return_log(l1_ledger)[0] * 100)
 
         # Positive returns
         l1 = generate_ledger(0.1, gain=0.2, loss=-0.1)
-        l1_cps = l1[TP_ID_PORTFOLIO].cps
-        self.assertGreater(LedgerUtils.daily_return_percentage(l1_cps)[0], 0)
+        l1_ledger = l1[TP_ID_PORTFOLIO]
+        self.assertGreater(LedgerUtils.daily_returns(l1_ledger)[0], 0)
         # Simple returns >= log returns
-        self.assertGreaterEqual(LedgerUtils.daily_return_percentage(l1_cps)[0], LedgerUtils.daily_return_log(l1_cps)[0] * 100)
+        self.assertGreaterEqual(LedgerUtils.daily_returns(l1_ledger)[0], LedgerUtils.daily_return_log(l1_ledger)[0] * 100)
 
     # Want to test the individual functions inputs and outputs
     def test_max_drawdown(self):
         l1 = generate_ledger(0.1, mdd=0.99)
-        l1_cps = l1[TP_ID_PORTFOLIO].cps
+        l1_ledger = l1[TP_ID_PORTFOLIO]
+        l1_cps = l1_ledger.cps
+        
+        # Empty ledger test
+        empty_ledger = PerfLedger()
+        self.assertEqual(LedgerUtils.max_drawdown(empty_ledger.cps), 0.0)
 
-        self.assertEqual(LedgerUtils.max_drawdown([]), 0.0)
-
-        LedgerUtils.max_drawdown(l1_cps)
+        # Valid ledger tests
         self.assertEqual(LedgerUtils.max_drawdown(l1_cps), 0.99)
 
         l2 = generate_ledger(0.1, mdd=0.95)
@@ -102,10 +299,11 @@ class TestLedgerUtils(TestBase):
             self.assertGreaterEqual(LedgerUtils.max_drawdown(element), 0)
             self.assertLessEqual(LedgerUtils.max_drawdown(element), 1)
 
-        # Recent drawdown should work even if there is only one checkpoint
+        # Test with a minimal ledger containing just a few checkpoints
         drawdowns = [0.99, 0.98]
         checkpoints = [checkpoint_generator(mdd=mdd) for mdd in drawdowns]
-        self.assertEqual(LedgerUtils.max_drawdown(checkpoints), 0.98)
+        minimal_ledger = ledger_generator(checkpoints=checkpoints)
+        self.assertEqual(LedgerUtils.max_drawdown(minimal_ledger.cps), 0.98)
 
     def test_drawdown_percentage(self):
         self.assertAlmostEqual(LedgerUtils.drawdown_percentage(1), 0)
@@ -182,8 +380,11 @@ class TestLedgerUtils(TestBase):
 
     # Test approximate_drawdown
     def test_approximate_drawdown(self):
-        checkpoints = self.DEFAULT_LEDGER[TP_ID_PORTFOLIO].cps
-        self.assertEqual(LedgerUtils.approximate_drawdown([]), 0)
+        ledger = self.DEFAULT_LEDGER[TP_ID_PORTFOLIO] 
+        checkpoints = ledger.cps
+        
+        empty_ledger = PerfLedger()
+        self.assertEqual(LedgerUtils.approximate_drawdown(empty_ledger.cps), 0)
         self.assertLessEqual(LedgerUtils.approximate_drawdown(checkpoints), 1)
 
         l1 = generate_ledger(0.1, mdd=0.99)  # 1% drawdown
@@ -210,36 +411,125 @@ class TestLedgerUtils(TestBase):
 
     # Test mean_drawdown
     def test_mean_drawdown(self):
+        # Test with empty list
+        self.assertEqual(LedgerUtils.mean_drawdown([]), 0)
+        
+        # With one checkpoint, mean drawdown should be mdd
         drawdowns = [0.98]
         checkpoints = [checkpoint_generator(mdd=x) for x in drawdowns]
-
-        self.assertEqual(LedgerUtils.mean_drawdown([]), 0)
-        # With one checkpoint, mean drawdown should be mdd
-        self.assertEqual(LedgerUtils.mean_drawdown(checkpoints), 0.98)
-
-        drawdowns = [0.98, 1.0]
-        checkpoints = [checkpoint_generator(mdd=mdd) for mdd in drawdowns]
+        single_cp_ledger = ledger_generator(checkpoints=checkpoints)
+        self.assertEqual(LedgerUtils.mean_drawdown(single_cp_ledger.cps), 0.98)
 
         # Should be the average in the general case
-        self.assertEqual(LedgerUtils.mean_drawdown(checkpoints), 0.99)
-
-        drawdowns = [1.1, 1.3, 0.99]
+        drawdowns = [0.98, 1.0]
         checkpoints = [checkpoint_generator(mdd=mdd) for mdd in drawdowns]
+        two_cp_ledger = ledger_generator(checkpoints=checkpoints)
+        self.assertEqual(LedgerUtils.mean_drawdown(two_cp_ledger.cps), 0.99)
 
         # Should be set to 1 if average is over 1
-        self.assertEqual(LedgerUtils.mean_drawdown(checkpoints), 1.0)
-
-        drawdowns = [-0.1, -0.3, -0.9]
+        drawdowns = [1.1, 1.3, 0.99]
         checkpoints = [checkpoint_generator(mdd=mdd) for mdd in drawdowns]
+        high_dd_ledger = ledger_generator(checkpoints=checkpoints)
+        self.assertEqual(LedgerUtils.mean_drawdown(high_dd_ledger.cps), 1.0)
 
         # Should be set 0 if drawdowns are somehow negative
-        self.assertEqual(LedgerUtils.mean_drawdown(checkpoints), 0)
+        drawdowns = [-0.1, -0.3, -0.9]
+        checkpoints = [checkpoint_generator(mdd=mdd) for mdd in drawdowns]
+        neg_dd_ledger = ledger_generator(checkpoints=checkpoints)
+        self.assertEqual(LedgerUtils.mean_drawdown(neg_dd_ledger.cps), 0)
 
+        # Test with the default ledger
         self.assertEqual(LedgerUtils.mean_drawdown(self.DEFAULT_LEDGER[TP_ID_PORTFOLIO].cps), 0.99)
 
     # Test risk_normalization
     def test_risk_normalization(self):
-        checkpoints = self.DEFAULT_LEDGER[TP_ID_PORTFOLIO].cps
+        # Test with empty list
         self.assertEqual(LedgerUtils.risk_normalization([]), 0)
+        
+        # Test with default ledger
+        ledger = self.DEFAULT_LEDGER[TP_ID_PORTFOLIO]
+        checkpoints = ledger.cps
         self.assertLessEqual(LedgerUtils.risk_normalization(checkpoints), 1)
+        
+        # Test with empty ledger
+        empty_ledger = PerfLedger()
+        self.assertEqual(LedgerUtils.risk_normalization(empty_ledger.cps), 0)
+        
+    def test_daily_return_log_by_date(self):
+        """Test the daily return log by date function"""
+        # Test with empty ledger
+        empty_ledger = PerfLedger()
+        self.assertEqual(LedgerUtils.daily_return_log_by_date(empty_ledger), {})
+        
+        # Test with ledger containing checkpoints
+        ledger = self.DEFAULT_LEDGER[TP_ID_PORTFOLIO]
+        result = LedgerUtils.daily_return_log_by_date(ledger)
+        
+        # Should return a dictionary mapping dates to returns
+        self.assertIsInstance(result, dict)
+        self.assertEqual(len(result), len(LedgerUtils.daily_return_log(ledger)))
+        
+        # Each key should be a date
+        for date in result.keys():
+            self.assertIsInstance(date, date_type)
+        
+        # Values should be floats (returns)
+        for value in result.values():
+            self.assertIsInstance(value, float)
+            
+    def test_daily_returns_by_date(self):
+        """Test the daily returns by date function"""
+        # Test with empty ledger
+        empty_ledger = PerfLedger()
+        self.assertEqual(LedgerUtils.daily_returns_by_date(empty_ledger), {})
+        
+        # Test with ledger containing checkpoints
+        ledger = self.DEFAULT_LEDGER[TP_ID_PORTFOLIO]
+        log_results = LedgerUtils.daily_return_log_by_date(ledger)
+        percentage_results = LedgerUtils.daily_returns_by_date(ledger)
+        
+        # Should have same dates as keys
+        self.assertEqual(set(log_results.keys()), set(percentage_results.keys()))
+        
+        # Values should be percentages (exp(log_return) - 1) * 100
+        for date, log_return in log_results.items():
+            expected_percentage = (math.exp(log_return) - 1) * 100
+            self.assertAlmostEqual(percentage_results[date], expected_percentage)
+            
+    def test_daily_returns_by_date_json(self):
+        """Test the JSON-compatible daily returns by date function"""
+        # Test with empty ledger
+        empty_ledger = PerfLedger()
+        self.assertEqual(LedgerUtils.daily_returns_by_date_json(empty_ledger), {})
+        
+        # Test with ledger containing checkpoints
+        ledger = self.DEFAULT_LEDGER[TP_ID_PORTFOLIO]
+        regular_results = LedgerUtils.daily_returns_by_date(ledger)
+        json_results = LedgerUtils.daily_returns_by_date_json(ledger)
+        
+        # Should have same number of entries
+        self.assertEqual(len(regular_results), len(json_results))
+        
+        # Keys in json_results should be strings in ISO format (YYYY-MM-DD)
+        for key in json_results.keys():
+            self.assertIsInstance(key, str)
+            # Verify it's in ISO format by parsing it back to a date
+            parsed_date = date_type.fromisoformat(key)
+            self.assertIsInstance(parsed_date, date_type)
+            
+        # Values should match between regular and JSON formats
+        for date, value in regular_results.items():
+            date_str = date.isoformat()
+            self.assertIn(date_str, json_results)
+            self.assertEqual(json_results[date_str], value)
+            
+        # Test JSON serializability
+        import json
+        try:
+            json_string = json.dumps(json_results)
+            # Parsing back should give the same data
+            parsed_json = json.loads(json_string)
+            self.assertEqual(parsed_json, json_results)
+        except TypeError:
+            self.fail("daily_returns_by_date_json results should be JSON serializable")
 
