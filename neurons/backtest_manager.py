@@ -13,6 +13,7 @@ from vali_objects.utils.position_lock import PositionLocks
 from vali_objects.utils.position_manager import PositionManager
 from vali_objects.utils.subtensor_weight_setter import SubtensorWeightSetter
 from vali_objects.utils.vali_utils import ValiUtils
+from vali_objects.vali_config import ValiConfig
 from vali_objects.vali_config import TradePair
 from vali_objects.vali_dataclasses.perf_ledger import MockMetagraph, PerfLedgerManager
 import bittensor as bt
@@ -21,7 +22,9 @@ from vali_objects.utils.price_slippage_model import PriceSlippageModel
 
 class BacktestManager:
 
-    def __init__(self, positions_at_t_f, start_time_ms, secrets, scoring_func, rebuild_all_positions=False, calculate_historical_slippage=True):
+    def __init__(self, positions_at_t_f, start_time_ms, secrets, scoring_func,
+                 leverage_to_capital=ValiConfig.LEVERAGE_TO_CAPITAL, use_slippage=False,
+                 fetch_slippage_data=False, rebuild_all_positions=False):
         if not secrets:
             raise Exception(
                 "unable to get secrets data from "
@@ -30,6 +33,11 @@ class BacktestManager:
         self.secrets = secrets
         self.scoring_func = scoring_func
         self.start_time_ms = start_time_ms
+        self.leverage_to_capital = leverage_to_capital
+        self.fetch_slippage_data = fetch_slippage_data
+        # Used in calculating position attributes
+        position_file.ALWAYS_USE_LATEST = use_slippage
+
 
         # metagraph provides the network's current state, holding state about other participants in a subnet.
         # IMPORTANT: Only update this variable in-place. Otherwise, the reference will be lost in the helper classes.
@@ -75,10 +83,9 @@ class BacktestManager:
         self.miner_statistics_manager = MinerStatisticsManager(position_manager=self.position_manager, subtensor_weight_setter=self.weight_setter, plagiarism_detector=self.plagiarism_detector)
         self.psm = PriceSlippageModel(self.live_price_fetcher, is_backtesting=True)
 
-        #Used in calculating position attributes
-        position_file.ALWAYS_USE_LATEST = True
+
         #Until slippage is added to the db, this will always have to be done since positions are sometimes rebuilt and would require slippage attributes on orders and initial_entry_price calculation
-        if calculate_historical_slippage:
+        if self.fetch_slippage_data:
             updated_hk_to_positions = self.update_historical_slippage(positions_at_t_f)
         else:
             updated_hk_to_positions = positions_at_t_f
@@ -167,11 +174,12 @@ class BacktestManager:
             for position in positions:
                 order_updated = False
                 for o in position.orders:
-                    if o.bid == 0 and o.ask == 0 and o.slippage == 0:#o.processed_ms < 1739937600000:  # SLIPPAGE_V1_TIME_MS
+                    #if orders don't have bid and ask fetched
+                    if self.fetch_slippage_data or (o.bid == 0 and o.ask == 0 and o.slippage == 0):#o.processed_ms < 1739937600000:  # SLIPPAGE_V1_TIME_MS
                         bt.logging.info(f"updating order attributes {o}")
                         bid, ask, _ = self.live_price_fetcher.get_latest_quote(trade_pair=o.trade_pair,
                                                                                time_ms=o.processed_ms)
-                        slippage = self.psm.calculate_slippage(bid, ask, o)
+                        slippage = self.psm.calculate_slippage(bid, ask, o, leverage_to_capital=self.leverage_to_capital)
                         o.bid = bid
                         o.ask = ask
                         o.slippage = slippage
@@ -313,9 +321,9 @@ if __name__ == '__main__':
         hk_to_positions[pos['miner_hotkey']].append(Position(**pos))
 
     secrets = ValiUtils.get_secrets()  # {'polygon_apikey': '123', 'tiingo_apikey': '456'}
-    btm = BacktestManager(hk_to_positions, start_time_ms, secrets, None)
+    btm = BacktestManager(hk_to_positions, start_time_ms, secrets, None, leverage_to_capital=500_000, use_slippage=True, fetch_slippage_data=True, )
     for t_ms in range(start_time_ms, max_order_time_ms + 1, 1000 * 60 * 60 * 24):
-        btm.update(t_ms)
+        btm.update(t_ms, run_challenge=False)
         perf_ledger_bundles = btm.perf_ledger_manager.get_perf_ledgers(portfolio_only=False)
         hk_to_perf_ledger_tps = {}
         for k, v in perf_ledger_bundles.items():

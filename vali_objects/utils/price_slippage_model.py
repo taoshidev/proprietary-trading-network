@@ -35,13 +35,13 @@ class PriceSlippageModel:
         PriceSlippageModel.is_backtesting = is_backtesting
 
     @classmethod
-    def calculate_slippage(cls, bid:float, ask:float, order:Order):
+    def calculate_slippage(cls, bid:float, ask:float, order:Order, leverage_to_capital=ValiConfig.LEVERAGE_TO_CAPITAL):
         """
         returns the percentage slippage of the current order.
         each asset class uses a unique model
         """
         trade_pair = order.trade_pair
-        size = abs(order.leverage) * ValiConfig.LEVERAGE_TO_CAPITAL
+        size = abs(order.leverage) * leverage_to_capital
         if size <= 1000:
             return 0  # assume 0 slippage when order size is under 1k
         if cls.is_backtesting:
