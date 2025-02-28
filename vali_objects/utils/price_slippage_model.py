@@ -9,6 +9,7 @@ import bittensor as bt
 
 from data_generator.polygon_data_service import PolygonDataService
 from time_util.time_util import TimeUtil
+from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.utils.live_price_fetcher import LivePriceFetcher
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.utils.vali_utils import ValiUtils
@@ -19,11 +20,15 @@ from vali_objects.vali_dataclasses.order import Order
 class PriceSlippageModel:
     features = defaultdict(dict)
     parameters: dict = {}
-    pds: PolygonDataService = None
+    live_price_fetcher: LivePriceFetcher = None
     holidays_nyse = None
     is_backtesting = False
+    fetch_slippage_data = False
+    recalculate_slippage = False
+    leverage_to_capital = ValiConfig.LEVERAGE_TO_CAPITAL
 
-    def __init__(self, live_price_fetcher=None, running_unit_tests=False, is_backtesting=False):
+    def __init__(self, live_price_fetcher=None, running_unit_tests=False, is_backtesting=False,
+                 fetch_slippage_data=False, recalculate_slippage=False, leverage_to_capital=ValiConfig.LEVERAGE_TO_CAPITAL):
         if not PriceSlippageModel.parameters:
             PriceSlippageModel.holidays_nyse = holidays.financial_holidays('NYSE')
             PriceSlippageModel.parameters = self.read_slippage_model_parameters()
@@ -31,8 +36,12 @@ class PriceSlippageModel:
             if live_price_fetcher is None:
                 secrets = ValiUtils.get_secrets(running_unit_tests=running_unit_tests)
                 live_price_fetcher = LivePriceFetcher(secrets, disable_ws=False)
-            PriceSlippageModel.pds = live_price_fetcher.polygon_data_service
+            PriceSlippageModel.live_price_fetcher = live_price_fetcher
+
         PriceSlippageModel.is_backtesting = is_backtesting
+        PriceSlippageModel.fetch_slippage_data = fetch_slippage_data
+        PriceSlippageModel.recalculate_slippage = recalculate_slippage
+        PriceSlippageModel.leverage_to_capital = leverage_to_capital
 
     @classmethod
     def calculate_slippage(cls, bid:float, ask:float, order:Order, leverage_to_capital=ValiConfig.LEVERAGE_TO_CAPITAL):
@@ -107,7 +116,7 @@ class PriceSlippageModel:
 
         size = abs(order.leverage) * ValiConfig.LEVERAGE_TO_CAPITAL
         base, _ = order.trade_pair.trade_pair.split("/")
-        base_to_usd_conversion = cls.pds.get_currency_conversion(base=base, quote="USD") if base != "USD" else 1  # TODO: fallback?
+        base_to_usd_conversion = cls.live_price_fetcher.pds.get_currency_conversion(base=base, quote="USD") if base != "USD" else 1  # TODO: fallback?
         # print(base_to_usd_conversion)
         volume_standard_lots = size / (100_000 * base_to_usd_conversion)  # Volume expressed in terms of standard lots (1 std lot = 100,000 base currency)
 
@@ -179,7 +188,7 @@ class PriceSlippageModel:
         days_ago = max(adv_lookback_window, calc_vol_window) + 4  # +1 for last day, +1 because daily_returns is NaN for 1st day, +2 for padding (unexpected holidays)
         start_date = cls.holidays_nyse.get_nth_working_day(order_date, -days_ago).strftime("%Y-%m-%d")
 
-        price_info_raw = cls.pds.unified_candle_fetcher(trade_pair, start_date, order_date, timespan="day")
+        price_info_raw = cls.live_price_fetcher.pds.unified_candle_fetcher(trade_pair, start_date, order_date, timespan="day")
         aggs = []
         try:
             for a in price_info_raw:
@@ -226,6 +235,37 @@ class PriceSlippageModel:
         equity_parameters = ValiUtils.get_vali_json_file_dict(ValiBkpUtils.get_slippage_model_parameters_file())
         # print(equity_parameters)
         return equity_parameters
+
+    def update_historical_slippage(self, positions_at_t_f):
+        assert self.is_backtesting, "This method is only for backtesting"
+        #mutates the original orders
+        bt.logging.info("Starting slippage order pre-processing.")
+        for hk, positions in positions_at_t_f.items():
+            for position in positions:
+                order_updated = False
+                for o in position.orders:
+                    #Check if orders need to have slippage calculations
+                    if o.bid == 0 and o.ask == 0 and o.slippage == 0 and not (self.recalculate_slippage or self.fetch_slippage_data):
+                        bt.logging.info(f"Not recalculating slippage, but order doesn't have these attributes set: {o}")
+                        break
+
+                    if not (self.recalculate_slippage or self.fetch_slippage_data):
+                        break
+
+                    bt.logging.info(f"updating order attributes {o}")
+                    bid = o.bid
+                    ask = o.ask
+                    if self.fetch_slippage_data:
+                        bid, ask, _ = live_price_fetcher.get_latest_quote(trade_pair=o.trade_pair,
+                                                                               time_ms=o.processed_ms)
+                    slippage = self.calculate_slippage(bid, ask, o, leverage_to_capital=self.leverage_to_capital)
+                    o.bid = bid
+                    o.ask = ask
+                    o.slippage = slippage
+                    bt.logging.info(f"updated order attributes {o}")
+                    order_updated = True
+                if order_updated:
+                    position.rebuild_position_with_updated_orders()
 
 
 if __name__ == "__main__":

@@ -1443,12 +1443,9 @@ class PerfLedgerManager(CacheController):
 
 
 
-class MockMetagraph():
-    def __init__(self, hotkeys):
-        self.hotkeys = hotkeys
-
 
 if __name__ == "__main__":
+    from tests.shared_objects.mock_classes import MockMetagraph
     bt.logging.enable_info()
     all_miners_dir = ValiBkpUtils.get_miner_dir(running_unit_tests=False)
     all_hotkeys_on_disk = CacheController.get_directory_names(all_miners_dir)

@@ -80,35 +80,38 @@ class SubtensorWeightSetter(CacheController):
                     bt.logging.error(f"Challengeperiod miner {miner} not found in the metagraph.")
 
             transformed_list = checkpoint_netuid_weights + challengeperiod_weights
-            for tl_idx, (metagraph_idx, score) in enumerate(transformed_list):
-                if target_dtao_block_zero_incentive_start < hotkey_registration_blocks[metagraph_idx] <= target_dtao_block_zero_incentive_end:
-                    try:
-                        block_reg_failures.add(idx_to_hotkey[metagraph_idx])
-                        transformed_list[tl_idx] = (metagraph_idx, 0.0)
-                    except Exception as e:
-                        warning_str = (f"metagraph_idx {metagraph_idx} ({idx_to_hotkey.get(metagraph_idx)}),"
-                                       f" hotkey_registration_blocks {hotkey_registration_blocks} ({len(hotkey_registration_blocks)}),"
-                                       f" block_reg_failures {block_reg_failures}, "
-                                       f"idx_to_hotkey {idx_to_hotkey} ({len(idx_to_hotkey)}), ")
-                        bt.logging.warning(warning_str)
-                        raise e
+            self.handle_block_reg_failures(transformed_list, target_dtao_block_zero_incentive_start, hotkey_registration_blocks, idx_to_hotkey, target_dtao_block_zero_incentive_end, block_reg_failures)
             bt.logging.info(f"transformed list: {transformed_list}")
             if block_reg_failures:
-                bt.logging.info(f"Miners with registration blocks after target DTAO block: {block_reg_failures}")
-            if not self.is_backtesting:
-                self._set_subtensor_weights(wallet, subtensor, netuid)
+                bt.logging.info(f"Miners with registration blocks outside of permissible dTAO blocks: {block_reg_failures}")
+
             return checkpoint_results, transformed_list
     def _store_weights(self, checkpoint_results: list[tuple[str, float]], transformed_list: list[tuple[str, float]]):
         self.checkpoint_results = checkpoint_results
         self.transformed_list = transformed_list
 
+    def handle_block_reg_failures(self, transformed_list, target_dtao_block_zero_incentive_start, hotkey_registration_blocks,
+                                  idx_to_hotkey, target_dtao_block_zero_incentive_end, block_reg_failures):
+        if self.is_backtesting:
+            return
+        for tl_idx, (metagraph_idx, score) in enumerate(transformed_list):
+            if target_dtao_block_zero_incentive_start < hotkey_registration_blocks[metagraph_idx] <= target_dtao_block_zero_incentive_end:
+                try:
+                    block_reg_failures.add(idx_to_hotkey[metagraph_idx])
+                    transformed_list[tl_idx] = (metagraph_idx, 0.0)
+                except Exception as e:
+                    warning_str = (f"metagraph_idx {metagraph_idx} ({idx_to_hotkey.get(metagraph_idx)}),"
+                                   f" hotkey_registration_blocks {hotkey_registration_blocks} ({len(hotkey_registration_blocks)}),"
+                                   f" block_reg_failures {block_reg_failures}, "
+                                   f"idx_to_hotkey {idx_to_hotkey} ({len(idx_to_hotkey)}), ")
+                    bt.logging.warning(warning_str)
+                    raise e
+
     @timeme
     def set_weights(self, wallet, netuid, subtensor, current_time: int = None, scoring_function: callable = None, scoring_func_args: dict = None):
         if not self.refresh_allowed(ValiConfig.SET_WEIGHT_REFRESH_TIME_MS):
             return
-        #TODO remove this
-        if self.is_backtesting:
-            return [], []
+
         bt.logging.info("running set weights")
         if scoring_func_args is None:
             scoring_func_args = {'current_time': current_time}

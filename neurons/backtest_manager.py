@@ -1,6 +1,7 @@
 from collections import defaultdict
 
 from runnable.generate_request_minerstatistics import MinerStatisticsManager
+from tests.shared_objects.mock_classes import MockMetagraph
 from time_util.time_util import TimeUtil
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.position import Position
@@ -15,7 +16,7 @@ from vali_objects.utils.subtensor_weight_setter import SubtensorWeightSetter
 from vali_objects.utils.vali_utils import ValiUtils
 from vali_objects.vali_config import ValiConfig
 from vali_objects.vali_config import TradePair
-from vali_objects.vali_dataclasses.perf_ledger import MockMetagraph, PerfLedgerManager
+from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
 import bittensor as bt
 from vali_objects.utils.price_slippage_model import PriceSlippageModel
 
@@ -33,9 +34,6 @@ class BacktestManager:
         self.secrets = secrets
         self.scoring_func = scoring_func
         self.start_time_ms = start_time_ms
-        self.leverage_to_capital = leverage_to_capital
-        self.fetch_slippage_data = fetch_slippage_data
-        self.recalculate_slippage = recalculate_slippage
         # Used in calculating position attributes
         position_file.ALWAYS_USE_LATEST = use_slippage
 
@@ -82,11 +80,12 @@ class BacktestManager:
         self.position_locks = PositionLocks(hotkey_to_positions=positions_at_t_f)
         self.plagiarism_detector = PlagiarismDetector(self.metagraph)
         self.miner_statistics_manager = MinerStatisticsManager(position_manager=self.position_manager, subtensor_weight_setter=self.weight_setter, plagiarism_detector=self.plagiarism_detector)
-        self.psm = PriceSlippageModel(self.live_price_fetcher, is_backtesting=True)
+        self.psm = PriceSlippageModel(self.live_price_fetcher, is_backtesting=True, fetch_slippage_data=fetch_slippage_data,
+                                      recalculate_slippage=recalculate_slippage, leverage_to_capital=leverage_to_capital)
 
 
         #Until slippage is added to the db, this will always have to be done since positions are sometimes rebuilt and would require slippage attributes on orders and initial_entry_price calculation
-        self.update_historical_slippage(positions_at_t_f)
+        self.psm.update_historical_slippage(positions_at_t_f)
 
         self.init_order_queue_and_current_positions(self.start_time_ms, positions_at_t_f, rebuild_all_positions=rebuild_all_positions)
 
@@ -140,67 +139,13 @@ class BacktestManager:
               f' Current positions n hotkeys: {len(current_hk_to_positions)},'
               f' Current positions n total: {sum(len(v) for v in current_hk_to_positions.values())}')
 
-    #Used to bypass running challenge period, but still adds miners to success for statistics
-    def add_all_miners_to_success(self, current_time_ms, run_elimination=True):
-        eliminations = []
-        if run_elimination:
-            # The refresh should just read the current eliminations
-            eliminations = self.elimination_manager.get_eliminations_from_memory()
-
-            # Collect challenge period and update with new eliminations criteria
-            self.challengeperiod_manager.remove_eliminated(eliminations=eliminations)
-
-        challenge_hk_to_positions, challenge_hk_to_first_order_time = self.position_manager.filtered_positions_for_scoring(
-            hotkeys=self.metagraph.hotkeys)
-
-        self.challengeperiod_manager._add_challengeperiod_testing_in_memory_and_disk(
-            new_hotkeys=self.metagraph.hotkeys,
-            eliminations=eliminations,
-            hk_to_first_order_time=challenge_hk_to_first_order_time
-        )
-
-        miners_to_promote = list(self.challengeperiod_manager.challengeperiod_testing.keys())
-
-        #Finally promote all testing miners to success
-        self.challengeperiod_manager._promote_challengeperiod_in_memory(hotkeys=miners_to_promote, current_time=current_time_ms)
-
-    def update_historical_slippage(self, positions_at_t_f):
-        #mutates the original orders
-        bt.logging.info("Starting slippage order pre-processing.")
-        for hk, positions in positions_at_t_f.items():
-            for position in positions:
-                order_updated = False
-                for o in position.orders:
-                    #Check if orders need to have slippage calculations
-                    if o.bid == 0 and o.ask == 0 and o.slippage == 0 and not (self.recalculate_slippage or self.fetch_slippage_data):
-                        bt.logging.info(f"Not recalculating slippage, but order doesn't have these attributes set: {o}")
-                        break
-
-                    if not (self.recalculate_slippage or self.fetch_slippage_data):
-                        break
-
-                    bt.logging.info(f"updating order attributes {o}")
-                    bid = o.bid
-                    ask = o.ask
-                    if self.fetch_slippage_data:
-                        bid, ask, _ = self.live_price_fetcher.get_latest_quote(trade_pair=o.trade_pair,
-                                                                               time_ms=o.processed_ms)
-                    slippage = self.psm.calculate_slippage(bid, ask, o, leverage_to_capital=self.leverage_to_capital)
-                    o.bid = bid
-                    o.ask = ask
-                    o.slippage = slippage
-                    bt.logging.info(f"updated order attributes {o}")
-                    order_updated = True
-                if order_updated:
-                    position.rebuild_position_with_updated_orders()
-
     def update(self, current_time_ms:int, run_challenge=True, run_elimination=True):
         self.update_current_hk_to_positions(current_time_ms)
         self.perf_ledger_manager.update(t_ms=current_time_ms)
         if run_challenge:
             self.challengeperiod_manager.refresh(current_time=current_time_ms)
         else:
-            self.add_all_miners_to_success(current_time_ms=current_time_ms, run_elimination=run_elimination)
+            self.challengeperiod_manager.add_all_miners_to_success(current_time_ms=current_time_ms, run_elimination=run_elimination)
         if run_elimination:
             self.elimination_manager.process_eliminations(self.position_locks)
         self.weight_setter.set_weights(None, None, None, current_time=current_time_ms)

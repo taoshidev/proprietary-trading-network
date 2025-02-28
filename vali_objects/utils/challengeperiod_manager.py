@@ -53,6 +53,32 @@ class ChallengePeriodManager(CacheController):
             )
         self.refreshed_challengeperiod_start_time = False
 
+
+    #Used to bypass running challenge period, but still adds miners to success for statistics
+    def add_all_miners_to_success(self, current_time_ms, run_elimination=True):
+        assert self.is_backtesting, "This function is only for backtesting"
+        eliminations = []
+        if run_elimination:
+            # The refresh should just read the current eliminations
+            eliminations = self.elimination_manager.get_eliminations_from_memory()
+
+            # Collect challenge period and update with new eliminations criteria
+            self.remove_eliminated(eliminations=eliminations)
+
+        challenge_hk_to_positions, challenge_hk_to_first_order_time = self.position_manager.filtered_positions_for_scoring(
+            hotkeys=self.metagraph.hotkeys)
+
+        self._add_challengeperiod_testing_in_memory_and_disk(
+            new_hotkeys=self.metagraph.hotkeys,
+            eliminations=eliminations,
+            hk_to_first_order_time=challenge_hk_to_first_order_time
+        )
+
+        miners_to_promote = list(self.challengeperiod_testing.keys())
+
+        #Finally promote all testing miners to success
+        self._promote_challengeperiod_in_memory(hotkeys=miners_to_promote, current_time=current_time_ms)
+
     def _add_challengeperiod_testing_in_memory_and_disk(
             self,
             new_hotkeys: list[str],
