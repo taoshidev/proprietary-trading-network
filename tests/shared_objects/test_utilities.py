@@ -121,7 +121,7 @@ def generate_ledger(
                 loss=loss,
                 prev_portfolio_ret=1.0,
                 open_ms=checkpoint_open_ms,
-                accum_ms=checkpoint_open_ms,
+                accum_ms=ValiConfig.TARGET_CHECKPOINT_DURATION_MS,
                 mdd=mdd
             )
         )
@@ -179,7 +179,7 @@ def add_orders_to_position(
     for i in range(len(leverages)):
         uuid = order_uuid + uuid_counter
         uuid_counter += 1
-        if cumsum_leverages[i] == 0 or (cumsum_leverages[i] < 0 and leverages[0] > 0) or (cumsum_leverages[i] > 0 and leverages[0] < 0):
+        if leverages[i] == 0 or cumsum_leverages[i] == 0 or (cumsum_leverages[i] < 0 and leverages[0] > 0) or (cumsum_leverages[i] > 0 and leverages[0] < 0):
             order = Order(
                 order_type=OrderType.FLAT,
                 leverage=0,
@@ -189,6 +189,7 @@ def add_orders_to_position(
                 order_uuid=uuid
             )
             position.add_order(order)
+            position.is_closed_position = True
             return
 
         if leverages[i] > 0:

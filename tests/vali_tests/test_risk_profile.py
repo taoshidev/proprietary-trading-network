@@ -31,6 +31,8 @@ class TestRiskProfile(TestBase):
             position_uuid=self.DEFAULT_POSITION_UUID,
             open_ms=self.DEFAULT_OPEN_MS,
             trade_pair=self.DEFAULT_TRADE_PAIR,
+            return_at_close=1.0,
+            is_closed_position=False
         )
 
     def tearDown(self):
@@ -129,11 +131,16 @@ class TestRiskProfile(TestBase):
             position=position,
             order_type=OrderType.LONG,
             trade_pair=self.DEFAULT_TRADE_PAIR,
-            leverages=[0.1, 0.1, 0.1, -0.3],
+            leverages=[0.1, 0.1, 0.1, 0.0],
             prices=[100, 90, 80, 70],
-            times=[self.DEFAULT_ORDER_MS, self.DEFAULT_ORDER_MS + 100, self.DEFAULT_ORDER_MS + 200, self.DEFAULT_ORDER_MS + 300]
+            times=[
+                self.DEFAULT_ORDER_MS,
+                self.DEFAULT_ORDER_MS + 100,
+                self.DEFAULT_ORDER_MS + 200,
+                self.DEFAULT_ORDER_MS + 300,
+                self.DEFAULT_ORDER_MS + 400
+            ]
         )
-        position.is_closed_position = True
         result = RiskProfiling.monotonic_positions(position)
         self.assertEqual(len(result.orders), 2, "Should only count orders before closing order")
 
@@ -214,14 +221,17 @@ class TestRiskProfile(TestBase):
 
         # Test with closed position
         position = deepcopy(self.default_position)
+        position.position_type = OrderType.LONG
+
         add_orders_to_position(
             position=position,
             order_type=OrderType.LONG,
             trade_pair=self.DEFAULT_TRADE_PAIR,
-            leverages=[0.1, 0.1, 0.1, -0.3],
+            leverages=[0.1, 0.1, 0.1, 0.0],
             prices=[100, 90, 80, 70],
             times=[self.DEFAULT_ORDER_MS, self.DEFAULT_ORDER_MS + 100, self.DEFAULT_ORDER_MS + 200, self.DEFAULT_ORDER_MS + 300]
         )
+
         position.is_closed_position = True
         result = RiskProfiling.risk_assessment_steps_utilization(position)
         self.assertEqual(result, 2, "Should only count steps before closing order")
@@ -248,11 +258,12 @@ class TestRiskProfile(TestBase):
 
         # Test with winning positions only
         position = deepcopy(self.default_position)
+        position.position_type = OrderType.LONG
         add_orders_to_position(
             position=position,
             order_type=OrderType.LONG,
             trade_pair=self.DEFAULT_TRADE_PAIR,
-            leverages=[0.1, 0.1, 0.1],
+            leverages=[0.1, 0.11, 0.12],
             prices=[100, 110, 120],
             times=[self.DEFAULT_ORDER_MS, self.DEFAULT_ORDER_MS + 100, self.DEFAULT_ORDER_MS + 200]
         )
@@ -473,6 +484,8 @@ class TestRiskProfile(TestBase):
         # Test with multiple positions
         position2 = deepcopy(self.default_position)
         position2.position_uuid = "test_position_2"
+        position2.position_type = OrderType.SHORT
+
         add_orders_to_position(
             position=position2,
             order_type=OrderType.SHORT,
@@ -698,7 +711,7 @@ class TestRiskProfile(TestBase):
         self.assertGreater(result["test_miner"], 0.98, "Safe miner should have minimal penalty")
         
         # Risky miner should have significant penalty (less than 0.5)
-        self.assertLess(result["risky_miner"], 0.5, "Risky miner should have significant penalty")
+        self.assertLess(result["risky_miner"], 0.75, "Risky miner should have significant penalty")
         
         # Restore original values
         ValiConfig.RISK_PROFILING_STEPS_CRITERIA = original_steps

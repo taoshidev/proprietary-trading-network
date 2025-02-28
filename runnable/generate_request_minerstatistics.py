@@ -18,6 +18,7 @@ from vali_objects.scoring.scoring import Scoring
 from vali_objects.utils.metrics import Metrics
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
 from vali_objects.utils.risk_profiling import RiskProfiling
+from vali_objects.vali_dataclasses.perf_ledger import PerfCheckpoint, PerfLedger
 
 
 # ---------------------------------------------------------------------------
@@ -111,10 +112,12 @@ class MetricsCalculator:
         for hotkey, miner_data in data.items():
             log_returns = miner_data.get("log_returns", [])
             checkpoints = miner_data.get("checkpoints", [])
+            ledger = miner_data.get("ledger")
 
             value = metric.metric_func(
                 log_returns=log_returns,
                 checkpoints=checkpoints,
+                ledger=ledger,
                 weighting=weighting
             )
 
@@ -166,7 +169,7 @@ class MinerStatisticsManager:
         miner_cps = miner_ledger.cps if miner_ledger else []
         miner_positions = positions_dict.get(hotkey, [])
         # ledger_returns_log returns {hotkey: [returns...], ...}
-        miner_returns = LedgerUtils.ledger_returns_log(ledger_dict).get(hotkey, [])
+        miner_returns = LedgerUtils.ledger_returns_log({hotkey: miner_ledger}).get(hotkey, [])
 
         # Volatility
         ann_volatility = min(Metrics.ann_volatility(miner_returns), 100)
@@ -248,6 +251,7 @@ class MinerStatisticsManager:
             cps = data.get("checkpoints", [])
             positions = data.get("positions", [])
 
+            # For functions that still require checkpoints directly
             drawdown_threshold_penalty = LedgerUtils.max_drawdown_threshold_penalty(cps)
             risk_profile_penalty = PositionPenalties.risk_profile_penalty(positions)
 
@@ -312,6 +316,16 @@ class MinerStatisticsManager:
             }
 
         return metric_results
+
+    # -------------------------------------------
+    # Daily Returns
+    # -------------------------------------------
+    def calculate_all_daily_returns(self, filtered_ledger: dict[str, PerfLedger]) -> dict[str, list[float]]:
+        """Calculate daily returns for all miners."""
+        return {
+            hotkey: LedgerUtils.daily_returns_by_date_json(ledger)
+            for hotkey, ledger in filtered_ledger.items()
+        }
 
     # -------------------------------------------
     # Risk Profile
@@ -435,6 +449,9 @@ class MinerStatisticsManager:
         base_scores = self.calculate_all_scores(miner_data, ScoreType.BASE)
         augmented_scores = self.calculate_all_scores(miner_data, ScoreType.AUGMENTED)
 
+        # For visualization
+        daily_returns_dict = self.calculate_all_daily_returns(filtered_ledger)
+
         # Also compute penalty breakdown (for display in final "penalties" dict).
         penalty_breakdown = self.calculate_penalties_breakdown(miner_data)
 
@@ -511,6 +528,9 @@ class MinerStatisticsManager:
             pen_break = penalty_breakdown.get(hotkey, {})
             # e.g. {"drawdown_threshold": x, "martingale": y, "total": z}
 
+            # Purely for visualization purposes
+            daily_returns = daily_returns_dict.get(hotkey, [])
+
             # Risk Profile
             risk_profile_single_dict = risk_profile_dict.get(hotkey, {})
             risk_profile_report = risk_profile_report_dict.get(hotkey, {})
@@ -525,6 +545,7 @@ class MinerStatisticsManager:
                 "plagiarism": plagiarism_val,
                 "engagement": engagement_subdict,
                 "risk_profile": risk_profile_single_dict,
+                "daily_returns": daily_returns,
                 "penalties": {
                     "drawdown_threshold": pen_break.get("drawdown_threshold", 1.0),
                     "risk_profile": pen_break.get("risk_profile", 1.0),
@@ -537,13 +558,13 @@ class MinerStatisticsManager:
                 },
             }
 
-            final_miner_dict["risk_profile_report"] = risk_profile_report
+            # final_miner_dict["risk_profile_report"] = risk_profile_report
 
             # Optionally attach actual checkpoints (like the original first script)
-            if checkpoints:
-                ledger_obj = miner_data[hotkey].get("ledger")
-                if ledger_obj and hasattr(ledger_obj, "cps"):
-                    final_miner_dict["checkpoints"] = ledger_obj.cps
+            # if checkpoints:
+            #     ledger_obj = miner_data[hotkey].get("ledger")
+            #     if ledger_obj and hasattr(ledger_obj, "cps"):
+            #         final_miner_dict["checkpoints"] = ledger_obj.cps
 
             results.append(final_miner_dict)
 
