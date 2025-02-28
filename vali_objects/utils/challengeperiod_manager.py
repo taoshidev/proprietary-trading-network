@@ -425,10 +425,12 @@ class ChallengePeriodManager(CacheController):
         """
         Returns False if the miner doesn't have the minimum number of trading days.
         """
-        miner_returns = LedgerUtils.daily_return_log(ledger_element.cps if ledger_element else [])
+        if ledger_element is None:
+            bt.logging.warning("Ledger element is None. Returning False.")
+            return False
 
+        miner_returns = LedgerUtils.daily_return_log(ledger_element)
         return len(miner_returns) >= ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N
-
 
     @staticmethod
     def screen_minimum_ledger(
