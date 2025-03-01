@@ -1,6 +1,7 @@
 from typing import List, Dict, Any
 from dataclasses import dataclass
 from enum import Enum
+from collections import defaultdict
 
 from time_util.time_util import TimeUtil
 from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
@@ -315,6 +316,42 @@ class MinerStatisticsManager:
 
         return metric_results
 
+    def calculate_scores_for_challengeperiod(
+            self,
+            miner_data: Dict[str, Dict[str, Any]],
+            success_hotkeys: List[str],
+            testing_hotkeys: List[str],
+            score_type: ScoreType = ScoreType.BASE
+    ) -> Dict[str, Dict[str, ScoreResult]]:
+        """Calculates scores for main competition miners and challenge period miners"""
+
+        challengeperiod_scores = defaultdict(dict)
+        success_miner_data = {hotkey: miner_data.get(hotkey) for hotkey in success_hotkeys if hotkey in miner_data}
+
+        for hk in testing_hotkeys:
+            testing_miner_data = {hk: miner_data.get(hk)}
+            trial_miner_data = {**success_miner_data, **testing_miner_data}
+
+            trial_scores = self.calculate_all_scores(trial_miner_data, score_type)
+
+            for metric_name, hotkey_map in trial_scores.items():
+
+                if metric_name not in challengeperiod_scores:
+                    challengeperiod_scores[metric_name] = {}
+
+                challengeperiod_hotkey_map = challengeperiod_scores.get(metric_name)
+                testing_miner_score_result = hotkey_map.get(hk)
+                challengeperiod_hotkey_map[hk] = testing_miner_score_result
+
+        miner_scores = self.calculate_all_scores(miner_data, score_type)
+
+        for metric_name, hotkey_map in miner_scores.items():
+            challengeperiod_hotkey_map = challengeperiod_scores.get(metric_name)
+            for hk in testing_hotkeys:
+                hotkey_map[hk] = challengeperiod_hotkey_map.get(hk)
+
+        return miner_scores
+
     # -------------------------------------------
     # Generate final data
     # -------------------------------------------
@@ -396,9 +433,9 @@ class MinerStatisticsManager:
         for hotkey in selected_miner_hotkeys:
             miner_data[hotkey] = self.prepare_miner_data(hotkey, filtered_ledger, filtered_positions, time_now)
 
-        # Compute the base, and augmented scores
-        base_scores = self.calculate_all_scores(miner_data, ScoreType.BASE)
-        augmented_scores = self.calculate_all_scores(miner_data, ScoreType.AUGMENTED)
+        # Compute the base and augmented scores
+        base_scores = self.calculate_scores_for_challengeperiod(miner_data, challengeperiod_success_hotkeys, challengeperiod_testing_hotkeys, ScoreType.BASE)
+        augmented_scores = self.calculate_scores_for_challengeperiod(miner_data, challengeperiod_success_hotkeys, challengeperiod_testing_hotkeys, ScoreType.AUGMENTED)
 
         # Also compute penalty breakdown (for display in final "penalties" dict).
         penalty_breakdown = self.calculate_penalties_breakdown(miner_data)
@@ -572,5 +609,5 @@ if __name__ == "__main__":
     plagiarism_detector = PlagiarismDetector(None, None, position_manager=position_manager)
 
     msm = MinerStatisticsManager(position_manager, subtensor_weight_setter, plagiarism_detector)
-    msm.generate_request_minerstatistics(1628572800000, True)
+    msm.generate_request_minerstatistics(TimeUtil.now_in_millis(), True)
 
