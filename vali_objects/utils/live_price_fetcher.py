@@ -143,7 +143,9 @@ class LivePriceFetcher:
         #     return results
 
         rest_quotes_polygon = self.polygon_data_service.get_quotes_rest(trade_pairs_needing_rest_data, trade_pair_to_last_order_time_ms)
-        _, rest_quotes_tiingo_data = self.tiingo_data_service.get_closes_rest(trade_pairs_needing_rest_data)
+
+        temp = self.tiingo_data_service.get_closes_rest(trade_pairs_needing_rest_data)
+        _, rest_quotes_tiingo_data = temp
 
         for trade_pair in trade_pairs_needing_rest_data:
             current_time_ms = trade_pair_to_last_order_time_ms[trade_pair]

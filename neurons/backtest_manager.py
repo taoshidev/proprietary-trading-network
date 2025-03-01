@@ -17,7 +17,6 @@ from vali_objects.utils.vali_utils import ValiUtils
 from vali_objects.vali_config import ValiConfig
 from vali_objects.vali_config import TradePair
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
-import bittensor as bt
 from vali_objects.utils.price_slippage_model import PriceSlippageModel
 
 
@@ -269,7 +268,8 @@ if __name__ == '__main__':
         hk_to_positions[pos['miner_hotkey']].append(Position(**pos))
 
     secrets = ValiUtils.get_secrets()  # {'polygon_apikey': '123', 'tiingo_apikey': '456'}
-    btm = BacktestManager(hk_to_positions, start_time_ms, secrets, None, leverage_to_capital=500_000, use_slippage=True, fetch_slippage_data=False, recalculate_slippage=False )
+    btm = BacktestManager(hk_to_positions, start_time_ms, secrets, None, leverage_to_capital=500_000,
+                          use_slippage=True, fetch_slippage_data=True, recalculate_slippage=True)
     for t_ms in range(start_time_ms, max_order_time_ms + 1, 1000 * 60 * 60 * 24):
         btm.update(t_ms, run_challenge=False)
         perf_ledger_bundles = btm.perf_ledger_manager.get_perf_ledgers(portfolio_only=False)

@@ -7,7 +7,6 @@ import numpy as np
 import pandas as pd
 import bittensor as bt
 
-from data_generator.polygon_data_service import PolygonDataService
 from time_util.time_util import TimeUtil
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.utils.live_price_fetcher import LivePriceFetcher
@@ -116,7 +115,7 @@ class PriceSlippageModel:
 
         size = abs(order.leverage) * ValiConfig.LEVERAGE_TO_CAPITAL
         base, _ = order.trade_pair.trade_pair.split("/")
-        base_to_usd_conversion = cls.live_price_fetcher.pds.get_currency_conversion(base=base, quote="USD") if base != "USD" else 1  # TODO: fallback?
+        base_to_usd_conversion = cls.live_price_fetcher.polygon_data_service.get_currency_conversion(base=base, quote="USD") if base != "USD" else 1  # TODO: fallback?
         # print(base_to_usd_conversion)
         volume_standard_lots = size / (100_000 * base_to_usd_conversion)  # Volume expressed in terms of standard lots (1 std lot = 100,000 base currency)
 
@@ -188,7 +187,7 @@ class PriceSlippageModel:
         days_ago = max(adv_lookback_window, calc_vol_window) + 4  # +1 for last day, +1 because daily_returns is NaN for 1st day, +2 for padding (unexpected holidays)
         start_date = cls.holidays_nyse.get_nth_working_day(order_date, -days_ago).strftime("%Y-%m-%d")
 
-        price_info_raw = cls.live_price_fetcher.pds.unified_candle_fetcher(trade_pair, start_date, order_date, timespan="day")
+        price_info_raw = cls.live_price_fetcher.polygon_data_service.unified_candle_fetcher(trade_pair, start_date, order_date, timespan="day")
         aggs = []
         try:
             for a in price_info_raw:
@@ -256,7 +255,7 @@ class PriceSlippageModel:
                     bid = o.bid
                     ask = o.ask
                     if self.fetch_slippage_data:
-                        bid, ask, _ = live_price_fetcher.get_latest_quote(trade_pair=o.trade_pair,
+                        bid, ask, _ = self.live_price_fetcher.get_latest_quote(trade_pair=o.trade_pair,
                                                                                time_ms=o.processed_ms)
                     slippage = self.calculate_slippage(bid, ask, o, leverage_to_capital=self.leverage_to_capital)
                     o.bid = bid
