@@ -56,7 +56,8 @@ class SubtensorWeightSetter(CacheController):
             checkpoint_results = Scoring.compute_results_checkpoint(
                 filtered_ledger,
                 filtered_positions,
-                evaluation_time_ms=current_time
+                evaluation_time_ms=current_time,
+                weighting=True
             )
             bt.logging.info(f"Sorted results for weight setting: [{sorted(checkpoint_results, key=lambda x: x[1], reverse=True)}]")
             checkpoint_netuid_weights = []
