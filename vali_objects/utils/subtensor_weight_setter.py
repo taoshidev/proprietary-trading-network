@@ -3,7 +3,7 @@ from functools import partial
 
 import bittensor as bt
 
-from time_util.time_util import TimeUtil, timeme
+from time_util.time_util import TimeUtil
 from vali_objects.vali_config import ValiConfig
 from shared_objects.cache_controller import CacheController
 from vali_objects.utils.position_manager import PositionManager
@@ -108,7 +108,6 @@ class SubtensorWeightSetter(CacheController):
                     bt.logging.warning(warning_str)
                     raise e
 
-    @timeme
     def set_weights(self, wallet, netuid, subtensor, current_time: int = None, scoring_function: callable = None, scoring_func_args: dict = None):
         if not self.refresh_allowed(ValiConfig.SET_WEIGHT_REFRESH_TIME_MS):
             return

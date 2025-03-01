@@ -400,7 +400,6 @@ class PerfLedgerManager(CacheController):
         return ans
 
 
-    @timeme
     def get_perf_ledgers(self, portfolio_only=True, from_disk=False) -> dict[str, dict[str, PerfLedger]] | dict[str, PerfLedger]:
         ret = {}
         if from_disk:
