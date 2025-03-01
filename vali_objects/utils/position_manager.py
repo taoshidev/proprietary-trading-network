@@ -403,23 +403,6 @@ class PositionManager(CacheController):
                 print('n perf ledgers after:', len(perf_ledgers_new))
                 self.perf_ledger_manager.save_perf_ledgers(perf_ledgers_new)
 
-            # update the order attributes for bid, ask, slippage
-            # TODO: this should only run once on startup?
-            # TODO: update corrections count?
-            if not self.live_price_fetcher:
-                self.live_price_fetcher = LivePriceFetcher(secrets=self.secrets, disable_ws=True)
-            for p in positions:
-                for o in p.orders:
-                    if o.processed_ms < 1739937600000:  # SLIPPAGE_V1_TIME_MS
-                        bt.logging.info(f"updating order attributes {o}")
-                        bid, ask, _ = self.live_price_fetcher.get_latest_quote(trade_pair=o.trade_pair, time_ms=o.processed_ms)
-                        slippage = PriceSlippageModel.calculate_slippage(bid, ask, o)
-                        o.bid = bid
-                        o.ask = ask
-                        o.slippage = slippage
-                        bt.logging.info(f"updated order attributes {o}")
-                p.rebuild_position_with_updated_orders()
-                self.save_miner_position(p)
 
             """
             if miner_hotkey == '5Cd9bVVja2KdgsTiR7rTAh7a4UKVfnAuYAW1bs8BiedUE9JN' and now_ms < TARGET_MS:
