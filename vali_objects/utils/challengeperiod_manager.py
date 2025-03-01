@@ -261,7 +261,8 @@ class ChallengePeriodManager(CacheController):
             # Get the penalized scores of all successful miners
             success_scores_dict = Scoring.score_miners(ledger_dict=success_ledger,
                                                             positions=success_positions,
-                                                            evaluation_time_ms=current_time)
+                                                            evaluation_time_ms=current_time,
+                                                            weighting=True)
         
         miners_not_enough_positions = []
         for hotkey, inspection_time in inspection_hotkeys.items():
@@ -358,11 +359,12 @@ class ChallengePeriodManager(CacheController):
 
         # inspection_scores_dict is used to bypass running scoring when testing
         if inspection_scores_dict is None:
-            # Get penalized scores of inspection miner
+            # Get scores of inspection miner and penalties
             inspection_scores_dict = Scoring.score_miners(
                 ledger_dict=inspection_ledger,
                 positions=inspection_positions,
-                evaluation_time_ms=current_time)
+                evaluation_time_ms=current_time,
+                weighting=True)
             
         trial_scores_dict = copy.deepcopy(success_scores_dict)
 
