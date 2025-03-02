@@ -200,7 +200,9 @@ class TwoCopySimilarity(PlagiarismEvents):
         else: 
           single_pair_similarities[victim_key] = CopySimilarity.score_direct(self.plagiarist_id, plagiarist_trade_pair, miner_id, plagiarist_trade_pair)
 
-    self.score(plagiarist_trade_pair, single_pair_similarities)
+    # Check that there are at least 2 miners the plagiarist could have copied
+    if (len(single_pair_similarities)) >= 2:
+      self.score(plagiarist_trade_pair, single_pair_similarities)
 
   
   def score(self, plagiarist_trade_pair: str, single_pair_similarities: dict):
@@ -242,7 +244,9 @@ class ThreeCopySimilarity(PlagiarismEvents):
         else:
           single_pair_similarities[victim_key] = CopySimilarity.score_direct(self.plagiarist_id, plagiarist_trade_pair, miner_id, plagiarist_trade_pair)
 
-    self.score(plagiarist_trade_pair, single_pair_similarities)
+    # Check that there are at least 3 miners the plagiarist could have copied
+    if (len(single_pair_similarities)) >= 3:
+      self.score(plagiarist_trade_pair, single_pair_similarities)
 
 
   def score(self, plagiarist_trade_pair: str, single_pair_similarities: dict):
