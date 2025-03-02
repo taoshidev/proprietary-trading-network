@@ -88,33 +88,17 @@ most complete trading signals across a variety of asset classes.
 
 ## How does it work?
 
-PTN is the most challenging & competitive network in the world. Our miners need to provide futures based signals (
-long/short)
+PTN is the most challenging & competitive network in the world. Our miners need to provide futures based signals (long/short)
 that are highly efficient and effective across various markets to compete (forex, crypto, equities). The top miners are
 those that provide the most returns, while never exceeding certain drawdown limits.
 
 ### Rules
 
-1. Miners can submit LONG, SHORT, or FLAT signal for Forex, Crypto, and Equities trade pairs into the network. <a href="https://github.com/taoshidev/proprietary-trading-network/blob/main/vali_objects/vali_config.py#L173">Currently supported trade pairs</a>
-2. Orders outside of market hours are ignored. 
-3. Miners can only open 1 position per trade pair/symbol at a time.
-4. Positions are uni-directional. Meaning, if a position starts LONG (the first order it receives is LONG), 
-it can't flip SHORT. If you try and have it flip SHORT (using more leverage SHORT than exists LONG) it will close out 
-the position. You'll then need to open a second position which is SHORT with the difference.
-5. Position leverage is bound per trade_pair. If an order would cause the position's leverage to exceed the upper boundary, the position leverage will be clamped. Minimum order leverage is 0.001. Crypto positional leverage limit is [0.01, 0.5]. Forex positional leverage limit is [0.1, 5]. Equities positional leverage limit is [0.1, 3]
-6. Leverage is capped at 10 across all open positions in a miner's portfolio. Crypto position leverages are scaled by 10x when contributing
-to the leverage cap. <a href="https://docs.taoshi.io/tips/p10/">View for more details and examples.</a>
-7. You can take profit on an open position using LONG and SHORT. Say you have an open LONG position with .5x 
-leverage and you want to reduce it to a .25x leverage position to start taking profit on it. You would send in a SHORT signal
-of size .25x leverage to reduce the size of the position. LONG and SHORT signals can be thought of working in opposite 
-directions in this way.
-8. Miners can explicitly close out a position by sending in a FLAT signal. 
-9. Miners are eliminated if they are detected as plagiarising other miners, or if they exceed 10% max drawdown (more info in  the "Eliminations" section).
-10. There is a fee for leaving positions open "carry fee". The fee is equal to 10.95/5.25/3% per year for a 1x leverage position (crypto/equities/forex) <a href="https://docs.taoshi.io/tips/p4/">More info</a>
-11. There is a slippage assessed per order. The slippage cost is is greater for orders with higher leverages, and in assets with lower liquidity. 
-12. There is a minimum registration fee of 2.5 TAO on the mainnet subnet.
-13. There is an immunity period of 9 days to help miners submit orders to become competitive with existing miners. Eliminated miners do not benefit from being in the immunity period.
-14. Based on portfolio metrics such as omega score and total portfolio return, weights/incentive get set to reward the best miners.
+1. Miners can submit LONG, SHORT, or FLAT signal for Forex, Crypto, and Equities trade pairs into the network during market hours. <a href="https://github.com/taoshidev/proprietary-trading-network/blob/main/vali_objects/vali_config.py#L173">Currently supported trade pairs</a>
+2. Miners are eliminated if they are detected as plagiarising other miners, or if they exceed 10% max drawdown (more info in  the "Eliminations" section).
+3. There is a fee for leaving positions open "carry fee". The fee is equal to 10.95/5.25/3% per year for a 1x leverage position (crypto/equities/forex) <a href="https://docs.taoshi.io/tips/p4/">More info</a>
+4. There is a slippage assessed per order. The slippage cost is is greater for orders with higher leverages, and in assets with lower liquidity.
+5. Based on portfolio metrics such as omega score and total portfolio return, weights/incentive get set to reward the best miners <a href="https://github.com/taoshidev/proprietary-trading-network/blob/main/docs/miner.md">More info</a>
 
 With this system only the world's best traders & deep learning / quant based trading systems can compete.
 
@@ -141,10 +125,16 @@ After elimination, miners are not immediately deregistered from the network. The
 # Get Started
 
 ### Mainnet Trade Dashboard
-Take a look at the top traders <a href="https://dashboard.taoshi.io/">Dashboard</a>
+Take a look at the top traders on PTN <a href="https://dashboard.taoshi.io/">Dashboard</a>
 
-### Subscribe to Realtime Trade Data
+### Auto Trade with PTN data 
+https://x.com/glitchfinancial
+
+### Subscribe to Realtime Trade Data from PTN
 https://request.taoshi.io/login 
+
+### Theta Token
+https://www.taoshi.io/theta
 
 ### Validator Installation
 
