@@ -676,9 +676,8 @@ class Validator:
         return False
 
     def enforce_order_cooldown(self, order, open_position):
-        # Don't allow orders to be placed within ORDER_COOLDOWN_MS of the previous order. The only exception is if
-        # there is a new websocket price for the trade pair. The intention here is to prevent exploiting a lag in a
-        # data provider.
+        # Don't allow orders for a trade pair to be placed within ORDER_COOLDOWN_MS of the previous order.
+        # The intention here is to prevent exploiting a lag in a data provider.
         if len(open_position.orders) == 0:
             return
         last_order = open_position.orders[-1]
@@ -687,8 +686,6 @@ class Validator:
 
         if time_since_last_order_ms >= ValiConfig.ORDER_COOLDOWN_MS:
             return
-
-        #lag_time_ms = self.live_price_fetcher.time_since_last_ws_ping_s(order.trade_pair) * 1000
 
         previous_order_time = TimeUtil.millis_to_formatted_date_str(last_order.processed_ms)
         current_time = TimeUtil.millis_to_formatted_date_str(order.processed_ms)

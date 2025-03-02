@@ -7,16 +7,31 @@ The first time a miner places an order on a trade pair, they will open a **posit
 A long position is a bet that the trade pair will increase, while a short position is a bet that the trade pair will decrease. Even if the overall position is LONG, a miner can submit a number of orders within this position to manage their risk exposure by adjusting the leverage. SHORT orders on a long position will reduce the overall leverage of the position, reducing the miner's exposure to the trade pair. LONG orders on a long position will increase the overall leverage of the position, increasing the miner's exposure to the trade pair.
 
 ## Basic Rules
-1. Your miner will start in the challenge period upon entry. Miners must demonstrate consistent performance within 90 days to pass the challenge period. During this period, they will receive a small amount of TAO that will help them avoid getting deregistered. The minimum requirements to pass the challenge period:
+1. Your miner must register on the Bittensor network to participate. 
+   * There is a registration fee of 2.5 TAO on mainnet.
+   * There is an immunity period of 9 days to help miners submit orders to become competitive with existing miners. Eliminated miners do not benefit from being in the immunity period.
+2. Your miner will start in the challenge period upon entry. Miners must demonstrate consistent performance within 90 days to pass the challenge period. During this period, they will receive a small amount of TAO that will help them avoid getting deregistered. The minimum requirements to pass the challenge period:
    - Score at or above the 75th percentile relative to the miners in the main competition. The details may be found [here](https://docs.taoshi.io/tips/p13/).
    - Have at least 60 full days of trading
    - Don't exceed 10% max drawdown
 
-2. Miners that have passed challenge period will be eliminated for a drawdown that exceeds 10%.
-3. A miner can have a maximum of 1 open position per trade pair. No limit on the number of closed positions.
-4. A miner's order will be ignored if placing a trade outside of market hours.
-5. A miner's order will be ignored if they are rate limited (maliciously sending too many requests)
-6. There is a 10-second cooldown period between orders, during which the miner cannot place another order.
+3. Positions are uni-directional. Meaning, if a position starts LONG (the first order it receives is LONG), 
+it can't flip SHORT. If you try and have it flip SHORT (using more leverage SHORT than exists LONG) it will close out 
+the position. You'll then need to open a second position which is SHORT with the difference.
+4. Position leverage is bound per trade_pair. If an order would cause the position's leverage to exceed the upper boundary, the position leverage will be clamped. Minimum order leverage is 0.001. Crypto positional leverage limit is [0.01, 0.5]. Forex positional leverage limit is [0.1, 5]. Equities positional leverage limit is [0.1, 3]
+5. Leverage is capped at 10 across all open positions in a miner's portfolio. Crypto position leverages are scaled by 10x when contributing
+to the leverage cap. <a href="https://docs.taoshi.io/tips/p10/">View for more details and examples.</a>
+6. You can take profit on an open position using LONG and SHORT. Say you have an open LONG position with .5x 
+leverage and you want to reduce it to a .25x leverage position to start taking profit on it. You would send in a SHORT signal
+of size .25x leverage to reduce the size of the position. LONG and SHORT signals can be thought of working in opposite 
+directions in this way.
+8. Miners that have passed challenge period will be eliminated for a drawdown that exceeds 10%.
+9. A miner can have a maximum of 1 open position per trade pair. No limit on the number of closed positions.
+10. A miner's order will be ignored if placing a trade outside of market hours.
+11. A miner's order will be ignored if they are rate limited (maliciously sending too many requests)
+12. There is a 10-second cooldown period between orders of the same trade pair, during which the miner cannot place another order.
+
+
 
 ## Scoring Details
 
@@ -127,10 +142,16 @@ For example, if a miner is last place in the long term realized returns category
 
 We distribute using a [softmax function](https://docs.taoshi.io/tips/p11/), with a target of the top 40% of miners receiving 90% of emissions. The softmax function dynamically adjusts to the scores of miners, distributing more incentive to relatively high-performing miners.
 
-# Mining Infrastructure
+# Easy Setup 
+Here are platforms that allows you to trade on PTN with a simple interface or connect to an existing API. These facilitate trading so you can focus on building your strategy.
+1. [Horizon](https://x.com/taoshiio/status/1895516351814365201)
+2. [Delta Prop Shop](https://x.com/DeltaDeFi_)
 
-On the mining side we've setup some helpful infrastructure for you to send in signals to the network. The script `mining/run_receive_signals_server.py` will launch a flask server to receive order signals.
+# Default Setup
 
+For our power users with more technical knowledge, we've setup some helpful infrastructure for you to send in signals to the network programatically. 
+
+The script `mining/run_receive_signals_server.py` will launch a flask server to receive order signals.
 We recommend using this flask server to send in signals to the network. To see an example of sending a signal into the server, use `mining/sample_signal_request.py`.
 
 Once a signal is properly sent into the signals server, it is parsed and stored locally in `mining/received_signals` to prepare for processing by `neurons/miner.py`. From there, the core miner logic in `neurons/miner.py` will automatically look to send the signal to validators on the network, retrying on failure. Once the signal is successfully sent into the network and ack'd by validators, the signal is stored in `mining/processed_signals`. otherwise, it gets stored in `mining/failed_signals` with debug information about which validators didn't receive the signal.
