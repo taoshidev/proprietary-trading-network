@@ -71,7 +71,7 @@ class PriceSlippageModel:
         Fitted BB+ model (dec 2024)
         Slippage percentage = intercept + c1 * spread/price + c2 * annualized_volatility + c3 * order_volume/avg_daily_volume
 
-        Use the direct BB+ model for pre dec 2024 orders
+        Use the direct BB+ model for pre jan 2025 orders
         slippage percentage = 0.433 * spread/mid_price + 0.335 * sqrt(annualized_volatility**2 / 3 / 250) * sqrt(volume / (0.3 * estimated daily volume))
         """
         order_date = TimeUtil.millis_to_short_date_str(order.processed_ms)
@@ -83,7 +83,7 @@ class PriceSlippageModel:
         size = abs(order.leverage) * ValiConfig.LEVERAGE_TO_CAPITAL
         volume_shares = size / mid_price
 
-        if order.processed_ms > 1733040000000:  # Use fitted BB+ for orders after dec 1, 2024, 08:00:00 UTC
+        if order.processed_ms > 1735718400000:  # Use fitted BB+ for orders after jan 1, 2024, 08:00:00 UTC
             size_str = cls.get_order_size_bucket(size)
             side = "buy" if order.leverage > 0 else "sell"
             model_config = cls.parameters["equity"][order.trade_pair.trade_pair_id][side][size_str]
