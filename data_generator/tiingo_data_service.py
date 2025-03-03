@@ -308,14 +308,15 @@ class TiingoDataService(BaseDataService):
     @exception_handler_decorator()
     def get_closes_equities(self, trade_pairs: List[TradePair], verbose=False) -> (dict[TradePair: PriceSource], dict):
         tp_to_price = {}
+        tp_tp_quote = {}
         if not trade_pairs:
-            return tp_to_price
+            return tp_to_price, tp_tp_quote
         assert all(tp.trade_pair_category == TradePairCategory.EQUITIES for tp in trade_pairs), trade_pairs
 
         if all(not self.is_market_open(tp) for tp in trade_pairs) and all(self.closed_market_prices.get(tp) for tp in trade_pairs):
             if verbose:
                 print(f'All equities markets closed {trade_pairs}. Returning closed market prices. {self.closed_market_prices}')
-            return {tp: self.closed_market_prices[tp] for tp in trade_pairs}
+            return {tp: self.closed_market_prices[tp] for tp in trade_pairs}, tp_tp_quote
 
         def tickers_to_tiingo_iex_url(tickers: List[str]) -> str:
             return f"https://api.tiingo.com/iex/?tickers={','.join(tickers)}&token={self.config['api_key']}"
@@ -356,7 +357,7 @@ class TiingoDataService(BaseDataService):
                     time_delta_formatted_2_decimals = round(time_delta_s, 2)
                     print((tp.trade_pair_id, tp_to_price[tp], time_delta_formatted_2_decimals, x['timestamp'], x['tngoLast'], x))
 
-        return tp_to_price, {}
+        return tp_to_price, tp_tp_quote
 
     @exception_handler_decorator()
     def get_closes_forex(self, trade_pairs: List[TradePair], verbose=False) -> (dict, dict):
@@ -370,7 +371,7 @@ class TiingoDataService(BaseDataService):
 
         assert all(tp.trade_pair_category == TradePairCategory.FOREX for tp in trade_pairs), trade_pairs
         if all(not self.is_market_open(tp) for tp in trade_pairs) and all(self.closed_market_prices.get(tp) for tp in trade_pairs):
-            return {tp: self.closed_market_prices[tp] for tp in trade_pairs}
+            return {tp: self.closed_market_prices[tp] for tp in trade_pairs}, tp_to_quote
 
         url = tickers_to_tiingo_forex_url([self.trade_pair_to_tiingo_ticker(x) for x in trade_pairs])
         if verbose:
@@ -430,7 +431,7 @@ class TiingoDataService(BaseDataService):
     def get_closes_crypto(self, trade_pairs: List[TradePair], verbose=False) -> (dict, dict):
         tp_to_price = {}
         if not trade_pairs:
-            return tp_to_price
+            return tp_to_price, {}
         assert all(tp.trade_pair_category == TradePairCategory.CRYPTO for tp in trade_pairs), trade_pairs
 
         def tickers_to_crypto_url(tickers: List[str]) -> str:
