@@ -164,10 +164,13 @@ class LedgerUtils:
         Returns:
             dict[str, list[float]] - Dictionary mapping miner hotkeys to daily returns as logarithmic values
         """
+        if not ledger:
+            return {}
+
         miner_returns = {}
 
         for miner, miner_ledger in ledger.items():
-            miner_returns[miner] = LedgerUtils.daily_return_log(miner_ledger if miner_ledger else PerfLedger())
+            miner_returns[miner] = LedgerUtils.daily_return_log(miner_ledger)
 
         return miner_returns
 
