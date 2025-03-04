@@ -354,12 +354,14 @@ class PerfLedger():
 class PerfLedgerManager(CacheController):
     def __init__(self, metagraph, ipc_manager=None, running_unit_tests=False, shutdown_dict=None,
                  perf_ledger_hks_to_invalidate=None, live_price_fetcher=None, position_manager=None,
-                 enable_rss=True, is_backtesting=False):
+                 enable_rss=True, is_backtesting=False, running_pyspark=False):
         super().__init__(metagraph=metagraph, running_unit_tests=running_unit_tests, is_backtesting=is_backtesting)
+
         self.shutdown_dict = shutdown_dict
         self.live_price_fetcher = live_price_fetcher
         self.running_unit_tests = running_unit_tests
         self.enable_rss = enable_rss
+        self.running_pyspark = running_pyspark
         if perf_ledger_hks_to_invalidate:
             self.perf_ledger_hks_to_invalidate = perf_ledger_hks_to_invalidate
         else:
@@ -399,9 +401,35 @@ class PerfLedgerManager(CacheController):
         self.mode_to_n_updates = {}
         self.update_to_n_open_positions = {}
         self.position_uuid_to_cache = defaultdict(FeeCache)
-        initial_perf_ledgers = {} if self.is_backtesting else self.get_perf_ledgers(from_disk=True, portfolio_only=False)
+        if self.is_backtesting or self.running_pyspark:
+            initial_perf_ledgers = {}
+        else:
+            initial_perf_ledgers = self.get_perf_ledgers(from_disk=True, portfolio_only=False)
+
         for k, v in initial_perf_ledgers.items():
             self.hotkey_to_perf_bundle[k] = v
+
+        # Don't init hotkey_to_perf_bundle when running pyspark. methods take existing bundles by argument since we dont want each worker loading all ledgers.
+        if not self.running_pyspark:
+            for k, v in self.get_perf_ledgers(from_disk=True, portfolio_only=False).items():
+                self.hotkey_to_perf_bundle[k] = v
+
+
+    @staticmethod
+    def print_bundles(ans: dict[str, dict[str, PerfLedger]]):
+        for hk, bundle in ans.items():
+            print(f'-----------({hk})-----------')
+            PerfLedgerManager.print_bundle(hk, bundle)
+
+    @staticmethod
+    def print_bundle(hk:str, bundle: dict[str, PerfLedger]):
+        for tp_id, pl in sorted(bundle.items(), key=lambda x: 1 if x[0] == TP_ID_PORTFOLIO else ord(x[0][0]) / 27):
+            print(f'  --{tp_id}-- ')
+            for idx, x in enumerate(pl.cps):
+                last_update_formatted = TimeUtil.millis_to_timestamp(x.last_update_ms)
+                if idx == 0 or idx == len(pl.cps) - 1:
+                    print('    ', idx, last_update_formatted, x)
+            print(tp_id, 'max_perf_ledger_return:', pl.max_return)
 
     def _is_v1_perf_ledger(self, ledger_value):
         ans = False
@@ -1025,8 +1053,9 @@ class PerfLedgerManager(CacheController):
         #print(f'Updated between {TimeUtil.millis_to_formatted_date_str(start_time_ms)} and {TimeUtil.millis_to_formatted_date_str(end_time_ms)} ({n_minutes_between_intervals} min). mode_to_ticks {mode_to_ticks}. Default mode {default_mode}')
         return False
 
-    def update_one_perf_ledger_bundle(self, hotkey_i: int, n_hotkeys: int, hotkey: str, positions: List[Position], now_ms:int,
-                                      existing_perf_ledger_bundles: dict[str, dict[str, PerfLedger]]) -> None:
+    def update_one_perf_ledger_bundle(self, hotkey_i: int, n_hotkeys: int, hotkey: str, positions: List[Position],
+                                      now_ms: int,
+                                      existing_perf_ledger_bundles: dict[str, dict[str, PerfLedger]]) -> None | dict[str, PerfLedger]:
 
         eliminated = False
         self.n_api_calls = 0
@@ -1070,7 +1099,6 @@ class PerfLedgerManager(CacheController):
                     tp_to_historical_positions[symbol].append(p)
                 else:
                     tp_to_historical_positions[symbol] = [p]
-            
 
         # Building for scratch or there have been order(s) since the last update time
         realtime_position_to_pop = None
@@ -1118,8 +1146,9 @@ class PerfLedgerManager(CacheController):
                 break
             # print(f"Done processing order {order}. perf ledger {perf_ledger}")
 
-        if eliminated:
-            return
+        if eliminated and self.running_pyspark:
+            return perf_ledger_bundle_candidate
+
         # We have processed all orders. Need to catch up to now_ms
         if realtime_position_to_pop:
             symbol = realtime_position_to_pop.trade_pair.trade_pair_id
@@ -1144,8 +1173,13 @@ class PerfLedgerManager(CacheController):
                 f" last cp {portfolio_perf_ledger.cps[-1] if portfolio_perf_ledger.cps else None}. perf_ledger_mpv {portfolio_perf_ledger.max_return} "
                 f"perf_ledger_initialization_time {TimeUtil.millis_to_formatted_date_str(portfolio_perf_ledger.initialization_time_ms)}. "
                 f"mode_to_n_updates {self.mode_to_n_updates}. update_to_n_open_positions {self.update_to_n_open_positions}, self.tp_to_mfs {self.tp_to_mfs}")
-        # Write candidate at the very end in case an exception leads to a partial update
-        existing_perf_ledger_bundles[hotkey] = perf_ledger_bundle_candidate
+
+        # If running in pyspark mode, return the result instead of updating in place
+        if self.running_pyspark:
+            return perf_ledger_bundle_candidate
+        else:
+            # Write candidate at the very end in case an exception leads to a partial update
+            existing_perf_ledger_bundles[hotkey] = perf_ledger_bundle_candidate
 
     @timeme
     def write_perf_ledger_eliminations_to_disk(self, eliminations):
@@ -1206,6 +1240,7 @@ class PerfLedgerManager(CacheController):
                 eliminations=self.position_manager.elimination_manager.get_eliminations_from_memory()
             )
             n_positions_total = 0
+            n_hotkeys_total = len(hotkey_to_positions)
             # Keep only hotkeys with positions
             for k, positions in hotkey_to_positions.items():
                 n_positions = len(positions)
@@ -1214,7 +1249,7 @@ class PerfLedgerManager(CacheController):
                     hotkeys_with_no_positions.add(k)
             for k in hotkeys_with_no_positions:
                 del hotkey_to_positions[k]
-            bt.logging.info('TOTAL N POSITIONS IN MEMORY: ' + str(n_positions_total))
+            bt.logging.info('TOTAL N POSITIONS IN MEMORY: ' + str(n_positions_total), 'TOTAL N HOTKEYS IN MEMORY: ' + str(n_hotkeys_total))
 
         return hotkey_to_positions, hotkeys_with_no_positions
 
@@ -1450,17 +1485,138 @@ class PerfLedgerManager(CacheController):
                     if len(pl.cps) == 0:
                         pl.max_return = 1.0
 
+    def update_one_perf_ledger_pyspark(self, data_tuple):
+        hotkey_i, n_hotkeys, hotkey, positions, existing_bundle, now_ms = data_tuple
 
+        # Create a temporary manager for processing
+        # This is to avoid sharing state between executors
+        worker_plm = PerfLedgerManager(
+            metagraph=MockMetagraph(hotkeys=[hotkey]),
+            running_pyspark=True
+        )
+
+        worker_plm.now_ms = now_ms
+
+        new_bundle = worker_plm.update_one_perf_ledger_bundle(
+            hotkey_i, n_hotkeys, hotkey, positions, now_ms, {hotkey:existing_bundle}
+        )
+
+        return hotkey, new_bundle
+    def update_perf_ledgers_parallel(self, spark, hotkey_to_positions: dict[str, List[Position]],
+                                     existing_perf_ledgers: dict[str, dict[str, PerfLedger]],
+                                     now_ms: int = None, top_n_miners: int=None) -> dict[str, dict[str, PerfLedger]]:
+        """
+        Update all perf ledgers in parallel using PySpark.
+
+        Args:
+            spark: PySpark SparkSession
+            hotkey_to_positions: Dictionary mapping hotkeys to their positions
+            existing_perf_ledgers: Dictionary of existing performance ledger bundles
+            now_ms: Current time in milliseconds
+            top_n_miners: Number of miners to process (local testing)
+
+        Returns:
+            Updated performance ledger bundles
+        """
+        t_init = time.time()
+
+        if now_ms is None:
+            now_ms = TimeUtil.now_in_millis()
+        self.now_ms = now_ms
+
+        # Create a list of hotkeys with their positions for RDD
+        hotkey_data = []
+        for i, (hotkey, positions) in enumerate(hotkey_to_positions.items()):
+            hotkey_data.append((i, len(hotkey_to_positions), hotkey, positions, existing_perf_ledgers.get(hotkey), now_ms))
+            if top_n_miners and i == top_n_miners - 1:
+                break
+
+        bt.logging.info(f"Updating perf ledgers in parallel with PySpark. RDD size: {len(hotkey_data)}")
+        # Create RDD from hotkey data
+        hotkey_rdd = spark.sparkContext.parallelize(hotkey_data)
+
+        # Process all hotkeys in parallel
+        updated_perf_ledgers = hotkey_rdd.map(self.update_one_perf_ledger_pyspark).collectAsMap()
+        n_perf_ledgers = len(updated_perf_ledgers)
+        n_hotkeys_with_positions = len(hotkey_to_positions)
+        bt.logging.success(f"Done updating perf ledgers in Pyspark in {time.time() - t_init}s. "
+                           f"n_perf_ledgers: {n_perf_ledgers}, n_hotkeys_with_positions: {n_hotkeys_with_positions}")
+
+        return updated_perf_ledgers
+
+
+def get_spark_session():
+    # Check if running in Databricks
+    is_databricks = 'DATABRICKS_RUNTIME_VERSION' in os.environ
+    # Initialize Spark
+    if is_databricks:
+        # In Databricks, 'spark' is already available in the global namespace
+        bt.logging.info("Running in Databricks environment, using existing spark session")
+        should_close = False
+
+    else:
+        # Create a new Spark session if not in Databricks
+        from pyspark.sql import SparkSession
+
+        bt.logging.info("Creating new Spark session")
+        spark = SparkSession.builder \
+            .appName("PerfLedgerManager") \
+            .config("spark.executor.memory", "4g") \
+            .config("spark.driver.memory", "6g") \
+            .config("spark.executor.cores", "4") \
+            .config("spark.driver.maxResultSize", "2g") \
+            .getOrCreate()
+        should_close = True
+
+    return spark, should_close
 
 
 if __name__ == "__main__":
     from tests.shared_objects.mock_classes import MockMetagraph
     bt.logging.enable_info()
+
+    # Configuration flags
+    pyspark_parallel = False
+    top_n_miners = 1
+    test_single_hotkey = None#'5EWKUhycaBQHiHnfE3i2suZ1BvxAAE3HcsFsp8TaR6mu3JrJ'  # Set to a specific hotkey string to test single hotkey, or None for all
+    regenerate_all = False  # Whether to regenerate all ledgers from scratch
+
+
+    # Initialize components
     all_miners_dir = ValiBkpUtils.get_miner_dir(running_unit_tests=False)
     all_hotkeys_on_disk = CacheController.get_directory_names(all_miners_dir)
     mmg = MockMetagraph(hotkeys=all_hotkeys_on_disk)
     elimination_manager = EliminationManager(mmg, None, None)
-    pm = PositionManager(metagraph=mmg, running_unit_tests=False, elimination_manager=elimination_manager)
-    perf_ledger_manager = PerfLedgerManager(mmg, position_manager=pm, running_unit_tests=False, enable_rss=False)
-    #perf_ledger_manager.update(regenerate_all_ledgers=True)
-    perf_ledger_manager.update(testing_one_hotkey='5DswH2LoRwivzv37tGvo27XJjDvFpff2fhu5T8LHsfXmFS5u')
+    position_manager = PositionManager(metagraph=mmg, running_unit_tests=False, elimination_manager=elimination_manager)
+    perf_ledger_manager = PerfLedgerManager(mmg, position_manager=position_manager, running_unit_tests=False,
+                                            enable_rss=False, running_pyspark=pyspark_parallel)
+
+
+    if pyspark_parallel:
+        spark, should_close = get_spark_session()
+
+        bt.logging.info("Running performance ledger updates in parallel with PySpark")
+
+        # Get positions and existing ledgers
+        hotkey_to_positions, _ = perf_ledger_manager.get_positions_perf_ledger(testing_one_hotkey=test_single_hotkey)
+
+        if regenerate_all:
+            existing_perf_ledgers = {}
+        else:
+            existing_perf_ledgers = perf_ledger_manager.get_perf_ledgers(portfolio_only=False, from_disk=True)
+
+        # Run the parallel update
+        updated_perf_ledgers = perf_ledger_manager.update_perf_ledgers_parallel(spark, hotkey_to_positions, existing_perf_ledgers, top_n_miners=top_n_miners)
+
+        PerfLedgerManager.print_bundles(updated_perf_ledgers)
+        # Stop Spark session if we created it
+        if should_close:
+            spark.stop()
+    else:
+        # Use serial update like validators do
+        if test_single_hotkey:
+            bt.logging.info(f"Running single-hotkey test for: {test_single_hotkey}")
+            perf_ledger_manager.update(testing_one_hotkey=test_single_hotkey)
+        else:
+            bt.logging.info("Running standard sequential update for all hotkeys")
+            perf_ledger_manager.update(regenerate_all_ledgers=regenerate_all)
