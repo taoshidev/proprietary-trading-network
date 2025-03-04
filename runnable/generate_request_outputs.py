@@ -18,7 +18,7 @@ from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
 import bittensor as bt
 
 class RequestOutputGenerator:
-    def __init__(self, running_deprecated=False, rcm=None, msm=None, checkpoints=True):
+    def __init__(self, running_deprecated=False, rcm=None, msm=None, checkpoints=True, risk_report=False):
         self.running_deprecated = running_deprecated
         self.last_write_time_s = 0
         self.n_updates = 0
@@ -27,6 +27,7 @@ class RequestOutputGenerator:
         self.rcm = rcm
         self.msm = msm
         self.checkpoints = checkpoints
+        self.risk_report = risk_report
 
 
     def run_deprecated_loop(self):
@@ -36,7 +37,12 @@ class RequestOutputGenerator:
             current_time_ms = TimeUtil.now_in_millis()
             self.repull_data_from_disk()
             self.rcm.generate_request_core(write_and_upload_production_files=True)
-            self.msm.generate_request_minerstatistics(time_now=current_time_ms, checkpoints=True)
+            self.msm.generate_request_minerstatistics(
+                time_now=current_time_ms,
+                checkpoints=self.checkpoints,
+                risk_report=self.risk_report
+            )
+
             time_to_wait_ms = (self.msm_refresh_interval_ms + self.rcm_refresh_interval_ms) - \
                              (TimeUtil.now_in_millis() - current_time_ms)
             if time_to_wait_ms > 0:
@@ -147,7 +153,13 @@ if __name__ == "__main__":
         action="store_false",
         help="If present, disables checkpoints."
     )
+    parser.add_argument(
+        "--risk-report",
+        action="store_true",
+        default=False,
+        help="Flag indicating if generation should be with risk report report (default: False)."
+    )
 
     args = parser.parse_args()
-    rog = RequestOutputGenerator(running_deprecated=True, checkpoints=args.checkpoints)
+    rog = RequestOutputGenerator(running_deprecated=True, checkpoints=args.checkpoints, risk_report=args.risk_report)
     rog.start_generation()

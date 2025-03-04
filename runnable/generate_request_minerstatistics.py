@@ -1,4 +1,3 @@
-import os
 from typing import List, Dict, Any
 from dataclasses import dataclass
 from enum import Enum
@@ -20,7 +19,7 @@ from vali_objects.utils.metrics import Metrics
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
 from vali_objects.utils.risk_profiling import RiskProfiling
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedger
-
+from vali_objects.position import Position
 
 # ---------------------------------------------------------------------------
 # Enums and Dataclasses
@@ -169,8 +168,7 @@ class MinerStatisticsManager:
         miner_ledger = ledger_dict.get(hotkey)
         miner_cps = miner_ledger.cps if miner_ledger else []
         miner_positions = positions_dict.get(hotkey, [])
-        # ledger_returns_log returns {hotkey: [returns...], ...}
-        miner_returns = LedgerUtils.ledger_returns_log({hotkey: miner_ledger}).get(hotkey, [])
+        miner_returns = LedgerUtils.daily_return_log(ledger_dict.get(hotkey, None))
 
         # Volatility
         ann_volatility = min(Metrics.ann_volatility(miner_returns), 100)
@@ -214,22 +212,20 @@ class MinerStatisticsManager:
         """
         Combines the minimal fields needed for the metrics plus the extra data.
         """
-        miner_ledger = filtered_ledger.get(hotkey)
+        miner_ledger: PerfLedger = filtered_ledger.get(hotkey)
         if not miner_ledger:
             return {}
-        miner_returns_ledger = LedgerUtils.cumulative(miner_ledger)
-        miner_returns = LedgerUtils.ledger_returns_log({hotkey: miner_returns_ledger}).get(hotkey, [])
-        miner_cps = miner_returns_ledger.cps if miner_returns_ledger else []
-        miner_positions = filtered_positions.get(hotkey, [])
+        miner_returns_ledger: PerfLedger = LedgerUtils.cumulative(miner_ledger)
+        miner_daily_returns: list[float] = LedgerUtils.daily_return_log(filtered_ledger.get(hotkey, None))
+        miner_positions: list[Position] = filtered_positions.get(hotkey, [])
 
         extra_data = self.gather_extra_data(hotkey, filtered_ledger, filtered_positions)
 
         return {
-            "log_returns": miner_returns,
-            "checkpoints": miner_cps,
             "positions": miner_positions,
-            "ledger": miner_returns_ledger,
-            "evaluation_time": time_now,
+            "ledger": miner_ledger,
+            "daily_returns": miner_daily_returns,
+            "cumulative_ledger": miner_returns_ledger,
             "extra_data": extra_data
         }
 
@@ -503,7 +499,7 @@ class MinerStatisticsManager:
 
         # Risk profiling
         risk_profile_dict = self.calculate_risk_profile(miner_data)
-        # risk_profile_report_dict = self.calculate_risk_report(miner_data)
+        risk_profile_report = self.calculate_risk_report(miner_data)
 
         # Build the final list
         results = []
@@ -572,7 +568,6 @@ class MinerStatisticsManager:
 
             # Penalties breakdown for display
             pen_break = penalty_breakdown.get(hotkey, {})
-            # e.g. {"drawdown_threshold": x, "martingale": y, "total": z}
 
             # Purely for visualization purposes
             daily_returns = daily_returns_dict.get(hotkey, [])
@@ -585,12 +580,12 @@ class MinerStatisticsManager:
                 "challengeperiod": challengeperiod_info,
                 "scores": base_dict,
                 "augmented_scores": augmented_dict,
+                "daily_returns": daily_returns,
                 "volatility": volatility_subdict,
                 "drawdowns": drawdowns_subdict,
                 "plagiarism": plagiarism_val,
                 "engagement": engagement_subdict,
                 "risk_profile": risk_profile_single_dict,
-                "daily_returns": daily_returns,
                 "penalties": {
                     "drawdown_threshold": pen_break.get("drawdown_threshold", 1.0),
                     "risk_profile": pen_break.get("risk_profile", 1.0),
@@ -604,7 +599,7 @@ class MinerStatisticsManager:
             }
 
             if risk_report:
-                final_miner_dict["risk_profile_report"] = risk_profile_report
+                final_miner_dict["risk_profile_report"] = risk_profile_report.get(hotkey, {})
 
             # Optionally attach actual checkpoints (like the original first script)
             if checkpoints:
@@ -647,8 +642,8 @@ class MinerStatisticsManager:
     # -------------------------------------------
     # Write to disk
     # -------------------------------------------
-    def generate_request_minerstatistics(self, time_now: int, checkpoints: bool = True):
-        final_dict = self.generate_miner_statistics_data(time_now, checkpoints)
+    def generate_request_minerstatistics(self, time_now: int, checkpoints: bool = True, risk_report: bool = False):
+        final_dict = self.generate_miner_statistics_data(time_now, checkpoints=checkpoints, risk_report=risk_report)
         output_file_path = ValiBkpUtils.get_miner_stats_dir()
         ValiBkpUtils.write_file(output_file_path, final_dict)
 
