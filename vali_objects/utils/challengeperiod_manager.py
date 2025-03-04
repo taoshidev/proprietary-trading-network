@@ -28,7 +28,7 @@ class ChallengePeriodManager(CacheController):
             PerfLedgerManager(metagraph, running_unit_tests=running_unit_tests)
         self.position_manager = position_manager
         self.elimination_manager = self.position_manager.elimination_manager
-
+        self.eliminations_with_reasons: dict[str, tuple[str, float]] = {}
         if self.is_backtesting:
             initial_challenegeperiod_testing = {}
             initial_challenegeperiod_success = {}
@@ -180,6 +180,7 @@ class ChallengePeriodManager(CacheController):
             current_time=current_time,
             hk_to_first_order_time=hk_to_first_order_time
         )
+        self.eliminations_with_reasons = challengeperiod_eliminations
 
         any_changes = bool(challengeperiod_success) or bool(challengeperiod_eliminations)
 
@@ -558,14 +559,6 @@ class ChallengePeriodManager(CacheController):
                 del self.challengeperiod_testing[hotkey]
             else:
                 bt.logging.error(f"Hotkey {hotkey} was not in challengeperiod_testing but demotion to failure was attempted.")
-
-        for hotkey in hotkeys:
-            bt.logging.info(f"Eliminating hotkey {hotkey}.")
-            # This will also add the hotkey to the in memory self.eliminations list
-            elim_reason = eliminations_with_reasons[hotkey][0]
-            elim_mdd = eliminations_with_reasons[hotkey][1]
-            self.elimination_manager.append_elimination_row(hotkey=hotkey,current_dd=elim_mdd,mdd_failure=elim_reason)
-            self.elimination_manager.han
 
     def _write_challengeperiod_from_memory_to_disk(self):
         if self.is_backtesting:

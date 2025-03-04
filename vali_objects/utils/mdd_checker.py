@@ -42,7 +42,6 @@ class MDDChecker(CacheController):
         self.n_poly_api_requests = 0
 
     def reset_debug_counters(self):
-        self.n_miners_skipped_already_eliminated = 0
         self.n_orders_corrected = 0
         self.miners_corrected = set()
 

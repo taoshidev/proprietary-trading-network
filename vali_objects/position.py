@@ -451,8 +451,24 @@ class Position(BaseModel):
 
     def _handle_liquidation(self, time_ms):
         self._position_log("position liquidated. Trade pair: " + str(self.trade_pair.trade_pair_id))
-
+        if self.is_closed_position:
+            return
+        else:
+            self.orders.append(self.generate_fake_flat_order(self, time_ms))
         self.close_out_position(time_ms)
+
+    @staticmethod
+    def generate_fake_flat_order(position, elimination_time_ms):
+        fake_flat_order_time = elimination_time_ms
+
+        flat_order = Order(price=0,
+                           processed_ms=fake_flat_order_time,
+                           order_uuid=position.position_uuid[::-1],  # determinstic across validators. Won't mess with p2p sync
+                           trade_pair=position.trade_pair,
+                           order_type=OrderType.FLAT,
+                           leverage=0,
+                           src=ORDER_SRC_ELIMINATION_FLAT)
+        return flat_order
 
     def calculate_return_with_fees(self, current_return_no_fees, timestamp_ms=None):
         if timestamp_ms is None:
