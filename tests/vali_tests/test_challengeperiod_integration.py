@@ -3,6 +3,7 @@ from copy import deepcopy
 
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.utils.elimination_manager import EliminationManager
+from vali_objects.utils.position_lock import PositionLocks
 from vali_objects.vali_dataclasses.order import Order
 
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedger, TP_ID_PORTFOLIO
@@ -173,6 +174,7 @@ class TestChallengePeriodIntegration(TestBase):
     
     def test_refresh_populations(self):
         self.challengeperiod_manager.refresh(current_time=self.max_open_ms)
+        self.elimination_manager.process_eliminations(PositionLocks())
         testing_length = len(self.challengeperiod_manager.challengeperiod_testing)
         success_length = len(self.challengeperiod_manager.challengeperiod_success)
         eliminations_length = len(self.challengeperiod_manager.elimination_manager.get_eliminations_from_memory())
@@ -193,6 +195,7 @@ class TestChallengePeriodIntegration(TestBase):
             self.assertTrue(time_criteria, f"Time criteria failed for {hotkey}")
 
         self.challengeperiod_manager.refresh(current_time=self.max_open_ms)
+        self.elimination_manager.process_eliminations(PositionLocks())
 
         elimination_hotkeys_memory = [x['hotkey'] for x in self.challengeperiod_manager.elimination_manager.get_eliminations_from_memory()]
         elimination_hotkeys_disk = [x['hotkey'] for x in self.challengeperiod_manager.elimination_manager.get_eliminations_from_disk()]
@@ -235,6 +238,8 @@ class TestChallengePeriodIntegration(TestBase):
         self.assertEqual(len(self.challengeperiod_manager.challengeperiod_testing), len(self.NOT_MAIN_COMP_MINER_NAMES))
 
         self.challengeperiod_manager.refresh(current_time=self.max_open_ms + ValiConfig.CHALLENGE_PERIOD_MS + 1)
+        self.elimination_manager.process_eliminations(PositionLocks())
+
         elimination_keys = self.challengeperiod_manager.elimination_manager.get_eliminated_hotkeys()
 
         for miner in self.FAILING_MINER_NAMES:
@@ -291,6 +296,7 @@ class TestChallengePeriodIntegration(TestBase):
             current_time=self.max_open_ms,
             hk_to_first_order_time=self.HK_TO_OPEN_MS
         )
+        self.elimination_manager.process_eliminations(PositionLocks())
 
         # There should be no promotion or demotion
         self.assertListEqual(challenge_success, [])
@@ -300,6 +306,7 @@ class TestChallengePeriodIntegration(TestBase):
     def test_promote_testing_miner(self):
         # Add all the challenge period miners
         self.challengeperiod_manager.refresh(current_time=self.max_open_ms)
+        self.elimination_manager.process_eliminations(PositionLocks())
 
         testing_hotkeys = list(self.challengeperiod_manager.challengeperiod_testing.keys())
         success_hotkeys = list(self.challengeperiod_manager.challengeperiod_success.keys())
@@ -350,6 +357,7 @@ class TestChallengePeriodIntegration(TestBase):
             self.assertIn(miner, challenge_testing)
             self.challengeperiod_manager.refresh(
                 current_time=self.HK_TO_OPEN_MS[miner] + ValiConfig.CHALLENGE_PERIOD_MS + 1)
+            self.elimination_manager.process_eliminations(PositionLocks())
 
             challenge_success = list(self.challengeperiod_manager.get_challengeperiod_success())
             elimininations = list(self.challengeperiod_manager.elimination_manager.get_eliminated_hotkeys())
@@ -382,6 +390,7 @@ class TestChallengePeriodIntegration(TestBase):
 
         self.assertEqual(len(self.challengeperiod_manager.get_challengeperiod_testing()), 0)
         self.challengeperiod_manager.refresh(current_time=self.max_open_ms)
+        self.elimination_manager.process_eliminations(PositionLocks())
 
         for miner in miners_without_positions:
             self.assertIn(miner, self.mock_metagraph.hotkeys)
@@ -390,6 +399,7 @@ class TestChallengePeriodIntegration(TestBase):
     
     def test_disjoint_testing_success(self):
         self.challengeperiod_manager.refresh(current_time=self.max_open_ms)
+        self.elimination_manager.process_eliminations(PositionLocks())
 
         testing_set = set(self.challengeperiod_manager.challengeperiod_testing.keys())
         success_set = set(self.challengeperiod_manager.challengeperiod_success.keys())
@@ -398,6 +408,7 @@ class TestChallengePeriodIntegration(TestBase):
 
     def test_addition(self):
         self.challengeperiod_manager.refresh(current_time=self.max_open_ms)
+        self.elimination_manager.process_eliminations(PositionLocks())
 
         self.challengeperiod_manager._add_challengeperiod_testing_in_memory_and_disk(
             new_hotkeys=self.MINER_NAMES,
@@ -476,6 +487,7 @@ class TestChallengePeriodIntegration(TestBase):
             self.challengeperiod_manager.elimination_manager.append_elimination_row(miner, -1, "FAILED_CHALLENGE_PERIOD")
 
         self.challengeperiod_manager.refresh(current_time=self.OUTSIDE_OF_CHALLENGE)
+        self.elimination_manager.process_eliminations(PositionLocks())
 
         self.assertTrue(len(self.challengeperiod_manager.challengeperiod_testing) == 0)
         self.assertTrue(len(self.challengeperiod_manager.challengeperiod_success) == 0)
@@ -501,6 +513,7 @@ class TestChallengePeriodIntegration(TestBase):
     def test_miner_elimination_reasons_mdd(self):
         """Test that miners are properly being eliminated when beyond mdd"""
         self.challengeperiod_manager.refresh(current_time=self.max_open_ms)
+        self.elimination_manager.process_eliminations(PositionLocks())
 
         eliminations_length = len(self.challengeperiod_manager.elimination_manager.get_eliminations_from_memory())
 
@@ -512,6 +525,7 @@ class TestChallengePeriodIntegration(TestBase):
     def test_miner_elimination_reasons_time(self):
         """Test that miners who aren't passing challenge period are properly eliminated for time."""
         self.challengeperiod_manager.refresh(current_time=self.OUTSIDE_OF_CHALLENGE)
+        self.elimination_manager.process_eliminations(PositionLocks())
         eliminations_length = len(self.challengeperiod_manager.elimination_manager.get_eliminations_from_memory())
 
         # Ensure that all miners that aren't failing end up in testing or success
