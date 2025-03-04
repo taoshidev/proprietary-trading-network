@@ -524,8 +524,10 @@ class TestPositions(TestBase):
         })
 
         self.add_order_to_position_and_save(position, o2)
+        assert len(position.orders) == 3, position.orders
+        assert position.orders[2].src == ORDER_SRC_ELIMINATION_FLAT
         self.validate_intermediate_position_state(position, {
-            'orders': [o1, o2],
+            'orders': [o1, o2, position.orders[2]],
             'position_type': OrderType.FLAT,
             'is_closed_position': True,
             'net_leverage': -1.0,
@@ -544,7 +546,7 @@ class TestPositions(TestBase):
         with self.assertRaises(ValueError):
             self.add_order_to_position_and_save(position, o3)
         self.validate_intermediate_position_state(position, {
-            'orders': [o1, o2],
+            'orders': [o1, o2, position.orders[2]],
             'position_type': OrderType.FLAT,
             'is_closed_position': True,
             'net_leverage': -1.0,
@@ -600,8 +602,10 @@ class TestPositions(TestBase):
         })
 
         self.add_order_to_position_and_save(position, o2)
+        assert len(position.orders) == 3, position.orders
+        assert position.orders[2].src == ORDER_SRC_ELIMINATION_FLAT
         self.validate_intermediate_position_state(position, {
-            'orders': [o1, o2],
+            'orders': [o1, o2, position.orders[2]],
             'position_type': OrderType.FLAT,
             'is_closed_position': True,
             'net_leverage': 10,
@@ -619,8 +623,9 @@ class TestPositions(TestBase):
         # Orders post-liquidation are ignored
         with self.assertRaises(ValueError):
             self.add_order_to_position_and_save(position, o3)
+
         self.validate_intermediate_position_state(position, {
-            'orders': [o1, o2],
+            'orders': [o1, o2, position.orders[2]],
             'position_type': OrderType.FLAT,
             'is_closed_position': True,
             'net_leverage': 10,

@@ -44,6 +44,28 @@ Below are the prerequisites for validators.
 
 # Getting Started
 
+Install Python 3.10 (Required steps may vary based on platform)
+```bash
+sudo apt update && sudo apt upgrade -y
+
+sudo apt install -y software-properties-common \
+    make build-essential libssl-dev zlib1g-dev \
+    libbz2-dev libreadline-dev libsqlite3-dev wget \
+    curl llvm libncurses5-dev xz-utils tk-dev \
+    libxml2-dev libxmlsec1-dev libffi-dev liblzma-dev
+    
+cd /usr/src
+sudo wget https://www.python.org/ftp/python/3.10.12/Python-3.10.12.tgz
+sudo tar xzf Python-3.10.12.tgz
+cd Python-3.10.12
+
+sudo ./configure --enable-optimizations
+sudo make -j$(nproc)
+sudo make altinstall
+
+python3.10 --version
+
+```
 Clone repository
 
 ```bash
@@ -59,7 +81,7 @@ cd proprietary-trading-network
 Create Virtual Environment
 
 ```bash
-python3 -m venv venv
+python3.10 -m venv venv
 ```
 
 Activate a Virtual Environment
@@ -85,7 +107,7 @@ Note: You should disregard any warnings about updating Bittensor after this. We 
 Create a local and editable installation
 
 ```bash
-python3 -m pip install -e .
+python -m pip install -e .
 ```
 
 ## 2. Create Wallets
@@ -172,7 +194,7 @@ validator  default  197    True   0.00000  0.00000  0.00000    0.00000    0.0000
 
 This guide provides instructions for running the validator using our automatic updater script, `run.sh`. It also introduces two optional flags
 
-1. The `--start-generate` flag, which enables the generation of JSON files corresponding to trade data. These files can be sold to customers using the Request Network (further instructions pending).
+1. The `--start-generate` flag, which enables the generation of JSON files corresponding to trade data. These files can be sold to customers using the Request Network. This also enables miners to load data using their local dashboard.
 2. The `--autosync` flag, which allows you to synchronize your data with a validator trusted by Taoshi (strong recommend enabling this flag to maintain validator consensus)
 
 ### Prerequisites
@@ -218,11 +240,6 @@ These commands initialize two PM2 processes:
    - **Autoupdate Process**: Named `sn8`, which checks for and applies updates every 30 minutes.
 
 
-
-### Pitfalls
-
-- When running on the testnet, it is crucial to include the `--subtensor.network test` and `--netuid 116` flags to ensure proper configuration.
-- Details on how to sell the generated trade data via the Request Network will be provided when available.
 
 ### Synchronizing your validator
 
@@ -300,8 +317,14 @@ Note this won't launch the autoupdater. To launch with the autoupdater, use the 
 
 ## 9. Pitfall Prevention
 
-1. When running a validator in certain cloud environments such as Runpod, you may not have your Bittensor default port open (8091). This will cause your validator to be unable to communicate with miners and thus have a low VTRUST as your validator isn't receiving the latest orders. In order to correct this issue, explicitly open a tcp port, and pass this as an arugment with `--axon.port <YOUR_OPEN_PORT>`
+1. With the introduction of dTAO, we strongly recommend running a local subtensor to avoid rate limit issues on finney which prevent weights from being set. https://github.com/opentensor/subtensor
 
-2. Do not use share API keys across multiple validators/scripts. Each API key corresponds to one allowed websocket connection. Using the API keys across multiple scripts will lead to rate limits and failures on your validator. 
+2. When running on the testnet, it is crucial to include the `--subtensor.network test` and `--netuid 116` flags to ensure proper configuration.
 
 3. If you see an a ```JSONDecodeError``` exception when running your validator, ensure you secrets.json file is correctly formatted with proper commas.  
+
+4. Do not use share API keys across multiple validators/scripts. Each API key corresponds to one allowed websocket connection. Using the API keys across multiple scripts will lead to rate limits and failures on your validator. 
+
+5. Details on how to sell the generated trade data via the Request Network will be provided when available.
+
+6. When running a validator in certain cloud environments such as Runpod, you may not have your Bittensor default port open (8091). This will cause your validator to be unable to communicate with miners and thus have a low VTRUST as your validator isn't receiving the latest orders. In order to correct this issue, explicitly open a tcp port, and pass this as an arugment with `--axon.port <YOUR_OPEN_PORT>`

@@ -643,8 +643,9 @@ class Validator:
                 return True
 
         # don't process eliminated miners
-        if synapse.dendrite.hotkey in self.mdd_checker.eliminated_hotkeys:
-            msg = f"This miner hotkey {synapse.dendrite.hotkey} has been eliminated and cannot participate in this subnet. Try again after re-registering."
+        elimination_info = self.elimination_manager.hotkey_in_eliminations(synapse.dendrite.hotkey)
+        if elimination_info:
+            msg = f"This miner hotkey {synapse.dendrite.hotkey} has been eliminated and cannot participate in this subnet. Try again after re-registering. elimination_info {elimination_info}"
             bt.logging.debug(msg)
             synapse.successfully_processed = False
             synapse.error_message = msg
