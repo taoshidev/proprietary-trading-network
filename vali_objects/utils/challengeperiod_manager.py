@@ -565,6 +565,7 @@ class ChallengePeriodManager(CacheController):
             elim_reason = eliminations_with_reasons[hotkey][0]
             elim_mdd = eliminations_with_reasons[hotkey][1]
             self.elimination_manager.append_elimination_row(hotkey=hotkey,current_dd=elim_mdd,mdd_failure=elim_reason)
+            self.elimination_manager.han
 
     def _write_challengeperiod_from_memory_to_disk(self):
         if self.is_backtesting:

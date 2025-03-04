@@ -2,8 +2,10 @@
 # Copyright © 2024 Taoshi Inc
 import shutil
 from copy import deepcopy
-from typing import Dict
+from typing import Dict, List
 from time_util.time_util import TimeUtil
+from vali_objects.enums.order_type_enum import OrderType
+from vali_objects.position import Position
 from vali_objects.utils.vali_utils import ValiUtils
 from vali_objects.vali_config import ValiConfig, TradePair
 from shared_objects.cache_controller import CacheController
@@ -11,6 +13,7 @@ from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 
 import bittensor as bt
 
+from vali_objects.vali_dataclasses.order import ORDER_SRC_ELIMINATION_FLAT, Order
 from vali_objects.vali_dataclasses.price_source import PriceSource
 
 
@@ -29,6 +32,8 @@ class EliminationManager(CacheController):
         self.shutdown_dict = shutdown_dict
         self.challengeperiod_manager = challengeperiod_manager
         self.running_unit_tests = running_unit_tests
+        self.hotkeys_with_flat_orders_added = set()
+
 
         if ipc_manager:
             self.eliminations = ipc_manager.list()
@@ -63,6 +68,47 @@ class EliminationManager(CacheController):
             self.save_eliminations()
             bt.logging.info(f'Wrote {n_eliminations} perf ledger eliminations to disk')
 
+
+    def add_manual_flat_orders(self, hotkey:str, sorted_positions:List[Position], corresponding_elimination, position_locks):
+        """
+        Add flat orders to the positions for a miner that has been eliminated.
+        """
+        any_changes_attempted = False
+        elimination_time_ms = corresponding_elimination['elimination_initiated_time_ms']
+
+        for position in sorted_positions:
+            with position_locks.get_lock(hotkey, position.trade_pair.trade_pair_id):
+                # Position could have updated in the time between mdd_check being called and this function being called
+                position_refreshed = self.position_manager.get_miner_position_by_uuid(hotkey, position.position_uuid)
+                if position_refreshed is None:
+                    bt.logging.warning(f"Unexpectedly could not find position with uuid {position.position_uuid} for hotkey {hotkey} and trade pair {position.trade_pair.trade_pair_id}. Not add flat orders")
+                    continue
+
+                position = position_refreshed
+                if position.is_closed_position:
+                    continue
+
+                any_changes_attempted = True
+                fake_flat_order_time = elimination_time_ms
+                if position.orders and position.orders[-1].processed_ms > elimination_time_ms:
+                    bt.logging.warning(f'Unexpectedly found a position with a processed_ms {position.orders[-1].processed_ms} greater than the elimination time {elimination_time_ms} ')
+                    fake_flat_order_time = position.orders[-1].processed_ms + 1
+
+                flat_order = Order(price=0,
+                                   processed_ms=fake_flat_order_time,
+                                   order_uuid=position.position_uuid[::-1],  # determinstic across validators. Won't mess with p2p sync
+                                   trade_pair=position.trade_pair,
+                                   order_type=OrderType.FLAT,
+                                   leverage=0,
+                                   src=ORDER_SRC_ELIMINATION_FLAT)
+                position.add_order(flat_order)
+                self.position_manager.save_miner_position(position, delete_open_position_if_exists=True)
+                bt.logging.info(f'Added flat order for miner {hotkey} that has been eliminated. Trade pair: {position.trade_pair.trade_pair_id}. flat order: {flat_order}. position uuid {position.position_uuid}')
+
+        if not any_changes_attempted:
+            bt.logging.info(f'No flat order additions attempted for miner {hotkey} that has been eliminated. No open positions.')
+
+
     def handle_eliminated_miner(self, hotkey: str,
                                 trade_pair_to_price_source_used_for_elimination_check: Dict[TradePair, PriceSource],
                                 position_locks,
@@ -77,6 +123,21 @@ class EliminationManager(CacheController):
                     bt.logging.info(
                         f"Closing open position for hotkey: {hotkey} and trade_pair: {trade_pair.trade_pair_id}. "
                         f"Source for elimination {source_for_elimination}")
+
+                    #------------------------------------------------------------------------
+                    # Already eliminated?
+                    corresponding_elimination = self.elimination_manager.hotkey_in_eliminations(hotkey)
+                    if corresponding_elimination:
+                        if hotkey not in self.hotkeys_with_flat_orders_added:
+                            self.add_manual_flat_orders(hotkey, sorted_positions, corresponding_elimination,
+                                                        position_locks)
+                            self.hotkeys_with_flat_orders_added.add(hotkey)
+                        self.n_miners_skipped_already_eliminated += 1
+                        return False
+                    #------------------------------------------------------------------------
+
+
+
                     open_position.close_out_position(TimeUtil.now_in_millis())
                     if source_for_elimination:
                         open_position.orders[-1].price_sources.append(source_for_elimination)
@@ -85,12 +146,22 @@ class EliminationManager(CacheController):
     def process_eliminations(self, position_locks):
         if not self.refresh_allowed(ValiConfig.ELIMINATION_CHECK_INTERVAL_MS):
             return
+
         bt.logging.info("running elimination manager")
+
         self.handle_perf_ledger_eliminations(position_locks)
+        # self._handle_plagiarism_eliminations()
         self._eliminate_mdd(position_locks)
         self._delete_eliminated_expired_miners()
+
+        # Update in response to dereg'd miners re-registering an uneliminating
+        self.hotkeys_with_flat_orders_added = {
+            x for x in self.hotkeys_with_flat_orders_added if self.hotkey_in_eliminations(x)
+        }
+
         self.set_last_update_time()
-        # self._handle_plagiarism_eliminations()
+
+
 
     def _handle_plagiarism_eliminations(self, position_locks):
         bt.logging.debug("checking plagiarism.")
