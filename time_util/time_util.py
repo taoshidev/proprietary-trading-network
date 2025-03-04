@@ -1,5 +1,6 @@
 # developer: Taoshidev
 # Copyright © 2024 Taoshi Inc
+import functools
 import re
 import time
 from datetime import datetime, timedelta, timezone
@@ -195,14 +196,20 @@ Example usage: @timeme
                  pass
 """
 def timeme(func):
-    def wrapper(*args, **kwargs):
+    @functools.wraps(func)
+    def wrapper(self, *args, **kwargs):  # Explicitly declare self
+        if isinstance(self, object) and hasattr(self, "is_backtesting") and self.is_backtesting:
+            #print(f"Skipping timing for {func.__name__} because is_backtesting is True")
+            return func(self, *args, **kwargs)  # Call function without timing
+
+        # Time the function execution
         start = time.time()
-        result = func(*args, **kwargs)
+        result = func(self, *args, **kwargs)
         end = time.time()
-        print(f"{func.__name__} took {end - start} s to run")
+        print(f"{func.__name__} took {end - start:.6f} s to run")
         return result
 
-    return wrapper
+    return functools.update_wrapper(wrapper, func)
 
 class UnifiedMarketCalendar:
     def __init__(self):

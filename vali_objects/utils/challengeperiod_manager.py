@@ -22,31 +22,62 @@ class FailedChallengeReason(Enum):
 
 class ChallengePeriodManager(CacheController):
     def __init__(self, metagraph, perf_ledger_manager : PerfLedgerManager =None, running_unit_tests=False,
-                 position_manager: PositionManager =None, ipc_manager=None):
-        super().__init__(metagraph, running_unit_tests=running_unit_tests)
+                 position_manager: PositionManager =None, ipc_manager=None, is_backtesting=False):
+        super().__init__(metagraph, running_unit_tests=running_unit_tests, is_backtesting=is_backtesting)
         self.perf_ledger_manager = perf_ledger_manager if perf_ledger_manager else \
             PerfLedgerManager(metagraph, running_unit_tests=running_unit_tests)
         self.position_manager = position_manager
         self.elimination_manager = self.position_manager.elimination_manager
-        disk_challenegeperiod_testing = self.get_challengeperiod_testing(from_disk=True)
-        disk_challenegeperiod_success = self.get_challengeperiod_success(from_disk=True)
+
+        if self.is_backtesting:
+            initial_challenegeperiod_testing = {}
+            initial_challenegeperiod_success = {}
+        else:
+            initial_challenegeperiod_testing = self.get_challengeperiod_testing(from_disk=True)
+            initial_challenegeperiod_success = self.get_challengeperiod_success(from_disk=True)
         self.using_ipc = bool(ipc_manager)
         if ipc_manager:
             self.challengeperiod_testing = ipc_manager.dict()
             self.challengeperiod_success = ipc_manager.dict()
-            for k, v in disk_challenegeperiod_testing.items():
+            for k, v in initial_challenegeperiod_testing.items():
                 self.challengeperiod_testing[k] = v
-            for k, v in disk_challenegeperiod_success.items():
+            for k, v in initial_challenegeperiod_success.items():
                 self.challengeperiod_success[k] = v
         else:
-            self.challengeperiod_testing = disk_challenegeperiod_testing
-            self.challengeperiod_success = disk_challenegeperiod_success
-        if len(self.get_challengeperiod_testing()) == 0 and len(self.get_challengeperiod_success()) == 0:
+            self.challengeperiod_testing = initial_challenegeperiod_testing
+            self.challengeperiod_success = initial_challenegeperiod_success
+        if not self.is_backtesting and len(self.get_challengeperiod_testing()) == 0 and len(self.get_challengeperiod_success()) == 0:
             ValiBkpUtils.write_file(
                 ValiBkpUtils.get_challengeperiod_file_location(running_unit_tests=self.running_unit_tests),
                 {"testing": {}, "success": {}}
             )
         self.refreshed_challengeperiod_start_time = False
+
+
+    #Used to bypass running challenge period, but still adds miners to success for statistics
+    def add_all_miners_to_success(self, current_time_ms, run_elimination=True):
+        assert self.is_backtesting, "This function is only for backtesting"
+        eliminations = []
+        if run_elimination:
+            # The refresh should just read the current eliminations
+            eliminations = self.elimination_manager.get_eliminations_from_memory()
+
+            # Collect challenge period and update with new eliminations criteria
+            self.remove_eliminated(eliminations=eliminations)
+
+        challenge_hk_to_positions, challenge_hk_to_first_order_time = self.position_manager.filtered_positions_for_scoring(
+            hotkeys=self.metagraph.hotkeys)
+
+        self._add_challengeperiod_testing_in_memory_and_disk(
+            new_hotkeys=self.metagraph.hotkeys,
+            eliminations=eliminations,
+            hk_to_first_order_time=challenge_hk_to_first_order_time
+        )
+
+        miners_to_promote = list(self.challengeperiod_testing.keys())
+
+        #Finally promote all testing miners to success
+        self._promote_challengeperiod_in_memory(hotkeys=miners_to_promote, current_time=current_time_ms)
 
     def _add_challengeperiod_testing_in_memory_and_disk(
             self,
@@ -261,7 +292,8 @@ class ChallengePeriodManager(CacheController):
             # Get the penalized scores of all successful miners
             success_scores_dict = Scoring.score_miners(ledger_dict=success_ledger,
                                                             positions=success_positions,
-                                                            evaluation_time_ms=current_time)
+                                                            evaluation_time_ms=current_time,
+                                                            weighting=True)
         
         miners_not_enough_positions = []
         for hotkey, inspection_time in inspection_hotkeys.items():
@@ -358,11 +390,12 @@ class ChallengePeriodManager(CacheController):
 
         # inspection_scores_dict is used to bypass running scoring when testing
         if inspection_scores_dict is None:
-            # Get penalized scores of inspection miner
+            # Get scores of inspection miner and penalties
             inspection_scores_dict = Scoring.score_miners(
                 ledger_dict=inspection_ledger,
                 positions=inspection_positions,
-                evaluation_time_ms=current_time)
+                evaluation_time_ms=current_time,
+                weighting=True)
             
         trial_scores_dict = copy.deepcopy(success_scores_dict)
 
@@ -534,6 +567,8 @@ class ChallengePeriodManager(CacheController):
             self.elimination_manager.append_elimination_row(hotkey=hotkey,current_dd=elim_mdd,mdd_failure=elim_reason)
 
     def _write_challengeperiod_from_memory_to_disk(self):
+        if self.is_backtesting:
+            return
         challengeperiod_data = {
             "testing": self.get_challengeperiod_testing(),
             "success": self.get_challengeperiod_success()

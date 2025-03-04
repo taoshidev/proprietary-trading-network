@@ -1,5 +1,6 @@
 from unittest.mock import patch
 
+from tests.shared_objects.mock_classes import MockMetagraph
 from tests.vali_tests.base_objects.test_base import TestBase
 from time_util.time_util import TimeUtil
 from vali_objects.utils.elimination_manager import EliminationManager
@@ -8,7 +9,7 @@ from vali_objects.vali_config import TradePair
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.position import Position
 from vali_objects.vali_dataclasses.order import Order
-from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager, TP_ID_PORTFOLIO, MockMetagraph
+from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager, TP_ID_PORTFOLIO
 
 
 class TestPerfLedgers(TestBase):
