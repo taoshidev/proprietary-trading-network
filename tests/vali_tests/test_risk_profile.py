@@ -247,8 +247,8 @@ class TestRiskProfile(TestBase):
         
         result = RiskProfiling.monotonic_positions(position)
 
-        self.assertEqual([x.leverage for x in position.orders], [])
-        self.assertEqual(len(result.orders), 10, "Should only count orders before closing order")
+        self.assertEqual([x.leverage for x in result.orders], [0.25, 0.75])
+        self.assertEqual(len(result.orders), 2, "Should only count orders before closing order")
 
     def test_risk_assessment_steps_utilization(self):
         """Test the steps utilization function"""

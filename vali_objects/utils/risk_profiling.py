@@ -37,7 +37,12 @@ class RiskProfiling:
             return result_position
 
         # Determine if it's a LONG or SHORT position
-        is_long: bool = position.position_type == OrderType.LONG
+        # if the position is closed, its position type is determined by its first order's order_type
+        if position.position_type == OrderType.FLAT:
+            position_type = position_orders[0].order_type
+        else:
+            position_type = position.position_type
+        is_long: bool = position_type == OrderType.LONG
         position_direction: int = 1 if is_long else -1
         final_active_order: int = len(position_orders) if not position.is_closed_position else len(position_orders) - 1
 
