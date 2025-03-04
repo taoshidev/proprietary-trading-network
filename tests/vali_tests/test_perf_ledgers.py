@@ -65,15 +65,6 @@ class TestPerfLedgers(TestBase):
         self.perf_ledger_manager = PerfLedgerManager(metagraph=mmg, running_unit_tests=True, position_manager=position_manager)
         self.perf_ledger_manager.clear_perf_ledgers_from_disk()
 
-    def print_bundles(self, ans):
-        for hk, dat in ans.items():
-            for tp_id, pl in dat.items():
-                print('-----------', tp_id, '-----------')
-                for idx, x in enumerate(pl.cps):
-                    last_update_formatted = TimeUtil.millis_to_timestamp(x.last_update_ms)
-                    if idx > 118:#== 0 or idx == len(pl.cps) - 1:
-                        print(x, last_update_formatted)
-                print(tp_id, 'max_perf_ledger_return:', pl.max_return)
     def check_alignment_per_cp(self, ans):
         original_ret = ans[self.DEFAULT_MINER_HOTKEY][TP_ID_PORTFOLIO].cps[-1].prev_portfolio_ret
         original_mdd = ans[self.DEFAULT_MINER_HOTKEY][TP_ID_PORTFOLIO].cps[-1].mdd
@@ -183,7 +174,7 @@ class TestPerfLedgers(TestBase):
                 tp_to_position_start_time[position.trade_pair.trade_pair_id] = self.default_usdjpy_position.open_ms
 
         ans = self.perf_ledger_manager.get_perf_ledgers(portfolio_only=False)
-        self.print_bundles(ans)
+        PerfLedgerManager.print_bundles(ans)
         pl = ans[self.DEFAULT_MINER_HOTKEY][TP_ID_PORTFOLIO]
         self.assertAlmostEqual(pl.get_total_product(), pl.cps[-1].prev_portfolio_ret, 13)
         self.assertEqual(len(ans), 1)
@@ -234,7 +225,7 @@ class TestPerfLedgers(TestBase):
         self.assertAlmostEqual(pl.get_total_product(), pl.cps[-1].prev_portfolio_ret, 13)
 
 
-        self.print_bundles(ans)
+        PerfLedgerManager.print_bundles(ans)
 
         self.check_alignment_per_cp(ans)
         self.assertLess(ans[self.DEFAULT_MINER_HOTKEY][TradePair.NVDA.trade_pair_id].total_open_ms,
