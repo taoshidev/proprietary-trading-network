@@ -1,6 +1,5 @@
 import math
 from collections import defaultdict
-from datetime import datetime
 
 import holidays
 import numpy as np
@@ -148,7 +147,7 @@ class PriceSlippageModel:
 
         if current_date not in cls.features:
             bt.logging.info(
-                f"Calculating avg daily volume and annualized volatility for new day UTC {datetime.utcnow().date()}")
+                f"Calculating avg daily volume and annualized volatility for new day UTC {current_date}")
             trade_pairs = [tp for tp in TradePair if tp.is_forex or tp.is_equities]
             tp_to_adv, tp_to_vol = cls.get_features(trade_pairs=trade_pairs, processed_ms=time_ms)
             cls.features[current_date]["adv"] = tp_to_adv
@@ -156,7 +155,7 @@ class PriceSlippageModel:
             if write_to_disk:
                 cls.write_features_from_memory_to_disk()
             bt.logging.info(
-                    f"Completed refreshing avg daily volume and annualized volatility for new day UTC {datetime.utcnow().date()}")
+                    f"Completed refreshing avg daily volume and annualized volatility for new day UTC {current_date}")
 
     @classmethod
     def get_features(cls, trade_pairs: list[TradePair], processed_ms: int, adv_lookback_window: int = 10,
@@ -167,13 +166,16 @@ class PriceSlippageModel:
         tp_to_adv = defaultdict()
         tp_to_vol = defaultdict()
         for trade_pair in trade_pairs:
-            bars_df = cls.get_bars_with_features(trade_pair, processed_ms, adv_lookback_window, calc_vol_window)
-            row_selected = bars_df.iloc[-1]
-            annualized_volatility = row_selected['annualized_vol']
-            avg_daily_volume = row_selected[f'adv_last_{adv_lookback_window}_days']
+            try:
+                bars_df = cls.get_bars_with_features(trade_pair, processed_ms, adv_lookback_window, calc_vol_window)
+                row_selected = bars_df.iloc[-1]
+                annualized_volatility = row_selected['annualized_vol']
+                avg_daily_volume = row_selected[f'adv_last_{adv_lookback_window}_days']
 
-            tp_to_vol[trade_pair.trade_pair_id] = annualized_volatility
-            tp_to_adv[trade_pair.trade_pair_id] = avg_daily_volume
+                tp_to_vol[trade_pair.trade_pair_id] = annualized_volatility
+                tp_to_adv[trade_pair.trade_pair_id] = avg_daily_volume
+            except Exception as e:
+                bt.logging.info(f"Unable to calculate slippage model features for trade pair {trade_pair.trade_pair_id} with exception {e}")
         return tp_to_adv, tp_to_vol
 
     @classmethod
