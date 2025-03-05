@@ -30,7 +30,6 @@ class EliminationManager(CacheController):
         self.shutdown_dict = shutdown_dict
         self.challengeperiod_manager = challengeperiod_manager
         self.running_unit_tests = running_unit_tests
-        self.hotkeys_with_flat_orders_added = set()
         self.first_refresh_ran = False
 
         if ipc_manager:
@@ -66,8 +65,7 @@ class EliminationManager(CacheController):
                                                                                                 timespan_ms=1000,
                                                                                                 websocket=False,
                                                                                                 trade_pair=trade_pair)
-            self.handle_eliminated_miner(e['hotkey'], trade_pair_to_price_source_used_for_elimination_check,
-                                         position_locks)
+            self.handle_eliminated_miner(e['hotkey'], trade_pair_to_price_source_used_for_elimination_check, position_locks)
 
         if n_eliminations:
             self.save_eliminations()
@@ -76,7 +74,7 @@ class EliminationManager(CacheController):
     def add_manual_flat_order(self, hotkey: str, position: Position, corresponding_elimination, position_locks,
                               source_for_elimination):
         """
-        Add flat orders to the positions for a miner that has been eliminated. already locked.
+        Add flat orders to the positions for a miner that has been eliminated
         """
         elimination_time_ms = corresponding_elimination['elimination_initiated_time_ms'] if corresponding_elimination else TimeUtil.now_in_millis()
         with position_locks.get_lock(hotkey, position.trade_pair.trade_pair_id):
@@ -113,11 +111,10 @@ class EliminationManager(CacheController):
         for p in self.position_manager.get_positions_for_one_hotkey(hotkey, only_open_positions=True):
             source_for_elimination = trade_pair_to_price_source_used_for_elimination_check.get(p.trade_pair)
             corresponding_elimination = self.hotkey_in_eliminations(hotkey)
-            if corresponding_elimination and hotkey not in self.hotkeys_with_flat_orders_added:
+            if corresponding_elimination:
                 self.add_manual_flat_order(hotkey, p, corresponding_elimination, position_locks, source_for_elimination)
-        self.hotkeys_with_flat_orders_added.add(hotkey)
 
-    def handle_challenege_period_eliminations(self, position_locks):
+    def handle_challenge_period_eliminations(self, position_locks):
         eliminations_with_reasons = self.challengeperiod_manager.eliminations_with_reasons
         if not eliminations_with_reasons:
             return
@@ -146,7 +143,6 @@ class EliminationManager(CacheController):
                     f"Hotkey {hotkey} has been eliminated but has no open positions. Not adding flat orders")
             for p in open_positions:
                 self.add_manual_flat_order(hotkey, p, self.hotkey_in_eliminations(hotkey), position_locks, None)
-            self.hotkeys_with_flat_orders_added.add(hotkey)
 
         self.first_refresh_ran = True
 
@@ -158,15 +154,10 @@ class EliminationManager(CacheController):
         bt.logging.info("running elimination manager")
         self.handle_first_refresh(position_locks)
         self.handle_perf_ledger_eliminations(position_locks)
-        self.handle_challenege_period_eliminations(position_locks)
+        self.handle_challenge_period_eliminations(position_locks)
         # self._handle_plagiarism_eliminations()
         self.handle_mdd_eliminations(position_locks)
         self._delete_eliminated_expired_miners()
-
-        # Update in response to dereg'd miners re-registering an uneliminating
-        self.hotkeys_with_flat_orders_added = {
-            x for x in self.hotkeys_with_flat_orders_added if self.hotkey_in_eliminations(x)
-        }
 
         self.set_last_update_time()
 
