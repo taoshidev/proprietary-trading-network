@@ -537,14 +537,17 @@ class Position(BaseModel):
         if self.position_type == OrderType.FLAT:
             self.net_leverage = 0.0
         else:
-            if order.processed_ms < SLIPPAGE_V1_TIME_MS and not ALWAYS_USE_LATEST:
-                entry_price = realtime_price
-            else:
-                entry_price = order.price * (1 + order.slippage) if order.leverage > 0 else order.price * (1 - order.slippage)
-            self.average_entry_price = (
-                self.average_entry_price * self.net_leverage
-                + entry_price * delta_leverage
-            ) / new_net_leverage
+            if self.position_type == order.order_type:
+                # average entry price only changes when an order is in the same direction as the position. reducing a position does not affect average entry price.
+                if order.processed_ms < SLIPPAGE_V1_TIME_MS and not ALWAYS_USE_LATEST:
+                    entry_price = realtime_price
+                else:
+                    entry_price = order.price * (1 + order.slippage) if order.leverage > 0 else order.price * (1 - order.slippage)
+
+                self.average_entry_price = (
+                    self.average_entry_price * self.net_leverage
+                    + entry_price * delta_leverage
+                ) / new_net_leverage
             self.net_leverage = new_net_leverage
 
     def initialize_position_from_first_order(self, order):
