@@ -186,7 +186,7 @@ class PolygonDataService(BaseDataService):
     def main_crypto(self):
         self.WEBSOCKET_OBJECTS[TradePairCategory.CRYPTO].run(self.handle_msg)
 
-    def parse_price_for_forex(self, m, stats=None, is_ws=False):
+    def parse_price_for_forex(self, m, stats=None, is_ws=False) -> (float, float):
         t_ms = m.timestamp if is_ws else m.participant_timestamp // 1000000
         delta = abs(m.bid_price - m.ask_price) / m.bid_price * 100.0
         if stats:
@@ -204,7 +204,7 @@ class PolygonDataService(BaseDataService):
         #elif stats:
         #    stats['lvp'] = midpoint_price
         #    stats['t_vlp'] = t_ms
-        return m.bid_price, delta
+        return m.bid_price, m.ask_price
 
     def handle_msg(self, msgs: List[ForexQuote | CryptoTrade | EquityAgg | EquityTrade]):
         """
@@ -221,25 +221,23 @@ class PolygonDataService(BaseDataService):
         """
         def msg_to_price_sources(m, tp):
             symbol = tp.trade_pair
+            bid = None
+            ask = None
             if tp.is_forex:
-                new_price, delta_ba = self.parse_price_for_forex(m, is_ws=True)
-                if new_price is None:
+                bid, ask = self.parse_price_for_forex(m, is_ws=True)
+                if bid is None:
                     return None, None
                 start_timestamp = m.timestamp
                 #print(f'Received forex message {symbol} price {new_price} time {TimeUtil.millis_to_formatted_date_str(start_timestamp)}')
                 end_timestamp = start_timestamp + 999
                 if symbol in self.trade_pair_to_recent_events and self.trade_pair_to_recent_events[symbol].timestamp_exists(start_timestamp):
-                    if self.using_ipc:
-                        self.trade_pair_to_recent_events_realtime[symbol].update_prices_for_median(start_timestamp, new_price)
-                        self.trade_pair_to_recent_events_realtime[symbol].update_prices_for_median(start_timestamp + 999, new_price)
-                    else:
-                        self.trade_pair_to_recent_events[symbol].update_prices_for_median(start_timestamp, new_price)
-                        self.trade_pair_to_recent_events[symbol].update_prices_for_median(start_timestamp + 999, new_price)
+                    buffer = self.trade_pair_to_recent_events_realtime if self.using_ipc else self.trade_pair_to_recent_events
+                    buffer[symbol].update_prices_for_median(start_timestamp, bid, ask)
+                    buffer[symbol].update_prices_for_median(start_timestamp + 999, bid, ask)
                     return None, None
                 else:
-                    open = close = vwap = high = low = new_price
+                    open = close = vwap = high = low = bid
 
-                volume = 1
             elif tp.is_equities:
                 if m.exchange != self.equities_mapping['nasdaq']:
                     #print(f"Skipping equity trade from exchange {m.exchange} for {tp.trade_pair}")
@@ -251,7 +249,6 @@ class PolygonDataService(BaseDataService):
                 start_timestamp = round(m.timestamp, -3)  # round to nearest second which allows aggresssive filtering via dup logic
                 end_timestamp = None
                 open = close = vwap = high = low = m.price
-                volume = 1
             elif tp.is_crypto:
                 if m.exchange != self.crypto_mapping['coinbase']:
                     #print(f"Skipping crypto trade from exchange {m.exchange} for {tp.trade_pair}")
@@ -259,7 +256,6 @@ class PolygonDataService(BaseDataService):
                 start_timestamp = round(m.received_timestamp, -3) # round to nearest second which allows aggresssive filtering via dup logic
                 end_timestamp = None
                 open = close = vwap = high = low = m.price
-                volume = m.size
             else:
                 start_timestamp = m.start_timestamp
                 end_timestamp = m.end_timestamp - 1   # prioritize a new candle's open over a previous candle's close
@@ -268,7 +264,6 @@ class PolygonDataService(BaseDataService):
                 vwap = m.vwap
                 high = m.high
                 low = m.low
-                volume = m.volume
                 #print(f'Received message {symbol} price {close} time {TimeUtil.millis_to_formatted_date_str(start_timestamp)}')
 
             now_ms = TimeUtil.now_in_millis()
@@ -283,7 +278,8 @@ class PolygonDataService(BaseDataService):
                 start_ms=start_timestamp,
                 websocket=True,
                 lag_ms=now_ms - start_timestamp,
-                volume=volume
+                bid=bid,
+                ask=ask
             )
 
             if tp.is_equities or tp.is_crypto:
@@ -301,7 +297,8 @@ class PolygonDataService(BaseDataService):
                     start_ms=end_timestamp,
                     websocket=True,
                     lag_ms=now_ms - end_timestamp,
-                    volume=volume
+                    bid=bid,
+                    ask=ask
                 )
             return price_source1, price_source2
 
@@ -469,7 +466,6 @@ class PolygonDataService(BaseDataService):
                 start_ms=a.timestamp,
                 websocket=False,
                 lag_ms=now_ms - a.timestamp,
-                volume=a.volume
             )
 
     def agg_to_quote_source(self, bid:float, ask:float, timestamp:int, time_ms:int, attempting_prev_close:bool=False):
@@ -850,7 +846,6 @@ class PolygonDataService(BaseDataService):
                                    close=price,
                                    high=price,
                                    low=price,
-                                   volume=0,
                                    vwap=None,
                                    timestamp=t_ms))
                     ans[-1].temp = [price]
@@ -989,8 +984,8 @@ if __name__ == "__main__":
 
     secrets = ValiUtils.get_secrets()
 
-    #polygon_data_provider = PolygonDataService(api_key=secrets['polygon_apikey'], disable_ws=False)
-    #time.sleep(100000)
+    polygon_data_provider = PolygonDataService(api_key=secrets['polygon_apikey'], disable_ws=False)
+    time.sleep(100000)
 
     polygon_data_provider = PolygonDataService(api_key=secrets['polygon_apikey'], disable_ws=True)
     target_timestamp_ms = 1735088280163#1715288494000

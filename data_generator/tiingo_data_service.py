@@ -360,18 +360,17 @@ class TiingoDataService(BaseDataService):
         return tp_to_price, tp_tp_quote
 
     @exception_handler_decorator()
-    def get_closes_forex(self, trade_pairs: List[TradePair], verbose=False) -> (dict, dict):
+    def get_closes_forex(self, trade_pairs: List[TradePair], verbose=False) -> dict:
         def tickers_to_tiingo_forex_url(tickers: List[str]) -> str:
             return f"https://api.tiingo.com/tiingo/fx/top?tickers={','.join(tickers)}&token={self.config['api_key']}"
 
         tp_to_price = {}
-        tp_to_quote = {}
         if not trade_pairs:
-            return tp_to_price, tp_to_quote
+            return tp_to_price
 
         assert all(tp.trade_pair_category == TradePairCategory.FOREX for tp in trade_pairs), trade_pairs
         if all(not self.is_market_open(tp) for tp in trade_pairs) and all(self.closed_market_prices.get(tp) for tp in trade_pairs):
-            return {tp: self.closed_market_prices[tp] for tp in trade_pairs}, tp_to_quote
+            return {tp: self.closed_market_prices[tp] for tp in trade_pairs}
 
         url = tickers_to_tiingo_forex_url([self.trade_pair_to_tiingo_ticker(x) for x in trade_pairs])
         if verbose:
@@ -381,10 +380,15 @@ class TiingoDataService(BaseDataService):
             time_now_ms = TimeUtil.now_in_millis()
             for x in requestResponse.json():
                 tp = TradePair.get_latest_trade_pair_from_trade_pair_id(x['ticker'].upper())
-                price_raw = x['bidPrice']
-                if not price_raw:
+                bid_raw = x['bidPrice']
+                ask_raw = x['askPrice']
+                if not bid_raw:
                     continue
-                price = float(price_raw)
+                if not ask_raw:
+                    continue
+                bid = float(bid_raw)
+                ask = float(ask_raw)
+                mid_price = (bid + ask) / 2.0
                 data_time_ms = TimeUtil.parse_iso_to_ms(x['quoteTimestamp'])
 
                 p_name = f'{TIINGO_PROVIDER_NAME}_rest'
@@ -394,28 +398,18 @@ class TiingoDataService(BaseDataService):
                 tp_to_price[tp] = PriceSource(
                     source=p_name,
                     timespan_ms=0,
-                    open=price,
-                    close=price,
-                    vwap=price,
-                    high=price,
-                    low=price,
+                    open=mid_price,
+                    close=mid_price,
+                    vwap=mid_price,
+                    high=ask,
+                    low=bid,
                     start_ms=data_time_ms,
                     websocket=False,
                     lag_ms=time_now_ms - data_time_ms,
-                    volume=None
+                    bid=bid,
+                    ask=ask
                 )
-                ask_raw = x['askPrice']
-                if not ask_raw:
-                    continue
-                ask_price = float(ask_raw)
-                tp_to_quote[tp] = QuoteSource(
-                    source=p_name,
-                    timestamp_ms=data_time_ms,
-                    bid=price,
-                    ask=ask_price,
-                    websocket=False,
-                    lag_ms=time_now_ms - data_time_ms
-                )
+
                 if attempting_previous_close and tp_to_price[tp]:
                     self.closed_market_prices[tp] = tp_to_price[tp]
 
@@ -423,9 +417,9 @@ class TiingoDataService(BaseDataService):
                     time_now_ms = TimeUtil.now_in_millis()
                     time_delta_s = (time_now_ms - data_time_ms) / 1000
                     time_delta_formatted_2_decimals = round(time_delta_s, 2)
-                    print((tp.trade_pair_id, tp_to_price[tp], tp_to_quote[tp], time_delta_formatted_2_decimals, x['quoteTimestamp'], x['bidPrice'], x))
+                    print((tp.trade_pair_id, tp_to_price[tp], time_delta_formatted_2_decimals, x['quoteTimestamp'], x['bidPrice'], x))
 
-        return tp_to_price, tp_to_quote
+        return tp_to_price
 
     @exception_handler_decorator()
     def get_closes_crypto(self, trade_pairs: List[TradePair], verbose=False) -> (dict, dict):

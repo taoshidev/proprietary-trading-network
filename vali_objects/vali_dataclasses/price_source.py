@@ -16,7 +16,8 @@ class PriceSource(BaseModel):
     start_ms: int = 0
     websocket: bool = False
     lag_ms: int = 0
-    volume: Optional[float] = 0.0
+    bid: Optional[float] = 0.0
+    ask: Optional[float] = 0.0
 
     def __eq__(self, other):
         if not isinstance(other, PriceSource):
