@@ -4,6 +4,7 @@ import shutil
 from copy import deepcopy
 from typing import Dict
 from time_util.time_util import TimeUtil
+from vali_objects.position import Position
 from vali_objects.utils.vali_utils import ValiUtils
 from vali_objects.vali_config import ValiConfig, TradePair
 from shared_objects.cache_controller import CacheController
@@ -29,6 +30,7 @@ class EliminationManager(CacheController):
         self.shutdown_dict = shutdown_dict
         self.challengeperiod_manager = challengeperiod_manager
         self.running_unit_tests = running_unit_tests
+        self.first_refresh_ran = False
 
         if ipc_manager:
             self.eliminations = ipc_manager.list()
@@ -50,47 +52,114 @@ class EliminationManager(CacheController):
 
             n_eliminations += 1
             self.eliminations.append(e)
+            self.eliminations[-1] = e  # ipc list does not update the object without using __setitem__
 
             price_info = e['price_info']
             trade_pair_to_price_source_used_for_elimination_check = {}
             for k, v in price_info.items():
                 trade_pair = TradePair.get_latest_tade_pair_from_trade_pair_str(k)
                 elimination_initiated_time_ms = e['elimination_initiated_time_ms']
-                trade_pair_to_price_source_used_for_elimination_check[trade_pair] = PriceSource(source='elim', open=v, close=v, start_ms=elimination_initiated_time_ms, timespan_ms=1000, websocket=False, trade_pair=trade_pair)
+                trade_pair_to_price_source_used_for_elimination_check[trade_pair] = PriceSource(source='elim', open=v,
+                                                                                                close=v,
+                                                                                                start_ms=elimination_initiated_time_ms,
+                                                                                                timespan_ms=1000,
+                                                                                                websocket=False,
+                                                                                                trade_pair=trade_pair)
             self.handle_eliminated_miner(e['hotkey'], trade_pair_to_price_source_used_for_elimination_check, position_locks)
 
         if n_eliminations:
             self.save_eliminations()
             bt.logging.info(f'Wrote {n_eliminations} perf ledger eliminations to disk')
 
+    def add_manual_flat_order(self, hotkey: str, position: Position, corresponding_elimination, position_locks,
+                              source_for_elimination):
+        """
+        Add flat orders to the positions for a miner that has been eliminated
+        """
+        elimination_time_ms = corresponding_elimination['elimination_initiated_time_ms'] if corresponding_elimination else TimeUtil.now_in_millis()
+        with position_locks.get_lock(hotkey, position.trade_pair.trade_pair_id):
+            # Position could have updated in the time between mdd_check being called and this function being called
+            position_refreshed = self.position_manager.get_miner_position_by_uuid(hotkey, position.position_uuid)
+            if position_refreshed is None:
+                bt.logging.warning(
+                    f"Unexpectedly could not find position with uuid {position.position_uuid} for hotkey {hotkey} and trade pair {position.trade_pair.trade_pair_id}. Not add flat orders")
+                return
+
+            position = position_refreshed
+            if position.is_closed_position:
+                return
+
+            fake_flat_order_time = elimination_time_ms
+            if position.orders and position.orders[-1].processed_ms > elimination_time_ms:
+                bt.logging.warning(
+                    f'Unexpectedly found a position with a processed_ms {position.orders[-1].processed_ms} greater than the elimination time {elimination_time_ms} ')
+                fake_flat_order_time = position.orders[-1].processed_ms + 1
+
+            flat_order = Position.generate_fake_flat_order(position, fake_flat_order_time)
+            position.add_order(flat_order)
+            if source_for_elimination:
+                position.orders[-1].price_sources.append(source_for_elimination)
+            self.position_manager.save_miner_position(position, delete_open_position_if_exists=True)
+            bt.logging.info(f'Added flat order for miner {hotkey} that has been eliminated. '
+                            f'Trade pair: {position.trade_pair.trade_pair_id}. flat order: {flat_order}. '
+                            f'position uuid {position.position_uuid}. Source for elimination {source_for_elimination}')
+
     def handle_eliminated_miner(self, hotkey: str,
                                 trade_pair_to_price_source_used_for_elimination_check: Dict[TradePair, PriceSource],
-                                position_locks,
-                                open_position_trade_pairs=None):
+                                position_locks):
 
-        tps_to_iterate_over = open_position_trade_pairs if open_position_trade_pairs else TradePair
-        for trade_pair in tps_to_iterate_over:
-            with position_locks.get_lock(hotkey, trade_pair.trade_pair_id):
-                open_position = self.position_manager.get_open_position_for_a_miner_trade_pair(hotkey, trade_pair.trade_pair_id)
-                source_for_elimination = trade_pair_to_price_source_used_for_elimination_check.get(trade_pair)
-                if open_position:
-                    bt.logging.info(
-                        f"Closing open position for hotkey: {hotkey} and trade_pair: {trade_pair.trade_pair_id}. "
-                        f"Source for elimination {source_for_elimination}")
-                    open_position.close_out_position(TimeUtil.now_in_millis())
-                    if source_for_elimination:
-                        open_position.orders[-1].price_sources.append(source_for_elimination)
-                    self.position_manager.save_miner_position(open_position)
+        for p in self.position_manager.get_positions_for_one_hotkey(hotkey, only_open_positions=True):
+            source_for_elimination = trade_pair_to_price_source_used_for_elimination_check.get(p.trade_pair)
+            corresponding_elimination = self.hotkey_in_eliminations(hotkey)
+            if corresponding_elimination:
+                self.add_manual_flat_order(hotkey, p, corresponding_elimination, position_locks, source_for_elimination)
+
+    def handle_challenge_period_eliminations(self, position_locks):
+        eliminations_with_reasons = self.challengeperiod_manager.eliminations_with_reasons
+        if not eliminations_with_reasons:
+            return
+
+        hotkeys = list(eliminations_with_reasons.keys())
+        for hotkey in hotkeys:
+            if self.hotkey_in_eliminations(hotkey):
+                continue
+            elim_reason = eliminations_with_reasons[hotkey][0]
+            elim_mdd = eliminations_with_reasons[hotkey][1]
+            self.append_elimination_row(hotkey=hotkey, current_dd=elim_mdd, mdd_failure=elim_reason)
+            self.handle_eliminated_miner(hotkey, {}, position_locks)
+
+        self.challengeperiod_manager.eliminations_with_reasons = {}
+
+    def handle_first_refresh(self, position_locks):
+        if self.is_backtesting or self.first_refresh_ran:
+            return
+
+        eliminated_hotkeys = self.get_eliminated_hotkeys()
+        hotkey_to_positions = self.position_manager.get_positions_for_hotkeys(eliminated_hotkeys,
+                                                                              only_open_positions=True)
+        for hotkey, open_positions in hotkey_to_positions.items():
+            if not open_positions:
+                bt.logging.info(
+                    f"Hotkey {hotkey} has been eliminated but has no open positions. Not adding flat orders")
+            for p in open_positions:
+                self.add_manual_flat_order(hotkey, p, self.hotkey_in_eliminations(hotkey), position_locks, None)
+
+        self.first_refresh_ran = True
 
     def process_eliminations(self, position_locks):
-        if not self.refresh_allowed(ValiConfig.ELIMINATION_CHECK_INTERVAL_MS):
+        if not self.refresh_allowed(ValiConfig.ELIMINATION_CHECK_INTERVAL_MS) and \
+                not bool(self.challengeperiod_manager.eliminations_with_reasons):
             return
+
         bt.logging.info("running elimination manager")
+        self.handle_first_refresh(position_locks)
         self.handle_perf_ledger_eliminations(position_locks)
-        self._eliminate_mdd(position_locks)
-        self._delete_eliminated_expired_miners()
-        self.set_last_update_time()
+        self.handle_challenge_period_eliminations(position_locks)
         # self._handle_plagiarism_eliminations()
+        self.handle_mdd_eliminations(position_locks)
+        self._delete_eliminated_expired_miners()
+
+        self.set_last_update_time()
 
     def _handle_plagiarism_eliminations(self, position_locks):
         bt.logging.debug("checking plagiarism.")
@@ -104,10 +173,8 @@ class EliminationManager(CacheController):
             if self.hotkey_in_eliminations(miner_hotkey):
                 continue
             if current_plagiarism_score > ValiConfig.MAX_MINER_PLAGIARISM_SCORE:
+                self.append_elimination_row(miner_hotkey, current_plagiarism_score, 'plagiarism')
                 self.handle_eliminated_miner(miner_hotkey, {}, position_locks)
-                self.append_elimination_row(miner_hotkey, -1, 'plagiarism')
-                bt.logging.info(
-                    f"miner eliminated with hotkey [{miner_hotkey}] with plagiarism score of [{current_plagiarism_score}]")
 
     def is_zombie_hotkey(self, hotkey):
         if hotkey in self.metagraph.hotkeys:
@@ -204,31 +271,30 @@ class EliminationManager(CacheController):
         return set([x['hotkey'] for x in self.eliminations]) if self.eliminations else set()
 
     def get_eliminations_from_memory(self):
-        return list(self.eliminations)  #  ListProxy is not JSON serializable
+        return list(self.eliminations)  # ListProxy is not JSON serializable
 
     def get_eliminations_from_disk(self) -> list:
-        #with self.eliminations_lock:
-            location = ValiBkpUtils.get_eliminations_dir(running_unit_tests=self.running_unit_tests)
-            cached_eliminations = ValiUtils.get_vali_json_file(location, CacheController.ELIMINATIONS)
-            bt.logging.trace(f"Loaded [{len(cached_eliminations)}] eliminations from disk. Dir: {location}")
-            return cached_eliminations
+        location = ValiBkpUtils.get_eliminations_dir(running_unit_tests=self.running_unit_tests)
+        cached_eliminations = ValiUtils.get_vali_json_file(location, CacheController.ELIMINATIONS)
+        bt.logging.trace(f"Loaded [{len(cached_eliminations)}] eliminations from disk. Dir: {location}")
+        return cached_eliminations
 
     def append_elimination_row(self, hotkey, current_dd, mdd_failure, t_ms=None, price_info=None, return_info=None):
-        #with self.eliminations_lock:
-            elimination_row = self.generate_elimination_row(hotkey, current_dd, mdd_failure, t_ms=t_ms,
-                                                            price_info=price_info, return_info=return_info)
-            self.eliminations.append(elimination_row)
-            self.eliminations[-1] = elimination_row  # ipc list does not update the object without using __setitem__
-            self.save_eliminations()
+        elimination_row = self.generate_elimination_row(hotkey, current_dd, mdd_failure, t_ms=t_ms,
+                                                        price_info=price_info, return_info=return_info)
+        self.eliminations.append(elimination_row)
+        self.eliminations[-1] = elimination_row  # ipc list does not update the object without using __setitem__
+        self.save_eliminations()
+        bt.logging.info(f"miner eliminated with hotkey [{hotkey}]. Info [{elimination_row}]")
 
     def delete_eliminations(self, deleted_hotkeys):
-        #with self.eliminations_lock:
+        # with self.eliminations_lock:
         items_to_remove = [x for x in self.eliminations if x['hotkey'] in deleted_hotkeys]
         for item in items_to_remove:
             self.eliminations.remove(item)
         self.save_eliminations()
 
-    def _eliminate_mdd(self, position_locks):
+    def handle_mdd_eliminations(self, position_locks):
         """
         Checks the mdd of each miner and eliminates any miners that surpass MAX_TOTAL_DRAWDOWN
         """
@@ -238,7 +304,8 @@ class EliminationManager(CacheController):
             return
         challengeperiod_success_hotkeys = list(self.challengeperiod_manager.get_challengeperiod_success().keys())
 
-        filtered_ledger = self.position_manager.perf_ledger_manager.filtered_ledger_for_scoring(hotkeys=challengeperiod_success_hotkeys)
+        filtered_ledger = self.position_manager.perf_ledger_manager.filtered_ledger_for_scoring(
+            hotkeys=challengeperiod_success_hotkeys)
         for miner_hotkey, ledger in filtered_ledger.items():
             if self.shutdown_dict:
                 return
@@ -248,8 +315,5 @@ class EliminationManager(CacheController):
             miner_exceeds_mdd, drawdown_percentage = LedgerUtils.is_beyond_max_drawdown(ledger_element=ledger)
 
             if miner_exceeds_mdd:
-                self.handle_eliminated_miner(miner_hotkey, {}, position_locks)
                 self.append_elimination_row(miner_hotkey, drawdown_percentage, 'MAX_TOTAL_DRAWDOWN')
-
-                bt.logging.info(
-                    f"miner eliminated with hotkey [{miner_hotkey}] with drawdown [{drawdown_percentage}]")
+                self.handle_eliminated_miner(miner_hotkey, {}, position_locks)

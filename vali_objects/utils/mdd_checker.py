@@ -4,12 +4,10 @@ import time
 from typing import List, Dict
 
 from time_util.time_util import TimeUtil
-from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.vali_config import ValiConfig, TradePair
 from shared_objects.cache_controller import CacheController
 from vali_objects.position import Position
 from vali_objects.utils.live_price_fetcher import LivePriceFetcher
-from vali_objects.vali_dataclasses.order import Order, ORDER_SRC_ELIMINATION_FLAT
 from vali_objects.vali_dataclasses.quote_source import QuoteSource
 from vali_objects.vali_dataclasses.recent_event_tracker import RecentEventTracker
 
@@ -40,11 +38,8 @@ class MDDChecker(CacheController):
         self.reset_debug_counters()
         self.shutdown_dict = shutdown_dict
         self.n_poly_api_requests = 0
-        self.hotkeys_with_flat_orders_added = set()
-        self.eliminated_hotkeys = self.elimination_manager.get_eliminated_hotkeys()
 
     def reset_debug_counters(self):
-        self.n_miners_skipped_already_eliminated = 0
         self.n_orders_corrected = 0
         self.miners_corrected = set()
 
@@ -86,18 +81,13 @@ class MDDChecker(CacheController):
 
         if self.shutdown_dict:
             return
+
         bt.logging.info("running mdd checker")
         self.reset_debug_counters()
-        self.eliminated_hotkeys = self.elimination_manager.get_eliminated_hotkeys()
-
-        # Update in response to dereg'd miners re-registering an uneliminating
-        self.hotkeys_with_flat_orders_added = {
-            x for x in self.hotkeys_with_flat_orders_added if self.elimination_manager.hotkey_in_eliminations(x)
-        }
 
         hotkey_to_positions = self.position_manager.get_positions_for_hotkeys(
             self.metagraph.hotkeys, sort_positions=True,
-            eliminations=[{'hotkey': x} for x in self.hotkeys_with_flat_orders_added]
+            eliminations=self.elimination_manager.get_eliminations_from_memory(),
         )
         candle_data = self.get_candle_data(hotkey_to_positions)
         for hotkey, sorted_positions in hotkey_to_positions.items():
@@ -190,56 +180,8 @@ class MDDChecker(CacheController):
                 self.miners_corrected.add(hotkey)
 
 
-
-    def add_manual_flat_orders(self, hotkey:str, sorted_positions:List[Position], corresponding_elimination, position_locks):
-        """
-        Add flat orders to the positions for a miner that has been eliminated.
-        """
-        any_changes_attempted = False
-        elimination_time_ms = corresponding_elimination['elimination_initiated_time_ms']
-
-        for position in sorted_positions:
-            with position_locks.get_lock(hotkey, position.trade_pair.trade_pair_id):
-                # Position could have updated in the time between mdd_check being called and this function being called
-                position_refreshed = self.position_manager.get_miner_position_by_uuid(hotkey, position.position_uuid)
-                if position_refreshed is None:
-                    bt.logging.warning(f"Unexpectedly could not find position with uuid {position.position_uuid} for hotkey {hotkey} and trade pair {position.trade_pair.trade_pair_id}. Not add flat orders")
-                    continue
-
-                position = position_refreshed
-                if position.is_closed_position:
-                    continue
-
-                any_changes_attempted = True
-                fake_flat_order_time = elimination_time_ms
-                if position.orders and position.orders[-1].processed_ms > elimination_time_ms:
-                    bt.logging.warning(f'Unexpectedly found a position with a processed_ms {position.orders[-1].processed_ms} greater than the elimination time {elimination_time_ms} ')
-                    fake_flat_order_time = position.orders[-1].processed_ms + 1
-
-                flat_order = Order(price=0,
-                                   processed_ms=fake_flat_order_time,
-                                   order_uuid=position.position_uuid[::-1],  # determinstic across validators. Won't mess with p2p sync
-                                   trade_pair=position.trade_pair,
-                                   order_type=OrderType.FLAT,
-                                   leverage=0,
-                                   src=ORDER_SRC_ELIMINATION_FLAT)
-                position.add_order(flat_order)
-                self.position_manager.save_miner_position(position, delete_open_position_if_exists=True)
-                bt.logging.info(f'Added flat order for miner {hotkey} that has been eliminated. Trade pair: {position.trade_pair.trade_pair_id}. flat order: {flat_order}. position uuid {position.position_uuid}')
-
-        if not any_changes_attempted:
-            bt.logging.info(f'No flat order additions attempted for miner {hotkey} that has been eliminated. No open positions.')
-
     def perform_price_corrections(self, hotkey, sorted_positions, candle_data, position_locks) -> bool:
         if len(sorted_positions) == 0:
-            return False
-        # Already eliminated?
-        corresponding_elimination = self.elimination_manager.hotkey_in_eliminations(hotkey)
-        if corresponding_elimination:
-            if hotkey not in self.hotkeys_with_flat_orders_added:
-                self.add_manual_flat_orders(hotkey, sorted_positions, corresponding_elimination, position_locks)
-                self.hotkeys_with_flat_orders_added.add(hotkey)
-            self.n_miners_skipped_already_eliminated += 1
             return False
 
         now_ms = TimeUtil.now_in_millis()
