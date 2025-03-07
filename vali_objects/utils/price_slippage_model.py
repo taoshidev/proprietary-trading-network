@@ -255,8 +255,7 @@ class PriceSlippageModel:
                     bid = o.bid
                     ask = o.ask
                     if self.fetch_slippage_data:
-                        bid, ask, _ = self.live_price_fetcher.get_latest_quote(trade_pair=o.trade_pair,
-                                                                               time_ms=o.processed_ms)
+                        bid, ask, _ = self.live_price_fetcher.get_sorted_price_sources_for_trade_pair(trade_pair=o.trade_pair, time_ms=o.processed_ms)
                     slippage = self.calculate_slippage(bid, ask, o, leverage_to_capital=self.leverage_to_capital)
                     o.bid = bid
                     o.ask = ask
@@ -269,7 +268,7 @@ class PriceSlippageModel:
 
 if __name__ == "__main__":
     psm = PriceSlippageModel()
-    equities_order_buy = Order(price=100, processed_ms=TimeUtil.now_in_millis(),
+    equities_order_buy = Order(price=100, processed_ms=TimeUtil.now_in_millis() - 1000 * 200,
                                     order_uuid="test_order",
                                     trade_pair=TradePair.NVDA,
                                     order_type=OrderType.LONG, leverage=1)

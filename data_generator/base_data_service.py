@@ -52,11 +52,11 @@ class BaseDataService():
         self.latest_websocket_events = {}
         self.using_ipc = ipc_manager is not None
         self.n_flushes = 0
+        self.trade_pair_to_recent_events_realtime = defaultdict(RecentEventTracker)
         if ipc_manager is None:
             self.trade_pair_to_recent_events = defaultdict(RecentEventTracker)
         else:
             self.trade_pair_to_recent_events = ipc_manager.dict()
-            self.trade_pair_to_recent_events_realtime = defaultdict(RecentEventTracker)
         self.trade_pair_category_to_longest_allowed_lag_s = {TradePairCategory.CRYPTO: 30, TradePairCategory.FOREX: 30,
                                                            TradePairCategory.INDICES: 30, TradePairCategory.EQUITIES: 30}
         self.timespan_to_ms = {'second': 1000, 'minute': 1000 * 60, 'hour': 1000 * 60 * 60, 'day': 1000 * 60 * 60 * 24}
@@ -264,8 +264,13 @@ class BaseDataService():
         #formatted_lags = {k:v for k, v in formatted_lags.items() if float(v) > 10}
         bt.logging.info(f"{self.provider_name} Current websocket lags (s): {formatted_lags}")
         # Log the prices
-        formatted_prices = {tp: f"{price_source.close:.2f}" for tp, price_source in  # noqa: F841
-                            self.latest_websocket_events.items()}
+        formatted_prices = {}
+        for tp, price_source in self.latest_websocket_events.items():
+            if TradePair.get_latest_tade_pair_from_trade_pair_str(tp).is_forex:
+                formatted_prices[tp] = f"({price_source.bid:.5f}/{price_source.ask:.5f})"
+            else:
+                formatted_prices[tp] = f"{price_source.close:.2f}"
+
         bt.logging.info(f"{self.provider_name} Latest websocket prices: {formatted_prices}")
         bt.logging.info(f'{self.provider_name} websocket n_events_global: {self.tpc_to_n_events}. n_equity_events_skipped_afterhours: {self.n_equity_events_skipped_afterhours}')
         #if self.provider_name == POLYGON_PROVIDER_NAME:

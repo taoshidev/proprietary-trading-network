@@ -5,11 +5,8 @@ from time_util.time_util import TimeUtil
 from pydantic import field_validator
 
 from vali_objects.enums.order_type_enum import OrderType
-from vali_objects.vali_dataclasses.price_source import PriceSource
 from vali_objects.vali_dataclasses.order_signal import Signal
 from enum import Enum, auto
-
-from vali_objects.vali_dataclasses.quote_source import QuoteSource
 
 ORDER_SRC_ORGANIC = 0               # order generated from a miner's signal
 ORDER_SRC_ELIMINATION_FLAT = 1      # order inserted when a miner is eliminated
@@ -22,8 +19,7 @@ class Order(Signal):
     slippage: float = 0
     processed_ms: int
     order_uuid: str
-    price_sources: list[PriceSource] = []
-    quote_sources: list[QuoteSource] = []
+    price_sources: list = []
     src: int = ORDER_SRC_ORGANIC
 
     @field_validator('price', 'processed_ms', 'leverage', mode='before')
@@ -67,7 +63,6 @@ class Order(Signal):
                     'slippage': self.slippage,
                     'processed_ms': self.processed_ms,
                     'price_sources': self.price_sources,
-                    'quote_sources': self.quote_sources,
                     'order_uuid': self.order_uuid,
                     'src': self.src})
 
