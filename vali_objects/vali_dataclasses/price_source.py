@@ -83,7 +83,7 @@ class PriceSource(BaseModel):
                 elif position.orders[0] == OrderType.SHORT:
                     return self.ask
                 else:
-                    bt.logging.error('Initial position order is FLAT. Unexpected.')
+                    bt.logging.error(f'Initial position order is FLAT. Unexpected. Position: {position}')
                     return self.vwap
             else:
                 raise Exception(f'Unexpected order type {order_type}')

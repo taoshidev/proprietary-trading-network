@@ -144,4 +144,4 @@ class SubtensorWeightSetter(CacheController):
         if success:
             bt.logging.success("Successfully set weights.")
         else:
-            bt.logging.error(f"Failed to set weights. Error message: {err_msg}")
+            bt.logging.warning(f"Failed to set weights. Error message: {err_msg}")

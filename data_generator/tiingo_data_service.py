@@ -118,6 +118,8 @@ class TiingoDataService(BaseDataService):
         def msg_to_price_sources(m:dict, tp:TradePair) -> PriceSource | None:
             symbol = tp.trade_pair
             data = m['data']
+            bid_price = 0
+            ask_price = 0
             if tp.is_forex:
                 assert len(data) == 8, data
                 mode, ticker, date_str, bid_size, bid_price, mid_price, ask_size, ask_price = data
@@ -134,7 +136,6 @@ class TiingoDataService(BaseDataService):
                     return None
 
                 open = vwap = high = low = bid_price
-                volume = 1
             elif tp.is_crypto:
                 mode, ticker, date_str, exchange, volume, price = data
                 start_timestamp = TimeUtil.parse_iso_to_ms(date_str)
@@ -143,7 +144,6 @@ class TiingoDataService(BaseDataService):
                     print(f'Skipping crypto due to non-T mode {m}')
                     return None
                 open = vwap = high = low = price
-                volume=1
 
             elif tp.is_equities:
                 (mode, date_str, timestamp_ns, ticker, bid_size, bid_price, mid_price, ask_price, ask_size, last_price,
@@ -158,7 +158,6 @@ class TiingoDataService(BaseDataService):
                 timestamp_ms = timestamp_ns // 1e6
                 start_timestamp = round(timestamp_ms, -3)  # round to nearest second which allows aggresssive filtering via dup logic
                 open = vwap = high = low = last_price
-                volume = 1
 
             elif tp.is_indices:
                 raise Exception(f'TODO! {msg}')
@@ -177,7 +176,8 @@ class TiingoDataService(BaseDataService):
                 start_ms=start_timestamp,
                 websocket=True,
                 lag_ms=now_ms - start_timestamp,
-                volume=volume
+                bid=bid_price,
+                ask=ask_price
             )
 
             return price_source1

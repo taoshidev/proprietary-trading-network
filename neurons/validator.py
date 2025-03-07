@@ -697,7 +697,7 @@ class Validator:
             price_sources = self.live_price_fetcher.get_sorted_price_sources_for_trade_pair(trade_pair, now_ms)
             if not price_sources:
                 raise SignalException(
-                    f"miner [{miner_hotkey}] sent signal for trade pair [{trade_pair}] that has no price sources.")
+                    f"Ignoring order for [{miner_hotkey}] due to no live prices being found for trade_pair [{trade_pair}]. Please try again.")
             best_price_source = price_sources[0]
 
             signal_leverage = signal["leverage"]
