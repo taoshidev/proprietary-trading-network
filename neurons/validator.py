@@ -9,6 +9,8 @@ import signal
 import uuid
 
 from setproctitle import setproctitle
+
+from api.api_manager import APIManager
 from shared_objects.sn8_multiprocessing import get_ipc_metagraph
 from multiprocessing import Manager, Process
 from typing import Tuple
@@ -356,6 +358,13 @@ class Validator:
             self.rog_thread.start()
         else:
             self.rog_thread = None
+
+        if self.config.serve:
+            self.api_manager = APIManager()
+            self.api_process = Process(target=self.api_manager.run, daemon=True)
+            self.api_process.start()
+        else:
+            self.api_process = None
         # Validators on mainnet net to be syned for the first time or after interruption need to resync their
         # positions. Assert there are existing orders that occurred > 24hrs in the past. Assert that the newest order
         # was placed within 24 hours.
@@ -470,6 +479,9 @@ class Validator:
         if self.rog_thread:
             bt.logging.warning("Stopping request output generator...")
             self.rog_thread.join()
+        if self.api_process:
+            bt.logging.warning("Stopping API manager...")
+            self.api_process.join()
         signal.alarm(0)
         print("Graceful shutdown completed")
         sys.exit(0)
