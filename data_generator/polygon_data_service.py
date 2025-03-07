@@ -19,7 +19,6 @@ import bittensor as bt
 from polygon import RESTClient
 
 from vali_objects.vali_dataclasses.price_source import PriceSource
-from vali_objects.vali_dataclasses.quote_source import QuoteSource
 from vali_objects.vali_dataclasses.recent_event_tracker import RecentEventTracker
 
 DEBUG = 0
@@ -28,12 +27,13 @@ class Agg:
     """
     An efficient representation of an aggregate price data point. Use this over the Polygon Agg for speed.
     """
-    def __init__(self, open, close, high, low, volume, vwap, timestamp):
+    def __init__(self, open, close, high, low, vwap, timestamp, bid, ask):
         self.open = open
         self.close = close
         self.high = high
         self.low = low
-        self.volume = volume
+        self.bid = bid
+        self.ask = ask
         self.vwap = vwap
         self.timestamp = timestamp
 
@@ -41,14 +41,14 @@ class Agg:
         return (
             f"Agg("
             f"open={self.open}, close={self.close}, high={self.high}, low={self.low}, "
-            f"volume={self.volume}, vwap={self.vwap}, timestamp={self.timestamp})"
+            f"bid={self.bid}, ask={self.ask}, vwap={self.vwap}, timestamp={self.timestamp})"
         )
 
     # Optional: Add a __repr__ method for better representation in debugging and interactive sessions
     def __repr__(self):
         return (
             f"Agg(open={self.open}, close={self.close}, high={self.high}, low={self.low}, "
-            f"volume={self.volume}, vwap={self.vwap}, timestamp={self.timestamp})"
+            f"bid={self.bid}, ask={self.ask}, vwap={self.vwap}, timestamp={self.timestamp})"
         )
 
 
@@ -200,11 +200,11 @@ class PolygonDataService(BaseDataService):
                 if stats['n'] % 10 == 0:
                     bt.logging.warning(f"Ignoring unusual Forex price data bid: {m.bid_price:.4f}, ask: {m.ask_price:.4f}, "
                                    f"{delta:.4f} time {TimeUtil.millis_to_formatted_date_str(t_ms // 1000000)}")
-            return None, None
+            return None, None, None
         #elif stats:
         #    stats['lvp'] = midpoint_price
         #    stats['t_vlp'] = t_ms
-        return m.bid_price, m.ask_price
+        return m.bid_price, m.ask_price, delta
 
     def handle_msg(self, msgs: List[ForexQuote | CryptoTrade | EquityAgg | EquityTrade]):
         """
@@ -224,7 +224,7 @@ class PolygonDataService(BaseDataService):
             bid = None
             ask = None
             if tp.is_forex:
-                bid, ask = self.parse_price_for_forex(m, is_ws=True)
+                bid, ask, _ = self.parse_price_for_forex(m, is_ws=True)
                 if bid is None:
                     return None, None
                 start_timestamp = m.timestamp
@@ -430,26 +430,6 @@ class PolygonDataService(BaseDataService):
 
         return all_trade_pair_closes
 
-    def get_quotes_rest(self, pairs: List[TradePair], trade_pair_to_last_order_time_ms: dict) -> dict:
-        all_trade_pair_quotes = {}
-        # Multi-threaded fetching of REST data over all requested trade pairs. Max parallelism is 5.
-        with ThreadPoolExecutor(max_workers=5) as executor:
-            # Dictionary to keep track of futures
-            future_to_trade_pair = {executor.submit(self.get_quote_rest, p, trade_pair_to_last_order_time_ms[p]): p for p in pairs}
-
-            for future in as_completed(future_to_trade_pair):
-                tp = future_to_trade_pair[future]
-                try:
-                    result = future.result()
-                    if result is None:
-                        result = {}
-                    all_trade_pair_quotes[tp] = result
-                except Exception as exc:
-                    bt.logging.error(f"{tp} generated an exception: {exc}. Continuing...")
-                    bt.logging.error(traceback.format_exc())
-
-        return all_trade_pair_quotes
-
     def agg_to_price_source(self, a, now_ms:int, timespan:str, attempting_prev_close:bool=False):
         p_name = f'{POLYGON_PROVIDER_NAME}_rest'
         if attempting_prev_close:
@@ -514,28 +494,6 @@ class PolygonDataService(BaseDataService):
             final_agg = None
 
         return final_agg
-
-    def get_quote_rest(
-        self,
-        trade_pair: TradePair,
-        time_ms: int = None
-    ) -> QuoteSource | None:
-        # polygon_ticker = self.trade_pair_to_polygon_ticker(trade_pair)
-        #bt.logging.info(f"Fetching REST data for {polygon_ticker}")
-
-        # if not self.is_market_open(trade_pair):
-        #     return self.get_quote_event_before_market_close(trade_pair)
-
-        if time_ms is None:
-            time_ms = TimeUtil.now_in_millis()
-        bid, ask, timestamp = self.get_quote(trade_pair, time_ms)
-        final_quote = self.agg_to_quote_source(bid, ask, timestamp, time_ms)
-
-        if not final_quote:
-            bt.logging.warning(f"Polygon failed to fetch quote REST data for {trade_pair.trade_pair}. If you keep seeing this warning, report it to the team ASAP")
-            final_quote = None
-
-        return final_quote
 
 
     def trade_pair_to_polygon_ticker(self, trade_pair: TradePair):
@@ -836,7 +794,8 @@ class PolygonDataService(BaseDataService):
                     if ans and hasattr(ans[-1], 'temp'):
                         del ans[-1].temp
                 n_quotes += 1
-                price, current_delta = self.parse_price_for_forex(r, stats=None)
+                bid, ask, current_delta = self.parse_price_for_forex(r, stats=None)
+                price = bid
                 if price is None:
                     continue
 
@@ -847,7 +806,9 @@ class PolygonDataService(BaseDataService):
                                    high=price,
                                    low=price,
                                    vwap=None,
-                                   timestamp=t_ms))
+                                   timestamp=t_ms,
+                                   bid=bid,
+                                   ask=ask))
                     ans[-1].temp = [price]
                 else:
                     best_delta = current_delta
@@ -859,7 +820,6 @@ class PolygonDataService(BaseDataService):
                     median_price = RecentEventTracker.forex_median_price(arr)
                     ans[-1].open = ans[-1].close = ans[-1].low = ans[-1].high = median_price
 
-                ans[-1].volume += 1
                 prev_t_ms = t_ms
 
             return ans, n_quotes
@@ -1149,16 +1109,6 @@ if __name__ == "__main__":
     start_time_ms = TimeUtil.now_in_millis() - 1000 * 60 * 60 * 10 * 24  # 10 days ago
     end_time_ms = TimeUtil.now_in_millis() - 1000 * 60 * 60 * 5 * 24  # 5 days ago
     times_to_test.append((start_time_ms, end_time_ms))
-
-    for start_time_ms, end_time_ms in times_to_test:
-        start_date_formatted = TimeUtil.millis_to_formatted_date_str(start_time_ms)
-        end_date_formatted = TimeUtil.millis_to_formatted_date_str(end_time_ms)
-        print('-------------------------------------------------------------------')
-        print(f"Testing between {start_date_formatted} and {end_date_formatted}")
-
-        tps = [tp for tp in TradePair if tp not in self.UNSUPPORTED_TRADE_PAIRS]  # noqa: F821
-        candles = polygon_data_provider.get_candles(tps, start_time_ms, end_time_ms)
-        print(f"    candles: {candles}")
 
     for tp in TradePair:
         if tp != TradePair.GBPUSD:

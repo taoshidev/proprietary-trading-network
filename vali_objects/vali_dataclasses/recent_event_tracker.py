@@ -1,8 +1,6 @@
 
 from sortedcontainers import SortedList
 from time_util.time_util import TimeUtil
-from vali_objects.vali_dataclasses.price_source import PriceSource
-
 
 def sorted_list_key(x):
     return x[0]
@@ -78,7 +76,7 @@ class RecentEventTracker:
         # Retrieve all events within the range [start_idx, end_idx)
         return [event[1] for event in self.events[start_idx:end_idx]]
 
-    def get_closest_event(self, timestamp_ms) -> PriceSource or None:
+    def get_closest_event(self, timestamp_ms):
         #print(f"Looking for event at {TimeUtil.millis_to_formatted_date_str(timestamp_ms)}")
         if self.count_events() == 0:
             return None

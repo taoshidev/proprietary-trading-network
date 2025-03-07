@@ -8,7 +8,6 @@ import bittensor as bt
 
 from time_util.time_util import TimeUtil
 from vali_objects.enums.order_type_enum import OrderType
-from vali_objects.utils.live_price_fetcher import LivePriceFetcher
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.utils.vali_utils import ValiUtils
 from vali_objects.vali_config import TradePair, ValiConfig
@@ -16,6 +15,7 @@ from vali_objects.vali_dataclasses.order import Order
 
 
 class PriceSlippageModel:
+    from vali_objects.utils.live_price_fetcher import LivePriceFetcher
     features = defaultdict(dict)
     parameters: dict = {}
     live_price_fetcher: LivePriceFetcher = None
@@ -255,8 +255,7 @@ class PriceSlippageModel:
                     bid = o.bid
                     ask = o.ask
                     if self.fetch_slippage_data:
-                        bid, ask, _ = self.live_price_fetcher.get_latest_quote(trade_pair=o.trade_pair,
-                                                                               time_ms=o.processed_ms)
+                        bid, ask, _ = self.live_price_fetcher.get_sorted_price_sources_for_trade_pair(trade_pair=o.trade_pair, time_ms=o.processed_ms)
                     slippage = self.calculate_slippage(bid, ask, o, leverage_to_capital=self.leverage_to_capital)
                     o.bid = bid
                     o.ask = ask

@@ -146,9 +146,8 @@ class PositionManager(CacheController):
         one_week_ago_ms = time_now_ms - 1000 * 60 * 60 * 24 * 7
         for o in position.orders:
             if o.processed_ms < one_week_ago_ms:
-                if o.price_sources or o.quote_sources:
+                if o.price_sources:
                     o.price_sources = []
-                    o.quote_sources = []
                     n_removed += 1
         return n_removed
 
@@ -590,11 +589,9 @@ class PositionManager(CacheController):
                 if position.is_closed_position:
                     continue
                 if position.trade_pair in tps_to_eliminate:
-                    live_closing_price, price_sources = self.live_price_fetcher.get_latest_price(
-                            trade_pair=position.trade_pair,
-                            time_ms=TARGET_MS)
-
-                    flat_order = Order(price=live_closing_price,
+                    price_sources = self.live_price_fetcher.get_sorted_price_sources_for_trade_pair(position.trade_pair, TARGET_MS)
+                    live_price = price_sources[0].parse_appropriate_price(TARGET_MS, position.trade_pair.is_forex, OrderType.FLAT, position)
+                    flat_order = Order(price=live_price,
                                        price_sources=price_sources,
                                        processed_ms=TARGET_MS,
                                        order_uuid=position.position_uuid[::-1],
@@ -603,6 +600,7 @@ class PositionManager(CacheController):
                                        order_type=OrderType.FLAT,
                                        leverage=0,
                                        src=ORDER_SRC_DEPRECATION_FLAT)
+
                     position.add_order(flat_order)
                     self.save_miner_position(position, delete_open_position_if_exists=True)
                     bt.logging.info(
