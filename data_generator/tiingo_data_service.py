@@ -342,8 +342,8 @@ class TiingoDataService(BaseDataService):
                                     start_ms=data_time_ms,
                                     websocket=False,
                                     lag_ms=time_now_ms - data_time_ms,
-                                    bid=None,
-                                    ask=None
+                                    bid=0,
+                                    ask=0
                                 )
                 if attempting_previous_close and tp_to_price[tp]:
                     self.closed_market_prices[tp] = tp_to_price[tp]
@@ -510,8 +510,8 @@ class TiingoDataService(BaseDataService):
                     start_ms=data_time_ms,
                     websocket=False,
                     lag_ms=now_ms - data_time_ms,
-                    bid=None,
-                    ask=None
+                    bid=0,
+                    ask=0
                 )
 
                 if verbose:

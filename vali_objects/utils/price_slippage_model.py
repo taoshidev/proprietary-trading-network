@@ -8,6 +8,7 @@ import bittensor as bt
 
 from time_util.time_util import TimeUtil
 from vali_objects.enums.order_type_enum import OrderType
+from vali_objects.utils.live_price_fetcher import LivePriceFetcher
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.utils.vali_utils import ValiUtils
 from vali_objects.vali_config import TradePair, ValiConfig
@@ -15,7 +16,6 @@ from vali_objects.vali_dataclasses.order import Order
 
 
 class PriceSlippageModel:
-    from vali_objects.utils.live_price_fetcher import LivePriceFetcher
     features = defaultdict(dict)
     parameters: dict = {}
     live_price_fetcher: LivePriceFetcher = None
@@ -268,7 +268,7 @@ class PriceSlippageModel:
 
 if __name__ == "__main__":
     psm = PriceSlippageModel()
-    equities_order_buy = Order(price=100, processed_ms=TimeUtil.now_in_millis(),
+    equities_order_buy = Order(price=100, processed_ms=TimeUtil.now_in_millis() - 1000 * 200,
                                     order_uuid="test_order",
                                     trade_pair=TradePair.NVDA,
                                     order_type=OrderType.LONG, leverage=1)

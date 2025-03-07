@@ -52,7 +52,6 @@ from vali_objects.utils.vali_utils import ValiUtils
 from vali_objects.vali_config import ValiConfig
 
 from vali_objects.utils.plagiarism_detector import PlagiarismDetector
-from vali_objects.vali_dataclasses.price_source import PriceSource
 
 # Global flag used to indicate shutdown
 shutdown_dict = {}

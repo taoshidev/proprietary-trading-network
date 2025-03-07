@@ -27,7 +27,7 @@ class Agg:
     """
     An efficient representation of an aggregate price data point. Use this over the Polygon Agg for speed.
     """
-    def __init__(self, open, close, high, low, vwap, timestamp, bid, ask):
+    def __init__(self, open, close, high, low, vwap, timestamp, bid, ask, volume):
         self.open = open
         self.close = close
         self.high = high
@@ -36,19 +36,21 @@ class Agg:
         self.ask = ask
         self.vwap = vwap
         self.timestamp = timestamp
+        self.vol = volume
 
     def __str__(self):
         return (
             f"Agg("
             f"open={self.open}, close={self.close}, high={self.high}, low={self.low}, "
-            f"bid={self.bid}, ask={self.ask}, vwap={self.vwap}, timestamp={self.timestamp})"
+            f"bid={self.bid}, ask={self.ask}, vwap={self.vwap}, timestamp={self.timestamp}, vol={self.vol})"
         )
 
     # Optional: Add a __repr__ method for better representation in debugging and interactive sessions
     def __repr__(self):
         return (
-            f"Agg(open={self.open}, close={self.close}, high={self.high}, low={self.low}, "
-            f"bid={self.bid}, ask={self.ask}, vwap={self.vwap}, timestamp={self.timestamp})"
+            f"Agg("
+            f"open={self.open}, close={self.close}, high={self.high}, low={self.low}, "
+            f"bid={self.bid}, ask={self.ask}, vwap={self.vwap}, timestamp={self.timestamp}, vol={self.vol})"
         )
 
 
@@ -186,7 +188,7 @@ class PolygonDataService(BaseDataService):
     def main_crypto(self):
         self.WEBSOCKET_OBJECTS[TradePairCategory.CRYPTO].run(self.handle_msg)
 
-    def parse_price_for_forex(self, m, stats=None, is_ws=False) -> (float, float):
+    def parse_price_for_forex(self, m, stats=None, is_ws=False) -> (float, float, float):
         t_ms = m.timestamp if is_ws else m.participant_timestamp // 1000000
         delta = abs(m.bid_price - m.ask_price) / m.bid_price * 100.0
         if stats:
@@ -221,8 +223,8 @@ class PolygonDataService(BaseDataService):
         """
         def msg_to_price_sources(m, tp):
             symbol = tp.trade_pair
-            bid = None
-            ask = None
+            bid = 0
+            ask = 0
             if tp.is_forex:
                 bid, ask, _ = self.parse_price_for_forex(m, is_ws=True)
                 if bid is None:
@@ -445,21 +447,7 @@ class PolygonDataService(BaseDataService):
                 low=a.low,
                 start_ms=a.timestamp,
                 websocket=False,
-                lag_ms=now_ms - a.timestamp,
-            )
-
-    def agg_to_quote_source(self, bid:float, ask:float, timestamp:int, time_ms:int, attempting_prev_close:bool=False):
-        q_name = f'{POLYGON_PROVIDER_NAME}_rest'
-        # if attempting_prev_close:
-        #     p_name += '_prev_close'
-        return \
-            QuoteSource(
-                source=q_name,
-                timestamp_ms=timestamp,
-                bid=bid,
-                ask=ask,
-                websocket=False,
-                lag_ms=time_ms - timestamp
+                lag_ms=now_ms - a.timestamp
             )
 
     def get_close_rest(
@@ -808,7 +796,8 @@ class PolygonDataService(BaseDataService):
                                    vwap=None,
                                    timestamp=t_ms,
                                    bid=bid,
-                                   ask=ask))
+                                   ask=ask,
+                                   volume=0))
                     ans[-1].temp = [price]
                 else:
                     best_delta = current_delta
