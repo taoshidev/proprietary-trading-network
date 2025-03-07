@@ -106,7 +106,6 @@ class MDDChecker(CacheController):
         trade_pair = position.trade_pair
         trade_pair_str = trade_pair.trade_pair
         order_time_ms = order.processed_ms
-        original_best_source = deepcopy(order.price_sources[0]) if order.price_sources else None
         existing_dict = {ps.source: ps for ps in order.price_sources}
         candidates_dict = {ps.source: ps for ps in candidate_price_sources}
         new_price_sources = []
@@ -139,14 +138,14 @@ class MDDChecker(CacheController):
             bt.logging.error(f"Could not find a winning event for {hotkey} {trade_pair_str}!")
             return False
 
-        # There is a new best price source. Try to find a bid/ask for it if it is missing (Polygon and Tiingo equities)
-        if winning_event and winning_event != original_best_source:
-            if not winning_event.bid or not winning_event.ask:
-                bid, ask, _ = self.live_price_fetcher.get_quote(trade_pair, order.processed_ms)
-                if bid and ask:
-                    winning_event.bid = bid
-                    winning_event.ask = ask
-                    bt.logging.info(f"Found a bid/ask for {hotkey} {trade_pair_str} ps {winning_event}")
+        # Try to find a bid/ask for it if it is missing (Polygon and Tiingo equities)
+        if winning_event and (not winning_event.bid or not winning_event.ask):
+            bid, ask, _ = self.live_price_fetcher.get_quote(trade_pair, order.processed_ms)
+            if bid and ask:
+                winning_event.bid = bid
+                winning_event.ask = ask
+                bt.logging.info(f"Found a bid/ask for {hotkey} {trade_pair_str} ps {winning_event}")
+                any_changes = True
 
         if any_changes:
             order.price = winning_event.parse_appropriate_price(order_time_ms, trade_pair.is_forex, order.order_type, position)

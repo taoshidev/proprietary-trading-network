@@ -721,8 +721,11 @@ class Validator:
                     price=best_price_source.parse_appropriate_price(now_ms, trade_pair.is_forex, signal_order_type, open_position),
                     processed_ms=now_ms,
                     order_uuid=miner_order_uuid if miner_order_uuid else str(uuid.uuid4()),
-                    price_sources=price_sources
+                    price_sources=price_sources,
+                    bid=best_price_source.bid,
+                    ask=best_price_source.ask,
                 )
+                order.slippage = PriceSlippageModel.calculate_slippage(order.bid, order.ask, order)
                 self._enforce_num_open_order_limit(trade_pair_to_open_position, order)
 
 

@@ -454,8 +454,6 @@ class PolygonDataService(BaseDataService):
         self,
         trade_pair: TradePair
     ) -> PriceSource | None:
-        polygon_ticker = self.trade_pair_to_polygon_ticker(trade_pair)  # noqa: F841
-        #bt.logging.info(f"Fetching REST data for {polygon_ticker}")
 
         if not self.is_market_open(trade_pair):
             return self.get_event_before_market_close(trade_pair)
@@ -934,6 +932,14 @@ if __name__ == "__main__":
     secrets = ValiUtils.get_secrets()
 
     polygon_data_provider = PolygonDataService(api_key=secrets['polygon_apikey'], disable_ws=False)
+
+    for tp in TradePair:
+        #if tp != TradePair.GBPUSD:
+        #    continue
+
+        print('PRICE BEFORE MARKET CLOSE: ', polygon_data_provider.get_event_before_market_close(tp))
+        print('getting close for', tp.trade_pair_id, ':', polygon_data_provider.get_close_rest(tp))
+
     time.sleep(100000)
 
     polygon_data_provider = PolygonDataService(api_key=secrets['polygon_apikey'], disable_ws=True)
@@ -1099,14 +1105,7 @@ if __name__ == "__main__":
     end_time_ms = TimeUtil.now_in_millis() - 1000 * 60 * 60 * 5 * 24  # 5 days ago
     times_to_test.append((start_time_ms, end_time_ms))
 
-    for tp in TradePair:
-        if tp != TradePair.GBPUSD:
-            continue
 
-        is_open = self.is_market_open(tp)  # noqa: F821
-        print(f'market is open for {tp}: ', is_open)
-        print('PRICE BEFORE MARKET CLOSE: ', polygon_data_provider.get_event_before_market_close(tp))
-        print('getting close for', tp.trade_pair_id, ':', polygon_data_provider.get_close_rest(tp)[tp])
 
 
     trade_pairs = [TradePair.BTCUSD, TradePair.ETHUSD, TradePair.SPX, TradePair.GBPUSD, TradePair.DJI]
