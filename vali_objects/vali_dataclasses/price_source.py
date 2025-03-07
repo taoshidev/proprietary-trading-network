@@ -58,7 +58,12 @@ class PriceSource(BaseModel):
             return min(abs(now_ms - self.start_ms),
                        abs(now_ms - self.end_ms))
 
-    def parse_best_price(self, now_ms: int) -> float:
+    def parse_best_price(self, now_ms: int, is_forex:bool, order_leverage:float) -> float:
+        if is_forex:
+            if order_leverage > 0:
+                return self.ask
+            else:
+                return self.bid
         if self.websocket:
             return self.open
         else:

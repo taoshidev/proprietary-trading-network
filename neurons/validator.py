@@ -52,6 +52,7 @@ from vali_objects.utils.vali_utils import ValiUtils
 from vali_objects.vali_config import ValiConfig
 
 from vali_objects.utils.plagiarism_detector import PlagiarismDetector
+from vali_objects.vali_dataclasses.price_source import PriceSource
 
 # Global flag used to indicate shutdown
 shutdown_dict = {}
@@ -514,7 +515,7 @@ class Validator:
         trade_pair = TradePair.from_trade_pair_id(string_trade_pair)
         return trade_pair
 
-    def convert_signal_to_order(self, signal, hotkey, now_ms, miner_order_uuid) -> Order:
+    def convert_signal_to_order(self, signal, hotkey, now_ms, miner_order_uuid) -> (Order, list[PriceSource]):
         """
         Example input signal
           {'trade_pair': {'trade_pair_id': 'BTCUSD', 'trade_pair': 'BTC/USD', 'fees': 0.003, 'min_leverage': 0.0001, 'max_leverage': 20},
@@ -532,8 +533,8 @@ class Validator:
         signal_leverage = signal["leverage"]
 
         bt.logging.info("Attempting to get live price for trade pair: " + trade_pair.trade_pair_id)
-        live_closing_price, price_sources = self.live_price_fetcher.get_latest_price(trade_pair=trade_pair,
-                                                                                     time_ms=now_ms)
+        price_sources = self.live_price_fetcher.get_latest_price(trade_pair=trade_pair,
+                                                                                     time_ms=now_ms, order_leverage=signal_leverage)
 
         order = Order(
             trade_pair=trade_pair,
@@ -547,7 +548,7 @@ class Validator:
         delta_t_ms = TimeUtil.now_in_millis() - now_ms
         delta_t_s_3_decimals = round(delta_t_ms / 1000.0, 3)
         bt.logging.success(f"Converted signal to order: {order} in {delta_t_s_3_decimals} seconds")
-        return order
+        return order, price_sources
 
     def _enforce_num_open_order_limit(self, trade_pair_to_open_position: dict, signal_to_order):
         # Check if there are too many orders across all open positions.
@@ -721,7 +722,7 @@ class Validator:
         error_message = ""
         try:
             miner_order_uuid = self.parse_miner_uuid(synapse)
-            signal_to_order = self.convert_signal_to_order(signal, miner_hotkey, now_ms, miner_order_uuid)
+            signal_to_order, price_sources = self.convert_signal_to_order(signal, miner_hotkey, now_ms, miner_order_uuid)
             # Multiple threads can run receive_signal at once. Don't allow two threads to trample each other.
             with self.position_locks.get_lock(miner_hotkey, signal_to_order.trade_pair.trade_pair_id):
                 self.enforce_no_duplicate_order(synapse)
