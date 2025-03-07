@@ -1,5 +1,6 @@
 # developer: Taoshidev
 # Copyright © 2024 Taoshi Inc
+
 import bittensor as bt
 from typing import Optional
 from pydantic import BaseModel
@@ -95,54 +96,6 @@ class PriceSource(BaseModel):
                 return self.open
             else:
                 return self.close
-
-    @staticmethod
-    def update_order_with_newest_price_sources(order, candidate_price_sources, hotkey, position) -> bool:
-        from vali_objects.utils.price_slippage_model import PriceSlippageModel
-
-        if not candidate_price_sources:
-            return False
-        trade_pair = position.trade_pair
-        trade_pair_str = trade_pair.trade_pair
-        order_time_ms = order.processed_ms
-        existing_dict = {ps.source: ps for ps in order.price_sources}
-        candidates_dict = {ps.source: ps for ps in candidate_price_sources}
-        new_price_sources = []
-        # We need to create new price sources. If there is overlap, take the one with the smallest time lag to order_time_ms
-        any_changes = False
-        for k, candidate_ps in candidates_dict.items():
-            if k in existing_dict:
-                existing_ps = existing_dict[k]
-                if candidate_ps.time_delta_from_now_ms(order_time_ms) < existing_ps.time_delta_from_now_ms(order_time_ms):  # Prefer the ws price in the past rather than the future
-                    bt.logging.warning(f"Found a better price source for {hotkey} {trade_pair_str}! Replacing {existing_ps.debug_str(order_time_ms)} with {candidate_ps.debug_str(order_time_ms)}")
-                    new_price_sources.append(candidate_ps)
-                    any_changes = True
-                else:
-                    new_price_sources.append(existing_ps)
-            else:
-                bt.logging.warning(
-                    f"Found a new price source for {hotkey} {trade_pair_str}! Adding {candidate_ps.debug_str(order_time_ms)}")
-                new_price_sources.append(candidate_ps)
-                any_changes = True
-
-        for k, existing_ps in existing_dict.items():
-            if k not in candidates_dict:
-                new_price_sources.append(existing_ps)
-
-        new_price_sources = PriceSource.non_null_events_sorted(new_price_sources, order_time_ms)
-        winning_event: PriceSource = new_price_sources[0] if new_price_sources else None
-        if not winning_event:
-            bt.logging.error(f"Could not find a winning event for {hotkey} {trade_pair_str}!")
-            return False
-
-        if any_changes:
-            order.price = winning_event.parse_appropriate_price(order_time_ms, trade_pair.is_forex, order.order_type, position)
-            order.bid = winning_event.bid
-            order.ask = winning_event.ask
-            order.slippage = PriceSlippageModel.calculate_slippage(winning_event.bid, winning_event.ask, order)
-            order.price_sources = new_price_sources
-            return True
-        return False
 
     @staticmethod
     def get_winning_event(events, now_ms):

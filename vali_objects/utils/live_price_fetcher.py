@@ -173,6 +173,12 @@ class LivePriceFetcher:
         # Data by timestamp in ascending order so that the largest timestamp is first
         return data[0].close
 
+    def get_quote(self, trade_pair: TradePair, processed_ms: int) -> (float, float, int):
+        """
+        returns the bid and ask quote for a trade_pair at processed_ms. Only Polygon supports point-in-time bid/ask.
+        """
+        return self.polygon_data_service.get_quote(trade_pair, processed_ms)
+
     def parse_extreme_price_in_window(self, candle_data: Dict[TradePair, List[PriceSource]], open_position: Position, parse_min: bool = True) -> Tuple[float, PriceSource] | Tuple[None, None]:
         trade_pair = open_position.trade_pair
         dat = candle_data.get(trade_pair)

@@ -1,6 +1,7 @@
 # developer: jbonilla
 # Copyright © 2024 Taoshi Inc
 import time
+from copy import deepcopy
 from typing import List, Dict
 
 from time_util.time_util import TimeUtil
@@ -15,7 +16,6 @@ from vali_objects.utils.vali_utils import ValiUtils
 import bittensor as bt
 
 from vali_objects.vali_dataclasses.price_source import PriceSource
-
 
 class MDDChecker(CacheController):
 
@@ -98,6 +98,66 @@ class MDDChecker(CacheController):
                         f" n_poly_api_requests: {self.n_poly_api_requests}")
         self.set_last_update_time(skip_message=False)
 
+    def update_order_with_newest_price_sources(self, order, candidate_price_sources, hotkey, position) -> bool:
+        from vali_objects.utils.price_slippage_model import PriceSlippageModel
+
+        if not candidate_price_sources:
+            return False
+        trade_pair = position.trade_pair
+        trade_pair_str = trade_pair.trade_pair
+        order_time_ms = order.processed_ms
+        original_best_source = deepcopy(order.price_sources[0]) if order.price_sources else None
+        existing_dict = {ps.source: ps for ps in order.price_sources}
+        candidates_dict = {ps.source: ps for ps in candidate_price_sources}
+        new_price_sources = []
+        # We need to create new price sources. If there is overlap, take the one with the smallest time lag to order_time_ms
+        any_changes = False
+        for k, candidate_ps in candidates_dict.items():
+            if k in existing_dict:
+                existing_ps = existing_dict[k]
+                if candidate_ps.time_delta_from_now_ms(order_time_ms) < existing_ps.time_delta_from_now_ms(
+                        order_time_ms):  # Prefer the ws price in the past rather than the future
+                    bt.logging.info(
+                        f"Found a better price source for {hotkey} {trade_pair_str}! Replacing {existing_ps.debug_str(order_time_ms)} with {candidate_ps.debug_str(order_time_ms)}")
+                    new_price_sources.append(candidate_ps)
+                    any_changes = True
+                else:
+                    new_price_sources.append(existing_ps)
+            else:
+                bt.logging.info(
+                    f"Found a new price source for {hotkey} {trade_pair_str}! Adding {candidate_ps.debug_str(order_time_ms)}")
+                new_price_sources.append(candidate_ps)
+                any_changes = True
+
+        for k, existing_ps in existing_dict.items():
+            if k not in candidates_dict:
+                new_price_sources.append(existing_ps)
+
+        new_price_sources = PriceSource.non_null_events_sorted(new_price_sources, order_time_ms)
+        winning_event: PriceSource = new_price_sources[0] if new_price_sources else None
+        if not winning_event:
+            bt.logging.error(f"Could not find a winning event for {hotkey} {trade_pair_str}!")
+            return False
+
+        # There is a new best price source. Try to find a bid/ask for it if it is missing (Polygon and Tiingo equities)
+        if winning_event and winning_event != original_best_source:
+            if not winning_event.bid or not winning_event.ask:
+                bid, ask, _ = self.live_price_fetcher.get_quote(trade_pair, order.processed_ms)
+                if bid and ask:
+                    winning_event.bid = bid
+                    winning_event.ask = ask
+                    bt.logging.info(f"Found a bid/ask for {hotkey} {trade_pair_str} ps {winning_event}")
+
+        if any_changes:
+            order.price = winning_event.parse_appropriate_price(order_time_ms, trade_pair.is_forex, order.order_type, position)
+            order.bid = winning_event.bid
+            order.ask = winning_event.ask
+            order.slippage = PriceSlippageModel.calculate_slippage(winning_event.bid, winning_event.ask, order)
+            order.price_sources = new_price_sources
+            return True
+        return False
+
+
     def _update_position_returns_and_persist_to_disk(self, hotkey, position, tp_to_price_sources_for_realtime_price: Dict[TradePair, List[PriceSource]], position_locks):
         """
         Setting the latest returns and persisting to disk for accurate MDD calculation and logging in get_positions
@@ -140,11 +200,10 @@ class MDDChecker(CacheController):
                 if not price_sources_for_retro_fix:
                     bt.logging.warning(f"Unexpectedly could not find any new price sources for order"
                                      f" {order.order_uuid} in {hotkey} {position.trade_pair.trade_pair}. If this"
-                                     f"issue persist, alert the team.")
+                                     f" issue persists, alert the team.")
                     continue
                 else:
-                    any_order_updates = False
-                    any_order_updates |= PriceSource.update_order_with_newest_price_sources(order, price_sources_for_retro_fix, hotkey, position)
+                    any_order_updates = self.update_order_with_newest_price_sources(order, price_sources_for_retro_fix, hotkey, position)
                     n_orders_updated += int(any_order_updates)
 
             # Rebuild the position with the newest price

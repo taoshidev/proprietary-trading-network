@@ -327,6 +327,8 @@ class TiingoDataService(BaseDataService):
                 data_time_ms = TimeUtil.parse_iso_to_ms(x['timestamp'])
 
                 price = float(x['tngoLast'])
+                bid_price = x['bidPrice']
+                ask_price = x['askPrice']
                 p_name = f'{TIINGO_PROVIDER_NAME}_rest'
                 attempting_previous_close = not self.is_market_open(tp)
                 if attempting_previous_close:
@@ -342,8 +344,8 @@ class TiingoDataService(BaseDataService):
                                     start_ms=data_time_ms,
                                     websocket=False,
                                     lag_ms=time_now_ms - data_time_ms,
-                                    bid=0,
-                                    ask=0
+                                    bid=float(bid_price) if bid_price else 0,
+                                    ask=float(ask_price) if ask_price else 0
                                 )
                 if attempting_previous_close and tp_to_price[tp]:
                     self.closed_market_prices[tp] = tp_to_price[tp]
@@ -382,8 +384,8 @@ class TiingoDataService(BaseDataService):
                     continue
                 if not ask_raw:
                     continue
-                bid = float(bid_raw)
-                ask = float(ask_raw)
+                bid = float(bid_raw) if bid_raw else 0
+                ask = float(ask_raw) if ask_raw else 0
                 mid_price = (bid + ask) / 2.0
                 data_time_ms = TimeUtil.parse_iso_to_ms(x['quoteTimestamp'])
 
@@ -451,6 +453,8 @@ class TiingoDataService(BaseDataService):
                 last_exchange = x['lastExchange'].lower() if x['lastExchange'] else None
                 bid_exchange = x['bidExchange'].lower() if x['bidExchange'] else None
                 ask_exchange = x['askExchange'].lower() if x['askExchange'] else None
+                bid_price = float(x['bidPrice']) if x['bidPrice'] else 0
+                ask_price = float(x['askPrice']) if x['askPrice'] else 0
 
                 if last_exchange == TIINGO_COINBASE_EXCHANGE_STR and delta_ms_exchange < THRESHOLD_FRESH_MS:
                     data_time_ms = data_time_exchange_ms
@@ -510,8 +514,8 @@ class TiingoDataService(BaseDataService):
                     start_ms=data_time_ms,
                     websocket=False,
                     lag_ms=now_ms - data_time_ms,
-                    bid=0,
-                    ask=0
+                    bid=bid_price,
+                    ask=ask_price
                 )
 
                 if verbose:
@@ -562,7 +566,7 @@ class TiingoDataService(BaseDataService):
 if __name__ == "__main__":
     secrets = ValiUtils.get_secrets()
     tds = TiingoDataService(api_key=secrets['tiingo_apikey'], disable_ws=False)
-    time.sleep(100000)
+    #time.sleep(100000)
     #assert 0
     target_timestamp_ms = 1715288502999
 
@@ -572,7 +576,7 @@ if __name__ == "__main__":
 
     # forex_price = client.get_(ticker='USDJPY')# startDate='2021-01-01', endDate='2021-01-02', frequency='daily')
     #tds = TiingoDataService(secrets['tiingo_apikey'], disable_ws=True)
-    tp_to_prices, _ = tds.get_closes_rest([TradePair.BTCUSD, TradePair.USDJPY, TradePair.NVDA], verbose=True)
+    tp_to_prices = tds.get_closes_rest([TradePair.BTCUSD, TradePair.USDJPY, TradePair.NVDA], verbose=True)
 
     assert 0, {x.trade_pair_id: y for x, y in tp_to_prices.items()}
 
