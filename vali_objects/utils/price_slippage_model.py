@@ -47,6 +47,9 @@ class PriceSlippageModel:
         returns the percentage slippage of the current order.
         each asset class uses a unique model
         """
+        if bid * ask == 0:
+            bt.logging.warning(f'Tried to calculate slippage with bid: {bid} and ask: {ask}. order: {order}. Returning 0')
+            return 0  # Need valid bid and ask.
         trade_pair = order.trade_pair
         size = abs(order.leverage) * leverage_to_capital
         if size <= 1000:
@@ -62,7 +65,7 @@ class PriceSlippageModel:
             slippage_percentage = cls.calc_slippage_crypto(order)
         else:
             raise ValueError(f"Invalid trade pair {trade_pair.trade_pair_id} to calculate slippage")
-        return np.clip(slippage_percentage, 0.0, 0.03)
+        return float(np.clip(slippage_percentage, 0.0, 0.03))
 
     @classmethod
     def calc_slippage_equities(cls, bid:float, ask:float, order:Order) -> float:

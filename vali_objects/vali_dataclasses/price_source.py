@@ -80,9 +80,9 @@ class PriceSource(BaseModel):
                 ans = self.bid
             elif order_type == OrderType.FLAT:
                 # Use the position's initial type to determine if the FLAT is increasing or decreasing leverage
-                if position.orders[0] == OrderType.LONG:
+                if position.orders[0].order_type == OrderType.LONG:
                     ans = self.bid
-                elif position.orders[0] == OrderType.SHORT:
+                elif position.orders[0].order_type == OrderType.SHORT:
                     ans = self.ask
                 else:
                     bt.logging.error(f'Initial position order is FLAT. Unexpected. Position: {position}')
