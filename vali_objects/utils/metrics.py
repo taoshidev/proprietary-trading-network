@@ -6,7 +6,7 @@ from typing import Union
 
 from vali_objects.vali_config import ValiConfig
 from vali_objects.utils.ledger_utils import LedgerUtils
-from vali_objects.vali_dataclasses.perf_ledger import PerfCheckpoint
+from vali_objects.vali_dataclasses.perf_ledger import PerfLedger
 
 class Metrics:
 
@@ -174,11 +174,38 @@ class Metrics:
         return float((math.exp(Metrics.base_return_log(log_returns, weighting=weighting)) - 1) * 100)
 
     @staticmethod
-    def calmar(log_returns: list[float], checkpoints: list[PerfCheckpoint], weighting: bool = False, **kwargs) -> float:
+    def daily_max_drawdown(log_returns: list[float]) -> float:
         """
         Args:
             log_returns: list of daily log returns from the miner
-            checkpoints: the ledger of the miner
+
+        Returns:
+            The daily drawdowns of the miner
+        """
+        if len(log_returns) == 0:
+            return 0.0
+
+        # More efficient implementation using cumulative sum of log returns
+        cumulative_log_returns = np.cumsum(log_returns)
+        
+        # Maximum cumulative log return at each point
+        running_max_log = np.maximum.accumulate(cumulative_log_returns)
+        
+        # Drawdown = 1 - exp(current - peak)
+        # This gives us the percentage decline from the peak
+        drawdowns = 1 - np.exp(cumulative_log_returns - running_max_log)
+        
+        # Find the maximum drawdown
+        max_drawdown = np.max(drawdowns)
+        
+        return max_drawdown
+
+    @staticmethod
+    def calmar(log_returns: list[float], ledger: PerfLedger, weighting: bool = False, **kwargs) -> float:
+        """
+        Args:
+            log_returns: list of daily log returns from the miner
+            ledger: the ledger of the miner
             weighting: whether to use weighted average
         """
         # Positional Component
@@ -186,7 +213,7 @@ class Metrics:
             return 0.0
 
         base_return_percentage = Metrics.base_return_log_percentage(log_returns, weighting=weighting)
-        drawdown_normalization_factor = LedgerUtils.risk_normalization(checkpoints)
+        drawdown_normalization_factor = LedgerUtils.risk_normalization(ledger)
 
         return float(base_return_percentage * drawdown_normalization_factor)
 
