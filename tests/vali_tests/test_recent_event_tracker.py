@@ -16,11 +16,11 @@ class TestRecentEventTracker(unittest.TestCase):
     def test_add_event(self, mock_time):
         # First event added
         mock_time.return_value = 10000000  # Mock time set for the first event
-        event = PriceSource(start_ms=mock_time.return_value, open=100.0, close=105.0)
+        event = PriceSource(start_ms=mock_time.return_value, open=100.0, close=105.0, bid=95, ask=96)
         self.tracker.add_event(event, is_forex_quote=True)
         existing_event = self.tracker.get_event_by_timestamp(mock_time.return_value)
         self.assertEqual(existing_event[0], event)
-        self.assertEqual(existing_event[1], [event.close])
+        self.assertEqual(existing_event[1], ([event.bid], [event.ask]))
 
         # Assert the first event is added correctly
         self.assertEqual(len(self.tracker.events), 1)

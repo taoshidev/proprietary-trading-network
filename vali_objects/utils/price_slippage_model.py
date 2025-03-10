@@ -48,6 +48,10 @@ class PriceSlippageModel:
         each asset class uses a unique model
         """
         trade_pair = order.trade_pair
+        if bid * ask == 0:
+            if not trade_pair.is_crypto:  # For now, crypto does not have slippage
+                bt.logging.warning(f'Tried to calculate slippage with bid: {bid} and ask: {ask}. order: {order}. Returning 0')
+            return 0  # Need valid bid and ask.
         size = abs(order.leverage) * leverage_to_capital
         if size <= 1000:
             return 0  # assume 0 slippage when order size is under 1k
@@ -62,7 +66,7 @@ class PriceSlippageModel:
             slippage_percentage = cls.calc_slippage_crypto(order)
         else:
             raise ValueError(f"Invalid trade pair {trade_pair.trade_pair_id} to calculate slippage")
-        return np.clip(slippage_percentage, 0.0, 0.03)
+        return float(np.clip(slippage_percentage, 0.0, 0.03))
 
     @classmethod
     def calc_slippage_equities(cls, bid:float, ask:float, order:Order) -> float:
@@ -255,8 +259,7 @@ class PriceSlippageModel:
                     bid = o.bid
                     ask = o.ask
                     if self.fetch_slippage_data:
-                        bid, ask, _ = self.live_price_fetcher.get_latest_quote(trade_pair=o.trade_pair,
-                                                                               time_ms=o.processed_ms)
+                        bid, ask, _ = self.live_price_fetcher.get_sorted_price_sources_for_trade_pair(trade_pair=o.trade_pair, time_ms=o.processed_ms)
                     slippage = self.calculate_slippage(bid, ask, o, leverage_to_capital=self.leverage_to_capital)
                     o.bid = bid
                     o.ask = ask
@@ -269,7 +272,7 @@ class PriceSlippageModel:
 
 if __name__ == "__main__":
     psm = PriceSlippageModel()
-    equities_order_buy = Order(price=100, processed_ms=TimeUtil.now_in_millis(),
+    equities_order_buy = Order(price=100, processed_ms=TimeUtil.now_in_millis() - 1000 * 200,
                                     order_uuid="test_order",
                                     trade_pair=TradePair.NVDA,
                                     order_type=OrderType.LONG, leverage=1)

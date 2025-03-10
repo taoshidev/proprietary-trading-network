@@ -1,8 +1,6 @@
 
 from sortedcontainers import SortedList
 from time_util.time_util import TimeUtil
-from vali_objects.vali_dataclasses.price_source import PriceSource
-
 
 def sorted_list_key(x):
     return x[0]
@@ -19,7 +17,7 @@ class RecentEventTracker:
             #print(f'Duplicate timestamp {TimeUtil.millis_to_formatted_date_str(event_time_ms)} for tp {tp_debug_str} ignored')
             return
         self.events.add((event_time_ms, event))
-        self.timestamp_to_event[event_time_ms] = (event, [event.close] if is_forex_quote else None)
+        self.timestamp_to_event[event_time_ms] = (event, ([event.bid], [event.ask]) if is_forex_quote else None)
         #print(f"Added event at {TimeUtil.millis_to_formatted_date_str(event_time_ms)}")
         self._cleanup_old_events()
         #print(event, tp_debug_str)
@@ -36,13 +34,18 @@ class RecentEventTracker:
         median_price = arr[len(arr) // 2] if len(arr) % 2 == 1 else (arr[len(arr) // 2] + arr[len(arr) // 2 - 1]) / 2.0
         return median_price
 
-    def update_prices_for_median(self, t_ms, new_price):
+    def update_prices_for_median(self, t_ms, bid_price, ask_price):
         existing_event, prices = self.get_event_by_timestamp(t_ms)
         if prices:
-            prices.append(new_price)
-            prices.sort()
-            median_price = self.forex_median_price(prices)
-            existing_event.open = existing_event.close = existing_event.high = existing_event.low = median_price
+            prices[0].append(bid_price)
+            prices[0].sort()
+            prices[1].append(ask_price)
+            prices[1].sort()
+            median_bid = self.forex_median_price(prices[0])
+            median_ask = self.forex_median_price(prices[1])
+            existing_event.open = existing_event.close = existing_event.high = existing_event.low = (median_bid + median_ask) / 2.0
+            existing_event.bid = median_bid
+            existing_event.ask = median_ask
 
     def _cleanup_old_events(self):
         # Don't lock here, as this method is called from within a lock
@@ -73,7 +76,7 @@ class RecentEventTracker:
         # Retrieve all events within the range [start_idx, end_idx)
         return [event[1] for event in self.events[start_idx:end_idx]]
 
-    def get_closest_event(self, timestamp_ms) -> PriceSource or None:
+    def get_closest_event(self, timestamp_ms):
         #print(f"Looking for event at {TimeUtil.millis_to_formatted_date_str(timestamp_ms)}")
         if self.count_events() == 0:
             return None

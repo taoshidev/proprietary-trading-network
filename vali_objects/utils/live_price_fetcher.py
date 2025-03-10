@@ -15,9 +15,6 @@ import bittensor as bt
 from vali_objects.vali_dataclasses.price_source import PriceSource
 from statistics import median
 
-from vali_objects.vali_dataclasses.quote_source import QuoteSource
-
-
 class LivePriceFetcher:
     def __init__(self, secrets, disable_ws=False, ipc_manager=None):
         if "tiingo_apikey" in secrets:
@@ -40,123 +37,22 @@ class LivePriceFetcher:
             self.polygon_data_service.websocket_manager_thread.join()
         self.polygon_data_service.stop_threads()
 
-    def determine_best_price(self, price_events: List[PriceSource | None], current_time_ms: int,
-                             filter_recent_only=True) -> Tuple:
+    def sorted_valid_price_sources(self, price_events: List[PriceSource | None], current_time_ms: int, filter_recent_only=True) -> List[PriceSource] | None:
         """
-        Determines the best price from a list of price events based on their recency and validity.
+        Sorts a list of price events by their recency and validity.
         """
         valid_events = [event for event in price_events if event]
         if not valid_events:
-            return None, None
+            return None
 
         best_event = PriceSource.get_winning_event(valid_events, current_time_ms)
         if not best_event:
-            return None, None
+            return None
 
-        if filter_recent_only and best_event.time_delta_from_now_ms(current_time_ms) > 2000:
-            return None, None
+        if filter_recent_only and best_event.time_delta_from_now_ms(current_time_ms) > 3000:
+            return None
 
-        return best_event.parse_best_price(current_time_ms), PriceSource.non_null_events_sorted(valid_events, current_time_ms)
-
-    def determine_best_quote(self, quote_events: List[QuoteSource | None], current_time_ms: int,
-                             filter_recent_only=True) -> Tuple:
-        """
-        Determines the best price from a list of price events based on their recency and validity.
-        """
-        valid_events = [event for event in quote_events if event]
-        if not valid_events:
-            return None, None
-
-        best_event = QuoteSource.get_winning_event(valid_events, current_time_ms)
-        if not best_event:
-            return None, None
-
-        if filter_recent_only and best_event.time_delta_from_now_ms(current_time_ms) > 2000:
-            return None, None
-
-        return best_event.bid, best_event.ask, QuoteSource.non_null_events_sorted(valid_events, current_time_ms)
-
-    def fetch_prices(self, tps: List[TradePair], trade_pair_to_last_order_time_ms, ws_only=False) -> (
-            dict[str: Tuple[float, List[PriceSource]]] | dict[str: Tuple[None, None]]):
-        """
-        Fetches data using WebSockets first; uses REST APIs if WebSocket data is outdated or missing.
-        """
-        websocket_prices_polygon = self.polygon_data_service.get_closes_websocket(trade_pairs=tps, trade_pair_to_last_order_time_ms=trade_pair_to_last_order_time_ms)
-        websocket_prices_tiingo_data = self.tiingo_data_service.get_closes_websocket(trade_pairs=tps, trade_pair_to_last_order_time_ms=trade_pair_to_last_order_time_ms)
-        trade_pairs_needing_rest_data = []
-
-        results = {}
-
-        # Initial check using WebSocket data
-        for trade_pair in tps:
-            current_time_ms = trade_pair_to_last_order_time_ms[trade_pair]
-            events = [websocket_prices_polygon.get(trade_pair), websocket_prices_tiingo_data.get(trade_pair)]
-            price, sources = self.determine_best_price(events, current_time_ms)
-            if price:
-                results[trade_pair] = (price, sources)
-            else:
-                trade_pairs_needing_rest_data.append(trade_pair)
-
-        # Fetch from REST APIs if needed
-        if not trade_pairs_needing_rest_data or ws_only:
-            return results
-
-        rest_prices_polygon = self.polygon_data_service.get_closes_rest(trade_pairs_needing_rest_data)
-        rest_prices_tiingo_data, _ = self.tiingo_data_service.get_closes_rest(trade_pairs_needing_rest_data)
-
-        for trade_pair in trade_pairs_needing_rest_data:
-            current_time_ms = trade_pair_to_last_order_time_ms[trade_pair]
-            events = [
-                websocket_prices_polygon.get(trade_pair),
-                websocket_prices_tiingo_data.get(trade_pair),
-                rest_prices_polygon.get(trade_pair),
-                rest_prices_tiingo_data.get(trade_pair)
-            ]
-            results[trade_pair] = self.determine_best_price(events, current_time_ms, filter_recent_only=False)
-
-        return results
-
-    def fetch_quotes(self, tps: List[TradePair], trade_pair_to_last_order_time_ms, ws_only=False) -> (
-            dict[str: Tuple[float, float, List[QuoteSource]]] | dict[str: Tuple[None, None, None]]):
-        """
-        Fetches quote data using WebSockets first; uses REST APIs if WebSocket data is outdated or missing.
-        Returns a dict mapping trade pair to a tuple of [(bid, ask), [QuoteSource]]
-        """
-        # TODO: websocket
-        # websocket_quotes_polygon = self.polygon_data_service.get_quotes_websocket(trade_pairs=tps, trade_pair_to_last_order_time_ms=trade_pair_to_last_order_time_ms)
-        trade_pairs_needing_rest_data = tps
-
-        results = {}
-
-        # # Initial check using WebSocket data
-        # for trade_pair in tps:
-        #     current_time_ms = trade_pair_to_last_order_time_ms[trade_pair]
-        #     events = [websocket_quotes_polygon.get(trade_pair)]
-        #     quote, sources = self.determine_best_quote(events, current_time_ms)
-        #     if quote:
-        #         results[trade_pair] = (quote, sources)
-        #     else:
-        #         trade_pairs_needing_rest_data.append(trade_pair)
-        #
-        # # Fetch from REST APIs if needed
-        # if not trade_pairs_needing_rest_data or ws_only:
-        #     return results
-
-        rest_quotes_polygon = self.polygon_data_service.get_quotes_rest(trade_pairs_needing_rest_data, trade_pair_to_last_order_time_ms)
-
-        temp = self.tiingo_data_service.get_closes_rest(trade_pairs_needing_rest_data)
-        _, rest_quotes_tiingo_data = temp
-
-        for trade_pair in trade_pairs_needing_rest_data:
-            current_time_ms = trade_pair_to_last_order_time_ms[trade_pair]
-            events = [
-                # websocket_quotes_polygon.get(trade_pair),
-                rest_quotes_polygon.get(trade_pair),
-                rest_quotes_tiingo_data.get(trade_pair)
-            ]
-            results[trade_pair] = self.determine_best_quote(events, current_time_ms, filter_recent_only=False)
-
-        return results
+        return PriceSource.non_null_events_sorted(valid_events, current_time_ms)
 
     def get_ws_price_sources_in_window(self, trade_pair: TradePair, start_ms: int, end_ms: int) -> List[PriceSource]:
         # Utilize get_events_in_range
@@ -165,49 +61,66 @@ class LivePriceFetcher:
         return poly_sources + t_sources
 
     @timeme
-    def get_latest_price(self, trade_pair: TradePair, time_ms=None) -> Tuple[float, List[PriceSource]] | Tuple[
-        None, None]:
+    def get_latest_price(self, trade_pair: TradePair, time_ms=None) -> Tuple[float, List[PriceSource]] | Tuple[None, None]:
         """
         Gets the latest price for a single trade pair by utilizing WebSocket and possibly REST data sources.
         Tries to get the price as close to time_ms as possible.
         """
         if not time_ms:
             time_ms = TimeUtil.now_in_millis()
-        return self.fetch_prices([trade_pair], {trade_pair: time_ms})[trade_pair]
+        price_sources = self.get_sorted_price_sources_for_trade_pair(trade_pair, time_ms)
+        winning_event = PriceSource.get_winning_event(price_sources, time_ms)
+        return winning_event.parse_best_best_price_legacy(time_ms), price_sources
+
+    def get_sorted_price_sources_for_trade_pair(self, trade_pair: TradePair, time_ms:int) -> List[PriceSource] | None:
+        temp = self.get_tp_to_sorted_price_sources([trade_pair], {trade_pair: time_ms})
+        return temp.get(trade_pair)
 
     @timeme
-    def get_latest_quote(self, trade_pair: TradePair, time_ms=None) -> Tuple[float, float, List[QuoteSource]] | Tuple[
-        None, None, None]:
-        """
-        Gets the latest quote for a single trade pair by utilizing WebSocket and possibly REST data sources.
-        Tries to get the quote as close to time_ms as possible.
-        Returns a tuple of bid, ask, [QuoteSource]
-        """
-        if not time_ms:
-            time_ms = TimeUtil.now_in_millis()
-        return self.fetch_quotes([trade_pair], {trade_pair: time_ms})[trade_pair]
-
-    @timeme
-    def get_latest_prices(self, trade_pairs: List[TradePair],
-                          trade_pair_to_last_order_time_ms: Dict[TradePair, int] = None) -> Dict:
+    def get_tp_to_sorted_price_sources(self, trade_pairs: List[TradePair],
+                                       trade_pair_to_last_order_time_ms: Dict[TradePair, int] = None) -> Dict[TradePair, List[PriceSource]]:
         """
         Retrieves the latest prices for multiple trade pairs, leveraging both WebSocket and REST APIs as needed.
         """
         if not trade_pair_to_last_order_time_ms:
             current_time_ms = TimeUtil.now_in_millis()
             trade_pair_to_last_order_time_ms = {tp: current_time_ms for tp in trade_pairs}
-        return self.fetch_prices(trade_pairs, trade_pair_to_last_order_time_ms)
+        websocket_prices_polygon = self.polygon_data_service.get_closes_websocket(trade_pairs=trade_pairs,
+                                                                                  trade_pair_to_last_order_time_ms=trade_pair_to_last_order_time_ms)
+        websocket_prices_tiingo_data = self.tiingo_data_service.get_closes_websocket(trade_pairs=trade_pairs,
+                                                                                     trade_pair_to_last_order_time_ms=trade_pair_to_last_order_time_ms)
+        trade_pairs_needing_rest_data = []
 
-    @timeme
-    def get_latest_quotes(self, trade_pairs: List[TradePair],
-                          trade_pair_to_last_order_time_ms: Dict[TradePair, int] = None) -> Dict:
-        """
-        Retrieves the latest quotes for multiple trade pairs, leveraging both WebSocket and REST APIs as needed.
-        """
-        if not trade_pair_to_last_order_time_ms:
-            current_time_ms = TimeUtil.now_in_millis()
-            trade_pair_to_last_order_time_ms = {tp: current_time_ms for tp in trade_pairs}
-        return self.fetch_quotes(trade_pairs, trade_pair_to_last_order_time_ms)
+        results = {}
+
+        # Initial check using WebSocket data
+        for trade_pair in trade_pairs:
+            current_time_ms = trade_pair_to_last_order_time_ms[trade_pair]
+            events = [websocket_prices_polygon.get(trade_pair), websocket_prices_tiingo_data.get(trade_pair)]
+            sources = self.sorted_valid_price_sources(events, current_time_ms, filter_recent_only=True)
+            if sources:
+                results[trade_pair] = sources
+            else:
+                trade_pairs_needing_rest_data.append(trade_pair)
+
+        # Fetch from REST APIs if needed
+        if not trade_pairs_needing_rest_data:
+            return results
+
+        rest_prices_polygon = self.polygon_data_service.get_closes_rest(trade_pairs_needing_rest_data)
+        rest_prices_tiingo_data = self.tiingo_data_service.get_closes_rest(trade_pairs_needing_rest_data)
+
+        for trade_pair in trade_pairs_needing_rest_data:
+            current_time_ms = trade_pair_to_last_order_time_ms[trade_pair]
+            sources = self.sorted_valid_price_sources([
+                websocket_prices_polygon.get(trade_pair),
+                websocket_prices_tiingo_data.get(trade_pair),
+                rest_prices_polygon.get(trade_pair),
+                rest_prices_tiingo_data.get(trade_pair)
+            ], current_time_ms, filter_recent_only=False)
+            results[trade_pair] = sources
+
+        return results
 
     def time_since_last_ws_ping_s(self, trade_pair: TradePair) -> float | None:
         if trade_pair in self.polygon_data_service.UNSUPPORTED_TRADE_PAIRS:
@@ -259,6 +172,12 @@ class LivePriceFetcher:
 
         # Data by timestamp in ascending order so that the largest timestamp is first
         return data[0].close
+
+    def get_quote(self, trade_pair: TradePair, processed_ms: int) -> (float, float, int):
+        """
+        returns the bid and ask quote for a trade_pair at processed_ms. Only Polygon supports point-in-time bid/ask.
+        """
+        return self.polygon_data_service.get_quote(trade_pair, processed_ms)
 
     def parse_extreme_price_in_window(self, candle_data: Dict[TradePair, List[PriceSource]], open_position: Position, parse_min: bool = True) -> Tuple[float, PriceSource] | Tuple[None, None]:
         trade_pair = open_position.trade_pair
