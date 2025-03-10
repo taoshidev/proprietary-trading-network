@@ -448,8 +448,8 @@ class PolygonDataService(BaseDataService):
                 start_ms=a.timestamp,
                 websocket=False,
                 lag_ms=now_ms - a.timestamp,
-                bid=a.bid,
-                ask=a.ask,
+                bid=a.bid if hasattr(a, 'bid') else 0,
+                ask=a.ask if hasattr(a, 'ask') else 0
             )
 
     def get_close_rest(
