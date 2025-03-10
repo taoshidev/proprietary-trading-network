@@ -21,10 +21,9 @@ from vali_objects.vali_dataclasses.price_source import PriceSource
 class TestMDDChecker(TestBase):
     @classmethod
     def setUpClass(cls):
-        cls.data_patch = patch('vali_objects.utils.live_price_fetcher.LivePriceFetcher.fetch_prices')
+        cls.data_patch = patch('vali_objects.utils.live_price_fetcher.LivePriceFetcher.get_tp_to_sorted_price_sources')
         cls.mock_fetch_prices = cls.data_patch.start()
-        cls.mock_fetch_prices.return_value = {TradePair.BTCUSD: (
-            64751.73,
+        cls.mock_fetch_prices.return_value = {TradePair.BTCUSD:
             [PriceSource(source='Tiingo_rest', timespan_ms=60000, open=64751.73, close=64771.04, vwap=None,
                          high=64813.66, low=64749.99, start_ms=1721937480000, websocket=False, lag_ms=29041,
                          volume=None),
@@ -36,9 +35,8 @@ class TestMDDChecker(TestBase):
                          volume=0.00023784),
              PriceSource(source='Polygon_rest', timespan_ms=1000, open=64695.87, close=64681.9, vwap=64682.2898,
                          high=64695.87, low=64681.9, start_ms=1721937628000, websocket=False, lag_ms=177041,
-                         volume=0.05812185)]),
-            TradePair.ETHUSD: (
-        3267.8, [PriceSource(source='Polygon_ws', timespan_ms=0, open=3267.8, close=3267.8, vwap=3267.8, high=3267.8,
+                         volume=0.05812185)],
+            TradePair.ETHUSD: [PriceSource(source='Polygon_ws', timespan_ms=0, open=3267.8, close=3267.8, vwap=3267.8, high=3267.8,
                              low=3267.8, start_ms=1722390426999, websocket=True, lag_ms=2470, volume=0.00697151),
                  PriceSource(source='Polygon_rest', timespan_ms=1000, open=3267.8, close=3267.8, vwap=3267.8,
                              high=3267.8, low=3267.8, start_ms=1722390426000, websocket=False, lag_ms=2470,
@@ -47,7 +45,7 @@ class TestMDDChecker(TestBase):
                              low=3267.9, start_ms=1722390422000, websocket=True, lag_ms=7469, volume=None),
                  PriceSource(source='Tiingo_rest', timespan_ms=60000, open=3271.26001, close=3268.6001, vwap=None,
                              high=3271.26001, low=3268.1001, start_ms=1722389640000, websocket=False, lag_ms=729470,
-                             volume=None)])
+                             volume=None)]
         }
         cls.position_locks = PositionLocks()
 

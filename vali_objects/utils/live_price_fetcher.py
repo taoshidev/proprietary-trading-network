@@ -37,7 +37,7 @@ class LivePriceFetcher:
             self.polygon_data_service.websocket_manager_thread.join()
         self.polygon_data_service.stop_threads()
 
-    def get_sorted_price_sources(self, price_events: List[PriceSource | None], current_time_ms: int, filter_recent_only=True) -> List[PriceSource] | None:
+    def sorted_valid_price_sources(self, price_events: List[PriceSource | None], current_time_ms: int, filter_recent_only=True) -> List[PriceSource] | None:
         """
         Sorts a list of price events by their recency and validity.
         """
@@ -97,7 +97,7 @@ class LivePriceFetcher:
         for trade_pair in trade_pairs:
             current_time_ms = trade_pair_to_last_order_time_ms[trade_pair]
             events = [websocket_prices_polygon.get(trade_pair), websocket_prices_tiingo_data.get(trade_pair)]
-            sources = self.get_sorted_price_sources(events, current_time_ms)
+            sources = self.sorted_valid_price_sources(events, current_time_ms)
             if sources:
                 results[trade_pair] = sources
             else:
@@ -112,7 +112,7 @@ class LivePriceFetcher:
 
         for trade_pair in trade_pairs_needing_rest_data:
             current_time_ms = trade_pair_to_last_order_time_ms[trade_pair]
-            sources = self.get_sorted_price_sources([
+            sources = self.sorted_valid_price_sources([
                 websocket_prices_polygon.get(trade_pair),
                 websocket_prices_tiingo_data.get(trade_pair),
                 rest_prices_polygon.get(trade_pair),

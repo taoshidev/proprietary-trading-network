@@ -36,13 +36,13 @@ class Agg:
         self.ask = ask
         self.vwap = vwap
         self.timestamp = timestamp
-        self.vol = volume
+        self.volume = volume
 
     def __str__(self):
         return (
             f"Agg("
             f"open={self.open}, close={self.close}, high={self.high}, low={self.low}, "
-            f"bid={self.bid}, ask={self.ask}, vwap={self.vwap}, timestamp={self.timestamp}, vol={self.vol})"
+            f"bid={self.bid}, ask={self.ask}, vwap={self.vwap}, timestamp={self.timestamp}, vol={self.volume})"
         )
 
     # Optional: Add a __repr__ method for better representation in debugging and interactive sessions
@@ -50,7 +50,7 @@ class Agg:
         return (
             f"Agg("
             f"open={self.open}, close={self.close}, high={self.high}, low={self.low}, "
-            f"bid={self.bid}, ask={self.ask}, vwap={self.vwap}, timestamp={self.timestamp}, vol={self.vol})"
+            f"bid={self.bid}, ask={self.ask}, vwap={self.vwap}, timestamp={self.timestamp}, vol={self.volume})"
         )
 
 

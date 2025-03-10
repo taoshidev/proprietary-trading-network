@@ -72,30 +72,33 @@ class PriceSource(BaseModel):
                 return self.close
 
     def parse_appropriate_price(self, now_ms: int, is_forex: bool, order_type: OrderType, position) -> float:
+        ans = None
         if is_forex:
             if order_type == OrderType.LONG:
-                return self.ask
+                ans = self.ask
             elif order_type == OrderType.SHORT:
-                return self.bid
+                ans = self.bid
             elif order_type == OrderType.FLAT:
                 # Use the position's initial type to determine if the FLAT is increasing or decreasing leverage
                 if position.orders[0] == OrderType.LONG:
-                    return self.bid
+                    ans = self.bid
                 elif position.orders[0] == OrderType.SHORT:
-                    return self.ask
+                    ans = self.ask
                 else:
                     bt.logging.error(f'Initial position order is FLAT. Unexpected. Position: {position}')
-                    return self.vwap
+                    ans = self.vwap
             else:
                 raise Exception(f'Unexpected order type {order_type}')
 
-        if self.websocket:
-            return self.open
+        elif self.websocket:
+            ans = self.open
         else:
             if abs(now_ms - self.start_ms) < abs(now_ms - self.end_ms):
-                return self.open
+                ans = self.open
             else:
-                return self.close
+                ans = self.close
+        bt.logging.success(f'Parsed appropriate price {ans} from price_source {self} for order type {order_type} and position {position}')
+        return ans
 
     @staticmethod
     def get_winning_event(events, now_ms):

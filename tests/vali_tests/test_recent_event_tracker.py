@@ -20,7 +20,7 @@ class TestRecentEventTracker(unittest.TestCase):
         self.tracker.add_event(event, is_forex_quote=True)
         existing_event = self.tracker.get_event_by_timestamp(mock_time.return_value)
         self.assertEqual(existing_event[0], event)
-        self.assertEqual(existing_event[1], [([event.bid], [event.ask])])
+        self.assertEqual(existing_event[1], ([event.bid], [event.ask]))
 
         # Assert the first event is added correctly
         self.assertEqual(len(self.tracker.events), 1)
