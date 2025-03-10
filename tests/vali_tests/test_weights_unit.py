@@ -39,12 +39,12 @@ class TestWeights(TestBase):
         ledger = {}
         miner_positions = {}
         for i in range(10):
-            ledger[f"miner{i}"] = generate_ledger(0.1)
+            ledger[f"miner{i}"] = generate_ledger(0.1)[TP_ID_PORTFOLIO]
             miner_positions[f"miner{i}"] = [copy.deepcopy(self.DEFAULT_POSITION)]
 
         # Test the default values
         scaled_transformed_list: list[tuple[str, float]] = Scoring.compute_results_checkpoint(
-            {hk: v[TP_ID_PORTFOLIO] for hk, v in ledger.items()},
+            ledger,
             miner_positions,
             evaluation_time_ms=self.EVALUATION_TIME_MS
         )
