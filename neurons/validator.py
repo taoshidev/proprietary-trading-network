@@ -514,41 +514,6 @@ class Validator:
         trade_pair = TradePair.from_trade_pair_id(string_trade_pair)
         return trade_pair
 
-    def convert_signal_to_order(self, signal, hotkey, now_ms, miner_order_uuid) -> Order:
-        """
-        Example input signal
-          {'trade_pair': {'trade_pair_id': 'BTCUSD', 'trade_pair': 'BTC/USD', 'fees': 0.003, 'min_leverage': 0.0001, 'max_leverage': 20},
-          'order_type': 'LONG',
-          'leverage': 0.5}
-        """
-        trade_pair = self.parse_trade_pair_from_signal(signal)
-        if trade_pair is None:
-            bt.logging.error(f"[{trade_pair}] not in TradePair enum.")
-            raise SignalException(
-                f"miner [{hotkey}] incorrectly sent trade pair. Raw signal: {signal}"
-            )
-
-        signal_order_type = OrderType.from_string(signal["order_type"])
-        signal_leverage = signal["leverage"]
-
-        bt.logging.info("Attempting to get live price for trade pair: " + trade_pair.trade_pair_id)
-        live_closing_price, price_sources = self.live_price_fetcher.get_latest_price(trade_pair=trade_pair,
-                                                                                     time_ms=now_ms)
-
-        order = Order(
-            trade_pair=trade_pair,
-            order_type=signal_order_type,
-            leverage=signal_leverage,
-            price=live_closing_price,
-            processed_ms=now_ms,
-            order_uuid=miner_order_uuid if miner_order_uuid else str(uuid.uuid4()),
-            price_sources=price_sources
-        )
-        delta_t_ms = TimeUtil.now_in_millis() - now_ms
-        delta_t_s_3_decimals = round(delta_t_ms / 1000.0, 3)
-        bt.logging.success(f"Converted signal to order: {order} in {delta_t_s_3_decimals} seconds")
-        return order
-
     def _enforce_num_open_order_limit(self, trade_pair_to_open_position: dict, signal_to_order):
         # Check if there are too many orders across all open positions.
         # If so, check if the current order is a FLAT order (reduces number of open orders). If not, raise an exception
@@ -560,8 +525,8 @@ class Validator:
                     f"order [{signal_to_order}] is not a FLAT order."
                 )
 
-    def _get_or_create_open_position(self, signal_to_order: Order, miner_hotkey: str, trade_pair_to_open_position: dict, miner_order_uuid: str):
-        trade_pair = signal_to_order.trade_pair
+    def _get_or_create_open_position_from_new_order(self, trade_pair: TradePair, order_type: OrderType, order_time_ms: int,
+                                        miner_hotkey: str, trade_pair_to_open_position: dict, miner_order_uuid: str):
 
         # if a position already exists, add the order to it
         if trade_pair in trade_pair_to_open_position:
@@ -576,14 +541,14 @@ class Validator:
         else:
             bt.logging.debug("processing new position")
             # if the order is FLAT ignore (noop)
-            if signal_to_order.order_type == OrderType.FLAT:
+            if order_type == OrderType.FLAT:
                 open_position = None
             else:
                 # if a position doesn't exist, then make a new one
                 open_position = Position(
                     miner_hotkey=miner_hotkey,
                     position_uuid=miner_order_uuid if miner_order_uuid else str(uuid.uuid4()),
-                    open_ms=TimeUtil.now_in_millis(),
+                    open_ms=order_time_ms,
                     trade_pair=trade_pair
                 )
         return open_position
@@ -707,6 +672,7 @@ class Validator:
                        ) -> template.protocol.SendSignal:
         # pull miner hotkey to reference in various activities
         now_ms = TimeUtil.now_in_millis()
+        order = None
         miner_hotkey = synapse.dendrite.hotkey
         synapse.validator_hotkey = self.wallet.hotkey.ss58_address
         signal = synapse.signal
@@ -721,24 +687,53 @@ class Validator:
         error_message = ""
         try:
             miner_order_uuid = self.parse_miner_uuid(synapse)
-            signal_to_order = self.convert_signal_to_order(signal, miner_hotkey, now_ms, miner_order_uuid)
+            trade_pair = self.parse_trade_pair_from_signal(signal)
+            if trade_pair is None:
+                bt.logging.error(f"[{trade_pair}] not in TradePair enum.")
+                raise SignalException(
+                    f"miner [{miner_hotkey}] incorrectly sent trade pair. Raw signal: {signal}"
+                )
+
+            price_sources = self.live_price_fetcher.get_sorted_price_sources_for_trade_pair(trade_pair, now_ms)
+            if not price_sources:
+                raise SignalException(
+                    f"Ignoring order for [{miner_hotkey}] due to no live prices being found for trade_pair [{trade_pair}]. Please try again.")
+            best_price_source = price_sources[0]
+
+            signal_leverage = signal["leverage"]
+            signal_order_type = OrderType.from_string(signal["order_type"])
+
             # Multiple threads can run receive_signal at once. Don't allow two threads to trample each other.
-            with self.position_locks.get_lock(miner_hotkey, signal_to_order.trade_pair.trade_pair_id):
+            with self.position_locks.get_lock(miner_hotkey, trade_pair.trade_pair_id):
                 self.enforce_no_duplicate_order(synapse)
                 if synapse.error_message:
                     return synapse
                 # gather open positions and see which trade pairs have an open position
                 positions = self.position_manager.get_positions_for_one_hotkey(miner_hotkey, only_open_positions=True)
                 trade_pair_to_open_position = {position.trade_pair: position for position in positions}
-                self._enforce_num_open_order_limit(trade_pair_to_open_position, signal_to_order)
-                open_position = self._get_or_create_open_position(signal_to_order, miner_hotkey, trade_pair_to_open_position, miner_order_uuid)
+                open_position = self._get_or_create_open_position_from_new_order(trade_pair, signal_order_type, now_ms,
+                                                         miner_hotkey, trade_pair_to_open_position, miner_order_uuid)
+
+                order = Order(
+                    trade_pair=trade_pair,
+                    order_type=signal_order_type,
+                    leverage=signal_leverage,
+                    price=best_price_source.parse_appropriate_price(now_ms, trade_pair.is_forex, signal_order_type, open_position),
+                    processed_ms=now_ms,
+                    order_uuid=miner_order_uuid if miner_order_uuid else str(uuid.uuid4()),
+                    price_sources=price_sources,
+                    bid=best_price_source.bid,
+                    ask=best_price_source.ask,
+                )
+                order.slippage = PriceSlippageModel.calculate_slippage(order.bid, order.ask, order)
+                self._enforce_num_open_order_limit(trade_pair_to_open_position, order)
+
+
                 if open_position:
+                    self.enforce_order_cooldown(order, open_position)
                     net_portfolio_leverage = self.position_manager.calculate_net_portfolio_leverage(miner_hotkey)
-                    self.enforce_order_cooldown(signal_to_order, open_position)
-                    open_position.add_order(signal_to_order, net_portfolio_leverage)
+                    open_position.add_order(order, net_portfolio_leverage)
                     self.position_manager.save_miner_position(open_position)
-                    bt.logging.info(
-                        f"Position {open_position.trade_pair.trade_pair_id} for miner [{miner_hotkey}] updated.")
                     # Log the open position for the miner
                     open_position.log_position_status()
                     if miner_order_uuid:
@@ -747,7 +742,7 @@ class Validator:
                     # Happens if a FLAT is sent when no order exists
                     pass
                 # Update the last received order time
-                self.timestamp_manager.update_timestamp(signal_to_order)
+                self.timestamp_manager.update_timestamp(order)
 
         except SignalException as e:
             error_message = f"Error processing order for [{miner_hotkey}] with error [{e}]"
@@ -765,7 +760,7 @@ class Validator:
         synapse.error_message = error_message
         processing_time_s_3_decimals = round((TimeUtil.now_in_millis() - now_ms) / 1000.0, 3)
         bt.logging.success(f"Sending ack back to miner [{miner_hotkey}]. Synapse Message: {synapse.error_message}. "
-                           f"Process time {processing_time_s_3_decimals} seconds.")
+                           f"Process time {processing_time_s_3_decimals} seconds. order {order}")
         with self.signal_sync_lock:
             self.n_orders_being_processed[0] -= 1
             if self.n_orders_being_processed[0] == 0:

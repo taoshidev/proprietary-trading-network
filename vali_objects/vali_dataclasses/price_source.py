@@ -1,10 +1,14 @@
 # developer: Taoshidev
 # Copyright © 2024 Taoshi Inc
+
 import bittensor as bt
 from typing import Optional
 from pydantic import BaseModel
 
+from vali_objects.enums.order_type_enum import OrderType
 
+
+# Point-in-time (ws) or second candles only
 class PriceSource(BaseModel):
     source: str = 'unknown'
     timespan_ms: int = 0
@@ -16,7 +20,8 @@ class PriceSource(BaseModel):
     start_ms: int = 0
     websocket: bool = False
     lag_ms: int = 0
-    volume: Optional[float] = 0.0
+    bid: Optional[float] = 0.0
+    ask: Optional[float] = 0.0
 
     def __eq__(self, other):
         if not isinstance(other, PriceSource):
@@ -57,7 +62,7 @@ class PriceSource(BaseModel):
             return min(abs(now_ms - self.start_ms),
                        abs(now_ms - self.end_ms))
 
-    def parse_best_price(self, now_ms: int) -> float:
+    def parse_best_best_price_legacy(self, now_ms: int):
         if self.websocket:
             return self.open
         else:
@@ -66,42 +71,34 @@ class PriceSource(BaseModel):
             else:
                 return self.close
 
-    @staticmethod
-    def update_order_with_newest_price_sources(order, candidate_price_sources, hotkey, trade_pair_str) -> bool:
-        if not candidate_price_sources:
-            return False
-        order_time_ms = order.processed_ms
-        existing_dict = {ps.source: ps for ps in order.price_sources}
-        candidates_dict = {ps.source: ps for ps in candidate_price_sources}
-        new_price_sources = []
-        # We need to create new price sources. If there is overlap, take the one with the smallest time lag to order_time_ms
-        any_changes = False
-        for k, candidate_ps in candidates_dict.items():
-            if k in existing_dict:
-                existing_ps = existing_dict[k]
-                if candidate_ps.time_delta_from_now_ms(order_time_ms) < existing_ps.time_delta_from_now_ms(order_time_ms):  # Prefer the ws price in the past rather than the future
-                    bt.logging.warning(f"Found a better price source for {hotkey} {trade_pair_str}! Replacing {existing_ps.debug_str(order_time_ms)} with {candidate_ps.debug_str(order_time_ms)}")
-                    new_price_sources.append(candidate_ps)
-                    any_changes = True
+    def parse_appropriate_price(self, now_ms: int, is_forex: bool, order_type: OrderType, position) -> float:
+        ans = None
+        if is_forex:
+            if order_type == OrderType.LONG:
+                ans = self.ask
+            elif order_type == OrderType.SHORT:
+                ans = self.bid
+            elif order_type == OrderType.FLAT:
+                # Use the position's initial type to determine if the FLAT is increasing or decreasing leverage
+                if position.orders[0].order_type == OrderType.LONG:
+                    ans = self.bid
+                elif position.orders[0].order_type == OrderType.SHORT:
+                    ans = self.ask
                 else:
-                    new_price_sources.append(existing_ps)
+                    bt.logging.error(f'Initial position order is FLAT. Unexpected. Position: {position}')
+                    ans = self.vwap
             else:
-                bt.logging.warning(
-                    f"Found a new price source for {hotkey} {trade_pair_str}! Adding {candidate_ps.debug_str(order_time_ms)}")
-                new_price_sources.append(candidate_ps)
-                any_changes = True
+                raise Exception(f'Unexpected order type {order_type}')
 
-        for k, existing_ps in existing_dict.items():
-            if k not in candidates_dict:
-                new_price_sources.append(existing_ps)
-
-        new_price = PriceSource.get_winning_price(new_price_sources, order_time_ms)
-        new_price_sources = PriceSource.non_null_events_sorted(new_price_sources, order_time_ms)
-        if any_changes:
-            order.price = new_price
-            order.price_sources = new_price_sources
-            return True
-        return False
+        elif self.websocket:
+            ans = self.open
+        else:
+            if abs(now_ms - self.start_ms) < abs(now_ms - self.end_ms):
+                ans = self.open
+            else:
+                ans = self.close
+        bt.logging.success(f'Parsed appropriate price {ans} from price_source {self} for order type {order_type} and position {position}')
+        return ans
 
     @staticmethod
     def get_winning_event(events, now_ms):
@@ -116,9 +113,8 @@ class PriceSource(BaseModel):
         return best_event
 
     @staticmethod
-    def get_winning_price(events, now_ms):
-        winner = PriceSource.get_winning_event(events, now_ms)
-        return winner.parse_best_price(now_ms) if winner else None
+    def get_winning_price_source(events, now_ms):
+        return PriceSource.get_winning_event(events, now_ms)
 
     @staticmethod
     def non_null_events_sorted(events, now_ms):
@@ -128,6 +124,6 @@ class PriceSource(BaseModel):
         return ans
 
     def debug_str(self, time_target_ms):
-        return f"(src={self.source} price={self.open} delta_ms={self.time_delta_from_now_ms(time_target_ms)})"
+        return f"(src={self.source} price={self.open} ba=({self.bid}/{self.ask}) delta_ms={self.time_delta_from_now_ms(time_target_ms)})"
 
 

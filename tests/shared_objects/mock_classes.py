@@ -14,7 +14,7 @@ from vali_objects.utils.price_slippage_model import PriceSlippageModel
 from vali_objects.vali_config import TradePair
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
 from shared_objects.cache_controller import CacheController
-
+from vali_objects.vali_dataclasses.price_source import PriceSource
 
 class MockMDDChecker(MDDChecker):
     def __init__(self, metagraph, position_manager, live_price_fetcher):
@@ -60,8 +60,8 @@ class MockLivePriceFetcher(LivePriceFetcher):
         super().__init__(secrets=secrets, disable_ws=disable_ws)
         self.polygon_data_service = MockPolygonDataService(api_key=secrets["polygon_apikey"])
 
-    def get_latest_price(self, trade_pair: TradePair, time_ms=None):
-        return [0, []]
+    def get_sorted_price_sources_for_trade_pair(self, trade_pair, processed_ms):
+        return [PriceSource(price=1, open=1, high=1, close=1, low=1, bid=1, ask=1)]
 
 class MockPolygonDataService(PolygonDataService):
     def __init__(self, api_key):
