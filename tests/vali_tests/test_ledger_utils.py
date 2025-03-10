@@ -272,7 +272,6 @@ class TestLedgerUtils(TestBase):
     def test_max_drawdown(self):
         l1 = generate_ledger(0.1, mdd=0.99)[TP_ID_PORTFOLIO]
         l1_ledger = l1
-        l1_cps = l1_ledger.cps
         
         # Empty ledger test
         empty_ledger = PerfLedger()

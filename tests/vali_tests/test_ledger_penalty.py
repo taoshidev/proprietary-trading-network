@@ -26,7 +26,6 @@ class TestLedgerPenalty(TestBase):
         l3_cps[0].mdd = 0.8  # 20% drawdown only on the first checkpoint
 
         l4 = generate_ledger(0.1, mdd=0.8)[TP_ID_PORTFOLIO]  # 20% drawdown
-        l4_cps = l4.cps
 
         self.assertEqual(LedgerUtils.max_drawdown_threshold_penalty(l1), 1.0)
         self.assertEqual(LedgerUtils.max_drawdown_threshold_penalty(l2), 0.0)

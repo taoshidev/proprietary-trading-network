@@ -2,7 +2,6 @@ from typing import List, Dict, Any
 from dataclasses import dataclass
 from enum import Enum
 from collections import defaultdict
-import bittensor as bt
 
 from time_util.time_util import TimeUtil
 from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
@@ -411,7 +410,7 @@ class MinerStatisticsManager:
         self,
         time_now: int = None,
         checkpoints: bool = True,
-        risk_report: bool = True,
+        risk_report: bool = False,
         selected_miner_hotkeys: List[str] = None
     ) -> Dict[str, Any]:
 
