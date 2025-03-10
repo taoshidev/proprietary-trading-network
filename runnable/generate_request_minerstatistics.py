@@ -1,4 +1,4 @@
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Tuple
 from dataclasses import dataclass
 from enum import Enum
 from collections import defaultdict
@@ -271,12 +271,69 @@ class MinerStatisticsManager:
     # -------------------------------------------
     # Main scoring wrapper
     # -------------------------------------------
-    def calculate_all_scores(
+    def calculate_score_percentiles(
             self,
-            miner_data: Dict[str, Dict[str, Any]],
-            score_type: ScoreType = ScoreType.BASE
+            metric_to_scores: Dict[str, List[Tuple[str, float]]],
     ) -> Dict[str, Dict[str, ScoreResult]]:
         """Calculate all metrics for all miners (BASE, AUGMENTED) with no differentiation between challenge or main competition miners"""
+        #ONLY call this function after setting metrics
+        metric_results = {}
+        for metric_name, numeric_scores in metric_to_scores.items():
+            metric = self.metrics_calculator.metrics[metric_name]
+            ranks = self.rank_dictionary(numeric_scores)
+            percentiles = self.percentile_rank_dictionary(numeric_scores)
+            numeric_dict = dict(numeric_scores)
+
+            for hotkey, score in numeric_dict.items():
+                # Build ScoreResult objects
+                metric_results[metric_name] = {
+                    hotkey: ScoreResult(
+                        value=score,
+                        rank=ranks[hotkey],
+                        percentile=percentiles[hotkey],
+                        overall_contribution=percentiles[hotkey] * metric.weight
+                    )
+                }
+
+        return metric_results
+
+
+    def calculate_overall_score(
+            self,
+            miner_data: Dict[str, Dict[str, Any]],
+            metric_results: Dict[str, Dict[Tuple[str, ScoreResult]]],
+            with_penalties: bool = False,
+
+    ):
+        penalties = defaultdict(lambda: 1)
+        if with_penalties:
+            penalties = self.calculate_penalties(miner_data)
+        overall_scores = defaultdict(lambda : 0)
+
+        for metric_name, hotkey_map in metric_results.items():
+            metric = self.metrics_calculator.metrics[metric_name]
+            for hotkey, sr in hotkey_map.items():
+                overall_scores[hotkey] += sr.percentile * metric.weight * penalties.get(hotkey, 1)
+        numeric_scores = [(hotkey, score) for hotkey, score in overall_scores.items()]
+        ranks = self.rank_dictionary(numeric_scores)
+        percentiles = self.percentile_rank_dictionary(numeric_scores)
+
+        overall_breakdown = {
+            hotkey:
+                {
+                    "value": overall_scores[hotkey],
+                    "rank": ranks[hotkey],
+                    "percentile": percentiles[hotkey]
+            } for hotkey in overall_scores.keys()
+        }
+        return overall_breakdown
+
+    def calculate_scores(
+        self,
+        miner_data: Dict[str, Dict[str, Any]],
+        score_type: ScoreType = ScoreType.BASE,
+
+    ):
         # Initialize flags
         weighting = False
 
@@ -291,7 +348,7 @@ class MinerStatisticsManager:
                 metric.requires_weighting = True
 
         # Calculate for each metric
-        metric_results = {}
+        metric_to_scores = {}
         for metric_name, metric in self.metrics_calculator.metrics.items():
             numeric_scores = self.metrics_calculator.calculate_metric(
                 metric,
@@ -299,50 +356,40 @@ class MinerStatisticsManager:
                 weighting=weighting
             )
 
-            ranks = self.rank_dictionary(numeric_scores)
-            percentiles = self.percentile_rank_dictionary(numeric_scores)
-            numeric_dict = dict(numeric_scores)
+            metric_to_scores[metric_name] = numeric_scores
+        return metric_to_scores
 
-            # Build ScoreResult objects
-            metric_results[metric_name] = {
-                hotkey: ScoreResult(
-                    value=numeric_dict[hotkey],
-                    rank=ranks[hotkey],
-                    percentile=percentiles[hotkey],
-                    overall_contribution=percentiles[hotkey] * metric.weight
-                )
-                for hotkey in numeric_dict
-            }
-
-        return metric_results
-
-    def calculate_scores_with_challengeperiod(
+    def calculate_all_scores(
             self,
             miner_data: Dict[str, Dict[str, Any]],
             success_hotkeys: List[str],
             testing_hotkeys: List[str],
-            score_type: ScoreType = ScoreType.BASE
+            score_type: ScoreType = ScoreType.BASE,
+            with_penalities: bool = False
     ) -> Dict[str, Dict[str, ScoreResult]]:
         """
         Calculates scores for main competition miners and challenge period miners, by calculating challenge period scores only relative the
-        to the main competition
+        to the main competition and main competition miners only relative to the main competition miners.
         """
 
         challengeperiod_scores = defaultdict(dict)
 
         # Get the miner data only for miners in the main competition
         success_miner_data = {hotkey: miner_data.get(hotkey) for hotkey in success_hotkeys if hotkey in miner_data}
+        #Get scores for all metrics
+        all_metric_scores = self.calculate_scores(miner_data, score_type)
+        success_miner_scores = {hotkey : all_metric_scores[hotkey] for hotkey in success_hotkeys}
 
         for hk in testing_hotkeys:
             # Initialize dictionary with success scores and one challenge miner added
-            testing_miner_data = {hk: miner_data.get(hk)}
-            trial_miner_data = {**success_miner_data, **testing_miner_data}
+            testing_miner_scores = {hk: all_metric_scores.get(hk)}
+            trial_miner_metric_scores = {**success_miner_scores, **testing_miner_scores}
 
             # Calculate scores for main competition with each challenge miner. Necessary for percentile calculations
-            trial_scores = self.calculate_all_scores(trial_miner_data, score_type)
+            trial_scores_data = self.calculate_score_percentiles(trial_miner_metric_scores)
 
             # Add the challenge period miner's scores to challengeperiod_scores
-            for metric_name, hotkey_map in trial_scores.items():
+            for metric_name, hotkey_map in trial_scores_data.items():
                 challengeperiod_hotkey_map = challengeperiod_scores[metric_name]
                 testing_miner_score_result = hotkey_map.get(hk)
                 challengeperiod_hotkey_map[hk] = testing_miner_score_result
@@ -440,8 +487,10 @@ class MinerStatisticsManager:
             miner_data[hotkey] = self.prepare_miner_data(hotkey, filtered_ledger, filtered_positions, time_now)
 
         # Compute the base and augmented scores
-        base_scores = self.calculate_scores_with_challengeperiod(miner_data, challengeperiod_success_hotkeys, challengeperiod_testing_hotkeys, ScoreType.BASE)
-        augmented_scores = self.calculate_scores_with_challengeperiod(miner_data, challengeperiod_success_hotkeys, challengeperiod_testing_hotkeys, ScoreType.AUGMENTED)
+        base_scores = self.calculate_all_scores(miner_data, challengeperiod_success_hotkeys, challengeperiod_testing_hotkeys, ScoreType.BASE)
+        augmented_scores = self.calculate_all_scores(miner_data, challengeperiod_success_hotkeys, challengeperiod_testing_hotkeys, ScoreType.AUGMENTED)
+
+        overall_scores = self.calculate_overall_score(miner_data, augmented_scores, with_penalties=True)
 
         # Also compute penalty breakdown (for display in final "penalties" dict).
         penalty_breakdown = self.calculate_penalties_breakdown(miner_data)
@@ -481,6 +530,7 @@ class MinerStatisticsManager:
 
             base_dict = build_scores_dict(base_scores)
             augmented_dict = build_scores_dict(augmented_scores)
+            penalized_dict = build_scores_dict(penalty_breakdown)
 
             # Extra data
             extra = miner_data[hotkey].get("extra_data", {})
@@ -522,6 +572,8 @@ class MinerStatisticsManager:
                 "challengeperiod": challengeperiod_info,
                 "scores": base_dict,
                 "augmented_scores": augmented_dict,
+
+                "penalized_scores": penalized_dict,
                 "volatility": volatility_subdict,
                 "drawdowns": drawdowns_subdict,
                 "plagiarism": plagiarism_val,
@@ -532,11 +584,13 @@ class MinerStatisticsManager:
                     "martingale": pen_break.get("martingale", 1.0),
                     "total": pen_break.get("total", 1.0),
                 },
+                #TODO update weight to be relative only to the correct sets of miners
                 "weight": {
                     "value": w_val,
                     "rank": w_rank,
                     "percentile": w_pct,
                 }
+                ""
             }
 
             # Optionally attach actual checkpoints (like the original first script)
