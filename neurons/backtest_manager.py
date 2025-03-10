@@ -23,7 +23,7 @@ from vali_objects.utils.price_slippage_model import PriceSlippageModel
 class BacktestManager:
 
     def __init__(self, positions_at_t_f, start_time_ms, secrets, scoring_func,
-                 leverage_to_capital=ValiConfig.LEVERAGE_TO_CAPITAL, use_slippage=False,
+                 capital=ValiConfig.CAPITAL, use_slippage=False,
                  fetch_slippage_data=False, recalculate_slippage=False, rebuild_all_positions=False):
         if not secrets:
             raise Exception(
@@ -80,7 +80,7 @@ class BacktestManager:
         self.plagiarism_detector = PlagiarismDetector(self.metagraph)
         self.miner_statistics_manager = MinerStatisticsManager(position_manager=self.position_manager, subtensor_weight_setter=self.weight_setter, plagiarism_detector=self.plagiarism_detector)
         self.psm = PriceSlippageModel(self.live_price_fetcher, is_backtesting=True, fetch_slippage_data=fetch_slippage_data,
-                                      recalculate_slippage=recalculate_slippage, leverage_to_capital=leverage_to_capital)
+                                      recalculate_slippage=recalculate_slippage, capital=capital)
 
 
         #Until slippage is added to the db, this will always have to be done since positions are sometimes rebuilt and would require slippage attributes on orders and initial_entry_price calculation
@@ -268,7 +268,7 @@ if __name__ == '__main__':
         hk_to_positions[pos['miner_hotkey']].append(Position(**pos))
 
     secrets = ValiUtils.get_secrets()  # {'polygon_apikey': '123', 'tiingo_apikey': '456'}
-    btm = BacktestManager(hk_to_positions, start_time_ms, secrets, None, leverage_to_capital=500_000,
+    btm = BacktestManager(hk_to_positions, start_time_ms, secrets, None, capital=500_000,
                           use_slippage=True, fetch_slippage_data=True, recalculate_slippage=True)
     for t_ms in range(start_time_ms, max_order_time_ms + 1, 1000 * 60 * 60 * 24):
         btm.update(t_ms, run_challenge=False)
