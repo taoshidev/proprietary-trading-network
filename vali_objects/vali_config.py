@@ -25,7 +25,7 @@ class TradePairCategory(str, Enum):
 class ValiConfig:
     # versioning
     VERSION = meta_version
-    DAYS_IN_YEAR = 252  # 252 trading days in a year
+    DAYS_IN_YEAR = 365  # annualization factor
     STATISTICAL_CONFIDENCE_MINIMUM_N = 60
 
     # Market-specific configurations
