@@ -569,6 +569,7 @@ class MinerStatisticsManager:
 
             # Purely for visualization purposes
             daily_returns = daily_returns_dict.get(hotkey, [])
+            daily_returns_list = [{"date": date, "value": value} for date, value in daily_returns.items()]
 
             # Risk Profile
             risk_profile_single_dict = risk_profile_dict.get(hotkey, {})
@@ -578,7 +579,7 @@ class MinerStatisticsManager:
                 "challengeperiod": challengeperiod_info,
                 "scores": base_dict,
                 "augmented_scores": augmented_dict,
-                "daily_returns": daily_returns,
+                "daily_returns": daily_returns_list,
                 "volatility": volatility_subdict,
                 "drawdowns": drawdowns_subdict,
                 "plagiarism": plagiarism_val,
@@ -668,7 +669,6 @@ if __name__ == "__main__":
     perf_ledger_manager.position_manager = position_manager
 
     subtensor_weight_setter = SubtensorWeightSetter(
-        config=None,
         metagraph=None,
         running_unit_tests=False,
         position_manager=position_manager,
