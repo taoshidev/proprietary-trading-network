@@ -306,7 +306,7 @@ class LedgerUtils:
 
         maximum_drawdown_percent = ValiConfig.DRAWDOWN_MAXVALUE_PERCENTAGE
 
-        max_drawdown = LedgerUtils.max_drawdown(ledger_element.cps)
+        max_drawdown = LedgerUtils.max_drawdown(ledger_element)
         recorded_drawdown_percentage = LedgerUtils.drawdown_percentage(max_drawdown)
 
         # Drawdown is less than our maximum permitted drawdown

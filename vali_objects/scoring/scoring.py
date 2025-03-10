@@ -335,7 +335,7 @@ class Scoring:
             miner_hotkeys.append(miner)
             scores.append(score)
 
-        percentiles = percentileofscore(scores, scores, kind='strict') / 100
+        percentiles = percentileofscore(scores, scores, kind='rank') / 100
 
         miner_percentiles = list(zip(miner_hotkeys, percentiles))
 
