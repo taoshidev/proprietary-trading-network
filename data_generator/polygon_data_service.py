@@ -279,7 +279,7 @@ class PolygonDataService(BaseDataService):
                 low=low,
                 start_ms=start_timestamp,
                 websocket=True,
-                lag_ms=abs(now_ms - start_timestamp),
+                lag_ms=now_ms - start_timestamp,
                 bid=bid,
                 ask=ask
             )
@@ -298,7 +298,7 @@ class PolygonDataService(BaseDataService):
                     low=low,
                     start_ms=end_timestamp,
                     websocket=True,
-                    lag_ms=abs(now_ms - end_timestamp),
+                    lag_ms=now_ms - end_timestamp,
                     bid=bid,
                     ask=ask
                 )
@@ -447,7 +447,7 @@ class PolygonDataService(BaseDataService):
                 low=a.low,
                 start_ms=a.timestamp,
                 websocket=False,
-                lag_ms=abs(now_ms - a.timestamp),
+                lag_ms=now_ms - a.timestamp,
                 bid=a.bid,
                 ask=a.ask,
             )
