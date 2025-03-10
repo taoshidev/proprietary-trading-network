@@ -49,7 +49,7 @@ class LivePriceFetcher:
         if not best_event:
             return None
 
-        if filter_recent_only and best_event.time_delta_from_now_ms(current_time_ms) > 2000:
+        if filter_recent_only and best_event.time_delta_from_now_ms(current_time_ms) > 3000:
             return None
 
         return PriceSource.non_null_events_sorted(valid_events, current_time_ms)
@@ -72,7 +72,7 @@ class LivePriceFetcher:
         winning_event = PriceSource.get_winning_event(price_sources, time_ms)
         return winning_event.parse_best_best_price_legacy(time_ms), price_sources
 
-    def get_sorted_price_sources_for_trade_pair(self, trade_pair: TradePair, time_ms:int):
+    def get_sorted_price_sources_for_trade_pair(self, trade_pair: TradePair, time_ms:int) -> List[PriceSource] | None:
         temp = self.get_tp_to_sorted_price_sources([trade_pair], {trade_pair: time_ms})
         return temp.get(trade_pair)
 
@@ -97,7 +97,7 @@ class LivePriceFetcher:
         for trade_pair in trade_pairs:
             current_time_ms = trade_pair_to_last_order_time_ms[trade_pair]
             events = [websocket_prices_polygon.get(trade_pair), websocket_prices_tiingo_data.get(trade_pair)]
-            sources = self.sorted_valid_price_sources(events, current_time_ms)
+            sources = self.sorted_valid_price_sources(events, current_time_ms, filter_recent_only=True)
             if sources:
                 results[trade_pair] = sources
             else:
@@ -117,7 +117,7 @@ class LivePriceFetcher:
                 websocket_prices_tiingo_data.get(trade_pair),
                 rest_prices_polygon.get(trade_pair),
                 rest_prices_tiingo_data.get(trade_pair)
-            ], current_time_ms)
+            ], current_time_ms, filter_recent_only=False)
             results[trade_pair] = sources
 
         return results
