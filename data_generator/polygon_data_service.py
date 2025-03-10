@@ -279,7 +279,7 @@ class PolygonDataService(BaseDataService):
                 low=low,
                 start_ms=start_timestamp,
                 websocket=True,
-                lag_ms=now_ms - start_timestamp,
+                lag_ms=abs(now_ms - start_timestamp),
                 bid=bid,
                 ask=ask
             )
@@ -298,7 +298,7 @@ class PolygonDataService(BaseDataService):
                     low=low,
                     start_ms=end_timestamp,
                     websocket=True,
-                    lag_ms=now_ms - end_timestamp,
+                    lag_ms=abs(now_ms - end_timestamp),
                     bid=bid,
                     ask=ask
                 )
@@ -447,7 +447,9 @@ class PolygonDataService(BaseDataService):
                 low=a.low,
                 start_ms=a.timestamp,
                 websocket=False,
-                lag_ms=now_ms - a.timestamp
+                lag_ms=abs(now_ms - a.timestamp),
+                bid=a.bid,
+                ask=a.ask,
             )
 
     def get_close_rest(
@@ -781,31 +783,37 @@ class PolygonDataService(BaseDataService):
                         del ans[-1].temp
                 n_quotes += 1
                 bid, ask, current_delta = self.parse_price_for_forex(r, stats=None)
-                price = bid
-                if price is None:
+                if bid is None:
                     continue
+                midpoint_price = (bid + ask) / 2.0
 
                 if best_delta == float('inf'):
                     best_delta = current_delta
-                    ans.append(Agg(open=price,
-                                   close=price,
-                                   high=price,
-                                   low=price,
+                    ans.append(Agg(open=midpoint_price,
+                                   close=midpoint_price,
+                                   high=midpoint_price,
+                                   low=midpoint_price,
                                    vwap=None,
                                    timestamp=t_ms,
                                    bid=bid,
                                    ask=ask,
                                    volume=0))
-                    ans[-1].temp = [price]
+                    ans[-1].temp = ([bid], [ask])
                 else:
                     best_delta = current_delta
-                    arr = ans[-1].temp
-                    arr.append(price)
-                    arr.sort()
+                    dat = ans[-1].temp
+                    dat[0].append(bid)
+                    dat[0].sort()
+                    dat[1].append(ask)
+                    dat[1].sort()
 
                     # Get the median value if the length is odd. Otherwise, average the two middle values
-                    median_price = RecentEventTracker.forex_median_price(arr)
-                    ans[-1].open = ans[-1].close = ans[-1].low = ans[-1].high = median_price
+                    median_bid = RecentEventTracker.forex_median_price(dat[0])
+                    median_ask = RecentEventTracker.forex_median_price(dat[1])
+                    midpoint_price = (median_bid + median_ask) / 2.0
+                    ans[-1].open = ans[-1].close = ans[-1].low = ans[-1].high = midpoint_price
+                    ans[-1].bid = median_bid
+                    ans[-1].ask = median_ask
 
                 prev_t_ms = t_ms
 

@@ -725,7 +725,8 @@ class Validator:
                     bid=best_price_source.bid,
                     ask=best_price_source.ask,
                 )
-                order.slippage = PriceSlippageModel.calculate_slippage(order.bid, order.ask, order)
+                if best_price_source.bid and best_price_source.ask:
+                    order.slippage = PriceSlippageModel.calculate_slippage(order.bid, order.ask, order)
                 self._enforce_num_open_order_limit(trade_pair_to_open_position, order)
 
 
@@ -734,8 +735,6 @@ class Validator:
                     net_portfolio_leverage = self.position_manager.calculate_net_portfolio_leverage(miner_hotkey)
                     open_position.add_order(order, net_portfolio_leverage)
                     self.position_manager.save_miner_position(open_position)
-                    bt.logging.info(
-                        f"Position {open_position.trade_pair.trade_pair_id} for miner [{miner_hotkey}] updated.")
                     # Log the open position for the miner
                     open_position.log_position_status()
                     if miner_order_uuid:

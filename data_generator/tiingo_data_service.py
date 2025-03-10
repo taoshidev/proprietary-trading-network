@@ -175,7 +175,7 @@ class TiingoDataService(BaseDataService):
                 low=low,
                 start_ms=start_timestamp,
                 websocket=True,
-                lag_ms=now_ms - start_timestamp,
+                lag_ms=abs(now_ms - start_timestamp),
                 bid=bid_price,
                 ask=ask_price
             )
@@ -343,7 +343,7 @@ class TiingoDataService(BaseDataService):
                                     low=price,
                                     start_ms=data_time_ms,
                                     websocket=False,
-                                    lag_ms=time_now_ms - data_time_ms,
+                                    lag_ms=abs(time_now_ms - data_time_ms),
                                     bid=float(bid_price) if bid_price else 0,
                                     ask=float(ask_price) if ask_price else 0
                                 )
@@ -403,7 +403,7 @@ class TiingoDataService(BaseDataService):
                     low=bid,
                     start_ms=data_time_ms,
                     websocket=False,
-                    lag_ms=time_now_ms - data_time_ms,
+                    lag_ms=abs(time_now_ms - data_time_ms),
                     bid=bid,
                     ask=ask
                 )
@@ -513,7 +513,7 @@ class TiingoDataService(BaseDataService):
                     low=price,
                     start_ms=data_time_ms,
                     websocket=False,
-                    lag_ms=now_ms - data_time_ms,
+                    lag_ms=abs(now_ms - data_time_ms),
                     bid=bid_price,
                     ask=ask_price
                 )
