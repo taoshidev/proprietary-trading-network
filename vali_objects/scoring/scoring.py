@@ -159,10 +159,7 @@ class Scoring:
             scores = []
             for miner, returns in filtered_ledger_returns.items():
                 # Get the miner ledger
-                if miner not in ledger_dict or not ledger_dict[miner]:
-                    checkpoints = []
-                else:
-                    checkpoints = ledger_dict[miner].cps
+                ledger = ledger_dict.get(miner, PerfLedger())
 
                 # Check if the miner has full penalty - if not include them in the scoring competition
                 if miner in full_penalty_miners:
@@ -170,7 +167,7 @@ class Scoring:
 
                 score = config['function'](
                     log_returns=returns,
-                    checkpoints=checkpoints,
+                    ledger=ledger,
                     weighting=weighting
                 )
 
@@ -219,14 +216,15 @@ class Scoring:
 
             if not ledger:
                 empty_ledger_miners.append((miner, len(positions)))
-            ledger_checkpoints = ledger.cps if ledger else []
+
+            ledger = ledger if ledger else PerfLedger()
 
             cumulative_penalty = 1
             for penalty_name, penalty_config in Scoring.penalties_config.items():
                 # Apply penalty based on its input type
                 penalty = 1
                 if penalty_config.input_type == PenaltyInputType.LEDGER:
-                    penalty = penalty_config.function(ledger_checkpoints)
+                    penalty = penalty_config.function(ledger)
                 elif penalty_config.input_type == PenaltyInputType.POSITIONS:
                     penalty = penalty_config.function(positions)
 

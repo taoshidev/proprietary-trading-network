@@ -20,7 +20,7 @@ class TestLedgerUtils(TestBase):
         # seeding
         random.seed(0)
 
-        self.DEFAULT_LEDGER = generate_ledger(0.1, mdd=0.99)
+        self.DEFAULT_LEDGER = generate_ledger(0.1, mdd=0.99)[TP_ID_PORTFOLIO]
 
     def test_daily_return_log(self):
         """
@@ -30,7 +30,7 @@ class TestLedgerUtils(TestBase):
         empty_ledger = PerfLedger()
         self.assertEqual(LedgerUtils.daily_return_log(empty_ledger), [])
         
-        ledger = self.DEFAULT_LEDGER[TP_ID_PORTFOLIO]
+        ledger = self.DEFAULT_LEDGER
         checkpoints = ledger.cps
 
         # One checkpoint shouldn't be enough since full day is required
@@ -248,54 +248,51 @@ class TestLedgerUtils(TestBase):
         self.assertEqual(len(LedgerUtils.daily_returns(empty_ledger)), 0)
 
         # No returns
-        l1 = generate_ledger(0.1)
-        l1_ledger = l1[TP_ID_PORTFOLIO]
+        l1 = generate_ledger(0.1)[TP_ID_PORTFOLIO]
+        l1_ledger = l1
         self.assertEqual(LedgerUtils.daily_returns(l1_ledger)[0], 0)
         # Simple returns >= log returns
         self.assertGreaterEqual(LedgerUtils.daily_returns(l1_ledger)[0], LedgerUtils.daily_return_log(l1_ledger)[0] * 100)
 
         # Negative returns
-        l1 = generate_ledger(0.1, gain=0.1, loss=-0.2)
-        l1_ledger = l1[TP_ID_PORTFOLIO]
+        l1 = generate_ledger(0.1, gain=0.1, loss=-0.2)[TP_ID_PORTFOLIO]
+        l1_ledger = l1
         self.assertLess(LedgerUtils.daily_returns(l1_ledger)[0], 0)
         # Simple returns >= log returns
         self.assertGreaterEqual(LedgerUtils.daily_returns(l1_ledger)[0], LedgerUtils.daily_return_log(l1_ledger)[0] * 100)
 
         # Positive returns
-        l1 = generate_ledger(0.1, gain=0.2, loss=-0.1)
-        l1_ledger = l1[TP_ID_PORTFOLIO]
+        l1 = generate_ledger(0.1, gain=0.2, loss=-0.1)[TP_ID_PORTFOLIO]
+        l1_ledger = l1
         self.assertGreater(LedgerUtils.daily_returns(l1_ledger)[0], 0)
         # Simple returns >= log returns
         self.assertGreaterEqual(LedgerUtils.daily_returns(l1_ledger)[0], LedgerUtils.daily_return_log(l1_ledger)[0] * 100)
 
     # Want to test the individual functions inputs and outputs
     def test_max_drawdown(self):
-        l1 = generate_ledger(0.1, mdd=0.99)
-        l1_ledger = l1[TP_ID_PORTFOLIO]
-        l1_cps = l1_ledger.cps
+        l1 = generate_ledger(0.1, mdd=0.99)[TP_ID_PORTFOLIO]
         
         # Empty ledger test
         empty_ledger = PerfLedger()
-        self.assertEqual(LedgerUtils.max_drawdown(empty_ledger.cps), 0.0)
+        self.assertEqual(LedgerUtils.max_drawdown(empty_ledger), 0.0)
 
         # Valid ledger tests
-        self.assertEqual(LedgerUtils.max_drawdown(l1_cps), 0.99)
+        self.assertEqual(LedgerUtils.max_drawdown(l1), 0.99)
 
-        l2 = generate_ledger(0.1, mdd=0.95)
-        l2_cps = l2[TP_ID_PORTFOLIO].cps
-        self.assertEqual(LedgerUtils.max_drawdown(l2_cps), 0.95)
+        l2 = generate_ledger(0.1, mdd=0.95)[TP_ID_PORTFOLIO]
+        self.assertEqual(LedgerUtils.max_drawdown(l2), 0.95)
 
-        l3 = generate_ledger(0.1, mdd=0.99)
-        l3_cps = l3[TP_ID_PORTFOLIO].cps
+        l3 = generate_ledger(0.1, mdd=0.99)[TP_ID_PORTFOLIO]
+        l3_cps = l3.cps
         l3_cps[-1].mdd = 0.5
-        self.assertEqual(LedgerUtils.max_drawdown(l3_cps), 0.5)
+        self.assertEqual(LedgerUtils.max_drawdown(l3), 0.5)
 
-        l4 = generate_ledger(0.1, mdd=0.99)
-        l4_cps = l4[TP_ID_PORTFOLIO].cps
+        l4 = generate_ledger(0.1, mdd=0.99)[TP_ID_PORTFOLIO]
+        l4_cps = l4.cps
         l4_cps[0].mdd = 0.5
-        self.assertEqual(LedgerUtils.max_drawdown(l4_cps), 0.5)
+        self.assertEqual(LedgerUtils.max_drawdown(l4), 0.5)
 
-        for element in [l1_cps, l2_cps, l3_cps, l4_cps]:
+        for element in [l1, l2, l3, l4]:
             self.assertGreaterEqual(LedgerUtils.max_drawdown(element), 0)
             self.assertLessEqual(LedgerUtils.max_drawdown(element), 1)
 
@@ -303,7 +300,7 @@ class TestLedgerUtils(TestBase):
         drawdowns = [0.99, 0.98]
         checkpoints = [checkpoint_generator(mdd=mdd) for mdd in drawdowns]
         minimal_ledger = ledger_generator(checkpoints=checkpoints)
-        self.assertEqual(LedgerUtils.max_drawdown(minimal_ledger.cps), 0.98)
+        self.assertEqual(LedgerUtils.max_drawdown(minimal_ledger), 0.98)
 
     def test_drawdown_percentage(self):
         self.assertAlmostEqual(LedgerUtils.drawdown_percentage(1), 0)
@@ -378,82 +375,18 @@ class TestLedgerUtils(TestBase):
 
         # self.assertAlmostEqual(LedgerUtils.mdd_augmentation(1 - (ValiConfig.DRAWDOWN_MINVALUE_PERCENTAGE / 100) + 0.001), 0)
 
-    # Test approximate_drawdown
-    def test_approximate_drawdown(self):
-        ledger = self.DEFAULT_LEDGER[TP_ID_PORTFOLIO] 
-        checkpoints = ledger.cps
-        
-        empty_ledger = PerfLedger()
-        self.assertEqual(LedgerUtils.approximate_drawdown(empty_ledger.cps), 0)
-        self.assertLessEqual(LedgerUtils.approximate_drawdown(checkpoints), 1)
-
-        l1 = generate_ledger(0.1, mdd=0.99)  # 1% drawdown
-        l1_cps = l1[TP_ID_PORTFOLIO].cps
-
-        for i in range(0, len(l1_cps) - len(l1_cps)//4):
-            l1_cps[i].mdd = (random.random() / 10) + 0.9
-
-        self.assertLess(LedgerUtils.approximate_drawdown(l1_cps), 0.99)
-        self.assertGreater(LedgerUtils.approximate_drawdown(l1_cps), 0.8)
-
-        l2 = generate_ledger(0.1, mdd=0.99)  # 1% drawdown
-        l2_cps = l2[TP_ID_PORTFOLIO].cps
-        l2_cps[-1].mdd = 0.8  # 20% drawdown only on the most recent checkpoint
-        self.assertLessEqual(LedgerUtils.approximate_drawdown(l2_cps), 0.99)
-        self.assertGreater(LedgerUtils.approximate_drawdown(l2_cps), 0.8)
-
-    # Test effective_drawdown
-    def test_effective_drawdown(self):
-        self.assertEqual(LedgerUtils.effective_drawdown(0, 0.5), 0)
-        self.assertEqual(LedgerUtils.effective_drawdown(0.5, 0), 0)
-        self.assertEqual(LedgerUtils.effective_drawdown(0.5, 0.5), 0.5)
-        self.assertEqual(LedgerUtils.effective_drawdown(0.9, 0.95), 0.9)
-
-    # Test mean_drawdown
-    def test_mean_drawdown(self):
-        # Test with empty list
-        self.assertEqual(LedgerUtils.mean_drawdown([]), 0)
-        
-        # With one checkpoint, mean drawdown should be mdd
-        drawdowns = [0.98]
-        checkpoints = [checkpoint_generator(mdd=x) for x in drawdowns]
-        single_cp_ledger = ledger_generator(checkpoints=checkpoints)
-        self.assertEqual(LedgerUtils.mean_drawdown(single_cp_ledger.cps), 0.98)
-
-        # Should be the average in the general case
-        drawdowns = [0.98, 1.0]
-        checkpoints = [checkpoint_generator(mdd=mdd) for mdd in drawdowns]
-        two_cp_ledger = ledger_generator(checkpoints=checkpoints)
-        self.assertEqual(LedgerUtils.mean_drawdown(two_cp_ledger.cps), 0.99)
-
-        # Should be set to 1 if average is over 1
-        drawdowns = [1.1, 1.3, 0.99]
-        checkpoints = [checkpoint_generator(mdd=mdd) for mdd in drawdowns]
-        high_dd_ledger = ledger_generator(checkpoints=checkpoints)
-        self.assertEqual(LedgerUtils.mean_drawdown(high_dd_ledger.cps), 1.0)
-
-        # Should be set 0 if drawdowns are somehow negative
-        drawdowns = [-0.1, -0.3, -0.9]
-        checkpoints = [checkpoint_generator(mdd=mdd) for mdd in drawdowns]
-        neg_dd_ledger = ledger_generator(checkpoints=checkpoints)
-        self.assertEqual(LedgerUtils.mean_drawdown(neg_dd_ledger.cps), 0)
-
-        # Test with the default ledger
-        self.assertEqual(LedgerUtils.mean_drawdown(self.DEFAULT_LEDGER[TP_ID_PORTFOLIO].cps), 0.99)
-
     # Test risk_normalization
     def test_risk_normalization(self):
         # Test with empty list
-        self.assertEqual(LedgerUtils.risk_normalization([]), 0)
+        self.assertEqual(LedgerUtils.risk_normalization(PerfLedger()), 0)
         
         # Test with default ledger
-        ledger = self.DEFAULT_LEDGER[TP_ID_PORTFOLIO]
-        checkpoints = ledger.cps
-        self.assertLessEqual(LedgerUtils.risk_normalization(checkpoints), 1)
+        ledger = self.DEFAULT_LEDGER
+        self.assertLessEqual(LedgerUtils.risk_normalization(ledger), 1)
         
         # Test with empty ledger
         empty_ledger = PerfLedger()
-        self.assertEqual(LedgerUtils.risk_normalization(empty_ledger.cps), 0)
+        self.assertEqual(LedgerUtils.risk_normalization(empty_ledger), 0)
         
     def test_daily_return_log_by_date(self):
         """Test the daily return log by date function"""
@@ -462,7 +395,7 @@ class TestLedgerUtils(TestBase):
         self.assertEqual(LedgerUtils.daily_return_log_by_date(empty_ledger), {})
         
         # Test with ledger containing checkpoints
-        ledger = self.DEFAULT_LEDGER[TP_ID_PORTFOLIO]
+        ledger = self.DEFAULT_LEDGER
         result = LedgerUtils.daily_return_log_by_date(ledger)
         
         # Should return a dictionary mapping dates to returns
@@ -484,7 +417,7 @@ class TestLedgerUtils(TestBase):
         self.assertEqual(LedgerUtils.daily_returns_by_date(empty_ledger), {})
         
         # Test with ledger containing checkpoints
-        ledger = self.DEFAULT_LEDGER[TP_ID_PORTFOLIO]
+        ledger = self.DEFAULT_LEDGER
         log_results = LedgerUtils.daily_return_log_by_date(ledger)
         percentage_results = LedgerUtils.daily_returns_by_date(ledger)
         
@@ -503,7 +436,7 @@ class TestLedgerUtils(TestBase):
         self.assertEqual(LedgerUtils.daily_returns_by_date_json(empty_ledger), {})
         
         # Test with ledger containing checkpoints
-        ledger = self.DEFAULT_LEDGER[TP_ID_PORTFOLIO]
+        ledger = self.DEFAULT_LEDGER
         regular_results = LedgerUtils.daily_returns_by_date(ledger)
         json_results = LedgerUtils.daily_returns_by_date_json(ledger)
         
@@ -527,7 +460,7 @@ class TestLedgerUtils(TestBase):
         import json
         try:
             json_string = json.dumps(json_results)
-            # Parsing back should give the same data
+        # Parsing back should give the same data
             parsed_json = json.loads(json_string)
             self.assertEqual(parsed_json, json_results)
         except TypeError:

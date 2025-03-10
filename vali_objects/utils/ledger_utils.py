@@ -5,7 +5,7 @@ import copy
 from datetime import datetime, timezone
 
 from vali_objects.vali_config import ValiConfig
-from vali_objects.vali_dataclasses.perf_ledger import PerfCheckpoint, PerfLedger
+from vali_objects.vali_dataclasses.perf_ledger import PerfLedger
 
 
 class LedgerUtils:
@@ -263,17 +263,14 @@ class LedgerUtils:
         return float(drawdown_penalty)
 
     @staticmethod
-    def max_drawdown_threshold_penalty(checkpoints: list[PerfCheckpoint]) -> float:
+    def max_drawdown_threshold_penalty(ledger: PerfLedger) -> float:
         """
         Args:
-            checkpoints: list[PerfCheckpoint] - the list of checkpoints
+            ledger: PerfLedger - the ledger of the miner
         """
         drawdown_limit = ValiConfig.DRAWDOWN_MAXVALUE_PERCENTAGE
 
-        if len(checkpoints) == 0:
-            return 0
-
-        effective_drawdown = LedgerUtils.max_drawdown(checkpoints)
+        effective_drawdown = LedgerUtils.max_drawdown(ledger)
         effective_drawdown_percentage = LedgerUtils.drawdown_percentage(effective_drawdown)
 
         if effective_drawdown_percentage >= drawdown_limit:
@@ -282,27 +279,12 @@ class LedgerUtils:
         return 1
 
     @staticmethod
-    def mean_drawdown(checkpoints: list[PerfCheckpoint]) -> float:
+    def max_drawdown(ledger: PerfLedger) -> float:
         """
         Args:
-            checkpoints: list[PerfCheckpoint] - the list of checkpoints
+            ledger: PerfLedger - the ledger of the miner
         """
-        if len(checkpoints) == 0:
-            return 0
-
-        # Compute the drawdown of the checkpoints
-        drawdowns = [checkpoint.mdd for checkpoint in checkpoints]
-        effective_drawdown = np.mean(drawdowns)
-        final_drawdown = np.clip(effective_drawdown, 0, 1.0)
-
-        return final_drawdown
-
-    @staticmethod
-    def max_drawdown(checkpoints: list[PerfCheckpoint]) -> float:
-        """
-        Args:
-            checkpoints: list[PerfCheckpoint] - the list of checkpoints
-        """
+        checkpoints = ledger.cps
         if len(checkpoints) == 0:
             return 0
 
@@ -312,41 +294,6 @@ class LedgerUtils:
         final_drawdown = np.clip(effective_drawdown, 0, 1.0)
 
         return final_drawdown
-
-    @staticmethod
-    def approximate_drawdown(checkpoints: list[PerfCheckpoint]) -> float:
-        """
-        Args:
-            checkpoints: list[PerfCheckpoint] - the list of checkpoints
-        """
-        upper_percentile = 100 * (1 - ValiConfig.APPROXIMATE_DRAWDOWN_PERCENTILE)
-        if len(checkpoints) == 0:
-            return 0
-
-        # Compute the drawdown of the checkpoints
-        drawdowns = [checkpoint.mdd for checkpoint in checkpoints]
-        effective_drawdown = np.percentile(drawdowns, upper_percentile)
-        final_drawdown = np.clip(effective_drawdown, 0, 1.0)
-
-        return final_drawdown
-
-    @staticmethod
-    def effective_drawdown(recent_drawdown: float, approximate_drawdown: float) -> float:
-        """
-        Args:
-            recent_drawdown: float - the most recent drawdown, as a value between 0 and 1
-            approximate_drawdown: float - the approximate drawdown, as a value between 0 and 1
-
-        Returns:
-            float - the effective drawdown
-        """
-        if recent_drawdown <= 0:
-            return 0
-
-        if approximate_drawdown <= 0:
-            return 0
-
-        return min(recent_drawdown, approximate_drawdown)
 
     @staticmethod
     def is_beyond_max_drawdown(ledger_element: PerfLedger):
@@ -359,7 +306,7 @@ class LedgerUtils:
 
         maximum_drawdown_percent = ValiConfig.DRAWDOWN_MAXVALUE_PERCENTAGE
 
-        max_drawdown = LedgerUtils.max_drawdown(ledger_element.cps)
+        max_drawdown = LedgerUtils.max_drawdown(ledger_element)
         recorded_drawdown_percentage = LedgerUtils.drawdown_percentage(max_drawdown)
 
         # Drawdown is less than our maximum permitted drawdown
@@ -371,19 +318,13 @@ class LedgerUtils:
         return max_drawdown_criteria, recorded_drawdown_percentage
 
     @staticmethod
-    def risk_normalization(checkpoints: list[PerfCheckpoint]) -> float:
+    def risk_normalization(ledger: PerfLedger) -> float:
         """
         Args:
-            checkpoints: list[PerfCheckpoint] - the list of checkpoints
+            ledger: PerfLedger - the ledger of the miner
         """
-        if len(checkpoints) == 0:
-            return 0
-
         # recent_drawdown = LedgerUtils.recent_drawdown(checkpoints)
-        approximate_drawdown = LedgerUtils.max_drawdown(checkpoints)
-
-        # effective_drawdown = LedgerUtils.effective_drawdown(approximate_drawdown)
-
+        approximate_drawdown = LedgerUtils.max_drawdown(ledger)
         drawdown_penalty = LedgerUtils.mdd_augmentation(approximate_drawdown)
         return drawdown_penalty
 

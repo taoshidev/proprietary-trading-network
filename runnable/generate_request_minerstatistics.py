@@ -111,12 +111,10 @@ class MetricsCalculator:
         scores = {}
         for hotkey, miner_data in data.items():
             log_returns = miner_data.get("log_returns", [])
-            checkpoints = miner_data.get("checkpoints", [])
-            ledger = miner_data.get("ledger")
+            ledger = miner_data.get("ledger", [])
 
             value = metric.metric_func(
                 log_returns=log_returns,
-                checkpoints=checkpoints,
                 ledger=ledger,
                 weighting=weighting
             )
@@ -175,7 +173,7 @@ class MinerStatisticsManager:
         ann_downside_volatility = min(Metrics.ann_downside_volatility(miner_returns), 100)
 
         # Drawdowns
-        mdd = LedgerUtils.max_drawdown(miner_cps)
+        mdd = LedgerUtils.max_drawdown(miner_ledger)
 
         # Engagement: positions
         n_positions = len(miner_positions)
@@ -215,7 +213,7 @@ class MinerStatisticsManager:
         miner_ledger: PerfLedger = filtered_ledger.get(hotkey)
         if not miner_ledger:
             return {}
-        miner_returns_ledger: PerfLedger = LedgerUtils.cumulative(miner_ledger)
+        cumulative_miner_returns_ledger: PerfLedger = LedgerUtils.cumulative(miner_ledger)
         miner_daily_returns: list[float] = LedgerUtils.daily_return_log(filtered_ledger.get(hotkey, None))
         miner_positions: list[Position] = filtered_positions.get(hotkey, [])
 
@@ -224,8 +222,8 @@ class MinerStatisticsManager:
         return {
             "positions": miner_positions,
             "ledger": miner_ledger,
-            "daily_returns": miner_daily_returns,
-            "cumulative_ledger": miner_returns_ledger,
+            "log_returns": miner_daily_returns,
+            "cumulative_ledger": cumulative_miner_returns_ledger,
             "extra_data": extra_data
         }
 
@@ -245,11 +243,11 @@ class MinerStatisticsManager:
         """
         results = {}
         for hotkey, data in miner_data.items():
-            cps = data.get("checkpoints", [])
+            ledger = data.get("ledger", [])
             positions = data.get("positions", [])
 
             # For functions that still require checkpoints directly
-            drawdown_threshold_penalty = LedgerUtils.max_drawdown_threshold_penalty(cps)
+            drawdown_threshold_penalty = LedgerUtils.max_drawdown_threshold_penalty(ledger)
             risk_profile_penalty = PositionPenalties.risk_profile_penalty(positions)
 
             total_penalty = drawdown_threshold_penalty * risk_profile_penalty
@@ -412,7 +410,7 @@ class MinerStatisticsManager:
         self,
         time_now: int = None,
         checkpoints: bool = True,
-        risk_report: bool = True,
+        risk_report: bool = False,
         selected_miner_hotkeys: List[str] = None
     ) -> Dict[str, Any]:
 
@@ -603,7 +601,7 @@ class MinerStatisticsManager:
 
             # Optionally attach actual checkpoints (like the original first script)
             if checkpoints:
-                ledger_obj = miner_data[hotkey].get("ledger")
+                ledger_obj = miner_data[hotkey].get("checkpoints")
                 if ledger_obj and hasattr(ledger_obj, "cps"):
                     final_miner_dict["checkpoints"] = ledger_obj.cps
 
