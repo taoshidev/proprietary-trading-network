@@ -24,7 +24,7 @@ import bittensor as bt
 class PenaltyInputType(Enum):
     LEDGER = auto()
     POSITIONS = auto()
-
+    PSEUDO_POSITIONS = auto()
 
 @dataclass
 class PenaltyConfig:
@@ -63,10 +63,10 @@ class Scoring:
             function=LedgerUtils.max_drawdown_threshold_penalty,
             input_type=PenaltyInputType.LEDGER
         ),
-        'martingale': PenaltyConfig(
-            function=PositionPenalties.martingale_penalty,
+        'risk_profile': PenaltyConfig(
+            function=PositionPenalties.risk_profile_penalty,
             input_type=PenaltyInputType.POSITIONS
-        ),
+        )
     }
 
     @staticmethod
@@ -136,12 +136,21 @@ class Scoring:
             positions,
             evaluation_time_ms=evaluation_time_ms
         )
+        # psuedo_positions = PositionUtils.build_pseudo_positions(filtered_positions)
+
         # Compute miner penalties
         miner_penalties = Scoring.miner_penalties(filtered_positions, ledger_dict)
+        # miner_psuedo_penalties = Scoring.miner_penalties(psuedo_positions, ledger_dict)
+
+        # full_miner_penalties = {
+        #     miner: min(miner_penalties[miner], miner_psuedo_penalties[miner]) for miner in filtered_positions.keys()
+        # }
+
+        full_miner_penalties = miner_penalties
 
         # Miners with full penalty
         full_penalty_miners = set([
-            miner for miner, penalty in miner_penalties.items() if penalty == 0
+            miner for miner, penalty in full_miner_penalties.items() if penalty == 0
         ])
 
         filtered_ledger_returns = LedgerUtils.ledger_returns_log(ledger_dict)
@@ -150,10 +159,7 @@ class Scoring:
             scores = []
             for miner, returns in filtered_ledger_returns.items():
                 # Get the miner ledger
-                if miner not in ledger_dict or not ledger_dict[miner]:
-                    checkpoints = []
-                else:
-                    checkpoints = ledger_dict[miner].cps
+                ledger = ledger_dict.get(miner, PerfLedger())
 
                 # Check if the miner has full penalty - if not include them in the scoring competition
                 if miner in full_penalty_miners:
@@ -161,7 +167,7 @@ class Scoring:
 
                 score = config['function'](
                     log_returns=returns,
-                    checkpoints=checkpoints,
+                    ledger=ledger,
                     weighting=weighting
                 )
 
@@ -172,7 +178,7 @@ class Scoring:
                 "weight": config["weight"]
             }
 
-        scores_dict["penalties"] = copy.deepcopy(miner_penalties)
+        scores_dict["penalties"] = copy.deepcopy(full_miner_penalties)
 
 
         return scores_dict
@@ -187,7 +193,7 @@ class Scoring:
             for miner, percentile_rank in percentile_scores:
                 if miner not in combined_scores:
                     combined_scores[miner] = 0
-                combined_scores[miner] += config['weight'] * percentile_rank # + (1 - config['weight'])
+                combined_scores[miner] += config['weight'] * percentile_rank  # + (1 - config['weight'])
 
         # Now applying the penalties post scoring
         for miner, penalty in scoring_dict["penalties"].items():
@@ -207,16 +213,18 @@ class Scoring:
         empty_ledger_miners = []
         for miner, ledger in ledger_dict.items():
             positions = hotkey_positions.get(miner, [])
+
             if not ledger:
                 empty_ledger_miners.append((miner, len(positions)))
-            ledger_checkpoints = ledger.cps if ledger else []
+
+            ledger = ledger if ledger else PerfLedger()
 
             cumulative_penalty = 1
             for penalty_name, penalty_config in Scoring.penalties_config.items():
                 # Apply penalty based on its input type
                 penalty = 1
                 if penalty_config.input_type == PenaltyInputType.LEDGER:
-                    penalty = penalty_config.function(ledger_checkpoints)
+                    penalty = penalty_config.function(ledger)
                 elif penalty_config.input_type == PenaltyInputType.POSITIONS:
                     penalty = penalty_config.function(positions)
 

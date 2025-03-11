@@ -17,7 +17,9 @@ from vali_objects.utils.ledger_utils import LedgerUtils
 from vali_objects.scoring.scoring import Scoring
 from vali_objects.utils.metrics import Metrics
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
-
+from vali_objects.utils.risk_profiling import RiskProfiling
+from vali_objects.vali_dataclasses.perf_ledger import PerfLedger
+from vali_objects.position import Position
 
 # ---------------------------------------------------------------------------
 # Enums and Dataclasses
@@ -109,11 +111,11 @@ class MetricsCalculator:
         scores = {}
         for hotkey, miner_data in data.items():
             log_returns = miner_data.get("log_returns", [])
-            checkpoints = miner_data.get("checkpoints", [])
+            ledger = miner_data.get("ledger", [])
 
             value = metric.metric_func(
                 log_returns=log_returns,
-                checkpoints=checkpoints,
+                ledger=ledger,
                 weighting=weighting
             )
 
@@ -164,15 +166,14 @@ class MinerStatisticsManager:
         miner_ledger = ledger_dict.get(hotkey)
         miner_cps = miner_ledger.cps if miner_ledger else []
         miner_positions = positions_dict.get(hotkey, [])
-        # ledger_returns_log returns {hotkey: [returns...], ...}
-        miner_returns = LedgerUtils.ledger_returns_log(ledger_dict).get(hotkey, [])
+        miner_returns = LedgerUtils.daily_return_log(ledger_dict.get(hotkey, None))
 
         # Volatility
         ann_volatility = min(Metrics.ann_volatility(miner_returns), 100)
         ann_downside_volatility = min(Metrics.ann_downside_volatility(miner_returns), 100)
 
         # Drawdowns
-        mdd = LedgerUtils.max_drawdown(miner_cps)
+        mdd = LedgerUtils.max_drawdown(miner_ledger)
 
         # Engagement: positions
         n_positions = len(miner_positions)
@@ -185,9 +186,6 @@ class MinerStatisticsManager:
 
         # Minimum days boolean
         meets_min_days = (len(miner_returns) >= ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N)
-
-        # Martingale
-        martingale_score = PositionPenalties.martingale_score(miner_positions)
 
         return {
             "annual_volatility": ann_volatility,
@@ -202,8 +200,7 @@ class MinerStatisticsManager:
                 "n_checkpoints": n_checkpoints,
                 "checkpoint_durations": checkpoint_durations
             },
-            "minimum_days_boolean": meets_min_days,
-            "martingale_score": martingale_score
+            "minimum_days_boolean": meets_min_days
         }
 
     # -------------------------------------------
@@ -213,22 +210,20 @@ class MinerStatisticsManager:
         """
         Combines the minimal fields needed for the metrics plus the extra data.
         """
-        miner_ledger = filtered_ledger.get(hotkey)
+        miner_ledger: PerfLedger = filtered_ledger.get(hotkey)
         if not miner_ledger:
             return {}
-        miner_returns_ledger = LedgerUtils.cumulative(miner_ledger)
-        miner_returns = LedgerUtils.ledger_returns_log({hotkey: miner_returns_ledger}).get(hotkey, [])
-        miner_cps = miner_returns_ledger.cps if miner_returns_ledger else []
-        miner_positions = filtered_positions.get(hotkey, [])
+        cumulative_miner_returns_ledger: PerfLedger = LedgerUtils.cumulative(miner_ledger)
+        miner_daily_returns: list[float] = LedgerUtils.daily_return_log(filtered_ledger.get(hotkey, None))
+        miner_positions: list[Position] = filtered_positions.get(hotkey, [])
 
         extra_data = self.gather_extra_data(hotkey, filtered_ledger, filtered_positions)
 
         return {
-            "log_returns": miner_returns,
-            "checkpoints": miner_cps,
             "positions": miner_positions,
-            "ledger": miner_returns_ledger,
-            "evaluation_time": time_now,
+            "ledger": miner_ledger,
+            "log_returns": miner_daily_returns,
+            "cumulative_ledger": cumulative_miner_returns_ledger,
             "extra_data": extra_data
         }
 
@@ -248,17 +243,18 @@ class MinerStatisticsManager:
         """
         results = {}
         for hotkey, data in miner_data.items():
-            cps = data.get("checkpoints", [])
+            ledger = data.get("ledger", [])
             positions = data.get("positions", [])
 
-            drawdown_threshold_penalty = LedgerUtils.max_drawdown_threshold_penalty(cps)
-            martingale_penalty = PositionPenalties.martingale_penalty(positions)
+            # For functions that still require checkpoints directly
+            drawdown_threshold_penalty = LedgerUtils.max_drawdown_threshold_penalty(ledger)
+            risk_profile_penalty = PositionPenalties.risk_profile_penalty(positions)
 
-            total_penalty = drawdown_threshold_penalty * martingale_penalty
+            total_penalty = drawdown_threshold_penalty * risk_profile_penalty
 
             results[hotkey] = {
                 "drawdown_threshold": drawdown_threshold_penalty,
-                "martingale": martingale_penalty,
+                "risk_profile": risk_profile_penalty,
                 "total": total_penalty
             }
         return results
@@ -276,7 +272,7 @@ class MinerStatisticsManager:
             miner_data: Dict[str, Dict[str, Any]],
             score_type: ScoreType = ScoreType.BASE
     ) -> Dict[str, Dict[str, ScoreResult]]:
-        """Calculate all metrics for all miners (BASE, AUGMENTED) with no differentiation between challenge or main competition miners"""
+        """Calculate all metrics for all miners (BASE, AUGMENTED)."""
         # Initialize flags
         weighting = False
 
@@ -316,6 +312,19 @@ class MinerStatisticsManager:
 
         return metric_results
 
+    # -------------------------------------------
+    # Daily Returns
+    # -------------------------------------------
+    def calculate_all_daily_returns(self, filtered_ledger: dict[str, PerfLedger]) -> dict[str, list[float]]:
+        """Calculate daily returns for all miners."""
+        return {
+            hotkey: LedgerUtils.daily_returns_by_date_json(ledger)
+            for hotkey, ledger in filtered_ledger.items()
+        }
+
+    # -------------------------------------------
+    # Challenge Period
+    # -------------------------------------------
     def calculate_scores_with_challengeperiod(
             self,
             miner_data: Dict[str, Dict[str, Any]],
@@ -359,12 +368,49 @@ class MinerStatisticsManager:
         return miner_scores
 
     # -------------------------------------------
+    # Risk Profile
+    # -------------------------------------------
+    def calculate_risk_profile(
+        self,
+        miner_data: dict[str, dict[str, Any]]
+    ) -> dict[str, float]:
+        """Computes all statistics associated with the risk profiling system"""
+        miner_data_positions = {hk: data.get("positions", []) for hk, data in miner_data.items()}
+
+        risk_score = RiskProfiling.risk_profile_score(miner_data_positions)
+        risk_penalty = RiskProfiling.risk_profile_penalty(miner_data_positions)
+
+        risk_dictionary = {
+            hotkey: {
+                "risk_profile_score": risk_score.get(hotkey),
+                "risk_profile_penalty": risk_penalty.get(hotkey)
+            } for hotkey in miner_data_positions.keys()
+        }
+
+        return risk_dictionary
+
+    def calculate_risk_report(
+        self,
+        miner_data: dict[str, dict[str, Any]]
+    ) -> dict[str, dict[str, Any]]:
+        """Computes all statistics associated with the risk profiling system"""
+        miner_data_positions = {hk: data.get("positions", []) for hk, data in miner_data.items()}
+
+        miner_risk_report = {}
+        for hotkey, positions in miner_data_positions.items():
+            risk_report = RiskProfiling.risk_profile_reporting(positions)
+            miner_risk_report[hotkey] = risk_report
+
+        return miner_risk_report
+
+    # -------------------------------------------
     # Generate final data
     # -------------------------------------------
     def generate_miner_statistics_data(
         self,
         time_now: int = None,
         checkpoints: bool = True,
+        risk_report: bool = False,
         selected_miner_hotkeys: List[str] = None
     ) -> Dict[str, Any]:
 
@@ -443,8 +489,15 @@ class MinerStatisticsManager:
         base_scores = self.calculate_scores_with_challengeperiod(miner_data, challengeperiod_success_hotkeys, challengeperiod_testing_hotkeys, ScoreType.BASE)
         augmented_scores = self.calculate_scores_with_challengeperiod(miner_data, challengeperiod_success_hotkeys, challengeperiod_testing_hotkeys, ScoreType.AUGMENTED)
 
+        # For visualization
+        daily_returns_dict = self.calculate_all_daily_returns(filtered_ledger)
+
         # Also compute penalty breakdown (for display in final "penalties" dict).
         penalty_breakdown = self.calculate_penalties_breakdown(miner_data)
+
+        # Risk profiling
+        risk_profile_dict = self.calculate_risk_profile(miner_data)
+        risk_profile_report = self.calculate_risk_report(miner_data)
 
         # Build the final list
         results = []
@@ -505,8 +558,6 @@ class MinerStatisticsManager:
             }
             # Plagiarism
             plagiarism_val = plagiarism_scores.get(hotkey)
-            # Martingale (score)
-            martingale_val = extra.get("martingale_score")
 
             # Weight
             w_val = weights_dict.get(hotkey)
@@ -515,33 +566,43 @@ class MinerStatisticsManager:
 
             # Penalties breakdown for display
             pen_break = penalty_breakdown.get(hotkey, {})
-            # e.g. {"drawdown_threshold": x, "martingale": y, "total": z}
+
+            # Purely for visualization purposes
+            daily_returns = daily_returns_dict.get(hotkey, {})
+            daily_returns_list = [{"date": date, "value": value} for date, value in daily_returns.items()]
+
+            # Risk Profile
+            risk_profile_single_dict = risk_profile_dict.get(hotkey, {})
 
             final_miner_dict = {
                 "hotkey": hotkey,
                 "challengeperiod": challengeperiod_info,
                 "scores": base_dict,
                 "augmented_scores": augmented_dict,
+                "daily_returns": daily_returns_list,
                 "volatility": volatility_subdict,
                 "drawdowns": drawdowns_subdict,
                 "plagiarism": plagiarism_val,
-                "martingale": martingale_val,
                 "engagement": engagement_subdict,
+                "risk_profile": risk_profile_single_dict,
                 "penalties": {
                     "drawdown_threshold": pen_break.get("drawdown_threshold", 1.0),
-                    "martingale": pen_break.get("martingale", 1.0),
+                    "risk_profile": pen_break.get("risk_profile", 1.0),
                     "total": pen_break.get("total", 1.0),
                 },
                 "weight": {
                     "value": w_val,
                     "rank": w_rank,
                     "percentile": w_pct,
-                }
+                },
             }
+
+            if risk_report:
+                final_miner_dict["risk_profile_report"] = risk_profile_report.get(hotkey, {})
 
             # Optionally attach actual checkpoints (like the original first script)
             if checkpoints:
-                ledger_obj = miner_data[hotkey].get("ledger")
+                ledger_obj = miner_data[hotkey].get("cumulative_ledger")
                 if ledger_obj and hasattr(ledger_obj, "cps"):
                     final_miner_dict["checkpoints"] = ledger_obj.cps
 
@@ -580,8 +641,8 @@ class MinerStatisticsManager:
     # -------------------------------------------
     # Write to disk
     # -------------------------------------------
-    def generate_request_minerstatistics(self, time_now: int, checkpoints: bool = True):
-        final_dict = self.generate_miner_statistics_data(time_now, checkpoints)
+    def generate_request_minerstatistics(self, time_now: int, checkpoints: bool = True, risk_report: bool = False):
+        final_dict = self.generate_miner_statistics_data(time_now, checkpoints=checkpoints, risk_report=risk_report)
         output_file_path = ValiBkpUtils.get_miner_stats_dir()
         ValiBkpUtils.write_file(output_file_path, final_dict)
 

@@ -7,7 +7,7 @@ import { toShortFloat } from "../../utils";
 
 interface PenaltiesGroup {
   drawdown_threshold: number;
-  martingale: number;
+  risk_profile: number;
   total: number;
 }
 
@@ -55,9 +55,9 @@ export const PenaltyCard = ({
 
       <Box>
         <Text size="xs">
-          Martingale:{" "}
+          Risk Profile:{" "}
           <Text size="xs" fw="bold" component="span">
-            {toShortFloat(penalties.martingale)}
+            {toShortFloat(penalties.risk_profile)}
           </Text>
         </Text>
       </Box>

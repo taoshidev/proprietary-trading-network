@@ -5,72 +5,172 @@ import copy
 from datetime import datetime, timezone
 
 from vali_objects.vali_config import ValiConfig
-from vali_objects.vali_dataclasses.perf_ledger import PerfCheckpoint, PerfLedger
+from vali_objects.vali_dataclasses.perf_ledger import PerfLedger
 
 
 class LedgerUtils:
     @staticmethod
-    def daily_return_log(checkpoints: list[PerfCheckpoint]) -> list[float]:
+    def daily_returns(ledger: PerfLedger) -> list[float]:
+        """
+        Calculate daily returns from performance checkpoints, only including full days
+        :param ledger: PerfLedger - the ledger of the miner
+        :return: list[float] - list of daily returns for complete days as a percentage
+        """
+        daily_returns_logged = LedgerUtils.daily_return_log(ledger)
+        daily_returns_percentage = [(math.exp(x) - 1) * 100 for x in daily_returns_logged]
+        return daily_returns_percentage
+
+    @staticmethod
+    def daily_returns_by_date(ledger: PerfLedger) -> dict[datetime.date, float]:
+        """
+        Calculate daily returns from performance checkpoints, only including full days
+        :param ledger: PerfLedger - the ledger of the miner
+        :return: dict[datetime.date, float] - dictionary mapping dates to daily returns as a percentage
+        """
+        date_return_map = LedgerUtils.daily_return_log_by_date(ledger)
+        return {date: (math.exp(log_return) - 1) * 100
+                for date, log_return in date_return_map.items()}
+                
+    @staticmethod
+    def daily_returns_by_date_json(ledger: PerfLedger) -> dict[str, float]:
+        """
+        Calculate daily returns from performance checkpoints, with date keys as strings (YYYY-MM-DD)
+        to ensure JSON compatibility.
+        
+        :param ledger: PerfLedger - the ledger of the miner
+        :return: dict[str, float] - dictionary mapping date strings to daily returns as percentages
+        """
+        date_return_map = LedgerUtils.daily_returns_by_date(ledger)
+        return {date.isoformat(): round(return_value, 3)
+                for date, return_value in date_return_map.items()}
+
+    @staticmethod
+    def daily_return_log(ledger: PerfLedger) -> list[float]:
         """
         Calculate daily returns from performance checkpoints, only including full days
         with complete data and correct total accumulated time.
 
         Args:
-            checkpoints: List[PerfCheckpoint] - list of checkpoints ordered by timestamp
+            ledger: PerfLedger - the ledger of the miner
         Returns:
             List[float] - list of daily returns for complete days
         """
-        if not checkpoints:
+        if not ledger.cps:
             return []
+
+        date_return_map = LedgerUtils.daily_return_log_by_date(ledger)
+        return list(date_return_map.values())
+
+    @staticmethod
+    def daily_return_log_by_date(ledger: PerfLedger) -> dict[datetime.date, float]:
+        """
+        Calculate daily returns from performance checkpoints, only including full days
+        with complete data and correct total accumulated time.
+        Returns results as a dictionary mapping dates to returns.
+
+        Args:
+            ledger: PerfLedger - the ledger of the miner
+        Returns:
+            dict[datetime.date, float] - dictionary mapping dates to daily log returns
+        """
+        if not ledger.cps:
+            return {}
+
+        checkpoints = ledger.cps
 
         daily_groups = {}
         n_checkpoints_per_day = int(ValiConfig.DAILY_CHECKPOINTS)
 
         # Group checkpoints by date
         for cp in checkpoints:
-            running_date = datetime.fromtimestamp(cp.last_update_ms / 1000, tz=timezone.utc).date()
-            if cp.accum_ms == ValiConfig.TARGET_CHECKPOINT_DURATION_MS:
+            # Need to use the beginning of the cell, otherwise it may bleed into the next day
+            start_time = (cp.last_update_ms - cp.accum_ms)
+            full_cell = cp.accum_ms == ValiConfig.TARGET_CHECKPOINT_DURATION_MS
+
+            running_date = datetime.fromtimestamp(start_time / 1000, tz=timezone.utc).date()
+            if full_cell:
                 if running_date not in daily_groups:
                     daily_groups[running_date] = []
                 daily_groups[running_date].append(cp)
 
         # Calculate returns for complete days
-        returns = []
+        date_return_map = {}
         for running_date, day_checkpoints in sorted(daily_groups.items()):
             if len(day_checkpoints) == n_checkpoints_per_day:
                 daily_return = sum(cp.gain + cp.loss for cp in day_checkpoints)
-                returns.append(daily_return)
+                date_return_map[running_date] = daily_return
 
-        return returns
+        return date_return_map
 
     @staticmethod
-    def daily_return_percentage(checkpoints: list[PerfCheckpoint]) -> list[float]:
-        # First risk-free adjustment
-        return [(math.exp(x)-1) * 100 if x != 0 else 0 for x in LedgerUtils.daily_return_log(checkpoints)]
+    def ledger_drawdowns(ledger: PerfLedger) -> list[float]:
+        """
+        Extracts all drawdown values from a ledger.
+        
+        Args:
+            ledger: PerfLedger - the ledger of the miner
+            
+        Returns:
+            list[float]: List of drawdown values from all checkpoints
+        """
+        if not ledger or not ledger.cps:
+            return []
+
+        drawdowns = []
+        for cp in ledger.cps:
+            drawdowns.append(cp.mdd)
+
+        return drawdowns
+
+    @staticmethod
+    def daily_return_percentage(ledger: PerfLedger) -> list[float]:
+        """
+        Calculate daily returns as percentages.
+        
+        Args:
+            ledger: PerfLedger - the ledger of the miner
+        
+        Returns:
+            list[float] - list of daily returns for complete days as percentages
+        """
+        return [(math.exp(x)-1) * 100 if x != 0 else 0 for x in LedgerUtils.daily_return_log(ledger)]
 
     @staticmethod
     def ledger_returns(ledger: dict[str, PerfLedger]) -> dict[str, list[float]]:
         """
+        Calculate percentage returns for multiple miners.
+        
         Args:
             ledger: dict[str, PerfLedger] - the ledger of the miners
+            
+        Returns:
+            dict[str, list[float]] - Dictionary mapping miner hotkeys to daily returns as percentages
         """
         miner_returns = {}
 
         for miner, miner_ledger in ledger.items():
-            miner_returns[miner] = LedgerUtils.daily_return_percentage(miner_ledger.cps if miner_ledger else [])
+            miner_returns[miner] = LedgerUtils.daily_return_percentage(miner_ledger if miner_ledger else PerfLedger())
 
         return miner_returns
 
     @staticmethod
     def ledger_returns_log(ledger: dict[str, PerfLedger]) -> dict[str, list[float]]:
         """
+        Calculate logarithmic returns for multiple miners.
+        
         Args:
             ledger: dict[str, PerfLedger] - the ledger of the miners
+            
+        Returns:
+            dict[str, list[float]] - Dictionary mapping miner hotkeys to daily returns as logarithmic values
         """
+        if not ledger:
+            return {}
+
         miner_returns = {}
 
         for miner, miner_ledger in ledger.items():
-            miner_returns[miner] = LedgerUtils.daily_return_log(miner_ledger.cps if miner_ledger else [])
+            miner_returns[miner] = LedgerUtils.daily_return_log(miner_ledger)
 
         return miner_returns
 
@@ -163,17 +263,16 @@ class LedgerUtils:
         return float(drawdown_penalty)
 
     @staticmethod
-    def max_drawdown_threshold_penalty(checkpoints: list[PerfCheckpoint]) -> float:
+    def max_drawdown_threshold_penalty(ledger: PerfLedger) -> float:
         """
         Args:
-            checkpoints: list[PerfCheckpoint] - the list of checkpoints
+            ledger: PerfLedger - the ledger of the miner
         """
+        if not ledger:
+            return 1
         drawdown_limit = ValiConfig.DRAWDOWN_MAXVALUE_PERCENTAGE
 
-        if len(checkpoints) == 0:
-            return 0
-
-        effective_drawdown = LedgerUtils.max_drawdown(checkpoints)
+        effective_drawdown = LedgerUtils.max_drawdown(ledger)
         effective_drawdown_percentage = LedgerUtils.drawdown_percentage(effective_drawdown)
 
         if effective_drawdown_percentage >= drawdown_limit:
@@ -182,27 +281,12 @@ class LedgerUtils:
         return 1
 
     @staticmethod
-    def mean_drawdown(checkpoints: list[PerfCheckpoint]) -> float:
+    def max_drawdown(ledger: PerfLedger) -> float:
         """
         Args:
-            checkpoints: list[PerfCheckpoint] - the list of checkpoints
+            ledger: PerfLedger - the ledger of the miner
         """
-        if len(checkpoints) == 0:
-            return 0
-
-        # Compute the drawdown of the checkpoints
-        drawdowns = [checkpoint.mdd for checkpoint in checkpoints]
-        effective_drawdown = np.mean(drawdowns)
-        final_drawdown = np.clip(effective_drawdown, 0, 1.0)
-
-        return final_drawdown
-
-    @staticmethod
-    def max_drawdown(checkpoints: list[PerfCheckpoint]) -> float:
-        """
-        Args:
-            checkpoints: list[PerfCheckpoint] - the list of checkpoints
-        """
+        checkpoints = ledger.cps
         if len(checkpoints) == 0:
             return 0
 
@@ -212,41 +296,6 @@ class LedgerUtils:
         final_drawdown = np.clip(effective_drawdown, 0, 1.0)
 
         return final_drawdown
-
-    @staticmethod
-    def approximate_drawdown(checkpoints: list[PerfCheckpoint]) -> float:
-        """
-        Args:
-            checkpoints: list[PerfCheckpoint] - the list of checkpoints
-        """
-        upper_percentile = 100 * (1 - ValiConfig.APPROXIMATE_DRAWDOWN_PERCENTILE)
-        if len(checkpoints) == 0:
-            return 0
-
-        # Compute the drawdown of the checkpoints
-        drawdowns = [checkpoint.mdd for checkpoint in checkpoints]
-        effective_drawdown = np.percentile(drawdowns, upper_percentile)
-        final_drawdown = np.clip(effective_drawdown, 0, 1.0)
-
-        return final_drawdown
-
-    @staticmethod
-    def effective_drawdown(recent_drawdown: float, approximate_drawdown: float) -> float:
-        """
-        Args:
-            recent_drawdown: float - the most recent drawdown, as a value between 0 and 1
-            approximate_drawdown: float - the approximate drawdown, as a value between 0 and 1
-
-        Returns:
-            float - the effective drawdown
-        """
-        if recent_drawdown <= 0:
-            return 0
-
-        if approximate_drawdown <= 0:
-            return 0
-
-        return min(recent_drawdown, approximate_drawdown)
 
     @staticmethod
     def is_beyond_max_drawdown(ledger_element: PerfLedger):
@@ -259,7 +308,7 @@ class LedgerUtils:
 
         maximum_drawdown_percent = ValiConfig.DRAWDOWN_MAXVALUE_PERCENTAGE
 
-        max_drawdown = LedgerUtils.max_drawdown(ledger_element.cps)
+        max_drawdown = LedgerUtils.max_drawdown(ledger_element)
         recorded_drawdown_percentage = LedgerUtils.drawdown_percentage(max_drawdown)
 
         # Drawdown is less than our maximum permitted drawdown
@@ -271,19 +320,13 @@ class LedgerUtils:
         return max_drawdown_criteria, recorded_drawdown_percentage
 
     @staticmethod
-    def risk_normalization(checkpoints: list[PerfCheckpoint]) -> float:
+    def risk_normalization(ledger: PerfLedger) -> float:
         """
         Args:
-            checkpoints: list[PerfCheckpoint] - the list of checkpoints
+            ledger: PerfLedger - the ledger of the miner
         """
-        if len(checkpoints) == 0:
-            return 0
-
         # recent_drawdown = LedgerUtils.recent_drawdown(checkpoints)
-        approximate_drawdown = LedgerUtils.max_drawdown(checkpoints)
-
-        # effective_drawdown = LedgerUtils.effective_drawdown(approximate_drawdown)
-
+        approximate_drawdown = LedgerUtils.max_drawdown(ledger)
         drawdown_penalty = LedgerUtils.mdd_augmentation(approximate_drawdown)
         return drawdown_penalty
 

@@ -1,4 +1,5 @@
 import copy
+import math
 
 import numpy as np
 import random
@@ -292,6 +293,79 @@ class TestMetrics(TestBase):
 
         #Without indices it should be negative
         self.assertLessEqual(Metrics.average(log_returns, weighting=True, indices=None), 0)
+        
+    def test_daily_max_drawdown_empty(self):
+        """Test that daily_max_drawdown returns 0.0 for empty input"""
+        # Test with empty list
+        self.assertEqual(Metrics.daily_max_drawdown([]), 0.0)
+        
+    def test_daily_max_drawdown_constant(self):
+        """Test that daily_max_drawdown returns 0.0 for constant returns"""
+        # All zeros
+        log_returns = [0.0] * 10
+        self.assertEqual(Metrics.daily_max_drawdown(log_returns), 0.0)
+        
+        # All same positive value
+        log_returns = [0.01] * 10
+        self.assertEqual(Metrics.daily_max_drawdown(log_returns), 0.0)
+        
+    def test_daily_max_drawdown_monotonic(self):
+        """Test daily_max_drawdown with monotonically increasing/decreasing returns"""
+        # Monotonically increasing returns should have zero drawdown
+        log_returns = [0.01, 0.02, 0.03, 0.04, 0.05]
+        self.assertEqual(Metrics.daily_max_drawdown(log_returns), 0.0)
+        
+        # Monotonically decreasing returns should have drawdown
+        log_returns = [0.05, -0.02, -0.03, -0.04, -0.05]
+        mdd = Metrics.daily_max_drawdown(log_returns)
+        self.assertGreater(mdd, 0.0)
+        
+    def test_daily_max_drawdown_recovery(self):
+        """Test daily_max_drawdown with a pattern that drops and recovers"""
+        # Peak, drawdown, and recovery
+        log_returns = [0.1, 0.1, -0.15, -0.1, 0.05, 0.2, 0.1]
+        mdd = Metrics.daily_max_drawdown(log_returns)
+        
+        # Should have a significant drawdown
+        self.assertGreater(mdd, 0.0)
+        # But less than 100%
+        self.assertLess(mdd, 1.0)
+        
+    def test_daily_max_drawdown_detailed(self):
+        """Test daily_max_drawdown with a specific pattern to confirm exact calculation"""
+        # Design a specific scenario with known drawdown
+        # Initial value 100, goes to 110, drops to 77, recovers to 99
+        # Drawdown should be (77/110) - 1 = -30%
+        log_returns = [
+            math.log(1.1),  # Day 1: +10% (value = 110)
+            math.log(0.7),  # Day 2: -30% (value = 77)
+            math.log(1.1),  # Day 3: +10% (value = 84.7)
+            math.log(1.1),  # Day 4: +10% (value = 93.17)
+            math.log(1.06)  # Day 5: +6% (value = 98.76)
+        ]
+        
+        mdd = Metrics.daily_max_drawdown(log_returns)
+        self.assertAlmostEqual(mdd, 0.3, delta=0.01, 
+                              msg="Maximum drawdown should be approximately 30%")
+                              
+    def test_daily_max_drawdown_all_negative(self):
+        """Test daily_max_drawdown with all negative returns"""
+        log_returns = [-0.01, -0.02, -0.03, -0.04, -0.05]
+        mdd = Metrics.daily_max_drawdown(log_returns)
+        
+        # Should have a significant drawdown
+        self.assertGreater(mdd, 0.0)
+        # For small negative returns, drawdown should be less than 15%
+        self.assertLess(mdd, 0.15)
+        
+    def test_daily_max_drawdown_extreme(self):
+        """Test daily_max_drawdown with extreme market crash scenario"""
+        # Simulate a market crash with -50% in one day
+        log_returns = [0.01, 0.02, math.log(0.5), 0.01, 0.02]
+        mdd = Metrics.daily_max_drawdown(log_returns)
+        
+        # Max drawdown should be close to 50%
+        self.assertAlmostEqual(mdd, 0.5, delta=0.02)
 
     # def test_risk_free_adjustment(self):
     #     """

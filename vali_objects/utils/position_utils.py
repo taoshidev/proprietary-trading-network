@@ -3,9 +3,11 @@
 import numpy as np
 import copy
 
-from vali_objects.position import Position
+from vali_objects.position import Position, Order
 from vali_objects.vali_config import ValiConfig
 from vali_objects.enums.order_type_enum import OrderType
+import uuid
+import logging
 
 from time_util.time_util import TimeUtil
 
@@ -28,6 +30,101 @@ class PositionUtils:
             positions,
             evaluation_time_ms
         )
+
+    @staticmethod
+    def build_pseudo_positions(
+            positions: dict[str, list[Position]]
+    ) -> dict[str, list[Position]]:
+        """
+        Args:
+            positions: dict[str, list[Position]] - the positions
+        """
+        pseudo_positions = {}
+        for miner_key, miner_positions in positions.items():
+            pseudo_positions[miner_key] = PositionUtils.positional_equivalence(miner_positions)
+        return pseudo_positions
+
+    @staticmethod
+    def positional_equivalence(
+            cumulative_leverage_positions: list[Position],
+            evaluation_window_ms: int = None
+    ) -> list[Position]:
+        if evaluation_window_ms is None:
+            evaluation_window_ms = ValiConfig.POSITIONAL_EQUIVALENCE_WINDOW_MS
+
+        pseudo_positions = []
+        grouped_positions = {}
+
+        for position in cumulative_leverage_positions:
+            if position.trade_pair not in grouped_positions:
+                grouped_positions[position.trade_pair] = []
+            grouped_positions[position.trade_pair].append(position)
+
+        for trade_pair, positions_for_pair in grouped_positions.items():
+            # Assert that all positions in a group have the same miner_hotkey
+            miner_hotkey = positions_for_pair[0].miner_hotkey
+            for position in positions_for_pair:
+                assert position.miner_hotkey == miner_hotkey, "Positions in the same group must have the same miner_hotkey"
+
+            first_order_indices = [0] + [len(position.orders) for position in positions_for_pair[:-1]]
+            first_order_indices = np.cumsum(first_order_indices)
+
+            assert len(first_order_indices) == len(positions_for_pair)
+
+            flattened_orders = PositionUtils.flatten_orders(positions_for_pair)
+
+            for first_order_index in first_order_indices:
+                window_orders = PositionUtils.collect_window_of_orders(
+                    flattened_orders,
+                    first_order_index,
+                    evaluation_window_ms
+                )
+
+                if not window_orders:  # Handle empty window_orders
+                    logging.warning("Encountered empty window_orders. Skipping pseudo-position creation.")
+                    continue  # Or raise an exception if that's more appropriate
+
+                open_ms = window_orders[0].processed_ms if window_orders else None
+                close_ms = window_orders[-1].processed_ms if window_orders else None
+                return_at_close = 1.0
+
+                pseudo_positions.append(Position(
+                    miner_hotkey=miner_hotkey,
+                    position_uuid=str(uuid.uuid4()),
+                    open_ms=open_ms,
+                    trade_pair=trade_pair,
+                    orders=window_orders,
+                    close_ms=close_ms,
+                    return_at_close=return_at_close
+                ))
+
+        return pseudo_positions
+
+    @staticmethod
+    def collect_window_of_orders(
+            orders: list[Order],
+            start_index: int,
+            evaluation_window_ms: int
+    ) -> list[Order]:
+        """
+        Args:
+            orders: list[Order] - the orders
+            start_index: int - the start index
+            evaluation_window_ms: int - the end timestamp_ms
+        """
+        first_order = orders[start_index]
+        first_order_time_ms = first_order.processed_ms
+        last_order_time_ms = first_order_time_ms + evaluation_window_ms
+
+        found_orders = []
+        for i in range(start_index, len(orders)):
+            order = orders[i]
+            if order.processed_ms <= last_order_time_ms:
+                found_orders.append(order)
+            else:
+                break
+
+        return found_orders
 
     @staticmethod
     def translate_current_leverage(
@@ -115,6 +212,20 @@ class PositionUtils:
                 time_deltas.append(position.close_ms - position.open_ms)
 
         return sum(time_deltas)
+
+    @staticmethod
+    def flatten_orders(
+            positions: list[Position]
+    ) -> list[Order]:
+        """
+        Args:
+            positions: list[Position] - the positions
+        """
+        orders = []
+        for position in positions:
+            for order in position.orders:
+                orders.append(order)
+        return orders
 
     @staticmethod
     def flatten(
