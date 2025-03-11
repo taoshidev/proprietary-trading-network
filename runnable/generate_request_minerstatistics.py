@@ -215,11 +215,13 @@ class MinerStatisticsManager:
             return {}
         cumulative_miner_returns_ledger: PerfLedger = LedgerUtils.cumulative(miner_ledger)
         miner_daily_returns: list[float] = LedgerUtils.daily_return_log(filtered_ledger.get(hotkey, None))
+        miner_cps = cumulative_miner_returns_ledger.cps if cumulative_miner_returns_ledger else []
         miner_positions: list[Position] = filtered_positions.get(hotkey, [])
 
         extra_data = self.gather_extra_data(hotkey, filtered_ledger, filtered_positions)
 
         return {
+            "checkpoints": miner_cps,
             "positions": miner_positions,
             "ledger": miner_ledger,
             "log_returns": miner_daily_returns,
@@ -568,7 +570,7 @@ class MinerStatisticsManager:
             pen_break = penalty_breakdown.get(hotkey, {})
 
             # Purely for visualization purposes
-            daily_returns = daily_returns_dict.get(hotkey, [])
+            daily_returns = daily_returns_dict.get(hotkey, {})
             daily_returns_list = [{"date": date, "value": value} for date, value in daily_returns.items()]
 
             # Risk Profile
@@ -602,9 +604,9 @@ class MinerStatisticsManager:
 
             # Optionally attach actual checkpoints (like the original first script)
             if checkpoints:
-                ledger_obj = miner_data[hotkey].get("checkpoints")
-                if ledger_obj and hasattr(ledger_obj, "cps"):
-                    final_miner_dict["checkpoints"] = ledger_obj.cps
+                checkpoints_obj = miner_data[hotkey].get("checkpoints")
+                if checkpoints_obj:
+                    final_miner_dict["checkpoints"] = checkpoints_obj
 
             results.append(final_miner_dict)
 

@@ -268,6 +268,8 @@ class LedgerUtils:
         Args:
             ledger: PerfLedger - the ledger of the miner
         """
+        if not ledger:
+            return 1
         drawdown_limit = ValiConfig.DRAWDOWN_MAXVALUE_PERCENTAGE
 
         effective_drawdown = LedgerUtils.max_drawdown(ledger)
