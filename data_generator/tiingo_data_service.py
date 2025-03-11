@@ -566,7 +566,16 @@ class TiingoDataService(BaseDataService):
 if __name__ == "__main__":
     secrets = ValiUtils.get_secrets()
     tds = TiingoDataService(api_key=secrets['tiingo_apikey'], disable_ws=False)
-    #time.sleep(100000)
+    for trade_pair in TradePair:
+        # Get rest data
+        if trade_pair.is_indices:
+            continue
+        ps = tds.get_close_rest(trade_pair)
+        if ps:
+            print(f"Got {ps} for {trade_pair}")
+        else:
+            print(f"No data for {trade_pair}")
+    time.sleep(100000)
     #assert 0
     target_timestamp_ms = 1715288502999
 
