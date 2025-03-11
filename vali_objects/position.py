@@ -362,17 +362,22 @@ class Position(BaseModel):
         if self.initial_entry_price == 0 or self.average_entry_price is None:
             return 1
 
-        # pnl with slippage
-        if (ALWAYS_USE_LATEST or
-                (t_ms and t_ms >= SLIPPAGE_V1_TIME_MS) or
-                (TimeUtil.now_in_millis() >= SLIPPAGE_V1_TIME_MS)):
-            # update realized pnl for orders that reduce the size of a position
-            if order.order_type != self.position_type or self.position_type == OrderType.FLAT:
-                exit_price = current_price * (1 + order.slippage) if order.leverage > 0 else current_price * (1 - order.slippage)
-                order_volume = (order.leverage * ValiConfig.CAPITAL) / order.price  # TODO: calculate order.volume as an order attribute
-                self.realized_pnl += (exit_price - self.average_entry_price) * order_volume  # TODO: FIFO entry cost
+        if not t_ms:
+            t_ms = TimeUtil.now_in_millis()
 
-            unrealized_pnl = (current_price - self.average_entry_price) * (self.net_leverage + order.leverage)
+        # pnl with slippage
+        if ALWAYS_USE_LATEST or t_ms >= SLIPPAGE_V1_TIME_MS:
+            if self.cumulative_entry_value == 0:
+                return 1
+            # update realized pnl for orders that reduce the size of a position
+            if order:
+                if (order.order_type != self.position_type or self.position_type == OrderType.FLAT):
+                    exit_price = current_price * (1 + order.slippage) if order.leverage > 0 else current_price * (1 - order.slippage)
+                    order_volume = order.leverage  # (order.leverage * ValiConfig.CAPITAL) / order.price  # TODO: calculate order.volume as an order attribute
+                    self.realized_pnl += -1 * (exit_price - self.average_entry_price) * order_volume  # TODO: FIFO entry cost
+                unrealized_pnl = (current_price - self.average_entry_price) * (self.net_leverage + order.leverage)
+            else:
+                unrealized_pnl = (current_price - self.average_entry_price) * self.net_leverage
 
             gain = (self.realized_pnl + unrealized_pnl) / self.cumulative_entry_value
         else:
@@ -551,6 +556,7 @@ class Position(BaseModel):
                     + realtime_price * delta_leverage
                 ) / new_net_leverage
             elif self.position_type == order.order_type:
+                # after SLIPPAGE_V1_TIME_MS, average entry price now reflects the average price
                 # average entry price only changes when an order is in the same direction as the position. reducing a position does not affect average entry price.
                 entry_price = order.price * (1 + order.slippage) if order.leverage > 0 else order.price * (1 - order.slippage)
 
@@ -559,7 +565,7 @@ class Position(BaseModel):
                     + entry_price * delta_leverage
                 ) / new_net_leverage
 
-                order_volume = (order.leverage * ValiConfig.CAPITAL) / entry_price
+                order_volume = order.leverage # (order.leverage * ValiConfig.CAPITAL) / entry_price  # TODO: order volume. represents # of shares, etc.
                 self.cumulative_entry_value += entry_price * order_volume  # TODO: replace with order.volume attribute
             self.net_leverage = new_net_leverage
 
@@ -653,6 +659,8 @@ class Position(BaseModel):
 
     def _update_position(self):
         self.net_leverage = 0.0
+        self.cumulative_entry_value = 0.0
+        self.realized_pnl = 0.0
         bt.logging.trace(f"Updating position {self.trade_pair.trade_pair_id} with n orders: {len(self.orders)}")
         for order in self.orders:
             if self.position_type is None:
