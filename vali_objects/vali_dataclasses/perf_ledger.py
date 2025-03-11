@@ -341,7 +341,7 @@ class PerfLedger():
 class PerfLedgerManager(CacheController):
     def __init__(self, metagraph, ipc_manager=None, running_unit_tests=False, shutdown_dict=None,
                  perf_ledger_hks_to_invalidate=None, live_price_fetcher=None, position_manager=None,
-                 enable_rss=True, is_backtesting=False, running_pyspark=False):
+                 enable_rss=True, is_backtesting=False, running_pyspark=False, secrets=None):
         super().__init__(metagraph=metagraph, running_unit_tests=running_unit_tests, is_backtesting=is_backtesting)
 
         self.shutdown_dict = shutdown_dict
@@ -392,6 +392,11 @@ class PerfLedgerManager(CacheController):
             initial_perf_ledgers = {}
         else:
             initial_perf_ledgers = self.get_perf_ledgers(from_disk=True, portfolio_only=False)
+
+        if secrets:
+            self.secrets = secrets
+        else:
+            self.secrets = ValiUtils.get_secrets(running_unit_tests=self.running_unit_tests)
 
         for k, v in initial_perf_ledgers.items():
             self.hotkey_to_perf_bundle[k] = v
@@ -719,8 +724,7 @@ class PerfLedgerManager(CacheController):
         #t0 = time.time()
         #print(f"Starting #{requested_seconds} candle fetch for {tp.trade_pair}")
         if self.pds is None:
-            secrets = ValiUtils.get_secrets(running_unit_tests=self.running_unit_tests)
-            live_price_fetcher = LivePriceFetcher(secrets, disable_ws=True)
+            live_price_fetcher = LivePriceFetcher(self.secrets, disable_ws=True)
             self.pds = live_price_fetcher.polygon_data_service
 
         price_info_raw = self.pds.unified_candle_fetcher(
@@ -1477,12 +1481,13 @@ class PerfLedgerManager(CacheController):
 
     def update_one_perf_ledger_pyspark(self, data_tuple):
         hotkey_i, n_hotkeys, hotkey, positions, existing_bundle, now_ms = data_tuple
-
+        from tests.shared_objects.mock_classes import MockMetagraph
         # Create a temporary manager for processing
         # This is to avoid sharing state between executors
         worker_plm = PerfLedgerManager(
             metagraph=MockMetagraph(hotkeys=[hotkey]),
-            running_pyspark=True
+            running_pyspark=True,
+            secrets=self.secrets
         )
 
         worker_plm.now_ms = now_ms

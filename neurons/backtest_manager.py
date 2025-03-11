@@ -24,7 +24,8 @@ class BacktestManager:
 
     def __init__(self, positions_at_t_f, start_time_ms, secrets, scoring_func,
                  leverage_to_capital=ValiConfig.LEVERAGE_TO_CAPITAL, use_slippage=False,
-                 fetch_slippage_data=False, recalculate_slippage=False, rebuild_all_positions=False):
+                 fetch_slippage_data=False, recalculate_slippage=False, rebuild_all_positions=False,
+                 running_pyspark=False):
         if not secrets:
             raise Exception(
                 "unable to get secrets data from "
@@ -51,7 +52,9 @@ class BacktestManager:
                                                      shutdown_dict=shutdown_dict,
                                                      live_price_fetcher=self.live_price_fetcher,
                                                      is_backtesting=True,
-                                                     position_manager=None)  # Set after self.pm creation
+                                                     position_manager=None,
+                                                     running_pyspark=running_pyspark,
+                                                     secrets=self.secrets)
 
 
         self.position_manager = PositionManager(metagraph=self.metagraph,
