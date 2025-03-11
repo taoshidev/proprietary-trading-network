@@ -55,7 +55,8 @@ class BacktestManager:
                                                      live_price_fetcher=self.live_price_fetcher,
                                                      is_backtesting=True,
                                                      position_manager=None,
-                                                     running_pyspark=running_pyspark)  # Set after self.pm creation
+                                                     running_pyspark=running_pyspark,
+                                                     secrets=self.secrets)
 
 
         self.position_manager = PositionManager(metagraph=self.metagraph,
