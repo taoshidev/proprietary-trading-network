@@ -97,10 +97,17 @@ $$
 There are two primary penalties in place for each miner:
 
 1. Max Drawdown: PTN eliminates miners who exceed 10% max drawdown.
-2. Martingale: Miners are penalized for having positions that resemble a martingale strategy. Two or more orders that increase leverage beyond the maximum leverage already seen while a position has unrealized loss may result in a penalty. More details on this can be found [here](https://docs.taoshi.io/tips/p15/).
+2. Risk-Profiling: Miners are penalized for having positions that may create undue risk for copy traders.
 
-The Max Drawdown penalty and Martingale penalty help us detect the absolute and relative risks of a miner's trading strategy in real time.
+To avoid the impact of a risk profiling penalty, we recommend that you avoid doing the following:
 
+* Step three or more times into a position or increasing the max leverage twice on a losing position.
+* Use more than 50% of the available leverage on the trade pair or increasing leverage by 150% relative to the entry leverage of the position
+* Having uneven time intervals between orders, which would indicate they are not TWAP-scheduled orders.
+
+Full implementation details may be found [here](https://docs.taoshi.io/tips/p19/).
+
+The Max Drawdown penalty and Risk Profiling penalty help us detect the absolute and relative risks of a miner's trading strategy in real time.
 
 ### Fees and Transaction Costs
 We want to simulate real costs of trading for our miners, to make signals from PTN more valuable outside our platform. To do this, we have incorporated two primary costs: **Cost of Carry** and **Slippage**. 
