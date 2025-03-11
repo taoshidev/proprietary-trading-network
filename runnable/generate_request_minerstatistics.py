@@ -411,7 +411,8 @@ class MinerStatisticsManager:
         time_now: int = None,
         checkpoints: bool = True,
         risk_report: bool = False,
-        selected_miner_hotkeys: List[str] = None
+        selected_miner_hotkeys: List[str] = None,
+        final_results_weighting = True
     ) -> Dict[str, Any]:
 
         if time_now is None:
@@ -445,7 +446,7 @@ class MinerStatisticsManager:
             successful_positions,
             evaluation_time_ms=time_now,
             verbose=False,
-            weighting=True
+            weighting=final_results_weighting
         )  # returns list of (hotkey, weightVal)
 
         # For testing miners, we might just give them a default "CHALLENGE_PERIOD_WEIGHT"
