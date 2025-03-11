@@ -602,7 +602,7 @@ class MinerStatisticsManager:
 
             # Optionally attach actual checkpoints (like the original first script)
             if checkpoints:
-                ledger_obj = miner_data[hotkey].get("ledger")
+                ledger_obj = miner_data[hotkey].get("cumulative_ledger")
                 if ledger_obj and hasattr(ledger_obj, "cps"):
                     final_miner_dict["checkpoints"] = ledger_obj.cps
 
