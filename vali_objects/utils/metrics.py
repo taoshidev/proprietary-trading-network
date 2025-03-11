@@ -201,16 +201,18 @@ class Metrics:
         return max_drawdown
 
     @staticmethod
-    def calmar(log_returns: list[float], ledger: PerfLedger, weighting: bool = False, **kwargs) -> float:
+    def calmar(log_returns: list[float], ledger: PerfLedger, bypass_confidence: bool = False, weighting: bool = False, **kwargs) -> float:
         """
         Args:
             log_returns: list of daily log returns from the miner
             ledger: the ledger of the miner
+            bypass_confidence: whether to use default value if not enough trading days
             weighting: whether to use weighted average
         """
         # Positional Component
-        if len(log_returns) == 0:
-            return 0.0
+        if len(log_returns) < ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N:
+            if not bypass_confidence:
+                return ValiConfig.CALMAR_NOCONFIDENCE_VALUE
 
         base_return_percentage = Metrics.base_return_log_percentage(log_returns, weighting=weighting)
         drawdown_normalization_factor = LedgerUtils.risk_normalization(ledger)
