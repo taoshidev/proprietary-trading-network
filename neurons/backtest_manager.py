@@ -25,7 +25,7 @@ import bittensor as bt
 class BacktestManager:
 
     def __init__(self, positions_at_t_f, start_time_ms, secrets, scoring_func,
-                 capital=ValiConfig.CAPITAL, use_slippage=False,
+                 capital=ValiConfig.CAPITAL, use_slippage=None,
                  fetch_slippage_data=False, recalculate_slippage=False, rebuild_all_positions=False,
                  running_pyspark=False):
         if not secrets:
@@ -37,7 +37,7 @@ class BacktestManager:
         self.scoring_func = scoring_func
         self.start_time_ms = start_time_ms
         # Used in calculating position attributes
-        position_file.ALWAYS_USE_LATEST = use_slippage
+        position_file.ALWAYS_USE_SLIPPAGE = use_slippage
 
 
         # metagraph provides the network's current state, holding state about other participants in a subnet.
