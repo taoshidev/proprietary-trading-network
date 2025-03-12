@@ -18,7 +18,7 @@ FOREX_CARRY_FEE_PER_INTERVAL = math.exp(math.log(1 - .03) / 365.0)  # 3% per yea
 INDICES_CARRY_FEE_PER_INTERVAL = math.exp(math.log(1 - .0525) / 365.0)  # 5.25% per year for 1x leverage. Each interval is 24 hrs
 FEE_V6_TIME_MS = 1720843707000  # V6 PR merged
 SLIPPAGE_V1_TIME_MS = 1739937600000  # Slippage PR merged
-ALWAYS_USE_LATEST = False  # use either the latest or time-gated (post slippage release) calculations for spread, entry, exit price
+ALWAYS_USE_SLIPPAGE = None  # set as either True or False to control whether slippage is always or never applied
 
 class Position(BaseModel):
     """Represents a position in a trading system.
@@ -107,10 +107,11 @@ class Position(BaseModel):
 
 
     def get_spread_fee(self, timestamp_ms) -> float:
-        if timestamp_ms < SLIPPAGE_V1_TIME_MS and not ALWAYS_USE_LATEST:
-            return 1.0 - (self.get_cumulative_leverage() * self.trade_pair.fees * 0.5)
-        else:  # slippage will replace the spread fee
+        if ALWAYS_USE_SLIPPAGE or (ALWAYS_USE_SLIPPAGE is None and timestamp_ms >= SLIPPAGE_V1_TIME_MS):
+            # slippage will replace the spread fee
             return 1
+        else:
+            return 1.0 - (self.get_cumulative_leverage() * self.trade_pair.fees * 0.5)
 
     def crypto_carry_fee(self, current_time_ms: int) -> (float, int):
         #print(f'accrual time {TimeUtil.millis_to_formatted_date_str(self.start_carry_fee_accrual_ms)} now {TimeUtil.millis_to_formatted_date_str(current_time_ms)}')
@@ -196,10 +197,10 @@ class Position(BaseModel):
         if not self.orders or len(self.orders) == 0:
             return 0.0
         first_order = self.orders[0]
-        if first_order.processed_ms < SLIPPAGE_V1_TIME_MS and not ALWAYS_USE_LATEST:
-            return first_order.price
-        else:
+        if ALWAYS_USE_SLIPPAGE or (ALWAYS_USE_SLIPPAGE is None and first_order.processed_ms >= SLIPPAGE_V1_TIME_MS):
             return first_order.price * (1 + first_order.slippage) if first_order.leverage > 0 else first_order.price * (1 - first_order.slippage)
+        else:
+            return first_order.price
 
     def __hash__(self):
         # Include specified fields in the hash, assuming trade_pair is accessible and immutable
@@ -366,7 +367,7 @@ class Position(BaseModel):
             t_ms = TimeUtil.now_in_millis()
 
         # pnl with slippage
-        if ALWAYS_USE_LATEST or t_ms >= SLIPPAGE_V1_TIME_MS:
+        if ALWAYS_USE_SLIPPAGE or (ALWAYS_USE_SLIPPAGE is None and t_ms >= SLIPPAGE_V1_TIME_MS):
             if self.cumulative_entry_value == 0:
                 return 1
             # update realized pnl for orders that reduce the size of a position
@@ -550,7 +551,7 @@ class Position(BaseModel):
         if self.position_type == OrderType.FLAT:
             self.net_leverage = 0.0
         else:
-            if order.processed_ms < SLIPPAGE_V1_TIME_MS and not ALWAYS_USE_LATEST:
+            if ALWAYS_USE_SLIPPAGE is False or (ALWAYS_USE_SLIPPAGE is None and order.processed_ms < SLIPPAGE_V1_TIME_MS):
                 self.average_entry_price = (
                     self.average_entry_price * self.net_leverage
                     + realtime_price * delta_leverage
