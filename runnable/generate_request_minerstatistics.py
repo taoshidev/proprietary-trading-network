@@ -236,7 +236,7 @@ class MinerStatisticsManager:
             {
                hotkey: {
                   "drawdown_threshold": ...,
-                  "martingale": ...,
+                  "risk_profile": ...,
                   "total": ...
                }
             }
