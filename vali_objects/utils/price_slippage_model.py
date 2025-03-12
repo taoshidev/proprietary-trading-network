@@ -259,16 +259,13 @@ class PriceSlippageModel:
                         break
 
                     if not (self.recalculate_slippage or self.fetch_slippage_data):
-                        continue
-                    if o.bid == 0 and o.ask == 0:
-                        bt.logging.info(f"Updating slippage for {o} and hotkey {hk }because order doesn't have bid and ask set")
+                        break
 
                     bt.logging.info(f"updating order attributes {o}")
                     bid = o.bid
                     ask = o.ask
 
-                    #TODO update this to not always fetch when bid and ask aren't present. only used for one backtest
-                    if self.fetch_slippage_data and (o.bid == 0 or o.ask == 0):
+                    if self.fetch_slippage_data:
 
                         price_sources = self.live_price_fetcher.get_sorted_price_sources_for_trade_pair(trade_pair=o.trade_pair, time_ms=o.processed_ms)
                         if not price_sources:
