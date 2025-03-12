@@ -942,6 +942,8 @@ if __name__ == "__main__":
     polygon_data_provider = PolygonDataService(api_key=secrets['polygon_apikey'], disable_ws=False)
 
     for tp in TradePair:
+        if tp.is_indices:
+            continue
         #if tp != TradePair.GBPUSD:
         #    continue
 
