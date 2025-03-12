@@ -714,22 +714,21 @@ class Validator:
                 open_position = self._get_or_create_open_position_from_new_order(trade_pair, signal_order_type, now_ms,
                                                          miner_hotkey, trade_pair_to_open_position, miner_order_uuid)
 
-                order = Order(
-                    trade_pair=trade_pair,
-                    order_type=signal_order_type,
-                    leverage=signal_leverage,
-                    price=best_price_source.parse_appropriate_price(now_ms, trade_pair.is_forex, signal_order_type, open_position),
-                    processed_ms=now_ms,
-                    order_uuid=miner_order_uuid if miner_order_uuid else str(uuid.uuid4()),
-                    price_sources=price_sources,
-                    bid=best_price_source.bid,
-                    ask=best_price_source.ask,
-                )
-                order.slippage = PriceSlippageModel.calculate_slippage(order.bid, order.ask, order)
-                self._enforce_num_open_order_limit(trade_pair_to_open_position, order)
-
-
                 if open_position:
+                    order = Order(
+                        trade_pair=trade_pair,
+                        order_type=signal_order_type,
+                        leverage=signal_leverage,
+                        price=best_price_source.parse_appropriate_price(now_ms, trade_pair.is_forex, signal_order_type,
+                                                                        open_position),
+                        processed_ms=now_ms,
+                        order_uuid=miner_order_uuid if miner_order_uuid else str(uuid.uuid4()),
+                        price_sources=price_sources,
+                        bid=best_price_source.bid,
+                        ask=best_price_source.ask,
+                    )
+                    order.slippage = PriceSlippageModel.calculate_slippage(order.bid, order.ask, order)
+                    self._enforce_num_open_order_limit(trade_pair_to_open_position, order)
                     self.enforce_order_cooldown(order, open_position)
                     net_portfolio_leverage = self.position_manager.calculate_net_portfolio_leverage(miner_hotkey)
                     open_position.add_order(order, net_portfolio_leverage)
@@ -742,7 +741,7 @@ class Validator:
                     # Happens if a FLAT is sent when no order exists
                     pass
                 # Update the last received order time
-                self.timestamp_manager.update_timestamp(order)
+                self.timestamp_manager.update_timestamp(now_ms)
 
         except SignalException as e:
             error_message = f"Error processing order for [{miner_hotkey}] with error [{e}]"

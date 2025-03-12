@@ -4,8 +4,6 @@ from shared_objects.cache_controller import CacheController
 from shared_objects.rate_limiter import RateLimiter
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.utils.vali_utils import ValiUtils
-from vali_objects.vali_dataclasses.order import Order
-
 
 class TimestampManager(CacheController):
     def __init__(self, metagraph=None, hotkey=None, running_unit_tests=False):
@@ -16,13 +14,13 @@ class TimestampManager(CacheController):
                                                         rate_limit_window_duration_seconds=60 * 60)
         self.timestamp_lock = threading.Lock()
 
-    def update_timestamp(self, order: Order):
+    def update_timestamp(self, t_ms: int):
         """
         keep track of most recent order timestamp
         write timestamp to file periodically so that timestamp is preserved on a reboot
         """
         with self.timestamp_lock:
-            self.last_received_order_time_ms = max(self.last_received_order_time_ms, order.processed_ms)
+            self.last_received_order_time_ms = max(self.last_received_order_time_ms, t_ms)
             allowed, wait_time = self.timestamp_write_rate_limiter.is_allowed(self.hotkey)
             if allowed:
                 self.write_last_order_timestamp_from_memory_to_disk(self.last_received_order_time_ms)
