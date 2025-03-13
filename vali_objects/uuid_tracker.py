@@ -8,6 +8,9 @@ class UUIDTracker:
         self.uuid_set = set()
         self.lock = threading.Lock()
 
+    def foobar():
+        print('foobar')
+
     def add(self, uuid):
         with self.lock:  # Ensure exclusive access within this block
             if uuid in self.uuid_set:
