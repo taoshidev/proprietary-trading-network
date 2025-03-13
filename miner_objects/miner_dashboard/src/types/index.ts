@@ -74,10 +74,9 @@ export interface Scores {
   calmar: Score;
 }
 
-// unused
 export interface Penalties {
   drawdown_threshold: number;
-  martingale: number;
+  risk_profile: number;
   total: number;
 }
 

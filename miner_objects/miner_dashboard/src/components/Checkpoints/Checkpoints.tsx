@@ -96,7 +96,10 @@ export const Checkpoints = ({ statistics }: CheckpointsProps) => {
         <SimpleGrid cols={5}>
           <PenaltyCard
               title="Penalties"
-              penalties={penalties}
+	      penalties={{
+                ...penalties,
+                risk_profile: penalties.risk_profile ?? 1,
+              }}
               tooltipText="Risk normalization multiplier, due to drawdown. Note that this term may be larger than one, indicating that the miner receives a boost in score due to minimal drawdown utilization."
             />
         </SimpleGrid>
