@@ -380,7 +380,7 @@ class Position(BaseModel):
             else:
                 unrealized_pnl = (current_price - self.average_entry_price) * self.net_leverage
 
-            gain = (self.realized_pnl + unrealized_pnl) / self.cumulative_entry_value
+            gain = (self.realized_pnl + unrealized_pnl) / self.initial_entry_price
         else:
             gain = (
                 (current_price - self.average_entry_price)
