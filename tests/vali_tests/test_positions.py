@@ -59,6 +59,142 @@ class TestPositions(TestBase):
         success, reason = PositionManager.positions_are_the_same(disk_position, expected_state)
         self.assertTrue(success, "Disc position is not as expected. " + reason)
 
+    def test_profit_position_returns_pre_post_slippage(self):
+        """
+        The post slippage position returns calculations calculates a realized PnL and an unrealized PnL.
+        The pre slippage position returns calculation only calculates returns from the weighted avg entry price and the current price.
+
+        If we set the actual slippage to 0, these returns calculations should be the same.
+        """
+        import vali_objects.position as position_file
+        position_file.ALWAYS_USE_SLIPPAGE = False
+
+        open_order = Order(
+            price=100,
+            slippage=0.00,
+            processed_ms=self.DEFAULT_OPEN_MS,
+            order_uuid="open_order",
+            trade_pair=TradePair.EURUSD,
+            order_type=OrderType.LONG,
+            leverage=1
+        )
+        reduce_size_order = Order(
+            price=110,
+            slippage=0.00,
+            processed_ms=self.DEFAULT_OPEN_MS + 1000,
+            order_uuid="reduce_size_order",
+            trade_pair=TradePair.EURUSD,
+            order_type=OrderType.SHORT,
+            leverage=0.5
+        )
+        increase_size_order = Order(
+            price=100,
+            slippage=0.00,
+            processed_ms=self.DEFAULT_OPEN_MS + 2000,
+            order_uuid="reduce_size_order",
+            trade_pair=TradePair.EURUSD,
+            order_type=OrderType.LONG,
+            leverage=1
+        )
+        close_order = Order(
+            price=110,
+            slippage=0.00,
+            processed_ms=self.DEFAULT_OPEN_MS + 3000,
+            order_uuid="close_order",
+            trade_pair=TradePair.EURUSD,
+            order_type=OrderType.FLAT,
+            leverage=0
+        )
+        closed_position = Position(
+            miner_hotkey=self.DEFAULT_MINER_HOTKEY,
+            position_uuid=self.DEFAULT_POSITION_UUID,
+            open_ms=self.DEFAULT_OPEN_MS,
+            trade_pair=TradePair.EURUSD,
+            orders=[]
+        )
+        closed_position.add_order(open_order)
+        closed_position.add_order(reduce_size_order)
+        closed_position.add_order(increase_size_order)
+        closed_position.add_order(close_order)
+
+        old_returns_calc = closed_position.current_return
+
+        position_file.ALWAYS_USE_SLIPPAGE = True
+
+        closed_position.rebuild_position_with_updated_orders()
+        new_returns_calc = closed_position.current_return
+
+        assert old_returns_calc == new_returns_calc
+        position_file.ALWAYS_USE_SLIPPAGE = None
+
+    def test_loss_position_returns_pre_post_slippage(self):
+        """
+        The post slippage position returns calculations calculates a realized PnL and an unrealized PnL.
+        The pre slippage position returns calculation only calculates returns from the weighted avg entry price and the current price.
+
+        If we set the actual slippage to 0, these returns calculations should be the same.
+        """
+        import vali_objects.position as position_file
+        position_file.ALWAYS_USE_SLIPPAGE = False
+
+        open_order = Order(
+            price=100,
+            slippage=0.00,
+            processed_ms=self.DEFAULT_OPEN_MS,
+            order_uuid="open_order",
+            trade_pair=TradePair.EURUSD,
+            order_type=OrderType.SHORT,
+            leverage=1
+        )
+        reduce_size_order = Order(
+            price=110,
+            slippage=0.00,
+            processed_ms=self.DEFAULT_OPEN_MS + 1000,
+            order_uuid="reduce_size_order",
+            trade_pair=TradePair.EURUSD,
+            order_type=OrderType.LONG,
+            leverage=0.5
+        )
+        increase_size_order = Order(
+            price=100,
+            slippage=0.00,
+            processed_ms=self.DEFAULT_OPEN_MS + 2000,
+            order_uuid="reduce_size_order",
+            trade_pair=TradePair.EURUSD,
+            order_type=OrderType.SHORT,
+            leverage=1
+        )
+        close_order = Order(
+            price=110,
+            slippage=0.00,
+            processed_ms=self.DEFAULT_OPEN_MS + 3000,
+            order_uuid="close_order",
+            trade_pair=TradePair.EURUSD,
+            order_type=OrderType.FLAT,
+            leverage=0
+        )
+        closed_position = Position(
+            miner_hotkey=self.DEFAULT_MINER_HOTKEY,
+            position_uuid=self.DEFAULT_POSITION_UUID,
+            open_ms=self.DEFAULT_OPEN_MS,
+            trade_pair=TradePair.EURUSD,
+            orders=[]
+        )
+        closed_position.add_order(open_order)
+        closed_position.add_order(reduce_size_order)
+        closed_position.add_order(increase_size_order)
+        closed_position.add_order(close_order)
+
+        old_returns_calc = closed_position.current_return
+
+        position_file.ALWAYS_USE_SLIPPAGE = True
+
+        closed_position.rebuild_position_with_updated_orders()
+        new_returns_calc = closed_position.current_return
+
+        assert old_returns_calc == new_returns_calc
+        position_file.ALWAYS_USE_SLIPPAGE = None
+
     def test_maximum_leverage_in_interval_monotone_increasing(self):
         position = deepcopy(self.default_position)
         position.orders = []
