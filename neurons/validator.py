@@ -480,11 +480,6 @@ class Validator:
         bt.logging.info("Starting main loop")
         while not shutdown_dict:
             try:
-                #hotkey_to_positions = self.position_manager.get_positions_for_hotkeys(
-                #    self.metagraph.hotkeys, sort_positions=True).values()
-                #hotkey_to_perf_ledger = self.perf_ledger_manager.load_perf_ledgers_from_memory()
-
-                #print(f'@@@ {len(self.metagraph.hotkeys)} self.hktp {len(self.position_manager.hotkey_to_positions)} self.hktpl {self.perf_ledger_manager.hotkey_to_perf_ledger} self.elims {len(self.elimination_manager.get_eliminations_from_memory())}')
                 current_time = TimeUtil.now_in_millis()
                 self.price_slippage_model.refresh_features_daily()
                 self.position_syncer.sync_positions_with_cooldown(self.auto_sync)

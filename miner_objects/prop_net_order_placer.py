@@ -109,7 +109,7 @@ class PropNetOrderPlacer:
                              f"and their vtrust should drop soon.")
             self.write_signal_to_failure_directory(signal_data, signal_file_path, retry_status)
         else:
-            self.write_signal_to_processed_directory(signal_data, signal_file_path)
+            self.write_signal_to_processed_directory(signal_data, signal_file_path, retry_status)
 
         return signal_file_path
 
