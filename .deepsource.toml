@@ -10,6 +10,6 @@ name = "test-coverage"
 
 [[analyzers]]
 name = "python"
-
   [analyzers.meta]
+  max_line_length = 200
   runtime_version = "3.x.x"
