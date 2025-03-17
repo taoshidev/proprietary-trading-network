@@ -735,6 +735,7 @@ class Validator:
                     self.position_manager.save_miner_position(open_position)
                     # Log the open position for the miner
                     open_position.log_position_status()
+                    synapse.order_json = order.__str__
                     if miner_order_uuid:
                         self.uuid_tracker.add(miner_order_uuid)
                 else:
