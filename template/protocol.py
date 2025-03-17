@@ -14,6 +14,7 @@ class SendSignal(bt.Synapse):
     successfully_processed: bool = Field(False, title="Successfully Processed", frozen=False)
     error_message: str = Field("", title="Error Message", frozen=False)
     validator_hotkey: str = Field("", title="Hotkey set by validator", frozen=False)
+    order_json: str = Field("", title="New Order JSON set by validator", frozen=False)
     miner_order_uuid: str = Field("", title="Order UUID set by miner", frozen=False)
     computed_body_hash: str = Field("", title="Computed Body Hash", frozen=False)
 SendSignal.required_hash_fields = ["signal"]

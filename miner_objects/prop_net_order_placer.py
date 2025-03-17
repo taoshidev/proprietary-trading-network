@@ -68,7 +68,8 @@ class PropNetOrderPlacer:
                 'retry_attempts': 0,
                 'retry_delay_seconds': self.INITIAL_RETRY_DELAY_SECONDS,
                 'validators_needing_retry': axons_to_try,
-                'validator_error_messages': {}
+                'validator_error_messages': {},
+                'created_orders': {}
         }
 
         # Track the high-trust validators for special checking after processing
@@ -151,7 +152,10 @@ class PropNetOrderPlacer:
 
         # Loop through responses for error messaging
         for response in validator_responses:
+            acked_axon = validator_hotkey_to_axon.get(response.validator_hotkey)
+
             if response.successfully_processed:
+                retry_status['created_orders'][acked_axon.hotkey] = response.order_json
                 continue
 
             acked_axon = validator_hotkey_to_axon.get(response.validator_hotkey)
@@ -171,7 +175,8 @@ class PropNetOrderPlacer:
             n_high_trust_validators = len(high_trust_validators)
             bt.logging.success(f"Signal file {send_signal_request.signal} was successfully processed by"
                                f" {n_high_trust_validators}/{n_high_trust_validators} high-trust validators with "
-                               f"min v_trust {v_trust_floor}. Total n_validators: {len(retry_status['validators_needing_retry'])}")
+                               f"min v_trust {v_trust_floor}. Total n_validators: {len(retry_status['validators_needing_retry'])}. "
+                               f" Created orders': {retry_status['created_orders']}")
 
         def _allow_retry(axon):
             if axon.hotkey in success_validators:
@@ -199,13 +204,15 @@ class PropNetOrderPlacer:
     def write_signal_to_failure_directory(self, signal_data, signal_file_path: str, retry_status: dict):
         validators_needing_retry = retry_status['validators_needing_retry']
         error_messages_dict = retry_status['validator_error_messages']
+        created_orders = retry_status['created_orders']
         # Append the failure information to the signal data.
         json_validator_data = [{'ip': validator.ip, 'port': validator.port, 'ip_type': validator.ip_type,
                                 'hotkey': validator.hotkey, 'coldkey': validator.coldkey, 'protocol': validator.protocol}
                                for validator in validators_needing_retry]
         new_data = {'original_signal': signal_data,
                     'validators_needing_retry': json_validator_data,
-                    'error_messages_dict': error_messages_dict}
+                    'error_messages_dict': error_messages_dict,
+                    'created_orders': created_orders}
 
         # Move signal file to the failed directory
         self.write_signal_to_directory(MinerConfig.get_miner_failed_signals_dir(), signal_file_path, signal_data, False)
