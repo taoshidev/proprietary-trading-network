@@ -98,7 +98,7 @@ class PropNetOrderPlacer:
 
         # If there were validators that failed to process the signal, we move the file to the failed directory
         if high_trust_processed:
-            self.write_signal_to_processed_directory(signal_data, signal_file_path)
+            self.write_signal_to_processed_directory(signal_data, signal_file_path, retry_status)
         # If there is a validator that hasn't received our order after the max number of retries.
         elif self.config.write_failed_signal_logs:
             v_trust_floor = min([hotkey_to_v_trust[validator.hotkey] for validator in high_trust_validators])
@@ -175,7 +175,8 @@ class PropNetOrderPlacer:
             n_high_trust_validators = len(high_trust_validators)
             bt.logging.success(f"Signal file {send_signal_request.signal} was successfully processed by"
                                f" {n_high_trust_validators}/{n_high_trust_validators} high-trust validators with "
-                               f"min v_trust {v_trust_floor}. Total n_validators: {len(retry_status['validators_needing_retry'])}. "
+                               f"min v_trust {v_trust_floor}. "
+                               f"Total n_validators: {len(retry_status['validators_needing_retry'])}. "
                                f" Created orders': {retry_status['created_orders']}")
 
         def _allow_retry(axon):
@@ -197,9 +198,12 @@ class PropNetOrderPlacer:
         #n_fails = len([response for response in validator_responses if not response.successfully_processed])
         retry_status['retry_attempts'] += 1  # Update the retry attempt count for this signal file
 
-    def write_signal_to_processed_directory(self, signal_data, signal_file_path: str):
+    def write_signal_to_processed_directory(self, signal_data, signal_file_path: str, retry_status: dict):
         """Moves a processed signal file to the processed directory."""
-        self.write_signal_to_directory(MinerConfig.get_miner_processed_signals_dir(), signal_file_path, signal_data, True)
+        signal_copy = signal_data.copy()
+        signal_copy['trade_pair'] = signal_copy['trade_pair']['trade_pair_id']
+        data_to_write = {'signal_data': signal_copy, 'created_orders': retry_status['created_orders']}
+        self.write_signal_to_directory(MinerConfig.get_miner_processed_signals_dir(), signal_file_path, data_to_write, True)
 
     def write_signal_to_failure_directory(self, signal_data, signal_file_path: str, retry_status: dict):
         validators_needing_retry = retry_status['validators_needing_retry']
@@ -228,7 +232,9 @@ class PropNetOrderPlacer:
         new_path = os.path.join(directory, os.path.basename(signal_file_path))
         with open(new_path, 'w') as f:
             f.write(json.dumps(signal_data))
-        msg = f"Signal file {signal_file_path} has been written to {directory} "
+        filename = os.path.basename(signal_file_path)
+        new_fullpath = os.path.join(directory, filename)
+        msg = f"Signal file {signal_file_path} has been written to {new_fullpath} "
         if success:
             bt.logging.success(msg)
         else:
