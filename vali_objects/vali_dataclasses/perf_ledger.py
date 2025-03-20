@@ -1007,8 +1007,15 @@ class PerfLedgerManager(CacheController):
                     tp_return = initial_tp_to_return[tp_id]
                     tp_spread_fee = initial_tp_to_spread_fee[tp_id]
                     tp_carry_fee = initial_tp_to_carry_fee[tp_id]
+
+                tp_to_historical_positions_compact = {k: v[-1] if v else [] for k, v in tp_to_historical_positions.items()}
+                dd = {'initial_tp_to_return': initial_tp_to_return, 'miner_hotkey': miner_hotkey,
+                      'tp_id': tp_id, 'start_time_ms': TimeUtil.millis_to_formatted_date_str(start_time_ms),
+                      'end_time_ms': TimeUtil.millis_to_formatted_date_str(end_time_ms),
+                      'tp_to_historical_positions_compact': tp_to_historical_positions_compact
+                      }
                 perf_ledger.update_pl(tp_return, end_time_ms, miner_hotkey, TradePairReturnStatus.TP_MARKET_NOT_OPEN,
-                      tp_spread_fee, tp_carry_fee, tp_debug=tp_id + '_shortcut', debug_dict=initial_tp_to_return)
+                      tp_spread_fee, tp_carry_fee, tp_debug=tp_id + '_shortcut', debug_dict=dd)
 
                 perf_ledger.purge_old_cps()
             return False
