@@ -228,10 +228,14 @@ class PerfLedger():
                                     prev_portfolio_carry_fee=current_portfolio_carry, accum_ms=accum_ms_for_utc_alignment, mpv=1.0)
         self.cps.append(new_cp)
 
-    def get_or_create_latest_cp_with_mdd(self, now_ms: int, current_portfolio_value:float, current_portfolio_fee_spread:float, current_portfolio_carry:float, any_open: TradePairReturnStatus) -> PerfCheckpoint:
+    def get_or_create_latest_cp_with_mdd(self, now_ms: int, current_portfolio_value:float, current_portfolio_fee_spread:float, current_portfolio_carry:float, any_open: TradePairReturnStatus, debug_dict=None) -> PerfCheckpoint:
         point_in_time_dd = CacheController.calculate_drawdown(current_portfolio_value, self.max_return)
-
-        assert point_in_time_dd, point_in_time_dd
+        if not point_in_time_dd:
+            time_formatted = TimeUtil.millis_to_verbose_formatted_date_str(now_ms)
+            bt.logging.warning(f'')
+            raise Exception(f'point_in_time_dd is {point_in_time_dd} at time {time_formatted}. '
+                            f'any_open: {any_open}, prev_portfolio_value {self.cps[-1].prev_portfolio_ret}, '
+                            f'current_portfolio_value: {current_portfolio_value}, self.max_return: {self.max_return}, debug_dict: {debug_dict}')
 
         if len(self.cps) == 0:
             self.init_with_first_order(now_ms, point_in_time_dd, current_portfolio_value, current_portfolio_fee_spread, current_portfolio_carry)
@@ -306,13 +310,13 @@ class PerfLedger():
             self.init_max_portfolio_value()
 
     def update_pl(self, current_portfolio_value: float, now_ms: int, miner_hotkey: str, any_open: TradePairReturnStatus,
-              current_portfolio_fee_spread: float, current_portfolio_carry: float, tp_debug=None):
+              current_portfolio_fee_spread: float, current_portfolio_carry: float, tp_debug=None, debug_dict=None):
 
         if len(self.cps) == 0:
             self.init_with_first_order(now_ms, point_in_time_dd=1.0, current_portfolio_value=1.0,
                                            current_portfolio_fee_spread=1.0, current_portfolio_carry=1.0)
         self.max_return = max(self.max_return, current_portfolio_value)
-        current_cp = self.get_or_create_latest_cp_with_mdd(now_ms, current_portfolio_value, current_portfolio_fee_spread, current_portfolio_carry, any_open)
+        current_cp = self.get_or_create_latest_cp_with_mdd(now_ms, current_portfolio_value, current_portfolio_fee_spread, current_portfolio_carry, any_open, debug_dict=debug_dict)
         self.update_gains_losses(current_cp, current_portfolio_value, current_portfolio_fee_spread,
                                  current_portfolio_carry, miner_hotkey, any_open)
         self.update_accumulated_time(current_cp, now_ms, miner_hotkey, any_open, tp_debug)
@@ -975,7 +979,8 @@ class PerfLedgerManager(CacheController):
                 tp_return = initial_tp_to_return[tp_id]
                 tp_spread_fee = initial_tp_to_spread_fee[tp_id]
                 tp_carry_fee = initial_tp_to_carry_fee[tp_id]
-                perf_ledger.update_pl(tp_return, end_time_ms, miner_hotkey, TradePairReturnStatus.TP_MARKET_NOT_OPEN, tp_spread_fee, tp_carry_fee, tp_debug=tp_id + '_shortcut')
+                perf_ledger.update_pl(tp_return, end_time_ms, miner_hotkey, TradePairReturnStatus.TP_MARKET_NOT_OPEN,
+                  tp_spread_fee, tp_carry_fee, tp_debug=tp_id + '_shortcut', debug_dict=initial_tp_to_return)
                 perf_ledger.purge_old_cps()
             return False
 
