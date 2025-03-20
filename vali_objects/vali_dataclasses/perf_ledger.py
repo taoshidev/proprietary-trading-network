@@ -444,6 +444,8 @@ class PerfLedgerManager(CacheController):
             print(tp_id, 'max_perf_ledger_return:', pl.max_return)
 
     def _is_v1_perf_ledger(self, ledger_value):
+        if self.build_portfolio_ledgers_only:
+            return False
         ans = False
         if 'initialization_time_ms' in ledger_value:
             ans = True
