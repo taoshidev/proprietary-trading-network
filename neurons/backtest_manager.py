@@ -50,7 +50,7 @@ class BacktestManager:
 
         self.perf_ledger_manager = PerfLedgerManager(self.metagraph,
                                                      shutdown_dict=shutdown_dict,
-                                                     live_price_fetcher=self.live_price_fetcher,
+                                                     live_price_fetcher=None, # Don't want SSL objects to be pickled
                                                      is_backtesting=True,
                                                      position_manager=None,
                                                      parallel_mode=parallel_mode,
