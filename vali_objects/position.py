@@ -18,7 +18,7 @@ FOREX_CARRY_FEE_PER_INTERVAL = math.exp(math.log(1 - .03) / 365.0)  # 3% per yea
 INDICES_CARRY_FEE_PER_INTERVAL = math.exp(math.log(1 - .0525) / 365.0)  # 5.25% per year for 1x leverage. Each interval is 24 hrs
 FEE_V6_TIME_MS = 1720843707000  # V6 PR merged
 SLIPPAGE_V1_TIME_MS = 1739937600000  # Slippage PR merged
-ALWAYS_USE_LATEST = False  # use either the latest or time-gated (post slippage release) calculations for spread, entry, exit price
+ALWAYS_USE_SLIPPAGE = None  # set as either True or False to control whether slippage is always or never applied
 
 class Position(BaseModel):
     """Represents a position in a trading system.
@@ -50,6 +50,8 @@ class Position(BaseModel):
     net_leverage: float = 0.0
     return_at_close: float = 1.0  # includes all fees
     average_entry_price: float = 0.0
+    cumulative_entry_value: float = 0.0
+    realized_pnl: float = 0.0
     position_type: Optional[OrderType] = None
     is_closed_position: bool = False
 
@@ -105,10 +107,11 @@ class Position(BaseModel):
 
 
     def get_spread_fee(self, timestamp_ms) -> float:
-        if timestamp_ms < SLIPPAGE_V1_TIME_MS and not ALWAYS_USE_LATEST:
-            return 1.0 - (self.get_cumulative_leverage() * self.trade_pair.fees * 0.5)
-        else:  # slippage will replace the spread fee
+        if ALWAYS_USE_SLIPPAGE or (ALWAYS_USE_SLIPPAGE is None and timestamp_ms >= SLIPPAGE_V1_TIME_MS):
+            # slippage will replace the spread fee
             return 1
+        else:
+            return 1.0 - (self.get_cumulative_leverage() * self.trade_pair.fees * 0.5)
 
     def crypto_carry_fee(self, current_time_ms: int) -> (float, int):
         #print(f'accrual time {TimeUtil.millis_to_formatted_date_str(self.start_carry_fee_accrual_ms)} now {TimeUtil.millis_to_formatted_date_str(current_time_ms)}')
@@ -194,10 +197,10 @@ class Position(BaseModel):
         if not self.orders or len(self.orders) == 0:
             return 0.0
         first_order = self.orders[0]
-        if first_order.processed_ms < SLIPPAGE_V1_TIME_MS and not ALWAYS_USE_LATEST:
-            return first_order.price
-        else:
+        if ALWAYS_USE_SLIPPAGE or (ALWAYS_USE_SLIPPAGE is None and first_order.processed_ms >= SLIPPAGE_V1_TIME_MS):
             return first_order.price * (1 + first_order.slippage) if first_order.leverage > 0 else first_order.price * (1 - first_order.slippage)
+        else:
+            return first_order.price
 
     def __hash__(self):
         # Include specified fields in the hash, assuming trade_pair is accessible and immutable
@@ -300,6 +303,8 @@ class Position(BaseModel):
         self.return_at_close = 1.0
         self.net_leverage = 0.0
         self.average_entry_price = 0.0
+        self.cumulative_entry_value = 0.0
+        self.realized_pnl = 0.0
         self.position_type = None
         self.is_closed_position = False
         self.position_type = None
@@ -354,25 +359,34 @@ class Position(BaseModel):
         self.orders.append(order)
         self._update_position()
 
-    def calculate_pnl(self, current_price, t_ms=None):
+    def calculate_pnl(self, current_price, t_ms=None, order=None):
         if self.initial_entry_price == 0 or self.average_entry_price is None:
             return 1
 
-        if (self.position_type == OrderType.FLAT and
-                (ALWAYS_USE_LATEST or
-                 (t_ms and t_ms >= SLIPPAGE_V1_TIME_MS) or
-                 (TimeUtil.now_in_millis() >= SLIPPAGE_V1_TIME_MS))):  # realized PnL
-            # apply slippage on exit
-            last_order = self.orders[-1]
-            exit_price = current_price * (1 + last_order.slippage) if last_order.leverage > 0 else current_price * (1 - last_order.slippage)
-        else:  # unrealized PnL
-            exit_price = current_price
+        if not t_ms:
+            t_ms = TimeUtil.now_in_millis()
 
-        gain = (
-            (exit_price - self.average_entry_price)
-            * self.net_leverage
-            / self.initial_entry_price
-        )
+        # pnl with slippage
+        if ALWAYS_USE_SLIPPAGE or (ALWAYS_USE_SLIPPAGE is None and t_ms >= SLIPPAGE_V1_TIME_MS):
+            if self.cumulative_entry_value == 0:
+                return 1
+            # update realized pnl for orders that reduce the size of a position
+            if order:
+                if (order.order_type != self.position_type or self.position_type == OrderType.FLAT):
+                    exit_price = current_price * (1 + order.slippage) if order.leverage > 0 else current_price * (1 - order.slippage)
+                    order_volume = order.leverage  # (order.leverage * ValiConfig.CAPITAL) / order.price  # TODO: calculate order.volume as an order attribute
+                    self.realized_pnl += -1 * (exit_price - self.average_entry_price) * order_volume  # TODO: FIFO entry cost
+                unrealized_pnl = (current_price - self.average_entry_price) * min(self.net_leverage, self.net_leverage + order.leverage, key=abs)
+            else:
+                unrealized_pnl = (current_price - self.average_entry_price) * self.net_leverage
+
+            gain = (self.realized_pnl + unrealized_pnl) / self.initial_entry_price
+        else:
+            gain = (
+                (current_price - self.average_entry_price)
+                * self.net_leverage
+                / self.initial_entry_price
+            )
         # Check if liquidated
         if gain <= -1.0:
             return 0
@@ -497,10 +511,10 @@ class Position(BaseModel):
             self._handle_liquidation(TimeUtil.now_in_millis() if time_ms is None else time_ms)
 
 
-    def set_returns(self, realtime_price, time_ms=None, total_fees=None):
+    def set_returns(self, realtime_price, time_ms=None, total_fees=None, order=None):
         # We used to multiple trade_pair.fees by net_leverage. Eventually we will
         # Update this calculation to approximate actual exchange fees.
-        self.current_return = self.calculate_pnl(realtime_price, t_ms=time_ms)
+        self.current_return = self.calculate_pnl(realtime_price, t_ms=time_ms, order=order)
         if total_fees is None:
             self.return_at_close = self.calculate_return_with_fees(self.current_return,
                                timestamp_ms=TimeUtil.now_in_millis() if time_ms is None else time_ms)
@@ -526,7 +540,7 @@ class Position(BaseModel):
         if order.src == ORDER_SRC_ELIMINATION_FLAT:
             self.net_leverage = 0.0
             return  # Don't set returns since the price is zero'd out.
-        self.set_returns(realtime_price, time_ms=order.processed_ms)
+        self.set_returns(realtime_price, time_ms=order.processed_ms, order=order)
 
         # Liquidated
         if self.current_return == 0:
@@ -537,14 +551,23 @@ class Position(BaseModel):
         if self.position_type == OrderType.FLAT:
             self.net_leverage = 0.0
         else:
-            if order.processed_ms < SLIPPAGE_V1_TIME_MS and not ALWAYS_USE_LATEST:
-                entry_price = realtime_price
-            else:
+            if ALWAYS_USE_SLIPPAGE is False or (ALWAYS_USE_SLIPPAGE is None and order.processed_ms < SLIPPAGE_V1_TIME_MS):
+                self.average_entry_price = (
+                    self.average_entry_price * self.net_leverage
+                    + realtime_price * delta_leverage
+                ) / new_net_leverage
+            elif self.position_type == order.order_type:
+                # after SLIPPAGE_V1_TIME_MS, average entry price now reflects the average price
+                # average entry price only changes when an order is in the same direction as the position. reducing a position does not affect average entry price.
                 entry_price = order.price * (1 + order.slippage) if order.leverage > 0 else order.price * (1 - order.slippage)
-            self.average_entry_price = (
-                self.average_entry_price * self.net_leverage
-                + entry_price * delta_leverage
-            ) / new_net_leverage
+
+                self.average_entry_price = (
+                    self.average_entry_price * self.net_leverage
+                    + entry_price * delta_leverage
+                ) / new_net_leverage
+
+                order_volume = order.leverage # (order.leverage * ValiConfig.CAPITAL) / entry_price  # TODO: order volume. represents # of shares, etc.
+                self.cumulative_entry_value += entry_price * order_volume  # TODO: replace with order.volume attribute
             self.net_leverage = new_net_leverage
 
     def initialize_position_from_first_order(self, order):
@@ -637,6 +660,8 @@ class Position(BaseModel):
 
     def _update_position(self):
         self.net_leverage = 0.0
+        self.cumulative_entry_value = 0.0
+        self.realized_pnl = 0.0
         bt.logging.trace(f"Updating position {self.trade_pair.trade_pair_id} with n orders: {len(self.orders)}")
         for order in self.orders:
             if self.position_type is None:
