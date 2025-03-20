@@ -1564,6 +1564,7 @@ class PerfLedgerManager(CacheController):
         bt.logging.success(f"Done updating perf ledgers with {self.parallel_mode.name} in {time.time() - t_init}s. "
                            f"n_perf_ledgers: {n_perf_ledgers}, n_hotkeys_with_positions: {n_hotkeys_with_positions}")
 
+        self.save_perf_ledgers(updated_perf_ledgers)
         return updated_perf_ledgers
 
 
