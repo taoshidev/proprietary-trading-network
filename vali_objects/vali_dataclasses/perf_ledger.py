@@ -4,14 +4,13 @@ import os
 import time
 import traceback
 from collections import defaultdict
-from multiprocessing import Pool
 from copy import deepcopy
 from enum import Enum
 from typing import List
 import bittensor as bt
 from pydantic import BaseModel, ConfigDict
 from setproctitle import setproctitle
-
+from shared_objects.sn8_multiprocessing import ParallelizationMode, get_spark_session
 from time_util.time_util import MS_IN_8_HOURS, MS_IN_24_HOURS, timeme
 
 from shared_objects.cache_controller import CacheController
@@ -368,6 +367,8 @@ class PerfLedgerManager(CacheController):
         self.running_unit_tests = running_unit_tests
         self.enable_rss = enable_rss
         self.parallel_mode = parallel_mode
+        bt.logging.info(f"Running performance ledger updates in parallel with {self.parallel_mode.name}")
+
         self.build_portfolio_ledgers_only = build_portfolio_ledgers_only
         if perf_ledger_hks_to_invalidate:
             self.perf_ledger_hks_to_invalidate = perf_ledger_hks_to_invalidate
@@ -1519,7 +1520,7 @@ class PerfLedgerManager(CacheController):
         )
         print(f'Completed update_one_perf_ledger_parallel for {hotkey} in {time.time() - t0} s')
         return hotkey, new_bundle
-    def update_perf_ledgers_parallel(self, spark, hotkey_to_positions: dict[str, List[Position]],
+    def update_perf_ledgers_parallel(self, spark, pool, hotkey_to_positions: dict[str, List[Position]],
                                      existing_perf_ledgers: dict[str, dict[str, PerfLedger]],
                                      parallel_mode = ParallelizationMode.PYSPARK,
                                      now_ms: int = None, top_n_miners: int=None) -> dict[str, dict[str, PerfLedger]]:
@@ -1528,6 +1529,7 @@ class PerfLedgerManager(CacheController):
 
         Args:
             spark: PySpark SparkSession
+            pool: Multiprocessing pool
             hotkey_to_positions: Dictionary mapping hotkeys to their positions
             existing_perf_ledgers: Dictionary of existing performance ledger bundles
             now_ms: Current time in milliseconds
@@ -1558,8 +1560,7 @@ class PerfLedgerManager(CacheController):
             updated_perf_ledgers = hotkey_rdd.map(self.update_one_perf_ledger_parallel).collectAsMap()
         elif parallel_mode == ParallelizationMode.MULTIPROCESSING:
             # Use multiprocessing for parallel processing
-            with Pool() as pool:
-                updated_perf_ledgers = dict(pool.map(self.update_one_perf_ledger_parallel, hotkey_data))
+            updated_perf_ledgers = dict(pool.map(self.update_one_perf_ledger_parallel, hotkey_data))
 
         n_perf_ledgers = len(updated_perf_ledgers)
         n_hotkeys_with_positions = len(hotkey_to_positions)
@@ -1570,48 +1571,12 @@ class PerfLedgerManager(CacheController):
         return updated_perf_ledgers
 
 
-def get_spark_session(parallel_mode: ParallelizationMode):
-    if parallel_mode == ParallelizationMode.PYSPARK:
-        # Check if running in Databricks
-        is_databricks = 'DATABRICKS_RUNTIME_VERSION' in os.environ
-        # Initialize Spark
-        if is_databricks:
-            # In Databricks, 'spark' is already available in the global namespace
-            bt.logging.info("Running in Databricks environment, using existing spark session")
-            should_close = False
-
-        else:
-            # Create a new Spark session if not in Databricks
-            from pyspark.sql import SparkSession
-
-            bt.logging.info("Creating new Spark session")
-            spark = SparkSession.builder \
-                .appName("PerfLedgerManager") \
-                .config("spark.executor.memory", "4g") \
-                .config("spark.driver.memory", "6g") \
-                .config("spark.executor.cores", "4") \
-                .config("spark.driver.maxResultSize", "2g") \
-                .getOrCreate()
-            should_close = True
-
-    elif parallel_mode == ParallelizationMode.MULTIPROCESSING:
-        spark = None
-        should_close = False
-    else:
-        raise ValueError(f"Invalid parallelization mode: {parallel_mode}")
-
-
-    bt.logging.info(f"Running performance ledger updates in parallel with {parallel_mode.name}")
-
-    return spark, should_close
-
-
 if __name__ == "__main__":
     from tests.shared_objects.mock_classes import MockMetagraph
     bt.logging.enable_info()
 
     # Configuration flags
-    parallel_mode = ParallelizationMode.PYSPARK  # 1 for pyspark, 2 for multiprocessing
+    parallel_mode = ParallelizationMode.SERIAL  # 1 for pyspark, 2 for multiprocessing
     top_n_miners = 4
     test_single_hotkey = None #'5EWKUhycaBQHiHnfE3i2suZ1BvxAAE3HcsFsp8TaR6mu3JrJ'  # Set to a specific hotkey string to test single hotkey, or None for all
     regenerate_all = False  # Whether to regenerate all ledgers from scratch
@@ -1638,17 +1603,18 @@ if __name__ == "__main__":
             bt.logging.info("Running standard sequential update for all hotkeys")
             perf_ledger_manager.update(regenerate_all_ledgers=regenerate_all)
     else:
-        spark, should_close = get_spark_session(parallel_mode)
-
         # Get positions and existing ledgers
         hotkey_to_positions, _ = perf_ledger_manager.get_positions_perf_ledger(testing_one_hotkey=test_single_hotkey)
 
         existing_perf_ledgers = {} if regenerate_all else perf_ledger_manager.get_perf_ledgers(portfolio_only=False, from_disk=True)
 
         # Run the parallel update
+        spark, should_close = get_spark_session(parallel_mode)
         updated_perf_ledgers = perf_ledger_manager.update_perf_ledgers_parallel(spark, hotkey_to_positions, existing_perf_ledgers, parallel_mode=parallel_mode, top_n_miners=top_n_miners)
 
         PerfLedgerManager.print_bundles(updated_perf_ledgers)
         # Stop Spark session if we created it
-        if spark and should_close:
-            spark.stop()
+        #if spark and should_close:
+        #    t0 = time.time()
+        #    spark.stop()
+        #    print('closed spark session in  ', time.time() - t0)
