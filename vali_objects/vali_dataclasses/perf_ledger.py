@@ -1561,6 +1561,8 @@ class PerfLedgerManager(CacheController):
         elif parallel_mode == ParallelizationMode.MULTIPROCESSING:
             # Use multiprocessing for parallel processing
             updated_perf_ledgers = dict(pool.map(self.update_one_perf_ledger_parallel, hotkey_data))
+        else:
+            raise ValueError(f"Invalid parallel mode: {parallel_mode}")
 
         n_perf_ledgers = len(updated_perf_ledgers)
         n_hotkeys_with_positions = len(hotkey_to_positions)

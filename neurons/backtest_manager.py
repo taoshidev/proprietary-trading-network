@@ -296,7 +296,7 @@ if __name__ == '__main__':
     secrets = ValiUtils.get_secrets()  # {'polygon_apikey': '123', 'tiingo_apikey': '456'}
     btm = BacktestManager(hk_to_positions, start_time_ms, secrets, None, capital=500_000,
                           use_slippage=True, fetch_slippage_data=True, recalculate_slippage=True,
-                          parallel_mode=ParallelizationMode.SERIAL,
+                          parallel_mode=ParallelizationMode.PYSPARK,
                           build_portfolio_ledgers_only=True)
     for t_ms in range(start_time_ms, max_order_time_ms + 1, 1000 * 60 * 60 * 24):
         btm.update(t_ms, run_challenge=False)
