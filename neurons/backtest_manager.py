@@ -92,7 +92,11 @@ class BacktestManager:
         self.weight_setter = SubtensorWeightSetter(self.metagraph, position_manager=self.position_manager, is_backtesting=True)
         self.position_locks = PositionLocks(hotkey_to_positions=positions_at_t_f)
         self.plagiarism_detector = PlagiarismDetector(self.metagraph)
-        self.miner_statistics_manager = MinerStatisticsManager(position_manager=self.position_manager, subtensor_weight_setter=self.weight_setter, plagiarism_detector=self.plagiarism_detector)
+        self.miner_statistics_manager = MinerStatisticsManager(
+            position_manager=self.position_manager,
+            subtensor_weight_setter=self.weight_setter,
+            plagiarism_detector=self.plagiarism_detector
+        )
         self.psm = PriceSlippageModel(self.live_price_fetcher, is_backtesting=True, fetch_slippage_data=fetch_slippage_data,
                                       recalculate_slippage=recalculate_slippage, capital=capital)
 

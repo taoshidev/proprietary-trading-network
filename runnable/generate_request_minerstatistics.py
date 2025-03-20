@@ -38,6 +38,7 @@ class ScoreMetric:
     weight: float = 1.0
     requires_penalties: bool = False
     requires_weighting: bool = False
+    bypass_confidence: bool = False
 
 
 class ScoreResult:
@@ -116,7 +117,8 @@ class MetricsCalculator:
             value = metric.metric_func(
                 log_returns=log_returns,
                 ledger=ledger,
-                weighting=weighting
+                weighting=weighting,
+                bypass_confidence=metric.bypass_confidence
             )
 
             scores[hotkey] = value
@@ -270,7 +272,8 @@ class MinerStatisticsManager:
     def calculate_all_scores(
             self,
             miner_data: Dict[str, Dict[str, Any]],
-            score_type: ScoreType = ScoreType.BASE
+            score_type: ScoreType = ScoreType.BASE,
+            bypass_confidence: bool = False
     ) -> Dict[str, Dict[str, ScoreResult]]:
         """Calculate all metrics for all miners (BASE, AUGMENTED)."""
         # Initialize flags
@@ -280,6 +283,7 @@ class MinerStatisticsManager:
         for metric in self.metrics_calculator.metrics.values():
             metric.requires_penalties = False
             metric.requires_weighting = False
+            metric.bypass_confidence = bypass_confidence
 
         if score_type == ScoreType.AUGMENTED:
             weighting = True
@@ -330,7 +334,8 @@ class MinerStatisticsManager:
             miner_data: Dict[str, Dict[str, Any]],
             success_hotkeys: List[str],
             testing_hotkeys: List[str],
-            score_type: ScoreType = ScoreType.BASE
+            score_type: ScoreType = ScoreType.BASE,
+            bypass_confidence: bool = False
     ) -> Dict[str, Dict[str, ScoreResult]]:
         """
         Calculates scores for main competition miners and challenge period miners, by calculating challenge period scores only relative the
@@ -348,7 +353,7 @@ class MinerStatisticsManager:
             trial_miner_data = {**success_miner_data, **testing_miner_data}
 
             # Calculate scores for main competition with each challenge miner. Necessary for percentile calculations
-            trial_scores = self.calculate_all_scores(trial_miner_data, score_type)
+            trial_scores = self.calculate_all_scores(trial_miner_data, score_type, bypass_confidence)
 
             # Add the challenge period miner's scores to challengeperiod_scores
             for metric_name, hotkey_map in trial_scores.items():
@@ -357,7 +362,7 @@ class MinerStatisticsManager:
                 challengeperiod_hotkey_map[hk] = testing_miner_score_result
 
         # Main competition miners need percentiles relative to all miners
-        miner_scores = self.calculate_all_scores(miner_data, score_type)
+        miner_scores = self.calculate_all_scores(miner_data, score_type, bypass_confidence)
 
         # Update the scores for challenge period miners
         for metric_name, hotkey_map in miner_scores.items():
@@ -412,7 +417,8 @@ class MinerStatisticsManager:
         checkpoints: bool = True,
         risk_report: bool = False,
         selected_miner_hotkeys: List[str] = None,
-        final_results_weighting = True
+        final_results_weighting = True,
+        bypass_confidence: bool = False
     ) -> Dict[str, Any]:
 
         if time_now is None:
@@ -487,8 +493,8 @@ class MinerStatisticsManager:
             miner_data[hotkey] = self.prepare_miner_data(hotkey, filtered_ledger, filtered_positions, time_now)
 
         # Compute the base and augmented scores
-        base_scores = self.calculate_scores_with_challengeperiod(miner_data, challengeperiod_success_hotkeys, challengeperiod_testing_hotkeys, ScoreType.BASE)
-        augmented_scores = self.calculate_scores_with_challengeperiod(miner_data, challengeperiod_success_hotkeys, challengeperiod_testing_hotkeys, ScoreType.AUGMENTED)
+        base_scores = self.calculate_scores_with_challengeperiod(miner_data, challengeperiod_success_hotkeys, challengeperiod_testing_hotkeys, ScoreType.BASE, bypass_confidence)
+        augmented_scores = self.calculate_scores_with_challengeperiod(miner_data, challengeperiod_success_hotkeys, challengeperiod_testing_hotkeys, ScoreType.AUGMENTED, bypass_confidence)
 
         # For visualization
         daily_returns_dict = self.calculate_all_daily_returns(filtered_ledger)
@@ -642,8 +648,8 @@ class MinerStatisticsManager:
     # -------------------------------------------
     # Write to disk
     # -------------------------------------------
-    def generate_request_minerstatistics(self, time_now: int, checkpoints: bool = True, risk_report: bool = False):
-        final_dict = self.generate_miner_statistics_data(time_now, checkpoints=checkpoints, risk_report=risk_report)
+    def generate_request_minerstatistics(self, time_now: int, checkpoints: bool = True, risk_report: bool = False, bypass_confidence: bool = False):
+        final_dict = self.generate_miner_statistics_data(time_now, checkpoints=checkpoints, risk_report=risk_report, bypass_confidence=bypass_confidence)
         output_file_path = ValiBkpUtils.get_miner_stats_dir()
         ValiBkpUtils.write_file(output_file_path, final_dict)
 
@@ -676,6 +682,6 @@ if __name__ == "__main__":
     )
     plagiarism_detector = PlagiarismDetector(None, None, position_manager=position_manager)
 
-    msm = MinerStatisticsManager(position_manager, subtensor_weight_setter, plagiarism_detector)
+    msm = MinerStatisticsManager(position_manager, perf_ledger_manager, subtensor_weight_setter, plagiarism_detector)
     msm.generate_request_minerstatistics(TimeUtil.now_in_millis(), True)
 
