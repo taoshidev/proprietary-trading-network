@@ -28,6 +28,11 @@ TARGET_LEDGER_WINDOW_MS = ValiConfig.TARGET_LEDGER_WINDOW_MS
 
 TP_ID_PORTFOLIO = 'portfolio'
 
+class ShortcutReason(Enum):
+    NO_SHORTCUT = 0
+    NO_OPEN_POSITIONS = 1
+    OUTSIDE_WINDOW = 2
+    ZERO_TIME_DELTA = 3
 
 class FeeCache():
     def __init__(self):
@@ -539,7 +544,7 @@ class PerfLedgerManager(CacheController):
 
 
     def _can_shortcut(self, tp_to_historical_positions: dict[str: Position], end_time_ms: int,
-                      realtime_position_to_pop: Position | None, start_time_ms: int, perf_ledger_bundle: dict[str, PerfLedger]) -> (bool, float, float, float):
+                      realtime_position_to_pop: Position | None, start_time_ms: int, perf_ledger_bundle: dict[str, PerfLedger]) -> (ShortcutReason, float, float, float):
 
         tp_to_return = {}
         tp_to_spread_fee = {}
@@ -580,7 +585,7 @@ class PerfLedgerManager(CacheController):
         assert tp_to_carry_fee[TP_ID_PORTFOLIO] > 0, (tp_to_carry_fee[TP_ID_PORTFOLIO], tp_to_spread_fee[TP_ID_PORTFOLIO])
 
         reason = ''
-        ans = False
+        ans = ShortcutReason.NO_SHORTCUT
         # When building from orders, we will always have at least one open position. When opening a position after a
         # period of all closed positions, we can shortcut by identifying that the new position is the only open position
         # and all other positions are closed. The time before this period, we have only closed positions.
@@ -596,17 +601,17 @@ class PerfLedgerManager(CacheController):
                 raise Exception(f'n_positions_newly_opened should be 0 or 1 but got {n_positions_newly_opened}')
 
             reason += 'No open positions. '
-            ans = True
+            ans = ShortcutReason.NO_OPEN_POSITIONS
 
         # This window would be dropped anyway
         if (end_time_ms < ledger_cutoff_ms):
             reason += 'Ledger cutoff. '
-            ans = True
+            ans = ShortcutReason.OUTSIDE_WINDOW
 
         # simultaneous orders were placed
         if start_time_ms == end_time_ms:
             reason += 'start_time_ms == end_time_ms. Simultaneous orders.'
-            ans = True
+            ans = ShortcutReason.ZERO_TIME_DELTA
 
             #print('start and end time the same.')
             #for tp, positions in tp_to_historical_positions.items():
@@ -620,7 +625,7 @@ class PerfLedgerManager(CacheController):
             #            for o in orders:
             #                print(f'        order {o}')
 
-        if 0 and ans:
+        if 0 and ans != ShortcutReason.NO_SHORTCUT:
             for tp_id, historical_positions in tp_to_historical_positions.items():
                 positions = []
                 for i, historical_position in enumerate(historical_positions):
@@ -937,14 +942,20 @@ class PerfLedgerManager(CacheController):
             return False  # Can only build perf ledger between orders or after all orders have passed.
 
         # "Shortcut" All positions closed and one newly open position OR before the ledger lookback window.
-        can_shortcut, initial_tp_to_return, initial_tp_to_spread_fee, initial_tp_to_carry_fee = \
+        shortcut_reason, initial_tp_to_return, initial_tp_to_spread_fee, initial_tp_to_carry_fee = \
             self._can_shortcut(tp_to_historical_positions, end_time_ms, realtime_position_to_pop, start_time_ms, perf_ledger_bundle)
-        if can_shortcut:
+        if shortcut_reason != ShortcutReason.NO_SHORTCUT:
             for tp_id in tp_ids_to_build:
                 perf_ledger = perf_ledger_bundle[tp_id]
-                tp_return = initial_tp_to_return[tp_id]
-                tp_spread_fee = initial_tp_to_spread_fee[tp_id]
-                tp_carry_fee = initial_tp_to_carry_fee[tp_id]
+                if shortcut_reason in (ShortcutReason.NO_OPEN_POSITIONS, ShortcutReason.ZERO_TIME_DELTA) and perf_ledger.cps[-1]:
+                    # Multpying a bunch of floats in python changes the precision. Just take the previous return to keep cps from showing a small gain/loss.
+                    tp_return = perf_ledger.cps[-1].prev_portfolio_ret
+                    tp_spread_fee = perf_ledger.cps[-1].prev_portfolio_spread_fee
+                    tp_carry_fee = perf_ledger.cps[-1].prev_portfolio_carry_fee
+                else:
+                    tp_return = initial_tp_to_return[tp_id]
+                    tp_spread_fee = initial_tp_to_spread_fee[tp_id]
+                    tp_carry_fee = initial_tp_to_carry_fee[tp_id]
                 perf_ledger.update_pl(tp_return, end_time_ms, miner_hotkey, TradePairReturnStatus.TP_MARKET_NOT_OPEN, tp_spread_fee, tp_carry_fee, tp_debug=tp_id + '_shortcut')
                 perf_ledger.purge_old_cps()
             return False
@@ -1458,7 +1469,7 @@ if __name__ == "__main__":
     all_hotkeys_on_disk = CacheController.get_directory_names(all_miners_dir)
     mmg = MockMetagraph(hotkeys=all_hotkeys_on_disk)
     elimination_manager = EliminationManager(mmg, None, None)
-    position_manager = PositionManager(metagraph=mmg, running_unit_tests=False, elimination_manager=elimination_manager)
-    perf_ledger_manager = PerfLedgerManager(mmg, position_manager=position_manager, running_unit_tests=False, enable_rss=False)
+    pm = PositionManager(metagraph=mmg, running_unit_tests=False, elimination_manager=elimination_manager)
+    perf_ledger_manager = PerfLedgerManager(mmg, position_manager=pm, running_unit_tests=False, enable_rss=False)
     #perf_ledger_manager.update(regenerate_all_ledgers=True)
     perf_ledger_manager.update(testing_one_hotkey='5DswH2LoRwivzv37tGvo27XJjDvFpff2fhu5T8LHsfXmFS5u')
