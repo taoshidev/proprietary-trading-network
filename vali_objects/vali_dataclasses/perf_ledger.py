@@ -205,11 +205,11 @@ class PerfLedger():
 
         assert time_since_last_update_ms >= 0
         new_cp = PerfCheckpoint(last_update_ms=self.cps[-1].last_update_ms,
-                                prev_portfolio_ret=self.cps[-1].prev_portfolio_ret,
+                                prev_portfolio_ret=last_portfolio_return,
                                 prev_portfolio_spread_fee=self.cps[-1].prev_portfolio_spread_fee,
                                 prev_portfolio_carry_fee=self.cps[-1].prev_portfolio_carry_fee,
                                 mdd=min(last_dd, point_in_time_dd),
-                                mpv=max(self.cps[-1].prev_portfolio_ret, current_portfolio_value))
+                                mpv=max(last_portfolio_return, current_portfolio_value))
         assert new_cp.last_update_ms <= now_ms, self.cps
         self.cps.append(new_cp)
 
