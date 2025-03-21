@@ -743,26 +743,20 @@ class PerfLedgerManager(CacheController):
         #print('22222', tp.trade_pair, trade_pair_to_price_info.keys())
 
 
-    def positions_to_portfolio_return(self, tp_ids_to_build, tp_to_historical_positions_dense: dict[str: Position], t_ms, mode, end_time_ms, tp_to_initial_return, tp_to_initial_spread_fee, tp_to_initial_carry_fee, realtime_position_to_pop):
+    def positions_to_portfolio_return(self, tp_ids_to_build, tp_to_historical_positions_dense: dict[str: Position], t_ms, mode, end_time_ms, tp_to_initial_return, tp_to_initial_spread_fee, tp_to_initial_carry_fee):
         # Answers "What is the portfolio return at this time t_ms?"
         tp_to_any_open = {x: TradePairReturnStatus.TP_NO_OPEN_POSITIONS for x in tp_ids_to_build}
         tp_to_return = tp_to_initial_return.copy()
         tp_to_spread_fee = tp_to_initial_spread_fee.copy()
         tp_to_carry_fee = tp_to_initial_carry_fee.copy()
         t_ms = self.align_t_ms_to_mode(t_ms, mode)
-        last_iteration = t_ms + 1000 >= end_time_ms
         for tp_id, historical_positions in tp_to_historical_positions_dense.items():
             #historical_position = historical_positions[0]
             assert len(historical_positions) < 2, ('maybe a recently opened position?', historical_positions)
-            price_locked = False
             for historical_position in historical_positions:
                 if self.shutdown_dict:
                     return tp_to_return, tp_to_any_open, tp_to_spread_fee, tp_to_carry_fee
 
-                # Align to the return dictated by the price etched into the position. Prevents pnl bulge edgecase
-                if last_iteration and realtime_position_to_pop and historical_position.position_uuid == realtime_position_to_pop.position_uuid and realtime_position_to_pop.is_closed_position:
-                    historical_position = realtime_position_to_pop
-                    price_locked = True
 
                 position_spread_fee, psf_updated = self.position_uuid_to_cache[historical_position.position_uuid].get_spread_fee(historical_position, t_ms)
                 position_carry_fee, pcf_updated = self.position_uuid_to_cache[historical_position.position_uuid].get_carry_fee(t_ms, historical_position)
@@ -781,11 +775,8 @@ class PerfLedgerManager(CacheController):
 
                 tp_to_any_open[tp_id] = TradePairReturnStatus.TP_MARKET_OPEN_NO_PRICE_CHANGE
                 tp_to_any_open[TP_ID_PORTFOLIO] = max(TradePairReturnStatus.TP_MARKET_OPEN_NO_PRICE_CHANGE, tp_to_any_open[TP_ID_PORTFOLIO])
-                if price_locked:
-                    price_at_t_ms = None
-                else:
-                    self.refresh_price_info(t_ms, end_time_ms, historical_position.trade_pair, mode)
-                    price_at_t_ms = self.trade_pair_to_price_info[mode][tp_id].get(t_ms)
+                self.refresh_price_info(t_ms, end_time_ms, historical_position.trade_pair, mode)
+                price_at_t_ms = self.trade_pair_to_price_info[mode][tp_id].get(t_ms)
                 if price_at_t_ms is None:
                     price_changed = False
                 else:
@@ -1003,7 +994,7 @@ class PerfLedgerManager(CacheController):
                                                          f" delta_ms: {(t_ms - portfolio_pl.last_update_ms)} s. perf ledger {portfolio_pl}")
 
             tp_to_current_return, tp_to_any_open, tp_to_current_spread_fee, tp_to_current_carry_fee = \
-                self.positions_to_portfolio_return(tp_ids_to_build, tp_to_historical_positions_dense, t_ms, mode, end_time_ms, tp_to_initial_return, tp_to_initial_spread_fee, tp_to_initial_carry_fee, realtime_position_to_pop)
+                self.positions_to_portfolio_return(tp_ids_to_build, tp_to_historical_positions_dense, t_ms, mode, end_time_ms, tp_to_initial_return, tp_to_initial_spread_fee, tp_to_initial_carry_fee)
             portfolio_return = tp_to_current_return[TP_ID_PORTFOLIO]
 
             if portfolio_return == 0 and self.check_liquidated(miner_hotkey, portfolio_return, t_ms, tp_to_historical_positions):
