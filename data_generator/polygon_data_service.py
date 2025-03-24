@@ -6,6 +6,8 @@ from multiprocessing import Process
 import requests
 
 from typing import List
+
+from vali_objects.vali_dataclasses.order import Order
 from polygon.websocket import Market, EquityAgg, EquityTrade, CryptoTrade, ForexQuote, WebSocketClient
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -152,7 +154,7 @@ class ExchangeMappingHelper:
 
 class PolygonDataService(BaseDataService):
 
-    def __init__(self, api_key, disable_ws=False, ipc_manager=None):
+    def __init__(self, api_key, disable_ws=False, ipc_manager=None, is_backtesting=False):
         self.init_time = time.time()
         self._api_key = api_key
         ehm = ExchangeMappingHelper(api_key, fetch_live_mapping = not disable_ws)
@@ -161,6 +163,8 @@ class PolygonDataService(BaseDataService):
         self.disable_ws = disable_ws
         self.N_CANDLES_LIMIT = 50000
         self.tp_to_mfs = {}
+        self.is_backtesting = is_backtesting
+
         super().__init__(provider_name=POLYGON_PROVIDER_NAME, ipc_manager=ipc_manager)
 
         self.MARKET_STATUS = None
@@ -455,8 +459,15 @@ class PolygonDataService(BaseDataService):
     def get_close_rest(
         self,
         trade_pair: TradePair,
-        timestamp_ms: int = None
+        timestamp_ms: int = None,
+        order: Order = None
     ) -> PriceSource | None:
+
+        if self.is_backtesting:
+
+            # Check that we are within market hours for genuine ptn orders
+            if order is not None and order.src == 0:
+                assert self.is_market_open(trade_pair)
 
         if not self.is_market_open(trade_pair):
             return self.get_event_before_market_close(trade_pair)

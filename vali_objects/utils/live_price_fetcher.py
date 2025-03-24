@@ -16,7 +16,7 @@ from vali_objects.vali_dataclasses.price_source import PriceSource
 from statistics import median
 
 class LivePriceFetcher:
-    def __init__(self, secrets, disable_ws=False, ipc_manager=None):
+    def __init__(self, secrets, disable_ws=False, ipc_manager=None, is_backtesting=False):
         if "tiingo_apikey" in secrets:
             self.tiingo_data_service = TiingoDataService(api_key=secrets["tiingo_apikey"], disable_ws=disable_ws,
                                                          ipc_manager=ipc_manager)
@@ -24,7 +24,7 @@ class LivePriceFetcher:
             raise Exception("Tiingo API key not found in secrets.json")
         if "polygon_apikey" in secrets:
             self.polygon_data_service = PolygonDataService(api_key=secrets["polygon_apikey"], disable_ws=disable_ws,
-                                                           ipc_manager=ipc_manager)
+                                                           ipc_manager=ipc_manager, is_backtesting=is_backtesting)
         else:
             raise Exception("Polygon API key not found in secrets.json")
 
