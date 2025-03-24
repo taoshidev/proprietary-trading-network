@@ -83,7 +83,8 @@ class BaseDataService():
 
     def get_close_rest(
             self,
-            trade_pair: TradePair
+            trade_pair: TradePair,
+            timestamp_ms: int
     ) -> PriceSource | None:
         pass
 

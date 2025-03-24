@@ -454,13 +454,16 @@ class PolygonDataService(BaseDataService):
 
     def get_close_rest(
         self,
-        trade_pair: TradePair
+        trade_pair: TradePair,
+        timestamp_ms: int = None
     ) -> PriceSource | None:
 
         if not self.is_market_open(trade_pair):
             return self.get_event_before_market_close(trade_pair)
-
-        now_ms = TimeUtil.now_in_millis()
+        if timestamp_ms is None:
+            now_ms = TimeUtil.now_in_millis()
+        else:
+            now_ms = timestamp_ms
         prev_timestamp = None
         final_agg = None
         timespan = "second"
