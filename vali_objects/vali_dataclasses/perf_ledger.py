@@ -248,7 +248,6 @@ class PerfLedger():
         point_in_time_dd = CacheController.calculate_drawdown(current_portfolio_value, self.max_return)
         if not point_in_time_dd:
             time_formatted = TimeUtil.millis_to_verbose_formatted_date_str(now_ms)
-            bt.logging.warning(f'')
             raise Exception(f'point_in_time_dd is {point_in_time_dd} at time {time_formatted}. '
                             f'any_open: {any_open}, prev_portfolio_value {self.cps[-1].prev_portfolio_ret}, '
                             f'current_portfolio_value: {current_portfolio_value}, self.max_return: {self.max_return}, debug_dict: {debug_dict}')

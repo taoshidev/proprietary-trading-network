@@ -65,7 +65,7 @@ def get_spark_session(parallel_mode: ParallelizationMode):
         # Initialize Spark
         if is_databricks:
             # In Databricks, 'spark' is already available in the global namespace
-            bt.logging.info("Running in Databricks environment, using existing spark session")
+            print("Running in Databricks environment, using existing spark session")
             should_close = False
 
         else:
