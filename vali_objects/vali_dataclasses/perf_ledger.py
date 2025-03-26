@@ -942,11 +942,11 @@ class PerfLedgerManager(CacheController):
                 for historical_position in historical_positions:
                     if historical_position.is_open_position and len(historical_position.orders):
                         tpo = [TimeUtil.millis_to_formatted_date_str(x.processed_ms) for x in historical_position.orders]
-                        positions.append({'position_uuid':historical_position.position_uuid,
-                                             'net_leverage':historical_position.net_leverage,
-                                             'price_per_order':[x.price for x in historical_position.orders],
-                                             'return_at_close':historical_position.return_at_close,
-                                             'time_per_order':tpo})
+                        positions.append({'position_uuid': historical_position.position_uuid,
+                                         'net_leverage': historical_position.net_leverage,
+                                         'price_per_order': [x.price for x in historical_position.orders],
+                                         'return_at_close': historical_position.return_at_close,
+                                         'time_per_order': tpo})
                 if positions:
                     print(f'    tp_id {tp_id} tp_to_last_price {self.tp_to_last_price.get(tp_id)},'
                           f' trade_pair_to_position_ret {self.trade_pair_to_position_ret.get(tp_id)}')
