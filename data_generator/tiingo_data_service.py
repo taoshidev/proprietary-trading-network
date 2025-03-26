@@ -61,6 +61,37 @@ class TiingoDataService(BaseDataService):
     def instantiate_not_pickleable_objects(self):
         self.TIINGO_CLIENT = TiingoClient(self.config)
 
+
+    def get_close_at_date_second(self, trade_pair: TradePair, target_timestamp_ms: int) -> PriceSource | None:
+
+        #if not self.is_market_open(trade_pair):
+        #    return self.get_event_before_market_close(trade_pair)
+
+        prev_timestamp = None
+        smallest_delta = None
+        corresponding_price_source = None
+        n_responses = 0
+        timespan = "second"
+        def try_updating_found_price(t, agg):
+            nonlocal smallest_delta, corresponding_price_source, target_timestamp_ms
+            time_delta_ms = abs(t - target_timestamp_ms)
+            if smallest_delta is None or time_delta_ms <= smallest_delta:
+                #print('Updated best answer', time_delta_ms, smallest_delta, t, p)
+                smallest_delta = time_delta_ms
+                corresponding_price_source = self.agg_to_price_source(agg, target_timestamp_ms, timespan)
+
+        raw = self.unified_candle_fetcher(trade_pair, target_timestamp_ms - 1000 * 10, target_timestamp_ms + 1000 * 10, timespan)
+        for a in raw:
+            print('agg', a, 'dt', target_timestamp_ms - a.timestamp, 'ms')
+            n_responses += 1
+            try_updating_found_price(a.timestamp, a.open)
+
+            assert prev_timestamp is None or prev_timestamp < a.timestamp, raw
+            prev_timestamp = a.timestamp
+
+        #print(f"smallest delta ms: {smallest_delta}, input_timestamp: {timestamp_ms}, candle_start_time_ms: {start_time}, candle: {candle}, n_responses: {n_responses}")
+        return corresponding_price_source
+
     def run_pseudo_websocket(self, tpc: TradePairCategory):
         verbose = False
         POLLING_INTERVAL_S = 5
@@ -420,13 +451,18 @@ class TiingoDataService(BaseDataService):
         return tp_to_price
 
     @exception_handler_decorator()
-    def get_closes_crypto(self, trade_pairs: List[TradePair], verbose=False) -> dict:
+    def get_closes_crypto(self, trade_pairs: List[TradePair], verbose=False, target_time_ms=None) -> dict:
         tp_to_price = {}
         if not trade_pairs:
             return tp_to_price
         assert all(tp.trade_pair_category == TradePairCategory.CRYPTO for tp in trade_pairs), trade_pairs
 
         def tickers_to_crypto_url(tickers: List[str]) -> str:
+            if target_time_ms:
+                # YYYY-MM-DD format.
+                day_format = TimeUtil.millis_to_short_date_str(target_time_ms)
+                # "https://api.tiingo.com/tiingo/crypto/prices?tickers=btcusd&startDate=2019-01-02&resampleFreq=5min&token=ffb55f7fdd167d4b8047539e6b62d82b92b25f91"
+                return f"https://api.tiingo.com/tiingo/crypto/prices?tickers={','.join(tickers)}&startDate={day_format}&resampleFreq=1min&token={self.config['api_key']}&exchanges={TIINGO_COINBASE_EXCHANGE_STR.upper()}"
             return f"https://api.tiingo.com/tiingo/crypto/top?tickers={','.join(tickers)}&token={self.config['api_key']}&exchanges={TIINGO_COINBASE_EXCHANGE_STR.upper()}"
 
         url = tickers_to_crypto_url([self.trade_pair_to_tiingo_ticker(x) for x in trade_pairs])

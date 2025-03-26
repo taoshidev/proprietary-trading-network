@@ -73,7 +73,8 @@ class PriceSource(BaseModel):
 
     def parse_appropriate_price(self, now_ms: int, is_forex: bool, order_type: OrderType, position) -> float:
         ans = None
-        if is_forex:
+        # Only secondly candles have bid/ask
+        if is_forex and self.timespan_ms == 1000:
             if order_type == OrderType.LONG:
                 ans = self.ask
             elif order_type == OrderType.SHORT:
