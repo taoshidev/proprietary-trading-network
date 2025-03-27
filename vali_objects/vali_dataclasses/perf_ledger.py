@@ -10,7 +10,7 @@ from typing import List
 import bittensor as bt
 from pydantic import BaseModel, ConfigDict
 from setproctitle import setproctitle
-from shared_objects.sn8_multiprocessing import ParallelizationMode, get_spark_session
+from shared_objects.sn8_multiprocessing import ParallelizationMode, get_spark_session, get_multiprocessing_pool
 from time_util.time_util import MS_IN_8_HOURS, MS_IN_24_HOURS, timeme
 
 from shared_objects.cache_controller import CacheController
@@ -33,10 +33,6 @@ class ShortcutReason(Enum):
     NO_OPEN_POSITIONS = 1
     OUTSIDE_WINDOW = 2
     ZERO_TIME_DELTA = 3
-class ParallelizationMode(Enum):
-    SERIAL = 0
-    PYSPARK = 1
-    MULTIPROCESSING = 2
 
 class FeeCache():
     def __init__(self):
@@ -1605,7 +1601,7 @@ if __name__ == "__main__":
     bt.logging.enable_info()
 
     # Configuration flags
-    parallel_mode = ParallelizationMode.SERIAL  # 1 for pyspark, 2 for multiprocessing
+    parallel_mode = ParallelizationMode.MULTIPROCESSING  # 1 for pyspark, 2 for multiprocessing
     top_n_miners = 4
     test_single_hotkey = None #'5EWKUhycaBQHiHnfE3i2suZ1BvxAAE3HcsFsp8TaR6mu3JrJ'  # Set to a specific hotkey string to test single hotkey, or None for all
     regenerate_all = False  # Whether to regenerate all ledgers from scratch
@@ -1639,7 +1635,9 @@ if __name__ == "__main__":
 
         # Run the parallel update
         spark, should_close = get_spark_session(parallel_mode)
-        updated_perf_ledgers = perf_ledger_manager.update_perf_ledgers_parallel(spark, hotkey_to_positions,
+        pool = get_multiprocessing_pool(parallel_mode)
+        assert pool, parallel_mode
+        updated_perf_ledgers = perf_ledger_manager.update_perf_ledgers_parallel(spark, pool, hotkey_to_positions,
                                     existing_perf_ledgers, parallel_mode=parallel_mode, top_n_miners=top_n_miners)
 
         PerfLedgerManager.print_bundles(updated_perf_ledgers)

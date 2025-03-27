@@ -53,10 +53,14 @@ class ParallelizationMode(Enum):
     MULTIPROCESSING = 2
 
 def get_multiprocessing_pool(parallel_mode: ParallelizationMode, num_processes: int = 0):
+    print(f"parallel_mode: {parallel_mode} ({type(parallel_mode)})")
     pool = None
     if parallel_mode == ParallelizationMode.MULTIPROCESSING:
+        print("Creating multiprocessing pool...")
         pool = Pool(num_processes) if num_processes else Pool()
-
+        print(f"Pool created: {pool}")
+    else:
+        print("Not using multiprocessing mode.")
     return pool
 def get_spark_session(parallel_mode: ParallelizationMode):
     if parallel_mode == ParallelizationMode.PYSPARK:
