@@ -722,6 +722,7 @@ class Validator:
                         bid=best_price_source.bid,
                         ask=best_price_source.ask,
                     )
+                    self.price_slippage_model.refresh_features_daily()
                     order.slippage = PriceSlippageModel.calculate_slippage(order.bid, order.ask, order)
                     self._enforce_num_open_order_limit(trade_pair_to_open_position, order)
                     self.enforce_order_cooldown(order, open_position)
