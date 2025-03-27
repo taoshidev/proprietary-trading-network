@@ -1,6 +1,7 @@
 import threading
 import traceback
 import json
+from datetime import timedelta
 from multiprocessing import Process
 
 import requests
@@ -60,37 +61,6 @@ class TiingoDataService(BaseDataService):
 
     def instantiate_not_pickleable_objects(self):
         self.TIINGO_CLIENT = TiingoClient(self.config)
-
-
-    def get_close_at_date_second(self, trade_pair: TradePair, target_timestamp_ms: int) -> PriceSource | None:
-
-        #if not self.is_market_open(trade_pair):
-        #    return self.get_event_before_market_close(trade_pair)
-
-        prev_timestamp = None
-        smallest_delta = None
-        corresponding_price_source = None
-        n_responses = 0
-        timespan = "second"
-        def try_updating_found_price(t, agg):
-            nonlocal smallest_delta, corresponding_price_source, target_timestamp_ms
-            time_delta_ms = abs(t - target_timestamp_ms)
-            if smallest_delta is None or time_delta_ms <= smallest_delta:
-                #print('Updated best answer', time_delta_ms, smallest_delta, t, p)
-                smallest_delta = time_delta_ms
-                corresponding_price_source = self.agg_to_price_source(agg, target_timestamp_ms, timespan)
-
-        raw = self.unified_candle_fetcher(trade_pair, target_timestamp_ms - 1000 * 10, target_timestamp_ms + 1000 * 10, timespan)
-        for a in raw:
-            print('agg', a, 'dt', target_timestamp_ms - a.timestamp, 'ms')
-            n_responses += 1
-            try_updating_found_price(a.timestamp, a.open)
-
-            assert prev_timestamp is None or prev_timestamp < a.timestamp, raw
-            prev_timestamp = a.timestamp
-
-        #print(f"smallest delta ms: {smallest_delta}, input_timestamp: {timestamp_ms}, candle_start_time_ms: {start_time}, candle: {candle}, n_responses: {n_responses}")
-        return corresponding_price_source
 
     def run_pseudo_websocket(self, tpc: TradePairCategory):
         verbose = False
@@ -333,7 +303,7 @@ class TiingoDataService(BaseDataService):
         return tp_to_price
 
     @exception_handler_decorator()
-    def get_closes_equities(self, trade_pairs: List[TradePair], verbose=False) -> dict[TradePair: PriceSource]:
+    def get_closes_equities(self, trade_pairs: List[TradePair], verbose=False, target_time_ms=None) -> dict[TradePair: PriceSource]:
         tp_to_price = {}
         if not trade_pairs:
             return tp_to_price
@@ -389,7 +359,7 @@ class TiingoDataService(BaseDataService):
         return tp_to_price
 
     @exception_handler_decorator()
-    def get_closes_forex(self, trade_pairs: List[TradePair], verbose=False) -> dict:
+    def get_closes_forex(self, trade_pairs: List[TradePair], verbose=False, target_time_ms=None) -> dict:
         def tickers_to_tiingo_forex_url(tickers: List[str]) -> str:
             return f"https://api.tiingo.com/tiingo/fx/top?tickers={','.join(tickers)}&token={self.config['api_key']}"
 
@@ -460,119 +430,171 @@ class TiingoDataService(BaseDataService):
         def tickers_to_crypto_url(tickers: List[str]) -> str:
             if target_time_ms:
                 # YYYY-MM-DD format.
-                day_format = TimeUtil.millis_to_short_date_str(target_time_ms)
+                start_day_formatted = TimeUtil.millis_to_short_date_str(target_time_ms)
+                end_day_datetime = TimeUtil.millis_to_datetime(target_time_ms)
+                # One day ahead.
+                end_day_datetime += timedelta(days=1)
+                end_day_formatted = end_day_datetime.strftime("%Y-%m-%d")
                 # "https://api.tiingo.com/tiingo/crypto/prices?tickers=btcusd&startDate=2019-01-02&resampleFreq=5min&token=ffb55f7fdd167d4b8047539e6b62d82b92b25f91"
-                return f"https://api.tiingo.com/tiingo/crypto/prices?tickers={','.join(tickers)}&startDate={day_format}&resampleFreq=1min&token={self.config['api_key']}&exchanges={TIINGO_COINBASE_EXCHANGE_STR.upper()}"
+                return f"https://api.tiingo.com/tiingo/crypto/prices?tickers={','.join(tickers)}&startDate={start_day_formatted}&endDate={end_day_formatted}&resampleFreq=1min&token={self.config['api_key']}&exchanges={TIINGO_COINBASE_EXCHANGE_STR.upper()}"
             return f"https://api.tiingo.com/tiingo/crypto/top?tickers={','.join(tickers)}&token={self.config['api_key']}&exchanges={TIINGO_COINBASE_EXCHANGE_STR.upper()}"
 
         url = tickers_to_crypto_url([self.trade_pair_to_tiingo_ticker(x) for x in trade_pairs])
         if verbose:
             print('hitting url', url)
+
         requestResponse = requests.get(url, headers={'Content-Type': 'application/json'})
+
         if requestResponse.status_code == 200:
-            now_ms = TimeUtil.now_in_millis()
-            for y in requestResponse.json():
-                ticker = y['ticker']
-                if len(y['topOfBookData']) != 1:
-                    print('Tiingo unexpected data', y)
+            response_data = requestResponse.json()
 
-                x = y['topOfBookData'][0]
+            if target_time_ms:
+                # Historical data has a different structure - the items are in data[0]['priceData']
+                if not response_data or len(response_data) == 0:
+                    return tp_to_price
+                assert len(response_data) == 1, response_data
+                for crypto_data in response_data:
+                    ticker = crypto_data['ticker']
 
-                """
-                'topOfBookData': [{'quoteTimestamp': '2024-11-20T21:21:12.287613+00:00', 'lastSaleTimestamp': '2024-11-20T21:21:13.293452+00:00', 'bidSize': 0.14791063, 'bidPrice': 94150.01, 'askSize': 10.4599248, 'askPrice': 94120.0, 'lastSize': 1.795e-05, 'lastSizeNotional': 1.689006327, 'lastPrice': 94095.06, 'bidExchange': 'GDAX', 'askExchange': 'KRAKEN', 'lastExchange': 'GDAX'}]}
-                """
-                data_time_exchange_ms = TimeUtil.parse_iso_to_ms(x['lastSaleTimestamp'])
-                data_time_quote_ms = TimeUtil.parse_iso_to_ms(x['quoteTimestamp'])
-                delta_ms_exchange = now_ms - data_time_exchange_ms
-                delta_ms_quote = now_ms - data_time_quote_ms
-                THRESHOLD_FRESH_MS = 15 * 10000
-                last_exchange = x['lastExchange'].lower() if x['lastExchange'] else None
-                bid_exchange = x['bidExchange'].lower() if x['bidExchange'] else None
-                ask_exchange = x['askExchange'].lower() if x['askExchange'] else None
-                bid_price = float(x['bidPrice']) if x['bidPrice'] else 0
-                ask_price = float(x['askPrice']) if x['askPrice'] else 0
+                    # Skip if no price data available
+                    if not crypto_data.get('priceData') or len(crypto_data['priceData']) == 0:
+                        continue
 
-                if last_exchange == TIINGO_COINBASE_EXCHANGE_STR and delta_ms_exchange < THRESHOLD_FRESH_MS:
-                    data_time_ms = data_time_exchange_ms
-                    price = x['lastPrice']
-                    exchange = last_exchange
-                elif bid_exchange == TIINGO_COINBASE_EXCHANGE_STR and delta_ms_quote < THRESHOLD_FRESH_MS:
-                    data_time_ms = data_time_quote_ms
-                    price = x['bidPrice']
-                    exchange = bid_exchange
-                elif ask_exchange == TIINGO_COINBASE_EXCHANGE_STR and delta_ms_quote < THRESHOLD_FRESH_MS:
-                    data_time_ms = data_time_quote_ms
-                    price = x['askPrice']
-                    exchange = ask_exchange
+                    # Find the closest price data point to target_time_ms
+                    price_data = sorted(crypto_data['priceData'],
+                                        key=lambda x: TimeUtil.parse_iso_to_ms(x['date']))
 
-                elif last_exchange and delta_ms_exchange < THRESHOLD_FRESH_MS:
-                    data_time_ms = data_time_exchange_ms
-                    price = x['lastPrice']
-                    exchange = last_exchange
-                elif bid_exchange and delta_ms_quote < THRESHOLD_FRESH_MS:
-                    data_time_ms = data_time_quote_ms
-                    price = x['bidPrice']
-                    exchange = bid_exchange
-                elif ask_exchange and delta_ms_quote < THRESHOLD_FRESH_MS:
-                    data_time_ms = data_time_quote_ms
-                    price = x['askPrice']
-                    exchange = ask_exchange
+                    closest_data = min(price_data,
+                                       key=lambda x: abs(TimeUtil.parse_iso_to_ms(x['date']) - target_time_ms))
 
-                elif last_exchange:
-                    data_time_ms = data_time_exchange_ms
-                    price = x['lastPrice']
-                    exchange = last_exchange
-                elif bid_exchange:
-                    data_time_ms = data_time_quote_ms
-                    price = x['bidPrice']
-                    exchange = bid_exchange
-                elif ask_exchange:
-                    data_time_ms = data_time_quote_ms
-                    price = x['askPrice']
-                    exchange = ask_exchange
-                else:
-                    raise Exception('unexpected Tiingo data', y)
+                    data_time_ms = TimeUtil.parse_iso_to_ms(closest_data['date'])
+                    price = float(closest_data['close'])
+                    bid_price = ask_price = 0  # Bid/ask not provided in historical data
 
+                    tp = TradePair.get_latest_trade_pair_from_trade_pair_id(ticker.upper())
+                    source_name = f'{TIINGO_PROVIDER_NAME}_{TIINGO_COINBASE_EXCHANGE_STR}_historical'
+                    exchange = TIINGO_COINBASE_EXCHANGE_STR
 
-                tp = TradePair.get_latest_trade_pair_from_trade_pair_id(ticker.upper())
-                price = float(price)
+                    # Create PriceSource
+                    tp_to_price[tp] = PriceSource(
+                        source=source_name,
+                        timespan_ms=self.timespan_to_ms['minute'],
+                        open=float(closest_data['open']),
+                        close=price,
+                        vwap=price,
+                        high=float(closest_data['high']),
+                        low=float(closest_data['low']),
+                        start_ms=data_time_ms,
+                        websocket=False,
+                        lag_ms=target_time_ms - data_time_ms,
+                        bid=bid_price,
+                        ask=ask_price
+                    )
 
+                    if verbose:
+                        self.log_price_info(tp, tp_to_price[tp], target_time_ms, data_time_ms,
+                                       closest_data['date'], price, exchange, closest_data)
+            else:
+                now_ms = TimeUtil.now_in_millis()
+                # Current data format (top endpoint)
+                for crypto_data in response_data:
+                    ticker = crypto_data['ticker']
+                    if len(crypto_data['topOfBookData']) != 1:
+                        print('Tiingo unexpected data', crypto_data)
+                        continue
 
-                p_name = f'{TIINGO_PROVIDER_NAME}_{exchange}_rest'
-                tp_to_price[tp] = PriceSource(
-                    source=p_name,
-                    timespan_ms=0,
-                    open=price,
-                    close=price,
-                    vwap=price,
-                    high=price,
-                    low=price,
-                    start_ms=data_time_ms,
-                    websocket=False,
-                    lag_ms=now_ms - data_time_ms,
-                    bid=bid_price,
-                    ask=ask_price
-                )
+                    book_data = crypto_data['topOfBookData'][0]
 
-                if verbose:
-                    time_delta_s = (now_ms - data_time_ms) / 1000
-                    time_delta_formatted_2_decimals = round(time_delta_s, 2)
-                    print((tp.trade_pair_id, tp_to_price[tp], time_delta_formatted_2_decimals, x['quoteTimestamp'], price, exchange, x))
+                    # Determine the data source and timestamp
+                    data_time_ms, price, exchange, bid_price, ask_price = self.get_best_crypto_price_info(
+                        book_data, now_ms, TIINGO_COINBASE_EXCHANGE_STR
+                    )
 
+                    # Create trade pair
+                    tp = TradePair.get_latest_trade_pair_from_trade_pair_id(ticker.upper())
+                    price = float(price)
+                    source_name = f'{TIINGO_PROVIDER_NAME}_{exchange}_rest'
+
+                    # Create PriceSource
+                    tp_to_price[tp] = PriceSource(
+                        source=source_name,
+                        timespan_ms=self.timespan_to_ms['minute'],
+                        open=price,
+                        close=price,
+                        vwap=price,
+                        high=price,
+                        low=price,
+                        start_ms=data_time_ms,
+                        websocket=False,
+                        lag_ms=now_ms - data_time_ms,
+                        bid=bid_price,
+                        ask=ask_price
+                    )
+
+                    if verbose:
+                        self.log_price_info(tp, tp_to_price[tp], now_ms, data_time_ms,
+                                       book_data['quoteTimestamp'], price, exchange, book_data)
 
         return tp_to_price
+
+    def get_best_crypto_price_info(self, book_data, now_ms, preferred_exchange):
+        """Helper function to determine the best price info from book data"""
+        data_time_exchange_ms = TimeUtil.parse_iso_to_ms(book_data['lastSaleTimestamp'])
+        data_time_quote_ms = TimeUtil.parse_iso_to_ms(book_data['quoteTimestamp'])
+        delta_ms_exchange = now_ms - data_time_exchange_ms
+        delta_ms_quote = now_ms - data_time_quote_ms
+        THRESHOLD_FRESH_MS = 15 * 10000
+
+        last_exchange = book_data['lastExchange'].lower() if book_data.get('lastExchange') else None
+        bid_exchange = book_data['bidExchange'].lower() if book_data.get('bidExchange') else None
+        ask_exchange = book_data['askExchange'].lower() if book_data.get('askExchange') else None
+
+        bid_price = float(book_data['bidPrice']) if book_data.get('bidPrice') else 0
+        ask_price = float(book_data['askPrice']) if book_data.get('askPrice') else 0
+
+        # Prioritize data from preferred exchange that's fresh
+        if last_exchange == preferred_exchange and delta_ms_exchange < THRESHOLD_FRESH_MS:
+            return data_time_exchange_ms, book_data['lastPrice'], last_exchange, bid_price, ask_price
+        elif bid_exchange == preferred_exchange and delta_ms_quote < THRESHOLD_FRESH_MS:
+            return data_time_quote_ms, book_data['bidPrice'], bid_exchange, bid_price, ask_price
+        elif ask_exchange == preferred_exchange and delta_ms_quote < THRESHOLD_FRESH_MS:
+            return data_time_quote_ms, book_data['askPrice'], ask_exchange, bid_price, ask_price
+
+        # Fresh data from any exchange
+        elif last_exchange and delta_ms_exchange < THRESHOLD_FRESH_MS:
+            return data_time_exchange_ms, book_data['lastPrice'], last_exchange, bid_price, ask_price
+        elif bid_exchange and delta_ms_quote < THRESHOLD_FRESH_MS:
+            return data_time_quote_ms, book_data['bidPrice'], bid_exchange, bid_price, ask_price
+        elif ask_exchange and delta_ms_quote < THRESHOLD_FRESH_MS:
+            return data_time_quote_ms, book_data['askPrice'], ask_exchange, bid_price, ask_price
+
+        # Any data available
+        elif last_exchange:
+            return data_time_exchange_ms, book_data['lastPrice'], last_exchange, bid_price, ask_price
+        elif bid_exchange:
+            return data_time_quote_ms, book_data['bidPrice'], bid_exchange, bid_price, ask_price
+        elif ask_exchange:
+            return data_time_quote_ms, book_data['askPrice'], ask_exchange, bid_price, ask_price
+        else:
+            raise Exception('unexpected Tiingo data', book_data)
+
+    def log_price_info(self, tp, price_source, now_ms, data_time_ms, timestamp, price, exchange, raw_data):
+        """Helper function to log price information in verbose mode"""
+        time_delta_s = (now_ms - data_time_ms) / 1000
+        time_delta_formatted_2_decimals = round(time_delta_s, 2)
+        print((tp.trade_pair_id, price_source, time_delta_formatted_2_decimals, timestamp, price, exchange, raw_data))
 
     def get_close_rest(
         self,
         trade_pair: TradePair,
         attempting_prev_close: bool = False,
-    ) -> PriceSource | None:
+        target_time_ms: int | None = None) -> PriceSource | None:
         if trade_pair.trade_pair_category == TradePairCategory.EQUITIES:
-            ans = self.get_closes_equities([trade_pair]).get(trade_pair)
+            ans = self.get_closes_equities([trade_pair], target_time_ms=target_time_ms).get(trade_pair)
         elif trade_pair.trade_pair_category == TradePairCategory.CRYPTO:
-            ans = self.get_closes_crypto([trade_pair]).get(trade_pair)
+            ans = self.get_closes_crypto([trade_pair], target_time_ms=target_time_ms).get(trade_pair)
         elif trade_pair.trade_pair_category == TradePairCategory.FOREX:
-            ans = self.get_closes_forex([trade_pair]).get(trade_pair)
+            ans = self.get_closes_forex([trade_pair], target_time_ms=target_time_ms).get(trade_pair)
         else:
             raise ValueError(f"Unknown trade pair category {trade_pair}")
 
@@ -601,12 +623,12 @@ class TiingoDataService(BaseDataService):
 
 if __name__ == "__main__":
     secrets = ValiUtils.get_secrets()
-    tds = TiingoDataService(api_key=secrets['tiingo_apikey'], disable_ws=False)
-    for trade_pair in TradePair:
+    tds = TiingoDataService(api_key=secrets['tiingo_apikey'], disable_ws=True)
+    for trade_pair in [TradePair.ETHUSD]:
         # Get rest data
         if trade_pair.is_indices:
             continue
-        ps = tds.get_close_rest(trade_pair)
+        ps = tds.get_close_rest(trade_pair, target_time_ms=1742577204000)
         if ps:
             print(f"Got {ps} for {trade_pair}")
         else:
