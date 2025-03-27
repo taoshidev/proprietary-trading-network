@@ -154,12 +154,18 @@ class PriceSlippageModel:
                 f"Calculating avg daily volume and annualized volatility for new day UTC {current_date}")
             trade_pairs = [tp for tp in TradePair if tp.is_forex or tp.is_equities]
             tp_to_adv, tp_to_vol = cls.get_features(trade_pairs=trade_pairs, processed_ms=time_ms)
-            cls.features[current_date]["adv"] = tp_to_adv
-            cls.features[current_date]["vol"] = tp_to_vol
-            if write_to_disk:
-                cls.write_features_from_memory_to_disk()
-            bt.logging.info(
-                    f"Completed refreshing avg daily volume and annualized volatility for new day UTC {current_date}")
+            if tp_to_adv and tp_to_vol:
+                cls.features[current_date] = {
+                    "adv": tp_to_adv,
+                    "vol": tp_to_vol
+                }
+
+                if write_to_disk:
+                    cls.write_features_from_memory_to_disk()
+                bt.logging.info(
+                        f"Completed refreshing avg daily volume and annualized volatility for new day UTC {current_date}")
+            else:
+                bt.logging.info(f"Skipping feature update for {current_date} due to missing data. tp_to_adv: {bool(tp_to_adv)}, tp_to_vol: {bool(tp_to_vol)}")
 
     @classmethod
     def get_features(cls, trade_pairs: list[TradePair], processed_ms: int, adv_lookback_window: int = 10,
