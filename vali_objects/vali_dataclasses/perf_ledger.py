@@ -1014,7 +1014,8 @@ class PerfLedgerManager(CacheController):
                       'shortcut_reason': shortcut_reason,
                       'tp_id': tp_id, 'start_time_ms': TimeUtil.millis_to_formatted_date_str(start_time_ms),
                       'end_time_ms': TimeUtil.millis_to_formatted_date_str(end_time_ms),
-                      'tp_to_historical_positions_compact': tp_to_historical_positions_compact
+                      'tp_to_historical_positions_compact': tp_to_historical_positions_compact,
+                      'realtime_position_to_pop': realtime_position_to_pop
                       }
                 perf_ledger.update_pl(tp_return, end_time_ms, miner_hotkey, TradePairReturnStatus.TP_MARKET_NOT_OPEN,
                       tp_spread_fee, tp_carry_fee, tp_debug=tp_id + '_shortcut', debug_dict=dd)
