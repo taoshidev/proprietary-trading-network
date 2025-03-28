@@ -90,7 +90,7 @@ class BacktestManager:
         self.position_manager.perf_ledger_manager = self.perf_ledger_manager
 
         self.weight_setter = SubtensorWeightSetter(self.metagraph, position_manager=self.position_manager, is_backtesting=True)
-        self.position_locks = PositionLocks(hotkey_to_positions=positions_at_t_f)
+        self.position_locks = PositionLocks(hotkey_to_positions=positions_at_t_f, is_backtesting=True)
         self.plagiarism_detector = PlagiarismDetector(self.metagraph)
         self.miner_statistics_manager = MinerStatisticsManager(
             position_manager=self.position_manager,
