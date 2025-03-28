@@ -88,8 +88,10 @@ class BaseDataService():
     ) -> PriceSource | None:
         pass
 
-    def is_market_open(self, trade_pair: TradePair) -> bool:
-        return self.market_calendar.is_market_open(trade_pair, TimeUtil.now_in_millis())
+    def is_market_open(self, trade_pair: TradePair, time_ms=None) -> bool:
+        if time_ms is None:
+            time_ms = TimeUtil.now_in_millis()
+        return self.market_calendar.is_market_open(trade_pair, time_ms)
 
     def get_close(self, trade_pair: TradePair) -> PriceSource | None:
         event = self.get_websocket_event(trade_pair)

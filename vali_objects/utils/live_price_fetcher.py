@@ -270,7 +270,7 @@ class LivePriceFetcher:
                     f"Fell back to Polygon get_date_minute_fallback for price of {trade_pair.trade_pair} at {TimeUtil.timestamp_ms_to_eastern_time_str(timestamp_ms)}, price_source: {price_source}")
 
         if price_source is None:
-            price_source = self.tiingo_data_service.get_close_at_date_second(trade_pair=trade_pair, target_timestamp_ms=timestamp_ms)
+            price_source = self.tiingo_data_service.get_close_rest(trade_pair=trade_pair, target_time_ms=timestamp_ms)
             if price_source is not None:
                 bt.logging.warning(
                     f"Fell back to Tiingo get_date for price of {trade_pair.trade_pair} at {TimeUtil.timestamp_ms_to_eastern_time_str(timestamp_ms)}, ms: {timestamp_ms}")
@@ -296,7 +296,7 @@ class LivePriceFetcher:
 if __name__ == "__main__":
     secrets = ValiUtils.get_secrets()
     live_price_fetcher = LivePriceFetcher(secrets, disable_ws=True)
-    ans = live_price_fetcher.get_close_at_date(TradePair.ETHUSD, 1733304060475)
+    ans = live_price_fetcher.get_close_at_date(TradePair.USDJPY, 1733304060475)
     assert 0, ans
     time.sleep(100000)
     trade_pairs = [TradePair.BTCUSD, TradePair.ETHUSD, ]
