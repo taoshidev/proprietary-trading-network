@@ -1003,10 +1003,12 @@ class PerfLedgerManager(CacheController):
                     tp_spread_fee = initial_tp_to_spread_fee[tp_id]
                     tp_carry_fee = initial_tp_to_carry_fee[tp_id]
 
-                tp_to_historical_positions_compact = {k: v[-1] if v else [] for k, v in tp_to_historical_positions.items()}
+                tp_to_historical_positions_compact = {}
                 for tp, ret in initial_tp_to_return.items():
-                    if not ret:
-                        tp_to_historical_positions_compact[tp] = tp_to_historical_positions[tp]
+                    if tp != TP_ID_PORTFOLIO:
+                        for candpos in tp_to_historical_positions[tp]:
+                            if candpos.return_at_close < .5:
+                                tp_to_historical_positions_compact[tp] = candpos
 
                 dd = {'initial_tp_to_return': initial_tp_to_return, 'miner_hotkey': miner_hotkey,
                       'shortcut_reason': shortcut_reason,
