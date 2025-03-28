@@ -1004,7 +1004,12 @@ class PerfLedgerManager(CacheController):
                     tp_carry_fee = initial_tp_to_carry_fee[tp_id]
 
                 tp_to_historical_positions_compact = {k: v[-1] if v else [] for k, v in tp_to_historical_positions.items()}
+                for tp, ret in initial_tp_to_return.items():
+                    if not ret:
+                        tp_to_historical_positions_compact[tp] = tp_to_historical_positions[tp]
+
                 dd = {'initial_tp_to_return': initial_tp_to_return, 'miner_hotkey': miner_hotkey,
+                      'shortcut_reason': shortcut_reason,
                       'tp_id': tp_id, 'start_time_ms': TimeUtil.millis_to_formatted_date_str(start_time_ms),
                       'end_time_ms': TimeUtil.millis_to_formatted_date_str(end_time_ms),
                       'tp_to_historical_positions_compact': tp_to_historical_positions_compact
