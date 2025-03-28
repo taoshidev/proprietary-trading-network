@@ -327,7 +327,8 @@ class TimeUtil:
         Parses an ISO 8601 formatted string into a timestamp in milliseconds.
 
         Args:
-            iso_string (str): The ISO 8601 formatted string, e.g., '2024-11-20T15:47:40.062000+00:00'.
+            iso_string (str): The ISO 8601 formatted string, e.g., '2024-11-20T15:47:40.062000+00:00',
+                              '2025-03-21T00:00:00.000Z'.
 
         Returns:
             int: The timestamp in milliseconds since the Unix epoch.
@@ -341,6 +342,10 @@ class TimeUtil:
 
         main_part = match.group(1)  # Datetime with optional fractional seconds
         timezone_part = match.group(2) or ""  # Timezone (optional)
+
+        # Handle 'Z' timezone indicator by replacing it with +00:00 (UTC)
+        if timezone_part == "Z":
+            timezone_part = "+00:00"
 
         # Truncate fractional seconds to six digits
         if '.' in main_part:

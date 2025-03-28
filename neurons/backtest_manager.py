@@ -1,6 +1,8 @@
+import time
 from collections import defaultdict
 
 from runnable.generate_request_minerstatistics import MinerStatisticsManager
+from shared_objects.sn8_multiprocessing import get_spark_session, get_multiprocessing_pool
 from tests.shared_objects.mock_classes import MockMetagraph
 from time_util.time_util import TimeUtil
 from vali_objects.enums.order_type_enum import OrderType
@@ -16,15 +18,17 @@ from vali_objects.utils.subtensor_weight_setter import SubtensorWeightSetter
 from vali_objects.utils.vali_utils import ValiUtils
 from vali_objects.vali_config import ValiConfig
 from vali_objects.vali_config import TradePair
-from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
-from vali_objects.utils.price_slippage_model import PriceSlippageModel
+from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager, ParallelizationMode
 
+from vali_objects.utils.price_slippage_model import PriceSlippageModel
 
 class BacktestManager:
 
     def __init__(self, positions_at_t_f, start_time_ms, secrets, scoring_func,
-                 leverage_to_capital=ValiConfig.LEVERAGE_TO_CAPITAL, use_slippage=False,
-                 fetch_slippage_data=False, recalculate_slippage=False, rebuild_all_positions=False):
+                 capital=ValiConfig.CAPITAL, use_slippage=None,
+                 fetch_slippage_data=False, recalculate_slippage=False, rebuild_all_positions=False,
+                 parallel_mode=ParallelizationMode.PYSPARK, build_portfolio_ledgers_only=False,
+                 pool_size=0):
         if not secrets:
             raise Exception(
                 "unable to get secrets data from "
@@ -33,9 +37,16 @@ class BacktestManager:
         self.secrets = secrets
         self.scoring_func = scoring_func
         self.start_time_ms = start_time_ms
+        self.parallel_mode = parallel_mode
         # Used in calculating position attributes
-        position_file.ALWAYS_USE_LATEST = use_slippage
+        position_file.ALWAYS_USE_SLIPPAGE = use_slippage
 
+        # Stop Spark session if we created it
+        spark, should_close = get_spark_session(self.parallel_mode)
+        pool = get_multiprocessing_pool(self.parallel_mode, pool_size)
+        self.spark = spark
+        self.pool = pool
+        self.should_close = should_close
 
         # metagraph provides the network's current state, holding state about other participants in a subnet.
         # IMPORTANT: Only update this variable in-place. Otherwise, the reference will be lost in the helper classes.
@@ -45,13 +56,16 @@ class BacktestManager:
         self.elimination_manager = EliminationManager(self.metagraph, None,  # Set after self.pm creation
                                                       None, shutdown_dict=shutdown_dict, is_backtesting=True)
 
-        self.live_price_fetcher = LivePriceFetcher(secrets=self.secrets, disable_ws=True)
+        self.live_price_fetcher = LivePriceFetcher(secrets=self.secrets, disable_ws=True, is_backtesting=True)
 
         self.perf_ledger_manager = PerfLedgerManager(self.metagraph,
                                                      shutdown_dict=shutdown_dict,
-                                                     live_price_fetcher=self.live_price_fetcher,
+                                                     live_price_fetcher=None, # Don't want SSL objects to be pickled
                                                      is_backtesting=True,
-                                                     position_manager=None)  # Set after self.pm creation
+                                                     position_manager=None,
+                                                     parallel_mode=parallel_mode,
+                                                     secrets=self.secrets,
+                                                     build_portfolio_ledgers_only=build_portfolio_ledgers_only)
 
 
         self.position_manager = PositionManager(metagraph=self.metagraph,
@@ -76,11 +90,15 @@ class BacktestManager:
         self.position_manager.perf_ledger_manager = self.perf_ledger_manager
 
         self.weight_setter = SubtensorWeightSetter(self.metagraph, position_manager=self.position_manager, is_backtesting=True)
-        self.position_locks = PositionLocks(hotkey_to_positions=positions_at_t_f)
+        self.position_locks = PositionLocks(hotkey_to_positions=positions_at_t_f, is_backtesting=True)
         self.plagiarism_detector = PlagiarismDetector(self.metagraph)
-        self.miner_statistics_manager = MinerStatisticsManager(position_manager=self.position_manager, subtensor_weight_setter=self.weight_setter, plagiarism_detector=self.plagiarism_detector)
+        self.miner_statistics_manager = MinerStatisticsManager(
+            position_manager=self.position_manager,
+            subtensor_weight_setter=self.weight_setter,
+            plagiarism_detector=self.plagiarism_detector
+        )
         self.psm = PriceSlippageModel(self.live_price_fetcher, is_backtesting=True, fetch_slippage_data=fetch_slippage_data,
-                                      recalculate_slippage=recalculate_slippage, leverage_to_capital=leverage_to_capital)
+                                      recalculate_slippage=recalculate_slippage, capital=capital)
 
 
         #Until slippage is added to the db, this will always have to be done since positions are sometimes rebuilt and would require slippage attributes on orders and initial_entry_price calculation
@@ -140,7 +158,19 @@ class BacktestManager:
 
     def update(self, current_time_ms:int, run_challenge=True, run_elimination=True):
         self.update_current_hk_to_positions(current_time_ms)
-        self.perf_ledger_manager.update(t_ms=current_time_ms)
+
+        if self.parallel_mode == ParallelizationMode.SERIAL:
+            self.perf_ledger_manager.update(t_ms=current_time_ms)
+        else:
+            existing_perf_ledgers = self.perf_ledger_manager.get_perf_ledgers(portfolio_only=False)
+            # Get positions and existing ledgers
+            hotkey_to_positions, _ = self.perf_ledger_manager.get_positions_perf_ledger()
+
+            # Run the parallel update
+            updated_perf_ledgers = self.perf_ledger_manager.update_perf_ledgers_parallel(self.spark, self.pool,
+                 hotkey_to_positions, existing_perf_ledgers, parallel_mode=self.parallel_mode, now_ms=current_time_ms)
+
+            PerfLedgerManager.print_bundles(updated_perf_ledgers)
         if run_challenge:
             self.challengeperiod_manager.refresh(current_time=current_time_ms)
         else:
@@ -260,7 +290,7 @@ if __name__ == '__main__':
          'return_at_close': 0.999972, 'net_leverage': 0.0, 'average_entry_price': 0.62034,
          'position_type': OrderType.FLAT, 'is_closed_position': True}
     ]
-
+    t0 = time.time()
     hk_to_positions = defaultdict(list)
     start_time_ms = min(min(o['processed_ms'] for o in pos['orders']) for pos in test_positions)
     max_order_time_ms = max(max(o['processed_ms'] for o in pos['orders']) for pos in test_positions)
@@ -268,8 +298,10 @@ if __name__ == '__main__':
         hk_to_positions[pos['miner_hotkey']].append(Position(**pos))
 
     secrets = ValiUtils.get_secrets()  # {'polygon_apikey': '123', 'tiingo_apikey': '456'}
-    btm = BacktestManager(hk_to_positions, start_time_ms, secrets, None, leverage_to_capital=500_000,
-                          use_slippage=True, fetch_slippage_data=True, recalculate_slippage=True)
+    btm = BacktestManager(hk_to_positions, start_time_ms, secrets, None, capital=500_000,
+                          use_slippage=True, fetch_slippage_data=False, recalculate_slippage=False,
+                          parallel_mode=ParallelizationMode.PYSPARK,
+                          build_portfolio_ledgers_only=True)
     for t_ms in range(start_time_ms, max_order_time_ms + 1, 1000 * 60 * 60 * 24):
         btm.update(t_ms, run_challenge=False)
         perf_ledger_bundles = btm.perf_ledger_manager.get_perf_ledgers(portfolio_only=False)
@@ -278,3 +310,6 @@ if __name__ == '__main__':
             hk_to_perf_ledger_tps[k] = list(v.keys())
         print('hk_to_perf_ledger_tps', hk_to_perf_ledger_tps)
         print('formatted weights', btm.weight_setter.checkpoint_results)
+
+    tf = time.time()
+    print(f'Finished in {tf - t0} seconds')

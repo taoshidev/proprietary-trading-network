@@ -1,6 +1,8 @@
 import copy
 
 import numpy as np
+import bittensor as bt
+
 from vali_objects.vali_config import ValiConfig
 
 from vali_objects.position import Position, Order
@@ -81,8 +83,12 @@ class RiskProfiling:
 
             # Update weighted price and average entry price for the next iteration
             total_weighted_price += current_order.price * current_leverage_delta  # this will actually be "negative" for SHORT positions
-            avg_in_price = total_weighted_price / new_aggregate_leverage  # don't want to use absolute value here, as the avg in price should always be positive
 
+            if new_aggregate_leverage == 0:
+                bt.logging.warning(f"Monotonic positions new aggregate leverage is zero for current order: {current_order}")
+                new_aggregate_leverage = ValiConfig.EPSILON
+
+            avg_in_price = total_weighted_price / new_aggregate_leverage  # don't want to use absolute value here, as the avg in price should always be positive
             aggregate_leverage = new_aggregate_leverage
 
         # Use the new position object
