@@ -658,7 +658,7 @@ class PolygonDataService(BaseDataService):
 
         raw = self.unified_candle_fetcher(trade_pair, target_timestamp_ms - 1000 * 59, target_timestamp_ms + 1000 * 59, timespan)
         for a in raw:
-            print('agg', a, 'dt', target_timestamp_ms - a.timestamp, 'ms')
+            #print('agg', a, 'dt', target_timestamp_ms - a.timestamp, 'ms')
             n_responses += 1
             try_updating_found_price(a.timestamp, a)
 
@@ -949,7 +949,7 @@ if __name__ == "__main__":
     secrets = ValiUtils.get_secrets()
 
     polygon_data_provider = PolygonDataService(api_key=secrets['polygon_apikey'], disable_ws=True)
-    ans = polygon_data_provider.get_close_rest(TradePair.ETHUSD, 1733304060475)
+    ans = polygon_data_provider.get_close_rest(TradePair.USDJPY, 1742577204000)
     assert 0, ans
     for tp in TradePair:
         if tp.is_indices:

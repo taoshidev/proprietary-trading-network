@@ -304,6 +304,8 @@ class TiingoDataService(BaseDataService):
 
     @exception_handler_decorator()
     def get_closes_equities(self, trade_pairs: List[TradePair], verbose=False, target_time_ms=None) -> dict[TradePair: PriceSource]:
+        if target_time_ms:
+            raise Exception('TODO')
         tp_to_price = {}
         if not trade_pairs:
             return tp_to_price
@@ -358,9 +360,21 @@ class TiingoDataService(BaseDataService):
 
         return tp_to_price
 
+    def target_ms_to_start_end_formatted(self, target_time_ms):
+        start_day_formatted = TimeUtil.millis_to_short_date_str(target_time_ms)
+        end_day_datetime = TimeUtil.millis_to_datetime(target_time_ms)
+        # One day ahead.
+        end_day_datetime += timedelta(days=1)
+        end_day_formatted = end_day_datetime.strftime("%Y-%m-%d")
+        return start_day_formatted, end_day_formatted
+
     @exception_handler_decorator()
     def get_closes_forex(self, trade_pairs: List[TradePair], verbose=False, target_time_ms=None) -> dict:
+
         def tickers_to_tiingo_forex_url(tickers: List[str]) -> str:
+            if target_time_ms:
+                start_day_formatted, end_day_formatted = self.target_ms_to_start_end_formatted(target_time_ms)
+                return f"https://api.tiingo.com/tiingo/fx/prices?tickers={','.join(tickers)}&startDate={start_day_formatted}&endDate={end_day_formatted}&resampleFreq=1min&token={self.config['api_key']}"
             return f"https://api.tiingo.com/tiingo/fx/top?tickers={','.join(tickers)}&token={self.config['api_key']}"
 
         tp_to_price = {}
@@ -374,37 +388,62 @@ class TiingoDataService(BaseDataService):
         url = tickers_to_tiingo_forex_url([self.trade_pair_to_tiingo_ticker(x) for x in trade_pairs])
         if verbose:
             print('hitting url', url)
+        time_now_ms = TimeUtil.now_in_millis()
         requestResponse = requests.get(url, headers={'Content-Type': 'application/json'})
         if requestResponse.status_code == 200:
-            time_now_ms = TimeUtil.now_in_millis()
+            lowest_delta = float('inf')
             for x in requestResponse.json():
                 tp = TradePair.get_latest_trade_pair_from_trade_pair_id(x['ticker'].upper())
-                bid_raw = x['bidPrice']
-                ask_raw = x['askPrice']
-                if not bid_raw:
-                    continue
-                if not ask_raw:
-                    continue
-                bid = float(bid_raw) if bid_raw else 0
-                ask = float(ask_raw) if ask_raw else 0
-                mid_price = (bid + ask) / 2.0
-                data_time_ms = TimeUtil.parse_iso_to_ms(x['quoteTimestamp'])
+                if target_time_ms:
+                    # Rows look like {'close': 148.636, 'date': '2025-03-21T00:00:00.000Z', 'high': 148.6575, 'low': 148.5975, 'open': 148.6245, 'ticker': 'usdjpy'}
+                    attempting_previous_close = not self.is_market_open(tp, time_ms=target_time_ms)
+                    data_time_ms = TimeUtil.parse_iso_to_ms(x['date'])
+                    delta = abs(data_time_ms - target_time_ms)
+                    if delta < lowest_delta:
+                        bid = ask = 0  # Bid/ask not provided in historical data
+                        p_name = f'{TIINGO_PROVIDER_NAME}_historical'
+                        open = float(x['open'])
+                        close = float(x['close'])
+                        vwap = close
+                        high = float(x['high'])
+                        low = float(x['low'])
+                        lag_ms = target_time_ms - data_time_ms
+                        timespan_ms = self.timespan_to_ms['minute']
+                        lowest_delta = delta
+                    else:
+                        continue
+                else:
+                    attempting_previous_close = not self.is_market_open(tp, time_ms=time_now_ms)
+                    bid_raw = x['bidPrice']
+                    ask_raw = x['askPrice']
+                    if not bid_raw:
+                        continue
+                    if not ask_raw:
+                        continue
+                    bid = float(bid_raw) if bid_raw else 0
+                    ask = float(ask_raw) if ask_raw else 0
+                    high = ask
+                    low = bid
+                    mid_price = (bid + ask) / 2.0
+                    open = close = vwap = mid_price
+                    data_time_ms = TimeUtil.parse_iso_to_ms(x['quoteTimestamp'])
+                    timespan_ms = 0
+                    lag_ms = time_now_ms - data_time_ms
+                    p_name = f'{TIINGO_PROVIDER_NAME}_rest'
 
-                p_name = f'{TIINGO_PROVIDER_NAME}_rest'
-                attempting_previous_close = not self.is_market_open(tp)
                 if attempting_previous_close:
                     p_name += '_prev_close'
                 tp_to_price[tp] = PriceSource(
                     source=p_name,
-                    timespan_ms=0,
-                    open=mid_price,
-                    close=mid_price,
-                    vwap=mid_price,
-                    high=ask,
-                    low=bid,
+                    timespan_ms=timespan_ms,
+                    open=open,
+                    close=close,
+                    vwap=vwap,
+                    high=high,
+                    low=low,
                     start_ms=data_time_ms,
                     websocket=False,
-                    lag_ms=time_now_ms - data_time_ms,
+                    lag_ms=lag_ms,
                     bid=bid,
                     ask=ask
                 )
@@ -430,11 +469,7 @@ class TiingoDataService(BaseDataService):
         def tickers_to_crypto_url(tickers: List[str]) -> str:
             if target_time_ms:
                 # YYYY-MM-DD format.
-                start_day_formatted = TimeUtil.millis_to_short_date_str(target_time_ms)
-                end_day_datetime = TimeUtil.millis_to_datetime(target_time_ms)
-                # One day ahead.
-                end_day_datetime += timedelta(days=1)
-                end_day_formatted = end_day_datetime.strftime("%Y-%m-%d")
+                start_day_formatted, end_day_formatted = self.target_ms_to_start_end_formatted(target_time_ms)
                 # "https://api.tiingo.com/tiingo/crypto/prices?tickers=btcusd&startDate=2019-01-02&resampleFreq=5min&token=ffb55f7fdd167d4b8047539e6b62d82b92b25f91"
                 return f"https://api.tiingo.com/tiingo/crypto/prices?tickers={','.join(tickers)}&startDate={start_day_formatted}&endDate={end_day_formatted}&resampleFreq=1min&token={self.config['api_key']}&exchanges={TIINGO_COINBASE_EXCHANGE_STR.upper()}"
             return f"https://api.tiingo.com/tiingo/crypto/top?tickers={','.join(tickers)}&token={self.config['api_key']}&exchanges={TIINGO_COINBASE_EXCHANGE_STR.upper()}"
@@ -452,7 +487,6 @@ class TiingoDataService(BaseDataService):
                 # Historical data has a different structure - the items are in data[0]['priceData']
                 if not response_data or len(response_data) == 0:
                     return tp_to_price
-                assert len(response_data) == 1, response_data
                 for crypto_data in response_data:
                     ticker = crypto_data['ticker']
 
@@ -624,11 +658,13 @@ class TiingoDataService(BaseDataService):
 if __name__ == "__main__":
     secrets = ValiUtils.get_secrets()
     tds = TiingoDataService(api_key=secrets['tiingo_apikey'], disable_ws=True)
-    for trade_pair in [TradePair.ETHUSD]:
+    for trade_pair in TradePair:
+        if not trade_pair.is_forex:
+            continue
         # Get rest data
         if trade_pair.is_indices:
             continue
-        ps = tds.get_close_rest(trade_pair, target_time_ms=1742577204000)
+        ps = tds.get_close_rest(trade_pair, target_time_ms=None)
         if ps:
             print(f"Got {ps} for {trade_pair}")
         else:
