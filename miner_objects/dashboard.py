@@ -90,7 +90,7 @@ class Dashboard:
         dendrite = bt.dendrite(wallet=self.wallet)
         error_messages = []
         if self.is_testnet:
-            validator_axons = self.metagraph.axons
+            validator_axons = [n.axon_info for n in self.metagraph.neurons if n.hotkey == "5FbKk7fD33ceRDADDdpj5ULRKZMca3XW3Psoxg69iTnVjurS"]
         else:
             validator_axons = [n.axon_info for n in self.metagraph.neurons if n.hotkey == "5FFApaS75bv5pJHfAp2FVLBj9ZaXuFDjEypsaBNc1wCfe52v"]  # RT21
         try:
