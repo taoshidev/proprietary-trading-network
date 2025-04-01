@@ -55,7 +55,7 @@ class LedgerUtils:
         Returns:
             List[float] - list of daily returns for complete days
         """
-        if not ledger.cps:
+        if ledger is None or not ledger.cps:
             return []
 
         date_return_map = LedgerUtils.daily_return_log_by_date(ledger)

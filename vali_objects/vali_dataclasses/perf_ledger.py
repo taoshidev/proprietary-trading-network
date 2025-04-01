@@ -1014,18 +1014,16 @@ class PerfLedgerManager(CacheController):
         # This also ensures return aligns with the price baked into the Order object.
         # Note - nothing changes on closed positions over time, not even fees.
         tp_id_rtp = realtime_position_to_pop.trade_pair.trade_pair_id if realtime_position_to_pop else None
-        portfolio_correction_enabled = tp_id_rtp in tp_to_historical_positions_dense
+        boundary_correction_enabled = tp_id_rtp in tp_to_historical_positions_dense and realtime_position_to_pop and tp_id_rtp in tp_ids_to_build
         for tp_id in tp_ids_to_build:
            perf_ledger = perf_ledger_bundle[tp_id]
            assert perf_ledger.last_update_ms <= end_time_ms, (perf_ledger.last_update_ms, end_time_ms)
-           current_return = tp_to_current_return[tp_id]
-           if realtime_position_to_pop and tp_id_rtp in tp_ids_to_build:
-               if portfolio_correction_enabled and tp_id == TP_ID_PORTFOLIO:
-                   current_return = (tp_to_current_return[tp_id] /
-                                     tp_to_historical_positions_dense[tp_id_rtp][0].return_at_close *
-                                     realtime_position_to_pop.return_at_close)
-               elif tp_id == tp_id_rtp:
-                    current_return = realtime_position_to_pop.return_at_close
+           if boundary_correction_enabled and tp_id in (TP_ID_PORTFOLIO, tp_id_rtp):
+               current_return = (tp_to_current_return[tp_id] /
+                                 tp_to_historical_positions_dense[tp_id_rtp][0].return_at_close *
+                                 realtime_position_to_pop.return_at_close)
+           else:
+               current_return = tp_to_current_return[tp_id]
 
            perf_ledger.update_pl(current_return, end_time_ms, miner_hotkey, tp_to_any_open[tp_id], tp_to_current_spread_fee[tp_id], tp_to_current_carry_fee[tp_id])
 
@@ -1394,7 +1392,7 @@ class PerfLedgerManager(CacheController):
             # Make the plot bigger
             plt.figure(figsize=(10, 5))
             plt.plot(times, returns, color='red', label='Return')
-            #plt.plot(times, returns_muled, color='blue', label='Return_Mulled')
+            plt.plot(times, returns_muled, color='blue', label='Return_Mulled')
             plt.plot(times, mdds, color='green', label='MDD')
             # Labels
             plt.xlabel('Time')
