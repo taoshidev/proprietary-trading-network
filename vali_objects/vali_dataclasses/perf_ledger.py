@@ -1011,14 +1011,23 @@ class PerfLedgerManager(CacheController):
             accumulated_time_ms = self.inc_accumulated_time(mode, accumulated_time_ms)
 
         # Get last sliver of time for open positions and fill the void for closed positions.
+        # This also ensures return aligns with the price baked into the Order object.
         # Note - nothing changes on closed positions over time, not even fees.
+        tp_id_rtp = realtime_position_to_pop.trade_pair.trade_pair_id if realtime_position_to_pop else None
+        boundary_correction_enabled = tp_id_rtp in tp_to_historical_positions_dense and realtime_position_to_pop and tp_id_rtp in tp_ids_to_build
         for tp_id in tp_ids_to_build:
-           perf_ledger = perf_ledger_bundle[tp_id]
-           if perf_ledger.last_update_ms != end_time_ms:
-               assert perf_ledger.last_update_ms < end_time_ms, (perf_ledger.last_update_ms, end_time_ms)
-               perf_ledger.update_pl(tp_to_current_return[tp_id], end_time_ms, miner_hotkey, tp_to_any_open[tp_id], tp_to_current_spread_fee[tp_id], tp_to_current_carry_fee[tp_id])
+            perf_ledger = perf_ledger_bundle[tp_id]
+            assert perf_ledger.last_update_ms <= end_time_ms, (perf_ledger.last_update_ms, end_time_ms)
+            if boundary_correction_enabled and tp_id in (TP_ID_PORTFOLIO, tp_id_rtp):
+                current_return = (tp_to_current_return[tp_id] /
+                                  tp_to_historical_positions_dense[tp_id_rtp][0].return_at_close *
+                                  realtime_position_to_pop.return_at_close)
+            else:
+                current_return = tp_to_current_return[tp_id]
 
-           perf_ledger.purge_old_cps()
+            perf_ledger.update_pl(current_return, end_time_ms, miner_hotkey, tp_to_any_open[tp_id], tp_to_current_spread_fee[tp_id], tp_to_current_carry_fee[tp_id])
+
+            perf_ledger.purge_old_cps()
 
 
         #n_minutes_between_intervals = (end_time_ms - start_time_ms) // 60000
@@ -1463,4 +1472,4 @@ if __name__ == "__main__":
     pm = PositionManager(metagraph=mmg, running_unit_tests=False, elimination_manager=elimination_manager)
     perf_ledger_manager = PerfLedgerManager(mmg, position_manager=pm, running_unit_tests=False, enable_rss=False)
     #perf_ledger_manager.update(regenerate_all_ledgers=True)
-    perf_ledger_manager.update(testing_one_hotkey='5DswH2LoRwivzv37tGvo27XJjDvFpff2fhu5T8LHsfXmFS5u')
+    perf_ledger_manager.update(testing_one_hotkey='5G1FFNUrq9UBoZjaA1Bw7JZ79EkQg9QqZpGrdNki1zvPa1e8')
