@@ -3,6 +3,7 @@
 
 import json
 import os
+import shutil
 import pickle
 import uuid
 from multiprocessing.managers import DictProxy
@@ -219,7 +220,7 @@ class ValiBkpUtils:
             else:
                 f.write(json.dumps(vali_data, cls=CustomEncoder))
         # Move the file from temp to the final location
-        os.replace(temp_file_path, vali_file)
+        shutil.move(temp_file_path, vali_file)
 
     @staticmethod
     def write_file(
