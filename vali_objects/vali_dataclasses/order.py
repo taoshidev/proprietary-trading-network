@@ -6,6 +6,7 @@ from pydantic import field_validator
 
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.vali_dataclasses.order_signal import Signal
+from vali_objects.vali_dataclasses.price_source import PriceSource
 from enum import Enum, auto
 
 ORDER_SRC_ORGANIC = 0               # order generated from a miner's signal
@@ -38,6 +39,12 @@ class Order(Signal):
     def ensure_order_uuid_is_string(cls, v):
         if not isinstance(v, str):
             v = str(v)
+        return v
+
+    @field_validator('price_sources', mode='before')
+    def validate_price_sources(cls, v):
+        if isinstance(v, list):
+            return [PriceSource(**ps) if isinstance(ps, dict) else ps for ps in v]
         return v
 
     # Using Pydantic's constructor instead of a custom from_dict method
