@@ -465,7 +465,6 @@ class PolygonDataService(BaseDataService):
     ) -> PriceSource | None:
 
         if self.is_backtesting:
-
             # Check that we are within market hours for genuine ptn orders
             if order is not None and order.src == 0:
                 assert self.is_market_open(trade_pair)
@@ -473,13 +472,12 @@ class PolygonDataService(BaseDataService):
         if not self.is_market_open(trade_pair):
             return self.get_event_before_market_close(trade_pair)
         if timestamp_ms is None:
-            now_ms = TimeUtil.now_in_millis()
-        else:
-            now_ms = timestamp_ms
+            timestamp_ms = TimeUtil.now_in_millis()
+
         prev_timestamp = None
         final_agg = None
         timespan = "second"
-        raw = self.unified_candle_fetcher(trade_pair, now_ms - 10000, now_ms + 2000, timespan)
+        raw = self.unified_candle_fetcher(trade_pair, timestamp_ms - 10000, timestamp_ms + 2000, timespan)
         for a in raw:
             #print('agg:', a)
             """
@@ -487,7 +485,7 @@ class PolygonDataService(BaseDataService):
                     timestamp=1713273876000, transactions=3, otc=None)
             """
             epoch_miliseconds = a.timestamp
-            price_source = self.agg_to_price_source(a, now_ms, timespan)
+            price_source = self.agg_to_price_source(a, timestamp_ms, timespan)
             assert prev_timestamp is None or prev_timestamp < epoch_miliseconds
             #formatted_date = TimeUtil.millis_to_formatted_date_str(epoch_miliseconds // 1000)
             final_agg = price_source
