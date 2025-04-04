@@ -653,6 +653,7 @@ class Position(BaseModel):
         # attempting to flip position
         else:
             order.leverage = -self.net_leverage
+            order.order_type = OrderType.FLAT
 
         if abs(order.leverage) < ValiConfig.ORDER_MIN_LEVERAGE and (should_ignore_order is False):
             raise ValueError(f'Clamped order leverage [{order.leverage}] is below ValiConfig.ORDER_MIN_LEVERAGE {ValiConfig.ORDER_MIN_LEVERAGE}')
