@@ -556,6 +556,7 @@ class Position(BaseModel):
                     self.average_entry_price * self.net_leverage
                     + realtime_price * delta_leverage
                 ) / new_net_leverage
+                self.cumulative_entry_value += realtime_price * order.leverage
             elif self.position_type == order.order_type:
                 # after SLIPPAGE_V1_TIME_MS, average entry price now reflects the average price
                 # average entry price only changes when an order is in the same direction as the position. reducing a position does not affect average entry price.
