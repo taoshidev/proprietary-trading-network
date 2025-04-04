@@ -10,7 +10,7 @@ from typing import List
 import bittensor as bt
 from pydantic import BaseModel, ConfigDict
 from setproctitle import setproctitle
-
+from shared_objects.sn8_multiprocessing import ParallelizationMode, get_spark_session, get_multiprocessing_pool
 from time_util.time_util import MS_IN_8_HOURS, MS_IN_24_HOURS, timeme
 
 from shared_objects.cache_controller import CacheController
@@ -239,10 +239,14 @@ class PerfLedger():
 
     def get_or_create_latest_cp_with_mdd(self, now_ms: int, current_portfolio_value:float, current_portfolio_fee_spread:float,
                                          current_portfolio_carry:float, any_open: TradePairReturnStatus,
-                                         prev_max_return: float) -> PerfCheckpoint:
-        point_in_time_dd = CacheController.calculate_drawdown(current_portfolio_value, self.max_return)
+                                         prev_max_return: float,  debug_dict=None) -> PerfCheckpoint:
 
-        assert point_in_time_dd, point_in_time_dd
+        point_in_time_dd = CacheController.calculate_drawdown(current_portfolio_value, self.max_return)
+        if not point_in_time_dd:
+            time_formatted = TimeUtil.millis_to_verbose_formatted_date_str(now_ms)
+            raise Exception(f'point_in_time_dd is {point_in_time_dd} at time {time_formatted}. '
+                            f'any_open: {any_open}, prev_portfolio_value {self.cps[-1].prev_portfolio_ret}, '
+                            f'current_portfolio_value: {current_portfolio_value}, self.max_return: {self.max_return}, debug_dict: {debug_dict}')
 
         if len(self.cps) == 0:
             self.init_with_first_order(now_ms, point_in_time_dd, current_portfolio_value, current_portfolio_fee_spread, current_portfolio_carry)
@@ -317,7 +321,7 @@ class PerfLedger():
             self.init_max_portfolio_value()
 
     def update_pl(self, current_portfolio_value: float, now_ms: int, miner_hotkey: str, any_open: TradePairReturnStatus,
-              current_portfolio_fee_spread: float, current_portfolio_carry: float, tp_debug=None):
+              current_portfolio_fee_spread: float, current_portfolio_carry: float, tp_debug=None, debug_dict=None):
 
         if len(self.cps) == 0:
             self.init_with_first_order(now_ms, point_in_time_dd=1.0, current_portfolio_value=1.0,
@@ -325,7 +329,8 @@ class PerfLedger():
         prev_max_return = self.max_return
         self.max_return = max(self.max_return, current_portfolio_value)
         current_cp = self.get_or_create_latest_cp_with_mdd(now_ms, current_portfolio_value, current_portfolio_fee_spread,
-                                                           current_portfolio_carry, any_open, prev_max_return)
+                                                           current_portfolio_carry, any_open, prev_max_return, debug_dict=debug_dict)
+
         self.update_gains_losses(current_cp, current_portfolio_value, current_portfolio_fee_spread,
                                  current_portfolio_carry, miner_hotkey, any_open)
         self.update_accumulated_time(current_cp, now_ms, miner_hotkey, any_open, tp_debug)
@@ -354,12 +359,18 @@ class PerfLedger():
 class PerfLedgerManager(CacheController):
     def __init__(self, metagraph, ipc_manager=None, running_unit_tests=False, shutdown_dict=None,
                  perf_ledger_hks_to_invalidate=None, live_price_fetcher=None, position_manager=None,
-                 enable_rss=True, is_backtesting=False):
+                 enable_rss=True, is_backtesting=False, parallel_mode=ParallelizationMode.SERIAL, secrets=None,
+                 build_portfolio_ledgers_only=False):
         super().__init__(metagraph=metagraph, running_unit_tests=running_unit_tests, is_backtesting=is_backtesting)
+
         self.shutdown_dict = shutdown_dict
         self.live_price_fetcher = live_price_fetcher
         self.running_unit_tests = running_unit_tests
         self.enable_rss = enable_rss
+        self.parallel_mode = parallel_mode
+        bt.logging.info(f"Running performance ledger updates in parallel with {self.parallel_mode.name}")
+
+        self.build_portfolio_ledgers_only = build_portfolio_ledgers_only
         if perf_ledger_hks_to_invalidate:
             self.perf_ledger_hks_to_invalidate = perf_ledger_hks_to_invalidate
         else:
@@ -399,11 +410,44 @@ class PerfLedgerManager(CacheController):
         self.mode_to_n_updates = {}
         self.update_to_n_open_positions = {}
         self.position_uuid_to_cache = defaultdict(FeeCache)
-        initial_perf_ledgers = {} if self.is_backtesting else self.get_perf_ledgers(from_disk=True, portfolio_only=False)
+        if self.is_backtesting or self.parallel_mode != ParallelizationMode.SERIAL:
+            initial_perf_ledgers = {}
+        else:
+            initial_perf_ledgers = self.get_perf_ledgers(from_disk=True, portfolio_only=False)
+
+        if secrets:
+            self.secrets = secrets
+        else:
+            self.secrets = ValiUtils.get_secrets(running_unit_tests=self.running_unit_tests)
+
         for k, v in initial_perf_ledgers.items():
             self.hotkey_to_perf_bundle[k] = v
 
+        # Don't init hotkey_to_perf_bundle when running pyspark. methods take existing bundles by argument since we dont want each worker loading all ledgers.
+        if not self.parallel_mode:
+            for k, v in self.get_perf_ledgers(from_disk=True, portfolio_only=False).items():
+                self.hotkey_to_perf_bundle[k] = v
+
+
+    @staticmethod
+    def print_bundles(ans: dict[str, dict[str, PerfLedger]]):
+        for hk, bundle in ans.items():
+            print(f'-----------({hk})-----------')
+            PerfLedgerManager.print_bundle(hk, bundle)
+
+    @staticmethod
+    def print_bundle(hk:str, bundle: dict[str, PerfLedger]):
+        for tp_id, pl in sorted(bundle.items(), key=lambda x: 1 if x[0] == TP_ID_PORTFOLIO else ord(x[0][0]) / 27):
+            print(f'  --{tp_id}-- ')
+            for idx, x in enumerate(pl.cps):
+                last_update_formatted = TimeUtil.millis_to_timestamp(x.last_update_ms)
+                if idx == 0 or idx == len(pl.cps) - 1:
+                    print('    ', idx, last_update_formatted, x)
+            print(tp_id, 'max_perf_ledger_return:', pl.max_return)
+
     def _is_v1_perf_ledger(self, ledger_value):
+        if self.build_portfolio_ledgers_only:
+            return False
         ans = False
         if 'initialization_time_ms' in ledger_value:
             ans = True
@@ -704,8 +748,7 @@ class PerfLedgerManager(CacheController):
         #t0 = time.time()
         #print(f"Starting #{requested_seconds} candle fetch for {tp.trade_pair}")
         if self.pds is None:
-            secrets = ValiUtils.get_secrets(running_unit_tests=self.running_unit_tests)
-            live_price_fetcher = LivePriceFetcher(secrets, disable_ws=True)
+            live_price_fetcher = LivePriceFetcher(self.secrets, disable_ws=True)
             self.pds = live_price_fetcher.polygon_data_service
 
         price_info_raw = self.pds.unified_candle_fetcher(
@@ -753,6 +796,7 @@ class PerfLedgerManager(CacheController):
         for tp_id, historical_positions in tp_to_historical_positions_dense.items():
             #historical_position = historical_positions[0]
             assert len(historical_positions) < 2, ('maybe a recently opened position?', historical_positions)
+            tp_ids_to_build = [TP_ID_PORTFOLIO] if self.build_portfolio_ledgers_only else [tp_id, TP_ID_PORTFOLIO]
             for historical_position in historical_positions:
                 if self.shutdown_dict:
                     return tp_to_return, tp_to_any_open, tp_to_spread_fee, tp_to_carry_fee
@@ -760,21 +804,18 @@ class PerfLedgerManager(CacheController):
 
                 position_spread_fee, psf_updated = self.position_uuid_to_cache[historical_position.position_uuid].get_spread_fee(historical_position, t_ms)
                 position_carry_fee, pcf_updated = self.position_uuid_to_cache[historical_position.position_uuid].get_carry_fee(t_ms, historical_position)
-                tp_to_spread_fee[tp_id] *= position_spread_fee
-                tp_to_spread_fee[TP_ID_PORTFOLIO] *= position_spread_fee
-                tp_to_carry_fee[tp_id] *= position_carry_fee
-                tp_to_carry_fee[TP_ID_PORTFOLIO] *= position_carry_fee
-
+                for x in tp_ids_to_build:
+                    tp_to_spread_fee[x] *= position_spread_fee
+                    tp_to_carry_fee[x] *= position_carry_fee
 
                 if not self.market_calendar.is_market_open(historical_position.trade_pair, t_ms):
-                    tp_to_return[tp_id] *= historical_position.return_at_close
-                    tp_to_return[TP_ID_PORTFOLIO] *= historical_position.return_at_close
-                    tp_to_any_open[tp_id] = TradePairReturnStatus.TP_MARKET_NOT_OPEN
-                    tp_to_any_open[TP_ID_PORTFOLIO] = max(TradePairReturnStatus.TP_MARKET_NOT_OPEN, tp_to_any_open[TP_ID_PORTFOLIO])
+                    for x in tp_ids_to_build:
+                        tp_to_return[x] *= historical_position.return_at_close
+                        tp_to_any_open[x] = max(TradePairReturnStatus.TP_MARKET_NOT_OPEN, tp_to_any_open.get(x, TradePairReturnStatus.TP_NO_OPEN_POSITIONS))
                     continue
 
-                tp_to_any_open[tp_id] = TradePairReturnStatus.TP_MARKET_OPEN_NO_PRICE_CHANGE
-                tp_to_any_open[TP_ID_PORTFOLIO] = max(TradePairReturnStatus.TP_MARKET_OPEN_NO_PRICE_CHANGE, tp_to_any_open[TP_ID_PORTFOLIO])
+                for x in tp_ids_to_build:
+                    tp_to_any_open[x] = max(TradePairReturnStatus.TP_MARKET_OPEN_NO_PRICE_CHANGE, tp_to_any_open.get(x, TradePairReturnStatus.TP_NO_OPEN_POSITIONS))
                 self.refresh_price_info(t_ms, end_time_ms, historical_position.trade_pair, mode)
                 price_at_t_ms = self.trade_pair_to_price_info[mode][tp_id].get(t_ms)
                 if price_at_t_ms is None:
@@ -782,6 +823,9 @@ class PerfLedgerManager(CacheController):
                 else:
                     prev_price = self.tp_to_last_price.get(tp_id, None)
                     price_changed = price_at_t_ms != prev_price
+                    if price_changed:
+                        for x in tp_ids_to_build:
+                            tp_to_any_open[x] = TradePairReturnStatus.TP_MARKET_OPEN_PRICE_CHANGE
                     self.tp_to_last_price[tp_id] = price_at_t_ms
 
                 if price_changed:
@@ -792,8 +836,8 @@ class PerfLedgerManager(CacheController):
                 else:
                     historical_position.set_returns_with_updated_fees(position_spread_fee * position_carry_fee, t_ms)
 
-                tp_to_return[tp_id] *= historical_position.return_at_close
-                tp_to_return[TP_ID_PORTFOLIO] *= historical_position.return_at_close
+                for x in tp_ids_to_build:
+                    tp_to_return[x] *= historical_position.return_at_close
                 #assert portfolio_return > 0, f"Portfolio value is {portfolio_return} for miner {miner_hotkey} at {t_s}. opr {opr} rtp {price_at_t_s}, historical position {historical_position}"
 
         return tp_to_return, tp_to_any_open, tp_to_spread_fee, tp_to_carry_fee
@@ -836,7 +880,8 @@ class PerfLedgerManager(CacheController):
             dense_positions = []
             for historical_position in historical_positions:
                 if historical_position.is_closed_position:
-                    for x in [TP_ID_PORTFOLIO, tp_id]:
+                    tp_ids_to_build = [TP_ID_PORTFOLIO] if self.build_portfolio_ledgers_only else [tp_id, TP_ID_PORTFOLIO]
+                    for x in tp_ids_to_build:
                         tp_to_initial_return[x] *= historical_position.return_at_close
                         tp_to_initial_spread_fee[x] *= self.position_uuid_to_cache[historical_position.position_uuid].get_spread_fee(historical_position, historical_position.orders[-1].processed_ms)[0]
                         tp_to_initial_carry_fee[x] *= self.position_uuid_to_cache[historical_position.position_uuid].get_carry_fee(historical_position.orders[-1].processed_ms, historical_position)[0]
@@ -872,26 +917,34 @@ class PerfLedgerManager(CacheController):
                 mode = 'second'
         return mode
 
-    def debug_significant_portfolio_drop(self, mode, portfolio_return, perf_ledger_bundle, t_ms, miner_hotkey, tp_to_historical_positions, open_positions_tp_ids):
-        ratio_drop = portfolio_return / perf_ledger_bundle[TP_ID_PORTFOLIO].cps[-1].prev_portfolio_ret
+    def debug_significant_portfolio_drop(self, mode, portfolio_return, perf_ledger_bundle, t_ms, miner_hotkey,
+                                         tp_to_historical_positions, open_positions_tp_ids, start_time_ms, end_time_ms):
+        portfolio_pl = perf_ledger_bundle[TP_ID_PORTFOLIO]
+        ratio_drop = portfolio_return / portfolio_pl.cps[-1].prev_portfolio_ret
+        pl_last_update_time = TimeUtil.millis_to_formatted_date_str(portfolio_pl.last_update_ms)
         if mode == 'second' and ratio_drop < 0.98 or mode == 'minute' and ratio_drop < .90:
             time_since_last_update = t_ms - perf_ledger_bundle[TP_ID_PORTFOLIO].cps[-1].last_update_ms
             time_formatted = TimeUtil.millis_to_formatted_date_str(t_ms)
+            start_formatted = TimeUtil.millis_to_formatted_date_str(start_time_ms)
+            end_formatted = TimeUtil.millis_to_formatted_date_str(end_time_ms)
             print(
-                f'perf ledger for hk {miner_hotkey} significant return drop on {time_formatted} from '
-                f'{perf_ledger_bundle[TP_ID_PORTFOLIO].cps[-1].prev_portfolio_ret} to {portfolio_return} over'
-                f' {time_since_last_update} ms ({t_ms}) with open_positions_tp_ids {open_positions_tp_ids} ',
+                f'perf ledger (pl_last_update_time {pl_last_update_time}) for hk {miner_hotkey} significant return drop on {time_formatted} from '
+                f'{portfolio_pl.cps[-1].prev_portfolio_ret} to {portfolio_return} over'
+                f' {time_since_last_update} ms ({t_ms}) when building up to {start_formatted} and {end_formatted} with open_positions_tp_ids {open_positions_tp_ids} ',
                 perf_ledger_bundle[TP_ID_PORTFOLIO].cps[-1].to_dict(), self.trade_pair_to_position_ret, mode)
             for tp_id, historical_positions in tp_to_historical_positions.items():
                 positions = []
                 for historical_position in historical_positions:
                     if historical_position.is_open_position and len(historical_position.orders):
-                        time_since_last_order_ms = t_ms - historical_position.orders[-1].processed_ms
-                        time_since_last_order_min = time_since_last_order_ms / (1000 * 60)
-                        positions.append((historical_position.position_uuid, historical_position.net_leverage, [x.price for x in historical_position.orders],
-                                      historical_position.return_at_close, time_since_last_order_min))
+                        tpo = [TimeUtil.millis_to_formatted_date_str(x.processed_ms) for x in historical_position.orders]
+                        positions.append({'position_uuid': historical_position.position_uuid,
+                                         'net_leverage': historical_position.net_leverage,
+                                         'price_per_order': [x.price for x in historical_position.orders],
+                                         'return_at_close': historical_position.return_at_close,
+                                         'time_per_order': tpo})
                 if positions:
-                    print(f'    tp_id {tp_id} tp_to_last_price {self.tp_to_last_price.get(tp_id)} trade_pair_to_position_ret {self.trade_pair_to_position_ret.get(tp_id)}')
+                    print(f'    tp_id {tp_id} tp_to_last_price {self.tp_to_last_price.get(tp_id)},'
+                          f' trade_pair_to_position_ret {self.trade_pair_to_position_ret.get(tp_id)}')
                 for p in positions:
                     print(f'        position {p} ')
 
@@ -917,6 +970,8 @@ class PerfLedgerManager(CacheController):
         # Init per-trade-pair perf ledgers
         tp_ids_to_build = [TP_ID_PORTFOLIO]
         for i, (tp_id, positions) in enumerate(tp_to_historical_positions.items()):
+            if self.build_portfolio_ledgers_only:
+                break
             if tp_id in perf_ledger_bundle:
                 # Can only build perf ledger between orders or after all orders have passed.
                 tp_ids_to_build.append(tp_id)
@@ -947,7 +1002,24 @@ class PerfLedgerManager(CacheController):
                     tp_return = initial_tp_to_return[tp_id]
                     tp_spread_fee = initial_tp_to_spread_fee[tp_id]
                     tp_carry_fee = initial_tp_to_carry_fee[tp_id]
-                perf_ledger.update_pl(tp_return, end_time_ms, miner_hotkey, TradePairReturnStatus.TP_MARKET_NOT_OPEN, tp_spread_fee, tp_carry_fee, tp_debug=tp_id + '_shortcut')
+
+                tp_to_historical_positions_compact = {}
+                for tp, ret in initial_tp_to_return.items():
+                    if tp != TP_ID_PORTFOLIO:
+                        for candpos in tp_to_historical_positions[tp]:
+                            if candpos.return_at_close < .5:
+                                tp_to_historical_positions_compact[tp] = candpos
+
+                dd = {'initial_tp_to_return': initial_tp_to_return, 'miner_hotkey': miner_hotkey,
+                      'shortcut_reason': shortcut_reason,
+                      'tp_id': tp_id, 'start_time_ms': TimeUtil.millis_to_formatted_date_str(start_time_ms),
+                      'end_time_ms': TimeUtil.millis_to_formatted_date_str(end_time_ms),
+                      'tp_to_historical_positions_compact': tp_to_historical_positions_compact,
+                      'realtime_position_to_pop': realtime_position_to_pop
+                      }
+                perf_ledger.update_pl(tp_return, end_time_ms, miner_hotkey, TradePairReturnStatus.TP_MARKET_NOT_OPEN,
+                      tp_spread_fee, tp_carry_fee, tp_debug=tp_id + '_shortcut', debug_dict=dd)
+
                 perf_ledger.purge_old_cps()
             return False
 
@@ -1000,13 +1072,10 @@ class PerfLedgerManager(CacheController):
             if portfolio_return == 0 and self.check_liquidated(miner_hotkey, portfolio_return, t_ms, tp_to_historical_positions):
                 return True
 
-            self.debug_significant_portfolio_drop(mode, portfolio_return, perf_ledger_bundle, t_ms, miner_hotkey, tp_to_historical_positions, open_positions_tp_ids)
+            self.debug_significant_portfolio_drop(mode, portfolio_return, perf_ledger_bundle, t_ms, miner_hotkey, tp_to_historical_positions, open_positions_tp_ids, start_time_ms, end_time_ms)
 
-            for tp_id in open_positions_tp_ids:
+            for tp_id in [TP_ID_PORTFOLIO] if self.build_portfolio_ledgers_only else list(open_positions_tp_ids) + [TP_ID_PORTFOLIO]:
                 perf_ledger_bundle[tp_id].update_pl(tp_to_current_return[tp_id], t_ms, miner_hotkey, tp_to_any_open[tp_id], tp_to_current_spread_fee[tp_id], tp_to_current_carry_fee[tp_id], tp_debug=tp_id)
-
-            perf_ledger_bundle[TP_ID_PORTFOLIO].update_pl(tp_to_current_return[TP_ID_PORTFOLIO], t_ms, miner_hotkey, tp_to_any_open[TP_ID_PORTFOLIO],
-                                  tp_to_current_spread_fee[TP_ID_PORTFOLIO], tp_to_current_carry_fee[TP_ID_PORTFOLIO], tp_debug=TP_ID_PORTFOLIO)
 
             accumulated_time_ms = self.inc_accumulated_time(mode, accumulated_time_ms)
 
@@ -1034,8 +1103,9 @@ class PerfLedgerManager(CacheController):
         #print(f'Updated between {TimeUtil.millis_to_formatted_date_str(start_time_ms)} and {TimeUtil.millis_to_formatted_date_str(end_time_ms)} ({n_minutes_between_intervals} min). mode_to_ticks {mode_to_ticks}. Default mode {default_mode}')
         return False
 
-    def update_one_perf_ledger_bundle(self, hotkey_i: int, n_hotkeys: int, hotkey: str, positions: List[Position], now_ms:int,
-                                      existing_perf_ledger_bundles: dict[str, dict[str, PerfLedger]]) -> None:
+    def update_one_perf_ledger_bundle(self, hotkey_i: int, n_hotkeys: int, hotkey: str, positions: List[Position],
+                                      now_ms: int,
+                                      existing_perf_ledger_bundles: dict[str, dict[str, PerfLedger]]) -> None | dict[str, PerfLedger]:
 
         eliminated = False
         self.n_api_calls = 0
@@ -1079,7 +1149,6 @@ class PerfLedgerManager(CacheController):
                     tp_to_historical_positions[symbol].append(p)
                 else:
                     tp_to_historical_positions[symbol] = [p]
-            
 
         # Building for scratch or there have been order(s) since the last update time
         realtime_position_to_pop = None
@@ -1127,8 +1196,9 @@ class PerfLedgerManager(CacheController):
                 break
             # print(f"Done processing order {order}. perf ledger {perf_ledger}")
 
-        if eliminated:
-            return
+        if eliminated and self.parallel_mode:
+            return perf_ledger_bundle_candidate
+
         # We have processed all orders. Need to catch up to now_ms
         if realtime_position_to_pop:
             symbol = realtime_position_to_pop.trade_pair.trade_pair_id
@@ -1153,8 +1223,13 @@ class PerfLedgerManager(CacheController):
                 f" last cp {portfolio_perf_ledger.cps[-1] if portfolio_perf_ledger.cps else None}. perf_ledger_mpv {portfolio_perf_ledger.max_return} "
                 f"perf_ledger_initialization_time {TimeUtil.millis_to_formatted_date_str(portfolio_perf_ledger.initialization_time_ms)}. "
                 f"mode_to_n_updates {self.mode_to_n_updates}. update_to_n_open_positions {self.update_to_n_open_positions}, self.tp_to_mfs {self.tp_to_mfs}")
-        # Write candidate at the very end in case an exception leads to a partial update
-        existing_perf_ledger_bundles[hotkey] = perf_ledger_bundle_candidate
+
+        # If running in parallel mode, return the result instead of updating in place
+        if self.parallel_mode != ParallelizationMode.SERIAL:
+            return perf_ledger_bundle_candidate
+        else:
+            # Write candidate at the very end in case an exception leads to a partial update
+            existing_perf_ledger_bundles[hotkey] = perf_ledger_bundle_candidate
 
     @timeme
     def write_perf_ledger_eliminations_to_disk(self, eliminations):
@@ -1215,6 +1290,7 @@ class PerfLedgerManager(CacheController):
                 eliminations=self.position_manager.elimination_manager.get_eliminations_from_memory()
             )
             n_positions_total = 0
+            n_hotkeys_total = len(hotkey_to_positions)
             # Keep only hotkeys with positions
             for k, positions in hotkey_to_positions.items():
                 n_positions = len(positions)
@@ -1223,7 +1299,7 @@ class PerfLedgerManager(CacheController):
                     hotkeys_with_no_positions.add(k)
             for k in hotkeys_with_no_positions:
                 del hotkey_to_positions[k]
-            bt.logging.info('TOTAL N POSITIONS IN MEMORY: ' + str(n_positions_total))
+            bt.logging.info('TOTAL N POSITIONS IN MEMORY: ' + str(n_positions_total), 'TOTAL N HOTKEYS IN MEMORY: ' + str(n_hotkeys_total))
 
         return hotkey_to_positions, hotkeys_with_no_positions
 
@@ -1459,17 +1535,131 @@ class PerfLedgerManager(CacheController):
                     if len(pl.cps) == 0:
                         pl.max_return = 1.0
 
+    def update_one_perf_ledger_parallel(self, data_tuple):
+        t0 = time.time()
+        hotkey_i, n_hotkeys, hotkey, positions, existing_bundle, now_ms = data_tuple
+        from tests.shared_objects.mock_classes import MockMetagraph
+        # Create a temporary manager for processing
+        # This is to avoid sharing state between executors
+        worker_plm = PerfLedgerManager(
+            metagraph=MockMetagraph(hotkeys=[hotkey]),
+            parallel_mode=self.parallel_mode,
+            secrets=self.secrets,
+            build_portfolio_ledgers_only=self.build_portfolio_ledgers_only
+        )
+        last_update_time_ms = existing_bundle[TP_ID_PORTFOLIO].last_update_ms if existing_bundle else 0
+        worker_plm.now_ms = now_ms
 
+        new_bundle = worker_plm.update_one_perf_ledger_bundle(
+            hotkey_i, n_hotkeys, hotkey, positions, now_ms, {hotkey:existing_bundle}
+        )
+        portfolio_pl = new_bundle[TP_ID_PORTFOLIO]
+        pl_start_time = TimeUtil.millis_to_formatted_date_str(last_update_time_ms)
+        pl_end_time = TimeUtil.millis_to_formatted_date_str(portfolio_pl.last_update_ms)
+
+        print(f'Completed update_one_perf_ledger_parallel for {hotkey} in {time.time() - t0} s over '
+              f'{pl_start_time} to {pl_end_time}.')
+        return hotkey, new_bundle
+    def update_perf_ledgers_parallel(self, spark, pool, hotkey_to_positions: dict[str, List[Position]],
+                                     existing_perf_ledgers: dict[str, dict[str, PerfLedger]],
+                                     parallel_mode = ParallelizationMode.PYSPARK,
+                                     now_ms: int = None, top_n_miners: int=None) -> dict[str, dict[str, PerfLedger]]:
+        """
+        Update all perf ledgers in parallel using PySpark.
+
+        Args:
+            spark: PySpark SparkSession
+            pool: Multiprocessing pool
+            hotkey_to_positions: Dictionary mapping hotkeys to their positions
+            existing_perf_ledgers: Dictionary of existing performance ledger bundles
+            now_ms: Current time in milliseconds
+            top_n_miners: Number of miners to process (local testing)
+
+        Returns:
+            Updated performance ledger bundles
+        """
+        t_init = time.time()
+
+        if now_ms is None:
+            now_ms = TimeUtil.now_in_millis()
+        self.now_ms = now_ms
+
+        # Create a list of hotkeys with their positions for RDD
+        hotkey_data = []
+        for i, (hotkey, positions) in enumerate(hotkey_to_positions.items()):
+            hotkey_data.append((i, len(hotkey_to_positions), hotkey, positions, existing_perf_ledgers.get(hotkey), now_ms))
+            if top_n_miners and i == top_n_miners - 1:
+                break
+
+        if parallel_mode == ParallelizationMode.PYSPARK:
+            bt.logging.info(
+                f"Updating perf ledgers in parallel with {self.parallel_mode.name}. RDD size: {len(hotkey_data)}")
+            # Create RDD from hotkey data
+            hotkey_rdd = spark.sparkContext.parallelize(hotkey_data)
+            # Process all hotkeys in parallel
+            updated_perf_ledgers = hotkey_rdd.map(self.update_one_perf_ledger_parallel).collectAsMap()
+        elif parallel_mode == ParallelizationMode.MULTIPROCESSING:
+            # Use multiprocessing for parallel processing
+            updated_perf_ledgers = dict(pool.map(self.update_one_perf_ledger_parallel, hotkey_data))
+        else:
+            raise ValueError(f"Invalid parallel mode: {parallel_mode}")
+
+        n_perf_ledgers = len(updated_perf_ledgers)
+        n_hotkeys_with_positions = len(hotkey_to_positions)
+        bt.logging.success(f"Done updating perf ledgers with {self.parallel_mode.name} in {time.time() - t_init}s. "
+                           f"n_perf_ledgers: {n_perf_ledgers}, n_hotkeys_with_positions: {n_hotkeys_with_positions}")
+
+        self.save_perf_ledgers(updated_perf_ledgers)
+        return updated_perf_ledgers
 
 
 if __name__ == "__main__":
     from tests.shared_objects.mock_classes import MockMetagraph
     bt.logging.enable_info()
+
+    # Configuration flags
+    parallel_mode = ParallelizationMode.MULTIPROCESSING  # 1 for pyspark, 2 for multiprocessing
+    top_n_miners = 4
+    test_single_hotkey = None #'5EWKUhycaBQHiHnfE3i2suZ1BvxAAE3HcsFsp8TaR6mu3JrJ'  # Set to a specific hotkey string to test single hotkey, or None for all
+    regenerate_all = False  # Whether to regenerate all ledgers from scratch
+    build_portfolio_ledgers_only = True  # Whether to build only the portfolio ledgers or per trade pair
+
+
+    # Initialize components
     all_miners_dir = ValiBkpUtils.get_miner_dir(running_unit_tests=False)
     all_hotkeys_on_disk = CacheController.get_directory_names(all_miners_dir)
     mmg = MockMetagraph(hotkeys=all_hotkeys_on_disk)
     elimination_manager = EliminationManager(mmg, None, None)
-    pm = PositionManager(metagraph=mmg, running_unit_tests=False, elimination_manager=elimination_manager)
-    perf_ledger_manager = PerfLedgerManager(mmg, position_manager=pm, running_unit_tests=False, enable_rss=False)
-    #perf_ledger_manager.update(regenerate_all_ledgers=True)
-    perf_ledger_manager.update(testing_one_hotkey='5G1FFNUrq9UBoZjaA1Bw7JZ79EkQg9QqZpGrdNki1zvPa1e8')
+    position_manager = PositionManager(metagraph=mmg, running_unit_tests=False, elimination_manager=elimination_manager)
+    perf_ledger_manager = PerfLedgerManager(mmg, position_manager=position_manager, running_unit_tests=False,
+                                            enable_rss=False, parallel_mode=parallel_mode,
+                                            build_portfolio_ledgers_only=build_portfolio_ledgers_only)
+
+
+    if parallel_mode == ParallelizationMode.SERIAL:
+        # Use serial update like validators do
+        if test_single_hotkey:
+            bt.logging.info(f"Running single-hotkey test for: {test_single_hotkey}")
+            perf_ledger_manager.update(testing_one_hotkey=test_single_hotkey)
+        else:
+            bt.logging.info("Running standard sequential update for all hotkeys")
+            perf_ledger_manager.update(regenerate_all_ledgers=regenerate_all)
+    else:
+        # Get positions and existing ledgers
+        hotkey_to_positions, _ = perf_ledger_manager.get_positions_perf_ledger(testing_one_hotkey=test_single_hotkey)
+
+        existing_perf_ledgers = {} if regenerate_all else perf_ledger_manager.get_perf_ledgers(portfolio_only=False, from_disk=True)
+
+        # Run the parallel update
+        spark, should_close = get_spark_session(parallel_mode)
+        pool = get_multiprocessing_pool(parallel_mode)
+        assert pool, parallel_mode
+        updated_perf_ledgers = perf_ledger_manager.update_perf_ledgers_parallel(spark, pool, hotkey_to_positions,
+                                    existing_perf_ledgers, parallel_mode=parallel_mode, top_n_miners=top_n_miners)
+
+        PerfLedgerManager.print_bundles(updated_perf_ledgers)
+        # Stop Spark session if we created it
+        #if spark and should_close:
+        #    t0 = time.time()
+        #    spark.stop()
+        #    print('closed spark session in  ', time.time() - t0)

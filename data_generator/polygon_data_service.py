@@ -6,6 +6,8 @@ from multiprocessing import Process
 import requests
 
 from typing import List
+
+from vali_objects.vali_dataclasses.order import Order
 from polygon.websocket import Market, EquityAgg, EquityTrade, CryptoTrade, ForexQuote, WebSocketClient
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -152,7 +154,7 @@ class ExchangeMappingHelper:
 
 class PolygonDataService(BaseDataService):
 
-    def __init__(self, api_key, disable_ws=False, ipc_manager=None):
+    def __init__(self, api_key, disable_ws=False, ipc_manager=None, is_backtesting=False):
         self.init_time = time.time()
         self._api_key = api_key
         ehm = ExchangeMappingHelper(api_key, fetch_live_mapping = not disable_ws)
@@ -161,6 +163,8 @@ class PolygonDataService(BaseDataService):
         self.disable_ws = disable_ws
         self.N_CANDLES_LIMIT = 50000
         self.tp_to_mfs = {}
+        self.is_backtesting = is_backtesting
+
         super().__init__(provider_name=POLYGON_PROVIDER_NAME, ipc_manager=ipc_manager)
 
         self.MARKET_STATUS = None
@@ -436,6 +440,7 @@ class PolygonDataService(BaseDataService):
         p_name = f'{POLYGON_PROVIDER_NAME}_rest'
         if attempting_prev_close:
             p_name += '_prev_close'
+
         return \
             PriceSource(
                 source=p_name,
@@ -454,17 +459,25 @@ class PolygonDataService(BaseDataService):
 
     def get_close_rest(
         self,
-        trade_pair: TradePair
+        trade_pair: TradePair,
+        timestamp_ms: int = None,
+        order: Order = None
     ) -> PriceSource | None:
+
+        if self.is_backtesting:
+            # Check that we are within market hours for genuine ptn orders
+            if order is not None and order.src == 0:
+                assert self.is_market_open(trade_pair)
 
         if not self.is_market_open(trade_pair):
             return self.get_event_before_market_close(trade_pair)
+        if timestamp_ms is None:
+            timestamp_ms = TimeUtil.now_in_millis()
 
-        now_ms = TimeUtil.now_in_millis()
         prev_timestamp = None
         final_agg = None
         timespan = "second"
-        raw = self.unified_candle_fetcher(trade_pair, now_ms - 10000, now_ms + 2000, timespan)
+        raw = self.unified_candle_fetcher(trade_pair, timestamp_ms - 10000, timestamp_ms + 2000, timespan)
         for a in raw:
             #print('agg:', a)
             """
@@ -472,13 +485,15 @@ class PolygonDataService(BaseDataService):
                     timestamp=1713273876000, transactions=3, otc=None)
             """
             epoch_miliseconds = a.timestamp
-            price_source = self.agg_to_price_source(a, now_ms, timespan)
+            price_source = self.agg_to_price_source(a, timestamp_ms, timespan)
             assert prev_timestamp is None or prev_timestamp < epoch_miliseconds
             #formatted_date = TimeUtil.millis_to_formatted_date_str(epoch_miliseconds // 1000)
             final_agg = price_source
             prev_timestamp = epoch_miliseconds
         if not final_agg:
-            bt.logging.warning(f"Polygon failed to fetch REST data for {trade_pair.trade_pair}. If you keep seeing this warning, report it to the team ASAP")
+            bt.logging.warning(f"Polygon failed to fetch REST data for {trade_pair.trade_pair} at time "
+                               f"{TimeUtil.millis_to_formatted_date_str(timestamp_ms)}. "
+                               f"If you keep seeing this warning, report it to the team ASAP")
             final_agg = None
 
         return final_agg
@@ -496,23 +511,26 @@ class PolygonDataService(BaseDataService):
         else:
             raise ValueError(f"Unknown trade pair category: {trade_pair.trade_pair_category}")
 
-    def get_event_before_market_close(self, trade_pair: TradePair) -> PriceSource | None:
+    def get_event_before_market_close(self, trade_pair: TradePair, end_time_ms=None) -> PriceSource | None:
         if self.closed_market_prices[trade_pair] is not None:
             return self.closed_market_prices[trade_pair]
         elif trade_pair in self.UNSUPPORTED_TRADE_PAIRS:
             return None
-
+        write_closed_market_prices = False
         # start 7 days ago
-        end_time_ms = TimeUtil.now_in_millis()
-        start_time_ms = TimeUtil.now_in_millis() - 1000 * 60 * 60 * 24 * 7
-        candles = self.get_candles_for_trade_pair(trade_pair, start_time_ms, end_time_ms, attempting_prev_close=True)
+        if end_time_ms is None:
+            end_time_ms = TimeUtil.now_in_millis()
+            write_closed_market_prices = True
+        start_time_ms = end_time_ms - 1000 * 60 * 60 * 24 * 7
+        candles = self.get_candles_for_trade_pair(trade_pair, start_time_ms, end_time_ms, end_time_ms, attempting_prev_close=True, force_timespan='day')
         if len(candles) == 0:
-            msg = f"Failed to fetch market close for {trade_pair.trade_pair}"
+            msg = f"get_event_before_market_close: Failed to fetch market close for {trade_pair.trade_pair}"
             raise ValueError(msg)
 
         ans = candles[-1]
-        self.closed_market_prices[trade_pair] = ans
-        return self.closed_market_prices[trade_pair]
+        if write_closed_market_prices:
+            self.closed_market_prices[trade_pair] = ans
+        return ans
 
     # def get_quote_event_before_market_close(self, trade_pair: TradePair) -> QuoteSource | None:
     #     if self.closed_market_prices[trade_pair] is not None:
@@ -587,7 +605,7 @@ class PolygonDataService(BaseDataService):
 
 
 
-    def get_close_at_date_minute_fallback(self, trade_pair: TradePair, timestamp_ms: int):
+    def get_close_at_date_minute_fallback(self, trade_pair: TradePair, target_timestamp_ms: int) -> PriceSource | None:
         polygon_ticker = self.trade_pair_to_polygon_ticker(trade_pair)  # noqa: F841
 
         #if not self.is_market_open(trade_pair):
@@ -595,70 +613,58 @@ class PolygonDataService(BaseDataService):
 
         prev_timestamp = None
         smallest_delta = None
-        corresponding_price = None
-        start_time = None
+        corresponding_price_source = None
         n_responses = 0
-        candle = None
         timespan = "minute"
 
-        def try_updating_found_price(t, p):
-            nonlocal smallest_delta, corresponding_price, start_time, candle
-            time_delta_ms = abs(t - timestamp_ms)
+        def try_updating_found_price(t_ms, agg):
+            nonlocal smallest_delta, corresponding_price_source
+            time_delta_ms = abs(t_ms - target_timestamp_ms)
             if smallest_delta is None or time_delta_ms <= smallest_delta:
                 smallest_delta = time_delta_ms
-                corresponding_price = p
-                start_time = epoch_miliseconds
-                candle = a
+                corresponding_price_source = self.agg_to_price_source(agg, target_timestamp_ms, timespan)
 
-        raw = self.unified_candle_fetcher(trade_pair, timestamp_ms - 1000 * 60 * 30, timestamp_ms + 1000 * 60 * 30, timespan)
+        raw = self.unified_candle_fetcher(trade_pair,
+                                          target_timestamp_ms - 1000 * 60 * 2,
+                                          target_timestamp_ms + 1000 * 60 * 2, timespan)
         for a in raw:
             n_responses += 1
             epoch_miliseconds = a.timestamp
 
-            try_updating_found_price(epoch_miliseconds, a.open)
-            try_updating_found_price(epoch_miliseconds + self.timespan_to_ms[timespan], a.close)
+            try_updating_found_price(epoch_miliseconds, a)
+            try_updating_found_price(epoch_miliseconds + self.timespan_to_ms[timespan], a)
 
             assert prev_timestamp is None or prev_timestamp < epoch_miliseconds
             prev_timestamp = epoch_miliseconds
 
         #print(f"minute fallback smallest delta ms: {smallest_delta}, input_timestamp: {timestamp_ms}, candle_start_time_ms: {start_time}, candle: {candle}, n_responses: {n_responses}")
-        return corresponding_price
+        return corresponding_price_source
 
-    def get_close_at_date_second(self, trade_pair: TradePair, target_timestamp_ms: int, return_aggs=False):
-
-        #if not self.is_market_open(trade_pair):
-        #    return self.get_event_before_market_close(trade_pair)
-
+    def get_close_at_date_second(self, trade_pair: TradePair, target_timestamp_ms: int, order: Order = None) -> PriceSource | None:
         prev_timestamp = None
         smallest_delta = None
-        corresponding_price = None
+        corresponding_price_source = None
         n_responses = 0
         timespan = "second"
-        aggs = []
-        def try_updating_found_price(t, p):
-            nonlocal smallest_delta, corresponding_price, target_timestamp_ms
+        def try_updating_found_price(t, agg):
+            nonlocal smallest_delta, corresponding_price_source, target_timestamp_ms
             time_delta_ms = abs(t - target_timestamp_ms)
             if smallest_delta is None or time_delta_ms <= smallest_delta:
                 #print('Updated best answer', time_delta_ms, smallest_delta, t, p)
                 smallest_delta = time_delta_ms
-                corresponding_price = p
+                corresponding_price_source = self.agg_to_price_source(agg, target_timestamp_ms, timespan)
 
-        raw = self.unified_candle_fetcher(trade_pair, target_timestamp_ms - 1000 * 10, target_timestamp_ms + 1000 * 10, timespan)
+        raw = self.unified_candle_fetcher(trade_pair, target_timestamp_ms - 1000 * 59, target_timestamp_ms + 1000 * 59, timespan)
         for a in raw:
-            if return_aggs:
-                aggs.append(a)
-            print('agg', a, 'dt', target_timestamp_ms - a.timestamp, 'ms')
+            #print('agg', a, 'dt', target_timestamp_ms - a.timestamp, 'ms')
             n_responses += 1
-            try_updating_found_price(a.timestamp, a.open)
-            try_updating_found_price(a.timestamp + self.timespan_to_ms[timespan], a.close)
+            try_updating_found_price(a.timestamp, a)
 
             assert prev_timestamp is None or prev_timestamp < a.timestamp, raw
             prev_timestamp = a.timestamp
 
         #print(f"smallest delta ms: {smallest_delta}, input_timestamp: {timestamp_ms}, candle_start_time_ms: {start_time}, candle: {candle}, n_responses: {n_responses}")
-        if return_aggs:
-            return aggs
-        return corresponding_price, smallest_delta
+        return corresponding_price_source
 
 
     def get_candles(self, trade_pairs: List[TradePair], start_time_ms:int, end_time_ms:int):
@@ -841,8 +847,9 @@ class PolygonDataService(BaseDataService):
         trade_pair: TradePair,
         start_timestamp_ms: int,
         end_timestamp_ms: int,
+        target_timestamp_ms: int,
         attempting_prev_close: bool = False,
-        force_second: bool = False
+        force_timespan: str = None
     ) -> list[PriceSource] | None:
         """
         agg Agg(open=111.91, high=111.91, low=111.902, close=111.909, volume=3, vwap=111.907,
@@ -866,12 +873,11 @@ class PolygonDataService(BaseDataService):
         else:
             timespan = "day"
 
-        if force_second:
-            timespan = "second"
+        if force_timespan:
+            timespan = force_timespan
 
         aggs = []
         prev_timestamp = None
-        now_ms = TimeUtil.now_in_millis()
         raw = self.unified_candle_fetcher(trade_pair, start_timestamp_ms, end_timestamp_ms, timespan)
         for i, a in enumerate(raw):
             epoch_miliseconds = a.timestamp
@@ -879,7 +885,8 @@ class PolygonDataService(BaseDataService):
             #formatted_date = TimeUtil.millis_to_formatted_date_str(epoch_miliseconds)
             #if i != -1:
                 #print('        agg:', a.low, formatted_date, trade_pair.trade_pair_id, timespan)
-            price_source = self.agg_to_price_source(a, now_ms, timespan, attempting_prev_close=attempting_prev_close)
+            price_source = self.agg_to_price_source(a, target_timestamp_ms, timespan, attempting_prev_close=attempting_prev_close)
+            #print(formatted_date, price_source)
             aggs.append(price_source)
             prev_timestamp = epoch_miliseconds
 
@@ -939,8 +946,9 @@ if __name__ == "__main__":
 
     secrets = ValiUtils.get_secrets()
 
-    polygon_data_provider = PolygonDataService(api_key=secrets['polygon_apikey'], disable_ws=False)
-
+    polygon_data_provider = PolygonDataService(api_key=secrets['polygon_apikey'], disable_ws=True)
+    ans = polygon_data_provider.get_close_rest(TradePair.USDJPY, 1742577204000)
+    assert 0, ans
     for tp in TradePair:
         if tp.is_indices:
             continue

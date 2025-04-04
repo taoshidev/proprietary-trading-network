@@ -16,7 +16,8 @@ from vali_objects.vali_dataclasses.price_source import PriceSource
 from statistics import median
 
 class LivePriceFetcher:
-    def __init__(self, secrets, disable_ws=False, ipc_manager=None):
+    def __init__(self, secrets, disable_ws=False, ipc_manager=None, is_backtesting=False):
+        self.is_backtesting = is_backtesting
         if "tiingo_apikey" in secrets:
             self.tiingo_data_service = TiingoDataService(api_key=secrets["tiingo_apikey"], disable_ws=disable_ws,
                                                          ipc_manager=ipc_manager)
@@ -24,7 +25,7 @@ class LivePriceFetcher:
             raise Exception("Tiingo API key not found in secrets.json")
         if "polygon_apikey" in secrets:
             self.polygon_data_service = PolygonDataService(api_key=secrets["polygon_apikey"], disable_ws=disable_ws,
-                                                           ipc_manager=ipc_manager)
+                                                           ipc_manager=ipc_manager, is_backtesting=is_backtesting)
         else:
             raise Exception("Polygon API key not found in secrets.json")
 
@@ -248,20 +249,33 @@ class LivePriceFetcher:
         #    ans.update(closes)
         return ans
 
-    def get_close_at_date(self, trade_pair, timestamp_ms):
-        price, time_delta = self.polygon_data_service.get_close_at_date_second(trade_pair=trade_pair, target_timestamp_ms=timestamp_ms)
-        if price is None:
-            price, time_delta = self.tiingo_data_service.get_close_at_date(trade_pair=trade_pair, timestamp_ms=timestamp_ms)
-            if price is not None:
+    def get_close_at_date(self, trade_pair, timestamp_ms, order=None):
+        if self.is_backtesting:
+            assert order, 'Must provide order for validation during backtesting'
+
+        price_source = None
+        if not self.polygon_data_service.is_market_open(trade_pair):
+            if self.is_backtesting and order and order.src == 0:
+                raise Exception(f"Backtesting validation failure: Attempting to price fill during closed market. TP {trade_pair.trade_pair_id} at {TimeUtil.millis_to_formatted_date_str(timestamp_ms)}")
+            else:
+                price_source = self.polygon_data_service.get_event_before_market_close(trade_pair, end_time_ms=timestamp_ms)
+                print(f'Used previous close to fill price for {trade_pair.trade_pair_id} at {TimeUtil.millis_to_formatted_date_str(timestamp_ms)}')
+
+        if price_source is None:
+            price_source = self.polygon_data_service.get_close_at_date_second(trade_pair=trade_pair, target_timestamp_ms=timestamp_ms)
+        if price_source is None:
+            price_source = self.polygon_data_service.get_close_at_date_minute_fallback(trade_pair=trade_pair, target_timestamp_ms=timestamp_ms)
+            if price_source:
+                bt.logging.warning(
+                    f"Fell back to Polygon get_date_minute_fallback for price of {trade_pair.trade_pair} at {TimeUtil.timestamp_ms_to_eastern_time_str(timestamp_ms)}, price_source: {price_source}")
+
+        if price_source is None:
+            price_source = self.tiingo_data_service.get_close_rest(trade_pair=trade_pair, target_time_ms=timestamp_ms)
+            if price_source is not None:
                 bt.logging.warning(
                     f"Fell back to Tiingo get_date for price of {trade_pair.trade_pair} at {TimeUtil.timestamp_ms_to_eastern_time_str(timestamp_ms)}, ms: {timestamp_ms}")
 
-        if price is None:
-            price, time_delta = self.polygon_data_service.get_close_at_date_minute_fallback(trade_pair=trade_pair,
-                                                                               timestamp_ms=timestamp_ms)
-            if price:
-                bt.logging.warning(
-                    f"Fell back to Polygon get_date_minute_fallback for price of {trade_pair.trade_pair} at {TimeUtil.timestamp_ms_to_eastern_time_str(timestamp_ms)}, ms: {timestamp_ms}")
+
         """
         if price is None:
             price, time_delta = self.polygon_data_service.get_close_in_past_hour_fallback(trade_pair=trade_pair,
@@ -276,12 +290,14 @@ class LivePriceFetcher:
                 f"Failed to get data at ET date {formatted_date} for {trade_pair.trade_pair}. Timestamp ms: {timestamp_ms}."
                 f" Ask a team member to investigate this issue.")
         """
-        return price, time_delta
+        return price_source
 
 
 if __name__ == "__main__":
     secrets = ValiUtils.get_secrets()
-    live_price_fetcher = LivePriceFetcher(secrets)
+    live_price_fetcher = LivePriceFetcher(secrets, disable_ws=True)
+    ans = live_price_fetcher.get_close_at_date(TradePair.USDJPY, 1733304060475)
+    assert 0, ans
     time.sleep(100000)
     trade_pairs = [TradePair.BTCUSD, TradePair.ETHUSD, ]
     while True:

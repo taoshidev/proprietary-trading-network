@@ -59,6 +59,142 @@ class TestPositions(TestBase):
         success, reason = PositionManager.positions_are_the_same(disk_position, expected_state)
         self.assertTrue(success, "Disc position is not as expected. " + reason)
 
+    def test_profit_position_returns_pre_post_slippage(self):
+        """
+        The post slippage position returns calculations calculates a realized PnL and an unrealized PnL.
+        The pre slippage position returns calculation only calculates returns from the weighted avg entry price and the current price.
+
+        If we set the actual slippage to 0, these returns calculations should be the same.
+        """
+        import vali_objects.position as position_file
+        position_file.ALWAYS_USE_SLIPPAGE = False
+
+        open_order = Order(
+            price=100,
+            slippage=0.00,
+            processed_ms=self.DEFAULT_OPEN_MS,
+            order_uuid="open_order",
+            trade_pair=TradePair.EURUSD,
+            order_type=OrderType.LONG,
+            leverage=1
+        )
+        reduce_size_order = Order(
+            price=110,
+            slippage=0.00,
+            processed_ms=self.DEFAULT_OPEN_MS + 1000,
+            order_uuid="reduce_size_order",
+            trade_pair=TradePair.EURUSD,
+            order_type=OrderType.SHORT,
+            leverage=0.5
+        )
+        increase_size_order = Order(
+            price=100,
+            slippage=0.00,
+            processed_ms=self.DEFAULT_OPEN_MS + 2000,
+            order_uuid="reduce_size_order",
+            trade_pair=TradePair.EURUSD,
+            order_type=OrderType.LONG,
+            leverage=1
+        )
+        close_order = Order(
+            price=110,
+            slippage=0.00,
+            processed_ms=self.DEFAULT_OPEN_MS + 3000,
+            order_uuid="close_order",
+            trade_pair=TradePair.EURUSD,
+            order_type=OrderType.FLAT,
+            leverage=0
+        )
+        closed_position = Position(
+            miner_hotkey=self.DEFAULT_MINER_HOTKEY,
+            position_uuid=self.DEFAULT_POSITION_UUID,
+            open_ms=self.DEFAULT_OPEN_MS,
+            trade_pair=TradePair.EURUSD,
+            orders=[]
+        )
+        closed_position.add_order(open_order)
+        closed_position.add_order(reduce_size_order)
+        closed_position.add_order(increase_size_order)
+        closed_position.add_order(close_order)
+
+        old_returns_calc = closed_position.current_return
+
+        position_file.ALWAYS_USE_SLIPPAGE = True
+
+        closed_position.rebuild_position_with_updated_orders()
+        new_returns_calc = closed_position.current_return
+
+        assert old_returns_calc == new_returns_calc
+        position_file.ALWAYS_USE_SLIPPAGE = None
+
+    def test_loss_position_returns_pre_post_slippage(self):
+        """
+        The post slippage position returns calculations calculates a realized PnL and an unrealized PnL.
+        The pre slippage position returns calculation only calculates returns from the weighted avg entry price and the current price.
+
+        If we set the actual slippage to 0, these returns calculations should be the same.
+        """
+        import vali_objects.position as position_file
+        position_file.ALWAYS_USE_SLIPPAGE = False
+
+        open_order = Order(
+            price=100,
+            slippage=0.00,
+            processed_ms=self.DEFAULT_OPEN_MS,
+            order_uuid="open_order",
+            trade_pair=TradePair.EURUSD,
+            order_type=OrderType.SHORT,
+            leverage=1
+        )
+        reduce_size_order = Order(
+            price=110,
+            slippage=0.00,
+            processed_ms=self.DEFAULT_OPEN_MS + 1000,
+            order_uuid="reduce_size_order",
+            trade_pair=TradePair.EURUSD,
+            order_type=OrderType.LONG,
+            leverage=0.5
+        )
+        increase_size_order = Order(
+            price=100,
+            slippage=0.00,
+            processed_ms=self.DEFAULT_OPEN_MS + 2000,
+            order_uuid="reduce_size_order",
+            trade_pair=TradePair.EURUSD,
+            order_type=OrderType.SHORT,
+            leverage=1
+        )
+        close_order = Order(
+            price=110,
+            slippage=0.00,
+            processed_ms=self.DEFAULT_OPEN_MS + 3000,
+            order_uuid="close_order",
+            trade_pair=TradePair.EURUSD,
+            order_type=OrderType.FLAT,
+            leverage=0
+        )
+        closed_position = Position(
+            miner_hotkey=self.DEFAULT_MINER_HOTKEY,
+            position_uuid=self.DEFAULT_POSITION_UUID,
+            open_ms=self.DEFAULT_OPEN_MS,
+            trade_pair=TradePair.EURUSD,
+            orders=[]
+        )
+        closed_position.add_order(open_order)
+        closed_position.add_order(reduce_size_order)
+        closed_position.add_order(increase_size_order)
+        closed_position.add_order(close_order)
+
+        old_returns_calc = closed_position.current_return
+
+        position_file.ALWAYS_USE_SLIPPAGE = True
+
+        closed_position.rebuild_position_with_updated_orders()
+        new_returns_calc = closed_position.current_return
+
+        assert old_returns_calc == new_returns_calc
+        position_file.ALWAYS_USE_SLIPPAGE = None
+
     def test_maximum_leverage_in_interval_monotone_increasing(self):
         position = deepcopy(self.default_position)
         position.orders = []
@@ -202,6 +338,8 @@ class TestPositions(TestBase):
             'net_leverage': 1.0,
             'initial_entry_price': 100,
             'average_entry_price': 100,
+            'cumulative_entry_value': 0,
+            'realized_pnl': 0,
             'close_ms': None,
             'return_at_close': 0.9995,
             'current_return': 1.0,
@@ -219,6 +357,8 @@ class TestPositions(TestBase):
             'net_leverage': 0.0,
             'initial_entry_price': 100,
             'average_entry_price': 100,
+            'cumulative_entry_value': 0,
+            'realized_pnl': 0,
             'close_ms': o2.processed_ms,
             'return_at_close': 1.0987836209351618,
             'current_return': 1.1,
@@ -298,6 +438,8 @@ class TestPositions(TestBase):
             'net_leverage': 1.0,
             'initial_entry_price': 500,
             'average_entry_price': 500,
+            'cumulative_entry_value': 0,
+            'realized_pnl': 0,
             'close_ms': None,
             'return_at_close': 0.9995,
             'current_return': 1.0,
@@ -315,6 +457,8 @@ class TestPositions(TestBase):
             'net_leverage': 0.0,
             'initial_entry_price': 500,
             'average_entry_price': 500,
+            'cumulative_entry_value': 0,
+            'realized_pnl': 0,
             'close_ms': o2.processed_ms,
             'return_at_close': 1.9958850251380311,
             'current_return': 2.0,
@@ -353,6 +497,8 @@ class TestPositions(TestBase):
             'net_leverage': -1.0,
             'initial_entry_price': 100,
             'average_entry_price': 100,
+            'cumulative_entry_value': 0,
+            'realized_pnl': 0,
             'close_ms': None,
             'return_at_close': 0.9995,
             'current_return': 1.0,
@@ -370,6 +516,8 @@ class TestPositions(TestBase):
             'net_leverage': 0.0,
             'initial_entry_price': 100,
             'average_entry_price': 100,
+            'cumulative_entry_value': 0,
+            'realized_pnl': 0,
             'close_ms': o2.processed_ms,
             'return_at_close': 1.0985508997795737,
             'current_return': 1.1,
@@ -405,6 +553,8 @@ class TestPositions(TestBase):
             'net_leverage': 10.0,
             'initial_entry_price': 100,
             'average_entry_price': 100,
+            'cumulative_entry_value': 0,
+            'realized_pnl': 0,
             'close_ms': None,
             'return_at_close': 0.99,
             'current_return': 1.0,
@@ -422,6 +572,8 @@ class TestPositions(TestBase):
             'net_leverage': 10.0,
             'initial_entry_price': 100,
             'average_entry_price': 100,
+            'cumulative_entry_value': 0,
+            'realized_pnl': 0,
             'close_ms': o2.processed_ms,
             'return_at_close': 0.0,
             'current_return': 0.0,
@@ -457,6 +609,8 @@ class TestPositions(TestBase):
             'net_leverage': -1,
             'initial_entry_price': 100,
             'average_entry_price': 100,
+            'cumulative_entry_value': 0,
+            'realized_pnl': 0,
             'close_ms': None,
             'return_at_close': .999,
             'current_return': 1.0,
@@ -474,6 +628,8 @@ class TestPositions(TestBase):
             'net_leverage': -1.0,
             'initial_entry_price': 100,
             'average_entry_price': 100,
+            'cumulative_entry_value': 0,
+            'realized_pnl': 0,
             'close_ms': o2.processed_ms,
             'return_at_close': 0.0,
             'current_return': 0.0,
@@ -514,6 +670,8 @@ class TestPositions(TestBase):
             'net_leverage': -1,
             'initial_entry_price': 100,
             'average_entry_price': 100,
+            'cumulative_entry_value': 0,
+            'realized_pnl': 0,
             'close_ms': None,
             'return_at_close': .999,
             'current_return': 1.0,
@@ -533,6 +691,8 @@ class TestPositions(TestBase):
             'net_leverage': -1.0,
             'initial_entry_price': 100,
             'average_entry_price': 100,
+            'cumulative_entry_value': 0,
+            'realized_pnl': 0,
             'close_ms': o2.processed_ms,
             'return_at_close': 0.0,
             'current_return': 0.0,
@@ -552,6 +712,8 @@ class TestPositions(TestBase):
             'net_leverage': -1.0,
             'initial_entry_price': 100,
             'average_entry_price': 100,
+            'cumulative_entry_value': 0,
+            'realized_pnl': 0,
             'close_ms': o2.processed_ms,
             'return_at_close': 0.0,
             'current_return': 0.0,
@@ -592,6 +754,8 @@ class TestPositions(TestBase):
             'net_leverage': 10,
             'initial_entry_price': 100,
             'average_entry_price': 100,
+            'cumulative_entry_value': 0,
+            'realized_pnl': 0,
             'close_ms': None,
             'return_at_close': 0.99,
             'current_return': 1.0,
@@ -611,6 +775,8 @@ class TestPositions(TestBase):
             'net_leverage': 10,
             'initial_entry_price': 100,
             'average_entry_price': 100,
+            'cumulative_entry_value': 0,
+            'realized_pnl': 0,
             'close_ms': o2.processed_ms,
             'return_at_close': 0.0,
             'current_return': 0.0,
@@ -631,6 +797,8 @@ class TestPositions(TestBase):
             'net_leverage': 10,
             'initial_entry_price': 100,
             'average_entry_price': 100,
+            'cumulative_entry_value': 0,
+            'realized_pnl': 0,
             'close_ms': o2.processed_ms,
             'return_at_close': 0.0,
             'current_return': 0.0,
@@ -666,6 +834,8 @@ class TestPositions(TestBase):
             'net_leverage': -1,
             'initial_entry_price': 1000,
             'average_entry_price': 1000,
+            'cumulative_entry_value': 0,
+            'realized_pnl': 0,
             'close_ms': None,
             'return_at_close': .999,
             'current_return': 1.0,
@@ -683,6 +853,8 @@ class TestPositions(TestBase):
             'net_leverage': 0.0,
             'initial_entry_price': 1000,
             'average_entry_price': 1000,
+            'cumulative_entry_value': 0,
+            'realized_pnl': 0,
             'close_ms': o2.processed_ms,
             'return_at_close': 1.4985,
             'current_return': 1.5,
@@ -848,6 +1020,8 @@ class TestPositions(TestBase):
             'net_leverage': 1.0,
             'initial_entry_price': 1000,
             'average_entry_price': 1000,
+            'cumulative_entry_value': 0,
+            'realized_pnl': 0,
             'close_ms': None,
             'return_at_close': .999,
             'current_return': 1.0,
@@ -865,6 +1039,8 @@ class TestPositions(TestBase):
             'net_leverage': 1.1,
             'initial_entry_price': 1000,
             'average_entry_price': 1090.9090909090908,
+            'cumulative_entry_value': 0,
+            'realized_pnl': 0,
             'close_ms': None,
             'return_at_close': 1.9978,
             'current_return': 2.0,
@@ -882,6 +1058,8 @@ class TestPositions(TestBase):
             'net_leverage': 0.0,
             'initial_entry_price': 1000,
             'average_entry_price': 1090.9090909090908,
+            'cumulative_entry_value': 0,
+            'realized_pnl': 0,
             'close_ms': 5000,
             'return_at_close': 1.9978,
             'current_return': 2.0,
@@ -916,6 +1094,8 @@ class TestPositions(TestBase):
             'net_leverage': 1.0,
             'initial_entry_price': 1000,
             'average_entry_price': 1000,
+            'cumulative_entry_value': 0,
+            'realized_pnl': 0,
             'close_ms': None,
             'return_at_close': 0.9995,
             'current_return': 1.0,
@@ -933,6 +1113,8 @@ class TestPositions(TestBase):
             'net_leverage': 0.0,
             'initial_entry_price': 1000,
             'average_entry_price': 1000,
+            'cumulative_entry_value': 0,
+            'realized_pnl': 0,
             'close_ms': o2.processed_ms,
             'return_at_close': 0.4995,
             'current_return': 0.5,
@@ -975,6 +1157,8 @@ class TestPositions(TestBase):
             'net_leverage': 1.0,
             'initial_entry_price': 1000,
             'average_entry_price': 1000,
+            'cumulative_entry_value': 0,
+            'realized_pnl': 0,
             'close_ms': None,
             'return_at_close': 0.9995,
             'current_return': 1.0,
@@ -992,6 +1176,8 @@ class TestPositions(TestBase):
             'net_leverage': 1.1,
             'initial_entry_price': 1000,
             'average_entry_price': 954.5454545454545,
+            'cumulative_entry_value': 0,
+            'realized_pnl': 0,
             'close_ms': None,
             'return_at_close': 0.499725,
             'current_return': 0.5,
@@ -1009,6 +1195,8 @@ class TestPositions(TestBase):
             'net_leverage': 1.0,
             'initial_entry_price': 1000,
             'average_entry_price': 950.0,
+            'cumulative_entry_value': 0,
+            'realized_pnl': 0,
             'close_ms': None,
             'return_at_close': 1.04937,
             'current_return': 1.05,
@@ -1067,6 +1255,8 @@ class TestPositions(TestBase):
             'net_leverage': 0.0,
             'initial_entry_price': 1000,
             'average_entry_price': 1776.7857142857142,
+            'cumulative_entry_value': 0,
+            'realized_pnl': 0,
             'close_ms': 5000,
             'return_at_close': 43.7609328,
             'current_return': 43.81,
@@ -1124,6 +1314,8 @@ class TestPositions(TestBase):
             'net_leverage': 0.0,
             'initial_entry_price': 1000,
             'average_entry_price': 986.6071428571428,
+            'cumulative_entry_value': 0,
+            'realized_pnl': 0,
             'close_ms': 5000,
             'return_at_close': 1.4313950399999997,
             'current_return': 1.4329999999999998,
@@ -1181,6 +1373,8 @@ class TestPositions(TestBase):
             'net_leverage': 0.0,
             'initial_entry_price': 1000,
             'average_entry_price': 1700.0000000000005,
+            'cumulative_entry_value': 0,
+            'realized_pnl': 0,
             'close_ms': 5000,
             'return_at_close': 1.4364000000000001,
             'current_return': 1.44,
@@ -1258,6 +1452,8 @@ class TestPositions(TestBase):
             'net_leverage': -0.4,
             'initial_entry_price': 1000,
             'average_entry_price': 1000,
+            'cumulative_entry_value': 0,
+            'realized_pnl': 0,
             'close_ms': None,
             'return_at_close': 0.999982,
             'current_return': 1.0,
@@ -1275,6 +1471,8 @@ class TestPositions(TestBase):
             'net_leverage': -0.4,
             'initial_entry_price': 500,
             'average_entry_price': 500,
+            'cumulative_entry_value': 0,
+            'realized_pnl': 0,
             'close_ms': None,
             'return_at_close': .999986,
             'current_return': 1.0,
@@ -1326,6 +1524,8 @@ class TestPositions(TestBase):
             'net_leverage': o1.leverage,
             'initial_entry_price': live_price,
             'average_entry_price': position.average_entry_price,
+            'cumulative_entry_value': 0,
+            'realized_pnl': 0,
             'close_ms': None,
             'return_at_close': position.return_at_close,
             'current_return': position.current_return,
@@ -1353,6 +1553,8 @@ class TestPositions(TestBase):
             'net_leverage': o1.leverage - ValiConfig.ORDER_MIN_LEVERAGE,
             'initial_entry_price': live_price,
             'average_entry_price': position.average_entry_price,
+            'cumulative_entry_value': 0,
+            'realized_pnl': 0,
             'close_ms': None,
             'return_at_close': position.return_at_close,
             'current_return': position.current_return,
@@ -1400,6 +1602,8 @@ class TestPositions(TestBase):
             'net_leverage': o1.leverage + o3.leverage,
             'initial_entry_price': live_price,
             'average_entry_price': position.average_entry_price,
+            'cumulative_entry_value': 0,
+            'realized_pnl': 0,
             'close_ms': None,
             'return_at_close': position.return_at_close,
             'current_return': position.current_return,
@@ -1447,6 +1651,8 @@ class TestPositions(TestBase):
             'net_leverage': o1.leverage + o3.leverage,
             'initial_entry_price': live_price,
             'average_entry_price': position.average_entry_price,
+            'cumulative_entry_value': 0,
+            'realized_pnl': 0,
             'close_ms': None,
             'return_at_close': position.return_at_close,
             'current_return': position.current_return,
@@ -1488,6 +1694,8 @@ class TestPositions(TestBase):
             'net_leverage': o1.leverage,
             'initial_entry_price': live_price,
             'average_entry_price': position.average_entry_price,
+            'cumulative_entry_value': 0,
+            'realized_pnl': 0,
             'close_ms': None,
             'return_at_close': position.return_at_close,
             'current_return': position.current_return,
@@ -1515,6 +1723,8 @@ class TestPositions(TestBase):
             'net_leverage': -abs(o1.leverage) + ValiConfig.ORDER_MIN_LEVERAGE,
             'initial_entry_price': live_price,
             'average_entry_price': position.average_entry_price,
+            'cumulative_entry_value': 0,
+            'realized_pnl': 0,
             'close_ms': None,
             'return_at_close': position.return_at_close,
             'current_return': position.current_return,
@@ -1557,6 +1767,8 @@ class TestPositions(TestBase):
             'net_leverage': max_allowed_leverage,
             'initial_entry_price': live_price,
             'average_entry_price': position.average_entry_price,
+            'cumulative_entry_value': 0,
+            'realized_pnl': 0,
             'close_ms': None,
             'return_at_close': position.return_at_close,
             'current_return': position.current_return,
@@ -1598,6 +1810,8 @@ class TestPositions(TestBase):
             'net_leverage': TradePair.BTCUSD.max_leverage,
             'initial_entry_price': live_price,
             'average_entry_price': position.average_entry_price,
+            'cumulative_entry_value': 0,
+            'realized_pnl': 0,
             'close_ms': None,
             'return_at_close': position.return_at_close,
             'current_return': position.current_return,
@@ -1640,6 +1854,8 @@ class TestPositions(TestBase):
             'net_leverage': max_allowed_leverage,
             'initial_entry_price': live_price,
             'average_entry_price': position.average_entry_price,
+            'cumulative_entry_value': 0,
+            'realized_pnl': 0,
             'close_ms': None,
             'return_at_close': position.return_at_close,
             'current_return': position.current_return,
@@ -1679,6 +1895,8 @@ class TestPositions(TestBase):
             'net_leverage': TradePair.BTCUSD.max_leverage,
             'initial_entry_price': live_price,
             'average_entry_price': position.average_entry_price,
+            'cumulative_entry_value': 0,
+            'realized_pnl': 0,
             'close_ms': None,
             'return_at_close': position.return_at_close,
             'current_return': position.current_return,
@@ -1722,6 +1940,8 @@ class TestPositions(TestBase):
             'net_leverage': -1.0 * max_allowed_leverage,
             'initial_entry_price': live_price,
             'average_entry_price': position.average_entry_price,
+            'cumulative_entry_value': 0,
+            'realized_pnl': 0,
             'close_ms': None,
             'return_at_close': position.return_at_close,
             'current_return': position.current_return,
@@ -1762,6 +1982,8 @@ class TestPositions(TestBase):
             'net_leverage': -TradePair.BTCUSD.max_leverage,
             'initial_entry_price': live_price,
             'average_entry_price': position.average_entry_price,
+            'cumulative_entry_value': 0,
+            'realized_pnl': 0,
             'close_ms': None,
             'return_at_close': position.return_at_close,
             'current_return': position.current_return,
@@ -1827,6 +2049,8 @@ class TestPositions(TestBase):
             'net_leverage': -max_allowed_leverage,
             'initial_entry_price': live_price,
             'average_entry_price': position.average_entry_price,
+            'cumulative_entry_value': 0,
+            'realized_pnl': 0,
             'close_ms': None,
             'return_at_close': position.return_at_close,
             'current_return': position.current_return,
@@ -1866,6 +2090,8 @@ class TestPositions(TestBase):
             'net_leverage': -TradePair.BTCUSD.max_leverage,
             'initial_entry_price': live_price,
             'average_entry_price': position.average_entry_price,
+            'cumulative_entry_value': 0,
+            'realized_pnl': 0,
             'close_ms': None,
             'return_at_close': position.return_at_close,
             'current_return': position.current_return,
