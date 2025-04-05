@@ -368,10 +368,8 @@ class Position(BaseModel):
 
         # pnl with slippage
         if ALWAYS_USE_SLIPPAGE or (ALWAYS_USE_SLIPPAGE is None and t_ms >= SLIPPAGE_V1_TIME_MS):
-            if self.cumulative_entry_value == 0:
-                return 1
-            # update realized pnl for orders that reduce the size of a position
             if order:
+                # update realized pnl for orders that reduce the size of a position
                 if (order.order_type != self.position_type or self.position_type == OrderType.FLAT):
                     exit_price = current_price * (1 + order.slippage) if order.leverage > 0 else current_price * (1 - order.slippage)
                     order_volume = order.leverage  # (order.leverage * ValiConfig.CAPITAL) / order.price  # TODO: calculate order.volume as an order attribute

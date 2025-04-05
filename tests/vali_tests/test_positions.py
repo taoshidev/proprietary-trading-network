@@ -228,6 +228,39 @@ class TestPositions(TestBase):
         closed_position.add_order(close_order)
         assert closed_position.current_return == 1.0045269066025986
 
+    def test_position_returns_one_order(self):
+        """
+        Calculate and update the returns for a position with a single order.
+        """
+        open_order = Order(
+            price=100,
+            slippage=0.01,
+            processed_ms=1742910011691,
+            order_uuid="open_order",
+            trade_pair=TradePair.BTCUSD,
+            order_type=OrderType.SHORT,
+            leverage=-0.1
+        )
+        open_position = Position(
+            miner_hotkey=self.DEFAULT_MINER_HOTKEY,
+            position_uuid=self.DEFAULT_POSITION_UUID,
+            open_ms=1742910011691,
+            trade_pair=TradePair.BTCUSD,
+            orders=[open_order],
+            net_leverage=-0.1,
+            average_entry_price=100
+        )
+        assert open_position.current_return == 1
+
+        open_position.set_returns(90)
+        r1 = open_position.current_return
+        assert r1 != 1.0
+
+        open_position.set_returns(80)
+        r2 = open_position.current_return
+        assert r2 != 1.0
+        assert r1 < r2
+
     def test_maximum_leverage_in_interval_monotone_increasing(self):
         position = deepcopy(self.default_position)
         position.orders = []
