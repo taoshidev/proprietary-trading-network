@@ -24,6 +24,7 @@ class PriceSlippageModel:
     fetch_slippage_data = False
     recalculate_slippage = False
     capital = ValiConfig.CAPITAL
+    last_refresh_time_ms = 0
 
     def __init__(self, live_price_fetcher=None, running_unit_tests=False, is_backtesting=False,
                  fetch_slippage_data=False, recalculate_slippage=False, capital=ValiConfig.CAPITAL):
@@ -140,6 +141,7 @@ class PriceSlippageModel:
         else:
             raise ValueError(f"Unknown crypto slippage for trade pair {trade_pair.trade_pair_id}")
 
+
     @classmethod
     def refresh_features_daily(cls, time_ms:int=None, write_to_disk:bool=True):
         """
@@ -149,23 +151,29 @@ class PriceSlippageModel:
             time_ms = TimeUtil.now_in_millis()
         current_date = TimeUtil.millis_to_short_date_str(time_ms)
 
-        if current_date not in cls.features:
-            bt.logging.info(
-                f"Calculating avg daily volume and annualized volatility for new day UTC {current_date}")
-            trade_pairs = [tp for tp in TradePair if tp.is_forex or tp.is_equities]
-            tp_to_adv, tp_to_vol = cls.get_features(trade_pairs=trade_pairs, processed_ms=time_ms)
-            if tp_to_adv and tp_to_vol:
-                cls.features[current_date] = {
-                    "adv": tp_to_adv,
-                    "vol": tp_to_vol
-                }
+        if current_date in cls.features:
+            return
 
-                if write_to_disk:
-                    cls.write_features_from_memory_to_disk()
-                bt.logging.info(
-                        f"Completed refreshing avg daily volume and annualized volatility for new day UTC {current_date}")
-            else:
-                bt.logging.info(f"Skipping feature update for {current_date} due to missing data. tp_to_adv: {bool(tp_to_adv)}, tp_to_vol: {bool(tp_to_vol)}")
+        if not cls.is_backtesting and time_ms - cls.last_refresh_time_ms < 1000:
+            return
+
+        bt.logging.info(
+            f"Calculating avg daily volume and annualized volatility for new day UTC {current_date}")
+        trade_pairs = [tp for tp in TradePair if tp.is_forex or tp.is_equities]
+        tp_to_adv, tp_to_vol = cls.get_features(trade_pairs=trade_pairs, processed_ms=time_ms)
+        if tp_to_adv and tp_to_vol:
+            cls.features[current_date] = {
+                "adv": tp_to_adv,
+                "vol": tp_to_vol
+            }
+
+            if write_to_disk:
+                cls.write_features_from_memory_to_disk()
+            bt.logging.info(
+                    f"Completed refreshing avg daily volume and annualized volatility for new day UTC {current_date}")
+        else:
+            bt.logging.info(f"Skipping feature update for {current_date} due to missing data. tp_to_adv: {bool(tp_to_adv)}, tp_to_vol: {bool(tp_to_vol)}")
+        cls.last_refresh_time_ms = time_ms
 
     @classmethod
     def get_features(cls, trade_pairs: list[TradePair], processed_ms: int, adv_lookback_window: int = 10,
