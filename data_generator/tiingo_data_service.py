@@ -93,8 +93,6 @@ class TiingoDataService(BaseDataService):
                 self.tpc_to_n_events[trade_pair.trade_pair_category] += 1
                 self.process_ps_from_websocket(trade_pair, price_source)
 
-
-
             if verbose:
                 elapsed_since_last_poll = time.time() - current_time
                 print(f'Pseudo websocket update took {elapsed_since_last_poll:.2f} seconds for tpc {tpc}')

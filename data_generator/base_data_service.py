@@ -117,10 +117,10 @@ class BaseDataService():
         for k in list(self.trade_pair_to_recent_events_realtime.keys()):
             self.trade_pair_to_recent_events[k] = self.trade_pair_to_recent_events_realtime[k]
             self.n_flushes += 1
-        if self.n_flushes % 500 == 0:
-            t1 = time.time()
-            bt.logging.info(
-                f"Flushed recent {self.provider_name} events to shared memory in {t1 - t0:.2f} seconds, n_flushes {self.n_flushes}")
+            if self.n_flushes % 500 == 0:
+                t1 = time.time()
+                bt.logging.info(
+                    f"Flushed recent {self.provider_name} events to shared memory in {t1 - t0:.2f} seconds, n_flushes {self.n_flushes}")
 
     def websocket_manager(self):
         setproctitle(f"vali_{self.__class__.__name__}")
