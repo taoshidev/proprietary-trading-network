@@ -85,6 +85,7 @@ class TiingoDataService(BaseDataService):
                 continue
 
             trade_pairs_to_query = [pair for pair in desired_trade_pairs if self.is_market_open(pair)]
+            last_poll_time = current_time
             price_sources = self.get_closes_rest(trade_pairs_to_query, verbose=verbose)
 
             for trade_pair, price_source in price_sources.items():
@@ -92,7 +93,7 @@ class TiingoDataService(BaseDataService):
                 self.tpc_to_n_events[trade_pair.trade_pair_category] += 1
                 self.process_ps_from_websocket(trade_pair, price_source)
 
-            last_poll_time = current_time
+
 
             if verbose:
                 elapsed_since_last_poll = time.time() - current_time
