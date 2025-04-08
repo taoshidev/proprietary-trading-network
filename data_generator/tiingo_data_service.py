@@ -280,9 +280,6 @@ class TiingoDataService(BaseDataService):
         if tp_forex:
             jobs.append((self.get_closes_forex, tp_forex, verbose))
 
-        if verbose:
-            print(f'Running {len(jobs)} jobs {jobs}')
-
         tp_to_price = {}
 
         if len(jobs) == 0:
