@@ -31,7 +31,8 @@ def exception_handler_decorator():
                 return func(*args, **kwargs)
             except Exception as e:
                 func_name = func.__name__
-                bt.logging.error(f"Failed to get {func_name} with error: {e}, type: {type(e).__name__}")
+                thread_id = threading.get_native_id()
+                bt.logging.error(f"Failed to get {func_name} with error: {e}, type: {type(e).__name__} in thread {thread_id}")
                 #bt.logging.error(traceback.format_exc())
                 return {}
 
