@@ -98,7 +98,7 @@ class TiingoDataService(BaseDataService):
                 elapsed_since_last_poll = time.time() - current_time
                 # log the info on this thread
                 print(
-                    f"Pseudo websocket update took {elapsed_since_last_poll:.2f} seconds for tpc {tpc} thread id: {threading.get_ident()}. last_poll_time {last_poll_time}")
+                    f"Pseudo websocket update took {elapsed_since_last_poll:.2f} seconds for tpc {tpc} thread id: {threading.get_native_id()}. last_poll_time {last_poll_time}")
 
 
     def main_forex(self):
