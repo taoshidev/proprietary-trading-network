@@ -198,7 +198,7 @@ class BaseDataService():
 
     def stop_threads(self, tpc: TradePairCategory = None):
         threads_to_check = self.WEBSOCKET_THREADS if tpc is None else {tpc: self.WEBSOCKET_THREADS[tpc]}
-        for k, thread in threads_to_check:
+        for k, thread in threads_to_check.items():
             if isinstance(thread, threading.Thread):
                 print(f'joining {self.provider_name} thread for tpc {k}')
                 thread.join(timeout=1)
