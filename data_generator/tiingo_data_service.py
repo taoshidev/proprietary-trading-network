@@ -63,7 +63,7 @@ class TiingoDataService(BaseDataService):
         self.TIINGO_CLIENT = TiingoClient(self.config)
 
     def run_pseudo_websocket(self, tpc: TradePairCategory):
-        verbose = False
+        verbose = True
         POLLING_INTERVAL_S = 5
         if tpc == TradePairCategory.EQUITIES:
             desired_trade_pairs = [x for x in TradePair if x.is_equities]
@@ -85,14 +85,13 @@ class TiingoDataService(BaseDataService):
                 continue
 
             trade_pairs_to_query = [pair for pair in desired_trade_pairs if self.is_market_open(pair)]
+            last_poll_time = current_time
             price_sources = self.get_closes_rest(trade_pairs_to_query, verbose=verbose)
 
             for trade_pair, price_source in price_sources.items():
                 price_source.websocket = True
                 self.tpc_to_n_events[trade_pair.trade_pair_category] += 1
                 self.process_ps_from_websocket(trade_pair, price_source)
-
-            last_poll_time = current_time
 
             if verbose:
                 elapsed_since_last_poll = time.time() - current_time
@@ -657,7 +656,8 @@ class TiingoDataService(BaseDataService):
 
 if __name__ == "__main__":
     secrets = ValiUtils.get_secrets()
-    tds = TiingoDataService(api_key=secrets['tiingo_apikey'], disable_ws=True)
+    tds = TiingoDataService(api_key=secrets['tiingo_apikey'], disable_ws=False)
+    time.sleep(10000)
     for trade_pair in TradePair:
         if not trade_pair.is_forex:
             continue
