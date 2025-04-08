@@ -130,7 +130,7 @@ class BaseDataService():
         last_market_status_update_s = 0
         while True:
             now = time.time()
-            if now - last_ws_health_check_s > self.MAX_TIME_NO_EVENTS_S:
+            if 0:# now - last_ws_health_check_s > self.MAX_TIME_NO_EVENTS_S:
                 categories_reset_messages = []
                 last_ws_health_check_s = now
                 for tpc in TradePairCategory:
@@ -199,7 +199,7 @@ class BaseDataService():
                 old_id = old_thread.native_id
                 new_id = self.WEBSOCKET_THREADS[tpc].native_id
                 print(f'replaced {self.provider_name} thread for tpc {tpc} with id {old_id} with new thread id {new_id}')
-                
+
 
 
     def stop_threads(self, tpc: TradePairCategory = None):
