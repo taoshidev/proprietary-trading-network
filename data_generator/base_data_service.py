@@ -173,6 +173,7 @@ class BaseDataService():
         raise NotImplementedError
 
     def stop_start_websocket_threads(self, tpc: TradePairCategory = None):
+        bt.logging.enable_info()
         if self.provider_name == POLYGON_PROVIDER_NAME:
             self.close_create_websocket_objects(tpc=tpc)
 
