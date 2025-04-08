@@ -199,13 +199,11 @@ class BaseDataService():
 
     def stop_threads(self, tpc: TradePairCategory = None):
         threads_to_check = self.WEBSOCKET_THREADS if tpc is None else {tpc: self.WEBSOCKET_THREADS[tpc]}
-        for k, thread in threads_to_check:
-            if isinstance(thread, threading.Thread):
+        if any([isinstance(x, threading.Thread) for x in threads_to_check]):
+            for k, thread in self.WEBSOCKET_THREADS.items():
                 print(f'joining {self.provider_name} thread for tpc {k}')
                 thread.join(timeout=1)
                 print(f'terminated {self.provider_name} thread for tpc {k}')
-            else:
-                print(f'No thread to join for {self.provider_name} tpc {k} thread {thread}')
 
     def get_closes_websocket(self, trade_pairs: List[TradePair], trade_pair_to_last_order_time_ms) -> dict[str: PriceSource]:
         events = {}
