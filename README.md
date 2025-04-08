@@ -81,7 +81,7 @@ most complete trading signals across a variety of asset classes.
 # Features
 
 🛠️&nbsp;Open Source Strategy Building Techniques (In Our Taoshi Community)<br>
-🫰&nbsp;Signals From a <a href="https://github.com/taoshidev/proprietary-trading-network/blob/main/vali_objects/vali_config.py#L19"> Variety of Asset Classes</a> - Forex+Commodities, Equities, Crypto<br>
+🫰&nbsp;Signals From a <a href="https://github.com/taoshidev/proprietary-trading-network/blob/main/vali_objects/vali_config.py#L19"> Variety of Asset Classes</a> - Forex and Crypto<br>
 📈&nbsp;<a href="https://taomarketcap.com/subnet/8?subpage=miners&metagraph_type=miners">Millions of $ Payouts</a> to Top Traders<br>
 💪&nbsp;Innovative Trader Performance Metrics that Identify the Best Traders<br>
 🔎&nbsp;<a href="https://dashboard.taoshi.io/">Trading + Metrics Visualization Dashboard</a>
