@@ -192,9 +192,15 @@ class BaseDataService():
                 target = self.main_crypto
             else:
                 raise ValueError(f"Invalid tpc {tpc}")
-
+            old_thread = self.WEBSOCKET_THREADS.get(tpc)
             self.WEBSOCKET_THREADS[tpc] = threading.Thread(target=target, daemon=True)
             self.WEBSOCKET_THREADS[tpc].start()
+            if isinstance(old_thread, threading.Thread):
+                old_id = old_thread.native_id
+                new_id = self.WEBSOCKET_THREADS[tpc].native_id
+                print(f'replaced {self.provider_name} thread for tpc {tpc} with id {old_id} with new thread id {new_id}')
+                
+
 
     def stop_threads(self, tpc: TradePairCategory = None):
         threads_to_check = self.WEBSOCKET_THREADS if tpc is None else {tpc: self.WEBSOCKET_THREADS[tpc]}
