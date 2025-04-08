@@ -188,7 +188,8 @@ class MDDChecker(CacheController):
             # Position could have updated in the time between mdd_check being called and this function being called
             position_refreshed = self.position_manager.get_miner_position_by_uuid(hotkey, position.position_uuid)
             if position_refreshed is None:
-                bt.logging.warning(f"Unexpectedly could not find position with uuid {position.position_uuid} for hotkey {hotkey} and trade pair {trade_pair_id}.")
+                bt.logging.warning(f"mdd_checker: Unexpectedly could not find position with uuid "
+                                   f"{position.position_uuid} for hotkey {hotkey} and trade pair {trade_pair_id}.")
                 return
             position = position_refreshed
             n_orders_updated = 0

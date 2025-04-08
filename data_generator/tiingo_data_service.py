@@ -63,6 +63,7 @@ class TiingoDataService(BaseDataService):
         self.TIINGO_CLIENT = TiingoClient(self.config)
 
     def run_pseudo_websocket(self, tpc: TradePairCategory):
+
         verbose = True
         POLLING_INTERVAL_S = 5
         if tpc == TradePairCategory.EQUITIES:
@@ -95,7 +96,9 @@ class TiingoDataService(BaseDataService):
 
             if verbose:
                 elapsed_since_last_poll = time.time() - current_time
-                print(f'Pseudo websocket update took {elapsed_since_last_poll:.2f} seconds for tpc {tpc}')
+                # log the info on this thread
+                print(
+                    f"Pseudo websocket update took {elapsed_since_last_poll:.2f} seconds for tpc {tpc} thread id: {threading.get_ident()}. last_poll_time {last_poll_time}")
 
 
     def main_forex(self):
