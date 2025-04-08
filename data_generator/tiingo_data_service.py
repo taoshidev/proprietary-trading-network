@@ -103,13 +103,28 @@ class TiingoDataService(BaseDataService):
 
     def main_forex(self):
         #TiingoWebsocketClient(self.subscribe_message, endpoint="fx", on_msg_cb=self.handle_msg)
-        self.run_pseudo_websocket(TradePairCategory.FOREX)
+        try:
+            self.run_pseudo_websocket(TradePairCategory.FOREX)
+        except Exception as e:
+            bt.logging.error(f"Failed to run Tiingo forex pseudo websocket with error: {e}, "
+                             f"type: {type(e).__name__}, traceback: {traceback.format_exc()}")
+            bt.logging.error(traceback.format_exc())
     def main_stocks(self):
         #TiingoWebsocketClient(self.subscribe_message, endpoint="iex", on_msg_cb=self.handle_msg)
-        self.run_pseudo_websocket(TradePairCategory.EQUITIES)
+        try:
+            self.run_pseudo_websocket(TradePairCategory.EQUITIES)
+        except Exception as e:
+            bt.logging.error(f"Failed to run Tiingo stocks pseudo websocket with error: {e}, "
+                             f"type: {type(e).__name__}, traceback: {traceback.format_exc()}")
+            bt.logging.error(traceback.format_exc())
     def main_crypto(self):
         #TiingoWebsocketClient(self.subscribe_message, endpoint="crypto", on_msg_cb=self.handle_msg)
-        self.run_pseudo_websocket(TradePairCategory.CRYPTO)
+        try:
+            self.run_pseudo_websocket(TradePairCategory.CRYPTO)
+        except Exception as e:
+            bt.logging.error(f"Failed to run Tiingo crypto pseudo websocket with error: {e}, "
+                             f"type: {type(e).__name__}, traceback: {traceback.format_exc()}")
+            bt.logging.error(traceback.format_exc())
 
     def handle_msg(self, msg):
         """
@@ -280,8 +295,8 @@ class TiingoDataService(BaseDataService):
         if tp_forex:
             jobs.append((self.get_closes_forex, tp_forex, verbose))
 
-        if verbose:
-            print(f'Running {len(jobs)} jobs {jobs}')
+        #if verbose:
+        #    print(f'Running {len(jobs)} jobs {jobs}')
 
         tp_to_price = {}
 
@@ -304,7 +319,6 @@ class TiingoDataService(BaseDataService):
 
         return tp_to_price
 
-    @exception_handler_decorator()
     def get_closes_equities(self, trade_pairs: List[TradePair], verbose=False, target_time_ms=None) -> dict[TradePair: PriceSource]:
         if target_time_ms:
             raise Exception('TODO')
@@ -370,7 +384,6 @@ class TiingoDataService(BaseDataService):
         end_day_formatted = end_day_datetime.strftime("%Y-%m-%d")
         return start_day_formatted, end_day_formatted
 
-    @exception_handler_decorator()
     def get_closes_forex(self, trade_pairs: List[TradePair], verbose=False, target_time_ms=None) -> dict:
 
         def tickers_to_tiingo_forex_url(tickers: List[str]) -> str:
@@ -461,7 +474,6 @@ class TiingoDataService(BaseDataService):
 
         return tp_to_price
 
-    @exception_handler_decorator()
     def get_closes_crypto(self, trade_pairs: List[TradePair], verbose=False, target_time_ms=None) -> dict:
         tp_to_price = {}
         if not trade_pairs:
