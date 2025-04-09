@@ -1,7 +1,6 @@
 import json
 import threading
 import time
-import traceback
 from collections import defaultdict
 from copy import deepcopy
 from typing import List, Optional
