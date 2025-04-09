@@ -1546,7 +1546,8 @@ class PerfLedgerManager(CacheController):
             metagraph=MockMetagraph(hotkeys=[hotkey]),
             parallel_mode=self.parallel_mode,
             secrets=self.secrets,
-            build_portfolio_ledgers_only=self.build_portfolio_ledgers_only
+            build_portfolio_ledgers_only=self.build_portfolio_ledgers_only,
+            target_ledger_window_ms=self.target_ledger_window_ms
         )
         last_update_time_ms = existing_bundle[TP_ID_PORTFOLIO].last_update_ms if existing_bundle else 0
         worker_plm.now_ms = now_ms
