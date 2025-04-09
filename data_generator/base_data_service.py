@@ -131,6 +131,8 @@ class BaseDataService():
         last_market_status_update_s = 0
         while True:
             now = time.time()
+            # control
+            print(f"Websocket manager {self.provider_name} running running on thread id {threading.get_native_id()}")
             if 0:# now - last_ws_health_check_s > self.MAX_TIME_NO_EVENTS_S:
                 categories_reset_messages = []
                 last_ws_health_check_s = now
