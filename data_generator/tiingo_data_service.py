@@ -63,6 +63,7 @@ class TiingoDataService(BaseDataService):
         self.TIINGO_CLIENT = TiingoClient(self.config)
 
     def run_pseudo_websocket(self, tpc: TradePairCategory):
+
         verbose = True
         POLLING_INTERVAL_S = 5
         if tpc == TradePairCategory.EQUITIES:
@@ -75,8 +76,9 @@ class TiingoDataService(BaseDataService):
             raise ValueError(f'Unexpected trade pair category {tpc}')
 
         last_poll_time = 0
-
+        iteration_number = 0
         while True:
+            iteration_number += 1
             current_time = time.time()
             elapsed_time = current_time - last_poll_time
 
@@ -95,7 +97,10 @@ class TiingoDataService(BaseDataService):
 
             if verbose:
                 elapsed_since_last_poll = time.time() - current_time
-                print(f'Pseudo websocket update took {elapsed_since_last_poll:.2f} seconds for tpc {tpc}')
+                # log the info on this thread
+                print(
+                    f"Pseudo websocket update took {elapsed_since_last_poll:.2f} seconds for tpc {tpc} "
+                    f"thread id: {threading.get_native_id()}. last_poll_time {last_poll_time} iteration_number {iteration_number}")
 
 
     def main_forex(self):
@@ -277,9 +282,6 @@ class TiingoDataService(BaseDataService):
         if tp_forex:
             jobs.append((self.get_closes_forex, tp_forex, verbose))
 
-        if verbose:
-            print(f'Running {len(jobs)} jobs {jobs}')
-
         tp_to_price = {}
 
         if len(jobs) == 0:
@@ -321,7 +323,7 @@ class TiingoDataService(BaseDataService):
         url = tickers_to_tiingo_iex_url([self.trade_pair_to_tiingo_ticker(x) for x in trade_pairs])
         if verbose:
             print('hitting url', url)
-        requestResponse = requests.get(url, headers={'Content-Type': 'application/json'})
+        requestResponse = requests.get(url, headers={'Content-Type': 'application/json'}, timeout=5)
         if requestResponse.status_code == 200:
             time_now_ms = TimeUtil.now_in_millis()
             for x in requestResponse.json():
@@ -388,7 +390,7 @@ class TiingoDataService(BaseDataService):
         if verbose:
             print('hitting url', url)
         time_now_ms = TimeUtil.now_in_millis()
-        requestResponse = requests.get(url, headers={'Content-Type': 'application/json'})
+        requestResponse = requests.get(url, headers={'Content-Type': 'application/json'}, timeout=5)
         if requestResponse.status_code == 200:
             lowest_delta = float('inf')
             for x in requestResponse.json():
@@ -477,7 +479,7 @@ class TiingoDataService(BaseDataService):
         if verbose:
             print('hitting url', url)
 
-        requestResponse = requests.get(url, headers={'Content-Type': 'application/json'})
+        requestResponse = requests.get(url, headers={'Content-Type': 'application/json'}, timeout=5)
 
         if requestResponse.status_code == 200:
             response_data = requestResponse.json()

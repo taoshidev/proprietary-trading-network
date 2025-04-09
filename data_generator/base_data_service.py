@@ -1,7 +1,6 @@
 import json
 import threading
 import time
-import traceback
 from collections import defaultdict
 from copy import deepcopy
 from typing import List, Optional
@@ -31,8 +30,9 @@ def exception_handler_decorator():
                 return func(*args, **kwargs)
             except Exception as e:
                 func_name = func.__name__
-                bt.logging.error(f"Failed to get {func_name} with error: {e}, type: {type(e).__name__}. args {args}, kwargs {kwargs}")
-                bt.logging.error(traceback.format_exc())
+                thread_id = threading.get_native_id()
+                bt.logging.error(f"Failed to get {func_name} with error: {e}, type: {type(e).__name__} in thread {thread_id}")
+                #bt.logging.error(traceback.format_exc())
                 return {}
 
         return wrapper
@@ -143,8 +143,8 @@ class BaseDataService():
                             msg = f'Websocket {self.provider_name} {tpc.__str__()} is stale {tpc_to_prev_n_events[tpc]}/{self.tpc_to_n_events[tpc]}'
                         categories_reset_messages.append(msg)
                         self.stop_start_websocket_threads(tpc=tpc)
-
                 last_ws_health_check_s = now
+
                 tpc_to_prev_n_events = deepcopy(self.tpc_to_n_events)
                 if categories_reset_messages:
                     bt.logging.warning(
@@ -173,11 +173,9 @@ class BaseDataService():
         raise NotImplementedError
 
     def stop_start_websocket_threads(self, tpc: TradePairCategory = None):
+        bt.logging.enable_info()
         if self.provider_name == POLYGON_PROVIDER_NAME:
             self.close_create_websocket_objects(tpc=tpc)
-
-        self.stop_threads(tpc)
-        time.sleep(5)
 
         tpcs = [tpc] if tpc is not None else TradePairCategory
         for tpc in tpcs:
@@ -191,19 +189,35 @@ class BaseDataService():
                 target = self.main_crypto
             else:
                 raise ValueError(f"Invalid tpc {tpc}")
+            old_thread = self.WEBSOCKET_THREADS.get(tpc)
+            if isinstance(old_thread, threading.Thread):
+                old_thread.join(timeout=5)
+                if old_thread.is_alive():
+                    bt.logging.warning(f"Thread for {self.provider_name} tpc {tpc} is still alive, not starting new thread")
+                    continue
 
             self.WEBSOCKET_THREADS[tpc] = threading.Thread(target=target, daemon=True)
             self.WEBSOCKET_THREADS[tpc].start()
+            if isinstance(old_thread, threading.Thread):
+                old_id = old_thread.native_id
+                new_id = self.WEBSOCKET_THREADS[tpc].native_id
+                print(f'replaced {self.provider_name} thread for tpc {tpc} with id {old_id} with new thread id {new_id}')
 
 
 
     def stop_threads(self, tpc: TradePairCategory = None):
         threads_to_check = self.WEBSOCKET_THREADS if tpc is None else {tpc: self.WEBSOCKET_THREADS[tpc]}
-        if any([isinstance(x, threading.Thread) for x in threads_to_check]):
-            for k, thread in self.WEBSOCKET_THREADS.items():
+        for k, thread in threads_to_check.items():
+            if isinstance(thread, threading.Thread):
+                thread_id = thread.native_id
                 print(f'joining {self.provider_name} thread for tpc {k}')
-                thread.join(timeout=1)
-                print(f'terminated {self.provider_name} thread for tpc {k}')
+                thread.join(timeout=6)
+                if thread.is_alive():
+                    print(f'Failed to stop {self.provider_name} thread for tpc {k} thread id {thread_id}')
+                else:
+                    print(f'terminated {self.provider_name} thread for tpc {k} thread id {thread_id}')
+            else:
+                print(f'No thread to stop for {self.provider_name} tpc {k} thread {thread}')
 
     def get_closes_websocket(self, trade_pairs: List[TradePair], trade_pair_to_last_order_time_ms) -> dict[str: PriceSource]:
         events = {}
