@@ -131,9 +131,7 @@ class BaseDataService():
         last_market_status_update_s = 0
         while True:
             now = time.time()
-            # control
-            print(f"Websocket manager {self.provider_name} running running on thread id {threading.get_native_id()}")
-            if 0:# now - last_ws_health_check_s > self.MAX_TIME_NO_EVENTS_S:
+            if now - last_ws_health_check_s > self.MAX_TIME_NO_EVENTS_S:
                 categories_reset_messages = []
                 last_ws_health_check_s = now
                 for tpc in TradePairCategory:
@@ -181,7 +179,6 @@ class BaseDataService():
             self.close_create_websocket_objects(tpc=tpc)
 
         self.stop_threads(tpc)
-        time.sleep(5)
 
         tpcs = [tpc] if tpc is not None else TradePairCategory
         for tpc in tpcs:
@@ -207,13 +204,19 @@ class BaseDataService():
 
     def stop_threads(self, tpc: TradePairCategory = None):
         threads_to_check = self.WEBSOCKET_THREADS if tpc is None else {tpc: self.WEBSOCKET_THREADS[tpc]}
+        any_threads_stopped = False
         for k, thread in threads_to_check.items():
             if isinstance(thread, threading.Thread):
+                thread_id = thread.native_id
                 print(f'joining {self.provider_name} thread for tpc {k}')
                 thread.join(timeout=1)
-                print(f'terminated {self.provider_name} thread for tpc {k}')
+                print(f'terminated {self.provider_name} thread for tpc {k} thread id {thread_id}')
+                any_threads_stopped = True
             else:
                 print(f'No thread to stop for {self.provider_name} tpc {k} thread {thread}')
+
+        if any_threads_stopped:
+            time.sleep(5)
 
     def get_closes_websocket(self, trade_pairs: List[TradePair], trade_pair_to_last_order_time_ms) -> dict[str: PriceSource]:
         events = {}

@@ -76,8 +76,9 @@ class TiingoDataService(BaseDataService):
             raise ValueError(f'Unexpected trade pair category {tpc}')
 
         last_poll_time = 0
-
+        iteration_number = 0
         while True:
+            iteration_number += 1
             current_time = time.time()
             elapsed_time = current_time - last_poll_time
 
@@ -98,7 +99,8 @@ class TiingoDataService(BaseDataService):
                 elapsed_since_last_poll = time.time() - current_time
                 # log the info on this thread
                 print(
-                    f"Pseudo websocket update took {elapsed_since_last_poll:.2f} seconds for tpc {tpc} thread id: {threading.get_native_id()}. last_poll_time {last_poll_time}")
+                    f"Pseudo websocket update took {elapsed_since_last_poll:.2f} seconds for tpc {tpc} "
+                    f"thread id: {threading.get_native_id()}. last_poll_time {last_poll_time} iteration_number {iteration_number}")
 
 
     def main_forex(self):
