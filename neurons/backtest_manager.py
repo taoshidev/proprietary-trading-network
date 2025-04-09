@@ -28,7 +28,7 @@ class BacktestManager:
                  capital=ValiConfig.CAPITAL, use_slippage=None,
                  fetch_slippage_data=False, recalculate_slippage=False, rebuild_all_positions=False,
                  parallel_mode=ParallelizationMode.PYSPARK, build_portfolio_ledgers_only=False,
-                 pool_size=0):
+                 pool_size=0, target_ledger_window_ms=ValiConfig.TARGET_LEDGER_WINDOW_MS):
         if not secrets:
             raise Exception(
                 "unable to get secrets data from "
@@ -47,6 +47,7 @@ class BacktestManager:
         self.spark = spark
         self.pool = pool
         self.should_close = should_close
+        self.target_ledger_window_ms = target_ledger_window_ms
 
         # metagraph provides the network's current state, holding state about other participants in a subnet.
         # IMPORTANT: Only update this variable in-place. Otherwise, the reference will be lost in the helper classes.
@@ -65,7 +66,8 @@ class BacktestManager:
                                                      position_manager=None,
                                                      parallel_mode=parallel_mode,
                                                      secrets=self.secrets,
-                                                     build_portfolio_ledgers_only=build_portfolio_ledgers_only)
+                                                     build_portfolio_ledgers_only=build_portfolio_ledgers_only,
+                                                     target_ledger_window_ms=target_ledger_window_ms)
 
 
         self.position_manager = PositionManager(metagraph=self.metagraph,
