@@ -143,8 +143,7 @@ class BaseDataService():
                         else:
                             msg = f'Websocket {self.provider_name} {tpc.__str__()} is stale {tpc_to_prev_n_events[tpc]}/{self.tpc_to_n_events[tpc]}'
                         categories_reset_messages.append(msg)
-                        if last_ws_health_check_s == 0: # @@@@@@@@ REMOVE ME
-                            self.stop_start_websocket_threads(tpc=tpc)
+                        self.stop_start_websocket_threads(tpc=tpc)
                 last_ws_health_check_s = now
 
                 tpc_to_prev_n_events = deepcopy(self.tpc_to_n_events)
@@ -205,19 +204,15 @@ class BaseDataService():
 
     def stop_threads(self, tpc: TradePairCategory = None):
         threads_to_check = self.WEBSOCKET_THREADS if tpc is None else {tpc: self.WEBSOCKET_THREADS[tpc]}
-        any_threads_stopped = False
         for k, thread in threads_to_check.items():
             if isinstance(thread, threading.Thread):
                 thread_id = thread.native_id
                 print(f'joining {self.provider_name} thread for tpc {k}')
-                thread.join(timeout=1)
+                thread.join(timeout=6)
                 print(f'terminated {self.provider_name} thread for tpc {k} thread id {thread_id}')
-                any_threads_stopped = True
+                assert not thread.is_alive()
             else:
                 print(f'No thread to stop for {self.provider_name} tpc {k} thread {thread}')
-
-        if any_threads_stopped:
-            time.sleep(5)
 
     def get_closes_websocket(self, trade_pairs: List[TradePair], trade_pair_to_last_order_time_ms) -> dict[str: PriceSource]:
         events = {}
