@@ -133,7 +133,6 @@ class BaseDataService():
             now = time.time()
             if now - last_ws_health_check_s > self.MAX_TIME_NO_EVENTS_S:
                 categories_reset_messages = []
-                last_ws_health_check_s = now
                 for tpc in TradePairCategory:
                     if tpc == TradePairCategory.INDICES:
                         continue
@@ -144,7 +143,9 @@ class BaseDataService():
                         else:
                             msg = f'Websocket {self.provider_name} {tpc.__str__()} is stale {tpc_to_prev_n_events[tpc]}/{self.tpc_to_n_events[tpc]}'
                         categories_reset_messages.append(msg)
-                        self.stop_start_websocket_threads(tpc=tpc)
+                        if last_ws_health_check_s == 0: # @@@@@@@@ REMOVE ME
+                            self.stop_start_websocket_threads(tpc=tpc)
+                last_ws_health_check_s = now
 
                 tpc_to_prev_n_events = deepcopy(self.tpc_to_n_events)
                 if categories_reset_messages:
