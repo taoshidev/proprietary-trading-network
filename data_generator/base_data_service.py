@@ -178,8 +178,6 @@ class BaseDataService():
         if self.provider_name == POLYGON_PROVIDER_NAME:
             self.close_create_websocket_objects(tpc=tpc)
 
-        self.stop_threads(tpc)
-
         tpcs = [tpc] if tpc is not None else TradePairCategory
         for tpc in tpcs:
             if tpc == TradePairCategory.INDICES:
@@ -193,6 +191,12 @@ class BaseDataService():
             else:
                 raise ValueError(f"Invalid tpc {tpc}")
             old_thread = self.WEBSOCKET_THREADS.get(tpc)
+            if isinstance(old_thread, threading.Thread):
+                old_thread.join(timeout=5)
+                if old_thread.is_alive():
+                    bt.logging.warning(f"Thread for {self.provider_name} tpc {tpc} is still alive, not starting new thread")
+                    continue
+
             self.WEBSOCKET_THREADS[tpc] = threading.Thread(target=target, daemon=True)
             self.WEBSOCKET_THREADS[tpc].start()
             if isinstance(old_thread, threading.Thread):
@@ -209,8 +213,10 @@ class BaseDataService():
                 thread_id = thread.native_id
                 print(f'joining {self.provider_name} thread for tpc {k}')
                 thread.join(timeout=6)
-                print(f'terminated {self.provider_name} thread for tpc {k} thread id {thread_id}')
-                assert not thread.is_alive()
+                if thread.is_alive():
+                    print(f'Failed to stop {self.provider_name} thread for tpc {k} thread id {thread_id}')
+                else:
+                    print(f'terminated {self.provider_name} thread for tpc {k} thread id {thread_id}')
             else:
                 print(f'No thread to stop for {self.provider_name} tpc {k} thread {thread}')
 
