@@ -520,7 +520,7 @@ class TestChallengePeriodIntegration(TestBase):
         # Ensure that all miners that aren't failing end up in testing or success
         self.assertEqual(eliminations_length, len(self.FAILING_MINER_NAMES))
         for elimination in self.challengeperiod_manager.elimination_manager.get_eliminations_from_disk():
-            self.assertEqual(elimination["reason"], EliminationReason.FAILED_CHALLENGE_PERIOD_TIME.value)
+            self.assertEqual(elimination["reason"], EliminationReason.FAILED_CHALLENGE_PERIOD_DRAWDOWN.value)
 
     def test_miner_elimination_reasons_time(self):
         """Test that miners who aren't passing challenge period are properly eliminated for time."""
