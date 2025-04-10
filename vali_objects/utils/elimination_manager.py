@@ -334,16 +334,7 @@ class EliminationManager(CacheController):
             corresponding_elimination = self.hotkey_in_eliminations(hotkey)
             elimination_reason = corresponding_elimination.get('reason') if corresponding_elimination else None
             if elimination_reason == EliminationReason.ZOMBIE.value:
-                elimination_initiated_time_ms = corresponding_elimination.get('elimination_initiated_time_ms', 0)
-                if now_ms - elimination_initiated_time_ms < ValiConfig.ELIMINATION_FILE_DELETION_DELAY_MS:
-                    continue
-                else:
-                    miner_dir = all_miners_dir + hotkey
-                    try:
-                        shutil.rmtree(miner_dir)
-                        bt.logging.info(f"Zombie miner dir removed [{miner_dir}]")
-                    except FileNotFoundError:
-                        bt.logging.info(f"Zombie miner dir not found. Already deleted. [{miner_dir}]")
+                pass  # already a zombie elimination and marked for deletion
             elif self.is_zombie_hotkey(hotkey, all_hotkeys_set):
                 self.append_elimination_row(hotkey=hotkey, current_dd=None, reason=EliminationReason.ZOMBIE.value)
                 self.handle_eliminated_miner(hotkey, {}, position_locks)
