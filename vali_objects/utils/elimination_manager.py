@@ -155,9 +155,11 @@ class EliminationManager(CacheController):
         self.first_refresh_ran = True
 
     def process_eliminations(self, position_locks):
+
         if not self.refresh_allowed(ValiConfig.ELIMINATION_CHECK_INTERVAL_MS) and \
                 not bool(self.challengeperiod_manager.eliminations_with_reasons):
             return
+
 
         bt.logging.info("running elimination manager")
         self.handle_first_refresh(position_locks)
@@ -323,12 +325,11 @@ class EliminationManager(CacheController):
         row for them and add flat orders to their positions. If they have been a zombie for more than
         ELIMINATION_FILE_DELETION_DELAY_MS, delete them
         """
-        if self.shutdown_dict:
+        if self.shutdown_dict or self.is_backtesting:
             return
 
         all_miners_dir = ValiBkpUtils.get_miner_dir(running_unit_tests=self.running_unit_tests)
         all_hotkeys_set = set(self.metagraph.hotkeys)
-        now_ms = TimeUtil.now_in_millis()
 
         for hotkey in CacheController.get_directory_names(all_miners_dir):
             corresponding_elimination = self.hotkey_in_eliminations(hotkey)
