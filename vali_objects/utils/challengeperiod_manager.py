@@ -14,11 +14,7 @@ from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager, PerfLed
 from vali_objects.utils.ledger_utils import LedgerUtils
 from vali_objects.utils.position_manager import PositionManager
 from vali_objects.position import Position
-from enum import Enum
-
-class FailedChallengeReason(Enum):
-    time = "FAILED_CHALLENGE_PERIOD_TIME"
-    mdd = "FAILED_CHALLENGE_PERIOD_DRAWDOWN"
+from vali_objects.utils.elimination_manager import EliminationReason
 
 class ChallengePeriodManager(CacheController):
     def __init__(self, metagraph, perf_ledger_manager : PerfLedgerManager =None, running_unit_tests=False,
@@ -326,7 +322,7 @@ class ChallengePeriodManager(CacheController):
                 if not time_criteria:
                     # If the miner registers, never interacts
                     bt.logging.info(f'Hotkey {hotkey} has no positions or ledger, and has not interacted since registration. cp_failed')
-                    failing_miners[hotkey] = (FailedChallengeReason.time.value, -1)
+                    failing_miners[hotkey] = (EliminationReason.FAILED_CHALLENGE_PERIOD_TIME.value, -1)
 
                 continue  # Moving on, as the miner is already failing
             # This step we want to check their drawdown. If they fail, we can move on.
@@ -334,7 +330,7 @@ class ChallengePeriodManager(CacheController):
 
             if failing_criteria:
                 bt.logging.info(f'Hotkey {hotkey} has failed the challenge period due to drawdown {recorded_drawdown_percentage}. cp_failed')
-                failing_miners[hotkey] = (FailedChallengeReason.mdd.value, recorded_drawdown_percentage)
+                failing_miners[hotkey] = (EliminationReason.FAILED_CHALLENGE_PERIOD_DRAWDOWN.value, recorded_drawdown_percentage)
                 continue
             
 
@@ -356,7 +352,7 @@ class ChallengePeriodManager(CacheController):
             # If their time is ever up, they fail
             if not time_criteria:
                 bt.logging.info(f'Hotkey {hotkey} has failed the challenge period due to time. cp_failed')
-                failing_miners[hotkey] = (FailedChallengeReason.time.value, recorded_drawdown_percentage)
+                failing_miners[hotkey] = (EliminationReason.FAILED_CHALLENGE_PERIOD_TIME.value, recorded_drawdown_percentage)
                 continue
 
         if miners_not_enough_positions:

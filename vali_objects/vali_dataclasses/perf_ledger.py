@@ -15,7 +15,7 @@ from time_util.time_util import MS_IN_8_HOURS, MS_IN_24_HOURS, timeme
 
 from shared_objects.cache_controller import CacheController
 from time_util.time_util import TimeUtil, UnifiedMarketCalendar
-from vali_objects.utils.elimination_manager import EliminationManager
+from vali_objects.utils.elimination_manager import EliminationManager, EliminationReason
 from vali_objects.utils.position_manager import PositionManager
 from vali_objects.vali_config import ValiConfig
 from vali_objects.position import Position
@@ -848,7 +848,7 @@ class PerfLedgerManager(CacheController):
     def check_liquidated(self, miner_hotkey, portfolio_return, t_ms, tp_to_historical_positions):
         if portfolio_return == 0:
             bt.logging.warning(f"Portfolio value is {portfolio_return} for miner {miner_hotkey} at {t_ms}. Eliminating miner.")
-            elimination_row = self.generate_elimination_row(miner_hotkey, 0.0, 'LIQUIDATED', t_ms=t_ms, price_info=self.tp_to_last_price, return_info={'dd_stats': {}, 'returns': self.trade_pair_to_position_ret})
+            elimination_row = self.generate_elimination_row(miner_hotkey, 0.0, EliminationReason.LIQUIDATED.value, t_ms=t_ms, price_info=self.tp_to_last_price, return_info={'dd_stats': {}, 'returns': self.trade_pair_to_position_ret})
             self.candidate_pl_elimination_rows.append(elimination_row)
             self.candidate_pl_elimination_rows[-1] = elimination_row  # Trigger the update on the multiprocessing Manager
             #self.hk_to_dd_stats[miner_hotkey]['eliminated'] = True
