@@ -1,14 +1,12 @@
 # Validator
 
-Your validator receives trade signals from miners and maintains a portfolio per miner with all their positions on disk in the `validation/miners` directory. 
+Your validator receives trade signals from miners and maintains a portfolio per miner with all their positions on disk in the `validation/miners` directory.
 
 Your validator will track portfolio returns using live price information. If a portfolio's value declines beyond the drawdown limits, the validator will eliminate that miner. Based on portfolio metrics such as omega score and return, weights get set to reward the best miners. Your validator will look to set weights every 5 minutes.
 
 Validators detect & eliminate any sort of miner copying from the network. It does this by performing an analysis on every order received. If a miner is detected to be plagiarising off another miner, they will be eliminated from the network. The information on plagiarising miners is held in `validation/miner_copying.json`.
 
-When a miner is eliminated due to exceeding drawdown limits, or being caught plagiarising they will end up in the `validation/eliminations.json` file. Only registered non-eliminated miners can be given weights. Once eliminated, a miner can no longer send requests to validators until they are deregistered by the network and then re-register. 
-
-
+When a miner is eliminated due to exceeding drawdown limits, or being caught plagiarising they will end up in the `validation/eliminations.json` file. Only registered non-eliminated miners can be given weights. Once eliminated, a miner can no longer send requests to validators until they are deregistered by the network and then re-register.
 
 This tutorial shows how to run a PTN Validator.
 
@@ -35,16 +33,18 @@ Your incentive mechanisms running on the mainnet are open to anyone. They emit r
 - Requires **Python 3.10.**
 - [Bittensor](https://github.com/opentensor/bittensor#install)
 
-Below are the prerequisites for validators. 
+Below are the prerequisites for validators.
+
 - 4 vCPU + 16 GB memory
 - 1 TB balanced persistent disk
-- 1000 TAO staked
+- 1000 SN8 Alpha (theta) Token staked
 - A Tiingo API account. (https://www.tiingo.com/) with the "Commercial" (\$50/month) subscription.
 - A Polygon API account (https://polygon.io/) with "Currencies Starter ($49/month)" as well as "Stocks Advanced ($199/month)" subscriptions. **IMPORTANT:** After subscribing, complete the Polygon KYC questionnaire to enable realtime US equities prices. Message a Taoshi team member ASAP if you need guidance with this step! https://polygon.io/dashboard/agreements
 
 # Getting Started
 
 Install Python 3.10 (Required steps may vary based on platform)
+
 ```bash
 sudo apt update && sudo apt upgrade -y
 
@@ -53,7 +53,7 @@ sudo apt install -y software-properties-common \
     libbz2-dev libreadline-dev libsqlite3-dev wget \
     curl llvm libncurses5-dev xz-utils tk-dev \
     libxml2-dev libxmlsec1-dev libffi-dev liblzma-dev
-    
+
 cd /usr/src
 sudo wget https://www.python.org/ftp/python/3.10.12/Python-3.10.12.tgz
 sudo tar xzf Python-3.10.12.tgz
@@ -66,6 +66,7 @@ sudo make altinstall
 python3.10 --version
 
 ```
+
 Clone repository
 
 ```bash
@@ -131,7 +132,7 @@ btcli wallet list
 
 ## 2a. Getting Testnet TAO
 
-### Discord ###
+### Discord
 
 Please ask the Bittensor Discord community for testnet TAO. This will let you register your validators(s) on Testnet.
 
@@ -207,6 +208,7 @@ Before running a validator, follow these steps:
 ```bash
 npm install -g pm2
 ```
+
 ```bash
 brew install jq
 ```
@@ -226,28 +228,26 @@ brew install jq
 ### Using `run.sh` Script
 
 1. **Mainnet Execution**: Run the validator on the mainnet by executing the following command. Include/exclude the `[--start-generate]` and `[--autosync]` flags as needed:
-    ```bash
-    $ pm2 start run.sh --name sn8 -- --wallet.name validator --wallet.hotkey default --netuid 8 [--start-generate] [--autosync]
-    ```
-   
+   ```bash
+   $ pm2 start run.sh --name sn8 -- --wallet.name validator --wallet.hotkey default --netuid 8 [--start-generate] [--autosync]
+   ```
 2. **Testnet Execution**: For testnet operations with optional data generation, use this command:
-    ```bash
-    $ pm2 start run.sh --name sn8 -- --wallet.name validator --wallet.hotkey default --netuid 116 --subtensor.network test [--start-generate]
-    ```
+   ```bash
+   $ pm2 start run.sh --name sn8 -- --wallet.name validator --wallet.hotkey default --netuid 116 --subtensor.network test [--start-generate]
+   ```
 
 These commands initialize two PM2 processes:
-   - **Validator Process**: Default name `ptn`
-   - **Autoupdate Process**: Named `sn8`, which checks for and applies updates every 30 minutes.
 
-
+- **Validator Process**: Default name `ptn`
+- **Autoupdate Process**: Named `sn8`, which checks for and applies updates every 30 minutes.
 
 ### Synchronizing your validator
 
 Using the `--autosync` flag will allow your validator to synchronize with a trusted validator automatically.
 
 However, we understand some validators want strict control and the ability to scrutinize all data changes.
-In this case, we provide an alternative restore mechanism that essentially does a "nuke and force rebuild". 
- To use this manual restore mechanism, please follow the steps [here](https://github.com/taoshidev/proprietary-trading-network/blob/main/docs/regenerating_validator_state.md) for performing the synchronization.
+In this case, we provide an alternative restore mechanism that essentially does a "nuke and force rebuild".
+To use this manual restore mechanism, please follow the steps [here](https://github.com/taoshidev/proprietary-trading-network/blob/main/docs/regenerating_validator_state.md) for performing the synchronization.
 
 ### Stopping your validator
 
@@ -271,41 +271,54 @@ btcli root weights
 
 To set your weights on testnet `--subtensor.network test` flag.
 
-
 ## 8. Relaunching run.sh
 
 You will need to do this if you want to change any runtime configuration to run.sh such as adding or removing the `--start-generate`/ `--autosync` flags. Prepare your new `pm2 start run.sh ...` command before proceeding to minimize downtime.
 
 Login to validator and cd into the PTN repo
+
 ```bash
 cd proprietary-trading-network/
 ```
+
 Active venv
+
 ```bash
 . venv/bin/activate
 ```
+
 Stop + Delete running pm2 processes
+
 ```bash
 pm2 stop sn8 ptn
 ```
+
 ```bash
 pm2 delete sn8 ptn
 ```
+
 Run new run.sh command (USE YOUR OWN COMMAND)
+
 ```bash
 pm2 start run.sh ...
 ```
+
 Save configs
+
 ```bash
 pm2 save
 ```
+
 Verify that the ptn and sn8 pm2 processes have status "online" and are running smoothly
+
 ```
 pm2 status
 ```
+
 ```
 pm2 log
 ```
+
 # Testing
 
 You can begin testing PTN on the testnet with netuid 116. You can do this by using running:
@@ -313,6 +326,7 @@ You can begin testing PTN on the testnet with netuid 116. You can do this by usi
 ```bash
 python neurons/validator.py --netuid 116 --subtensor.network test --wallet.name validator --wallet.hotkey default
 ```
+
 Note this won't launch the autoupdater. To launch with the autoupdater, use the run.sh command.
 
 ## 9. Pitfall Prevention
@@ -321,9 +335,9 @@ Note this won't launch the autoupdater. To launch with the autoupdater, use the 
 
 2. When running on the testnet, it is crucial to include the `--subtensor.network test` and `--netuid 116` flags to ensure proper configuration.
 
-3. If you see an a ```JSONDecodeError``` exception when running your validator, ensure you secrets.json file is correctly formatted with proper commas.  
+3. If you see an a `JSONDecodeError` exception when running your validator, ensure you secrets.json file is correctly formatted with proper commas.
 
-4. Do not use share API keys across multiple validators/scripts. Each API key corresponds to one allowed websocket connection. Using the API keys across multiple scripts will lead to rate limits and failures on your validator. 
+4. Do not use share API keys across multiple validators/scripts. Each API key corresponds to one allowed websocket connection. Using the API keys across multiple scripts will lead to rate limits and failures on your validator.
 
 5. Details on how to sell the generated trade data via the Request Network will be provided when available.
 
