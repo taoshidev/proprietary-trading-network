@@ -18,7 +18,7 @@ A long position is a bet that the trade pair will increase, while a short positi
 3. Positions are uni-directional. Meaning, if a position starts LONG (the first order it receives is LONG),
    it can't flip SHORT. If you try and have it flip SHORT (using more leverage SHORT than exists LONG) it will close out
    the position. You'll then need to open a second position which is SHORT with the difference.
-4. Position leverage is bound per trade_pair. If an order would cause the position's leverage to exceed the upper boundary, the position leverage will be clamped. Minimum order leverage is 0.001. Crypto positional leverage limit is [0.01, 0.5]. Forex positional leverage limit is [0.1, 5]. Equities positional leverage limit is [0.1, 3]
+4. Position leverage is bound per trade_pair. If an order would cause the position's leverage to exceed the upper boundary, the position leverage will be clamped. Minimum order leverage is 0.001. Crypto positional leverage limit is [0.01, 0.5]. Forex positional leverage limit is [0.1, 5].
 5. Leverage is capped at 10 across all open positions in a miner's portfolio. Crypto position leverages are scaled by 10x when contributing
    to the leverage cap. <a href="https://docs.taoshi.io/tips/p10/">View for more details and examples.</a>
 6. You can take profit on an open position using LONG and SHORT. Say you have an open LONG position with .5x
@@ -121,7 +121,6 @@ Slippage costs are modeled to estimate the difference between a trade's expected
 | -------- | ---------- | ----------------------- | --------------- | ---------------- |
 | Forex    | 24h        | 21:00 UTC               | Mon-Fri         | ✓                |
 | Crypto   | 8h         | 04:00, 12:00, 20:00 UTC | Daily (Mon-Sun) |                  |
-| Equities | 24h        | 21:00 UTC               | Mon-Fri         | ✓                |
 
 The magnitude of the fees will reflect the following distribution:
 
@@ -129,7 +128,6 @@ The magnitude of the fees will reflect the following distribution:
 | -------- | ------------------ | --------------------------- |
 | Forex    | 3%                 | 0.008% \* Max Seen Leverage |
 | Crypto   | 10.95%             | 0.03% \* Max Seen Leverage  |
-| Equities | 5.25%              | 0.014% \* Max Seen Leverage |
 
 ### Leverage Limits
 
@@ -139,9 +137,8 @@ We also set limits on leverage usage, to ensure that the network has a level of 
 | -------- | -------------- |
 | Forex    | 0.1x - 5x      |
 | Crypto   | 0.01x - 0.5x   |
-| Equities | 0.1x - 3x      |
 
-We also implement a [portfolio level leverage limit](https://docs.taoshi.io/tips/p10/), which is the sum of all the leverages from each open position. This limit is set at 10x a "typical" position, where a typical position would be 1x leverage for forex, 2x for equities, and 0.1x leverage for crypto. You can therefore open 10 forex positions at 1x leverage each, 5 equities positions at 2x leverage each, 5 forex positions at 2x leverage each, 5 forex positions at 1x and 5 crypto positions at 0.1x, etc.
+We also implement a [portfolio level leverage limit](https://docs.taoshi.io/tips/p10/), which is the sum of all the leverages from each open position. This limit is set at 10x a "typical" position, where a typical position would be 1x leverage for forex and 0.1x leverage for crypto. You can therefore open 10 forex positions at 1x leverage each, 5 forex positions at 2x leverage each, 5 forex positions at 1x and 5 crypto positions at 0.1x, etc.
 
 ## Incentive Distribution
 
