@@ -2,44 +2,43 @@
 
 Our miners act like traders. To score well and receive incentive, they place **orders** on our system against different trade pairs. The magnitude of each order is determined by its **leverage**, which can be thought of as the percentage of the portfolio used for the transaction. An order with a leverage of 1.0x indicates that the miner is betting against their entire portfolio value.
 
-The first time a miner places an order on a trade pair, they will open a **position** against it. The leverage and directionality of this position determines the miner's expectation of the trade pair's future movement. As long as this position is open, the miner is communicating an expectation of continued trade pair movement in this direction. There are two types of positions: **LONG** and **SHORT**. 
+The first time a miner places an order on a trade pair, they will open a **position** against it. The leverage and directionality of this position determines the miner's expectation of the trade pair's future movement. As long as this position is open, the miner is communicating an expectation of continued trade pair movement in this direction. There are two types of positions: **LONG** and **SHORT**.
 
 A long position is a bet that the trade pair will increase, while a short position is a bet that the trade pair will decrease. Even if the overall position is LONG, a miner can submit a number of orders within this position to manage their risk exposure by adjusting the leverage. SHORT orders on a long position will reduce the overall leverage of the position, reducing the miner's exposure to the trade pair. LONG orders on a long position will increase the overall leverage of the position, increasing the miner's exposure to the trade pair.
 
 ## Basic Rules
-1. Your miner must register on the Bittensor network to participate. 
-   * There is a registration fee of 2.5 TAO on mainnet.
-   * There is an immunity period of 9 days to help miners submit orders to become competitive with existing miners. Eliminated miners do not benefit from being in the immunity period.
+
+1. Your miner must register on the Bittensor network to participate.
+   - There is a registration fee of 2.5 TAO on mainnet.
+   - There is an immunity period of 9 days to help miners submit orders to become competitive with existing miners. Eliminated miners do not benefit from being in the immunity period.
 2. Your miner will start in the challenge period upon entry. Miners must demonstrate consistent performance within 90 days to pass the challenge period. During this period, they will receive a small amount of TAO that will help them avoid getting deregistered. The minimum requirements to pass the challenge period:
    - Score at or above the 75th percentile relative to the miners in the main competition. The details may be found [here](https://docs.taoshi.io/tips/p13/).
    - Have at least 60 full days of trading
    - Don't exceed 10% max drawdown
-
-3. Positions are uni-directional. Meaning, if a position starts LONG (the first order it receives is LONG), 
-it can't flip SHORT. If you try and have it flip SHORT (using more leverage SHORT than exists LONG) it will close out 
-the position. You'll then need to open a second position which is SHORT with the difference.
+3. Positions are uni-directional. Meaning, if a position starts LONG (the first order it receives is LONG),
+   it can't flip SHORT. If you try and have it flip SHORT (using more leverage SHORT than exists LONG) it will close out
+   the position. You'll then need to open a second position which is SHORT with the difference.
 4. Position leverage is bound per trade_pair. If an order would cause the position's leverage to exceed the upper boundary, the position leverage will be clamped. Minimum order leverage is 0.001. Crypto positional leverage limit is [0.01, 0.5]. Forex positional leverage limit is [0.1, 5]. Equities positional leverage limit is [0.1, 3]
 5. Leverage is capped at 10 across all open positions in a miner's portfolio. Crypto position leverages are scaled by 10x when contributing
-to the leverage cap. <a href="https://docs.taoshi.io/tips/p10/">View for more details and examples.</a>
-6. You can take profit on an open position using LONG and SHORT. Say you have an open LONG position with .5x 
-leverage and you want to reduce it to a .25x leverage position to start taking profit on it. You would send in a SHORT signal
-of size .25x leverage to reduce the size of the position. LONG and SHORT signals can be thought of working in opposite 
-directions in this way.
-8. Miners that have passed challenge period will be eliminated for a drawdown that exceeds 10%.
-9. A miner can have a maximum of 1 open position per trade pair. No limit on the number of closed positions.
-10. A miner's order will be ignored if placing a trade outside of market hours.
-11. A miner's order will be ignored if they are rate limited (maliciously sending too many requests)
-12. There is a 10-second cooldown period between orders of the same trade pair, during which the miner cannot place another order.
-
-
+   to the leverage cap. <a href="https://docs.taoshi.io/tips/p10/">View for more details and examples.</a>
+6. You can take profit on an open position using LONG and SHORT. Say you have an open LONG position with .5x
+   leverage and you want to reduce it to a .25x leverage position to start taking profit on it. You would send in a SHORT signal
+   of size .25x leverage to reduce the size of the position. LONG and SHORT signals can be thought of working in opposite
+   directions in this way.
+7. Miners that have passed challenge period will be eliminated for a drawdown that exceeds 10%.
+8. A miner can have a maximum of 1 open position per trade pair. No limit on the number of closed positions.
+9. A miner's order will be ignored if placing a trade outside of market hours.
+10. A miner's order will be ignored if they are rate limited (maliciously sending too many requests)
+11. There is a 10-second cooldown period between orders of the same trade pair, during which the miner cannot place another order.
+12. Avoid reusing hotkeys that have been previously deregistered.
 
 ## Scoring Details
 
-PTN relies on a number of scoring metrics to build a comprehensive measure of *Risk-Adjusted Returns*. In practice, these metrics are often highly correlated, but each offers a unique lens through which to see the miners.  
+PTN relies on a number of scoring metrics to build a comprehensive measure of _Risk-Adjusted Returns_. In practice, these metrics are often highly correlated, but each offers a unique lens through which to see the miners.
 
 While returns is a significant scoring mechanic, we also use penalties to prioritize different aspects of trading, such as the risk undertaken by the miners or their likelihood to engage in risky strategies.
 
-We calculate daily returns for all positions and the entire portfolio, spanning from 12:00 AM UTC to 12:00 AM UTC the following day. However, if a trading day is still ongoing, we still monitor real-time performance and risks. 
+We calculate daily returns for all positions and the entire portfolio, spanning from 12:00 AM UTC to 12:00 AM UTC the following day. However, if a trading day is still ongoing, we still monitor real-time performance and risks.
 
 This daily calculation and evaluation framework closely aligns with real-world financial practices, enabling accurate, consistent, and meaningful performance measurement and comparison across strategies. This remains effective even for strategies trading different asset classes at different trading frequencies. This approach can also enhance the precision of volatility measurement for strategies.
 
@@ -47,10 +46,9 @@ Annualization is used for the Sharpe ratio, Sortino ratio, and risk adjusted ret
 
 Additionally, normalization with annual risk-free rate of T-bills further standardizes our metrics and allows us to measure miner performance on a more consistent basis.
 
-
 ### Scoring Metrics
 
-We use five scoring metrics to evaluate miners based on daily returns:  **Calmar Ratio**, **Sharpe Ratio**, **Omega Ratio**, **Sortino Ratio**, and **Statistical Confidence (T-Statistic)**.
+We use five scoring metrics to evaluate miners based on daily returns: **Calmar Ratio**, **Sharpe Ratio**, **Omega Ratio**, **Sortino Ratio**, and **Statistical Confidence (T-Statistic)**.
 
 The miner risk used in the risk adjusted returns is the miner’s maximum portfolio drawdown.
 
@@ -72,7 +70,7 @@ $$
 \text{Omega} = \frac{\sum_{i=1}^n \max(r_i, 0)}{\lvert \sum_{i=1}^n \min(r_i, 0) \rvert}
 $$
 
-The _sortino ratio_ is similar to the Sharpe ratio except that the denominator, the annualized volatility, is calculated using only negative daily returns (i.e., losing days). 
+The _sortino ratio_ is similar to the Sharpe ratio except that the denominator, the annualized volatility, is calculated using only negative daily returns (i.e., losing days).
 
 $$
 \text{Sortino} = \frac{(\frac{365}{n}\sum_{i=0}^n{R_i}) - R_{rf}}{\sqrt{\frac{365}{n} \cdot \text{var}(R_i \;|\; R_i < 0)}}
@@ -84,13 +82,13 @@ $$
 t = \frac{\bar{R} - \mu}{s / \sqrt{n}}
 $$
 
-| Metric                  | Scoring Weight |
-|-------------------------|----------------|
-| Calmar Ratio            | 20%            |
-| Sharpe Ratio            | 20%            |
-| Omega Ratio             | 20%            |
-| Sortino Ratio 		        | 20%            
-| Statistical Confidence	 | 20%	           |
+| Metric                 | Scoring Weight |
+| ---------------------- | -------------- |
+| Calmar Ratio           | 20%            |
+| Sharpe Ratio           | 20%            |
+| Omega Ratio            | 20%            |
+| Sortino Ratio          | 20%            |
+| Statistical Confidence | 20%            |
 
 ### Scoring Penalties
 
@@ -101,41 +99,44 @@ There are two primary penalties in place for each miner:
 
 To avoid the impact of a risk profiling penalty, we recommend that you avoid doing the following:
 
-* Step three or more times into a position or increasing the max leverage twice on a losing position.
-* Use more than 50% of the available leverage on the trade pair or increasing leverage by 150% relative to the entry leverage of the position
-* Having uneven time intervals between orders, which would indicate they are not TWAP-scheduled orders.
+- Step three or more times into a position or increasing the max leverage twice on a losing position.
+- Use more than 50% of the available leverage on the trade pair or increasing leverage by 150% relative to the entry leverage of the position
+- Having uneven time intervals between orders, which would indicate they are not TWAP-scheduled orders.
 
 Full implementation details may be found [here](https://docs.taoshi.io/tips/p19/).
 
 The Max Drawdown penalty and Risk Profiling penalty help us detect the absolute and relative risks of a miner's trading strategy in real time.
 
 ### Fees and Transaction Costs
-We want to simulate real costs of trading for our miners, to make signals from PTN more valuable outside our platform. To do this, we have incorporated two primary costs: **Cost of Carry** and **Slippage**. 
+
+We want to simulate real costs of trading for our miners, to make signals from PTN more valuable outside our platform. To do this, we have incorporated two primary costs: **Cost of Carry** and **Slippage**.
 
 Cost of carry is reflective of real exchanges, and how they manage the cost of holding a position overnight. This rate changes depending on the asset class, the logic of which may be found in [our proposal 4](https://docs.taoshi.io/tips/p4/).
 
 Slippage costs are modeled to estimate the difference between a trade's expected price (typically the last traded price or mid-price between the best bid and ask) and its actual execution price. This cost is higher for larger orders, as well as for assets with lower liquidity and higher volatility. Read more in [proposal 16](https://docs.taoshi.io/tips/p16/).
 
 ##### Implementation Details
-| Market   | Fee Period     | Times                   | Rates Applied       | Triple Wednesday |
-|----------|----------------|-------------------------|---------------------|------------------|
-| Forex    | 24h            | 21:00 UTC               | Mon-Fri             | ✓                |
-| Crypto   | 8h             | 04:00, 12:00, 20:00 UTC | Daily (Mon-Sun)     |                  |
-| Equities | 24h            | 21:00 UTC               | Mon-Fri             | ✓                |
+
+| Market   | Fee Period | Times                   | Rates Applied   | Triple Wednesday |
+| -------- | ---------- | ----------------------- | --------------- | ---------------- |
+| Forex    | 24h        | 21:00 UTC               | Mon-Fri         | ✓                |
+| Crypto   | 8h         | 04:00, 12:00, 20:00 UTC | Daily (Mon-Sun) |                  |
+| Equities | 24h        | 21:00 UTC               | Mon-Fri         | ✓                |
 
 The magnitude of the fees will reflect the following distribution:
 
-| Market   | Base Rate (Annual) | Daily Rate Calculation     |
-|----------|--------------------|----------------------------|
-| Forex    | 3%                 | 0.008% * Max Seen Leverage |
-| Crypto   | 10.95%             | 0.03% * Max Seen Leverage  |
-| Equities | 5.25%              | 0.014% * Max Seen Leverage |
+| Market   | Base Rate (Annual) | Daily Rate Calculation      |
+| -------- | ------------------ | --------------------------- |
+| Forex    | 3%                 | 0.008% \* Max Seen Leverage |
+| Crypto   | 10.95%             | 0.03% \* Max Seen Leverage  |
+| Equities | 5.25%              | 0.014% \* Max Seen Leverage |
 
 ### Leverage Limits
+
 We also set limits on leverage usage, to ensure that the network has a level of risk protection and mitigation of naive strategies. The [positional leverage limits](https://docs.taoshi.io/tips/p5/) are as follows:
 
 | Market   | Leverage Limit |
-|----------|----------------|
+| -------- | -------------- |
 | Forex    | 0.1x - 5x      |
 | Crypto   | 0.01x - 0.5x   |
 | Equities | 0.1x - 3x      |
@@ -143,20 +144,23 @@ We also set limits on leverage usage, to ensure that the network has a level of 
 We also implement a [portfolio level leverage limit](https://docs.taoshi.io/tips/p10/), which is the sum of all the leverages from each open position. This limit is set at 10x a "typical" position, where a typical position would be 1x leverage for forex, 2x for equities, and 0.1x leverage for crypto. You can therefore open 10 forex positions at 1x leverage each, 5 equities positions at 2x leverage each, 5 forex positions at 2x leverage each, 5 forex positions at 1x and 5 crypto positions at 0.1x, etc.
 
 ## Incentive Distribution
+
 The miners are scored in each of the categories above based on their prior positions over the lookback period. Penalties are then applied to these scores, and the miners are ranked based on their total score. Percentiles are determined for each category, with the miner's overall score being reduced by the full scoring weight if they are the worst in a category.
 
 For example, if a miner is last place in the long term realized returns category, they will receive a 0% score for this category. This will effectively reduce their score to 0, and they will be prioritized during the next round of deregistration.
 
 We distribute using a [softmax function](https://docs.taoshi.io/tips/p11/), with a target of the top 40% of miners receiving 90% of emissions. The softmax function dynamically adjusts to the scores of miners, distributing more incentive to relatively high-performing miners.
 
-# Easy Setup 
+# Easy Setup
+
 Here are platforms that allows you to trade on PTN with a simple interface or connect to an existing API. These facilitate trading so you can focus on building your strategy.
+
 1. [Horizon](https://x.com/taoshiio/status/1895516351814365201)
 2. [Delta Prop Shop](https://x.com/DeltaDeFi_)
 
 # Default Setup
 
-For our power users with more technical knowledge, we've setup some helpful infrastructure for you to send in signals to the network programatically. 
+For our power users with more technical knowledge, we've setup some helpful infrastructure for you to send in signals to the network programatically.
 
 The script `mining/run_receive_signals_server.py` will launch a flask server to receive order signals.
 We recommend using this flask server to send in signals to the network. To see an example of sending a signal into the server, use `mining/sample_signal_request.py`.
@@ -172,7 +176,7 @@ The current flow of information is as follows:
 5. Validators track your positions returns
 6. Validators review your positions to assess drawdown every few seconds to determine if a miner should be eliminated (see main README for more info)
 7. Validators wait for you to send in signals to close out positions (FLAT)
-8. Validators set weights based on miner returns every 5 minutes based on portfolio performance with both open and closed positions. 
+8. Validators set weights based on miner returns every 5 minutes based on portfolio performance with both open and closed positions.
 
 When getting set up, we recommend running `mining/run_receive_signals_server.py` and `mining/sample_signal_request.py` locally to verify that order signals can be created and parsed correctly.
 
@@ -193,7 +197,7 @@ The simplest way to get a miner to submit orders to validators is by manually ru
 - Make sure your incentive mechanism is resistant to abuse.
 - Your incentive mechanisms are open to anyone. They emit real TAO. Creating these mechanisms incur a lock_cost in TAO.
 - Before attempting to register on mainnet, we strongly recommend that you run a miner on the testnet.
-- Miners should use real exchange prices directly for training and live data purposes. This should come from MT5 and CB Pro / Binance. They should not rely on the data sources validators are providing for prices, as the data is subject to change based on potential downtime and fallback logic. 
+- Miners should use real exchange prices directly for training and live data purposes. This should come from MT5 and CB Pro / Binance. They should not rely on the data sources validators are providing for prices, as the data is subject to change based on potential downtime and fallback logic.
 
 # System Requirements
 
@@ -257,7 +261,7 @@ Create `mining/miner_secrets.json` and replace xxxx with your API key. The API k
 
 ```json
 {
-	"api_key": "xxxx"
+  "api_key": "xxxx"
 }
 ```
 
@@ -282,7 +286,7 @@ btcli wallet list
 
 ## 2a. Getting Testnet TAO
 
-### Discord ###
+### Discord
 
 Please ask the Bittensor Discord community for testnet TAO. This will let you register your miner(s) on Testnet.
 
@@ -344,14 +348,12 @@ wallet   miner    196    True   0.00000  0.00000  0.00000    0.00000    0.00000 
 Run the subnet miner:
 
 ```bash
-python neurons/miner.py --netuid 8  --wallet.name <wallet> --wallet.hotkey <miner> --start-dashboard
+python neurons/miner.py --netuid 8  --wallet.name <wallet> --wallet.hotkey <miner>
 ```
 
 To run your miner on the testnet add the `--subtensor.network test` flag and override the netuuid flag to `--netuid 116`.
 
 To enable debug logging, add the `--logging.debug` flag
-
-To enable the local miner dashboard to view your stats and positions/orders, add the `--start-dashboard` flag.
 
 You will see the below terminal output:
 
@@ -375,58 +377,34 @@ python neurons/miner.py --netuid 116 --subtensor.network test --wallet.name <wal
 
 # Miner Dashboard
 
-## Prerequisites
+The old local miner dashboard has been replaced by a new dashboard which can be accessed here:
 
-- A package manager like npm, yarn, or pnpm
+- Mainnet: https://dashboard.taoshi.io
+- Testnet: https://testnet.dashboard.taoshi.io
 
-## Running the Dashboard
+## Logging In
 
-Each miner now comes equipped with a dashboard that will allow you to view the miner's stats and positions/orders.
-In order to enable the dashboard, add the `--start-dashboard` flag when you run your miner.
-This will install the necessary dependencies and start the app on http://localhost:5173/ by default.
-Open your browser and navigate to this URL to view your miner dashboard.
+In order to view your miner's private positions and orders, you will need to log in to the dashboard and authenticate using a browser wallet, such as [polkadot.js](https://polkadot.js.org/extension/).
+
+![Imgur](https://i.imgur.com/1gn58nM.png)
+
+You may connect multiple miner hotkeys, and switch between them.
+
+![Imgur](https://i.imgur.com/d8Yynxl.png)
+
+Once connected, clicking the `Miner Dashboard` button will bring you to your logged in miner's page.
+
+![Imgur](https://i.imgur.com/SrgtRpx.png)
 
 ## Important Note
 
 The miner will only have data if validators have already picked up its orders.
 A brand new miner may not have any data until after submitting an order.
 
-The miner dashboard queries and awaits responses from a validator. Please allow the dashboard some time to load on startup and refresh.
-
-## If you would like to view your miner dashboard on a different machine than your miner:
-
-In order to view the miner dashboard on a different machine from your miner, we recommend opening a ssh tunnel to the
-default ports `41511` and `5173`. If you are running multiple miners on one machine or those ports are busy, you can view
-the miner startup logs to confirm which ports to use.
-
-![Imgur](https://i.imgur.com/9j7bjMR.png)
-
-`41511` is used by the backend miner data API.
-
-![Imgur](https://i.imgur.com/FnBbScu.png)
-
-`5173` is used by the dashboard frontend. This is what you will be connecting to on your local machine.
-
-To create an ssh tunnel:
-
-```bash
-ssh -L [local_port_1]:localhost:[remote_port_1] -L [local_port_2]:localhost:[remote_port_2] [miner]@[address]
-```
-ex:
-```bash
-ssh -L 41511:localhost:41511 -L 5173:localhost:5173 taoshi-miner@123.45.67.89
-```
-As an example if you are using a Google Cloud VM to run your miner:
-```bash
-gcloud compute ssh miner1@test-miner1 --zone "[zone]" --project "[project]" -- -L 5173:localhost:5173 -L 41511:localhost:41511
-```
-
-This will map port `41511` and `5173` on your local machine to the same ports on the miner, allowing you to view your miner's
-dashboard at http://localhost:5173/ on your local machine.
-
 # Issues?
 
 If you are running into issues, please run with `--logging.debug` and `--logging.trace` set so you can better analyze why your miner isn't running.
 
 # Terms of Service
+
 We do not permit any third-party strategies to be used on the platform which are in violation of the terms and services of the original provider. Failure to comply will result in miner removal from the platform.
