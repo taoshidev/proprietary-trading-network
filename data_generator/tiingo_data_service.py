@@ -64,7 +64,7 @@ class TiingoDataService(BaseDataService):
 
     def run_pseudo_websocket(self, tpc: TradePairCategory):
 
-        verbose = True
+        verbose = False
         POLLING_INTERVAL_S = 5
         if tpc == TradePairCategory.EQUITIES:
             desired_trade_pairs = [x for x in TradePair if x.is_equities]
