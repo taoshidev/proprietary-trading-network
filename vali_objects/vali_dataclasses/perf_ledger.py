@@ -360,7 +360,7 @@ class PerfLedgerManager(CacheController):
     def __init__(self, metagraph, ipc_manager=None, running_unit_tests=False, shutdown_dict=None,
                  perf_ledger_hks_to_invalidate=None, live_price_fetcher=None, position_manager=None,
                  enable_rss=True, is_backtesting=False, parallel_mode=ParallelizationMode.SERIAL, secrets=None,
-                 build_portfolio_ledgers_only=False):
+                 build_portfolio_ledgers_only=False, target_ledger_window_ms=TARGET_LEDGER_WINDOW_MS):
         super().__init__(metagraph=metagraph, running_unit_tests=running_unit_tests, is_backtesting=is_backtesting)
 
         self.shutdown_dict = shutdown_dict
@@ -410,6 +410,7 @@ class PerfLedgerManager(CacheController):
         self.mode_to_n_updates = {}
         self.update_to_n_open_positions = {}
         self.position_uuid_to_cache = defaultdict(FeeCache)
+        self.target_ledger_window_ms = target_ledger_window_ms
         if self.is_backtesting or self.parallel_mode != ParallelizationMode.SERIAL:
             initial_perf_ledgers = {}
         else:
@@ -980,7 +981,7 @@ class PerfLedgerManager(CacheController):
                 assert len(positions[0].orders) == 0, (tp_id, positions[0], list(perf_ledger_bundle.keys()))
                 assert realtime_position_to_pop and tp_id == realtime_position_to_pop.trade_pair.trade_pair_id
                 initialization_time_ms = realtime_position_to_pop.orders[0].processed_ms
-                perf_ledger_bundle[tp_id] = PerfLedger(initialization_time_ms=initialization_time_ms)
+                perf_ledger_bundle[tp_id] = PerfLedger(initialization_time_ms=initialization_time_ms, target_ledger_window_ms=self.target_ledger_window_ms)
                 perf_ledger_bundle[tp_id].init_with_first_order(end_time_ms, point_in_time_dd=1.0, current_portfolio_value=1.0,
                                                    current_portfolio_fee_spread=1.0, current_portfolio_carry=1.0)
 
@@ -1121,7 +1122,7 @@ class PerfLedgerManager(CacheController):
 
         if perf_ledger_bundle_candidate is None:
             first_order_time_ms = min(p.orders[0].processed_ms for p in positions)
-            perf_ledger_bundle_candidate = {TP_ID_PORTFOLIO: PerfLedger(initialization_time_ms=first_order_time_ms)}
+            perf_ledger_bundle_candidate = {TP_ID_PORTFOLIO: PerfLedger(initialization_time_ms=first_order_time_ms, target_ledger_window_ms=self.target_ledger_window_ms)}
             verbose = True
         else:
             perf_ledger_bundle_candidate = deepcopy(perf_ledger_bundle_candidate)
@@ -1545,7 +1546,8 @@ class PerfLedgerManager(CacheController):
             metagraph=MockMetagraph(hotkeys=[hotkey]),
             parallel_mode=self.parallel_mode,
             secrets=self.secrets,
-            build_portfolio_ledgers_only=self.build_portfolio_ledgers_only
+            build_portfolio_ledgers_only=self.build_portfolio_ledgers_only,
+            target_ledger_window_ms=self.target_ledger_window_ms
         )
         last_update_time_ms = existing_bundle[TP_ID_PORTFOLIO].last_update_ms if existing_bundle else 0
         worker_plm.now_ms = now_ms
