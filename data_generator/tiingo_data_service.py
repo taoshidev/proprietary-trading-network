@@ -322,11 +322,11 @@ class TiingoDataService(BaseDataService):
 
     def symbol_to_trade_pair(self, symbol: str):
         # Should work for indices and forex
-        tp = TradePair.get_latest_tade_pair_from_trade_pair_str(symbol)
+        tp = TradePair.get_latest_trade_pair_from_trade_pair_str(symbol)
         if tp:
             return tp
         # Should work for crypto. Anything else will return None
-        tp = TradePair.get_latest_tade_pair_from_trade_pair_str(symbol.replace('-', '/'))
+        tp = TradePair.get_latest_trade_pair_from_trade_pair_str(symbol.replace('-', '/'))
         if not tp:
             raise ValueError(f"Unknown symbol: {symbol}")
         return tp

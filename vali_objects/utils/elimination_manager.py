@@ -67,7 +67,7 @@ class EliminationManager(CacheController):
             price_info = e['price_info']
             trade_pair_to_price_source_used_for_elimination_check = {}
             for k, v in price_info.items():
-                trade_pair = TradePair.get_latest_tade_pair_from_trade_pair_str(k)
+                trade_pair = TradePair.get_latest_trade_pair_from_trade_pair_str(k)
                 elimination_initiated_time_ms = e['elimination_initiated_time_ms']
                 trade_pair_to_price_source_used_for_elimination_check[trade_pair] = PriceSource(source='elim', open=v,
                                                                                                 close=v,
