@@ -420,7 +420,7 @@ class BaseDataService():
         # Log the prices
         formatted_prices = {}
         for tp, price_source in self.latest_websocket_events.items():
-            if TradePair.get_latest_tade_pair_from_trade_pair_str(tp).is_forex:
+            if TradePair.get_latest_trade_pair_from_trade_pair_str(tp).is_forex:
                 formatted_prices[tp] = f"({price_source.bid:.5f}/{price_source.ask:.5f})"
             else:
                 formatted_prices[tp] = f"{price_source.close:.2f}"
