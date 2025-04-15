@@ -540,7 +540,7 @@ class TradePair(Enum):
         return TRADE_PAIR_ID_TO_TRADE_PAIR.get(trade_pair_id)
 
     @staticmethod
-    def get_latest_tade_pair_from_trade_pair_str(trade_pair_str):
+    def get_latest_trade_pair_from_trade_pair_str(trade_pair_str):
         return TRADE_PAIR_STR_TO_TRADE_PAIR.get(trade_pair_str)
 
     def __str__(self):
