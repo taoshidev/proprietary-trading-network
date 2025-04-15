@@ -876,7 +876,7 @@ class PolygonDataService(BaseDataService):
 
         return aggs
 
-    def get_quote(self, trade_pair: TradePair, processed_ms: int) -> (float, float, int):
+    def get_quote(self, processed_ms: int, trade_pair: TradePair=None, polygon_ticker: str=None) -> (float, float, int):
         """
         returns the bid and ask quote for a trade_pair at processed_ms
         """
@@ -884,42 +884,39 @@ class PolygonDataService(BaseDataService):
 
         if self.POLYGON_CLIENT is None:
             self.instantiate_not_pickleable_objects()
-
-        if trade_pair.is_forex or trade_pair.is_equities:
+        if not polygon_ticker:
+            if trade_pair.is_crypto or trade_pair.is_indices:
+                return 0, 0, 0  # TODO: (unused) quotes for crypto, indices
             polygon_ticker = self.trade_pair_to_polygon_ticker(trade_pair)
-            quotes = self.POLYGON_CLIENT.list_quotes(
-                ticker=polygon_ticker,
-                timestamp_lte=processed_ms * 1_000_000,
-                sort="participant_timestamp",
-                order="desc",
-                limit=1
-            )
-            for q in quotes:
-                return q.bid_price, q.ask_price, int(q.participant_timestamp/1_000_000)  # convert ns back to ms
-        else:
-            # crypto
-            return 0, 0, 0
 
-    def get_currency_conversion(self, trade_pair: TradePair=None, base: str=None, quote: str=None) -> float:
+        quotes = self.POLYGON_CLIENT.list_quotes(
+            ticker=polygon_ticker,
+            timestamp_lte=processed_ms * 1_000_000,
+            sort="participant_timestamp",
+            order="desc",
+            limit=1
+        )
+        for q in quotes:
+            return q.bid_price, q.ask_price, int(q.participant_timestamp/1_000_000)  # convert ns back to ms
+
+    def get_currency_conversion(self, base: str, quote: str, time_ms: int=None) -> float:
         """
         get the currency conversion rate from base currency to quote currency
         """
-        if self.POLYGON_CLIENT is None:
-            self.instantiate_not_pickleable_objects()
+        if not time_ms:
+            time_ms = TimeUtil.now_in_millis()
 
-        if not (base and quote):
-            if trade_pair and trade_pair.is_forex:
-                base, quote = trade_pair.trade_pair.split("/")
-            else:
-                raise ValueError("Must provide either a valid forex pair or a base and quote for currency conversion")
+        polygon_ticker = 'C:' + base + quote
+        bid, _, _ = self.get_quote(time_ms, polygon_ticker=polygon_ticker)
+        return bid
 
-        rate = self.POLYGON_CLIENT.get_real_time_currency_conversion(
-            from_=base,
-            to=quote,
-            precision=4,
-        )
-
-        return rate.converted
+    def get_base_to_usd_conversion(self, base: str, time_ms: int=None) -> float:
+        """
+        get the currency conversion rate from base currency to USD
+        """
+        if base == "USD":
+            return 1
+        return self.get_currency_conversion(base=base, quote="USD", time_ms=time_ms)
 
 
 if __name__ == "__main__":
