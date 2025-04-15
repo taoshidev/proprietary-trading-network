@@ -461,6 +461,16 @@ class TradePair(Enum):
                                           TradePairCategory.EQUITIES: 2}
         return trade_pair_leverage_multiplier[self.trade_pair_category]
 
+    @property
+    def base(self):
+        if self.is_forex:
+            return self.trade_pair.split("/")[0]
+
+    @property
+    def quote(self):
+        if self.is_forex:
+            return self.trade_pair.split("/")[1]
+
     @classmethod
     def categories(cls):
         return {tp.trade_pair_id: tp.trade_pair_category.value for tp in cls}
