@@ -196,7 +196,7 @@ class LivePriceFetcher:
         """
         returns the bid and ask quote for a trade_pair at processed_ms. Only Polygon supports point-in-time bid/ask.
         """
-        return self.polygon_data_service.get_quote(trade_pair, processed_ms)
+        return self.polygon_data_service.get_quote(processed_ms, trade_pair=trade_pair)
 
     def parse_extreme_price_in_window(self, candle_data: Dict[TradePair, List[PriceSource]], open_position: Position, parse_min: bool = True) -> Tuple[float, PriceSource] | Tuple[None, None]:
         trade_pair = open_position.trade_pair

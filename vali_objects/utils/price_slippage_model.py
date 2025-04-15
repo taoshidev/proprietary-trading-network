@@ -116,8 +116,7 @@ class PriceSlippageModel:
         # bt.logging.info(f"bid: {bid}, ask: {ask}, adv: {avg_daily_volume}, vol: {annualized_volatility}")
 
         size = abs(order.leverage) * ValiConfig.CAPITAL
-        base, _ = order.trade_pair.trade_pair.split("/")
-        base_to_usd_conversion = cls.live_price_fetcher.polygon_data_service.get_currency_conversion(base=base, quote="USD") if base != "USD" else 1  # TODO: fallback?
+        base_to_usd_conversion = cls.live_price_fetcher.polygon_data_service.get_base_to_usd_conversion(base=order.trade_pair.base, time_ms=order.processed_ms)  # TODO: tiingo fallback?
         # print(base_to_usd_conversion)
         volume_standard_lots = size / (100_000 * base_to_usd_conversion)  # Volume expressed in terms of standard lots (1 std lot = 100,000 base currency)
 
