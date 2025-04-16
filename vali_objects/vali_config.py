@@ -146,7 +146,7 @@ class ValiConfig:
 
     METAGRAPH_UPDATE_REFRESH_TIME_MS = 60 * 1000  # 1 minute
     ELIMINATION_CHECK_INTERVAL_MS = 60 * 5 * 1000  # 5 minutes
-    ELIMINATION_FILE_DELETION_DELAY_MS = 2 * 60 * 60 * 1000  # 2 hours
+    ELIMINATION_FILE_DELETION_DELAY_MS = 2 * 24 * 60 * 60 * 1000  # 2 days
 
     # Distributional statistics
     SOFTMAX_TEMPERATURE = 0.125

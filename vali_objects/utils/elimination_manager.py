@@ -343,8 +343,8 @@ class EliminationManager(CacheController):
         for hotkey in CacheController.get_directory_names(all_miners_dir):
             corresponding_elimination = self.hotkey_in_eliminations(hotkey)
             elimination_reason = corresponding_elimination.get('reason') if corresponding_elimination else None
-            if elimination_reason == EliminationReason.ZOMBIE.value:
-                pass  # already a zombie elimination and marked for deletion
+            if elimination_reason:
+                continue  # already an elimination and marked for deletion
             elif self.is_zombie_hotkey(hotkey, all_hotkeys_set):
                 self.append_elimination_row(hotkey=hotkey, current_dd=None, reason=EliminationReason.ZOMBIE.value)
                 self.handle_eliminated_miner(hotkey, {}, position_locks)

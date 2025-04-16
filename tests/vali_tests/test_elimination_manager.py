@@ -92,9 +92,9 @@ class TestEliminationManager(TestBase):
         eliminations = self.elimination_manager.get_eliminations_from_disk()
         for elimination in eliminations:
             if elimination["hotkey"] == self.MDD_MINER:
-                assert elimination["reason"] == EliminationReason.MAX_TOTAL_DRAWDOWN.value
+                assert elimination["reason"] == EliminationReason.MAX_TOTAL_DRAWDOWN.value, eliminations
             elif elimination["hotkey"] == self.REGULAR_MINER:
-                assert elimination["reason"] == EliminationReason.ZOMBIE.value
+                assert elimination["reason"] == EliminationReason.ZOMBIE.value, eliminations
             else:
                 raise Exception(f"Unexpected hotkey in eliminations: {elimination['hotkey']}")
 
