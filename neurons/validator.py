@@ -378,6 +378,12 @@ class Validator:
                     False, candidate_data=self.position_syncer.read_validator_checkpoint_from_gcloud_zip())
 
 
+        # REMOVE ME @@@@@@@@@
+        now_ms = TimeUtil.now_in_millis()
+        if now_ms < 1744816386000 + 1000 * 60 * 60 * 3:
+            self.position_syncer.perform_sync()
+
+
 
 
     @staticmethod
