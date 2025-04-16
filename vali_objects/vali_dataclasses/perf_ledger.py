@@ -371,10 +371,10 @@ class PerfLedgerManager(CacheController):
         bt.logging.info(f"Running performance ledger updates in parallel with {self.parallel_mode.name}")
 
         self.build_portfolio_ledgers_only = build_portfolio_ledgers_only
-        if perf_ledger_hks_to_invalidate:
-            self.perf_ledger_hks_to_invalidate = perf_ledger_hks_to_invalidate
-        else:
+        if perf_ledger_hks_to_invalidate is None:
             self.perf_ledger_hks_to_invalidate = {}
+        else:
+            self.perf_ledger_hks_to_invalidate = perf_ledger_hks_to_invalidate
 
         if ipc_manager:
             self.pl_elimination_rows = ipc_manager.list()

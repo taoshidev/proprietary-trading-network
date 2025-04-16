@@ -142,6 +142,7 @@ class ChallengePeriodManager(CacheController):
         if not self.refresh_allowed(ValiConfig.CHALLENGE_PERIOD_REFRESH_TIME_MS):
             time.sleep(1)
             return
+        bt.logging.info(f"Refreshing challenge period. invalidation data {self.perf_ledger_manager.perf_ledger_hks_to_invalidate}")
         # The refresh should just read the current eliminations
         eliminations = self.elimination_manager.get_eliminations_from_memory()
 
