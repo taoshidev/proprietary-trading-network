@@ -492,7 +492,7 @@ class ChallengePeriodManager(CacheController):
             ref_dict.clear()
             ref_dict.update(dat_to_copy)
         self._write_challengeperiod_from_memory_to_disk()
-        
+
     def get_challengeperiod_success(self, from_disk=False):
         if from_disk:
             return ValiUtils.get_vali_json_file_dict(
@@ -560,9 +560,10 @@ class ChallengePeriodManager(CacheController):
 
     def _demote_challengeperiod_in_memory(self, eliminations_with_reasons: dict[str, tuple[str, float]]):
         hotkeys = list(eliminations_with_reasons.keys())
+        if hotkeys:
+            bt.logging.info(f"Removing hotkeys {hotkeys} from challenge period.")
 
         for hotkey in hotkeys:
-            bt.logging.info(f"Removing hotkeys {hotkey} from challenge period.")
             if hotkey in self.challengeperiod_testing:
                 del self.challengeperiod_testing[hotkey]
             else:

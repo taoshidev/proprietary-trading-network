@@ -193,7 +193,7 @@ class EliminationManager(CacheController):
 
         return True
 
-    def sync_eliminations(self, dat):
+    def sync_eliminations(self, dat) -> list:
         # log the difference in hotkeys
         hotkeys_before = set(x['hotkey'] for x in self.eliminations)
         hotkeys_after = set(x['hotkey'] for x in dat)
@@ -203,6 +203,7 @@ class EliminationManager(CacheController):
         # Update the list in place while keeping the reference intact:
         self.eliminations[:] = dat
         self.save_eliminations()
+        return removed
 
     def hotkey_in_eliminations(self, hotkey):
         for x in self.eliminations:

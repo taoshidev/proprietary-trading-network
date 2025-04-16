@@ -512,6 +512,10 @@ class PerfLedgerManager(CacheController):
             if hotkey not in hotkeys:
                 continue
 
+            if hotkey in self.perf_ledger_hks_to_invalidate:
+                bt.logging.warning(f"Skipping hotkey {hotkey} in filtered_ledger_for_scoring due to invalidation.")
+                continue
+
             if miner_portfolio_ledger is None:
                 continue
 
@@ -530,6 +534,22 @@ class PerfLedgerManager(CacheController):
             ValiBkpUtils.write_file(file_path, {})
         for k in list(self.hotkey_to_perf_bundle.keys()):
             del self.hotkey_to_perf_bundle[k]
+
+
+    @staticmethod
+    def clear_perf_ledgers_from_disk_autosync(hotkeys:list):
+        file_path = ValiBkpUtils.get_perf_ledgers_path()
+        filtered_data = {}
+        if os.path.exists(file_path):
+            with open(file_path, 'r') as file:
+                existing_data = json.load(file)
+
+            for hk, bundles in existing_data.items():
+                if hk in hotkeys:
+                    filtered_data[hk] = bundles
+
+        ValiBkpUtils.write_file(file_path, filtered_data)
+
 
     def run_update_loop(self):
         setproctitle(f"vali_{self.__class__.__name__}")
@@ -1395,8 +1415,8 @@ class PerfLedgerManager(CacheController):
             self.random_security_screenings = set()
 
         # Regenerate checkpoints if a hotkey was modified during position sync
-        attempting_invalidations = bool(self.perf_ledger_hks_to_invalidate)
-        if attempting_invalidations:
+        self.hks_attempting_invalidations = list(self.perf_ledger_hks_to_invalidate.keys())
+        if self.hks_attempting_invalidations:
             for hk, t in self.perf_ledger_hks_to_invalidate.items():
                 hotkeys_to_delete.add(hk)
                 bt.logging.info(f"perf ledger invalidated for hk {hk} due to position sync at time {t}")
@@ -1425,9 +1445,11 @@ class PerfLedgerManager(CacheController):
         # Time in the past to start updating the perf ledgers
         self.update_all_perf_ledgers(hotkey_to_positions, perf_ledger_bundles, t_ms)
 
-        # Clear invalidations after successful update. Prevent race condition by only clearing if we attempted invalidations.
-        if attempting_invalidations:
-            self.perf_ledger_hks_to_invalidate.clear()
+        # Clear invalidations after successful update. Prevent race condition by only clearing if we attempted invalidation for specific hk
+        if self.hks_attempting_invalidations:
+            for x in self.hks_attempting_invalidations:
+                if x in self.perf_ledger_hks_to_invalidate:
+                    del self.perf_ledger_hks_to_invalidate[x]
 
         if testing_one_hotkey:
             portfolio_ledger = perf_ledger_bundles[testing_one_hotkey][TP_ID_PORTFOLIO]
@@ -1493,6 +1515,13 @@ class PerfLedgerManager(CacheController):
 
     @timeme
     def save_perf_ledgers(self, perf_ledgers_copy: dict[str, dict[str, PerfLedger]] | dict[str, dict[str, dict]], raw_json=False):
+        # We may have items in perf_ledger_hks_to_invalidate added after the iteration began.
+        # Let's nuke them to allow freed hotkeys to escape elimination.
+        for hk, t in self.perf_ledger_hks_to_invalidate.items():
+            if hk not in self.hks_attempting_invalidations:
+                bt.logging.warning(f"perf ledger invalidated for hk {hk} during update dat {self.perf_ledger_hks_to_invalidate[hk]}. Removing from perf ledgers.")
+                del perf_ledgers_copy[hk]
+
         if not self.is_backtesting:
             self.save_perf_ledgers_to_disk(perf_ledgers_copy, raw_json=raw_json)
 
