@@ -191,9 +191,6 @@ class EliminationManager(CacheController):
         if hotkey in all_hotkeys_set:
             return False
 
-        if any(x['hotkey'] == hotkey for x in self.eliminations):
-            return False
-
         return True
 
     def hotkey_in_eliminations(self, hotkey):
