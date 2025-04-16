@@ -1419,10 +1419,11 @@ class PerfLedgerManager(CacheController):
         if self.hks_attempting_invalidations:
             for hk, t in self.perf_ledger_hks_to_invalidate.items():
                 hotkeys_to_delete.add(hk)
-                bt.logging.info(f"perf ledger invalidated for hk {hk} due to position sync at time {t}")
+                bt.logging.info(f"perf ledger marked for full rebuild for hk {hk} due to position sync at time {t}")
 
         for k in hotkeys_to_delete:
-            del perf_ledger_bundles[k]
+            if k in perf_ledger_bundles:
+                del perf_ledger_bundles[k]
 
         self.hk_to_last_order_processed_ms = {k: v for k, v in self.hk_to_last_order_processed_ms.items() if k in perf_ledger_bundles}
 
