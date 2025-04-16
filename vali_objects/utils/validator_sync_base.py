@@ -88,7 +88,7 @@ class ValidatorSyncBase():
 
         eliminations = candidate_data['eliminations']
         if not self.is_mothership:
-            self.position_manager.elimination_manager.write_eliminations_to_disk(eliminations)
+            self.position_manager.elimination_manager.sync_eliminations(eliminations)
 
         challenge_period_data = candidate_data.get('challengeperiod')
         if challenge_period_data:  # Only in autosync as of now.
@@ -101,9 +101,8 @@ class ValidatorSyncBase():
                             f"Challengeperiod success sync keys added: {new_success_keys - orig_success_keys}\n"
                             f"Challengeperiod success sync keys removed: {orig_success_keys - new_success_keys}")
             if not shadow_mode:
-                self.position_manager.challengeperiod_manager.challengeperiod_testing = challenge_period_data.get('testing', {})
-                self.position_manager.challengeperiod_manager.challengeperiod_success = challenge_period_data.get('success', {})
-                self.position_manager.challengeperiod_manager._write_challengeperiod_from_memory_to_disk()
+                self.position_manager.challengeperiod_manager.sync_challenege_period_data(challenge_period_data.get('testing', {}),
+                                                                                          challenge_period_data.get('success', {}))
 
         eliminated_hotkeys = set([e['hotkey'] for e in eliminations])
         # For a healthy validator, the existing positions will always be a superset of the candidate positions

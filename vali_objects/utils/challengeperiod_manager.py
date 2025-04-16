@@ -483,6 +483,16 @@ class ChallengePeriodManager(CacheController):
                 return copy.deepcopy(ans)
             return ans
 
+    def sync_challenege_period_data(self, challenge_period_testing, challenge_period_success):
+        temp = [(self.challengeperiod_testing, challenge_period_testing),
+                (self.challengeperiod_success, challenge_period_success)]
+        for ref_dict, dat_to_copy in temp:
+            if not dat_to_copy:
+                bt.logging.error(f'challenge_period_data {challenge_period_data} appears invalid')
+            ref_dict.clear()
+            ref_dict.update(dat_to_copy)
+        self._write_challengeperiod_from_memory_to_disk()
+        
     def get_challengeperiod_success(self, from_disk=False):
         if from_disk:
             return ValiUtils.get_vali_json_file_dict(

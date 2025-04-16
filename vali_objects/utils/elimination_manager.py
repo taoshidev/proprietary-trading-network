@@ -193,6 +193,17 @@ class EliminationManager(CacheController):
 
         return True
 
+    def sync_eliminations(self, dat):
+        # log the difference in hotkeys
+        hotkeys_before = set(x['hotkey'] for x in self.eliminations)
+        hotkeys_after = set(x['hotkey'] for x in dat)
+        removed = [x for x in hotkeys_before if x not in hotkeys_after]
+        added = [x for x in hotkeys_after if x not in hotkeys_before]
+        bt.logging.info(f'sync_eliminations: removed {len(removed)} {removed}, added {len(added)} {added}')
+        # Update the list in place while keeping the reference intact:
+        self.eliminations[:] = dat
+        self.save_eliminations()
+
     def hotkey_in_eliminations(self, hotkey):
         for x in self.eliminations:
             if x['hotkey'] == hotkey:
