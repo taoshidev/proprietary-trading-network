@@ -2,13 +2,13 @@
 from copy import deepcopy
 
 from vali_objects.enums.order_type_enum import OrderType
-from vali_objects.utils.elimination_manager import EliminationManager
+from vali_objects.utils.elimination_manager import EliminationManager, EliminationReason
 from vali_objects.utils.position_lock import PositionLocks
 from vali_objects.vali_dataclasses.order import Order
 
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedger, TP_ID_PORTFOLIO
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
-from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager, FailedChallengeReason
+from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
 from vali_objects.utils.ledger_utils import LedgerUtils
 from tests.shared_objects.mock_classes import (
     MockMetagraph, MockPositionManager
@@ -520,7 +520,7 @@ class TestChallengePeriodIntegration(TestBase):
         # Ensure that all miners that aren't failing end up in testing or success
         self.assertEqual(eliminations_length, len(self.FAILING_MINER_NAMES))
         for elimination in self.challengeperiod_manager.elimination_manager.get_eliminations_from_disk():
-            self.assertEqual(elimination["reason"], FailedChallengeReason.mdd.value)
+            self.assertEqual(elimination["reason"], EliminationReason.FAILED_CHALLENGE_PERIOD_DRAWDOWN.value)
 
     def test_miner_elimination_reasons_time(self):
         """Test that miners who aren't passing challenge period are properly eliminated for time."""
@@ -539,7 +539,7 @@ class TestChallengePeriodIntegration(TestBase):
                 continue
             else:
                 eliminated_for_time.add(elimination["hotkey"])
-                self.assertEqual(elimination["reason"], FailedChallengeReason.time.value)
+                self.assertEqual(elimination["reason"], EliminationReason.FAILED_CHALLENGE_PERIOD_TIME.value)
         self.assertEqual(len(eliminated_for_mdd), len(self.FAILING_MINER_NAMES))
         self.assertEqual(len(eliminated_for_time), len(self.TESTING_MINER_NAMES))
 

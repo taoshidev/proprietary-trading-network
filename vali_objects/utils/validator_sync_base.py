@@ -60,7 +60,6 @@ class ValidatorSyncBase():
     def sync_positions(self, shadow_mode, candidate_data=None, disk_positions=None) -> dict[str: list[Position]]:
         t0 = time.time()
         self.init_data()
-        perf_ledger_hks_to_invalidate = {}
         assert candidate_data, "Candidate data must be provided"
 
         backup_creation_time_ms = candidate_data['created_timestamp_ms']
@@ -88,7 +87,10 @@ class ValidatorSyncBase():
 
         eliminations = candidate_data['eliminations']
         if not self.is_mothership:
-            self.position_manager.elimination_manager.write_eliminations_to_disk(eliminations)
+            removed = self.position_manager.elimination_manager.sync_eliminations(eliminations)
+            for hk in removed:
+                self.perf_ledger_hks_to_invalidate[hk] = 0
+
 
         challenge_period_data = candidate_data.get('challengeperiod')
         if challenge_period_data:  # Only in autosync as of now.
@@ -101,10 +103,8 @@ class ValidatorSyncBase():
                             f"Challengeperiod success sync keys added: {new_success_keys - orig_success_keys}\n"
                             f"Challengeperiod success sync keys removed: {orig_success_keys - new_success_keys}")
             if not shadow_mode:
-                self.position_manager.challengeperiod_manager.challengeperiod_testing = challenge_period_data.get('testing', {})
-                self.position_manager.challengeperiod_manager.challengeperiod_success = challenge_period_data.get('success', {})
-                self.position_manager.challengeperiod_manager._write_challengeperiod_from_memory_to_disk()
-
+                self.position_manager.challengeperiod_manager.sync_challenege_period_data(challenge_period_data.get('testing', {}),
+                                                                                          challenge_period_data.get('success', {}))
         eliminated_hotkeys = set([e['hotkey'] for e in eliminations])
         # For a healthy validator, the existing positions will always be a superset of the candidate positions
         for hotkey, positions in candidate_hk_to_positions.items():
@@ -127,9 +127,9 @@ class ValidatorSyncBase():
                 try:
                     position_to_sync_status, min_timestamp_of_change, stats = self.resolve_positions(candidate_positions, existing_positions, trade_pair, hotkey, hard_snap_cutoff_ms)
                     if min_timestamp_of_change != float('inf'):
-                        perf_ledger_hks_to_invalidate[hotkey] = (
-                            min_timestamp_of_change) if hotkey not in perf_ledger_hks_to_invalidate else (
-                            min(perf_ledger_hks_to_invalidate[hotkey], min_timestamp_of_change))
+                        self.perf_ledger_hks_to_invalidate[hotkey] = (
+                            min_timestamp_of_change) if hotkey not in self.perf_ledger_hks_to_invalidate else (
+                            min(self.perf_ledger_hks_to_invalidate[hotkey], min_timestamp_of_change))
                         if not shadow_mode:
                             self.write_modifications(position_to_sync_status, stats)
                 except Exception as e:
@@ -155,8 +155,6 @@ class ValidatorSyncBase():
         self.global_stats['n_miners_orders_matched'] = len(self.miners_with_order_matched)
         self.global_stats['n_miners_orders_kept'] = len(self.miners_with_order_kept)
 
-        # Write atomically to prevent race condition in perf ledger update.
-        self.perf_ledger_hks_to_invalidate = perf_ledger_hks_to_invalidate
         # Print self.global_stats
         bt.logging.info("Global stats:")
         for k, v in self.global_stats.items():

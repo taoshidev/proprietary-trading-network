@@ -2,6 +2,7 @@
 # Copyright © 2024 Taoshi Inc
 import shutil
 from copy import deepcopy
+from enum import Enum
 from typing import Dict
 from time_util.time_util import TimeUtil
 from vali_objects.position import Position
@@ -14,6 +15,13 @@ import bittensor as bt
 
 from vali_objects.vali_dataclasses.price_source import PriceSource
 
+class EliminationReason(Enum):
+    ZOMBIE = "ZOMBIE"
+    PLAGIARISM = "PLAGIARISM"
+    MAX_TOTAL_DRAWDOWN = "MAX_TOTAL_DRAWDOWN"
+    FAILED_CHALLENGE_PERIOD_TIME = "FAILED_CHALLENGE_PERIOD_TIME"
+    FAILED_CHALLENGE_PERIOD_DRAWDOWN = "FAILED_CHALLENGE_PERIOD_DRAWDOWN"
+    LIQUIDATED = "LIQUIDATED"
 
 class EliminationManager(CacheController):
     """"
@@ -125,7 +133,7 @@ class EliminationManager(CacheController):
                 continue
             elim_reason = eliminations_with_reasons[hotkey][0]
             elim_mdd = eliminations_with_reasons[hotkey][1]
-            self.append_elimination_row(hotkey=hotkey, current_dd=elim_mdd, mdd_failure=elim_reason)
+            self.append_elimination_row(hotkey=hotkey, current_dd=elim_mdd, reason=elim_reason)
             self.handle_eliminated_miner(hotkey, {}, position_locks)
 
         self.challengeperiod_manager.eliminations_with_reasons = {}
@@ -147,16 +155,19 @@ class EliminationManager(CacheController):
         self.first_refresh_ran = True
 
     def process_eliminations(self, position_locks):
+
         if not self.refresh_allowed(ValiConfig.ELIMINATION_CHECK_INTERVAL_MS) and \
                 not bool(self.challengeperiod_manager.eliminations_with_reasons):
             return
 
-        bt.logging.info("running elimination manager")
+
+        bt.logging.info(f"running elimination manager. invalidation data {dict(self.position_manager.perf_ledger_manager.perf_ledger_hks_to_invalidate)}")
         self.handle_first_refresh(position_locks)
         self.handle_perf_ledger_eliminations(position_locks)
         self.handle_challenge_period_eliminations(position_locks)
         # self._handle_plagiarism_eliminations()
         self.handle_mdd_eliminations(position_locks)
+        self.handle_zombies(position_locks)
         self._delete_eliminated_expired_miners()
 
         self.set_last_update_time()
@@ -173,17 +184,26 @@ class EliminationManager(CacheController):
             if self.hotkey_in_eliminations(miner_hotkey):
                 continue
             if current_plagiarism_score > ValiConfig.MAX_MINER_PLAGIARISM_SCORE:
-                self.append_elimination_row(miner_hotkey, current_plagiarism_score, 'plagiarism')
+                self.append_elimination_row(miner_hotkey, current_plagiarism_score, EliminationReason.PLAGIARISM.value)
                 self.handle_eliminated_miner(miner_hotkey, {}, position_locks)
 
-    def is_zombie_hotkey(self, hotkey):
-        if hotkey in self.metagraph.hotkeys:
-            return False
-
-        if any(x['hotkey'] == hotkey for x in self.eliminations):
+    def is_zombie_hotkey(self, hotkey, all_hotkeys_set):
+        if hotkey in all_hotkeys_set:
             return False
 
         return True
+
+    def sync_eliminations(self, dat) -> list:
+        # log the difference in hotkeys
+        hotkeys_before = set(x['hotkey'] for x in self.eliminations)
+        hotkeys_after = set(x['hotkey'] for x in dat)
+        removed = [x for x in hotkeys_before if x not in hotkeys_after]
+        added = [x for x in hotkeys_after if x not in hotkeys_before]
+        bt.logging.info(f'sync_eliminations: removed {len(removed)} {removed}, added {len(added)} {added}')
+        # Update the list in place while keeping the reference intact:
+        self.eliminations[:] = dat
+        self.save_eliminations()
+        return removed
 
     def hotkey_in_eliminations(self, hotkey):
         for x in self.eliminations:
@@ -195,16 +215,18 @@ class EliminationManager(CacheController):
         deleted_hotkeys = set()
         # self.eliminations were just refreshed in process_eliminations
         any_challenege_period_changes = False
+        now_ms = TimeUtil.now_in_millis()
+        metagraph_hotkeys_set = set(self.metagraph.hotkeys)
         for x in self.eliminations:
             if self.shutdown_dict:
                 return
             hotkey = x['hotkey']
             elimination_initiated_time_ms = x['elimination_initiated_time_ms']
             # Don't delete this miner until it hits the minimum elimination time.
-            if TimeUtil.now_in_millis() - elimination_initiated_time_ms < ValiConfig.ELIMINATION_FILE_DELETION_DELAY_MS:
+            if now_ms - elimination_initiated_time_ms < ValiConfig.ELIMINATION_FILE_DELETION_DELAY_MS:
                 continue
             # We will not delete this miner's cache until it has been deregistered by BT
-            if hotkey in self.metagraph.hotkeys:
+            if hotkey in metagraph_hotkeys_set:
                 bt.logging.trace(f"miner [{hotkey}] has not been deregistered by BT yet. Not deleting miner dir.")
                 continue
 
@@ -238,18 +260,6 @@ class EliminationManager(CacheController):
         if deleted_hotkeys:
             self.delete_eliminations(deleted_hotkeys)
 
-        all_miners_dir = ValiBkpUtils.get_miner_dir(running_unit_tests=self.running_unit_tests)
-        for hotkey in CacheController.get_directory_names(all_miners_dir):
-            if self.shutdown_dict:
-                return
-            miner_dir = all_miners_dir + hotkey
-            if self.is_zombie_hotkey(hotkey):
-                try:
-                    shutil.rmtree(miner_dir)
-                    bt.logging.info(f"Zombie miner dir removed [{miner_dir}]")
-                except FileNotFoundError:
-                    bt.logging.info(f"Zombie miner dir not found. Already deleted. [{miner_dir}]")
-
     def save_eliminations(self):
         if not self.is_backtesting:
             self.write_eliminations_to_disk(self.eliminations)
@@ -279,8 +289,8 @@ class EliminationManager(CacheController):
         bt.logging.trace(f"Loaded [{len(cached_eliminations)}] eliminations from disk. Dir: {location}")
         return cached_eliminations
 
-    def append_elimination_row(self, hotkey, current_dd, mdd_failure, t_ms=None, price_info=None, return_info=None):
-        elimination_row = self.generate_elimination_row(hotkey, current_dd, mdd_failure, t_ms=t_ms,
+    def append_elimination_row(self, hotkey, current_dd, reason, t_ms=None, price_info=None, return_info=None):
+        elimination_row = self.generate_elimination_row(hotkey, current_dd, reason, t_ms=t_ms,
                                                         price_info=price_info, return_info=return_info)
         self.eliminations.append(elimination_row)
         self.eliminations[-1] = elimination_row  # ipc list does not update the object without using __setitem__
@@ -315,5 +325,26 @@ class EliminationManager(CacheController):
             miner_exceeds_mdd, drawdown_percentage = LedgerUtils.is_beyond_max_drawdown(ledger_element=ledger)
 
             if miner_exceeds_mdd:
-                self.append_elimination_row(miner_hotkey, drawdown_percentage, 'MAX_TOTAL_DRAWDOWN')
+                self.append_elimination_row(miner_hotkey, drawdown_percentage, EliminationReason.MAX_TOTAL_DRAWDOWN.value)
                 self.handle_eliminated_miner(miner_hotkey, {}, position_locks)
+
+    def handle_zombies(self, position_locks):
+        """
+        If a miner is no longer in the metagraph and an elimination does not exist for them, we create an elimination
+        row for them and add flat orders to their positions. If they have been a zombie for more than
+        ELIMINATION_FILE_DELETION_DELAY_MS, delete them
+        """
+        if self.shutdown_dict or self.is_backtesting:
+            return
+
+        all_miners_dir = ValiBkpUtils.get_miner_dir(running_unit_tests=self.running_unit_tests)
+        all_hotkeys_set = set(self.metagraph.hotkeys)
+
+        for hotkey in CacheController.get_directory_names(all_miners_dir):
+            corresponding_elimination = self.hotkey_in_eliminations(hotkey)
+            elimination_reason = corresponding_elimination.get('reason') if corresponding_elimination else None
+            if elimination_reason:
+                continue  # already an elimination and marked for deletion
+            elif self.is_zombie_hotkey(hotkey, all_hotkeys_set):
+                self.append_elimination_row(hotkey=hotkey, current_dd=None, reason=EliminationReason.ZOMBIE.value)
+                self.handle_eliminated_miner(hotkey, {}, position_locks)

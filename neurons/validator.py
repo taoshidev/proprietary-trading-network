@@ -378,8 +378,6 @@ class Validator:
                     False, candidate_data=self.position_syncer.read_validator_checkpoint_from_gcloud_zip())
 
 
-
-
     @staticmethod
     def blacklist_fn(synapse, metagraph) -> Tuple[bool, str]:
         miner_hotkey = synapse.dendrite.hotkey
