@@ -161,7 +161,7 @@ class EliminationManager(CacheController):
             return
 
 
-        bt.logging.info("running elimination manager")
+        bt.logging.info(f"running elimination manager. invalidation data {dict(self.position_manager.perf_ledger_manager.perf_ledger_hks_to_invalidate)}")
         self.handle_first_refresh(position_locks)
         self.handle_perf_ledger_eliminations(position_locks)
         self.handle_challenge_period_eliminations(position_locks)
