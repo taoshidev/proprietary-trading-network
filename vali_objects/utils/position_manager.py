@@ -640,8 +640,8 @@ class PositionManager(CacheController):
                     continue
                 if position.trade_pair in tps_to_eliminate:
                     price_sources = self.live_price_fetcher.get_sorted_price_sources_for_trade_pair(position.trade_pair, TARGET_MS)
-                    live_price = price_sources[0].parse_appropriate_price(TARGET_MS, position.trade_pair.is_forex, OrderType.FLAT, position)
-                    flat_order = Order(price=live_price,
+                    best_price_source = price_sources[0]
+                    flat_order = Order(price=best_price_source.parse_appropriate_price(TARGET_MS, position.trade_pair.is_forex, OrderType.FLAT, position),
                                        price_sources=price_sources,
                                        processed_ms=TARGET_MS,
                                        order_uuid=position.position_uuid[::-1],
@@ -649,8 +649,10 @@ class PositionManager(CacheController):
                                        trade_pair=position.trade_pair,
                                        order_type=OrderType.FLAT,
                                        leverage=0,
+                                       bid=best_price_source.bid,
+                                       ask=best_price_source.ask,
                                        src=ORDER_SRC_DEPRECATION_FLAT)
-
+                    flat_order.slippage = PriceSlippageModel.calculate_slippage(flat_order.bid, flat_order.ask, flat_order)
                     position.add_order(flat_order)
                     self.save_miner_position(position, delete_open_position_if_exists=True)
                     bt.logging.info(
