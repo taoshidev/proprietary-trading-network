@@ -17,6 +17,7 @@ from vali_objects.exceptions.corrupt_data_exception import ValiBkpCorruptDataExc
 from vali_objects.exceptions.vali_bkp_file_missing_exception import ValiFileMissingException
 from vali_objects.utils.live_price_fetcher import LivePriceFetcher
 from vali_objects.utils.positions_to_snap import positions_to_snap
+from vali_objects.utils.price_slippage_model import PriceSlippageModel
 from vali_objects.vali_config import TradePair
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.exceptions.vali_records_misalignment_exception import ValiRecordsMisalignmentException
@@ -331,6 +332,10 @@ class PositionManager(CacheController):
         miners_to_promote = []
         wipe_positions = False
         if now_ms < TARGET_MS:
+            # refresh and retroactively apply orderfill v3 and slippage to all orders
+            n_positions_updated = self.refresh_all_order_prices()
+            bt.logging.warning(f"Updated prices and slippage for {n_positions_updated} positions")
+
             # All miners that wanted their challenge period restarted
             miners_to_wipe = []# All miners that should have been promoted
             miners_to_promote = []
@@ -551,6 +556,51 @@ class PositionManager(CacheController):
         bt.logging.warning(
             f"Applied {n_corrections} order corrections out of {n_attempts} attempts. unique positions corrected: {len(unique_corrections)}")
 
+    def refresh_all_order_prices(self):
+        """
+        Refreshes price, bid, ask, and slippage for all orders in all positions.
+        """
+        if not self.live_price_fetcher:
+            self.live_price_fetcher = LivePriceFetcher(secrets=self.secrets, disable_ws=True)
+        hotkey_to_positions = self.get_positions_for_all_miners(sort_positions=True)
+        n_positions_updated = 0
+        n_orders_updated = 0
+        bt.logging.info("Beginning position and order price + slippage refresh")
+        for miner_hotkey, positions in hotkey_to_positions.items():
+            for position in positions:
+                position_updated = False
+                for order in position.orders:
+                    try:
+                        price_sources = self.live_price_fetcher.get_sorted_price_sources_for_trade_pair(trade_pair=order.trade_pair, time_ms=order.processed_ms)
+                        if price_sources:
+                            best_price_source = price_sources[0]
+
+                            old_price = order.price
+                            old_bid = order.bid
+                            old_ask = order.ask
+
+                            # Update price based on order type and trade pair
+                            order.price = best_price_source.parse_appropriate_price(order.processed_ms, order.trade_pair.is_forex, order.order_type, position)
+                            order.bid = best_price_source.bid
+                            order.ask = best_price_source.ask
+                            order.slippage = PriceSlippageModel.calculate_slippage(order.bid, order.ask, order)
+                            # Check if anything changed
+                            if (order.price != old_price or order.bid != old_bid or order.ask != old_ask):
+                                n_orders_updated += 1
+                                position_updated = True
+                                bt.logging.debug(f"Updated order {order.order_uuid}: price {old_price}->{order.price}, "
+                                                 f"bid {old_bid}->{order.bid}, ask {old_ask}->{order.ask}, "
+                                                 f"slippage: {order.slippage}")
+                    except Exception as e:
+                        bt.logging.error(
+                            f"Error refreshing prices for order {order.order_uuid} in position {position.position_uuid}: {e}")
+                # Rebuild position if any orders were updated
+                if position_updated:
+                    position.rebuild_position_with_updated_orders()
+                    self.save_miner_position(position, delete_open_position_if_exists=False)
+                    n_positions_updated += 1
+        bt.logging.info(f"Refreshed prices for {n_orders_updated} orders across {n_positions_updated} positions")
+        return n_positions_updated
 
     def enforce_position_state(self, position_that_should_exist_raw, trade_pair, miner_hotkey, unique_corrections, overwrite=False):
         position_that_should_exist_raw['trade_pair'] = trade_pair
