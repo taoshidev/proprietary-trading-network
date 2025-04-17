@@ -56,8 +56,7 @@ class PriceSlippageModel:
         size = abs(order.leverage) * capital
         if size <= 1000:
             return 0  # assume 0 slippage when order size is under 1k
-        if cls.is_backtesting:
-            cls.refresh_features_daily(order.processed_ms, write_to_disk=False)
+        cls.refresh_features_daily(order.processed_ms, write_to_disk=False)
 
         if trade_pair.is_equities:
             slippage_percentage = cls.calc_slippage_equities(bid, ask, order)
