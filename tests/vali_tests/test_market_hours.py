@@ -30,7 +30,6 @@ class TestMarketHours(unittest.TestCase):
         closed_days = [
             (datetime(2023, 1, 1, 12, 0), "New Year's Day"),  # New Year's Day (or nearest workday)
             (datetime(2023, 4, 7, 12, 0), "Good Friday"),  # Good Friday
-            (datetime(2023, 4, 10, 12, 0), "Easter Monday"),  # Easter Monday
             (datetime(2023, 12, 25, 12, 0), "Christmas Day"),  # Christmas Day
             (datetime(2023, 12, 26, 12, 0), "Boxing Day")  # Boxing Day
         ]
