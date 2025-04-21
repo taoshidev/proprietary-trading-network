@@ -16,7 +16,7 @@ pd.set_option('future.no_silent_downcasting', True)
 from pandas.tseries.holiday import USFederalHolidayCalendar  # noqa: E402
 
 import pandas_market_calendars as mcal  # noqa: E402
-from pandas.tseries.holiday import Holiday, nearest_workday, EasterMonday, GoodFriday  # noqa: E402
+from pandas.tseries.holiday import Holiday, nearest_workday, GoodFriday  # noqa: E402
 MS_IN_8_HOURS =  28800000
 MS_IN_24_HOURS = 86400000
 
@@ -28,7 +28,6 @@ class ForexHolidayCalendar(USFederalHolidayCalendar):
     rules = [
         Holiday("New Year's Day", month=1, day=1, observance=nearest_workday),
         GoodFriday,
-        EasterMonday,
         Holiday("Christmas Day", month=12, day=25, observance=nearest_workday),
         Holiday("Boxing Day", month=12, day=26, observance=nearest_workday)
     ]

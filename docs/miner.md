@@ -156,7 +156,6 @@ There are several enforced trading holidays where signals will not be processed.
 |---------------|--------------|-------|
 | New Years     | Jan 1        | Forex |
 | Good Friday   | Apr 18, 2025 | Forex |
-| Easter Monday | Apr 21, 2025 | Forex |
 | Christmas Day | Dec 25       | Forex |
 | Boxing Day    | Dec 26       | Forex |
 
