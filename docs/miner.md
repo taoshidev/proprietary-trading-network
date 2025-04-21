@@ -148,6 +148,20 @@ For example, if a miner is last place in the long term realized returns category
 
 We distribute using a [softmax function](https://docs.taoshi.io/tips/p11/), with a target of the top 40% of miners receiving 90% of emissions. The softmax function dynamically adjusts to the scores of miners, distributing more incentive to relatively high-performing miners.
 
+## Holidays
+
+There are several enforced trading holidays where signals will not be processed. These include:
+
+| Holiday       | Date         | Asset |
+|---------------|--------------|-------|
+| New Years     | Jan 1        | Forex |
+| Good Friday   | Apr 18, 2025 | Forex |
+| Easter Monday | Apr 21, 2025 | Forex |
+| Christmas Day | Dec 25       | Forex |
+| Boxing Day    | Dec 26       | Forex |
+
+Where a holiday falls on a weekend, it is observed on the nearest working day.
+
 # Easy Setup
 
 Here are platforms that allows you to trade on PTN with a simple interface or connect to an existing API. These facilitate trading so you can focus on building your strategy.
