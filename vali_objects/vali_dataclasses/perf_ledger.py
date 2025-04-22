@@ -621,9 +621,11 @@ class PerfLedgerManager(CacheController):
             tp_to_carry_fee[k] = 1.0
 
         n_open_positions = 0
-        # now_ms is sent as an argument when backtesting
-        if now_ms is None:
-            now_ms = TimeUtil.now_in_millis()
+
+        # Set now_ms to end_time_ms when backtesting for historical perf ledger generation
+        if self.is_backtesting:
+            now_ms = end_time_ms
+
         ledger_cutoff_ms = now_ms - perf_ledger_bundle[TP_ID_PORTFOLIO].target_ledger_window_ms
 
         n_positions = 0
@@ -1010,12 +1012,10 @@ class PerfLedgerManager(CacheController):
 
         if portfolio_pl.initialization_time_ms == end_time_ms:
             return False  # Can only build perf ledger between orders or after all orders have passed.
-        now_ms = None
-        if self.is_backtesting:
-            now_ms = end_time_ms
+
         # "Shortcut" All positions closed and one newly open position OR before the ledger lookback window.
         shortcut_reason, initial_tp_to_return, initial_tp_to_spread_fee, initial_tp_to_carry_fee = \
-            self._can_shortcut(tp_to_historical_positions, end_time_ms, realtime_position_to_pop, start_time_ms, perf_ledger_bundle, now_ms=now_ms)
+            self._can_shortcut(tp_to_historical_positions, end_time_ms, realtime_position_to_pop, start_time_ms, perf_ledger_bundle)
         if shortcut_reason != ShortcutReason.NO_SHORTCUT:
             for tp_id in tp_ids_to_build:
                 perf_ledger = perf_ledger_bundle[tp_id]
@@ -1573,7 +1573,7 @@ class PerfLedgerManager(CacheController):
 
     def update_one_perf_ledger_parallel(self, data_tuple):
         t0 = time.time()
-        hotkey_i, n_hotkeys, hotkey, positions, existing_bundle, now_ms = data_tuple
+        hotkey_i, n_hotkeys, hotkey, positions, existing_bundle, now_ms, is_backtesting = data_tuple
         from tests.shared_objects.mock_classes import MockMetagraph
         # Create a temporary manager for processing
         # This is to avoid sharing state between executors
@@ -1582,7 +1582,8 @@ class PerfLedgerManager(CacheController):
             parallel_mode=self.parallel_mode,
             secrets=self.secrets,
             build_portfolio_ledgers_only=self.build_portfolio_ledgers_only,
-            target_ledger_window_ms=self.target_ledger_window_ms
+            target_ledger_window_ms=self.target_ledger_window_ms,
+            is_backtesting=is_backtesting
         )
         last_update_time_ms = existing_bundle[TP_ID_PORTFOLIO].last_update_ms if existing_bundle else 0
         worker_plm.now_ms = now_ms
@@ -1600,7 +1601,8 @@ class PerfLedgerManager(CacheController):
     def update_perf_ledgers_parallel(self, spark, pool, hotkey_to_positions: dict[str, List[Position]],
                                      existing_perf_ledgers: dict[str, dict[str, PerfLedger]],
                                      parallel_mode = ParallelizationMode.PYSPARK,
-                                     now_ms: int = None, top_n_miners: int=None) -> dict[str, dict[str, PerfLedger]]:
+                                     now_ms: int = None, top_n_miners: int=None,
+                                     is_backtesting: bool = False) -> dict[str, dict[str, PerfLedger]]:
         """
         Update all perf ledgers in parallel using PySpark.
 
@@ -1624,7 +1626,7 @@ class PerfLedgerManager(CacheController):
         # Create a list of hotkeys with their positions for RDD
         hotkey_data = []
         for i, (hotkey, positions) in enumerate(hotkey_to_positions.items()):
-            hotkey_data.append((i, len(hotkey_to_positions), hotkey, positions, existing_perf_ledgers.get(hotkey), now_ms))
+            hotkey_data.append((i, len(hotkey_to_positions), hotkey, positions, existing_perf_ledgers.get(hotkey), now_ms, is_backtesting))
             if top_n_miners and i == top_n_miners - 1:
                 break
 
