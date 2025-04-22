@@ -609,7 +609,8 @@ class PerfLedgerManager(CacheController):
 
 
     def _can_shortcut(self, tp_to_historical_positions: dict[str: Position], end_time_ms: int,
-                      realtime_position_to_pop: Position | None, start_time_ms: int, perf_ledger_bundle: dict[str, PerfLedger]) -> (ShortcutReason, float, float, float):
+                      realtime_position_to_pop: Position | None, start_time_ms: int, perf_ledger_bundle: dict[str, PerfLedger],
+                      now_ms: int = None) -> (ShortcutReason, float, float, float):
 
         tp_to_return = {}
         tp_to_spread_fee = {}
@@ -620,7 +621,9 @@ class PerfLedgerManager(CacheController):
             tp_to_carry_fee[k] = 1.0
 
         n_open_positions = 0
-        now_ms = TimeUtil.now_in_millis()
+        # now_ms is sent as an argument when backtesting
+        if now_ms is None:
+            now_ms = TimeUtil.now_in_millis()
         ledger_cutoff_ms = now_ms - perf_ledger_bundle[TP_ID_PORTFOLIO].target_ledger_window_ms
 
         n_positions = 0
@@ -1007,10 +1010,12 @@ class PerfLedgerManager(CacheController):
 
         if portfolio_pl.initialization_time_ms == end_time_ms:
             return False  # Can only build perf ledger between orders or after all orders have passed.
-
+        now_ms = None
+        if self.is_backtesting:
+            now_ms = end_time_ms
         # "Shortcut" All positions closed and one newly open position OR before the ledger lookback window.
         shortcut_reason, initial_tp_to_return, initial_tp_to_spread_fee, initial_tp_to_carry_fee = \
-            self._can_shortcut(tp_to_historical_positions, end_time_ms, realtime_position_to_pop, start_time_ms, perf_ledger_bundle)
+            self._can_shortcut(tp_to_historical_positions, end_time_ms, realtime_position_to_pop, start_time_ms, perf_ledger_bundle, now_ms=now_ms)
         if shortcut_reason != ShortcutReason.NO_SHORTCUT:
             for tp_id in tp_ids_to_build:
                 perf_ledger = perf_ledger_bundle[tp_id]
