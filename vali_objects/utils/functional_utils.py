@@ -32,11 +32,7 @@ class FunctionalUtils:
         Returns:
             float - the sigmoid value scaled between min_val and max_val
         """
-        if spread == 0:
-            raise ValueError("The spread parameter must be different from 0")
-
-        exp_term = np.clip(spread * (x - shift), -100, 100)
-        sigmoid_value = 1 / (1 + np.exp(exp_term))
+        sigmoid_value = FunctionalUtils.sigmoid(x, shift, spread)
         scaled_value = min_val + sigmoid_value * (max_val - min_val)
 
         return float(np.clip(scaled_value, min_val, max_val))
