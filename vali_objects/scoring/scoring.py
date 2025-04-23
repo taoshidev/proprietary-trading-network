@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from enum import Enum, auto
 import math
 from typing import List, Tuple, Callable
+
 from vali_objects.position import Position
 import copy
 
@@ -17,6 +18,7 @@ from vali_objects.utils.position_filtering import PositionFiltering
 from vali_objects.utils.ledger_utils import LedgerUtils
 from vali_objects.utils.metrics import Metrics
 from vali_objects.utils.position_penalties import PositionPenalties
+from vali_objects.utils.functional_utils import FunctionalUtils
 
 import bittensor as bt
 
@@ -340,3 +342,24 @@ class Scoring:
         miner_percentiles = list(zip(miner_hotkeys, percentiles))
 
         return miner_percentiles
+
+    @staticmethod
+    def score_testing_miners(miner_scores: list[tuple[str, float]]) -> list[tuple[str, float]]:
+
+        # First apply sqrt(t) function to give miners with more time in the system higher scores
+        time_weighted_scores = Metrics.time_weighted_scores(miner_scores)
+
+        final_testing_weights = [] # (miner, weight)
+        for miner, weight in time_weighted_scores:
+            final_score = FunctionalUtils.augmented_sigmoid(
+                x=weight,
+                spread= ValiConfig.CHALLENGE_PERIOD_WEIGHT_SIGMOID_SPREAD,
+                shift= ValiConfig.CHALLENGE_PERIOD_WEIGHT_SIGMOID_SHIFT,
+                min_val=ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT,
+                max_val=ValiConfig.CHALLENGE_PERIOD_MAX_WEIGHT
+            )
+
+            final_testing_weights.append((miner, final_score))
+
+
+        return sorted(final_testing_weights, key=lambda x: x[1], reverse=True)

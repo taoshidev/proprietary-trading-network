@@ -133,7 +133,10 @@ class ValiConfig:
     DRAWDOWN_MINVALUE_PERCENTAGE = 0.5
 
     # Challenge period
-    CHALLENGE_PERIOD_WEIGHT = 1.2e-05  # essentially nothing
+    CHALLENGE_PERIOD_MIN_WEIGHT = 1.2e-05  # essentially nothing
+    CHALLENGE_PERIOD_MAX_WEIGHT = 1.2e-04
+    CHALLENGE_PERIOD_WEIGHT_SIGMOID_SHIFT = 0
+    CHALLENGE_PERIOD_WEIGHT_SIGMOID_SPREAD = 1
     CHALLENGE_PERIOD_MS = 90 * 24 * 60 * 60 * 1000  # 90 days
     CHALLENGE_PERIOD_PERCENTILE_THRESHOLD = 0.75 # miners must pass 75th percentile to enter the main competition
 
