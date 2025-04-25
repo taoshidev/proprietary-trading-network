@@ -625,6 +625,8 @@ class PerfLedgerManager(CacheController):
         # Set now_ms to end_time_ms when backtesting for historical perf ledger generation
         if self.is_backtesting:
             now_ms = end_time_ms
+        elif now_ms is None:
+            now_ms = TimeUtil.now_in_millis()
 
         ledger_cutoff_ms = now_ms - perf_ledger_bundle[TP_ID_PORTFOLIO].target_ledger_window_ms
 
