@@ -560,6 +560,11 @@ class PositionManager(CacheController):
         """
         Refreshes price, bid, ask, and slippage for all orders in all positions.
         """
+        # refresh and retroactively apply orderfill v3 and slippage to all orders
+        now_ms = TimeUtil.now_in_millis()
+        if now_ms > 1745996400000:  # April 30, 07:00:00 UTC
+            return
+
         if not self.live_price_fetcher:
             self.live_price_fetcher = LivePriceFetcher(secrets=self.secrets, disable_ws=True)
         hotkey_to_positions = self.get_positions_for_all_miners(sort_positions=True)
@@ -570,6 +575,8 @@ class PositionManager(CacheController):
             for position in positions:
                 position_updated = False
                 for order in position.orders:
+                    if order.processed_ms > 1741651200000:  # Orderfill V3 time: March 11, 00:00:00 UTC
+                        continue
                     try:
                         price_sources = self.live_price_fetcher.get_sorted_price_sources_for_trade_pair(trade_pair=order.trade_pair, time_ms=order.processed_ms)
                         if price_sources:
