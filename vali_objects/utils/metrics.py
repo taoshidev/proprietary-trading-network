@@ -367,7 +367,3 @@ class Metrics:
             time_weighted_scores.append((miner, weight * math.sqrt(miner_trading_days / LEDGER_WINDOW_DAYS)))
 
         return time_weighted_scores
-
-
-
-
