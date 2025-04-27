@@ -84,7 +84,7 @@ class SubtensorWeightSetter(CacheController):
             processed_checkpoint_results = checkpoint_results
 
             if scoring_challenge:
-                processed_checkpoint_results = Scoring.score_testing_miners(checkpoint_results)
+                processed_checkpoint_results = Scoring.score_testing_miners(filtered_ledger, checkpoint_results)
 
             checkpoint_netuid_weights = []
             for miner, score in processed_checkpoint_results:
