@@ -18,7 +18,6 @@ from vali_objects.utils.position_filtering import PositionFiltering
 from vali_objects.utils.ledger_utils import LedgerUtils
 from vali_objects.utils.metrics import Metrics
 from vali_objects.utils.position_penalties import PositionPenalties
-from vali_objects.utils.functional_utils import FunctionalUtils
 
 import bittensor as bt
 
