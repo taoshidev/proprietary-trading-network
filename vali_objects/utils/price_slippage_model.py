@@ -64,7 +64,7 @@ class PriceSlippageModel:
         elif trade_pair.is_forex:
             slippage_percentage = cls.calc_slippage_forex(bid, ask, order)
         elif trade_pair.is_crypto:
-            slippage_percentage = cls.calc_slippage_crypto(order)
+            slippage_percentage = cls.calc_slippage_crypto(bid, ask, order)
         else:
             raise ValueError(f"Invalid trade pair {trade_pair.trade_pair_id} to calculate slippage")
         return float(np.clip(slippage_percentage, 0.0, 0.03))
@@ -94,11 +94,7 @@ class PriceSlippageModel:
             intercept, c1, c2, c3 = (model_config[key] for key in ["intercept", "spread/price", "annualized_vol", f"{side}_order_size/adv"])
             slippage_pct = intercept + (c1 * spread / mid_price) + (c2 * annualized_volatility) + (c3 * volume_shares / avg_daily_volume)
         else:
-            # direct BB+ model for orders before
-            term1 = 0.433 * spread / mid_price
-            term2 = 0.335 * math.sqrt(annualized_volatility ** 2 / 3 / 250)
-            term3 = math.sqrt(volume_shares / (0.3 * avg_daily_volume))
-            slippage_pct = term1 + term2 * term3
+            slippage_pct = cls.compute_bbplus_model_slippage(bid, ask, order, volume_shares)
         return slippage_pct
 
     @classmethod
@@ -107,6 +103,26 @@ class PriceSlippageModel:
         Using the direct BB+ model as a stand-in for forex
         slippage percentage = 0.433 * spread/mid_price + 0.335 * sqrt(annualized_volatility**2 / 3 / 250) * sqrt(volume / (0.3 * estimated daily volume))
         """
+        size = abs(order.leverage) * ValiConfig.CAPITAL
+        base, _ = order.trade_pair.trade_pair.split("/")
+        base_to_usd_conversion = cls.live_price_fetcher.polygon_data_service.get_currency_conversion(base=base, quote="USD") if base != "USD" else 1  # TODO: fallback?
+        # print(base_to_usd_conversion)
+        volume_standard_lots = size / (100_000 * base_to_usd_conversion)  # Volume expressed in terms of standard lots (1 std lot = 100,000 base currency)
+        return cls.compute_bbplus_model_slippage(bid, ask, order, volume_standard_lots)
+
+    @classmethod
+    def calc_slippage_crypto(cls, bid:float, ask:float, order:Order) -> float:
+        """
+        Using the direct BB+ model for crypto slippage
+        slippage percentage = 0.433 * spread/mid_price + 0.335 * sqrt(annualized_volatility**2 / 3 / 250) * sqrt(volume / (0.3 * estimated daily volume))
+        """
+        mid_price = (bid + ask) / 2
+        size = abs(order.leverage) * ValiConfig.CAPITAL
+        volume_coins = size / mid_price
+        return cls.compute_bbplus_model_slippage(bid, ask, order, volume_coins)
+
+    @classmethod
+    def compute_bbplus_model_slippage(cls, bid:float, ask:float, order:Order, volume:float) -> float:
         order_date = TimeUtil.millis_to_short_date_str(order.processed_ms)
         annualized_volatility = cls.features[order_date]["vol"][order.trade_pair.trade_pair_id]
         avg_daily_volume = cls.features[order_date]["adv"][order.trade_pair.trade_pair_id]
@@ -115,32 +131,12 @@ class PriceSlippageModel:
 
         # bt.logging.info(f"bid: {bid}, ask: {ask}, adv: {avg_daily_volume}, vol: {annualized_volatility}")
 
-        size = abs(order.leverage) * ValiConfig.CAPITAL
-        base, _ = order.trade_pair.trade_pair.split("/")
-        base_to_usd_conversion = cls.live_price_fetcher.polygon_data_service.get_currency_conversion(base=base, quote="USD") if base != "USD" else 1  # TODO: fallback?
-        # print(base_to_usd_conversion)
-        volume_standard_lots = size / (100_000 * base_to_usd_conversion)  # Volume expressed in terms of standard lots (1 std lot = 100,000 base currency)
-
         term1 = 0.433 * spread / mid_price
         term2 = 0.335 * math.sqrt(annualized_volatility ** 2 / 3 / 250)
-        term3 = math.sqrt(volume_standard_lots / (0.3 * avg_daily_volume))
+        term3 = math.sqrt(volume / (0.3 * avg_daily_volume))
         slippage_pct = term1 + term2 * term3
         # bt.logging.info(f"slippage_pct: {slippage_pct}")
         return slippage_pct
-
-    @classmethod
-    def calc_slippage_crypto(cls, order:Order) -> float:
-        """
-        slippage values for crypto
-        """
-        trade_pair = order.trade_pair
-        if trade_pair in [TradePair.BTCUSD, TradePair.ETHUSD]:
-            return 0.00001
-        elif trade_pair in [TradePair.SOLUSD, TradePair.XRPUSD, TradePair.DOGEUSD]:
-            return 0.0001
-        else:
-            raise ValueError(f"Unknown crypto slippage for trade pair {trade_pair.trade_pair_id}")
-
 
     @classmethod
     def refresh_features_daily(cls, time_ms:int=None, write_to_disk:bool=True):
@@ -159,7 +155,7 @@ class PriceSlippageModel:
 
         bt.logging.info(
             f"Calculating avg daily volume and annualized volatility for new day UTC {current_date}")
-        trade_pairs = [tp for tp in TradePair if tp.is_forex or tp.is_equities]
+        trade_pairs = [tp for tp in TradePair if (tp.is_forex or tp.is_equities or tp.is_crypto)]
         tp_to_adv, tp_to_vol = cls.get_features(trade_pairs=trade_pairs, processed_ms=time_ms)
         if tp_to_adv and tp_to_vol:
             cls.features[current_date] = {
