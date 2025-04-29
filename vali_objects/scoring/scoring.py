@@ -4,7 +4,6 @@ from dataclasses import dataclass
 from enum import Enum, auto
 import math
 from typing import List, Tuple, Callable
-
 from vali_objects.position import Position
 import copy
 
