@@ -8,7 +8,7 @@ import requests
 from typing import List
 
 from vali_objects.vali_dataclasses.order import Order
-from polygon.websocket import Market, EquityAgg, EquityTrade, CryptoTrade, ForexQuote, WebSocketClient
+from polygon.websocket import Market, EquityAgg, EquityTrade, CryptoQuote, ForexQuote, WebSocketClient
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from data_generator.base_data_service import BaseDataService, POLYGON_PROVIDER_NAME
@@ -212,7 +212,7 @@ class PolygonDataService(BaseDataService):
         #    stats['t_vlp'] = t_ms
         return m.bid_price, m.ask_price, delta
 
-    def handle_msg(self, msgs: List[ForexQuote | CryptoTrade | EquityAgg | EquityTrade]):
+    def handle_msg(self, msgs: List[ForexQuote | CryptoQuote | EquityAgg | EquityTrade]):
         """
         received message: CurrencyAgg(event_type='CAS', pair='USD/CHF', open=0.91313, close=0.91317, high=0.91318,
         low=0.91313, volume=3, vwap=None, start_timestamp=1713273701000, end_timestamp=1713273702000,
@@ -256,12 +256,14 @@ class PolygonDataService(BaseDataService):
                 end_timestamp = None
                 open = close = vwap = high = low = m.price
             elif tp.is_crypto:
-                if m.exchange != self.crypto_mapping['coinbase']:
-                    #print(f"Skipping crypto trade from exchange {m.exchange} for {tp.trade_pair}")
+                if m.exchange_id != self.crypto_mapping['coinbase']:
+                    # print(f"Skipping crypto trade from exchange {m.exchange_id} for {tp.trade_pair}")
                     return None, None
+                bid = m.bid_price
+                ask = m.ask_price
                 start_timestamp = round(m.received_timestamp, -3) # round to nearest second which allows aggresssive filtering via dup logic
                 end_timestamp = None
-                open = close = vwap = high = low = m.price
+                open = close = vwap = high = low = bid
             else:
                 start_timestamp = m.start_timestamp
                 end_timestamp = m.end_timestamp - 1   # prioritize a new candle's open over a previous candle's close
@@ -315,7 +317,7 @@ class PolygonDataService(BaseDataService):
                 # print('received message:', m, type(m))
                 if isinstance(m, EquityAgg):
                     tp = self.symbol_to_trade_pair(m.symbol[2:])  # I:SPX -> SPX
-                elif isinstance(m, CryptoTrade):
+                elif isinstance(m, CryptoQuote):
                     tp = self.symbol_to_trade_pair(m.pair)
                 elif isinstance(m, ForexQuote):
                     tp = self.symbol_to_trade_pair(m.pair)
@@ -390,7 +392,7 @@ class PolygonDataService(BaseDataService):
             if tpc and tp.trade_pair_category != tpc:
                 continue
             if tp.is_crypto:
-                symbol = "XT." + tp.trade_pair.replace('/', '-')
+                symbol = "XQ." + tp.trade_pair.replace('/', '-')
                 self.WEBSOCKET_OBJECTS[TradePairCategory.CRYPTO].subscribe(symbol)
             elif tp.is_forex:
                 symbol = "C." + tp.trade_pair
@@ -501,7 +503,7 @@ class PolygonDataService(BaseDataService):
 
     def trade_pair_to_polygon_ticker(self, trade_pair: TradePair):
         if trade_pair.is_crypto:
-            return 'X:' + trade_pair.trade_pair_id
+            return 'X:' + trade_pair.trade_pair.replace('/', '-')
         elif trade_pair.is_forex:
             return 'C:' + trade_pair.trade_pair_id
         elif trade_pair.is_indices:
@@ -839,6 +841,9 @@ class PolygonDataService(BaseDataService):
             else:
                 raise Exception(f'Invalid timespan {timespan}')
             return ans
+        elif trade_pair.is_crypto and timespan == 'second':
+            ans, n = _get_filtered_forex_second_data()
+            return ans
         else:
             return _fetch_raw_polygon_aggs()
 
@@ -905,7 +910,7 @@ class PolygonDataService(BaseDataService):
         if self.POLYGON_CLIENT is None:
             self.instantiate_not_pickleable_objects()
 
-        if trade_pair.is_forex or trade_pair.is_equities:
+        if trade_pair.is_forex or trade_pair.is_equities or trade_pair.is_crypto:
             polygon_ticker = self.trade_pair_to_polygon_ticker(trade_pair)
             quotes = self.POLYGON_CLIENT.list_quotes(
                 ticker=polygon_ticker,
@@ -917,7 +922,6 @@ class PolygonDataService(BaseDataService):
             for q in quotes:
                 return q.bid_price, q.ask_price, int(q.participant_timestamp/1_000_000)  # convert ns back to ms
         else:
-            # crypto
             return 0, 0, 0
 
     def get_currency_conversion(self, trade_pair: TradePair=None, base: str=None, quote: str=None) -> float:
