@@ -170,7 +170,7 @@ class BacktestManager:
 
             # Run the parallel update
             updated_perf_ledgers = self.perf_ledger_manager.update_perf_ledgers_parallel(self.spark, self.pool,
-                 hotkey_to_positions, existing_perf_ledgers, parallel_mode=self.parallel_mode, now_ms=current_time_ms)
+                 hotkey_to_positions, existing_perf_ledgers, parallel_mode=self.parallel_mode, now_ms=current_time_ms, is_backtesting=True)
 
             PerfLedgerManager.print_bundles(updated_perf_ledgers)
         if run_challenge:
