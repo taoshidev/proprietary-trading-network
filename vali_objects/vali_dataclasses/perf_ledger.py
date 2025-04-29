@@ -609,8 +609,7 @@ class PerfLedgerManager(CacheController):
 
 
     def _can_shortcut(self, tp_to_historical_positions: dict[str: Position], end_time_ms: int,
-                      realtime_position_to_pop: Position | None, start_time_ms: int, perf_ledger_bundle: dict[str, PerfLedger],
-                      now_ms: int = None) -> (ShortcutReason, float, float, float):
+                      realtime_position_to_pop: Position | None, start_time_ms: int, perf_ledger_bundle: dict[str, PerfLedger]) -> (ShortcutReason, float, float, float):
 
         tp_to_return = {}
         tp_to_spread_fee = {}
@@ -625,7 +624,7 @@ class PerfLedgerManager(CacheController):
         # Set now_ms to end_time_ms when backtesting for historical perf ledger generation
         if self.is_backtesting:
             now_ms = end_time_ms
-        elif now_ms is None:
+        else:
             now_ms = TimeUtil.now_in_millis()
 
         ledger_cutoff_ms = now_ms - perf_ledger_bundle[TP_ID_PORTFOLIO].target_ledger_window_ms
