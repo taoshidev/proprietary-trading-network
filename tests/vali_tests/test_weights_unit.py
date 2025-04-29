@@ -5,7 +5,7 @@ from tests.vali_tests.base_objects.test_base import TestBase
 from vali_objects.scoring.scoring import Scoring
 from vali_objects.position import Position
 from vali_objects.enums.order_type_enum import OrderType
-from vali_objects.vali_config import TradePair
+from vali_objects.vali_config import TradePair, ValiConfig
 
 from tests.shared_objects.test_utilities import generate_ledger
 from vali_objects.vali_dataclasses.perf_ledger import TP_ID_PORTFOLIO
@@ -200,3 +200,61 @@ class TestWeights(TestBase):
         result = Scoring.softmax_scores(returns)
         values = [v[1] for v in result]
         self.assertAlmostEqual(sum(values), 1.0, places=3)
+
+    def test_challenge_scoring_no_values(self):
+
+        partial_window = ValiConfig.CHALLENGE_PERIOD_MS // 3
+        full_window = ValiConfig.CHALLENGE_PERIOD_MS
+
+        ledgers = {
+            "miner1": None,
+            "miner2": generate_ledger(gain=0.001, loss=0, end_time=partial_window)[TP_ID_PORTFOLIO],
+            "miner3": generate_ledger(gain=0.001, loss=0, end_time=full_window)[TP_ID_PORTFOLIO],
+        }
+        miner_scores = [("miner1", 0.1), ("miner2", 0.5), ("miner3", 0.49)]
+
+        # Test 1: Different combinations of bad input
+        self.assertEqual(len(Scoring.score_testing_miners({}, [])), 0)
+        self.assertEqual(len(Scoring.score_testing_miners({}, None)), 0)
+        self.assertEqual(len(Scoring.score_testing_miners({}, miner_scores)), 0)
+
+        self.assertEqual(len(Scoring.score_testing_miners(None, [])), 0)
+        self.assertEqual(len(Scoring.score_testing_miners(None, None)), 0)
+        self.assertEqual(len(Scoring.score_testing_miners(None, miner_scores)), 0)
+
+        self.assertEqual(len(Scoring.score_testing_miners(ledgers, [])), 0)
+        self.assertEqual(len(Scoring.score_testing_miners(ledgers, None)), 0)
+
+    def test_challenge_scoring_general(self):
+
+        partial_window = ValiConfig.CHALLENGE_PERIOD_MS // 3
+        full_window = ValiConfig.CHALLENGE_PERIOD_MS
+
+        ledgers = {
+            "miner1": None,
+            "miner2": generate_ledger(gain=0.001, loss=0, end_time=partial_window)[TP_ID_PORTFOLIO],
+            "miner3": generate_ledger(gain=0.001, loss=0, end_time=full_window)[TP_ID_PORTFOLIO],
+        }
+        miner_scores = [("miner1", 0.1), ("miner2", 0.5), ("miner3", 0.49)]
+
+        final_scores = dict(Scoring.score_testing_miners(ledgers, miner_scores))
+
+        self.assertEqual(len(final_scores), 3)
+
+        # No ledger should result in the minimum score
+        self.assertLess(final_scores["miner1"], final_scores["miner2"])
+        self.assertLess(final_scores["miner1"], final_scores["miner3"])
+
+        # Time weighting should make miner2 have a lower score
+        self.assertLess(final_scores["miner2"], final_scores["miner3"])
+
+        MIN_WEIGHT = ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT
+        MAX_WEIGHT = ValiConfig.CHALLENGE_PERIOD_MAX_WEIGHT
+
+        self.assertTrue(
+            all(MIN_WEIGHT <= weight <= MAX_WEIGHT for weight in final_scores.values()),
+            f"All scores must be between {MIN_WEIGHT} and {MAX_WEIGHT}"
+        )
+
+        self.assertEqual(final_scores["miner3"], MAX_WEIGHT)
+        self.assertEqual(final_scores["miner1"], MIN_WEIGHT)

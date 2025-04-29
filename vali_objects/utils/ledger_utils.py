@@ -354,3 +354,19 @@ class LedgerUtils:
             ledger_copy = PerfLedger.from_dict(ledger_copy)
 
         return ledger_copy
+
+    @staticmethod
+    def get_trading_days(ledger: PerfLedger) -> int:
+        """
+        Get the number of trading days for a ledger.
+        Args:
+            ledger: PerfLedger - the ledger of the miners
+        Returns:
+            int - the number of trading days
+        """
+
+        if ledger is None:
+            return 0
+        miner_returns = LedgerUtils.daily_return_log(ledger)
+
+        return len(miner_returns)

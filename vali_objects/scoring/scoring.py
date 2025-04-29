@@ -340,3 +340,35 @@ class Scoring:
         miner_percentiles = list(zip(miner_hotkeys, percentiles))
 
         return miner_percentiles
+
+    @staticmethod
+    def score_testing_miners(ledgers, miner_scores: list[tuple[str, float]]) -> list[tuple[str, float]]:
+        """
+        Applies time weighting and distributes challenge weights for prioritization
+        Args:
+            ledgers: list[tuple[str, float]] - the scores of the miners
+            miner_scores: list[tuple[str, float]] - the scores of the miners
+        Returns:
+            list[tuple[str, float]] - the final weights of the miners
+        """
+
+        MIN_WEIGHT = ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT
+        MAX_WEIGHT = ValiConfig.CHALLENGE_PERIOD_MAX_WEIGHT
+
+        if not ledgers or not miner_scores:
+            bt.logging.info(f"Ledgers: {ledgers} and miner scores: {miner_scores}, returning empty list")
+            return []
+
+        time_weighted = sorted(
+            Metrics.time_weighted_scores(ledgers, miner_scores),
+            key=lambda x: x[1],
+            reverse=True
+        )
+
+        num_miners = len(time_weighted)
+
+        distributed = np.linspace(MAX_WEIGHT, MIN_WEIGHT, num=num_miners)
+
+        final_scores = [(miner, float(score)) for (miner, _), score in zip(time_weighted, distributed)]
+
+        return sorted(final_scores, key=lambda x: x[1], reverse=True)

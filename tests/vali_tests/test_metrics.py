@@ -366,19 +366,3 @@ class TestMetrics(TestBase):
         
         # Max drawdown should be close to 50%
         self.assertAlmostEqual(mdd, 0.5, delta=0.02)
-
-    # def test_risk_free_adjustment(self):
-    #     """
-    #     adjust returns for risk free rate
-    #     """
-    #     mean_returns = []
-    #     self.assertLess(LedgerUtils.risk_free_adjustment(mean_returns), 0)
-    #     mean_returns = [0.1]
-    #     self.assertGreater(LedgerUtils.risk_free_adjustment(mean_returns), 0)
-    #     mean_returns = [0.1, 0.2]
-    #     self.assertGreater(LedgerUtils.risk_free_adjustment(mean_returns), 0)
-    #     mean_returns = [0.1, -0.2]
-    #     self.assertLess(LedgerUtils.risk_free_adjustment(mean_returns), 0)
-    #
-    #     mean_returns = [ValiConfig.ANNUAL_RISK_FREE_PERCENTAGE/252]
-    #     self.assertAlmostEqual(LedgerUtils.risk_free_adjustment(mean_returns), 0)

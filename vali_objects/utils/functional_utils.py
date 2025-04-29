@@ -18,3 +18,4 @@ class FunctionalUtils:
 
         exp_term = np.clip(spread * (x - shift), -100, 100)
         return float(np.clip(1 / (1 + np.exp(exp_term)), 0, 1))
+

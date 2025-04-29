@@ -342,3 +342,28 @@ class Metrics:
         downside_volatility = Metrics.ann_downside_volatility(log_returns, weighting=weighting)
 
         return float(excess_return / max(downside_volatility, min_downside))
+
+    @staticmethod
+    def time_weighted_scores(ledgers: dict[str, PerfLedger], miner_scores: list[str, float]):
+        """
+        Scales scores by the number of trading days each miner has
+        Args:
+            ledgers: list of daily ledgers
+            miner_scores: list of tuples as (hotkey, score)
+        """
+
+        time_weighted_scores = []
+        LEDGER_WINDOW_DAYS = ValiConfig.TARGET_LEDGER_WINDOW_DAYS
+        if LEDGER_WINDOW_DAYS <= 0:
+            return []
+
+        if not ledgers or not miner_scores:
+            return []
+
+        for miner, weight in miner_scores:
+
+            miner_ledger = ledgers.get(miner, None)
+            miner_trading_days = LedgerUtils.get_trading_days(miner_ledger)
+            time_weighted_scores.append((miner, weight * math.sqrt(miner_trading_days / LEDGER_WINDOW_DAYS)))
+
+        return time_weighted_scores

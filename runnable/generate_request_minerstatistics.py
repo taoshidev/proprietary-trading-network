@@ -455,10 +455,20 @@ class MinerStatisticsManager:
             weighting=final_results_weighting
         )  # returns list of (hotkey, weightVal)
 
-        # For testing miners, we might just give them a default "CHALLENGE_PERIOD_WEIGHT"
-        challengeperiod_scores = [
-            (hk, ValiConfig.CHALLENGE_PERIOD_WEIGHT) for hk in challengeperiod_testing_hotkeys
-        ]
+        # Only used for testing weight calculation
+        testing_ledger = self.perf_ledger_manager.filtered_ledger_for_scoring(challengeperiod_testing_hotkeys)
+        testing_positions, _ = self.position_manager.filtered_positions_for_scoring(challengeperiod_testing_hotkeys)
+
+        # Compute testing miner scores
+        testing_checkpoint_results = Scoring.compute_results_checkpoint(
+            testing_ledger,
+            testing_positions,
+            evaluation_time_ms=time_now,
+            verbose=False,
+            weighting=final_results_weighting
+        )
+
+        challengeperiod_scores = Scoring.score_testing_miners(testing_ledger, testing_checkpoint_results)
 
         # Combine them
         combined_weights_list = checkpoint_results + challengeperiod_scores
@@ -682,6 +692,6 @@ if __name__ == "__main__":
     )
     plagiarism_detector = PlagiarismDetector(None, None, position_manager=position_manager)
 
-    msm = MinerStatisticsManager(position_manager, perf_ledger_manager, subtensor_weight_setter, plagiarism_detector)
+    msm = MinerStatisticsManager(position_manager, subtensor_weight_setter, plagiarism_detector)
     msm.generate_request_minerstatistics(TimeUtil.now_in_millis(), True)
 
