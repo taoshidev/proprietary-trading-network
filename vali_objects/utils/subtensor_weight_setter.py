@@ -48,7 +48,10 @@ class SubtensorWeightSetter(CacheController):
             bt.logging.info("No returns to set weights with. Do nothing for now.")
             return [], []
 
-        challengeperiod_weights, _ = self._compute_miner_weights(testing_hotkeys, hotkey_to_idx, current_time, scoring_challenge=True)
+        if self.is_backtesting:
+            challengeperiod_weights = []
+        else:
+            challengeperiod_weights, _ = self._compute_miner_weights(testing_hotkeys, hotkey_to_idx, current_time, scoring_challenge=True)
 
         transformed_list = checkpoint_netuid_weights + challengeperiod_weights
         self.handle_block_reg_failures(transformed_list, target_dtao_block_zero_incentive_start, hotkey_registration_blocks, idx_to_hotkey, target_dtao_block_zero_incentive_end, block_reg_failures)
