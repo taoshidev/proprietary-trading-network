@@ -823,7 +823,10 @@ class PolygonDataService(BaseDataService):
             return ans
         elif trade_pair.is_crypto and timespan == 'second':
             ans, n = _get_filtered_forex_second_data()
-            return ans
+            if ans:
+                return ans
+            else:
+                return _fetch_raw_polygon_aggs()
         else:
             return _fetch_raw_polygon_aggs()
 
