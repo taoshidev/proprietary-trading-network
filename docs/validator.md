@@ -249,7 +249,9 @@ Subnet 8 uses a commit-reveal mechanism in mainnet for weight setting:
    - This will cause your validator to be unable to communicate with miners and thus have a low VTRUST
    - Explicitly open a TCP port and pass it with: `--axon.port <YOUR_OPEN_PORT>`
 
-6. **Generated Trade Data**: Details on how to sell the generated trade data via the Request Network will be provided when available
+6. **Generated Trade Data**: Reach out to the Taoshi team on how to sell the generated trade data via the Request Network
+
+7. **Port Issues**: When running a validator in certain cloud environments such as Runpod, you may not have your Bittensor default port open (8091). This will cause your validator to be unable to communicate with miners and thus have a low VTRUST as your validator isn't receiving the latest orders. In order to correct this issue, explicitly open a tcp port, and pass this as an arugment with `--axon.port <YOUR_OPEN_PORT>`
 
 ## Security Warnings
 
