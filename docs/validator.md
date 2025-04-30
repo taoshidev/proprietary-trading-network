@@ -198,7 +198,7 @@ pm2 stop sn8 ptn
 ```
 
 ### Relaunching with Different Configuration
-
+You will need to do this if you want to change any runtime configuration to run.sh such as adding or removing the `--start-generate`/ `--autosync` flags. Prepare your new `pm2 start run.sh ...` command before proceeding to minimize downtime.
 ```bash
 cd proprietary-trading-network/
 . venv/bin/activate
@@ -216,7 +216,7 @@ pm2 log
 
 ## Commit-Reveal and Emissions Timeline
 
-Subnet 8 uses a commit-reveal mechanism for weight setting:
+Subnet 8 uses a commit-reveal mechanism in mainnet for weight setting:
 
 - **What is Commit-Reveal?** Weights are set in two phases:
   1. **Commit Phase**: Publish a hashed version of your weights
