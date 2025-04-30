@@ -4,12 +4,17 @@ This guide details how to set up and run a Proprietary Trading Network (PTN) val
 
 ## Overview
 
+Your validator receives trade signals from miners and maintains a portfolio per miner with all their positions on disk in the `validation/miners` directory.
+
 Your validator:
-- Receives trade signals from miners and maintains their portfolios
-- Tracks portfolio performance using live price data
-- Eliminates miners exceeding drawdown limits
-- Detects and eliminates miners copying from the network
-- Sets weights every 5 minutes based on portfolio metrics such as omega score and return to reward the best performing miners
+- Tracks portfolio returns using live price information
+- Eliminates miners whose portfolio value declines beyond the drawdown limits
+- Detects & eliminates miners copying from the network by performing analysis on every order received
+- Maintains information on plagiarizing miners in `validation/miner_copying.json`
+- Records eliminated miners (due to drawdown limits or plagiarism) in `validation/eliminations.json`
+- Sets weights every 5 minutes based on portfolio metrics such as omega score and return to reward the best miners
+
+**Important Note**: Only registered non-eliminated miners can be given weights. Once eliminated, a miner can no longer send requests to validators until they are deregistered by the network and then re-register.
 
 ## Environment Options
 
@@ -20,6 +25,8 @@ Your validator:
 
 > **IMPORTANT**: We strongly recommend running on testnet first before registering on mainnet.
 
+> **DANGER**: Your incentive mechanisms running on the mainnet are open to anyone. They emit real TAO. Creating these mechanisms incur a lock_cost in TAO.
+
 ## System Requirements
 
 - **Hardware**: 4 vCPU + 16 GB memory with 1 TB balanced persistent disk
@@ -29,7 +36,7 @@ Your validator:
   - [Tiingo API](https://www.tiingo.com/) with "Commercial" ($50/month) subscription
   - [Polygon API](https://polygon.io/) with both "Currencies Starter" ($49/month) and "Stocks Advanced" (199/month) subscriptions
 
-> **IMPORTANT**: After subscribing to Polygon, complete the KYC questionnaire to enable realtime US equities prices.
+> **IMPORTANT**: After subscribing to Polygon, complete the KYC questionnaire to enable realtime US equities prices. Message a Taoshi team member ASAP if you need guidance with this step!
 
 ## Installation
 
@@ -96,7 +103,20 @@ btcli subnet register --wallet.name validator --wallet.hotkey default
 
 For testnet, add the flags: `--subtensor.network test --netuid 116`
 
-Follow the prompts to complete registration.
+Follow the prompts to complete registration:
+
+```bash
+>> Enter netuid (0): # Enter the appropriate netuid for your environment (8 for the mainnet)
+Your balance is: # Your wallet balance will be shown
+The cost to register by recycle is τ0.000000001 # Current registration costs
+>> Do you want to continue? [y/n] (n): # Enter y to continue
+>> Enter password to unlock key: # Enter your wallet password
+>> Recycle τ0.000000001 to register on subnet:8? [y/n]: # Enter y to register
+📡 Checking Balance...
+Balance:
+  τ5.000000000 ➡ τ4.999999999
+✅ Registered
+```
 
 ### 4. Verify Registration
 
@@ -105,6 +125,16 @@ btcli wallet overview --wallet.name validator
 ```
 
 For testnet, add: `--subtensor.network test`
+
+The above command will display:
+
+```bash
+Subnet: 8 # or 116 on testnet
+COLDKEY    HOTKEY   UID  ACTIVE  STAKE(τ)     RANK    TRUST  CONSENSUS  INCENTIVE  DIVIDENDS  EMISSION(ρ)   VTRUST  VPERMIT  UPDATED  AXON  HOTKEY_SS58
+validator  default  197    True   0.00000  0.00000  0.00000    0.00000    0.00000    0.00000            0  0.00000                56  none  5GKkQKmDLfsKaumnkD479RBoD5CsbN2yRbMpY88J8YeC5DT4
+1          1        1            τ0.00000  0.00000  0.00000    0.00000    0.00000    0.00000           ρ0  0.00000
+                                                                                Wallet balance: τ0.000999999
+```
 
 ## Running Your Validator
 
@@ -139,18 +169,28 @@ pm2 start run.sh --name sn8 -- --wallet.name validator --wallet.hotkey default -
 
 #### For Testnet:
 ```bash
-pm2 start run.sh --name sn8 -- --wallet.name validator --wallet.hotkey default --netuid 116 --subtensor.network test [--start-generate] [--autosync]
+pm2 start run.sh --name sn8 -- --wallet.name validator --wallet.hotkey default --netuid 116 --subtensor.network test [--start-generate]
 ```
 
 These commands initialize two PM2 processes:
 - Validator process (named `ptn`)
-- Auto-update process (named `sn8`) that checks for updates every 30 minutes
+- Auto-update process (named `sn8`) that checks for and applies updates every 30 minutes
 
 ### Manual Synchronization
 
 If you prefer not to use `--autosync` but need to synchronize your validator:
 1. Follow the [manual restore mechanism](https://github.com/taoshidev/proprietary-trading-network/blob/main/docs/regenerating_validator_state.md)
 2. This performs a "nuke and force rebuild" to synchronize with trusted validator data
+
+### Alternative Testing Method
+
+You can also test PTN on the testnet with a direct run command:
+
+```bash
+python neurons/validator.py --netuid 116 --subtensor.network test --wallet.name validator --wallet.hotkey default
+```
+
+Note this won't launch the autoupdater. To launch with the autoupdater, use the run.sh command.
 
 ### Stopping Your Validator
 
@@ -197,7 +237,7 @@ Subnet 8 uses a commit-reveal mechanism for weight setting:
 
 ## Common Pitfalls and Prevention
 
-1. **Rate Limiting**: Run a local subtensor to avoid rate limit issues on finney
+1. **Rate Limiting**: Run a local subtensor to avoid rate limit issues on finney that prevent weights from being set
    - [Subtensor installation guide](https://github.com/opentensor/subtensor)
 
 2. **Testnet Configuration**: Always include `--subtensor.network test` and `--netuid 116` for testnet
@@ -207,10 +247,11 @@ Subnet 8 uses a commit-reveal mechanism for weight setting:
 4. **API Key Sharing**: Do not share API keys across multiple validators/scripts
    - Each key allows only one websocket connection
 
-5. **Port Configuration**: In cloud environments (e.g., Runpod), explicitly open a TCP port and pass it with:
-   ```
-   --axon.port <YOUR_OPEN_PORT>
-   ```
+5. **Port Configuration**: In cloud environments (e.g., Runpod), you may not have your Bittensor default port open (8091)
+   - This will cause your validator to be unable to communicate with miners and thus have a low VTRUST
+   - Explicitly open a TCP port and pass it with: `--axon.port <YOUR_OPEN_PORT>`
+
+6. **Generated Trade Data**: Details on how to sell the generated trade data via the Request Network will be provided when available
 
 ## Security Warnings
 
