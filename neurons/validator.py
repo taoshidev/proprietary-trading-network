@@ -460,7 +460,7 @@ class Validator:
         bt.logging.warning("Stopping metagraph update...")
         self.metagraph_updater_thread.join()
         bt.logging.warning("Stopping live price fetcher...")
-        self.live_price_fetcher.stop_all_threads()
+        self.live_price_fetcher.cleanup_async_io()
         bt.logging.warning("Stopping perf ledger...")
         self.perf_ledger_updater_thread.join()
         bt.logging.warning("Stopping plagiarism detector...")

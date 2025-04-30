@@ -1,17 +1,15 @@
 import asyncio
-import threading
+import functools
 import traceback
-from multiprocessing import Process
 
 import requests
 
-from typing import List
+from typing import List, Dict, Any
 
 from vali_objects.vali_dataclasses.order import Order
 from polygon.websocket import Market, EquityAgg, EquityTrade, CryptoTrade, ForexQuote, WebSocketClient
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from data_generator.base_data_service import BaseDataService, POLYGON_PROVIDER_NAME
+from data_generator.base_data_service import BaseDataService, POLYGON_PROVIDER_NAME, exception_handler_decorator
 from time_util.time_util import TimeUtil
 from vali_objects.vali_config import TradePair, TradePairCategory
 import time
@@ -24,6 +22,19 @@ from vali_objects.vali_dataclasses.price_source import PriceSource
 from vali_objects.vali_dataclasses.recent_event_tracker import RecentEventTracker
 
 DEBUG = 0
+
+# Add a method to the WebSocketClient class to handle safe closing
+if not hasattr(WebSocketClient, 'close_connection'):
+    def close_connection(self):
+        self._running = False
+        if hasattr(self, '_ws') and self._ws:
+            try:
+                self._ws.close()
+            except Exception as e:
+                print(f"Error closing websocket connection: {e}")
+
+
+    WebSocketClient.close_connection = close_connection
 
 class Agg:
     """
@@ -151,10 +162,10 @@ class ExchangeMappingHelper:
             self.stock_mapping = self.stock_fallback_mapping
 
 
-
 class PolygonDataService(BaseDataService):
 
     def __init__(self, api_key, disable_ws=False, ipc_manager=None, is_backtesting=False):
+        bt.logging.enable_info()
         self.init_time = time.time()
         self._api_key = api_key
         ehm = ExchangeMappingHelper(api_key, fetch_live_mapping = not disable_ws)
@@ -170,27 +181,70 @@ class PolygonDataService(BaseDataService):
         self.MARKET_STATUS = None
         self.UNSUPPORTED_TRADE_PAIRS = (TradePair.SPX, TradePair.DJI, TradePair.NDX, TradePair.VIX, TradePair.FTSE, TradePair.GDAXI)
 
-        self.POLYGON_CLIENT = None  # Instantiate later to allow process to start (non picklable)
+        # Initialize REST client after ws creation to avoid pickling error
+        self.POLYGON_CLIENT = None
 
-        # Start thread to refresh market status
-        if disable_ws:
-            self.websocket_manager_thread = None
-        else:
-            if ipc_manager:
-                self.websocket_manager_thread = Process(target=self.websocket_manager, daemon=True)
-            else:
-                self.websocket_manager_thread = threading.Thread(target=self.websocket_manager, daemon=True)
-            self.websocket_manager_thread.start()
-            #time.sleep(3) # Let the websocket_manager_thread start
+        if not self.disable_ws:
+            self.start_ws_async()
 
-    def main_forex(self):
-        self.WEBSOCKET_OBJECTS[TradePairCategory.FOREX].run(self.handle_msg)
+    def instantiate_not_pickleable_objects(self):
+        self.POLYGON_CLIENT = RESTClient(api_key=self._api_key, num_pools=20)
 
-    def main_stocks(self):
-        self.WEBSOCKET_OBJECTS[TradePairCategory.EQUITIES].run(self.handle_msg)
+    async def _requests_get(self, url: str, **kwargs) -> requests.Response:
+        fn = functools.partial(requests.get, url, **kwargs)
+        return await asyncio.get_event_loop().run_in_executor(None, fn)
 
-    def main_crypto(self):
-        self.WEBSOCKET_OBJECTS[TradePairCategory.CRYPTO].run(self.handle_msg)
+    async def _close_create_websocket_objects(self, tpc: TradePairCategory):
+        # Close old
+        old_client = self.websocket_clients.get(tpc)
+        if old_client:
+            try:
+                # Don't use await here as the WebSocketClient's close might be using a different loop
+                # Instead use a synchronous approach or check the client's API
+                old_client.close_connection()  # Check if this method exists in your WebSocketClient
+            except Exception as e:
+                bt.logging.warning(f"Error closing WebSocket client: {e}")
+
+        # Re-create & subscribe
+        for cat in ([tpc] if tpc else TradePairCategory):
+            if cat == TradePairCategory.INDICES:
+                continue
+            market = {
+                TradePairCategory.EQUITIES: Market.Stocks,
+                TradePairCategory.FOREX: Market.Forex,
+                TradePairCategory.CRYPTO: Market.Crypto,
+            }[cat]
+            client = WebSocketClient(market=market, api_key=self._api_key)
+            self.websocket_clients[cat] = client
+            self.subscribe_websockets(cat)
+
+    async def main_stocks(self):
+        ws = self.websocket_clients[TradePairCategory.EQUITIES]
+        try:
+            # Run in executor to avoid loop conflicts
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(None, lambda: ws.run(self.handle_msg))
+        except Exception as e:
+            bt.logging.error(f"Error in stocks websocket: {e}")
+
+    async def main_forex(self):
+        ws = self.websocket_clients[TradePairCategory.FOREX]
+        try:
+            # Run in executor to avoid loop conflicts
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(None, lambda: ws.run(self.handle_msg))
+        except Exception as e:
+            bt.logging.error(f"Error in forex websocket: {e}")
+
+    async def main_crypto(self):
+        ws = self.websocket_clients[TradePairCategory.CRYPTO]
+        try:
+            # Run in executor to avoid loop conflicts
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(None, lambda: ws.run(self.handle_msg))
+        except Exception as e:
+            bt.logging.error(f"Error in crypto websocket: {e}")
+
 
     def parse_price_for_forex(self, m, stats=None, is_ws=False) -> (float, float, float):
         t_ms = m.timestamp if is_ws else m.participant_timestamp // 1000000
@@ -207,23 +261,11 @@ class PolygonDataService(BaseDataService):
                     bt.logging.warning(f"Ignoring unusual Forex price data bid: {m.bid_price:.4f}, ask: {m.ask_price:.4f}, "
                                    f"{delta:.4f} time {TimeUtil.millis_to_formatted_date_str(t_ms // 1000000)}")
             return None, None, None
-        #elif stats:
-        #    stats['lvp'] = midpoint_price
-        #    stats['t_vlp'] = t_ms
         return m.bid_price, m.ask_price, delta
 
     def handle_msg(self, msgs: List[ForexQuote | CryptoTrade | EquityAgg | EquityTrade]):
         """
-        received message: CurrencyAgg(event_type='CAS', pair='USD/CHF', open=0.91313, close=0.91317, high=0.91318,
-        low=0.91313, volume=3, vwap=None, start_timestamp=1713273701000, end_timestamp=1713273702000,
-         avg_trade_size=None) <class 'polygon.websocket.models.models.CurrencyAgg'>
-
-         CurrencyAgg(event_type='XAS', pair='ETH-USD', open=3084.37, close=3084.24, high=3084.37, low=3084.08,
-         volume=0.99917426, vwap=3084.1452, start_timestamp=1713273981000, end_timestamp=1713273982000, avg_trade_size=0)
-
-         CryptoTrade(event_type='XT', pair='SOL-USD', exchange=23, id='98a5b760-1884-475f-81e8-c215b74cc641',
-          price=236.51, size=0.02152625, conditions=[2], timestamp=1732107788615, received_timestamp=1732107788983),
-
+        Handle incoming websocket messages from Polygon
         """
         def msg_to_price_sources(m, tp):
             symbol = tp.trade_pair
@@ -234,7 +276,6 @@ class PolygonDataService(BaseDataService):
                 if bid is None:
                     return None, None
                 start_timestamp = m.timestamp
-                #print(f'Received forex message {symbol} price {new_price} time {TimeUtil.millis_to_formatted_date_str(start_timestamp)}')
                 end_timestamp = start_timestamp + 999
                 if symbol in self.trade_pair_to_recent_events and self.trade_pair_to_recent_events[symbol].timestamp_exists(start_timestamp):
                     buffer = self.trade_pair_to_recent_events_realtime if self.using_ipc else self.trade_pair_to_recent_events
@@ -246,10 +287,8 @@ class PolygonDataService(BaseDataService):
 
             elif tp.is_equities:
                 if m.exchange != self.equities_mapping['nasdaq']:
-                    #print(f"Skipping equity trade from exchange {m.exchange} for {tp.trade_pair}")
                     return None, None
                 if isinstance(m, EquityTrade) and isinstance(m.conditions, list) and 12 in m.conditions:
-                    #print(f"Skipping Polygon websocket trade with afterhours condition for {m}")
                     self.n_equity_events_skipped_afterhours += 1
                     return None, None
                 start_timestamp = round(m.timestamp, -3)  # round to nearest second which allows aggresssive filtering via dup logic
@@ -257,7 +296,6 @@ class PolygonDataService(BaseDataService):
                 open = close = vwap = high = low = m.price
             elif tp.is_crypto:
                 if m.exchange != self.crypto_mapping['coinbase']:
-                    #print(f"Skipping crypto trade from exchange {m.exchange} for {tp.trade_pair}")
                     return None, None
                 start_timestamp = round(m.received_timestamp, -3) # round to nearest second which allows aggresssive filtering via dup logic
                 end_timestamp = None
@@ -270,7 +308,6 @@ class PolygonDataService(BaseDataService):
                 vwap = m.vwap
                 high = m.high
                 low = m.low
-                #print(f'Received message {symbol} price {close} time {TimeUtil.millis_to_formatted_date_str(start_timestamp)}')
 
             now_ms = TimeUtil.now_in_millis()
             price_source1 = PriceSource(
@@ -311,8 +348,6 @@ class PolygonDataService(BaseDataService):
         try:
             m = None
             for m in msgs:
-                #bt.logging.info(f"Received price event: {m}")
-                # print('received message:', m, type(m))
                 if isinstance(m, EquityAgg):
                     tp = self.symbol_to_trade_pair(m.symbol[2:])  # I:SPX -> SPX
                 elif isinstance(m, CryptoTrade):
@@ -349,7 +384,7 @@ class PolygonDataService(BaseDataService):
 
                 if DEBUG:
                     formatted_time = TimeUtil.millis_to_formatted_date_str(TimeUtil.now_in_millis())
-                    self.trade_pair_to_price_history[tp].append((formatted_time, price))
+                    self.trade_pair_to_price_history[tp].append((formatted_time, ps1.close))
             if DEBUG:
                 print('last message:', m, 'n msgs total:', len(msgs))
                 history_size = sum(len(v) for v in self.trade_pair_to_price_history.values())
@@ -362,27 +397,6 @@ class PolygonDataService(BaseDataService):
             bt.logging.error(f"Failed to handle POLY websocket message with error: {e}, last message {m} "
                              f"type: {type(e).__name__}, traceback: {limited_traceback}")
 
-    def close_create_websocket_objects(self, tpc: TradePairCategory = None):
-        websockets_to_process = self.WEBSOCKET_OBJECTS if tpc is None else {tpc: self.WEBSOCKET_OBJECTS[tpc]}
-        for ws in websockets_to_process.values():
-            if isinstance(ws, WebSocketClient):
-                asyncio.run(ws.close())
-
-        for tpc, ws in websockets_to_process.items():
-            if tpc == TradePairCategory.EQUITIES:
-                market = Market.Stocks
-            elif tpc == TradePairCategory.FOREX:
-                market = Market.Forex
-            elif tpc == TradePairCategory.CRYPTO:
-                market = Market.Crypto
-            else:
-                raise ValueError(f"Unknown trade pair category: {tpc}")
-            self.WEBSOCKET_OBJECTS[tpc] = WebSocketClient(market=market, api_key=self._api_key)
-            self.subscribe_websockets(tpc=tpc)
-
-    def instantiate_not_pickleable_objects(self):
-        self.POLYGON_CLIENT = RESTClient(api_key=self._api_key, num_pools=20)
-
     def subscribe_websockets(self, tpc: TradePairCategory = None):
         for tp in TradePair:
             if tp in self.UNSUPPORTED_TRADE_PAIRS:
@@ -391,14 +405,16 @@ class PolygonDataService(BaseDataService):
                 continue
             if tp.is_crypto:
                 symbol = "XT." + tp.trade_pair.replace('/', '-')
-                self.WEBSOCKET_OBJECTS[TradePairCategory.CRYPTO].subscribe(symbol)
+                print('Poly subscribe:', symbol)
+                self.websocket_clients[TradePairCategory.CRYPTO].subscribe(symbol)
             elif tp.is_forex:
                 symbol = "C." + tp.trade_pair
-                self.WEBSOCKET_OBJECTS[TradePairCategory.FOREX].subscribe(symbol)
+                print('Poly subscribe:', symbol)
+                self.websocket_clients[TradePairCategory.FOREX].subscribe(symbol)
             elif tp.is_equities:
                 symbol = "T." + tp.trade_pair
-                print('subscribe:', symbol)
-                self.WEBSOCKET_OBJECTS[TradePairCategory.EQUITIES].subscribe(symbol)
+                print('Poly subscribe:', symbol)
+                self.websocket_clients[TradePairCategory.EQUITIES].subscribe(symbol)
             elif tp.is_indices:
                 continue
             else:
@@ -416,24 +432,22 @@ class PolygonDataService(BaseDataService):
             raise ValueError(f"Unknown symbol: {symbol}")
         return tp
 
-    def get_closes_rest(self, pairs: List[TradePair]) -> dict:
-        all_trade_pair_closes = {}
-        # Multi-threaded fetching of REST data over all requested trade pairs. Max parallelism is 5.
-        with ThreadPoolExecutor(max_workers=5) as executor:
-            # Dictionary to keep track of futures
-            future_to_trade_pair = {executor.submit(self.get_close_rest, p): p for p in pairs}
+    async def get_closes_rest(self, pairs: List[TradePair]) -> Dict[TradePair, Any]:
+        """
+        Synchronous wrapper for async implementation that runs tasks in parallel
+        """
+        tasks = [
+            asyncio.create_task(self.get_close_rest(tp))
+            for tp in pairs
+        ]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
 
-            for future in as_completed(future_to_trade_pair):
-                tp = future_to_trade_pair[future]
-                try:
-                    result = future.result()
-                    if result is None:
-                        result = {}
-                    all_trade_pair_closes[tp] = result
-                except Exception as exc:
-                    bt.logging.error(f"{tp} generated an exception: {exc}. Continuing...")
-                    bt.logging.error(traceback.format_exc())
-
+        all_trade_pair_closes: Dict[TradePair, Any] = {}
+        for tp, res in zip(pairs, results):
+            if isinstance(res, Exception):
+                bt.logging.error(f"{tp} generated an exception: {res}")
+            else:
+                all_trade_pair_closes[tp] = res if res is not None else {}
         return all_trade_pair_closes
 
     def agg_to_price_source(self, a, now_ms:int, timespan:str, attempting_prev_close:bool=False):
@@ -457,7 +471,8 @@ class PolygonDataService(BaseDataService):
                 ask=a.ask if hasattr(a, 'ask') else 0
             )
 
-    def get_close_rest(
+    @exception_handler_decorator()
+    async def get_close_rest(
         self,
         trade_pair: TradePair,
         timestamp_ms: int = None,
@@ -479,15 +494,9 @@ class PolygonDataService(BaseDataService):
         timespan = "second"
         raw = self.unified_candle_fetcher(trade_pair, timestamp_ms - 10000, timestamp_ms + 2000, timespan)
         for a in raw:
-            #print('agg:', a)
-            """
-                    agg Agg(open=111.91, high=111.91, low=111.902, close=111.909, volume=3, vwap=111.907,
-                    timestamp=1713273876000, transactions=3, otc=None)
-            """
             epoch_miliseconds = a.timestamp
             price_source = self.agg_to_price_source(a, timestamp_ms, timespan)
             assert prev_timestamp is None or prev_timestamp < epoch_miliseconds
-            #formatted_date = TimeUtil.millis_to_formatted_date_str(epoch_miliseconds // 1000)
             final_agg = price_source
             prev_timestamp = epoch_miliseconds
         if not final_agg:
@@ -564,130 +573,6 @@ class PolygonDataService(BaseDataService):
             bt.logging.info(f"Found stale TD websocket data for {trade_pair.trade_pair}. Lag_s: {lag_s} "
                             f"seconds. Max allowed lag for category: {max_allowed_lag_s} seconds. Ignoring this data.")
         return cur_event
-
-
-    def get_close_in_past_hour_fallback(self, trade_pair: TradePair, timestamp_ms: int):
-        polygon_ticker = self.trade_pair_to_polygon_ticker(trade_pair)  # noqa: F841
-
-        #if not self.is_market_open(trade_pair):
-        #    return self.get_event_before_market_close(trade_pair)
-
-        prev_timestamp = None
-        smallest_delta = None
-        corresponding_price = None
-        start_time = None
-        n_responses = 0
-        candle = None
-        timespan = "hour"
-
-        def try_updating_found_price(t, p):
-            nonlocal smallest_delta, corresponding_price, start_time, candle
-            time_delta_ms = abs(t - timestamp_ms)
-            if smallest_delta is None or time_delta_ms < smallest_delta:
-                smallest_delta = time_delta_ms
-                corresponding_price = p
-                start_time = epoch_miliseconds
-                candle = a
-
-        raw = self.unified_candle_fetcher(trade_pair, timestamp_ms - 1000 * 60 * 60 * 48, timestamp_ms + 1000 * 60 * 30, timespan)
-        for a in raw:
-            n_responses += 1
-            epoch_miliseconds = a.timestamp
-
-            try_updating_found_price(epoch_miliseconds, a.open)
-            try_updating_found_price(epoch_miliseconds + self.timespan_to_ms[timespan], a.close)
-
-            assert prev_timestamp is None or prev_timestamp < epoch_miliseconds
-            prev_timestamp = epoch_miliseconds
-
-        #print(f"hourly fallback smallest delta s: {smallest_delta / 1000 if smallest_delta else None}, input_timestamp: {timestamp_ms}, candle_start_time_ms: {start_time}, candle: {candle}, n_responses: {n_responses}")
-        return corresponding_price
-
-
-
-    def get_close_at_date_minute_fallback(self, trade_pair: TradePair, target_timestamp_ms: int) -> PriceSource | None:
-        polygon_ticker = self.trade_pair_to_polygon_ticker(trade_pair)  # noqa: F841
-
-        #if not self.is_market_open(trade_pair):
-        #    return self.get_event_before_market_close(trade_pair)
-
-        prev_timestamp = None
-        smallest_delta = None
-        corresponding_price_source = None
-        n_responses = 0
-        timespan = "minute"
-
-        def try_updating_found_price(t_ms, agg):
-            nonlocal smallest_delta, corresponding_price_source
-            time_delta_ms = abs(t_ms - target_timestamp_ms)
-            if smallest_delta is None or time_delta_ms <= smallest_delta:
-                smallest_delta = time_delta_ms
-                corresponding_price_source = self.agg_to_price_source(agg, target_timestamp_ms, timespan)
-
-        raw = self.unified_candle_fetcher(trade_pair,
-                                          target_timestamp_ms - 1000 * 60 * 2,
-                                          target_timestamp_ms + 1000 * 60 * 2, timespan)
-        for a in raw:
-            n_responses += 1
-            epoch_miliseconds = a.timestamp
-
-            try_updating_found_price(epoch_miliseconds, a)
-            try_updating_found_price(epoch_miliseconds + self.timespan_to_ms[timespan], a)
-
-            assert prev_timestamp is None or prev_timestamp < epoch_miliseconds
-            prev_timestamp = epoch_miliseconds
-
-        #print(f"minute fallback smallest delta ms: {smallest_delta}, input_timestamp: {timestamp_ms}, candle_start_time_ms: {start_time}, candle: {candle}, n_responses: {n_responses}")
-        return corresponding_price_source
-
-    def get_close_at_date_second(self, trade_pair: TradePair, target_timestamp_ms: int, order: Order = None) -> PriceSource | None:
-        prev_timestamp = None
-        smallest_delta = None
-        corresponding_price_source = None
-        n_responses = 0
-        timespan = "second"
-        def try_updating_found_price(t, agg):
-            nonlocal smallest_delta, corresponding_price_source, target_timestamp_ms
-            time_delta_ms = abs(t - target_timestamp_ms)
-            if smallest_delta is None or time_delta_ms <= smallest_delta:
-                #print('Updated best answer', time_delta_ms, smallest_delta, t, p)
-                smallest_delta = time_delta_ms
-                corresponding_price_source = self.agg_to_price_source(agg, target_timestamp_ms, timespan)
-
-        raw = self.unified_candle_fetcher(trade_pair, target_timestamp_ms - 1000 * 59, target_timestamp_ms + 1000 * 59, timespan)
-        for a in raw:
-            #print('agg', a, 'dt', target_timestamp_ms - a.timestamp, 'ms')
-            n_responses += 1
-            try_updating_found_price(a.timestamp, a)
-
-            assert prev_timestamp is None or prev_timestamp < a.timestamp, raw
-            prev_timestamp = a.timestamp
-
-        #print(f"smallest delta ms: {smallest_delta}, input_timestamp: {timestamp_ms}, candle_start_time_ms: {start_time}, candle: {candle}, n_responses: {n_responses}")
-        return corresponding_price_source
-
-
-    def get_candles(self, trade_pairs: List[TradePair], start_time_ms:int, end_time_ms:int):
-        # Dictionary to store the minimum prices for each trade pair
-        ret = {}
-
-        # Create a ThreadPoolExecutor with a maximum of 5 threads
-        with ThreadPoolExecutor(max_workers=5) as executor:
-            # Future objects dictionary to hold the ongoing computations
-            futures = {executor.submit(self.get_candles_for_trade_pair, tp, start_time_ms, end_time_ms): tp for tp in trade_pairs}
-
-            # Retrieve the results as they complete
-            for future in as_completed(futures):
-                trade_pair = futures[future]
-                try:
-                    # Collect the result from future
-                    result = future.result()
-                    ret[trade_pair] = result
-                except Exception as exc:
-                    print(f'{trade_pair} get_candles_for_trade_pair generated an exception: {exc}')
-
-        # Return the collected results
-        return ret
 
     def unified_candle_fetcher(self, trade_pair: TradePair, start_timestamp_ms: int, end_timestamp_ms: int, timespan: str=None):
 
@@ -947,8 +832,11 @@ if __name__ == "__main__":
     secrets = ValiUtils.get_secrets()
 
     polygon_data_provider = PolygonDataService(api_key=secrets['polygon_apikey'], disable_ws=True)
-    ans = polygon_data_provider.get_close_rest(TradePair.USDJPY, 1742577204000)
-    assert 0, ans
+
+    ans = asyncio.run(polygon_data_provider.get_close_rest(TradePair.USDJPY, 1742577204000))
+    print(ans)
+    #ans = asyncio.run(polygon_data_provider.get_closes_rest([TradePair.AUDCHF, TradePair.BTCUSD, TradePair.TSLA, TradePair.CADCHF]))
+    time.sleep(10000)
     for tp in TradePair:
         if tp.is_indices:
             continue

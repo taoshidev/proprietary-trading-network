@@ -1,12 +1,10 @@
-import threading
+import asyncio
 import traceback
 import json
 from datetime import timedelta
-from multiprocessing import Process
 
 import requests
-from typing import List
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import List, Optional, Dict
 from data_generator.base_data_service import BaseDataService, TIINGO_PROVIDER_NAME, exception_handler_decorator
 from time_util.time_util import TimeUtil
 from vali_objects.vali_config import TradePair, TradePairCategory
@@ -27,91 +25,103 @@ TIINGO_COINBASE_EXCHANGE_STR = 'gdax'
 class TiingoDataService(BaseDataService):
 
     def __init__(self, api_key, disable_ws=False, ipc_manager=None):
+
+        # preserve your existing fields
         self.init_time = time.time()
         self._api_key = api_key
         self.disable_ws = disable_ws
 
+        # call super to set up BaseDataService state
         super().__init__(provider_name=TIINGO_PROVIDER_NAME, ipc_manager=ipc_manager)
 
+        # your existing Tiingo-specific settings
         self.MARKET_STATUS = None
-        self.UNSUPPORTED_TRADE_PAIRS = (TradePair.SPX, TradePair.DJI, TradePair.NDX, TradePair.VIX, TradePair.FTSE, TradePair.GDAXI)
-
+        self.UNSUPPORTED_TRADE_PAIRS = (
+            TradePair.SPX, TradePair.DJI, TradePair.NDX,
+            TradePair.VIX, TradePair.FTSE, TradePair.GDAXI
+        )
         self.config = {'api_key': self._api_key, 'session': True}
-        self.TIINGO_CLIENT = None  # Instantiate the TiingoClient after process starts
+        # Initialize REST client after ws creation to avoid pickling error
+        self.TIINGO_CLIENT: Optional[TiingoClient] = None
 
         self.subscribe_message = {
             'eventName': 'subscribe',
             'authorization': self.config['api_key'],
-            #see https://api.tiingo.com/documentation/websockets/iex > Request for more info
-            'eventData': {
-                'thresholdLevel':5
-            }
+            'eventData': {'thresholdLevel': 5}
         }
 
-        # Start thread to refresh market status
-        if disable_ws:
-            self.websocket_manager_thread = None
-        else:
-            if ipc_manager:
-                self.websocket_manager_thread = Process(target=self.websocket_manager, daemon=True)
-            else:
-                self.websocket_manager_thread = threading.Thread(target=self.websocket_manager, daemon=True)
-            self.websocket_manager_thread.start()
-            #time.sleep(3) # Let the websocket_manager_thread start
+        if not self.disable_ws:
+            self.start_ws_async()
 
-    def instantiate_not_pickleable_objects(self):
+    async def instantiate_not_pickleable_objects(self):
         self.TIINGO_CLIENT = TiingoClient(self.config)
 
-    def run_pseudo_websocket(self, tpc: TradePairCategory):
+    async def _close_create_websocket_objects(self, tpc: TradePairCategory):
+        # No persistent socket to close
+        return
 
-        verbose = False
+    async def _run_pseudo_websocket(self, tpc: TradePairCategory):
+        # If websockets (pseudo-WS polling) disabled, exit immediately
+        if self.disable_ws:
+            return
+
         POLLING_INTERVAL_S = 5
+        verbose = False
+
+        # pick your universe
         if tpc == TradePairCategory.EQUITIES:
-            desired_trade_pairs = [x for x in TradePair if x.is_equities]
+            desired = [x for x in TradePair if x.is_equities]
         elif tpc == TradePairCategory.FOREX:
-            desired_trade_pairs = [x for x in TradePair if x.is_forex]
+            desired = [x for x in TradePair if x.is_forex]
         elif tpc == TradePairCategory.CRYPTO:
-            desired_trade_pairs = [x for x in TradePair if x.is_crypto]
+            desired = [x for x in TradePair if x.is_crypto]
         else:
-            raise ValueError(f'Unexpected trade pair category {tpc}')
+            raise ValueError(f"Unexpected trade pair category {tpc}")
 
-        last_poll_time = 0
-        iteration_number = 0
+        last_poll = 0.0
+        iteration = 0
+
         while True:
-            iteration_number += 1
-            current_time = time.time()
-            elapsed_time = current_time - last_poll_time
+            iteration += 1
+            now = time.time()
+            elapsed = now - last_poll
 
-            if elapsed_time < POLLING_INTERVAL_S:
-                time.sleep(1)
+            # throttle loop
+            if elapsed < POLLING_INTERVAL_S:
+                await asyncio.sleep(1)
                 continue
 
-            trade_pairs_to_query = [pair for pair in desired_trade_pairs if self.is_market_open(pair)]
-            last_poll_time = current_time
-            price_sources = self.get_closes_rest(trade_pairs_to_query, verbose=verbose)
+            # figure out who’s open
+            to_query = [p for p in desired if self.is_market_open(p)]
+            if not to_query:
+                # nothing to do right now
+                await asyncio.sleep(1)
+                continue
 
-            for trade_pair, price_source in price_sources.items():
-                price_source.websocket = True
-                self.tpc_to_n_events[trade_pair.trade_pair_category] += 1
-                self.process_ps_from_websocket(trade_pair, price_source)
+            last_poll = now
+
+            prices = await self.get_closes_rest(to_query, verbose=verbose)
+
+            # process exactly as before
+            for tp, ps in prices.items():
+                if ps is None:
+                    continue
+                ps.websocket = True
+                self.tpc_to_n_events[tp.trade_pair_category] += 1
+                self.process_ps_from_websocket(tp, ps)
 
             if verbose:
-                elapsed_since_last_poll = time.time() - current_time
-                # log the info on this thread
-                print(
-                    f"Pseudo websocket update took {elapsed_since_last_poll:.2f} seconds for tpc {tpc} "
-                    f"thread id: {threading.get_native_id()}. last_poll_time {last_poll_time} iteration_number {iteration_number}")
+                took = time.time() - now
+                print(f"[PseudoWS {tpc.name}] iteration={iteration} took {took:.2f}s")
 
+    async def main_stocks(self):
+        await self._run_pseudo_websocket(TradePairCategory.EQUITIES)
 
-    def main_forex(self):
-        #TiingoWebsocketClient(self.subscribe_message, endpoint="fx", on_msg_cb=self.handle_msg)
-        self.run_pseudo_websocket(TradePairCategory.FOREX)
-    def main_stocks(self):
-        #TiingoWebsocketClient(self.subscribe_message, endpoint="iex", on_msg_cb=self.handle_msg)
-        self.run_pseudo_websocket(TradePairCategory.EQUITIES)
-    def main_crypto(self):
-        #TiingoWebsocketClient(self.subscribe_message, endpoint="crypto", on_msg_cb=self.handle_msg)
-        self.run_pseudo_websocket(TradePairCategory.CRYPTO)
+    async def main_forex(self):
+        await self._run_pseudo_websocket(TradePairCategory.FOREX)
+
+    async def main_crypto(self):
+        await self._run_pseudo_websocket(TradePairCategory.CRYPTO)
 
     def handle_msg(self, msg):
         """
@@ -120,7 +130,7 @@ class TiingoDataService(BaseDataService):
          CurrencyAgg(event_type='XAS', pair='ETH-USD', open=3084.37, close=3084.24, high=3084.37, low=3084.08,
          volume=0.99917426, vwap=3084.1452, start_timestamp=1713273981000, end_timestamp=1713273982000, avg_trade_size=0)
         """
-        def msg_to_price_sources(m:dict, tp:TradePair) -> PriceSource | None:
+        def msg_to_price_sources(m: dict, tp: TradePair) -> PriceSource | None:
             symbol = tp.trade_pair
             data = m['data']
             bid_price = 0
@@ -130,9 +140,6 @@ class TiingoDataService(BaseDataService):
                 mode, ticker, date_str, bid_size, bid_price, mid_price, ask_size, ask_price = data
                 start_timestamp_orig = TimeUtil.parse_iso_to_ms(date_str)
                 start_timestamp = round(start_timestamp_orig, -3)  # round to nearest second which allows aggresssive filtering via dup logic
-                #print(tp.trade_pair, start_timestamp_orig, start_timestamp)
-                #print(f'Received forex message {symbol} price {new_price} time {TimeUtil.millis_to_formatted_date_str(start_timestamp)}')
-                #print(m, symbol in self.trade_pair_to_recent_events, self.trade_pair_to_recent_events[symbol].timestamp_exists(start_timestamp))
                 if self.using_ipc and symbol in self.trade_pair_to_recent_events_realtime and self.trade_pair_to_recent_events_realtime[symbol].timestamp_exists(start_timestamp):
                     self.trade_pair_to_recent_events_realtime[symbol].update_prices_for_median(start_timestamp, bid_price)
                     return None
@@ -154,7 +161,6 @@ class TiingoDataService(BaseDataService):
                 (mode, date_str, timestamp_ns, ticker, bid_size, bid_price, mid_price, ask_price, ask_size, last_price,
                  last_size, halted, after_hours, intermarket_sweep, oddlot, nms) = data
                 if mode != 'T':
-                    #print(f'Skipping equities trade due to non-T mode {m}')
                     return None
                 elif (after_hours and int(after_hours) == 1):
                     self.n_equity_events_skipped_afterhours += 1
@@ -203,14 +209,11 @@ class TiingoDataService(BaseDataService):
             elif msg['service'] == 'iex':
                 ptn_trade_pair_id = msg['data'][3].upper()
                 tp = TradePair.from_trade_pair_id(ptn_trade_pair_id)
-                #if tp:
-                #    print(msg)
             elif msg['service'] == 'crypto_data':
                 ptn_trade_pair_id = msg['data'][1].upper()
                 tiingo_exchange_str = msg['data'][3].lower()
                 tp = TradePair.from_trade_pair_id(ptn_trade_pair_id)
                 if tp and tiingo_exchange_str == TIINGO_COINBASE_EXCHANGE_STR and tp.is_crypto:  # gbpusd shows up in crypto feed
-                    #print(msg)
                     pass
                 else:
                     return
@@ -268,43 +271,47 @@ class TiingoDataService(BaseDataService):
             raise ValueError(f"Unknown symbol: {symbol}")
         return tp
 
-    def get_closes_rest(self, pairs: List[TradePair], verbose=False) -> dict[TradePair: PriceSource]:
+    async def get_closes_rest(
+        self,
+        pairs: List[TradePair],
+        verbose: bool = False
+    ) -> Dict[TradePair, PriceSource]:
+        """
+        Parallel async calls to get_closes_equities/crypto/forex.
+        """
+        # 1) Ensure the Tiingo client exists
+        if self.TIINGO_CLIENT is None:
+            await self.instantiate_not_pickleable_objects()
+
+        # 2) Partition by category
         tp_equities = [tp for tp in pairs if tp.trade_pair_category == TradePairCategory.EQUITIES]
-        tp_crypto = [tp for tp in pairs if tp.trade_pair_category == TradePairCategory.CRYPTO]
-        tp_forex = [tp for tp in pairs if tp.trade_pair_category == TradePairCategory.FOREX]
+        tp_crypto   = [tp for tp in pairs if tp.trade_pair_category == TradePairCategory.CRYPTO]
+        tp_forex    = [tp for tp in pairs if tp.trade_pair_category == TradePairCategory.FOREX]
 
-        # Jobs to parallelize
-        jobs = []
+        # 3) Schedule all three async fetchers
+        tasks = []
         if tp_equities:
-            jobs.append((self.get_closes_equities, tp_equities, verbose))
+            tasks.append(self.get_closes_equities(tp_equities, verbose))
         if tp_crypto:
-            jobs.append((self.get_closes_crypto, tp_crypto, verbose))
+            tasks.append(self.get_closes_crypto(tp_crypto, verbose))
         if tp_forex:
-            jobs.append((self.get_closes_forex, tp_forex, verbose))
+            tasks.append(self.get_closes_forex(tp_forex, verbose))
 
-        tp_to_price = {}
+        # 4) Run them in parallel
+        results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        if len(jobs) == 0:
-            return tp_to_price
-        elif len(jobs) == 1:
-            func, tp_list, verbose = jobs[0]
-            return func(tp_list, verbose)
-
-        # Use ThreadPoolExecutor for parallelization if there are multiple jobs
-        with ThreadPoolExecutor() as executor:
-            future_to_category = {
-                executor.submit(func, tp_list, verbose): func.__name__
-                for func, tp_list, verbose in jobs
-            }
-            for future in as_completed(future_to_category):
-                price_result = future.result()
-                if price_result:  # Only update if result is not None
-                    tp_to_price.update(price_result)
+        # 5) Merge dicts and log exceptions
+        tp_to_price: Dict[TradePair, PriceSource] = {}
+        for i, result in enumerate(results):
+            if isinstance(result, Exception):
+                bt.logging.error(f"get_closes_rest: task #{i} raised {result}")
+            else:
+                tp_to_price.update(result)
 
         return tp_to_price
 
     @exception_handler_decorator()
-    def get_closes_equities(self, trade_pairs: List[TradePair], verbose=False, target_time_ms=None) -> dict[TradePair: PriceSource]:
+    async def get_closes_equities(self, trade_pairs: List[TradePair], verbose=False, target_time_ms=None) -> dict[TradePair: PriceSource]:
         if target_time_ms:
             raise Exception('TODO')
         tp_to_price = {}
@@ -370,7 +377,7 @@ class TiingoDataService(BaseDataService):
         return start_day_formatted, end_day_formatted
 
     @exception_handler_decorator()
-    def get_closes_forex(self, trade_pairs: List[TradePair], verbose=False, target_time_ms=None) -> dict:
+    async def get_closes_forex(self, trade_pairs: List[TradePair], verbose=False, target_time_ms=None) -> dict:
 
         def tickers_to_tiingo_forex_url(tickers: List[str]) -> str:
             if target_time_ms:
@@ -461,7 +468,7 @@ class TiingoDataService(BaseDataService):
         return tp_to_price
 
     @exception_handler_decorator()
-    def get_closes_crypto(self, trade_pairs: List[TradePair], verbose=False, target_time_ms=None) -> dict:
+    async def get_closes_crypto(self, trade_pairs: List[TradePair], verbose=False, target_time_ms=None) -> dict:
         tp_to_price = {}
         if not trade_pairs:
             return tp_to_price
@@ -619,22 +626,30 @@ class TiingoDataService(BaseDataService):
         time_delta_formatted_2_decimals = round(time_delta_s, 2)
         print((tp.trade_pair_id, price_source, time_delta_formatted_2_decimals, timestamp, price, exchange, raw_data))
 
-    def get_close_rest(
-        self,
-        trade_pair: TradePair,
-        attempting_prev_close: bool = False,
-        target_time_ms: int | None = None) -> PriceSource | None:
-        if trade_pair.trade_pair_category == TradePairCategory.EQUITIES:
-            ans = self.get_closes_equities([trade_pair], target_time_ms=target_time_ms).get(trade_pair)
-        elif trade_pair.trade_pair_category == TradePairCategory.CRYPTO:
-            ans = self.get_closes_crypto([trade_pair], target_time_ms=target_time_ms).get(trade_pair)
-        elif trade_pair.trade_pair_category == TradePairCategory.FOREX:
-            ans = self.get_closes_forex([trade_pair], target_time_ms=target_time_ms).get(trade_pair)
-        else:
+    async def get_close_rest(
+            self,
+            trade_pair: TradePair,
+            attempting_prev_close: bool = False,
+            target_time_ms: int | None = None) -> PriceSource | None:
+
+        # Ensure Tiingo client is initialized
+        if self.TIINGO_CLIENT is None:
+            await self.instantiate_not_pickleable_objects()
+
+        # Use the correct getter based on trade pair category
+        category_getters = {
+            TradePairCategory.EQUITIES: self.get_closes_equities,
+            TradePairCategory.CRYPTO: self.get_closes_crypto,
+            TradePairCategory.FOREX: self.get_closes_forex
+        }
+
+        getter = category_getters.get(trade_pair.trade_pair_category)
+        if not getter:
             raise ValueError(f"Unknown trade pair category {trade_pair}")
 
-        return ans
-
+        # Use the appropriate getter to fetch the result
+        result = await getter([trade_pair], target_time_ms=target_time_ms)
+        return result.get(trade_pair)
 
     def trade_pair_to_tiingo_ticker(self, trade_pair: TradePair):
         return trade_pair.trade_pair_id.lower()
@@ -659,7 +674,13 @@ class TiingoDataService(BaseDataService):
 if __name__ == "__main__":
     secrets = ValiUtils.get_secrets()
     tds = TiingoDataService(api_key=secrets['tiingo_apikey'], disable_ws=False)
-    time.sleep(10000)
+    #time.sleep(1000)
+    tp_to_prices = asyncio.run(tds.get_closes_rest([TradePair.BTCUSD, TradePair.USDJPY, TradePair.NVDA], verbose=True))
+    time.sleep(1000000)
+    assert 0, {x.trade_pair_id: y for x, y in tp_to_prices.items()}
+
+
+    #time.sleep(10000)
     for trade_pair in TradePair:
         if not trade_pair.is_forex:
             continue
@@ -681,10 +702,6 @@ if __name__ == "__main__":
 
     # forex_price = client.get_(ticker='USDJPY')# startDate='2021-01-01', endDate='2021-01-02', frequency='daily')
     #tds = TiingoDataService(secrets['tiingo_apikey'], disable_ws=True)
-    tp_to_prices = tds.get_closes_rest([TradePair.BTCUSD, TradePair.USDJPY, TradePair.NVDA], verbose=True)
-
-    assert 0, {x.trade_pair_id: y for x, y in tp_to_prices.items()}
-
 
 
 
