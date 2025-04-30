@@ -256,7 +256,6 @@ Subnet 8 uses a commit-reveal mechanism in mainnet for weight setting:
 - **DO NOT** expose your private keys
 - **ONLY** use your testnet wallet for testing
 - **DO NOT** reuse passwords between mainnet and testnet
-- Ensure your incentive mechanism is resistant to abuse
 
 ## Additional Resources
 
