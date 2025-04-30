@@ -25,8 +25,6 @@ Your validator:
 
 > **IMPORTANT**: We strongly recommend running on testnet first before registering on mainnet.
 
-> **DANGER**: Your incentive mechanisms running on the mainnet are open to anyone. They emit real TAO. Creating these mechanisms incur a lock_cost in TAO.
-
 ## System Requirements
 
 - **Hardware**: 4 vCPU + 16 GB memory with 1 TB balanced persistent disk
