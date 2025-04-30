@@ -134,8 +134,7 @@ class BaseDataService():
             t0 = 0
         """Flush recent events to shared memory. Called every second"""
         # Flush the recent events to shared memory
-        for k in list(self.trade_pair_to_recent_events_realtime.keys()):
-            self.trade_pair_to_recent_events[k] = self.trade_pair_to_recent_events_realtime[k]
+        self.trade_pair_to_recent_events.update(self.trade_pair_to_recent_events_realtime)
 
         self.n_flushes += 1
         if t0:
