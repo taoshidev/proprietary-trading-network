@@ -1,3 +1,4 @@
+import asyncio
 import time
 from typing import List, Tuple, Dict
 
@@ -29,14 +30,9 @@ class LivePriceFetcher:
         else:
             raise Exception("Polygon API key not found in secrets.json")
 
-    def stop_all_threads(self):
-        if self.tiingo_data_service.websocket_manager_thread:
-            self.tiingo_data_service.websocket_manager_thread.join()
-        self.tiingo_data_service.stop_threads()
-
-        if self.polygon_data_service.websocket_manager_thread:
-            self.polygon_data_service.websocket_manager_thread.join()
-        self.polygon_data_service.stop_threads()
+    def cleanup_async_io(self):
+        self.tiingo_data_service.stop()
+        self.polygon_data_service.stop()
 
     def sorted_valid_price_sources(self, price_events: List[PriceSource | None], current_time_ms: int, filter_recent_only=True) -> List[PriceSource] | None:
         """
@@ -108,8 +104,8 @@ class LivePriceFetcher:
         if not trade_pairs_needing_rest_data:
             return results
 
-        rest_prices_polygon = self.polygon_data_service.get_closes_rest(trade_pairs_needing_rest_data)
-        rest_prices_tiingo_data = self.tiingo_data_service.get_closes_rest(trade_pairs_needing_rest_data)
+        rest_prices_polygon = asyncio.run(self.polygon_data_service.get_closes_rest(trade_pairs_needing_rest_data))
+        rest_prices_tiingo_data = asyncio.run(self.tiingo_data_service.get_closes_rest(trade_pairs_needing_rest_data))
 
         for trade_pair in trade_pairs_needing_rest_data:
             current_time_ms = trade_pair_to_last_order_time_ms[trade_pair]
@@ -140,10 +136,10 @@ class LivePriceFetcher:
 
         # Function to calculate bounds
         def calculate_bounds(prices):
-            median = np.median(prices)
+            m = np.median(prices)
             # Calculate bounds as 5% less than and more than the median
-            lower_bound = median * 0.95
-            upper_bound = median * 1.05
+            lower_bound = m * 0.95
+            upper_bound = m * 1.05
             return lower_bound, upper_bound
 
         # Calculate bounds for each price type
@@ -215,89 +211,13 @@ class LivePriceFetcher:
 
         return med_price, med_source
 
-    def get_candles(self, trade_pairs, start_time_ms, end_time_ms) -> dict:
-        ans = {}
-        debug = {}
-        one_second_rest_candles = self.polygon_data_service.get_candles(
-            trade_pairs=trade_pairs, start_time_ms=start_time_ms, end_time_ms=end_time_ms)
-
-        for tp in trade_pairs:
-            rest_candles = one_second_rest_candles.get(tp, [])
-            ws_candles = self.get_ws_price_sources_in_window(tp, start_time_ms, end_time_ms)
-            non_null_sources = list(set(rest_candles + ws_candles))
-            filtered_sources = self.filter_outliers(non_null_sources)
-            # Get the sources removed to debug
-            removed_sources = [x for x in non_null_sources if x not in filtered_sources]
-            ans[tp] = filtered_sources
-            min_time = min((x.start_ms for x in non_null_sources)) if non_null_sources else 0
-            max_time = max((x.end_ms for x in non_null_sources)) if non_null_sources else 0
-            debug[
-                tp.trade_pair] = f"R{len(rest_candles)}W{len(ws_candles)}U{len(non_null_sources)}T[{(max_time - min_time) / 1000.0:.2f}]"
-            if removed_sources:
-                mi = min((x.close for x in non_null_sources))
-                ma = max((x.close for x in non_null_sources))
-                debug[tp.trade_pair] += f" Removed {[x.close for x in removed_sources]} Original min/max {mi}/{ma}"
-
-        bt.logging.info(f"Fetched candles {debug} in window"
-                        f" {TimeUtil.millis_to_formatted_date_str(start_time_ms)} to "
-                        f"{TimeUtil.millis_to_formatted_date_str(end_time_ms)}")
-
-        # If Polygon has any missing keys, it is intentional and corresponds to a closed market. We don't want to use twelvedata for this TODO: fall back to live price from TD/POLY.
-        # if self.twelvedata_available and len(ans) == 0:
-        #    bt.logging.info(f"Fetching candles from TD for {[x.trade_pair for x in trade_pairs]} from {start_time_ms} to {end_time_ms}")
-        #    closes = self.twelve_data.get_closes(trade_pairs=trade_pairs)
-        #    ans.update(closes)
-        return ans
-
-    def get_close_at_date(self, trade_pair, timestamp_ms, order=None):
-        if self.is_backtesting:
-            assert order, 'Must provide order for validation during backtesting'
-
-        price_source = None
-        if not self.polygon_data_service.is_market_open(trade_pair):
-            if self.is_backtesting and order and order.src == 0:
-                raise Exception(f"Backtesting validation failure: Attempting to price fill during closed market. TP {trade_pair.trade_pair_id} at {TimeUtil.millis_to_formatted_date_str(timestamp_ms)}")
-            else:
-                price_source = self.polygon_data_service.get_event_before_market_close(trade_pair, end_time_ms=timestamp_ms)
-                print(f'Used previous close to fill price for {trade_pair.trade_pair_id} at {TimeUtil.millis_to_formatted_date_str(timestamp_ms)}')
-
-        if price_source is None:
-            price_source = self.polygon_data_service.get_close_at_date_second(trade_pair=trade_pair, target_timestamp_ms=timestamp_ms)
-        if price_source is None:
-            price_source = self.polygon_data_service.get_close_at_date_minute_fallback(trade_pair=trade_pair, target_timestamp_ms=timestamp_ms)
-            if price_source:
-                bt.logging.warning(
-                    f"Fell back to Polygon get_date_minute_fallback for price of {trade_pair.trade_pair} at {TimeUtil.timestamp_ms_to_eastern_time_str(timestamp_ms)}, price_source: {price_source}")
-
-        if price_source is None:
-            price_source = self.tiingo_data_service.get_close_rest(trade_pair=trade_pair, target_time_ms=timestamp_ms)
-            if price_source is not None:
-                bt.logging.warning(
-                    f"Fell back to Tiingo get_date for price of {trade_pair.trade_pair} at {TimeUtil.timestamp_ms_to_eastern_time_str(timestamp_ms)}, ms: {timestamp_ms}")
-
-
-        """
-        if price is None:
-            price, time_delta = self.polygon_data_service.get_close_in_past_hour_fallback(trade_pair=trade_pair,
-                                                                             timestamp_ms=timestamp_ms)
-            if price:
-                formatted_date = TimeUtil.timestamp_ms_to_eastern_time_str(timestamp_ms)
-                bt.logging.warning(
-                    f"Fell back to Polygon get_close_in_past_hour_fallback for price of {trade_pair.trade_pair} at {formatted_date}, ms: {timestamp_ms}")
-        if price is None:
-            formatted_date = TimeUtil.timestamp_ms_to_eastern_time_str(timestamp_ms)
-            bt.logging.error(
-                f"Failed to get data at ET date {formatted_date} for {trade_pair.trade_pair}. Timestamp ms: {timestamp_ms}."
-                f" Ask a team member to investigate this issue.")
-        """
-        return price_source
 
 
 if __name__ == "__main__":
     secrets = ValiUtils.get_secrets()
-    live_price_fetcher = LivePriceFetcher(secrets, disable_ws=True)
-    ans = live_price_fetcher.get_close_at_date(TradePair.USDJPY, 1733304060475)
-    assert 0, ans
+    live_price_fetcher = LivePriceFetcher(secrets, disable_ws=False)
+    time.sleep(100000)
+    assert 0
     time.sleep(100000)
     trade_pairs = [TradePair.BTCUSD, TradePair.ETHUSD, ]
     while True:
