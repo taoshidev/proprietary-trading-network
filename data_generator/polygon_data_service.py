@@ -220,30 +220,46 @@ class PolygonDataService(BaseDataService):
 
     async def main_stocks(self):
         ws = self.websocket_clients[TradePairCategory.EQUITIES]
-        try:
-            # Run in executor to avoid loop conflicts
-            loop = asyncio.get_event_loop()
-            await loop.run_in_executor(None, lambda: ws.run(self.handle_msg))
-        except Exception as e:
-            bt.logging.error(f"Error in stocks websocket: {e}")
+        while True:
+            try:
+                # Run in executor to avoid loop conflicts
+                loop = asyncio.get_event_loop()
+                await loop.run_in_executor(None, lambda: ws.run(self.handle_msg))
+            except Exception as e:
+                bt.logging.error(f"Error in stocks websocket: {e}")
+                bt.logging.error(f"traceback: {traceback.format_exc()}")
+            # Always attempt to reconnect after a brief delay
+            await asyncio.sleep(5)
 
     async def main_forex(self):
         ws = self.websocket_clients[TradePairCategory.FOREX]
-        try:
-            # Run in executor to avoid loop conflicts
-            loop = asyncio.get_event_loop()
-            await loop.run_in_executor(None, lambda: ws.run(self.handle_msg))
-        except Exception as e:
-            bt.logging.error(f"Error in forex websocket: {e}")
+        while True:
+            try:
+                # Run in executor to avoid loop conflicts
+                loop = asyncio.get_event_loop()
+                await loop.run_in_executor(None, lambda: ws.run(self.handle_msg))
+            except Exception as e:
+                bt.logging.error(f"Error in forex websocket: {e}")
+                bt.logging.error(f"traceback: {traceback.format_exc()}")
+
+            # Always attempt to reconnect after a brief delay
+            await asyncio.sleep(5)
 
     async def main_crypto(self):
         ws = self.websocket_clients[TradePairCategory.CRYPTO]
-        try:
-            # Run in executor to avoid loop conflicts
-            loop = asyncio.get_event_loop()
-            await loop.run_in_executor(None, lambda: ws.run(self.handle_msg))
-        except Exception as e:
-            bt.logging.error(f"Error in crypto websocket: {e}")
+        while True:
+            try:
+                # Run in executor to avoid loop conflicts
+                loop = asyncio.get_event_loop()
+                await loop.run_in_executor(None, lambda: ws.run(self.handle_msg))
+                # If we get here without exception, the WebSocket closed gracefully
+                bt.logging.warning(f"Polygon {TradePairCategory.CRYPTO} WebSocket closed gracefully, reconnecting...")
+            except Exception as e:
+                bt.logging.error(f"Error in crypto websocket: {e}, {traceback.format_exc()}")
+                bt.logging.error(f"traceback: {traceback.format_exc()}")
+
+            # Always attempt to reconnect after a brief delay
+            await asyncio.sleep(5)
 
 
     def parse_price_for_forex(self, m, stats=None, is_ws=False) -> (float, float, float):
