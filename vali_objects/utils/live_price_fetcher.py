@@ -2,7 +2,6 @@ import time
 from typing import List, Tuple, Dict
 
 import numpy as np
-
 from data_generator.tiingo_data_service import TiingoDataService
 from data_generator.polygon_data_service import PolygonDataService
 from time_util.time_util import TimeUtil, timeme
@@ -11,6 +10,7 @@ from vali_objects.vali_config import TradePair
 from vali_objects.position import Position
 from vali_objects.utils.vali_utils import ValiUtils
 import bittensor as bt
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 
 from vali_objects.vali_dataclasses.price_source import PriceSource
 from statistics import median
@@ -54,6 +54,31 @@ class LivePriceFetcher:
             return None
 
         return PriceSource.non_null_events_sorted(valid_events, current_time_ms)
+
+    def dual_rest_get(
+            self,
+            trade_pairs: List[TradePair]
+    ) -> Tuple[Dict[TradePair, PriceSource], Dict[TradePair, PriceSource]]:
+        """
+        Fetch REST closes from both Polygon and Tiingo in parallel,
+        using ThreadPoolExecutor to run both calls concurrently.
+        """
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            # Submit both REST calls to the executor
+            poly_fut = executor.submit(self.polygon_data_service.get_closes_rest, trade_pairs)
+            tiingo_fut = executor.submit(self.tiingo_data_service.get_closes_rest, trade_pairs)
+
+            try:
+                # Wait for both futures to complete with a 10s timeout
+                polygon_results = poly_fut.result(timeout=10)
+                tiingo_results = tiingo_fut.result(timeout=10)
+            except FuturesTimeoutError:
+                poly_fut.cancel()
+                tiingo_fut.cancel()
+                raise TimeoutError("dual_rest_get REST API requests timed out")
+
+        return polygon_results, tiingo_results
 
     def get_ws_price_sources_in_window(self, trade_pair: TradePair, start_ms: int, end_ms: int) -> List[PriceSource]:
         # Utilize get_events_in_range
@@ -108,8 +133,7 @@ class LivePriceFetcher:
         if not trade_pairs_needing_rest_data:
             return results
 
-        rest_prices_polygon = self.polygon_data_service.get_closes_rest(trade_pairs_needing_rest_data)
-        rest_prices_tiingo_data = self.tiingo_data_service.get_closes_rest(trade_pairs_needing_rest_data)
+        rest_prices_polygon, rest_prices_tiingo_data = self.dual_rest_get(trade_pairs_needing_rest_data)
 
         for trade_pair in trade_pairs_needing_rest_data:
             current_time_ms = trade_pair_to_last_order_time_ms[trade_pair]
