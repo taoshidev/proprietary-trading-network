@@ -48,7 +48,7 @@ class LivePriceFetcher:
         if not best_event:
             return None
 
-        if filter_recent_only and best_event.time_delta_from_now_ms(current_time_ms) > 3000:
+        if filter_recent_only and best_event.time_delta_from_now_ms(current_time_ms) > 5000:
             return None
 
         return PriceSource.non_null_events_sorted(valid_events, current_time_ms)
