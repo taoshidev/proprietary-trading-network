@@ -197,41 +197,51 @@ class BaseDataService():
 
             await asyncio.sleep(1)
 
+    async def _close_websocket_safely(self, client):
+        raise NotImplementedError("Subclasses must implement _close_websocket_safely")
+
     async def _restart_ws_task(self, tpc: TradePairCategory):
         """
-        Gracefully tear down and restart the WS runner for `tpc`.
+        Gracefully tear down and restart the WS runner for `tpc`,
+        ensuring no leftover tasks or sockets linger.
         """
-        # Step 1) Cancel & await the old asyncio Task first
-        old_task = self.websocket_tasks.get(tpc)
+        # — Step 1) Cancel & await the old asyncio runner task —
+        old_task = self.websocket_tasks.pop(tpc, None)
         if old_task:
             old_task.cancel()
             try:
                 await old_task
-            except (asyncio.CancelledError, RuntimeError) as e:
-                bt.logging.warning(f"Cancellation of old task for {tpc}: {e}")
-                pass
+            except asyncio.CancelledError:
+                bt.logging.info(f"Old runner for {tpc.name} cancelled cleanly")
+            except Exception as e:
+                bt.logging.warning(f"Error awaiting cancellation of {tpc.name} runner: {e}")
 
-        # Step 2) Close the old Polygon client
-        old_client = self.websocket_clients.get(tpc)
+        # — Reset monitoring/backoff state so we start fresh —
+        state = self.ws_state.get(tpc, {})
+        state["monitoring_task"]    = False
+        state["reconnect_attempts"]  = 0
+        state["last_activity"]      = time.time()
+
+        # — Step 2) Close the old WebSocketClient safely —
+        old_client = self.websocket_clients.pop(tpc, None)
         if old_client:
             try:
-                # Use a non-awaitable method if available
-                if hasattr(old_client, 'close_connection'):
-                    old_client.close_connection()
-                elif hasattr(old_client, 'close'):
-                    # Try running synchronously to avoid loop conflicts
-                    try:
-                        old_client.close()
-                    except Exception as e:
-                        bt.logging.warning(f"{self.provider_name} {tpc.name} error closing old client: {e}")
+                # Use your helper which tries both async close() and .close_connection()
+                await self._close_websocket_safely(old_client)
+                bt.logging.info(f"Closed old websocket client for {tpc.name}")
             except Exception as e:
-                bt.logging.warning(f"{self.provider_name} {tpc.name} error closing old client: {e}")
+                bt.logging.warning(f"Error closing old client for {tpc.name}: {e}")
 
-        # Step 3) Recreate client using a method that handles creating clients properly
+        # — Give the event loop a quick breather to process cancellations —
+        await asyncio.sleep(0.05)
+
+        # — Step 3) Recreate the client object and subscriptions for this category only —
         await self._close_create_websocket_objects(tpc)
 
-        # Step 4) Start one new runner task for this category
+        # — Step 4) Launch a brand-new runner task for this category —
         self.websocket_tasks[tpc] = self._loop.create_task(self._run_category(tpc))
+        bt.logging.info(f"Restarted websocket runner for {tpc.name}")
+
 
     async def _run_category(self, tpc):
         while True:

@@ -225,8 +225,7 @@ class PolygonDataService(BaseDataService):
             elif hasattr(client, '_ws') and client._ws:
                 client._ws.close()
         except Exception as e:
-            bt.logging.warning(f"Error during websocket close: {e}")
-            # Continue anyway - we're cleaning up
+            raise e
 
     async def _close_create_websocket_objects(self, tpc: TradePairCategory):
         """Close old websocket and create a new one for a specific category only"""

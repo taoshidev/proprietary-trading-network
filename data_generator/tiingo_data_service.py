@@ -60,6 +60,9 @@ class TiingoDataService(BaseDataService):
         # No persistent socket to close
         return
 
+    async def _close_websocket_safely(self, client):
+        return
+
     async def _run_pseudo_websocket(self, tpc: TradePairCategory):
         """Run pseudo-websocket polling with proper state tracking"""
         # If websockets (pseudo-WS polling) disabled, exit immediately
