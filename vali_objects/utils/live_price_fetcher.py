@@ -12,7 +12,8 @@ from vali_objects.vali_config import TradePair
 from vali_objects.position import Position
 from vali_objects.utils.vali_utils import ValiUtils
 import bittensor as bt
-from concurrent.futures import TimeoutError as FutureTimeout
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
+
 
 from vali_objects.vali_dataclasses.price_source import PriceSource
 from statistics import median
@@ -119,42 +120,35 @@ class LivePriceFetcher:
 
         return results
 
-    import asyncio
-    from concurrent.futures import TimeoutError as FutureTimeout
-
     def dual_rest_get(
             self,
-            trade_pairs_needing_rest_data: List[TradePair]
+            trade_pairs: List[TradePair]
     ) -> Tuple[Dict[TradePair, PriceSource], Dict[TradePair, PriceSource]]:
         """
-        Fetch REST closes from both Polygon and Tiingo in parallel.
-        Works whether or not we're already on an asyncio loop.
+        Fetch REST closes from both Polygon and Tiingo in parallel,
+        on a dedicated thread+event-loop (no impact to your main loop).
         """
 
-        # Build a *new* coroutine each call, so it's always bound to the loop we actually run it on:
-        async def _runner():
-            return await asyncio.gather(
-                self.polygon_data_service.get_closes_rest(trade_pairs_needing_rest_data),
-                self.tiingo_data_service.get_closes_rest(trade_pairs_needing_rest_data),
-            )
-
-        # See if there's a loop running on this thread right now
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            loop = None
-
-        if loop and loop.is_running():
-            # Inject into the existing loop and block on its Future
-            future = asyncio.run_coroutine_threadsafe(_runner(), loop)
+        def _worker() -> Tuple[Dict[TradePair, PriceSource], Dict[TradePair, PriceSource]]:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
             try:
-                return future.result(timeout=10)
+                return loop.run_until_complete(asyncio.gather(
+                    self.polygon_data_service.get_closes_rest(trade_pairs),
+                    self.tiingo_data_service.get_closes_rest(trade_pairs),
+                ))
+            finally:
+                loop.close()
+
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            fut = executor.submit(_worker)
+            try:
+                polygon_results, tiingo_results = fut.result(timeout=10)
             except FutureTimeout:
-                future.cancel()
+                fut.cancel()
                 raise TimeoutError("REST API requests timed out")
-        else:
-            # Safe to create our own loop; asyncio.run() expects a coroutine, and _runner() is one
-            return asyncio.run(_runner())
+
+        return polygon_results, tiingo_results
 
     def time_since_last_ws_ping_s(self, trade_pair: TradePair) -> float | None:
         if trade_pair in self.polygon_data_service.UNSUPPORTED_TRADE_PAIRS:
