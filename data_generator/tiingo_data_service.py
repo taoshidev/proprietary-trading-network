@@ -24,6 +24,16 @@ from vali_objects.vali_dataclasses.recent_event_tracker import RecentEventTracke
 DEBUG = 0
 TIINGO_COINBASE_EXCHANGE_STR = 'gdax'
 
+class _TiingoPseudoClient:
+    def __init__(self, service, category):
+        self._svc = service
+        self._cat = category
+
+    def run(self, handle_msg):
+        # This will block forever, polling & calling handle_msg
+        self._svc.run_pseudo_websocket(self._cat)
+
+
 class TiingoDataService(BaseDataService):
 
     def __init__(self, api_key, disable_ws=False, ipc_manager=None):
@@ -58,6 +68,21 @@ class TiingoDataService(BaseDataService):
                 self.websocket_manager_thread = threading.Thread(target=self.websocket_manager, daemon=True)
             self.websocket_manager_thread.start()
             #time.sleep(3) # Let the websocket_manager_thread start
+
+    def close_create_websocket_for_category(self, tpc: TradePairCategory):
+        """
+        For Tiingo we never actually tear down the polling thread, so this
+        can just log and move on.
+        """
+        bt.logging.info(f"{self.provider_name} detected stale data for {tpc}, but polling loop remains alive.")
+
+    def _create_and_subscribe(self, tpc: TradePairCategory):
+        if self.TIINGO_CLIENT is None:
+            self.instantiate_not_pickleable_objects()
+        # register a fake client with a .run(handle_msg) entrypoint
+        client = _TiingoPseudoClient(self, tpc)
+        self.WEBSOCKET_OBJECTS[tpc] = client
+        bt.logging.info(f"{self.provider_name} pseudo‐subscribed for category {tpc}")
 
     def instantiate_not_pickleable_objects(self):
         self.TIINGO_CLIENT = TiingoClient(self.config)
@@ -101,17 +126,6 @@ class TiingoDataService(BaseDataService):
                 print(
                     f"Pseudo websocket update took {elapsed_since_last_poll:.2f} seconds for tpc {tpc} "
                     f"thread id: {threading.get_native_id()}. last_poll_time {last_poll_time} iteration_number {iteration_number}")
-
-
-    def main_forex(self):
-        #TiingoWebsocketClient(self.subscribe_message, endpoint="fx", on_msg_cb=self.handle_msg)
-        self.run_pseudo_websocket(TradePairCategory.FOREX)
-    def main_stocks(self):
-        #TiingoWebsocketClient(self.subscribe_message, endpoint="iex", on_msg_cb=self.handle_msg)
-        self.run_pseudo_websocket(TradePairCategory.EQUITIES)
-    def main_crypto(self):
-        #TiingoWebsocketClient(self.subscribe_message, endpoint="crypto", on_msg_cb=self.handle_msg)
-        self.run_pseudo_websocket(TradePairCategory.CRYPTO)
 
     def handle_msg(self, msg):
         """
@@ -638,6 +652,22 @@ class TiingoDataService(BaseDataService):
 
     def trade_pair_to_tiingo_ticker(self, trade_pair: TradePair):
         return trade_pair.trade_pair_id.lower()
+
+    def close_create_websocket_for_category(self, tpc: TradePairCategory):
+        """
+        For TiingoDataService, since we're using a polling-based approach rather than
+        actual WebSockets, we don't need to restart threads.
+
+        """
+        bt.logging.info(f"Resetting polling state for {self.provider_name} category {tpc}")
+
+        # We don't need to restart the thread, just log that we detected staleness
+        # and the existing thread will continue polling at its regular interval
+        thread = self.WEBSOCKET_THREADS.get(tpc)
+        if thread and thread.is_alive():
+            bt.logging.info(f"{self.provider_name} Polling thread for {tpc} is still alive with ID {thread.native_id}. Nothing to reset")
+        else:
+            raise Exception(f"{self.provider_name} Polling thread for {tpc} is not alive or not found. Unexpected behavior.")
 
     def get_websocket_event(self, trade_pair: TradePair) -> PriceSource | None:
         symbol = trade_pair.trade_pair
