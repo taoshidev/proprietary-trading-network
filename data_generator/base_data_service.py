@@ -220,12 +220,9 @@ class BaseDataService():
         # Step 4) Start one new runner task for this category
         self.websocket_tasks[tpc] = self._loop.create_task(self._run_category(tpc))
 
-
-    async def _run_category(self, tpc: TradePairCategory):
-        """Run the websocket connection for a specific category"""
+    async def _run_category(self, tpc):
         while True:
             try:
-                # For Polygon, re-create client on each restart
                 if self.provider_name == POLYGON_PROVIDER_NAME:
                     await self._close_create_websocket_objects(tpc)
 
@@ -236,10 +233,11 @@ class BaseDataService():
                 elif tpc == TradePairCategory.CRYPTO:
                     await self.main_crypto()
                 else:
-                    return
-
+                    bt.logging.error(f"Unknown category {tpc}, keeping loop alive")
             except Exception as e:
-                bt.logging.error(f"{self.provider_name} {tpc} crashed: {e}, restarting in 1s")
+                bt.logging.error(f"{self.provider_name} {self.__name__} for {tpc} crashed: {e}", exc_info=True)
+            finally:
+                # small delay before reconnecting
                 await asyncio.sleep(1)
 
     # ---------- Abstract hooks ----------
@@ -279,10 +277,12 @@ class BaseDataService():
                 continue
             self.websocket_tasks[tpc] = self._loop.create_task(self._run_category(tpc))
 
-        # 3) run it forever
-        self._loop.run_forever()
-
-
+        # 3) run forever, but catch if it dies
+        try:
+            self._loop.run_forever()
+        except Exception as e:
+            bt.logging.error(f"{self.provider_name} event loop crashed: {e}", exc_info=True)
+            bt.logging.error(f"Backtrace: {bt.logging.format_exc()}")
     def start_ws_async(self):
         """
         Create a dedicated asyncio loop in a daemon thread,
