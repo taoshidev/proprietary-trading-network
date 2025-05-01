@@ -503,10 +503,9 @@ class PolygonDataService(BaseDataService):
                 self._process_single_message(m)
 
                 # Update the websocket state for the appropriate category
-                if hasattr(self, '_get_category_from_message'):
-                    category = self._get_category_from_message(m)
-                    if category in self.ws_state:
-                        self.ws_state[category]["last_activity"] = time.time()
+                category = self._get_category_from_message(m)
+                if category in self.ws_state:
+                    self.ws_state[category]["last_activity"] = time.time()
 
         except Exception as e:
             # Simple error logging - just the error and a short traceback
