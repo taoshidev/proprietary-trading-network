@@ -61,6 +61,7 @@ class TiingoDataService(BaseDataService):
         return
 
     async def _run_pseudo_websocket(self, tpc: TradePairCategory):
+        """Run pseudo-websocket polling with proper state tracking"""
         # If websockets (pseudo-WS polling) disabled, exit immediately
         if self.disable_ws:
             return
@@ -78,41 +79,87 @@ class TiingoDataService(BaseDataService):
         else:
             raise ValueError(f"Unexpected trade pair category {tpc}")
 
-        last_poll = 0.0
+        # Initialize or reset state tracking for this category
+        reconnect_attempts = self.ws_state[tpc].get("reconnect_attempts", 0)
+        max_backoff = 60.0  # Maximum backoff in seconds
+
         iteration = 0
 
         while True:
+            # Use the monitoring_task flag to check if we should keep running
+            if not self.ws_state[tpc].get("monitoring_task", True):
+                bt.logging.info(f"Tiingo {tpc} polling stopped by monitoring task. Restarting.")
+                # Reset the flag so we can continue
+                self.ws_state[tpc]["monitoring_task"] = True
+                # Wait based on reconnect attempts
+                backoff = min(2.0 ** reconnect_attempts, max_backoff)
+                await asyncio.sleep(backoff)
+                reconnect_attempts += 1
+                self.ws_state[tpc]["reconnect_attempts"] = reconnect_attempts
+                continue
+
             iteration += 1
             now = time.time()
-            elapsed = now - last_poll
 
-            # throttle loop
-            if elapsed < POLLING_INTERVAL_S:
-                await asyncio.sleep(1)
-                continue
-
-            # figure out who’s open
+            # Determine which pairs to query
             to_query = [p for p in desired if self.is_market_open(p)]
+
             if not to_query:
-                # nothing to do right now
+                # Nothing to do right now, still update last_activity to show we're alive
+                self.ws_state[tpc]["last_activity"] = now
                 await asyncio.sleep(1)
                 continue
 
-            last_poll = now
+            try:
+                # Perform the polling
+                poll_start = time.time()
+                prices = await self.get_closes_rest(to_query, verbose=verbose)
 
-            prices = await self.get_closes_rest(to_query, verbose=verbose)
+                # Track successful poll as activity
+                self.ws_state[tpc]["last_activity"] = time.time()
 
-            # process exactly as before
-            for tp, ps in prices.items():
-                if ps is None:
-                    continue
-                ps.websocket = True
-                self.tpc_to_n_events[tp.trade_pair_category] += 1
-                self.process_ps_from_websocket(tp, ps)
+                # Process the results
+                received_data = False
+                for tp, ps in prices.items():
+                    if ps is None:
+                        continue
 
-            if verbose:
-                took = time.time() - now
-                print(f"[PseudoWS {tpc.name}] iteration={iteration} took {took:.2f}s")
+                    received_data = True
+                    ps.websocket = True
+                    self.tpc_to_n_events[tp.trade_pair_category] += 1
+                    self.process_ps_from_websocket(tp, ps)
+
+                # If we got data, reset the reconnect counter
+                if received_data:
+                    reconnect_attempts = 0
+                    self.ws_state[tpc]["reconnect_attempts"] = 0
+
+                if verbose:
+                    took = time.time() - poll_start
+                    print(f"[PseudoWS {tpc.name}] iteration={iteration} took {took:.2f}s")
+
+                # Wait for the polling interval
+                await asyncio.sleep(POLLING_INTERVAL_S)
+
+            except Exception as e:
+                bt.logging.error(f"Error in Tiingo {tpc} pseudo-websocket: {e}")
+                # Only log full traceback occasionally
+                current_hour = int(time.time()) // 3600
+                last_tb_hour = getattr(self, f'_last_tb_hour_{tpc.name}', 0)
+                if current_hour > last_tb_hour:
+                    setattr(self, f'_last_tb_hour_{tpc.name}', current_hour)
+                    bt.logging.error(f"Traceback: {traceback.format_exc()}")
+
+                # Update reconnect state
+                reconnect_attempts += 1
+                self.ws_state[tpc]["reconnect_attempts"] = reconnect_attempts
+
+                # Calculate backoff based on attempts
+                backoff = min(2.0 ** reconnect_attempts, max_backoff)
+                bt.logging.warning(f"Will retry Tiingo {tpc} polling in {backoff:.1f} seconds...")
+
+                # Wait before retrying
+                await asyncio.sleep(backoff)
 
     async def main_stocks(self):
         await self._run_pseudo_websocket(TradePairCategory.EQUITIES)
@@ -222,6 +269,7 @@ class TiingoDataService(BaseDataService):
             if not tp:
                 return
 
+            self.ws_state[tp.trade_pair_category]["last_activity"] = time.time()
             self.tpc_to_n_events[tp.trade_pair_category] += 1
             ps1 = msg_to_price_sources(msg, tp)
 
@@ -235,8 +283,13 @@ class TiingoDataService(BaseDataService):
                              f"type: {type(e).__name__}, traceback: {limited_traceback}")
 
     def process_ps_from_websocket(self, tp: TradePair, ps1: PriceSource):
+        """Process a price source from websocket with activity tracking"""
         if ps1 is None:
             return
+
+        # Update the activity timestamp for this category
+        tpc = tp.trade_pair_category
+        self.ws_state[tpc]["last_activity"] = time.time()
 
         symbol = tp.trade_pair
         # Reset the closed market price, indicating that a new close should be fetched after the current day's close
@@ -250,10 +303,10 @@ class TiingoDataService(BaseDataService):
 
         if self.using_ipc:
             self.trade_pair_to_recent_events_realtime[symbol].add_event(ps1, tp.is_forex,
-                                                           f"{self.provider_name}:{tp.trade_pair}")
+                                                                        f"{self.provider_name}:{tp.trade_pair}")
         else:
             self.trade_pair_to_recent_events[symbol].add_event(ps1, tp.is_forex,
-                                                           f"{self.provider_name}:{tp.trade_pair}")
+                                                               f"{self.provider_name}:{tp.trade_pair}")
 
         if DEBUG:
             formatted_time = TimeUtil.millis_to_formatted_date_str(TimeUtil.now_in_millis())

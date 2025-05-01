@@ -140,7 +140,7 @@ class LivePriceFetcher:
             finally:
                 loop.close()
 
-        with ThreadPoolExecutor(max_workers=1) as executor:
+        with ThreadPoolExecutor(max_workers=2) as executor:
             fut = executor.submit(_worker)
             try:
                 polygon_results, tiingo_results = fut.result(timeout=10)

@@ -55,6 +55,16 @@ class BaseDataService():
         self.closed_market_prices: Dict[TradePair, Optional[PriceSource]] = {tp: None for tp in TradePair}
         self.latest_websocket_events: Dict[str, PriceSource] = {}
 
+        # Initialize websocket state tracking
+        self.ws_state = {
+            TradePairCategory.CRYPTO: {"last_activity": time.time(), "reconnect_attempts": 0, "monitoring_task": False},
+            TradePairCategory.FOREX: {"last_activity": time.time(), "reconnect_attempts": 0, "monitoring_task": False},
+            TradePairCategory.EQUITIES: {"last_activity": time.time(), "reconnect_attempts": 0,
+                                         "monitoring_task": False},
+            TradePairCategory.INDICES: {"last_activity": time.time(), "reconnect_attempts": 0,
+                                        "monitoring_task": False},
+        }
+
         # Event trackers
         self.trade_pair_to_recent_events_realtime = defaultdict(RecentEventTracker)
         if ipc_manager is None:
@@ -154,23 +164,26 @@ class BaseDataService():
 
             # — HEALTH CHECK —
             if now - last_health > self.MAX_TIME_NO_EVENTS_S:
-                reset = []
                 for tpc, prev in list(self._prev_event_count.items()):
                     if tpc == TradePairCategory.INDICES:
                         continue
+
                     curr = self.tpc_to_n_events.get(tpc, 0)
-                    print({'Health check for provider_name': self.provider_name,'tpc': tpc, 'prev':prev, 'curr':curr})
+                    bt.logging.info(f"Health check for {self.provider_name}: {tpc.name}, prev:{prev}, curr:{curr}")
+
+                    # Only restart this specific category if it's not receiving events and the market is open
                     if curr == prev and self.is_market_open(self.get_first_trade_pair_in_category(tpc)):
-                        reset.append(tpc.name)
-                        # properly cancel + restart on your dedicated loop:
+                        bt.logging.warning(
+                            f"{self.provider_name} restarting websocket for: {tpc.name} due to no new events")
+                        # Restart only this specific category
                         asyncio.run_coroutine_threadsafe(
                             self._restart_ws_task(tpc),
                             self._loop
                         )
+
+                    # Always update the previous count
                     self._prev_event_count[tpc] = curr
 
-                if reset:
-                    bt.logging.warning(f"{self.provider_name} restarted websockets for: {reset}")
                 last_health = now
 
             # — DEBUG LOG —

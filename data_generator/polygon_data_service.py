@@ -1,5 +1,6 @@
 import asyncio
 import functools
+import random
 import traceback
 
 import requests
@@ -168,7 +169,7 @@ class PolygonDataService(BaseDataService):
         bt.logging.enable_info()
         self.init_time = time.time()
         self._api_key = api_key
-        ehm = ExchangeMappingHelper(api_key, fetch_live_mapping = not disable_ws)
+        ehm = ExchangeMappingHelper(api_key, fetch_live_mapping=not disable_ws)
         self.crypto_mapping = ehm.crypto_mapping
         self.equities_mapping = ehm.stock_mapping
         self.disable_ws = disable_ws
@@ -176,10 +177,15 @@ class PolygonDataService(BaseDataService):
         self.tp_to_mfs = {}
         self.is_backtesting = is_backtesting
 
+        # Initialize other state tracking
+        self.DEBUG = 0
+        self.message_processing_times = []  # For tracking message processing performance
+
         super().__init__(provider_name=POLYGON_PROVIDER_NAME, ipc_manager=ipc_manager)
 
         self.MARKET_STATUS = None
-        self.UNSUPPORTED_TRADE_PAIRS = (TradePair.SPX, TradePair.DJI, TradePair.NDX, TradePair.VIX, TradePair.FTSE, TradePair.GDAXI)
+        self.UNSUPPORTED_TRADE_PAIRS = (
+        TradePair.SPX, TradePair.DJI, TradePair.NDX, TradePair.VIX, TradePair.FTSE, TradePair.GDAXI)
 
         # Initialize REST client after ws creation to avoid pickling error
         self.POLYGON_CLIENT = None
@@ -188,112 +194,480 @@ class PolygonDataService(BaseDataService):
             self.start_ws_async()
 
     def instantiate_not_pickleable_objects(self):
-        self.POLYGON_CLIENT = RESTClient(api_key=self._api_key, num_pools=20)
+        """Initialize REST client and other non-pickleable objects"""
+        try:
+            if self.POLYGON_CLIENT is None:
+                self.POLYGON_CLIENT = RESTClient(api_key=self._api_key, num_pools=20)
+                bt.logging.info("Successfully initialized Polygon REST client")
+        except Exception as e:
+            bt.logging.error(f"Failed to initialize Polygon REST client: {e}")
+            # Don't raise - allow operation without REST client and try again later
 
-    async def _requests_get(self, url: str, **kwargs) -> requests.Response:
-        fn = functools.partial(requests.get, url, **kwargs)
-        return await asyncio.get_event_loop().run_in_executor(None, fn)
+    async def _requests_get_async(self, url: str, **kwargs):
+        """Perform HTTP GET requests asynchronously without blocking the event loop"""
+        loop = asyncio.get_running_loop()
+
+        # Set timeout if not provided
+        if 'timeout' not in kwargs:
+            kwargs['timeout'] = 10
+
+        return await loop.run_in_executor(
+            None,
+            functools.partial(requests.get, url, **kwargs)
+        )
+
+    async def _close_websocket_safely(self, client):
+        """Safely close a websocket client with proper error handling"""
+        if client is None:
+            return
+
+        try:
+            # First try our custom method if available
+            if hasattr(client, 'close_connection'):
+                client.close_connection()
+            # Then try to close the inner websocket directly
+            elif hasattr(client, '_ws') and client._ws:
+                client._ws.close()
+        except Exception as e:
+            bt.logging.warning(f"Error during websocket close: {e}")
+            # Continue anyway - we're cleaning up
 
     async def _close_create_websocket_objects(self, tpc: TradePairCategory):
-        # Close old
+        """Close old websocket and create a new one for a specific category only"""
+        # Skip if this is indices (not supported)
+        if tpc == TradePairCategory.INDICES:
+            return
+
+        # Close old client with timeout protection
         old_client = self.websocket_clients.get(tpc)
         if old_client:
             try:
-                # Don't use await here as the WebSocketClient's close might be using a different loop
-                # Instead use a synchronous approach or check the client's API
-                old_client.close_connection()  # Check if this method exists in your WebSocketClient
+                # Use a timeout for closing to prevent hanging
+                close_task = asyncio.create_task(self._close_websocket_safely(old_client))
+                await asyncio.wait_for(close_task, timeout=5.0)
+                bt.logging.info(f"Closed old websocket for {tpc.name}")
+            except asyncio.TimeoutError:
+                bt.logging.warning(f"Timeout closing websocket for {tpc.name}, forcing cleanup")
             except Exception as e:
-                bt.logging.warning(f"Error closing WebSocket client: {e}")
+                bt.logging.warning(f"Error closing websocket for {tpc.name}: {e}")
 
-        # Re-create & subscribe
-        for cat in ([tpc] if tpc else TradePairCategory):
-            if cat == TradePairCategory.INDICES:
+        # Remove the old client reference
+        self.websocket_clients.pop(tpc, None)
+
+        # Create new client for this specific category
+        market = {
+            TradePairCategory.EQUITIES: Market.Stocks,
+            TradePairCategory.FOREX: Market.Forex,
+            TradePairCategory.CRYPTO: Market.Crypto,
+        }[tpc]
+
+        # Create new client
+        client = WebSocketClient(market=market, api_key=self._api_key)
+        self.websocket_clients[tpc] = client
+
+        # Reset the connection state
+        self.ws_state[tpc]["last_activity"] = time.time()
+
+        # Subscribe to symbols for this category only
+        await self._subscribe_websockets_async(tpc)
+
+        bt.logging.info(f"Created new websocket client for {tpc.name}")
+
+    async def _subscribe_websockets_async(self, tpc: TradePairCategory):
+        """Subscribe to symbols asynchronously to prevent blocking"""
+        client = self.websocket_clients.get(tpc)
+        if not client:
+            bt.logging.error(f"No websocket client for {tpc} to subscribe")
+            return
+
+        subscription_count = 0
+        subscription_errors = 0
+
+        for tp in TradePair:
+            if tp in self.UNSUPPORTED_TRADE_PAIRS:
                 continue
-            market = {
-                TradePairCategory.EQUITIES: Market.Stocks,
-                TradePairCategory.FOREX: Market.Forex,
-                TradePairCategory.CRYPTO: Market.Crypto,
-            }[cat]
-            client = WebSocketClient(market=market, api_key=self._api_key)
-            self.websocket_clients[cat] = client
-            self.subscribe_websockets(cat)
+            if tpc and tp.trade_pair_category != tpc:
+                continue
+
+            symbol = None
+            if tp.is_crypto and tpc == TradePairCategory.CRYPTO:
+                symbol = "XT." + tp.trade_pair.replace('/', '-')
+            elif tp.is_forex and tpc == TradePairCategory.FOREX:
+                symbol = "C." + tp.trade_pair
+            elif tp.is_equities and tpc == TradePairCategory.EQUITIES:
+                symbol = "T." + tp.trade_pair
+            else:
+                continue  # Skip if not matching category
+
+            if symbol:
+                try:
+                    client.subscribe(symbol)
+                    subscription_count += 1
+                    bt.logging.info(f"Subscribed to {symbol}")
+
+                    # Give event loop a chance to process other tasks periodically
+                    if subscription_count % 10 == 0:
+                        await asyncio.sleep(0.1)
+                except Exception as e:
+                    bt.logging.error(f"Failed to subscribe to {symbol}: {e}")
+                    subscription_errors += 1
+
+        bt.logging.info(f"Subscribed to {subscription_count} symbols for {tpc} with {subscription_errors} errors")
+
+    async def _run_websocket_with_backoff(self, tpc: TradePairCategory):
+        """Common implementation for running a websocket with proper backoff"""
+        # Initial backoff parameters
+        max_backoff = 60.0  # Maximum backoff in seconds
+
+        while True:
+            # Get the current backoff based on reconnect attempts
+            reconnect_attempts = self.ws_state[tpc]["reconnect_attempts"]
+            backoff = min(2.0 ** reconnect_attempts, max_backoff)
+
+            ws = self.websocket_clients.get(tpc)
+            if not ws:
+                bt.logging.error(f"No websocket client for {tpc}, recreating...")
+                try:
+                    # Only recreate this specific category's websocket
+                    await self._close_create_websocket_objects(tpc)
+                except Exception as e:
+                    bt.logging.error(f"Failed to create websocket client for {tpc}: {e}")
+                    # Wait before retrying
+                    await asyncio.sleep(backoff)
+                    continue
+
+                # Get the newly created client
+                ws = self.websocket_clients.get(tpc)
+                if not ws:
+                    bt.logging.error(f"Still no websocket client for {tpc} after recreation attempt")
+                    await asyncio.sleep(backoff)
+                    continue
+
+            try:
+                # Set up a wrapper function that updates the last activity time
+                def handle_msg_with_activity_tracking(msgs):
+                    # Mark this category as active whenever messages arrive
+                    if msgs:
+                        self.ws_state[tpc]["last_activity"] = time.time()
+                        # Track the message count
+                        self.ws_state[tpc]["last_message_count"] = len(msgs)
+                    self.handle_msg(msgs)
+
+                # Start the websocket in a separate thread
+                loop = asyncio.get_running_loop()
+                run_task = loop.run_in_executor(
+                    None,
+                    lambda: ws.run(handle_msg_with_activity_tracking)
+                )
+
+                # INSTEAD OF WAITING FOR COMPLETION WITH TIMEOUT:
+                # We'll monitor activity in a separate task
+                start_time = time.time()
+                self.ws_state[tpc]["last_activity"] = start_time
+                self.ws_state[tpc]["monitoring_task"] = True
+
+                while self.ws_state[tpc].get("monitoring_task", True):
+                    # Check if market is open - only monitor while market is open
+                    first_pair = self.get_first_trade_pair_in_category(tpc)
+                    market_open = first_pair and self.is_market_open(first_pair)
+
+                    # Get time since last activity
+                    now = time.time()
+                    last_activity = self.ws_state[tpc]["last_activity"]
+                    inactive_time = now - last_activity
+
+                    # Check if websocket has been inactive for too long
+                    # Only consider this an issue if market is open AND we haven't seen activity
+                    if market_open and inactive_time > 120.0:  # 2 minutes of inactivity
+                        bt.logging.warning(
+                            f"{tpc} websocket inactive for {inactive_time:.1f} seconds while market is open. "
+                            f"Forcing reconnect."
+                        )
+                        # Stop monitoring and break out to reconnect
+                        self.ws_state[tpc]["monitoring_task"] = False
+                        break
+
+                    # Check if the run_task completed unexpectedly
+                    if run_task.done():
+                        # The websocket closed on its own
+                        try:
+                            result = run_task.result()  # This will raise exception if task failed
+                            bt.logging.warning(f"{tpc} websocket closed normally (result: {result}), reconnecting")
+                        except Exception as e:
+                            bt.logging.error(f"Error in {tpc} websocket: {e}")
+
+                        # Stop monitoring and break out to reconnect
+                        self.ws_state[tpc]["monitoring_task"] = False
+                        break
+
+                    # Sleep before checking again
+                    await asyncio.sleep(10)  # Check every 10 seconds
+
+                # Reset backoff on clean exit
+                self.ws_state[tpc]["reconnect_attempts"] = 0
+
+            except Exception as e:
+                bt.logging.error(f"Error in {tpc} websocket monitoring: {e}")
+                # Increment reconnect attempts
+                self.ws_state[tpc]["reconnect_attempts"] += 1
+
+            # Cancel the run_task if it's still running
+            if 'run_task' in locals() and not run_task.done():
+                run_task.cancel()
+
+            # Always recreate the client before reconnecting, but ONLY for this category
+            bt.logging.info(f"Reconnecting {tpc} websocket in {backoff:.1f} seconds...")
+            await asyncio.sleep(backoff)
+
+            try:
+                # Only close and recreate this specific category's websocket
+                await self._close_create_websocket_objects(tpc)
+            except Exception as e:
+                bt.logging.error(f"Failed to recreate {tpc} client: {e}")
 
     async def main_stocks(self):
-        ws = self.websocket_clients[TradePairCategory.EQUITIES]
-        while True:
-            try:
-                # Run in executor to avoid loop conflicts
-                loop = asyncio.get_event_loop()
-                await loop.run_in_executor(None, lambda: ws.run(self.handle_msg))
-            except Exception as e:
-                bt.logging.error(f"Error in stocks websocket: {e}")
-                bt.logging.error(f"traceback: {traceback.format_exc()}")
-            # Always attempt to reconnect after a brief delay
-            await asyncio.sleep(5)
+        """Run the websocket for stocks with proper error handling and backoff"""
+        tpc = TradePairCategory.EQUITIES
+        await self._run_websocket_with_backoff(tpc)
 
     async def main_forex(self):
-        ws = self.websocket_clients[TradePairCategory.FOREX]
-        while True:
-            try:
-                # Run in executor to avoid loop conflicts
-                loop = asyncio.get_event_loop()
-                await loop.run_in_executor(None, lambda: ws.run(self.handle_msg))
-            except Exception as e:
-                bt.logging.error(f"Error in forex websocket: {e}")
-                bt.logging.error(f"traceback: {traceback.format_exc()}")
-
-            # Always attempt to reconnect after a brief delay
-            await asyncio.sleep(5)
+        """Run the websocket for forex with proper error handling and backoff"""
+        tpc = TradePairCategory.FOREX
+        await self._run_websocket_with_backoff(tpc)
 
     async def main_crypto(self):
-        ws = self.websocket_clients[TradePairCategory.CRYPTO]
-        while True:
-            try:
-                # Run in executor to avoid loop conflicts
-                loop = asyncio.get_event_loop()
-                await loop.run_in_executor(None, lambda: ws.run(self.handle_msg))
-                # If we get here without exception, the WebSocket closed gracefully
-                bt.logging.warning(f"Polygon {TradePairCategory.CRYPTO} WebSocket closed gracefully, reconnecting...")
-            except Exception as e:
-                bt.logging.error(f"Error in crypto websocket: {e}, {traceback.format_exc()}")
-                bt.logging.error(f"traceback: {traceback.format_exc()}")
-
-            # Always attempt to reconnect after a brief delay
-            await asyncio.sleep(5)
-
+        """Run the websocket for crypto with proper error handling and backoff"""
+        tpc = TradePairCategory.CRYPTO
+        await self._run_websocket_with_backoff(tpc)
 
     def parse_price_for_forex(self, m, stats=None, is_ws=False) -> (float, float, float):
-        t_ms = m.timestamp if is_ws else m.participant_timestamp // 1000000
-        delta = abs(m.bid_price - m.ask_price) / m.bid_price * 100.0
-        if stats:
-            stats['n'] += 1
-            stats['sum_deltas'] += delta
-            stats['avg_delta'] = stats['sum_deltas'] / (stats['n'])
-            stats['max_delta'] = max(stats['max_delta'], delta)
-        if delta > .20:  # Wonky
-            if stats:
-                stats['n_skipped'] += 1
-                if stats['n'] % 10 == 0:
-                    bt.logging.warning(f"Ignoring unusual Forex price data bid: {m.bid_price:.4f}, ask: {m.ask_price:.4f}, "
-                                   f"{delta:.4f} time {TimeUtil.millis_to_formatted_date_str(t_ms // 1000000)}")
-            return None, None, None
-        return m.bid_price, m.ask_price, delta
+        """Parse forex price data with validation"""
+        try:
+            t_ms = m.timestamp if is_ws else m.participant_timestamp // 1000000
 
-    def handle_msg(self, msgs: List[ForexQuote | CryptoTrade | EquityAgg | EquityTrade]):
+            # Validate inputs
+            if not hasattr(m, 'bid_price') or not hasattr(m, 'ask_price'):
+                return None, None, None
+
+            # Handle zero or negative prices
+            if m.bid_price <= 0 or m.ask_price <= 0:
+                return None, None, None
+
+            delta = abs(m.bid_price - m.ask_price) / m.bid_price * 100.0
+
+            # Update stats if provided
+            if stats:
+                stats['n'] += 1
+                stats['sum_deltas'] += delta
+                stats['avg_delta'] = stats['sum_deltas'] / (stats['n'])
+                stats['max_delta'] = max(stats['max_delta'], delta)
+
+            # Filter out abnormal bid/ask spreads
+            if delta > .20:  # Threshold for wonky data
+                if stats:
+                    stats['n_skipped'] += 1
+                    if stats['n'] % 10 == 0:
+                        bt.logging.warning(
+                            f"Ignoring unusual Forex price data bid: {m.bid_price:.4f}, ask: {m.ask_price:.4f}, "
+                            f"{delta:.4f} time {TimeUtil.millis_to_formatted_date_str(t_ms // 1000000)}"
+                        )
+                return None, None, None
+
+            return m.bid_price, m.ask_price, delta
+
+        except Exception as e:
+            bt.logging.error(f"Error parsing forex price: {e}")
+            return None, None, None
+
+    def _get_category_from_message(self, msg):
+        """Determine the message category"""
+        try:
+            if isinstance(msg, EquityAgg) or isinstance(msg, EquityTrade):
+                return "equities"
+            elif isinstance(msg, CryptoTrade):
+                return "crypto"
+            elif isinstance(msg, ForexQuote):
+                return "forex"
+            else:
+                return "unknown"
+        except:
+            return "unknown"
+
+    def handle_msg(self, msgs):
         """
-        Handle incoming websocket messages from Polygon
+        Handle incoming websocket messages with deadlock protection
         """
-        def msg_to_price_sources(m, tp):
+        if not msgs:
+            return
+
+        try:
+            # Performance tracking
+            start_time = time.time()
+            processed_count = 0
+            max_processing_time = 5.0  # Maximum seconds to spend processing a batch
+            message_count = len(msgs)
+
+            # Process messages up to a reasonable limit
+            max_messages_per_batch = 5000  # Increased to handle more messages per batch
+            messages_to_process = min(message_count, max_messages_per_batch)
+
+            for i in range(messages_to_process):
+                # Process each message safely
+                self._process_single_message(msgs[i])
+                processed_count += 1
+
+                # Check for processing time limit to avoid blocking too long
+                if i % 100 == 0:  # Only check time every 100 messages for efficiency
+                    elapsed = time.time() - start_time
+                    if elapsed > max_processing_time:
+                        remaining = message_count - processed_count
+                        # Only log this warning once per hour for each category using a timestamp check
+                        current_hour = int(time.time()) // 3600
+                        category = self._get_category_from_message(msgs[i])
+                        last_warn_hour = getattr(self, '_last_warn_hour', {}).get(category, 0)
+
+                        if current_hour > last_warn_hour and remaining > 100:
+                            if not hasattr(self, '_last_warn_hour'):
+                                self._last_warn_hour = {}
+                            self._last_warn_hour[category] = current_hour
+
+                            bt.logging.warning(
+                                f"Message processing time limit reached for {category}: processed {processed_count}/{message_count} messages in {elapsed:.2f}s."
+                            )
+                        break
+
+            # Track performance metrics very sparingly - only once per day per category
+            if processed_count > 0:
+                # Use the timestamp for throttling
+                current_day = int(time.time()) // 86400  # Seconds in a day
+                category = self._get_category_from_message(msgs[0]) if msgs else "unknown"
+
+                # Initialize tracking dictionaries if they don't exist
+                if not hasattr(self, '_performance_log_day'):
+                    self._performance_log_day = {}
+                    self._daily_processing_stats = {}
+
+                # Create or update stats for this category
+                if category not in self._daily_processing_stats:
+                    self._daily_processing_stats[category] = {"count": 0, "time": 0}
+
+                # Accumulate stats
+                self._daily_processing_stats[category]["count"] += processed_count
+                self._daily_processing_stats[category]["time"] += time.time() - start_time
+
+                # Check if we should log today
+                last_log_day = self._performance_log_day.get(category, 0)
+                if current_day > last_log_day:
+                    # Calculate and log the overall rate for the day
+                    stats = self._daily_processing_stats[category]
+                    if stats["time"] > 0:
+                        rate = stats["count"] / stats["time"]
+                        bt.logging.info(
+                            f"Polygon {category} daily processing rate: {rate:.2f} msgs/sec (processed {stats['count']} messages)")
+
+                    # Reset stats and update log day
+                    self._daily_processing_stats[category] = {"count": 0, "time": 0}
+                    self._performance_log_day[category] = current_day
+
+        except Exception as e:
+            bt.logging.error(f"Error in handle_msg: {e}")
+            # Only log a full traceback once per hour
+            current_hour = int(time.time()) // 3600
+            last_error_hour = getattr(self, '_last_error_hour', 0)
+
+            if current_hour > last_error_hour:
+                self._last_error_hour = current_hour
+                bt.logging.error(f"Traceback: {traceback.format_exc()}")
+            else:
+                # Just log a short message for repeated errors
+                bt.logging.error("Error processing message (details suppressed to reduce logging)")
+
+    def _process_single_message(self, m):
+        """Process a single websocket message safely"""
+        try:
+            # Determine the trade pair from the message
+            if isinstance(m, EquityAgg):
+                tp = self.symbol_to_trade_pair(m.symbol[2:])  # I:SPX -> SPX
+            elif isinstance(m, CryptoTrade):
+                tp = self.symbol_to_trade_pair(m.pair)
+            elif isinstance(m, ForexQuote):
+                tp = self.symbol_to_trade_pair(m.pair)
+            elif isinstance(m, EquityTrade):
+                tp = self.symbol_to_trade_pair(m.symbol)
+            else:
+                bt.logging.warning(f"Unknown message type in Polygon websocket: {type(m)}")
+                return
+
+            # Track events by category
+            self.tpc_to_n_events[tp.trade_pair_category] += 1
+
+            # Process the message to extract price sources
             symbol = tp.trade_pair
-            bid = 0
-            ask = 0
+            ps1, ps2 = self._msg_to_price_sources(m, tp)
+
+            if ps1 is None and ps2 is None:
+                return
+
+            # Reset the closed market price, indicating that a new close should be fetched after the current day's close
+            self.closed_market_prices[tp] = None
+
+            # Update our price sources
+            for ps in [ps1, ps2]:
+                if ps is None:
+                    continue
+
+                # Store the latest event
+                self.latest_websocket_events[symbol] = ps
+
+                # Initialize recent event tracker if needed
+                if symbol not in self.trade_pair_to_recent_events:
+                    if self.using_ipc:
+                        self.trade_pair_to_recent_events[symbol] = RecentEventTracker()
+                    else:
+                        self.trade_pair_to_recent_events_realtime[symbol] = RecentEventTracker()
+
+                # Add the event to the appropriate tracker
+                if self.using_ipc:
+                    self.trade_pair_to_recent_events_realtime[symbol].add_event(
+                        ps, tp.is_forex, f"{self.provider_name}:{tp.trade_pair}"
+                    )
+                else:
+                    self.trade_pair_to_recent_events[symbol].add_event(
+                        ps, tp.is_forex, f"{self.provider_name}:{tp.trade_pair}"
+                    )
+
+            # Debug logging if enabled
+            if self.DEBUG:
+                formatted_time = TimeUtil.millis_to_formatted_date_str(TimeUtil.now_in_millis())
+                self.trade_pair_to_price_history[tp].append((formatted_time, ps1.close if ps1 else None))
+
+                # Periodic debug logging
+                history_size = sum(len(v) for v in self.trade_pair_to_price_history.values())
+                bt.logging.info(f"History Size: {history_size}")
+                bt.logging.info(
+                    f"n_events_global: {sum(self.tpc_to_n_events.values())} breakdown {self.tpc_to_n_events}")
+
+        except Exception as e:
+            bt.logging.error(f"Error processing message {type(m)}: {e}")
+
+    def _msg_to_price_sources(self, m, tp):
+        """Convert a polygon message to price sources"""
+        symbol = tp.trade_pair
+        bid = 0
+        ask = 0
+
+        try:
             if tp.is_forex:
                 bid, ask, _ = self.parse_price_for_forex(m, is_ws=True)
                 if bid is None:
                     return None, None
+
                 start_timestamp = m.timestamp
                 end_timestamp = start_timestamp + 999
-                if symbol in self.trade_pair_to_recent_events and self.trade_pair_to_recent_events[symbol].timestamp_exists(start_timestamp):
+
+                # Check if we've already seen this timestamp to avoid duplicates
+                if symbol in self.trade_pair_to_recent_events and self.trade_pair_to_recent_events[
+                    symbol].timestamp_exists(start_timestamp):
                     buffer = self.trade_pair_to_recent_events_realtime if self.using_ipc else self.trade_pair_to_recent_events
                     buffer[symbol].update_prices_for_median(start_timestamp, bid, ask)
                     buffer[symbol].update_prices_for_median(start_timestamp + 999, bid, ask)
@@ -302,30 +676,44 @@ class PolygonDataService(BaseDataService):
                     open = close = vwap = high = low = bid
 
             elif tp.is_equities:
+                # Skip data from non-primary exchanges
                 if m.exchange != self.equities_mapping['nasdaq']:
                     return None, None
+
+                # Skip after-hours trading
                 if isinstance(m, EquityTrade) and isinstance(m.conditions, list) and 12 in m.conditions:
                     self.n_equity_events_skipped_afterhours += 1
                     return None, None
-                start_timestamp = round(m.timestamp, -3)  # round to nearest second which allows aggresssive filtering via dup logic
+
+                # Round timestamp to reduce duplicates
+                start_timestamp = round(m.timestamp, -3)  # round to nearest second
                 end_timestamp = None
                 open = close = vwap = high = low = m.price
+
             elif tp.is_crypto:
+                # Only use data from the primary exchange (Coinbase)
                 if m.exchange != self.crypto_mapping['coinbase']:
                     return None, None
-                start_timestamp = round(m.received_timestamp, -3) # round to nearest second which allows aggresssive filtering via dup logic
+
+                # Round timestamp to reduce duplicates
+                start_timestamp = round(m.received_timestamp, -3)  # round to nearest second
                 end_timestamp = None
                 open = close = vwap = high = low = m.price
+
             else:
                 start_timestamp = m.start_timestamp
-                end_timestamp = m.end_timestamp - 1   # prioritize a new candle's open over a previous candle's close
+                end_timestamp = m.end_timestamp - 1  # prioritize a new candle's open over a previous candle's close
                 open = m.open
                 close = m.close
                 vwap = m.vwap
                 high = m.high
                 low = m.low
 
+            # Calculate lag time for this event
             now_ms = TimeUtil.now_in_millis()
+            lag_ms = now_ms - start_timestamp
+
+            # Create the first price source
             price_source1 = PriceSource(
                 source=f'{POLYGON_PROVIDER_NAME}_ws',
                 timespan_ms=0,
@@ -336,15 +724,16 @@ class PolygonDataService(BaseDataService):
                 low=low,
                 start_ms=start_timestamp,
                 websocket=True,
-                lag_ms=now_ms - start_timestamp,
+                lag_ms=lag_ms,
                 bid=bid,
                 ask=ask
             )
 
+            # For point-in-time trades (equities, crypto), we don't create a second price source
             if tp.is_equities or tp.is_crypto:
-                # This is a point in time trade. We can't make a candle out of it
                 price_source2 = None
             else:
+                # Create a second price source for the end of the interval (for candles)
                 price_source2 = PriceSource(
                     source=f'{POLYGON_PROVIDER_NAME}_ws',
                     timespan_ms=0,
@@ -359,172 +748,167 @@ class PolygonDataService(BaseDataService):
                     bid=bid,
                     ask=ask
                 )
+
             return price_source1, price_source2
 
-        try:
-            m = None
-            for m in msgs:
-                if isinstance(m, EquityAgg):
-                    tp = self.symbol_to_trade_pair(m.symbol[2:])  # I:SPX -> SPX
-                elif isinstance(m, CryptoTrade):
-                    tp = self.symbol_to_trade_pair(m.pair)
-                elif isinstance(m, ForexQuote):
-                    tp = self.symbol_to_trade_pair(m.pair)
-                elif isinstance(m, EquityTrade):
-                    tp = self.symbol_to_trade_pair(m.symbol)
-                else:
-                    raise ValueError(f"Unknown message in POLY websocket: {m}")
-
-                self.tpc_to_n_events[tp.trade_pair_category] += 1
-                # This could be a candle so we can make 2 prices, one for the open and one for the close
-                symbol = tp.trade_pair
-                ps1, ps2 = msg_to_price_sources(m, tp)
-                if ps1 is None and ps2 is None:
-                    continue
-
-                # Reset the closed market price, indicating that a new close should be fetched after the current day's close
-                self.closed_market_prices[tp] = None
-                for ps in [ps1, ps2]:
-                    if ps is None:
-                        continue
-                    self.latest_websocket_events[symbol] = ps
-                    if symbol not in self.trade_pair_to_recent_events:
-                        if self.using_ipc:
-                            self.trade_pair_to_recent_events[symbol] = RecentEventTracker()
-                        else:
-                            self.trade_pair_to_recent_events_realtime[symbol] = RecentEventTracker()
-                    if self.using_ipc:
-                        self.trade_pair_to_recent_events_realtime[symbol].add_event(ps, tp.is_forex, f"{self.provider_name}:{tp.trade_pair}")
-                    else:
-                        self.trade_pair_to_recent_events[symbol].add_event(ps, tp.is_forex, f"{self.provider_name}:{tp.trade_pair}")
-
-                if DEBUG:
-                    formatted_time = TimeUtil.millis_to_formatted_date_str(TimeUtil.now_in_millis())
-                    self.trade_pair_to_price_history[tp].append((formatted_time, ps1.close))
-            if DEBUG:
-                print('last message:', m, 'n msgs total:', len(msgs))
-                history_size = sum(len(v) for v in self.trade_pair_to_price_history.values())
-                bt.logging.info("History Size: " + str(history_size))
-                bt.logging.info(f"n_events_global: {sum(self.tpc_to_n_events.values())} breakdown {self.tpc_to_n_events}")
         except Exception as e:
-            full_traceback = traceback.format_exc()
-            # Slice the last 1000 characters of the traceback
-            limited_traceback = full_traceback[-1000:]
-            bt.logging.error(f"Failed to handle POLY websocket message with error: {e}, last message {m} "
-                             f"type: {type(e).__name__}, traceback: {limited_traceback}")
+            bt.logging.error(f"Error creating price sources: {e}")
+            return None, None
 
     def subscribe_websockets(self, tpc: TradePairCategory = None):
+        """Subscribe to websocket feeds - synchronous version"""
         for tp in TradePair:
             if tp in self.UNSUPPORTED_TRADE_PAIRS:
                 continue
             if tpc and tp.trade_pair_category != tpc:
                 continue
-            if tp.is_crypto:
-                symbol = "XT." + tp.trade_pair.replace('/', '-')
-                print('Poly subscribe:', symbol)
-                self.websocket_clients[TradePairCategory.CRYPTO].subscribe(symbol)
-            elif tp.is_forex:
-                symbol = "C." + tp.trade_pair
-                print('Poly subscribe:', symbol)
-                self.websocket_clients[TradePairCategory.FOREX].subscribe(symbol)
-            elif tp.is_equities:
-                symbol = "T." + tp.trade_pair
-                print('Poly subscribe:', symbol)
-                self.websocket_clients[TradePairCategory.EQUITIES].subscribe(symbol)
-            elif tp.is_indices:
-                continue
-            else:
-                raise ValueError(f"Unknown trade pair category: {tp.trade_pair_category}")
 
+            try:
+                if tp.is_crypto:
+                    symbol = "XT." + tp.trade_pair.replace('/', '-')
+                    print('Poly subscribe:', symbol)
+                    self.websocket_clients[TradePairCategory.CRYPTO].subscribe(symbol)
+                elif tp.is_forex:
+                    symbol = "C." + tp.trade_pair
+                    print('Poly subscribe:', symbol)
+                    self.websocket_clients[TradePairCategory.FOREX].subscribe(symbol)
+                elif tp.is_equities:
+                    symbol = "T." + tp.trade_pair
+                    print('Poly subscribe:', symbol)
+                    self.websocket_clients[TradePairCategory.EQUITIES].subscribe(symbol)
+                elif tp.is_indices:
+                    continue
+                else:
+                    bt.logging.warning(f"Unknown trade pair category: {tp.trade_pair_category}")
+            except Exception as e:
+                bt.logging.error(f"Error subscribing to {tp.trade_pair}: {e}")
 
     def symbol_to_trade_pair(self, symbol: str):
-        # Should work for indices and forex
+        """Convert a symbol to a trade pair object"""
+        # Try direct lookup first
         tp = TradePair.get_latest_tade_pair_from_trade_pair_str(symbol)
         if tp:
             return tp
-        # Should work for crypto. Anything else will return None
+
+        # Try for crypto pairs which use - instead of /
         tp = TradePair.get_latest_tade_pair_from_trade_pair_str(symbol.replace('-', '/'))
         if not tp:
             raise ValueError(f"Unknown symbol: {symbol}")
+
         return tp
 
+    @exception_handler_decorator()
     async def get_closes_rest(self, pairs: List[TradePair]) -> Dict[TradePair, Any]:
-        """
-        Synchronous wrapper for async implementation that runs tasks in parallel
-        """
-        tasks = [
-            asyncio.create_task(self.get_close_rest(tp))
-            for tp in pairs
-        ]
+        """Get prices for multiple trade pairs in parallel"""
+        tasks = []
+        for tp in pairs:
+            task = asyncio.create_task(self.get_close_rest(tp))
+            task.tp = tp  # Attach the trade pair to the task for reference
+            tasks.append(task)
+
+        # Wait for all tasks to complete
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        all_trade_pair_closes: Dict[TradePair, Any] = {}
-        for tp, res in zip(pairs, results):
-            if isinstance(res, Exception):
-                bt.logging.error(f"{tp} generated an exception: {res}")
+        # Build result dictionary
+        all_trade_pair_closes = {}
+        for task, result in zip(tasks, results):
+            tp = task.tp
+            if isinstance(result, Exception):
+                bt.logging.error(f"{tp} generated an exception: {result}")
             else:
-                all_trade_pair_closes[tp] = res if res is not None else {}
+                all_trade_pair_closes[tp] = result if result is not None else {}
+
         return all_trade_pair_closes
 
-    def agg_to_price_source(self, a, now_ms:int, timespan:str, attempting_prev_close:bool=False):
+    def agg_to_price_source(self, a, now_ms: int, timespan: str, attempting_prev_close: bool = False):
+        """Convert an aggregate object to a price source"""
         p_name = f'{POLYGON_PROVIDER_NAME}_rest'
         if attempting_prev_close:
             p_name += '_prev_close'
 
-        return \
-            PriceSource(
-                source=p_name,
-                timespan_ms=self.timespan_to_ms[timespan],
-                open=a.open,
-                close=a.close,
-                vwap=a.vwap,
-                high=a.high,
-                low=a.low,
-                start_ms=a.timestamp,
-                websocket=False,
-                lag_ms=now_ms - a.timestamp,
-                bid=a.bid if hasattr(a, 'bid') else 0,
-                ask=a.ask if hasattr(a, 'ask') else 0
-            )
+        return PriceSource(
+            source=p_name,
+            timespan_ms=self.timespan_to_ms[timespan],
+            open=a.open,
+            close=a.close,
+            vwap=a.vwap,
+            high=a.high,
+            low=a.low,
+            start_ms=a.timestamp,
+            websocket=False,
+            lag_ms=now_ms - a.timestamp,
+            bid=a.bid if hasattr(a, 'bid') else 0,
+            ask=a.ask if hasattr(a, 'ask') else 0)
 
     @exception_handler_decorator()
     async def get_close_rest(
-        self,
-        trade_pair: TradePair,
-        timestamp_ms: int = None,
-        order: Order = None
+            self,
+            trade_pair: TradePair,
+            timestamp_ms: int = None,
+            order: Order = None
     ) -> PriceSource | None:
+        """Get the price for a trade pair at a specific time"""
+        # Initialize REST client if needed
+        if self.POLYGON_CLIENT is None:
+            self.instantiate_not_pickleable_objects()
 
+        # Check if we're in backtesting mode with market open verification
         if self.is_backtesting:
             # Check that we are within market hours for genuine ptn orders
             if order is not None and order.src == 0:
                 assert self.is_market_open(trade_pair)
 
+        # If market is not open, return the last price before close
         if not self.is_market_open(trade_pair):
             return self.get_event_before_market_close(trade_pair)
+
+        # Use current time if not specified
         if timestamp_ms is None:
             timestamp_ms = TimeUtil.now_in_millis()
 
+        # Fetch recent candles
         prev_timestamp = None
         final_agg = None
         timespan = "second"
-        raw = self.unified_candle_fetcher(trade_pair, timestamp_ms - 10000, timestamp_ms + 2000, timespan)
-        for a in raw:
-            epoch_miliseconds = a.timestamp
-            price_source = self.agg_to_price_source(a, timestamp_ms, timespan)
-            assert prev_timestamp is None or prev_timestamp < epoch_miliseconds
-            final_agg = price_source
-            prev_timestamp = epoch_miliseconds
-        if not final_agg:
-            bt.logging.warning(f"Polygon failed to fetch REST data for {trade_pair.trade_pair} at time "
-                               f"{TimeUtil.millis_to_formatted_date_str(timestamp_ms)}. "
-                               f"If you keep seeing this warning, report it to the team ASAP")
+
+        # Define a window around the target timestamp
+        start_ts = timestamp_ms - 10000  # 10 seconds before
+        end_ts = timestamp_ms + 2000  # 2 seconds after
+
+        # Fetch candles using unified fetcher
+        try:
+            raw = self.unified_candle_fetcher(
+                trade_pair,
+                start_ts,
+                end_ts,
+                timespan
+            )
+
+            # Process each candle
+            for a in raw:
+                epoch_milliseconds = a.timestamp
+                price_source = self.agg_to_price_source(a, timestamp_ms, timespan)
+
+                # Ensure timestamps are in order
+                assert prev_timestamp is None or prev_timestamp < epoch_milliseconds
+
+                final_agg = price_source
+                prev_timestamp = epoch_milliseconds
+
+            if not final_agg:
+                bt.logging.warning(
+                    f"Polygon failed to fetch REST data for {trade_pair.trade_pair} at time "
+                    f"{TimeUtil.millis_to_formatted_date_str(timestamp_ms)}. "
+                    f"If you keep seeing this warning, report it to the team ASAP"
+                )
+        except Exception as e:
+            bt.logging.error(f"Error fetching candles for {trade_pair.trade_pair}: {e}")
             final_agg = None
 
         return final_agg
 
-
     def trade_pair_to_polygon_ticker(self, trade_pair: TradePair):
+        """Convert a trade pair to the corresponding Polygon ticker symbol"""
         if trade_pair.is_crypto:
             return 'X:' + trade_pair.trade_pair_id
         elif trade_pair.is_forex:
@@ -537,116 +921,166 @@ class PolygonDataService(BaseDataService):
             raise ValueError(f"Unknown trade pair category: {trade_pair.trade_pair_category}")
 
     def get_event_before_market_close(self, trade_pair: TradePair, end_time_ms=None) -> PriceSource | None:
+        """Get the last price before market close"""
+        # Check if we already have the price in cache
         if self.closed_market_prices[trade_pair] is not None:
             return self.closed_market_prices[trade_pair]
         elif trade_pair in self.UNSUPPORTED_TRADE_PAIRS:
             return None
+
+        # Determine if we should update the cache
         write_closed_market_prices = False
-        # start 7 days ago
+
+        # Set time range - default to current time if not specified
         if end_time_ms is None:
             end_time_ms = TimeUtil.now_in_millis()
             write_closed_market_prices = True
+
+        # Look back 7 days to find the last close
         start_time_ms = end_time_ms - 1000 * 60 * 60 * 24 * 7
-        candles = self.get_candles_for_trade_pair(trade_pair, start_time_ms, end_time_ms, end_time_ms, attempting_prev_close=True, force_timespan='day')
+
+        # Get daily candles for the period
+        candles = self.get_candles_for_trade_pair(
+            trade_pair,
+            start_time_ms,
+            end_time_ms,
+            end_time_ms,
+            attempting_prev_close=True,
+            force_timespan='day'
+        )
+
+        # Make sure we found at least one candle
         if len(candles) == 0:
             msg = f"get_event_before_market_close: Failed to fetch market close for {trade_pair.trade_pair}"
             raise ValueError(msg)
 
+        # Return the most recent candle
         ans = candles[-1]
+
+        # Cache the result if requested
         if write_closed_market_prices:
             self.closed_market_prices[trade_pair] = ans
+
         return ans
 
-    # def get_quote_event_before_market_close(self, trade_pair: TradePair) -> QuoteSource | None:
-    #     if self.closed_market_prices[trade_pair] is not None:
-    #         return self.closed_market_prices[trade_pair]
-    #     elif trade_pair in self.UNSUPPORTED_TRADE_PAIRS:
-    #         return None
-    #
-    #     # start 7 days ago
-    #     end_time_ms = TimeUtil.now_in_millis()
-    #     start_time_ms = TimeUtil.now_in_millis() - 1000 * 60 * 60 * 24 * 7
-    #     candles = self.get_candles_for_trade_pair(trade_pair, start_time_ms, end_time_ms, attempting_prev_close=True)
-    #     if len(candles) == 0:
-    #         msg = f"Failed to fetch market close for {trade_pair.trade_pair}"
-    #         raise ValueError(msg)
-    #
-    #     ans = candles[-1]
-    #     self.closed_market_prices[trade_pair] = ans
-    #     return self.closed_market_prices[trade_pair]
-
     def get_websocket_event(self, trade_pair: TradePair) -> PriceSource | None:
+        """Get the latest event from websocket data with staleness check"""
         symbol = trade_pair.trade_pair
         cur_event = self.latest_websocket_events.get(symbol)
+
         if not cur_event:
             return None
 
+        # Check if the data is too stale
         timestamp_ms = cur_event.end_ms
         max_allowed_lag_s = self.trade_pair_category_to_longest_allowed_lag_s[trade_pair.trade_pair_category]
         lag_s = time.time() - timestamp_ms / 1000.0
         is_stale = lag_s > max_allowed_lag_s
+
         if is_stale:
-            bt.logging.info(f"Found stale TD websocket data for {trade_pair.trade_pair}. Lag_s: {lag_s} "
-                            f"seconds. Max allowed lag for category: {max_allowed_lag_s} seconds. Ignoring this data.")
+            bt.logging.info(
+                f"Found stale Polygon websocket data for {trade_pair.trade_pair}. Lag_s: {lag_s} "
+                f"seconds. Max allowed lag for category: {max_allowed_lag_s} seconds. Ignoring this data."
+            )
+            return None
+
         return cur_event
 
-    def unified_candle_fetcher(self, trade_pair: TradePair, start_timestamp_ms: int, end_timestamp_ms: int, timespan: str=None):
+    def unified_candle_fetcher(self, trade_pair: TradePair, start_timestamp_ms: int, end_timestamp_ms: int,
+                               timespan: str = None):
+        """Fetch candles with unified error handling and data cleaning"""
+        # Make sure REST client is initialized
+        if self.POLYGON_CLIENT is None:
+            self.instantiate_not_pickleable_objects()
+
+        # Get the Polygon ticker
+        polygon_ticker = self.trade_pair_to_polygon_ticker(trade_pair)
 
         def _fetch_raw_polygon_aggs():
-            return self.POLYGON_CLIENT.list_aggs(
-                polygon_ticker,
-                1,
-                timespan,
-                start_timestamp_ms,
-                end_timestamp_ms,
-                limit=self.N_CANDLES_LIMIT
-            )
+            """Internal function to fetch raw aggregates from Polygon"""
+            try:
+                return self.POLYGON_CLIENT.list_aggs(
+                    polygon_ticker,
+                    1,
+                    timespan,
+                    start_timestamp_ms,
+                    end_timestamp_ms,
+                    limit=self.N_CANDLES_LIMIT
+                )
+            except Exception as e:
+                bt.logging.error(f"Error fetching Polygon aggregates: {e}")
+                return []
+
         def _intra_vwap_valid(agg):
+            """Check if VWAP is close enough to close price"""
+            if not hasattr(agg, 'vwap') or agg.vwap is None:
+                return False
             return abs(agg.vwap - agg.close) / agg.close < .004
 
         def _consecutive_candle_spiked(a, b):
+            """Check if there's an abnormal price movement between candles"""
             return abs(b.close - a.close) / a.close > .015
 
         def _agg_to_payload(agg, prev, nxt, last_valid_price, waiting_for_valid_payload, tp_id, verbose=False):
-            if waiting_for_valid_payload > 20 and prev and nxt:  # waited long enough
+            """Process an aggregate and determine if it's valid"""
+            # If we've been waiting too long, accept what we have
+            if waiting_for_valid_payload > 20 and prev and nxt:
                 return _agg_to_payload(agg, prev, nxt, None, 0, tp_id)
             elif waiting_for_valid_payload > 0:
+                # Check if current price is close enough to last valid price
                 delta = abs(agg.close - last_valid_price) / last_valid_price
                 vv = _intra_vwap_valid(agg)
                 price_valid = delta < .005 and vv  # close enough to the tether
+
                 if verbose:
                     if price_valid:
-                        print(f'Breaking out. tp_id {tp_id}, waiting_for_valid_payload {waiting_for_valid_payload}, delta {delta} last_valid_price {last_valid_price} agg {agg}')
+                        print(
+                            f'Breaking out. tp_id {tp_id}, waiting_for_valid_payload {waiting_for_valid_payload}, delta {delta} last_valid_price {last_valid_price} agg {agg}')
                     else:
-                        print(f'tp_id {tp_id}, waiting_for_valid_payload {waiting_for_valid_payload}, delta {delta} vv {vv} last_valid_price {last_valid_price} agg.close {agg.close} agg.vwap {agg.vwap}')
+                        print(
+                            f'tp_id {tp_id}, waiting_for_valid_payload {waiting_for_valid_payload}, delta {delta} vv {vv} last_valid_price {last_valid_price} agg.close {agg.close} agg.vwap {agg.vwap}')
+
                 return agg, price_valid
 
-            # forex candles are subject to spikes. particularly at the end of day.
+            # Forex candles are subject to spikes, particularly at the end of day
             if prev and nxt is None and _consecutive_candle_spiked(prev, agg):
+                # Use the previous VWAP for this candle's close
                 agg.close = prev.vwap
-                return agg, True  # Don't enter the waiting_for_valid_payload state machine as this is likely a one-off
+                return agg, True  # Don't enter the waiting_for_valid_payload state
+
             elif nxt and prev is None and _consecutive_candle_spiked(agg, nxt):
+                # Use the next VWAP for this candle's close
                 agg.close = nxt.vwap
-                return agg, True  # Don't enter the waiting_for_valid_payload state machine as this is likely a one-off
+                return agg, True  # Don't enter the waiting_for_valid_payload state
+
             elif _intra_vwap_valid(agg):
+                # VWAP and close are close enough
                 return agg, True
+
             else:  # spike detected
-                vv = agg.low <= agg.vwap <= agg.high
+                # Try to smooth out the spike
+                vv = hasattr(agg, 'low') and hasattr(agg, 'high') and agg.low <= agg.vwap <= agg.high
                 smoothed_price = agg.vwap if vv else (agg.high + agg.low) / 2
                 agg.close = smoothed_price
+
                 if verbose:
                     print('--------------------------------------')
-                    print(f'Rejecting {tp_id}. delta {abs(agg.vwap - agg.close) / agg.close}. vv {vv} last_valid_price {last_valid_price} agg {agg}')
+                    print(
+                        f'Rejecting {tp_id}. delta {abs(agg.vwap - agg.close) / agg.close}. vv {vv} last_valid_price {last_valid_price} agg {agg}')
+
                 return agg, False
 
         def _get_filtered_forex_minute_data():
+            """Get and filter forex minute data to remove spikes"""
             price_info_raw = list(_fetch_raw_polygon_aggs())
             n_points = len(price_info_raw)
             last_valid_price = None
             tp_id = trade_pair.trade_pair_id
             waiting_for_valid_payload = 0  # minutes we've been ignoring data
             ans = []
+
             self.tp_to_mfs = {}
+
             for i in range(n_points):
                 a = price_info_raw[i]
 
@@ -654,59 +1088,82 @@ class PolygonDataService(BaseDataService):
                 nxt = price_info_raw[i + 1] if i < n_points - 1 else None
 
                 agg, is_valid = _agg_to_payload(a, prev, nxt, last_valid_price, waiting_for_valid_payload, tp_id)
+
                 if is_valid:
                     last_valid_price = agg.close
                     waiting_for_valid_payload = 0
                     ans.append(agg)
-                if not is_valid:
+                else:
                     if last_valid_price:
                         waiting_for_valid_payload += 1
                     else:
-                        ans.append(agg)  # smoothed price. Don't enter state machine as we have no valid last price to tether to
-                    # debug/metrics
+                        ans.append(agg)  # smoothed price
+
+                    # Track the longest wait for diagnostics
                     if tp_id not in self.tp_to_mfs:
                         self.tp_to_mfs[tp_id] = waiting_for_valid_payload
                     else:
                         self.tp_to_mfs[tp_id] = max(self.tp_to_mfs[tp_id], waiting_for_valid_payload)
+
             return ans
 
-
         def _get_filtered_forex_second_data():
+            """Get and filter forex second data from quotes"""
             ans = []
             prev_t_ms = None
-            raw = self.POLYGON_CLIENT.list_quotes(ticker=polygon_ticker,
-                                                                   timestamp_gte=start_timestamp_ms * 1000000,
-                                                                   timestamp_lte=end_timestamp_ms * 1000000,
-                                                                   sort='participant_timestamp',
-                                                                   order='asc',
-                                                                   limit=self.N_CANDLES_LIMIT)
+
+            try:
+                raw = self.POLYGON_CLIENT.list_quotes(
+                    ticker=polygon_ticker,
+                    timestamp_gte=start_timestamp_ms * 1000000,
+                    timestamp_lte=end_timestamp_ms * 1000000,
+                    sort='participant_timestamp',
+                    order='asc',
+                    limit=self.N_CANDLES_LIMIT
+                )
+            except Exception as e:
+                bt.logging.error(f"Error fetching quotes: {e}")
+                return [], 0
+
             n_quotes = 0
             best_delta = float('inf')
+
             for r in raw:
                 t_ms = r.participant_timestamp // 1000000
+
+                # Reset when timestamp changes
                 if t_ms != prev_t_ms:
                     best_delta = float('inf')
                     if ans and hasattr(ans[-1], 'temp'):
                         del ans[-1].temp
+
                 n_quotes += 1
+
+                # Get bid/ask prices
                 bid, ask, current_delta = self.parse_price_for_forex(r, stats=None)
                 if bid is None:
                     continue
+
                 midpoint_price = (bid + ask) / 2.0
 
                 if best_delta == float('inf'):
+                    # First quote for this timestamp
                     best_delta = current_delta
-                    ans.append(Agg(open=midpoint_price,
-                                   close=midpoint_price,
-                                   high=midpoint_price,
-                                   low=midpoint_price,
-                                   vwap=None,
-                                   timestamp=t_ms,
-                                   bid=bid,
-                                   ask=ask,
-                                   volume=0))
+                    ans.append(Agg(
+                        open=midpoint_price,
+                        close=midpoint_price,
+                        high=midpoint_price,
+                        low=midpoint_price,
+                        vwap=None,
+                        timestamp=t_ms,
+                        bid=bid,
+                        ask=ask,
+                        volume=0
+                    ))
+                    # Store bid/ask arrays for median calculation
                     ans[-1].temp = ([bid], [ask])
                 else:
+                    # Update existing aggregate with new quote
                     best_delta = current_delta
                     dat = ans[-1].temp
                     dat[0].append(bid)
@@ -714,10 +1171,12 @@ class PolygonDataService(BaseDataService):
                     dat[1].append(ask)
                     dat[1].sort()
 
-                    # Get the median value if the length is odd. Otherwise, average the two middle values
+                    # Calculate median values
                     median_bid = RecentEventTracker.forex_median_price(dat[0])
                     median_ask = RecentEventTracker.forex_median_price(dat[1])
                     midpoint_price = (median_bid + median_ask) / 2.0
+
+                    # Update the aggregate
                     ans[-1].open = ans[-1].close = ans[-1].low = ans[-1].high = midpoint_price
                     ans[-1].bid = median_bid
                     ans[-1].ask = median_ask
@@ -726,40 +1185,30 @@ class PolygonDataService(BaseDataService):
 
             return ans, n_quotes
 
-        if self.POLYGON_CLIENT is None:
-            self.instantiate_not_pickleable_objects()
-
-        polygon_ticker = self.trade_pair_to_polygon_ticker(trade_pair)
+        # Choose the appropriate data fetching based on asset type and timespan
         if trade_pair.is_forex:
             if timespan == 'second':
-                ans, n = _get_filtered_forex_second_data()
+                return _get_filtered_forex_second_data()[0]
             elif timespan == 'minute':
-                ans = _get_filtered_forex_minute_data()
+                return _get_filtered_forex_minute_data()
             elif timespan == 'day':
                 return _fetch_raw_polygon_aggs()
             else:
                 raise Exception(f'Invalid timespan {timespan}')
-            return ans
         else:
             return _fetch_raw_polygon_aggs()
 
     def get_candles_for_trade_pair(
-        self,
-        trade_pair: TradePair,
-        start_timestamp_ms: int,
-        end_timestamp_ms: int,
-        target_timestamp_ms: int,
-        attempting_prev_close: bool = False,
-        force_timespan: str = None
+            self,
+            trade_pair: TradePair,
+            start_timestamp_ms: int,
+            end_timestamp_ms: int,
+            target_timestamp_ms: int,
+            attempting_prev_close: bool = False,
+            force_timespan: str = None
     ) -> list[PriceSource] | None:
-        """
-        agg Agg(open=111.91, high=111.91, low=111.902, close=111.909, volume=3, vwap=111.907,
-        timestamp=1713273876000, transactions=3, otc=None)
-
-        agg Agg(open=63010.86, high=63010.86, low=63010.86, close=63010.86, volume=2.158e-05, vwap=63010.86,
-         timestamp=1713273888000, transactions=1, otc=None)
-        """
-
+        """Get candles for a trade pair with automatic timespan selection"""
+        # Determine appropriate timespan based on time range
         delta_time_ms = end_timestamp_ms - start_timestamp_ms
         delta_time_seconds = delta_time_ms / 1000
         delta_time_minutes = delta_time_seconds / 60
@@ -774,73 +1223,98 @@ class PolygonDataService(BaseDataService):
         else:
             timespan = "day"
 
+        # Override with forced timespan if provided
         if force_timespan:
             timespan = force_timespan
 
+        # Fetch candles
         aggs = []
         prev_timestamp = None
-        raw = self.unified_candle_fetcher(trade_pair, start_timestamp_ms, end_timestamp_ms, timespan)
-        for i, a in enumerate(raw):
-            epoch_miliseconds = a.timestamp
-            assert prev_timestamp is None or epoch_miliseconds >= prev_timestamp, ('candles not sorted', prev_timestamp, epoch_miliseconds)
-            #formatted_date = TimeUtil.millis_to_formatted_date_str(epoch_miliseconds)
-            #if i != -1:
-                #print('        agg:', a.low, formatted_date, trade_pair.trade_pair_id, timespan)
-            price_source = self.agg_to_price_source(a, target_timestamp_ms, timespan, attempting_prev_close=attempting_prev_close)
-            #print(formatted_date, price_source)
-            aggs.append(price_source)
-            prev_timestamp = epoch_miliseconds
+
+        try:
+            raw = self.unified_candle_fetcher(trade_pair, start_timestamp_ms, end_timestamp_ms, timespan)
+
+            for i, a in enumerate(raw):
+                epoch_miliseconds = a.timestamp
+
+                # Ensure candles are sorted by time
+                assert prev_timestamp is None or epoch_miliseconds >= prev_timestamp, (
+                    'candles not sorted', prev_timestamp, epoch_miliseconds
+                )
+
+                # Convert to price source
+                price_source = self.agg_to_price_source(
+                    a,
+                    target_timestamp_ms,
+                    timespan,
+                    attempting_prev_close=attempting_prev_close
+                )
+
+                aggs.append(price_source)
+                prev_timestamp = epoch_miliseconds
+
+        except Exception as e:
+            bt.logging.error(f"Error fetching candles for {trade_pair.trade_pair}: {e}")
 
         if not aggs:
-            bt.logging.trace(f"{POLYGON_PROVIDER_NAME} failed to fetch candle data for {trade_pair.trade_pair}. "
-                             f" Perhaps this trade pair was closed during the specified window.")
+            bt.logging.trace(
+                f"{POLYGON_PROVIDER_NAME} failed to fetch candle data for {trade_pair.trade_pair}. "
+                f"Perhaps this trade pair was closed during the specified window."
+            )
 
         return aggs
 
     def get_quote(self, trade_pair: TradePair, processed_ms: int) -> (float, float, int):
-        """
-        returns the bid and ask quote for a trade_pair at processed_ms
-        """
-        # polygon_ticker = self.trade_pair_to_polygon_ticker(trade_pair)
-
+        """Get the bid and ask quote for a trade pair at a specific time"""
+        # Initialize REST client if needed
         if self.POLYGON_CLIENT is None:
             self.instantiate_not_pickleable_objects()
 
         if trade_pair.is_forex or trade_pair.is_equities:
-            polygon_ticker = self.trade_pair_to_polygon_ticker(trade_pair)
-            quotes = self.POLYGON_CLIENT.list_quotes(
-                ticker=polygon_ticker,
-                timestamp_lte=processed_ms * 1_000_000,
-                sort="participant_timestamp",
-                order="desc",
-                limit=1
-            )
-            for q in quotes:
-                return q.bid_price, q.ask_price, int(q.participant_timestamp/1_000_000)  # convert ns back to ms
-        else:
-            # crypto
-            return 0, 0, 0
+            try:
+                polygon_ticker = self.trade_pair_to_polygon_ticker(trade_pair)
 
-    def get_currency_conversion(self, trade_pair: TradePair=None, base: str=None, quote: str=None) -> float:
-        """
-        get the currency conversion rate from base currency to quote currency
-        """
+                quotes = self.POLYGON_CLIENT.list_quotes(
+                    ticker=polygon_ticker,
+                    timestamp_lte=processed_ms * 1_000_000,
+                    sort="participant_timestamp",
+                    order="desc",
+                    limit=1
+                )
+
+                for q in quotes:
+                    return q.bid_price, q.ask_price, int(q.participant_timestamp / 1_000_000)  # convert ns to ms
+            except Exception as e:
+                bt.logging.error(f"Error fetching quotes for {trade_pair.trade_pair}: {e}")
+
+        # Default return for crypto or error cases
+        return 0, 0, 0
+
+    def get_currency_conversion(self, trade_pair: TradePair = None, base: str = None, quote: str = None) -> float:
+        """Get the currency conversion rate from base currency to quote currency"""
+        # Initialize REST client if needed
         if self.POLYGON_CLIENT is None:
             self.instantiate_not_pickleable_objects()
 
+        # Validate inputs
         if not (base and quote):
             if trade_pair and trade_pair.is_forex:
                 base, quote = trade_pair.trade_pair.split("/")
             else:
                 raise ValueError("Must provide either a valid forex pair or a base and quote for currency conversion")
 
-        rate = self.POLYGON_CLIENT.get_real_time_currency_conversion(
-            from_=base,
-            to=quote,
-            precision=4,
-        )
+        try:
+            # Get the conversion rate
+            rate = self.POLYGON_CLIENT.get_real_time_currency_conversion(
+                from_=base,
+                to=quote,
+                precision=4,
+            )
 
-        return rate.converted
+            return rate.converted
+        except Exception as e:
+            bt.logging.error(f"Error getting currency conversion {base}/{quote}: {e}")
+            return 0.0
 
 
 if __name__ == "__main__":
