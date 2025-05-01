@@ -177,10 +177,6 @@ class PolygonDataService(BaseDataService):
         self.tp_to_mfs = {}
         self.is_backtesting = is_backtesting
 
-        # Initialize other state tracking
-        self.DEBUG = 0
-        self.message_processing_times = []  # For tracking message processing performance
-
         super().__init__(provider_name=POLYGON_PROVIDER_NAME, ipc_manager=ipc_manager)
 
         self.MARKET_STATUS = None
@@ -495,92 +491,31 @@ class PolygonDataService(BaseDataService):
 
     def handle_msg(self, msgs):
         """
-        Handle incoming websocket messages with deadlock protection
+        Handle incoming websocket messages
         """
         if not msgs:
             return
 
         try:
-            # Performance tracking
-            start_time = time.time()
-            processed_count = 0
-            max_processing_time = 5.0  # Maximum seconds to spend processing a batch
-            message_count = len(msgs)
-
-            # Process messages up to a reasonable limit
-            max_messages_per_batch = 5000  # Increased to handle more messages per batch
-            messages_to_process = min(message_count, max_messages_per_batch)
-
-            for i in range(messages_to_process):
+            # Process all messages in the batch
+            for m in msgs:
                 # Process each message safely
-                self._process_single_message(msgs[i])
-                processed_count += 1
+                self._process_single_message(m)
 
-                # Check for processing time limit to avoid blocking too long
-                if i % 100 == 0:  # Only check time every 100 messages for efficiency
-                    elapsed = time.time() - start_time
-                    if elapsed > max_processing_time:
-                        remaining = message_count - processed_count
-                        # Only log this warning once per hour for each category using a timestamp check
-                        current_hour = int(time.time()) // 3600
-                        category = self._get_category_from_message(msgs[i])
-                        last_warn_hour = getattr(self, '_last_warn_hour', {}).get(category, 0)
-
-                        if current_hour > last_warn_hour and remaining > 100:
-                            if not hasattr(self, '_last_warn_hour'):
-                                self._last_warn_hour = {}
-                            self._last_warn_hour[category] = current_hour
-
-                            bt.logging.warning(
-                                f"Message processing time limit reached for {category}: processed {processed_count}/{message_count} messages in {elapsed:.2f}s."
-                            )
-                        break
-
-            # Track performance metrics very sparingly - only once per day per category
-            if processed_count > 0:
-                # Use the timestamp for throttling
-                current_day = int(time.time()) // 86400  # Seconds in a day
-                category = self._get_category_from_message(msgs[0]) if msgs else "unknown"
-
-                # Initialize tracking dictionaries if they don't exist
-                if not hasattr(self, '_performance_log_day'):
-                    self._performance_log_day = {}
-                    self._daily_processing_stats = {}
-
-                # Create or update stats for this category
-                if category not in self._daily_processing_stats:
-                    self._daily_processing_stats[category] = {"count": 0, "time": 0}
-
-                # Accumulate stats
-                self._daily_processing_stats[category]["count"] += processed_count
-                self._daily_processing_stats[category]["time"] += time.time() - start_time
-
-                # Check if we should log today
-                last_log_day = self._performance_log_day.get(category, 0)
-                if current_day > last_log_day:
-                    # Calculate and log the overall rate for the day
-                    stats = self._daily_processing_stats[category]
-                    if stats["time"] > 0:
-                        rate = stats["count"] / stats["time"]
-                        bt.logging.info(
-                            f"Polygon {category} daily processing rate: {rate:.2f} msgs/sec (processed {stats['count']} messages)")
-
-                    # Reset stats and update log day
-                    self._daily_processing_stats[category] = {"count": 0, "time": 0}
-                    self._performance_log_day[category] = current_day
+                # Update the websocket state for the appropriate category
+                if hasattr(self, '_get_category_from_message'):
+                    category = self._get_category_from_message(m)
+                    if category in self.ws_state:
+                        self.ws_state[category]["last_activity"] = time.time()
 
         except Exception as e:
+            # Simple error logging - just the error and a short traceback
             bt.logging.error(f"Error in handle_msg: {e}")
-            # Only log a full traceback once per hour
-            current_hour = int(time.time()) // 3600
-            last_error_hour = getattr(self, '_last_error_hour', 0)
-
-            if current_hour > last_error_hour:
-                self._last_error_hour = current_hour
-                bt.logging.error(f"Traceback: {traceback.format_exc()}")
+            tb_lines = traceback.format_exc().splitlines()
+            if len(tb_lines) > 3:
+                bt.logging.error(f"Traceback: {tb_lines[-3:]}")
             else:
-                # Just log a short message for repeated errors
-                bt.logging.error("Error processing message (details suppressed to reduce logging)")
+                bt.logging.error(f"Traceback: {tb_lines}")
 
     def _process_single_message(self, m):
         """Process a single websocket message safely"""
@@ -636,16 +571,6 @@ class PolygonDataService(BaseDataService):
                         ps, tp.is_forex, f"{self.provider_name}:{tp.trade_pair}"
                     )
 
-            # Debug logging if enabled
-            if self.DEBUG:
-                formatted_time = TimeUtil.millis_to_formatted_date_str(TimeUtil.now_in_millis())
-                self.trade_pair_to_price_history[tp].append((formatted_time, ps1.close if ps1 else None))
-
-                # Periodic debug logging
-                history_size = sum(len(v) for v in self.trade_pair_to_price_history.values())
-                bt.logging.info(f"History Size: {history_size}")
-                bt.logging.info(
-                    f"n_events_global: {sum(self.tpc_to_n_events.values())} breakdown {self.tpc_to_n_events}")
 
         except Exception as e:
             bt.logging.error(f"Error processing message {type(m)}: {e}")
