@@ -302,9 +302,9 @@ Please ask the Bittensor Discord community for testnet TAO. This will let you re
 
 Please first join the Bittensor Discord here: https://discord.com/invite/bittensor
 
-Then request testnet TAO here: https://discord.com/channels/799672011265015819/1190048018184011867
+Then request testnet TAO here: https://discord.com/channels/799672011265015819/1331693251589312553/1331694633822060544
 
-Bittensor -> help-forum -> requests for testnet tao
+Bittensor Discord -> help-forum -> Requests for Testnet TAO
 
 ## 3. Register keys
 

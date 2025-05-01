@@ -91,7 +91,7 @@ btcli wallet list
 
 ### 2. Get Testnet TAO (For Testnet Only)
 
-Join the [Bittensor Discord](https://discord.com/invite/bittensor) and request testnet TAO in the [help-forum channel](https://discord.com/channels/799672011265015819/1190048018184011867).
+Join the [Bittensor Discord](https://discord.com/invite/bittensor) and request testnet TAO in the [help-forum channel](https://discord.com/channels/799672011265015819/1331693251589312553/1331694633822060544).
 
 ### 3. Register Your Validator
 
