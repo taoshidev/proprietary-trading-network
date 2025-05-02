@@ -50,7 +50,7 @@ class LivePriceFetcher:
         if not best_event:
             return None
 
-        if filter_recent_only and best_event.time_delta_from_now_ms(current_time_ms) > 3000:
+        if filter_recent_only and best_event.time_delta_from_now_ms(current_time_ms) > 8000:
             return None
 
         return PriceSource.non_null_events_sorted(valid_events, current_time_ms)
@@ -63,7 +63,8 @@ class LivePriceFetcher:
         Fetch REST closes from both Polygon and Tiingo in parallel,
         using ThreadPoolExecutor to run both calls concurrently.
         """
-
+        polygon_results = {}
+        tiingo_results = {}
         with ThreadPoolExecutor(max_workers=2) as executor:
             # Submit both REST calls to the executor
             poly_fut = executor.submit(self.polygon_data_service.get_closes_rest, trade_pairs)
@@ -76,7 +77,7 @@ class LivePriceFetcher:
             except FuturesTimeoutError:
                 poly_fut.cancel()
                 tiingo_fut.cancel()
-                raise TimeoutError("dual_rest_get REST API requests timed out")
+                bt.logging.warning(f"dual_rest_get REST API requests timed out. trade_pairs: {trade_pairs}.")
 
         return polygon_results, tiingo_results
 
