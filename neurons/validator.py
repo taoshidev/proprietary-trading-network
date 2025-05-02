@@ -124,7 +124,7 @@ class Validator:
         self.ipc_manager = Manager()
         self.shared_queue_websockets = self.ipc_manager.Queue()
 
-        self.live_price_fetcher = LivePriceFetcher(secrets=self.secrets, disable_ws=False, ipc_manager=self.ipc_manager)
+        self.live_price_fetcher = LivePriceFetcher(secrets=self.secrets, disable_ws=False)
         self.price_slippage_model = PriceSlippageModel(live_price_fetcher=self.live_price_fetcher)
         # Activating Bittensor's logging with the set configurations.
         bt.logging(config=self.config, logging_dir=self.config.full_path)
