@@ -307,15 +307,27 @@ class ChallengePeriodManager(CacheController):
             # We want to know if the miner still has time, as we know the criteria to pass is not met
             time_criteria = current_time - inspection_time <= ValiConfig.CHALLENGE_PERIOD_MS
 
+            # Get hotkey to ledger dict that only includes the inspection miner
+            has_minimum_ledger, inspection_ledger = ChallengePeriodManager.screen_minimum_ledger(ledger=ledger,
+                                                                                                 inspection_hotkey=hotkey)
+            if not has_minimum_ledger:
+                passing_criteria = False
+
+            # This step we want to check their drawdown. If they fail, we can move on.
+            failing_criteria, recorded_drawdown_percentage = LedgerUtils.is_beyond_max_drawdown(
+                ledger_element=inspection_ledger.get(hotkey))
+
+            if failing_criteria:
+                bt.logging.info(
+                    f'Hotkey {hotkey} has failed the challenge period due to drawdown {recorded_drawdown_percentage}. cp_failed')
+                failing_miners[hotkey] = (
+                EliminationReason.FAILED_CHALLENGE_PERIOD_DRAWDOWN.value, recorded_drawdown_percentage)
+                continue
+
             # Get hotkey to positions dict that only includes the inspection miner
             has_minimum_positions, inspection_positions = ChallengePeriodManager.screen_minimum_positions(positions=positions, inspection_hotkey=hotkey)
             if not has_minimum_positions:
                 miners_not_enough_positions.append((hotkey, positions.get(hotkey, [])))
-                passing_criteria = False
-
-            # Get hotkey to ledger dict that only includes the inspection miner
-            has_minimum_ledger, inspection_ledger = ChallengePeriodManager.screen_minimum_ledger(ledger=ledger, inspection_hotkey=hotkey)
-            if not has_minimum_ledger:
                 passing_criteria = False
 
             # This step is meant to ensure no positions or ledgers reference missing hotkeys, we need them to evaluate
@@ -326,14 +338,6 @@ class ChallengePeriodManager(CacheController):
                     failing_miners[hotkey] = (EliminationReason.FAILED_CHALLENGE_PERIOD_TIME.value, -1)
 
                 continue  # Moving on, as the miner is already failing
-            # This step we want to check their drawdown. If they fail, we can move on.
-            failing_criteria, recorded_drawdown_percentage = LedgerUtils.is_beyond_max_drawdown(ledger_element=ledger[hotkey])
-
-            if failing_criteria:
-                bt.logging.info(f'Hotkey {hotkey} has failed the challenge period due to drawdown {recorded_drawdown_percentage}. cp_failed')
-                failing_miners[hotkey] = (EliminationReason.FAILED_CHALLENGE_PERIOD_DRAWDOWN.value, recorded_drawdown_percentage)
-                continue
-            
 
             # The main logic loop. They are in the competition but haven't passed yet, need to check the time after.
             passing_criteria = ChallengePeriodManager.screen_passing_criteria(

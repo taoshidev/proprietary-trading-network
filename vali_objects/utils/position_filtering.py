@@ -94,8 +94,6 @@ class PositionFiltering:
         """
         filtered_positions = []
         for position in positions:
-            if not position.is_closed_position:
-                continue
 
             if position.close_ms - position.open_ms < ValiConfig.MINIMUM_POSITION_DURATION_MS:
                 continue
