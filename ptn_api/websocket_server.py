@@ -400,7 +400,8 @@ class WebSocketServer(APIKeyMixin):
             # Remove from API key tracking
             if api_key and client_id in self.api_key_clients[api_key]:
                 self.api_key_clients[api_key].remove(client_id)
-                print(f"[{current_process().name}] Removed client {client_id} from API key {api_key}")
+                api_key_alias = self.api_key_to_alias.get(api_key, "Unknown")
+                print(f"[{current_process().name}] Removed client {client_id} from API key {api_key_alias}")
 
             # Remove from connected clients
             self.connected_clients.pop(client_id, None)
@@ -520,9 +521,10 @@ class WebSocketServer(APIKeyMixin):
 
                 # Remove the client from our records
                 self._remove_client(oldest_client_id)
+                api_key_alias = self.api_key_to_alias.get(api_key, "Unknown")
 
-                print(
-                    f"[{current_process().name}] Dropped oldest client {oldest_client_id} for API key {api_key} to make room for new client {client_id}")
+                print(f"[{current_process().name}] Dropped oldest client {oldest_client_id} for API key "
+                      f"{api_key_alias} to make room for new client {client_id}")
 
             # Send authentication success with tier information
             await websocket.send(json.dumps({
@@ -545,9 +547,9 @@ class WebSocketServer(APIKeyMixin):
 
             # Add to API key tracking (FIFO queue)
             self.api_key_clients[api_key].append(client_id)
-
+            api_key_alias = self.api_key_to_alias.get(api_key, "Unknown")
             print(
-                f"[{current_process().name}] Client {client_id} added to API key {api_key} (active: {len(self.api_key_clients[api_key])}/{MAX_N_WS_PER_API_KEY})")
+                f"[{current_process().name}] Client {client_id} added to API key {api_key_alias} (active: {len(self.api_key_clients[api_key])}/{MAX_N_WS_PER_API_KEY})")
 
             # Process client messages (subscriptions, etc.)
             while True:
@@ -838,7 +840,7 @@ if __name__ == "__main__":
     parser.add_argument('--port', type=int, help='Port to bind the server to', default=8765)
     parser.add_argument('--test-positions', action='store_true', help='Enable periodic test positions', default=True)
     parser.add_argument('--test-position-interval', type=int, help='Interval in seconds between test positions', default=5)
-    parser.set_defaults(test_orders=True)
+    parser.set_defaults(test_positions=True)
 
     args = parser.parse_args()
 
