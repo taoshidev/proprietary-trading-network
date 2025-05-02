@@ -160,9 +160,9 @@ class WebSocketServer(APIKeyMixin):
                         item = self.shared_queue.get()
                         # Set the result on the future when an item is available
                         loop.call_soon_threadsafe(lambda: future.set_result(item))
-                    except Exception as e:
+                    except Exception as ex:
                         # Set exception on the future if there's an error
-                        loop.call_soon_threadsafe(lambda: future.set_exception(e))
+                        loop.call_soon_threadsafe(lambda exc=ex: future.set_exception(exc))
 
                 # Run the get operation in a thread pool
                 await loop.run_in_executor(None, get_from_queue)
