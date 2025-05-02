@@ -1,6 +1,7 @@
 import json
 import threading
 import time
+import traceback
 from collections import defaultdict
 from copy import deepcopy
 from typing import List
@@ -40,7 +41,7 @@ def exception_handler_decorator():
 
 class BaseDataService():
     def __init__(self, provider_name, ipc_manager=None):
-        self.DEBUG_LOG_INTERVAL_S = 15
+        self.DEBUG_LOG_INTERVAL_S = 180
         self.MAX_TIME_NO_EVENTS_S = 120
 
         self.provider_name = provider_name
@@ -113,15 +114,20 @@ class BaseDataService():
         return next((x for x in TradePair if x.trade_pair_category == tpc), None)
 
     def check_flush(self):
-        t0 = time.time()
-        # Flush the recent events to shared memory
-        for k in list(self.trade_pair_to_recent_events_realtime.keys()):
-            self.trade_pair_to_recent_events[k] = self.trade_pair_to_recent_events_realtime[k]
-            self.n_flushes += 1
-            if self.n_flushes % 500 == 0:
-                t1 = time.time()
-                bt.logging.info(
-                    f"Flushed recent {self.provider_name} events to shared memory in {t1 - t0:.2f} seconds, n_flushes {self.n_flushes}")
+        t0 = time.time() if self.n_flushes % 500 == 0 else 0
+        # Get a list of keys to avoid dictionary changed size during iteration
+        # By creating a static list of keys first, we avoid the dictionary size change issue
+        keys = list(self.trade_pair_to_recent_events_realtime.keys())
+        c = {}
+        for k in keys:
+            c[k] = deepcopy(self.trade_pair_to_recent_events_realtime[k])
+        # Flush the recent events to shared memory in one go
+        self.trade_pair_to_recent_events.update(c)
+        self.n_flushes += 1
+        if t0:
+            t1 = time.time()
+            bt.logging.info(
+                f"Flushed recent {self.provider_name} events to shared memory in {t1 - t0:.2f} seconds, n_flushes {self.n_flushes}")
 
     def close_create_websocket_for_category(self, tpc: TradePairCategory):
         raise NotImplementedError
@@ -157,7 +163,9 @@ class BaseDataService():
                         try:
                             client.run(self.handle_msg)
                         except Exception as e:
-                            bt.logging.error(f"[{cat}] websocket crashed: {e}")
+                            bt.logging.error(f"{self.provider_name} [{cat}] websocket crashed: {e}")
+                            bt.logging.error(traceback.format_exc())
+                            self._create_and_subscribe(cat)
                     time.sleep(1)
 
             thr = threading.Thread(
@@ -173,28 +181,36 @@ class BaseDataService():
         last_health_check = time.time()
         last_debug = time.time()
         while True:
-            now = time.time()
-            if now - last_health_check > self.MAX_TIME_NO_EVENTS_S:
-                resets = []
-                for tpc in TradePairCategory:
-                    if tpc == TradePairCategory.INDICES:
-                        continue
-                    curr = self.tpc_to_n_events[tpc]
-                    prev = tpc_to_prev[tpc]
-                    if (curr == prev and self.is_market_open(self.get_first_trade_pair_in_category(tpc))):
-                        resets.append(tpc)
-                        self.close_create_websocket_for_category(tpc)
-                tpc_to_prev = {t: self.tpc_to_n_events[t] for t in TradePairCategory}
-                if resets:
-                    bt.logging.warning(f"Restarted websockets for {resets!r}. curr {curr} prev {prev}")
-                last_health_check = now
+            try:
+                now = time.time()
+                if now - last_health_check > self.MAX_TIME_NO_EVENTS_S:
+                    resets = []
+                    for tpc in TradePairCategory:
+                        if tpc == TradePairCategory.INDICES:
+                            continue
+                        curr = self.tpc_to_n_events[tpc]
+                        prev = tpc_to_prev[tpc]
+                        if (curr == prev and self.is_market_open(self.get_first_trade_pair_in_category(tpc))):
+                            resets.append(tpc)
+                            self.close_create_websocket_for_category(tpc)
+                    tpc_to_prev = {t: self.tpc_to_n_events[t] for t in TradePairCategory}
+                    if resets:
+                        bt.logging.warning(f"Restarted {self.provider_name} websockets for {resets!r}. curr {curr} prev {prev}")
+                    last_health_check = now
 
-            if self.using_ipc:
-                self.check_flush()
+                if self.using_ipc:
+                    self.check_flush()
 
-            if now - last_debug > self.DEBUG_LOG_INTERVAL_S:
-                self.debug_log()
-                last_debug = now
+                if now - last_debug > self.DEBUG_LOG_INTERVAL_S:
+                    try:
+                        self.debug_log()
+                    except Exception as e:
+                        bt.logging.error(f"debug_log() failed: {e}", exc_info=True)
+                        bt.logging.error(traceback.format_exc())
+                    last_debug = now
+            except Exception as e:
+                bt.logging.error(f"Error in websocket manager: {e}", exc_info=True)
+                bt.logging.error(traceback.format_exc())
 
             time.sleep(1)
 

@@ -1,5 +1,8 @@
+import json
+
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.position import Position
+from vali_objects.utils.vali_bkp_utils import CustomEncoder
 from vali_objects.vali_config import TradePair
 
 positions_to_snap = [
@@ -29,4 +32,9 @@ if __name__ == "__main__":
     for position_json in positions_to_snap:
         pos = Position(**position_json)
         pos.rebuild_position_with_updated_orders()
-        print(pos.to_copyable_str())
+        #print(pos.to_copyable_str())
+        str_to_write = json.dumps(pos, cls=CustomEncoder)
+
+        print(pos.model_dump_json(), '\n', str_to_write)
+
+
