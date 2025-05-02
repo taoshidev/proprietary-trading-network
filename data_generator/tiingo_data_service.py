@@ -653,21 +653,6 @@ class TiingoDataService(BaseDataService):
     def trade_pair_to_tiingo_ticker(self, trade_pair: TradePair):
         return trade_pair.trade_pair_id.lower()
 
-    def close_create_websocket_for_category(self, tpc: TradePairCategory):
-        """
-        For TiingoDataService, since we're using a polling-based approach rather than
-        actual WebSockets, we don't need to restart threads.
-
-        """
-        bt.logging.info(f"Resetting polling state for {self.provider_name} category {tpc}")
-
-        # We don't need to restart the thread, just log that we detected staleness
-        # and the existing thread will continue polling at its regular interval
-        thread = self.WEBSOCKET_THREADS.get(tpc)
-        if thread and thread.is_alive():
-            bt.logging.info(f"{self.provider_name} Polling thread for {tpc} is still alive with ID {thread.native_id}. Nothing to reset")
-        else:
-            raise Exception(f"{self.provider_name} Polling thread for {tpc} is not alive or not found. Unexpected behavior.")
 
     def get_websocket_event(self, trade_pair: TradePair) -> PriceSource | None:
         symbol = trade_pair.trade_pair

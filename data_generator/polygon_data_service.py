@@ -1,4 +1,3 @@
-import asyncio
 import threading
 import traceback
 from multiprocessing import Process
@@ -340,7 +339,7 @@ class PolygonDataService(BaseDataService):
 
                 if DEBUG:
                     formatted_time = TimeUtil.millis_to_formatted_date_str(TimeUtil.now_in_millis())
-                    self.trade_pair_to_price_history[tp].append((formatted_time, price))
+                    self.trade_pair_to_price_history[tp].append((formatted_time, ps1.price))
             if DEBUG:
                 print('last message:', m, 'n msgs total:', len(msgs))
                 history_size = sum(len(v) for v in self.trade_pair_to_price_history.values())
