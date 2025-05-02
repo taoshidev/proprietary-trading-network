@@ -142,7 +142,7 @@ class BaseDataService():
         2) spawn three threads (one per category) to run client.connect(handle_msg),
         3) then enter the existing health-check loop to recreate stale clients.
         """
-        setproctitle(f"vali_{self.__class__.__name__}")
+        setproctitle(f"vali_ws_{self.provider_name}")
         bt.logging.enable_info()
 
         # 1) Seed each category once
