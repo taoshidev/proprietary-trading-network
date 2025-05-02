@@ -93,6 +93,7 @@ class APIKeyMixin:
         self.accessible_api_keys = []  # Keep for backwards compatibility
         self.last_modified_time = 0  # Track last modification time
         self.api_key_refresh_thread = None
+        self.api_key_to_alias = {}  # api_key → user_id
 
         # Load API keys immediately
         try:
@@ -154,11 +155,11 @@ class APIKeyMixin:
                 raise ValueError("API keys file must contain a dict of key/values.")
 
             old_count = len(self.api_keys_data)
-            new_count = len(new_keys)
 
             # Process the new keys data format
             processed_keys = {}
             accessible_keys = []
+            api_key_to_name = {}
 
             for user_id, key_data in new_keys.items():
                 # Handle both legacy and new formats
@@ -167,6 +168,7 @@ class APIKeyMixin:
                     api_key = key_data
                     tier = 100  # Default tier for legacy keys
                     processed_keys[api_key] = {"tier": tier}
+                    api_key_to_name[api_key] = user_id
                     accessible_keys.append(api_key)
                 elif isinstance(key_data, dict):
                     # New format: dictionary with key and permissions
@@ -178,15 +180,18 @@ class APIKeyMixin:
                         continue
 
                     processed_keys[api_key] = {"tier": tier}
+                    api_key_to_name[api_key] = user_id
                     accessible_keys.append(api_key)
                 else:
                     print(f"[{current_process().name}] Warning: Invalid key data format for user {user_id}")
 
+            new_count = len(processed_keys)
             # Only update and log if keys have actually changed
             if old_count != new_count or set(self.accessible_api_keys) != set(accessible_keys):
                 print(f"[{current_process().name}] API key list size changed: {old_count} -> {new_count}")
                 self.api_keys_data = processed_keys
                 self.accessible_api_keys = accessible_keys
+                self.api_key_to_alias = api_key_to_name
                 print(
                     f"[{current_process().name}] Updated API keys data with {len(self.api_keys_data)} keys")
 
