@@ -58,14 +58,14 @@ class MockChallengePeriodManager(ChallengePeriodManager):
 class MockLivePriceFetcher(LivePriceFetcher):
     def __init__(self, secrets, disable_ws):
         super().__init__(secrets=secrets, disable_ws=disable_ws)
-        self.polygon_data_service = MockPolygonDataService(api_key=secrets["polygon_apikey"])
+        self.polygon_data_service = MockPolygonDataService(api_key=secrets["polygon_apikey"], disable_ws=disable_ws)
 
     def get_sorted_price_sources_for_trade_pair(self, trade_pair, processed_ms):
         return [PriceSource(price=1, open=1, high=1, close=1, low=1, bid=1, ask=1)]
 
 class MockPolygonDataService(PolygonDataService):
-    def __init__(self, api_key):
-        super().__init__(api_key)
+    def __init__(self, api_key, disable_ws=True):
+        super().__init__(api_key, disable_ws=disable_ws)
         self.trade_pair_to_recent_events_realtime = defaultdict()
 
     def get_last_quote(self, trade_pair: TradePair, processed_ms: int) -> (float, float):
