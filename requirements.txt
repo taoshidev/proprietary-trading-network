@@ -17,4 +17,3 @@ holidays == 0.67
 Flask-Compress == 1.17
 
 
-

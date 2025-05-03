@@ -1,3 +1,4 @@
+import asyncio
 import json
 import threading
 import time
@@ -7,7 +8,9 @@ from copy import deepcopy
 from typing import List
 
 import bittensor as bt
+from polygon import WebSocketClient
 from setproctitle import setproctitle
+from tiingo import TiingoWebsocketClient
 
 from time_util.time_util import TimeUtil, UnifiedMarketCalendar
 from vali_objects.vali_config import TradePair, TradePairCategory
@@ -52,6 +55,7 @@ class BaseDataService():
         self.latest_websocket_events = {}
         self.using_ipc = ipc_manager is not None
         self.n_flushes = 0
+        self.websocket_manager_thread = None
         self.trade_pair_to_recent_events_realtime = defaultdict(RecentEventTracker)
         if ipc_manager is None:
             self.trade_pair_to_recent_events = defaultdict(RecentEventTracker)
@@ -70,16 +74,11 @@ class BaseDataService():
                 f"Trade pair {trade_pair} has no allowed lag time"
 
         # initialize our websocket slots to None
-        self.WEBSOCKET_THREADS = {
-            TradePairCategory.CRYPTO: None,
-            TradePairCategory.FOREX: None,
-            TradePairCategory.EQUITIES: None
-        }
-        self.WEBSOCKET_OBJECTS = {
-            TradePairCategory.CRYPTO: None,
-            TradePairCategory.FOREX: None,
-            TradePairCategory.EQUITIES: None
-        }
+        self.WEBSOCKET_THREADS = {}
+        self.WEBSOCKET_OBJECTS = {}
+        for tpc in [TradePairCategory.CRYPTO, TradePairCategory.FOREX, TradePairCategory.EQUITIES]:
+            self.WEBSOCKET_THREADS[tpc] = None
+            self.WEBSOCKET_OBJECTS[tpc] = None
 
 
 
@@ -129,90 +128,173 @@ class BaseDataService():
             bt.logging.info(
                 f"Flushed recent {self.provider_name} events to shared memory in {t1 - t0:.2f} seconds, n_flushes {self.n_flushes}")
 
-    def close_create_websocket_for_category(self, tpc: TradePairCategory):
-        raise NotImplementedError
+    def stop_threads(self):
+        """
+        Stop the threads that are running the websocket clients.
+        """
+        if self.websocket_manager_thread:
+            bt.logging.info(f"Stopping {self.provider_name} websocket manager thread")
+            self.websocket_manager_thread.join(timeout=1)
+            bt.logging.info(f"Stopped {self.provider_name} websocket manager thread")
 
-    def _create_and_subscribe(self, tpc):
-        raise NotImplementedError
+        for tpc in TradePairCategory:
+            self._kill_ws_for_category(tpc)
+            if self.WEBSOCKET_THREADS[tpc]:
+                self.WEBSOCKET_THREADS[tpc].join(timeout=1)
+                bt.logging.info(f"Stopped {self.provider_name} websocket thread for {tpc.name.lower()}")
+            else:
+                bt.logging.warning(f"No websocket thread found for {tpc.name.lower()}")
 
     def websocket_manager(self):
         """
-        This runs in a separate process.  It must:
-        1) seed each category once,
-        2) spawn three threads (one per category) to run client.connect(handle_msg),
-        3) then enter the existing health-check loop to recreate stale clients.
+        This runs in a separate thread. It manages websockets using asyncio tasks
+        instead of threads, which simplifies the event loop management.
         """
         setproctitle(f"vali_ws_{self.provider_name}")
         bt.logging.enable_info()
 
-        # 1) Seed each category once
-        for tpc in (TradePairCategory.CRYPTO,
-                    TradePairCategory.FOREX,
-                    TradePairCategory.EQUITIES):
-            self._create_and_subscribe(tpc)
+        # Create a single event loop for the thread
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
 
-        # 2) Spawn one thread per category
-        for tpc in (TradePairCategory.CRYPTO,
-                    TradePairCategory.FOREX,
-                    TradePairCategory.EQUITIES):
+        # Define the websocket coroutine for each category
+        async def run_websocket(category):
+            while True:
+                try:
+                    # Create a new client
+                    self._create_websocket_client(category)
+                    self._subscribe_websockets(category)
+                    client = self.WEBSOCKET_OBJECTS.get(category)
 
-            def _runner(cat=tpc):
-                while True:
-                    client = self.WEBSOCKET_OBJECTS.get(cat)
                     if client:
+                        bt.logging.info(f"Connecting {self.provider_name} websocket for {category}")
+                        # Use await instead of run_until_complete since we're in a coroutine
+                        await client.connect(self.handle_msg)
+                        bt.logging.warning(f"{self.provider_name}[{category}] connection closed, restarting")
+                    else:
+                        bt.logging.warning(f"{self.provider_name}[{category}] client not created, retrying")
+                        await asyncio.sleep(5)
+                        continue
+
+                except Exception as e:
+                    bt.logging.error(f"{self.provider_name}[{category}] websocket error: {e}")
+                    bt.logging.error(traceback.format_exc())
+
+                # Clean up before reconnecting
+                try:
+                    await self._kill_ws_for_category(category)
+                    # Wait before reconnecting
+                    await asyncio.sleep(2)
+                except Exception as e:
+                    bt.logging.error(f"Error during websocket cleanup for {category}: {e}")
+                    await asyncio.sleep(5)  # Back off on errors
+
+        async def health_check():
+            tpc_to_prev = {t: 0 for t in TradePairCategory}
+            last_health_check = time.time()
+            last_debug = time.time()
+
+            while True:
+                try:
+                    now = time.time()
+                    if now - last_health_check > self.MAX_TIME_NO_EVENTS_S:
+                        resets = []
+                        for tpc in TradePairCategory:
+                            if tpc == TradePairCategory.INDICES:
+                                continue
+                            curr = self.tpc_to_n_events[tpc]
+                            prev = tpc_to_prev[tpc]
+
+                            if (curr == prev and self.is_market_open(self.get_first_trade_pair_in_category(tpc))):
+                                # Get a reference to the current websocket
+                                old: WebSocketClient|TiingoWebsocketClient = self.WEBSOCKET_OBJECTS.get(tpc)
+                                if old:
+                                    resets.append(tpc)
+                                    try:
+                                        await self._kill_ws_for_category(tpc)
+                                        bt.logging.info(f'Health check triggered shutdown for {tpc.name.lower()}')
+                                    except Exception as e:
+                                        bt.logging.warning(f"Health check shutdown trigger failed for {tpc}: {e}")
+
+                        tpc_to_prev = {t: self.tpc_to_n_events[t] for t in TradePairCategory}
+                        if resets:
+                            bt.logging.warning(
+                                f"Health check restarting {self.provider_name} websockets for {resets!r}. curr {curr} prev {prev}")
+                        last_health_check = now
+
+                    if self.using_ipc:
+                        self.check_flush()
+
+                    if now - last_debug > self.DEBUG_LOG_INTERVAL_S:
                         try:
-                            client.run(self.handle_msg)
+                            self.debug_log()
                         except Exception as e:
-                            bt.logging.error(f"{self.provider_name} [{cat}] websocket crashed: {e}")
-                            bt.logging.error(traceback.format_exc())
-                            self._create_and_subscribe(cat)
-                    time.sleep(1)
+                            bt.logging.error(f"debug_log() failed: {e}")
+                        last_debug = now
 
-            thr = threading.Thread(
-                target=_runner,
-                name=f"ws_{tpc.name.lower()}",
-                daemon=True
-            )
-            self.WEBSOCKET_THREADS[tpc] = thr
-            thr.start()
+                except Exception as e:
+                    bt.logging.error(f"Error in health check: {e}")
+                    bt.logging.error(traceback.format_exc())
 
-        # --- STEP 3: enter your existing health‐check & recreation loop ---
-        tpc_to_prev = {t: 0 for t in TradePairCategory}
-        last_health_check = time.time()
-        last_debug = time.time()
-        while True:
+                await asyncio.sleep(1)
+
+        # Create and store tasks for each websocket category
+        tasks = []
+        for tpc in (TradePairCategory.CRYPTO, TradePairCategory.FOREX, TradePairCategory.EQUITIES):
+            task = loop.create_task(run_websocket(tpc))
+            tasks.append(task)
+
+        # Add the health check task
+        health_task = loop.create_task(health_check())
+        tasks.append(health_task)
+
+        # Run the event loop with all tasks
+        try:
+            loop.run_until_complete(asyncio.gather(*tasks))
+        except Exception as e:
+            bt.logging.error(f"Main event loop error: {e}")
+            bt.logging.error(traceback.format_exc())
+        finally:
             try:
-                now = time.time()
-                if now - last_health_check > self.MAX_TIME_NO_EVENTS_S:
-                    resets = []
-                    for tpc in TradePairCategory:
-                        if tpc == TradePairCategory.INDICES:
-                            continue
-                        curr = self.tpc_to_n_events[tpc]
-                        prev = tpc_to_prev[tpc]
-                        if (curr == prev and self.is_market_open(self.get_first_trade_pair_in_category(tpc))):
-                            resets.append(tpc)
-                            self.close_create_websocket_for_category(tpc)
-                    tpc_to_prev = {t: self.tpc_to_n_events[t] for t in TradePairCategory}
-                    if resets:
-                        bt.logging.warning(f"Restarted {self.provider_name} websockets for {resets!r}. curr {curr} prev {prev}")
-                    last_health_check = now
+                # Clean up any pending tasks
+                for task in tasks:
+                    task.cancel()
 
-                if self.using_ipc:
-                    self.check_flush()
-
-                if now - last_debug > self.DEBUG_LOG_INTERVAL_S:
-                    try:
-                        self.debug_log()
-                    except Exception as e:
-                        bt.logging.error(f"debug_log() failed: {e}", exc_info=True)
-                        bt.logging.error(traceback.format_exc())
-                    last_debug = now
+                # Close the event loop
+                loop.close()
             except Exception as e:
-                bt.logging.error(f"Error in websocket manager: {e}", exc_info=True)
-                bt.logging.error(traceback.format_exc())
+                bt.logging.error(f"Error during shutdown: {e}")
 
-            time.sleep(1)
+    async def _kill_ws_for_category(self, tpc:TradePairCategory):
+        """
+        Signal that a websocket should be closed.
+        """
+        client = self.WEBSOCKET_OBJECTS.get(tpc)
+        if client:
+            try:
+                client.unsubscribe_all()
+                bt.logging.info(f'Unsubscribed {self.provider_name} websocket for {tpc.name.lower()}')
+
+                # Set the should_close flag if the client has it
+                if hasattr(client, '_should_close'):
+                    client._should_close = True
+
+                # Since we're in the same event loop, we can safely close
+                await client.close()
+                bt.logging.info(f'Closed {self.provider_name} websocket for {tpc.name.lower()}')
+                self.WEBSOCKET_OBJECTS[tpc] = None
+
+            except Exception as e:
+                bt.logging.warning(f"Failed to initiate shutdown for {self.provider_name} websocket for {tpc}: {e}")
+
+    def _create_websocket_client(self, tpc):
+        raise NotImplementedError
+
+    def _subscribe_websockets(self, tpc):
+        raise NotImplementedError
+
+    async def handle_msg(self, msg):
+        raise NotImplementedError
 
     def instantiate_not_pickleable_objects(self):
         raise NotImplementedError
