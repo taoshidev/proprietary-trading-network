@@ -1,3 +1,4 @@
+import asyncio
 import threading
 import traceback
 import json
@@ -10,6 +11,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from data_generator.base_data_service import BaseDataService, TIINGO_PROVIDER_NAME, exception_handler_decorator
 from time_util.time_util import TimeUtil
 from vali_objects.vali_config import TradePair, TradePairCategory
+
 import time
 
 from vali_objects.utils.vali_utils import ValiUtils
@@ -26,12 +28,76 @@ TIINGO_COINBASE_EXCHANGE_STR = 'gdax'
 
 class _TiingoPseudoClient:
     def __init__(self, service, category):
-        self._svc = service
-        self._cat = category
+        self._svc: TiingoDataService = service
+        self._cat: TradePairCategory = category
+        self._should_close = False
 
-    def run(self, handle_msg):
-        # This will block forever, polling & calling handle_msg
-        self._svc.run_pseudo_websocket(self._cat)
+    async def connect(self, handle_msg):
+        """
+        Asynchronous connect method for the Tiingo websocket client
+        """
+        POLLING_INTERVAL_S = 5
+        last_poll_time = 0
+
+        while not self._should_close:
+            current_time = time.time()
+            elapsed_time = current_time - last_poll_time
+
+            if elapsed_time < POLLING_INTERVAL_S:
+                # Use await sleep to yield control back to the event loop
+                await asyncio.sleep(1)
+                continue
+
+            try:
+                # Get trade pairs to query
+                if self._cat == TradePairCategory.EQUITIES:
+                    desired_trade_pairs = [x for x in TradePair if x.is_equities]
+                elif self._cat == TradePairCategory.FOREX:
+                    desired_trade_pairs = [x for x in TradePair if x.is_forex]
+                elif self._cat == TradePairCategory.CRYPTO:
+                    desired_trade_pairs = [x for x in TradePair if x.is_crypto]
+                else:
+                    raise ValueError(f'Unexpected trade pair category {self._cat}')
+
+                trade_pairs_to_query = [pair for pair in desired_trade_pairs
+                                        if self._svc.is_market_open(pair)]
+
+                if not trade_pairs_to_query:
+                    await asyncio.sleep(1)
+                    continue
+
+                last_poll_time = current_time
+
+                # Get price data synchronously but don't block the event loop
+                loop = asyncio.get_event_loop()
+                price_sources = await loop.run_in_executor(
+                    None, self._svc.get_closes_rest, trade_pairs_to_query, False
+                )
+
+                # Process each price source
+                for trade_pair, price_source in price_sources.items():
+                    if price_source:
+                        price_source.websocket = True
+                        # Process the price source directly
+                        self._svc.process_ps_from_websocket(trade_pair, price_source)
+                        # Update event counter
+                        self._svc.tpc_to_n_events[trade_pair.trade_pair_category] += 1
+
+            except Exception as e:
+                bt.logging.error(f"Error in {self._svc.provider_name} pseudo websocket for {self._cat}: {e}")
+                bt.logging.error(traceback.format_exc())
+                await asyncio.sleep(5)
+
+
+    def unsubscribe_all(self):
+        """Signal that the client should stop polling."""
+        self._should_close = True
+        bt.logging.info(f"Unsubscribed {self._svc.provider_name} websocket client for {self._cat}")
+
+    async def close(self):
+        """Close the client."""
+        self._should_close = True
+        bt.logging.info(f"Closed {self._svc.provider_name} websocket client for {self._cat}")
 
 
 class TiingoDataService(BaseDataService):
@@ -69,65 +135,48 @@ class TiingoDataService(BaseDataService):
             self.websocket_manager_thread.start()
             #time.sleep(3) # Let the websocket_manager_thread start
 
-    def close_create_websocket_for_category(self, tpc: TradePairCategory):
+    def _close_ws_for_category(self, tpc: TradePairCategory, loop):
+        """
+        “Close” the Tiingo pseudo‐websocket for the given category by
+        forcing the runner to tear down and rebuild on the next loop.
+        """
+        client = self.WEBSOCKET_OBJECTS.get(tpc)
+        if not client:
+            return
+
+        # 1) trigger the forced‐exception in run_pseudo_websocket()
+        try:
+            client.unsubscribe_all()
+            bt.logging.info(f"Unsubscribed {self.provider_name} websocket for {tpc.name.lower()}")
+        except Exception:
+            bt.logging.warning(
+                f"Failed to unsubscribe old {self.provider_name} websocket for {tpc.name.lower()}",
+                exc_info=True
+            )
+
+        # 2) clear out the client so the runner loop will recreate it
+        self.WEBSOCKET_OBJECTS[tpc] = None
+
+    def _create_websocket_client(self, tpc):
+        if self.TIINGO_CLIENT is None:
+            self.instantiate_not_pickleable_objects()
+
+        client = _TiingoPseudoClient(self, tpc)
+        bt.logging.info(f"Created {self.provider_name} websocket for {tpc}")
+        self.WEBSOCKET_OBJECTS[tpc] = client
+
+    def _subscribe_websockets(self, tpc):
         """
         For Tiingo we never actually tear down the polling thread, so this
         can just log and move on.
         """
-        bt.logging.info(f"{self.provider_name} detected stale data for {tpc}, but polling loop remains alive.")
-
-    def _create_and_subscribe(self, tpc: TradePairCategory):
-        if self.TIINGO_CLIENT is None:
-            self.instantiate_not_pickleable_objects()
-        # register a fake client with a .run(handle_msg) entrypoint
-        client = _TiingoPseudoClient(self, tpc)
-        self.WEBSOCKET_OBJECTS[tpc] = client
-        bt.logging.info(f"{self.provider_name} pseudo‐subscribed for category {tpc}")
+        #bt.logging.info(f"Subscribing {self.provider_name} for {tpc} is a noop.")
+        pass
 
     def instantiate_not_pickleable_objects(self):
         self.TIINGO_CLIENT = TiingoClient(self.config)
 
-    def run_pseudo_websocket(self, tpc: TradePairCategory):
-
-        verbose = False
-        POLLING_INTERVAL_S = 5
-        if tpc == TradePairCategory.EQUITIES:
-            desired_trade_pairs = [x for x in TradePair if x.is_equities]
-        elif tpc == TradePairCategory.FOREX:
-            desired_trade_pairs = [x for x in TradePair if x.is_forex]
-        elif tpc == TradePairCategory.CRYPTO:
-            desired_trade_pairs = [x for x in TradePair if x.is_crypto]
-        else:
-            raise ValueError(f'Unexpected trade pair category {tpc}')
-
-        last_poll_time = 0
-        iteration_number = 0
-        while True:
-            iteration_number += 1
-            current_time = time.time()
-            elapsed_time = current_time - last_poll_time
-
-            if elapsed_time < POLLING_INTERVAL_S:
-                time.sleep(1)
-                continue
-
-            trade_pairs_to_query = [pair for pair in desired_trade_pairs if self.is_market_open(pair)]
-            last_poll_time = current_time
-            price_sources = self.get_closes_rest(trade_pairs_to_query, verbose=verbose)
-
-            for trade_pair, price_source in price_sources.items():
-                price_source.websocket = True
-                self.tpc_to_n_events[trade_pair.trade_pair_category] += 1
-                self.process_ps_from_websocket(trade_pair, price_source)
-
-            if verbose:
-                elapsed_since_last_poll = time.time() - current_time
-                # log the info on this thread
-                print(
-                    f"Pseudo websocket update took {elapsed_since_last_poll:.2f} seconds for tpc {tpc} "
-                    f"thread id: {threading.get_native_id()}. last_poll_time {last_poll_time} iteration_number {iteration_number}")
-
-    def handle_msg(self, msg):
+    async def handle_msg(self, msg):
         """
         {'service': 'iex', 'messageType': 'A', 'data': ['T', '2024-11-15T08:41:29.291307201-05:00', 1731678089291307201, 'srad', None, None, None, None, None, 17.58, 30, None, 1, 0, 1, 0]}
 

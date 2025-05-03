@@ -204,7 +204,7 @@ class PolygonDataService(BaseDataService):
         #    stats['t_vlp'] = t_ms
         return m.bid_price, m.ask_price, delta
 
-    def handle_msg(self, msgs: List[ForexQuote | CryptoTrade | EquityAgg | EquityTrade]):
+    async def handle_msg(self, msgs: List[ForexQuote | CryptoTrade | EquityAgg | EquityTrade]):
         """
         received message: CurrencyAgg(event_type='CAS', pair='USD/CHF', open=0.91313, close=0.91317, high=0.91318,
         low=0.91313, volume=3, vwap=None, start_timestamp=1713273701000, end_timestamp=1713273702000,
@@ -299,7 +299,6 @@ class PolygonDataService(BaseDataService):
                     ask=ask
                 )
             return price_source1, price_source2
-
         try:
             m = None
             for m in msgs:
@@ -316,7 +315,8 @@ class PolygonDataService(BaseDataService):
                 else:
                     raise ValueError(f"Unknown message in POLY websocket: {m}")
 
-                self.tpc_to_n_events[tp.trade_pair_category] += 1
+                tpc = tp.trade_pair_category
+                self.tpc_to_n_events[tpc] += 1
                 # This could be a candle so we can make 2 prices, one for the open and one for the close
                 symbol = tp.trade_pair
                 ps1, ps2 = msg_to_price_sources(m, tp)
@@ -357,47 +357,7 @@ class PolygonDataService(BaseDataService):
     def instantiate_not_pickleable_objects(self):
         self.POLYGON_CLIENT = RESTClient(api_key=self._api_key, num_pools=20)
 
-
-    def close_create_websocket_for_category(self, tpc: TradePairCategory):
-        """
-        Build or rebuild the WebSocketClient for `tpc` and subscribe.
-        The threads in websocket_manager() will pick it up and call .connect(...)
-        """
-        bt.logging.info(f"Recreating websocket for category {tpc}")
-
-        # close old client if present
-        old = self.WEBSOCKET_OBJECTS.get(tpc)
-        if old:
-            try:
-                # unsubscribing will cause run() to exit with an exception
-                old.unsubscribe_all()
-            except Exception:
-                bt.logging.warning(f"Failed to unsubscribe old websocket for {tpc}", exc_info=True)
-
-        feed = Feed.RealTime
-        # instantiate new client
-        if tpc == TradePairCategory.CRYPTO:
-            market = Market.Crypto
-        elif tpc == TradePairCategory.FOREX:
-            market = Market.Forex
-        elif tpc == TradePairCategory.EQUITIES:
-            market = Market.Stocks
-        else:
-            raise Exception(f'Unexpected tpc {tpc}')
-
-        # Depending on API key, the feed may be different for equities
-        if tpc == TradePairCategory.EQUITIES:
-            feed = self.stocks_feed_round_robin_map[self.stocks_feed_round_robin_counter]
-            self.stocks_feed_round_robin_counter = (1 + self.stocks_feed_round_robin_counter) % len(self.stocks_feed_round_robin_map)
-        client = WebSocketClient(market=market, api_key=self._api_key, feed=feed)
-        self.WEBSOCKET_OBJECTS[tpc] = client
-
-        # subscribe symbols
-        self.subscribe_websockets(tpc)
-        bt.logging.info(f"Subscribed websocket for {tpc}. feed {feed.name}")
-
-
-    def subscribe_websockets(self, tpc: TradePairCategory = None):
+    def _subscribe_websockets(self, tpc: TradePairCategory = None):
         subbed = []
         for tp in TradePair:
             if tp in self.UNSUPPORTED_TRADE_PAIRS:
@@ -474,18 +434,9 @@ class PolygonDataService(BaseDataService):
                 ask=a.ask if hasattr(a, 'ask') else 0
             )
 
-    def _create_and_subscribe(self, tpc: TradePairCategory):
-        """
-        Helper to close old client (if any), instantiate new one, subscribe it,
-        and store it in self.WEBSOCKET_OBJECTS[tpc].
-        """
-        old = self.WEBSOCKET_OBJECTS.get(tpc)
-        if old:
-            try:
-                old.close()  # synchronous close
-            except Exception:
-                bt.logging.warning(f"Failed to close old websocket for {tpc}", exc_info=True)
-
+    def _create_websocket_client(self, tpc: TradePairCategory):
+        feed = Feed.RealTime
+        # instantiate new client
         if tpc == TradePairCategory.CRYPTO:
             market = Market.Crypto
         elif tpc == TradePairCategory.FOREX:
@@ -495,13 +446,13 @@ class PolygonDataService(BaseDataService):
         else:
             raise Exception(f'Unexpected tpc {tpc}')
 
-        client = WebSocketClient(market=market, api_key=self._api_key)
+        # Depending on API key, the feed may be different for equities
+        if tpc == TradePairCategory.EQUITIES:
+            feed = self.stocks_feed_round_robin_map[self.stocks_feed_round_robin_counter]
+            self.stocks_feed_round_robin_counter = (1 + self.stocks_feed_round_robin_counter) % len(self.stocks_feed_round_robin_map)
+        client = WebSocketClient(market=market, api_key=self._api_key, feed=feed)
+        bt.logging.info(f"Created {self.provider_name} websocket for {tpc}. feed {feed.name}")
         self.WEBSOCKET_OBJECTS[tpc] = client
-
-        # subscribe your symbols for this category
-        self.subscribe_websockets(tpc)
-
-        bt.logging.info(f"Subscribed websocket for {tpc}")
 
     def get_close_rest(
         self,
