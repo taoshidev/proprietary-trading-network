@@ -7,7 +7,7 @@ import requests
 from typing import List
 
 from vali_objects.vali_dataclasses.order import Order
-from polygon.websocket import Market, EquityAgg, EquityTrade, CryptoTrade, ForexQuote, WebSocketClient
+from polygon.websocket import Market, EquityAgg, EquityTrade, CryptoTrade, ForexQuote, WebSocketClient, Feed
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from data_generator.base_data_service import BaseDataService, POLYGON_PROVIDER_NAME
@@ -163,6 +163,8 @@ class PolygonDataService(BaseDataService):
         self.N_CANDLES_LIMIT = 50000
         self.tp_to_mfs = {}
         self.is_backtesting = is_backtesting
+        self.stocks_feed_round_robin_map = {0: Feed.RealTime, 1: Feed.Business}
+        self.stocks_feed_round_robin_counter = 0
 
         super().__init__(provider_name=POLYGON_PROVIDER_NAME, ipc_manager=ipc_manager)
 
@@ -372,20 +374,27 @@ class PolygonDataService(BaseDataService):
             except Exception:
                 bt.logging.warning(f"Failed to unsubscribe old websocket for {tpc}", exc_info=True)
 
+        feed = Feed.RealTime
         # instantiate new client
         if tpc == TradePairCategory.CRYPTO:
             market = Market.Crypto
         elif tpc == TradePairCategory.FOREX:
             market = Market.Forex
-        else:
+        elif tpc == TradePairCategory.EQUITIES:
             market = Market.Stocks
+        else:
+            raise Exception(f'Unexpected tpc {tpc}')
 
-        client = WebSocketClient(market=market, api_key=self._api_key)
+        # Depending on API key, the feed may be different for equities
+        if tpc == TradePairCategory.EQUITIES:
+            feed = self.stocks_feed_round_robin_map[self.stocks_feed_round_robin_counter]
+            self.stocks_feed_round_robin_counter = (1 + self.stocks_feed_round_robin_counter) % len(self.stocks_feed_round_robin_map)
+        client = WebSocketClient(market=market, api_key=self._api_key, feed=feed)
         self.WEBSOCKET_OBJECTS[tpc] = client
 
         # subscribe symbols
         self.subscribe_websockets(tpc)
-        bt.logging.info(f"Subscribed websocket for {tpc}")
+        bt.logging.info(f"Subscribed websocket for {tpc}. feed {feed.name}")
 
 
     def subscribe_websockets(self, tpc: TradePairCategory = None):
