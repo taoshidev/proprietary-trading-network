@@ -2,6 +2,8 @@ from flask import Flask, jsonify, request, Response
 import os
 import time
 import json
+import gzip
+import traceback
 from setproctitle import setproctitle
 from waitress import serve
 from flask_compress import Compress
@@ -115,11 +117,7 @@ class PTNRestServer(APIKeyMixin):
             if not self.is_valid_api_key(api_key):
                 return jsonify({'error': 'Unauthorized access'}), 401
 
-            # Use the API key's tier for access
-            api_key_tier = self.get_api_key_tier(api_key)
-            requested_tier = str(api_key_tier)
-
-            f = ValiBkpUtils.get_miner_positions_output_path(suffix_dir=requested_tier)
+            f = ValiBkpUtils.get_miner_positions_output_path()
             data = self._get_file(f)
 
             if data is None:
@@ -238,8 +236,12 @@ class PTNRestServer(APIKeyMixin):
                     with open(file_path, 'rb') as f:
                         data = f.read()
                 else:
-                    with open(file_path, "r") as file:
-                        data = json.load(file)
+                    if file_path.endswith('.gz'):
+                        with gzip.open(file_path, 'rt', encoding='utf-8') as fh:
+                            data = json.load(fh)
+                    else:
+                        with open(file_path, "r") as file:
+                            data = json.load(file)
                 return data
             except json.JSONDecodeError as e:
                 if attempt_number == attempts - 1:
@@ -250,7 +252,8 @@ class PTNRestServer(APIKeyMixin):
                         f"[{current_process().name}] Attempt {attempt_number + 1} failed with JSONDecodeError, retrying...")
                 time.sleep(1)  # Wait before retrying
             except Exception as e:
-                print(f"[{current_process().name}] Unexpected error reading file: {e}")
+                print(f"[{current_process().name}] Unexpected error reading file {file_path}: {e}")
+                traceback.print_exc()
                 raise
 
     def run(self):
