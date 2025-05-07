@@ -544,7 +544,6 @@ if __name__ == "__main__":
             main_logger.info(
                 "\nReceived message %s\n--------------------------------------------------------------------", msg)
 
-
     # Create client
     main_logger.info("Connecting to ws://%s:%s with API key: %s", host, port, api_key)
     client = PTNWebSocketClient(api_key=api_key, host=host, port=port)
