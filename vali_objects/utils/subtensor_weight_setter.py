@@ -74,6 +74,7 @@ class SubtensorWeightSetter(CacheController):
             return [], []
         else:
             bt.logging.info(f"Calculating new subtensor weights for {miner_group}...")
+            # scores of all miners after burn. burnt portion distributed to SN owner hotkey
             checkpoint_results = sorted(Scoring.compute_results_checkpoint(
                 filtered_ledger,
                 filtered_positions,
