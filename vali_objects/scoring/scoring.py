@@ -75,7 +75,8 @@ class Scoring:
             full_positions: dict[str, list[Position]],
             evaluation_time_ms: int = None,
             verbose=True,
-            weighting=False
+            weighting=False,
+            scoring_challenge=False
     ) -> List[Tuple[str, float]]:
         if len(ledger_dict) == 0:
             bt.logging.debug("No results to compute, returning empty list")
@@ -83,9 +84,10 @@ class Scoring:
 
         if len(ledger_dict) == 1:
             miner = list(ledger_dict.keys())[0]
+            max_unburnt = 1 - ValiConfig.BURN_RATE
             if verbose:
-                bt.logging.info(f"compute_results_checkpoint - Only one miner: {miner}, returning 1.0 for the solo miner weight")
-            return [(miner, 1.0)]
+                bt.logging.info(f"compute_results_checkpoint - Only one miner: {miner}, returning {max_unburnt} for the solo miner weight")
+            return [(ValiConfig.SN_OWNER_HK, ValiConfig.BURN_RATE), (miner, max_unburnt)]
         
         if evaluation_time_ms is None:
             evaluation_time_ms = TimeUtil.now_in_millis()
@@ -119,6 +121,9 @@ class Scoring:
 
         # Normalize the scores
         normalized_scores = Scoring.normalize_scores(combined_scores)
+        # Burn scores
+        if not scoring_challenge:
+            normalized_scores = Scoring.burn_scores(normalized_scores)
         return sorted(normalized_scores.items(), key=lambda x: x[1], reverse=True)
 
     @staticmethod
@@ -257,6 +262,20 @@ class Scoring:
         }
         # normalized_scores = sorted(normalized_scores, key=lambda x: x[1], reverse=True)
         return normalized_scores
+
+    @staticmethod
+    def burn_scores(scores: dict[str, float]) -> dict[str, float]:
+        """
+        Burns a portion of incentive by allocating it to the SN owner hotkey.
+        Distributes the remaining portion among the miners.
+        """
+        target_scores_sum = 1 - ValiConfig.BURN_RATE
+
+        burnt_scores = {
+            miner: max(score * target_scores_sum, ValiConfig.CHALLENGE_PERIOD_MAX_WEIGHT) for miner, score in scores.items()
+        }
+        burnt_scores[ValiConfig.SN_OWNER_HK] = ValiConfig.BURN_RATE
+        return burnt_scores
 
     @staticmethod
     def base_return(positions: list[Position]) -> float:

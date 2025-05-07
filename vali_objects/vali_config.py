@@ -138,6 +138,11 @@ class ValiConfig:
     CHALLENGE_PERIOD_MS = 90 * 24 * 60 * 60 * 1000  # 90 days
     CHALLENGE_PERIOD_PERCENTILE_THRESHOLD = 0.75 # miners must pass 75th percentile to enter the main competition
 
+    # Burn
+    SN_OWNER_HK = "5F6tnxzAAxbhaWRmeUmB63JEM3VXBNSmqb3AwYJVDStQjw8y"
+    SN_OWNER_UID = 229
+    BURN_RATE = 0.90
+
     # Plagiarism
     ORDER_SIMILARITY_WINDOW_MS = 60000 * 60 * 24
     MINER_COPYING_WEIGHT = 0.01

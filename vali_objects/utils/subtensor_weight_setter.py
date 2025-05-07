@@ -78,7 +78,8 @@ class SubtensorWeightSetter(CacheController):
                 filtered_ledger,
                 filtered_positions,
                 evaluation_time_ms=current_time,
-                weighting=True
+                weighting=True,
+                scoring_challenge=scoring_challenge
             ), key=lambda x: x[1], reverse=True)
 
             bt.logging.info(f"Sorted results for weight setting for {miner_group}: [{checkpoint_results}]")
@@ -111,6 +112,9 @@ class SubtensorWeightSetter(CacheController):
         for tl_idx, (metagraph_idx, score) in enumerate(transformed_list):
             if target_dtao_block_zero_incentive_start < hotkey_registration_blocks[metagraph_idx] <= target_dtao_block_zero_incentive_end:
                 try:
+                    if metagraph_idx == ValiConfig.SN_OWNER_UID:
+                        bt.logging.info(f"SN Owner UID registered at {hotkey_registration_blocks[metagraph_idx]}")
+                        continue
                     block_reg_failures.add(idx_to_hotkey[metagraph_idx])
                     transformed_list[tl_idx] = (metagraph_idx, 0.0)
                 except Exception as e:
