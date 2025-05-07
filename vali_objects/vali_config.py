@@ -140,7 +140,8 @@ class ValiConfig:
 
     # Burn
     SN_OWNER_HK = "5F6tnxzAAxbhaWRmeUmB63JEM3VXBNSmqb3AwYJVDStQjw8y"
-    BURN_RATE = 0.93
+    SN_OWNER_UID = 229
+    BURN_RATE = 0.90
 
     # Plagiarism
     ORDER_SIMILARITY_WINDOW_MS = 60000 * 60 * 24

@@ -75,7 +75,8 @@ class Scoring:
             full_positions: dict[str, list[Position]],
             evaluation_time_ms: int = None,
             verbose=True,
-            weighting=False
+            weighting=False,
+            scoring_challenge=False
     ) -> List[Tuple[str, float]]:
         if len(ledger_dict) == 0:
             bt.logging.debug("No results to compute, returning empty list")
@@ -121,8 +122,9 @@ class Scoring:
         # Normalize the scores
         normalized_scores = Scoring.normalize_scores(combined_scores)
         # Burn scores
-        burnt_scores = Scoring.burn_scores(normalized_scores)
-        return sorted(burnt_scores.items(), key=lambda x: x[1], reverse=True)
+        if not scoring_challenge:
+            normalized_scores = Scoring.burn_scores(normalized_scores)
+        return sorted(normalized_scores.items(), key=lambda x: x[1], reverse=True)
 
     @staticmethod
     def score_miners(
@@ -270,9 +272,9 @@ class Scoring:
         target_scores_sum = 1 - ValiConfig.BURN_RATE
 
         burnt_scores = {
-            miner: score * target_scores_sum for miner, score in scores.items()
+            miner: max(score * target_scores_sum, ValiConfig.CHALLENGE_PERIOD_MAX_WEIGHT) for miner, score in scores.items()
         }
-        burnt_scores[ValiConfig.SN_OWNER_HK] = ValiConfig.BURN_RATE  # TODO: different sn owner hk on testnet?
+        burnt_scores[ValiConfig.SN_OWNER_HK] = ValiConfig.BURN_RATE
         return burnt_scores
 
     @staticmethod
