@@ -693,7 +693,7 @@ class Validator:
     def parse_miner_uuid(self, synapse: template.protocol.SendSignal):
         temp = synapse.miner_order_uuid
         assert isinstance(temp, str), f"excepted string miner uuid but got {temp}"
-        return temp[:50]
+        return temp
 
     # This is the core validator function to receive a signal
     def receive_signal(self, synapse: template.protocol.SendSignal,
@@ -702,9 +702,10 @@ class Validator:
         now_ms = TimeUtil.now_in_millis()
         order = None
         miner_hotkey = synapse.dendrite.hotkey
+        miner_repo_version = synapse.repo_version
         synapse.validator_hotkey = self.wallet.hotkey.ss58_address
         signal = synapse.signal
-        bt.logging.info(f"received signal [{signal}] from miner_hotkey [{miner_hotkey}].")
+        bt.logging.info(f"received signal [{signal}] from miner_hotkey [{miner_hotkey}] using repo version [{miner_repo_version}].")
         if self.should_fail_early(synapse, SynapseMethod.SIGNAL, signal=signal):
             return synapse
 

@@ -11,7 +11,9 @@ from miner_config import MinerConfig
 from template.protocol import SendSignal
 from vali_objects.vali_config import TradePair
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
-
+REPO_VERSION = 'unknown'
+with open(ValiBkpUtils.get_meta_json_path(), 'r') as f:
+    REPO_VERSION = json.loads(f.read()).get("subnet_version", "unknown")
 class PropNetOrderPlacer:
     # Constants for retry logic with exponential backoff. After trying 3 times, there will be a delay of ~ 3 minutes.
     # This time is sufficient for validators to go offline, update, and come back online.
@@ -77,7 +79,7 @@ class PropNetOrderPlacer:
         miner_order_uuid = signal_file_path.split('/')[-1]
         assert miner_order_uuid not in self.used_miner_uuids, f"Duplicate miner order uuid {miner_order_uuid}"
         self.used_miner_uuids.add(miner_order_uuid)
-        send_signal_request = SendSignal(signal=signal_data, miner_order_uuid=miner_order_uuid)
+        send_signal_request = SendSignal(signal=signal_data, miner_order_uuid=miner_order_uuid, repo_version=REPO_VERSION)
 
         # Continue retrying until the max number of retries is reached or no validators need retrying
         while retry_status['retry_attempts'] < self.MAX_RETRIES and retry_status['validators_needing_retry']:

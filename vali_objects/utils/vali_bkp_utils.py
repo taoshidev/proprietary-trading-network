@@ -152,6 +152,10 @@ class ValiBkpUtils:
         return ans
 
     @staticmethod
+    def get_meta_json_path() -> str:
+        return ValiConfig.BASE_DIR + '/meta/meta.json'
+
+    @staticmethod
     def get_vali_weights_dir() -> str:
         return ValiConfig.BASE_DIR + "/validation/weights/"
 
