@@ -11,7 +11,7 @@ from vali_objects.scoring.scoring import Scoring
 
 class SubtensorWeightSetter(CacheController):
     def __init__(self, metagraph, position_manager: PositionManager,
-                 running_unit_tests=False, is_backtesting=False):
+                 running_unit_tests=False, is_backtesting=False, is_mainnet=True):
         super().__init__(metagraph, running_unit_tests=running_unit_tests, is_backtesting=is_backtesting)
         self.position_manager = position_manager
         self.perf_ledger_manager = position_manager.perf_ledger_manager
@@ -19,6 +19,7 @@ class SubtensorWeightSetter(CacheController):
         # Store weights for use in backtesting
         self.checkpoint_results = []
         self.transformed_list = []
+        self.is_mainnet = is_mainnet
 
     def compute_weights_default(self, current_time: int) -> tuple[list[tuple[str, float]], list[tuple[str, float]]]:
         if current_time is None:
@@ -78,7 +79,9 @@ class SubtensorWeightSetter(CacheController):
                 filtered_ledger,
                 filtered_positions,
                 evaluation_time_ms=current_time,
-                weighting=True
+                weighting=True,
+                scoring_challenge=scoring_challenge,
+                is_mainnet=self.is_mainnet
             ), key=lambda x: x[1], reverse=True)
 
             bt.logging.info(f"Sorted results for weight setting for {miner_group}: [{checkpoint_results}]")
@@ -111,6 +114,9 @@ class SubtensorWeightSetter(CacheController):
         for tl_idx, (metagraph_idx, score) in enumerate(transformed_list):
             if target_dtao_block_zero_incentive_start < hotkey_registration_blocks[metagraph_idx] <= target_dtao_block_zero_incentive_end:
                 try:
+                    if metagraph_idx == ValiConfig.SN_OWNER_UID:
+                        bt.logging.info(f"SN Owner UID registered at {hotkey_registration_blocks[metagraph_idx]}")
+                        continue
                     block_reg_failures.add(idx_to_hotkey[metagraph_idx])
                     transformed_list[tl_idx] = (metagraph_idx, 0.0)
                 except Exception as e:
