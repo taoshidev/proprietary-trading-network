@@ -222,12 +222,7 @@ class RequestCoreManager:
             sort_positions=True
         )
 
-        acceptable_position_end_ms = TimeUtil.timestamp_to_millis(
-            TimeUtil.generate_start_timestamp(
-                ValiConfig.SET_WEIGHT_LOOKBACK_RANGE_DAYS
-            ))
-
-        time_now = TimeUtil.now_in_millis()
+        time_now_ms = TimeUtil.now_in_millis()
 
         dict_hotkey_position_map = {}
 
@@ -235,47 +230,12 @@ class RequestCoreManager:
         oldest_order_processed_ms = 0
 
         for k, original_positions in hotkey_positions.items():
-            dict_hotkey_position_map[k] = {
-                "positions": [],
-                "thirty_day_returns": 1.0,
-                "all_time_returns": 1.0,
-                "n_positions": 0,
-                "percentage_profitable": 0.0
-            }
-            positions_30_days = [
-                position
-                for position in original_positions
-                if position.open_ms > acceptable_position_end_ms
-            ]
-
-            if k not in eliminated_hotkeys:
-                ps_30_days = PositionFiltering.filter_positions_for_duration(positions_30_days)
-                return_per_position = self.position_manager.get_return_per_closed_position(ps_30_days)
-                if len(return_per_position) > 0:
-                    curr_return = return_per_position[len(return_per_position) - 1]
-                    dict_hotkey_position_map[k]["thirty_day_returns"] = curr_return
-
-                ps_all_time = PositionFiltering.filter_positions_for_duration(original_positions)
-                return_per_position = self.position_manager.get_return_per_closed_position(ps_all_time)
-                if len(return_per_position) > 0:
-                    curr_return = return_per_position[len(return_per_position) - 1]
-                    dict_hotkey_position_map[k]["all_time_returns"] = curr_return
-                    dict_hotkey_position_map[k]["n_positions"] = len(ps_all_time)
-                    dict_hotkey_position_map[k]["percentage_profitable"] = self.position_manager.get_percent_profitable_positions(ps_all_time)
-
+            dict_hotkey_position_map[k] = self.position_manager.positions_to_dashboard_dict(original_positions, time_now_ms)
             for p in original_positions:
                 youngest_order_processed_ms = min(youngest_order_processed_ms,
                                                   min(p.orders, key=lambda o: o.processed_ms).processed_ms)
                 oldest_order_processed_ms = max(oldest_order_processed_ms,
                                                 max(p.orders, key=lambda o: o.processed_ms).processed_ms)
-                if p.close_ms is None:
-                    p.close_ms = 0
-
-                self.position_manager.strip_old_price_sources(p, time_now)
-
-                dict_hotkey_position_map[k]["positions"].append(
-                    json.loads(str(p), cls=GeneralizedJSONDecoder)
-                )
 
         ord_dict_hotkey_position_map = dict(
             sorted(
@@ -303,7 +263,7 @@ class RequestCoreManager:
         challengeperiod_success_dictionary = self.challengeperiod_manager.get_challengeperiod_success()
 
         if write_and_upload_production_files:
-            self.create_and_upload_production_files(eliminations, ord_dict_hotkey_position_map, time_now,
+            self.create_and_upload_production_files(eliminations, ord_dict_hotkey_position_map, time_now_ms,
                                            youngest_order_processed_ms, oldest_order_processed_ms,
                                            challengeperiod_testing_dictionary, challengeperiod_success_dictionary)
 

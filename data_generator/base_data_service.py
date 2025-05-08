@@ -139,7 +139,7 @@ class BaseDataService():
 
         for tpc in TradePairCategory:
             self._kill_ws_for_category(tpc)
-            if self.WEBSOCKET_THREADS[tpc]:
+            if self.WEBSOCKET_THREADS.get(tpc):
                 self.WEBSOCKET_THREADS[tpc].join(timeout=1)
                 bt.logging.info(f"Stopped {self.provider_name} websocket thread for {tpc.name.lower()}")
             else:

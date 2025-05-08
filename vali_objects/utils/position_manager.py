@@ -1,5 +1,6 @@
 # developer: jbonilla
 # Copyright © 2024 Taoshi Inc
+import json
 import os
 import shutil
 import time
@@ -13,11 +14,12 @@ from pathlib import Path
 from copy import deepcopy
 from shared_objects.cache_controller import CacheController
 from time_util.time_util import TimeUtil, timeme
+from vali_objects.decoders.generalized_json_decoder import GeneralizedJSONDecoder
 from vali_objects.exceptions.corrupt_data_exception import ValiBkpCorruptDataException
 from vali_objects.exceptions.vali_bkp_file_missing_exception import ValiFileMissingException
 from vali_objects.utils.live_price_fetcher import LivePriceFetcher
 from vali_objects.utils.positions_to_snap import positions_to_snap
-from vali_objects.vali_config import TradePair
+from vali_objects.vali_config import TradePair, ValiConfig
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.exceptions.vali_records_misalignment_exception import ValiRecordsMisalignmentException
 from vali_objects.position import Position
@@ -143,7 +145,8 @@ class PositionManager(CacheController):
 
         self.elimination_manager.delete_eliminations(eliminations_to_delete)
 
-    def strip_old_price_sources(self, position: Position, time_now_ms: int) -> int:
+    @staticmethod
+    def strip_old_price_sources(position: Position, time_now_ms: int) -> int:
         n_removed = 0
         one_week_ago_ms = time_now_ms - 1000 * 60 * 60 * 24 * 7
         for o in position.orders:
@@ -611,7 +614,8 @@ class PositionManager(CacheController):
                     f"Position {position.position_uuid} for hotkey {hotkey} and trade pair {position.trade_pair.trade_pair_id} has been closed. Added flat order {flat_order}")
 
 
-    def get_return_per_closed_position(self, positions: List[Position]) -> List[float]:
+    @staticmethod
+    def get_return_per_closed_position(positions: List[Position]) -> List[float]:
         if len(positions) == 0:
             return []
 
@@ -634,7 +638,8 @@ class PositionManager(CacheController):
             per_position_return.append(cumulative_return)
         return per_position_return
 
-    def get_percent_profitable_positions(self, positions: List[Position]) -> float:
+    @staticmethod
+    def get_percent_profitable_positions(positions: List[Position]) -> float:
         if len(positions) == 0:
             return 0.0
 
@@ -802,17 +807,16 @@ class PositionManager(CacheController):
                 return deepcopy(p)  # for unit tests we deepcopy. ipc cache never returns a reference.
         return None
 
+    def get_existing_positions(self, hotkey: str):
+        return self.hotkey_to_positions.get(hotkey, [])
+
     def _save_miner_position_to_memory(self, position: Position):
         # Multiprocessing-safe
         hk = position.miner_hotkey
-        if hk not in self.hotkey_to_positions:
-            existing_positions = []
-        else:
-            existing_positions = self.hotkey_to_positions[hk]
+        existing_positions = self.get_existing_positions(hk)
 
         # Santiy check
-        if position.miner_hotkey in self.hotkey_to_positions and position.position_uuid in self.hotkey_to_positions[
-            position.miner_hotkey]:
+        if position.miner_hotkey in self.hotkey_to_positions and position.position_uuid in existing_positions:
             existing_pos = self._position_from_list_of_position(position.miner_hotkey, position.position_uuid)
             assert existing_pos.trade_pair == position.trade_pair, f"Trade pair mismatch for position {position.position_uuid}. Existing: {existing_pos.trade_pair}, New: {position.trade_pair}"
 
@@ -949,6 +953,50 @@ class PositionManager(CacheController):
         else:
             all_miner_hotkeys = list(self.hotkey_to_positions.keys())
         return self.get_positions_for_hotkeys(all_miner_hotkeys, from_disk=from_disk, **args)
+
+    @staticmethod
+    def positions_to_dashboard_dict(original_positions: list[Position], time_now_ms) -> dict:
+        ans = {
+            "positions": [],
+            "thirty_day_returns": 1.0,
+            "all_time_returns": 1.0,
+            "n_positions": 0,
+            "percentage_profitable": 0.0
+        }
+        acceptable_position_end_ms = TimeUtil.timestamp_to_millis(
+            TimeUtil.generate_start_timestamp(
+                ValiConfig.SET_WEIGHT_LOOKBACK_RANGE_DAYS
+            ))
+        positions_30_days = [
+            position
+            for position in original_positions
+            if position.open_ms > acceptable_position_end_ms
+        ]
+        ps_30_days = PositionFiltering.filter_positions_for_duration(positions_30_days)
+        return_per_position = PositionManager.get_return_per_closed_position(ps_30_days)
+        if len(return_per_position) > 0:
+            curr_return = return_per_position[len(return_per_position) - 1]
+            ans["thirty_day_returns"] = curr_return
+
+        ps_all_time = PositionFiltering.filter_positions_for_duration(original_positions)
+        return_per_position = PositionManager.get_return_per_closed_position(ps_all_time)
+        if len(return_per_position) > 0:
+            curr_return = return_per_position[len(return_per_position) - 1]
+            ans["all_time_returns"] = curr_return
+            ans["n_positions"] = len(ps_all_time)
+            ans["percentage_profitable"] = PositionManager.get_percent_profitable_positions(ps_all_time)
+
+        for p in original_positions:
+            if p.close_ms is None:
+                p.close_ms = 0
+
+            PositionManager.strip_old_price_sources(p, time_now_ms)
+
+            ans["positions"].append(
+                json.loads(str(p), cls=GeneralizedJSONDecoder)
+            )
+        return ans
+
 
     def _get_position_from_disk(self, file) -> Position:
         # wrapping here to allow simpler error handling & original for other error handling
