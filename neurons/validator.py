@@ -550,7 +550,7 @@ class Validator:
         if n_open_positions >= ValiConfig.MAX_OPEN_ORDERS_PER_HOTKEY:
             if signal_to_order.order_type != OrderType.FLAT:
                 raise SignalException(
-                    f"miner [{signal_to_order}] sent too many open orders [{len(trade_pair_to_open_position)}] and "
+                    f"miner sent too many open orders [{n_open_positions}] > [{ValiConfig.MAX_OPEN_ORDERS_PER_HOTKEY}] and "
                     f"order [{signal_to_order}] is not a FLAT order."
                 )
 

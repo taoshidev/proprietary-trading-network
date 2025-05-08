@@ -17,7 +17,6 @@ from vali_objects.utils.position_manager import PositionManager
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils, CustomEncoder
 from vali_objects.utils.subtensor_weight_setter import SubtensorWeightSetter
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
-from vali_objects.utils.position_filtering import PositionFiltering
 
 from vali_objects.utils.validator_sync_base import AUTO_SYNC_ORDER_LAG_MS
 
@@ -201,7 +200,6 @@ class RequestCoreManager:
 
     def generate_request_core(self, get_dash_data_hotkey: str | None = None, write_and_upload_production_files=False) -> dict:
         eliminations = self.elimination_manager.get_eliminations_from_memory()
-        eliminated_hotkeys = set(x['hotkey'] for x in eliminations)
         try:
             if not os.path.exists(ValiBkpUtils.get_miner_dir()):
                 raise FileNotFoundError
