@@ -369,7 +369,8 @@ class Validator:
                 ws_host=self.config.api_host,
                 ws_port=self.config.api_ws_port,
                 rest_host=self.config.api_host,
-                rest_port=self.config.api_rest_port
+                rest_port=self.config.api_rest_port,
+                position_manager=self.position_manager
             )
 
             # Start the API Manager in a separate process

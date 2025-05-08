@@ -9,7 +9,7 @@ from ptn_api.websocket_server import WebSocketServer
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 
 
-def start_rest_server(shared_queue, host="127.0.0.1", port=48888, refresh_interval=15):
+def start_rest_server(shared_queue, host="127.0.0.1", port=48888, refresh_interval=15, position_manager=None):
     """Starts the REST API server in a separate process."""
     try:
 
@@ -24,7 +24,8 @@ def start_rest_server(shared_queue, host="127.0.0.1", port=48888, refresh_interv
             shared_queue=shared_queue,
             host=host,
             port=port,
-            refresh_interval=refresh_interval
+            refresh_interval=refresh_interval,
+            position_manager=position_manager
         )
         rest_server.run()
     except Exception as e:
@@ -61,7 +62,7 @@ class APIManager:
 
     def __init__(self, shared_queue, refresh_interval=15,
                  rest_host="127.0.0.1", rest_port=48888,
-                 ws_host="localhost", ws_port=8765):
+                 ws_host="localhost", ws_port=8765, position_manager=None):
         """Initialize API management with shared queue and server configurations.
 
         Args:
@@ -71,6 +72,7 @@ class APIManager:
             rest_port: Port for the REST API server
             ws_host: Host address for the WebSocket server
             ws_port: Port for the WebSocket server
+            position_manager: PositionManager instance (optional) for fast miner positions
         """
         if shared_queue is None:
             raise ValueError("shared_queue cannot be None - a valid queue is required")
@@ -83,6 +85,7 @@ class APIManager:
         self.rest_port = rest_port
         self.ws_host = ws_host
         self.ws_port = ws_port
+        self.position_manager = position_manager
 
         # Get default API keys file path
         self.api_keys_file = ValiBkpUtils.get_api_keys_file_path()
@@ -107,7 +110,7 @@ class APIManager:
         # Start REST server process with host/port configuration
         rest_process = Process(
             target=start_rest_server,
-            args=(self.shared_queue, self.rest_host, self.rest_port, self.refresh_interval),
+            args=(self.shared_queue, self.rest_host, self.rest_port, self.refresh_interval, self.position_manager),
             name="RestServer"
         )
         rest_process.start()

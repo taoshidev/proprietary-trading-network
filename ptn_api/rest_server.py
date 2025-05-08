@@ -1,6 +1,5 @@
-import logging
 import statistics
-import sys
+import bittensor as bt
 import threading
 from collections import defaultdict, deque
 from typing import Dict, Deque, Tuple
@@ -15,22 +14,14 @@ from setproctitle import setproctitle
 from waitress import serve
 from flask_compress import Compress
 
-from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
+from time_util.time_util import TimeUtil
+from vali_objects.position import Position
+from vali_objects.utils.position_manager import PositionManager
+from vali_objects.utils.vali_bkp_utils import ValiBkpUtils, CustomEncoder
 from vali_objects.vali_config import ValiConfig
 from multiprocessing import current_process
 from ptn_api.api_key_refresh import APIKeyMixin
 
-# Configure the root logger
-logging.basicConfig(
-    level=logging.INFO,
-    format='[%(asctime)s] [%(name)s] [%(levelname)s] %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S',
-    stream=sys.stdout  # Explicitly use stdout
-)
-
-# Configure your specific module logger
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
 
 class APIMetricsTracker:
     """
@@ -61,7 +52,6 @@ class APIMetricsTracker:
 
         # Reference to API key to user ID mapping
         self.api_key_to_alias = api_key_mapping or {}  # Use provided mapping or empty dict
-
 
         # Start logging thread
         self.start_logging_thread()
@@ -145,7 +135,7 @@ class APIMetricsTracker:
 
         # Skip logging if there's no activity
         if not api_counts and not endpoint_stats:
-            logger.info(f"No API activity in the last {self.log_interval_minutes} minutes")
+            bt.logging.info(f"No API activity in the last {self.log_interval_minutes} minutes")
             return
 
         # Format and log the metrics report
@@ -173,7 +163,7 @@ class APIMetricsTracker:
 
         # Log the complete report
         final_str = "\n".join(log_lines)
-        logger.info(final_str)
+        bt.logging.info(final_str)
 
     def periodic_logging(self):
         """Periodically log metrics based on the configured interval."""
@@ -192,7 +182,7 @@ class APIMetricsTracker:
         """Start the periodic logging thread."""
         logging_thread = threading.Thread(target=self.periodic_logging, daemon=True)
         logging_thread.start()
-        logger.info(f"API metrics logging started (interval: {self.log_interval_minutes} minutes)")
+        bt.logging.info(f"API metrics logging started (interval: {self.log_interval_minutes} minutes)")
 
 
 
@@ -200,7 +190,7 @@ class PTNRestServer(APIKeyMixin):
     """Handles REST API requests with Flask and Waitress."""
 
     def __init__(self, api_keys_file, shared_queue=None, host="127.0.0.1",
-                 port=48888, refresh_interval=15, metrics_interval_minutes=5):
+                 port=48888, refresh_interval=15, metrics_interval_minutes=5, position_manager=None):
         """Initialize the REST server with API key handling and routing.
 
         Args:
@@ -210,12 +200,14 @@ class PTNRestServer(APIKeyMixin):
             port: Port to bind the server to
             refresh_interval: How often to check for API key changes (seconds)
             metrics_interval_minutes: How often to log API metrics (minutes)
+            position_manager: Optional position manager for handling miner positions
         """
         # Initialize API key handling
         APIKeyMixin.__init__(self, api_keys_file, refresh_interval)
 
         # REST server configuration
         self.shared_queue = shared_queue
+        self.position_manager: PositionManager = position_manager
         self.data_path = ValiConfig.BASE_DIR
         self.host = host
         self.port = port
@@ -232,8 +224,7 @@ class PTNRestServer(APIKeyMixin):
 
         # Start API key refresh thread
         self.start_refresh_thread()
-
-        logger.info(f"[{current_process().name}] RestServer initialized with {len(self.accessible_api_keys)} API keys")
+        print(f"[{current_process().name}] RestServer initialized with {len(self.accessible_api_keys)} API keys")
 
     def _setup_metrics(self, metrics_interval_minutes):
         """Set up API metrics tracking."""
@@ -307,19 +298,23 @@ class PTNRestServer(APIKeyMixin):
 
             # Use the API key's tier for access
             api_key_tier = self.get_api_key_tier(api_key)
-            requested_tier = str(api_key_tier)
+            if api_key_tier == 100 and self.position_manager:
+                existing_positions: list[Position] = self.position_manager.get_positions_for_one_hotkey(minerid, sort_positions=True)
+                if not existing_positions:
+                    return jsonify({'error': f'Miner ID {minerid} not found in position manager'}), 404
+                filtered_data = self.position_manager.positions_to_dashboard_dict(existing_positions, TimeUtil.now_in_millis())
+            else:
+                requested_tier = str(api_key_tier)
+                f = ValiBkpUtils.get_miner_positions_output_path(suffix_dir=requested_tier)
+                data = self._get_file(f)
 
-            f = ValiBkpUtils.get_miner_positions_output_path(suffix_dir=requested_tier)
-            data = self._get_file(f)
+                if data is None:
+                    return f"{f} not found", 404
+                # Filter the data for the specified miner ID
+                filtered_data = data.get(minerid, None)
 
-            if data is None:
-                return f"{f} not found", 404
-
-            # Filter the data for the specified miner ID
-            filtered_data = data.get(minerid, None)
-
-            if filtered_data is None:
-                return jsonify({'error': 'Miner ID not found'}), 404
+            if not filtered_data:
+                return jsonify({'error': f'Miner ID {minerid} not found'}), 404
 
             return jsonify(filtered_data)
 
@@ -331,13 +326,17 @@ class PTNRestServer(APIKeyMixin):
             if not self.is_valid_api_key(api_key):
                 return jsonify({'error': 'Unauthorized access'}), 401
 
-            f = ValiBkpUtils.get_miner_positions_output_path()
-            data = self._get_file(f)
+            if self.position_manager:
+                # Use the position manager to get miner hotkeys
+                miner_hotkeys = list(self.position_manager.get_miner_hotkeys_with_at_least_one_position())
+            else:
+                f = ValiBkpUtils.get_miner_positions_output_path()
+                data = self._get_file(f)
 
-            if data is None:
-                return f"{f} not found", 404
+                if data is None:
+                    return f"{f} not found", 404
 
-            miner_hotkeys = list(data.keys())
+                miner_hotkeys = list(data.keys())
 
             if len(miner_hotkeys) == 0:
                 return f"{f} not found", 404
@@ -480,6 +479,7 @@ class PTNRestServer(APIKeyMixin):
 # This allows the module to be run directly for testing
 if __name__ == "__main__":
     import argparse
+    bt.logging.enable_info()
 
     # Set up command line argument parsing
     parser = argparse.ArgumentParser(description="Run the REST API server with API key authentication")
