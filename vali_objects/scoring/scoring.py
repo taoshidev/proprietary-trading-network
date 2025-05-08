@@ -76,7 +76,8 @@ class Scoring:
             evaluation_time_ms: int = None,
             verbose=True,
             weighting=False,
-            scoring_challenge=False
+            scoring_challenge=False,
+            is_mainnet=True
     ) -> List[Tuple[str, float]]:
         if len(ledger_dict) == 0:
             bt.logging.debug("No results to compute, returning empty list")
@@ -84,10 +85,12 @@ class Scoring:
 
         if len(ledger_dict) == 1:
             miner = list(ledger_dict.keys())[0]
-            max_unburnt = 1 - ValiConfig.BURN_RATE
+            solo_miner_score = {miner: 1.0}
+            if is_mainnet:
+                solo_miner_score = Scoring.burn_scores(solo_miner_score)
             if verbose:
-                bt.logging.info(f"compute_results_checkpoint - Only one miner: {miner}, returning {max_unburnt} for the solo miner weight")
-            return [(ValiConfig.SN_OWNER_HK, ValiConfig.BURN_RATE), (miner, max_unburnt)]
+                bt.logging.info(f"compute_results_checkpoint - Only one miner: {miner}, returning {solo_miner_score[miner]} for the solo miner weight")
+            return sorted(solo_miner_score.items(), key=lambda x: x[1], reverse=True)
         
         if evaluation_time_ms is None:
             evaluation_time_ms = TimeUtil.now_in_millis()
@@ -122,7 +125,7 @@ class Scoring:
         # Normalize the scores
         normalized_scores = Scoring.normalize_scores(combined_scores)
         # Burn scores
-        if not scoring_challenge:
+        if not scoring_challenge and is_mainnet:
             normalized_scores = Scoring.burn_scores(normalized_scores)
         return sorted(normalized_scores.items(), key=lambda x: x[1], reverse=True)
 
