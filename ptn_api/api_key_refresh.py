@@ -22,7 +22,8 @@ class APIKeyMixin:
       "user_id": {
         "key": "the_api_key_string",
         "tier": integer_tier_value
-      }
+      },
+      ...
     }
 
     Where tier values represent access levels:
