@@ -17,7 +17,7 @@ from flask_compress import Compress
 from time_util.time_util import TimeUtil
 from vali_objects.position import Position
 from vali_objects.utils.position_manager import PositionManager
-from vali_objects.utils.vali_bkp_utils import ValiBkpUtils, CustomEncoder
+from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.vali_config import ValiConfig
 from multiprocessing import current_process
 from ptn_api.api_key_refresh import APIKeyMixin
