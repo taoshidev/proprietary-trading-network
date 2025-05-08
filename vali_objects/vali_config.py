@@ -141,6 +141,8 @@ class ValiConfig:
     # Burn
     SN_OWNER_HK = "5F6tnxzAAxbhaWRmeUmB63JEM3VXBNSmqb3AwYJVDStQjw8y"
     SN_OWNER_UID = 229
+    TESTNET_SN_OWNER_HK = "5G1iCdwUBjnXxGfJYzho1dToWTCkYyBF6Vq5sAJP7ftHKE1b"
+    TESTNET_SN_OWNER_UID = 220
     BURN_RATE = 0.90
 
     # Plagiarism
