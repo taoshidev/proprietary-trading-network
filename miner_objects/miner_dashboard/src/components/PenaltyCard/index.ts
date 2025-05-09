@@ -1,1 +1,0 @@
-export { PenaltyCard } from "./PenaltyCard";
