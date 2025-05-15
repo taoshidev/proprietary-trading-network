@@ -143,7 +143,6 @@ class ValiConfig:
     SN_OWNER_UID = 229
     TESTNET_SN_OWNER_HK = "5G1iCdwUBjnXxGfJYzho1dToWTCkYyBF6Vq5sAJP7ftHKE1b"
     TESTNET_SN_OWNER_UID = 220
-    BURN_RATE = 0.90
 
     # Plagiarism
     ORDER_SIMILARITY_WINDOW_MS = 60000 * 60 * 24
@@ -192,6 +191,7 @@ class TradePair(Enum):
                 TradePairCategory.CRYPTO]
     DOGEUSD = ["DOGEUSD", "DOGE/USD", 0.001, ValiConfig.CRYPTO_MIN_LEVERAGE, ValiConfig.CRYPTO_MAX_LEVERAGE,
                 TradePairCategory.CRYPTO]
+    TAOUSD = ["TAOUSD", "TAO/USD", 0, 0, 0, TradePairCategory.CRYPTO]  # not allowed to trade, only used to calculate dollar value of emissions
 
 
     # forex

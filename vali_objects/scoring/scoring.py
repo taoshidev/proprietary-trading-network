@@ -75,9 +75,7 @@ class Scoring:
             full_positions: dict[str, list[Position]],
             evaluation_time_ms: int = None,
             verbose=True,
-            weighting=False,
-            scoring_challenge=False,
-            is_mainnet=True
+            weighting=False
     ) -> List[Tuple[str, float]]:
         if len(ledger_dict) == 0:
             bt.logging.debug("No results to compute, returning empty list")
@@ -85,12 +83,9 @@ class Scoring:
 
         if len(ledger_dict) == 1:
             miner = list(ledger_dict.keys())[0]
-            solo_miner_score = {miner: 1.0}
-            if not scoring_challenge:
-                solo_miner_score = Scoring.burn_scores(solo_miner_score, is_mainnet)
             if verbose:
-                bt.logging.info(f"compute_results_checkpoint - Only one miner: {miner}, returning {solo_miner_score[miner]} for the solo miner weight")
-            return sorted(solo_miner_score.items(), key=lambda x: x[1], reverse=True)
+                bt.logging.info(f"compute_results_checkpoint - Only one miner: {miner}, returning 1.0 for the solo miner weight")
+            return [(miner, 1.0)]
         
         if evaluation_time_ms is None:
             evaluation_time_ms = TimeUtil.now_in_millis()
@@ -124,9 +119,6 @@ class Scoring:
 
         # Normalize the scores
         normalized_scores = Scoring.normalize_scores(combined_scores)
-        # Burn scores
-        if not scoring_challenge:
-            normalized_scores = Scoring.burn_scores(normalized_scores, is_mainnet)
         return sorted(normalized_scores.items(), key=lambda x: x[1], reverse=True)
 
     @staticmethod
@@ -267,19 +259,25 @@ class Scoring:
         return normalized_scores
 
     @staticmethod
-    def burn_scores(scores: dict[str, float], is_mainnet=True) -> dict[str, float]:
+    def burn_scores(scores: List[Tuple[str, float]], burn_amt, is_mainnet=True) -> List[Tuple[str, float]]:
         """
         Burns a portion of incentive by allocating it to the SN owner hotkey.
         Distributes the remaining portion among the miners.
         """
-        target_scores_sum = 1 - ValiConfig.BURN_RATE
+        if burn_amt == 0:
+            bt.logging.info("0% Burn, returning original weights")
+            return scores
+        bt.logging.info(f"Burning {burn_amt * 100}% of emissions")
+        target_scores_sum = 1 - burn_amt
         sn_owner_hk = ValiConfig.SN_OWNER_HK if is_mainnet else ValiConfig.TESTNET_SN_OWNER_HK
 
-        burnt_scores = {
-            miner: max(score * target_scores_sum, ValiConfig.CHALLENGE_PERIOD_MAX_WEIGHT) for miner, score in scores.items()
-        }
-        burnt_scores[sn_owner_hk] = ValiConfig.BURN_RATE
-        return burnt_scores
+        burnt_scores = [
+            (miner, max(score * target_scores_sum, ValiConfig.CHALLENGE_PERIOD_MAX_WEIGHT))
+            for miner, score in scores
+        ]
+        burnt_scores.append((sn_owner_hk, burn_amt))
+        bt.logging.info(f"Weights set for main competition after burn: [{burnt_scores}]")
+        return sorted(burnt_scores, key=lambda x: x[1], reverse=True)
 
     @staticmethod
     def base_return(positions: list[Position]) -> float:
