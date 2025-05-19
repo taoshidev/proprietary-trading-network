@@ -43,7 +43,8 @@ class TestPositions(TestBase):
         self.position_manager.clear_all_miner_positions()
 
     def add_order_to_position_and_save(self, position, order):
-        position.add_order(order, self.position_manager.calculate_net_portfolio_leverage(self.DEFAULT_MINER_HOTKEY))
+        net_portfolio_leverage, net_currency_leverage = self.position_manager.calculate_net_portfolio_leverage(self.DEFAULT_MINER_HOTKEY)
+        position.add_order(order, net_portfolio_leverage, net_currency_leverage)
         self.position_manager.save_miner_position(position)
 
     def _find_disk_position_from_memory_position(self, position):
@@ -2196,7 +2197,7 @@ class TestPositions(TestBase):
                    order_uuid="1000")
         self.add_order_to_position_and_save(position2, o2)
         self.position_manager.save_miner_position(position2)
-        self.assertEqual(self.position_manager.calculate_net_portfolio_leverage(self.DEFAULT_MINER_HOTKEY), 10.0)
+        self.assertEqual(self.position_manager.calculate_net_portfolio_leverage(self.DEFAULT_MINER_HOTKEY)[0], 10.0)
 
         position3 = deepcopy(self.default_position)
         position3.trade_pair = TradePair.ETHUSD
@@ -2238,7 +2239,7 @@ class TestPositions(TestBase):
         self.add_order_to_position_and_save(position2, o2)
         self.position_manager.save_miner_position(position2)
 
-        self.assertEqual(self.position_manager.calculate_net_portfolio_leverage(self.DEFAULT_MINER_HOTKEY), 9.0)
+        self.assertEqual(self.position_manager.calculate_net_portfolio_leverage(self.DEFAULT_MINER_HOTKEY)[0], 9.0)
 
         position3 = deepcopy(self.default_position)
         position3.trade_pair=TradePair.ETHUSD
@@ -2282,7 +2283,7 @@ class TestPositions(TestBase):
                    order_uuid="1000")
         self.add_order_to_position_and_save(position2, o2)
         self.position_manager.save_miner_position(position2)
-        self.assertEqual(self.position_manager.calculate_net_portfolio_leverage(self.DEFAULT_MINER_HOTKEY), 9.0)
+        self.assertEqual(self.position_manager.calculate_net_portfolio_leverage(self.DEFAULT_MINER_HOTKEY)[0], 9.0)
 
         position3 = deepcopy(self.default_position)
         position3.trade_pair=TradePair.AUDJPY
@@ -2324,7 +2325,7 @@ class TestPositions(TestBase):
                    processed_ms=leverage_utils.PORTFOLIO_LEVERAGE_BOUNDS_START_TIME_MS + 1000,
                    order_uuid="1000")
         self.add_order_to_position_and_save(position2, o2)
-        self.assertEqual(self.position_manager.calculate_net_portfolio_leverage(self.DEFAULT_MINER_HOTKEY), 9.0)
+        self.assertEqual(self.position_manager.calculate_net_portfolio_leverage(self.DEFAULT_MINER_HOTKEY)[0], 9.0)
 
         position3 = deepcopy(self.default_position)
         position3.trade_pair = TradePair.ETHUSD
@@ -2380,6 +2381,44 @@ class TestPositions(TestBase):
         # the o3 order should be skipped since it would bring the position net leverage below min leverage.
         self.assertEqual(position2.net_leverage, 50)
 
+    def test_currency_net_leverage_exceeded(self):
+        """
+        a fx position which brings one of either base or quote currencies above the currency net leverage limit
+        should not be allowed
+        """
+        position1 = deepcopy(self.default_position)
+        position1.trade_pair = TradePair.USDJPY
+        o1 = Order(order_type=OrderType.LONG,
+                   leverage=5,
+                   price=100,
+                   trade_pair=TradePair.USDJPY,
+                   processed_ms=leverage_utils.CURRENCY_NET_LEVERAGE_BOUNDS_START_TIME_MS + 1000,
+                   order_uuid="1000")
+        self.add_order_to_position_and_save(position1, o1)
+
+        position2 = deepcopy(self.default_position)
+        position2.trade_pair = TradePair.EURAUD
+        position2.position_uuid = self.DEFAULT_POSITION_UUID + "_2"
+        o2 = Order(order_type=OrderType.LONG,
+                   leverage=1,
+                   price=100,
+                   trade_pair=TradePair.EURAUD,
+                   processed_ms=leverage_utils.CURRENCY_NET_LEVERAGE_BOUNDS_START_TIME_MS + 1000,
+                   order_uuid="1001")
+        self.add_order_to_position_and_save(position2, o2)
+
+        position3 = deepcopy(self.default_position)
+        position3.trade_pair = TradePair.USDCAD
+        position3.position_uuid = self.DEFAULT_POSITION_UUID + "_3"
+        o3 = Order(order_type=OrderType.LONG,
+                   leverage=1,
+                   price=100,
+                   trade_pair=TradePair.USDCAD,
+                   processed_ms=leverage_utils.CURRENCY_NET_LEVERAGE_BOUNDS_START_TIME_MS + 1000,
+                   order_uuid="1002")
+        with self.assertRaises(ValueError):
+            # the o3 order should be skipped since it would bring the currency net leverage above the cap.
+            self.add_order_to_position_and_save(position3, o3)
 
     def test_position_json(self):
         position = deepcopy(self.default_position)

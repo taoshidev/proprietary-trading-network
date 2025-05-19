@@ -931,18 +931,22 @@ class PositionManager(CacheController):
             else:
                 del self.hotkey_to_positions[hotkey]
 
-    def calculate_net_portfolio_leverage(self, hotkey: str) -> float:
+    def calculate_net_portfolio_leverage(self, hotkey: str) -> (float, dict):
         """
         Calculate leverage across all open positions
         Normalize each asset class with a multiplier
         """
         positions = self.get_positions_for_one_hotkey(hotkey, only_open_positions=True)
+        currency_net_leverage = defaultdict(float)
 
         portfolio_leverage = 0.0
         for position in positions:
             portfolio_leverage += abs(position.get_net_leverage()) * position.trade_pair.leverage_multiplier
+            if position.trade_pair.is_forex:
+                currency_net_leverage[position.trade_pair.base] += position.get_net_leverage()
+                currency_net_leverage[position.trade_pair.quote] -= position.get_net_leverage()
 
-        return portfolio_leverage
+        return portfolio_leverage, currency_net_leverage
 
     @timeme
     def get_positions_for_all_miners(self, from_disk=False, **args):

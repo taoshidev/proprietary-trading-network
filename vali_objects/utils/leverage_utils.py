@@ -3,6 +3,7 @@ LEVERAGE_BOUNDS_V3_START_TIME_MS = 1739937600000
 PORTFOLIO_LEVERAGE_BOUNDS_START_TIME_MS = 1727161200000
 INDICES_SOFT_CUTOFF_MS = 1731700800000
 EQUITIES_METALS_SOFT_CUTOFF_MS = 1744700399000
+CURRENCY_NET_LEVERAGE_BOUNDS_START_TIME_MS = 1747551600000
 
 from vali_objects.vali_config import TradePair, ValiConfig  # noqa: E402
 
@@ -40,6 +41,13 @@ def get_position_leverage_bounds(trade_pair: TradePair, t_ms: int) -> (float, fl
     return min_position_leverage, max_position_leverage
 
 def get_portfolio_leverage_cap(t_ms: int) -> float:
-    is_portfolio_cap= t_ms >= PORTFOLIO_LEVERAGE_BOUNDS_START_TIME_MS
+    is_portfolio_cap = t_ms >= PORTFOLIO_LEVERAGE_BOUNDS_START_TIME_MS
     max_portfolio_leverage = ValiConfig.PORTFOLIO_LEVERAGE_CAP if is_portfolio_cap else float('inf')
     return max_portfolio_leverage
+
+def get_currency_net_leverage_cap(t_ms: int, trade_pair: TradePair) -> float:
+    if not trade_pair.is_forex:
+        return float('inf')
+    is_currency_cap = t_ms >= CURRENCY_NET_LEVERAGE_BOUNDS_START_TIME_MS
+    max_currency_leverage = ValiConfig.CURRENCY_NET_LEVERAGE_CAP if is_currency_cap else float('inf')
+    return max_currency_leverage

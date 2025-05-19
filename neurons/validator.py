@@ -761,8 +761,8 @@ class Validator:
                     order.slippage = PriceSlippageModel.calculate_slippage(order.bid, order.ask, order)
                     self._enforce_num_open_order_limit(trade_pair_to_open_position, order)
                     self.enforce_order_cooldown(order, existing_position)
-                    net_portfolio_leverage = self.position_manager.calculate_net_portfolio_leverage(miner_hotkey)
-                    existing_position.add_order(order, net_portfolio_leverage)
+                    net_portfolio_leverage, net_currency_leverage = self.position_manager.calculate_net_portfolio_leverage(miner_hotkey)
+                    existing_position.add_order(order, net_portfolio_leverage, net_currency_leverage)
                     self.position_manager.save_miner_position(existing_position)
                     synapse.order_json = order.__str__()
                     if miner_order_uuid:
