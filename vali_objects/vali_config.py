@@ -66,6 +66,10 @@ class ValiConfig:
     EQUITIES_MIN_LEVERAGE = 0.1
     EQUITIES_MAX_LEVERAGE = 3
 
+    # Cap leverage across miner's entire portfolio
+    PORTFOLIO_LEVERAGE_CAP = 10
+    CURRENCY_NET_LEVERAGE_CAP = 5
+
     CAPITAL = 100_000  # conversion of 1x leverage to $100K in capital
 
     MAX_DAILY_DRAWDOWN = 0.95  # Portfolio should never fall below .95 x of initial value when measured day to day
@@ -160,9 +164,6 @@ class ValiConfig:
 
     # Require at least this many successful checkpoints before building golden
     MIN_CHECKPOINTS_RECEIVED = 5
-
-    # Cap leverage across miner's entire portfolio
-    PORTFOLIO_LEVERAGE_CAP = 10
 
 assert ValiConfig.CRYPTO_MIN_LEVERAGE >= ValiConfig.ORDER_MIN_LEVERAGE
 assert ValiConfig.CRYPTO_MAX_LEVERAGE <= ValiConfig.ORDER_MAX_LEVERAGE
@@ -321,6 +322,16 @@ class TradePair(Enum):
                                           TradePairCategory.INDICES: 1,
                                           TradePairCategory.EQUITIES: 2}
         return trade_pair_leverage_multiplier[self.trade_pair_category]
+
+    @property
+    def base(self):
+        if self.is_forex:
+            return self.trade_pair.split("/")[0]
+
+    @property
+    def quote(self):
+        if self.is_forex:
+            return self.trade_pair.split("/")[1]
 
     @classmethod
     def categories(cls):

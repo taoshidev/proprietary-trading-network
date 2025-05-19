@@ -338,7 +338,7 @@ class Position(BaseModel):
         ]
         bt.logging.debug(f"position order details: " f"close_ms [{order_info}] ")
 
-    def add_order(self, order: Order, net_portfolio_leverage: float=0.0) -> bool:
+    def add_order(self, order: Order, net_portfolio_leverage: float=0.0, net_currency_leverage: dict=None):
         """
         Add an order to a position, and adjust its leverage to stay within
         the trade pair max and portfolio max.
@@ -349,7 +349,10 @@ class Position(BaseModel):
             raise ValueError(
                 f"Order trade pair [{order.trade_pair}] does not match position trade pair [{self.trade_pair}]")
 
-        if self._clamp_and_validate_leverage(order, abs(net_portfolio_leverage)):
+        if net_currency_leverage is None:
+            net_currency_leverage = {}
+
+        if self._clamp_and_validate_leverage(order, abs(net_portfolio_leverage), net_currency_leverage):
             # This order's leverage got clamped to zero.
             # Skip it since we don't want to consider this a FLAT position and we don't want to allow bad actors
             # to send in a bunch of spam orders.
@@ -601,13 +604,15 @@ class Position(BaseModel):
         self.is_closed_position = False
         self.close_ms = None
 
-    def _clamp_and_validate_leverage(self, order: Order, net_portfolio_leverage: float) -> bool:
+    def _clamp_and_validate_leverage(self, order: Order, net_portfolio_leverage: float, net_currency_leverage: dict) -> bool:
         """
         If an order's leverage would make the position's leverage higher than max_position_leverage,
         we clamp the order's leverage. If clamping causes the order's leverage to be below
         ValiConfig.ORDER_MIN_LEVERAGE, we raise an error.
 
         If an order's leverage would take the position leverage below min_position_leverage, we raise an error.
+
+        For FX, order leverage must also stay within net currency leverage exposure limits.
 
         Return true if the order should be ignored. Only happens when the order attempts to exceed max_position_leverage
         and is already at max_position_leverage.
@@ -625,6 +630,15 @@ class Position(BaseModel):
         proposed_portfolio_leverage = (net_portfolio_leverage - current_adjusted_leverage +
                                        (abs(proposed_leverage) * self.trade_pair.leverage_multiplier))
         max_portfolio_leverage = leverage_utils.get_portfolio_leverage_cap(order.processed_ms)
+
+        if order.trade_pair.is_forex:
+            proposed_base_currency_leverage = net_currency_leverage.get(order.trade_pair.base, 0) + order.leverage
+            proposed_quote_currency_leverage = net_currency_leverage.get(order.trade_pair.quote, 0) - order.leverage
+            max_currency_leverage = leverage_utils.get_currency_net_leverage_cap(order.processed_ms, order.trade_pair)
+            if abs(proposed_base_currency_leverage) > max_currency_leverage:
+                raise ValueError(f"Miner {self.miner_hotkey} attempted to exceed {self.trade_pair.base} currency leverage exposure. Current exposure: {net_currency_leverage.get(order.trade_pair.base)}")
+            if abs(proposed_quote_currency_leverage) > max_currency_leverage:
+                raise ValueError(f"Miner {self.miner_hotkey} attempted to exceed {self.trade_pair.quote} currency leverage exposure. Current exposure: {net_currency_leverage.get(order.trade_pair.quote)}")
 
         # we only need to worry about clamping if the sign of the position leverage remains the same i.e. position does not flip and close
         if is_first_order or self.net_leverage * proposed_leverage > 0:
