@@ -248,9 +248,9 @@ class PolygonDataService(BaseDataService):
                 end_timestamp = None
                 open = close = vwap = high = low = m.price
             elif tp.is_crypto:
-                if m.exchange_id != self.crypto_mapping['coinbase']:
-                    # print(f"Skipping crypto trade from exchange {m.exchange_id} for {tp.trade_pair}")
-                    return None, None
+                # if m.exchange_id != self.crypto_mapping['coinbase']:
+                #     # print(f"Skipping crypto trade from exchange {m.exchange_id} for {tp.trade_pair}")
+                #     return None, None
                 bid = m.bid_price
                 ask = m.ask_price
                 start_timestamp = round(m.received_timestamp, -3) # round to nearest second which allows aggresssive filtering via dup logic
