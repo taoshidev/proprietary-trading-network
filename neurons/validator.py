@@ -763,13 +763,13 @@ class Validator:
                     self.enforce_order_cooldown(order, existing_position)
                     net_portfolio_leverage = self.position_manager.calculate_net_portfolio_leverage(miner_hotkey)
                     existing_position.add_order(order, net_portfolio_leverage)
+                    if self.config.serve:
+                        # Add the position to the queue for broadcasting ASAP before saving to disk.
+                        self.shared_queue_websockets.put(existing_position.to_websocket_dict())
                     self.position_manager.save_miner_position(existing_position)
                     synapse.order_json = order.__str__()
                     if miner_order_uuid:
                         self.uuid_tracker.add(miner_order_uuid)
-                    if self.config.serve:
-                        # Add the position to the queue for broadcasting
-                        self.shared_queue_websockets.put(existing_position.to_websocket_dict())
                 else:
                     # Happens if a FLAT is sent when no position exists
                     pass
