@@ -380,8 +380,7 @@ class Position(BaseModel):
                 # update realized pnl for orders that reduce the size of a position
                 if (order.order_type != self.position_type or self.position_type == OrderType.FLAT):
                     exit_price = current_price * (1 + order.slippage) if order.leverage > 0 else current_price * (1 - order.slippage)
-                    order_volume = order.leverage  # (order.leverage * ValiConfig.CAPITAL) / order.price  # TODO: calculate order.volume as an order attribute
-                    self.realized_pnl += -1 * (exit_price - self.average_entry_price) * order_volume  # TODO: FIFO entry cost
+                    self.realized_pnl += -1 * (exit_price - self.average_entry_price) * (order.volume * order.trade_pair.lot_size)  # TODO: FIFO entry cost
                 unrealized_pnl = (current_price - self.average_entry_price) * min(self.net_leverage, self.net_leverage + order.leverage, key=abs)
             else:
                 unrealized_pnl = (current_price - self.average_entry_price) * self.net_leverage
@@ -573,8 +572,7 @@ class Position(BaseModel):
                     + entry_price * delta_leverage
                 ) / new_net_leverage
 
-                order_volume = order.leverage # (order.leverage * ValiConfig.CAPITAL) / entry_price  # TODO: order volume. represents # of shares, etc.
-                self.cumulative_entry_value += entry_price * order_volume  # TODO: replace with order.volume attribute
+                self.cumulative_entry_value += entry_price * (order.volume * order.trade_pair.lot_size)
             self.net_leverage = new_net_leverage
 
     def initialize_position_from_first_order(self, order):
