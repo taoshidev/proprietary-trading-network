@@ -36,10 +36,13 @@ if __name__ == "__main__":
     url = f'{base_url}/api/receive-signal'
 
     # Define the JSON data to be sent in the request
+    # Note: You must provide exactly ONE of 'leverage', 'value', or 'volume'
     data = {
         'trade_pair': TradePair.FTSE,
         'order_type': OrderType.LONG,
-        'leverage': .05,
+        'leverage': 0.05,    # leverage
+        # 'value': 10_000,  # USD value
+        # 'volume': 0.1,    # base asset volume (lots, shares, coins, etc.)
         'api_key': 'xxxx'
     }
 

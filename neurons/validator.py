@@ -799,6 +799,30 @@ class Validator:
             temp = str(uuid.uuid4())
         return temp
 
+    def parse_order_size(self, signal, price, trade_pair, portfolio_value):
+        """
+        parses an order signal and calculates leverage, value, and volume
+        """
+        leverage = signal.get("leverage")
+        value = signal.get("value")
+        volume = signal.get("volume")
+
+        fields_set = [x is not None for x in (leverage, value, volume)]
+        if sum(fields_set) != 1:
+            raise ValueError("Exactly one of 'leverage', 'value', or 'volume' must be set")
+
+        if leverage is not None:
+            value = leverage * portfolio_value
+            volume = value / (price * trade_pair.lot_size)
+        elif value is not None:
+            leverage = value / portfolio_value
+            volume = value / (price * trade_pair.lot_size)
+        elif volume is not None:
+            value = volume * (price * trade_pair.lot_size)
+            leverage = value / portfolio_value
+
+        return leverage, value, volume
+
     # This is the core validator function to receive a signal
     def receive_signal(self, synapse: template.protocol.SendSignal,
                        ) -> template.protocol.SendSignal:
@@ -833,7 +857,6 @@ class Validator:
                     f"Ignoring order for [{miner_hotkey}] due to no live prices being found for trade_pair [{trade_pair}]. Please try again.")
             best_price_source = price_sources[0]
 
-            signal_leverage = signal["leverage"]
             signal_order_type = OrderType.from_string(signal["order_type"])
 
             # Multiple threads can run receive_signal at once. Don't allow two threads to trample each other.
@@ -846,12 +869,16 @@ class Validator:
                 trade_pair_to_open_position = {position.trade_pair: position for position in positions}
                 existing_position = self._get_or_create_open_position_from_new_order(trade_pair, signal_order_type, now_ms, miner_hotkey, trade_pair_to_open_position, miner_order_uuid)
                 if existing_position:
+                    price = best_price_source.parse_appropriate_price(now_ms, trade_pair.is_forex, signal_order_type, existing_position)
+                    leverage, value, volume = self.parse_order_size(signal, price, trade_pair, ValiConfig.CAPITAL)
+
                     order = Order(
                         trade_pair=trade_pair,
                         order_type=signal_order_type,
-                        leverage=signal_leverage,
-                        price=best_price_source.parse_appropriate_price(now_ms, trade_pair.is_forex, signal_order_type,
-                                                                        existing_position),
+                        leverage=leverage,
+                        value=value,
+                        volume=volume,
+                        price=price,
                         processed_ms=now_ms,
                         order_uuid=miner_order_uuid,
                         price_sources=price_sources,
