@@ -179,7 +179,8 @@ class ValiConfig:
     EQUITIES_MIN_LEVERAGE = 0.1
     EQUITIES_MAX_LEVERAGE = 3
 
-    CAPITAL = 250_000  # conversion of 1x leverage to $250K in capital
+    ORDER_MIN_VALUE = 2000
+    CAPITAL = 100_000  # conversion of 1x leverage to $100K in capital
 
     MAX_DAILY_DRAWDOWN = 0.95  # Portfolio should never fall below .95 x of initial value when measured day to day
     MAX_TOTAL_DRAWDOWN = 0.9  # Portfolio should never fall below .90 x of initial value when measured at any instant
@@ -449,9 +450,18 @@ class TradePair(Enum):
     @property
     def is_equities(self):
         return self.trade_pair_category == TradePairCategory.EQUITIES
+
     @property
     def is_indices(self):
         return self.trade_pair_category == TradePairCategory.INDICES
+
+    @property
+    def lot_size(self):
+        trade_pair_lot_size = {TradePairCategory.CRYPTO: 1,
+                               TradePairCategory.FOREX: 100_000,
+                               TradePairCategory.INDICES: 1,
+                               TradePairCategory.EQUITIES: 1}
+        return trade_pair_lot_size[self.trade_pair_category]
 
     @property
     def leverage_multiplier(self) -> int:
