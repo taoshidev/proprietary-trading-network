@@ -4,6 +4,7 @@ from typing import List, Tuple, Dict
 import numpy as np
 from data_generator.tiingo_data_service import TiingoDataService
 from data_generator.polygon_data_service import PolygonDataService
+from data_generator.tardis_data_service import TardisDataService
 from time_util.time_util import TimeUtil, timeme
 
 from vali_objects.vali_config import TradePair
@@ -28,10 +29,16 @@ class LivePriceFetcher:
                                                            ipc_manager=ipc_manager, is_backtesting=is_backtesting)
         else:
             raise Exception("Polygon API key not found in secrets.json")
+        if "tardis_apikey" in secrets:
+            self.tardis_data_service = TardisDataService(api_key=secrets["tardis_apikey"], ipc_manager=ipc_manager)
+        else:
+            self.tardis_data_service = None
+            bt.logging.warning("Tardis API key not found in secrets.json. Tardis data service will not be available.")
 
     def stop_all_threads(self):
         self.tiingo_data_service.stop_threads()
         self.polygon_data_service.stop_threads()
+        # Tardis data service doesn't have threads to stop (it's REST-based)
 
     def sorted_valid_price_sources(self, price_events: List[PriceSource | None], current_time_ms: int, filter_recent_only=True) -> List[PriceSource] | None:
         """
@@ -53,28 +60,48 @@ class LivePriceFetcher:
     def dual_rest_get(
             self,
             trade_pairs: List[TradePair]
-    ) -> Tuple[Dict[TradePair, PriceSource], Dict[TradePair, PriceSource]]:
+    ) -> Tuple[Dict[TradePair, PriceSource], Dict[TradePair, PriceSource], Dict[TradePair, PriceSource]]:
         """
-        Fetch REST closes from both Polygon and Tiingo in parallel,
+        Fetch REST closes from Polygon, Tiingo, and Tardis (if available) in parallel,
         using ThreadPoolExecutor to run both calls concurrently.
         """
         polygon_results = {}
         tiingo_results = {}
-        with ThreadPoolExecutor(max_workers=2) as executor:
-            # Submit both REST calls to the executor
+        tardis_results = {}
+        
+        # Determine number of workers based on whether Tardis is available
+        num_workers = 3 if self.tardis_data_service else 2
+        
+        with ThreadPoolExecutor(max_workers=num_workers) as executor:
+            # Submit REST calls to the executor
             poly_fut = executor.submit(self.polygon_data_service.get_closes_rest, trade_pairs)
             tiingo_fut = executor.submit(self.tiingo_data_service.get_closes_rest, trade_pairs)
+            
+            # Only submit Tardis if available
+            if self.tardis_data_service:
+                # Filter for crypto trade pairs as Tardis only supports crypto
+                crypto_trade_pairs = [tp for tp in trade_pairs if tp.is_crypto]
+                if crypto_trade_pairs:
+                    tardis_fut = executor.submit(self.tardis_data_service.get_closes_rest, crypto_trade_pairs)
+                else:
+                    tardis_fut = None
+            else:
+                tardis_fut = None
 
             try:
-                # Wait for both futures to complete with a 10s timeout
+                # Wait for futures to complete with a 10s timeout
                 polygon_results = poly_fut.result(timeout=10)
                 tiingo_results = tiingo_fut.result(timeout=10)
+                if tardis_fut:
+                    tardis_results = tardis_fut.result(timeout=10)
             except FuturesTimeoutError:
                 poly_fut.cancel()
                 tiingo_fut.cancel()
+                if tardis_fut:
+                    tardis_fut.cancel()
                 bt.logging.warning(f"dual_rest_get REST API requests timed out. trade_pairs: {trade_pairs}.")
 
-        return polygon_results, tiingo_results
+        return polygon_results, tiingo_results, tardis_results
 
     def get_ws_price_sources_in_window(self, trade_pair: TradePair, start_ms: int, end_ms: int) -> List[PriceSource]:
         # Utilize get_events_in_range
@@ -129,15 +156,19 @@ class LivePriceFetcher:
         if not trade_pairs_needing_rest_data:
             return results
 
-        rest_prices_polygon, rest_prices_tiingo_data = self.dual_rest_get(trade_pairs_needing_rest_data)
+        rest_prices_polygon, rest_prices_tiingo_data, rest_prices_tardis = self.dual_rest_get(trade_pairs_needing_rest_data)
 
         for trade_pair in trade_pairs_needing_rest_data:
             current_time_ms = trade_pair_to_last_order_time_ms[trade_pair]
+            # Include Tardis data if it's available and the trade pair is crypto
+            tardis_data = rest_prices_tardis.get(trade_pair) if self.tardis_data_service and trade_pair.is_crypto else None
+            
             sources = self.sorted_valid_price_sources([
                 websocket_prices_polygon.get(trade_pair),
                 websocket_prices_tiingo_data.get(trade_pair),
                 rest_prices_polygon.get(trade_pair),
-                rest_prices_tiingo_data.get(trade_pair)
+                rest_prices_tiingo_data.get(trade_pair),
+                tardis_data
             ], current_time_ms, filter_recent_only=False)
             results[trade_pair] = sources
 
@@ -196,8 +227,16 @@ class LivePriceFetcher:
 
     def get_quote(self, trade_pair: TradePair, processed_ms: int) -> (float, float, int):
         """
-        returns the bid and ask quote for a trade_pair at processed_ms. Only Polygon supports point-in-time bid/ask.
+        returns the bid and ask quote for a trade_pair at processed_ms. Polygon and Tardis support point-in-time bid/ask.
+        For crypto pairs, try Tardis first if available, then fall back to Polygon.
+        For other pairs, use Polygon.
         """
+        if trade_pair.is_crypto and self.tardis_data_service:
+            bid, ask, timestamp = self.tardis_data_service.get_quote(trade_pair, processed_ms)
+            if bid > 0 and ask > 0:  # Valid quote found in Tardis
+                return bid, ask, timestamp
+                
+        # Fall back to Polygon for all other cases
         return self.polygon_data_service.get_quote(trade_pair, processed_ms)
 
     def parse_extreme_price_in_window(self, candle_data: Dict[TradePair, List[PriceSource]], open_position: Position, parse_min: bool = True) -> Tuple[float, PriceSource] | Tuple[None, None]:
@@ -281,20 +320,30 @@ class LivePriceFetcher:
                 price_source = self.polygon_data_service.get_event_before_market_close(trade_pair, end_time_ms=timestamp_ms)
                 print(f'Used previous close to fill price for {trade_pair.trade_pair_id} at {TimeUtil.millis_to_formatted_date_str(timestamp_ms)}')
 
+        # For crypto, try Tardis first if it's available
+        if price_source is None and trade_pair.is_crypto and self.tardis_data_service:
+            price_source = self.tardis_data_service.get_close_rest(trade_pair=trade_pair, timestamp_ms=timestamp_ms)
+            if price_source:
+                bt.logging.info(
+                    f"Using Tardis data for crypto price of {trade_pair.trade_pair} at {TimeUtil.timestamp_ms_to_eastern_time_str(timestamp_ms)}")
+
+        # Fall back to Polygon second data
         if price_source is None:
             price_source = self.polygon_data_service.get_close_at_date_second(trade_pair=trade_pair, target_timestamp_ms=timestamp_ms)
+            
+        # Fall back to Polygon minute data
         if price_source is None:
             price_source = self.polygon_data_service.get_close_at_date_minute_fallback(trade_pair=trade_pair, target_timestamp_ms=timestamp_ms)
             if price_source:
                 bt.logging.warning(
                     f"Fell back to Polygon get_date_minute_fallback for price of {trade_pair.trade_pair} at {TimeUtil.timestamp_ms_to_eastern_time_str(timestamp_ms)}, price_source: {price_source}")
 
+        # Fall back to Tiingo data
         if price_source is None:
             price_source = self.tiingo_data_service.get_close_rest(trade_pair=trade_pair, target_time_ms=timestamp_ms)
             if price_source is not None:
                 bt.logging.warning(
                     f"Fell back to Tiingo get_date for price of {trade_pair.trade_pair} at {TimeUtil.timestamp_ms_to_eastern_time_str(timestamp_ms)}, ms: {timestamp_ms}")
-
 
         """
         if price is None:
