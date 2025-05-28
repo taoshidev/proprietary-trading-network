@@ -7,8 +7,6 @@ from enum import Enum
 
 from meta import load_version
 
-from time_util.time_util import MS_IN_24_HOURS, TimeUtil
-
 BASE_DIR = base_directory = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 meta_dict = load_version(os.path.join(base_directory, "meta", "meta.json"))
 if meta_dict is None:
@@ -27,16 +25,19 @@ class TradePairCategory(str, Enum):
 
 class InterpolatedValueFromDate():
     def __init__(self, start_date: str, *, low: int, interval: int, increment: int, target: int):
-        self.start_date = datetime.strptime(start_date, "%Y-%m-%d")
+        self.start_date = datetime.strptime(start_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
         self.low = low
         self.interval = interval
         self.increment = increment
         self.target = target
 
     def value(self):
+        from time_util.time_util import TimeUtil
+
         days_since_start = TimeUtil.get_days_between(self.start_date, datetime.now(tz=timezone.utc))
         intervals = max(0, days_since_start // self.interval)
         new_n = self.low + self.increment * intervals
+        print(new_n)
         return min(self.target, new_n)
 
 
@@ -46,7 +47,7 @@ class ValiConfig:
     DAYS_IN_YEAR = 365  # annualization factor
 
     # increment the STATISTICAL_CONFIDENCE_MINIMUM_N every 14 days by 7, until the value of 120 is reached
-    STATISTICAL_CONFIDENCE_MINIMUM_N = InterpolatedValueFromDate("2025-05-29", low=60, increment=7, interval=14, target=120)
+    STATISTICAL_CONFIDENCE_MINIMUM_N = InterpolatedValueFromDate("2025-06-06", low=60, increment=7, interval=14, target=120)
 
     # Market-specific configurations
     ANNUAL_RISK_FREE_PERCENTAGE = 4.19  # From tbill rates
@@ -155,11 +156,12 @@ class ValiConfig:
     # Challenge period
     CHALLENGE_PERIOD_MIN_WEIGHT = 1.2e-05  # essentially nothing
     CHALLENGE_PERIOD_MAX_WEIGHT = 2.4e-05
-    CHALLENGE_PERIOD_MS = InterpolatedValueFromDate("2025-05-29",
-                                                    low=90 * MS_IN_24_HOURS,
-                                                    increment=7 * MS_IN_24_HOURS,
+    # increment the CHALLENGE_PERIOD_MS every 14 days by 7, until the value of 150 is reached
+    CHALLENGE_PERIOD_MS = InterpolatedValueFromDate("2025-06-06",
+                                                    low=90 * DAILY_MS,
+                                                    increment=7 * DAILY_MS,
                                                     interval=14,
-                                                    target=150 * MS_IN_24_HOURS)
+                                                    target=150 * DAILY_MS)
     CHALLENGE_PERIOD_PERCENTILE_THRESHOLD = 0.75 # miners must pass 75th percentile to enter the main competition
 
     # Plagiarism
