@@ -305,7 +305,7 @@ class ChallengePeriodManager(CacheController):
             passing_criteria = True
 
             # We want to know if the miner still has time, as we know the criteria to pass is not met
-            time_criteria = current_time - inspection_time <= ValiConfig.CHALLENGE_PERIOD_MS
+            time_criteria = current_time - inspection_time <= ValiConfig.CHALLENGE_PERIOD_MS.value()
 
             # Get hotkey to positions dict that only includes the inspection miner
             has_minimum_positions, inspection_positions = ChallengePeriodManager.screen_minimum_positions(positions=positions, inspection_hotkey=hotkey)
@@ -427,7 +427,7 @@ class ChallengePeriodManager(CacheController):
             return False
 
         miner_returns = LedgerUtils.daily_return_log(ledger_element)
-        return len(miner_returns) >= ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N
+        return len(miner_returns) >= ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N.value()
 
     @staticmethod
     def screen_minimum_ledger(

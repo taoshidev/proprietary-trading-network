@@ -487,3 +487,7 @@ class TimeUtil:
         day_of_week = dt.weekday()
 
         return day_of_week
+
+    @staticmethod
+    def get_days_between(from_: datetime, to: datetime):
+        return (to - from_).days
