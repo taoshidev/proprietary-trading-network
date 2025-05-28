@@ -258,3 +258,16 @@ class TestWeights(TestBase):
 
         self.assertEqual(final_scores["miner3"], MAX_WEIGHT)
         self.assertEqual(final_scores["miner1"], MIN_WEIGHT)
+
+    def test_burn_scores(self):
+        miner_scores = [("miner1", 0.4), ("miner2", 0.3), ("miner3", 0.15), ("miner4", 0.15)]
+        result = Scoring.burn_scores(miner_scores, burn_amt=0.75)
+        sn_owner = "5F6tnxzAAxbhaWRmeUmB63JEM3VXBNSmqb3AwYJVDStQjw8y"
+        expected_result = [
+            (sn_owner, 0.75),
+            ("miner1", 0.1),
+            ("miner2", 0.075),
+            ("miner3", 0.0375),
+            ("miner4", 0.0375)
+        ]
+        self.assertEqual(result, expected_result)

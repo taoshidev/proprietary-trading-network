@@ -259,6 +259,27 @@ class Scoring:
         return normalized_scores
 
     @staticmethod
+    def burn_scores(scores: List[Tuple[str, float]], burn_amt, is_mainnet=True) -> List[Tuple[str, float]]:
+        """
+        Burns a portion of incentive by allocating it to the SN owner hotkey.
+        Distributes the remaining portion among the miners.
+        """
+        if burn_amt == 0:
+            bt.logging.info("0% Burn, returning original weights")
+            return scores
+        bt.logging.info(f"Burning {burn_amt * 100}% of emissions")
+        target_scores_sum = 1 - burn_amt
+        sn_owner_hk = ValiConfig.SN_OWNER_HK if is_mainnet else ValiConfig.TESTNET_SN_OWNER_HK
+
+        burnt_scores = [
+            (miner, max(score * target_scores_sum, ValiConfig.CHALLENGE_PERIOD_MAX_WEIGHT))
+            for miner, score in scores
+        ]
+        burnt_scores.append((sn_owner_hk, burn_amt))
+        bt.logging.info(f"Weights set for main competition after burn: [{burnt_scores}]")
+        return sorted(burnt_scores, key=lambda x: x[1], reverse=True)
+
+    @staticmethod
     def base_return(positions: list[Position]) -> float:
         """
         Args:
