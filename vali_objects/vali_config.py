@@ -58,16 +58,11 @@ class ValiConfig:
     DAILY_CHECKPOINTS = DAILY_MS // TARGET_CHECKPOINT_DURATION_MS  # 2 checkpoints per day
 
     # Set the target ledger window in days directly
-    TARGET_LEDGER_WINDOW_DAYS = InterpolatedValueFromDate("2025-06-06", low=90, increment=7, interval=14, target=120)
-    TARGET_LEDGER_WINDOW_MS = InterpolatedValueFromDate("2025-06-06",
-                                                        low=90 * DAILY_MS,
-                                                        increment=7 * DAILY_MS,
-                                                        interval=14,
-                                                        target=120 * DAILY_MS)
-
+    TARGET_LEDGER_WINDOW_DAYS = 120
+    TARGET_LEDGER_WINDOW_MS = TARGET_LEDGER_WINDOW_DAYS * DAILY_MS
     # TARGET_LEDGER_N_CHECKPOINTS = TARGET_LEDGER_WINDOW_MS // TARGET_CHECKPOINT_DURATION_MS  # 180 checkpoints
-    WEIGHTED_AVERAGE_DECAY_RATE = 0.1
-    WEIGHTED_AVERAGE_DECAY_MIN = 0.2
+    WEIGHTED_AVERAGE_DECAY_RATE = 0.075
+    WEIGHTED_AVERAGE_DECAY_MIN = 0.15
     WEIGHTED_AVERAGE_DECAY_MAX = 1.0
     POSITIONAL_EQUIVALENCE_WINDOW_MS = 1000 * 60 * 60 * 24  # 1 day
 

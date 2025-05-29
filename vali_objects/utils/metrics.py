@@ -353,7 +353,7 @@ class Metrics:
         """
 
         time_weighted_scores = []
-        LEDGER_WINDOW_DAYS = ValiConfig.TARGET_LEDGER_WINDOW_DAYS.value()
+        LEDGER_WINDOW_DAYS = ValiConfig.TARGET_LEDGER_WINDOW_DAYS
         if LEDGER_WINDOW_DAYS <= 0:
             return []
 

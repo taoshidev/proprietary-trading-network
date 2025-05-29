@@ -80,7 +80,7 @@ def generate_ledger(
         value=None,
         start_time=0,
         nterms=None,
-        end_time=ValiConfig.TARGET_LEDGER_WINDOW_MS.value(),
+        end_time=ValiConfig.TARGET_LEDGER_WINDOW_MS,
         gain=None,
         loss=None,
         open_ms=None,
@@ -132,7 +132,7 @@ def generate_ledger(
 
 def ledger_generator(
         target_cp_duration: int = ValiConfig.TARGET_CHECKPOINT_DURATION_MS,
-        target_ledger_window_ms: float = ValiConfig.TARGET_LEDGER_WINDOW_MS.value(),
+        target_ledger_window_ms: float = ValiConfig.TARGET_LEDGER_WINDOW_MS,
         checkpoints=None,
 ):
     if checkpoints is None:
