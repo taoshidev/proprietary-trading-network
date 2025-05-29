@@ -28,7 +28,7 @@ class BacktestManager:
                  capital=ValiConfig.CAPITAL, use_slippage=None,
                  fetch_slippage_data=False, recalculate_slippage=False, rebuild_all_positions=False,
                  parallel_mode=ParallelizationMode.PYSPARK, build_portfolio_ledgers_only=False,
-                 pool_size=0, target_ledger_window_ms=ValiConfig.TARGET_LEDGER_WINDOW_MS):
+                 pool_size=0, target_ledger_window_ms=ValiConfig.TARGET_LEDGER_WINDOW_MS.value()):
         if not secrets:
             raise Exception(
                 "unable to get secrets data from "

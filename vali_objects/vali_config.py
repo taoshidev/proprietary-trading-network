@@ -32,14 +32,11 @@ class InterpolatedValueFromDate():
         self.target = target
 
     def value(self):
-        from time_util.time_util import TimeUtil
-
-        days_since_start = TimeUtil.get_days_between(self.start_date, datetime.now(tz=timezone.utc))
+        days_since_start = (datetime.now(tz=timezone.utc) - self.start_date).days
         intervals = max(0, days_since_start // self.interval)
         new_n = self.low + self.increment * intervals
         print(new_n)
         return min(self.target, new_n)
-
 
 class ValiConfig:
     # versioning
@@ -61,16 +58,21 @@ class ValiConfig:
     DAILY_CHECKPOINTS = DAILY_MS // TARGET_CHECKPOINT_DURATION_MS  # 2 checkpoints per day
 
     # Set the target ledger window in days directly
-    TARGET_LEDGER_WINDOW_DAYS = 90  # 90 days
-    TARGET_LEDGER_WINDOW_MS = DAILY_MS * TARGET_LEDGER_WINDOW_DAYS
-    TARGET_LEDGER_N_CHECKPOINTS = TARGET_LEDGER_WINDOW_MS // TARGET_CHECKPOINT_DURATION_MS  # 180 checkpoints
-    WEIGHTED_AVERAGE_DECAY_RATE = 0.08
-    WEIGHTED_AVERAGE_DECAY_MIN = 0.40
+    TARGET_LEDGER_WINDOW_DAYS = InterpolatedValueFromDate("2025-06-06", low=90, increment=7, interval=14, target=120)
+    TARGET_LEDGER_WINDOW_MS = InterpolatedValueFromDate("2025-06-06",
+                                                        low=90 * DAILY_MS,
+                                                        increment=7 * DAILY_MS,
+                                                        interval=14,
+                                                        target=120 * DAILY_MS)
+
+    # TARGET_LEDGER_N_CHECKPOINTS = TARGET_LEDGER_WINDOW_MS // TARGET_CHECKPOINT_DURATION_MS  # 180 checkpoints
+    WEIGHTED_AVERAGE_DECAY_RATE = 0.1
+    WEIGHTED_AVERAGE_DECAY_MIN = 0.2
     WEIGHTED_AVERAGE_DECAY_MAX = 1.0
     POSITIONAL_EQUIVALENCE_WINDOW_MS = 1000 * 60 * 60 * 24  # 1 day
 
     SET_WEIGHT_REFRESH_TIME_MS = 60 * 5 * 1000  # 5 minutes
-    SET_WEIGHT_LOOKBACK_RANGE_DAYS = int(TARGET_LEDGER_WINDOW_MS / (24 * 60 * 60 * 1000))
+    SET_WEIGHT_LOOKBACK_RANGE_DAYS = TARGET_LEDGER_WINDOW_DAYS
 
     # Fees take into account exiting and entering a position, liquidity, and futures fees
     PERF_LEDGER_REFRESH_TIME_MS = 1000 * 60 * 5  # minutes

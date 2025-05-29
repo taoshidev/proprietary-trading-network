@@ -260,7 +260,7 @@ class TestMetrics(TestBase):
         self.assertEqual([1], one_entry_dist)
 
         #Test distribution
-        log_returns = [random.uniform(-1, 1) for _ in range(ValiConfig.TARGET_LEDGER_WINDOW_DAYS)]
+        log_returns = [random.uniform(-1, 1) for _ in range(ValiConfig.TARGET_LEDGER_WINDOW_DAYS.value())]
         large_distribution = Metrics.weighting_distribution(log_returns).tolist()
         for value in large_distribution:
             self.assertGreaterEqual(value, ValiConfig.WEIGHTED_AVERAGE_DECAY_MIN)

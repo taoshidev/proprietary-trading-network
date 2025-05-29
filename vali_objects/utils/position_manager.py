@@ -965,7 +965,7 @@ class PositionManager(CacheController):
         }
         acceptable_position_end_ms = TimeUtil.timestamp_to_millis(
             TimeUtil.generate_start_timestamp(
-                ValiConfig.SET_WEIGHT_LOOKBACK_RANGE_DAYS
+                ValiConfig.SET_WEIGHT_LOOKBACK_RANGE_DAYS.value()
             ))
         positions_30_days = [
             position

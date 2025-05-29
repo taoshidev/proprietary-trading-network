@@ -19,7 +19,7 @@ class PositionFiltering:
             return subset_positions
 
         if lookback_time_ms is None:
-            lookback_time_ms = ValiConfig.TARGET_LEDGER_WINDOW_MS
+            lookback_time_ms = ValiConfig.TARGET_LEDGER_WINDOW_MS.value()
 
         lookback_threshold_ms = evaluation_time_ms - lookback_time_ms
 
@@ -68,7 +68,7 @@ class PositionFiltering:
         updated_positions = {}
 
         if lookback_time_ms is None:
-            lookback_time_ms = ValiConfig.TARGET_LEDGER_WINDOW_MS
+            lookback_time_ms = ValiConfig.TARGET_LEDGER_WINDOW_MS.value()
 
         if lookback_recent_time_ms is None:
             lookback_recent_time_ms = ValiConfig.RETURN_SHORT_LOOKBACK_TIME_MS
