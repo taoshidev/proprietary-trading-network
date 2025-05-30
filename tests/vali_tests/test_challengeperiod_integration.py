@@ -30,10 +30,10 @@ class TestChallengePeriodIntegration(TestBase):
 
         # Time configurations
         self.START_TIME = 0
-        self.END_TIME = ValiConfig.CHALLENGE_PERIOD_MS.value() - 1
+        self.END_TIME = ValiConfig.CHALLENGE_PERIOD_MS - 1
 
         # For time management
-        self.OUTSIDE_OF_CHALLENGE = (2 * ValiConfig.CHALLENGE_PERIOD_MS.value()) + 1  # Evaluation time when the challenge period is over
+        self.OUTSIDE_OF_CHALLENGE = (2 * ValiConfig.CHALLENGE_PERIOD_MS) + 1  # Evaluation time when the challenge period is over
 
         self.N_POSITIONS_BOUNDS = 21
         self.N_POSITIONS = 20
@@ -191,7 +191,7 @@ class TestChallengePeriodIntegration(TestBase):
         inspection_hotkeys = self.challengeperiod_manager.challengeperiod_testing
 
         for hotkey, inspection_time in inspection_hotkeys.items():
-            time_criteria = self.max_open_ms - inspection_time <= ValiConfig.CHALLENGE_PERIOD_MS.value()
+            time_criteria = self.max_open_ms - inspection_time <= ValiConfig.CHALLENGE_PERIOD_MS
             self.assertTrue(time_criteria, f"Time criteria failed for {hotkey}")
 
         self.challengeperiod_manager.refresh(current_time=self.max_open_ms)
@@ -237,7 +237,7 @@ class TestChallengePeriodIntegration(TestBase):
 
         self.assertEqual(len(self.challengeperiod_manager.challengeperiod_testing), len(self.NOT_MAIN_COMP_MINER_NAMES))
 
-        self.challengeperiod_manager.refresh(current_time=self.max_open_ms + ValiConfig.CHALLENGE_PERIOD_MS.value() + 1)
+        self.challengeperiod_manager.refresh(current_time=self.max_open_ms + ValiConfig.CHALLENGE_PERIOD_MS + 1)
         self.elimination_manager.process_eliminations(PositionLocks())
 
         elimination_keys = self.challengeperiod_manager.elimination_manager.get_eliminated_hotkeys()
@@ -356,7 +356,7 @@ class TestChallengePeriodIntegration(TestBase):
             challenge_testing = list(self.challengeperiod_manager.get_challengeperiod_testing())
             self.assertIn(miner, challenge_testing)
             self.challengeperiod_manager.refresh(
-                current_time=self.HK_TO_OPEN_MS[miner] + ValiConfig.CHALLENGE_PERIOD_MS.value() + 1)
+                current_time=self.HK_TO_OPEN_MS[miner] + ValiConfig.CHALLENGE_PERIOD_MS + 1)
             self.elimination_manager.process_eliminations(PositionLocks())
 
             challenge_success = list(self.challengeperiod_manager.get_challengeperiod_success())

@@ -210,7 +210,7 @@ class Metrics:
             weighting: whether to use weighted average
         """
         # Positional Component
-        if len(log_returns) < ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N.value():
+        if len(log_returns) < ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N:
             if not bypass_confidence:
                 return ValiConfig.CALMAR_NOCONFIDENCE_VALUE
 
@@ -228,7 +228,7 @@ class Metrics:
             weighting: whether to use weighted average
         """
         # Need a large enough sample size
-        if len(log_returns) < ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N.value():
+        if len(log_returns) < ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N:
             if not bypass_confidence:
                 return ValiConfig.SHARPE_NOCONFIDENCE_VALUE
 
@@ -249,7 +249,7 @@ class Metrics:
             weighting: whether to use weighted average
         """
         # Need a large enough sample size
-        if len(log_returns) < ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N.value():
+        if len(log_returns) < ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N:
             if not bypass_confidence:
                 return ValiConfig.OMEGA_NOCONFIDENCE_VALUE
 
@@ -309,7 +309,7 @@ class Metrics:
             weighting: whether to use weighted average
         """
         # Impose a minimum sample size on the miner
-        if len(log_returns) < ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N.value():
+        if len(log_returns) < ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N:
             if not bypass_confidence or len(log_returns) < 2:
                 return ValiConfig.STATISTICAL_CONFIDENCE_NOCONFIDENCE_VALUE
 
@@ -330,7 +330,7 @@ class Metrics:
             weighting: whether to use weighted average
         """
         # Need a large enough sample size
-        if len(log_returns) < ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N.value():
+        if len(log_returns) < ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N:
             if not bypass_confidence:
                 return ValiConfig.SORTINO_NOCONFIDENCE_VALUE
 

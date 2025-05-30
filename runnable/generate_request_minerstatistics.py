@@ -187,7 +187,7 @@ class MinerStatisticsManager:
         checkpoint_durations = sum(cp.open_ms for cp in miner_cps)
 
         # Minimum days boolean
-        meets_min_days = (len(miner_returns) >= ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N.value())
+        meets_min_days = (len(miner_returns) >= ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N)
 
         return {
             "annual_volatility": ann_volatility,
@@ -524,7 +524,7 @@ class MinerStatisticsManager:
             challengeperiod_info = {}
             if hotkey in sorted_challengeperiod_testing:
                 cp_start = sorted_challengeperiod_testing[hotkey]
-                cp_end = cp_start + ValiConfig.CHALLENGE_PERIOD_MS.value()
+                cp_end = cp_start + ValiConfig.CHALLENGE_PERIOD_MS
                 remaining = cp_end - time_now
                 challengeperiod_info = {
                     "status": "testing",

@@ -35,7 +35,6 @@ class InterpolatedValueFromDate():
         days_since_start = (datetime.now(tz=timezone.utc) - self.start_date).days
         intervals = max(0, days_since_start // self.interval)
         new_n = self.low + self.increment * intervals
-        print(new_n)
         return min(self.target, new_n)
 
 class ValiConfig:
@@ -43,8 +42,7 @@ class ValiConfig:
     VERSION = meta_version
     DAYS_IN_YEAR = 365  # annualization factor
 
-    # increment the STATISTICAL_CONFIDENCE_MINIMUM_N every 14 days by 7, until the value of 120 is reached
-    STATISTICAL_CONFIDENCE_MINIMUM_N = InterpolatedValueFromDate("2025-06-06", low=60, increment=7, interval=14, target=120)
+    STATISTICAL_CONFIDENCE_MINIMUM_N = 60
 
     # Market-specific configurations
     ANNUAL_RISK_FREE_PERCENTAGE = 4.19  # From tbill rates
@@ -153,12 +151,9 @@ class ValiConfig:
     # Challenge period
     CHALLENGE_PERIOD_MIN_WEIGHT = 1.2e-05  # essentially nothing
     CHALLENGE_PERIOD_MAX_WEIGHT = 2.4e-05
-    # increment the CHALLENGE_PERIOD_MS every 14 days by 7, until the value of 150 is reached
-    CHALLENGE_PERIOD_MS = InterpolatedValueFromDate("2025-06-06",
-                                                    low=90 * DAILY_MS,
-                                                    increment=7 * DAILY_MS,
-                                                    interval=14,
-                                                    target=150 * DAILY_MS)
+    # increment the CHALLENGE_PERIOD_MINIMUM_DAYS every 14 days by 7, until the value of 120 is reached
+    CHALLENGE_PERIOD_MINIMUM_DAYS = InterpolatedValueFromDate("2025-06-06", low=60, increment=7, interval=14, target=120)
+    CHALLENGE_PERIOD_MS = 150 * DAILY_MS
     CHALLENGE_PERIOD_PERCENTILE_THRESHOLD = 0.75 # miners must pass 75th percentile to enter the main competition
 
     # Plagiarism
