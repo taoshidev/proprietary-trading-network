@@ -246,8 +246,11 @@ class Position(BaseModel):
         temp.pop('orders')
         return temp
 
-    def to_websocket_dict(self):
-        return {'position': self.to_dict()}
+    def to_websocket_dict(self, miner_repo_version=None):
+        ans = {'position': self.to_dict()}
+        if miner_repo_version is not None:
+            ans['miner_repo_version'] = miner_repo_version
+        return ans
 
     @property
     def is_open_position(self):

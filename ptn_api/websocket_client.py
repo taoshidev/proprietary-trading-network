@@ -1,3 +1,9 @@
+#!/usr/bin/env python3
+"""
+PTN WebSocket Client with Slack Integration
+Runs the websocket client and posts messages to a Slack channel
+"""
+
 import asyncio
 import json
 import os
@@ -7,7 +13,9 @@ import random
 import websockets
 import traceback
 import logging
+import requests
 from typing import Callable, List, Optional, Dict, Any
+from datetime import datetime
 
 from vali_objects.position import Position
 from vali_objects.utils.vali_bkp_utils import CustomEncoder
@@ -39,6 +47,20 @@ def setup_logger(name):
 logger = setup_logger('ptn_websocket')
 
 
+def send_to_slack(message: str, webhook_url: str) -> bool:
+    """Send a message to Slack via webhook."""
+    if not webhook_url:
+        logger.error("No Slack webhook URL provided")
+        return False
+    try:
+        payload = {"text": message}
+        response = requests.post(webhook_url, json=payload, timeout=5)
+        return response.status_code == 200
+    except Exception as e:
+        logger.error(f"Failed to send message to Slack: {e}")
+        return False
+
+
 class PTNWebSocketMessage:
     """Wrapper for websocket messages with helpful accessors."""
 
@@ -55,6 +77,7 @@ class PTNWebSocketMessage:
             raise Exception(f'Invalid message format: {raw_message}')
 
         data = raw_data['position']
+        self.repo_version = raw_data.get('repo_version', None)
         # tp_id = data['trade_pair_id']
         # data['trade_pair'] = TradePair.get_latest_trade_pair_from_trade_pair_id(tp_id)
         self.position = Position(**data)
@@ -79,6 +102,36 @@ class PTNWebSocketMessage:
         now_ms = TimeUtil.now_in_millis()
         return abs(now_ms - self.timestamp) - self.clock_offset_ms
 
+    def format_slack_message(self, server_host: str, server_alias: Optional[str] = None) -> str:
+        """Format the message for Slack notification."""
+        # Get server display name
+        server_display = f"{server_alias} ({server_host})" if server_alias else server_host
+
+        # Get position data
+        position_dict = self.position.compact_dict_no_orders()
+        order_dict = self.new_order.to_python_dict()
+
+        # Format price sources
+        price_sources_str = ""
+        for ps in order_dict.get("price_sources", []):
+            price_sources_str += f"\n  - {ps.source}: {ps.close} (lag: {ps.lag_ms}ms, span: {ps.timespan_ms}ms)"
+            if ps.bid or ps.ask:
+                price_sources_str += f" bid: {ps.bid}, ask: {ps.ask}"
+
+        slack_message = (
+            f"📊 *PTN Message* from `{server_display}`\n"
+            f"```\n"
+            f"Seq: {self.sequence}, Repo Version: {self.repo_version}\n"
+            f"Position {position_dict.get('trade_pair', ['Unknown'])[0]} | {position_dict.get('position_type')} | {position_dict.get('net_leverage')}x:\n"
+            f"  Miner: {position_dict.get('miner_hotkey')}, UUID: {position_dict.get('position_uuid')}\n"
+            f"  Return: {position_dict.get('return_at_close')}, PnL: {position_dict.get('realized_pnl')}\n"
+            f"Order ({order_dict.get('order_type')}) | {order_dict.get('leverage')}x"
+            f"{price_sources_str}\n"
+            f"Timelag: Queue={self.timelag_from_queue}ms, Order={self.timelag_from_order}ms\n"
+            f"```"
+        )
+        return slack_message
+
     def __str__(self) -> str:
 
         # Format the position summary in a more readable way
@@ -87,7 +140,7 @@ class PTNWebSocketMessage:
         # Format the new order in a more readable way
         new_order = json.dumps(self.new_order.to_python_dict(), indent=2, cls=CustomEncoder)
 
-        return (f"PTNWebSocketMessage(seq={self.sequence})\n"
+        return (f"PTNWebSocketMessage(seq={self.sequence}, repo_version={self.repo_version})\n"
                 f"Position Summary:\n{position_summary}\n"
                 f"New Order:\n{new_order}\n"
                 f"Approx Timelag (ms): from_queue={self.timelag_from_queue}, from_order={self.timelag_from_order}")
@@ -106,7 +159,9 @@ class PTNWebSocketClient:
                  api_key: Optional[str] = None,
                  host: str = "localhost",
                  port: int = 8765,
-                 secure: bool = False):
+                 secure: bool = False,
+                 slack_webhook_url: Optional[str] = None,
+                 server_alias: Optional[str] = None):
         """Initialize the WebSocket client.
 
         Args:
@@ -114,10 +169,15 @@ class PTNWebSocketClient:
             host: WebSocket server hostname
             port: WebSocket server port
             secure: Whether to use secure WebSocket (wss://) or not
+            slack_webhook_url: Slack webhook URL for notifications
+            server_alias: Human-friendly name for the server
         """
         protocol = "wss" if secure else "ws"
         self.uri = f"{protocol}://{host}:{port}"
         self.api_key = api_key
+        self.host = host  # Store host for logging
+        self.slack_webhook_url = slack_webhook_url
+        self.server_alias = server_alias
 
         # Connection state
         self.connected = False
@@ -276,6 +336,16 @@ class PTNWebSocketClient:
 
         self.logger.info("Authentication successful, server sequence: %s", server_sequence)
 
+        # Send connection notification to Slack
+        if self.slack_webhook_url:
+            server_display = f"{self.server_alias} ({self.host})" if self.server_alias else self.host
+
+            connection_msg = f"✅ Connected to PTN WebSocket Server\n" \
+                             f"Server: {server_display}:{self.uri.split(':')[-1]}\n" \
+                             f"Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S UTC')}\n" \
+                             f"Starting sequence: {server_sequence}"
+            send_to_slack(connection_msg, self.slack_webhook_url)
+
     async def _process_messages(self) -> None:
         """Process incoming messages and dispatch to handlers."""
         while True:
@@ -348,6 +418,9 @@ class PTNWebSocketClient:
                     break
             except websockets.exceptions.ConnectionClosed:
                 self.logger.warning("Connection closed by server")
+                if self.slack_webhook_url:
+                    server_display = self.server_alias or self.host
+                    send_to_slack(f"⚠️ Connection closed by server {server_display}", self.slack_webhook_url)
                 break
             except json.JSONDecodeError as e:
                 self.logger.error("Received invalid JSON: %s", e)
@@ -448,6 +521,10 @@ class PTNWebSocketClient:
                 except Exception as e:
                     if "Authentication error" in str(e):
                         self.logger.error("%s. Invalid API key — stopping retries.", e)
+                        if self.slack_webhook_url:
+                            server_display = self.server_alias or self.host
+                            send_to_slack(f"❌ Authentication failed for server {server_display}: Invalid API key",
+                                          self.slack_webhook_url)
                         self.stop()
                         return
 
@@ -524,29 +601,49 @@ class PTNWebSocketClient:
             except Exception as e:
                 self.logger.error("Error closing websocket: %s", e)
 
+        # Send shutdown notification to Slack
+        if self.slack_webhook_url:
+            server_display = self.server_alias or self.host
+            send_to_slack(f"🛑 PTN WebSocket Client shutting down for server {server_display}", self.slack_webhook_url)
+
         # Stop the event loop
         loop.stop()
 
 
 # For standalone testing
 if __name__ == "__main__":
-    # Get API key from command line argument or use default
-    api_key = sys.argv[1] if len(sys.argv) > 1 else "test_key"
-    host = sys.argv[2] if len(sys.argv) > 2 else "localhost"
-    port = int(sys.argv[3]) if len(sys.argv) > 3 else 8765
+    # Get command line arguments
+    if len(sys.argv) < 3:
+        print("Usage: python websocket_client_slack.py <api_key> <host> [slack_webhook_url] [server_alias] [port]")
+        sys.exit(1)
+
+    api_key = sys.argv[1]
+    host = sys.argv[2]
+    slack_webhook_url = sys.argv[3] if len(sys.argv) > 3 else None
+    server_alias = sys.argv[4] if len(sys.argv) > 4 else None
+    port = int(sys.argv[5]) if len(sys.argv) > 5 else 8765
 
     # Main logger
     main_logger = setup_logger('ptn_websocket_main')
 
-    # Define a simple message handler
-    def handle_messages(messages):
+
+    # Define a message handler that logs to console and optionally to Slack
+    def handle_messages(messages: List[PTNWebSocketMessage]) -> None:
         for msg in messages:
+            # Log to console
             main_logger.info(
                 "\nReceived message %s\n--------------------------------------------------------------------", msg)
 
+            # Send to Slack if webhook URL is provided
+            if slack_webhook_url:
+                slack_message = msg.format_slack_message(host, server_alias)
+                send_to_slack(slack_message, slack_webhook_url)
+
+
     # Create client
     main_logger.info("Connecting to ws://%s:%s with API key: %s", host, port, api_key)
-    client = PTNWebSocketClient(api_key=api_key, host=host, port=port)
+    client = PTNWebSocketClient(api_key=api_key, host=host, port=port,
+                                slack_webhook_url=slack_webhook_url, server_alias=server_alias)
 
     # Run client
     client.run(handle_messages)
