@@ -765,7 +765,7 @@ class Validator:
                     existing_position.add_order(order, net_portfolio_leverage)
                     if self.config.serve:
                         # Add the position to the queue for broadcasting ASAP before saving to disk.
-                        self.shared_queue_websockets.put(existing_position.to_websocket_dict())
+                        self.shared_queue_websockets.put(existing_position.to_websocket_dict(miner_repo_version=miner_repo_version))
                     self.position_manager.save_miner_position(existing_position)
                     synapse.order_json = order.__str__()
                     if miner_order_uuid:
