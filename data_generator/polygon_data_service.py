@@ -936,7 +936,7 @@ if __name__ == "__main__":
         #    continue
 
         print('PRICE BEFORE MARKET CLOSE: ', polygon_data_provider.get_event_before_market_close(tp))
-        print('getting close for', tp.trade_pair_id, ':', polygon_data_provider.get_close_rest(tp))
+        print('getting close for', tp.trade_pair_id, ':', polygon_data_provider.get_close_rest(tp, TimeUtil.now_in_millis()))
 
     time.sleep(100000)
 
