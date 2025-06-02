@@ -393,7 +393,7 @@ class PolygonDataService(BaseDataService):
             raise ValueError(f"Unknown symbol: {symbol}")
         return tp
 
-    def get_closes_rest(self, trade_pairs: List[TradePair], time_ms) -> dict:
+    def get_closes_rest(self, trade_pairs: List[TradePair], time_ms, live=True) -> dict:
         all_trade_pair_closes = {}
         # Multi-threaded fetching of REST data over all requested trade pairs. Max parallelism is 5.
         with ThreadPoolExecutor(max_workers=5) as executor:
@@ -457,7 +457,7 @@ class PolygonDataService(BaseDataService):
     def get_close_rest(
         self,
         trade_pair: TradePair,
-        timestamp_ms: int = None,
+        timestamp_ms: int,
         order: Order = None
     ) -> PriceSource | None:
 
@@ -468,8 +468,6 @@ class PolygonDataService(BaseDataService):
 
         if not self.is_market_open(trade_pair):
             return self.get_event_before_market_close(trade_pair)
-        if timestamp_ms is None:
-            timestamp_ms = TimeUtil.now_in_millis()
 
         prev_timestamp = None
         final_agg = None
