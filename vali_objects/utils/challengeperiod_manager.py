@@ -427,7 +427,7 @@ class ChallengePeriodManager(CacheController):
             return False
 
         miner_returns = LedgerUtils.daily_return_log(ledger_element)
-        return len(miner_returns) >= ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N
+        return len(miner_returns) >= ValiConfig.CHALLENGE_PERIOD_MINIMUM_DAYS.value()
 
     @staticmethod
     def screen_minimum_ledger(

@@ -23,8 +23,6 @@ from vali_objects.utils.live_price_fetcher import LivePriceFetcher
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.utils.vali_utils import ValiUtils
 
-TARGET_CHECKPOINT_DURATION_MS = ValiConfig.TARGET_CHECKPOINT_DURATION_MS
-TARGET_LEDGER_WINDOW_MS = ValiConfig.TARGET_LEDGER_WINDOW_MS
 
 TP_ID_PORTFOLIO = 'portfolio'
 
@@ -120,13 +118,13 @@ class PerfCheckpoint(BaseModel):
 
 class PerfLedger():
     def __init__(self, initialization_time_ms: int=0, max_return:float=1.0,
-                 target_cp_duration_ms:int=TARGET_CHECKPOINT_DURATION_MS,
-                 target_ledger_window_ms:int=TARGET_LEDGER_WINDOW_MS, cps: list[PerfCheckpoint]=None):
+                 target_cp_duration_ms:int=ValiConfig.TARGET_CHECKPOINT_DURATION_MS,
+                 target_ledger_window_ms=ValiConfig.TARGET_LEDGER_WINDOW_MS, cps: list[PerfCheckpoint]=None):
         if cps is None:
             cps = []
         self.max_return = float(max_return)
         self.target_cp_duration_ms = int(target_cp_duration_ms)
-        self.target_ledger_window_ms = int(target_ledger_window_ms)
+        self.target_ledger_window_ms = target_ledger_window_ms
         self.initialization_time_ms = int(initialization_time_ms)
         self.cps = cps
 
@@ -360,7 +358,7 @@ class PerfLedgerManager(CacheController):
     def __init__(self, metagraph, ipc_manager=None, running_unit_tests=False, shutdown_dict=None,
                  perf_ledger_hks_to_invalidate=None, live_price_fetcher=None, position_manager=None,
                  enable_rss=True, is_backtesting=False, parallel_mode=ParallelizationMode.SERIAL, secrets=None,
-                 build_portfolio_ledgers_only=False, target_ledger_window_ms=TARGET_LEDGER_WINDOW_MS):
+                 build_portfolio_ledgers_only=False, target_ledger_window_ms=ValiConfig.TARGET_LEDGER_WINDOW_MS):
         super().__init__(metagraph=metagraph, running_unit_tests=running_unit_tests, is_backtesting=is_backtesting)
 
         self.shutdown_dict = shutdown_dict

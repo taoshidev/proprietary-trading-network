@@ -1,4 +1,5 @@
 # developer: Taoshi
+from datetime import datetime, timezone
 import os
 import math
 
@@ -22,10 +23,25 @@ class TradePairCategory(str, Enum):
     EQUITIES = "equities"
 
 
+class InterpolatedValueFromDate():
+    def __init__(self, start_date: str, *, low: int, interval: int, increment: int, target: int):
+        self.start_date = datetime.strptime(start_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        self.low = low
+        self.interval = interval
+        self.increment = increment
+        self.target = target
+
+    def value(self):
+        days_since_start = (datetime.now(tz=timezone.utc) - self.start_date).days
+        intervals = max(0, days_since_start // self.interval)
+        new_n = self.low + self.increment * intervals
+        return min(self.target, new_n)
+
 class ValiConfig:
     # versioning
     VERSION = meta_version
     DAYS_IN_YEAR = 365  # annualization factor
+
     STATISTICAL_CONFIDENCE_MINIMUM_N = 60
 
     # Market-specific configurations
@@ -40,16 +56,16 @@ class ValiConfig:
     DAILY_CHECKPOINTS = DAILY_MS // TARGET_CHECKPOINT_DURATION_MS  # 2 checkpoints per day
 
     # Set the target ledger window in days directly
-    TARGET_LEDGER_WINDOW_DAYS = 90  # 90 days
-    TARGET_LEDGER_WINDOW_MS = DAILY_MS * TARGET_LEDGER_WINDOW_DAYS
-    TARGET_LEDGER_N_CHECKPOINTS = TARGET_LEDGER_WINDOW_MS // TARGET_CHECKPOINT_DURATION_MS  # 180 checkpoints
-    WEIGHTED_AVERAGE_DECAY_RATE = 0.08
-    WEIGHTED_AVERAGE_DECAY_MIN = 0.40
+    TARGET_LEDGER_WINDOW_DAYS = 120
+    TARGET_LEDGER_WINDOW_MS = TARGET_LEDGER_WINDOW_DAYS * DAILY_MS
+    # TARGET_LEDGER_N_CHECKPOINTS = TARGET_LEDGER_WINDOW_MS // TARGET_CHECKPOINT_DURATION_MS  # 180 checkpoints
+    WEIGHTED_AVERAGE_DECAY_RATE = 0.075
+    WEIGHTED_AVERAGE_DECAY_MIN = 0.15
     WEIGHTED_AVERAGE_DECAY_MAX = 1.0
     POSITIONAL_EQUIVALENCE_WINDOW_MS = 1000 * 60 * 60 * 24  # 1 day
 
     SET_WEIGHT_REFRESH_TIME_MS = 60 * 5 * 1000  # 5 minutes
-    SET_WEIGHT_LOOKBACK_RANGE_DAYS = int(TARGET_LEDGER_WINDOW_MS / (24 * 60 * 60 * 1000))
+    SET_WEIGHT_LOOKBACK_RANGE_DAYS = TARGET_LEDGER_WINDOW_DAYS
 
     # Fees take into account exiting and entering a position, liquidity, and futures fees
     PERF_LEDGER_REFRESH_TIME_MS = 1000 * 60 * 5  # minutes
@@ -135,7 +151,9 @@ class ValiConfig:
     # Challenge period
     CHALLENGE_PERIOD_MIN_WEIGHT = 1.2e-05  # essentially nothing
     CHALLENGE_PERIOD_MAX_WEIGHT = 2.4e-05
-    CHALLENGE_PERIOD_MS = 90 * 24 * 60 * 60 * 1000  # 90 days
+    # increment the CHALLENGE_PERIOD_MINIMUM_DAYS every 14 days by 7, until the value of 120 is reached
+    CHALLENGE_PERIOD_MINIMUM_DAYS = InterpolatedValueFromDate("2025-06-06", low=60, increment=7, interval=14, target=120)
+    CHALLENGE_PERIOD_MS = 150 * DAILY_MS
     CHALLENGE_PERIOD_PERCENTILE_THRESHOLD = 0.75 # miners must pass 75th percentile to enter the main competition
 
     # Plagiarism

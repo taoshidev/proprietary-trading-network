@@ -33,12 +33,12 @@ class TestChallengePeriodUnit(TestBase):
 
 
         # For time management
-        self.CURRENTLY_IN_CHALLENGE = ValiConfig.CHALLENGE_PERIOD_MS  # Evaluation time when inside the challenge period
+        self.CURRENTLY_IN_CHALLENGE = ValiConfig.CHALLENGE_PERIOD_MS    # Evaluation time when inside the challenge period
         self.OUTSIDE_OF_CHALLENGE = ValiConfig.CHALLENGE_PERIOD_MS + 1  # Evaluation time when the challenge period is over
 
         # Challenge miners must have a minimum amount of trading days before promotion
-        self.MIN_PROMOTION_TIME = (ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N + 1) * 24 * 60 * 60 * 1000 # Evaluation time when miner can now be promoted
-        self.BEFORE_PROMOTION_TIME = (ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N - 1) * 24 * 60 * 60 * 1000 # Evaluation time before miner has enough trading days
+        self.MIN_PROMOTION_TIME = (ValiConfig.CHALLENGE_PERIOD_MINIMUM_DAYS.value() + 1) * 24 * 60 * 60 * 1000 # Evaluation time when miner can now be promoted
+        self.BEFORE_PROMOTION_TIME = (ValiConfig.CHALLENGE_PERIOD_MINIMUM_DAYS.value() - 1) * 24 * 60 * 60 * 1000 # Evaluation time before miner has enough trading days
 
         # Number of positions
         self.N_POSITIONS_BOUNDS = 20 + 1
