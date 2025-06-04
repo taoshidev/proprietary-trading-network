@@ -9,7 +9,6 @@ import threading
 import traceback
 import time
 import bittensor as bt
-import subprocess
 
 from miner_config import MinerConfig
 from miner_objects.dashboard import Dashboard
@@ -48,8 +47,6 @@ class Miner:
             self.dashboard_api_thread.start()
         except OSError as e:
             bt.logging.info(f"Unable to start miner dashboard with error {e}. Restart miner and specify a new port if desired.")
-        # Initialize the dashboard process variable for the frontend
-        self.dashboard_frontend_process = None
 
     def setup_logging_directory(self):
         if not os.path.exists(self.config.full_path):
@@ -121,11 +118,6 @@ class Miner:
                             help="Whether to write logs for failed signals. Default is True unless --subtensor.network is 'test'.")
         # Add argument so we can check if run_position_inspector is set which tells us to start the PI thread. Default false
         parser.add_argument("--run-position-inspector", action="store_true", help="Run the position inspector thread.")
-        parser.add_argument(
-            '--start-dashboard',
-            action='store_true',
-            help='Start the miner-dashboard along with the miner.'
-        )
 
         # Parse the config (will take command-line arguments if provided)
         # To print help message, run python3 template/miner.py --help
@@ -154,46 +146,9 @@ class Miner:
         )
         return config
 
-    def start_dashboard_frontend(self):
-        """
-        starts the miner dashboard. Allows the use of npm, yarn, or pnpm
-        """
-        try:
-            dashboard_dir = "miner_objects/miner_dashboard"
-            # Determine which package manager is available
-            package_manager = None
-            for pm in ['pnpm', 'yarn', 'npm']:
-                if subprocess.run(['which', pm], stdout=subprocess.PIPE, stderr=subprocess.PIPE).returncode == 0:
-                    package_manager = pm
-                    break
-
-            if not package_manager:
-                bt.logging.error("No package manager found. Please install npm, yarn, or pnpm.")
-                return
-
-            # Run 'install' command for the identified package manager
-            subprocess.run([package_manager, "install"], cwd=dashboard_dir, check=True)
-            bt.logging.info(f"Install completed using {package_manager}.")
-
-            # Start the dashboard process
-            if package_manager == 'npm':
-                self.dashboard_frontend_process = subprocess.Popen(['npm', 'run', 'dev'], cwd=dashboard_dir)  # Popen runs in the background
-            else:
-                self.dashboard_frontend_process = subprocess.Popen([package_manager, 'dev'], cwd=dashboard_dir)
-            bt.logging.info("Dashboard started.")
-        except subprocess.CalledProcessError as e:
-            bt.logging.error(f"Command '{e.cmd}' failed with return code {e.returncode}.")
-        except Exception as e:
-            bt.logging.error(f"Failed to start dashboard: {e}")
-
     def run(self):
         bt.logging(config=self.config, logging_dir=self.config.full_path)
         bt.logging.info("Starting miner loop.")
-
-        # Start the dashboard if the flag is set
-        if self.config.start_dashboard:
-            bt.logging.info("Starting miner dashboard.")
-            self.start_dashboard_frontend()
 
         bt.logging.info("Waiting for signals...")
         while True:
@@ -205,10 +160,6 @@ class Miner:
             # If someone intentionally stops the miner, it'll safely terminate operations.
             except KeyboardInterrupt:
                 bt.logging.success("Miner killed by keyboard interrupt.")
-                if self.dashboard_frontend_process:
-                    self.dashboard_frontend_process.terminate()  # Terminate the dashboard if it was started
-                    self.dashboard_frontend_process.wait()
-                    bt.logging.info("Dashboard terminated.")
                 self.metagraph_updater_thread.join()
                 self.position_inspector.stop_update_loop()
                 if self.position_inspector_thread:
