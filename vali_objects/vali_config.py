@@ -82,6 +82,7 @@ class ValiConfig:
     EQUITIES_MIN_LEVERAGE = 0.1
     EQUITIES_MAX_LEVERAGE = 3
 
+    ORDER_MIN_VALUE = 2000
     CAPITAL = 100_000  # conversion of 1x leverage to $100K in capital
 
     MAX_DAILY_DRAWDOWN = 0.95  # Portfolio should never fall below .95 x of initial value when measured day to day
@@ -328,9 +329,18 @@ class TradePair(Enum):
     @property
     def is_equities(self):
         return self.trade_pair_category == TradePairCategory.EQUITIES
+
     @property
     def is_indices(self):
         return self.trade_pair_category == TradePairCategory.INDICES
+
+    @property
+    def lot_size(self):
+        trade_pair_lot_size = {TradePairCategory.CRYPTO: 1,
+                               TradePairCategory.FOREX: 100_000,
+                               TradePairCategory.INDICES: 1,
+                               TradePairCategory.EQUITIES: 1}
+        return trade_pair_lot_size[self.trade_pair_category]
 
     @property
     def leverage_multiplier(self) -> int:
@@ -339,6 +349,16 @@ class TradePair(Enum):
                                           TradePairCategory.INDICES: 1,
                                           TradePairCategory.EQUITIES: 2}
         return trade_pair_leverage_multiplier[self.trade_pair_category]
+
+    @property
+    def base(self):
+        if self.is_forex:
+            return self.trade_pair.split("/")[0]
+
+    @property
+    def quote(self):
+        if self.is_forex:
+            return self.trade_pair.split("/")[1]
 
     @classmethod
     def categories(cls):
@@ -410,7 +430,7 @@ class TradePair(Enum):
         return TRADE_PAIR_ID_TO_TRADE_PAIR.get(trade_pair_id)
 
     @staticmethod
-    def get_latest_tade_pair_from_trade_pair_str(trade_pair_str):
+    def get_latest_trade_pair_from_trade_pair_str(trade_pair_str):
         return TRADE_PAIR_STR_TO_TRADE_PAIR.get(trade_pair_str)
 
     def __str__(self):
