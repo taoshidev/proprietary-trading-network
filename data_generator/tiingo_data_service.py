@@ -205,13 +205,13 @@ class TiingoDataService(BaseDataService):
 
                 open = vwap = high = low = bid_price
             elif tp.is_crypto:
-                mode, ticker, date_str, exchange, volume, price = data
+                mode, ticker, date_str, exchange, bid_size, bid_price, mid_price, ask_size, ask_price = data
                 start_timestamp = TimeUtil.parse_iso_to_ms(date_str)
                 start_timestamp = round(start_timestamp, -3)  # round to nearest second which allows aggresssive filtering via dup logic
-                if mode != 'T':
-                    print(f'Skipping crypto due to non-T mode {m}')
+                if mode != 'Q':
+                    print(f'Skipping crypto due to non-Q mode {m}')
                     return None
-                open = vwap = high = low = price
+                open = vwap = high = low = bid_price
 
             elif tp.is_equities:
                 (mode, date_str, timestamp_ns, ticker, bid_size, bid_price, mid_price, ask_price, ask_size, last_price,
