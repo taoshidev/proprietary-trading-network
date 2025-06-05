@@ -904,8 +904,7 @@ class PolygonDataService(BaseDataService):
             )
             for q in quotes:
                 return q.bid_price, q.ask_price, int(q.participant_timestamp/1_000_000)  # convert ns back to ms
-        else:
-            return 0, 0, 0
+        return 0, 0, 0
 
     def get_currency_conversion(self, trade_pair: TradePair=None, base: str=None, quote: str=None) -> float:
         """
