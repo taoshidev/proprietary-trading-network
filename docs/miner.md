@@ -142,11 +142,11 @@ We also implement a [portfolio level leverage limit](https://docs.taoshi.io/tips
 
 ## Incentive Distribution
 
-The miners are scored in each of the categories above based on their prior positions over the lookback period. Penalties are then applied to these scores, and the miners are ranked based on their total score. Percentiles are determined for each category, with the miner's overall score being reduced by the full scoring weight if they are the worst in a category.
+Miners are scored in each of the categories above based on their prior positions over the lookback period. Penalties are then applied to each score for exceeding max drawdown and their perceived risk profile. Each scores are ranked per category for each miner and multiplied by their rank percentile.
 
-For example, if a miner is last place in the long term realized returns category, they will receive a 0% score for this category. This will effectively reduce their score to 0, and they will be prioritized during the next round of deregistration.
+For example, the lowest ranked miner in the long term realized returns category will receive a percentile score of 1/N, where N is the total number of miners scored in that category. In contrast, the highest-ranked miner will retain 100% of the score weight for that category.
 
-We distribute using a [softmax function](https://docs.taoshi.io/tips/p11/), with a target of the top 40% of miners receiving 90% of emissions. The softmax function dynamically adjusts to the scores of miners, distributing more incentive to relatively high-performing miners.
+We distribute using a [softmax function](https://docs.taoshi.io/tips/p11/), with a target of the top 50% of miners receiving 90% of emissions. The softmax function dynamically adjusts to the scores of miners, distributing more incentive to relatively high-performing miners.
 
 ## Holidays
 
