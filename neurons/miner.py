@@ -200,11 +200,15 @@ class Miner:
             try:
                 signals, signal_file_names = self.get_all_files_in_dir_no_duplicate_trade_pairs()
                 self.prop_net_order_placer.send_signals(signals, signal_file_names, recently_acked_validators=
-                                                    self.position_inspector.get_recently_acked_validators())
+                self.position_inspector.get_recently_acked_validators())
                 time.sleep(1)
             # If someone intentionally stops the miner, it'll safely terminate operations.
             except KeyboardInterrupt:
                 bt.logging.success("Miner killed by keyboard interrupt.")
+                # Shutdown the order placer's thread pool
+                bt.logging.info("Shutting down order placer thread pool...")
+                self.prop_net_order_placer.shutdown()
+
                 if self.dashboard_frontend_process:
                     self.dashboard_frontend_process.terminate()  # Terminate the dashboard if it was started
                     self.dashboard_frontend_process.wait()
