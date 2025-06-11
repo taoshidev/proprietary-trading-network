@@ -95,10 +95,11 @@ class ValidatorSyncBase():
 
 
         challengeperiod_data = candidate_data.get('challengeperiod', {})
-        challengeperiod_dict = ChallengePeriodManager.parse_checkpoint_dict(challengeperiod_data)
         if challengeperiod_data:  # Only in autosync as of now.
             orig_testing_keys = set(self.position_manager.challengeperiod_manager.get_hotkeys_by_bucket(MinerBucket.CHALLENGE))
             orig_success_keys = set(self.position_manager.challengeperiod_manager.get_hotkeys_by_bucket(MinerBucket.MAINCOMP))
+
+            challengeperiod_dict = ChallengePeriodManager.parse_checkpoint_dict(challengeperiod_data)
             new_testing_keys = {
                     hotkey for hotkey, (bucket, _) in challengeperiod_dict.items()
                     if bucket is MinerBucket.CHALLENGE

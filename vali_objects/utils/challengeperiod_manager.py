@@ -35,26 +35,23 @@ class ChallengePeriodManager(CacheController):
         self.elimination_manager = self.position_manager.elimination_manager
         self.eliminations_with_reasons: dict[str, tuple[str, float]] = {}
 
-        self.CHALLENGE_FILE = ValiBkpUtils.get_challengeperiod_file_location(running_unit_tests=self.running_unit_tests)
+        self.CHALLENGE_FILE = ValiBkpUtils.get_challengeperiod_file_location(running_unit_tests=running_unit_tests)
 
         self.active_miners = {}
         initial_active_miners = {}
         if not self.is_backtesting:
             disk_data = ValiUtils.get_vali_json_file_dict(self.CHALLENGE_FILE)
-            initial_active_miners = {
-                hotkey: (MinerBucket[item["bucket"]], item["bucket_start_time"])
-                for hotkey, item in disk_data.items()
-            }
+            initial_active_miners = self.parse_checkpoint_dict(disk_data)
 
         if ipc_manager:
             self.active_miners = ipc_manager.dict(initial_active_miners)
+        else:
+            self.active_miners = initial_active_miners
 
         if not self.is_backtesting and len(self.active_miners) == 0:
             self._write_challengeperiod_from_memory_to_disk()
-            # ValiBkpUtils.write_file(self.CHALLENGE_FILE, {})
 
         self.refreshed_challengeperiod_start_time = False
-
 
     #Used to bypass running challenge period, but still adds miners to success for statistics
     def add_all_miners_to_success(self, current_time_ms, run_elimination=True):
@@ -481,10 +478,10 @@ class ChallengePeriodManager(CacheController):
         if not active_miners_sync:
             bt.logging.error(f'challenge_period_data {active_miners_sync} appears invalid')
 
-        temp = self.parse_checkpoint_dict(active_miners_sync)
+        synced_miners = self.parse_checkpoint_dict(active_miners_sync)
 
         self.active_miners.clear()
-        self.active_miners.update(temp)
+        self.active_miners.update(synced_miners)
         self._write_challengeperiod_from_memory_to_disk()
 
     def get_hotkeys_by_bucket(self, bucket: MinerBucket) -> list[str]:
@@ -562,13 +559,22 @@ class ChallengePeriodManager(CacheController):
 
     @staticmethod
     def parse_checkpoint_dict(json_dict):
-        internal = {}
+        formatted_dict = {}
 
-        for hotkey, info in json_dict.items():
-            bucket = MinerBucket(info["bucket"])
-            bucket_start_time = info["bucket_start_time"]
+        if "testing" in json_dict.keys() and "success" in json_dict.keys():
+            testing = json_dict.get("testing", {})
+            success = json_dict.get("success", {})
+            for hotkey, start_time in testing.items():
+                formatted_dict[hotkey] = (MinerBucket.CHALLENGE, start_time)
+            for hotkey, start_time in success.items():
+                formatted_dict[hotkey] = (MinerBucket.MAINCOMP, start_time)
 
-            internal[hotkey] = (bucket, bucket_start_time)
+        else: 
+            for hotkey, info in json_dict.items():
+                bucket = MinerBucket(info["bucket"])
+                bucket_start_time = info["bucket_start_time"]
 
-        return internal
+                formatted_dict[hotkey] = (bucket, bucket_start_time)
+
+        return formatted_dict
 

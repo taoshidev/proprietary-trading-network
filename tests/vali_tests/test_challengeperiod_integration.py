@@ -175,13 +175,11 @@ class TestChallengePeriodIntegration(TestBase):
     
     def test_refresh_populations(self):
         self.challengeperiod_manager.refresh(current_time=self.max_open_ms)
-        print(f"111active miners {self.challengeperiod_manager.active_miners}")
         self.elimination_manager.process_eliminations(PositionLocks())
         testing_length = len(self.challengeperiod_manager.get_testing_miners())
         success_length = len(self.challengeperiod_manager.get_success_miners())
         eliminations_length = len(self.challengeperiod_manager.elimination_manager.get_eliminations_from_memory())
 
-        print(f"active miners {self.challengeperiod_manager.active_miners}")
         # Ensure that all miners that aren't failing end up in testing or success
         self.assertEqual(testing_length + success_length, len(self.NOT_FAILING_MINER_NAMES))
         self.assertEqual(eliminations_length, len(self.FAILING_MINER_NAMES))
@@ -307,8 +305,6 @@ class TestChallengePeriodIntegration(TestBase):
 
     
     def test_promote_testing_miner(self):
-        print("test")
-
         # Add all the challenge period miners
         self.challengeperiod_manager.refresh(current_time=self.max_open_ms)
         self.elimination_manager.process_eliminations(PositionLocks())
