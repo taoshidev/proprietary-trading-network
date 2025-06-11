@@ -4,6 +4,7 @@ from functools import partial
 import bittensor as bt
 
 from time_util.time_util import TimeUtil
+from vali_objects.utils.miner_bucket_enum import MinerBucket
 from vali_objects.vali_config import ValiConfig
 from shared_objects.cache_controller import CacheController
 from vali_objects.utils.position_manager import PositionManager
@@ -35,8 +36,8 @@ class SubtensorWeightSetter(CacheController):
         block_reg_failures = set()
 
         # augmented ledger should have the gain, loss, n_updates, and time_duration
-        testing_hotkeys = list(self.position_manager.challengeperiod_manager.challengeperiod_testing.keys())
-        success_hotkeys = list(self.position_manager.challengeperiod_manager.challengeperiod_success.keys())
+        testing_hotkeys = list(self.position_manager.challengeperiod_manager.get_hotkeys_by_bucket(MinerBucket.CHALLENGE))
+        success_hotkeys = list(self.position_manager.challengeperiod_manager.get_hotkeys_by_bucket(MinerBucket.MAINCOMP))
 
         if self.is_backtesting:
             hotkeys_to_compute_weights_for = testing_hotkeys + success_hotkeys
