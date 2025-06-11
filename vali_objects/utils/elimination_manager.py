@@ -6,6 +6,7 @@ from enum import Enum
 from typing import Dict
 from time_util.time_util import TimeUtil
 from vali_objects.position import Position
+from vali_objects.utils.miner_bucket_enum import MinerBucket
 from vali_objects.utils.vali_utils import ValiUtils
 from vali_objects.vali_config import ValiConfig, TradePair
 from shared_objects.cache_controller import CacheController
@@ -235,13 +236,9 @@ class EliminationManager(CacheController):
                 continue
 
             # If the miner is no longer in the metagraph, we can remove them from the challengeperiod information
-            if hotkey in self.challengeperiod_manager.challengeperiod_testing:
+            if hotkey in self.challengeperiod_manager.active_miners:
+                self.challengeperiod_manager.active_miners.pop(hotkey)
                 any_challenege_period_changes = True
-                self.challengeperiod_manager.challengeperiod_testing.pop(hotkey)
-
-            if hotkey in self.challengeperiod_manager.challengeperiod_success:
-                any_challenege_period_changes = True
-                self.challengeperiod_manager.challengeperiod_success.pop(hotkey)
 
             miner_dir = ValiBkpUtils.get_miner_dir(running_unit_tests=self.running_unit_tests) + hotkey
             all_positions = self.position_manager.get_positions_for_one_hotkey(hotkey)
@@ -316,7 +313,7 @@ class EliminationManager(CacheController):
         bt.logging.info("checking main competition for maximum drawdown eliminations.")
         if self.shutdown_dict:
             return
-        challengeperiod_success_hotkeys = list(self.challengeperiod_manager.get_challengeperiod_success().keys())
+        challengeperiod_success_hotkeys = self.challengeperiod_manager.get_hotkeys_by_bucket(MinerBucket.MAINCOMP)
 
         filtered_ledger = self.position_manager.perf_ledger_manager.filtered_ledger_for_scoring(
             hotkeys=challengeperiod_success_hotkeys)
