@@ -425,8 +425,8 @@ class MinerStatisticsManager:
             time_now = TimeUtil.now_in_millis()
 
         # ChallengePeriod: success + testing
-        challengeperiod_testing_dict = self.challengeperiod_manager.get_challengeperiod_testing()
-        challengeperiod_success_dict = self.challengeperiod_manager.get_challengeperiod_success()
+        challengeperiod_testing_dict = self.challengeperiod_manager.get_testing_miners()
+        challengeperiod_success_dict = self.challengeperiod_manager.get_success_miners()
 
         sorted_challengeperiod_testing = dict(sorted(challengeperiod_testing_dict.items(), key=lambda x: x[1]))
         sorted_challengeperiod_success = dict(sorted(challengeperiod_success_dict.items(), key=lambda x: x[1]))
