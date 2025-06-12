@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 
 from vali_objects.vali_config import ValiConfig
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedger
+from vali_objects.utils.orthogonality import Orthogonality
 
 
 class LedgerUtils:
@@ -370,3 +371,20 @@ class LedgerUtils:
         miner_returns = LedgerUtils.daily_return_log(ledger)
 
         return len(miner_returns)
+    
+    @staticmethod
+    def orthogonality_penalty(ledger: PerfLedger) -> float:
+        """
+        Args:
+            ledger: PerfLedger - the ledger of the miner
+        """
+        # Convert ledger to list of daily returns
+        miner_returns = LedgerUtils.daily_return_log(ledger)
+
+        # Compute orthogonality scores
+        orthogonality_penalty = Orthogonality.full_pref(miner_returns)
+
+        # Maybe compress this into a penalty
+        # Maybe use a sigmoid with a nonzero base
+
+        return orthogonality_penalty

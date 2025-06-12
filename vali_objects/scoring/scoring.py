@@ -59,6 +59,10 @@ class Scoring:
 
     # Define the configuration with input types
     penalties_config = {
+        'orthogonality': PenaltyConfig(
+            function=LedgerUtils.orthogonality_penalty,
+            input_type=PenaltyInputType.LEDGER
+        ),
         'drawdown_threshold': PenaltyConfig(
             function=LedgerUtils.max_drawdown_threshold_penalty,
             input_type=PenaltyInputType.LEDGER

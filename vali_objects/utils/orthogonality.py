@@ -43,7 +43,6 @@ class Orthogonality:
         :param v2: Second vector.
         :return: Time preference between the two vectors.
         """
-        time_preference_factor = ValiConfig.TIME_PREFERENCE_FACTOR
         time_preference_shift = ValiConfig.TIME_PREFERENCE_SHIFT
         time_preference_spread = ValiConfig.TIME_PREFERENCE_SPREAD
 
@@ -81,7 +80,6 @@ class Orthogonality:
         :param v2: Second vector.
         :return: Size preference between the two vectors.
         """
-        size_preference_factor = ValiConfig.SIZE_PREFERENCE_FACTOR
         size_preference_shift = ValiConfig.SIZE_PREFERENCE_SHIFT
         size_preference_spread = ValiConfig.SIZE_PREFERENCE_SPREAD
 
@@ -113,69 +111,59 @@ class Orthogonality:
     
 
     @staticmethod
-    def multi_miner_preference(miner_returns: list[list[float]], metric_function: Callable) -> list[list[float]]:
+    def pairwise_pref(returns: dict[str, list[float]], metric_fn: Callable) -> dict[tuple[str, str], float]:
         """
-        For a list of miners’ daily returns, return an n×n NumPy array
-        whose strictly upper‑triangular part (j > i) contains the pairwise
-        time‑preference values; the diagonal and lower part are zero.
-        :param miner_returns: List of miners’ daily returns.
-        :return: n×n NumPy array whose strictly upper‑triangular part (j > i) contains the pairwise time‑preference values; the diagonal and lower part are zero.
+        Compute pairwise preferences for all unique pairs using the given metric function.
+        Returns a dict mapping (hotkey1, hotkey2) to the preference value (only for hotkey1 < hotkey2).
         """
-        n = len(miner_returns)
-        prefs = [[0 for _ in range(n)] for _ in range(n)]
-
+        keys = list(returns.keys())
+        n = len(keys)
+        prefs = {}
         for i in range(n):
-            for j in range(i + 1, n):           # strictly upper triangle
-                prefs[i, j] = metric_function(
-                    miner_returns[i], miner_returns[j]
-                )
-
+            for j in range(i + 1, n):
+                k1, k2 = keys[i], keys[j]
+                prefs[(k1, k2)] = metric_fn(returns[k1], returns[k2])
         return prefs
-        
-    @staticmethod
-    def multi_miner_time_preference(miner_returns: list[list[float]]) -> list[list[float]]:
-        """
-        For a list of miners’ daily returns, return an n×n NumPy array
-        whose strictly upper‑triangular part (j > i) contains the pairwise
-        time‑preference values; the diagonal and lower part are zero.
-        :param miner_returns: List of miners’ daily returns.
-        :return: n×n NumPy array whose strictly upper‑triangular part (j > i) contains the pairwise time‑preference values; the diagonal and lower part are zero.
-        """
-        return Orthogonality.multi_miner_preference(miner_returns, Orthogonality.time_preference)
-    
-    @staticmethod
-    def multi_miner_size_preference(miner_returns: list[list[float]]) -> list[list[float]]:
-        """
-        For a list of miners’ daily returns, return an n×n NumPy array
-        whose strictly upper‑triangular part (j > i) contains the pairwise
-        size‑preference values; the diagonal and lower part are zero.
-        :param miner_returns: List of miners’ daily returns.
-        :return: n×n NumPy array whose strictly upper‑triangular part (j > i) contains the pairwise size‑preference values; the diagonal and lower part are zero.
-        """
-        return Orthogonality.multi_miner_preference(miner_returns, Orthogonality.size_preference)
-    
-    @staticmethod
-    def multi_miner_similarity(miner_returns: list[list[float]]) -> list[list[float]]:
-        """
-        For a list of miners’ daily returns, return an n×n NumPy array
-        whose strictly upper‑triangular part (j > i) contains the pairwise
-        similarity values; the diagonal and lower part are zero.
-        :param miner_returns: List of miners’ daily returns.
-        :return: n×n NumPy array whose strictly upper‑triangular part (j > i) contains the pairwise similarity values; the diagonal and lower part are zero.
-        """
-        return Orthogonality.multi_miner_preference(miner_returns, Orthogonality.convolutional_similarity)
-    
-    @staticmethod
-    def multi_miner_full_compositional_preference(miner_returns: list[list[float]]) -> list[list[float]]:
-        """
-        For a list of miners’ daily returns, return an n×n NumPy array
-        whose strictly upper‑triangular part (j > i) contains the pairwise
-        full compositional preference values; the diagonal and lower part are zero.
-        :param miner_returns: List of miners’ daily returns.
-        :return: n×n NumPy array whose strictly upper‑triangular part (j > i) contains the pairwise full compositional preference values; the diagonal and lower part are zero.
-        """
-        miner_size_preferences = Orthogonality.multi_miner_size_preference(miner_returns)
-        miner_time_preferences = Orthogonality.multi_miner_time_preference(miner_returns)
-        miner_similarity = Orthogonality.multi_miner_similarity(miner_returns)
 
-        return miner_size_preferences + miner_time_preferences + miner_similarity
+    @staticmethod
+    def time_pref(returns: dict[str, list[float]]) -> dict[tuple[str, str], float]:
+        """
+        Pairwise time preference for all miners.
+        """
+        return Orthogonality.pairwise_pref(returns, Orthogonality.time_preference)
+
+    @staticmethod
+    def size_pref(returns: dict[str, list[float]]) -> dict[tuple[str, str], float]:
+        """
+        Pairwise size preference for all miners.
+        """
+        return Orthogonality.pairwise_pref(returns, Orthogonality.size_preference)
+
+    @staticmethod
+    def sim_pref(returns: dict[str, list[float]]) -> dict[tuple[str, str], float]:
+        """
+        Pairwise similarity for all miners.
+        """
+        return Orthogonality.pairwise_pref(returns, Orthogonality.convolutional_similarity)
+
+    @staticmethod
+    def full_pref(returns: dict[str, list[float]]) -> dict[str, float]:
+        """
+        For a dict of miners' daily returns, return a dict mapping hotkey to the sum of all its pairwise compositional preferences (size, time, similarity) with all other miners.
+        """
+        size_prefs = Orthogonality.size_pref(returns)
+        time_prefs = Orthogonality.time_pref(returns)
+        sim_prefs = Orthogonality.sim_pref(returns)
+        # Aggregate all pairwise preferences
+        all_keys = list(returns.keys())
+        agg = {k: 0.0 for k in all_keys}
+        for (k1, k2), v in size_prefs.items():
+            agg[k1] += v
+            agg[k2] += v
+        for (k1, k2), v in time_prefs.items():
+            agg[k1] += v
+            agg[k2] += v
+        for (k1, k2), v in sim_prefs.items():
+            agg[k1] += v
+            agg[k2] += v
+        return agg
