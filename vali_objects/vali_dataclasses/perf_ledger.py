@@ -101,6 +101,8 @@ class PerfCheckpoint(BaseModel):
     carry_fee_loss: float = 0.0
     mdd: float = 1.0
     mpv: float = 0.0
+    portfolio_realized_pnl: float = 0.0
+    portfolio_unrealized_pnl: float = 0.0
 
     model_config = ConfigDict(extra="allow")
 
@@ -177,7 +179,8 @@ class PerfLedger():
         self.max_return = max(self.max_return, 1.0)
 
     def create_cps_to_fill_void(self, time_since_last_update_ms: int, now_ms: int, point_in_time_dd: float,
-                                any_open: TradePairReturnStatus, current_portfolio_value: float, prev_max_return: float):
+                                any_open: TradePairReturnStatus, current_portfolio_value: float, prev_max_return: float,
+                                portfolio_realized_pnl: float=0.0, portfolio_unrealized_pnl: float=0.0):
         original_accum_time = self.cps[-1].accum_ms
         delta_accum_time_ms = self.target_cp_duration_ms - original_accum_time
         self.cps[-1].accum_ms += delta_accum_time_ms
@@ -188,6 +191,8 @@ class PerfLedger():
         assert time_since_last_update_ms >= 0, (self.cps, time_since_last_update_ms)
         last_portfolio_return = self.cps[-1].prev_portfolio_ret
         last_dd = last_portfolio_return / prev_max_return
+        last_portfolio_realized_pnl = self.cps[-1].portfolio_realized_pnl
+        last_portfolio_unrealized_pnl = self.cps[-1].portfolio_unrealized_pnl
 
         while time_since_last_update_ms > self.target_cp_duration_ms:
             new_cp = PerfCheckpoint(last_update_ms=self.cps[-1].last_update_ms + self.target_cp_duration_ms,
@@ -196,7 +201,9 @@ class PerfLedger():
                                     prev_portfolio_carry_fee=self.cps[-1].prev_portfolio_carry_fee,
                                     accum_ms=self.target_cp_duration_ms,
                                     mdd=last_dd,
-                                    mpv=last_portfolio_return)
+                                    mpv=last_portfolio_return,
+                                    portfolio_realized_pnl=last_portfolio_realized_pnl,
+                                    portfolio_unrealized_pnl=last_portfolio_unrealized_pnl)
             assert new_cp.last_update_ms < now_ms, (self.cps, (now_ms - new_cp.last_update_ms))
             self.cps.append(new_cp)
             time_since_last_update_ms -= self.target_cp_duration_ms
@@ -207,11 +214,15 @@ class PerfLedger():
                                 prev_portfolio_spread_fee=self.cps[-1].prev_portfolio_spread_fee,
                                 prev_portfolio_carry_fee=self.cps[-1].prev_portfolio_carry_fee,
                                 mdd=min(last_dd, point_in_time_dd),
-                                mpv=max(last_portfolio_return, current_portfolio_value))
+                                mpv=max(last_portfolio_return, current_portfolio_value),
+                                portfolio_realized_pnl=portfolio_realized_pnl,
+                                portfolio_unrealized_pnl=portfolio_unrealized_pnl)
         assert new_cp.last_update_ms <= now_ms, self.cps
         self.cps.append(new_cp)
 
-    def init_with_first_order(self, order_processed_ms: int, point_in_time_dd: float, current_portfolio_value: float,  current_portfolio_fee_spread:float, current_portfolio_carry:float):
+    def init_with_first_order(self, order_processed_ms: int, point_in_time_dd: float, current_portfolio_value: float,
+                              current_portfolio_fee_spread:float, current_portfolio_carry:float,
+                              portfolio_realized_pnl:float=0.0, portfolio_unrealized_pnl:float=0.0):
         # figure out how many ms we want to initalize the checkpoint with so that once self.target_cp_duration_ms is
         # reached, the CP ends at 00:00:00 UTC or 12:00:00 UTC (12 hr cp case). This may change based on self.target_cp_duration_ms
         # |----x------midday-----------| -> accum_ms_for_utc_alignment = (distance between start of day and x) = x - start_of_day_ms
@@ -231,13 +242,15 @@ class PerfLedger():
             accum_ms_for_utc_alignment = order_processed_ms - midday_ms
 
         new_cp = PerfCheckpoint(last_update_ms=order_processed_ms, prev_portfolio_ret=current_portfolio_value,
-                                    mdd=point_in_time_dd, prev_portfolio_spread_fee=current_portfolio_fee_spread,
-                                    prev_portfolio_carry_fee=current_portfolio_carry, accum_ms=accum_ms_for_utc_alignment, mpv=1.0)
+                                mdd=point_in_time_dd, prev_portfolio_spread_fee=current_portfolio_fee_spread,
+                                prev_portfolio_carry_fee=current_portfolio_carry, accum_ms=accum_ms_for_utc_alignment,
+                                mpv=1.0, portfolio_realized_pnl=portfolio_realized_pnl, portfolio_unrealized_pnl=portfolio_unrealized_pnl)
         self.cps.append(new_cp)
 
     def get_or_create_latest_cp_with_mdd(self, now_ms: int, current_portfolio_value:float, current_portfolio_fee_spread:float,
                                          current_portfolio_carry:float, any_open: TradePairReturnStatus,
-                                         prev_max_return: float,  debug_dict=None) -> PerfCheckpoint:
+                                         prev_max_return: float,  portfolio_realized_pnl: float=0.0, portfolio_unrealized_pnl: float=0.0,
+                                         debug_dict=None) -> PerfCheckpoint:
 
         point_in_time_dd = CacheController.calculate_drawdown(current_portfolio_value, self.max_return)
         if not point_in_time_dd:
@@ -247,15 +260,17 @@ class PerfLedger():
                             f'current_portfolio_value: {current_portfolio_value}, self.max_return: {self.max_return}, debug_dict: {debug_dict}')
 
         if len(self.cps) == 0:
-            self.init_with_first_order(now_ms, point_in_time_dd, current_portfolio_value, current_portfolio_fee_spread, current_portfolio_carry)
+            self.init_with_first_order(now_ms, point_in_time_dd, current_portfolio_value, current_portfolio_fee_spread, current_portfolio_carry, portfolio_realized_pnl, portfolio_unrealized_pnl)
             return self.cps[-1]
 
         time_since_last_update_ms = now_ms - self.cps[-1].last_update_ms
         assert time_since_last_update_ms >= 0, self.cps
         if time_since_last_update_ms + self.cps[-1].accum_ms > self.target_cp_duration_ms:
-            self.create_cps_to_fill_void(time_since_last_update_ms, now_ms, point_in_time_dd, any_open, current_portfolio_value, prev_max_return)
+            self.create_cps_to_fill_void(time_since_last_update_ms, now_ms, point_in_time_dd, any_open, current_portfolio_value, prev_max_return, portfolio_realized_pnl, portfolio_unrealized_pnl)
         else:
             self.cps[-1].mdd = min(self.cps[-1].mdd, point_in_time_dd)
+            self.cps[-1].portfolio_realized_pnl = portfolio_realized_pnl
+            self.cps[-1].portfolio_unrealized_pnl = portfolio_unrealized_pnl
 
         return self.cps[-1]
 
@@ -277,7 +292,8 @@ class PerfLedger():
         return math.log(cur / prev)
 
     def update_gains_losses(self, current_cp: PerfCheckpoint, current_portfolio_value: float,
-                            current_portfolio_fee_spread: float, current_portfolio_carry: float, miner_hotkey: str, any_open: TradePairReturnStatus):
+                            current_portfolio_fee_spread: float, current_portfolio_carry: float,
+                            miner_hotkey: str, any_open: TradePairReturnStatus):
         # TODO: leave as is?
         # current_portfolio_value = current_portfolio_value * current_portfolio_carry  # spread fee already applied
         n_new_updates = 1
@@ -319,7 +335,8 @@ class PerfLedger():
             self.init_max_portfolio_value()
 
     def update_pl(self, current_portfolio_value: float, now_ms: int, miner_hotkey: str, any_open: TradePairReturnStatus,
-              current_portfolio_fee_spread: float, current_portfolio_carry: float, tp_debug=None, debug_dict=None):
+                  current_portfolio_fee_spread: float, current_portfolio_carry: float, portfolio_realized_pnl: float=0.0,
+                  portfolio_unrealized_pnl: float=0.0, tp_debug=None, debug_dict=None):
 
         if len(self.cps) == 0:
             self.init_with_first_order(now_ms, point_in_time_dd=1.0, current_portfolio_value=1.0,
@@ -327,7 +344,8 @@ class PerfLedger():
         prev_max_return = self.max_return
         self.max_return = max(self.max_return, current_portfolio_value)
         current_cp = self.get_or_create_latest_cp_with_mdd(now_ms, current_portfolio_value, current_portfolio_fee_spread,
-                                                           current_portfolio_carry, any_open, prev_max_return, debug_dict=debug_dict)
+                                                           current_portfolio_carry, any_open, prev_max_return, portfolio_realized_pnl,
+                                                           portfolio_unrealized_pnl, debug_dict=debug_dict)
 
         self.update_gains_losses(current_cp, current_portfolio_value, current_portfolio_fee_spread,
                                  current_portfolio_carry, miner_hotkey, any_open)
@@ -812,20 +830,24 @@ class PerfLedgerManager(CacheController):
 
 
     def positions_to_portfolio_return(self, tp_ids_to_build, tp_to_historical_positions_dense: dict[str: Position], t_ms, mode, end_time_ms, tp_to_initial_return, tp_to_initial_spread_fee, tp_to_initial_carry_fee):
-        # Answers "What is the portfolio return at this time t_ms?"
+        """
+        Answers "What is the portfolio return at this time t_ms?"
+        """
         tp_to_any_open = {x: TradePairReturnStatus.TP_NO_OPEN_POSITIONS for x in tp_ids_to_build}
         tp_to_return = tp_to_initial_return.copy()
         tp_to_spread_fee = tp_to_initial_spread_fee.copy()
         tp_to_carry_fee = tp_to_initial_carry_fee.copy()
         t_ms = self.align_t_ms_to_mode(t_ms, mode)
+        total_realized_pnl = 0.0
+        total_unrealized_pnl = 0.0
+
         for tp_id, historical_positions in tp_to_historical_positions_dense.items():
             #historical_position = historical_positions[0]
             assert len(historical_positions) < 2, ('maybe a recently opened position?', historical_positions)
             tp_ids_to_build = [TP_ID_PORTFOLIO] if self.build_portfolio_ledgers_only else [tp_id, TP_ID_PORTFOLIO]
             for historical_position in historical_positions:
                 if self.shutdown_dict:
-                    return tp_to_return, tp_to_any_open, tp_to_spread_fee, tp_to_carry_fee
-
+                    return tp_to_return, tp_to_any_open, tp_to_spread_fee, tp_to_carry_fee, total_realized_pnl, total_unrealized_pnl
 
                 position_spread_fee, psf_updated = self.position_uuid_to_cache[historical_position.position_uuid].get_spread_fee(historical_position, t_ms)
                 position_carry_fee, pcf_updated = self.position_uuid_to_cache[historical_position.position_uuid].get_carry_fee(t_ms, historical_position)
@@ -865,7 +887,10 @@ class PerfLedgerManager(CacheController):
                     tp_to_return[x] *= historical_position.return_at_close
                 #assert portfolio_return > 0, f"Portfolio value is {portfolio_return} for miner {miner_hotkey} at {t_s}. opr {opr} rtp {price_at_t_s}, historical position {historical_position}"
 
-        return tp_to_return, tp_to_any_open, tp_to_spread_fee, tp_to_carry_fee
+                total_realized_pnl += historical_position.realized_pnl
+                total_unrealized_pnl += historical_position.unrealized_pnl
+
+        return tp_to_return, tp_to_any_open, tp_to_spread_fee, tp_to_carry_fee, total_realized_pnl, total_unrealized_pnl
 
 
 
@@ -1090,7 +1115,7 @@ class PerfLedgerManager(CacheController):
                                                          f"mode: {mode},"
                                                          f" delta_ms: {(t_ms - portfolio_pl.last_update_ms)} s. perf ledger {portfolio_pl}")
 
-            tp_to_current_return, tp_to_any_open, tp_to_current_spread_fee, tp_to_current_carry_fee = \
+            tp_to_current_return, tp_to_any_open, tp_to_current_spread_fee, tp_to_current_carry_fee, portfolio_realized_pnl, portfolio_unrealized_pnl = \
                 self.positions_to_portfolio_return(tp_ids_to_build, tp_to_historical_positions_dense, t_ms, mode, end_time_ms, tp_to_initial_return, tp_to_initial_spread_fee, tp_to_initial_carry_fee)
             portfolio_return = tp_to_current_return[TP_ID_PORTFOLIO]
 
@@ -1119,7 +1144,7 @@ class PerfLedgerManager(CacheController):
             else:
                 current_return = tp_to_current_return[tp_id]
 
-            perf_ledger.update_pl(current_return, end_time_ms, miner_hotkey, tp_to_any_open[tp_id], tp_to_current_spread_fee[tp_id], tp_to_current_carry_fee[tp_id])
+            perf_ledger.update_pl(current_return, end_time_ms, miner_hotkey, tp_to_any_open[tp_id], tp_to_current_spread_fee[tp_id], tp_to_current_carry_fee[tp_id], portfolio_realized_pnl, portfolio_unrealized_pnl)
 
             perf_ledger.purge_old_cps()
 
