@@ -21,7 +21,7 @@ class CustomEncoder(json.JSONEncoder):
 
 if __name__ == "__main__":
     # Set the default URL endpoint
-    default_base_url = 'http://127.0.0.1:80'
+    default_base_url = 'http://127.0.0.1:8088'
 
     # Check if the URL argument is provided
     if len(sys.argv) == 2:
@@ -37,9 +37,9 @@ if __name__ == "__main__":
 
     # Define the JSON data to be sent in the request
     data = {
-        'trade_pair': TradePair.BTCUSD,
+        'trade_pair': TradePair.FTSE,
         'order_type': OrderType.LONG,
-        'leverage': .1,
+        'leverage': .05,
         'api_key': 'xxxx'
     }
 

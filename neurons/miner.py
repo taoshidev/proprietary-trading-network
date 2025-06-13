@@ -15,6 +15,7 @@ from miner_config import MinerConfig
 from miner_objects.dashboard import Dashboard
 from miner_objects.prop_net_order_placer import PropNetOrderPlacer
 from miner_objects.position_inspector import PositionInspector
+from miner_objects.slack_notifier import SlackNotifier
 from shared_objects.metagraph_updater import MetagraphUpdater
 from vali_objects.decoders.generalized_json_decoder import GeneralizedJSONDecoder
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
@@ -25,18 +26,50 @@ class Miner:
         self.config = self.get_config()
         assert self.config.netuid in (8, 116), "Taoshi runs on netuid 8 (mainnet) and 116 (testnet)"
         self.is_testnet = self.config.netuid == 116
+
         self.setup_logging_directory()
-        self.initialize_bittensor_objects()
+        self.wallet = bt.wallet(config=self.config)
+
+        # Initialize Slack notifier
+        self.slack_notifier = SlackNotifier(
+            hotkey=self.wallet.hotkey.ss58_address,
+            webhook_url=self.config.slack_webhook_url,
+            error_webhook_url=self.config.slack_error_webhook_url
+        )
+        self.subtensor = bt.subtensor(config=self.config)
+        self.metagraph = self.subtensor.metagraph(self.config.netuid)
+        self.position_inspector = PositionInspector(self.wallet, self.metagraph, self.config)
+        self.prop_net_order_placer = PropNetOrderPlacer(
+            self.wallet,
+            self.metagraph,
+            self.config,
+            self.is_testnet,
+            position_inspector=self.position_inspector,
+            slack_notifier=self.slack_notifier
+        )
+        self.metagraph_updater = MetagraphUpdater(self.config, self.metagraph, self.wallet.hotkey.ss58_address,
+                                                  True, position_inspector=self.position_inspector)
+
         self.check_miner_registration()
         self.my_subnet_uid = self.metagraph.hotkeys.index(self.wallet.hotkey.ss58_address)
         bt.logging.info(f"Running miner on netuid {self.config.netuid} with uid: {self.my_subnet_uid}")
+
+
+
+        # Send startup notification with hotkey and IP
+        self.slack_notifier.send_message(
+            f"🚀 Miner starting on netuid {self.config.netuid} ({'testnet' if self.is_testnet else 'mainnet'})\n"
+            f"UID: {self.my_subnet_uid}\n",
+            level="info"
+        )
 
         # Start the metagraph updater loop in its own thread
         self.metagraph_updater_thread = threading.Thread(target=self.metagraph_updater.run_update_loop, daemon=True)
         self.metagraph_updater_thread.start()
         # Start position inspector loop in its own thread
         if self.config.run_position_inspector:
-            self.position_inspector_thread = threading.Thread(target=self.position_inspector.run_update_loop, daemon=True)
+            self.position_inspector_thread = threading.Thread(target=self.position_inspector.run_update_loop,
+                                                              daemon=True)
             self.position_inspector_thread.start()
         else:
             self.position_inspector_thread = None
@@ -47,7 +80,12 @@ class Miner:
             self.dashboard_api_thread = threading.Thread(target=self.dashboard.run, daemon=True)
             self.dashboard_api_thread.start()
         except OSError as e:
-            bt.logging.info(f"Unable to start miner dashboard with error {e}. Restart miner and specify a new port if desired.")
+            bt.logging.info(
+                f"Unable to start miner dashboard with error {e}. Restart miner and specify a new port if desired.")
+            self.slack_notifier.send_message(
+                f"⚠️ Failed to start dashboard: {str(e)}",
+                level="warning"
+            )
         # Initialize the dashboard process variable for the frontend
         self.dashboard_frontend_process = None
 
@@ -55,19 +93,11 @@ class Miner:
         if not os.path.exists(self.config.full_path):
             os.makedirs(self.config.full_path, exist_ok=True)
 
-    def initialize_bittensor_objects(self):
-        self.wallet = bt.wallet(config=self.config)
-        self.subtensor = bt.subtensor(config=self.config)
-        self.metagraph = self.subtensor.metagraph(self.config.netuid)
-        self.position_inspector = PositionInspector(self.wallet, self.metagraph, self.config)
-        self.prop_net_order_placer = PropNetOrderPlacer(self.wallet, self.metagraph, self.config, self.is_testnet, position_inspector=self.position_inspector)
-        self.metagraph_updater = MetagraphUpdater(self.config, self.metagraph, self.wallet.hotkey.ss58_address,
-                                                  True, position_inspector=self.position_inspector)
-
-
     def check_miner_registration(self):
         if self.wallet.hotkey.ss58_address not in self.metagraph.hotkeys:
-            bt.logging.error("Your miner is not registered. Please register and try again.")
+            error_msg = "Your miner is not registered. Please register and try again."
+            bt.logging.error(error_msg)
+            self.slack_notifier.send_message(f"❌ {error_msg}", level="error")
             exit()
 
     def load_signal_data(self, signal_file_path: str):
@@ -77,7 +107,11 @@ class Miner:
             return json.loads(data, cls=GeneralizedJSONDecoder)
         except json.JSONDecodeError as e:
             bt.logging.error(f"Failed to decode JSON from {signal_file_path}: {e}")
-            return None  # Or handle the error as needed
+            self.slack_notifier.send_message(
+                f"❌ Failed to decode signal file: {os.path.basename(signal_file_path)}\nError: {str(e)}",
+                level="error"
+            )
+            return None
 
     def get_all_files_in_dir_no_duplicate_trade_pairs(self):
         # If there are duplicate trade pairs, only the most recent signal for that trade pair will be sent this round.
@@ -88,11 +122,12 @@ class Miner:
             try:
                 bt.logging.info(f"Reading signal file {f_name}")
                 signal = self.load_signal_data(f_name)
-                trade_pair_id = signal['trade_pair']['trade_pair_id']
-                time_of_signal_file = os.path.getmtime(f_name)
-                if trade_pair_id not in signals_dict or signals_dict[trade_pair_id][2] < time_of_signal_file:
-                    signals_dict[trade_pair_id] = (signal, f_name, time_of_signal_file)
-                    files_to_delete.append(f_name)
+                if signal:
+                    trade_pair_id = signal['trade_pair']['trade_pair_id']
+                    time_of_signal_file = os.path.getmtime(f_name)
+                    if trade_pair_id not in signals_dict or signals_dict[trade_pair_id][2] < time_of_signal_file:
+                        signals_dict[trade_pair_id] = (signal, f_name, time_of_signal_file)
+                        files_to_delete.append(f_name)
             except json.JSONDecodeError as e:
                 bt.logging.error(f"Error decoding JSON from file {f_name}: {e}")
 
@@ -116,7 +151,6 @@ class Miner:
         # Adds wallet specific arguments i.e. --wallet.name ..., --wallet.hotkey ./. or --wallet.path ...
         bt.wallet.add_args(parser)
         # Adds an argument to allow setting write_failed_signal_logs from the command line
-        # We use a placeholder default value here (None) to check if the user has provided a value later
         parser.add_argument("--write_failed_signal_logs", type=bool, default=None,
                             help="Whether to write logs for failed signals. Default is True unless --subtensor.network is 'test'.")
         # Add argument so we can check if run_position_inspector is set which tells us to start the PI thread. Default false
@@ -126,9 +160,21 @@ class Miner:
             action='store_true',
             help='Start the miner-dashboard along with the miner.'
         )
+        # Add Slack configuration argument
+        parser.add_argument(
+            '--slack-webhook-url',
+            type=str,
+            default=None,
+            help='Slack webhook URL for notifications'
+        )
+        parser.add_argument(
+            '--slack-error-webhook-url',
+            type=str,
+            default=None,
+            help='Slack webhook URL for error notifications'
+        )
 
         # Parse the config (will take command-line arguments if provided)
-        # To print help message, run python3 template/miner.py --help
         config = bt.config(parser)
         bt.logging.enable_info()
         if config.logging.debug:
@@ -136,13 +182,11 @@ class Miner:
         if config.logging.trace:
             bt.logging.enable_trace()
 
-        # Determine the default value for write_failed_signal_logs based on the subtensor.network,
-        # but only if the user hasn't explicitly set it via command line.
+        # Determine the default value for write_failed_signal_logs based on the subtensor.network
         if config.write_failed_signal_logs is None:
             config.write_failed_signal_logs = False if config.subtensor.network == "test" else True
 
-        # Step 3: Set up logging directory
-        # Logging is crucial for monitoring and debugging purposes.
+        # Set up logging directory
         config.full_path = os.path.expanduser(
             "{}/{}/{}/netuid{}/{}".format(
                 config.logging.logging_dir,
@@ -177,7 +221,7 @@ class Miner:
 
             # Start the dashboard process
             if package_manager == 'npm':
-                self.dashboard_frontend_process = subprocess.Popen(['npm', 'run', 'dev'], cwd=dashboard_dir)  # Popen runs in the background
+                self.dashboard_frontend_process = subprocess.Popen(['npm', 'run', 'dev'], cwd=dashboard_dir)
             else:
                 self.dashboard_frontend_process = subprocess.Popen([package_manager, 'dev'], cwd=dashboard_dir)
             bt.logging.info("Dashboard started.")
@@ -204,13 +248,17 @@ class Miner:
                 time.sleep(1)
             # If someone intentionally stops the miner, it'll safely terminate operations.
             except KeyboardInterrupt:
+                self.slack_notifier.send_message(f"🛑 Miner shutting down (keyboard interrupt)", level="warning")
                 bt.logging.success("Miner killed by keyboard interrupt.")
+
+                #self.slack_notifier.shutdown()
+
                 # Shutdown the order placer's thread pool
                 bt.logging.info("Shutting down order placer thread pool...")
                 self.prop_net_order_placer.shutdown()
 
                 if self.dashboard_frontend_process:
-                    self.dashboard_frontend_process.terminate()  # Terminate the dashboard if it was started
+                    self.dashboard_frontend_process.terminate()
                     self.dashboard_frontend_process.wait()
                     bt.logging.info("Dashboard terminated.")
                 self.metagraph_updater_thread.join()
@@ -222,12 +270,16 @@ class Miner:
                     self.dashboard_api_thread.join()
                 break
             # In case of unforeseen errors, the miner will log the error and continue operations.
-            except Exception:
-                bt.logging.error(traceback.format_exc())
+            except Exception as e:
+                error_trace = traceback.format_exc()
+                bt.logging.error(error_trace)
+                self.slack_notifier.send_message(
+                    f"❌ Unexpected error for hotkey in main loop:\n{str(e)}\n\nTraceback:\n{error_trace[:500]}",
+                    level="error"
+                )
                 time.sleep(10)
 
 
 if __name__ == "__main__":
     miner = Miner()
     miner.run()
-
