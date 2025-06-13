@@ -524,7 +524,7 @@ class MinerStatisticsManager:
             challengeperiod_info = {}
             if hotkey in sorted_challengeperiod_testing:
                 cp_start = sorted_challengeperiod_testing[hotkey]
-                cp_end = cp_start + ValiConfig.CHALLENGE_PERIOD_MS
+                cp_end = cp_start + ValiConfig.CHALLENGE_PERIOD_MAXIMUM_MS
                 remaining = cp_end - time_now
                 challengeperiod_info = {
                     "status": "testing",

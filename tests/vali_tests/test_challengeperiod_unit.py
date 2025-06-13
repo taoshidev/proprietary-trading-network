@@ -1,6 +1,7 @@
 # developer: trdougherty
 import copy
 from copy import deepcopy
+from unittest.main import MAIN_EXAMPLES
 import numpy as np
 
 from tests.vali_tests.base_objects.test_base import TestBase
@@ -8,6 +9,7 @@ from tests.shared_objects.test_utilities import generate_ledger
 from vali_objects.utils.elimination_manager import EliminationManager
 from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
 
+from vali_objects.utils.miner_bucket_enum import MinerBucket
 from vali_objects.vali_config import TradePair
 from vali_objects.position import Position
 from vali_objects.vali_config import ValiConfig
@@ -28,17 +30,17 @@ class TestChallengePeriodUnit(TestBase):
         super().setUp()
 
         # For the positions and ledger creation
-        self.START_TIME = 0
-        self.END_TIME = self.START_TIME + ValiConfig.CHALLENGE_PERIOD_MS - 1
-
+        self.START_TIME = 1000
+        self.END_TIME = self.START_TIME + ValiConfig.CHALLENGE_PERIOD_MAXIMUM_MS - 1
 
         # For time management
-        self.CURRENTLY_IN_CHALLENGE = ValiConfig.CHALLENGE_PERIOD_MS    # Evaluation time when inside the challenge period
-        self.OUTSIDE_OF_CHALLENGE = ValiConfig.CHALLENGE_PERIOD_MS + 1  # Evaluation time when the challenge period is over
+        self.CURRENTLY_IN_CHALLENGE = self.START_TIME + ValiConfig.CHALLENGE_PERIOD_MAXIMUM_MS - 1    # Evaluation time when inside the challenge period
+        self.OUTSIDE_OF_CHALLENGE = self.START_TIME + ValiConfig.CHALLENGE_PERIOD_MAXIMUM_MS + 1  # Evaluation time when the challenge period is over
 
+        DAILY_MS = ValiConfig.DAILY_MS
         # Challenge miners must have a minimum amount of trading days before promotion
-        self.MIN_PROMOTION_TIME = (ValiConfig.CHALLENGE_PERIOD_MINIMUM_DAYS.value() + 1) * 24 * 60 * 60 * 1000 # Evaluation time when miner can now be promoted
-        self.BEFORE_PROMOTION_TIME = (ValiConfig.CHALLENGE_PERIOD_MINIMUM_DAYS.value() - 1) * 24 * 60 * 60 * 1000 # Evaluation time before miner has enough trading days
+        self.MIN_PROMOTION_TIME = self.START_TIME + (ValiConfig.CHALLENGE_PERIOD_MINIMUM_DAYS.value() + 1) * DAILY_MS # time when miner can now be promoted
+        self.BEFORE_PROMOTION_TIME = self.START_TIME + (ValiConfig.CHALLENGE_PERIOD_MINIMUM_DAYS.value() - 1) * DAILY_MS # time before miner has enough trading days
 
         # Number of positions
         self.N_POSITIONS_BOUNDS = 20 + 1
@@ -154,6 +156,14 @@ class TestChallengePeriodUnit(TestBase):
 
         return positions, hk_to_first_order_time
 
+    def _populate_active_miners(self, *, maincomp=[], challenge=[], probation=[]):
+        miners = {}
+        for hotkey in maincomp: miners[hotkey] = (MinerBucket.MAINCOMP, self.START_TIME)
+        for hotkey in challenge: miners[hotkey] = (MinerBucket.CHALLENGE, self.START_TIME)
+        for hotkey in probation: miners[hotkey] = (MinerBucket.PROBATION, self.START_TIME)
+
+        self.challengeperiod_manager.active_miners.clear()
+        self.challengeperiod_manager.active_miners = miners
 
     def test_screen_drawdown(self):
         """Test that a high drawdown miner is screened"""
@@ -190,7 +200,7 @@ class TestChallengePeriodUnit(TestBase):
         inspection_positions, hk_to_first_order_time = self.save_and_get_positions(base_positions, ["miner"])
 
         # Check that the miner is screened as failing
-        passing, failing = self.challengeperiod_manager.inspect(
+        passing, demoted, failing = self.challengeperiod_manager.inspect(
             positions=inspection_positions,
             ledger={hk: v[TP_ID_PORTFOLIO] for hk, v in inspection_ledger.items()},
             success_hotkeys=[],
@@ -218,7 +228,7 @@ class TestChallengePeriodUnit(TestBase):
         current_time = self.OUTSIDE_OF_CHALLENGE
 
         # Check that the miner is screened as failing
-        passing, failing = self.challengeperiod_manager.inspect(
+        passing, demoted, failing = self.challengeperiod_manager.inspect(
             positions=inspection_positions,
             ledger={hk: v[TP_ID_PORTFOLIO] for hk, v in inspection_ledger.items()},
             success_hotkeys=[],
@@ -247,7 +257,7 @@ class TestChallengePeriodUnit(TestBase):
         current_time = self.CURRENTLY_IN_CHALLENGE
 
         # Check that the miner is screened as failing
-        passing, failing = self.challengeperiod_manager.inspect(
+        passing, demoted, failing = self.challengeperiod_manager.inspect(
             positions=inspection_positions,
             ledger={hk: v[TP_ID_PORTFOLIO] for hk, v in inspection_ledger.items()},
             success_hotkeys=[],
@@ -272,10 +282,10 @@ class TestChallengePeriodUnit(TestBase):
         inspection_ledger = {"miner": base_ledger}
 
         inspection_hotkeys = {"miner": self.START_TIME}
-        current_time = self.OUTSIDE_OF_CHALLENGE
+        current_time = self.CURRENTLY_IN_CHALLENGE
 
         # Check that the miner is screened as failing
-        passing, failing = self.challengeperiod_manager.inspect(
+        passing, demoted, failing = self.challengeperiod_manager.inspect(
             positions=inspection_positions,
             ledger={hk: v[TP_ID_PORTFOLIO] for hk, v in inspection_ledger.items()},
             success_hotkeys=[],
@@ -306,7 +316,7 @@ class TestChallengePeriodUnit(TestBase):
         current_time = self.OUTSIDE_OF_CHALLENGE
 
         # Check that the miner is screened as failing
-        passing, failing = self.challengeperiod_manager.inspect(
+        passing, demoted, failing = self.challengeperiod_manager.inspect(
             positions=inspection_positions,
             ledger={hk: v[TP_ID_PORTFOLIO] for hk, v in inspection_ledger.items()},
             success_hotkeys=[],
@@ -336,7 +346,7 @@ class TestChallengePeriodUnit(TestBase):
         current_time = self.OUTSIDE_OF_CHALLENGE
 
         # Check that the miner is screened as testing still
-        passing, failing = self.challengeperiod_manager.inspect(
+        passing, demoted, failing = self.challengeperiod_manager.inspect(
             positions=inspection_positions,
             ledger={hk: v[TP_ID_PORTFOLIO] for hk, v in inspection_ledger.items()},
             success_hotkeys=self.SUCCESS_MINER_NAMES,
@@ -365,7 +375,7 @@ class TestChallengePeriodUnit(TestBase):
     #     current_time = self.OUTSIDE_OF_CHALLENGE
     #
     #     # Check that the miner is screened as testing still
-    #     passing, failing = self.challengeperiod_manager.inspect(
+    #     passing, demoted, failing = self.challengeperiod_manager.inspect(
     #         positions=inspection_positions,
     #         ledger={hk: v[TP_ID_PORTFOLIO] for hk, v in inspection_ledger.items()},
     #         success_hotkeys=self.SUCCESS_MINER_NAMES,
@@ -392,7 +402,7 @@ class TestChallengePeriodUnit(TestBase):
         trial_scoring_dict = self.get_trial_scores(score=0.75)
 
         # Check that the miner is screened as passing
-        passing, failing = self.challengeperiod_manager.inspect(
+        passing, demoted, failing = self.challengeperiod_manager.inspect(
             positions=inspection_positions,
             ledger={hk: v[TP_ID_PORTFOLIO] for hk, v in inspection_ledger.items()},
             success_hotkeys=[],
@@ -419,7 +429,7 @@ class TestChallengePeriodUnit(TestBase):
         trial_scoring_dict = self.get_trial_scores(score=0.5)
 
         # Check that the miner continues in challenge
-        passing, failing = self.challengeperiod_manager.inspect(
+        passing, demoted, failing = self.challengeperiod_manager.inspect(
             positions=inspection_positions,
             ledger={hk: v[TP_ID_PORTFOLIO] for hk, v in inspection_ledger.items()},
             success_hotkeys=[],
@@ -452,6 +462,11 @@ class TestChallengePeriodUnit(TestBase):
         raw_scores = np.linspace(self.TOP_SCORE, self.MIN_SCORE, len(success_miner_names))
         success_scores = list(zip(success_miner_names, raw_scores))
 
+        self.challengeperiod_manager.active_miners["miner"] = (MinerBucket.CHALLENGE, 0)
+        self.challengeperiod_manager.active_miners["miner2"] = (MinerBucket.MAINCOMP, 0)
+        self.challengeperiod_manager.active_miners["miner3"] = (MinerBucket.MAINCOMP, 0)
+        self.challengeperiod_manager.active_miners["miner4"] = (MinerBucket.MAINCOMP, 0)
+
         for config_name, config in Scoring.scoring_config.items():
             success_scores_dict["metrics"][config_name] = {'scores': copy.deepcopy(success_scores),
                                                            'weight': config['weight']
@@ -462,7 +477,7 @@ class TestChallengePeriodUnit(TestBase):
         success_scores_dict["penalties"] = copy.deepcopy(success_penalties)
 
         # Check that the miner is screened as passing
-        passing, failing = self.challengeperiod_manager.inspect(
+        passing, demoted, failing = self.challengeperiod_manager.inspect(
             positions=inspection_positions,
             ledger={hk: v[TP_ID_PORTFOLIO] for hk, v in inspection_ledger.items()},
             success_hotkeys=[],
@@ -499,7 +514,7 @@ class TestChallengePeriodUnit(TestBase):
         base_ledger_portfolio.cps = portfolio_cps
 
         # Check that miner with a passing score passes when they have enough trading days
-        passing, failing = self.challengeperiod_manager.inspect(
+        passing, demoted, failing = self.challengeperiod_manager.inspect(
             positions=inspection_positions,
             ledger=inspection_ledger,
             success_hotkeys=[],
@@ -539,7 +554,7 @@ class TestChallengePeriodUnit(TestBase):
         base_ledger_portfolio.cps = portfolio_cps
         trial_scoring_dict = self.get_trial_scores(score=0.75)
 
-        passing, failing = self.challengeperiod_manager.inspect(
+        passing, demoted, failing = self.challengeperiod_manager.inspect(
             positions=inspection_positions,
             ledger=inspection_ledger,
             success_hotkeys=[],
@@ -552,3 +567,5 @@ class TestChallengePeriodUnit(TestBase):
 
         self.assertNotIn("miner", passing)
         self.assertNotIn("miner", list(failing.keys()))
+
+

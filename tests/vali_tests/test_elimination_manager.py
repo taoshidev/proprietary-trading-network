@@ -60,8 +60,8 @@ class TestEliminationManager(TestBase):
         self.position_locks = PositionLocks()
 
         self.LEDGERS = {}
-        self.LEDGERS[self.MDD_MINER] = generate_losing_ledger(0, ValiConfig.CHALLENGE_PERIOD_MS)
-        self.LEDGERS[self.REGULAR_MINER] = generate_winning_ledger(0, ValiConfig.CHALLENGE_PERIOD_MS)
+        self.LEDGERS[self.MDD_MINER] = generate_losing_ledger(0, ValiConfig.CHALLENGE_PERIOD_MAXIMUM_MS)
+        self.LEDGERS[self.REGULAR_MINER] = generate_winning_ledger(0, ValiConfig.CHALLENGE_PERIOD_MAXIMUM_MS)
         self.ledger_manager.save_perf_ledgers(self.LEDGERS)
 
         self.challengeperiod_manager.active_miners[self.MDD_MINER] = (MinerBucket.MAINCOMP, 0)
