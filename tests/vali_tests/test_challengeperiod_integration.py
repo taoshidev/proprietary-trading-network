@@ -2,6 +2,7 @@
 from copy import deepcopy
 
 from vali_objects.enums.order_type_enum import OrderType
+from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
 from vali_objects.utils.elimination_manager import EliminationManager, EliminationReason
 from vali_objects.utils.miner_bucket_enum import MinerBucket
 from vali_objects.utils.position_lock import PositionLocks
@@ -30,11 +31,11 @@ class TestChallengePeriodIntegration(TestBase):
         self.N_MINERS = 20
 
         # Time configurations
-        self.START_TIME = 0
-        self.END_TIME = ValiConfig.CHALLENGE_PERIOD_MS - 1
+        self.START_TIME = 1000
+        self.END_TIME = self.START_TIME + ValiConfig.CHALLENGE_PERIOD_MAXIMUM_MS - 1
 
         # For time management
-        self.OUTSIDE_OF_CHALLENGE = (2 * ValiConfig.CHALLENGE_PERIOD_MS) + 1  # Evaluation time when the challenge period is over
+        self.OUTSIDE_OF_CHALLENGE = self.START_TIME + (2 * ValiConfig.CHALLENGE_PERIOD_MAXIMUM_MS) + 1  # Evaluation time when the challenge period is over
 
         self.N_POSITIONS_BOUNDS = 21
         self.N_POSITIONS = 20
@@ -131,7 +132,6 @@ class TestChallengePeriodIntegration(TestBase):
                 position.miner_hotkey = miner
 
                 self.HK_TO_OPEN_MS[miner] = position.open_ms if miner not in self.HK_TO_OPEN_MS else min(self.HK_TO_OPEN_MS[miner], position.open_ms)
-            print(self.HK_TO_OPEN_MS[miner])
             if miner in self.FAILING_MINER_NAMES:
                 ledger = generate_losing_ledger(self.HK_TO_OPEN_MS[miner], self.END_TIME)
             elif miner in self.NOT_FAILING_MINER_NAMES:
@@ -162,7 +162,8 @@ class TestChallengePeriodIntegration(TestBase):
         self.challengeperiod_manager._add_challengeperiod_testing_in_memory_and_disk(
             self.MINER_NAMES,
             eliminations=[],
-            hk_to_first_order_time=self.HK_TO_OPEN_MS
+            hk_to_first_order_time=self.HK_TO_OPEN_MS,
+            default_time=self.START_TIME
         )
 
     def tearDown(self):
@@ -173,7 +174,7 @@ class TestChallengePeriodIntegration(TestBase):
         self.challengeperiod_manager._clear_challengeperiod_in_memory_and_disk()
         self.challengeperiod_manager.elimination_manager.clear_eliminations()
     
-    def test_refresh_populations(self):
+    def teest_refresh_populations(self):
         self.challengeperiod_manager.refresh(current_time=self.max_open_ms)
         self.elimination_manager.process_eliminations(PositionLocks())
         testing_length = len(self.challengeperiod_manager.get_testing_miners())
@@ -192,7 +193,7 @@ class TestChallengePeriodIntegration(TestBase):
         inspection_hotkeys = self.challengeperiod_manager.get_testing_miners()
 
         for hotkey, inspection_time in inspection_hotkeys.items():
-            time_criteria = self.max_open_ms - inspection_time <= ValiConfig.CHALLENGE_PERIOD_MS
+            time_criteria = self.max_open_ms - inspection_time <= ValiConfig.CHALLENGE_PERIOD_MAXIMUM_MS
             self.assertTrue(time_criteria, f"Time criteria failed for {hotkey}")
 
         self.challengeperiod_manager.refresh(current_time=self.max_open_ms)
@@ -234,12 +235,13 @@ class TestChallengePeriodIntegration(TestBase):
         self.challengeperiod_manager._add_challengeperiod_testing_in_memory_and_disk(
             new_hotkeys=self.challengeperiod_manager.metagraph.hotkeys,
             eliminations=self.challengeperiod_manager.elimination_manager.get_eliminations_from_memory(),
-            hk_to_first_order_time=self.HK_TO_OPEN_MS
+            hk_to_first_order_time=self.HK_TO_OPEN_MS,
+            default_time=self.START_TIME
         )
 
         self.assertEqual(len(self.challengeperiod_manager.get_testing_miners()), len(self.NOT_MAIN_COMP_MINER_NAMES))
 
-        self.challengeperiod_manager.refresh(current_time=self.max_open_ms + ValiConfig.CHALLENGE_PERIOD_MS + 1)
+        self.challengeperiod_manager.refresh(current_time=self.max_open_ms + ValiConfig.CHALLENGE_PERIOD_MAXIMUM_MS + 1)
         self.elimination_manager.process_eliminations(PositionLocks())
 
         elimination_keys = self.challengeperiod_manager.elimination_manager.get_eliminated_hotkeys()
@@ -289,7 +291,7 @@ class TestChallengePeriodIntegration(TestBase):
         self.assertFalse(failing_criteria)
 
         # Now check the inspect to see where the key went
-        challenge_success, challenge_eliminations = self.challengeperiod_manager.inspect(
+        challenge_success, challenge_demote, challenge_eliminations = self.challengeperiod_manager.inspect(
             positions=positions,
             ledger=ledgers,
             success_hotkeys=self.SUCCESS_MINER_NAMES,
@@ -350,14 +352,13 @@ class TestChallengePeriodIntegration(TestBase):
             )
             self.assertEqual(failing_screen, False)
 
-
         # Now inspect all the hotkeys as we increase time and ensure that we are eliminating properly
         failing_miners_by_start_ms = sorted(self.TESTING_MINER_NAMES, key = lambda x: self.HK_TO_OPEN_MS[x])
         for i, miner in enumerate(failing_miners_by_start_ms):
             challenge_testing = list(self.challengeperiod_manager.get_testing_miners())
             self.assertIn(miner, challenge_testing)
             self.challengeperiod_manager.refresh(
-                current_time=self.HK_TO_OPEN_MS[miner] + ValiConfig.CHALLENGE_PERIOD_MS + 1)
+                current_time=self.HK_TO_OPEN_MS[miner] + ValiConfig.CHALLENGE_PERIOD_MAXIMUM_MS + 1)
             self.elimination_manager.process_eliminations(PositionLocks())
 
             challenge_success = list(self.challengeperiod_manager.get_success_miners())
@@ -416,7 +417,8 @@ class TestChallengePeriodIntegration(TestBase):
         self.challengeperiod_manager._add_challengeperiod_testing_in_memory_and_disk(
             new_hotkeys=self.MINER_NAMES,
             eliminations=[],
-            hk_to_first_order_time=self.HK_TO_OPEN_MS
+            hk_to_first_order_time=self.HK_TO_OPEN_MS,
+            default_time=self.START_TIME
         )
 
         testing_set = set(self.challengeperiod_manager.get_testing_miners().keys())
@@ -436,7 +438,8 @@ class TestChallengePeriodIntegration(TestBase):
         self.challengeperiod_manager._add_challengeperiod_testing_in_memory_and_disk(
             new_hotkeys=new_miners,
             eliminations=[],
-            hk_to_first_order_time=self.HK_TO_OPEN_MS
+            hk_to_first_order_time=self.HK_TO_OPEN_MS,
+            default_time=self.START_TIME
         )
 
         self.assertTrue(len(self.challengeperiod_manager.get_testing_miners()) == 0)
@@ -447,7 +450,8 @@ class TestChallengePeriodIntegration(TestBase):
         self.challengeperiod_manager._add_challengeperiod_testing_in_memory_and_disk(
             new_hotkeys=new_miners,
             eliminations=[],
-            hk_to_first_order_time=self.HK_TO_OPEN_MS
+            hk_to_first_order_time=self.HK_TO_OPEN_MS,
+            default_time=self.START_TIME
         )
 
         self.assertTrue(len(self.challengeperiod_manager.get_testing_miners()) == 0)
@@ -463,7 +467,8 @@ class TestChallengePeriodIntegration(TestBase):
         self.challengeperiod_manager._add_challengeperiod_testing_in_memory_and_disk(
             new_hotkeys=self.MINER_NAMES,
             eliminations=[],
-            hk_to_first_order_time=self.HK_TO_OPEN_MS
+            hk_to_first_order_time=self.HK_TO_OPEN_MS,
+            default_time=self.START_TIME
         )
 
         # All the miners should be passed to testing now

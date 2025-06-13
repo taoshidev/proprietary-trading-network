@@ -1,6 +1,5 @@
 # developer: trdougherty
 import time
-from aiohttp.helpers import CHAR
 import bittensor as bt
 import copy
 
@@ -70,46 +69,59 @@ class ChallengePeriodManager(CacheController):
         self._add_challengeperiod_testing_in_memory_and_disk(
             new_hotkeys=self.metagraph.hotkeys,
             eliminations=eliminations,
-            hk_to_first_order_time=challenge_hk_to_first_order_time
+            hk_to_first_order_time=challenge_hk_to_first_order_time,
+            default_time=current_time_ms
         )
 
-        miners_to_promote = self.get_hotkeys_by_bucket(MinerBucket.CHALLENGE)
+        miners_to_promote = self.get_hotkeys_by_bucket(MinerBucket.CHALLENGE) \
+                          + self.get_hotkeys_by_bucket(MinerBucket.PROBATION)
 
         #Finally promote all testing miners to success
-        self._promote_challengeperiod_in_memory(hotkeys=miners_to_promote, current_time=current_time_ms)
+        self._promote_challengeperiod_in_memory(miners_to_promote, current_time_ms)
 
     def _add_challengeperiod_testing_in_memory_and_disk(
             self,
             new_hotkeys: list[str],
-            eliminations: list[dict] = None,
-            hk_to_first_order_time: dict[str, int] = None
+            eliminations: list[dict],
+            hk_to_first_order_time: dict[str, int],
+            default_time: int
     ):
-
-        if eliminations is None:
+        if not eliminations:
             eliminations = self.elimination_manager.get_eliminations_from_memory()
 
         elimination_hotkeys = set(x['hotkey'] for x in eliminations)
+        maincomp_hotkeys = self.get_hotkeys_by_bucket(MinerBucket.MAINCOMP)
+        probation_hotkeys = self.get_hotkeys_by_bucket(MinerBucket.PROBATION)
 
         any_changes = False
         for hotkey in new_hotkeys:
-            if hotkey not in hk_to_first_order_time:  # miner has no positions
-                continue
-
-            start_time_ms = hk_to_first_order_time[hotkey]
-
-            if start_time_ms is None:
-                bt.logging.warning(f"Hotkey {hotkey} has invalid first order time. Skipping.")
-                continue
-
             if hotkey in elimination_hotkeys:
                 continue
 
-            if hotkey in self.active_miners:
+            if hotkey in maincomp_hotkeys or hotkey in probation_hotkeys:
                 continue
 
-            bt.logging.info(f"Adding hotkey {hotkey} to challengeperiod miners with start time {start_time_ms}")
-            self.active_miners[hotkey] = (MinerBucket.CHALLENGE, start_time_ms)
-            any_changes = True
+            first_order_time = hk_to_first_order_time.get(hotkey)
+            if first_order_time is None:
+                # miner has no positions and is not already stored in memory
+                if hotkey not in self.active_miners:
+                    self.active_miners[hotkey] = (MinerBucket.CHALLENGE, default_time)
+                    bt.logging.info(f"Adding {hotkey} to challenge period with start time {default_time}")
+                    any_changes = True
+                continue
+
+            if hotkey in self.active_miners:
+                # miner has first order time, but different from the stored start time
+                stored_start_time = self.active_miners[hotkey][1]
+                if stored_start_time != first_order_time:
+                    self.active_miners[hotkey] = (MinerBucket.CHALLENGE, first_order_time)
+                    bt.logging.info(f"Correcting {hotkey} in challenge period start time to first order time {first_order_time}")
+                    any_changes = True
+            else:
+                # miner has first order time but not yet recorded in memory
+                self.active_miners[hotkey] = (MinerBucket.CHALLENGE, first_order_time)
+                bt.logging.info(f"Adding {hotkey} to challenge period with first order time {first_order_time}")
+                any_changes = True
 
         if any_changes:
             self._write_challengeperiod_from_memory_to_disk()
@@ -141,7 +153,7 @@ class ChallengePeriodManager(CacheController):
 
         bt.logging.info("All challengeperiod start times up to date")
 
-    def refresh(self, current_time: int = None):
+    def refresh(self, current_time: int):
         if not self.refresh_allowed(ValiConfig.CHALLENGE_PERIOD_REFRESH_TIME_MS):
             time.sleep(1)
             return
@@ -162,7 +174,8 @@ class ChallengePeriodManager(CacheController):
         self._add_challengeperiod_testing_in_memory_and_disk(
             new_hotkeys=self.metagraph.hotkeys,
             eliminations=eliminations,
-            hk_to_first_order_time=hk_to_first_order_time
+            hk_to_first_order_time=hk_to_first_order_time,
+            default_time=current_time
         )
 
         if not self.refreshed_challengeperiod_start_time:
@@ -172,11 +185,12 @@ class ChallengePeriodManager(CacheController):
         ledger = self.perf_ledger_manager.filtered_ledger_for_scoring(hotkeys=all_miners)
         ledger = {hotkey: ledger.get(hotkey, None) for hotkey in all_miners}
 
-        challengeperiod_success, challengeperiod_eliminations = self.inspect(
+        inspection_miners = self.get_testing_miners() | self.get_probation_miners()
+        challengeperiod_success, challengeperiod_demoted, challengeperiod_eliminations = self.inspect(
             positions=hk_to_positions,
             ledger=ledger,
             success_hotkeys=challengeperiod_success_hotkeys,
-            inspection_hotkeys=self.get_testing_miners(),
+            inspection_hotkeys=inspection_miners,
             current_time=current_time,
             hk_to_first_order_time=hk_to_first_order_time
         )
@@ -185,7 +199,8 @@ class ChallengePeriodManager(CacheController):
         any_changes = bool(challengeperiod_success) or bool(challengeperiod_eliminations)
 
         # Moves challenge period testing to challenge period success in memory
-        self._promote_challengeperiod_in_memory(hotkeys=challengeperiod_success, current_time=current_time)
+        self._promote_challengeperiod_in_memory(challengeperiod_success, current_time)
+        self._demote_challengeperiod_in_memory(challengeperiod_demoted, current_time)
         self._eliminate_challengeperiod_in_memory(eliminations_with_reasons=challengeperiod_eliminations)
 
         # Now remove any miners who are no longer in the metagraph
@@ -196,7 +211,6 @@ class ChallengePeriodManager(CacheController):
             self._write_challengeperiod_from_memory_to_disk()
 
         self.set_last_update_time()
-
 
     def _prune_deregistered_metagraph(self, hotkeys=[]) -> bool:
         """
@@ -214,8 +228,8 @@ class ChallengePeriodManager(CacheController):
 
         return any_changes
 
-
-    def is_recently_re_registered(self, ledger, hotkey, hk_to_first_order_time):
+    @staticmethod
+    def is_recently_re_registered(ledger, hotkey, hk_to_first_order_time):
         """
         A miner can re-register and their perf ledger may still be old.
         This function checks for that condition and blocks challenge period failure so that
@@ -250,13 +264,12 @@ class ChallengePeriodManager(CacheController):
         positions: dict[str, list[Position]],
         ledger: dict[str, PerfLedger],
         success_hotkeys: list[str],
-        inspection_hotkeys: dict[str, int] = None,
-        current_time: int = None,
-        success_scores_dict: dict[str, dict] = None,
-        inspection_scores_dict: dict[str, dict] = None,
-        hk_to_first_order_time: dict[str, int] = None
-
-    ) -> tuple[list[str], dict[str, tuple[str, float]]]:
+        inspection_hotkeys: dict[str, int],
+        current_time: int,
+        success_scores_dict: dict[str, dict] = {},
+        inspection_scores_dict: dict[str, dict] = {},
+        hk_to_first_order_time: dict[str, int] = {} 
+    ) -> tuple[list[str], list[str], dict[str, tuple[str, float]]]:
         """
         Runs a screening process to eliminate miners who didn't pass the challenge period. Does not modify the challenge period in memory.
 
@@ -272,154 +285,133 @@ class ChallengePeriodManager(CacheController):
             passing_miners - list of miners that passed the challenge period.
             failing_miner - dictionary of hotkey to a tuple of the form (reason failed challenge period, maximum drawdown)
         """
-        if inspection_hotkeys is None:
-            return [], {}  # no hotkeys to inspect
+        if len(inspection_hotkeys) == 0:
+            return [], [], {}  # no hotkeys to inspect
 
-        if current_time is None:
+        if not current_time:
             current_time = TimeUtil.now_in_millis()
 
-        passing_miners = []
-        failing_miners = {}
-        miners_rrr = set()        
+        eliminate_miners = {}
+        miners_recently_reregistered = set()        
+        miners_not_enough_positions = []
+
+        valid_candidate_hotkeys = []
+        for hotkey, bucket_start_time in inspection_hotkeys.items():
+
+            if ChallengePeriodManager.is_recently_re_registered(ledger.get(hotkey), hotkey, hk_to_first_order_time):
+                miners_recently_reregistered.add(hotkey)
+                continue
+
+            if bucket_start_time is None:
+                bt.logging.warning(f'Hotkey {hotkey} has no inspection time. Unexpected.')
+                continue
+
+            before_challenge_end = ChallengePeriodManager.meets_time_criteria(current_time, bucket_start_time, MinerBucket.CHALLENGE)
+            if not before_challenge_end:
+                bt.logging.info(f'Hotkey {hotkey} has failed the challenge period due to time. cp_failed')
+                eliminate_miners[hotkey] = (EliminationReason.FAILED_CHALLENGE_PERIOD_TIME.value, -1)
+                continue
+
+            # Get hotkey to positions dict that only includes the inspection miner
+            has_minimum_positions, inspection_positions = ChallengePeriodManager.screen_minimum_positions(positions, hotkey)
+            if not has_minimum_positions:
+                miners_not_enough_positions.append((hotkey, positions.get(hotkey, [])))
+                bt.logging.info(f'Miner {hotkey} has no positions, skipping')
+                continue
+
+            # Get hotkey to ledger dict that only includes the inspection miner
+            has_minimum_ledger, inspection_ledger = ChallengePeriodManager.screen_minimum_ledger(ledger, hotkey)
+            if not has_minimum_ledger:
+                bt.logging.info(f'Miner {hotkey} has no ledger, skipping')
+                continue
+
+            # This step we want to check their drawdown. If they fail, we can move on.
+            ledger_element = inspection_ledger[hotkey]
+            exceeds_max_drawdown, recorded_drawdown_percentage = LedgerUtils.is_beyond_max_drawdown(ledger_element)
+            if exceeds_max_drawdown:
+                bt.logging.info(f'Hotkey {hotkey} has failed the challenge period due to drawdown {recorded_drawdown_percentage}. cp_failed')
+                eliminate_miners[hotkey] = (EliminationReason.FAILED_CHALLENGE_PERIOD_DRAWDOWN.value, recorded_drawdown_percentage)
+                continue
+
+            if not self.screen_minimum_interaction(ledger_element):
+                bt.logging.info(f'Miner {hotkey} not enough days in challenge period, skipping')
+                continue
+
+            valid_candidate_hotkeys.append(hotkey)
+
+        candidates_positions = { hotkey: positions[hotkey] for hotkey in valid_candidate_hotkeys }
+        candidates_ledgers = { hotkey: ledger[hotkey] for hotkey in valid_candidate_hotkeys }
 
         # If success_scoring_dict is already calculated, no need to calculate scores. Useful for testing
-        if success_scores_dict is None:
-
+        if not success_scores_dict:
             success_positions = dict((hotkey, miner_positions) for hotkey, miner_positions in positions.items() if hotkey in success_hotkeys)
             success_ledger = dict((hotkey, ledger_data) for hotkey, ledger_data in ledger.items() if hotkey in success_hotkeys)
 
             # Get the penalized scores of all successful miners
             success_scores_dict = Scoring.score_miners(ledger_dict=success_ledger,
-                                                            positions=success_positions,
-                                                            evaluation_time_ms=current_time,
-                                                            weighting=True)
-        
-        miners_not_enough_positions = []
-        for hotkey, inspection_time in inspection_hotkeys.items():
-            if self.is_recently_re_registered(ledger.get(hotkey), hotkey, hk_to_first_order_time):
-                miners_rrr.add(hotkey)
-                continue
-            elif inspection_time is None:
-                bt.logging.warning(f'Hotkey {hotkey} has no inspection time. Unexpected.')
-                continue
-            # Default starts as true
-            passing_criteria = True
+                                                       positions=success_positions,
+                                                       evaluation_time_ms=current_time,
+                                                       weighting=True)
+        if not inspection_scores_dict:
+            inspection_scores_dict = Scoring.score_miners(ledger_dict=candidates_ledgers,
+                                                          positions=candidates_positions, 
+                                                          evaluation_time_ms=current_time, 
+                                                          weighting=True)
 
-            # We want to know if the miner still has time, as we know the criteria to pass is not met
-            time_criteria = current_time - inspection_time <= ValiConfig.CHALLENGE_PERIOD_MS
+        hotkeys_to_promote, hotkeys_to_demote = ChallengePeriodManager.evaluate_promotions(success_hotkeys,
+                                                                                           success_scores_dict, 
+                                                                                           valid_candidate_hotkeys,
+                                                                                           inspection_scores_dict)
 
-            # Get hotkey to positions dict that only includes the inspection miner
-            has_minimum_positions, inspection_positions = ChallengePeriodManager.screen_minimum_positions(positions=positions, inspection_hotkey=hotkey)
-            if not has_minimum_positions:
-                miners_not_enough_positions.append((hotkey, positions.get(hotkey, [])))
-                passing_criteria = False
-
-            # Get hotkey to ledger dict that only includes the inspection miner
-            has_minimum_ledger, inspection_ledger = ChallengePeriodManager.screen_minimum_ledger(ledger=ledger, inspection_hotkey=hotkey)
-            if not has_minimum_ledger:
-                passing_criteria = False
-
-            # This step is meant to ensure no positions or ledgers reference missing hotkeys, we need them to evaluate
-            if not passing_criteria:
-                if not time_criteria:
-                    # If the miner registers, never interacts
-                    bt.logging.info(f'Hotkey {hotkey} has no positions or ledger, and has not interacted since registration. cp_failed')
-                    failing_miners[hotkey] = (EliminationReason.FAILED_CHALLENGE_PERIOD_TIME.value, -1)
-
-                continue  # Moving on, as the miner is already failing
-            # This step we want to check their drawdown. If they fail, we can move on.
-            failing_criteria, recorded_drawdown_percentage = LedgerUtils.is_beyond_max_drawdown(ledger_element=ledger[hotkey])
-
-            if failing_criteria:
-                bt.logging.info(f'Hotkey {hotkey} has failed the challenge period due to drawdown {recorded_drawdown_percentage}. cp_failed')
-                failing_miners[hotkey] = (EliminationReason.FAILED_CHALLENGE_PERIOD_DRAWDOWN.value, recorded_drawdown_percentage)
-                continue
-            
-
-            # The main logic loop. They are in the competition but haven't passed yet, need to check the time after.
-            passing_criteria = ChallengePeriodManager.screen_passing_criteria(
-                inspection_positions=inspection_positions,
-                inspection_ledger=inspection_ledger,
-                inspection_hotkey=hotkey,
-                success_scores_dict=success_scores_dict,
-                current_time=current_time,
-                inspection_scores_dict=inspection_scores_dict
-            )
-
-            # If they pass here, then they meet the criteria for passing within the challenge period
-            if passing_criteria:
-                passing_miners.append(hotkey)
-                continue
-
-            # If their time is ever up, they fail
-            if not time_criteria:
-                bt.logging.info(f'Hotkey {hotkey} has failed the challenge period due to time. cp_failed')
-                failing_miners[hotkey] = (EliminationReason.FAILED_CHALLENGE_PERIOD_TIME.value, recorded_drawdown_percentage)
-                continue
-
-        if miners_not_enough_positions:
-            bt.logging.info(f'Challenge Period - miners with not enough positions: {miners_not_enough_positions}')
-        bt.logging.info(f'Challenge Period - n_miners_passing: {len(passing_miners)}'
-                        f' n_miners_failing: {len(failing_miners)} '
-                        f'recently_re_registered: {miners_rrr} '
+        bt.logging.info(f'Challenge Period - miners with not enough positions: {miners_not_enough_positions}'
+                        f'Challenge Period - n_miners_passing: {len(hotkeys_to_promote)}'
+                        f' n_miners_failing: {len(eliminate_miners)} '
+                        f'recently_re_registered: {miners_recently_reregistered} '
                         f'n_miners_inspected {len(inspection_hotkeys)}')
-        return passing_miners, failing_miners
+        return hotkeys_to_promote, hotkeys_to_demote, eliminate_miners 
     
     @staticmethod
-    def screen_passing_criteria(
-        inspection_positions: dict[str, list[Position]],
-        inspection_ledger: dict[str, PerfLedger],
-        success_scores_dict: dict[str, dict],
-        inspection_hotkey: str,
-        current_time: int,
-        inspection_scores_dict = None
-    ) -> bool:
-        """
-        Runs a screening process to eliminate miners who didn't pass the challenge period.
-        Args:
-            success_scores_dict: a dictionary with a similar structure to config with keys being
-            function names of metrics and values having "scores" (scores of miners that passed challenge)
-            and "weight" which is the weight of the metric
-        """
-        # Before scoring, check that the miner has enough trading days to be promoted
-        min_interaction_criteria = ChallengePeriodManager.screen_minimum_interaction(
-            ledger_element=inspection_ledger.get(inspection_hotkey))
-        if not min_interaction_criteria:
-            return False
+    def evaluate_promotions(
+            success_hotkeys,
+            success_scores_dict, 
+            candidate_hotkeys,
+            inspection_scores_dict,
+            threshold_rank = ValiConfig.PROMOTION_THRESHOLD_RANK
+            ):
 
-        # inspection_scores_dict is used to bypass running scoring when testing
-        if inspection_scores_dict is None:
-            # Get scores of inspection miner and penalties
-            inspection_scores_dict = Scoring.score_miners(
-                ledger_dict=inspection_ledger,
-                positions=inspection_positions,
-                evaluation_time_ms=current_time,
-                weighting=True)
-            
-        trial_scores_dict = copy.deepcopy(success_scores_dict)
+        combined_scores_dict = copy.deepcopy(success_scores_dict)
+        for metric_name, config in combined_scores_dict["metrics"].items():
+            candidate_metric_score = inspection_scores_dict["metrics"][metric_name]["scores"]
+            miner_scores = config["scores"] + candidate_metric_score
+            combined_scores_dict["metrics"][metric_name]["scores"] = miner_scores
+        combined_scores_dict["penalties"].update(inspection_scores_dict["penalties"])
+        
+        all_scores = Scoring.combine_scores(combined_scores_dict)
+        sorted_scores = sorted(all_scores.values(), reverse=True)
 
-        for config_name, config in trial_scores_dict["metrics"].items():
+        promote_hotkeys = []
+        demote_hotkeys = []
 
-            miner_scores = config["scores"]
-            miner_scores += inspection_scores_dict["metrics"][config_name]["scores"]
+        if len(sorted_scores) < threshold_rank:
+            for hotkey in all_scores.keys():
+                if hotkey in candidate_hotkeys:
+                    promote_hotkeys.append(hotkey)
+        else:
+            threshold_idx = threshold_rank - 1
+            threshold_score = sorted_scores[threshold_idx]
 
-        trial_scores_dict["penalties"].update(inspection_scores_dict["penalties"])
+            for hotkey, score in all_scores.items():
+                if hotkey in candidate_hotkeys and score >= threshold_score:
+                    promote_hotkeys.append(hotkey)
+                elif hotkey in success_hotkeys and score < threshold_score:
+                    demote_hotkeys.append(hotkey)
 
-        combined_scores = Scoring.combine_scores(scoring_dict=trial_scores_dict)
-
-        percentiles = Scoring.miner_scores_percentiles(list(combined_scores.items()))
-
-        percentile_dict = dict(percentiles)
-        inspection_percentile = percentile_dict.get(inspection_hotkey, 0)
-
-        passed = inspection_percentile >= ValiConfig.CHALLENGE_PERIOD_PERCENTILE_THRESHOLD
-
-        return passed
+        return promote_hotkeys, demote_hotkeys
 
     @staticmethod
     def screen_minimum_interaction(
             ledger_element: PerfLedger
-    ) -> (bool, float):
+    ) -> bool:
         """
         Returns False if the miner doesn't have the minimum number of trading days.
         """
@@ -429,6 +421,21 @@ class ChallengePeriodManager(CacheController):
 
         miner_returns = LedgerUtils.daily_return_log(ledger_element)
         return len(miner_returns) >= ValiConfig.CHALLENGE_PERIOD_MINIMUM_DAYS.value()
+
+    @staticmethod
+    def meets_time_criteria(current_time, bucket_start_time, bucket):
+        if bucket == MinerBucket.MAINCOMP:
+            return False
+
+        elapsed_time_ms = current_time - bucket_start_time
+        if bucket == MinerBucket.CHALLENGE:
+            upper_bound = ValiConfig.CHALLENGE_PERIOD_MAXIMUM_MS
+            # lower_bound = ValiConfig.CHALLENGE_PERIOD_MINIMUM_DAYS.value() * ValiConfig.DAILY_MS
+            # return lower_bound <= elapsed_time_ms <= upper_bound
+            return elapsed_time_ms <= upper_bound
+
+        if bucket == MinerBucket.PROBATION:
+            return elapsed_time_ms <= ValiConfig.PROBATION_MAXIMUM_MS
 
     @staticmethod
     def screen_minimum_ledger(
@@ -521,7 +528,7 @@ class ChallengePeriodManager(CacheController):
             self.active_miners[hotkey] = (MinerBucket.MAINCOMP, current_time)
 
     def _eliminate_challengeperiod_in_memory(self, eliminations_with_reasons: dict[str, tuple[str, float]]):
-        hotkeys = list(eliminations_with_reasons.keys())
+        hotkeys = eliminations_with_reasons.keys()
         if hotkeys:
             bt.logging.info(f"Removing hotkeys {hotkeys} from challenge period.")
 
@@ -532,6 +539,13 @@ class ChallengePeriodManager(CacheController):
             #     del self.challengeperiod_testing[hotkey]
             else:
                 bt.logging.error(f"Hotkey {hotkey} was not in challengeperiod_testing but demotion to failure was attempted.")
+    
+    def _demote_challengeperiod_in_memory(self, hotkeys: list[str], current_time):
+        if hotkeys:
+            bt.logging.info(f"Demoting hotkeys {hotkeys} to probation")
+
+        for hotkey in hotkeys:
+            self.active_miners[hotkey] = (MinerBucket.PROBATION, current_time)
 
     def _write_challengeperiod_from_memory_to_disk(self):
         if self.is_backtesting:
@@ -539,6 +553,7 @@ class ChallengePeriodManager(CacheController):
         challengeperiod_data = self.to_checkpoint_dict()
         ValiBkpUtils.write_file(self.CHALLENGE_FILE, challengeperiod_data)
 
+    def get_miner_bucket(self, hotkey): return self.active_miners[hotkey][0]
     def get_testing_miners(self):   return copy.deepcopy(self._bucket_view(MinerBucket.CHALLENGE))
     def get_success_miners(self):   return copy.deepcopy(self._bucket_view(MinerBucket.MAINCOMP))
     def get_probation_miners(self): return copy.deepcopy(self._bucket_view(MinerBucket.PROBATION))
