@@ -168,7 +168,8 @@ class ChallengePeriodManager(CacheController):
 
         challengeperiod_success_hotkeys = self.get_hotkeys_by_bucket(MinerBucket.MAINCOMP)
         challengeperiod_testing_hotkeys = self.get_hotkeys_by_bucket(MinerBucket.CHALLENGE)
-        all_miners = challengeperiod_success_hotkeys + challengeperiod_testing_hotkeys
+        challengeperiod_probation_hotkeys = self.get_hotkeys_by_bucket(MinerBucket.PROBATION)
+        all_miners = challengeperiod_success_hotkeys + challengeperiod_testing_hotkeys + challengeperiod_probation_hotkeys
 
         if not self.refreshed_challengeperiod_start_time:
             self.refreshed_challengeperiod_start_time = True
@@ -188,7 +189,7 @@ class ChallengePeriodManager(CacheController):
         )
         self.eliminations_with_reasons = challengeperiod_eliminations
 
-        any_changes = bool(challengeperiod_success) or bool(challengeperiod_eliminations)
+        any_changes = bool(challengeperiod_success) or bool(challengeperiod_eliminations) or bool(challengeperiod_demoted)
 
         # Moves challenge period testing to challenge period success in memory
         self._promote_challengeperiod_in_memory(challengeperiod_success, current_time)
@@ -306,26 +307,22 @@ class ChallengePeriodManager(CacheController):
             has_minimum_positions, inspection_positions = ChallengePeriodManager.screen_minimum_positions(positions, hotkey)
             if not has_minimum_positions:
                 miners_not_enough_positions.append((hotkey, positions.get(hotkey, [])))
-                bt.logging.info(f'Miner {hotkey} has no positions, skipping')
                 continue
 
             # Get hotkey to ledger dict that only includes the inspection miner
             has_minimum_ledger, inspection_ledger = ChallengePeriodManager.screen_minimum_ledger(ledger, hotkey)
             if not has_minimum_ledger:
-                bt.logging.info(f'Miner {hotkey} has no ledger, skipping')
                 continue
 
             # This step we want to check their drawdown. If they fail, we can move on.
             ledger_element = inspection_ledger[hotkey]
             exceeds_max_drawdown, recorded_drawdown_percentage = LedgerUtils.is_beyond_max_drawdown(ledger_element)
             if exceeds_max_drawdown:
-                bt.logging.info(f'Miner {hotkey} has no ledger, skipping')
                 bt.logging.info(f'Hotkey {hotkey} has failed the challenge period due to drawdown {recorded_drawdown_percentage}. cp_failed')
                 eliminate_miners[hotkey] = (EliminationReason.FAILED_CHALLENGE_PERIOD_DRAWDOWN.value, recorded_drawdown_percentage)
                 continue
 
             if not self.screen_minimum_interaction(ledger_element):
-                bt.logging.info(f'Miner {hotkey} not enough days in challenge period, skipping')
                 continue
 
             valid_candidate_hotkeys.append(hotkey)
@@ -420,8 +417,6 @@ class ChallengePeriodManager(CacheController):
         elapsed_time_ms = current_time - bucket_start_time
         if bucket == MinerBucket.CHALLENGE:
             upper_bound = ValiConfig.CHALLENGE_PERIOD_MAXIMUM_MS
-            # lower_bound = ValiConfig.CHALLENGE_PERIOD_MINIMUM_DAYS.value() * ValiConfig.DAILY_MS
-            # return lower_bound <= elapsed_time_ms <= upper_bound
             return elapsed_time_ms <= upper_bound
 
         if bucket == MinerBucket.PROBATION:
