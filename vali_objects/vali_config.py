@@ -2,9 +2,7 @@
 from datetime import datetime, timezone
 import os
 import math
-
 from enum import Enum
-
 from meta import load_version
 
 BASE_DIR = base_directory = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -104,6 +102,15 @@ class ValiConfig:
     # RISK_PROFILING_TIME_DECAY = 5
     # RISK_PROFILING_TIME_CYCLE = POSITIONAL_EQUIVALENCE_WINDOW_MS
     RISK_PROFILING_TIME_CRITERIA = 0.185  # threshold for the normalized error of a position’s order time intervals
+
+    # Orthogonality
+    TIME_PREFERENCE_FACTOR = 0.01
+    TIME_PREFERENCE_SHIFT = 0.01
+    TIME_PREFERENCE_SPREAD = 0.01
+
+    SIZE_PREFERENCE_FACTOR = 0.01
+    SIZE_PREFERENCE_SHIFT = 0.01
+    SIZE_PREFERENCE_SPREAD = 0.01
 
     PLAGIARISM_MATCHING_TIME_RESOLUTION_MS = 60 * 1000 * 2  # 2 minutes
     PLAGIARISM_MAX_LAGS = 60
