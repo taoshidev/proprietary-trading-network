@@ -205,6 +205,13 @@ class ChallengePeriodManager(CacheController):
 
         self.set_last_update_time()
 
+        bt.logging.info(
+            "Challenge Period snapshot after refresh\n"
+            f"MAINCOMP  {len(self.get_success_miners())} miners\n"
+            f"PROBATION {len(self.get_probation_miners())} miners\n"
+            f"CHALLENGE {len(self.get_testing_miners())} miners\n"
+        )
+
     def _prune_deregistered_metagraph(self, hotkeys=None) -> bool:
         """
         Prune the challenge period of all miners who are no longer in the metagraph
