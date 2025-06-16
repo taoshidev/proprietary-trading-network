@@ -471,7 +471,7 @@ class ChallengePeriodManager(CacheController):
         return has_minimum_positions, inspection_positions
 
 
-    def sync_challenege_period_data(self, active_miners_sync):
+    def sync_challenge_period_data(self, active_miners_sync):
         if not active_miners_sync:
             bt.logging.error(f'challenge_period_data {active_miners_sync} appears invalid')
 
