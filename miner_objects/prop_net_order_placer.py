@@ -12,7 +12,7 @@ from bittensor.core.synapse import Synapse
 import bittensor as bt
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
-from typing import Dict, List, Optional, Any, Set, Tuple
+from typing import Dict, List, Any
 from collections import defaultdict
 
 from miner_config import MinerConfig
@@ -440,7 +440,6 @@ class PropNetOrderPlacer:
         new_file_path = os.path.join(MinerConfig.get_miner_failed_signals_dir(), os.path.basename(signal_file_path))
         ValiBkpUtils.write_file(new_file_path, json.dumps(new_data))
 
-        new_data_compact = {k: v for k, v in new_data.items() if k != 'validators_needing_retry'}
         bt.logging.info(f"Signal file modified with failure info: {new_file_path}")
 
     def write_signal_to_directory(self, directory: str, signal_file_path, signal_data, success):
