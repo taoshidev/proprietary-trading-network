@@ -51,7 +51,7 @@ class TestChallengePeriodUnit(TestBase):
                                        in range(self.N_POSITIONS_BOUNDS)]
 
         self.MINER_NAMES = [f"miner{i}" for i in range(self.N_POSITIONS)] + ["miner"]
-        self.SUCCESS_MINER_NAMES = [f"miner{i}" for i in range(1, 5)]
+        self.SUCCESS_MINER_NAMES = [f"miner{i}" for i in range(1, 26)]
         self.DEFAULT_POSITION = Position(
             miner_hotkey="miner",
             position_uuid="miner",
@@ -85,7 +85,7 @@ class TestChallengePeriodUnit(TestBase):
         )
 
         self.TOP_SCORE = 1.0
-        self.MIN_SCORE = 0.0
+        self.MIN_SCORE = 0.2
 
         # Set up successful scores for 4 miners
         self.success_scores_dict = {"metrics": {}}
@@ -95,8 +95,7 @@ class TestChallengePeriodUnit(TestBase):
 
         for config_name, config in Scoring.scoring_config.items():
             self.success_scores_dict["metrics"][config_name] = {'scores': copy.deepcopy(success_scores),
-                                                     'weight': config['weight']
-            }
+                                                                'weight': config['weight']}
         raw_penalties = [1 for _ in self.SUCCESS_MINER_NAMES]
         success_penalties = dict(zip(self.SUCCESS_MINER_NAMES, raw_penalties))
 
@@ -117,6 +116,9 @@ class TestChallengePeriodUnit(TestBase):
         self.elimination_manager.challengeperiod_manager = self.challengeperiod_manager
 
         self.position_manager.clear_all_miner_positions()
+
+        self._populate_active_miners(maincomp=self.SUCCESS_MINER_NAMES,
+                                     challenge=["miner"])
 
     def get_trial_scores(self, high_performing=True, score=None):
         """
@@ -161,8 +163,6 @@ class TestChallengePeriodUnit(TestBase):
         for hotkey in maincomp: miners[hotkey] = (MinerBucket.MAINCOMP, self.START_TIME)
         for hotkey in challenge: miners[hotkey] = (MinerBucket.CHALLENGE, self.START_TIME)
         for hotkey in probation: miners[hotkey] = (MinerBucket.PROBATION, self.START_TIME)
-
-        self.challengeperiod_manager.active_miners.clear()
         self.challengeperiod_manager.active_miners = miners
 
     def test_screen_drawdown(self):
@@ -190,7 +190,8 @@ class TestChallengePeriodUnit(TestBase):
     # ------ Time Constrained Tests (Inspect) ------
     def test_failing_remaining_time(self):
         """Miner is not passing, but there is time remaining"""
-        trial_scoring_dict = self.get_trial_scores(high_performing=False)
+        # trial_scoring_dict = self.get_trial_scores(high_performing=False)
+        trial_scoring_dict = self.get_trial_scores(score=0.1)
         current_time = self.CURRENTLY_IN_CHALLENGE
 
         base_positions = deepcopy(self.DEFAULT_POSITIONS)
@@ -405,7 +406,7 @@ class TestChallengePeriodUnit(TestBase):
         passing, demoted, failing = self.challengeperiod_manager.inspect(
             positions=inspection_positions,
             ledger={hk: v[TP_ID_PORTFOLIO] for hk, v in inspection_ledger.items()},
-            success_hotkeys=[],
+            success_hotkeys=self.SUCCESS_MINER_NAMES,
             inspection_hotkeys={"miner": current_time},
             current_time=current_time,
             success_scores_dict=self.success_scores_dict,
@@ -414,6 +415,7 @@ class TestChallengePeriodUnit(TestBase):
         )
         self.assertIn("miner", passing)
         self.assertNotIn("miner", list(failing.keys()))
+        self.assertIn("miner25", demoted)
 
     def test_just_below_threshold(self):
         """Miner performing 50th percentile should fail, but continue testing"""
@@ -426,7 +428,7 @@ class TestChallengePeriodUnit(TestBase):
         inspection_positions, hk_to_first_order_time = self.save_and_get_positions(base_positions, ["miner"])
         inspection_ledger = {"miner": base_ledger}
 
-        trial_scoring_dict = self.get_trial_scores(score=0.5)
+        trial_scoring_dict = self.get_trial_scores(score=0.1)
 
         # Check that the miner continues in challenge
         passing, demoted, failing = self.challengeperiod_manager.inspect(
@@ -567,5 +569,3 @@ class TestChallengePeriodUnit(TestBase):
 
         self.assertNotIn("miner", passing)
         self.assertNotIn("miner", list(failing.keys()))
-
-
