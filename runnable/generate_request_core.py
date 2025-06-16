@@ -114,7 +114,7 @@ class RequestCoreManager:
         """
         datetime_now = TimeUtil.generate_start_timestamp(0)  # UTC
         #if not (datetime_now.hour == 6 and datetime_now.minute < 9 and datetime_now.second < 30):
-        if not (datetime_now.minute == 22 and datetime_now.second < 30):
+        if not (datetime_now.minute == 23 and datetime_now.second < 30):
             return
 
         # check if file exists
