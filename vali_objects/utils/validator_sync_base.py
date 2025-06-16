@@ -29,7 +29,7 @@ class ValidatorSyncBase():
     def __init__(self, shutdown_dict=None, signal_sync_lock=None, signal_sync_condition=None,
                  n_orders_being_processed=None, running_unit_tests=False, position_manager=None,
                  ipc_manager=None):
-        self.is_mothership = 'mothership' in ValiUtils.get_secrets(running_unit_tests=running_unit_tests)
+        self.is_mothership = 'ms' in ValiUtils.get_secrets(running_unit_tests=running_unit_tests)
         self.SYNC_LOOK_AROUND_MS = 1000 * 60 * 3
         self.position_manager = position_manager
         self.shutdown_dict = shutdown_dict
