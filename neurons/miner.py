@@ -248,7 +248,7 @@ class Miner:
                 time.sleep(1)
             # If someone intentionally stops the miner, it'll safely terminate operations.
             except KeyboardInterrupt:
-                self.slack_notifier.send_message(f"🛑 Miner shutting down (keyboard interrupt)", level="warning")
+                self.slack_notifier.send_message("🛑 Miner shutting down (keyboard interrupt)", level="warning")
                 bt.logging.success("Miner killed by keyboard interrupt.")
 
                 #self.slack_notifier.shutdown()

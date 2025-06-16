@@ -50,18 +50,21 @@ class SlackNotifier:
         try:
             response = requests.get('https://api.ipify.org', timeout=5)
             return response.text
-        except:
+        except Exception as e:
             try:
+                bt.logging.error(f"Got exception: {e}")
                 hostname = socket.gethostname()
                 return socket.gethostbyname(hostname)
-            except:
+            except Exception as e2:
+                bt.logging.error(f"Got exception: {e2}")
                 return "Unknown IP"
 
     def _get_vm_hostname(self) -> str:
         """Get the VM's hostname"""
         try:
             return socket.gethostname()
-        except:
+        except Exception as e:
+            bt.logging.error(f"Got exception: {e}")
             return "Unknown Hostname"
 
     def _load_lifetime_metrics(self) -> Dict[str, Any]:
