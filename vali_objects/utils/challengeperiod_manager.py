@@ -19,11 +19,11 @@ from vali_objects.utils.miner_bucket_enum import MinerBucket
 
 class ChallengePeriodManager(CacheController):
     def __init__(
-            self, 
-            metagraph, 
-            perf_ledger_manager : PerfLedgerManager = None, 
-            position_manager: PositionManager = None, 
-            ipc_manager = None, 
+            self,
+            metagraph,
+            perf_ledger_manager : PerfLedgerManager=None,
+            position_manager: PositionManager=None,
+            ipc_manager=None,
             *,
             running_unit_tests=False,
             is_backtesting=False):
@@ -137,7 +137,6 @@ class ChallengePeriodManager(CacheController):
             if start_time_ms != first_order_time_ms:
                 bt.logging.info(f"Challengeperiod start time for {hotkey} updated from: {datetime.utcfromtimestamp(start_time_ms/1000)} "
                                 f"to: {datetime.utcfromtimestamp(first_order_time_ms/1000)}, {(start_time_ms-first_order_time_ms)/1000}s delta")
-                # self.challengeperiod_testing[hotkey] = first_order_time_ms
                 self.active_miners[hotkey] = (MinerBucket.CHALLENGE, first_order_time_ms)
                 any_changes = True
 
@@ -188,7 +187,7 @@ class ChallengePeriodManager(CacheController):
             hk_to_first_order_time=hk_to_first_order_time
         )
         self.eliminations_with_reasons = challengeperiod_eliminations
-            
+
         any_changes = bool(challengeperiod_success) or bool(challengeperiod_eliminations)
 
         # Moves challenge period testing to challenge period success in memory
@@ -205,13 +204,12 @@ class ChallengePeriodManager(CacheController):
 
         self.set_last_update_time()
 
-    def _prune_deregistered_metagraph(self, hotkeys=[]) -> bool:
+    def _prune_deregistered_metagraph(self, hotkeys=None) -> bool:
         """
         Prune the challenge period of all miners who are no longer in the metagraph
         """
         if not hotkeys:
             hotkeys = self.metagraph.hotkeys
-
 
         any_changes = False
         for hotkey in list(self.active_miners.keys()):
@@ -258,9 +256,9 @@ class ChallengePeriodManager(CacheController):
         success_hotkeys: list[str],
         inspection_hotkeys: dict[str, int],
         current_time: int,
-        success_scores_dict: dict[str, dict] = {},
-        inspection_scores_dict: dict[str, dict] = {},
-        hk_to_first_order_time: dict[str, int] = {} 
+        success_scores_dict: dict[str, dict] | None = None,
+        inspection_scores_dict: dict[str, dict] | None = None,
+        hk_to_first_order_time: dict[str, int] | None = None,
     ) -> tuple[list[str], list[str], dict[str, tuple[str, float]]]:
         """
         Runs a screening process to eliminate miners who didn't pass the challenge period. Does not modify the challenge period in memory.
@@ -284,7 +282,7 @@ class ChallengePeriodManager(CacheController):
             current_time = TimeUtil.now_in_millis()
 
         eliminate_miners = {}
-        miners_recently_reregistered = set()        
+        miners_recently_reregistered = set()
         miners_not_enough_positions = []
 
         valid_candidate_hotkeys = []
@@ -332,13 +330,13 @@ class ChallengePeriodManager(CacheController):
 
             valid_candidate_hotkeys.append(hotkey)
 
-        candidates_positions = { hotkey: positions[hotkey] for hotkey in valid_candidate_hotkeys }
-        candidates_ledgers = { hotkey: ledger[hotkey] for hotkey in valid_candidate_hotkeys }
+        candidates_positions = {hotkey: positions[hotkey] for hotkey in valid_candidate_hotkeys}
+        candidates_ledgers = {hotkey: ledger[hotkey] for hotkey in valid_candidate_hotkeys}
 
         # If success_scoring_dict is already calculated, no need to calculate scores. Useful for testing
         if not success_scores_dict:
-            success_positions = dict((hotkey, miner_positions) for hotkey, miner_positions in positions.items() if hotkey in success_hotkeys)
-            success_ledger = dict((hotkey, ledger_data) for hotkey, ledger_data in ledger.items() if hotkey in success_hotkeys)
+            success_positions = {hotkey: miner_positions for hotkey, miner_positions in positions.items() if hotkey in success_hotkeys}
+            success_ledger = {hotkey: ledger_data for hotkey, ledger_data in ledger.items() if hotkey in success_hotkeys}
 
             # Get the penalized scores of all successful miners
             success_scores_dict = Scoring.score_miners(ledger_dict=success_ledger,
@@ -347,12 +345,12 @@ class ChallengePeriodManager(CacheController):
                                                        weighting=True)
         if not inspection_scores_dict:
             inspection_scores_dict = Scoring.score_miners(ledger_dict=candidates_ledgers,
-                                                          positions=candidates_positions, 
-                                                          evaluation_time_ms=current_time, 
+                                                          positions=candidates_positions,
+                                                          evaluation_time_ms=current_time,
                                                           weighting=True)
 
         hotkeys_to_promote, hotkeys_to_demote = ChallengePeriodManager.evaluate_promotions(success_hotkeys,
-                                                                                           success_scores_dict, 
+                                                                                           success_scores_dict,
                                                                                            valid_candidate_hotkeys,
                                                                                            inspection_scores_dict)
 
@@ -361,15 +359,15 @@ class ChallengePeriodManager(CacheController):
                         f' n_miners_failing: {len(eliminate_miners)} '
                         f'recently_re_registered: {miners_recently_reregistered} '
                         f'n_miners_inspected {len(inspection_hotkeys)}')
-        return hotkeys_to_promote, hotkeys_to_demote, eliminate_miners 
-    
+        return hotkeys_to_promote, hotkeys_to_demote, eliminate_miners
+
     @staticmethod
     def evaluate_promotions(
             success_hotkeys,
-            success_scores_dict, 
+            success_scores_dict,
             candidate_hotkeys,
             inspection_scores_dict,
-            threshold_rank = ValiConfig.PROMOTION_THRESHOLD_RANK
+            threshold_rank=ValiConfig.PROMOTION_THRESHOLD_RANK
             ) -> tuple[list[str], list[str]]:
         combined_scores_dict = copy.deepcopy(success_scores_dict)
         for metric_name, config in combined_scores_dict["metrics"].items():
@@ -377,7 +375,7 @@ class ChallengePeriodManager(CacheController):
             miner_scores = config["scores"] + candidate_metric_score
             combined_scores_dict["metrics"][metric_name]["scores"] = miner_scores
         combined_scores_dict["penalties"].update(inspection_scores_dict["penalties"])
-        
+
         all_scores = Scoring.combine_scores(combined_scores_dict)
         sorted_scores = sorted(all_scores.values(), reverse=True)
 
@@ -529,7 +527,7 @@ class ChallengePeriodManager(CacheController):
                 del self.active_miners[hotkey]
             else:
                 bt.logging.error(f"Hotkey {hotkey} was not in challengeperiod_testing but demotion to failure was attempted.")
-    
+
     def _demote_challengeperiod_in_memory(self, hotkeys: list[str], current_time):
         if hotkeys:
             bt.logging.info(f"Demoting hotkeys {hotkeys} to probation")
@@ -555,12 +553,12 @@ class ChallengePeriodManager(CacheController):
         snapshot = list(self.active_miners.items())
         json_dict = {
             hotkey: {
-                "bucket": bucket.value, 
-                "bucket_start_time": start_time 
+                "bucket": bucket.value,
+                "bucket_start_time": start_time
             }
             for hotkey, (bucket, start_time) in snapshot
         }
-        return json_dict 
+        return json_dict
 
     @staticmethod
     def parse_checkpoint_dict(json_dict):
@@ -574,7 +572,7 @@ class ChallengePeriodManager(CacheController):
             for hotkey, start_time in success.items():
                 formatted_dict[hotkey] = (MinerBucket.MAINCOMP, start_time)
 
-        else: 
+        else:
             for hotkey, info in json_dict.items():
                 bucket = MinerBucket(info["bucket"])
                 bucket_start_time = info["bucket_start_time"]

@@ -1,7 +1,6 @@
 # developer: trdougherty
 import copy
 from copy import deepcopy
-from unittest.main import MAIN_EXAMPLES
 import numpy as np
 
 from tests.vali_tests.base_objects.test_base import TestBase
@@ -190,7 +189,6 @@ class TestChallengePeriodUnit(TestBase):
     # ------ Time Constrained Tests (Inspect) ------
     def test_failing_remaining_time(self):
         """Miner is not passing, but there is time remaining"""
-        # trial_scoring_dict = self.get_trial_scores(high_performing=False)
         trial_scoring_dict = self.get_trial_scores(score=0.1)
         current_time = self.CURRENTLY_IN_CHALLENGE
 
@@ -213,10 +211,10 @@ class TestChallengePeriodUnit(TestBase):
         )
         self.assertNotIn("miner", passing)
         self.assertNotIn("miner", list(failing.keys()))
-    
+
     def test_failing_no_remaining_time(self):
         """Miner is not passing, and there is no time remaining"""
-        
+
         trial_scoring_dict = self.get_trial_scores(high_performing=False)
 
         base_positions = deepcopy(self.DEFAULT_POSITIONS)
@@ -538,7 +536,6 @@ class TestChallengePeriodUnit(TestBase):
 
         # Return False if ledger is none
         self.assertEqual(ChallengePeriodManager.screen_minimum_interaction(None), False)
-
 
     def test_not_enough_days(self):
         """A miner with a passing score but not enough trading days shouldn't be promoted"""

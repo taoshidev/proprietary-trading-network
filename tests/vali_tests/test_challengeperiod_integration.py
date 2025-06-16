@@ -10,7 +10,6 @@ from vali_objects.vali_dataclasses.order import Order
 
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedger, TP_ID_PORTFOLIO
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
-from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
 from vali_objects.utils.ledger_utils import LedgerUtils
 from tests.shared_objects.mock_classes import (
     MockMetagraph, MockPositionManager
@@ -150,19 +149,6 @@ class TestChallengePeriodIntegration(TestBase):
 
         # Finally update the challenge period to default state
         self.challengeperiod_manager.elimination_manager.clear_eliminations()
-
-        # # Set up miners that have already passed challenge period
-        # self.challengeperiod_manager.active_miners.update({
-        #     miner: (MinerBucket.MAINCOMP, self.HK_TO_OPEN_MS[miner]) for miner in self.SUCCESS_MINER_NAMES
-        #     })
-
-        # # Add all the miners with a start time of 0
-        # self.challengeperiod_manager._add_challengeperiod_testing_in_memory_and_disk(
-        #     self.MINER_NAMES,
-        #     eliminations=[],
-        #     hk_to_first_order_time=self.HK_TO_OPEN_MS,
-        #     default_time=self.START_TIME
-        # )
 
         self._populate_active_miners(maincomp=self.SUCCESS_MINER_NAMES,
                                      challenge=self.TESTING_MINER_NAMES)
@@ -388,7 +374,6 @@ class TestChallengePeriodIntegration(TestBase):
             self.assertNotIn(miner, challenge_success)
     
     def test_no_positions_miner_filtered(self):
-        # self.challengeperiod_manager.challengeperiod_testing.clear()
         for hotkey in self.challengeperiod_manager.get_hotkeys_by_bucket(MinerBucket.CHALLENGE):
             del self.challengeperiod_manager.active_miners[hotkey]
         self.challengeperiod_manager._write_challengeperiod_from_memory_to_disk()
@@ -413,7 +398,7 @@ class TestChallengePeriodIntegration(TestBase):
         for miner in miners_without_positions:
             self.assertIn(miner, self.mock_metagraph.hotkeys)
             self.assertEqual(current_time, self.challengeperiod_manager.get_testing_miners()[miner])
-            # self.assertNotIn(miner, self.challengeperiod_manager.get_testing_miners())
+            # self.assertNotIn(miner, self.challengeperiod_manager.get_testing_miners()) # Miners without positions are not necessarily eliminated
             self.assertNotIn(miner, self.challengeperiod_manager.get_success_miners())
     
     def test_disjoint_testing_success(self):
