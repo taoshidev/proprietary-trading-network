@@ -103,22 +103,15 @@ class ChallengePeriodManager(CacheController):
 
             first_order_time = hk_to_first_order_time.get(hotkey)
             if first_order_time is None:
-                # miner has no positions and is not already stored in memory
                 if hotkey not in self.active_miners:
                     self.active_miners[hotkey] = (MinerBucket.CHALLENGE, default_time)
                     bt.logging.info(f"Adding {hotkey} to challenge period with start time {default_time}")
                     any_changes = True
                 continue
 
-            if hotkey in self.active_miners:
-                # miner has first order time, but different from the stored start time
-                stored_start_time = self.active_miners[hotkey][1]
-                if stored_start_time != first_order_time:
-                    self.active_miners[hotkey] = (MinerBucket.CHALLENGE, first_order_time)
-                    bt.logging.info(f"Correcting {hotkey} in challenge period start time to first order time {first_order_time}")
-                    any_changes = True
-            else:
-                # miner has first order time but not yet recorded in memory
+            # Has a first order time but not yet stored in memory
+            # Has a first order time but start time is set as default
+            if hotkey not in self.active_miners or self.active_miners[hotkey][1] != first_order_time:
                 self.active_miners[hotkey] = (MinerBucket.CHALLENGE, first_order_time)
                 bt.logging.info(f"Adding {hotkey} to challenge period with first order time {first_order_time}")
                 any_changes = True
@@ -163,10 +156,6 @@ class ChallengePeriodManager(CacheController):
 
         # Collect challenge period and update with new eliminations criteria
         self.remove_eliminated(eliminations=eliminations)
-        challengeperiod_success_hotkeys = self.get_hotkeys_by_bucket(MinerBucket.MAINCOMP)
-        challengeperiod_testing_hotkeys = self.get_hotkeys_by_bucket(MinerBucket.CHALLENGE)
-
-        all_miners = challengeperiod_success_hotkeys + challengeperiod_testing_hotkeys
 
         hk_to_positions, hk_to_first_order_time = self.position_manager.filtered_positions_for_scoring(hotkeys=self.metagraph.hotkeys)
 
@@ -177,6 +166,10 @@ class ChallengePeriodManager(CacheController):
             hk_to_first_order_time=hk_to_first_order_time,
             default_time=current_time
         )
+
+        challengeperiod_success_hotkeys = self.get_hotkeys_by_bucket(MinerBucket.MAINCOMP)
+        challengeperiod_testing_hotkeys = self.get_hotkeys_by_bucket(MinerBucket.CHALLENGE)
+        all_miners = challengeperiod_success_hotkeys + challengeperiod_testing_hotkeys
 
         if not self.refreshed_challengeperiod_start_time:
             self.refreshed_challengeperiod_start_time = True
@@ -195,7 +188,7 @@ class ChallengePeriodManager(CacheController):
             hk_to_first_order_time=hk_to_first_order_time
         )
         self.eliminations_with_reasons = challengeperiod_eliminations
-
+            
         any_changes = bool(challengeperiod_success) or bool(challengeperiod_eliminations)
 
         # Moves challenge period testing to challenge period success in memory
@@ -256,7 +249,6 @@ class ChallengePeriodManager(CacheController):
             msg = (f'Hotkey {hotkey} has a ledger start time of {TimeUtil.millis_to_formatted_date_str(time_of_ledger_start)},'
                    f' a first order time of {TimeUtil.millis_to_formatted_date_str(first_order_time)}, and an'
                    f' initialization time of {TimeUtil.millis_to_formatted_date_str(ledger.initialization_time_ms)}.')
-            print(msg)
         return ans
 
     def inspect(
@@ -306,7 +298,7 @@ class ChallengePeriodManager(CacheController):
                 bt.logging.warning(f'Hotkey {hotkey} has no inspection time. Unexpected.')
                 continue
 
-            before_challenge_end = ChallengePeriodManager.meets_time_criteria(current_time, bucket_start_time, MinerBucket.CHALLENGE)
+            before_challenge_end = ChallengePeriodManager.meets_time_criteria(current_time, bucket_start_time, self.get_miner_bucket(hotkey))
             if not before_challenge_end:
                 bt.logging.info(f'Hotkey {hotkey} has failed the challenge period due to time. cp_failed')
                 eliminate_miners[hotkey] = (EliminationReason.FAILED_CHALLENGE_PERIOD_TIME.value, -1)
@@ -329,6 +321,7 @@ class ChallengePeriodManager(CacheController):
             ledger_element = inspection_ledger[hotkey]
             exceeds_max_drawdown, recorded_drawdown_percentage = LedgerUtils.is_beyond_max_drawdown(ledger_element)
             if exceeds_max_drawdown:
+                bt.logging.info(f'Miner {hotkey} has no ledger, skipping')
                 bt.logging.info(f'Hotkey {hotkey} has failed the challenge period due to drawdown {recorded_drawdown_percentage}. cp_failed')
                 eliminate_miners[hotkey] = (EliminationReason.FAILED_CHALLENGE_PERIOD_DRAWDOWN.value, recorded_drawdown_percentage)
                 continue
@@ -377,8 +370,7 @@ class ChallengePeriodManager(CacheController):
             candidate_hotkeys,
             inspection_scores_dict,
             threshold_rank = ValiConfig.PROMOTION_THRESHOLD_RANK
-            ):
-
+            ) -> tuple[list[str], list[str]]:
         combined_scores_dict = copy.deepcopy(success_scores_dict)
         for metric_name, config in combined_scores_dict["metrics"].items():
             candidate_metric_score = inspection_scores_dict["metrics"][metric_name]["scores"]
@@ -535,8 +527,6 @@ class ChallengePeriodManager(CacheController):
         for hotkey in hotkeys:
             if hotkey in self.active_miners:
                 del self.active_miners[hotkey]
-            # if hotkey in self.challengeperiod_testing:
-            #     del self.challengeperiod_testing[hotkey]
             else:
                 bt.logging.error(f"Hotkey {hotkey} was not in challengeperiod_testing but demotion to failure was attempted.")
     
