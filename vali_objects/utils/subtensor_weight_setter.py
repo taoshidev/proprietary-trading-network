@@ -36,7 +36,9 @@ class SubtensorWeightSetter(CacheController):
         block_reg_failures = set()
 
         # augmented ledger should have the gain, loss, n_updates, and time_duration
-        testing_hotkeys = list(self.position_manager.challengeperiod_manager.get_hotkeys_by_bucket(MinerBucket.CHALLENGE))
+        challenge_hotkeys = list(self.position_manager.challengeperiod_manager.get_hotkeys_by_bucket(MinerBucket.CHALLENGE))
+        probation_hotkeys = list(self.position_manager.challengeperiod_manager.get_hotkeys_by_bucket(MinerBucket.PROBATION))
+        testing_hotkeys = challenge_hotkeys +  probation_hotkeys
         success_hotkeys = list(self.position_manager.challengeperiod_manager.get_hotkeys_by_bucket(MinerBucket.MAINCOMP))
 
         if self.is_backtesting:
