@@ -280,8 +280,9 @@ class ChallengePeriodManager(CacheController):
             for one inspection hotkey. Only provided if running tests
 
         Returns:
-            passing_miners - list of miners that passed the challenge period.
-            failing_miner - dictionary of hotkey to a tuple of the form (reason failed challenge period, maximum drawdown)
+            hotkeys_to_promote - list of miners that should be promoted from challenge/probation to maincomp
+            hotkeys_to_demote - list of miners whose scores were lower than the threshold rank, to be demoted to probation
+            miners_to_eliminate - dictionary of hotkey to a tuple of the form (reason failed challenge period, maximum drawdown)
         """
         if len(inspection_hotkeys) == 0:
             return [], [], {}  # no hotkeys to inspect
@@ -289,7 +290,7 @@ class ChallengePeriodManager(CacheController):
         if not current_time:
             current_time = TimeUtil.now_in_millis()
 
-        eliminate_miners = {}
+        miners_to_eliminate = {}
         miners_recently_reregistered = set()
         miners_not_enough_positions = []
 
@@ -307,7 +308,7 @@ class ChallengePeriodManager(CacheController):
             before_challenge_end = ChallengePeriodManager.meets_time_criteria(current_time, bucket_start_time, self.get_miner_bucket(hotkey))
             if not before_challenge_end:
                 bt.logging.info(f'Hotkey {hotkey} has failed the challenge period due to time. cp_failed')
-                eliminate_miners[hotkey] = (EliminationReason.FAILED_CHALLENGE_PERIOD_TIME.value, -1)
+                miners_to_eliminate[hotkey] = (EliminationReason.FAILED_CHALLENGE_PERIOD_TIME.value, -1)
                 continue
 
             # Get hotkey to positions dict that only includes the inspection miner
@@ -326,7 +327,7 @@ class ChallengePeriodManager(CacheController):
             exceeds_max_drawdown, recorded_drawdown_percentage = LedgerUtils.is_beyond_max_drawdown(ledger_element)
             if exceeds_max_drawdown:
                 bt.logging.info(f'Hotkey {hotkey} has failed the challenge period due to drawdown {recorded_drawdown_percentage}. cp_failed')
-                eliminate_miners[hotkey] = (EliminationReason.FAILED_CHALLENGE_PERIOD_DRAWDOWN.value, recorded_drawdown_percentage)
+                miners_to_eliminate[hotkey] = (EliminationReason.FAILED_CHALLENGE_PERIOD_DRAWDOWN.value, recorded_drawdown_percentage)
                 continue
 
             if not self.screen_minimum_interaction(ledger_element):
@@ -358,14 +359,15 @@ class ChallengePeriodManager(CacheController):
                                                                                            valid_candidate_hotkeys,
                                                                                            inspection_scores_dict)
 
-        bt.logging.info(f"Challenge Period {len(inspection_hotkeys)} inspected miners")
+        bt.logging.info(f"Challenge Period: evaluating {len(valid_candidate_hotkeys)}/{len(inspection_hotkeys)} miners eligible for promotion")
+        bt.logging.info(f"Challenge Period: evaluating {len(success_hotkeys)} miners eligible for demotion")
         bt.logging.info(f"Hotkeys to promote: {hotkeys_to_promote}")
         bt.logging.info(f"Hotkeys to demote: {hotkeys_to_demote}")
-        bt.logging.info(f"Hotkeys to eliminate: {list(eliminate_miners.keys())}")
+        bt.logging.info(f"Hotkeys to eliminate: {list(miners_to_eliminate.keys())}")
         bt.logging.info(f"Miners with no positions (skipped): {len(miners_not_enough_positions)}")
         bt.logging.info(f"Miners recently re-registered (skipped): {list(miners_recently_reregistered)}")
 
-        return hotkeys_to_promote, hotkeys_to_demote, eliminate_miners
+        return hotkeys_to_promote, hotkeys_to_demote, miners_to_eliminate
 
     @staticmethod
     def evaluate_promotions(
