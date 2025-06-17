@@ -203,8 +203,8 @@ class TestWeights(TestBase):
 
     def test_challenge_scoring_no_values(self):
 
-        partial_window = ValiConfig.CHALLENGE_PERIOD_MS // 3
-        full_window = ValiConfig.CHALLENGE_PERIOD_MS
+        partial_window = ValiConfig.CHALLENGE_PERIOD_MAXIMUM_MS // 3
+        full_window = ValiConfig.CHALLENGE_PERIOD_MAXIMUM_MS
 
         ledgers = {
             "miner1": None,
@@ -227,8 +227,8 @@ class TestWeights(TestBase):
 
     def test_challenge_scoring_general(self):
 
-        partial_window = ValiConfig.CHALLENGE_PERIOD_MS // 3
-        full_window = ValiConfig.CHALLENGE_PERIOD_MS
+        partial_window = ValiConfig.CHALLENGE_PERIOD_MAXIMUM_MS // 3
+        full_window = ValiConfig.CHALLENGE_PERIOD_MAXIMUM_MS
 
         ledgers = {
             "miner1": None,
