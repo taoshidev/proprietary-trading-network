@@ -206,10 +206,10 @@ class ChallengePeriodManager(CacheController):
         self.set_last_update_time()
 
         bt.logging.info(
-            "Challenge Period snapshot after refresh\n"
-            f"MAINCOMP  {len(self.get_success_miners())} miners\n"
-            f"PROBATION {len(self.get_probation_miners())} miners\n"
-            f"CHALLENGE {len(self.get_testing_miners())} miners\n"
+            "Challenge Period snapshot after refresh "
+            f"(MAINCOMP, {len(self.get_success_miners())}) "
+            f"(PROBATION, {len(self.get_probation_miners())}) "
+            f"(CHALLENGE, {len(self.get_testing_miners())}) "
         )
 
     def _prune_deregistered_metagraph(self, hotkeys=None) -> bool:
@@ -313,7 +313,7 @@ class ChallengePeriodManager(CacheController):
             # Get hotkey to positions dict that only includes the inspection miner
             has_minimum_positions, inspection_positions = ChallengePeriodManager.screen_minimum_positions(positions, hotkey)
             if not has_minimum_positions:
-                miners_not_enough_positions.append((hotkey, positions.get(hotkey, [])))
+                miners_not_enough_positions.append(hotkey)
                 continue
 
             # Get hotkey to ledger dict that only includes the inspection miner
@@ -358,11 +358,13 @@ class ChallengePeriodManager(CacheController):
                                                                                            valid_candidate_hotkeys,
                                                                                            inspection_scores_dict)
 
-        bt.logging.info(f'Challenge Period - miners with not enough positions: {miners_not_enough_positions}'
-                        f'Challenge Period - n_miners_passing: {len(hotkeys_to_promote)}'
-                        f' n_miners_failing: {len(eliminate_miners)} '
-                        f'recently_re_registered: {miners_recently_reregistered} '
-                        f'n_miners_inspected {len(inspection_hotkeys)}')
+        bt.logging.info(f"Challenge Period {len(inspection_hotkeys)} inspected miners")
+        bt.logging.info(f"Hotkeys to promote: {hotkeys_to_promote}")
+        bt.logging.info(f"Hotkeys to demote: {hotkeys_to_demote}")
+        bt.logging.info(f"Hotkeys to eliminate: {list(eliminate_miners.keys())}")
+        bt.logging.info(f"Miners with no positions (skipped): {len(miners_not_enough_positions)}")
+        bt.logging.info(f"Miners recently re-registered (skipped): {list(miners_recently_reregistered)}")
+
         return hotkeys_to_promote, hotkeys_to_demote, eliminate_miners
 
     @staticmethod
@@ -514,27 +516,30 @@ class ChallengePeriodManager(CacheController):
 
     def _promote_challengeperiod_in_memory(self, hotkeys: list[str], current_time: int):
         if len(hotkeys) > 0:
-            bt.logging.info(f"Promoting hotkeys {hotkeys} to challengeperiod success.")
+            bt.logging.info(f"Promoting {len(hotkeys)} miners to main competition.")
 
         for hotkey in hotkeys:
+            bt.logging.info(f"Promoting {hotkey} from {self.get_miner_bucket(hotkey).value} to MAINCOMP")
             self.active_miners[hotkey] = (MinerBucket.MAINCOMP, current_time)
 
     def _eliminate_challengeperiod_in_memory(self, eliminations_with_reasons: dict[str, tuple[str, float]]):
         hotkeys = eliminations_with_reasons.keys()
         if hotkeys:
-            bt.logging.info(f"Removing hotkeys {hotkeys} from challenge period.")
+            bt.logging.info(f"Removing {len(hotkeys)} hotkeys from challenge period.")
 
         for hotkey in hotkeys:
             if hotkey in self.active_miners:
+                bt.logging.info(f"Eliminating {hotkey}")
                 del self.active_miners[hotkey]
             else:
                 bt.logging.error(f"Hotkey {hotkey} was not in challengeperiod_testing but demotion to failure was attempted.")
 
     def _demote_challengeperiod_in_memory(self, hotkeys: list[str], current_time):
         if hotkeys:
-            bt.logging.info(f"Demoting hotkeys {hotkeys} to probation")
+            bt.logging.info(f"Demoting {len(hotkeys)} miners to probation")
 
         for hotkey in hotkeys:
+            bt.logging.info(f"Demoting {hotkey} to PROBATION")
             self.active_miners[hotkey] = (MinerBucket.PROBATION, current_time)
 
     def _write_challengeperiod_from_memory_to_disk(self):
