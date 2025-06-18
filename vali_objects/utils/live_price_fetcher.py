@@ -4,7 +4,7 @@ from typing import List, Tuple, Dict
 import numpy as np
 from data_generator.tiingo_data_service import TiingoDataService
 from data_generator.polygon_data_service import PolygonDataService
-from time_util.time_util import TimeUtil, timeme
+from time_util.time_util import TimeUtil
 
 from vali_objects.vali_config import TradePair
 from vali_objects.position import Position
@@ -82,7 +82,6 @@ class LivePriceFetcher:
         t_sources = self.tiingo_data_service.trade_pair_to_recent_events[trade_pair.trade_pair].get_events_in_range(start_ms, end_ms)
         return poly_sources + t_sources
 
-    @timeme
     def get_latest_price(self, trade_pair: TradePair, time_ms=None) -> Tuple[float, List[PriceSource]] | Tuple[None, None]:
         """
         Gets the latest price for a single trade pair by utilizing WebSocket and possibly REST data sources.
@@ -98,7 +97,6 @@ class LivePriceFetcher:
         temp = self.get_tp_to_sorted_price_sources([trade_pair], {trade_pair: time_ms})
         return temp.get(trade_pair)
 
-    @timeme
     def get_tp_to_sorted_price_sources(self, trade_pairs: List[TradePair],
                                        trade_pair_to_last_order_time_ms: Dict[TradePair, int] = None) -> Dict[TradePair, List[PriceSource]]:
         """

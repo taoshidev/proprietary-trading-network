@@ -46,9 +46,11 @@ class BaseDataService():
     def __init__(self, provider_name, ipc_manager=None):
         self.DEBUG_LOG_INTERVAL_S = 180
         self.MAX_TIME_NO_EVENTS_S = 120
+        self.enabled_websocket_categories = {TradePairCategory.CRYPTO,
+                                            TradePairCategory.FOREX}  # Exclude EQUITIES for now
 
         self.provider_name = provider_name
-        self.tpc_to_n_events = {x: 0 for x in TradePairCategory}
+        self.tpc_to_n_events = {x: 0 for x in self.enabled_websocket_categories}
         self.n_equity_events_skipped_afterhours = 0
         self.trade_pair_to_price_history = defaultdict(list)
         self.closed_market_prices = {tp: None for tp in TradePair}
@@ -61,8 +63,7 @@ class BaseDataService():
             self.trade_pair_to_recent_events = defaultdict(RecentEventTracker)
         else:
             self.trade_pair_to_recent_events = ipc_manager.dict()
-        self.trade_pair_category_to_longest_allowed_lag_s = {TradePairCategory.CRYPTO: 30, TradePairCategory.FOREX: 30,
-                                                           TradePairCategory.INDICES: 30, TradePairCategory.EQUITIES: 30}
+        self.trade_pair_category_to_longest_allowed_lag_s = {tpc: 30 for tpc in TradePairCategory}
         self.timespan_to_ms = {'second': 1000, 'minute': 1000 * 60, 'hour': 1000 * 60 * 60, 'day': 1000 * 60 * 60 * 24}
 
         self.trade_pair_lookup = {pair.trade_pair: pair for pair in TradePair}
@@ -76,7 +77,7 @@ class BaseDataService():
         # initialize our websocket slots to None
         self.WEBSOCKET_THREADS = {}
         self.WEBSOCKET_OBJECTS = {}
-        for tpc in [TradePairCategory.CRYPTO, TradePairCategory.FOREX, TradePairCategory.EQUITIES]:
+        for tpc in self.enabled_websocket_categories:
             self.WEBSOCKET_THREADS[tpc] = None
             self.WEBSOCKET_OBJECTS[tpc] = None
 
@@ -137,7 +138,7 @@ class BaseDataService():
             self.websocket_manager_thread.join(timeout=1)
             bt.logging.info(f"Stopped {self.provider_name} websocket manager thread")
 
-        for tpc in TradePairCategory:
+        for tpc in self.enabled_websocket_categories:
             self._kill_ws_for_category(tpc)
             if self.WEBSOCKET_THREADS.get(tpc):
                 self.WEBSOCKET_THREADS[tpc].join(timeout=1)
@@ -190,7 +191,7 @@ class BaseDataService():
                     await asyncio.sleep(5)  # Back off on errors
 
         async def health_check():
-            tpc_to_prev = {t: 0 for t in TradePairCategory}
+            tpc_to_prev = {t: 0 for t in self.enabled_websocket_categories}
             last_health_check = time.time()
             last_debug = time.time()
 
@@ -199,9 +200,7 @@ class BaseDataService():
                     now = time.time()
                     if now - last_health_check > self.MAX_TIME_NO_EVENTS_S:
                         resets = []
-                        for tpc in TradePairCategory:
-                            if tpc == TradePairCategory.INDICES:
-                                continue
+                        for tpc in self.enabled_websocket_categories:
                             curr = self.tpc_to_n_events[tpc]
                             prev = tpc_to_prev[tpc]
 
@@ -216,7 +215,7 @@ class BaseDataService():
                                     except Exception as e:
                                         bt.logging.warning(f"Health check shutdown trigger failed for {tpc}: {e}")
 
-                        tpc_to_prev = {t: self.tpc_to_n_events[t] for t in TradePairCategory}
+                        tpc_to_prev = {t: self.tpc_to_n_events[t] for t in self.enabled_websocket_categories}
                         if resets:
                             bt.logging.warning(
                                 f"Health check restarting {self.provider_name} websockets for {resets!r}. curr {curr} prev {prev}")
@@ -240,7 +239,7 @@ class BaseDataService():
 
         # Create and store tasks for each websocket category
         tasks = []
-        for tpc in (TradePairCategory.CRYPTO, TradePairCategory.FOREX, TradePairCategory.EQUITIES):
+        for tpc in self.enabled_websocket_categories:
             task = loop.create_task(run_websocket(tpc))
             tasks.append(task)
 
