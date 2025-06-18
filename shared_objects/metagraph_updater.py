@@ -124,7 +124,7 @@ class MetagraphUpdater(CacheController):
         metagraph_clone = self.subtensor.metagraph(self.config.netuid)
         assert hasattr(metagraph_clone, 'hotkeys'), "Metagraph clone does not have hotkeys attribute"
         bt.logging.info("Updating metagraph...")
-        metagraph_clone.sync(subtensor=self.subtensor)
+        #metagraph_clone.sync(subtensor=self.subtensor) The call to subtensor.metagraph() already syncs the metagraph.
         hotkeys_after = set(metagraph_clone.hotkeys)
         lost_hotkeys = hotkeys_before - hotkeys_after
         gained_hotkeys = hotkeys_after - hotkeys_before
