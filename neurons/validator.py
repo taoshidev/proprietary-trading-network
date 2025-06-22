@@ -42,7 +42,7 @@ from vali_objects.utils.elimination_manager import EliminationManager
 from vali_objects.utils.live_price_fetcher import LivePriceFetcher
 from vali_objects.utils.price_slippage_model import PriceSlippageModel
 from vali_objects.utils.subtensor_weight_setter import SubtensorWeightSetter
-from vali_objects.utils.mdd_checker import MDDChecker
+from vali_objects.utils.position_refresher import PositionRefresher
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils, CustomEncoder
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
 from vali_objects.utils.position_manager import PositionManager
@@ -321,8 +321,8 @@ class Validator:
         self.plagiarism_thread = Process(target=self.plagiarism_detector.run_update_loop, daemon=True)
         self.plagiarism_thread.start()
 
-        self.mdd_checker = MDDChecker(self.metagraph, self.position_manager, live_price_fetcher=self.live_price_fetcher,
-                                      shutdown_dict=shutdown_dict)
+        self.position_refresher = PositionRefresher(self.metagraph, self.position_manager, live_price_fetcher=self.live_price_fetcher,
+                                                    shutdown_dict=shutdown_dict)
         self.weight_setter = SubtensorWeightSetter(self.metagraph, position_manager=self.position_manager)
 
         self.request_core_manager = RequestCoreManager(self.position_manager, self.weight_setter, self.plagiarism_detector)
@@ -517,7 +517,7 @@ class Validator:
                 current_time = TimeUtil.now_in_millis()
                 self.price_slippage_model.refresh_features_daily()
                 self.position_syncer.sync_positions_with_cooldown(self.auto_sync)
-                self.mdd_checker.mdd_check(self.position_locks)
+                self.position_refresher.mdd_check(self.position_locks)
                 self.challengeperiod_manager.refresh(current_time=current_time)
                 self.elimination_manager.process_eliminations(self.position_locks)
                 self.weight_setter.set_weights(self.wallet, self.config.netuid, self.subtensor, current_time=current_time)

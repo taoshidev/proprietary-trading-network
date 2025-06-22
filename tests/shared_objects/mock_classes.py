@@ -6,7 +6,7 @@ from bittensor import Balance
 
 from data_generator.polygon_data_service import PolygonDataService
 from vali_objects.utils.live_price_fetcher import LivePriceFetcher
-from vali_objects.utils.mdd_checker import MDDChecker
+from vali_objects.utils.position_refresher import PositionRefresher
 from vali_objects.utils.plagiarism_detector import PlagiarismDetector
 from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
 from vali_objects.utils.position_manager import PositionManager
@@ -16,7 +16,7 @@ from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
 from shared_objects.cache_controller import CacheController
 from vali_objects.vali_dataclasses.price_source import PriceSource
 
-class MockMDDChecker(MDDChecker):
+class MockPositionRefresher(PositionRefresher):
     def __init__(self, metagraph, position_manager, live_price_fetcher):
         super().__init__(metagraph, position_manager, running_unit_tests=True,
                          live_price_fetcher=live_price_fetcher)

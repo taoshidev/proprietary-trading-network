@@ -2,7 +2,7 @@
 # Copyright © 2024 Taoshi Inc
 from unittest.mock import patch
 
-from tests.shared_objects.mock_classes import MockMetagraph, MockMDDChecker
+from tests.shared_objects.mock_classes import MockMetagraph, MockPositionRefresher
 from tests.vali_tests.base_objects.test_base import TestBase
 from time_util.time_util import TimeUtil
 from vali_objects.utils.elimination_manager import EliminationManager
@@ -71,7 +71,7 @@ class TestMDDChecker(TestBase):
                                                 perf_ledger_manager=self.perf_ledger_manager, elimination_manager=self.elimination_manager)
         self.elimination_manager.position_manager = self.position_manager
 
-        self.mdd_checker = MockMDDChecker(self.mock_metagraph, self.position_manager, self.live_price_fetcher)
+        self.mdd_checker = MockPositionRefresher(self.mock_metagraph, self.position_manager, self.live_price_fetcher)
         self.DEFAULT_TEST_POSITION_UUID = "test_position"
         self.DEFAULT_OPEN_MS = TimeUtil.now_in_millis()
         self.trade_pair_to_default_position = {x: Position(
