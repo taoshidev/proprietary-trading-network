@@ -12,13 +12,13 @@ A long position is a bet that the trade pair will increase, while a short positi
    - There is a registration fee of 2.5 TAO on mainnet.
    - There is an immunity period of 9 days to help miners submit orders to become competitive with existing miners. Eliminated miners do not benefit from being in the immunity period.
 2. Your miner will start in the challenge period upon entry. Miners must demonstrate consistent performance within 150 days to pass the challenge period. During this period, they will receive a small amount of TAO that will help them avoid getting deregistered. The minimum requirements to pass the challenge period:
-   - Score at or above the 75th percentile relative to the miners in the main competition. The details may be found [here](https://docs.taoshi.io/tips/p13/).
    - Have at least 120 full days of trading
    - Don't exceed 10% max drawdown
+   - Score at or above the 25th miner in main competition. The details may be found [here](https://docs.taoshi.io/tips/p21/).
 3. Positions are uni-directional. Meaning, if a position starts LONG (the first order it receives is LONG),
    it can't flip SHORT. If you try and have it flip SHORT (using more leverage SHORT than exists LONG) it will close out
    the position. You'll then need to open a second position which is SHORT with the difference.
-4. Position leverage is bound per trade_pair. If an order would cause the position's leverage to exceed the upper boundary, the position leverage will be clamped. Minimum order leverage is 0.001. Crypto positional leverage limit is [0.01, 0.5]. Forex positional leverage limit is [0.1, 5].
+4. Position leverage is bound per trade pair. If an order would cause the position's leverage to exceed the upper boundary, the position leverage will be clamped. Minimum order leverage is 0.001. Crypto positional leverage limit is [0.01, 0.5]. Forex positional leverage limit is [0.1, 5].
 5. Leverage is capped at 10 across all open positions in a miner's portfolio. Crypto position leverages are scaled by 10x when contributing
    to the leverage cap. <a href="https://docs.taoshi.io/tips/p10/">View for more details and examples.</a>
 6. You can take profit on an open position using LONG and SHORT. Say you have an open LONG position with .5x
@@ -26,11 +26,14 @@ A long position is a bet that the trade pair will increase, while a short positi
    of size .25x leverage to reduce the size of the position. LONG and SHORT signals can be thought of working in opposite
    directions in this way.
 7. Miners that have passed challenge period will be eliminated for a drawdown that exceeds 10%.
-8. A miner can have a maximum of 1 open position per trade pair. No limit on the number of closed positions.
-9. A miner's order will be ignored if placing a trade outside of market hours.
-10. A miner's order will be ignored if they are rate limited (maliciously sending too many requests)
-11. There is a 10-second cooldown period between orders of the same trade pair, during which the miner cannot place another order.
-12. Avoid reusing hotkeys that have been previously deregistered.
+8. Miners in main competition who fall below the top 25 will be observed under a probation period. 
+   - Miners in probation period have 30 days from time of demotion to be promoted back into main competition.
+   - If they fail to do so within this window, they will be eliminated.
+9. A miner can have a maximum of 1 open position per trade pair. No limit on the number of closed positions.
+10. A miner's order will be ignored if placing a trade outside of market hours.
+11. A miner's order will be ignored if they are rate limited (maliciously sending too many requests)
+12. There is a 10-second cooldown period between orders of the same trade pair, during which the miner cannot place another order.
+13. Avoid reusing hotkeys that have been previously deregistered.
 
 ## Scoring Details
 
