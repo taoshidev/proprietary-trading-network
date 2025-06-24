@@ -48,7 +48,8 @@ class Miner:
             slack_notifier=self.slack_notifier
         )
         self.metagraph_updater = MetagraphUpdater(self.config, self.metagraph, self.wallet.hotkey.ss58_address,
-                                                  True, position_inspector=self.position_inspector)
+                                                  True, position_inspector=self.position_inspector,
+                                                    slack_notifier=self.slack_notifier)
 
         self.check_miner_registration()
         self.my_subnet_uid = self.metagraph.hotkeys.index(self.wallet.hotkey.ss58_address)

@@ -9,8 +9,10 @@ from shared_objects.cache_controller import CacheController
 
 import bittensor as bt
 
+
 class MetagraphUpdater(CacheController):
-    def __init__(self, config, metagraph, hotkey, is_miner, position_inspector=None, position_manager=None, shutdown_dict=None):
+    def __init__(self, config, metagraph, hotkey, is_miner, position_inspector=None, position_manager=None,
+                 shutdown_dict=None, slack_notifier=None):
         super().__init__(metagraph)
         self.config = config
         self.subtensor = bt.subtensor(config=config)
@@ -24,6 +26,14 @@ class MetagraphUpdater(CacheController):
         self.position_inspector = position_inspector
         self.position_manager = position_manager
         self.shutdown_dict = shutdown_dict  # Flag to control the loop
+        self.slack_notifier = slack_notifier  # Add slack notifier for error reporting
+
+        # Exponential backoff parameters
+        self.min_backoff = 1  # 1 second minimum
+        self.max_backoff = 43200  # 12 hours maximum (12 * 60 * 60)
+        self.backoff_factor = 2  # Double the wait time on each retry
+        self.current_backoff = self.min_backoff
+        self.consecutive_failures = 0
 
     def _current_timestamp(self):
         return time.time()
@@ -44,12 +54,42 @@ class MetagraphUpdater(CacheController):
         while not self.shutdown_dict:
             try:
                 self.update_metagraph()
+                # Reset backoff on successful update
+                if self.consecutive_failures > 0:
+                    bt.logging.info(
+                        f"Metagraph update successful after {self.consecutive_failures} failures. Resetting backoff.")
+                    if self.slack_notifier:
+                        self.slack_notifier.send_message(
+                            f"✅ Metagraph update recovered after {self.consecutive_failures} consecutive failures",
+                            level="info"
+                        )
+                self.consecutive_failures = 0
+                self.current_backoff = self.min_backoff
+                time.sleep(1)  # Normal operation delay
             except Exception as e:
-                # Handle exceptions or log errors
-                bt.logging.error(f"Error during metagraph update: {e}. Please alert a team member ASAP!")
+                self.consecutive_failures += 1
+                # Calculate next backoff time
+                self.current_backoff = min(self.current_backoff * self.backoff_factor, self.max_backoff)
+
+                # Log error with backoff information
+                error_msg = (f"Error during metagraph update (attempt #{self.consecutive_failures}): {e}. "
+                             f"Next retry in {self.current_backoff} seconds.")
+                bt.logging.error(error_msg)
                 bt.logging.error(traceback.format_exc())
-                time.sleep(10)
-            time.sleep(1)  # Don't busy loop
+
+                if self.slack_notifier:
+                    hours = self.current_backoff / 3600
+                    self.slack_notifier.send_message(
+                        f"❌ Metagraph update failing repeatedly!\n"
+                        f"Consecutive failures: {self.consecutive_failures}\n"
+                        f"Error: {str(e)}\n"
+                        f"Next retry in: {hours:.1f} hours\n"
+                        f"Please check the miner logs!",
+                        level="error"
+                    )
+
+                # Wait with exponential backoff
+                time.sleep(self.current_backoff)
 
     def estimate_number_of_miners(self):
         # Filter out expired miners
@@ -79,8 +119,9 @@ class MetagraphUpdater(CacheController):
         else:
             n_validators = max(1, n_validators)
 
-        bt.logging.info(f"metagraph state (approximation): {n_validators} active validators, {n_miners} active miners, hotkeys: "
-                        f"{len(self.metagraph.hotkeys)}")
+        bt.logging.info(
+            f"metagraph state (approximation): {n_validators} active validators, {n_miners} active miners, hotkeys: "
+            f"{len(self.metagraph.hotkeys)}")
 
     def sync_lists(self, shared_list, updated_list, brute_force=False):
         if brute_force:
@@ -124,7 +165,7 @@ class MetagraphUpdater(CacheController):
         metagraph_clone = self.subtensor.metagraph(self.config.netuid)
         assert hasattr(metagraph_clone, 'hotkeys'), "Metagraph clone does not have hotkeys attribute"
         bt.logging.info("Updating metagraph...")
-        #metagraph_clone.sync(subtensor=self.subtensor) The call to subtensor.metagraph() already syncs the metagraph.
+        # metagraph_clone.sync(subtensor=self.subtensor) The call to subtensor.metagraph() already syncs the metagraph.
         hotkeys_after = set(metagraph_clone.hotkeys)
         lost_hotkeys = hotkeys_before - hotkeys_after
         gained_hotkeys = hotkeys_after - hotkeys_before
@@ -138,8 +179,14 @@ class MetagraphUpdater(CacheController):
         percent_lost = 100 * len(lost_hotkeys) / len(hotkeys_before) if lost_hotkeys else 0
         # failsafe condition to reject new metagraph
         if len(lost_hotkeys) > 10 and percent_lost >= 25:
-            bt.logging.error(f"Too many hotkeys lost in metagraph update: {len(lost_hotkeys)} hotkeys lost, "
-                             f"{percent_lost:.2f}% of total hotkeys. Rejecting new metagraph. ALERT A TEAM MEMBER ASAP...")
+            error_msg = (f"Too many hotkeys lost in metagraph update: {len(lost_hotkeys)} hotkeys lost, "
+                         f"{percent_lost:.2f}% of total hotkeys. Rejecting new metagraph. ALERT A TEAM MEMBER ASAP...")
+            bt.logging.error(error_msg)
+            if self.slack_notifier:
+                self.slack_notifier.send_message(
+                    f"🚨 CRITICAL: {error_msg}",
+                    level="error"
+                )
         elif self.is_miner:
             self.metagraph = metagraph_clone
         else:
@@ -148,19 +195,22 @@ class MetagraphUpdater(CacheController):
             self.sync_lists(self.metagraph.uids, metagraph_clone.uids, brute_force=True)
             self.sync_lists(self.metagraph.hotkeys, metagraph_clone.hotkeys, brute_force=True)
             # Tuple doesn't support item assignment.
-            self.sync_lists(self.metagraph.block_at_registration, metagraph_clone.block_at_registration, brute_force=True)
+            self.sync_lists(self.metagraph.block_at_registration, metagraph_clone.block_at_registration,
+                            brute_force=True)
 
         if recently_acked_miners:
             self.update_likely_miners(recently_acked_miners)
         if recently_acked_validators:
             self.update_likely_validators(recently_acked_validators)
-        #self.log_metagraph_state()
+        # self.log_metagraph_state()
         self.set_last_update_time()
+
 
 # len([x for x in self.metagraph.axons if '0.0.0.0' not in x.ip]), len([x for x in self.metagraph.neurons if '0.0.0.0' not in x.axon_info.for ip])
 if __name__ == "__main__":
     from neurons.miner import Miner
     from miner_objects.position_inspector import PositionInspector
+
     config = Miner.get_config()  # Must run this via commandline to populate correctly
     subtensor = bt.subtensor(config=config)
     metagraph = subtensor.metagraph(config.netuid)
