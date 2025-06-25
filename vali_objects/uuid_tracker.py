@@ -11,7 +11,7 @@ class UUIDTracker:
     def add_initial_uuids(self, hk_to_positions):
         try:
             n_orders_added = 0
-            for hk, positions in hk_to_positions:
+            for hk, positions in hk_to_positions.items():
                 for p in positions:
                     n_orders_added += len(p.orders)
                     for o in p.orders:
