@@ -945,7 +945,7 @@ class PositionManager(CacheController):
         return portfolio_leverage
 
     @timeme
-    def get_positions_for_all_miners(self, from_disk=False, **args):
+    def get_positions_for_all_miners(self, from_disk=False, **args) -> dict[str, list[Position]]:
         if from_disk:
             all_miner_hotkeys: list = ValiBkpUtils.get_directories_in_dir(
                 ValiBkpUtils.get_miner_dir(self.running_unit_tests)

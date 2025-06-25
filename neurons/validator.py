@@ -218,6 +218,7 @@ class Validator:
         self.position_manager.perf_ledger_manager = self.perf_ledger_manager
 
         self.position_manager.pre_run_setup()
+        self.uuid_tracker.add_initial_uuids(self.position_manager.get_positions_for_all_miners())
 
         self.checkpoint_lock = threading.Lock()
         self.encoded_checkpoint = ""
@@ -329,29 +330,6 @@ class Validator:
         self.miner_statistics_manager = MinerStatisticsManager(self.position_manager, self.weight_setter, self.plagiarism_detector)
 
         # Start the perf ledger updater loop in its own process. Make sure it happens after the position manager has chances to make any fixes
-
-        """
-        import multiprocessing
-        import logging
-
-        multiprocessing.log_to_stderr()
-        logger = multiprocessing.get_logger()
-        logger.setLevel(logging.DEBUG)
-        def test_picklability(obj, do, obj_name="Object", ):
-            import pickle
-
-            try:
-                pickle.dumps(obj)
-                #print(f"[PASS] {obj_name} is picklable.")
-            except Exception as e:
-                print(f"[FAIL] {obj_name} is NOT picklable. Reason: {e}")
-                if hasattr(obj, '__dict__'):
-                    for attr_name, attr_value in vars(obj).items():
-                        if attr_name not in do:
-                            do.add(attr_name)
-                            test_picklability(attr_value, do,f"{obj_name}.{attr_name}")
-        do = set()
-        """
         self.perf_ledger_updater_thread = Process(target=self.perf_ledger_manager.run_update_loop, daemon=True)
         self.perf_ledger_updater_thread.start()
 
@@ -694,6 +672,10 @@ class Validator:
     def parse_miner_uuid(self, synapse: template.protocol.SendSignal):
         temp = synapse.miner_order_uuid
         assert isinstance(temp, str), f"excepted string miner uuid but got {temp}"
+        if not temp:
+            bt.logging.warning(f'miner_order_uuid is empty for miner_hotkey [{synapse.dendrite.hotkey}] miner_repo_version '
+                               f'[{synapse.repo_version}]. Generating a new one.')
+            temp = str(uuid.uuid4())
         return temp
 
     # This is the core validator function to receive a signal
@@ -752,7 +734,7 @@ class Validator:
                         price=best_price_source.parse_appropriate_price(now_ms, trade_pair.is_forex, signal_order_type,
                                                                         existing_position),
                         processed_ms=now_ms,
-                        order_uuid=miner_order_uuid if miner_order_uuid else str(uuid.uuid4()),
+                        order_uuid=miner_order_uuid,
                         price_sources=price_sources,
                         bid=best_price_source.bid,
                         ask=best_price_source.ask,
@@ -768,8 +750,7 @@ class Validator:
                         # Add the position to the queue for broadcasting
                         self.shared_queue_websockets.put(existing_position.to_websocket_dict(miner_repo_version=miner_repo_version))
                     synapse.order_json = order.__str__()
-                    if miner_order_uuid:
-                        self.uuid_tracker.add(miner_order_uuid)
+                    self.uuid_tracker.add(miner_order_uuid)
                 else:
                     # Happens if a FLAT is sent when no position exists
                     pass
