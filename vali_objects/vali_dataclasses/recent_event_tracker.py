@@ -1,12 +1,12 @@
 
 from sortedcontainers import SortedList
 from time_util.time_util import TimeUtil
+from vali_objects.vali_config import ValiConfig
 
 def sorted_list_key(x):
     return x[0]
 
 class RecentEventTracker:
-    OLDEST_ALLOWED_RECORD_MS = 300000  # 5 minutes
     def __init__(self):
         self.events = SortedList(key=sorted_list_key)  # Assuming each event is a tuple (timestamp, event_data)
         self.timestamp_to_event = {}
@@ -51,7 +51,7 @@ class RecentEventTracker:
         # Don't lock here, as this method is called from within a lock
         current_time_ms = TimeUtil.now_in_millis()
         # Calculate the oldest valid time once, outside the loop
-        oldest_valid_time_ms = current_time_ms - self.OLDEST_ALLOWED_RECORD_MS
+        oldest_valid_time_ms = current_time_ms - ValiConfig.RECENT_EVENT_TRACKER_OLDEST_ALLOWED_RECORD_MS
         while self.events and self.events[0][0] < oldest_valid_time_ms:
             removed_event = self.events.pop(0)
             del self.timestamp_to_event[removed_event[0]]

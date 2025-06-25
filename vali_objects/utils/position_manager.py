@@ -223,14 +223,16 @@ class PositionManager(CacheController):
     @timeme
     def compact_price_sources(self):
         time_now = TimeUtil.now_in_millis()
+        cutoff_time_ms = time_now - 10 * ValiConfig.RECENT_EVENT_TRACKER_OLDEST_ALLOWED_RECORD_MS # Generous bound
         n_price_sources_removed = 0
         hotkey_to_positions = self.get_positions_for_all_miners(sort_positions=True)
-        eliminated_miners = self.elimination_manager.get_eliminations_from_memory()
-        eliminated_hotkeys = set([e['hotkey'] for e in eliminated_miners])
         for hotkey, positions in hotkey_to_positions.items():
-            if hotkey in eliminated_hotkeys:
-                continue
             for position in positions:
+                if position.is_open_position:
+                    continue # Don't modify open positions as we don't want to deal with locking
+                elif any(o.processed_ms > cutoff_time_ms for o in position.orders):
+                    continue # Could be subject to retro price correction and we don't want to deal with locking
+
                 n = self.strip_old_price_sources(position, time_now)
                 if n:
                     n_price_sources_removed += n
