@@ -54,6 +54,8 @@ from vali_objects.utils.vali_utils import ValiUtils
 from vali_objects.vali_config import ValiConfig
 
 from vali_objects.utils.plagiarism_detector import PlagiarismDetector
+from vali_objects.utils.contract_manager import ContractManager
+from collateral_sdk import Network
 
 # Global flag used to indicate shutdown
 shutdown_dict = {}
@@ -187,6 +189,16 @@ class Validator:
                                                      position_manager=None)  # Set after self.pm creation
 
 
+        # Initialize ContractManager for collateral management
+        contract_network = Network.MAINNET if self.is_mainnet else Network.TESTNET
+        self.contract_manager = ContractManager(
+            network=contract_network,
+            owner_address=self.secrets.get('contract_owner_address'),
+            owner_private_key=self.secrets.get('contract_owner_private_key'),
+            data_dir=self.config.full_path
+        )
+        bt.logging.info(f"ContractManager initialized for network: {contract_network.name}")
+
         self.position_manager = PositionManager(metagraph=self.metagraph,
                                                 perform_order_corrections=True,
                                                 perform_compaction=True,
@@ -195,7 +207,8 @@ class Validator:
                                                 elimination_manager=self.elimination_manager,
                                                 challengeperiod_manager=None,
                                                 secrets=self.secrets,
-                                                shared_queue_websockets=self.shared_queue_websockets)
+                                                shared_queue_websockets=self.shared_queue_websockets,
+                                                contract_manager=self.contract_manager)
 
         self.position_locks = PositionLocks(hotkey_to_positions=self.position_manager.get_positions_for_all_miners())
 
