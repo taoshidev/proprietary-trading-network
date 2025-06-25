@@ -48,8 +48,8 @@ class MDDChecker(CacheController):
                 t0 = time.time()
                 self.position_manager.compact_price_sources()
                 bt.logging.info(f'compacted price sources in {time.time() - t0:.2f} seconds')
-            except:
-                bt.logging.error(f"Error in MDDChecker.run_compacting_forever: {traceback.format_exc()}")
+            except Exception as e:
+                bt.logging.error(f"Error {e} in run_compacting_forever: {traceback.format_exc()}")
                 time.sleep(ValiConfig.PRICE_SOURCE_COMPACTING_SLEEP_INTERVAL_SECONDS)
             time.sleep(ValiConfig.PRICE_SOURCE_COMPACTING_SLEEP_INTERVAL_SECONDS)
         bt.logging.info("compaction thread shutting down.")

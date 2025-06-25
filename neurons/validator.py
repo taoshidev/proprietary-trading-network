@@ -572,7 +572,7 @@ class Validator:
                 synapse.error_message = msg
 
     def should_fail_early(self, synapse: template.protocol.SendSignal | template.protocol.GetPositions | template.protocol.GetDashData | template.protocol.ValidatorCheckpoint, method:SynapseMethod,
-                          signal:dict=None) -> bool:
+                          signal:dict=None, now_ms=None) -> bool:
         global shutdown_dict
         if shutdown_dict:
             synapse.successfully_processed = False
@@ -626,6 +626,13 @@ class Validator:
 
         if signal:
             tp = self.parse_trade_pair_from_signal(signal)
+            err_msg = self.enforce_order_cooldown(tp.trade_pair_id, now_ms, sender_hotkey)
+            if err_msg:
+                bt.logging.error(err_msg)
+                synapse.successfully_processed = False
+                synapse.error_message = err_msg
+                return True
+
             if tp and not self.live_price_fetcher.polygon_data_service.is_market_open(tp):
                 msg = (f"Market for trade pair [{tp.trade_pair_id}] is likely closed or this validator is"
                        f" having issues fetching live price. Please try again later.")
@@ -649,45 +656,32 @@ class Validator:
 
         return False
 
-    def enforce_order_cooldown(self, order, open_position, miner_hotkey):
+    def enforce_order_cooldown(self, trade_pair_id, now_ms, miner_hotkey):
         """
         Enforce cooldown between orders for the same trade pair using an efficient cache.
-
-        Args:
-            order: The new order being placed
-            open_position: The existing open position (if any)
-            miner_hotkey: The hotkey of the miner placing the order
         """
-        trade_pair_id = order.trade_pair.trade_pair_id
         cache_key = (miner_hotkey, trade_pair_id)
-        current_order_time_ms = order.processed_ms
+        current_order_time_ms = now_ms
 
         # Get the last order time from cache
         cached_last_order_time = self.last_order_time_cache.get(cache_key, 0)
-
-        # Also check if there are orders in the current open position
-        position_last_order_time = 0
-        if open_position and len(open_position.orders) > 0:
-            last_order = open_position.orders[-1]
-            position_last_order_time = last_order.processed_ms
-
-        # Use the most recent time between cache and current position
-        last_order_time_ms = max(cached_last_order_time, position_last_order_time)
-
-        if last_order_time_ms > 0:
-            time_since_last_order_ms = current_order_time_ms - last_order_time_ms
+        msg = None
+        if cached_last_order_time > 0:
+            time_since_last_order_ms = current_order_time_ms - cached_last_order_time
 
             if time_since_last_order_ms < ValiConfig.ORDER_COOLDOWN_MS:
-                previous_order_time = TimeUtil.millis_to_formatted_date_str(last_order_time_ms)
+                previous_order_time = TimeUtil.millis_to_formatted_date_str(cached_last_order_time)
                 current_time = TimeUtil.millis_to_formatted_date_str(current_order_time_ms)
                 time_to_wait_in_s = (ValiConfig.ORDER_COOLDOWN_MS - time_since_last_order_ms) / 1000
-                raise SignalException(
-                    f"Order for trade pair [{order.trade_pair.trade_pair_id}] was placed too soon after the previous order. "
+                msg = (
+                    f"Order for trade pair [{trade_pair_id}] was placed too soon after the previous order. "
                     f"Last order was placed at [{previous_order_time}] and current order was placed at [{current_time}]. "
                     f"Please wait {time_to_wait_in_s:.1f} seconds before placing another order."
                 )
 
         # Update the cache with the current order time (will be done after order is successfully processed)
+        self.last_order_time_cache[(miner_hotkey, trade_pair_id)] = now_ms
+        return msg
 
     def parse_miner_uuid(self, synapse: template.protocol.SendSignal):
         temp = synapse.miner_order_uuid
@@ -709,7 +703,7 @@ class Validator:
         synapse.validator_hotkey = self.wallet.hotkey.ss58_address
         signal = synapse.signal
         bt.logging.info( f"received signal [{signal}] from miner_hotkey [{miner_hotkey}] using repo version [{miner_repo_version}].")
-        if self.should_fail_early(synapse, SynapseMethod.SIGNAL, signal=signal):
+        if self.should_fail_early(synapse, SynapseMethod.SIGNAL, signal=signal, now_ms=now_ms):
             return synapse
 
         with self.signal_sync_lock:
@@ -760,12 +754,9 @@ class Validator:
                     self.price_slippage_model.refresh_features_daily()
                     order.slippage = PriceSlippageModel.calculate_slippage(order.bid, order.ask, order)
                     self._enforce_num_open_order_limit(trade_pair_to_open_position, order)
-                    self.enforce_order_cooldown(order, existing_position, miner_hotkey)
                     net_portfolio_leverage = self.position_manager.calculate_net_portfolio_leverage(miner_hotkey)
                     existing_position.add_order(order, net_portfolio_leverage)
                     self.position_manager.save_miner_position(existing_position)
-                    # Update the cache after successfully processing the order
-                    self.last_order_time_cache[(miner_hotkey, trade_pair.trade_pair_id)] = now_ms
                     if self.config.serve:
                         # Add the position to the queue for broadcasting
                         self.shared_queue_websockets.put(existing_position.to_websocket_dict(miner_repo_version=miner_repo_version))
