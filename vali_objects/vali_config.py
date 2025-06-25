@@ -71,6 +71,7 @@ class ValiConfig:
     PERF_LEDGER_REFRESH_TIME_MS = 1000 * 60 * 5  # minutes
     CHALLENGE_PERIOD_REFRESH_TIME_MS = 1000 * 60 * 1  # minutes
     MDD_CHECK_REFRESH_TIME_MS = 60 * 1000  # 60 seconds
+    PRICE_SOURCE_COMPACTING_SLEEP_INTERVAL_SECONDS = 60 * 60 * 12 # 12 hours
 
     # Positional Leverage limits
     CRYPTO_MIN_LEVERAGE = 0.01
@@ -91,6 +92,9 @@ class ValiConfig:
     ORDER_COOLDOWN_MS = 10000  # 10 seconds
     ORDER_MIN_LEVERAGE = 0.001
     ORDER_MAX_LEVERAGE = 500
+
+    # Controls how much history to store for price data which is used in retroactive updates
+    RECENT_EVENT_TRACKER_OLDEST_ALLOWED_RECORD_MS = 300000 # 5 minutes
 
     # Risk Profiling
     RISK_PROFILING_STEPS_MIN_LEVERAGE = min(CRYPTO_MIN_LEVERAGE, FOREX_MIN_LEVERAGE, INDICES_MIN_LEVERAGE, EQUITIES_MIN_LEVERAGE)
@@ -163,7 +167,8 @@ class ValiConfig:
 
     BASE_DIR = base_directory = BASE_DIR
 
-    METAGRAPH_UPDATE_REFRESH_TIME_MS = 60 * 1000  # 1 minute
+    METAGRAPH_UPDATE_REFRESH_TIME_VALIDATOR_MS = 60 * 1000  # 1 minute
+    METAGRAPH_UPDATE_REFRESH_TIME_MINER_MS = 60 * 1000 * 15  # 15 minutes
     ELIMINATION_CHECK_INTERVAL_MS = 60 * 5 * 1000  # 5 minutes
     ELIMINATION_FILE_DELETION_DELAY_MS = 2 * 24 * 60 * 60 * 1000  # 2 days
 

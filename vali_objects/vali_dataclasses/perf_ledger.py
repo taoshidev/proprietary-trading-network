@@ -366,7 +366,7 @@ class PerfLedgerManager(CacheController):
         self.running_unit_tests = running_unit_tests
         self.enable_rss = enable_rss
         self.parallel_mode = parallel_mode
-        bt.logging.info(f"Running performance ledger manager with parallel_mode {self.parallel_mode.name}")
+        bt.logging.info(f"Running performance ledger manager with mode {self.parallel_mode.name}")
 
         self.build_portfolio_ledgers_only = build_portfolio_ledgers_only
         if perf_ledger_hks_to_invalidate is None:
@@ -410,22 +410,18 @@ class PerfLedgerManager(CacheController):
         self.position_uuid_to_cache = defaultdict(FeeCache)
         self.target_ledger_window_ms = target_ledger_window_ms
         if self.is_backtesting or self.parallel_mode != ParallelizationMode.SERIAL:
-            initial_perf_ledgers = {}
+            pass
         else:
             initial_perf_ledgers = self.get_perf_ledgers(from_disk=True, portfolio_only=False)
+            for k, v in initial_perf_ledgers.items():
+                self.hotkey_to_perf_bundle[k] = v
 
         if secrets:
             self.secrets = secrets
         else:
             self.secrets = ValiUtils.get_secrets(running_unit_tests=self.running_unit_tests)
 
-        for k, v in initial_perf_ledgers.items():
-            self.hotkey_to_perf_bundle[k] = v
 
-        # Don't init hotkey_to_perf_bundle when running pyspark. methods take existing bundles by argument since we dont want each worker loading all ledgers.
-        if not self.parallel_mode:
-            for k, v in self.get_perf_ledgers(from_disk=True, portfolio_only=False).items():
-                self.hotkey_to_perf_bundle[k] = v
 
 
     @staticmethod
@@ -768,7 +764,7 @@ class PerfLedgerManager(CacheController):
             offset = min_candles_per_request * 1000 if mode == 'second' else min_candles_per_request * 60000
             end_time_ms = start_time_ms + offset
 
-        end_time_ms = min(int(self.now_ms * 1000), end_time_ms)  # Don't fetch candles beyond check time or will fill in null.
+        end_time_ms = min(int(self.now_ms), end_time_ms)  # Don't fetch candles beyond check time or will fill in null.
 
         #t0 = time.time()
         #print(f"Starting #{requested_seconds} candle fetch for {tp.trade_pair}")
@@ -1221,7 +1217,7 @@ class PerfLedgerManager(CacheController):
                 break
             # print(f"Done processing order {order}. perf ledger {perf_ledger}")
 
-        if eliminated and self.parallel_mode:
+        if eliminated and self.parallel_mode != ParallelizationMode.SERIAL:
             return perf_ledger_bundle_candidate
 
         # We have processed all orders. Need to catch up to now_ms
@@ -1579,6 +1575,7 @@ class PerfLedgerManager(CacheController):
         worker_plm = PerfLedgerManager(
             metagraph=MockMetagraph(hotkeys=[hotkey]),
             parallel_mode=self.parallel_mode,
+            enable_rss=False,  # full rebuilds not necessary as we are building from scratch already
             secrets=self.secrets,
             build_portfolio_ledgers_only=self.build_portfolio_ledgers_only,
             target_ledger_window_ms=self.target_ledger_window_ms,

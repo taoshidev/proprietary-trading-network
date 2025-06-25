@@ -2,7 +2,7 @@ import statistics
 import bittensor as bt
 import threading
 from collections import defaultdict, deque
-from typing import Dict, Deque, Tuple
+from typing import Dict, Deque, Tuple, Optional
 
 from flask import Flask, jsonify, request, Response, g
 import os
@@ -29,6 +29,7 @@ class APIMetricsTracker:
     Uses a rolling time window approach to track:
     1. API key usage counts
     2. Endpoint performance metrics (request count, avg processing time)
+    3. Failed request tracking
     """
 
     def __init__(self, log_interval_minutes: int = 5, api_key_mapping: Dict = None):
@@ -47,6 +48,9 @@ class APIMetricsTracker:
         # Maps endpoint to deque of (timestamp, latency) tuples
         self.endpoint_hits: Dict[str, Deque[Tuple[float, float]]] = defaultdict(lambda: deque(maxlen=10000))
 
+        # Track failed requests: maps (user_id, endpoint, status_code) to deque of timestamps
+        self.failed_requests: Dict[Tuple[str, str, int], Deque[float]] = defaultdict(lambda: deque(maxlen=1000))
+
         # Lock for thread safety
         self.metrics_lock = threading.Lock()
 
@@ -56,7 +60,7 @@ class APIMetricsTracker:
         # Start logging thread
         self.start_logging_thread()
 
-    def track_request(self, api_key: str, endpoint: str, duration: float):
+    def track_request(self, api_key: str, endpoint: str, duration: float, status_code: int = 200):
         """
         Track a request with its associated API key, endpoint, and duration.
 
@@ -64,15 +68,20 @@ class APIMetricsTracker:
             api_key: The API key used for the request
             endpoint: The endpoint that was accessed
             duration: Request processing time in seconds
+            status_code: HTTP status code of the response
         """
         # Get user_id from api_key if available
-        user_id = self.api_key_to_alias.get(api_key, "unknown")
+        user_id = self.api_key_to_alias.get(api_key, f"unknown_key_{api_key[:8] if api_key else 'none'}")
 
         now = time.time()
 
         with self.metrics_lock:
             self.api_key_hits[user_id].append(now)
             self.endpoint_hits[endpoint].append((now, duration))
+
+            # Track failed requests
+            if status_code >= 400:
+                self.failed_requests[(user_id, endpoint, status_code)].append(now)
 
     def log_metrics(self):
         """Log the current metrics based on the rolling time window."""
@@ -82,6 +91,8 @@ class APIMetricsTracker:
         # Process metrics with lock to ensure thread safety
         api_counts = {}
         endpoint_stats = {}
+        failed_stats = {}
+
         with self.metrics_lock:
             # Process API key hits
             empty_keys = []
@@ -133,8 +144,25 @@ class APIMetricsTracker:
             for endpoint in empty_endpoints:
                 del self.endpoint_hits[endpoint]
 
+            # Process failed requests
+            empty_failed = []
+            for key, timestamps in self.failed_requests.items():
+                # Remove outdated entries
+                while timestamps and timestamps[0] < cutoff_time:
+                    timestamps.popleft()
+
+                count = len(timestamps)
+                if count > 0:
+                    failed_stats[key] = count
+                else:
+                    empty_failed.append(key)
+
+            # Remove empty failed request entries
+            for key in empty_failed:
+                del self.failed_requests[key]
+
         # Skip logging if there's no activity
-        if not api_counts and not endpoint_stats:
+        if not api_counts and not endpoint_stats and not failed_stats:
             bt.logging.info(f"No API activity in the last {self.log_interval_minutes} minutes")
             return
 
@@ -161,6 +189,13 @@ class APIMetricsTracker:
         else:
             log_lines.append("  No endpoint activity in this period")
 
+        # Log failed requests
+        if failed_stats:
+            log_lines.append("\nFailed Requests:")
+            for (user_id, endpoint, status_code), count in sorted(failed_stats.items(),
+                                                                  key=lambda x: x[1], reverse=True):
+                log_lines.append(f"  {user_id} -> {endpoint} [{status_code}]: {count} failures")
+
         # Log the complete report
         final_str = "\n".join(log_lines)
         bt.logging.info(final_str)
@@ -183,7 +218,6 @@ class APIMetricsTracker:
         logging_thread = threading.Thread(target=self.periodic_logging, daemon=True)
         logging_thread.start()
         bt.logging.info(f"API metrics logging started (interval: {self.log_interval_minutes} minutes)")
-
 
 
 class PTNRestServer(APIKeyMixin):
@@ -222,6 +256,9 @@ class PTNRestServer(APIKeyMixin):
         # Register routes
         self._register_routes()
 
+        # Register error handlers
+        self._register_error_handlers()
+
         # Start API key refresh thread
         self.start_refresh_thread()
         print(f"[{current_process().name}] RestServer initialized with {len(self.accessible_api_keys)} API keys")
@@ -243,23 +280,84 @@ class PTNRestServer(APIKeyMixin):
             end_time = time.time()
             duration = end_time - getattr(g, 'start_time', end_time)
 
-            # Get API key
-            api_key = self._get_api_key()
+            # Get API key - handle errors gracefully
+            try:
+                api_key = self._get_api_key_safe()
+            except Exception:
+                api_key = None
 
             # Get endpoint (use rule if available, otherwise path)
             url = request.url_rule.rule if request.url_rule else request.path
 
             # Track the request using the instance metrics tracker
-            self.metrics.track_request(api_key, url, duration)
+            self.metrics.track_request(api_key, url, duration, response.status_code)
 
             return response
+
+    def _register_error_handlers(self):
+        """Register custom error handlers for common exceptions."""
+
+        @self.app.errorhandler(400)
+        def handle_bad_request(e):
+            # Log the error with user context
+            api_key = self._get_api_key_safe()
+            user_id = self.api_key_to_alias.get(api_key, f"unknown_key_{api_key[:8] if api_key else 'none'}")
+
+            bt.logging.warning(
+                f"Bad Request: user={user_id} endpoint={request.path} method={request.method} "
+                f"error={str(e).split(':')[0] if ':' in str(e) else str(e)[:50]}"
+            )
+
+            return jsonify({'error': 'Bad request'}), 400
+
+        @self.app.errorhandler(401)
+        def handle_unauthorized(e):
+            return jsonify({'error': 'Unauthorized access'}), 401
+
+        @self.app.errorhandler(403)
+        def handle_forbidden(e):
+            return jsonify({'error': 'Forbidden'}), 403
+
+        @self.app.errorhandler(404)
+        def handle_not_found(e):
+            return jsonify({'error': 'Resource not found'}), 404
+
+        @self.app.errorhandler(500)
+        def handle_internal_error(e):
+            # Log the error with user context
+            api_key = self._get_api_key_safe()
+            user_id = self.api_key_to_alias.get(api_key, f"unknown_key_{api_key[:8] if api_key else 'none'}")
+
+            bt.logging.error(
+                f"Internal Error: user={user_id} endpoint={request.path} method={request.method} "
+                f"error={str(e)[:100]}"
+            )
+
+            return jsonify({'error': 'Internal server error'}), 500
+
+        @self.app.errorhandler(Exception)
+        def handle_exception(e):
+            # Log unexpected errors
+            api_key = self._get_api_key_safe()
+            user_id = self.api_key_to_alias.get(api_key, f"unknown_key_{api_key[:8] if api_key else 'none'}")
+
+            bt.logging.error(
+                f"Unhandled Exception: user={user_id} endpoint={request.path} method={request.method} "
+                f"error_type={type(e).__name__} error={str(e)[:100]}"
+            )
+
+            # Only log full traceback for truly unexpected errors
+            if not isinstance(e, (json.JSONDecodeError, KeyError, ValueError)):
+                bt.logging.debug(f"Full traceback:\n{traceback.format_exc()}")
+
+            return jsonify({'error': 'An error occurred processing your request'}), 500
 
     def _register_routes(self):
         """Register all API routes."""
 
         @self.app.route("/miner-positions", methods=["GET"])
         def get_miner_positions():
-            api_key = self._get_api_key()
+            api_key = self._get_api_key_safe()
 
             # Check if the API key is valid
             if not self.is_valid_api_key(api_key):
@@ -283,14 +381,14 @@ class PTNRestServer(APIKeyMixin):
             data = self._get_file(f, binary=is_gz_data)
 
             if data is None:
-                return f"{f} not found", 404
+                return jsonify({'error': 'Data not found'}), 404
             return Response(data, content_type='application/json', headers={
                 'Content-Encoding': 'gzip'
             })
 
         @self.app.route("/miner-positions/<minerid>", methods=["GET"])
         def get_miner_positions_unique(minerid):
-            api_key = self._get_api_key()
+            api_key = self._get_api_key_safe()
 
             # Check if the API key is valid
             if not self.is_valid_api_key(api_key):
@@ -299,17 +397,19 @@ class PTNRestServer(APIKeyMixin):
             # Use the API key's tier for access
             api_key_tier = self.get_api_key_tier(api_key)
             if api_key_tier == 100 and self.position_manager:
-                existing_positions: list[Position] = self.position_manager.get_positions_for_one_hotkey(minerid, sort_positions=True)
+                existing_positions: list[Position] = self.position_manager.get_positions_for_one_hotkey(minerid,
+                                                                                                        sort_positions=True)
                 if not existing_positions:
-                    return jsonify({'error': f'Miner ID {minerid} not found in position manager'}), 404
-                filtered_data = self.position_manager.positions_to_dashboard_dict(existing_positions, TimeUtil.now_in_millis())
+                    return jsonify({'error': f'Miner ID {minerid} not found'}), 404
+                filtered_data = self.position_manager.positions_to_dashboard_dict(existing_positions,
+                                                                                  TimeUtil.now_in_millis())
             else:
                 requested_tier = str(api_key_tier)
                 f = ValiBkpUtils.get_miner_positions_output_path(suffix_dir=requested_tier)
                 data = self._get_file(f)
 
                 if data is None:
-                    return f"{f} not found", 404
+                    return jsonify({'error': 'Data not found'}), 404
                 # Filter the data for the specified miner ID
                 filtered_data = data.get(minerid, None)
 
@@ -320,7 +420,7 @@ class PTNRestServer(APIKeyMixin):
 
         @self.app.route("/miner-hotkeys", methods=["GET"])
         def get_miner_hotkeys():
-            api_key = self._get_api_key()
+            api_key = self._get_api_key_safe()
 
             # Check if the API key is valid
             if not self.is_valid_api_key(api_key):
@@ -334,18 +434,18 @@ class PTNRestServer(APIKeyMixin):
                 data = self._get_file(f)
 
                 if data is None:
-                    return f"{f} not found", 404
+                    return jsonify({'error': 'Data not found'}), 404
 
                 miner_hotkeys = list(data.keys())
 
             if len(miner_hotkeys) == 0:
-                return f"{f} not found", 404
+                return jsonify({'error': 'No miner hotkeys found'}), 404
             else:
                 return jsonify(miner_hotkeys)
 
         @self.app.route("/validator-checkpoint", methods=["GET"])
         def get_validator_checkpoint():
-            api_key = self._get_api_key()
+            api_key = self._get_api_key_safe()
 
             # Check if the API key is valid
             if not self.is_valid_api_key(api_key):
@@ -359,20 +459,20 @@ class PTNRestServer(APIKeyMixin):
             data = self._get_file(f)
 
             if data is None:
-                return f"{f} not found", 404
+                return jsonify({'error': 'Checkpoint data not found'}), 404
             else:
                 return jsonify(data)
 
         @self.app.route("/statistics", methods=["GET"])
         def get_validator_checkpoint_statistics():
-            api_key = self._get_api_key()
+            api_key = self._get_api_key_safe()
             if not self.is_valid_api_key(api_key):
                 return jsonify({'error': 'Unauthorized access'}), 401
 
             f = ValiBkpUtils.get_miner_stats_dir()
             data = self._get_file(f)
             if data is None:
-                return f"{f} not found", 404
+                return jsonify({'error': 'Statistics data not found'}), 404
 
             # Grab the optional "checkpoints" query param; default it to "true"
             show_checkpoints = request.args.get("checkpoints", "true").lower()
@@ -386,14 +486,14 @@ class PTNRestServer(APIKeyMixin):
 
         @self.app.route("/statistics/<minerid>/", methods=["GET"])
         def get_validator_checkpoint_statistics_unique(minerid):
-            api_key = self._get_api_key()
+            api_key = self._get_api_key_safe()
             if not self.is_valid_api_key(api_key):
                 return jsonify({'error': 'Unauthorized access'}), 401
 
             f = ValiBkpUtils.get_miner_stats_dir()
             data = self._get_file(f)
             if data is None:
-                return f"{f} not found", 404
+                return jsonify({'error': 'Statistics data not found'}), 404
 
             data_summary = data.get("data", [])
             if not data_summary:
@@ -409,11 +509,11 @@ class PTNRestServer(APIKeyMixin):
                         element.pop("checkpoints", None)
                     return jsonify(element)
 
-            return jsonify({'error': 'Miner ID not found'}), 404
+            return jsonify({'error': f'Miner ID {minerid} not found'}), 404
 
         @self.app.route("/eliminations", methods=["GET"])
         def get_eliminations():
-            api_key = self._get_api_key()
+            api_key = self._get_api_key_safe()
 
             # Check if the API key is valid
             if not self.is_valid_api_key(api_key):
@@ -423,18 +523,54 @@ class PTNRestServer(APIKeyMixin):
             data = self._get_file(f)
 
             if data is None:
-                return f"{f} not found", 404
+                return jsonify({'error': 'Eliminations data not found'}), 404
             else:
                 return jsonify(data)
 
-    def _get_api_key(self):
-        """Get the API key from the query parameters or request headers."""
-        if request.is_json and "api_key" in request.json:
-            api_key = request.json["api_key"]
-        else:
-            api_key = request.headers.get('Authorization')
+    def _get_api_key_safe(self) -> Optional[str]:
+        """
+        Safely get the API key from the query parameters or request headers.
+        Returns None if there's any error accessing the API key.
+        """
+        try:
+            # First try Authorization header
+            auth_header = request.headers.get('Authorization')
+            if auth_header:
+                # Handle both "Bearer <token>" and plain token formats
+                parts = auth_header.split(' ', 1)
+                if len(parts) == 2 and parts[0].lower() == 'bearer':
+                    return parts[1]
+                else:
+                    return auth_header
+
+            # Then try query parameter
+            api_key = request.args.get('api_key')
             if api_key:
-                api_key = api_key.split(' ')[1]  # Remove 'Bearer ' prefix
+                return api_key
+
+            # Finally try JSON body if it's a JSON request
+            if request.is_json:
+                try:
+                    data = request.get_json(force=True, silent=True)
+                    if data and isinstance(data, dict) and "api_key" in data:
+                        return data["api_key"]
+                except Exception:
+                    pass
+
+            return None
+        except Exception as e:
+            bt.logging.debug(f"Error extracting API key: {e}")
+            return None
+
+    def _get_api_key(self):
+        """
+        Get the API key from the query parameters or request headers.
+        This is the original method kept for backward compatibility.
+        """
+        api_key = self._get_api_key_safe()
+        if api_key is None:
+            # Log when no API key is found
+            bt.logging.debug(f"No API key found in request to {request.path}")
         return api_key
 
     def _get_file(self, f, attempts=3, binary=False):
@@ -458,15 +594,15 @@ class PTNRestServer(APIKeyMixin):
                 return data
             except json.JSONDecodeError as e:
                 if attempt_number == attempts - 1:
-                    print(f"[{current_process().name}] Failed to decode JSON after multiple attempts: {e}")
+                    bt.logging.error(f"Failed to decode JSON after {attempts} attempts: {file_path}")
                     raise
                 else:
-                    print(
-                        f"[{current_process().name}] Attempt {attempt_number + 1} failed with JSONDecodeError, retrying...")
+                    bt.logging.debug(
+                        f"Attempt {attempt_number + 1} failed with JSONDecodeError {e}, retrying..."
+                    )
                 time.sleep(1)  # Wait before retrying
             except Exception as e:
-                print(f"[{current_process().name}] Unexpected error reading file {file_path}: {e}")
-                traceback.print_exc()
+                bt.logging.error(f"Unexpected error reading file {file_path}: {type(e).__name__}: {str(e)}")
                 raise
 
     def run(self):
@@ -479,6 +615,7 @@ class PTNRestServer(APIKeyMixin):
 # This allows the module to be run directly for testing
 if __name__ == "__main__":
     import argparse
+
     bt.logging.enable_info()
 
     # Set up command line argument parsing

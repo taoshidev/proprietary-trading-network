@@ -1,5 +1,6 @@
 # developer: jbonilla
 # Copyright © 2024 Taoshi Inc
+import threading
 import time
 import traceback
 from typing import List, Dict
@@ -9,7 +10,6 @@ from vali_objects.vali_config import ValiConfig, TradePair
 from shared_objects.cache_controller import CacheController
 from vali_objects.position import Position
 from vali_objects.utils.live_price_fetcher import LivePriceFetcher
-from vali_objects.vali_dataclasses.recent_event_tracker import RecentEventTracker
 
 from vali_objects.utils.vali_utils import ValiUtils
 
@@ -20,7 +20,7 @@ from vali_objects.vali_dataclasses.price_source import PriceSource
 class MDDChecker(CacheController):
 
     def __init__(self, metagraph, position_manager, running_unit_tests=False,
-                 live_price_fetcher=None, shutdown_dict=None):
+                 live_price_fetcher=None, shutdown_dict=None, compaction_enabled=False):
         super().__init__(metagraph, running_unit_tests=running_unit_tests)
         self.last_price_fetch_time_ms = None
         self.last_quote_fetch_time_ms = None
@@ -37,6 +37,22 @@ class MDDChecker(CacheController):
         self.reset_debug_counters()
         self.shutdown_dict = shutdown_dict
         self.n_poly_api_requests = 0
+        if compaction_enabled:
+            self.compaction_thread = threading.Thread(target=self.run_compacting_forever, daemon=True)
+            self.compaction_thread.start()
+            bt.logging.info("Started compaction thread.")
+
+    def run_compacting_forever(self):
+        while not self.shutdown_dict:
+            try:
+                t0 = time.time()
+                self.position_manager.compact_price_sources()
+                bt.logging.info(f'compacted price sources in {time.time() - t0:.2f} seconds')
+            except Exception as e:
+                bt.logging.error(f"Error {e} in run_compacting_forever: {traceback.format_exc()}")
+                time.sleep(ValiConfig.PRICE_SOURCE_COMPACTING_SLEEP_INTERVAL_SECONDS)
+            time.sleep(ValiConfig.PRICE_SOURCE_COMPACTING_SLEEP_INTERVAL_SECONDS)
+        bt.logging.info("compaction thread shutting down.")
 
     def reset_debug_counters(self):
         self.n_orders_corrected = 0
@@ -44,7 +60,7 @@ class MDDChecker(CacheController):
 
     def _position_is_candidate_for_price_correction(self, position: Position, now_ms):
         return (position.is_open_position or
-                position.newest_order_age_ms(now_ms) <= RecentEventTracker.OLDEST_ALLOWED_RECORD_MS)
+                position.newest_order_age_ms(now_ms) <= ValiConfig.RECENT_EVENT_TRACKER_OLDEST_ALLOWED_RECORD_MS)
 
     def get_sorted_price_sources(self, hotkey_positions) -> Dict[TradePair, List[PriceSource]]:
         try:
@@ -198,7 +214,7 @@ class MDDChecker(CacheController):
                     break
 
                 order_age = now_ms - order.processed_ms
-                if order_age > RecentEventTracker.OLDEST_ALLOWED_RECORD_MS:
+                if order_age > ValiConfig.RECENT_EVENT_TRACKER_OLDEST_ALLOWED_RECORD_MS:
                     break  # No need to check older records
 
                 price_sources_for_retro_fix = _get_sources_for_order(order, position.trade_pair)

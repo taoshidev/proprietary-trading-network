@@ -188,8 +188,7 @@ class Validator:
 
 
         self.position_manager = PositionManager(metagraph=self.metagraph,
-                                                perform_order_corrections=True,
-                                                perform_compaction=True,
+                                                perform_order_corrections=False,
                                                 ipc_manager=self.ipc_manager,
                                                 perf_ledger_manager=self.perf_ledger_manager,
                                                 elimination_manager=self.elimination_manager,
@@ -218,6 +217,7 @@ class Validator:
         self.position_manager.perf_ledger_manager = self.perf_ledger_manager
 
         self.position_manager.pre_run_setup()
+        self.uuid_tracker.add_initial_uuids(self.position_manager.get_positions_for_all_miners())
 
         self.checkpoint_lock = threading.Lock()
         self.encoded_checkpoint = ""
@@ -249,6 +249,8 @@ class Validator:
         self.position_inspector_rate_limiter = RateLimiter(max_requests_per_window=1, rate_limit_window_duration_seconds=60 * 4)
         self.dash_rate_limiter = RateLimiter(max_requests_per_window=1, rate_limit_window_duration_seconds=60)
         self.checkpoint_rate_limiter = RateLimiter(max_requests_per_window=1, rate_limit_window_duration_seconds=60 * 60 * 6)
+        # Cache to track last order time for each (miner_hotkey, trade_pair) combination
+        self.last_order_time_cache = {}  # Key: (miner_hotkey, trade_pair_id), Value: last_order_time_ms
 
         def rs_blacklist_fn(synapse: template.protocol.SendSignal) -> Tuple[bool, str]:
             return Validator.blacklist_fn(synapse, self.metagraph)
@@ -322,36 +324,13 @@ class Validator:
         self.plagiarism_thread.start()
 
         self.mdd_checker = MDDChecker(self.metagraph, self.position_manager, live_price_fetcher=self.live_price_fetcher,
-                                      shutdown_dict=shutdown_dict)
+                                      shutdown_dict=shutdown_dict, compaction_enabled=True)
         self.weight_setter = SubtensorWeightSetter(self.metagraph, position_manager=self.position_manager)
 
         self.request_core_manager = RequestCoreManager(self.position_manager, self.weight_setter, self.plagiarism_detector)
         self.miner_statistics_manager = MinerStatisticsManager(self.position_manager, self.weight_setter, self.plagiarism_detector)
 
         # Start the perf ledger updater loop in its own process. Make sure it happens after the position manager has chances to make any fixes
-
-        """
-        import multiprocessing
-        import logging
-
-        multiprocessing.log_to_stderr()
-        logger = multiprocessing.get_logger()
-        logger.setLevel(logging.DEBUG)
-        def test_picklability(obj, do, obj_name="Object", ):
-            import pickle
-
-            try:
-                pickle.dumps(obj)
-                #print(f"[PASS] {obj_name} is picklable.")
-            except Exception as e:
-                print(f"[FAIL] {obj_name} is NOT picklable. Reason: {e}")
-                if hasattr(obj, '__dict__'):
-                    for attr_name, attr_value in vars(obj).items():
-                        if attr_name not in do:
-                            do.add(attr_name)
-                            test_picklability(attr_value, do,f"{obj_name}.{attr_name}")
-        do = set()
-        """
         self.perf_ledger_updater_thread = Process(target=self.perf_ledger_manager.run_update_loop, daemon=True)
         self.perf_ledger_updater_thread.start()
 
@@ -593,7 +572,7 @@ class Validator:
                 synapse.error_message = msg
 
     def should_fail_early(self, synapse: template.protocol.SendSignal | template.protocol.GetPositions | template.protocol.GetDashData | template.protocol.ValidatorCheckpoint, method:SynapseMethod,
-                          signal:dict=None) -> bool:
+                          signal:dict=None, now_ms=None) -> bool:
         global shutdown_dict
         if shutdown_dict:
             synapse.successfully_processed = False
@@ -647,6 +626,13 @@ class Validator:
 
         if signal:
             tp = self.parse_trade_pair_from_signal(signal)
+            err_msg = self.enforce_order_cooldown(tp.trade_pair_id, now_ms, sender_hotkey)
+            if err_msg:
+                bt.logging.error(err_msg)
+                synapse.successfully_processed = False
+                synapse.error_message = err_msg
+                return True
+
             if tp and not self.live_price_fetcher.polygon_data_service.is_market_open(tp):
                 msg = (f"Market for trade pair [{tp.trade_pair_id}] is likely closed or this validator is"
                        f" having issues fetching live price. Please try again later.")
@@ -670,30 +656,40 @@ class Validator:
 
         return False
 
-    def enforce_order_cooldown(self, order, open_position):
-        # Don't allow orders for a trade pair to be placed within ORDER_COOLDOWN_MS of the previous order.
-        # The intention here is to prevent exploiting a lag in a data provider.
-        if len(open_position.orders) == 0:
-            return
-        last_order = open_position.orders[-1]
-        last_order_time_ms = last_order.processed_ms
-        time_since_last_order_ms = order.processed_ms - last_order_time_ms
+    def enforce_order_cooldown(self, trade_pair_id, now_ms, miner_hotkey):
+        """
+        Enforce cooldown between orders for the same trade pair using an efficient cache.
+        """
+        cache_key = (miner_hotkey, trade_pair_id)
+        current_order_time_ms = now_ms
 
-        if time_since_last_order_ms >= ValiConfig.ORDER_COOLDOWN_MS:
-            return
+        # Get the last order time from cache
+        cached_last_order_time = self.last_order_time_cache.get(cache_key, 0)
+        msg = None
+        if cached_last_order_time > 0:
+            time_since_last_order_ms = current_order_time_ms - cached_last_order_time
 
-        previous_order_time = TimeUtil.millis_to_formatted_date_str(last_order.processed_ms)
-        current_time = TimeUtil.millis_to_formatted_date_str(order.processed_ms)
-        time_to_wait_in_s = (ValiConfig.ORDER_COOLDOWN_MS - (order.processed_ms - last_order.processed_ms)) / 1000
-        raise SignalException(
-            f"Order for trade pair [{order.trade_pair.trade_pair_id}] was placed too soon after the previous order. "
-            f"Last order was placed at [{previous_order_time}] and current order was placed at [{current_time}]."
-            f"Please wait {time_to_wait_in_s} seconds before placing another order."
-        )
+            if time_since_last_order_ms < ValiConfig.ORDER_COOLDOWN_MS:
+                previous_order_time = TimeUtil.millis_to_formatted_date_str(cached_last_order_time)
+                current_time = TimeUtil.millis_to_formatted_date_str(current_order_time_ms)
+                time_to_wait_in_s = (ValiConfig.ORDER_COOLDOWN_MS - time_since_last_order_ms) / 1000
+                msg = (
+                    f"Order for trade pair [{trade_pair_id}] was placed too soon after the previous order. "
+                    f"Last order was placed at [{previous_order_time}] and current order was placed at [{current_time}]. "
+                    f"Please wait {time_to_wait_in_s:.1f} seconds before placing another order."
+                )
+
+        # Update the cache with the current order time (will be done after order is successfully processed)
+        self.last_order_time_cache[(miner_hotkey, trade_pair_id)] = now_ms
+        return msg
 
     def parse_miner_uuid(self, synapse: template.protocol.SendSignal):
         temp = synapse.miner_order_uuid
         assert isinstance(temp, str), f"excepted string miner uuid but got {temp}"
+        if not temp:
+            bt.logging.warning(f'miner_order_uuid is empty for miner_hotkey [{synapse.dendrite.hotkey}] miner_repo_version '
+                               f'[{synapse.repo_version}]. Generating a new one.')
+            temp = str(uuid.uuid4())
         return temp
 
     # This is the core validator function to receive a signal
@@ -706,8 +702,8 @@ class Validator:
         miner_repo_version = synapse.repo_version
         synapse.validator_hotkey = self.wallet.hotkey.ss58_address
         signal = synapse.signal
-        bt.logging.info(f"received signal [{signal}] from miner_hotkey [{miner_hotkey}] using repo version [{miner_repo_version}].")
-        if self.should_fail_early(synapse, SynapseMethod.SIGNAL, signal=signal):
+        bt.logging.info( f"received signal [{signal}] from miner_hotkey [{miner_hotkey}] using repo version [{miner_repo_version}].")
+        if self.should_fail_early(synapse, SynapseMethod.SIGNAL, signal=signal, now_ms=now_ms):
             return synapse
 
         with self.signal_sync_lock:
@@ -741,9 +737,7 @@ class Validator:
                 # gather open positions and see which trade pairs have an open position
                 positions = self.position_manager.get_positions_for_one_hotkey(miner_hotkey, only_open_positions=True)
                 trade_pair_to_open_position = {position.trade_pair: position for position in positions}
-                existing_position = self._get_or_create_open_position_from_new_order(trade_pair, signal_order_type, now_ms,
-                                                         miner_hotkey, trade_pair_to_open_position, miner_order_uuid)
-
+                existing_position = self._get_or_create_open_position_from_new_order(trade_pair, signal_order_type, now_ms, miner_hotkey, trade_pair_to_open_position, miner_order_uuid)
                 if existing_position:
                     order = Order(
                         trade_pair=trade_pair,
@@ -752,7 +746,7 @@ class Validator:
                         price=best_price_source.parse_appropriate_price(now_ms, trade_pair.is_forex, signal_order_type,
                                                                         existing_position),
                         processed_ms=now_ms,
-                        order_uuid=miner_order_uuid if miner_order_uuid else str(uuid.uuid4()),
+                        order_uuid=miner_order_uuid,
                         price_sources=price_sources,
                         bid=best_price_source.bid,
                         ask=best_price_source.ask,
@@ -760,16 +754,14 @@ class Validator:
                     self.price_slippage_model.refresh_features_daily()
                     order.slippage = PriceSlippageModel.calculate_slippage(order.bid, order.ask, order)
                     self._enforce_num_open_order_limit(trade_pair_to_open_position, order)
-                    self.enforce_order_cooldown(order, existing_position)
                     net_portfolio_leverage = self.position_manager.calculate_net_portfolio_leverage(miner_hotkey)
                     existing_position.add_order(order, net_portfolio_leverage)
-                    if self.config.serve:
-                        # Add the position to the queue for broadcasting ASAP before saving to disk.
-                        self.shared_queue_websockets.put(existing_position.to_websocket_dict(miner_repo_version=miner_repo_version))
                     self.position_manager.save_miner_position(existing_position)
+                    if self.config.serve:
+                        # Add the position to the queue for broadcasting
+                        self.shared_queue_websockets.put(existing_position.to_websocket_dict(miner_repo_version=miner_repo_version))
                     synapse.order_json = order.__str__()
-                    if miner_order_uuid:
-                        self.uuid_tracker.add(miner_order_uuid)
+                    self.uuid_tracker.add(miner_order_uuid)
                 else:
                     # Happens if a FLAT is sent when no position exists
                     pass

@@ -2,11 +2,23 @@ from collections import deque
 import threading
 
 class UUIDTracker:
-    def __init__(self, capacity=1000):
+    def __init__(self, capacity=100000):
         self.capacity = capacity
         self.uuids = deque()
         self.uuid_set = set()
         self.lock = threading.Lock()
+
+    def add_initial_uuids(self, hk_to_positions):
+        try:
+            n_orders_added = 0
+            for hk, positions in hk_to_positions.items():
+                for p in positions:
+                    n_orders_added += len(p.orders)
+                    for o in p.orders:
+                        self.add(o.order_uuid)
+            print(f"Loaded {n_orders_added} order uuids into uuid_tracker")
+        except Exception as e:
+            print(f"Error adding initial UUIDs: {e}. Continuing with empty UUID tracker.")
 
     def add(self, uuid):
         with self.lock:  # Ensure exclusive access within this block
