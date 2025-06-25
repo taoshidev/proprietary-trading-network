@@ -381,7 +381,7 @@ class PTNRestServer(APIKeyMixin):
             data = self._get_file(f, binary=is_gz_data)
 
             if data is None:
-                return jsonify({'error': f'Data not found'}), 404
+                return jsonify({'error': 'Data not found'}), 404
             return Response(data, content_type='application/json', headers={
                 'Content-Encoding': 'gzip'
             })
@@ -598,7 +598,7 @@ class PTNRestServer(APIKeyMixin):
                     raise
                 else:
                     bt.logging.debug(
-                        f"Attempt {attempt_number + 1} failed with JSONDecodeError, retrying..."
+                        f"Attempt {attempt_number + 1} failed with JSONDecodeError {e}, retrying..."
                     )
                 time.sleep(1)  # Wait before retrying
             except Exception as e:
