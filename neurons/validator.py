@@ -250,6 +250,8 @@ class Validator:
         self.position_inspector_rate_limiter = RateLimiter(max_requests_per_window=1, rate_limit_window_duration_seconds=60 * 4)
         self.dash_rate_limiter = RateLimiter(max_requests_per_window=1, rate_limit_window_duration_seconds=60)
         self.checkpoint_rate_limiter = RateLimiter(max_requests_per_window=1, rate_limit_window_duration_seconds=60 * 60 * 6)
+        # Cache to track last order time for each (miner_hotkey, trade_pair) combination
+        self.last_order_time_cache = {}  # Key: (miner_hotkey, trade_pair_id), Value: last_order_time_ms
 
         def rs_blacklist_fn(synapse: template.protocol.SendSignal) -> Tuple[bool, str]:
             return Validator.blacklist_fn(synapse, self.metagraph)
@@ -648,26 +650,45 @@ class Validator:
 
         return False
 
-    def enforce_order_cooldown(self, order, open_position):
-        # Don't allow orders for a trade pair to be placed within ORDER_COOLDOWN_MS of the previous order.
-        # The intention here is to prevent exploiting a lag in a data provider.
-        if len(open_position.orders) == 0:
-            return
-        last_order = open_position.orders[-1]
-        last_order_time_ms = last_order.processed_ms
-        time_since_last_order_ms = order.processed_ms - last_order_time_ms
+    def enforce_order_cooldown(self, order, open_position, miner_hotkey):
+        """
+        Enforce cooldown between orders for the same trade pair using an efficient cache.
 
-        if time_since_last_order_ms >= ValiConfig.ORDER_COOLDOWN_MS:
-            return
+        Args:
+            order: The new order being placed
+            open_position: The existing open position (if any)
+            miner_hotkey: The hotkey of the miner placing the order
+        """
+        trade_pair_id = order.trade_pair.trade_pair_id
+        cache_key = (miner_hotkey, trade_pair_id)
+        current_order_time_ms = order.processed_ms
 
-        previous_order_time = TimeUtil.millis_to_formatted_date_str(last_order.processed_ms)
-        current_time = TimeUtil.millis_to_formatted_date_str(order.processed_ms)
-        time_to_wait_in_s = (ValiConfig.ORDER_COOLDOWN_MS - (order.processed_ms - last_order.processed_ms)) / 1000
-        raise SignalException(
-            f"Order for trade pair [{order.trade_pair.trade_pair_id}] was placed too soon after the previous order. "
-            f"Last order was placed at [{previous_order_time}] and current order was placed at [{current_time}]."
-            f"Please wait {time_to_wait_in_s} seconds before placing another order."
-        )
+        # Get the last order time from cache
+        cached_last_order_time = self.last_order_time_cache.get(cache_key, 0)
+
+        # Also check if there are orders in the current open position
+        position_last_order_time = 0
+        if open_position and len(open_position.orders) > 0:
+            last_order = open_position.orders[-1]
+            position_last_order_time = last_order.processed_ms
+
+        # Use the most recent time between cache and current position
+        last_order_time_ms = max(cached_last_order_time, position_last_order_time)
+
+        if last_order_time_ms > 0:
+            time_since_last_order_ms = current_order_time_ms - last_order_time_ms
+
+            if time_since_last_order_ms < ValiConfig.ORDER_COOLDOWN_MS:
+                previous_order_time = TimeUtil.millis_to_formatted_date_str(last_order_time_ms)
+                current_time = TimeUtil.millis_to_formatted_date_str(current_order_time_ms)
+                time_to_wait_in_s = (ValiConfig.ORDER_COOLDOWN_MS - time_since_last_order_ms) / 1000
+                raise SignalException(
+                    f"Order for trade pair [{order.trade_pair.trade_pair_id}] was placed too soon after the previous order. "
+                    f"Last order was placed at [{previous_order_time}] and current order was placed at [{current_time}]. "
+                    f"Please wait {time_to_wait_in_s:.1f} seconds before placing another order."
+                )
+
+        # Update the cache with the current order time (will be done after order is successfully processed)
 
     def parse_miner_uuid(self, synapse: template.protocol.SendSignal):
         temp = synapse.miner_order_uuid
@@ -688,7 +709,7 @@ class Validator:
         miner_repo_version = synapse.repo_version
         synapse.validator_hotkey = self.wallet.hotkey.ss58_address
         signal = synapse.signal
-        bt.logging.info(f"received signal [{signal}] from miner_hotkey [{miner_hotkey}] using repo version [{miner_repo_version}].")
+        bt.logging.info( f"received signal [{signal}] from miner_hotkey [{miner_hotkey}] using repo version [{miner_repo_version}].")
         if self.should_fail_early(synapse, SynapseMethod.SIGNAL, signal=signal):
             return synapse
 
@@ -723,9 +744,7 @@ class Validator:
                 # gather open positions and see which trade pairs have an open position
                 positions = self.position_manager.get_positions_for_one_hotkey(miner_hotkey, only_open_positions=True)
                 trade_pair_to_open_position = {position.trade_pair: position for position in positions}
-                existing_position = self._get_or_create_open_position_from_new_order(trade_pair, signal_order_type, now_ms,
-                                                         miner_hotkey, trade_pair_to_open_position, miner_order_uuid)
-
+                existing_position = self._get_or_create_open_position_from_new_order(trade_pair, signal_order_type, now_ms, miner_hotkey, trade_pair_to_open_position, miner_order_uuid)
                 if existing_position:
                     order = Order(
                         trade_pair=trade_pair,
@@ -742,10 +761,12 @@ class Validator:
                     self.price_slippage_model.refresh_features_daily()
                     order.slippage = PriceSlippageModel.calculate_slippage(order.bid, order.ask, order)
                     self._enforce_num_open_order_limit(trade_pair_to_open_position, order)
-                    self.enforce_order_cooldown(order, existing_position)
+                    self.enforce_order_cooldown(order, existing_position, miner_hotkey)
                     net_portfolio_leverage = self.position_manager.calculate_net_portfolio_leverage(miner_hotkey)
                     existing_position.add_order(order, net_portfolio_leverage)
                     self.position_manager.save_miner_position(existing_position)
+                    # Update the cache after successfully processing the order
+                    self.last_order_time_cache[(miner_hotkey, trade_pair.trade_pair_id)] = now_ms
                     if self.config.serve:
                         # Add the position to the queue for broadcasting
                         self.shared_queue_websockets.put(existing_position.to_websocket_dict(miner_repo_version=miner_repo_version))
