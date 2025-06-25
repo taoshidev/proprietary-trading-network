@@ -225,12 +225,13 @@ class ValiConfig:
     SHORT_LOOKBACK_WINDOW = 7 * DAILY_CHECKPOINTS
 
     # Scoring weights
-    SCORING_OMEGA_WEIGHT = 0.2
-    SCORING_SHARPE_WEIGHT = 0.2
-    SCORING_SORTINO_WEIGHT = 0.2
-    SCORING_STATISTICAL_CONFIDENCE_WEIGHT = 0.2
-    SCORING_CALMAR_WEIGHT = 0.2
+    SCORING_OMEGA_WEIGHT = 0.14
+    SCORING_SHARPE_WEIGHT = 0.14
+    SCORING_SORTINO_WEIGHT = 0.14
+    SCORING_STATISTICAL_CONFIDENCE_WEIGHT = 0.14
+    SCORING_CALMAR_WEIGHT = 0.14
     SCORING_RETURN_WEIGHT = 0.0
+    SCORING_PNL_WEIGHT = 0.3
 
     # Scoring hyperparameters
     OMEGA_LOSS_MINIMUM = 0.01   # Equivalent to 1% loss
@@ -241,6 +242,7 @@ class ValiConfig:
     SORTINO_NOCONFIDENCE_VALUE = -100
     STATISTICAL_CONFIDENCE_NOCONFIDENCE_VALUE = -100
     CALMAR_NOCONFIDENCE_VALUE = -100
+    PNL_NOCONFIDENCE_VALUE = -100 # TODO, likely make this far more negative
     CALMAR_RATIO_CAP = 10
 
     # MDD penalty calculation
@@ -290,10 +292,13 @@ class ValiConfig:
 
     # Cap leverage across miner's entire portfolio
     PORTFOLIO_LEVERAGE_CAP = 10
-    
+
     # Collateral limits
     MAX_COLLATERAL_BALANCE_THETA = 50.0  # Maximum total collateral balance per miner in Theta tokens
     MAX_COLLATERAL_BALANCE_TESTNET = 10000.0
+
+    # Account size USD value per theta of collateral
+    COST_PER_THETA = 175
 
 assert ValiConfig.CRYPTO_MIN_LEVERAGE >= ValiConfig.ORDER_MIN_LEVERAGE
 assert ValiConfig.CRYPTO_MAX_LEVERAGE <= ValiConfig.ORDER_MAX_LEVERAGE

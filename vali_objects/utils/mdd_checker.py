@@ -242,6 +242,7 @@ class MDDChecker(CacheController):
             ret_changed = False
             if position.is_open_position and realtime_price is not None:
                 orig_return = position.return_at_close
+
                 position.set_returns(realtime_price)
                 ret_changed = orig_return != position.return_at_close
 

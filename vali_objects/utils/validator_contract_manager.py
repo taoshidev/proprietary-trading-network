@@ -1,10 +1,32 @@
+from datetime import timezone, datetime
 import bittensor as bt
 from bittensor_wallet import Wallet
 from collateral_sdk import CollateralManager, Network
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 import traceback
+from time_util.time_util import TimeUtil
 from vali_objects.utils.vali_utils import ValiUtils
 from vali_objects.vali_config import ValiConfig
+
+class CollateralRecord:
+    def __init__(self, account_size, update_time_ms):
+        self.account_size = account_size
+        self.update_time_ms = update_time_ms
+        self.valid_date_timestamp = CollateralRecord.valid_from_ms(update_time_ms)
+
+    @staticmethod
+    def valid_from_ms(update_time_ms) -> int:
+        """Returns timestamp of start of day (00:00:00 UTC) when this record is valid"""
+        dt = datetime.fromtimestamp(update_time_ms / 1000, tz=timezone.utc)
+        start_of_day = dt.replace(hour=0, minute=0, second=0, microsecond=0)
+        return int(start_of_day.timestamp() * 1000)
+
+    @property
+    def valid_date_str(self) -> str:
+        """Returns YYYY-MM-DD format for easy reading"""
+        dt = datetime.fromtimestamp(self.valid_date_timestamp / 1000, tz=timezone.utc)
+        return dt.strftime("%Y-%m-%d")
+
 
 class ValidatorContractManager:
     """
@@ -30,13 +52,13 @@ class ValidatorContractManager:
         # GCP secret manager
         self._gcp_secret_manager_client = None
         
-        # Initialize vault wallet as None for all validators
-        self.vault_wallet = None
+        # Load contract owner credentials from environment or config
+        if self.is_mothership:
+            self._load_contract_owner_credentials()
 
-        # Initialize vault password as None for all validators
-        self.vault_password = None
-
-    def load_contract_owner_credentials(self):
+        self.miner_account_sizes: Dict[str, List[CollateralRecord]] = {}  # hotkey -> List[CollateralRecord] sorted by updated_time_ms
+        
+    def _load_contract_owner_credentials(self):
         """
         Load EVM contract owner credentials from secrets.json file.
         This validator must be authorized to execute collateral operations.
@@ -178,8 +200,8 @@ class ValidatorContractManager:
                     owner_private_key=self.owner_private_key,
                     wallet_password=self.vault_password
                 )
-                
-                bt.logging.info(f"Deposit successful: {self.to_theta(deposited_balance.rao)} Theta deposited to miner: {miner_hotkey}")
+                bt.logging.info(f"Deposit successful: {self.rao_to_theta(deposited_balance.rao)} Theta deposited to miner: {miner_hotkey}")
+                self.set_miner_account_size(miner_hotkey, TimeUtil.now_in_millis())
                 return {
                     "successfully_processed": True,
                     "error_message": ""
@@ -253,8 +275,9 @@ class ValidatorContractManager:
                     owner_private_key=self.owner_private_key,
                     wallet_password=self.vault_password
                 )
-                returned_theta = self.to_theta(withdrawn_balance.rao)
+                returned_theta = self.rao_to_theta(withdrawn_balance.rao)
                 bt.logging.info(f"Withdrawal successful: {returned_theta} Theta withdrawn for {miner_hotkey}, returned to {miner_coldkey}")
+                self.set_miner_account_size(miner_hotkey, TimeUtil.now_in_millis())
                 return {
                     "successfully_processed": True,
                     "error_message": "",
@@ -301,3 +324,63 @@ class ValidatorContractManager:
             bt.logging.error(f"Failed to get collateral balance for {miner_address}: {e}")
             return None
 
+    def get_total_collateral(self) -> int:
+        """Get total collateral in the contract in theta."""
+        try:
+            return self.collateral_manager.get_total_collateral()
+        except Exception as e:
+            bt.logging.error(f"Failed to get total collateral: {e}")
+            return 0
+
+    def get_slashed_collateral(self) -> int:
+        """Get total slashed collateral in theta."""
+        try:
+            return self.collateral_manager.get_slashed_collateral()
+        except Exception as e:
+            bt.logging.error(f"Failed to get slashed collateral: {e}")
+            return 0
+
+    def set_miner_account_size(self, hotkey: str, timestamp_ms: int=None) -> None:
+        """
+        Set the account size for a miner. Saves to memory and disk
+
+        Args:
+            hotkey: Miner's hotkey (SS58 address)
+        """
+        if timestamp_ms is None:
+            timestamp_ms = TimeUtil.now_in_millis()
+
+        collateral_balance = self.get_miner_collateral_balance(hotkey)
+        account_size = collateral_balance * ValiConfig.COST_PER_THETA
+        collateral_record = CollateralRecord(account_size, timestamp_ms)
+
+        if hotkey not in self.miner_account_sizes:
+            self.miner_account_sizes[hotkey] = []
+        self.miner_account_sizes[hotkey].append(collateral_record)      # TODO: save to disk
+
+        bt.logging.info(f"Updated account size for {hotkey}: {account_size}")
+
+    def get_miner_account_size(self, hotkey: str, timestamp_ms: int=None) -> float | None:
+        """
+        Get the account size for a miner.
+
+        Args:
+            hotkey: Miner's hotkey (SS58 address)
+
+        Returns:
+            Account size in USD
+        """
+        if timestamp_ms is None:
+            timestamp_ms = TimeUtil.now_in_millis()
+
+        if hotkey in self.miner_account_sizes:
+            start_of_day_ms = int(
+                datetime.fromtimestamp(timestamp_ms / 1000, tz=timezone.utc)
+                .replace(hour=0, minute=0, second=0, microsecond=0)
+                .timestamp() * 1000
+            )
+
+            for collateral_record in self.miner_account_sizes[hotkey]:
+                if collateral_record.valid_date_timestamp == start_of_day_ms:
+                    return collateral_record.account_size
+        return None
