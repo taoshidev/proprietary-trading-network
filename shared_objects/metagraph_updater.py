@@ -15,7 +15,7 @@ class MetagraphUpdater(CacheController):
                  shutdown_dict=None, slack_notifier=None):
         super().__init__(metagraph)
         self.config = config
-        self.subtensor = bt.subtensor(config=config)
+        self.subtensor = bt.subtensor(config=self.config)
         # Initialize likely validators and miners with empty dictionaries. This maps hotkey to timestamp.
         self.likely_validators = {}
         self.likely_miners = {}
@@ -23,13 +23,15 @@ class MetagraphUpdater(CacheController):
         if is_miner:
             assert position_inspector is not None, "Position inspector must be provided for miners"
         self.is_miner = is_miner
+        self.interval_wait_time_ms = ValiConfig.METAGRAPH_UPDATE_REFRESH_TIME_MINER_MS if self.is_miner else \
+            ValiConfig.METAGRAPH_UPDATE_REFRESH_TIME_VALIDATOR_MS
         self.position_inspector = position_inspector
         self.position_manager = position_manager
         self.shutdown_dict = shutdown_dict  # Flag to control the loop
         self.slack_notifier = slack_notifier  # Add slack notifier for error reporting
 
         # Exponential backoff parameters
-        self.min_backoff = 1  # 1 second minimum
+        self.min_backoff = 30  # 30 seconds minimum (changed from 1 second)
         self.max_backoff = 43200  # 12 hours maximum (12 * 60 * 60)
         self.backoff_factor = 2  # Double the wait time on each retry
         self.current_backoff = self.min_backoff
@@ -40,6 +42,27 @@ class MetagraphUpdater(CacheController):
 
     def _is_expired(self, timestamp):
         return (self._current_timestamp() - timestamp) > 86400  # 24 hours in seconds
+
+    def _get_compact_traceback(self, exception):
+        """Get a compact version of the stack trace showing only the most relevant frames."""
+        tb_lines = traceback.format_exception(type(exception), exception, exception.__traceback__)
+
+        # Filter out lines that are less relevant (like internal library calls)
+        relevant_lines = []
+        for line in tb_lines:
+            # Keep the exception line and lines from our code
+            if (line.strip().startswith('File') and
+                    (any(keyword in line for keyword in ['metagraph', 'miner', 'validator', 'vali_', 'neurons/']) or
+                     line.count('/') <= 3)):  # Keep shorter paths (likely our code)
+                relevant_lines.append(line.strip())
+            elif not line.strip().startswith('File'):
+                relevant_lines.append(line.strip())
+
+        # If we filtered too much, just take the last few lines
+        if len(relevant_lines) < 3:
+            relevant_lines = [line.strip() for line in tb_lines[-3:]]
+
+        return ' | '.join(relevant_lines)
 
     def estimate_number_of_validators(self):
         # Filter out expired validators
@@ -71,7 +94,10 @@ class MetagraphUpdater(CacheController):
                 # Calculate next backoff time
                 self.current_backoff = min(self.current_backoff * self.backoff_factor, self.max_backoff)
 
-                # Log error with backoff information
+                # Get compact traceback
+                compact_trace = self._get_compact_traceback(e)
+
+                # Log error with backoff information and compact stack trace
                 error_msg = (f"Error during metagraph update (attempt #{self.consecutive_failures}): {e}. "
                              f"Next retry in {self.current_backoff} seconds.")
                 bt.logging.error(error_msg)
@@ -83,7 +109,8 @@ class MetagraphUpdater(CacheController):
                         f"❌ Metagraph update failing repeatedly!\n"
                         f"Consecutive failures: {self.consecutive_failures}\n"
                         f"Error: {str(e)}\n"
-                        f"Next retry in: {hours:.1f} hours\n"
+                        f"Trace: {compact_trace}\n"
+                        f"Next retry in: {hours:.2f} hours\n"
                         f"Please check the miner logs!",
                         level="error"
                     )
@@ -148,8 +175,11 @@ class MetagraphUpdater(CacheController):
             shared_list.append(item)
 
     def update_metagraph(self):
-        if not self.refresh_allowed(ValiConfig.METAGRAPH_UPDATE_REFRESH_TIME_MS):
+        if not self.refresh_allowed(self.interval_wait_time_ms):
             return
+        # Searching the BT forums suggests this is needed to recover from a metagraph update failure.
+        if self.consecutive_failures > 0:
+            self.subtensor = bt.subtensor(config=self.config)
 
         recently_acked_miners = None
         recently_acked_validators = None
