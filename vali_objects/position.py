@@ -51,7 +51,9 @@ class Position(BaseModel):
     return_at_close: float = 1.0  # includes all fees
     average_entry_price: float = 0.0
     cumulative_entry_value: float = 0.0
+    account_size: float = 0.0
     realized_pnl: float = 0.0
+    unrealized_pnl: float = 0.0
     position_type: Optional[OrderType] = None
     is_closed_position: bool = False
 
@@ -312,6 +314,7 @@ class Position(BaseModel):
         self.average_entry_price = 0.0
         self.cumulative_entry_value = 0.0
         self.realized_pnl = 0.0
+        self.unrealized_pnl = 0.0
         self.position_type = None
         self.is_closed_position = False
         self.position_type = None
@@ -379,13 +382,14 @@ class Position(BaseModel):
                 # update realized pnl for orders that reduce the size of a position
                 if (order.order_type != self.position_type or self.position_type == OrderType.FLAT):
                     exit_price = current_price * (1 + order.slippage) if order.leverage > 0 else current_price * (1 - order.slippage)
-                    order_volume = order.leverage  # (order.leverage * ValiConfig.CAPITAL) / order.price  # TODO: calculate order.volume as an order attribute
+                    # TODO Verify this Calculation
+                    order_volume = (order.leverage * self.account_size) / order.price  # TODO: calculate order.volume as an order attribute
                     self.realized_pnl += -1 * (exit_price - self.average_entry_price) * order_volume  # TODO: FIFO entry cost
-                unrealized_pnl = (current_price - self.average_entry_price) * min(self.net_leverage, self.net_leverage + order.leverage, key=abs)
+                self.unrealized_pnl = (current_price - self.average_entry_price) * min(self.net_leverage, self.net_leverage + order.leverage, key=abs)
             else:
-                unrealized_pnl = (current_price - self.average_entry_price) * self.net_leverage
+                self.unrealized_pnl = (current_price - self.average_entry_price) * self.net_leverage
 
-            gain = (self.realized_pnl + unrealized_pnl) / self.initial_entry_price
+            gain = (self.realized_pnl + self.unrealized_pnl) / self.initial_entry_price
         else:
             gain = (
                 (current_price - self.average_entry_price)
@@ -507,7 +511,7 @@ class Position(BaseModel):
         return current_return_no_fees * fee
 
     def get_open_position_return_with_fees(self, realtime_price, time_ms):
-        current_return = self.calculate_unrealized_pnl(realtime_price)
+        current_return = self.calculate_pnl(realtime_price)
         return self.calculate_return_with_fees(current_return, timestamp_ms=time_ms)
 
     def set_returns_with_updated_fees(self, total_fees, time_ms):
@@ -572,7 +576,7 @@ class Position(BaseModel):
                     + entry_price * delta_leverage
                 ) / new_net_leverage
 
-                order_volume = order.leverage # (order.leverage * ValiConfig.CAPITAL) / entry_price  # TODO: order volume. represents # of shares, etc.
+                order_volume = (order.leverage * self.account_size) / entry_price  # TODO: order volume. represents # of shares, etc.
                 self.cumulative_entry_value += entry_price * order_volume  # TODO: replace with order.volume attribute
             self.net_leverage = new_net_leverage
 
@@ -669,6 +673,7 @@ class Position(BaseModel):
         self.net_leverage = 0.0
         self.cumulative_entry_value = 0.0
         self.realized_pnl = 0.0
+        self.unrealized_pnl = 0.0
         bt.logging.trace(f"Updating position {self.trade_pair.trade_pair_id} with n orders: {len(self.orders)}")
         for order in self.orders:
             if self.position_type is None:

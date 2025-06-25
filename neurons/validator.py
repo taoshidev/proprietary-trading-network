@@ -56,7 +56,8 @@ from vali_objects.utils.vali_utils import ValiUtils
 from vali_objects.vali_config import ValiConfig
 
 from vali_objects.utils.plagiarism_detector import PlagiarismDetector
-from vali_objects.utils.validator_contract_manager import ValidatorContractManager
+from vali_objects.utils.contract_manager import ContractManager
+from collateral_sdk import Network
 
 # Global flag used to indicate shutdown
 shutdown_dict = {}
@@ -145,7 +146,7 @@ class Validator:
 
         # Wallet holds cryptographic information, ensuring secure transactions and communication.
         self.wallet = bt.wallet(config=self.config)
-        
+
         # Initialize Slack notifier for error reporting
         self.slack_notifier = SlackNotifier(
             hotkey=self.wallet.hotkey.ss58_address,
@@ -153,11 +154,11 @@ class Validator:
             error_webhook_url=getattr(self.config, 'slack_error_webhook_url', None),
             is_miner=False  # This is a validator
         )
-        
+
         # Track last error notification time to prevent spam
         self.last_error_notification_time = 0
         self.error_notification_cooldown = 300  # 5 minutes between error notifications
-        
+
         bt.logging.info(f"Wallet: {self.wallet}")
 
         # metagraph provides the network's current state, holding state about other participants in a subnet.
@@ -169,11 +170,11 @@ class Validator:
                                                   False, position_manager=None,
                                                   shutdown_dict=shutdown_dict,
                                                   slack_notifier=self.slack_notifier)
-        
+
         # We don't store a reference to subtensor; instead use the getter from MetagraphUpdater
         # This ensures we always have the current subtensor instance even after round-robin switches
         bt.logging.info(f"Subtensor: {self.metagraph_updater.get_subtensor()}")
-        
+
         # Start the metagraph updater and wait for initial population
         self.metagraph_updater_thread = self.metagraph_updater.start_and_wait_for_initial_update(
             max_wait_time=60,
@@ -199,11 +200,22 @@ class Validator:
                                     ipc_manager=self.ipc_manager,
                                     position_manager=None)  # Set after self.pm creation
 
+        # Initialize ContractManager for collateral management
+        contract_network = Network.MAINNET if self.is_mainnet else Network.TESTNET
+        self.contract_manager = ContractManager(
+            network=contract_network,
+            owner_address=self.secrets.get('contract_owner_address'),
+            owner_private_key=self.secrets.get('contract_owner_private_key'),
+            data_dir=self.config.full_path
+        )
+        bt.logging.info(f"ContractManager initialized for network: {contract_network.name}")
 
         self.perf_ledger_manager = PerfLedgerManager(self.metagraph, ipc_manager=self.ipc_manager,
                                                      shutdown_dict=shutdown_dict,
                                                      perf_ledger_hks_to_invalidate=self.position_syncer.perf_ledger_hks_to_invalidate,
-                                                     position_manager=None)  # Set after self.pm creation
+                                                     position_manager=None,  # Set after self.pm creation
+                                                     contract_manager=self.contract_manager)
+
 
 
         self.position_manager = PositionManager(metagraph=self.metagraph,
@@ -213,7 +225,8 @@ class Validator:
                                                 elimination_manager=self.elimination_manager,
                                                 challengeperiod_manager=None,
                                                 secrets=self.secrets,
-                                                shared_queue_websockets=self.shared_queue_websockets)
+                                                shared_queue_websockets=self.shared_queue_websockets,
+                                                contract_manager=self.contract_manager)
 
         self.position_locks = PositionLocks(hotkey_to_positions=self.position_manager.get_positions_for_all_miners())
 
@@ -345,7 +358,7 @@ class Validator:
         self.mdd_checker = MDDChecker(self.metagraph, self.position_manager, live_price_fetcher=self.live_price_fetcher,
                                       shutdown_dict=shutdown_dict, compaction_enabled=True)
         self.weight_setter = SubtensorWeightSetter(
-            self.metagraph, 
+            self.metagraph,
             position_manager=self.position_manager,
             slack_notifier=self.slack_notifier
         )
@@ -435,7 +448,7 @@ class Validator:
             f"Prioritizing {synapse.dendrite.hotkey} with value: ", priority
         )
         return priority
-    
+
     @property
     def subtensor(self):
         """
@@ -486,7 +499,7 @@ class Validator:
         bt.logging.add_args(parser)
         # Adds wallet specific arguments i.e. --wallet.name ..., --wallet.hotkey ./. or --wallet.path ...
         bt.wallet.add_args(parser)
-        
+
         # Add Slack webhook arguments
         parser.add_argument(
             "--slack-webhook-url",
@@ -530,7 +543,7 @@ class Validator:
             return
         # Handle shutdown gracefully
         bt.logging.warning("Performing graceful exit...")
-        
+
         # Send shutdown notification to Slack
         if self.slack_notifier:
             self.slack_notifier.send_message(
@@ -562,7 +575,7 @@ class Validator:
         global shutdown_dict
         # Keep the vali alive. This loop maintains the vali's operations until intentionally stopped.
         bt.logging.info("Starting main loop")
-        
+
         # Send startup notification to Slack
         if self.slack_notifier:
             vm_info = f"VM: {self.slack_notifier.vm_hostname} ({self.slack_notifier.vm_ip})" if self.slack_notifier.vm_hostname else ""
@@ -583,6 +596,7 @@ class Validator:
                 self.mdd_checker.mdd_check(self.position_locks)
                 self.challengeperiod_manager.refresh(current_time=current_time)
                 self.elimination_manager.process_eliminations(self.position_locks)
+                self.contract_manager.refresh_account_sizes(timestamp_ms=current_time)
                 #self.position_locks.cleanup_locks(self.metagraph.hotkeys)
                 self.weight_setter.set_weights(self.wallet, self.config.netuid, self.metagraph_updater.get_subtensor(), current_time=current_time)
                 #self.p2p_syncer.sync_positions_with_cooldown()
@@ -591,12 +605,12 @@ class Validator:
             except Exception as e:
                 error_traceback = traceback.format_exc()
                 bt.logging.error(error_traceback)
-                
+
                 # Send error notification to Slack with rate limiting
                 current_time_seconds = time.time()
                 if self.slack_notifier and (current_time_seconds - self.last_error_notification_time) > self.error_notification_cooldown:
                     self.last_error_notification_time = current_time_seconds
-                    
+
                     # Use shared error formatting utility
                     error_message = ErrorUtils.format_error_for_slack(
                         error=e,
@@ -604,14 +618,14 @@ class Validator:
                         include_operation=True,
                         include_timestamp=True
                     )
-                    
+
                     self.slack_notifier.send_message(
                         f"❌ Validator main loop error!\n"
                         f"{error_message}\n"
                         f"Note: Further errors suppressed for {self.error_notification_cooldown/60:.0f} minutes",
                         level="error"
                     )
-                
+
                 time.sleep(10)
 
         self.check_shutdown()
@@ -658,12 +672,14 @@ class Validator:
             if order_type == OrderType.FLAT:
                 open_position = None
             else:
+                account_size = self.contract_manager.get_recent_account_sizes(hotkeys=[miner_hotkey], timestamp_ms=order_time_ms).get(miner_hotkey)
                 # if a position doesn't exist, then make a new one
                 open_position = Position(
                     miner_hotkey=miner_hotkey,
                     position_uuid=miner_order_uuid if miner_order_uuid else str(uuid.uuid4()),
                     open_ms=order_time_ms,
-                    trade_pair=trade_pair
+                    trade_pair=trade_pair,
+                    account_size=account_size
                 )
         return open_position
 
