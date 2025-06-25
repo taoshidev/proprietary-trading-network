@@ -122,11 +122,30 @@ class LedgerUtils:
         Returns:
             dict[date, float] - dictionary mapping dates to daily log returns
         """
-        if not ledger.cps:
+        complete_days = LedgerUtils._group_checkpoints_by_complete_days(ledger)
+        
+        date_return_map = {}
+        for running_date, day_checkpoints in sorted(complete_days.items()):
+            daily_return = sum(cp.gain + cp.loss for cp in day_checkpoints)
+            date_return_map[running_date] = daily_return
+
+        return date_return_map
+
+    @staticmethod
+    def _group_checkpoints_by_complete_days(ledger: PerfLedger) -> dict[datetime.date, list]:
+        """
+        Helper function to group checkpoints by date for complete days only.
+        
+        Args:
+            ledger: PerfLedger - the ledger of the miner
+            
+        Returns:
+            dict[datetime.date, list] - dictionary mapping dates to lists of checkpoints for complete days
+        """
+        if not ledger or not ledger.cps:
             return {}
 
         checkpoints = ledger.cps
-
         daily_groups = {}
         n_checkpoints_per_day = int(ValiConfig.DAILY_CHECKPOINTS)
 
@@ -144,14 +163,51 @@ class LedgerUtils:
                     daily_groups[running_date] = []
                 daily_groups[running_date].append(cp)
 
-        # Calculate returns for complete days
-        date_return_map = {}
-        for running_date, day_checkpoints in sorted(daily_groups.items()):
+        # Filter to only include complete days
+        complete_days = {}
+        for running_date, day_checkpoints in daily_groups.items():
             if len(day_checkpoints) == n_checkpoints_per_day:
-                daily_return = sum(cp.gain + cp.loss for cp in day_checkpoints)
-                date_return_map[running_date] = daily_return
+                complete_days[running_date] = day_checkpoints
 
-        return date_return_map
+        return complete_days
+
+    @staticmethod
+    def daily_pnl_by_date(ledger: PerfLedger) -> dict[datetime.date, float]:
+        """
+        Calculate daily PnL from performance checkpoints, only including full days
+        with complete data and correct total accumulated time.
+        
+        Args:
+            ledger: PerfLedger - the ledger of the miner
+            
+        Returns:
+            dict[datetime.date, float] - dictionary mapping dates to total PnL
+        """
+        complete_days = LedgerUtils._group_checkpoints_by_complete_days(ledger)
+        
+        date_pnl_map = {}
+        for running_date, day_checkpoints in sorted(complete_days.items()):
+            total_pnl = sum(cp.portfolio_realized_pnl + cp.portfolio_unrealized_pnl for cp in day_checkpoints)
+            date_pnl_map[running_date] = total_pnl
+
+        return date_pnl_map
+
+    @staticmethod
+    def daily_pnl(ledger: PerfLedger) -> list[float]:
+        """
+        Calculate daily PnL from performance checkpoints, only including full days
+        with complete data and correct total accumulated time.
+
+        Args:
+            ledger: PerfLedger - the ledger of the miner
+        Returns:
+            List[float] - list of daily PnL values for complete days
+        """
+        if ledger is None or not ledger.cps:
+            return []
+
+        date_pnl_map = LedgerUtils.daily_pnl_by_date(ledger)
+        return list(date_pnl_map.values())
 
     @staticmethod
     def is_valid_trading_day(ledger: PerfLedger, testing_date: date) -> bool:
