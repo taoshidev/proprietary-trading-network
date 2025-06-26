@@ -1,6 +1,8 @@
+import copy
+
 import numpy as np
 import pandas as pd
-from typing import Callable
+from typing import Callable, Sequence
 from vali_objects.vali_config import ValiConfig
 from vali_objects.utils.functional_utils import FunctionalUtils
 
@@ -50,15 +52,78 @@ class Orthogonality:
         return corr_matrix, mean_corr_per_miner
 
     @staticmethod
-    def convolutional_similarity(v1: list[float], v2: list[float], max_shift: int = 10) -> np.array:
+    def sliding_similarity_array(
+            v1: Sequence[float] | np.ndarray,
+            v2: Sequence[float] | np.ndarray,
+            window: int = 10
+    ) -> np.ndarray:
         """
-        Determine the rolling similarity between two vectors
-        with potentially variable length.
+        Cosine similarity for every right‑hand shift of v1 (0 … max_shift‑1).
+        Works for both Python lists and NumPy arrays.
+
+        Returns
+        -------
+        np.ndarray
+            An array of length `max_shift` whose i‑th element is the cosine
+            similarity between v1 shifted right by i and the corresponding
+            prefix of v2.
+        """
+        a = np.asarray(v1, dtype=float)
+        b = np.asarray(v2, dtype=float)
+
+        # First, go through the process of stripping down the arrays from zeros on the left. We want to keep the same indexing.
+        zero_index = max(np.nonzero(a)[0][0], np.nonzero(b)[0][0])
+        if zero_index > 0:
+            a = a[zero_index:]
+            b = b[zero_index:]
+
+        assert len(a) == len(b), "Vectors must be of the same length after stripping zeros."
+
+        if len(a) < window or len(b) < window:
+            logger.debug(f"Stripped vector length is less than the comparison window size. Similarity should score as zero.")
+            return np.array([0])
+
+        sims = []
+        for i in range(window, len(a)):
+            at = a[i - window:i]
+            bt = b[i - window:i]
+
+            subset_similarity = Orthogonality.similarity(at, bt)
+            sims.append(subset_similarity)
+
+        return np.array(sims, dtype=float)
+
+    @staticmethod
+    def sliding_similarity_distillation(similarity_array: np.ndarray) -> float:
+        """
+        Distill the sliding similarity array into a single value.
+        :param similarity_array: Array of cosine similarities.
+        :return: Distilled similarity value.
+        """
+        if len(similarity_array) == 0:
+            return 0.0
+        return np.max(similarity_array)
+
+    @staticmethod
+    def sliding_similarity(
+            v1: Sequence[float] | np.ndarray,
+            v2: Sequence[float] | np.ndarray,
+            window: int = 10
+    ) -> float:
+        """
+        Calculate the sliding similarity between two vectors.
         :param v1: First vector.
         :param v2: Second vector.
-        :return: Similarity between the two vectors.
+        :param window: Maximum right-hand shift to consider.
+        :return: Sliding similarity value.
         """
-        return np.array([Orthogonality.similarity(v1[i:], v2[:len(v1) - i]) for i in range(max_shift)])
+        similarity_array = Orthogonality.sliding_similarity_array(
+            v1,
+            v2,
+            window=window
+        )
+
+        return Orthogonality.sliding_similarity_distillation(similarity_array)
     
     @staticmethod
     def duration_metric(v: list[float]) -> float:
@@ -67,12 +132,32 @@ class Orthogonality:
         :param v: Vector.
         :return: Duration metric of the vector.
         """
-        return len(v)
+        if type(v) is not np.ndarray:
+            v = np.array(v)
+
+        nv = v[v != 0]
+
+        return len(nv)
+
+    @staticmethod
+    def size_metric(v: list[float]) -> float:
+        """
+        Determine the size metric of a vector.
+        :param v: Vector.
+        :return: Size metric of the vector.
+        """
+        if type(v) is not np.ndarray:
+            v = np.array(v)
+
+        nv = v[v != 0]
+
+        return np.sum(np.abs(nv))
 
     @staticmethod
     def time_preference(v1: list[float], v2: list[float], max_shift: int = 10) -> float:
         """
         Determine how preferred the first vector is over the second vector based on time longevity.
+        In general, we want to prefer
         :param v1: First vector.
         :param v2: Second vector.
         :return: Time preference between the two vectors.
@@ -97,14 +182,8 @@ class Orthogonality:
             spread=time_preference_spread
         )
 
-        former_preference = v1_preference / (v1_preference + v2_preference)
-        latter_preference = v2_preference / (v1_preference + v2_preference)
-
-        # Calculate the time preference between the two vectors
-        time_preference = former_preference - latter_preference
-
-        # Return the time preference between the two vectors
-        return time_preference
+        # Return the time preference between the two vectors, should always be normalized between -1 and 1
+        return v1_preference - v2_preference
     
     @staticmethod
     def size_preference(v1: list[float], v2: list[float], max_shift: int = 10) -> float:
@@ -118,8 +197,8 @@ class Orthogonality:
         size_preference_spread = ValiConfig.SIZE_PREFERENCE_SPREAD
 
         # Determine the metric to use for the size preference
-        v1_metric = Orthogonality.duration_metric(v1)
-        v2_metric = Orthogonality.duration_metric(v2)
+        v1_metric = Orthogonality.size_metric(v1)
+        v2_metric = Orthogonality.size_metric(v2)
 
         # Establish a size preference score for each vector
         v1_preference = FunctionalUtils.sigmoid(
@@ -134,15 +213,7 @@ class Orthogonality:
             spread=size_preference_spread
         ) 
 
-        former_preference = v1_preference / (v1_preference + v2_preference)
-        latter_preference = v2_preference / (v1_preference + v2_preference)
-
-        # Calculate the size preference between the two vectors
-        size_preference = former_preference - latter_preference
-
-        # Return the size preference between the two vectors
-        return size_preference
-    
+        return v1_preference - v2_preference
 
     @staticmethod
     def pairwise_pref(returns: dict[str, list[float]], metric_fn: Callable) -> dict[tuple[str, str], float]:
@@ -178,26 +249,40 @@ class Orthogonality:
         """
         Pairwise similarity for all miners.
         """
-        return Orthogonality.pairwise_pref(returns, Orthogonality.convolutional_similarity)
+        return Orthogonality.pairwise_pref(returns, Orthogonality.sliding_similarity)
 
     @staticmethod
     def full_pref(returns: dict[str, list[float]]) -> dict[str, float]:
         """
         For a dict of miners' daily returns, return a dict mapping hotkey to the sum of all its pairwise compositional preferences (size, time, similarity) with all other miners.
         """
-        size_prefs = Orthogonality.size_pref(returns)
+        # size_prefs = Orthogonality.size_pref(returns)
         time_prefs = Orthogonality.time_pref(returns)
+        # size_prefs = Orthogonality.size_pref(returns)
         sim_prefs = Orthogonality.sim_pref(returns)
-        # Aggregate all pairwise preferences
-        all_keys = list(returns.keys())
-        agg = {k: 0.0 for k in all_keys}
-        for (k1, k2), v in size_prefs.items():
-            agg[k1] += v
-            agg[k2] += v
-        for (k1, k2), v in time_prefs.items():
-            agg[k1] += v
-            agg[k2] += v
+
+        # here we want to look at the raw similarity preferences and run a diverging value based on the time and size
+        overall_prefs = dict()
+        overall_prefs = copy.deepcopy(time_prefs)  # to start, prototype with time preferences
+
         for (k1, k2), v in sim_prefs.items():
-            agg[k1] += v
-            agg[k2] += v
-        return agg
+            if k1 not in overall_prefs:
+                overall_prefs[k1] = 0.0
+            if k2 not in overall_prefs:
+                overall_prefs[k2] = 0.0
+            overall_prefs[k1] += v
+            overall_prefs[k2] += v
+
+        # # Aggregate all pairwise preferences
+        # all_keys = list(returns.keys())
+        # agg = {k: 0.0 for k in all_keys}
+        # # for (k1, k2), v in size_prefs.items():
+        # #     agg[k1] += v
+        # #     agg[k2] += v
+        # for (k1, k2), v in time_prefs.items():
+        #     agg[k1] += v
+        #     agg[k2] += v
+        # for (k1, k2), v in sim_prefs.items():
+        #     agg[k1] += v
+        #     agg[k2] += v
+        # return agg
