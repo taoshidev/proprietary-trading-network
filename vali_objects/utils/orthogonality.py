@@ -1,5 +1,6 @@
 import os
 import numpy as np
+import pandas as pd
 from typing import Callable
 from vali_objects.vali_config import ValiConfig
 from vali_objects.utils.functional_utils import FunctionalUtils
@@ -14,6 +15,40 @@ class Orthogonality:
         :return: Similarity between the two vectors.
         """
         return np.dot(v1, v2) / (np.linalg.norm(v1) * np.linalg.norm(v2))
+
+    @staticmethod
+    def correlation_matrix(returns: dict[str, list[float]]) -> tuple[pd.DataFrame, dict[str, float]]:
+        """
+        Calculate correlation matrix and mean pairwise correlations for miners.
+        Filters out miners with insufficient return data and removes all-zero miners.
+        :param returns: Dict mapping miner hotkeys to their daily returns
+        :param min_returns_threshold: Minimum number of returns required per miner
+        :return: Tuple of (correlation_matrix, mean_pairwise_correlations)
+        """
+        # Convert to DataFrame
+        df = pd.DataFrame(returns)
+
+        # Filter miners with enough returns
+        miners_with_enough_returns = df.columns[df.count() >= ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N]
+        filtered_df = df.loc[:, miners_with_enough_returns]
+        
+        # Fill NaN with zero and remove miners with all-zero returns
+        filtered_df = filtered_df.fillna(0)
+        df_nonzero = filtered_df.loc[:, (filtered_df != 0).any(axis=0)]
+        
+        if df_nonzero.empty or len(df_nonzero.columns) < 2:
+            return pd.DataFrame(), {}
+            
+        # Calculate correlation matrix
+        corr_matrix = df_nonzero.corr()
+        
+        # Set diagonal to NaN to ignore self-correlation
+        np.fill_diagonal(corr_matrix.values, np.nan)
+        
+        # Calculate mean pairwise correlation per miner
+        mean_corr_per_miner = corr_matrix.mean(skipna=True).to_dict()
+        
+        return corr_matrix, mean_corr_per_miner
 
     @staticmethod
     def convolutional_similarity(v1: list[float], v2: list[float], max_shift: int = 10) -> np.array:

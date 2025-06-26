@@ -373,18 +373,50 @@ class LedgerUtils:
         return len(miner_returns)
     
     @staticmethod
-    def orthogonality_penalty(ledger: PerfLedger) -> float:
+    def orthogonality_penalty(ledgers: dict[str, PerfLedger]) -> dict[str, float]:
         """
+        Calculate orthogonality penalties for all miners based on correlation and preferences.
         Args:
-            ledger: PerfLedger - the ledger of the miner
+            ledgers: Dict mapping miner hotkeys to their PerfLedgers
+            size_data: Optional dict mapping miner hotkeys to size information
+        Returns:
+            Dict mapping miner hotkeys to their penalty values
         """
-        # Convert ledger to list of daily returns
-        miner_returns = LedgerUtils.daily_return_log(ledger)
+        # Convert all ledgers to daily returns
+        miner_returns = {}
+        for hotkey, ledger in ledgers.items():
+            returns = LedgerUtils.daily_return_log(ledger)
+            if len(returns) > 0:  # Only include miners with data
+                miner_returns[hotkey] = returns
+        
+        if len(miner_returns) < 2:
+            return {hotkey: 0.0 for hotkey in ledgers.keys()}
 
-        # Compute orthogonality scores
-        orthogonality_penalty = Orthogonality.full_pref(miner_returns)
+        # Use correlation matrix approach for orthogonality penalty
+        _, mean_correlations = Orthogonality.correlation_matrix(miner_returns)
 
-        # Maybe compress this into a penalty
-        # Maybe use a sigmoid with a nonzero base
+        # Apply penalty based on mean pairwise correlation
+        correlation_penalties = {}
+        
+        for hotkey in ledgers.keys():
+            if hotkey in mean_correlations:
+                # Penalize based on absolute correlation (both positive and negative correlation)
+                correlation_penalties[hotkey] = abs(mean_correlations[hotkey])
+            else:
+                correlation_penalties[hotkey] = 0.0
+        
+        # Calculate preference scores and combine with correlation penalties
+        preference_scores = Orthogonality.full_pref(miner_returns)  # TODO: does this need to be normalized?
 
-        return orthogonality_penalty
+        # Combine correlation and preference penalties using weighted average
+        combined_penalties = {}
+        for hotkey in ledgers.keys():
+            corr_penalty = correlation_penalties.get(hotkey, 0.0)
+            pref_penalty = preference_scores.get(hotkey, 0.0)
+            
+            # Weighted combination
+            combined_penalty = (ValiConfig.ORTHOGONALITY_CORRELATION_WEIGHT * corr_penalty +
+                              ValiConfig.ORTHOGONALITY_PREFERENCE_WEIGHT * pref_penalty)
+            combined_penalties[hotkey] = combined_penalty
+        
+        return combined_penalties
