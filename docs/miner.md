@@ -11,14 +11,14 @@ A long position is a bet that the trade pair will increase, while a short positi
 1. Your miner must register on the Bittensor network to participate.
    - There is a registration fee of 2.5 TAO on mainnet.
    - There is an immunity period of 9 days to help miners submit orders to become competitive with existing miners. Eliminated miners do not benefit from being in the immunity period.
-2. Your miner will start in the challenge period upon entry. Miners must demonstrate consistent performance within 90 days to pass the challenge period. During this period, they will receive a small amount of TAO that will help them avoid getting deregistered. The minimum requirements to pass the challenge period:
-   - Score at or above the 75th percentile relative to the miners in the main competition. The details may be found [here](https://docs.taoshi.io/tips/p13/).
-   - Have at least 60 full days of trading
+2. Your miner will start in the challenge period upon entry. Miners must demonstrate consistent performance within 150 days to pass the challenge period. During this period, they will receive a small amount of TAO that will help them avoid getting deregistered. The minimum requirements to pass the challenge period:
+   - Have at least 120 full days of trading
    - Don't exceed 10% max drawdown
+   - Score at or above the 25th miner in main competition. The details may be found [here](https://docs.taoshi.io/tips/p21/).
 3. Positions are uni-directional. Meaning, if a position starts LONG (the first order it receives is LONG),
    it can't flip SHORT. If you try and have it flip SHORT (using more leverage SHORT than exists LONG) it will close out
    the position. You'll then need to open a second position which is SHORT with the difference.
-4. Position leverage is bound per trade_pair. If an order would cause the position's leverage to exceed the upper boundary, the position leverage will be clamped. Minimum order leverage is 0.001. Crypto positional leverage limit is [0.01, 0.5]. Forex positional leverage limit is [0.1, 5].
+4. Position leverage is bound per trade pair. If an order would cause the position's leverage to exceed the upper boundary, the position leverage will be clamped. Minimum order leverage is 0.001. Crypto positional leverage limit is [0.01, 0.5]. Forex positional leverage limit is [0.1, 5].
 5. Leverage is capped at 10 across all open positions in a miner's portfolio. Crypto position leverages are scaled by 10x when contributing
    to the leverage cap. <a href="https://docs.taoshi.io/tips/p10/">View for more details and examples.</a>
 6. You can take profit on an open position using LONG and SHORT. Say you have an open LONG position with .5x
@@ -26,11 +26,14 @@ A long position is a bet that the trade pair will increase, while a short positi
    of size .25x leverage to reduce the size of the position. LONG and SHORT signals can be thought of working in opposite
    directions in this way.
 7. Miners that have passed challenge period will be eliminated for a drawdown that exceeds 10%.
-8. A miner can have a maximum of 1 open position per trade pair. No limit on the number of closed positions.
-9. A miner's order will be ignored if placing a trade outside of market hours.
-10. A miner's order will be ignored if they are rate limited (maliciously sending too many requests)
-11. There is a 10-second cooldown period between orders of the same trade pair, during which the miner cannot place another order.
-12. Avoid reusing hotkeys that have been previously deregistered.
+8. Miners in main competition who fall below the top 25 will be observed under a probation period. 
+   - Miners in probation period have 30 days from time of demotion to be promoted back into main competition.
+   - If they fail to do so within this window, they will be eliminated.
+9. A miner can have a maximum of 1 open position per trade pair. No limit on the number of closed positions.
+10. A miner's order will be ignored if placing a trade outside of market hours.
+11. A miner's order will be ignored if they are rate limited (maliciously sending too many requests)
+12. There is a 10-second cooldown period between orders of the same trade pair, during which the miner cannot place another order.
+13. Avoid reusing hotkeys that have been previously deregistered.
 
 ## Scoring Details
 
@@ -42,7 +45,7 @@ We calculate daily returns for all positions and the entire portfolio, spanning 
 
 This daily calculation and evaluation framework closely aligns with real-world financial practices, enabling accurate, consistent, and meaningful performance measurement and comparison across strategies. This remains effective even for strategies trading different asset classes at different trading frequencies. This approach can also enhance the precision of volatility measurement for strategies.
 
-Annualization is used for the Sharpe ratio, Sortino ratio, and risk adjusted return with either volatility or returns being annualized to better evaluate the long-term value of strategies and standardize our metrics. In determining the correct annualization factor, we weight more recent trading days slightly higher than older trading days. This should encourage miners to regularly update their strategies and adapt to changing market conditions, continually providing the network with the most relevant signals. The most recent daily returns have a significance of about 2.5 relative to the oldest daily returns, with a pattern that tapers exponentially over time.
+Annualization is used for the Sharpe ratio, Sortino ratio, and risk adjusted return with either volatility or returns being annualized to better evaluate the long-term value of strategies and standardize our metrics. In determining the correct annualization factor, we weigh more recent trading days slightly higher than older trading days. This should encourage miners to regularly update their strategies and adapt to changing market conditions, continually providing the network with the most relevant signals. The most recent 10 days account for 25% of the total score, the most recent 30 days account for 50%, and the most recent 70 days account for 75%, with a pattern that tapers exponentially over time.
 
 Additionally, normalization with annual risk-free rate of T-bills further standardizes our metrics and allows us to measure miner performance on a more consistent basis.
 
@@ -52,7 +55,7 @@ We use five scoring metrics to evaluate miners based on daily returns: **Calmar 
 
 The miner risk used in the risk adjusted returns is the miner’s maximum portfolio drawdown.
 
-_Calmar Ratio_ will look at daily returns in the prior 90 days and is normalized by the max drawdown.
+_Calmar Ratio_ will look at daily returns in the prior 120 days and is normalized by the max drawdown.
 
 $$
 \text{Return / Drawdown} = \frac{(\frac{365}{n}\sum_{i=0}^n{R_i}) - R_{rf}}{\sum_i^{n}{\text{MDD}_i} / n}
@@ -142,11 +145,11 @@ We also implement a [portfolio level leverage limit](https://docs.taoshi.io/tips
 
 ## Incentive Distribution
 
-The miners are scored in each of the categories above based on their prior positions over the lookback period. Penalties are then applied to these scores, and the miners are ranked based on their total score. Percentiles are determined for each category, with the miner's overall score being reduced by the full scoring weight if they are the worst in a category.
+Miners are scored in each of the categories above based on their prior positions over the lookback period. Penalties are then applied to each score for exceeding max drawdown and their perceived risk profile. Each scores are ranked per category for each miner and multiplied by their rank percentile.
 
-For example, if a miner is last place in the long term realized returns category, they will receive a 0% score for this category. This will effectively reduce their score to 0, and they will be prioritized during the next round of deregistration.
+For example, the lowest ranked miner in the long term realized returns category will receive a percentile score of 1/N, where N is the total number of miners scored in that category. In contrast, the highest-ranked miner will retain 100% of the score weight for that category.
 
-We distribute using a [softmax function](https://docs.taoshi.io/tips/p11/), with a target of the top 40% of miners receiving 90% of emissions. The softmax function dynamically adjusts to the scores of miners, distributing more incentive to relatively high-performing miners.
+We distribute using a [softmax function](https://docs.taoshi.io/tips/p11/), with a target of the top 50% of miners receiving 90% of emissions. The softmax function dynamically adjusts to the scores of miners, distributing more incentive to relatively high-performing miners.
 
 ## Holidays
 
