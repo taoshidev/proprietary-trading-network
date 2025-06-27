@@ -116,7 +116,7 @@ class ValiConfig:
     SIMILARITY_PREFERENCE_SHIFT = 0.35
     SIMILARITY_PREFERENCE_SPREAD = -10
 
-    ORTHOGONALITY_DIVERGING_INTENSITY = 0.5 # lower pushes to a steeper divergence
+    ORTHOGONALITY_DIVERGING_INTENSITY = 0.75 # lower pushes to a steeper divergence
 
     PLAGIARISM_MATCHING_TIME_RESOLUTION_MS = 60 * 1000 * 2  # 2 minutes
     PLAGIARISM_MAX_LAGS = 60

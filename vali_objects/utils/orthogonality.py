@@ -1,10 +1,10 @@
-import copy
-
+from typing import Dict, Tuple
 import numpy as np
 import pandas as pd
 from typing import Callable, Sequence
 from vali_objects.vali_config import ValiConfig
 from vali_objects.utils.functional_utils import FunctionalUtils
+
 
 class Orthogonality:
     @staticmethod
@@ -279,41 +279,33 @@ class Orthogonality:
         # Divergence factor should be quite high when the preference factor is close to 0 or 1
         divergence_factor = B * np.log((n-m)**2 / (4*(x-m)*(n-x)))
 
-        # Divergence factor should be incredibly high wh
-        return np.clip(divergence_factor * similarity_factor, 0, 1)
+        return np.clip(divergence_factor, 0, 1)
 
     @staticmethod
     def full_pref(returns: dict[str, list[float]]) -> dict[str, float]:
         """
         For a dict of miners' daily returns, return a dict mapping hotkey to the sum of all its pairwise compositional preferences (size, time, similarity) with all other miners.
         """
-        # size_prefs = Orthogonality.size_pref(returns)
-        time_prefs = Orthogonality.time_pref(returns)
-        sim_prefs = Orthogonality.sim_pref(returns)
+        # Pairwise preference dictionaries
+        time_prefs = Orthogonality.time_pref(returns)         # {(k1,k2): value}
+        sim_prefs = Orthogonality.sim_pref(returns)          # {(k1,k2): score}
 
-        # here we want to look at the raw similarity preferences and run a diverging value based on the time and size
-        overall_prefs = dict()
-        overall_prefs = copy.deepcopy(time_prefs)  # to start, prototype with time preferences
+        penalty_pairs: Dict[Tuple[str, str], float] = {}
 
-        # Penalty Augmentation
-        penalty_augmentations = {}
-        for (k1, k2), v in overall_prefs.items():
-            similarity_score = sim_prefs.get((k1, k2), 0.0)
-            enhanced_criteria = Orthogonality.diverging_criteria(v, similarity_score)
-            if v > 0:
-                # preference for k1 over k2
-                penalty_augmentations[(k1, k2)] = enhanced_criteria
-                penalty_augmentations[(k2, k1)] = 1-enhanced_criteria
-            elif v <= 0:
-                # preference for k2 over k1
-                penalty_augmentations[(k1, k2)] = 1-enhanced_criteria
-                penalty_augmentations[(k2, k1)] = enhanced_criteria
+        # For now we can just use the time prefs, but we'll want to fold in size later
+        for (k1, k2), v_time in time_prefs.items():
+            sim_score = sim_prefs.get((k1, k2), 0.0)
+            enhanced = Orthogonality.diverging_criteria(v_time, sim_score)
 
-        return penalty_augmentations
+            # Positive value ⇒ "k1 over k2", negative/zero ⇒ "k2 over k1"
+            if v_time > 0:
+                penalty_pairs[(k2, k1)] = enhanced     # k2 owes k1
+            else:
+                penalty_pairs[(k1, k2)] = enhanced     # k1 owes k2
 
-        # # Now I want to take the max value for each of the keys
-        # final_penalty = {}
-        # for (k1, _) in penalty_augmentations.keys():
-        #     final_penalty[k1] = max(final_penalty.get(k1, 0.0), penalty_augmentations[(k1, _)])
-        #
-        # return final_penalty
+        final_penalty: Dict[str, float] = {miner: 0.0 for miner in returns}
+
+        for (debtor, _), value in penalty_pairs.items():
+            final_penalty[debtor] = max(final_penalty[debtor], value)
+
+        return final_penalty
