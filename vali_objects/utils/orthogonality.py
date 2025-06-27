@@ -102,7 +102,7 @@ class Orthogonality:
         """
         if len(similarity_array) == 0:
             return 0.0
-        return np.max(similarity_array)
+        return np.clip(np.max(similarity_array), a_min=0, a_max=1)
 
     @staticmethod
     def sliding_similarity(
@@ -252,18 +252,80 @@ class Orthogonality:
         return Orthogonality.pairwise_pref(returns, Orthogonality.sliding_similarity)
 
     @staticmethod
+    def diverging_criteria(preference_factor: float, similarity_factor: float) -> float:
+        """
+        Diverging criteria based on preference and similarity factors.
+        :param preference_factor: Preference factor (e.g., time or size).
+        :param similarity_factor: Similarity factor (e.g., from sliding similarity).
+        :return: Augmented Similarity Metric.
+        """
+        B: float = ValiConfig.ORTHOGONALITY_DIVERGING_INTENSITY
+
+        # Input into the divergence function
+        x = preference_factor
+
+        # These will set the vertical asymptotes of the divergence function, really just need from 0 to 1
+        m = -1
+        n = 1
+
+        if preference_factor == 0:
+            return 0.0
+
+        # Divergence factor should be quite high when the preference factor is close to 0 or 1
+        divergence_factor = B * np.log((n-m)**2 / (4*(x-m)(n-x)))
+
+        # Divergence factor should be incredibly high wh
+        return np.clip(divergence_factor * similarity_factor, 0, 1)
+
+
+    @staticmethod
+    def diverging_pref(
+            returns: dict[str, list[float]],
+            preference_fn: Callable,
+            similarity_fn: Callable
+    ) -> dict[tuple[str, str], float]:
+        """
+        Compute pairwise preferences with diverging criteria based on preference and similarity.
+        Returns a dict mapping (hotkey1, hotkey2) to the diverging preference value.
+        """
+        keys = list(returns.keys())
+        n = len(keys)
+        prefs = {}
+        for i in range(n):
+            for j in range(i + 1, n):
+                k1, k2 = keys[i], keys[j]
+                pref_value = preference_fn(returns[k1], returns[k2])
+                sim_value = similarity_fn(returns[k1], returns[k2])
+                prefs[(k1, k2)] = Orthogonality.diverging_criteria(pref_value, sim_value)
+        return prefs
+
+    @staticmethod
     def full_pref(returns: dict[str, list[float]]) -> dict[str, float]:
         """
         For a dict of miners' daily returns, return a dict mapping hotkey to the sum of all its pairwise compositional preferences (size, time, similarity) with all other miners.
         """
         # size_prefs = Orthogonality.size_pref(returns)
         time_prefs = Orthogonality.time_pref(returns)
-        # size_prefs = Orthogonality.size_pref(returns)
         sim_prefs = Orthogonality.sim_pref(returns)
 
         # here we want to look at the raw similarity preferences and run a diverging value based on the time and size
         overall_prefs = dict()
         overall_prefs = copy.deepcopy(time_prefs)  # to start, prototype with time preferences
+
+        # Penalty Augmentation
+        penalty_augmentations = {}
+        for (k1, k2), v in overall_prefs.items():
+            similarity_score = sim_prefs.get((k1, k2), 0.0)
+            enhanced_criteria = Orthogonality.diverging_criteria(v, similarity_score)
+            if similarity_score > 0 and v > 0.5:
+                # preference for k1 over k2
+                penalty_augmentations[(k1, k2)] = enhanced_criteria
+                penalty_augmentations[(k2, k1)] = 1-enhanced_criteria
+            elif similarity_score > 0 and v <= 0.5:
+                # preference for k2 over k1
+                penalty_augmentations[(k1, k2)] = 1-enhanced_criteria
+                penalty_augmentations[(k2, k1)] = enhanced_criteria
+
 
         for (k1, k2), v in sim_prefs.items():
             if k1 not in overall_prefs:
