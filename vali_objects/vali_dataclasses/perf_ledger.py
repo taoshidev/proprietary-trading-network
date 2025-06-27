@@ -1,3 +1,4 @@
+import copy
 import json
 import math
 import os
@@ -10,6 +11,8 @@ from typing import List
 import bittensor as bt
 from pydantic import BaseModel, ConfigDict
 from setproctitle import setproctitle
+from vali_config import TradePair
+
 from shared_objects.sn8_multiprocessing import ParallelizationMode, get_spark_session, get_multiprocessing_pool
 from time_util.time_util import MS_IN_8_HOURS, MS_IN_24_HOURS, timeme
 
@@ -432,11 +435,15 @@ class PerfLedgerManager(CacheController):
 
     @staticmethod
     def print_bundle(hk:str, bundle: dict[str, PerfLedger]):
+        if len(bundle) == 1:
+            idx_allowed =set(range(len(bundle[TP_ID_PORTFOLIO].cps)))
+        else:
+            idx_allowed = [0, -1]
         for tp_id, pl in sorted(bundle.items(), key=lambda x: 1 if x[0] == TP_ID_PORTFOLIO else ord(x[0][0]) / 27):
             print(f'  --{tp_id}-- ')
             for idx, x in enumerate(pl.cps):
                 last_update_formatted = TimeUtil.millis_to_timestamp(x.last_update_ms)
-                if idx == 0 or idx == len(pl.cps) - 1:
+                if idx in idx_allowed:
                     print('    ', idx, last_update_formatted, x)
             print(tp_id, 'max_perf_ledger_return:', pl.max_return)
 
@@ -1592,11 +1599,12 @@ class PerfLedgerManager(CacheController):
         pl_end_time = TimeUtil.millis_to_formatted_date_str(portfolio_pl.last_update_ms)
 
         print(f'Completed update_one_perf_ledger_parallel for {hotkey} in {time.time() - t0} s over '
-              f'{pl_start_time} to {pl_end_time}.')
+              f'{pl_start_time} to {pl_end_time}. initialization_time_ms {portfolio_pl.initialization_time_ms},'
+              f' max_return {portfolio_pl.max_return}')
         return hotkey, new_bundle
     def update_perf_ledgers_parallel(self, spark, pool, hotkey_to_positions: dict[str, List[Position]],
                                      existing_perf_ledgers: dict[str, dict[str, PerfLedger]],
-                                     parallel_mode = ParallelizationMode.PYSPARK,
+                                     parallel_mode: ParallelizationMode = ParallelizationMode.PYSPARK,
                                      now_ms: int = None, top_n_miners: int=None,
                                      is_backtesting: bool = False) -> dict[str, dict[str, PerfLedger]]:
         """
@@ -1607,8 +1615,10 @@ class PerfLedgerManager(CacheController):
             pool: Multiprocessing pool
             hotkey_to_positions: Dictionary mapping hotkeys to their positions
             existing_perf_ledgers: Dictionary of existing performance ledger bundles
+            parallel_mode: Parallelization mode to use (PYSPARK or MULTIPROCESSING)
             now_ms: Current time in milliseconds
             top_n_miners: Number of miners to process (local testing)
+            is_backtesting: Whether this is a backtesting run
 
         Returns:
             Updated performance ledger bundles
@@ -1649,23 +1659,56 @@ class PerfLedgerManager(CacheController):
 
 
 if __name__ == "__main__":
+    import os
+    os.environ["TAOSHI_TS_DEPLOYMENT"] = "DEVELOPMENT"
+    os.environ["TAOSHI_TS_PLATFORM"] = "LOCAL"
     from tests.shared_objects.mock_classes import MockMetagraph
     bt.logging.enable_info()
+    from backtesting.src.collect import positions_collection
+
+
+
+
+
 
     # Configuration flags
     parallel_mode = ParallelizationMode.MULTIPROCESSING  # 1 for pyspark, 2 for multiprocessing
     top_n_miners = 4
-    test_single_hotkey = None #'5EWKUhycaBQHiHnfE3i2suZ1BvxAAE3HcsFsp8TaR6mu3JrJ'  # Set to a specific hotkey string to test single hotkey, or None for all
+    test_single_hotkey = '5EUTaAo7vCGxvLDWRXRrEuqctPjt9fKZmgkaeFZocWECUe9X'  # Set to a specific hotkey string to test single hotkey, or None for all
     regenerate_all = False  # Whether to regenerate all ledgers from scratch
     build_portfolio_ledgers_only = True  # Whether to build only the portfolio ledgers or per trade pair
+    from taoshi.ts import ptn as ptn_utils
 
+    miner_db = ptn_utils.DatabasePositionOrderSource()
+
+    filtered_positions = miner_db.get_positions_with_orders(
+        start_ms=0,
+        end_ms=None,
+        miner_hotkeys=[test_single_hotkey])
+
+    hk_to_positions = defaultdict(list)
+    for position in filtered_positions:
+        position_copy = copy.deepcopy(position)
+
+        # Convert enum/custom types to strings/basic types
+        #print('@@@', position["trade_pair_id"])
+        position_copy["trade_pair"] = [position["trade_pair_id"]]
+        position_copy["position_type"] = str(position_copy["position_type"])
+        position_obj = Position(**position_copy)
+        # Append position to this list
+        hk_to_positions[position_obj.miner_hotkey] += [position_obj]
 
     # Initialize components
     all_miners_dir = ValiBkpUtils.get_miner_dir(running_unit_tests=False)
     all_hotkeys_on_disk = CacheController.get_directory_names(all_miners_dir)
+    time_to_run_to_ms = 1751061826000# Set to None for realtime
     mmg = MockMetagraph(hotkeys=all_hotkeys_on_disk)
     elimination_manager = EliminationManager(mmg, None, None)
     position_manager = PositionManager(metagraph=mmg, running_unit_tests=False, elimination_manager=elimination_manager)
+    # Hack to save positions to the position manager
+    for hk, positions in hk_to_positions.items():
+        for p in positions:
+            position_manager.save_miner_position(p)
     perf_ledger_manager = PerfLedgerManager(mmg, position_manager=position_manager, running_unit_tests=False,
                                             enable_rss=False, parallel_mode=parallel_mode,
                                             build_portfolio_ledgers_only=build_portfolio_ledgers_only)
@@ -1675,7 +1718,7 @@ if __name__ == "__main__":
         # Use serial update like validators do
         if test_single_hotkey:
             bt.logging.info(f"Running single-hotkey test for: {test_single_hotkey}")
-            perf_ledger_manager.update(testing_one_hotkey=test_single_hotkey)
+            perf_ledger_manager.update(testing_one_hotkey=test_single_hotkey, t_ms=time_to_run_to_ms)
         else:
             bt.logging.info("Running standard sequential update for all hotkeys")
             perf_ledger_manager.update(regenerate_all_ledgers=regenerate_all)
@@ -1683,14 +1726,15 @@ if __name__ == "__main__":
         # Get positions and existing ledgers
         hotkey_to_positions, _ = perf_ledger_manager.get_positions_perf_ledger(testing_one_hotkey=test_single_hotkey)
 
-        existing_perf_ledgers = {} if regenerate_all else perf_ledger_manager.get_perf_ledgers(portfolio_only=False, from_disk=True)
+        existing_perf_ledgers = {} if regenerate_all or test_single_hotkey else perf_ledger_manager.get_perf_ledgers(portfolio_only=False, from_disk=True)
 
         # Run the parallel update
         spark, should_close = get_spark_session(parallel_mode)
         pool = get_multiprocessing_pool(parallel_mode)
         assert pool, parallel_mode
         updated_perf_ledgers = perf_ledger_manager.update_perf_ledgers_parallel(spark, pool, hotkey_to_positions,
-                                    existing_perf_ledgers, parallel_mode=parallel_mode, top_n_miners=top_n_miners)
+                                    existing_perf_ledgers, parallel_mode=parallel_mode, top_n_miners=top_n_miners,
+                                    is_backtesting=True, now_ms=time_to_run_to_ms)
 
         PerfLedgerManager.print_bundles(updated_perf_ledgers)
         # Stop Spark session if we created it
