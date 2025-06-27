@@ -80,7 +80,6 @@ class Orthogonality:
         assert len(a) == len(b), "Vectors must be of the same length after stripping zeros."
 
         if len(a) < window or len(b) < window:
-            logger.debug(f"Stripped vector length is less than the comparison window size. Similarity should score as zero.")
             return np.array([0])
 
         sims = []
@@ -108,7 +107,7 @@ class Orthogonality:
     def sliding_similarity(
             v1: Sequence[float] | np.ndarray,
             v2: Sequence[float] | np.ndarray,
-            window: int = 10
+            window: int = None
     ) -> float:
         """
         Calculate the sliding similarity between two vectors.
@@ -117,6 +116,9 @@ class Orthogonality:
         :param window: Maximum right-hand shift to consider.
         :return: Sliding similarity value.
         """
+        if window is None:
+            window = ValiConfig.TARGET_SIMILARITY_WINDOW_DAYS
+
         similarity_array = Orthogonality.sliding_similarity_array(
             v1,
             v2,
@@ -271,33 +273,14 @@ class Orthogonality:
         if preference_factor == 0:
             return 0.0
 
+        if preference_factor == 1 or preference_factor == -1:
+            return 1.0
+
         # Divergence factor should be quite high when the preference factor is close to 0 or 1
-        divergence_factor = B * np.log((n-m)**2 / (4*(x-m)(n-x)))
+        divergence_factor = B * np.log((n-m)**2 / (4*(x-m)*(n-x)))
 
         # Divergence factor should be incredibly high wh
         return np.clip(divergence_factor * similarity_factor, 0, 1)
-
-
-    @staticmethod
-    def diverging_pref(
-            returns: dict[str, list[float]],
-            preference_fn: Callable,
-            similarity_fn: Callable
-    ) -> dict[tuple[str, str], float]:
-        """
-        Compute pairwise preferences with diverging criteria based on preference and similarity.
-        Returns a dict mapping (hotkey1, hotkey2) to the diverging preference value.
-        """
-        keys = list(returns.keys())
-        n = len(keys)
-        prefs = {}
-        for i in range(n):
-            for j in range(i + 1, n):
-                k1, k2 = keys[i], keys[j]
-                pref_value = preference_fn(returns[k1], returns[k2])
-                sim_value = similarity_fn(returns[k1], returns[k2])
-                prefs[(k1, k2)] = Orthogonality.diverging_criteria(pref_value, sim_value)
-        return prefs
 
     @staticmethod
     def full_pref(returns: dict[str, list[float]]) -> dict[str, float]:
@@ -317,34 +300,20 @@ class Orthogonality:
         for (k1, k2), v in overall_prefs.items():
             similarity_score = sim_prefs.get((k1, k2), 0.0)
             enhanced_criteria = Orthogonality.diverging_criteria(v, similarity_score)
-            if similarity_score > 0 and v > 0.5:
+            if v > 0:
                 # preference for k1 over k2
                 penalty_augmentations[(k1, k2)] = enhanced_criteria
                 penalty_augmentations[(k2, k1)] = 1-enhanced_criteria
-            elif similarity_score > 0 and v <= 0.5:
+            elif v <= 0:
                 # preference for k2 over k1
                 penalty_augmentations[(k1, k2)] = 1-enhanced_criteria
                 penalty_augmentations[(k2, k1)] = enhanced_criteria
 
+        return penalty_augmentations
 
-        for (k1, k2), v in sim_prefs.items():
-            if k1 not in overall_prefs:
-                overall_prefs[k1] = 0.0
-            if k2 not in overall_prefs:
-                overall_prefs[k2] = 0.0
-            overall_prefs[k1] += v
-            overall_prefs[k2] += v
-
-        # # Aggregate all pairwise preferences
-        # all_keys = list(returns.keys())
-        # agg = {k: 0.0 for k in all_keys}
-        # # for (k1, k2), v in size_prefs.items():
-        # #     agg[k1] += v
-        # #     agg[k2] += v
-        # for (k1, k2), v in time_prefs.items():
-        #     agg[k1] += v
-        #     agg[k2] += v
-        # for (k1, k2), v in sim_prefs.items():
-        #     agg[k1] += v
-        #     agg[k2] += v
-        # return agg
+        # # Now I want to take the max value for each of the keys
+        # final_penalty = {}
+        # for (k1, _) in penalty_augmentations.keys():
+        #     final_penalty[k1] = max(final_penalty.get(k1, 0.0), penalty_augmentations[(k1, _)])
+        #
+        # return final_penalty

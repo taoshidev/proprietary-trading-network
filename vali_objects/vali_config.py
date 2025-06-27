@@ -106,7 +106,7 @@ class ValiConfig:
 
     # ORTHOGONALITY
     TIME_PREFERENCE_SHIFT = 40
-    TIME_PREFERENCE_SPREAD = -0.1
+    TIME_PREFERENCE_SPREAD = -0.05
 
     # Assumes a 2% return on a 250k account size annually
     SIZE_PREFERENCE_SHIFT = 1000
@@ -116,7 +116,7 @@ class ValiConfig:
     SIMILARITY_PREFERENCE_SHIFT = 0.35
     SIMILARITY_PREFERENCE_SPREAD = -10
 
-    ORTHOGONALITY_DIVERGING_INTENSITY = 1.0 # lower pushes to a steeper divergence
+    ORTHOGONALITY_DIVERGING_INTENSITY = 0.5 # lower pushes to a steeper divergence
 
     PLAGIARISM_MATCHING_TIME_RESOLUTION_MS = 60 * 1000 * 2  # 2 minutes
     PLAGIARISM_MAX_LAGS = 60
