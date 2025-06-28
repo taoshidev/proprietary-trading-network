@@ -9,6 +9,8 @@ from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.position import Position
 import bittensor as bt
 
+from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
+from vali_objects.utils.miner_bucket_enum import MinerBucket
 from vali_objects.utils.vali_utils import ValiUtils
 AUTO_SYNC_ORDER_LAG_MS = 1000 * 60 * 60 * 24
 
@@ -92,19 +94,27 @@ class ValidatorSyncBase():
                 self.perf_ledger_hks_to_invalidate[hk] = 0
 
 
-        challenge_period_data = candidate_data.get('challengeperiod')
-        if challenge_period_data:  # Only in autosync as of now.
-            orig_testing_keys = set(self.position_manager.challengeperiod_manager.challengeperiod_testing.keys())
-            orig_success_keys = set(self.position_manager.challengeperiod_manager.challengeperiod_success.keys())
-            new_testing_keys = set(challenge_period_data.get('testing').keys())
-            new_success_keys = set(challenge_period_data.get('success').keys())
+        challengeperiod_data = candidate_data.get('challengeperiod', {})
+        if challengeperiod_data:  # Only in autosync as of now.
+            orig_testing_keys = set(self.position_manager.challengeperiod_manager.get_hotkeys_by_bucket(MinerBucket.CHALLENGE))
+            orig_success_keys = set(self.position_manager.challengeperiod_manager.get_hotkeys_by_bucket(MinerBucket.MAINCOMP))
+
+            challengeperiod_dict = ChallengePeriodManager.parse_checkpoint_dict(challengeperiod_data)
+            new_testing_keys = {
+                    hotkey for hotkey, (bucket, _) in challengeperiod_dict.items()
+                    if bucket is MinerBucket.CHALLENGE
+                    }
+            new_success_keys = {
+                    hotkey for hotkey, (bucket, _) in challengeperiod_dict.items()
+                    if bucket is MinerBucket.MAINCOMP
+                    }
+
             bt.logging.info(f"Challengeperiod testing sync keys added: {new_testing_keys-orig_testing_keys}\n"
                             f"Challengeperiod testing sync keys removed: {orig_testing_keys - new_testing_keys}\n"
                             f"Challengeperiod success sync keys added: {new_success_keys - orig_success_keys}\n"
                             f"Challengeperiod success sync keys removed: {orig_success_keys - new_success_keys}")
             if not shadow_mode:
-                self.position_manager.challengeperiod_manager.sync_challenege_period_data(challenge_period_data.get('testing', {}),
-                                                                                          challenge_period_data.get('success', {}))
+                self.position_manager.challengeperiod_manager.sync_challenge_period_data(challengeperiod_data)
         eliminated_hotkeys = set([e['hotkey'] for e in eliminations])
         # For a healthy validator, the existing positions will always be a superset of the candidate positions
         for hotkey, positions in candidate_hk_to_positions.items():

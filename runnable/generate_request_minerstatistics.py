@@ -425,16 +425,21 @@ class MinerStatisticsManager:
             time_now = TimeUtil.now_in_millis()
 
         # ChallengePeriod: success + testing
-        challengeperiod_testing_dict = self.challengeperiod_manager.get_challengeperiod_testing()
-        challengeperiod_success_dict = self.challengeperiod_manager.get_challengeperiod_success()
+        challengeperiod_testing_dict = self.challengeperiod_manager.get_testing_miners()
+        challengeperiod_success_dict = self.challengeperiod_manager.get_success_miners()
+        challengeperiod_probation_dict = self.challengeperiod_manager.get_probation_miners()
 
         sorted_challengeperiod_testing = dict(sorted(challengeperiod_testing_dict.items(), key=lambda x: x[1]))
         sorted_challengeperiod_success = dict(sorted(challengeperiod_success_dict.items(), key=lambda x: x[1]))
+        sorted_challengeperiod_probation = dict(sorted(challengeperiod_probation_dict.items(), key=lambda x: x[1]))
 
         challengeperiod_testing_hotkeys = list(sorted_challengeperiod_testing.keys())
         challengeperiod_success_hotkeys = list(sorted_challengeperiod_success.keys())
+        challengeperiod_probation_hotkeys = list(sorted_challengeperiod_probation.keys())
 
-        all_miner_hotkeys = list(set(challengeperiod_testing_hotkeys + challengeperiod_success_hotkeys))
+        challengeperiod_eval_hotkeys  = challengeperiod_testing_hotkeys + challengeperiod_probation_hotkeys
+
+        all_miner_hotkeys = list(set(challengeperiod_testing_hotkeys + challengeperiod_success_hotkeys + challengeperiod_probation_hotkeys))
         if selected_miner_hotkeys is None:
             selected_miner_hotkeys = all_miner_hotkeys
 
@@ -456,8 +461,8 @@ class MinerStatisticsManager:
         )  # returns list of (hotkey, weightVal)
 
         # Only used for testing weight calculation
-        testing_ledger = self.perf_ledger_manager.filtered_ledger_for_scoring(challengeperiod_testing_hotkeys)
-        testing_positions, _ = self.position_manager.filtered_positions_for_scoring(challengeperiod_testing_hotkeys)
+        testing_ledger = self.perf_ledger_manager.filtered_ledger_for_scoring(challengeperiod_eval_hotkeys)
+        testing_positions, _ = self.position_manager.filtered_positions_for_scoring(challengeperiod_eval_hotkeys)
 
         # Compute testing miner scores
         testing_checkpoint_results = Scoring.compute_results_checkpoint(
@@ -503,8 +508,8 @@ class MinerStatisticsManager:
             miner_data[hotkey] = self.prepare_miner_data(hotkey, filtered_ledger, filtered_positions, time_now)
 
         # Compute the base and augmented scores
-        base_scores = self.calculate_scores_with_challengeperiod(miner_data, challengeperiod_success_hotkeys, challengeperiod_testing_hotkeys, ScoreType.BASE, bypass_confidence)
-        augmented_scores = self.calculate_scores_with_challengeperiod(miner_data, challengeperiod_success_hotkeys, challengeperiod_testing_hotkeys, ScoreType.AUGMENTED, bypass_confidence)
+        base_scores = self.calculate_scores_with_challengeperiod(miner_data, challengeperiod_success_hotkeys, challengeperiod_eval_hotkeys, ScoreType.BASE, bypass_confidence)
+        augmented_scores = self.calculate_scores_with_challengeperiod(miner_data, challengeperiod_success_hotkeys, challengeperiod_eval_hotkeys, ScoreType.AUGMENTED, bypass_confidence)
 
         # For visualization
         daily_returns_dict = self.calculate_all_daily_returns(filtered_ledger)
@@ -524,7 +529,7 @@ class MinerStatisticsManager:
             challengeperiod_info = {}
             if hotkey in sorted_challengeperiod_testing:
                 cp_start = sorted_challengeperiod_testing[hotkey]
-                cp_end = cp_start + ValiConfig.CHALLENGE_PERIOD_MS
+                cp_end = cp_start + ValiConfig.CHALLENGE_PERIOD_MAXIMUM_MS
                 remaining = cp_end - time_now
                 challengeperiod_info = {
                     "status": "testing",
@@ -536,6 +541,15 @@ class MinerStatisticsManager:
                 challengeperiod_info = {
                     "status": "success",
                     "start_time_ms": cp_start
+                }
+            elif hotkey in sorted_challengeperiod_probation:
+                bucket_start = sorted_challengeperiod_probation[hotkey]
+                bucket_end = bucket_start + ValiConfig.PROBATION_MAXIMUM_MS
+                remaining = bucket_end - time_now
+                challengeperiod_info = {
+                    "status": "probation",
+                    "start_time_ms": bucket_start,
+                    "remaining_time_ms": max(remaining, 0)
                 }
 
             # Build a small function to extract ScoreResult -> dict for each metric

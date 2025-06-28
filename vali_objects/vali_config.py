@@ -157,8 +157,14 @@ class ValiConfig:
     CHALLENGE_PERIOD_MAX_WEIGHT = 2.4e-05
     # increment the CHALLENGE_PERIOD_MINIMUM_DAYS every 14 days by 7, until the value of 120 is reached
     CHALLENGE_PERIOD_MINIMUM_DAYS = InterpolatedValueFromDate("2025-06-06", low=60, increment=7, interval=14, target=120)
-    CHALLENGE_PERIOD_MS = 150 * DAILY_MS
+    CHALLENGE_PERIOD_MAXIMUM_DAYS = 150
+    CHALLENGE_PERIOD_MAXIMUM_MS = CHALLENGE_PERIOD_MAXIMUM_DAYS * DAILY_MS
     CHALLENGE_PERIOD_PERCENTILE_THRESHOLD = 0.75 # miners must pass 75th percentile to enter the main competition
+
+    PROBATION_MAXIMUM_DAYS = 30
+    PROBATION_MAXIMUM_MS = PROBATION_MAXIMUM_DAYS * DAILY_MS
+
+    PROMOTION_THRESHOLD_RANK = 25 # Number of MAINNET miners
 
     # Plagiarism
     ORDER_SIMILARITY_WINDOW_MS = 60000 * 60 * 24
