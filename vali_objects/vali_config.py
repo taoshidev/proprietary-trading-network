@@ -2,9 +2,7 @@
 from datetime import datetime, timezone
 import os
 import math
-
 from enum import Enum
-
 from meta import load_version
 
 BASE_DIR = base_directory = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -57,6 +55,7 @@ class ValiConfig:
 
     # Set the target ledger window in days directly
     TARGET_LEDGER_WINDOW_DAYS = 120
+    TARGET_SIMILARITY_WINDOW_DAYS = int(TARGET_LEDGER_WINDOW_DAYS * 0.5)  # 50% of the target ledger window
     TARGET_LEDGER_WINDOW_MS = TARGET_LEDGER_WINDOW_DAYS * DAILY_MS
     # TARGET_LEDGER_N_CHECKPOINTS = TARGET_LEDGER_WINDOW_MS // TARGET_CHECKPOINT_DURATION_MS  # 180 checkpoints
     WEIGHTED_AVERAGE_DECAY_RATE = 0.075
@@ -108,6 +107,25 @@ class ValiConfig:
     # RISK_PROFILING_TIME_DECAY = 5
     # RISK_PROFILING_TIME_CYCLE = POSITIONAL_EQUIVALENCE_WINDOW_MS
     RISK_PROFILING_TIME_CRITERIA = 0.185  # threshold for the normalized error of a position’s order time intervals
+
+    # ORTHOGONALITY
+    TIME_PREFERENCE_SHIFT = 40
+    TIME_PREFERENCE_SPREAD = -0.05
+
+    # Assumes a 2% return on a 250k account size annually
+    SIZE_PREFERENCE_SHIFT = 1000
+    SIZE_PREFERENCE_SPREAD = -0.01
+
+    # Based on cos similarity function with random values
+    SIMILARITY_PREFERENCE_SHIFT = 0.35
+    SIMILARITY_PREFERENCE_SPREAD = -10
+
+    ORTHOGONALITY_DIVERGING_INTENSITY = 0.75 # lower pushes to a steeper divergence
+    TARGET_SIMILARITY_WINDOW_DAYS = 10       # Default window for sliding similarity
+    
+    # Orthogonality penalty combination weights
+    ORTHOGONALITY_CORRELATION_WEIGHT = 0.6   # Weight for correlation penalty
+    ORTHOGONALITY_PREFERENCE_WEIGHT = 0.4    # Weight for preference penalty
 
     PLAGIARISM_MATCHING_TIME_RESOLUTION_MS = 60 * 1000 * 2  # 2 minutes
     PLAGIARISM_MAX_LAGS = 60

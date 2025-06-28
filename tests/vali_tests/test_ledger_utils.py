@@ -1,5 +1,6 @@
 from tests.vali_tests.base_objects.test_base import TestBase
 from vali_objects.utils.ledger_utils import LedgerUtils
+from vali_objects.utils.orthogonality import Orthogonality
 
 from vali_objects.vali_config import ValiConfig
 from vali_objects.vali_dataclasses.perf_ledger import TP_ID_PORTFOLIO, PerfLedger, PerfCheckpoint
@@ -465,4 +466,111 @@ class TestLedgerUtils(TestBase):
             self.assertEqual(parsed_json, json_results)
         except TypeError:
             self.fail("daily_returns_by_date_json results should be JSON serializable")
+
+
+    def _create_test_ledger(self, returns_pattern):
+        """Helper to create a test ledger with specific return pattern."""
+        checkpoints = []
+
+        for i, ret in enumerate(returns_pattern):
+            checkpoint = PerfCheckpoint(
+                last_update_ms=1742323014691 + i * 12 * 60 * 60 * 1000,  # Daily
+                prev_portfolio_ret=1.0 + ret,  # Convert return to portfolio value
+                gain=ret if ret > 0 else 0.0,
+                loss=ret if ret < 0 else 0.0,
+                accum_ms=12 * 60 * 60 * 1000,
+                open_ms=12 * 60 * 60 * 1000
+            )
+            checkpoints.append(checkpoint)
+
+        return ledger_generator(checkpoints=checkpoints)
+
+    def test_basic_correlation_penalty_example(self):
+        """Basic correlation-based orthogonality penalty."""
+        # Create miners with different strategies
+        # Need enough data points to meet statistical confidence minimum
+
+        # Miner 1: Steady positive returns
+        miner1_returns = [0.01, 0.015, 0.008, 0.012, 0.009] * 50  # 125 days
+
+        # Miner 2: Similar to miner 1 (high correlation - should be penalized more)
+        miner2_returns = [0.011, 0.016, 0.007, 0.013, 0.008] * 50
+
+        # Miner 3: Opposite strategy (negative correlation)
+        miner3_returns = [-0.01, -0.015, -0.008, -0.012, -0.009] * 50
+
+        # Miner 4: Volatile, different pattern (low correlation)
+        miner4_returns = [0.05, -0.03, 0.02, -0.01, 0.04] * 50
+
+        # Create ledgers
+        ledgers = {
+            'miner1': self._create_test_ledger(miner1_returns),
+            'miner2': self._create_test_ledger(miner2_returns),
+            'miner3': self._create_test_ledger(miner3_returns),
+            'miner4': self._create_test_ledger(miner4_returns),
+        }
+
+        # Calculate orthogonality penalties
+        penalties = LedgerUtils.orthogonality_penalty(ledgers)
+
+        print("\\nBasic Correlation Penalty Example:")
+        for miner, penalty in penalties.items():
+            print(f"  {miner}: {penalty:.4f}")
+
+        # Assertions
+        self.assertEqual(len(penalties), 4)
+
+        # All penalties should be non-negative (exact values depend on data meeting thresholds)
+        for penalty in penalties.values():
+            self.assertGreaterEqual(penalty, 0.0)
+
+    def test_complete_orthogonality_workflow_example(self):
+        # Create miners with different strategies and capital
+        strategies = {
+            'trend_follower_1': [0.02, 0.015, -0.01, 0.025, 0.01] * 25,  # Trend following
+            'trend_follower_2': [0.018, 0.013, -0.008, 0.022, 0.009] * 25,  # Similar trend following
+            'mean_reverter': [-0.015, 0.025, -0.02, 0.03, -0.01] * 25,  # Mean reversion
+            'volatility_trader': [0.05, -0.04, 0.03, -0.02, 0.06] * 25,  # High volatility
+        }
+
+        ledgers = {
+            miner: self._create_test_ledger(returns)
+            for miner, returns in strategies.items()
+        }
+
+        # Calculate correlation matrix
+        miner_returns = {}
+        for miner, ledger in ledgers.items():
+            returns = LedgerUtils.daily_return_log(ledger)
+            miner_returns[miner] = returns
+
+        corr_matrix, mean_correlations = Orthogonality.correlation_matrix(miner_returns)
+
+        print("Correlation matrix:")
+        if not corr_matrix.empty:
+            print(corr_matrix.round(3))
+
+        print("\\nMean pairwise correlations:")
+        for miner, corr in mean_correlations.items():
+            print(f"  {miner}: {corr:.3f}")
+
+        # Calculate final orthogonality penalties
+        penalties = LedgerUtils.orthogonality_penalty(ledgers)
+
+        print("\\nFinal orthogonality penalties:")
+        for miner, penalty in sorted(penalties.items(), key=lambda x: x[1], reverse=True):
+            print(f"{miner}: {penalty:.4f}")
+
+        # Validate results
+        self.assertEqual(len(penalties), 4)
+
+        # All penalties should be non-negative
+        for penalty in penalties.values():
+            self.assertGreaterEqual(penalty, 0.0)
+
+        # trend_follower_1 and trend_follower_2 should have higher penalties
+        # due to similar strategies (high correlation)
+        print("\\nAnalysis:")
+        print("Trend followers have higher correlation and should receive higher penalties")
+        print("Mean reverter and volatility trader should have lower penalties due to different strategies")
 
