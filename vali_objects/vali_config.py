@@ -117,6 +117,11 @@ class ValiConfig:
     SIMILARITY_PREFERENCE_SPREAD = -10
 
     ORTHOGONALITY_DIVERGING_INTENSITY = 0.75 # lower pushes to a steeper divergence
+    TARGET_SIMILARITY_WINDOW_DAYS = 10       # Default window for sliding similarity
+    
+    # Orthogonality penalty combination weights
+    ORTHOGONALITY_CORRELATION_WEIGHT = 0.6   # Weight for correlation penalty
+    ORTHOGONALITY_PREFERENCE_WEIGHT = 0.4    # Weight for preference penalty
 
     PLAGIARISM_MATCHING_TIME_RESOLUTION_MS = 60 * 1000 * 2  # 2 minutes
     PLAGIARISM_MAX_LAGS = 60

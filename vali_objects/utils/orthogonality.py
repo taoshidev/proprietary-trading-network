@@ -4,6 +4,7 @@ import pandas as pd
 from typing import Callable, Sequence
 from vali_objects.vali_config import ValiConfig
 from vali_objects.utils.functional_utils import FunctionalUtils
+import bittensor as bt
 
 
 class Orthogonality:
@@ -26,6 +27,11 @@ class Orthogonality:
         :param min_returns_threshold: Minimum number of returns required per miner
         :return: Tuple of (correlation_matrix, mean_pairwise_correlations)
         """
+        # Safety check: need at least 2 miners for correlation
+        if len(returns) < 2:
+            bt.logging.debug(f"Orthogonality: Insufficient miners ({len(returns)}) for correlation calculation")
+            return pd.DataFrame(), {}
+            
         # Convert to DataFrame
         df = pd.DataFrame(returns)
 
@@ -38,10 +44,21 @@ class Orthogonality:
         df_nonzero = filtered_df.loc[:, (filtered_df != 0).any(axis=0)]
         
         if df_nonzero.empty or len(df_nonzero.columns) < 2:
+            bt.logging.debug(f"Orthogonality: Insufficient valid data after filtering - miners: {len(df_nonzero.columns)}")
             return pd.DataFrame(), {}
             
         # Calculate correlation matrix
-        corr_matrix = df_nonzero.corr()
+        try:
+            corr_matrix = df_nonzero.corr()
+            
+            # Check for invalid correlations
+            if corr_matrix.isna().all().all():
+                bt.logging.warning("Orthogonality: All correlations are NaN, returning empty matrix")
+                return pd.DataFrame(), {}
+                
+        except Exception as e:
+            bt.logging.error(f"Orthogonality: Error calculating correlation matrix: {e}")
+            return pd.DataFrame(), {}
         
         # Set diagonal to NaN to ignore self-correlation
         np.fill_diagonal(corr_matrix.values, np.nan)
@@ -270,42 +287,74 @@ class Orthogonality:
         m = -1
         n = 1
 
+        # Safety checks for edge cases
+        if not np.isfinite(preference_factor) or not np.isfinite(similarity_factor):
+            return 0.0
+            
         if preference_factor == 0:
             return 0.0
 
         if preference_factor == 1 or preference_factor == -1:
             return 1.0
 
-        # Divergence factor should be quite high when the preference factor is close to 0 or 1
-        divergence_factor = B * np.log((n-m)**2 / (4*(x-m)*(n-x)))
+        # Check bounds to prevent division by zero
+        if x <= m or x >= n:
+            return 0.0
 
-        return np.clip(divergence_factor, 0, 1)
+        try:
+            # Divergence factor should be quite high when the preference factor is close to 0 or 1
+            divergence_factor = B * np.log((n-m)**2 / (4*(x-m)*(n-x)))
+            return np.clip(divergence_factor, 0, 1)
+        except (ValueError, ZeroDivisionError, OverflowError) as e:
+            bt.logging.warning(f"Orthogonality: Error in diverging_criteria with pref={preference_factor}, sim={similarity_factor}: {e}")
+            return 0.0
 
     @staticmethod
     def full_pref(returns: dict[str, list[float]]) -> dict[str, float]:
         """
         For a dict of miners' daily returns, return a dict mapping hotkey to the sum of all its pairwise compositional preferences (size, time, similarity) with all other miners.
         """
-        # Pairwise preference dictionaries
-        time_prefs = Orthogonality.time_pref(returns)         # {(k1,k2): value}
-        sim_prefs = Orthogonality.sim_pref(returns)          # {(k1,k2): score}
+        # Safety checks
+        if len(returns) < 2:
+            bt.logging.debug(f"Orthogonality: Less than 2 miners ({len(returns)}), returning zero penalties")
+            return {miner: 0.0 for miner in returns}
+            
+        # Check for empty or invalid returns
+        valid_miners = []
+        for miner, miner_returns in returns.items():
+            if miner_returns and len(miner_returns) > 0 and any(r != 0 for r in miner_returns):
+                valid_miners.append(miner)
+                
+        if len(valid_miners) < 2:
+            bt.logging.debug(f"Orthogonality: Less than 2 valid miners ({len(valid_miners)}), returning zero penalties")
+            return {miner: 0.0 for miner in returns}
+        
+        try:
+            # Pairwise preference dictionaries
+            time_prefs = Orthogonality.time_pref(returns)         # {(k1,k2): value}
+            sim_prefs = Orthogonality.sim_pref(returns)          # {(k1,k2): score}
 
-        penalty_pairs: Dict[Tuple[str, str], float] = {}
+            penalty_pairs: Dict[Tuple[str, str], float] = {}
 
-        # For now we can just use the time prefs, but we'll want to fold in size later
-        for (k1, k2), v_time in time_prefs.items():
-            sim_score = sim_prefs.get((k1, k2), 0.0)
-            enhanced = Orthogonality.diverging_criteria(v_time, sim_score)
+            # For now we can just use the time prefs, but we'll want to fold in size later
+            for (k1, k2), v_time in time_prefs.items():
+                sim_score = sim_prefs.get((k1, k2), 0.0)
+                enhanced = Orthogonality.diverging_criteria(v_time, sim_score)
 
-            # Positive value ⇒ "k1 over k2", negative/zero ⇒ "k2 over k1"
-            if v_time > 0:
-                penalty_pairs[(k2, k1)] = enhanced     # k2 owes k1
-            else:
-                penalty_pairs[(k1, k2)] = enhanced     # k1 owes k2
+                # Positive value ⇒ "k1 over k2", negative/zero ⇒ "k2 over k1"
+                if v_time > 0:
+                    penalty_pairs[(k2, k1)] = enhanced     # k2 owes k1
+                else:
+                    penalty_pairs[(k1, k2)] = enhanced     # k1 owes k2
 
-        final_penalty: Dict[str, float] = {miner: 0.0 for miner in returns}
+            final_penalty: Dict[str, float] = {miner: 0.0 for miner in returns}
 
-        for (debtor, _), value in penalty_pairs.items():
-            final_penalty[debtor] = max(final_penalty[debtor], value)
-
-        return final_penalty
+            for (debtor, _), value in penalty_pairs.items():
+                final_penalty[debtor] = max(final_penalty[debtor], value)
+                
+            bt.logging.debug(f"Orthogonality penalties calculated for {len(final_penalty)} miners")
+            return final_penalty
+            
+        except Exception as e:
+            bt.logging.error(f"Orthogonality: Error calculating penalties: {e}")
+            return {miner: 0.0 for miner in returns}
