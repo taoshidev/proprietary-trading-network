@@ -344,15 +344,18 @@ class ChallengePeriodManager(CacheController):
             success_ledger = {hotkey: ledger_data for hotkey, ledger_data in ledger.items() if hotkey in success_hotkeys}
 
             # Get the penalized scores of all successful miners
-            success_scores_dict = Scoring.score_miners(ledger_dict=success_ledger,
-                                                       positions=success_positions,
-                                                       evaluation_time_ms=current_time,
-                                                       weighting=True)
+            success_scores_dict = Scoring.score_miners(
+                    ledger_dict=success_ledger,
+                    positions=success_positions,
+                    evaluation_time_ms=current_time,
+                    weighting=True)
+
         if not inspection_scores_dict:
-            inspection_scores_dict = Scoring.score_miners(ledger_dict=candidates_ledgers,
-                                                          positions=candidates_positions,
-                                                          evaluation_time_ms=current_time,
-                                                          weighting=True)
+            inspection_scores_dict = Scoring.score_miners(
+                    ledger_dict=candidates_ledgers,
+                    positions=candidates_positions,
+                    evaluation_time_ms=current_time,
+                    weighting=True)
 
         hotkeys_to_promote, hotkeys_to_demote = ChallengePeriodManager.evaluate_promotions(success_hotkeys,
                                                                                            success_scores_dict,
@@ -403,6 +406,13 @@ class ChallengePeriodManager(CacheController):
                     promote_hotkeys.append(hotkey)
                 elif hotkey in success_hotkeys and score < threshold_score:
                     demote_hotkeys.append(hotkey)
+
+        for hotkey in success_hotkeys:
+            if hotkey not in all_scores:
+                bt.logging.warning(f"Could not find MAINCOMP hotkey {hotkey} when scoring, miner will not be evaluated")
+        for hotkey in candidate_hotkeys:
+            if hotkey not in all_scores:
+                bt.logging.warning(f"Could not find CHALLENGE/PROBATION hotkey {hotkey} when scoring, miner will not be evaluated")
 
         return promote_hotkeys, demote_hotkeys
 
