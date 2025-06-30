@@ -239,11 +239,17 @@ class MinerStatisticsManager:
                hotkey: {
                   "drawdown_threshold": ...,
                   "risk_profile": ...,
+                  "orthogonality": ...,
                   "total": ...
                }
             }
         """
         results = {}
+        
+        # Calculate orthogonality penalties for all miners at once
+        ledgers_dict = {hotkey: data.get("ledger", PerfLedger()) for hotkey, data in miner_data.items()}
+        orthogonality_penalties = LedgerUtils.orthogonality_penalty(ledgers_dict)
+        
         for hotkey, data in miner_data.items():
             ledger = data.get("ledger", [])
             positions = data.get("positions", [])
@@ -251,12 +257,14 @@ class MinerStatisticsManager:
             # For functions that still require checkpoints directly
             drawdown_threshold_penalty = LedgerUtils.max_drawdown_threshold_penalty(ledger)
             risk_profile_penalty = PositionPenalties.risk_profile_penalty(positions)
+            orthogonality_penalty = orthogonality_penalties.get(hotkey, 1.0)
 
-            total_penalty = drawdown_threshold_penalty * risk_profile_penalty
+            total_penalty = drawdown_threshold_penalty * risk_profile_penalty * orthogonality_penalty
 
             results[hotkey] = {
                 "drawdown_threshold": drawdown_threshold_penalty,
                 "risk_profile": risk_profile_penalty,
+                "orthogonality": orthogonality_penalty,
                 "total": total_penalty
             }
         return results
@@ -605,6 +613,7 @@ class MinerStatisticsManager:
                 "penalties": {
                     "drawdown_threshold": pen_break.get("drawdown_threshold", 1.0),
                     "risk_profile": pen_break.get("risk_profile", 1.0),
+                    "orthogonality": pen_break.get("orthogonality", 1.0),
                     "total": pen_break.get("total", 1.0),
                 },
                 "weight": {

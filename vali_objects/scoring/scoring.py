@@ -214,6 +214,9 @@ class Scoring:
         # Compute miner penalties
         miner_penalties = {}
 
+        # Calculate orthogonality penalties for all miners at once
+        orthogonality_penalties = LedgerUtils.orthogonality_penalty(ledger_dict)
+
         empty_ledger_miners = []
         for miner, ledger in ledger_dict.items():
             positions = hotkey_positions.get(miner, [])
@@ -227,7 +230,9 @@ class Scoring:
             for penalty_name, penalty_config in Scoring.penalties_config.items():
                 # Apply penalty based on its input type
                 penalty = 1
-                if penalty_config.input_type == PenaltyInputType.LEDGER:
+                if penalty_name == 'orthogonality':
+                    penalty = orthogonality_penalties.get(miner, 1.0)
+                elif penalty_config.input_type == PenaltyInputType.LEDGER:
                     penalty = penalty_config.function(ledger)
                 elif penalty_config.input_type == PenaltyInputType.POSITIONS:
                     penalty = penalty_config.function(positions)
