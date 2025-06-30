@@ -375,112 +375,40 @@ class LedgerUtils:
         return len(miner_returns)
     
     @staticmethod
-    def orthogonality_penalty(ledgers) -> Union[float, dict[str, float]]:
+    def orthogonality_penalty(ledgers: dict[str, PerfLedger]) -> dict[str, float]:
         """
         Calculate orthogonality penalties for all miners based on correlation and preferences.
         Args:
             ledgers: Dict mapping miner hotkeys to their PerfLedgers
-            size_data: Optional dict mapping miner hotkeys to size information
         Returns:
             Dict mapping miner hotkeys to their penalty values
         """
         # Check if called with single ledger (from scoring system) or dict of ledgers
-        if isinstance(ledgers, PerfLedger):
+        if not isinstance(ledgers, dict):
             # Single ledger call from scoring system - return 1.0 (no penalty)
             # Orthogonality can't be calculated for a single miner
-            return 1.0
+            return {}
+
+        if len(ledgers) == 0:
+            # No ledgers provided, return empty dict
+            return {}
         
         # Use the new internal helper function for multiple ledgers
-        penalties = LedgerUtils._calculate_orthogonality_penalties_multi(ledgers)
-        
-        # Log penalty distribution for monitoring
-        if penalties:
-            penalty_values = list(penalties.values())
-            bt.logging.info(f"Orthogonality penalty distribution - min: {min(penalty_values):.3f}, "
-                          f"max: {max(penalty_values):.3f}, mean: {np.mean(penalty_values):.3f}")
-        
-        # Return the old format for backward compatibility
-        # Convert penalties (1.0 = no penalty) to the old scoring format
-        # The existing scoring system expects higher values for more penalty
-        combined_penalties = {}
-        for hotkey, penalty in penalties.items():
-            # Invert the penalty: 1.0 becomes 0.0, 0.0 becomes 1.0
-            combined_penalties[hotkey] = 1.0 - penalty
-        
-        return combined_penalties
-    
-    @staticmethod
-    def _calculate_orthogonality_penalties_multi(ledgers: dict[str, PerfLedger]) -> dict[str, float]:
-        """
-        Internal helper to calculate orthogonality penalties for all miners.
-        Returns penalty multipliers (1.0 = no penalty, 0.0 = maximum penalty).
-        
-        Args:
-            ledgers: Dict mapping miner hotkeys to their PerfLedgers
-        Returns:
-            Dict mapping miner hotkeys to their penalty multipliers (0-1)
-        """
-        if not ledgers:
-            return {}
-            
+        miner_daily_returns = LedgerUtils.ledger_returns_log(ledgers)
+
         try:
-            # Convert all ledgers to daily returns
-            miner_returns = {}
-            for hotkey, ledger in ledgers.items():
-                if ledger:  # Safety check for None ledgers
-                    returns = LedgerUtils.daily_return_log(ledger)
-                    if len(returns) > 0:  # Only include miners with data
-                        miner_returns[hotkey] = returns
-            
-            if len(miner_returns) < 2:
-                bt.logging.debug(f"Orthogonality: Insufficient miners with data ({len(miner_returns)}), no penalties applied")
-                return {hotkey: 1.0 for hotkey in ledgers.keys()}
-
-            # Use correlation matrix approach for orthogonality penalty
-            _, mean_correlations = Orthogonality.correlation_matrix(miner_returns)
-
-            # Apply penalty based on mean pairwise correlation
-            correlation_penalties = {}
-            
-            for hotkey in ledgers.keys():
-                if hotkey in mean_correlations:
-                    # Convert correlation to penalty: high correlation = low multiplier
-                    # abs() to penalize both positive and negative correlation equally
-                    correlation_penalty = 1.0 - abs(mean_correlations[hotkey])
-                    correlation_penalties[hotkey] = max(0.0, correlation_penalty)
-                else:
-                    correlation_penalties[hotkey] = 1.0  # No penalty if no correlation data
-            
-            # Calculate preference scores
-            preference_scores = Orthogonality.full_pref(miner_returns)
-
-            # Normalize preference scores to 0-1 range for penalty calculation
-            if preference_scores:
-                max_pref = max(preference_scores.values())
-                if max_pref > 0:
-                    normalized_preferences = {k: v/max_pref for k, v in preference_scores.items()}
-                else:
-                    normalized_preferences = {k: 0.0 for k in preference_scores.keys()}
-            else:
-                normalized_preferences = {}
-
-            # Combine correlation and preference penalties
-            combined_penalties = {}
-            for hotkey in ledgers.keys():
-                corr_penalty = correlation_penalties.get(hotkey, 1.0)
-                pref_penalty = 1.0 - normalized_preferences.get(hotkey, 0.0)  # Convert to penalty
-                
-                # Weighted combination
-                combined_penalty = (ValiConfig.ORTHOGONALITY_CORRELATION_WEIGHT * corr_penalty +
-                                  ValiConfig.ORTHOGONALITY_PREFERENCE_WEIGHT * pref_penalty)
-                
-                # Ensure penalty is between 0 and 1
-                combined_penalties[hotkey] = np.clip(combined_penalty, 0.0, 1.0)
-            
-            bt.logging.debug(f"Orthogonality penalties calculated for {len(combined_penalties)} miners")
-            return combined_penalties
-            
+            penalties = Orthogonality.penalty(miner_daily_returns)
         except Exception as e:
             bt.logging.error(f"Error calculating orthogonality penalties: {e}")
             # Return no penalty (1.0) for all miners on error
             return {hotkey: 1.0 for hotkey in ledgers.keys()}
+
+        # Log penalty distribution for monitoring
+        if penalties:
+            penalty_values = list(penalties.values())
+            bt.logging.info(
+                f"Orthogonality penalty distribution - min: {min(penalty_values):.3f}, "
+                f"max: {max(penalty_values):.3f}, mean: {np.mean(penalty_values):.3f}"
+            )
+        
+        return penalties
