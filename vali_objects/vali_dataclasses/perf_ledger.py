@@ -17,6 +17,7 @@ from shared_objects.cache_controller import CacheController
 from time_util.time_util import TimeUtil, UnifiedMarketCalendar
 from vali_objects.utils.elimination_manager import EliminationManager, EliminationReason
 from vali_objects.utils.position_manager import PositionManager
+from vali_objects.utils.contract_manager import ContractManager
 from vali_objects.vali_config import ValiConfig
 from vali_objects.position import Position
 from vali_objects.utils.live_price_fetcher import LivePriceFetcher
@@ -103,6 +104,7 @@ class PerfCheckpoint(BaseModel):
     mpv: float = 0.0
     portfolio_realized_pnl: float = 0.0
     portfolio_unrealized_pnl: float = 0.0
+    account_size: float = ValiConfig.CAPITAL
 
     model_config = ConfigDict(extra="allow")
 
@@ -252,6 +254,7 @@ class PerfLedger():
                                          prev_max_return: float,  portfolio_realized_pnl: float=0.0, portfolio_unrealized_pnl: float=0.0,
                                          debug_dict=None) -> PerfCheckpoint:
 
+        #TODO Ensure that new checkpoints get up-to-date account sizes upon creation
         point_in_time_dd = CacheController.calculate_drawdown(current_portfolio_value, self.max_return)
         if not point_in_time_dd:
             time_formatted = TimeUtil.millis_to_verbose_formatted_date_str(now_ms)
@@ -376,7 +379,8 @@ class PerfLedgerManager(CacheController):
     def __init__(self, metagraph, ipc_manager=None, running_unit_tests=False, shutdown_dict=None,
                  perf_ledger_hks_to_invalidate=None, live_price_fetcher=None, position_manager=None,
                  enable_rss=True, is_backtesting=False, parallel_mode=ParallelizationMode.SERIAL, secrets=None,
-                 build_portfolio_ledgers_only=False, target_ledger_window_ms=ValiConfig.TARGET_LEDGER_WINDOW_MS):
+                 build_portfolio_ledgers_only=False, target_ledger_window_ms=ValiConfig.TARGET_LEDGER_WINDOW_MS,
+                 contract_manager: ContractManager=None):
         super().__init__(metagraph=metagraph, running_unit_tests=running_unit_tests, is_backtesting=is_backtesting)
 
         self.shutdown_dict = shutdown_dict
@@ -400,6 +404,7 @@ class PerfLedgerManager(CacheController):
             self.hotkey_to_perf_bundle = {}
         self.running_unit_tests = running_unit_tests
         self.position_manager = position_manager
+        self.contract_manager = contract_manager
         self.pds = live_price_fetcher.polygon_data_service if live_price_fetcher else None  # Load it later once the process starts so ipc works.
         self.live_price_fetcher = live_price_fetcher  # For unit tests only
 

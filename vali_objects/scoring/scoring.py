@@ -54,6 +54,10 @@ class Scoring:
         'statistical_confidence': {
             'function': Metrics.statistical_confidence,
             'weight': ValiConfig.SCORING_STATISTICAL_CONFIDENCE_WEIGHT
+        },
+        'pnl': {
+            'function': Metrics.pnl_score,
+            'weight': ValiConfig.SCORING_PNL_WEIGHT
         }
     }
 
@@ -75,7 +79,8 @@ class Scoring:
             full_positions: dict[str, list[Position]],
             evaluation_time_ms: int = None,
             verbose=True,
-            weighting=False
+            weighting=False,
+            metrics=None
     ) -> List[Tuple[str, float]]:
         if len(ledger_dict) == 0:
             bt.logging.debug("No results to compute, returning empty list")
@@ -94,7 +99,8 @@ class Scoring:
             full_positions,
             evaluation_time_ms=evaluation_time_ms
         )
-
+        if metrics is not None:
+            Scoring.scoring_config = metrics
         # Compute miner penalties
         miner_penalties = Scoring.miner_penalties(filtered_positions, ledger_dict)
 
@@ -164,12 +170,15 @@ class Scoring:
                 # Check if the miner has full penalty - if not include them in the scoring competition
                 if miner in full_penalty_miners:
                     continue
-
-                score = config['function'](
-                    log_returns=returns,
-                    ledger=ledger,
-                    weighting=weighting
-                )
+                #TODO remove this
+                if config_name == 'pnl':
+                    score = config['function'](miner)
+                else:
+                    score = config['function'](
+                        log_returns=returns,
+                        ledger=ledger,
+                        weighting=weighting
+                    )
 
                 scores.append((miner, float(score)))
 

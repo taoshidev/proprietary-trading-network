@@ -182,11 +182,12 @@ class Validator:
                                     ipc_manager=self.ipc_manager,
                                     position_manager=None)  # Set after self.pm creation
 
-
+        self.contract_manager = ContractManager()
         self.perf_ledger_manager = PerfLedgerManager(self.metagraph, ipc_manager=self.ipc_manager,
                                                      shutdown_dict=shutdown_dict,
                                                      perf_ledger_hks_to_invalidate=self.position_syncer.perf_ledger_hks_to_invalidate,
-                                                     position_manager=None)  # Set after self.pm creation
+                                                     position_manager=None,  # Set after self.pm creation
+                                                     contract_manager=self.contract_manager)
 
 
         # Initialize ContractManager for collateral management
@@ -533,6 +534,7 @@ class Validator:
                 self.mdd_checker.mdd_check(self.position_locks)
                 self.challengeperiod_manager.refresh(current_time=current_time)
                 self.elimination_manager.process_eliminations(self.position_locks)
+                self.contract_manager.refresh_account_sizes(timestamp_ms=current_time)
                 self.weight_setter.set_weights(self.wallet, self.config.netuid, self.subtensor, current_time=current_time)
                 #self.position_locks.cleanup_locks(self.metagraph.hotkeys)
                 self.p2p_syncer.sync_positions_with_cooldown()
