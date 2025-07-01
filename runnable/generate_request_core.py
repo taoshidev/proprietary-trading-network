@@ -150,17 +150,14 @@ class RequestCoreManager:
 
     def create_and_upload_production_files(self, eliminations, ord_dict_hotkey_position_map, time_now,
                                            youngest_order_processed_ms, oldest_order_processed_ms,
-                                           challengeperiod_testing_dictionary, challengeperiod_success_dictionary):
+                                           challengeperiod_dict):
 
         perf_ledgers = self.perf_ledger_manager.get_perf_ledgers()
         final_dict = {
             'version': ValiConfig.VERSION,
             'created_timestamp_ms': time_now,
             'created_date': TimeUtil.millis_to_formatted_date_str(time_now),
-            'challengeperiod': {
-                "testing": challengeperiod_testing_dictionary,
-                "success": challengeperiod_success_dictionary
-            },
+            'challengeperiod': challengeperiod_dict,
             'eliminations': eliminations,
             'youngest_order_processed_ms': youngest_order_processed_ms,
             'oldest_order_processed_ms': oldest_order_processed_ms,
@@ -257,19 +254,15 @@ class RequestCoreManager:
 
         assert n_orders_original == n_positions_new, f"n_orders_original: {n_orders_original}, n_positions_new: {n_positions_new}"
 
-        challengeperiod_testing_dictionary = self.challengeperiod_manager.get_challengeperiod_testing()
-        challengeperiod_success_dictionary = self.challengeperiod_manager.get_challengeperiod_success()
+        challengeperiod_dict = self.challengeperiod_manager.to_checkpoint_dict()
 
         if write_and_upload_production_files:
             self.create_and_upload_production_files(eliminations, ord_dict_hotkey_position_map, time_now_ms,
                                            youngest_order_processed_ms, oldest_order_processed_ms,
-                                           challengeperiod_testing_dictionary, challengeperiod_success_dictionary)
+                                           challengeperiod_dict)
 
         checkpoint_dict = {
-            'challengeperiod': {
-                "testing": challengeperiod_testing_dictionary,
-                "success": challengeperiod_success_dictionary
-            },
+            'challengeperiod': challengeperiod_dict,
             'positions': unfiltered_positions
         }
         return checkpoint_dict

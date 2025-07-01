@@ -4,6 +4,7 @@ from tests.shared_objects.test_utilities import generate_losing_ledger, generate
 from tests.vali_tests.base_objects.test_base import TestBase
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.position import Position
+from vali_objects.utils.miner_bucket_enum import MinerBucket
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.vali_config import ValiConfig, TradePair
 from vali_objects.utils.elimination_manager import EliminationManager, EliminationReason
@@ -59,12 +60,12 @@ class TestEliminationManager(TestBase):
         self.position_locks = PositionLocks()
 
         self.LEDGERS = {}
-        self.LEDGERS[self.MDD_MINER] = generate_losing_ledger(0, ValiConfig.CHALLENGE_PERIOD_MS)
-        self.LEDGERS[self.REGULAR_MINER] = generate_winning_ledger(0, ValiConfig.CHALLENGE_PERIOD_MS)
+        self.LEDGERS[self.MDD_MINER] = generate_losing_ledger(0, ValiConfig.CHALLENGE_PERIOD_MAXIMUM_MS)
+        self.LEDGERS[self.REGULAR_MINER] = generate_winning_ledger(0, ValiConfig.CHALLENGE_PERIOD_MAXIMUM_MS)
         self.ledger_manager.save_perf_ledgers(self.LEDGERS)
 
-        self.challengeperiod_manager.challengeperiod_success[self.MDD_MINER] = 0
-        self.challengeperiod_manager.challengeperiod_success[self.REGULAR_MINER] = 0
+        self.challengeperiod_manager.active_miners[self.MDD_MINER] = (MinerBucket.MAINCOMP, 0)
+        self.challengeperiod_manager.active_miners[self.REGULAR_MINER] = (MinerBucket.MAINCOMP, 0)
 
     def tearDown(self):
         super().tearDown()
@@ -76,7 +77,7 @@ class TestEliminationManager(TestBase):
 
     def test_elimination_for_mdd(self):
         # Neither miner has been eliminated
-        self.assertEqual(len(self.challengeperiod_manager.challengeperiod_success), 2)
+        self.assertEqual(len(self.challengeperiod_manager.get_success_miners()), 2)
 
         self.elimination_manager.process_eliminations(self.position_locks)
 

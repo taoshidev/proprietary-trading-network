@@ -43,7 +43,7 @@ if __name__ == "__main__":
     filtered_ledger = perf_ledger_manager.filtered_ledger_for_scoring(hotkeys=success_hotkeys)
 
     # Get all possible positions, even beyond the lookback range
-    success, eliminations = challengeperiod_manager.inspect(
+    success, demoted, eliminations = challengeperiod_manager.inspect(
         ledger=filtered_ledger,
         inspection_hotkeys=inspection_hotkeys_dict,
         current_time=current_time,

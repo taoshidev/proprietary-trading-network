@@ -179,8 +179,7 @@ def regenerate_miner_positions(perform_backup=True, backup_from_data_dir=False, 
 
     ## Now sync challenge period with the disk
     challengeperiod = data.get('challengeperiod', {})
-    challengeperiod_manager.challengeperiod_testing = challengeperiod.get('testing', {})  
-    challengeperiod_manager.challengeperiod_success = challengeperiod.get('success', {})
+    challengeperiod_manager.sync_challenge_period_data(challengeperiod)
 
     challengeperiod_manager._write_challengeperiod_from_memory_to_disk()
     return True

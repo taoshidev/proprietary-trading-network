@@ -116,6 +116,10 @@ Miners who repeatedly copy another miner's trades will be eliminated. Our system
 
 Miners who exceed 10% max drawdowns will be eliminated. Our system continuously tracks each miner’s performance, measuring the maximum drop from peak portfolio value. If a miner’s drawdown exceeds the allowed threshold, they will be eliminated to maintain risk control.
 
+### Probation Elimination
+
+Miners who score less than the 25th highest ranking miner will be observed in a probationary period. From that point, they have 30 days to outscore the lowest ranked (25th) miner still in the main competition. If they fail to do so within that window, they will be eliminated.
+
 ### Post-Elimination
 
 After elimination, miners are not immediately deregistered from the network. They will undergo a waiting period, determined by registration timelines and the network's immunity policy, before official deregistration. Upon official deregistration, the miner forfeits registration fees paid.
