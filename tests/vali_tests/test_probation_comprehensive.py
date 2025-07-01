@@ -11,8 +11,6 @@ on what logic may need to be added or verified.
 """
 
 import unittest
-from copy import deepcopy
-import time
 
 from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
 from vali_objects.utils.elimination_manager import EliminationManager, EliminationReason
@@ -22,8 +20,6 @@ from vali_objects.utils.subtensor_weight_setter import SubtensorWeightSetter
 from vali_objects.vali_dataclasses.order import Order
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager, TP_ID_PORTFOLIO
-from vali_objects.utils.ledger_utils import LedgerUtils
-from vali_objects.scoring.scoring import Scoring
 from tests.shared_objects.mock_classes import MockMetagraph, MockPositionManager
 from tests.vali_tests.base_objects.test_base import TestBase
 from tests.shared_objects.test_utilities import generate_winning_ledger, generate_losing_ledger
@@ -503,15 +499,12 @@ class TestProbationComprehensive(TestBase):
         at exactly 30 days and just over/under. Ensure proper boundary handling.
         """
         # Test miner at exactly 30 days
-        exactly_30_days_miner = "probation_boundary_exact"
         exactly_30_start = self.CURRENT_TIME - ValiConfig.PROBATION_MAXIMUM_MS
 
         # Test miner just under 30 days
-        under_30_days_miner = "probation_boundary_under"
         under_30_start = self.CURRENT_TIME - ValiConfig.PROBATION_MAXIMUM_MS + 1000
 
         # Test miner just over 30 days
-        over_30_days_miner = "probation_boundary_over"
         over_30_start = self.CURRENT_TIME - ValiConfig.PROBATION_MAXIMUM_MS - 1000
 
         # Test boundary conditions
