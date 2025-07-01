@@ -92,7 +92,7 @@ class Dashboard:
         if self.is_testnet:
             validator_axons = self.metagraph.axons
         else:
-            validator_axons = [n.axon_info for n in self.metagraph.neurons if n.hotkey == "5FFApaS75bv5pJHfAp2FVLBj9ZaXuFDjEypsaBNc1wCfe52v"]  # RT21
+            validator_axons = [n.axon_info for n in self.metagraph.neurons if n.hotkey == "5FeNwZ5oAqcJMitNqGx71vxGRWJhsdTqxFGVwPRfg8h2UZmo"]
         try:
             bt.logging.info("Dashboard stats request processing")
             miner_dash_synapse = template.protocol.GetDashData()

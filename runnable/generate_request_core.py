@@ -72,7 +72,7 @@ class RequestCoreManager:
             if len(new_orders):
                 position_to_truncate.orders = new_orders
                 position_to_truncate.rebuild_position_with_updated_orders()
-                return position
+                return position_to_truncate
             else:  # no orders left. erase position
                 return None
 
@@ -114,11 +114,11 @@ class RequestCoreManager:
         """
         datetime_now = TimeUtil.generate_start_timestamp(0)  # UTC
         #if not (datetime_now.hour == 6 and datetime_now.minute < 9 and datetime_now.second < 30):
-        if not (datetime_now.minute == 22 and datetime_now.second < 30):
+        if not (datetime_now.minute == 24):
             return
 
         # check if file exists
-        KEY_PATH = ValiConfig.BASE_DIR + '/gcloud.json'
+        KEY_PATH = ValiConfig.BASE_DIR + '/gcloud_new.json'
         if not os.path.exists(KEY_PATH):
             return
 
