@@ -305,9 +305,10 @@ class ChallengePeriodManager(CacheController):
                 bt.logging.warning(f'Hotkey {hotkey} has no inspection time. Unexpected.')
                 continue
 
-            before_challenge_end = ChallengePeriodManager.meets_time_criteria(current_time, bucket_start_time, self.get_miner_bucket(hotkey))
+            miner_bucket = self.get_miner_bucket(hotkey)
+            before_challenge_end = ChallengePeriodManager.meets_time_criteria(current_time, bucket_start_time, miner_bucket)
             if not before_challenge_end:
-                bt.logging.info(f'Hotkey {hotkey} has failed the challenge period due to time. cp_failed')
+                bt.logging.info(f'Hotkey {hotkey} has failed the {miner_bucket.value} period due to time. cp_failed')
                 miners_to_eliminate[hotkey] = (EliminationReason.FAILED_CHALLENGE_PERIOD_TIME.value, -1)
                 continue
 
@@ -326,7 +327,7 @@ class ChallengePeriodManager(CacheController):
             ledger_element = inspection_ledger[hotkey]
             exceeds_max_drawdown, recorded_drawdown_percentage = LedgerUtils.is_beyond_max_drawdown(ledger_element)
             if exceeds_max_drawdown:
-                bt.logging.info(f'Hotkey {hotkey} has failed the challenge period due to drawdown {recorded_drawdown_percentage}. cp_failed')
+                bt.logging.info(f'Hotkey {hotkey} has failed the {miner_bucket.value} period due to drawdown {recorded_drawdown_percentage}. cp_failed')
                 miners_to_eliminate[hotkey] = (EliminationReason.FAILED_CHALLENGE_PERIOD_DRAWDOWN.value, recorded_drawdown_percentage)
                 continue
 
