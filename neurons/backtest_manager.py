@@ -7,7 +7,6 @@ from tests.shared_objects.mock_classes import MockMetagraph
 from time_util.time_util import TimeUtil
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.position import Position
-import vali_objects.position as position_file
 from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
 from vali_objects.utils.elimination_manager import EliminationManager
 from vali_objects.utils.plagiarism_detector import PlagiarismDetector
@@ -38,8 +37,6 @@ class BacktestManager:
         self.scoring_func = scoring_func
         self.start_time_ms = start_time_ms
         self.parallel_mode = parallel_mode
-        # Used in calculating position attributes
-        position_file.ALWAYS_USE_SLIPPAGE = use_slippage
 
         # Stop Spark session if we created it
         spark, should_close = get_spark_session(self.parallel_mode)
@@ -67,6 +64,7 @@ class BacktestManager:
                                                      enable_rss=False,
                                                      parallel_mode=parallel_mode,
                                                      secrets=self.secrets,
+                                                     use_slippage=use_slippage,
                                                      build_portfolio_ledgers_only=build_portfolio_ledgers_only,
                                                      target_ledger_window_ms=target_ledger_window_ms)
 
@@ -189,7 +187,7 @@ if __name__ == '__main__':
     run_elimination = False
     use_slippage = False
     build_portfolio_ledgers_only = True  # Whether to build only the portfolio ledgers or per trade pair
-    parallel_mode = ParallelizationMode.SERIAL  # 1 for pyspark, 2 for multiprocessing
+    parallel_mode = ParallelizationMode.MULTIPROCESSING  # 1 for pyspark, 2 for multiprocessing
 
     if use_test_positions:
         test_positions = [
@@ -313,9 +311,9 @@ if __name__ == '__main__':
         bt.logging.enable_info()
 
         # Configuration flags
-        start_time_ms = 1737991341792
-        end_time_ms =   1740960000000
-        test_single_hotkey = '5Cd9y4yxBPztgVZT3rA95wWUVsC278NYFXyhrWgq8XzVa1Lg'  # Set to a specific hotkey string to test single hotkey, or None for all
+        start_time_ms = 1740960000000
+        end_time_ms =   1741046400000
+        test_single_hotkey = '5HgdCnpF2J6DMqqYuHfS6HYov9qvCaVqxfGA9CvU3anhNiRF'  # Set to a specific hotkey string to test single hotkey, or None for all
 
         # Initialize components
         mmg = MockMetagraph(hotkeys=[test_single_hotkey])
