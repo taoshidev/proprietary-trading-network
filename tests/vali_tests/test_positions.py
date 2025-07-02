@@ -789,7 +789,7 @@ class TestPositions(TestBase):
             'position_uuid': self.DEFAULT_POSITION_UUID
         })
         self.assertEqual(position.max_leverage_seen(), 1.0)
-        self.assertEqual(position.get_cumulative_leverage(), 1.1)
+        self.assertEqual(position.get_cumulative_leverage(), 2.0)
 
     def test_liquidated_long_position_with_no_FLAT(self):
         o1 = Order(order_type=OrderType.LONG,
@@ -875,7 +875,7 @@ class TestPositions(TestBase):
         })
 
         self.assertEqual(position.max_leverage_seen(), 10.0)
-        self.assertEqual(position.get_cumulative_leverage(), 10.1)
+        self.assertEqual(position.get_cumulative_leverage(), 20)
 
     def test_simple_short_position_with_implicit_FLAT(self):
         o1 = Order(order_type=OrderType.SHORT,

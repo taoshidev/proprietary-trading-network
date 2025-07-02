@@ -434,13 +434,14 @@ class PerfLedgerManager(CacheController):
 
     @staticmethod
     def print_bundle(hk:str, bundle: dict[str, PerfLedger]):
+        bt.logging.success(f'Hotkey: {hk}. Max return: {bundle[TP_ID_PORTFOLIO].max_return}. Initialization time: {TimeUtil.millis_to_timestamp(bundle[TP_ID_PORTFOLIO].initialization_time_ms)}')
         for tp_id, pl in sorted(bundle.items(), key=lambda x: 1 if x[0] == TP_ID_PORTFOLIO else ord(x[0][0]) / 27):
-            print(f'  --{tp_id}-- ')
+            bt.logging.info(f'  --{tp_id}-- ')
             for idx, x in enumerate(pl.cps):
                 last_update_formatted = TimeUtil.millis_to_timestamp(x.last_update_ms)
-                if idx == 0 or idx == len(pl.cps) - 1:
-                    print('    ', idx, last_update_formatted, x)
-            print(tp_id, 'max_perf_ledger_return:', pl.max_return)
+                if 1:#idx == 0 or idx == len(pl.cps) - 1:
+                    bt.logging.info(f'    {idx} {last_update_formatted} {x}')
+            bt.logging.info(tp_id, f'max_perf_ledger_return: {pl.max_return}')
 
     def _is_v1_perf_ledger(self, ledger_value):
         if self.build_portfolio_ledgers_only:
@@ -624,11 +625,9 @@ class PerfLedgerManager(CacheController):
 
         # Set now_ms to end_time_ms when backtesting for historical perf ledger generation
         if self.is_backtesting:
-            now_ms = end_time_ms
+            ledger_cutoff_ms = end_time_ms
         else:
-            now_ms = TimeUtil.now_in_millis()
-
-        ledger_cutoff_ms = now_ms - perf_ledger_bundle[TP_ID_PORTFOLIO].target_ledger_window_ms
+            ledger_cutoff_ms = TimeUtil.now_in_millis() - perf_ledger_bundle[TP_ID_PORTFOLIO].target_ledger_window_ms
 
         n_positions = 0
         n_closed_positions = 0
@@ -1343,6 +1342,8 @@ class PerfLedgerManager(CacheController):
         assert self.metagraph, "Metagraph must be loaded before updating perf ledgers"
         perf_ledger_bundles = self.get_perf_ledgers(portfolio_only=False)
         if t_ms is None:
+            if self.is_backtesting:
+                raise Exception("t_ms must be provided in backtesting mode")
             t_ms = TimeUtil.now_in_millis() - self.UPDATE_LOOKBACK_MS
         """
         tt = 1734279788000
@@ -1603,7 +1604,7 @@ class PerfLedgerManager(CacheController):
         return hotkey, new_bundle
     def update_perf_ledgers_parallel(self, spark, pool, hotkey_to_positions: dict[str, List[Position]],
                                      existing_perf_ledgers: dict[str, dict[str, PerfLedger]],
-                                     parallel_mode = ParallelizationMode.PYSPARK,
+                                     parallel_mode: ParallelizationMode = ParallelizationMode.PYSPARK,
                                      now_ms: int = None, top_n_miners: int=None,
                                      is_backtesting: bool = False) -> dict[str, dict[str, PerfLedger]]:
         """
@@ -1660,9 +1661,9 @@ if __name__ == "__main__":
     bt.logging.enable_info()
 
     # Configuration flags
-    parallel_mode = ParallelizationMode.MULTIPROCESSING  # 1 for pyspark, 2 for multiprocessing
+    parallel_mode = ParallelizationMode.SERIAL  # 1 for pyspark, 2 for multiprocessing
     top_n_miners = 4
-    test_single_hotkey = None #'5EWKUhycaBQHiHnfE3i2suZ1BvxAAE3HcsFsp8TaR6mu3JrJ'  # Set to a specific hotkey string to test single hotkey, or None for all
+    test_single_hotkey = '5Cd9y4yxBPztgVZT3rA95wWUVsC278NYFXyhrWgq8XzVa1Lg'  # Set to a specific hotkey string to test single hotkey, or None for all
     regenerate_all = False  # Whether to regenerate all ledgers from scratch
     build_portfolio_ledgers_only = True  # Whether to build only the portfolio ledgers or per trade pair
 
