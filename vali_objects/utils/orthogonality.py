@@ -294,16 +294,33 @@ class Orthogonality:
                 else:
                     penalty_pairs[(k1, k2)] = enhanced     # k1 owes k2
 
-            final_penalty: Dict[str, float] = {miner: 0.0 for miner in returns}
-
-            for (debtor, _), value in penalty_pairs.items():
-                # Want to ensure that the final value is inversely proportional to the similarity.
-                # Higher values would be less impact
-                final_penalty[debtor] = 1-max(final_penalty[debtor], value)
-                
+            final_penalty = Orthogonality.penalty_distillation(
+                miners=list(returns.keys()),
+                penalty_pairs=penalty_pairs
+            )
             bt.logging.debug(f"Orthogonality penalties calculated for {len(final_penalty)} miners")
             return final_penalty
             
         except Exception as e:
             bt.logging.error(f"Orthogonality: Error calculating penalties: {e}")
             return {miner: 0.0 for miner in returns}
+
+    @staticmethod
+    def penalty_distillation(
+            miners: list[str],
+            penalty_pairs: dict[tuple[str, str], float]
+    ) -> dict[str, float]:
+        """
+        Distill the penalty pairs into a single dictionary mapping each miner to their final penalty.
+        :param miners: List of miners.
+        :param penalty_pairs: Dictionary of penalty pairs.
+        :return: single dictionary mapping each miner to their final penalty.
+        """
+        final_penalty: Dict[str, float] = {miner: 0.0 for miner in miners}
+
+        for (debtor, _), value in penalty_pairs.items():
+            # Want to ensure that the final value is inversely proportional to the similarity.
+            # Higher values would be less impact
+            final_penalty[debtor] = 1 - max(final_penalty[debtor], value)
+
+        return final_penalty
