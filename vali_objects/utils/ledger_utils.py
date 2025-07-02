@@ -178,6 +178,36 @@ class LedgerUtils:
         return miner_returns
 
     @staticmethod
+    def buffer_returns(returns_ledger: dict[str, list[float]]) -> dict[str, list[float]]:
+        """
+        Buffer returns for each miner in the ledger.
+
+        Args:
+            returns_ledger (dict[str, PerfLedger]): Ledger containing returns for each miner.
+
+        Returns:
+            dict[str, np.ndarray]: Returns buffered for each miner.
+        """
+        max_len = 0
+        for key, value in returns_ledger.items():
+            max_len = max(max_len, len(value))
+
+        # Create a new ledger with buffered returns
+        buffered_ledgers = {}
+        for key, value in returns_ledger.items():
+            single_ledger_length = len(value)
+            if single_ledger_length < max_len:
+                # Pad the ledger with zeros to match the max length
+                padded_returns = np.zeros(max_len)
+                padded_returns[:single_ledger_length] = np.array(value)
+                buffered_ledgers[key] = padded_returns.tolist()
+            else:
+                # If already at max length, just use the existing returns
+                buffered_ledgers[key] = value
+
+        return buffered_ledgers
+
+    @staticmethod
     def drawdown_percentage(drawdown_decimal: float) -> float:
         """
         Args:
@@ -395,9 +425,10 @@ class LedgerUtils:
         
         # Use the new internal helper function for multiple ledgers
         miner_daily_returns = LedgerUtils.ledger_returns_log(ledgers)
+        miner_daily_returns_buffered = LedgerUtils.buffer_returns(miner_daily_returns)
 
         try:
-            penalties = Orthogonality.penalty(miner_daily_returns)
+            penalties = Orthogonality.penalty(miner_daily_returns_buffered)
         except Exception as e:
             bt.logging.error(f"Error calculating orthogonality penalties: {e}")
             # Return no penalty (1.0) for all miners on error
