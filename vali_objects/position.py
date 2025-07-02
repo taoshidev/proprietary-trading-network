@@ -106,8 +106,7 @@ class Position(BaseModel):
 
     def get_spread_fee(self, timestamp_ms) -> float:
         if ALWAYS_USE_SLIPPAGE or (ALWAYS_USE_SLIPPAGE is None and timestamp_ms >= SLIPPAGE_V1_TIME_MS):
-            # slippage will replace the spread fee
-            return 1
+            return 1  # slippage replaces spread fee
         else:
             return 1.0 - (self.get_cumulative_leverage() * self.trade_pair.fees * 0.5)
 
