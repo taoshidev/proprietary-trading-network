@@ -51,6 +51,7 @@ class Position(BaseModel):
     return_at_close: float = 1.0  # includes all fees
     average_entry_price: float = 0.0
     cumulative_entry_value: float = 0.0
+    account_size: float = 0.0
     realized_pnl: float = 0.0
     unrealized_pnl: float = 0.0
     position_type: Optional[OrderType] = None
@@ -372,20 +373,24 @@ class Position(BaseModel):
         self.orders.append(order)
         self._update_position()
 
-    def calculate_pnl(self, current_price, t_ms=None, order=None):
+    def calculate_pnl(self, current_price, t_ms=None, order=None, account_size=None):
         if self.initial_entry_price == 0 or self.average_entry_price is None:
             return 1
 
         if not t_ms:
             t_ms = TimeUtil.now_in_millis()
 
+        if account_size is None:
+            bt.logging.info(f"Account size not provided for pnl calculation for position_uuid: {self.position_uuid}. Using default...")
+            account_size = ValiConfig.CAPITAL
         # pnl with slippage
         if ALWAYS_USE_SLIPPAGE or (ALWAYS_USE_SLIPPAGE is None and t_ms >= SLIPPAGE_V1_TIME_MS):
             if order:
                 # update realized pnl for orders that reduce the size of a position
                 if (order.order_type != self.position_type or self.position_type == OrderType.FLAT):
                     exit_price = current_price * (1 + order.slippage) if order.leverage > 0 else current_price * (1 - order.slippage)
-                    order_volume = order.leverage  # (order.leverage * ValiConfig.CAPITAL) / order.price  # TODO: calculate order.volume as an order attribute
+                    # TODO Verify this
+                    order_volume = (order.leverage * account_size) / order.price  # TODO: calculate order.volume as an order attribute
                     self.realized_pnl += -1 * (exit_price - self.average_entry_price) * order_volume  # TODO: FIFO entry cost
                 self.unrealized_pnl = (current_price - self.average_entry_price) * min(self.net_leverage, self.net_leverage + order.leverage, key=abs)
             else:
@@ -522,10 +527,10 @@ class Position(BaseModel):
             self._handle_liquidation(TimeUtil.now_in_millis() if time_ms is None else time_ms)
 
 
-    def set_returns(self, realtime_price, time_ms=None, total_fees=None, order=None):
+    def set_returns(self, realtime_price, time_ms=None, total_fees=None, order=None, account_size=None):
         # We used to multiple trade_pair.fees by net_leverage. Eventually we will
         # Update this calculation to approximate actual exchange fees.
-        self.current_return = self.calculate_pnl(realtime_price, t_ms=time_ms, order=order)
+        self.current_return = self.calculate_pnl(realtime_price, t_ms=time_ms, order=order, account_size=account_size)
         if total_fees is None:
             self.return_at_close = self.calculate_return_with_fees(self.current_return,
                                timestamp_ms=TimeUtil.now_in_millis() if time_ms is None else time_ms)
@@ -551,7 +556,8 @@ class Position(BaseModel):
         if order.src == ORDER_SRC_ELIMINATION_FLAT:
             self.net_leverage = 0.0
             return  # Don't set returns since the price is zero'd out.
-        self.set_returns(realtime_price, time_ms=order.processed_ms, order=order)
+        #TODO Update account size to be a position attribute
+        self.set_returns(realtime_price, time_ms=order.processed_ms, order=order, account_size=self.account_size)
 
         # Liquidated
         if self.current_return == 0:
