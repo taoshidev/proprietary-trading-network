@@ -26,38 +26,35 @@ class Orthogonality:
     ) -> np.ndarray:
         """
         Cosine similarity for every right‑hand shift of v1 (0 … max_shift‑1).
-        Works for both Python lists and NumPy arrays.
 
         Returns
         -------
         np.ndarray
-            An array of length `max_shift` whose i‑th element is the cosine
-            similarity between v1 shifted right by i and the corresponding
-            prefix of v2.
+            Array of cosine similarities (NaNs removed).
         """
         a = np.asarray(v1, dtype=float)
         b = np.asarray(v2, dtype=float)
 
-        # First, go through the process of stripping down the arrays from zeros on the left. We want to keep the same indexing.
+        # Strip common leading zeros (keep indexing aligned)
         zero_index = max(np.nonzero(a)[0][0], np.nonzero(b)[0][0])
         if zero_index > 0:
             a = a[zero_index:]
             b = b[zero_index:]
 
-        assert len(a) == len(b), "Vectors must be of the same length after stripping zeros."
+        if len(a) != len(b):
+            raise ValueError("Vectors must be of the same length after stripping zeros.")
 
-        if len(a) < window or len(b) < window:
-            return np.array([0])
+        if len(a) < window:
+            return np.array([], dtype=float)
 
-        sims = []
+        sims: list[float] = []
         for i in range(window, len(a)):
             at = a[i - window:i]
             bt = b[i - window:i]
+            sims.append(Orthogonality.similarity(at, bt))
 
-            subset_similarity = Orthogonality.similarity(at, bt)
-            sims.append(subset_similarity)
-
-        return np.array(sims, dtype=float)
+        # Drop NaNs
+        return np.asarray([s for s in sims if not np.isnan(s)], dtype=float)
 
     @staticmethod
     def sliding_similarity_distillation(similarity_array: np.ndarray) -> float:
