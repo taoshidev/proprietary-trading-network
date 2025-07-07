@@ -3,9 +3,12 @@ import math
 import numpy as np
 import copy
 from datetime import datetime, timezone
+from typing import Union
 
 from vali_objects.vali_config import ValiConfig
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedger
+from vali_objects.utils.orthogonality import Orthogonality
+import bittensor as bt
 
 
 class LedgerUtils:
@@ -173,6 +176,36 @@ class LedgerUtils:
             miner_returns[miner] = LedgerUtils.daily_return_log(miner_ledger)
 
         return miner_returns
+
+    @staticmethod
+    def buffer_returns(returns_ledger: dict[str, list[float]]) -> dict[str, list[float]]:
+        """
+        Buffer returns for each miner in the ledger.
+
+        Args:
+            returns_ledger (dict[str, PerfLedger]): Ledger containing returns for each miner.
+
+        Returns:
+            dict[str, np.ndarray]: Returns buffered for each miner.
+        """
+        max_len = 0
+        for key, value in returns_ledger.items():
+            max_len = max(max_len, len(value))
+
+        # Create a new ledger with buffered returns
+        buffered_ledgers = {}
+        for key, value in returns_ledger.items():
+            single_ledger_length = len(value)
+            if single_ledger_length < max_len:
+                # Pad the ledger with zeros to match the max length
+                padded_returns = np.zeros(max_len)
+                padded_returns[:single_ledger_length] = np.array(value)
+                buffered_ledgers[key] = padded_returns.tolist()
+            else:
+                # If already at max length, just use the existing returns
+                buffered_ledgers[key] = value
+
+        return buffered_ledgers
 
     @staticmethod
     def drawdown_percentage(drawdown_decimal: float) -> float:
@@ -370,3 +403,43 @@ class LedgerUtils:
         miner_returns = LedgerUtils.daily_return_log(ledger)
 
         return len(miner_returns)
+    
+    @staticmethod
+    def orthogonality_penalty(ledgers: dict[str, PerfLedger]) -> dict[str, float]:
+        """
+        Calculate orthogonality penalties for all miners based on correlation and preferences.
+        Args:
+            ledgers: Dict mapping miner hotkeys to their PerfLedgers
+        Returns:
+            Dict mapping miner hotkeys to their penalty values
+        """
+        # Check if called with single ledger (from scoring system) or dict of ledgers
+        if not isinstance(ledgers, dict):
+            # Single ledger call from scoring system - return 1.0 (no penalty)
+            # Orthogonality can't be calculated for a single miner
+            return {}
+
+        if len(ledgers) == 0:
+            # No ledgers provided, return empty dict
+            return {}
+        
+        # Use the new internal helper function for multiple ledgers
+        miner_daily_returns = LedgerUtils.ledger_returns_log(ledgers)
+        miner_daily_returns_buffered = LedgerUtils.buffer_returns(miner_daily_returns)
+
+        try:
+            penalties = Orthogonality.penalty(miner_daily_returns_buffered)
+        except Exception as e:
+            bt.logging.error(f"Error calculating orthogonality penalties: {e}")
+            # Return no penalty (1.0) for all miners on error
+            return {hotkey: 1.0 for hotkey in ledgers.keys()}
+
+        # Log penalty distribution for monitoring
+        if penalties:
+            penalty_values = list(penalties.values())
+            bt.logging.info(
+                f"Orthogonality penalty distribution - min: {min(penalty_values):.3f}, "
+                f"max: {max(penalty_values):.3f}, mean: {np.mean(penalty_values):.3f}"
+            )
+        
+        return penalties
