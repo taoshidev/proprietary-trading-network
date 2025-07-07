@@ -257,25 +257,25 @@ class Orthogonality:
             return 0.0
 
     @staticmethod
-    def penalty(returns: dict[str, list[float]]) -> dict[str, float]:
+    def penalty_pairwise(returns: dict[str, list[float]]) -> dict[tuple[str, str], float]:
         """
-        For a dict of miners' daily returns, return a dict mapping hotkey to the sum of all its pairwise compositional preferences (size, time, similarity) with all other miners.
+        For a dict of miners' daily returns, return a dict mapping (hotkey1, hotkey2) to the sum of all its pairwise compositional preferences (size, time, similarity) with all other miners.
         """
         # Safety checks
         if len(returns) < 2:
-            bt.logging.debug(f"Orthogonality: Less than 2 miners ({len(returns)}), returning zero penalties")
-            return {miner: 0.0 for miner in returns}
-            
+            bt.logging.debug(f"Orthogonality: Less than 2 miners ({len(returns)}), returning empty penalty pairs")
+            return {}
+
         # Check for empty or invalid returns
         valid_miners = []
         for miner, miner_returns in returns.items():
             if miner_returns and len(miner_returns) > 0 and any(r != 0 for r in miner_returns):
                 valid_miners.append(miner)
-                
+
         if len(valid_miners) < 2:
-            bt.logging.debug(f"Orthogonality: Less than 2 valid miners ({len(valid_miners)}), returning zero penalties")
-            return {miner: 0.0 for miner in returns}
-        
+            bt.logging.debug(f"Orthogonality: Less than 2 valid miners ({len(valid_miners)}), returning empty penalty pairs")
+            return {}
+
         try:
             # Pairwise preference dictionaries
             time_prefs = Orthogonality.time_pref(returns)         # {(k1,k2): value}
@@ -294,16 +294,11 @@ class Orthogonality:
                 else:
                     penalty_pairs[(k1, k2)] = enhanced     # k1 owes k2
 
-            final_penalty = Orthogonality.penalty_distillation(
-                miners=list(returns.keys()),
-                penalty_pairs=penalty_pairs
-            )
-            bt.logging.debug(f"Orthogonality penalties calculated for {len(final_penalty)} miners")
-            return final_penalty
-            
+            return penalty_pairs
+
         except Exception as e:
-            bt.logging.error(f"Orthogonality: Error calculating penalties: {e}")
-            return {miner: 0.0 for miner in returns}
+            bt.logging.error(f"Orthogonality: Error calculating penalty pairs: {e}")
+            return {}
 
     @staticmethod
     def penalty_distillation(
@@ -324,3 +319,26 @@ class Orthogonality:
             final_penalty[debtor] = 1 - max(final_penalty[debtor], value)
 
         return final_penalty
+
+    @staticmethod
+    def penalty(returns: dict[str, list[float]]) -> dict[str, float]:
+        """
+        For a dict of miners' daily returns, return a dict mapping hotkey to the sum of all its pairwise compositional preferences (size, time, similarity) with all other miners.
+        """
+        # Safety checks
+        if len(returns) < 2:
+            bt.logging.debug(f"Orthogonality: Less than 2 miners ({len(returns)}), returning empty penalty")
+            return {}
+
+        # Check for empty or invalid returns
+        valid_miners = []
+        for miner, miner_returns in returns.items():
+            if miner_returns and len(miner_returns) > 0 and any(r != 0 for r in miner_returns):
+                valid_miners.append(miner)
+
+        if len(valid_miners) < 2:
+            bt.logging.debug(f"Orthogonality: Less than 2 valid miners ({len(valid_miners)}), returning empty penalty")
+            return {}
+
+        penalty_pairs = Orthogonality.penalty_pairwise(returns)
+        return Orthogonality.penalty_distillation(valid_miners, penalty_pairs)
