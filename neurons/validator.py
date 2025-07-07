@@ -182,14 +182,6 @@ class Validator:
                                     ipc_manager=self.ipc_manager,
                                     position_manager=None)  # Set after self.pm creation
 
-        self.contract_manager = ContractManager()
-        self.perf_ledger_manager = PerfLedgerManager(self.metagraph, ipc_manager=self.ipc_manager,
-                                                     shutdown_dict=shutdown_dict,
-                                                     perf_ledger_hks_to_invalidate=self.position_syncer.perf_ledger_hks_to_invalidate,
-                                                     position_manager=None,  # Set after self.pm creation
-                                                     contract_manager=self.contract_manager)
-
-
         # Initialize ContractManager for collateral management
         contract_network = Network.MAINNET if self.is_mainnet else Network.TESTNET
         self.contract_manager = ContractManager(
@@ -199,6 +191,14 @@ class Validator:
             data_dir=self.config.full_path
         )
         bt.logging.info(f"ContractManager initialized for network: {contract_network.name}")
+
+        self.perf_ledger_manager = PerfLedgerManager(self.metagraph, ipc_manager=self.ipc_manager,
+                                                     shutdown_dict=shutdown_dict,
+                                                     perf_ledger_hks_to_invalidate=self.position_syncer.perf_ledger_hks_to_invalidate,
+                                                     position_manager=None,  # Set after self.pm creation
+                                                     contract_manager=self.contract_manager)
+
+
 
         self.position_manager = PositionManager(metagraph=self.metagraph,
                                                 perform_order_corrections=True,
@@ -588,12 +588,14 @@ class Validator:
             if order_type == OrderType.FLAT:
                 open_position = None
             else:
+                account_size = self.contract_manager.get_recent_account_sizes(hotkeys=[miner_hotkey], timestamp_ms=order_time_ms).get(miner_hotkey)
                 # if a position doesn't exist, then make a new one
                 open_position = Position(
                     miner_hotkey=miner_hotkey,
                     position_uuid=miner_order_uuid if miner_order_uuid else str(uuid.uuid4()),
                     open_ms=order_time_ms,
-                    trade_pair=trade_pair
+                    trade_pair=trade_pair,
+                    account_size=account_size
                 )
         return open_position
 

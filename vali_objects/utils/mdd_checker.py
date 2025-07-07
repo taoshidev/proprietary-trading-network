@@ -27,7 +27,6 @@ class MDDChecker(CacheController):
         self.price_correction_enabled = True
         secrets = ValiUtils.get_secrets(running_unit_tests=running_unit_tests)
         self.position_manager = position_manager
-        self.contract_manager = self.position_manager.perf_ledger_manager.contract_manager
         assert self.running_unit_tests == self.position_manager.running_unit_tests
         self.all_trade_pairs = [trade_pair for trade_pair in TradePair]
         if live_price_fetcher is None:
@@ -228,11 +227,8 @@ class MDDChecker(CacheController):
             if position.is_open_position and realtime_price is not None:
                 orig_return = position.return_at_close
 
-                if self.contract_manager is not None:
-                    account_size = self.contract_manager.get_recent_account_sizes(hotkeys=[hotkey], timestamp_ms=now_ms)
-                    position.set_returns(realtime_price, account_size=account_size)
-                else:
-                    position.set_returns(realtime_price)
+                position.set_returns(realtime_price, account_size=position.account_size)
+                position.set_returns(realtime_price)
                 ret_changed = orig_return != position.return_at_close
 
             if n_orders_updated or ret_changed:

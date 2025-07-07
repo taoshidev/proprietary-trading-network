@@ -170,15 +170,11 @@ class Scoring:
                 # Check if the miner has full penalty - if not include them in the scoring competition
                 if miner in full_penalty_miners:
                     continue
-                #TODO remove this
-                if config_name == 'pnl':
-                    score = config['function'](miner)
-                else:
-                    score = config['function'](
-                        log_returns=returns,
-                        ledger=ledger,
-                        weighting=weighting
-                    )
+                score = config['function'](
+                    log_returns=returns,
+                    ledger=ledger,
+                    weighting=weighting
+                )
 
                 scores.append((miner, float(score)))
 

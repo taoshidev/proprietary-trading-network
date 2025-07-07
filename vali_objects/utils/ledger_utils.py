@@ -93,7 +93,7 @@ class LedgerUtils:
         Returns:
             dict[datetime.date, list] - dictionary mapping dates to lists of checkpoints for complete days
         """
-        if not ledger.cps:
+        if not ledger or not ledger.cps:
             return {}
 
         checkpoints = ledger.cps

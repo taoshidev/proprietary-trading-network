@@ -389,8 +389,8 @@ class Position(BaseModel):
                 # update realized pnl for orders that reduce the size of a position
                 if (order.order_type != self.position_type or self.position_type == OrderType.FLAT):
                     exit_price = current_price * (1 + order.slippage) if order.leverage > 0 else current_price * (1 - order.slippage)
-                    # TODO Verify this
-                    order_volume = (order.leverage * account_size) / order.price  # TODO: calculate order.volume as an order attribute
+                    # TODO Verify this Calculation
+                    order_volume = order.leverage #(order.leverage * account_size) / order.price  # TODO: calculate order.volume as an order attribute
                     self.realized_pnl += -1 * (exit_price - self.average_entry_price) * order_volume  # TODO: FIFO entry cost
                 self.unrealized_pnl = (current_price - self.average_entry_price) * min(self.net_leverage, self.net_leverage + order.leverage, key=abs)
             else:
@@ -556,7 +556,6 @@ class Position(BaseModel):
         if order.src == ORDER_SRC_ELIMINATION_FLAT:
             self.net_leverage = 0.0
             return  # Don't set returns since the price is zero'd out.
-        #TODO Update account size to be a position attribute
         self.set_returns(realtime_price, time_ms=order.processed_ms, order=order, account_size=self.account_size)
 
         # Liquidated

@@ -102,14 +102,14 @@ class ContractManager:
 
             last_refresh_date_str = datetime.fromtimestamp(self.last_account_size_refresh / 1000, tz=timezone.utc).strftime("%Y-%m-%d")
             if last_refresh_date_str >= target_date_str:
-                bt.logging.info(f"Account sizes already refreshed for {target_date_str}, skipping refresh") #TODO, this may introduce too many logs
+                bt.logging.info(f"Account sizes already refreshed for {target_date_str}, skipping refresh") # TODO, this may introduce too many logs
                 return
 
             bt.logging.info(f"Starting account size refresh for date: {target_date_str}")
 
             self._load_account_sizes()
 
-            miners_to_check = hotkeys if hotkeys is not None else list(self.miner_account_sizes.keys()) #TODO, get hotkeys from elsewhere and add validation
+            miners_to_check = hotkeys if hotkeys is not None else list(self.miner_account_sizes.keys()) # TODO, get hotkeys from elsewhere and add validation
 
             updated_count = 0
             cleaned_count = 0

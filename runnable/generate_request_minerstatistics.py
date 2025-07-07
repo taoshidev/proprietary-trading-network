@@ -689,10 +689,8 @@ class MinerStatisticsManager:
     # -------------------------------------------
     def generate_request_minerstatistics(self, time_now: int, checkpoints: bool = True, risk_report: bool = False, bypass_confidence: bool = False):
         final_dict = self.generate_miner_statistics_data(time_now, checkpoints=checkpoints, risk_report=risk_report, bypass_confidence=bypass_confidence)
-        return final_dict
-        # TODO REMOVE THIS
-        # output_file_path = ValiBkpUtils.get_miner_stats_dir()
-        # ValiBkpUtils.write_file(output_file_path, final_dict)
+        output_file_path = ValiBkpUtils.get_miner_stats_dir()
+        ValiBkpUtils.write_file(output_file_path, final_dict)
 
 
 # ---------------------------------------------------------------------------
