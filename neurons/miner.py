@@ -16,6 +16,7 @@ from miner_objects.dashboard import Dashboard
 from miner_objects.prop_net_order_placer import PropNetOrderPlacer
 from miner_objects.position_inspector import PositionInspector
 from miner_objects.slack_notifier import SlackNotifier
+from miner_objects.miner_contract_manager import MinerContractManager
 from shared_objects.metagraph_updater import MetagraphUpdater
 from vali_objects.decoders.generalized_json_decoder import GeneralizedJSONDecoder
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
@@ -100,6 +101,14 @@ class Miner:
             )
         # Initialize the dashboard process variable for the frontend
         self.dashboard_frontend_process = None
+        bt.logging.info("Initializing collateral contract manager...")
+        self.dendrite = bt.dendrite(wallet=self.wallet)
+        self.contract_manager = MinerContractManager(
+            wallet=self.wallet,
+            config=self.config,
+            dendrite=self.dendrite,
+            metagraph=self.metagraph
+        )
 
     def setup_logging_directory(self):
         if not os.path.exists(self.config.full_path):
