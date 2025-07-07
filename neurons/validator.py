@@ -54,6 +54,7 @@ from vali_objects.utils.vali_utils import ValiUtils
 from vali_objects.vali_config import ValiConfig
 
 from vali_objects.utils.plagiarism_detector import PlagiarismDetector
+from vali_objects.utils.validator_contract_manager import ValidatorContractManager
 
 # Global flag used to indicate shutdown
 shutdown_dict = {}
@@ -64,6 +65,8 @@ class SynapseMethod(Enum):
     DASHBOARD = "GetDashData"
     SIGNAL = "SendSignal"
     CHECKPOINT = "SendCheckpoint"
+    DEPOSIT_COLLATERAL = "DepositCollateral"
+    WITHDRAW_COLLATERAL = "WithdrawCollateral"
 
 def signal_handler(signum, frame):
     global shutdown_dict
@@ -249,6 +252,8 @@ class Validator:
         self.position_inspector_rate_limiter = RateLimiter(max_requests_per_window=1, rate_limit_window_duration_seconds=60 * 4)
         self.dash_rate_limiter = RateLimiter(max_requests_per_window=1, rate_limit_window_duration_seconds=60)
         self.checkpoint_rate_limiter = RateLimiter(max_requests_per_window=1, rate_limit_window_duration_seconds=60 * 60 * 6)
+        self.deposit_rate_limiter = RateLimiter(max_requests_per_window=2, rate_limit_window_duration_seconds=60 * 60)  # 2 deposits per hour
+        self.withdrawal_rate_limiter = RateLimiter(max_requests_per_window=5, rate_limit_window_duration_seconds=60 * 60)  # 5 withdrawals per hour
         # Cache to track last order time for each (miner_hotkey, trade_pair) combination
         self.last_order_time_cache = {}  # Key: (miner_hotkey, trade_pair_id), Value: last_order_time_ms
 
@@ -276,6 +281,18 @@ class Validator:
         def rc_priority_fn(synapse: template.protocol.ValidatorCheckpoint) -> float:
             return Validator.priority_fn(synapse, self.metagraph)
 
+        def dc_blacklist_fn(synapse: template.protocol.DepositCollateral) -> Tuple[bool, str]:
+            return Validator.blacklist_fn(synapse, self.metagraph)
+
+        def dc_priority_fn(synapse: template.protocol.DepositCollateral) -> float:
+            return Validator.priority_fn(synapse, self.metagraph)
+
+        def wc_blacklist_fn(synapse: template.protocol.WithdrawCollateral) -> Tuple[bool, str]:
+            return Validator.blacklist_fn(synapse, self.metagraph)
+
+        def wc_priority_fn(synapse: template.protocol.WithdrawCollateral) -> float:
+            return Validator.priority_fn(synapse, self.metagraph)
+
         self.axon.attach(
             forward_fn=self.receive_signal,
             blacklist_fn=rs_blacklist_fn,
@@ -295,6 +312,16 @@ class Validator:
             forward_fn=self.receive_checkpoint,
             blacklist_fn=rc_blacklist_fn,
             priority_fn=rc_priority_fn,
+        )
+        self.axon.attach(
+            forward_fn=self.receive_deposit_collateral,
+            blacklist_fn=dc_blacklist_fn,
+            priority_fn=dc_priority_fn,
+        )
+        self.axon.attach(
+            forward_fn=self.receive_withdraw_collateral,
+            blacklist_fn=wc_blacklist_fn,
+            priority_fn=wc_priority_fn,
         )
 
         # Serve passes the axon information to the network + netuid we are hosting on.
@@ -379,6 +406,20 @@ class Validator:
                 bt.logging.warning(msg)
                 self.position_syncer.sync_positions(
                     False, candidate_data=self.position_syncer.read_validator_checkpoint_from_gcloud_zip())
+        
+        # Initialize ValidatorContractManager for collateral operations
+        try:
+            bt.logging.info("Initializing validator contract manager...")
+            self.contract_manager = ValidatorContractManager(
+                config=self.config,
+                wallet=self.wallet,
+                metagraph=self.metagraph
+            )
+            bt.logging.info("Validator contract manager initialized successfully")
+        except Exception as e:
+            bt.logging.error(f"Failed to initialize validator contract manager: {e}")
+            bt.logging.error(traceback.format_exc())
+            self.contract_manager = None
 
 
     @staticmethod
@@ -571,7 +612,7 @@ class Validator:
                 synapse.successfully_processed = False
                 synapse.error_message = msg
 
-    def should_fail_early(self, synapse: template.protocol.SendSignal | template.protocol.GetPositions | template.protocol.GetDashData | template.protocol.ValidatorCheckpoint, method:SynapseMethod,
+    def should_fail_early(self, synapse: template.protocol.SendSignal | template.protocol.GetPositions | template.protocol.GetDashData | template.protocol.ValidatorCheckpoint | template.protocol.DepositCollateral | template.protocol.WithdrawCollateral, method:SynapseMethod,
                           signal:dict=None, now_ms=None) -> bool:
         global shutdown_dict
         if shutdown_dict:
@@ -590,8 +631,12 @@ class Validator:
             allowed, wait_time = self.order_rate_limiter.is_allowed(sender_hotkey)
         elif method == SynapseMethod.CHECKPOINT:
             allowed, wait_time = self.checkpoint_rate_limiter.is_allowed(sender_hotkey)
+        elif method == SynapseMethod.DEPOSIT_COLLATERAL:
+            allowed, wait_time = self.deposit_rate_limiter.is_allowed(sender_hotkey)
+        elif method == SynapseMethod.WITHDRAW_COLLATERAL:
+            allowed, wait_time = self.withdrawal_rate_limiter.is_allowed(sender_hotkey)
         else:
-            msg = "Received synapse does not match one of expected methods for: receive_signal, get_positions, get_dash_data, or receive_checkpoint"
+            msg = "Received synapse does not match one of expected methods for: receive_signal, get_positions, get_dash_data, receive_checkpoint, deposit_collateral, or withdraw_collateral"
             bt.logging.trace(msg)
             synapse.successfully_processed = False
             synapse.error_message = msg
@@ -918,6 +963,56 @@ class Validator:
             bt.logging.info(f"Received a checkpoint poke from non validator [{sender_hotkey}]")
             synapse.error_message = "Rejecting checkpoint poke from non validator"
             synapse.successfully_processed = False
+        return synapse
+
+    def receive_deposit_collateral(self, synapse: template.protocol.DepositCollateral) -> template.protocol.DepositCollateral:
+        """
+        Handle deposit collateral requests from miners.
+        """
+        if self.should_fail_early(synapse, SynapseMethod.DEPOSIT_COLLATERAL):
+            return synapse
+        
+        bt.logging.info(f"Received deposit collateral request from {synapse.dendrite.hotkey} for {synapse.amount} Theta")
+        
+        if not self.contract_manager:
+            synapse.successfully_processed = False
+            synapse.error_message = "Validator contract manager not initialized"
+            return synapse
+        
+        try:
+            # Process the deposit through the contract manager
+            synapse = self.contract_manager.process_deposit_request(synapse)
+        except Exception as e:
+            bt.logging.error(f"Error processing deposit collateral: {e}")
+            bt.logging.error(traceback.format_exc())
+            synapse.successfully_processed = False
+            synapse.error_message = f"Deposit processing error: {str(e)}"
+        
+        return synapse
+
+    def receive_withdraw_collateral(self, synapse: template.protocol.WithdrawCollateral) -> template.protocol.WithdrawCollateral:
+        """
+        Handle withdrawal collateral requests from miners.
+        """
+        if self.should_fail_early(synapse, SynapseMethod.WITHDRAW_COLLATERAL):
+            return synapse
+        
+        bt.logging.info(f"Received withdraw collateral request from {synapse.dendrite.hotkey} for {synapse.amount} Theta")
+        
+        if not self.contract_manager:
+            synapse.successfully_processed = False
+            synapse.error_message = "Validator contract manager not initialized"
+            return synapse
+        
+        try:
+            # Process the withdrawal through the contract manager
+            synapse = self.contract_manager.process_withdrawal_request(synapse)
+        except Exception as e:
+            bt.logging.error(f"Error processing withdraw collateral: {e}")
+            bt.logging.error(traceback.format_exc())
+            synapse.successfully_processed = False
+            synapse.error_message = f"Withdrawal processing error: {str(e)}"
+        
         return synapse
 
 # This is the main function, which runs the miner.

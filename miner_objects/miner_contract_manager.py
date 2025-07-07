@@ -101,7 +101,7 @@ class MinerContractManager:
         try:
             bt.logging.info(f"Creating deposit extrinsic for {theta_amount} theta tokens")
 
-            source_stake = manager.subtensor_api.staking.get_stake_for_coldkey(wallet.coldkeypub.ss58_address)[0]
+            source_stake = manager.subtensor_api.staking.get_stake_for_coldkey(self.wallet.coldkeypub.ss58_address)[0]
             
             extrinsic = self.collateral_manager.create_stake_transfer_extrinsic(
                 amount=self.theta_to_rao(theta_amount),
