@@ -33,6 +33,7 @@ class TestPositions(TestBase):
             position_uuid=self.DEFAULT_POSITION_UUID,
             open_ms=self.DEFAULT_OPEN_MS,
             trade_pair=self.DEFAULT_TRADE_PAIR,
+            account_size=ValiConfig.CAPITAL
         )
         self.mock_metagraph = MockMetagraph([self.DEFAULT_MINER_HOTKEY])
         self.elimination_manager = EliminationManager(self.mock_metagraph, None, None)
@@ -110,7 +111,8 @@ class TestPositions(TestBase):
             position_uuid=self.DEFAULT_POSITION_UUID,
             open_ms=self.DEFAULT_OPEN_MS,
             trade_pair=TradePair.EURUSD,
-            orders=[]
+            orders=[],
+            account_size=ValiConfig.CAPITAL
         )
         closed_position.add_order(open_order)
         closed_position.add_order(reduce_size_order)
@@ -178,7 +180,8 @@ class TestPositions(TestBase):
             position_uuid=self.DEFAULT_POSITION_UUID,
             open_ms=self.DEFAULT_OPEN_MS,
             trade_pair=TradePair.EURUSD,
-            orders=[]
+            orders=[],
+            account_size=ValiConfig.CAPITAL
         )
         closed_position.add_order(open_order)
         closed_position.add_order(reduce_size_order)
@@ -222,7 +225,8 @@ class TestPositions(TestBase):
             position_uuid=self.DEFAULT_POSITION_UUID,
             open_ms=self.DEFAULT_OPEN_MS,
             trade_pair=TradePair.USDJPY,
-            orders=[]
+            orders=[],
+            account_size=ValiConfig.CAPITAL
         )
         closed_position.add_order(open_order)
         closed_position.add_order(close_order)
@@ -248,7 +252,8 @@ class TestPositions(TestBase):
             trade_pair=TradePair.BTCUSD,
             orders=[open_order],
             net_leverage=-0.1,
-            average_entry_price=100
+            average_entry_price=100,
+            account_size=ValiConfig.CAPITAL
         )
         assert open_position.current_return == 1
 
@@ -412,7 +417,9 @@ class TestPositions(TestBase):
             'miner_hotkey': self.DEFAULT_MINER_HOTKEY,
             'open_ms': FEE_V6_TIME_MS,
             'trade_pair': self.DEFAULT_TRADE_PAIR,
-            'position_uuid': self.DEFAULT_POSITION_UUID
+            'position_uuid': self.DEFAULT_POSITION_UUID,
+            'account_size': ValiConfig.CAPITAL,
+            'unrealized_pnl': 0
         })
 
         self.add_order_to_position_and_save(position, o2)
@@ -431,7 +438,9 @@ class TestPositions(TestBase):
             'miner_hotkey': self.DEFAULT_MINER_HOTKEY,
             'open_ms': FEE_V6_TIME_MS,
             'trade_pair': self.DEFAULT_TRADE_PAIR,
-            'position_uuid': self.DEFAULT_POSITION_UUID
+            'position_uuid': self.DEFAULT_POSITION_UUID,
+            'account_size': ValiConfig.CAPITAL,
+            'unrealized_pnl': 0
         })
 
         self.assertEqual(position.max_leverage_seen(), 1.0)
@@ -468,6 +477,7 @@ class TestPositions(TestBase):
             miner_hotkey='5EUTaAo7vCGxvLDWRXRrEuqctPjt9fKZmgkaeFZocWECUe9X',
             position_uuid='6955409a-031e-47df-8614-4488208497a6',
             trade_pair=TradePair.BTCUSD,
+            account_size=ValiConfig.CAPITAL
         )
         o1 = Order(order_type=OrderType.LONG,
                    leverage=1.0,
@@ -512,7 +522,9 @@ class TestPositions(TestBase):
             'miner_hotkey': self.DEFAULT_MINER_HOTKEY,
             'open_ms': FEE_V6_TIME_MS,
             'trade_pair': self.DEFAULT_TRADE_PAIR,
-            'position_uuid': self.DEFAULT_POSITION_UUID
+            'position_uuid': self.DEFAULT_POSITION_UUID,
+            'account_size': ValiConfig.CAPITAL,
+            'unrealized_pnl': 0
         })
 
         self.add_order_to_position_and_save(position, o2)
@@ -531,7 +543,9 @@ class TestPositions(TestBase):
             'miner_hotkey': self.DEFAULT_MINER_HOTKEY,
             'open_ms': FEE_V6_TIME_MS,
             'trade_pair': self.DEFAULT_TRADE_PAIR,
-            'position_uuid': self.DEFAULT_POSITION_UUID
+            'position_uuid': self.DEFAULT_POSITION_UUID,
+            'account_size': ValiConfig.CAPITAL,
+            'unrealized_pnl': 0
         })
         self.assertEqual(position.max_leverage_seen(), 1.0)
         self.assertEqual(position.get_cumulative_leverage(), 2.0)
@@ -571,7 +585,9 @@ class TestPositions(TestBase):
             'miner_hotkey': self.DEFAULT_MINER_HOTKEY,
             'open_ms': o1.processed_ms,
             'trade_pair': self.DEFAULT_TRADE_PAIR,
-            'position_uuid': self.DEFAULT_POSITION_UUID
+            'position_uuid': self.DEFAULT_POSITION_UUID,
+            'account_size': ValiConfig.CAPITAL,
+            'unrealized_pnl': 0
         })
 
         self.add_order_to_position_and_save(position, o2)
@@ -590,7 +606,9 @@ class TestPositions(TestBase):
             'miner_hotkey': self.DEFAULT_MINER_HOTKEY,
             'open_ms': o1.processed_ms,
             'trade_pair': self.DEFAULT_TRADE_PAIR,
-            'position_uuid': self.DEFAULT_POSITION_UUID
+            'position_uuid': self.DEFAULT_POSITION_UUID,
+            'account_size': ValiConfig.CAPITAL,
+            'unrealized_pnl': 0
         })
         self.assertEqual(position.max_leverage_seen(), 1.0)
         self.assertEqual(position.get_cumulative_leverage(), 2.0)
@@ -627,7 +645,9 @@ class TestPositions(TestBase):
             'miner_hotkey': self.DEFAULT_MINER_HOTKEY,
             'open_ms': self.DEFAULT_OPEN_MS,
             'trade_pair': self.DEFAULT_TRADE_PAIR,
-            'position_uuid': self.DEFAULT_POSITION_UUID
+            'position_uuid': self.DEFAULT_POSITION_UUID,
+            'account_size': ValiConfig.CAPITAL,
+            'unrealized_pnl': 0
         })
 
         self.add_order_to_position_and_save(position, o2)
@@ -646,7 +666,9 @@ class TestPositions(TestBase):
             'miner_hotkey': self.DEFAULT_MINER_HOTKEY,
             'open_ms': self.DEFAULT_OPEN_MS,
             'trade_pair': self.DEFAULT_TRADE_PAIR,
-            'position_uuid': self.DEFAULT_POSITION_UUID
+            'position_uuid': self.DEFAULT_POSITION_UUID,
+            'account_size': ValiConfig.CAPITAL,
+            'unrealized_pnl': 0
         })
         self.assertEqual(position.max_leverage_seen(), 10.0)
         self.assertEqual(position.get_cumulative_leverage(), 20.0)
@@ -683,7 +705,9 @@ class TestPositions(TestBase):
             'miner_hotkey': self.DEFAULT_MINER_HOTKEY,
             'open_ms': self.DEFAULT_OPEN_MS,
             'trade_pair': self.DEFAULT_TRADE_PAIR,
-            'position_uuid': self.DEFAULT_POSITION_UUID
+            'position_uuid': self.DEFAULT_POSITION_UUID,
+            'account_size': ValiConfig.CAPITAL,
+            'unrealized_pnl': 0
         })
 
         self.add_order_to_position_and_save(position, o2)
@@ -702,7 +726,9 @@ class TestPositions(TestBase):
             'miner_hotkey': self.DEFAULT_MINER_HOTKEY,
             'open_ms': self.DEFAULT_OPEN_MS,
             'trade_pair': self.DEFAULT_TRADE_PAIR,
-            'position_uuid': self.DEFAULT_POSITION_UUID
+            'position_uuid': self.DEFAULT_POSITION_UUID,
+            'account_size': ValiConfig.CAPITAL,
+            'unrealized_pnl': 0
         })
         self.assertEqual(position.max_leverage_seen(), 1.0)
         self.assertEqual(position.get_cumulative_leverage(), 2.0)
@@ -744,7 +770,9 @@ class TestPositions(TestBase):
             'miner_hotkey': self.DEFAULT_MINER_HOTKEY,
             'open_ms': self.DEFAULT_OPEN_MS,
             'trade_pair': self.DEFAULT_TRADE_PAIR,
-            'position_uuid': self.DEFAULT_POSITION_UUID
+            'position_uuid': self.DEFAULT_POSITION_UUID,
+            'account_size': ValiConfig.CAPITAL,
+            'unrealized_pnl': 0
         })
 
         self.add_order_to_position_and_save(position, o2)
@@ -765,7 +793,9 @@ class TestPositions(TestBase):
             'miner_hotkey': self.DEFAULT_MINER_HOTKEY,
             'open_ms': self.DEFAULT_OPEN_MS,
             'trade_pair': self.DEFAULT_TRADE_PAIR,
-            'position_uuid': self.DEFAULT_POSITION_UUID
+            'position_uuid': self.DEFAULT_POSITION_UUID,
+            'account_size': ValiConfig.CAPITAL,
+            'unrealized_pnl': 0
         })
 
         # Orders post-liquidation are ignored
@@ -786,7 +816,9 @@ class TestPositions(TestBase):
             'miner_hotkey': self.DEFAULT_MINER_HOTKEY,
             'open_ms': self.DEFAULT_OPEN_MS,
             'trade_pair': self.DEFAULT_TRADE_PAIR,
-            'position_uuid': self.DEFAULT_POSITION_UUID
+            'position_uuid': self.DEFAULT_POSITION_UUID,
+            'account_size': ValiConfig.CAPITAL,
+            'unrealized_pnl': 0
         })
         self.assertEqual(position.max_leverage_seen(), 1.0)
         self.assertEqual(position.get_cumulative_leverage(), 1.1)
@@ -828,7 +860,9 @@ class TestPositions(TestBase):
             'miner_hotkey': self.DEFAULT_MINER_HOTKEY,
             'open_ms': self.DEFAULT_OPEN_MS,
             'trade_pair': self.DEFAULT_TRADE_PAIR,
-            'position_uuid': self.DEFAULT_POSITION_UUID
+            'position_uuid': self.DEFAULT_POSITION_UUID,
+            'account_size': ValiConfig.CAPITAL,
+            'unrealized_pnl': 0
         })
 
         self.add_order_to_position_and_save(position, o2)
@@ -849,7 +883,9 @@ class TestPositions(TestBase):
             'miner_hotkey': self.DEFAULT_MINER_HOTKEY,
             'open_ms': self.DEFAULT_OPEN_MS,
             'trade_pair': self.DEFAULT_TRADE_PAIR,
-            'position_uuid': self.DEFAULT_POSITION_UUID
+            'position_uuid': self.DEFAULT_POSITION_UUID,
+            'account_size': ValiConfig.CAPITAL,
+            'unrealized_pnl': 0
         })
 
         # Orders post-liquidation are ignored
@@ -871,7 +907,9 @@ class TestPositions(TestBase):
             'miner_hotkey': self.DEFAULT_MINER_HOTKEY,
             'open_ms': self.DEFAULT_OPEN_MS,
             'trade_pair': self.DEFAULT_TRADE_PAIR,
-            'position_uuid': self.DEFAULT_POSITION_UUID
+            'position_uuid': self.DEFAULT_POSITION_UUID,
+            'account_size': ValiConfig.CAPITAL,
+            'unrealized_pnl': 0
         })
 
         self.assertEqual(position.max_leverage_seen(), 10.0)
@@ -908,7 +946,9 @@ class TestPositions(TestBase):
             'miner_hotkey': self.DEFAULT_MINER_HOTKEY,
             'open_ms': self.DEFAULT_OPEN_MS,
             'trade_pair': self.DEFAULT_TRADE_PAIR,
-            'position_uuid': self.DEFAULT_POSITION_UUID
+            'position_uuid': self.DEFAULT_POSITION_UUID,
+            'account_size': ValiConfig.CAPITAL,
+            'unrealized_pnl': 0
         })
 
         self.add_order_to_position_and_save(position, o2)
@@ -927,7 +967,9 @@ class TestPositions(TestBase):
             'miner_hotkey': self.DEFAULT_MINER_HOTKEY,
             'open_ms': self.DEFAULT_OPEN_MS,
             'trade_pair': self.DEFAULT_TRADE_PAIR,
-            'position_uuid': self.DEFAULT_POSITION_UUID
+            'position_uuid': self.DEFAULT_POSITION_UUID,
+            'account_size': ValiConfig.CAPITAL,
+            'unrealized_pnl': 0
         })
         self.assertEqual(position.max_leverage_seen(), 1.0)
         self.assertEqual(position.get_cumulative_leverage(), 2.0)
@@ -941,6 +983,7 @@ class TestPositions(TestBase):
             position_uuid=self.DEFAULT_POSITION_UUID,
             open_ms=LEVERAGE_BOUNDS_V2_START_TIME_MS,
             trade_pair=self.DEFAULT_TRADE_PAIR,
+            account_size=ValiConfig.CAPITAL
         )
 
         with self.assertRaises(ValueError):
@@ -1094,7 +1137,9 @@ class TestPositions(TestBase):
             'miner_hotkey': self.DEFAULT_MINER_HOTKEY,
             'open_ms': self.DEFAULT_OPEN_MS,
             'trade_pair': self.DEFAULT_TRADE_PAIR,
-            'position_uuid': self.DEFAULT_POSITION_UUID
+            'position_uuid': self.DEFAULT_POSITION_UUID,
+            'account_size': ValiConfig.CAPITAL,
+            'unrealized_pnl': 0
         })
 
         self.add_order_to_position_and_save(position, o2)
@@ -1113,7 +1158,9 @@ class TestPositions(TestBase):
             'miner_hotkey': self.DEFAULT_MINER_HOTKEY,
             'open_ms': self.DEFAULT_OPEN_MS,
             'trade_pair': self.DEFAULT_TRADE_PAIR,
-            'position_uuid': self.DEFAULT_POSITION_UUID
+            'position_uuid': self.DEFAULT_POSITION_UUID,
+            'account_size': ValiConfig.CAPITAL,
+            'unrealized_pnl': 0
         })
 
         self.add_order_to_position_and_save(position, o3)
@@ -1132,7 +1179,9 @@ class TestPositions(TestBase):
             'miner_hotkey': self.DEFAULT_MINER_HOTKEY,
             'open_ms': self.DEFAULT_OPEN_MS,
             'trade_pair': self.DEFAULT_TRADE_PAIR,
-            'position_uuid': self.DEFAULT_POSITION_UUID
+            'position_uuid': self.DEFAULT_POSITION_UUID,
+            'account_size': ValiConfig.CAPITAL,
+            'unrealized_pnl': 0
         })
         self.assertEqual(position.max_leverage_seen(), 1.1)
         self.assertEqual(position.get_cumulative_leverage(), 2.2)
@@ -1168,7 +1217,9 @@ class TestPositions(TestBase):
             'miner_hotkey': self.DEFAULT_MINER_HOTKEY,
             'open_ms': o1.processed_ms,
             'trade_pair': self.DEFAULT_TRADE_PAIR,
-            'position_uuid': self.DEFAULT_POSITION_UUID
+            'position_uuid': self.DEFAULT_POSITION_UUID,
+            'account_size': ValiConfig.CAPITAL,
+            'unrealized_pnl': 0
         })
 
         self.add_order_to_position_and_save(position, o2)
@@ -1187,7 +1238,9 @@ class TestPositions(TestBase):
             'miner_hotkey': self.DEFAULT_MINER_HOTKEY,
             'open_ms': o1.processed_ms,
             'trade_pair': self.DEFAULT_TRADE_PAIR,
-            'position_uuid': self.DEFAULT_POSITION_UUID
+            'position_uuid': self.DEFAULT_POSITION_UUID,
+            'account_size': ValiConfig.CAPITAL,
+            'unrealized_pnl': 0
         })
         self.assertEqual(position.max_leverage_seen(), 1.0)
         self.assertEqual(position.get_cumulative_leverage(), 2.0)
@@ -1231,7 +1284,9 @@ class TestPositions(TestBase):
             'miner_hotkey': self.DEFAULT_MINER_HOTKEY,
             'open_ms': o1.processed_ms,
             'trade_pair': self.DEFAULT_TRADE_PAIR,
-            'position_uuid': self.DEFAULT_POSITION_UUID
+            'position_uuid': self.DEFAULT_POSITION_UUID,
+            'account_size': ValiConfig.CAPITAL,
+            'unrealized_pnl': 0
         })
 
         self.add_order_to_position_and_save(position, o2)
@@ -1250,7 +1305,9 @@ class TestPositions(TestBase):
             'miner_hotkey': self.DEFAULT_MINER_HOTKEY,
             'open_ms': o1.processed_ms,
             'trade_pair': self.DEFAULT_TRADE_PAIR,
-            'position_uuid': self.DEFAULT_POSITION_UUID
+            'position_uuid': self.DEFAULT_POSITION_UUID,
+            'account_size': ValiConfig.CAPITAL,
+            'unrealized_pnl': 0
         })
 
         self.add_order_to_position_and_save(position, o3)
@@ -1269,7 +1326,9 @@ class TestPositions(TestBase):
             'miner_hotkey': self.DEFAULT_MINER_HOTKEY,
             'open_ms': o1.processed_ms,
             'trade_pair': self.DEFAULT_TRADE_PAIR,
-            'position_uuid': self.DEFAULT_POSITION_UUID
+            'position_uuid': self.DEFAULT_POSITION_UUID,
+            'account_size': ValiConfig.CAPITAL,
+            'unrealized_pnl': 0
         })
 
         self.assertEqual(position.max_leverage_seen(), 1.1)
@@ -1329,7 +1388,9 @@ class TestPositions(TestBase):
             'miner_hotkey': self.DEFAULT_MINER_HOTKEY,
             'open_ms': self.DEFAULT_OPEN_MS,
             'trade_pair': self.DEFAULT_TRADE_PAIR,
-            'position_uuid': self.DEFAULT_POSITION_UUID
+            'position_uuid': self.DEFAULT_POSITION_UUID,
+            'account_size': ValiConfig.CAPITAL,
+            'unrealized_pnl': 0
         })
         self.assertEqual(position.max_leverage_seen(), 1.12)
         self.assertEqual(position.get_cumulative_leverage(), 2.24)
@@ -1388,7 +1449,9 @@ class TestPositions(TestBase):
             'miner_hotkey': self.DEFAULT_MINER_HOTKEY,
             'open_ms': self.DEFAULT_OPEN_MS,
             'trade_pair': self.DEFAULT_TRADE_PAIR,
-            'position_uuid': self.DEFAULT_POSITION_UUID
+            'position_uuid': self.DEFAULT_POSITION_UUID,
+            'account_size': ValiConfig.CAPITAL,
+            'unrealized_pnl': 0
         })
         self.assertEqual(position.max_leverage_seen(), 1.12)
         self.assertEqual(position.get_cumulative_leverage(), 2.24)
@@ -1447,7 +1510,9 @@ class TestPositions(TestBase):
             'miner_hotkey': self.DEFAULT_MINER_HOTKEY,
             'open_ms': self.DEFAULT_OPEN_MS,
             'trade_pair': self.DEFAULT_TRADE_PAIR,
-            'position_uuid': self.DEFAULT_POSITION_UUID
+            'position_uuid': self.DEFAULT_POSITION_UUID,
+            'account_size': ValiConfig.CAPITAL,
+            'unrealized_pnl': 0
         })
         self.assertEqual(position.max_leverage_seen(), 2.5)
         # -1 +.5 - 2.0 + 2.1 = 1.44 (abs 5.6) , (flat from -.4) -> 6.0
@@ -1486,7 +1551,8 @@ class TestPositions(TestBase):
             miner_hotkey=hotkey1,
             position_uuid=self.DEFAULT_POSITION_UUID,
             open_ms=weekday_time_ms,
-            trade_pair=trade_pair1
+            trade_pair=trade_pair1,
+            account_size=ValiConfig.CAPITAL
         )
         trade_pair2 = TradePair.EURJPY
         hotkey2 = self.DEFAULT_MINER_HOTKEY + '_2'
@@ -1494,7 +1560,8 @@ class TestPositions(TestBase):
             miner_hotkey=hotkey2,
             position_uuid=self.DEFAULT_POSITION_UUID + '_2',
             open_ms=weekday_time_ms,
-            trade_pair=trade_pair2
+            trade_pair=trade_pair2,
+            account_size=ValiConfig.CAPITAL
         )
 
         o1 = Order(order_type=OrderType.SHORT,
@@ -1526,7 +1593,9 @@ class TestPositions(TestBase):
             'miner_hotkey': position1.miner_hotkey,
             'open_ms': weekday_time_ms,
             'trade_pair': trade_pair1,
-            'position_uuid': self.DEFAULT_POSITION_UUID
+            'position_uuid': self.DEFAULT_POSITION_UUID,
+            'account_size': ValiConfig.CAPITAL,
+            'unrealized_pnl': 0
         })
 
         self.add_order_to_position_and_save(position2, o2)
@@ -1545,7 +1614,9 @@ class TestPositions(TestBase):
             'miner_hotkey': position2.miner_hotkey,
             'open_ms': weekday_time_ms,
             'trade_pair': trade_pair2,
-            'position_uuid': self.DEFAULT_POSITION_UUID + '_2'
+            'position_uuid': self.DEFAULT_POSITION_UUID + '_2',
+            'account_size': ValiConfig.CAPITAL,
+            'unrealized_pnl': 0
         })
 
         self.assertEqual(position1.max_leverage_seen(), 0.4)
@@ -1598,7 +1669,9 @@ class TestPositions(TestBase):
             'miner_hotkey': position.miner_hotkey,
             'open_ms': self.DEFAULT_OPEN_MS,
             'trade_pair': self.DEFAULT_TRADE_PAIR,
-            'position_uuid': self.DEFAULT_POSITION_UUID
+            'position_uuid': self.DEFAULT_POSITION_UUID,
+            'account_size': ValiConfig.CAPITAL,
+            'unrealized_pnl': 0
         })
 
         self.assertEqual(position.max_leverage_seen(), 1.0)
@@ -1627,7 +1700,9 @@ class TestPositions(TestBase):
             'miner_hotkey': position.miner_hotkey,
             'open_ms': self.DEFAULT_OPEN_MS,
             'trade_pair': self.DEFAULT_TRADE_PAIR,
-            'position_uuid': self.DEFAULT_POSITION_UUID
+            'position_uuid': self.DEFAULT_POSITION_UUID,
+            'account_size': ValiConfig.CAPITAL,
+            'unrealized_pnl': 0
         })
 
     def test_transition_to_positional_leverage_v2_small_positive_leverage(self):
@@ -1676,7 +1751,9 @@ class TestPositions(TestBase):
             'miner_hotkey': position.miner_hotkey,
             'open_ms': self.DEFAULT_OPEN_MS,
             'trade_pair': self.DEFAULT_TRADE_PAIR,
-            'position_uuid': self.DEFAULT_POSITION_UUID
+            'position_uuid': self.DEFAULT_POSITION_UUID,
+            'account_size': ValiConfig.CAPITAL,
+            'unrealized_pnl': 0
         })
 
     def test_transition_to_positional_leverage_v2_small_negative_leverage(self):
@@ -1725,7 +1802,9 @@ class TestPositions(TestBase):
             'miner_hotkey': position.miner_hotkey,
             'open_ms': self.DEFAULT_OPEN_MS,
             'trade_pair': self.DEFAULT_TRADE_PAIR,
-            'position_uuid': self.DEFAULT_POSITION_UUID
+            'position_uuid': self.DEFAULT_POSITION_UUID,
+            'account_size': ValiConfig.CAPITAL,
+            'unrealized_pnl': 0
         })
 
     def test_transition_to_positional_leverage_v2_high_negative_leverage(self):
@@ -1768,7 +1847,9 @@ class TestPositions(TestBase):
             'miner_hotkey': position.miner_hotkey,
             'open_ms': self.DEFAULT_OPEN_MS,
             'trade_pair': self.DEFAULT_TRADE_PAIR,
-            'position_uuid': self.DEFAULT_POSITION_UUID
+            'position_uuid': self.DEFAULT_POSITION_UUID,
+            'account_size': ValiConfig.CAPITAL,
+            'unrealized_pnl': 0
         })
 
         self.assertEqual(position.max_leverage_seen(), 1.0)
@@ -1797,7 +1878,9 @@ class TestPositions(TestBase):
             'miner_hotkey': position.miner_hotkey,
             'open_ms': self.DEFAULT_OPEN_MS,
             'trade_pair': self.DEFAULT_TRADE_PAIR,
-            'position_uuid': self.DEFAULT_POSITION_UUID
+            'position_uuid': self.DEFAULT_POSITION_UUID,
+            'account_size': ValiConfig.CAPITAL,
+            'unrealized_pnl': 0
         })
 
     def test_leverage_clamping_v1_long(self):
@@ -1841,7 +1924,9 @@ class TestPositions(TestBase):
             'miner_hotkey': position.miner_hotkey,
             'open_ms': self.DEFAULT_OPEN_MS,
             'trade_pair': self.DEFAULT_TRADE_PAIR,
-            'position_uuid': self.DEFAULT_POSITION_UUID
+            'position_uuid': self.DEFAULT_POSITION_UUID,
+            'account_size': ValiConfig.CAPITAL,
+            'unrealized_pnl': 0
         })
 
         self.assertEqual(position.max_leverage_seen(), 20.0)
@@ -1884,7 +1969,9 @@ class TestPositions(TestBase):
             'miner_hotkey': position.miner_hotkey,
             'open_ms': LEVERAGE_BOUNDS_V2_START_TIME_MS,
             'trade_pair': self.DEFAULT_TRADE_PAIR,
-            'position_uuid': self.DEFAULT_POSITION_UUID
+            'position_uuid': self.DEFAULT_POSITION_UUID,
+            'account_size': ValiConfig.CAPITAL,
+            'unrealized_pnl': 0
         })
 
         self.assertEqual(position.max_leverage_seen(), TradePair.BTCUSD.max_leverage)
@@ -1928,7 +2015,9 @@ class TestPositions(TestBase):
             'miner_hotkey': position.miner_hotkey,
             'open_ms': 1000,
             'trade_pair': self.DEFAULT_TRADE_PAIR,
-            'position_uuid': self.DEFAULT_POSITION_UUID
+            'position_uuid': self.DEFAULT_POSITION_UUID,
+            'account_size': ValiConfig.CAPITAL,
+            'unrealized_pnl': 0
         })
 
         self.assertEqual(position.max_leverage_seen(), max_allowed_leverage)
@@ -1969,7 +2058,9 @@ class TestPositions(TestBase):
             'miner_hotkey': position.miner_hotkey,
             'open_ms': LEVERAGE_BOUNDS_V2_START_TIME_MS,
             'trade_pair': self.DEFAULT_TRADE_PAIR,
-            'position_uuid': self.DEFAULT_POSITION_UUID
+            'position_uuid': self.DEFAULT_POSITION_UUID,
+            'account_size': ValiConfig.CAPITAL,
+            'unrealized_pnl': 0
         })
 
         self.assertEqual(position.max_leverage_seen(), TradePair.BTCUSD.max_leverage)
@@ -2014,7 +2105,9 @@ class TestPositions(TestBase):
             'miner_hotkey': position.miner_hotkey,
             'open_ms': self.DEFAULT_OPEN_MS,
             'trade_pair': self.DEFAULT_TRADE_PAIR,
-            'position_uuid': self.DEFAULT_POSITION_UUID
+            'position_uuid': self.DEFAULT_POSITION_UUID,
+            'account_size': ValiConfig.CAPITAL,
+            'unrealized_pnl': 0
         })
         self.assertEqual(position.max_leverage_seen(), max_allowed_leverage)
         self.assertEqual(position.get_cumulative_leverage(), max_allowed_leverage)
@@ -2056,7 +2149,9 @@ class TestPositions(TestBase):
             'miner_hotkey': position.miner_hotkey,
             'open_ms': o1.processed_ms,
             'trade_pair': self.DEFAULT_TRADE_PAIR,
-            'position_uuid': self.DEFAULT_POSITION_UUID
+            'position_uuid': self.DEFAULT_POSITION_UUID,
+            'account_size': ValiConfig.CAPITAL,
+            'unrealized_pnl': 0
         })
         self.assertEqual(position.max_leverage_seen(), TradePair.BTCUSD.max_leverage)
         self.assertEqual(position.get_cumulative_leverage(), TradePair.BTCUSD.max_leverage)
@@ -2123,7 +2218,9 @@ class TestPositions(TestBase):
             'miner_hotkey': position.miner_hotkey,
             'open_ms': self.DEFAULT_OPEN_MS,
             'trade_pair': self.DEFAULT_TRADE_PAIR,
-            'position_uuid': self.DEFAULT_POSITION_UUID
+            'position_uuid': self.DEFAULT_POSITION_UUID,
+            'account_size': ValiConfig.CAPITAL,
+            'unrealized_pnl': 0
         })
 
         self.assertEqual(position.max_leverage_seen(), max_allowed_leverage)
@@ -2164,7 +2261,9 @@ class TestPositions(TestBase):
             'miner_hotkey': position.miner_hotkey,
             'open_ms': o1.processed_ms,
             'trade_pair': self.DEFAULT_TRADE_PAIR,
-            'position_uuid': self.DEFAULT_POSITION_UUID
+            'position_uuid': self.DEFAULT_POSITION_UUID,
+            'account_size': ValiConfig.CAPITAL,
+            'unrealized_pnl': 0
         })
 
         self.assertEqual(position.max_leverage_seen(), TradePair.BTCUSD.max_leverage)
@@ -2466,7 +2565,8 @@ class TestPositions(TestBase):
             miner_hotkey=self.DEFAULT_MINER_HOTKEY,
             position_uuid=self.DEFAULT_POSITION_UUID,
             open_ms=self.DEFAULT_OPEN_MS,
-            trade_pair=TradePair.DJI
+            trade_pair=TradePair.DJI,
+            account_size=ValiConfig.CAPITAL
         )
         for i in range(3):
             o = Order(order_type=OrderType.LONG,

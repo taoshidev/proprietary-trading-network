@@ -384,8 +384,8 @@ class Metrics:
         Returns:
             float: Average daily PnL score
         """
-        if not ledger or not ledger.cps:
-            return 0.0
+        if not ledger:
+            return ValiConfig.PNL_NOCONFIDENCE_VALUE
             
         # Get daily PnL values for complete days only
         daily_pnl_values = LedgerUtils.daily_pnl(ledger)
