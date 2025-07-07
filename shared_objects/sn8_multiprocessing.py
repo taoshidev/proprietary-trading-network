@@ -9,6 +9,10 @@ def get_ipc_metagraph(manager: Manager):
     metagraph.hotkeys = manager.list()
     metagraph.uids = manager.list()
     metagraph.block_at_registration = manager.list()
+
+    metagraph.pool = manager.Namespace()
+    metagraph.pool.tao_in = manager.Value('d', 0)
+    metagraph.pool.alpha_in = manager.Value('d', 0)
     return metagraph
 
 def managerize_objects(cls, manager, obj_dict) -> None:
