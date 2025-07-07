@@ -90,14 +90,28 @@ class Miner:
             )
         # Initialize the dashboard process variable for the frontend
         self.dashboard_frontend_process = None
-        bt.logging.info("Initializing collateral contract manager...")
-        self.dendrite = bt.dendrite(wallet=self.wallet)
-        self.contract_manager = MinerContractManager(
-            wallet=self.wallet,
-            config=self.config,
-            dendrite=self.dendrite,
-            metagraph=self.metagraph
-        )
+        
+        # Initialize collateral contract manager and API server
+        try:
+            bt.logging.info("Initializing collateral contract manager...")
+            self.dendrite = bt.dendrite(wallet=self.wallet)
+            self.contract_manager = MinerContractManager(
+                wallet=self.wallet,
+                config=self.config,
+                dendrite=self.dendrite,
+                metagraph=self.metagraph
+            )
+
+            # Start collateral API server in its own thread
+            self.collateral_server_thread = threading.Thread(
+                target=self.start_collateral_server,
+                daemon=True
+            )
+            self.collateral_server_thread.start()
+            bt.logging.info("Collateral system initialized successfully")
+
+        except Exception as e:
+            bt.logging.error(f"Failed to initialize collateral system: {e}")
 
     def setup_logging_directory(self):
         if not os.path.exists(self.config.full_path):
@@ -208,6 +222,41 @@ class Miner:
         )
         return config
 
+    def start_collateral_server(self):
+        """
+        Start the collateral API server
+        """
+        try:
+            import waitress
+            from flask import Flask
+            # Import the collateral server module
+            import sys
+            import importlib.util
+            
+            # Import the collateral server app
+            spec = importlib.util.spec_from_file_location(
+                "collateral_server", 
+                "mining/run_collateral_server.py"
+            )
+            collateral_module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(collateral_module)
+            
+            # Initialize the contract manager in the collateral server
+            if collateral_module.initialize_contract_manager(self.config):
+                bt.logging.info(f"Starting collateral API server on port {MinerConfig.COLLATERAL_API_PORT}")
+                waitress.serve(
+                    collateral_module.app, 
+                    host="0.0.0.0", 
+                    port=MinerConfig.COLLATERAL_API_PORT, 
+                    connection_limit=1000
+                )
+            else:
+                bt.logging.error("Failed to initialize collateral server")
+                
+        except Exception as e:
+            bt.logging.error(f"Failed to start collateral server: {e}")
+            bt.logging.error(traceback.format_exc())
+
     def start_dashboard_frontend(self):
         """
         starts the miner dashboard. Allows the use of npm, yarn, or pnpm
@@ -271,6 +320,12 @@ class Miner:
                     self.dashboard_frontend_process.terminate()
                     self.dashboard_frontend_process.wait()
                     bt.logging.info("Dashboard terminated.")
+                
+                # Shutdown collateral server
+                if hasattr(self, 'collateral_server_thread') and self.collateral_server_thread.is_alive():
+                    bt.logging.info("Shutting down collateral server...")
+                    # Note: The collateral server thread is daemon, so it will terminate when main thread exits
+                
                 self.metagraph_updater_thread.join()
                 self.position_inspector.stop_update_loop()
                 if self.position_inspector_thread:
