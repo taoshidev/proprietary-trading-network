@@ -130,7 +130,7 @@ class LedgerUtils:
             bt.logging.info(f"testing_date is invalid, returning False: {testing_date}")
             return False
         
-        asset_id = ledger.asset_id
+        asset_id = ledger.tp_id
         # TODO We may need to revisit this if portfolio ledgers become asset specific
         if asset_id == TP_ID_PORTFOLIO:
             return True
@@ -192,7 +192,7 @@ class LedgerUtils:
         miner_returns = {}
 
         for miner, miner_ledger in ledger.items():
-            miner_returns[miner] = LedgerUtils.daily_return_percentage(miner_ledger if miner_ledger else PerfLedger())
+            miner_returns[miner] = LedgerUtils.daily_return_percentage(miner_ledger if miner_ledger else PerfLedger(tp_id=TP_ID_PORTFOLIO))
 
         return miner_returns
 

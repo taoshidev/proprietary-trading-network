@@ -613,7 +613,7 @@ class TestLedgerUtils(TestBase):
         
         for asset_id, expected_saturday, expected_monday in test_cases:
             ledger = generate_ledger(0.1)[TP_ID_PORTFOLIO]
-            ledger.asset_id = asset_id
+            ledger.tp_id = asset_id
             
             saturday_result = LedgerUtils.is_valid_trading_day(ledger, saturday_date)
             monday_result = LedgerUtils.is_valid_trading_day(ledger, monday_date)
@@ -635,10 +635,10 @@ class TestLedgerUtils(TestBase):
         
         # Create forex and crypto ledgers with same time range
         forex_ledger = generate_ledger(0.1, start_time=friday_start, end_time=monday_end)[TP_ID_PORTFOLIO]
-        forex_ledger.asset_id = "EURUSD"
+        forex_ledger.tp_id = "EURUSD"
         
         crypto_ledger = generate_ledger(0.1, start_time=friday_start, end_time=monday_end)[TP_ID_PORTFOLIO]
-        crypto_ledger.asset_id = "BTCUSD"
+        crypto_ledger.tp_id = "BTCUSD"
         
         # Get daily returns for both ledgers
         forex_daily_returns = LedgerUtils.daily_return_log_by_date(forex_ledger)
@@ -660,7 +660,7 @@ class TestLedgerUtils(TestBase):
         
         # Test with None date
         ledger = generate_ledger(0.1)[TP_ID_PORTFOLIO]
-        ledger.asset_id = "EURUSD"
+        ledger.tp_id = "EURUSD"
         self.assertFalse(LedgerUtils.is_valid_trading_day(ledger, None))
         
         # Test with invalid date type
@@ -669,11 +669,11 @@ class TestLedgerUtils(TestBase):
         
         # Test with invalid asset_id (should return False due to None trade_pair)
         invalid_ledger = generate_ledger(0.1)[TP_ID_PORTFOLIO]
-        invalid_ledger.asset_id = "INVALID_PAIR"
+        invalid_ledger.tp_id = "INVALID_PAIR"
         self.assertFalse(LedgerUtils.is_valid_trading_day(invalid_ledger, date_type(2023, 1, 1)))
         
         # Test portfolio ledger should always return True (except for error cases)
         portfolio_ledger = generate_ledger(0.1)[TP_ID_PORTFOLIO]
-        portfolio_ledger.asset_id = TP_ID_PORTFOLIO
+        portfolio_ledger.tp_id = TP_ID_PORTFOLIO
         self.assertTrue(LedgerUtils.is_valid_trading_day(portfolio_ledger, date_type(2023, 1, 7)))  # Saturday
 
