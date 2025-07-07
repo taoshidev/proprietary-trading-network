@@ -461,17 +461,20 @@ class TestRealWorldTradingScenarios(TestBase):
                 # and update incrementally to show gains and losses
                 
                 # First, let's manually set returns on the positions to ensure they're calculated
-                positions = self.position_manager.get_all_miner_positions(self.DEFAULT_MINER_HOTKEY)
-                for pos in positions:
-                    if pos.position_uuid == "sl_position":
-                        # Force the stop loss position to show a loss
-                        pos.current_return = 0.98  # 2% loss
-                    elif pos.position_uuid == "tp_position":
-                        # Force the take profit position to show a gain
-                        pos.current_return = 1.0294  # 2.94% gain
-                    elif pos.position_uuid == "hold_position":
-                        # Open position with small gain
-                        pos.current_return = 1.002  # 0.2% gain
+                # Use the correct method to get positions
+                all_positions = self.position_manager.get_positions_for_all_miners()
+                if self.DEFAULT_MINER_HOTKEY in all_positions:
+                    positions = all_positions[self.DEFAULT_MINER_HOTKEY]
+                    for pos in positions:
+                        if pos.position_uuid == "sl_position":
+                            # Force the stop loss position to show a loss
+                            pos.current_return = 0.98  # 2% loss
+                        elif pos.position_uuid == "tp_position":
+                            # Force the take profit position to show a gain
+                            pos.current_return = 1.0294  # 2.94% gain
+                        elif pos.position_uuid == "hold_position":
+                            # Open position with small gain
+                            pos.current_return = 1.002  # 0.2% gain
                 
                 # Do another update to recalculate with forced returns
                 plm.update(t_ms=base_time + (16 * hour_ms))
@@ -764,7 +767,10 @@ class TestIntegrationScenarios(TestBase):
         mock_candle_fetcher.return_value = {}
         
         # Set up elimination manager with one miner eliminated
-        self.elimination_manager.eliminations = {self.MINERS[1]: "test_elimination"}
+        # The elimination manager expects a list of dictionaries
+        self.elimination_manager.eliminations = [
+            {'hotkey': self.MINERS[1], 'reason': 'test_elimination'}
+        ]
         
         plm = PerfLedgerManager(
             metagraph=self.mmg,

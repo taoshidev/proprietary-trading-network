@@ -11,7 +11,7 @@ import numpy as np
 from scipy.stats import percentileofscore
 
 from vali_objects.vali_config import ValiConfig
-from vali_objects.vali_dataclasses.perf_ledger import PerfLedger
+from vali_objects.vali_dataclasses.perf_ledger import PerfLedger, TP_ID_PORTFOLIO
 from time_util.time_util import TimeUtil
 from vali_objects.utils.position_filtering import PositionFiltering
 from vali_objects.utils.ledger_utils import LedgerUtils
@@ -217,7 +217,7 @@ class Scoring:
             if not ledger:
                 empty_ledger_miners.append((miner, len(positions)))
 
-            ledger = ledger if ledger else PerfLedger()
+            ledger = ledger if ledger else PerfLedger(tp_id=TP_ID_PORTFOLIO)
 
             cumulative_penalty = 1
             for penalty_name, penalty_config in Scoring.penalties_config.items():
