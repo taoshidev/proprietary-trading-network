@@ -3,6 +3,7 @@ import math
 import os
 import time
 import traceback
+import datetime
 from collections import defaultdict
 from copy import deepcopy
 from enum import Enum
@@ -156,8 +157,8 @@ class PerfLedger():
 
     @property
     def last_update_ms(self):
-        if len(self.cps) == 0:
-            return self.initialization_time_ms
+        if len(self.cps) == 0:  # important to return 0 as default value. Otherwise update flow wont trigger after init.
+            return 0
         return self.cps[-1].last_update_ms
 
     @property
@@ -180,21 +181,52 @@ class PerfLedger():
             self.max_return = max(x.mpv for x in self.cps)
         # Initial portfolio value is 1.0
         self.max_return = max(self.max_return, 1.0)
+    
 
     def create_cps_to_fill_void(self, time_since_last_update_ms: int, now_ms: int, point_in_time_dd: float,
                                 any_open: TradePairReturnStatus, current_portfolio_value: float, prev_max_return: float):
         original_accum_time = self.cps[-1].accum_ms
         delta_accum_time_ms = self.target_cp_duration_ms - original_accum_time
         self.cps[-1].accum_ms += delta_accum_time_ms
-        self.cps[-1].last_update_ms += delta_accum_time_ms
+        
+        # CRITICAL FIX: Align checkpoint to 12-hour boundary when completing it
+        # Since we're filling the void, we know this checkpoint is completing its target duration
+        # Align to the next 12-hour boundary from the original checkpoint time
+        
+        # Validate that we're working with 12-hour checkpoints
+        if self.target_cp_duration_ms != 43200000:  # 12 hours in milliseconds
+            raise Exception(f"Checkpoint boundary alignment only supports 12-hour checkpoints, "
+                           f"but target_cp_duration_ms is {self.target_cp_duration_ms} ms "
+                           f"({self.target_cp_duration_ms / 3600000:.1f} hours)")
+        
+        original_last_update = self.cps[-1].last_update_ms
+        
+        # Find the next boundary from the original checkpoint time
+        boundary_ms = self.target_cp_duration_ms  # 12 hours
+        next_boundary = TimeUtil.align_to_12hour_checkpoint_boundary(original_last_update)
+        
+        if next_boundary <= now_ms:
+            # Next boundary is safe to use
+            aligned_last_update = next_boundary
+        else:
+            # This shouldn't happen - if we're filling void, the next boundary should be reachable
+            raise Exception(f"Cannot align checkpoint: next boundary {next_boundary} ({TimeUtil.millis_to_formatted_date_str(next_boundary)}) "
+                           f"exceeds current time {now_ms} ({TimeUtil.millis_to_formatted_date_str(now_ms)})")
+        
+        # Update checkpoint with aligned time
+        actual_delta = aligned_last_update - original_last_update
+        self.cps[-1].last_update_ms = aligned_last_update
+        self.cps[-1].accum_ms = self.target_cp_duration_ms  # Should be exactly one period
+        
         if any_open > TradePairReturnStatus.TP_MARKET_NOT_OPEN:
-            self.cps[-1].open_ms += delta_accum_time_ms
-        time_since_last_update_ms -= delta_accum_time_ms
+            self.cps[-1].open_ms += actual_delta
+        time_since_last_update_ms = now_ms - aligned_last_update
         assert time_since_last_update_ms >= 0, (self.cps, time_since_last_update_ms)
         last_portfolio_return = self.cps[-1].prev_portfolio_ret
         last_dd = last_portfolio_return / prev_max_return
 
         while time_since_last_update_ms > self.target_cp_duration_ms:
+            # Each subsequent checkpoint should be exactly one period (12 hours) after the previous
             new_cp = PerfCheckpoint(last_update_ms=self.cps[-1].last_update_ms + self.target_cp_duration_ms,
                                     prev_portfolio_ret=last_portfolio_return,
                                     prev_portfolio_spread_fee=self.cps[-1].prev_portfolio_spread_fee,
@@ -202,15 +234,19 @@ class PerfLedger():
                                     accum_ms=self.target_cp_duration_ms,
                                     mdd=last_dd,
                                     mpv=last_portfolio_return)
+            # Verify alignment - since previous checkpoint is aligned and we add exactly one period, this should be aligned too
+            assert new_cp.last_update_ms % self.target_cp_duration_ms == 0, f"Checkpoint not aligned: {new_cp.last_update_ms}"
             assert new_cp.last_update_ms < now_ms, (self.cps, (now_ms - new_cp.last_update_ms))
             self.cps.append(new_cp)
             time_since_last_update_ms -= self.target_cp_duration_ms
 
         assert time_since_last_update_ms >= 0
-        new_cp = PerfCheckpoint(last_update_ms=self.cps[-1].last_update_ms,
+
+        new_cp = PerfCheckpoint(last_update_ms=now_ms,
                                 prev_portfolio_ret=current_portfolio_value,
                                 prev_portfolio_spread_fee=self.cps[-1].prev_portfolio_spread_fee,
                                 prev_portfolio_carry_fee=self.cps[-1].prev_portfolio_carry_fee,
+                                accum_ms=time_since_last_update_ms,
                                 mdd=min(last_dd, point_in_time_dd),
                                 mpv=max(last_portfolio_return, current_portfolio_value))
         assert new_cp.last_update_ms <= now_ms, self.cps
@@ -1107,10 +1143,31 @@ class PerfLedgerManager(CacheController):
             #if t_ms + 60000 > 1737496980446:
             #    print('snare')
 
+            # CRITICAL BUG FIX: Enhanced validation and debugging for timestamp issues
+            if t_ms < portfolio_pl.last_update_ms:
+                time_diff_ms = portfolio_pl.last_update_ms - t_ms
+                time_diff_days = time_diff_ms / (1000 * 60 * 60 * 24)
+                
+                bt.logging.error(f"CRITICAL TIMESTAMP BUG DETECTED:")
+                bt.logging.error(f"  Current processing time: {t_ms} ({TimeUtil.millis_to_formatted_date_str(t_ms)})")
+                bt.logging.error(f"  Last checkpoint time:    {portfolio_pl.last_update_ms} ({TimeUtil.millis_to_formatted_date_str(portfolio_pl.last_update_ms)})")
+                bt.logging.error(f"  Time difference:         {time_diff_ms} ms ({time_diff_days:.1f} days)")
+                bt.logging.error(f"  Mode: {mode}")
+                bt.logging.error(f"  Parallel mode: {self.parallel_mode}")
+                bt.logging.error(f"  Checkpoint details: accum_ms={portfolio_pl.cps[-1].accum_ms if portfolio_pl.cps else 'No checkpoints'}")
+                
+                if time_diff_days > 1:
+                    bt.logging.error(f"  EXTREME TIMESTAMP ERROR: Checkpoint is {time_diff_days:.1f} days in the future!")
+                    bt.logging.error(f"  This indicates a critical bug in void filling or boundary logic.")
+                    bt.logging.error(f"  Portfolio PL object: {portfolio_pl}")
+                
+                raise Exception(f'CRITICAL TIMESTAMP BUG DETECTED: t_ms {t_ms} is before last_update_ms {portfolio_pl.last_update_ms}. '
+                                f'Check logs for more details.')
+
             assert t_ms >= portfolio_pl.last_update_ms, (f"t_ms: {t_ms}, "
                                                          f"last_update_ms: {TimeUtil.millis_to_formatted_date_str(portfolio_pl.last_update_ms)},"
                                                          f"mode: {mode},"
-                                                         f" delta_ms: {(t_ms - portfolio_pl.last_update_ms)} s. perf ledger {portfolio_pl}")
+                                                         f" delta_ms: {(t_ms - portfolio_pl.last_update_ms)} ms. perf ledger {portfolio_pl}")
 
             tp_to_current_return, tp_to_any_open, tp_to_current_spread_fee, tp_to_current_carry_fee = \
                 self.positions_to_portfolio_return(tp_ids_to_build, tp_to_historical_positions_dense, t_ms, mode, end_time_ms, tp_to_initial_return, tp_to_initial_spread_fee, tp_to_initial_carry_fee)
@@ -1615,6 +1672,21 @@ class PerfLedgerManager(CacheController):
         pl_start_time = TimeUtil.millis_to_formatted_date_str(last_update_time_ms)
         pl_end_time = TimeUtil.millis_to_formatted_date_str(portfolio_pl.last_update_ms)
 
+        # CRITICAL BUG FIX: Validate return data structure
+        if not isinstance(new_bundle, dict):
+            bt.logging.error(f"CRITICAL: new_bundle for {hotkey} is not a dict. Type: {type(new_bundle)}. "
+                           f"This will cause downstream serialization issues.")
+            raise ValueError(f"Invalid new_bundle type for {hotkey}: {type(new_bundle)}")
+        
+        if TP_ID_PORTFOLIO not in new_bundle:
+            bt.logging.error(f"CRITICAL: No portfolio ledger in new_bundle for {hotkey}. Keys: {list(new_bundle.keys())}")
+            raise ValueError(f"Missing portfolio ledger for {hotkey}")
+        
+        portfolio_ledger = new_bundle[TP_ID_PORTFOLIO]
+        if not hasattr(portfolio_ledger, 'cps'):
+            bt.logging.error(f"CRITICAL: Portfolio ledger for {hotkey} is not a PerfLedger object. Type: {type(portfolio_ledger)}")
+            raise ValueError(f"Invalid portfolio ledger type for {hotkey}: {type(portfolio_ledger)}")
+        
         bt.logging.success(f'Completed update_one_perf_ledger_parallel for {hotkey} in {time.time() - t0} s over '
               f'{pl_start_time} to {pl_end_time}.')
         return hotkey, new_bundle
@@ -1641,8 +1713,17 @@ class PerfLedgerManager(CacheController):
 
         if now_ms is None:
             now_ms = TimeUtil.now_in_millis()
+        else:
+            # CRITICAL BUG FIX: Validate now_ms to prevent future timestamp issues
+            current_time_ms = TimeUtil.now_in_millis()
+            if now_ms > current_time_ms + 86400000:  # More than 1 day in the future
+                bt.logging.error(
+                    f"CRITICAL TIMESTAMP ERROR: now_ms ({now_ms}) is {(now_ms - current_time_ms) / 86400000:.1f} days "
+                    f"in the future compared to current time ({current_time_ms}). "
+                    f"This will cause assertion failures. Using current time instead.")
+                now_ms = current_time_ms
         self.now_ms = now_ms
-
+        
         # Create a list of hotkeys with their positions for RDD
         hotkey_data = []
         for i, (hotkey, positions) in enumerate(hotkey_to_positions.items()):

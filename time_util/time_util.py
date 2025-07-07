@@ -507,3 +507,42 @@ class TimeUtil:
         day_of_week = dt.weekday()
 
         return day_of_week
+
+    @staticmethod
+    def align_to_12hour_checkpoint_boundary(timestamp_ms: int) -> int:
+        """
+        Align a timestamp to the NEXT 12-hour checkpoint boundary (UTC boundaries).
+        
+        For 12-hour checkpoints, boundaries are at 00:00:00 and 12:00:00 UTC each day.
+        This function always snaps forward to the next boundary, never backward.
+        
+        Args:
+            timestamp_ms: Timestamp in milliseconds to align
+            
+        Returns:
+            Aligned timestamp in milliseconds (always >= input timestamp)
+            
+        Examples:
+            11:45:00 -> 12:00:00 (next boundary)
+            12:00:00 -> 12:00:00 (already on boundary, no change)
+            12:00:01 -> 00:00:00 next day (next boundary) 
+            23:59:59 -> 00:00:00 next day (next boundary)
+        """
+        # Convert to datetime to work with hour/minute/second
+        dt = TimeUtil.millis_to_datetime(timestamp_ms)
+        
+        # Check if we're already exactly on a 12-hour boundary
+        if dt.hour in [0, 12] and dt.minute == 0 and dt.second == 0 and dt.microsecond == 0:
+            # Already on boundary, return as-is
+            return timestamp_ms
+        
+        # Otherwise, find the next boundary
+        if dt.hour < 12:
+            # Next boundary is 12:00:00 today
+            boundary_dt = dt.replace(hour=12, minute=0, second=0, microsecond=0)
+        else:
+            # Next boundary is 00:00:00 tomorrow
+            boundary_dt = dt.replace(hour=0, minute=0, second=0, microsecond=0)
+            boundary_dt += timedelta(days=1)
+        
+        return int(boundary_dt.timestamp() * 1000)
