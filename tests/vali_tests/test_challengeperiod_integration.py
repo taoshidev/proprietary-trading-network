@@ -1,26 +1,26 @@
 # developer: trdougherty
 from copy import deepcopy
 
-from vali_objects.enums.order_type_enum import OrderType
-from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
-from vali_objects.utils.elimination_manager import EliminationManager, EliminationReason
-from vali_objects.utils.miner_bucket_enum import MinerBucket
-from vali_objects.utils.position_lock import PositionLocks
-from vali_objects.vali_dataclasses.order import Order
-
-from vali_objects.vali_dataclasses.perf_ledger import PerfLedger, TP_ID_PORTFOLIO
-from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
-from vali_objects.utils.ledger_utils import LedgerUtils
-from tests.shared_objects.mock_classes import (
-    MockMetagraph, MockPositionManager
+from tests.shared_objects.mock_classes import MockMetagraph, MockPositionManager
+from tests.shared_objects.test_utilities import (
+    generate_losing_ledger,
+    generate_winning_ledger,
 )
 from tests.vali_tests.base_objects.test_base import TestBase
-from tests.shared_objects.test_utilities import generate_winning_ledger, generate_losing_ledger
-
-from vali_objects.vali_config import TradePair
+from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.position import Position
-from vali_objects.vali_config import ValiConfig
-
+from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
+from vali_objects.utils.elimination_manager import EliminationManager, EliminationReason
+from vali_objects.utils.ledger_utils import LedgerUtils
+from vali_objects.utils.miner_bucket_enum import MinerBucket
+from vali_objects.utils.position_lock import PositionLocks
+from vali_objects.vali_config import TradePair, ValiConfig
+from vali_objects.vali_dataclasses.order import Order
+from vali_objects.vali_dataclasses.perf_ledger import (
+    TP_ID_PORTFOLIO,
+    PerfLedger,
+    PerfLedgerManager,
+)
 
 
 class TestChallengePeriodIntegration(TestBase):
@@ -72,7 +72,7 @@ class TestChallengePeriodIntegration(TestBase):
             is_closed_position=True,
             return_at_close=1.00,
             orders=[Order(price=60000, processed_ms=self.START_TIME, order_uuid="initial_order",
-                          trade_pair=TradePair.BTCUSD, order_type=OrderType.LONG, leverage=0.1)]
+                          trade_pair=TradePair.BTCUSD, order_type=OrderType.LONG, leverage=0.1)],
 
         )
 
@@ -233,7 +233,7 @@ class TestChallengePeriodIntegration(TestBase):
             new_hotkeys=self.challengeperiod_manager.metagraph.hotkeys,
             eliminations=self.challengeperiod_manager.elimination_manager.get_eliminations_from_memory(),
             hk_to_first_order_time=self.HK_TO_OPEN_MS,
-            default_time=self.START_TIME
+            default_time=self.START_TIME,
         )
 
         self.assertEqual(len(self.challengeperiod_manager.get_testing_miners()), len(self.TESTING_MINER_NAMES + self.FAILING_MINER_NAMES))
@@ -283,7 +283,7 @@ class TestChallengePeriodIntegration(TestBase):
         # Check the failing criteria initially
         ledger = ledgers.get(self.DEFAULT_MINER_HOTKEY)
         failing_criteria, _ = LedgerUtils.is_beyond_max_drawdown(
-            ledger_element=ledger[TP_ID_PORTFOLIO] if ledger else None
+            ledger_element=ledger[TP_ID_PORTFOLIO] if ledger else None,
         )
 
         self.assertFalse(failing_criteria)
@@ -295,7 +295,7 @@ class TestChallengePeriodIntegration(TestBase):
             success_hotkeys=self.SUCCESS_MINER_NAMES,
             inspection_hotkeys=self.challengeperiod_manager.get_testing_miners(),
             current_time=self.max_open_ms,
-            hk_to_first_order_time=self.HK_TO_OPEN_MS
+            hk_to_first_order_time=self.HK_TO_OPEN_MS,
         )
         self.elimination_manager.process_eliminations(PositionLocks())
 
@@ -317,7 +317,7 @@ class TestChallengePeriodIntegration(TestBase):
 
         self.challengeperiod_manager._promote_challengeperiod_in_memory(
             hotkeys=[self.TESTING_MINER_NAMES[0]],
-            current_time=self.max_open_ms
+            current_time=self.max_open_ms,
         )
 
         testing_hotkeys = list(self.challengeperiod_manager.get_testing_miners().keys())
@@ -329,7 +329,7 @@ class TestChallengePeriodIntegration(TestBase):
         # Check that the timestamp of the success is the current time of evaluation
         self.assertEqual(
             self.challengeperiod_manager.active_miners[self.TESTING_MINER_NAMES[0]][1],
-            self.max_open_ms
+            self.max_open_ms,
         )
 
     def test_refresh_elimination_disk(self):
@@ -348,13 +348,13 @@ class TestChallengePeriodIntegration(TestBase):
         # Check the failing miners, to see if they are screened
         for miner in self.FAILING_MINER_NAMES:
             failing_screen, _ = LedgerUtils.is_beyond_max_drawdown(
-                ledger_element=self.LEDGERS[miner][TP_ID_PORTFOLIO]
+                ledger_element=self.LEDGERS[miner][TP_ID_PORTFOLIO],
             )
             self.assertEqual(failing_screen, True)
 
         for miner in self.NOT_FAILING_MINER_NAMES:
             failing_screen, _ = LedgerUtils.is_beyond_max_drawdown(
-                ledger_element=self.LEDGERS[miner][TP_ID_PORTFOLIO]
+                ledger_element=self.LEDGERS[miner][TP_ID_PORTFOLIO],
             )
             self.assertEqual(failing_screen, False)
 
@@ -421,7 +421,7 @@ class TestChallengePeriodIntegration(TestBase):
             new_hotkeys=self.MINER_NAMES,
             eliminations=[],
             hk_to_first_order_time=self.HK_TO_OPEN_MS,
-            default_time=self.START_TIME
+            default_time=self.START_TIME,
         )
 
         testing_set = set(self.challengeperiod_manager.get_testing_miners().keys())
@@ -442,7 +442,7 @@ class TestChallengePeriodIntegration(TestBase):
             new_hotkeys=new_miners,
             eliminations=[],
             hk_to_first_order_time=self.HK_TO_OPEN_MS,
-            default_time=self.START_TIME
+            default_time=self.START_TIME,
         )
         self.assertTrue(len(self.challengeperiod_manager.get_testing_miners()) == 2)
         self.assertTrue(len(self.challengeperiod_manager.get_success_miners()) == 0)
@@ -454,7 +454,7 @@ class TestChallengePeriodIntegration(TestBase):
             new_hotkeys=new_miners,
             eliminations=[],
             hk_to_first_order_time=self.HK_TO_OPEN_MS,
-            default_time=self.START_TIME
+            default_time=self.START_TIME,
         )
 
 
@@ -473,13 +473,13 @@ class TestChallengePeriodIntegration(TestBase):
             new_hotkeys=self.MINER_NAMES,
             eliminations=[],
             hk_to_first_order_time=self.HK_TO_OPEN_MS,
-            default_time=self.START_TIME
+            default_time=self.START_TIME,
         )
 
         # All the miners should be passed to testing now
         self.assertListEqual(
             sorted(list(self.challengeperiod_manager.get_testing_miners().keys())),
-            sorted(self.MINER_NAMES + new_miners)
+            sorted(self.MINER_NAMES + new_miners),
         )
 
         self.assertListEqual(
@@ -489,7 +489,7 @@ class TestChallengePeriodIntegration(TestBase):
 
         self.assertListEqual(
             [self.challengeperiod_manager.get_testing_miners()[hk] for hk in new_miners],
-            [self.START_TIME, self.START_TIME]
+            [self.START_TIME, self.START_TIME],
         )
 
         self.assertEqual(len(self.challengeperiod_manager.get_success_miners()), 0)
@@ -519,7 +519,7 @@ class TestChallengePeriodIntegration(TestBase):
                 "test_miner5": (MinerBucket.MAINCOMP, 1),
                 "test_miner6": (MinerBucket.MAINCOMP, 1),
                 "test_miner7": (MinerBucket.MAINCOMP, 1),
-                "test_miner8": (MinerBucket.MAINCOMP, 1)
+                "test_miner8": (MinerBucket.MAINCOMP, 1),
                 }
 
         self.challengeperiod_manager._write_challengeperiod_from_memory_to_disk()

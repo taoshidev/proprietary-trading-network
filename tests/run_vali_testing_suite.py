@@ -1,8 +1,9 @@
 # developer: Taoshidev
 # Copyright © 2024 Taoshi Inc
 
-import unittest
 import sys
+import unittest
+
 from vali_objects.vali_config import ValiConfig
 
 if __name__ == '__main__':

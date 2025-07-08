@@ -141,13 +141,13 @@ TEST_POSITIONS = [
          'processed_ms': 1738011582117, 'order_uuid': '80de1e0e05ae-f3aa-33e4-5382-f6e300a2',
          'price_sources': [], 'src': 1}], 'current_return': 1.0, 'close_ms': 1738011582117,
      'return_at_close': 0.999972, 'net_leverage': 0.0, 'average_entry_price': 0.62034,
-     'position_type': OrderType.FLAT, 'is_closed_position': True}
+     'position_type': OrderType.FLAT, 'is_closed_position': True},
 ]
 
 def get_test_positions():
     """
     Get the test positions data.
-    
+
     Returns:
         List of test position dictionaries
     """
@@ -156,7 +156,7 @@ def get_test_positions():
 def get_test_hotkeys():
     """
     Get unique miner hotkeys from test positions.
-    
+
     Returns:
         List of unique miner hotkeys
     """
@@ -165,7 +165,7 @@ def get_test_hotkeys():
 def get_time_range():
     """
     Calculate the time range covered by test positions.
-    
+
     Returns:
         Tuple of (start_time_ms, end_time_ms)
     """
@@ -173,5 +173,5 @@ def get_time_range():
     for pos in TEST_POSITIONS:
         for order in pos['orders']:
             all_times.append(order['processed_ms'])
-    
+
     return min(all_times), max(all_times)

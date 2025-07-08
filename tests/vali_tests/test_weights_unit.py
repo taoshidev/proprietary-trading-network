@@ -1,14 +1,14 @@
 # developer: trdougherty
 import copy
 
-from tests.vali_tests.base_objects.test_base import TestBase
-from vali_objects.scoring.scoring import Scoring
-from vali_objects.position import Position
-from vali_objects.enums.order_type_enum import OrderType
-from vali_objects.vali_config import TradePair, ValiConfig
-
 from tests.shared_objects.test_utilities import generate_ledger
+from tests.vali_tests.base_objects.test_base import TestBase
+from vali_objects.enums.order_type_enum import OrderType
+from vali_objects.position import Position
+from vali_objects.scoring.scoring import Scoring
+from vali_objects.vali_config import TradePair, ValiConfig
 from vali_objects.vali_dataclasses.perf_ledger import TP_ID_PORTFOLIO
+
 
 class TestWeights(TestBase):
 
@@ -46,7 +46,7 @@ class TestWeights(TestBase):
         scaled_transformed_list: list[tuple[str, float]] = Scoring.compute_results_checkpoint(
             ledger,
             miner_positions,
-            evaluation_time_ms=self.EVALUATION_TIME_MS
+            evaluation_time_ms=self.EVALUATION_TIME_MS,
         )
 
         # Check that the result is a list of tuples with string and float elements
@@ -169,7 +169,7 @@ class TestWeights(TestBase):
             ("miner1", 0.50),
             ("miner2", 0.75),
             ("miner3", 0.25),
-            ("miner4", 1.00)
+            ("miner4", 1.00),
         ]
 
         self.assertEqual(result, expected_result)
@@ -188,7 +188,7 @@ class TestWeights(TestBase):
     def test_ordering_softmax(self):
         returns = [("miner1", 10.0), ("miner2", 5.0), ("miner3", 1.0), ("miner4", 15.0)]
         result = Scoring.softmax_scores(returns)
-        
+
         #Sort the list by order of softmax output values
         result.sort(key=lambda x: x[1])
         ordered_keys = [s[0] for s in result]
@@ -253,7 +253,7 @@ class TestWeights(TestBase):
 
         self.assertTrue(
             all(MIN_WEIGHT <= weight <= MAX_WEIGHT for weight in final_scores.values()),
-            f"All scores must be between {MIN_WEIGHT} and {MAX_WEIGHT}"
+            f"All scores must be between {MIN_WEIGHT} and {MAX_WEIGHT}",
         )
 
         self.assertEqual(final_scores["miner3"], MAX_WEIGHT)

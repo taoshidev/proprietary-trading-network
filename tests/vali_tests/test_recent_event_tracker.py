@@ -4,8 +4,9 @@ from unittest.mock import patch
 
 from sortedcontainers import SortedList
 
-from vali_objects.vali_dataclasses.recent_event_tracker import RecentEventTracker
 from vali_objects.vali_dataclasses.price_source import PriceSource
+from vali_objects.vali_dataclasses.recent_event_tracker import RecentEventTracker
+
 
 class TestRecentEventTracker(unittest.TestCase):
 
@@ -82,7 +83,7 @@ class TestRecentEventTracker(unittest.TestCase):
             (995000, PriceSource(start_ms=995000, open=99.0, close=104.0)),  # Before range
             (1000000, PriceSource(start_ms=1000000, open=100.0, close=105.0)),  # Start of range
             (1003000, PriceSource(start_ms=1003000, open=102.0, close=106.0)),  # After range start
-            (1005000, PriceSource(start_ms=1005000, open=103.0, close=107.0))  # After range
+            (1005000, PriceSource(start_ms=1005000, open=103.0, close=107.0)),  # After range
         ], key=lambda x: x[0])
 
         # Target range partially includes some events
@@ -101,7 +102,7 @@ class TestRecentEventTracker(unittest.TestCase):
             (1000000, PriceSource(start_ms=1000000, open=100.0, close=105.0)),
             (1001500, PriceSource(start_ms=1001500, open=101.0, close=106.0)),  # Exact match
             (1003000, PriceSource(start_ms=1003000, open=102.0, close=106.0)),
-            (1004500, PriceSource(start_ms=1004500, open=103.0, close=107.0))
+            (1004500, PriceSource(start_ms=1004500, open=103.0, close=107.0)),
         ], key=lambda x: x[0])
 
         # Target timestamp exactly matches one event

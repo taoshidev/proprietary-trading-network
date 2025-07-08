@@ -2,17 +2,17 @@
 # Copyright © 2024 Taoshi Inc
 from unittest.mock import patch
 
-from tests.shared_objects.mock_classes import MockMetagraph, MockMDDChecker
+from tests.shared_objects.mock_classes import MockMDDChecker, MockMetagraph
 from tests.vali_tests.base_objects.test_base import TestBase
 from time_util.time_util import TimeUtil
-from vali_objects.utils.elimination_manager import EliminationManager
-from vali_objects.utils.position_lock import PositionLocks
-from vali_objects.vali_config import TradePair
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.position import Position
+from vali_objects.utils.elimination_manager import EliminationManager
 from vali_objects.utils.live_price_fetcher import LivePriceFetcher
+from vali_objects.utils.position_lock import PositionLocks
 from vali_objects.utils.position_manager import PositionManager
 from vali_objects.utils.vali_utils import ValiUtils
+from vali_objects.vali_config import TradePair
 from vali_objects.vali_dataclasses.order import Order
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
 from vali_objects.vali_dataclasses.price_source import PriceSource
@@ -45,7 +45,7 @@ class TestMDDChecker(TestBase):
                              low=3267.9, start_ms=1722390422000, websocket=True, lag_ms=7469, volume=None),
                  PriceSource(source='Tiingo_rest', timespan_ms=60000, open=3271.26001, close=3268.6001, vwap=None,
                              high=3271.26001, low=3268.1001, start_ms=1722389640000, websocket=False, lag_ms=729470,
-                             volume=None)]
+                             volume=None)],
         }
         cls.position_locks = PositionLocks()
 

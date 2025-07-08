@@ -1,17 +1,21 @@
 from shared_objects.cache_controller import CacheController
 from tests.shared_objects.mock_classes import MockMetagraph, MockPositionManager
-from tests.shared_objects.test_utilities import generate_losing_ledger, generate_winning_ledger
+from tests.shared_objects.test_utilities import (
+    generate_losing_ledger,
+    generate_winning_ledger,
+)
 from tests.vali_tests.base_objects.test_base import TestBase
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.position import Position
-from vali_objects.utils.miner_bucket_enum import MinerBucket
-from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
-from vali_objects.vali_config import ValiConfig, TradePair
-from vali_objects.utils.elimination_manager import EliminationManager, EliminationReason
-from vali_objects.utils.position_lock import PositionLocks
 from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
+from vali_objects.utils.elimination_manager import EliminationManager, EliminationReason
+from vali_objects.utils.miner_bucket_enum import MinerBucket
+from vali_objects.utils.position_lock import PositionLocks
+from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
+from vali_objects.vali_config import TradePair, ValiConfig
 from vali_objects.vali_dataclasses.order import Order
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
+
 
 class TestEliminationManager(TestBase):
     def setUp(self):
@@ -39,7 +43,7 @@ class TestEliminationManager(TestBase):
                 is_closed_position=False,
                 return_at_close=1.00,
                 orders=[Order(price=60000, processed_ms=1, order_uuid="initial_order",
-                              trade_pair=TradePair.BTCUSD, order_type=OrderType.LONG, leverage=0.1)]
+                              trade_pair=TradePair.BTCUSD, order_type=OrderType.LONG, leverage=0.1)],
 
             )
             self.position_manager.save_miner_position(mock_position)
