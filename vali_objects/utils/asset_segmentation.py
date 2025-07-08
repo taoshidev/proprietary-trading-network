@@ -116,3 +116,20 @@ class AssetSegmentation:
         total = cumulative
         g = (2 * cumulative_weighted) / (n * total) - (n + 1) / n
         return g
+
+    @staticmethod
+    def asset_competitiveness_dictionary(
+            asset_incentive_distributions: dict[str, list[tuple[str, float]]]
+    ) -> dict[str, float]:
+        """
+        Returns a dictionary with asset classes as keys and their competitiveness as values.
+        """
+        competitiveness_dict = {}
+        for asset_class, distribution in asset_incentive_distributions.items():
+            if not distribution:
+                competitiveness_dict[asset_class] = math.nan
+            else:
+                incentive_distribution = [value for _, value in distribution]
+                competitiveness_dict[asset_class] = AssetSegmentation.segment_competitiveness(incentive_distribution)
+
+        return competitiveness_dict

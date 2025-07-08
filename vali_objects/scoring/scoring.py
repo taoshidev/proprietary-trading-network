@@ -116,6 +116,11 @@ class Scoring:
         # Combine and penalize scores
         asset_combined_scores = Scoring.combine_scores(asset_penalized_scores_dict)
         asset_softmaxed_scores = Scoring.softmax_by_asset(asset_combined_scores)
+
+        # Here is where we can check for the competitiveness
+        miner_competitiveness = AssetSegmentation.asset_competitiveness_dictionary(asset_softmaxed_scores)
+        bt.logging.debug(f"Asset competitiveness: {miner_competitiveness}")
+
         combined_scores = Scoring.softmax_aggregation(asset_softmaxed_scores)
 
         # Force good performance of all error metrics
