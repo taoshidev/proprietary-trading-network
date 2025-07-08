@@ -217,7 +217,7 @@ class Scoring:
             if not ledger:
                 empty_ledger_miners.append((miner, len(positions)))
 
-            ledger = ledger if ledger else PerfLedger(tp_id=TP_ID_PORTFOLIO)
+            ledger = ledger if ledger else PerfLedger()
 
             cumulative_penalty = 1
             for penalty_name, penalty_config in Scoring.penalties_config.items():

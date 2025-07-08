@@ -417,7 +417,8 @@ class TestPortfolioTradeParAlignment(TestBase):
         """Test portfolio alignment with significant fee accumulation"""
         mock_candle_fetcher.return_value = {}
         
-        base_time = self.BASE_TIME
+        # Use time well before slippage activation to test spread fee accumulation
+        base_time = 1700000000000  # November 2023, well before slippage activation
         hour_ms = 60 * 60 * 1000
         
         # Create position with many small orders to accumulate fees
@@ -469,8 +470,12 @@ class TestPortfolioTradeParAlignment(TestBase):
             portfolio_ledger = bundles[self.DEFAULT_MINER_HOTKEY][TP_ID_PORTFOLIO]
             if portfolio_ledger.cps:
                 final_cp = portfolio_ledger.cps[-1]
-                # Should have accumulated spread fees from many trades
-                self.assertLess(final_cp.prev_portfolio_spread_fee, 1.0)
+                # Should have accumulated spread fees from many trades (before slippage era)
+                self.assertLess(final_cp.prev_portfolio_spread_fee, 1.0,
+                               f"Expected spread fees to accumulate but got {final_cp.prev_portfolio_spread_fee}")
+                
+                # Verify the test setup worked
+                self.assertGreater(len(portfolio_ledger.cps), 0, "Should have created checkpoints")
 
 
 if __name__ == '__main__':

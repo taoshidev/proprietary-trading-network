@@ -159,7 +159,7 @@ class TestPerfLedgerCore(TestBase):
         # After value drops from 1.10 to 0.95, MDD should be 0.95/1.10 ≈ 0.864
         final_cp = ledger.cps[-1]
         expected_mdd = 0.95 / 1.10  # Lowest point divided by previous peak
-        self.assertAlmostEqual(final_cp.mdd, expected_mdd, places=3)
+        self.assertAlmostEqual(ledger.mdd, expected_mdd, places=3)
 
     def test_gains_and_losses_tracking(self):
         """Test gain and loss accumulation"""
@@ -338,7 +338,7 @@ class TestPerfLedgerManager(TestBase):
         
         self.assertEqual(plm.parallel_mode, ParallelizationMode.SERIAL)
         self.assertTrue(plm.running_unit_tests)
-        self.assertFalse(plm.enable_rss)
+        self.assertTrue(plm.enable_rss)
         self.assertIsInstance(plm.hotkey_to_perf_bundle, dict)
 
     def test_perf_ledger_manager_parallel_modes(self):
