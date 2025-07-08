@@ -1,6 +1,5 @@
 import unittest
 import math
-from unittest.mock import Mock
 
 from tests.vali_tests.base_objects.test_base import TestBase
 from time_util.time_util import TimeUtil

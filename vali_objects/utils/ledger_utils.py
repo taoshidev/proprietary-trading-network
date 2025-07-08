@@ -5,7 +5,7 @@ import copy
 from datetime import datetime, timezone
 
 from vali_objects.vali_config import ValiConfig
-from vali_objects.vali_dataclasses.perf_ledger import PerfLedger, TP_ID_PORTFOLIO
+from vali_objects.vali_dataclasses.perf_ledger import PerfLedger
 
 
 class LedgerUtils:

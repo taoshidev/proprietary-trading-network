@@ -1,7 +1,6 @@
 import unittest
 import multiprocessing
-from unittest.mock import patch, Mock, MagicMock
-from collections import defaultdict
+from unittest.mock import patch
 
 from tests.shared_objects.mock_classes import MockMetagraph
 from tests.vali_tests.base_objects.test_base import TestBase
@@ -13,8 +12,7 @@ from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.position import Position
 from vali_objects.vali_dataclasses.order import Order
 from vali_objects.vali_dataclasses.perf_ledger import (
-    PerfLedger, PerfLedgerManager, TP_ID_PORTFOLIO, 
-    ParallelizationMode, PerfCheckpoint, TradePairReturnStatus, ShortcutReason
+    PerfLedger, PerfLedgerManager, ParallelizationMode, TradePairReturnStatus, ShortcutReason
 )
 
 
@@ -145,7 +143,7 @@ class TestPerfLedgerErrorHandling(TestBase):
                         plm.update(t_ms=self.BASE_TIME + (i * 1000 * 60 * 60))
                         
                         # If it doesn't raise, check how it handled the failure
-                        bundles = plm.get_perf_ledgers(portfolio_only=False)
+                        plm.get_perf_ledgers(portfolio_only=False)
                         print(f"Price fetch failure {type(exception).__name__} handled gracefully")
                         
                     except Exception as e:
@@ -190,7 +188,7 @@ class TestPerfLedgerErrorHandling(TestBase):
                 
                 try:
                     with multiprocessing.Pool(processes=2) as pool:
-                        updated_ledgers = plm.update_perf_ledgers_parallel(
+                        plm.update_perf_ledgers_parallel(
                             spark=None,
                             pool=pool,
                             hotkey_to_positions=hotkey_to_positions,
@@ -545,7 +543,7 @@ class TestPerfLedgerFeeCalculations(TestBase):
             self.assertEqual(initial_spread, refreshed_spread, "Spread fee inconsistent after cache operations")
             
             # Carry fee cache behavior depends on implementation
-            print(f"Fee cache test results:")
+            print("Fee cache test results:")
             print(f"  Initial spread: {initial_spread}, carry_8h: {initial_carry_8h}")
             print(f"  Different time carry_24h: {different_carry}, cache_miss={cache_miss}")
             print(f"  Refreshed spread: {refreshed_spread}, cache_miss={spread_cache_miss}")

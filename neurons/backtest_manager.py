@@ -33,7 +33,6 @@ import os
 os.environ["TAOSHI_TS_DEPLOYMENT"] = "DEVELOPMENT"
 os.environ["TAOSHI_TS_PLATFORM"] = "LOCAL"
 from taoshi.ts import ptn as ptn_utils
-from backtesting.src.collect import positions_collection
 from collections import defaultdict
 from tests.test_data.backtest_test_positions import get_test_positions
 
@@ -42,7 +41,6 @@ from runnable.generate_request_minerstatistics import MinerStatisticsManager
 from shared_objects.sn8_multiprocessing import get_spark_session, get_multiprocessing_pool
 from tests.shared_objects.mock_classes import MockMetagraph
 from time_util.time_util import TimeUtil
-from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.position import Position
 from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
 from vali_objects.utils.elimination_manager import EliminationManager
@@ -53,7 +51,6 @@ from vali_objects.utils.position_manager import PositionManager
 from vali_objects.utils.subtensor_weight_setter import SubtensorWeightSetter
 from vali_objects.utils.vali_utils import ValiUtils
 from vali_objects.vali_config import ValiConfig
-from vali_objects.vali_config import TradePair
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager, ParallelizationMode
 
 from vali_objects.utils.price_slippage_model import PriceSlippageModel
@@ -70,7 +67,6 @@ def initialize_components(hotkeys, parallel_mode, build_portfolio_ledgers_only):
     Returns:
         Tuple of (mmg, elimination_manager, position_manager, perf_ledger_manager)
     """
-    import bittensor as bt
     
     # Handle single hotkey or list
     if isinstance(hotkeys, str):

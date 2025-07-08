@@ -1,6 +1,5 @@
 import unittest
-from unittest.mock import patch, Mock
-from collections import defaultdict
+from unittest.mock import patch
 
 from tests.shared_objects.mock_classes import MockMetagraph
 from tests.vali_tests.base_objects.test_base import TestBase
@@ -12,8 +11,7 @@ from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.position import Position
 from vali_objects.vali_dataclasses.order import Order
 from vali_objects.vali_dataclasses.perf_ledger import (
-    PerfLedger, PerfLedgerManager, TP_ID_PORTFOLIO, 
-    ParallelizationMode, PerfCheckpoint, TradePairReturnStatus
+    PerfLedgerManager, TP_ID_PORTFOLIO
 )
 
 
@@ -105,7 +103,7 @@ class TestPortfolioTradeParAlignment(TestBase):
                               f"Manual {manual_portfolio_carry_fee}")
         
         if failures:
-            self.fail(f"Portfolio alignment failures:\n" + "\n".join(failures))
+            self.fail("Portfolio alignment failures:\n" + "\n".join(failures))
 
     @patch('data_generator.polygon_data_service.PolygonDataService.unified_candle_fetcher')
     def test_multi_trade_pair_portfolio_alignment(self, mock_candle_fetcher):

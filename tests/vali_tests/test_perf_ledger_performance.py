@@ -2,8 +2,7 @@ import unittest
 import time
 import copy
 from copy import deepcopy
-from unittest.mock import patch, Mock, MagicMock
-from collections import defaultdict
+from unittest.mock import patch
 
 from shared_objects.sn8_multiprocessing import get_spark_session, get_multiprocessing_pool
 from tests.shared_objects.mock_classes import MockMetagraph
@@ -17,7 +16,7 @@ from vali_objects.position import Position
 from vali_objects.vali_dataclasses.order import Order
 from vali_objects.vali_dataclasses.perf_ledger import (
     PerfLedger, PerfLedgerManager, TP_ID_PORTFOLIO, 
-    ParallelizationMode, PerfCheckpoint, TradePairReturnStatus
+    ParallelizationMode, TradePairReturnStatus
 )
 
 
@@ -144,7 +143,7 @@ class TestPerfLedgerDeltaBuilding(TestBase):
         self.assertIn(self.DEFAULT_MINER_HOTKEY, ledgers_1)
         
         # Store initial checkpoint count
-        initial_cp_count = len(ledgers_1[self.DEFAULT_MINER_HOTKEY][TP_ID_PORTFOLIO].cps)
+        len(ledgers_1[self.DEFAULT_MINER_HOTKEY][TP_ID_PORTFOLIO].cps)
         
         # Second update WITH testing_one_hotkey (this triggers the bug)
         plm.update(testing_one_hotkey=self.DEFAULT_MINER_HOTKEY, t_ms=self.now_ms + 1000 * 60 * 60 * 2)
@@ -524,7 +523,7 @@ class TestPerfLedgerDeltaBuilding(TestBase):
         plm.update(t_ms=update_time)
         incremental_update_time = time.time() - start_time
         
-        print(f"\nConcurrent position update times:")
+        print("\nConcurrent position update times:")
         print(f"  Initial update ({num_positions} positions): {initial_update_time:.4f}s")
         print(f"  Incremental update: {incremental_update_time:.4f}s")
         
@@ -1021,7 +1020,7 @@ class TestParallelVsSerialModes(TestBase):
         ledgers = plm.get_perf_ledgers(portfolio_only=False)
         if self.DEFAULT_MINER_HOTKEY in ledgers:
             portfolio_ledger = ledgers[self.DEFAULT_MINER_HOTKEY][TP_ID_PORTFOLIO]
-            print(f"\nEdge case handling results:")
+            print("\nEdge case handling results:")
             print(f"  Checkpoint count: {len(portfolio_ledger.cps)}")
             print(f"  Window duration: {portfolio_ledger.get_total_ledger_duration_ms() / (1000 * 60 * 60 * 24):.1f} days")
             

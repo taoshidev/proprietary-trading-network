@@ -1,11 +1,9 @@
 import unittest
 import random
-from unittest.mock import patch, Mock
-from collections import defaultdict
+from unittest.mock import patch
 
 from tests.shared_objects.mock_classes import MockMetagraph
 from tests.vali_tests.base_objects.test_base import TestBase
-from time_util.time_util import TimeUtil
 from vali_objects.utils.elimination_manager import EliminationManager
 from vali_objects.utils.position_manager import PositionManager
 from vali_objects.vali_config import TradePair
@@ -13,8 +11,7 @@ from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.position import Position
 from vali_objects.vali_dataclasses.order import Order
 from vali_objects.vali_dataclasses.perf_ledger import (
-    PerfLedger, PerfLedgerManager, TP_ID_PORTFOLIO, 
-    ParallelizationMode, PerfCheckpoint, TradePairReturnStatus
+    PerfLedgerManager, TP_ID_PORTFOLIO
 )
 from data_generator.polygon_data_service import Agg
 
@@ -382,7 +379,6 @@ class TestRealWorldTradingScenarios(TestBase):
         base_time = self.BASE_TIME
         hour_ms = 60 * 60 * 1000
         
-        trades = []
         
         # Trade 1: Stop loss triggered (separate position)
         trade1_position = Position(
@@ -450,7 +446,7 @@ class TestRealWorldTradingScenarios(TestBase):
                 total_losses = sum(cp.loss for cp in portfolio_ledger.cps)
                 
                 # Debug output to understand what's happening
-                print(f"\nCheckpoint Analysis:")
+                print("\nCheckpoint Analysis:")
                 print(f"Number of checkpoints: {len(portfolio_ledger.cps)}")
                 for i, cp in enumerate(portfolio_ledger.cps):
                     print(f"  CP{i}: gain={cp.gain:.6f}, loss={cp.loss:.6f}, portfolio_ret={cp.prev_portfolio_ret:.6f}")
@@ -488,7 +484,7 @@ class TestRealWorldTradingScenarios(TestBase):
                 total_losses = sum(cp.loss for cp in portfolio_ledger.cps)
                 final_return = portfolio_ledger.cps[-1].prev_portfolio_ret
                 
-                print(f"\nAfter forcing returns:")
+                print("\nAfter forcing returns:")
                 print(f"Total gains: {total_gains:.6f}")
                 print(f"Total losses: {total_losses:.6f}")
                 print(f"Final return: {final_return:.6f}")
@@ -549,7 +545,7 @@ class TestRealWorldTradingScenarios(TestBase):
         first_checkpoint_gains = sum(cp.gain for cp in portfolio_ledger.cps)
         first_checkpoint_losses = sum(cp.loss for cp in portfolio_ledger.cps)
         
-        print(f"\nAfter winning position:")
+        print("\nAfter winning position:")
         print(f"Gains: {first_checkpoint_gains}, Losses: {first_checkpoint_losses}")
         for i, cp in enumerate(portfolio_ledger.cps):
             print(f"  CP{i}: gain={cp.gain:.6f}, loss={cp.loss:.6f}, portfolio_ret={cp.prev_portfolio_ret:.6f}")
@@ -583,7 +579,7 @@ class TestRealWorldTradingScenarios(TestBase):
         total_gains = sum(cp.gain for cp in portfolio_ledger.cps)
         total_losses = sum(cp.loss for cp in portfolio_ledger.cps)
         
-        print(f"\nFinal checkpoint state:")
+        print("\nFinal checkpoint state:")
         print(f"Total gains: {total_gains:.6f}")
         print(f"Total losses: {total_losses:.6f}")
         for i, cp in enumerate(portfolio_ledger.cps):
@@ -805,7 +801,7 @@ class TestIntegrationScenarios(TestBase):
         plm.update(t_ms=base_time + (10 * day_ms))
         
         # Verify eliminated miner handling
-        bundles = plm.get_perf_ledgers(portfolio_only=False)
+        plm.get_perf_ledgers(portfolio_only=False)
         
         # Eliminated miner should still have ledger data (for dashboard visualization)
         eliminated_hotkeys = self.elimination_manager.get_eliminated_hotkeys()

@@ -19,16 +19,11 @@ TESTS VERIFY:
 All price fetching is mocked for deterministic results.
 """
 
-import copy
 import math
 import unittest
-from unittest.mock import Mock, patch
-from collections import defaultdict
 
 import bittensor as bt
-from vali_objects.position import Position
-from vali_objects.vali_dataclasses.perf_ledger import PerfLedger, PerfCheckpoint, TradePairReturnStatus
-from vali_objects.enums.order_type_enum import OrderType
+from vali_objects.vali_dataclasses.perf_ledger import PerfLedger, TradePairReturnStatus
 from vali_objects.vali_config import TradePair
 from time_util.time_util import TimeUtil
 
@@ -68,13 +63,13 @@ class TestPerfLedgerEndpointBehavior(unittest.TestCase):
         self.spread_fee = 1.0
         self.carry_fee = 1.0
         
-        print(f"\n" + "="*80)
-        print(f"TEST SETUP:")
+        print("\n" + "="*80)
+        print("TEST SETUP:")
         print(f"  Base time:     {TimeUtil.millis_to_formatted_date_str(self.base_time_ms)}")
         print(f"  Boundary time: {TimeUtil.millis_to_formatted_date_str(self.boundary_time_ms)}")
         print(f"  Post boundary: {TimeUtil.millis_to_formatted_date_str(self.post_boundary_ms)}")
         print(f"  Checkpoint duration: {self.target_cp_duration_ms} ms ({self.target_cp_duration_ms / 3600000} hours)")
-        print(f"="*80)
+        print("="*80)
     
     def create_perf_ledger(self, start_time_ms):
         """Create a performance ledger with proper initialization."""
@@ -142,14 +137,14 @@ class TestPerfLedgerEndpointBehavior(unittest.TestCase):
         ACTUAL BUG: Different return values for the same checkpoint
         """
         print(f"\n{'='*100}")
-        print(f"🚨 CRITICAL BOUNDARY BUG DEMONSTRATION")
+        print("🚨 CRITICAL BOUNDARY BUG DEMONSTRATION")
         print(f"{'='*100}")
         
         # ==========================================
         # SCENARIO 1: end_time exactly at boundary
         # ==========================================
-        print(f"\n🔍 SCENARIO 1: Update exactly at boundary time")
-        print(f"   This should create 1 checkpoint ending exactly at the boundary")
+        print("\n🔍 SCENARIO 1: Update exactly at boundary time")
+        print("   This should create 1 checkpoint ending exactly at the boundary")
         
         ledger1 = self.create_perf_ledger(self.base_time_ms)
         self.initialize_ledger(ledger1, self.base_time_ms)
@@ -167,8 +162,8 @@ class TestPerfLedgerEndpointBehavior(unittest.TestCase):
         # ==========================================
         # SCENARIO 2: end_time at boundary + 1ms  
         # ==========================================
-        print(f"\n🔍 SCENARIO 2: Update at boundary + 1 millisecond")
-        print(f"   This triggers void filling and creates 2 checkpoints")
+        print("\n🔍 SCENARIO 2: Update at boundary + 1 millisecond")
+        print("   This triggers void filling and creates 2 checkpoints")
         
         ledger2 = self.create_perf_ledger(self.base_time_ms)
         self.initialize_ledger(ledger2, self.base_time_ms)
@@ -186,7 +181,7 @@ class TestPerfLedgerEndpointBehavior(unittest.TestCase):
         # ==========================================
         # BUG ANALYSIS
         # ==========================================
-        print(f"\n🔬 BUG ANALYSIS:")
+        print("\n🔬 BUG ANALYSIS:")
         
         # Find boundary checkpoints
         boundary_cp1 = None
@@ -208,10 +203,10 @@ class TestPerfLedgerEndpointBehavior(unittest.TestCase):
         print(f"   Difference: {abs(boundary_cp1.prev_portfolio_ret - boundary_cp2.prev_portfolio_ret):.10f}")
         
         if abs(boundary_cp1.prev_portfolio_ret - boundary_cp2.prev_portfolio_ret) > 1e-10:
-            print(f"   🚨 BUG DETECTED: Boundary checkpoints have different return values!")
-            print(f"   🚨 This means the same checkpoint gives different results based on end_time")
+            print("   🚨 BUG DETECTED: Boundary checkpoints have different return values!")
+            print("   🚨 This means the same checkpoint gives different results based on end_time")
         else:
-            print(f"   ✅ SUCCESS: Boundary checkpoints have identical return values")
+            print("   ✅ SUCCESS: Boundary checkpoints have identical return values")
         
         # This assertion will FAIL before the fix, PASS after the fix
         self.assertAlmostEqual(
@@ -231,14 +226,14 @@ class TestPerfLedgerEndpointBehavior(unittest.TestCase):
         3. Proper boundary alignment
         """
         print(f"\n{'='*100}")
-        print(f"⏰ VOID FILLING TIMING CORRECTNESS TEST")
+        print("⏰ VOID FILLING TIMING CORRECTNESS TEST")
         print(f"{'='*100}")
         
         ledger = self.create_perf_ledger(self.base_time_ms)
         self.initialize_ledger(ledger, self.base_time_ms)
         
         # Update to exactly boundary + 1 to trigger void filling
-        print(f"\n🎯 Triggering void filling by updating to boundary + 1ms")
+        print("\n🎯 Triggering void filling by updating to boundary + 1ms")
         self.update_ledger(
             ledger,
             self.final_portfolio_value,
@@ -253,7 +248,7 @@ class TestPerfLedgerEndpointBehavior(unittest.TestCase):
         
         cp1, cp2 = ledger.cps[0], ledger.cps[1]
         
-        print(f"\n🔍 TIMING ANALYSIS:")
+        print("\n🔍 TIMING ANALYSIS:")
         print(f"   CP1 time: {cp1.last_update_ms} ({TimeUtil.millis_to_formatted_date_str(cp1.last_update_ms)})")
         print(f"   CP2 time: {cp2.last_update_ms} ({TimeUtil.millis_to_formatted_date_str(cp2.last_update_ms)})")
         print(f"   Time difference: {cp2.last_update_ms - cp1.last_update_ms} ms")
@@ -280,7 +275,7 @@ class TestPerfLedgerEndpointBehavior(unittest.TestCase):
         3. Portfolio values are preserved correctly through checkpoints
         """
         print(f"\n{'='*100}")
-        print(f"🧮 MATHEMATICAL RETURN CONSISTENCY TEST")
+        print("🧮 MATHEMATICAL RETURN CONSISTENCY TEST")
         print(f"{'='*100}")
         
         ledger = self.create_perf_ledger(self.base_time_ms)
@@ -294,7 +289,7 @@ class TestPerfLedgerEndpointBehavior(unittest.TestCase):
             (1.08, order_time + 14400000, "8% total gain after 4 hours")
         ]
         
-        print(f"\n📊 APPLYING TEST SCENARIOS:")
+        print("\n📊 APPLYING TEST SCENARIOS:")
         for portfolio_value, time_ms, description in test_scenarios:
             self.update_ledger(ledger, portfolio_value, time_ms, description, has_open_positions=True)
         
@@ -305,7 +300,7 @@ class TestPerfLedgerEndpointBehavior(unittest.TestCase):
         total_return = cp.gain + cp.loss
         expected_return = math.log(test_scenarios[-1][0] / self.initial_portfolio_value)  # log(final/initial)
         
-        print(f"\n🔢 MATHEMATICAL VERIFICATION:")
+        print("\n🔢 MATHEMATICAL VERIFICATION:")
         print(f"   Initial portfolio: {self.initial_portfolio_value}")
         print(f"   Final portfolio: {test_scenarios[-1][0]}")
         print(f"   Expected return: log({test_scenarios[-1][0]}/{self.initial_portfolio_value}) = {expected_return:.10f}")
@@ -326,13 +321,13 @@ class TestPerfLedgerEndpointBehavior(unittest.TestCase):
         This is critical for consistent performance measurement across miners.
         """
         print(f"\n{'='*100}")
-        print(f"📐 BOUNDARY ALIGNMENT VERIFICATION TEST")
+        print("📐 BOUNDARY ALIGNMENT VERIFICATION TEST")
         print(f"{'='*100}")
         
         # Start at non-aligned time to test alignment logic
         misaligned_start = self.base_time_ms + 3600000  # 1 hour offset from boundary
         print(f"🎯 Starting at misaligned time: {TimeUtil.millis_to_formatted_date_str(misaligned_start)}")
-        print(f"   This tests that checkpoints still align to 12-hour boundaries")
+        print("   This tests that checkpoints still align to 12-hour boundaries")
         
         ledger = self.create_perf_ledger(misaligned_start)
         order_time = self.initialize_ledger(ledger, misaligned_start)
@@ -348,7 +343,7 @@ class TestPerfLedgerEndpointBehavior(unittest.TestCase):
         
         self.print_ledger_state(ledger, "AFTER MULTIPLE CHECKPOINT PERIODS")
         
-        print(f"\n🔍 BOUNDARY ALIGNMENT ANALYSIS:")
+        print("\n🔍 BOUNDARY ALIGNMENT ANALYSIS:")
         for i, cp in enumerate(ledger.cps[:-1]):  # All except the last (potentially incomplete) checkpoint
             boundary_remainder = cp.last_update_ms % self.target_cp_duration_ms
             is_aligned = boundary_remainder == 0
@@ -370,7 +365,7 @@ class TestPerfLedgerEndpointBehavior(unittest.TestCase):
         4. Various portfolio value changes
         """
         print(f"\n{'='*100}")
-        print(f"🎯 COMPREHENSIVE BUG SCENARIOS TEST")
+        print("🎯 COMPREHENSIVE BUG SCENARIOS TEST")
         print(f"{'='*100}")
         
         scenarios = [

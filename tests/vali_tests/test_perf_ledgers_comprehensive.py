@@ -1,7 +1,5 @@
 import unittest
-import copy
-from unittest.mock import patch, Mock, MagicMock
-from collections import defaultdict
+from unittest.mock import patch
 
 from tests.shared_objects.mock_classes import MockMetagraph
 from tests.vali_tests.base_objects.test_base import TestBase
@@ -14,7 +12,7 @@ from vali_objects.position import Position
 from vali_objects.vali_dataclasses.order import Order
 from vali_objects.vali_dataclasses.perf_ledger import (
     PerfLedger, PerfLedgerManager, TP_ID_PORTFOLIO, 
-    ParallelizationMode, PerfCheckpoint, TradePairReturnStatus
+    ParallelizationMode, TradePairReturnStatus
 )
 
 
@@ -157,13 +155,11 @@ class TestPerfLedgerCore(TestBase):
             )
         
         # After value drops from 1.10 to 0.95, MDD should be 0.95/1.10 ≈ 0.864
-        final_cp = ledger.cps[-1]
         expected_mdd = 0.95 / 1.10  # Lowest point divided by previous peak
         self.assertAlmostEqual(ledger.mdd, expected_mdd, places=3)
 
     def test_gains_and_losses_tracking(self):
         """Test gain and loss accumulation"""
-        import math
         
         # Use 12-hour checkpoints as required
         ledger = PerfLedger(
@@ -188,7 +184,7 @@ class TestPerfLedgerCore(TestBase):
             )
         
         # Debug output
-        print(f"\nGains/Losses Test Debug:")
+        print("\nGains/Losses Test Debug:")
         print(f"Number of checkpoints: {len(ledger.cps)}")
         for i, cp in enumerate(ledger.cps):
             print(f"  CP{i}: gain={cp.gain:.6f}, loss={cp.loss:.6f}, prev_ret={cp.prev_portfolio_ret:.4f}, accum_ms={cp.accum_ms}")
@@ -444,10 +440,12 @@ class TestPerfLedgerManager(TestBase):
         # Update to first order time
         plm.update(t_ms=orders[0].processed_ms + 1000)
         ledgers_after_first = plm.get_perf_ledgers(portfolio_only=False)
+        self.assertIsNotNone(ledgers_after_first)
         
         # Update to second order time
         plm.update(t_ms=orders[1].processed_ms + 1000)
         ledgers_after_second = plm.get_perf_ledgers(portfolio_only=False)
+        self.assertIsNotNone(ledgers_after_second)
         
         # Update to third order time
         plm.update(t_ms=orders[2].processed_ms + 1000)
@@ -583,36 +581,6 @@ class TestPerfLedgerManager(TestBase):
         self.assertEqual(len(memory_bundles_after), 1)
         self.assertIn(self.DEFAULT_MINER_HOTKEY, memory_bundles_after)
         self.assertNotIn(self.DEFAULT_MINER_HOTKEY_2, memory_bundles_after)
-
-    def test_rss_elimination_logic(self):
-        """Test Random Security Screening (RSS) elimination logic"""
-        plm = PerfLedgerManager(
-            metagraph=self.mmg,
-            running_unit_tests=True,
-            position_manager=self.position_manager,
-            enable_rss=True  # Enable RSS for this test
-        )
-        
-        # Create initial ledger data
-        test_bundles = {
-            self.DEFAULT_MINER_HOTKEY: {
-                TP_ID_PORTFOLIO: PerfLedger(
-                    initialization_time_ms=self.now_ms,
-                    target_ledger_window_ms=1000 * 60 * 60 * 24 * 30
-                )
-            }
-        }
-        plm.hotkey_to_perf_bundle.update(test_bundles)
-        
-        # Mock position data
-        positions = {self.DEFAULT_MINER_HOTKEY: []}
-        
-        # Simulate the RSS logic by directly manipulating the screening set
-        # In real scenario, this would be probabilistic
-        plm.random_security_screenings.add(self.DEFAULT_MINER_HOTKEY)
-        
-        # The RSS logic should remove the hotkey during update
-        # This is tested indirectly through the deletion logic
 
     @patch('data_generator.polygon_data_service.PolygonDataService.unified_candle_fetcher')
     def test_build_portfolio_ledgers_only_flag(self, mock_candle_fetcher):
