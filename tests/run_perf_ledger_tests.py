@@ -38,10 +38,13 @@ def mock_external_dependencies():
     mock_tiingo = tiingo_patcher.start()
     mock_tiingo.return_value.get_data.return_value = {}
 
-    # Mock price data service
-    pds_patcher = patch('vali_objects.vali_dataclasses.perf_ledger.PriceDataService')
-    mock_pds = pds_patcher.start()
-    mock_pds.return_value.unified_candle_fetcher.return_value = {}
+    # Mock LivePriceFetcher
+    live_price_fetcher_patcher = patch('vali_objects.utils.live_price_fetcher.LivePriceFetcher')
+    mock_lpf = live_price_fetcher_patcher.start()
+    mock_polygon_ds = Mock()
+    mock_polygon_ds.unified_candle_fetcher.return_value = {}
+    mock_polygon_ds.tp_to_mfs = {}
+    mock_lpf.return_value.polygon_data_service = mock_polygon_ds
 
     # Mock bittensor logging
     bt_patcher = patch('bittensor.logging')
@@ -52,7 +55,7 @@ def mock_external_dependencies():
     mock_bt.success = Mock()
     mock_bt.trace = Mock()
 
-    return [polygon_patcher, tiingo_patcher, pds_patcher, bt_patcher]
+    return [polygon_patcher, tiingo_patcher, live_price_fetcher_patcher, bt_patcher]
 
 
 def run_test_suite():

@@ -232,10 +232,14 @@ class TestPerfLedgerDeltaBuilding(TestBase):
         # Should have added checkpoints, not rebuilt from scratch
         self.assertGreaterEqual(updated_cp_count, initial_cp_count)
 
-    @patch('data_generator.polygon_data_service.PolygonDataService.unified_candle_fetcher')
-    def test_ledger_bundle_deepcopy_behavior_serial(self, mock_candle_fetcher):
+    @patch('vali_objects.vali_dataclasses.perf_ledger.LivePriceFetcher')
+    def test_ledger_bundle_deepcopy_behavior_serial(self, mock_lpf):
         """Test that existing ledger bundles are properly handled in SERIAL mode"""
-        mock_candle_fetcher.return_value = {}
+        # Mock the LivePriceFetcher and its polygon_data_service
+        mock_pds = unittest.mock.Mock()
+        mock_pds.unified_candle_fetcher.return_value = []  # Return empty list instead of dict
+        mock_pds.tp_to_mfs = {}
+        mock_lpf.return_value.polygon_data_service = mock_pds
 
         plm = PerfLedgerManager(
             metagraph=self.mmg,
@@ -308,10 +312,14 @@ class TestPerfLedgerDeltaBuilding(TestBase):
         if stored_bundle:
             self.assertIs(stored_bundle[TP_ID_PORTFOLIO], original_ledger)
 
-    @patch('data_generator.polygon_data_service.PolygonDataService.unified_candle_fetcher')
-    def test_ledger_bundle_deepcopy_behavior_parallel(self, mock_candle_fetcher):
+    @patch('vali_objects.vali_dataclasses.perf_ledger.LivePriceFetcher')
+    def test_ledger_bundle_deepcopy_behavior_parallel(self, mock_lpf):
         """Test that existing ledger bundles are properly deepcopied in PARALLEL modes"""
-        mock_candle_fetcher.return_value = {}
+        # Mock the LivePriceFetcher and its polygon_data_service
+        mock_pds = unittest.mock.Mock()
+        mock_pds.unified_candle_fetcher.return_value = []  # Return empty list instead of dict
+        mock_pds.tp_to_mfs = {}
+        mock_lpf.return_value.polygon_data_service = mock_pds
 
         # Test with MULTIPROCESSING mode
         plm = PerfLedgerManager(

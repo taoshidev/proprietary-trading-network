@@ -210,8 +210,7 @@ class PerfLedger():
         # Start with open_ms equal to accum_ms (assuming positions are open from the start)
         new_cp = PerfCheckpoint(last_update_ms=order_processed_ms, prev_portfolio_ret=current_portfolio_value,
                                     mdd=point_in_time_dd, prev_portfolio_spread_fee=current_portfolio_fee_spread,
-                                    prev_portfolio_carry_fee=current_portfolio_carry, accum_ms=accum_ms_for_utc_alignment, 
-                                    open_ms=accum_ms_for_utc_alignment, mpv=1.0)
+                                    prev_portfolio_carry_fee=current_portfolio_carry, accum_ms=accum_ms_for_utc_alignment, mpv=1.0)
         self.cps.append(new_cp)
 
 
@@ -1618,7 +1617,6 @@ class PerfLedgerManager(CacheController):
         if not self.is_backtesting:
             self.save_perf_ledgers_to_disk(perf_ledgers_copy, raw_json=raw_json)
 
-        # Update memory
         for k in list(self.hotkey_to_perf_bundle.keys()):
             if k not in perf_ledgers_copy:
                 del self.hotkey_to_perf_bundle[k]
@@ -1684,21 +1682,6 @@ class PerfLedgerManager(CacheController):
         pl_start_time = TimeUtil.millis_to_formatted_date_str(last_update_time_ms)
         pl_end_time = TimeUtil.millis_to_formatted_date_str(portfolio_pl.last_update_ms)
 
-        # CRITICAL BUG FIX: Validate return data structure
-        if not isinstance(new_bundle, dict):
-            bt.logging.error(f"CRITICAL: new_bundle for {hotkey} is not a dict. Type: {type(new_bundle)}. "
-                           f"This will cause downstream serialization issues.")
-            raise ValueError(f"Invalid new_bundle type for {hotkey}: {type(new_bundle)}")
-        
-        if TP_ID_PORTFOLIO not in new_bundle:
-            bt.logging.error(f"CRITICAL: No portfolio ledger in new_bundle for {hotkey}. Keys: {list(new_bundle.keys())}")
-            raise ValueError(f"Missing portfolio ledger for {hotkey}")
-        
-        portfolio_ledger = new_bundle[TP_ID_PORTFOLIO]
-        if not hasattr(portfolio_ledger, 'cps'):
-            bt.logging.error(f"CRITICAL: Portfolio ledger for {hotkey} is not a PerfLedger object. Type: {type(portfolio_ledger)}")
-            raise ValueError(f"Invalid portfolio ledger type for {hotkey}: {type(portfolio_ledger)}")
-        
         bt.logging.success(f'Completed update_one_perf_ledger_parallel for {hotkey} in {time.time() - t0} s over '
               f'{pl_start_time} to {pl_end_time}.')
         return hotkey, new_bundle
