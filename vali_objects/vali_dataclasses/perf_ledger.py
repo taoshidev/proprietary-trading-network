@@ -882,7 +882,7 @@ class PerfLedgerManager(CacheController):
                     tp_to_any_open[tp_id] = TradePairReturnStatus.TP_MARKET_OPEN_PRICE_CHANGE
                     tp_to_any_open[TP_ID_PORTFOLIO] = TradePairReturnStatus.TP_MARKET_OPEN_PRICE_CHANGE
 
-                    historical_position.set_returns(price_at_t_ms, time_ms=t_ms, total_fees=position_spread_fee * position_carry_fee, account_size=historical_position.account_size)
+                    historical_position.set_returns(price_at_t_ms, time_ms=t_ms, total_fees=position_spread_fee * position_carry_fee)
                     self.trade_pair_to_position_ret[tp_id] = historical_position.return_at_close
                 else:
                     historical_position.set_returns_with_updated_fees(position_spread_fee * position_carry_fee, t_ms)
