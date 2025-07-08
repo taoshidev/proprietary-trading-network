@@ -1,14 +1,18 @@
 import hashlib
 import pickle
-import numpy as np
 from typing import Union
-from vali_objects.vali_dataclasses.order import Order
-from vali_objects.position import Position
-from vali_objects.vali_config import TradePair
+
+import numpy as np
+
 from vali_objects.enums.order_type_enum import OrderType
-from vali_objects.vali_dataclasses.perf_ledger import PerfCheckpoint, PerfLedger
-from vali_objects.vali_config import ValiConfig
-from vali_objects.vali_dataclasses.perf_ledger import TP_ID_PORTFOLIO
+from vali_objects.position import Position
+from vali_objects.vali_config import TradePair, ValiConfig
+from vali_objects.vali_dataclasses.order import Order
+from vali_objects.vali_dataclasses.perf_ledger import (
+    TP_ID_PORTFOLIO,
+    PerfCheckpoint,
+    PerfLedger,
+)
 
 
 def get_time_in_range(percent, start, end):
@@ -27,7 +31,7 @@ def order_generator(
         order_type=OrderType.LONG,
         leverage=1.0,
         n_orders: int = 10,
-        processed_ms: int = 1710521764446
+        processed_ms: int = 1710521764446,
 ) -> list[Order]:
     order_list = []
     for _ in range(n_orders):
@@ -37,7 +41,7 @@ def order_generator(
             price=3000,
             trade_pair=TradePair.BTCUSD,
             processed_ms=processed_ms,
-            order_uuid="1000"
+            order_uuid="1000",
         )
 
         order_list.append(sample_order)
@@ -51,7 +55,7 @@ def position_generator(
         close_time_ms: Union[None, int] = None,
         return_at_close=1.0,
         orders: list[Order] = [],
-        miner_hotkey: str = 'miner0'
+        miner_hotkey: str = 'miner0',
 ):
     generated_position = Position(
         miner_hotkey=miner_hotkey,
@@ -59,7 +63,7 @@ def position_generator(
             open_time_ms,
             close_time_ms,
             return_at_close,
-            trade_pair
+            trade_pair,
         )),
         orders=orders,
         net_leverage=0.0,
@@ -69,7 +73,7 @@ def position_generator(
 
     if close_time_ms is not None:
         generated_position.close_out_position(
-            close_ms=close_time_ms
+            close_ms=close_time_ms,
         )
         generated_position.return_at_close = return_at_close
 
@@ -84,7 +88,7 @@ def generate_ledger(
         gain=None,
         loss=None,
         open_ms=None,
-        mdd=1.0
+        mdd=1.0,
 ):
     # Check for invalid input combinations
     if value is None and (gain is None or loss is None):
@@ -122,8 +126,8 @@ def generate_ledger(
                 prev_portfolio_ret=1.0,
                 open_ms=checkpoint_open_ms,
                 accum_ms=checkpoint_open_ms,
-                mdd=mdd
-            )
+                mdd=mdd,
+            ),
         )
 
     base_ledger = ledger_generator(checkpoints=checkpoint_list)
@@ -140,7 +144,7 @@ def ledger_generator(
     return PerfLedger(
         target_cp_duration_ms=target_cp_duration,
         target_ledger_window_ms=target_ledger_window_ms,
-        cps=checkpoints
+        cps=checkpoints,
     )
 
 
@@ -152,7 +156,7 @@ def checkpoint_generator(
         n_updates: int = 0,
         gain: float = 0.0,
         loss: float = 0.0,
-        mdd: float = 1.0
+        mdd: float = 1.0,
 ):
     return PerfCheckpoint(
         last_update_ms=last_update_ms,
@@ -162,7 +166,7 @@ def checkpoint_generator(
         n_updates=n_updates,
         gain=gain,
         loss=loss,
-        mdd=mdd
+        mdd=mdd,
     )
 
 def generate_winning_ledger(start, end):

@@ -12,19 +12,22 @@ on what logic may need to be added or verified.
 
 import unittest
 
+from tests.shared_objects.mock_classes import MockMetagraph, MockPositionManager
+from tests.shared_objects.test_utilities import (
+    generate_losing_ledger,
+    generate_winning_ledger,
+)
+from tests.vali_tests.base_objects.test_base import TestBase
+from vali_objects.enums.order_type_enum import OrderType
+from vali_objects.position import Position
 from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
 from vali_objects.utils.elimination_manager import EliminationManager, EliminationReason
 from vali_objects.utils.miner_bucket_enum import MinerBucket
 from vali_objects.utils.position_lock import PositionLocks
 from vali_objects.utils.subtensor_weight_setter import SubtensorWeightSetter
-from vali_objects.vali_dataclasses.order import Order
-from vali_objects.enums.order_type_enum import OrderType
-from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager, TP_ID_PORTFOLIO
-from tests.shared_objects.mock_classes import MockMetagraph, MockPositionManager
-from tests.vali_tests.base_objects.test_base import TestBase
-from tests.shared_objects.test_utilities import generate_winning_ledger, generate_losing_ledger
 from vali_objects.vali_config import TradePair, ValiConfig
-from vali_objects.position import Position
+from vali_objects.vali_dataclasses.order import Order
+from vali_objects.vali_dataclasses.perf_ledger import TP_ID_PORTFOLIO, PerfLedgerManager
 
 
 class TestProbationComprehensive(TestBase):
@@ -101,7 +104,7 @@ class TestProbationComprehensive(TestBase):
                 is_closed_position=True,
                 return_at_close=1.1 if miner not in self.ELIMINATED_MINER_NAMES else 0.8,
                 orders=[Order(price=60000, processed_ms=self.START_TIME, order_uuid=f"{miner}_order",
-                              trade_pair=TradePair.BTCUSD, order_type=OrderType.LONG, leverage=0.1)]
+                              trade_pair=TradePair.BTCUSD, order_type=OrderType.LONG, leverage=0.1)],
             )
             self.POSITIONS[miner] = [position]
             self.HK_TO_OPEN_MS[miner] = self.START_TIME
@@ -155,14 +158,14 @@ class TestProbationComprehensive(TestBase):
         expired_miner = "probation_miner1"
         self.challengeperiod_manager.active_miners[expired_miner] = (
             MinerBucket.PROBATION,
-            self.PROBATION_START_TIME
+            self.PROBATION_START_TIME,
         )
 
         # Setup probation miner still within time limit
         valid_miner = "probation_miner2"
         self.challengeperiod_manager.active_miners[valid_miner] = (
             MinerBucket.PROBATION,
-            self.PROBATION_EXPIRED - 10000
+            self.PROBATION_EXPIRED - 10000,
         )
 
         # Refresh challenge period at current time
@@ -219,7 +222,7 @@ class TestProbationComprehensive(TestBase):
                     is_closed_position=True,
                     return_at_close=1.1,
                     orders=[Order(price=60000, processed_ms=self.START_TIME, order_uuid=f"{miner}_order",
-                                  trade_pair=TradePair.BTCUSD, order_type=OrderType.LONG, leverage=0.1)]
+                                  trade_pair=TradePair.BTCUSD, order_type=OrderType.LONG, leverage=0.1)],
                 )
                 self.POSITIONS[miner] = [position]
                 self.position_manager.save_miner_position(position)
@@ -331,7 +334,7 @@ class TestProbationComprehensive(TestBase):
         # Setup probation miners with specific timestamps
         test_probation_miners = {
             "probation_persist1": self.PROBATION_START_TIME,
-            "probation_persist2": self.PROBATION_START_TIME + 10000
+            "probation_persist2": self.PROBATION_START_TIME + 10000,
         }
 
         for miner, timestamp in test_probation_miners.items():
@@ -345,7 +348,7 @@ class TestProbationComprehensive(TestBase):
             self.mock_metagraph,
             position_manager=self.position_manager,
             perf_ledger_manager=self.ledger_manager,
-            running_unit_tests=True
+            running_unit_tests=True,
         )
 
         # Verify probation miners and timestamps are preserved
@@ -379,7 +382,7 @@ class TestProbationComprehensive(TestBase):
 
         self.ledger_manager.save_perf_ledgers({
             promoting_challenge: excellent_ledger,
-            promoting_probation: excellent_ledger
+            promoting_probation: excellent_ledger,
         })
 
         # Setup poor performance for demoting miner
@@ -457,12 +460,12 @@ class TestProbationComprehensive(TestBase):
         old_format_data = {
             "testing": {
                 "old_challenge_miner1": self.START_TIME,
-                "old_challenge_miner2": self.START_TIME + 1000
+                "old_challenge_miner2": self.START_TIME + 1000,
             },
             "success": {
                 "old_maincomp_miner1": self.START_TIME,
-                "old_maincomp_miner2": self.START_TIME + 2000
-            }
+                "old_maincomp_miner2": self.START_TIME + 2000,
+            },
         }
 
         # Test parsing old format
@@ -481,8 +484,8 @@ class TestProbationComprehensive(TestBase):
         new_format_data = {
             "new_probation_miner1": {
                 "bucket": "PROBATION",
-                "bucket_start_time": self.START_TIME + 3000
-            }
+                "bucket_start_time": self.START_TIME + 3000,
+            },
         }
 
         parsed_new = ChallengePeriodManager.parse_checkpoint_dict(new_format_data)
@@ -651,7 +654,7 @@ class TestProbationComprehensive(TestBase):
         expired_start_time = self.PROBATION_EXPIRED
 
         self.challengeperiod_manager.active_miners[expired_probation_miner] = (
-            MinerBucket.PROBATION, expired_start_time
+            MinerBucket.PROBATION, expired_start_time,
         )
 
         # Create minimal required data for this miner
@@ -664,7 +667,7 @@ class TestProbationComprehensive(TestBase):
             is_closed_position=True,
             return_at_close=1.0,
             orders=[Order(price=60000, processed_ms=expired_start_time, order_uuid=f"{expired_probation_miner}_order",
-                          trade_pair=TradePair.BTCUSD, order_type=OrderType.LONG, leverage=0.1)]
+                          trade_pair=TradePair.BTCUSD, order_type=OrderType.LONG, leverage=0.1)],
         )
         self.position_manager.save_miner_position(position)
 
@@ -688,7 +691,7 @@ class TestProbationComprehensive(TestBase):
             # Should have appropriate elimination reason for timeout
             self.assertIn(elimination['reason'], [
                 EliminationReason.FAILED_CHALLENGE_PERIOD_TIME.value,
-                EliminationReason.FAILED_CHALLENGE_PERIOD_DRAWDOWN.value
+                EliminationReason.FAILED_CHALLENGE_PERIOD_DRAWDOWN.value,
             ], f"Probation timeout elimination should have proper reason, got: {elimination['reason']}")
 
     def test_massive_demotion_scenario_stress_test(self):
@@ -749,7 +752,7 @@ class TestProbationComprehensive(TestBase):
         original_probation_time = self.PROBATION_START_TIME
 
         self.challengeperiod_manager.active_miners[probation_miner] = (
-            MinerBucket.PROBATION, original_probation_time
+            MinerBucket.PROBATION, original_probation_time,
         )
 
         # Run multiple refresh cycles

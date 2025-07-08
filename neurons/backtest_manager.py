@@ -17,113 +17,114 @@ Database Position Integration:
 Usage Examples:
     # Use database positions for backtesting
     use_database_positions = True
-    
+
     # Configure time range and hotkey
     start_time_ms = 1735689600000
     end_time_ms = 1736035200000
     test_single_hotkey = '5HDmzyhrEco9w6Jv8eE3hDMcXSE4AGg1MuezPR4u2covxKwZ'
 """
 
-import time
 import copy
-import bittensor as bt
 import os
+import time
+from collections import defaultdict
+
+import bittensor as bt
 
 # Set environment variables for database access
 os.environ["TAOSHI_TS_DEPLOYMENT"] = "DEVELOPMENT"
 os.environ["TAOSHI_TS_PLATFORM"] = "LOCAL"
-from taoshi.ts import ptn as ptn_utils
-from collections import defaultdict
-from tests.test_data.backtest_test_positions import get_test_positions
 
 bt.logging.enable_info()
-from runnable.generate_request_minerstatistics import MinerStatisticsManager
-from shared_objects.sn8_multiprocessing import get_spark_session, get_multiprocessing_pool
-from tests.shared_objects.mock_classes import MockMetagraph
-from time_util.time_util import TimeUtil
-from vali_objects.position import Position
-from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
-from vali_objects.utils.elimination_manager import EliminationManager
-from vali_objects.utils.plagiarism_detector import PlagiarismDetector
-from vali_objects.utils.live_price_fetcher import LivePriceFetcher
-from vali_objects.utils.position_lock import PositionLocks
-from vali_objects.utils.position_manager import PositionManager
-from vali_objects.utils.subtensor_weight_setter import SubtensorWeightSetter
-from vali_objects.utils.vali_utils import ValiUtils
-from vali_objects.vali_config import ValiConfig
-from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager, ParallelizationMode
 
-from vali_objects.utils.price_slippage_model import PriceSlippageModel
+from runnable.generate_request_minerstatistics import MinerStatisticsManager  # noqa: E402
+from shared_objects.sn8_multiprocessing import get_multiprocessing_pool, get_spark_session  # noqa: E402
+from taoshi.ts import ptn as ptn_utils  # noqa: E402
+from tests.shared_objects.mock_classes import MockMetagraph  # noqa: E402
+from tests.test_data.backtest_test_positions import get_test_positions  # noqa: E402
+from time_util.time_util import TimeUtil  # noqa: E402
+from vali_objects.position import Position  # noqa: E402
+from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager  # noqa: E402
+from vali_objects.utils.elimination_manager import EliminationManager  # noqa: E402
+from vali_objects.utils.live_price_fetcher import LivePriceFetcher  # noqa: E402
+from vali_objects.utils.plagiarism_detector import PlagiarismDetector  # noqa: E402
+from vali_objects.utils.position_lock import PositionLocks  # noqa: E402
+from vali_objects.utils.position_manager import PositionManager  # noqa: E402
+from vali_objects.utils.price_slippage_model import PriceSlippageModel  # noqa: E402
+from vali_objects.utils.subtensor_weight_setter import SubtensorWeightSetter  # noqa: E402
+from vali_objects.utils.vali_utils import ValiUtils  # noqa: E402
+from vali_objects.vali_config import ValiConfig  # noqa: E402
+from vali_objects.vali_dataclasses.perf_ledger import ParallelizationMode, PerfLedgerManager  # noqa: E402
 
 def initialize_components(hotkeys, parallel_mode, build_portfolio_ledgers_only):
     """
     Initialize common components for backtesting.
-    
+
     Args:
         hotkeys: List of miner hotkeys or single hotkey
         parallel_mode: Parallelization mode for performance ledger
         build_portfolio_ledgers_only: Whether to build only portfolio ledgers
-        
+
     Returns:
         Tuple of (mmg, elimination_manager, position_manager, perf_ledger_manager)
     """
-    
+
     # Handle single hotkey or list
     if isinstance(hotkeys, str):
         hotkeys = [hotkeys]
-    
+
     mmg = MockMetagraph(hotkeys=hotkeys)
     elimination_manager = EliminationManager(mmg, None, None)
-    position_manager = PositionManager(metagraph=mmg, running_unit_tests=False, 
+    position_manager = PositionManager(metagraph=mmg, running_unit_tests=False,
                                      elimination_manager=elimination_manager)
-    perf_ledger_manager = PerfLedgerManager(mmg, position_manager=position_manager, 
+    perf_ledger_manager = PerfLedgerManager(mmg, position_manager=position_manager,
                                           running_unit_tests=False,
-                                          enable_rss=False, 
+                                          enable_rss=False,
                                           parallel_mode=parallel_mode,
                                           build_portfolio_ledgers_only=build_portfolio_ledgers_only)
-    
+
     return mmg, elimination_manager, position_manager, perf_ledger_manager
 
 def save_positions_to_manager(position_manager, hk_to_positions):
     """
     Save positions to the position manager.
-    
+
     Args:
         position_manager: The position manager instance
         hk_to_positions: Dictionary mapping hotkeys to Position objects
     """
     import bittensor as bt
-    
+
     position_count = 0
     for hk, positions in hk_to_positions.items():
         for p in positions:
             position_manager.save_miner_position(p)
             position_count += 1
-    
+
     bt.logging.info(f"Saved {position_count} positions for {len(hk_to_positions)} miners to position manager")
 
 def load_database_positions(start_time_ms, end_time_ms, test_single_hotkey):
     """
     Load positions from database using taoshi.ts.ptn.
-    
+
     Args:
         start_time_ms: Start time in milliseconds
         end_time_ms: End time in milliseconds
         test_single_hotkey: single hotkey to filter by
-        
+
     Returns:
         Dictionary mapping hotkeys to Position objects
     """
-    
+
     bt.logging.info(f"Loading positions from database for hotkey {test_single_hotkey} for period "
                    f"{TimeUtil.millis_to_formatted_date_str(start_time_ms)} to "
                    f"{TimeUtil.millis_to_formatted_date_str(end_time_ms)}")
-    
+
     try:
 
         # Initialize database position source
         miner_db = ptn_utils.DatabasePositionOrderSource()
-        
+
         # Get positions from database
         hotkeys_to_query = [test_single_hotkey]
         filtered_positions = miner_db.get_positions_with_orders(
@@ -131,18 +132,18 @@ def load_database_positions(start_time_ms, end_time_ms, test_single_hotkey):
             end_ms=end_time_ms,
             miner_hotkeys=hotkeys_to_query
         )
-        
+
         bt.logging.info(f"Retrieved {len(filtered_positions)} positions from database")
-        
+
         # Convert database positions to Position objects
         hk_to_positions = defaultdict(list)
         for position_data in filtered_positions:
             position_copy = copy.deepcopy(position_data)
-            
+
             # Convert database format to Position object format (simplified like original commit)
             position_copy["trade_pair"] = [position_data["trade_pair_id"]]
             position_copy["position_type"] = str(position_copy["position_type"])
-            
+
             # Create Position object
             try:
                 position_obj = Position(**position_copy)
@@ -150,10 +151,10 @@ def load_database_positions(start_time_ms, end_time_ms, test_single_hotkey):
             except Exception as e:
                 bt.logging.error(f"Failed to create Position object from database data: {e}")
                 continue
-        
+
         bt.logging.info(f"Successfully converted positions for {len(hk_to_positions)} miners")
         return hk_to_positions
-        
+
     except ImportError as e:
         bt.logging.error(f"Failed to import database utilities: {e}")
         bt.logging.error("Make sure taoshi.ts.ptn is available and properly configured")
@@ -331,12 +332,12 @@ if __name__ == '__main__':
     use_slippage = False              # Apply slippage modeling
     build_portfolio_ledgers_only = True  # Whether to build only the portfolio ledgers or per trade pair
     parallel_mode = ParallelizationMode.SERIAL  # 1 for pyspark, 2 for multiprocessing
-    
+
     # NOTE: Only one of use_test_positions, use_database_positions, or default (disk) should be True
     # - use_test_positions=True: Uses hardcoded test data
     # - use_database_positions=True: Loads positions from database (requires taoshi.ts.ptn)
     # - Both False: Uses positions from disk (default behavior)
-    
+
     # Validate configuration
     if use_test_positions and use_database_positions:
         raise ValueError("Cannot use both test positions and database positions. Choose one.")
@@ -344,7 +345,7 @@ if __name__ == '__main__':
     start_time_ms = 1735689600000
     end_time_ms = 1736035200000
     test_single_hotkey ='5HDmzyhrEco9w6Jv8eE3hDMcXSE4AGg1MuezPR4u2covxKwZ'
-    
+
     if use_test_positions:
         # Import test positions from separate file
         test_positions = get_test_positions()
@@ -355,33 +356,33 @@ if __name__ == '__main__':
         for pos in test_positions:
             hk_to_positions[pos['miner_hotkey']].append(Position(**pos))
         end_time_ms = max_order_time_ms + 1
-        
+
         # Initialize components with test position hotkeys
         hotkeys = list(hk_to_positions.keys())
         mmg, elimination_manager, position_manager, perf_ledger_manager = initialize_components(
             hotkeys, parallel_mode, build_portfolio_ledgers_only)
-        
+
         # Save test positions to position manager
         save_positions_to_manager(position_manager, hk_to_positions)
-                
+
     elif use_database_positions:
         # Load positions from database
         hk_to_positions = load_database_positions(start_time_ms, end_time_ms, test_single_hotkey)
-        
+
         # Initialize components with database position hotkeys
         hotkeys_list = list(hk_to_positions.keys()) if not test_single_hotkey else [test_single_hotkey]
         mmg, elimination_manager, position_manager, perf_ledger_manager = initialize_components(
             hotkeys_list, parallel_mode, build_portfolio_ledgers_only)
-        
+
         # Save database positions to position manager
         save_positions_to_manager(position_manager, hk_to_positions)
-                
+
     else:
         # Load positions from disk (default behavior)
         # Initialize components with specified hotkey
         mmg, elimination_manager, position_manager, perf_ledger_manager = initialize_components(
             test_single_hotkey, parallel_mode, build_portfolio_ledgers_only)
-        
+
         # Get positions from disk via perf ledger manager
         hk_to_positions, _ = perf_ledger_manager.get_positions_perf_ledger(testing_one_hotkey=test_single_hotkey)
 

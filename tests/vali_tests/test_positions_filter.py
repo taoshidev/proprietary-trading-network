@@ -1,9 +1,9 @@
 # developer: trdougherty
 
-from vali_objects.vali_config import TradePair
+from tests.vali_tests.base_objects.test_base import TestBase
 from vali_objects.position import Position
 from vali_objects.utils.position_filtering import PositionFiltering
-from tests.vali_tests.base_objects.test_base import TestBase
+from vali_objects.vali_config import TradePair
 
 
 class TestPositionFiltering(TestBase):
@@ -80,7 +80,7 @@ class TestPositionFiltering(TestBase):
         filtered_positions = PositionFiltering.filter_single_miner(
             positions,
             evaluation_time_ms=self.DEFAULT_EVALUATION_TIME,
-            lookback_time_ms=self.DEFAULT_LOOKBACK_WINDOW
+            lookback_time_ms=self.DEFAULT_LOOKBACK_WINDOW,
         )
 
         for position in keeping_positions:
@@ -102,7 +102,7 @@ class TestPositionFiltering(TestBase):
         filtered_positions = PositionFiltering.filter_single_miner(
             positions,
             evaluation_time_ms=self.DEFAULT_EVALUATION_TIME,
-            lookback_time_ms=self.DEFAULT_LOOKBACK_WINDOW
+            lookback_time_ms=self.DEFAULT_LOOKBACK_WINDOW,
         )
 
         for position in keeping_positions:
@@ -125,7 +125,7 @@ class TestPositionFiltering(TestBase):
         filtered_positions = PositionFiltering.filter_single_miner(
             positions,
             evaluation_time_ms=self.DEFAULT_EVALUATION_TIME,
-            lookback_time_ms=self.DEFAULT_LOOKBACK_WINDOW
+            lookback_time_ms=self.DEFAULT_LOOKBACK_WINDOW,
         )
 
         for position in keeping_positions:
@@ -157,7 +157,7 @@ class TestPositionFiltering(TestBase):
         filtered_positions = PositionFiltering.filter_single_miner(
             positions,
             evaluation_time_ms=self.DEFAULT_EVALUATION_TIME,
-            lookback_time_ms=self.DEFAULT_LOOKBACK_WINDOW
+            lookback_time_ms=self.DEFAULT_LOOKBACK_WINDOW,
         )
 
         for position in keeping_positions:
@@ -185,7 +185,7 @@ class TestPositionFiltering(TestBase):
         filtered_positions = PositionFiltering.filter_single_miner(
             positions,
             evaluation_time_ms=self.DEFAULT_EVALUATION_TIME,
-            lookback_time_ms=self.DEFAULT_LOOKBACK_WINDOW
+            lookback_time_ms=self.DEFAULT_LOOKBACK_WINDOW,
         )
 
         # Check that the open losing position is included

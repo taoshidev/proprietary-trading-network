@@ -1,10 +1,10 @@
 import time
 import unittest
-
-
-from time_util.time_util import UnifiedMarketCalendar, TimeUtil
-from vali_objects.vali_config import TradePair
 from datetime import datetime, timedelta, timezone
+
+from time_util.time_util import TimeUtil, UnifiedMarketCalendar
+from vali_objects.vali_config import TradePair
+
 
 class TestMarketHours(unittest.TestCase):
 
@@ -31,7 +31,7 @@ class TestMarketHours(unittest.TestCase):
             (datetime(2023, 1, 1, 12, 0), "New Year's Day"),  # New Year's Day (or nearest workday)
             (datetime(2023, 4, 7, 12, 0), "Good Friday"),  # Good Friday
             (datetime(2023, 12, 25, 12, 0), "Christmas Day"),  # Christmas Day
-            (datetime(2023, 12, 26, 12, 0), "Boxing Day")  # Boxing Day
+            (datetime(2023, 12, 26, 12, 0), "Boxing Day"),  # Boxing Day
         ]
 
         for day, description in closed_days:
@@ -48,7 +48,7 @@ class TestMarketHours(unittest.TestCase):
             (datetime(2023, 7, 4, 15, 0), "July 4th"),  # Independence Day
             (datetime(2023, 10, 31, 12, 0), "Halloween"),  # Halloween is not a public holiday affecting markets
             (datetime(2023, 2, 14, 12, 0), "Valentine's Day"),  # Valentine's Day
-            (datetime(2023, 3, 17, 12, 0), "St. Patrick's Day")  # St. Patrick's Day
+            (datetime(2023, 3, 17, 12, 0), "St. Patrick's Day"),  # St. Patrick's Day
         ]
 
         for day, description in open_days:

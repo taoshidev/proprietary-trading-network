@@ -1,8 +1,12 @@
-from tests.shared_objects.mock_classes import MockLivePriceFetcher, MockPriceSlippageModel
+from tests.shared_objects.mock_classes import (
+    MockLivePriceFetcher,
+    MockPriceSlippageModel,
+)
 from tests.vali_tests.base_objects.test_base import TestBase
 from time_util.time_util import TimeUtil
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.position import Position
+
 # from vali_objects.utils.live_price_fetcher import LivePriceFetcher
 from vali_objects.utils.price_slippage_model import PriceSlippageModel
 from vali_objects.utils.vali_utils import ValiUtils
@@ -38,14 +42,14 @@ class TestPriceSlippageModel(TestBase):
             order_uuid=self.DEFAULT_ORDER_UUID,
             trade_pair=TradePair.EURUSD,
             order_type=OrderType.LONG,
-            leverage=1
+            leverage=1,
         )
         self.open_position = Position(
             miner_hotkey=self.DEFAULT_MINER_HOTKEY,
             position_uuid=self.DEFAULT_POSITION_UUID,
             open_ms=self.DEFAULT_OPEN_MS,
             trade_pair=TradePair.EURUSD,
-            orders=[]
+            orders=[],
         )
 
         self.open_position.add_order(self.open_order)
@@ -69,7 +73,7 @@ class TestPriceSlippageModel(TestBase):
             order_uuid=self.DEFAULT_ORDER_UUID,
             trade_pair=TradePair.EURUSD,
             order_type=OrderType.LONG,
-            leverage=1
+            leverage=1,
         )
         self.close_order = Order(
             price=110,
@@ -78,14 +82,14 @@ class TestPriceSlippageModel(TestBase):
             order_uuid=self.DEFAULT_ORDER_UUID+"_close",
             trade_pair=TradePair.EURUSD,
             order_type=OrderType.FLAT,
-            leverage=0
+            leverage=0,
         )
         self.closed_position = Position(
             miner_hotkey=self.DEFAULT_MINER_HOTKEY,
             position_uuid=self.DEFAULT_POSITION_UUID,
             open_ms=self.DEFAULT_OPEN_MS,
             trade_pair=TradePair.EURUSD,
-            orders=[]
+            orders=[],
         )
         self.closed_position.add_order(self.open_order)
         self.closed_position.add_order(self.close_order)
