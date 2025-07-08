@@ -52,8 +52,8 @@ class ValiConfig:
 
     # Asset Class Breakdown - defines the total emission for each asset class
     ASSET_CLASS_BREAKDOWN = {
-        TradePairCategory.CRYPTO: 0.8,
-        TradePairCategory.FOREX: 0.2,
+        TradePairCategory.CRYPTO: 0.5,
+        TradePairCategory.FOREX: 0.5,
     }
 
     # Time Configurations
