@@ -3,7 +3,6 @@ import math
 import os
 import time
 import traceback
-import datetime
 from collections import defaultdict
 from copy import deepcopy
 from enum import Enum
@@ -1161,7 +1160,7 @@ class PerfLedgerManager(CacheController):
                 time_diff_ms = portfolio_pl.last_update_ms - t_ms
                 time_diff_days = time_diff_ms / (1000 * 60 * 60 * 24)
                 
-                bt.logging.error(f"CRITICAL TIMESTAMP BUG DETECTED:")
+                bt.logging.error("CRITICAL TIMESTAMP BUG DETECTED:")
                 bt.logging.error(f"  Current processing time: {t_ms} ({TimeUtil.millis_to_formatted_date_str(t_ms)})")
                 bt.logging.error(f"  Last checkpoint time:    {portfolio_pl.last_update_ms} ({TimeUtil.millis_to_formatted_date_str(portfolio_pl.last_update_ms)})")
                 bt.logging.error(f"  Time difference:         {time_diff_ms} ms ({time_diff_days:.1f} days)")
@@ -1171,7 +1170,7 @@ class PerfLedgerManager(CacheController):
                 
                 if time_diff_days > 1:
                     bt.logging.error(f"  EXTREME TIMESTAMP ERROR: Checkpoint is {time_diff_days:.1f} days in the future!")
-                    bt.logging.error(f"  This indicates a critical bug in void filling or boundary logic.")
+                    bt.logging.error("  This indicates a critical bug in void filling or boundary logic.")
                     bt.logging.error(f"  Portfolio PL object: {portfolio_pl}")
                 
                 raise Exception(f'CRITICAL TIMESTAMP BUG DETECTED: t_ms {t_ms} is before last_update_ms {portfolio_pl.last_update_ms}. '

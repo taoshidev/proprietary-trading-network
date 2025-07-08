@@ -1,9 +1,5 @@
 import unittest
-import json
-import tempfile
-import os
-from unittest.mock import patch, Mock, MagicMock
-from collections import defaultdict
+from unittest.mock import patch, Mock
 
 from tests.shared_objects.mock_classes import MockMetagraph
 from tests.vali_tests.base_objects.test_base import TestBase
@@ -11,12 +7,9 @@ from time_util.time_util import TimeUtil
 from vali_objects.utils.elimination_manager import EliminationManager
 from vali_objects.utils.position_manager import PositionManager
 from vali_objects.vali_config import TradePair
-from vali_objects.enums.order_type_enum import OrderType
-from vali_objects.position import Position
-from vali_objects.vali_dataclasses.order import Order
 from vali_objects.vali_dataclasses.perf_ledger import (
     PerfLedger, PerfLedgerManager, TP_ID_PORTFOLIO, 
-    ParallelizationMode, PerfCheckpoint, TradePairReturnStatus
+    TradePairReturnStatus
 )
 
 
@@ -387,7 +380,7 @@ class TestPerfLedgerEliminationLogic(TestBase):
             elimination_manager=elimination_manager
         )
         
-        plm = PerfLedgerManager(
+        PerfLedgerManager(
             metagraph=self.mmg,
             running_unit_tests=True,
             position_manager=position_manager

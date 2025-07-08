@@ -12,7 +12,7 @@ import numpy as np
 from scipy.stats import percentileofscore
 
 from vali_objects.vali_config import ValiConfig
-from vali_objects.vali_dataclasses.perf_ledger import PerfLedger, TP_ID_PORTFOLIO
+from vali_objects.vali_dataclasses.perf_ledger import PerfLedger
 from time_util.time_util import TimeUtil
 from vali_objects.utils.position_filtering import PositionFiltering
 from vali_objects.utils.ledger_utils import LedgerUtils

@@ -101,7 +101,7 @@ def run_backtest_with_database_positions():
         with open(backtest_manager_path, 'w') as f:
             f.write(original_content)
         
-        print(f"Restored original backtest_manager.py from backup")
+        print("Restored original backtest_manager.py from backup")
         os.remove(backup_path)
         print(f"Removed backup file: {backup_path}")
 
