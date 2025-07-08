@@ -50,6 +50,12 @@ class ValiConfig:
     DAILY_LOG_RISK_FREE_RATE = math.log(1 + ANNUAL_RISK_FREE_DECIMAL) / DAYS_IN_YEAR
     MS_RISK_FREE_RATE = math.log(1 + ANNUAL_RISK_FREE_PERCENTAGE / 100) / (365 * 24 * 60 * 60 * 1000)
 
+    # Asset Class Breakdown - defines the total emission for each asset class
+    ASSET_CLASS_BREAKDOWN = {
+        TradePairCategory.CRYPTO: 0.5,
+        TradePairCategory.FOREX: 0.5,
+    }
+
     # Time Configurations
     TARGET_CHECKPOINT_DURATION_MS = 1000 * 60 * 60 * 12  # 12 hours
     DAILY_MS = 1000 * 60 * 60 * 24  # 1 day

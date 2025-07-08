@@ -502,7 +502,7 @@ class PerfLedgerManager(CacheController):
 
         # Note, eliminated miners will not appear in the dict below
         filtered_ledger = {}
-        for hotkey, miner_portfolio_ledger in self.get_perf_ledgers().items():
+        for hotkey, miner_portfolio_ledger in self.get_perf_ledgers(portfolio_only=False).items():
             if hotkey not in hotkeys:
                 continue
 
@@ -513,7 +513,8 @@ class PerfLedgerManager(CacheController):
             if miner_portfolio_ledger is None:
                 continue
 
-            if len(miner_portfolio_ledger.cps) == 0:
+            miner_overall_ledger = miner_portfolio_ledger.get("portfolio", PerfLedger())
+            if len(miner_overall_ledger.cps) == 0:
                 continue
 
             filtered_ledger[hotkey] = miner_portfolio_ledger
