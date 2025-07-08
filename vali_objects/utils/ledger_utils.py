@@ -192,7 +192,7 @@ class LedgerUtils:
         miner_returns = {}
 
         for miner, miner_ledger in ledger.items():
-            miner_returns[miner] = LedgerUtils.daily_return_percentage(miner_ledger if miner_ledger else PerfLedger(tp_id=TP_ID_PORTFOLIO))
+            miner_returns[miner] = LedgerUtils.daily_return_percentage(miner_ledger if miner_ledger else PerfLedger())
 
         return miner_returns
 

@@ -5,6 +5,7 @@ from copy import deepcopy
 from unittest.mock import patch, Mock, MagicMock
 from collections import defaultdict
 
+from shared_objects.sn8_multiprocessing import get_spark_session, get_multiprocessing_pool
 from tests.shared_objects.mock_classes import MockMetagraph
 from tests.vali_tests.base_objects.test_base import TestBase
 from time_util.time_util import TimeUtil
@@ -650,6 +651,12 @@ class TestParallelVsSerialModes(TestBase):
         
         # Add position to both managers
         position_manager_serial.save_miner_position(position)
+        
+        # For parallel manager, clear memory and reload from disk to avoid state conflicts
+        position_manager_parallel.hotkey_to_positions = {}
+        position_manager_parallel._populate_memory_positions_for_first_time()
+        
+        # Now save the position to parallel manager (it will see the existing disk state)
         position_manager_parallel.save_miner_position(copy.deepcopy(position))
         
         # Create ledger managers with different modes
@@ -831,19 +838,13 @@ class TestParallelVsSerialModes(TestBase):
         # Create position managers for both modes
         elimination_manager_large = EliminationManager(mmg_large, None, None)
         
-        position_manager_serial = PositionManager(
+        position_manager = PositionManager(
             metagraph=mmg_large, 
             running_unit_tests=True, 
             elimination_manager=elimination_manager_large
         )
-        position_manager_serial.clear_all_miner_positions()
-        
-        position_manager_parallel = PositionManager(
-            metagraph=mmg_large, 
-            running_unit_tests=True, 
-            elimination_manager=elimination_manager_large
-        )
-        position_manager_parallel.clear_all_miner_positions()
+        position_manager.clear_all_miner_positions()
+
         
         # Create positions for each miner
         base_time = self.now_ms - (1000 * 60 * 60 * 24)  # 1 day ago
@@ -868,22 +869,21 @@ class TestParallelVsSerialModes(TestBase):
             )
             position.rebuild_position_with_updated_orders()
             
-            # Save to both managers
-            position_manager_serial.save_miner_position(position)
-            position_manager_parallel.save_miner_position(copy.deepcopy(position))
-        
+            # Save to both managers  
+            position_manager.save_miner_position(position, delete_open_position_if_exists=True)
+
         # Create ledger managers
         plm_serial = PerfLedgerManager(
             metagraph=mmg_large,
             running_unit_tests=True,
-            position_manager=position_manager_serial,
+            position_manager=position_manager,
             parallel_mode=ParallelizationMode.SERIAL
         )
         
         plm_parallel = PerfLedgerManager(
             metagraph=mmg_large,
             running_unit_tests=True,
-            position_manager=position_manager_parallel,
+            position_manager=position_manager,
             parallel_mode=ParallelizationMode.MULTIPROCESSING
         )
         
@@ -894,7 +894,18 @@ class TestParallelVsSerialModes(TestBase):
         
         # Time parallel update (note: in unit tests, multiprocessing might not show benefits)
         start_time = time.time()
-        plm_parallel.update(t_ms=self.now_ms)
+        parallel_mode = ParallelizationMode.MULTIPROCESSING
+        spark, should_close = get_spark_session(parallel_mode)
+        pool = get_multiprocessing_pool(parallel_mode)
+        plm_parallel.update_perf_ledgers_parallel(
+            spark=spark,
+            pool=pool,
+            hotkey_to_positions=plm_parallel.get_positions_perf_ledger()[0],
+            existing_perf_ledgers=plm_parallel.get_perf_ledgers(portfolio_only=False),
+            parallel_mode=parallel_mode,
+            now_ms=self.now_ms,
+            is_backtesting=True
+        )
         parallel_time = time.time() - start_time
         
         print(f"\nLarge scale performance comparison ({num_miners} miners):")

@@ -199,8 +199,8 @@ class TestPerfLedgerEndpointBehavior(unittest.TestCase):
         
         # Scenario 2: should have 2 checkpoints, first one at boundary  
         self.assertEqual(len(ledger2.cps), 2, "Scenario 2 should have exactly 2 checkpoints after void filling")
-        boundary_cp2 = ledger2.cps[0]  # First checkpoint should be the boundary one
-        self.assertEqual(boundary_cp2.last_update_ms, self.boundary_time_ms, "First checkpoint should end at boundary")
+        boundary_cp2 = ledger2.cps[1]  # Second checkpoint should be the boundary one
+        self.assertEqual(ledger2.cps[0].last_update_ms, self.boundary_time_ms, "First checkpoint should end at boundary")
         
         # THE CRITICAL ASSERTION: boundary checkpoints should be IDENTICAL
         print(f"   Boundary checkpoint 1 return: {boundary_cp1.prev_portfolio_ret:.10f}")

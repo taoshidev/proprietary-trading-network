@@ -140,23 +140,20 @@ class PerfLedger():
             "max_return": self.max_return,
             "target_cp_duration_ms": self.target_cp_duration_ms,
             "target_ledger_window_ms": self.target_ledger_window_ms,
-            "cps": [cp.to_dict() for cp in self.cps],
-            "tp_id": self.tp_id
+            "cps": [cp.to_dict() for cp in self.cps]
         }
 
     @classmethod
     def from_dict(cls, x):
         assert isinstance(x, dict), x
         x['cps'] = [PerfCheckpoint(**cp) for cp in x['cps']]
-        return cls(**x)
+        x.pop('global_worst_mdd', None)  # Remove legacy field if present
+        instance = cls(**x)
+        return instance
 
-    def is_always_open_market(self):
-        """Check if this ledger represents a 24/7 market or portfolio"""
-        if self.tp_id == TP_ID_PORTFOLIO:
-            return True  # Portfolio aggregates multiple markets, effectively always open
-        # 24/7 crypto markets
-        crypto_pairs = ['BTCUSD', 'ETHUSD', 'SOLUSD', 'MATICUSD', 'AVAXUSD']
-        return self.tp_id in crypto_pairs
+    @property
+    def mdd(self):
+        return min(cp.mdd for cp in self.cps) if self.cps else 1.0
     
     @property
     def total_open_ms(self):
@@ -243,11 +240,11 @@ class PerfLedger():
 
     def update_pl(self, current_portfolio_value: float, now_ms: int, miner_hotkey: str, any_open: TradePairReturnStatus,
               current_portfolio_fee_spread: float, current_portfolio_carry: float, tp_debug=None, debug_dict=None):
-
         if len(self.cps) == 0:
             self.init_with_first_order(now_ms, point_in_time_dd=1.0, current_portfolio_value=1.0,
                                            current_portfolio_fee_spread=1.0, current_portfolio_carry=1.0)
         prev_max_return = self.max_return
+        prev_mdd = CacheController.calculate_drawdown(prev_max_return, self.max_return)
         self.max_return = max(self.max_return, current_portfolio_value)
         point_in_time_dd = CacheController.calculate_drawdown(current_portfolio_value, self.max_return)
         if not point_in_time_dd:
@@ -259,11 +256,22 @@ class PerfLedger():
         if len(self.cps) == 0:
             self.init_with_first_order(now_ms, point_in_time_dd, current_portfolio_value, current_portfolio_fee_spread,
                                        current_portfolio_carry)
+            return
 
+        last_portfolio_return = self.cps[-1].prev_portfolio_ret
         time_since_last_update_ms = now_ms - self.cps[-1].last_update_ms
         assert time_since_last_update_ms >= 0, self.cps
-        last_portfolio_return = self.cps[-1].prev_portfolio_ret
-        
+        """
+        if time_since_last_update_ms == 0 and last_portfolio_return != current_portfolio_value:
+            bt.logging.warning(f"Update called with no time delta since last update for miner {miner_hotkey}. n_cps: {len(self.cps)}, tp_debug {tp_debug} "
+                               f"last_update_ms: {self.cps[-1].last_update_ms}, "
+                               f"current_portfolio_value: {current_portfolio_value}, "
+                               f"prev_portfolio_ret: {last_portfolio_return}, "
+                               f"any_open: {any_open}, current_portfolio_fee_spread: {current_portfolio_fee_spread}, "
+                               f"current_portfolio_carry: {current_portfolio_carry}")
+            return
+        """
+
         if time_since_last_update_ms + self.cps[-1].accum_ms > self.target_cp_duration_ms:
             # Need to fill void - complete current checkpoint and create new ones
             
@@ -274,37 +282,39 @@ class PerfLedger():
                                 f"({self.target_cp_duration_ms / 3600000:.1f} hours)")
             
             # Step 1: Complete the current checkpoint by aligning to 12-hour boundary
-            original_accum_time = self.cps[-1].accum_ms
-            original_last_update = self.cps[-1].last_update_ms
-            
             # Find the next 12-hour boundary
-            next_boundary = TimeUtil.align_to_12hour_checkpoint_boundary(original_last_update)
+            next_boundary = TimeUtil.align_to_12hour_checkpoint_boundary(self.cps[-1].last_update_ms)
             if next_boundary > now_ms:
                 raise Exception(
                     f"Cannot align checkpoint: next boundary {next_boundary} ({TimeUtil.millis_to_formatted_date_str(next_boundary)}) "
                     f"exceeds current time {now_ms} ({TimeUtil.millis_to_formatted_date_str(now_ms)})")
             
             # Update the current checkpoint to end at the boundary
-            delta_to_boundary = self.target_cp_duration_ms - original_accum_time
+            delta_to_boundary = self.target_cp_duration_ms - self.cps[-1].accum_ms
             self.cps[-1].last_update_ms = next_boundary
             self.cps[-1].accum_ms = self.target_cp_duration_ms
+            
+            # Complete the current checkpoint using last_portfolio_return (no change in value during void)
+            # The current checkpoint should be filled to the boundary but without value changes
+            # Only the final checkpoint after void filling gets the new portfolio value
             if any_open > TradePairReturnStatus.TP_MARKET_NOT_OPEN:
                 self.cps[-1].open_ms += delta_to_boundary
             
             # Step 2: Create full 12-hour checkpoints for the void period
             current_boundary = next_boundary
-            last_dd = last_portfolio_return / prev_max_return
+            # During void periods, portfolio value remains constant at last_portfolio_return
+            # Do NOT update last_portfolio_return to current_portfolio_value yet
             
             while now_ms - current_boundary > self.target_cp_duration_ms:
                 current_boundary += self.target_cp_duration_ms
                 new_cp = PerfCheckpoint(
                     last_update_ms=current_boundary,
-                    prev_portfolio_ret=last_portfolio_return,
+                    prev_portfolio_ret=last_portfolio_return,  # Keep constant during void
                     prev_portfolio_spread_fee=self.cps[-1].prev_portfolio_spread_fee,
                     prev_portfolio_carry_fee=self.cps[-1].prev_portfolio_carry_fee,
                     accum_ms=self.target_cp_duration_ms,
                     open_ms=0,  # No market data for void periods
-                    mdd=last_dd,
+                    mdd=1.0,
                     mpv=last_portfolio_return
                 )
                 assert new_cp.last_update_ms % self.target_cp_duration_ms == 0, f"Checkpoint not aligned: {new_cp.last_update_ms}"
@@ -313,61 +323,55 @@ class PerfLedger():
             # Step 3: Create final partial checkpoint from last boundary to now
             time_since_boundary = now_ms - current_boundary
             assert 0 <= time_since_boundary <= self.target_cp_duration_ms
-            
-            if time_since_boundary > 0:
-                # Calculate gain/loss from last checkpoint to current value
-                delta_return = self.compute_delta_between_ticks(current_portfolio_value, last_portfolio_return)
-                gain = delta_return if delta_return > 0 else 0.0
-                loss = delta_return if delta_return < 0 else 0.0
-                
-                final_open_ms = time_since_boundary if any_open > TradePairReturnStatus.TP_MARKET_NOT_OPEN else 0
-                new_cp = PerfCheckpoint(
-                    last_update_ms=now_ms,
-                    prev_portfolio_ret=current_portfolio_value,
-                    prev_portfolio_spread_fee=self.cps[-1].prev_portfolio_spread_fee,
-                    prev_portfolio_carry_fee=self.cps[-1].prev_portfolio_carry_fee,
-                    accum_ms=time_since_boundary,
-                    open_ms=final_open_ms,
-                    gain=gain,
-                    loss=loss,
-                    mdd=min(last_dd, point_in_time_dd),
-                    mpv=max(last_portfolio_return, current_portfolio_value)
-                )
-                self.cps.append(new_cp)
-        else:
-            # No void to fill, just update the current checkpoint's mdd
-            self.cps[-1].mdd = min(self.cps[-1].mdd, point_in_time_dd)
 
-        # Now update the current checkpoint (whether it's existing or newly created)
-        current_cp = self.cps[-1]
-        
-        # Calculate time since this checkpoint's last update
-        time_to_accumulate = now_ms - current_cp.last_update_ms
-        if time_to_accumulate < 0:
-            bt.logging.error(f"Negative accumulated time: {time_to_accumulate} for miner {miner_hotkey}."
-                             f" start_time_ms: {self.start_time_ms}, now_ms: {now_ms}")
-            time_to_accumulate = 0
-        
-        # Only accumulate time if there's time to add
-        if time_to_accumulate > 0:
-            # Update time fields
+            final_open_ms = time_since_boundary if any_open > TradePairReturnStatus.TP_MARKET_NOT_OPEN else 0
+            # Calculate MDD for this checkpoint period based on the change from boundary to now
+            # MDD should be the worst decline within this checkpoint period
+
+            new_cp = PerfCheckpoint(
+                last_update_ms=now_ms,
+                prev_portfolio_ret=last_portfolio_return, # old for now, update below
+                prev_portfolio_spread_fee=self.cps[-1].prev_portfolio_spread_fee,  # old for now update below
+                prev_portfolio_carry_fee=self.cps[-1].prev_portfolio_carry_fee,    # old for now update below
+                carry_fee_loss=0, # 0 for now, update below
+                spread_fee_loss=0, # 0 for now, update below
+                n_updates = 0, # 0 for now, update below
+                gain=0,  # 0 for now, update below
+                loss=0,  # 0 for now, update below
+                mdd=prev_mdd,  # old for now update below
+                mpv=last_portfolio_return, # old for now, update below
+                accum_ms=time_since_boundary,
+                open_ms=final_open_ms,
+            )
+            self.cps.append(new_cp)
+        else:
+            # Nominal update. No void to fill
+            current_cp = self.cps[-1]
+            # Calculate time since this checkpoint's last update
+            time_to_accumulate = now_ms - current_cp.last_update_ms
+            if time_to_accumulate < 0:
+                bt.logging.error(f"Negative accumulated time: {time_to_accumulate} for miner {miner_hotkey}."
+                                 f" start_time_ms: {self.start_time_ms}, now_ms: {now_ms}")
+                time_to_accumulate = 0
+
             current_cp.accum_ms += time_to_accumulate
-            current_cp.last_update_ms = now_ms
-            
             # Update open_ms only when market is actually open
             if any_open > TradePairReturnStatus.TP_MARKET_NOT_OPEN:
                 current_cp.open_ms += time_to_accumulate
-        
+
+
+        current_cp = self.cps[-1]  # Get the current checkpoint after updates
+        current_cp.mdd = min(current_cp.mdd, point_in_time_dd)
         # Update gains/losses based on portfolio value change
-        n_new_updates = 1
+        n_updates = 1
         delta_return = self.compute_delta_between_ticks(current_portfolio_value, current_cp.prev_portfolio_ret)
         if delta_return > 0:
             current_cp.gain += delta_return
         elif delta_return < 0:
             current_cp.loss += delta_return
         else:
-            n_new_updates = 0
-        
+            n_updates = 0
+
         # Update fee losses
         if current_cp.prev_portfolio_carry_fee != current_portfolio_carry:
             current_cp.carry_fee_loss += self.compute_delta_between_ticks(current_portfolio_carry,
@@ -375,13 +379,14 @@ class PerfLedger():
         if current_cp.prev_portfolio_spread_fee != current_portfolio_fee_spread:
             current_cp.spread_fee_loss += self.compute_delta_between_ticks(current_portfolio_fee_spread,
                                                                            current_cp.prev_portfolio_spread_fee)
-        
+
         # Update portfolio values
         current_cp.prev_portfolio_ret = current_portfolio_value
+        current_cp.last_update_ms = now_ms
         current_cp.prev_portfolio_spread_fee = current_portfolio_fee_spread
         current_cp.prev_portfolio_carry_fee = current_portfolio_carry
         current_cp.mpv = max(current_cp.mpv, current_portfolio_value)
-        current_cp.n_updates += n_new_updates
+        current_cp.n_updates += n_updates
 
 
     def count_events(self):
@@ -1074,10 +1079,9 @@ class PerfLedgerManager(CacheController):
                 assert len(positions[0].orders) == 0, (tp_id, positions[0], list(perf_ledger_bundle.keys()))
                 assert realtime_position_to_pop and tp_id == realtime_position_to_pop.trade_pair.trade_pair_id
                 initialization_time_ms = realtime_position_to_pop.orders[0].processed_ms
-                perf_ledger_bundle[tp_id] = PerfLedger(initialization_time_ms=initialization_time_ms, target_ledger_window_ms=self.target_ledger_window_ms, tp_id=tp_id)
+                perf_ledger_bundle[tp_id] = PerfLedger(initialization_time_ms=initialization_time_ms, target_ledger_window_ms=self.target_ledger_window_ms)
                 perf_ledger_bundle[tp_id].init_with_first_order(end_time_ms, point_in_time_dd=1.0, current_portfolio_value=1.0,
                                                    current_portfolio_fee_spread=1.0, current_portfolio_carry=1.0)
-
         if portfolio_pl.initialization_time_ms == end_time_ms:
             return False  # Can only build perf ledger between orders or after all orders have passed.
 
@@ -1088,10 +1092,9 @@ class PerfLedgerManager(CacheController):
             for tp_id in tp_ids_to_build:
                 perf_ledger = perf_ledger_bundle[tp_id]
                 if shortcut_reason in (ShortcutReason.NO_OPEN_POSITIONS, ShortcutReason.ZERO_TIME_DELTA) and perf_ledger.cps[-1]:
-                    # Multpying a bunch of floats in python changes the precision. Just take the previous return to keep cps from showing a small gain/loss.
-                    tp_return = perf_ledger.cps[-1].prev_portfolio_ret
-                    tp_spread_fee = perf_ledger.cps[-1].prev_portfolio_spread_fee
-                    tp_carry_fee = perf_ledger.cps[-1].prev_portfolio_carry_fee
+                    tp_return = initial_tp_to_return[tp_id]
+                    tp_spread_fee = initial_tp_to_spread_fee[tp_id]
+                    tp_carry_fee = initial_tp_to_carry_fee[tp_id]
                 else:
                     tp_return = initial_tp_to_return[tp_id]
                     tp_spread_fee = initial_tp_to_spread_fee[tp_id]
@@ -1136,7 +1139,7 @@ class PerfLedgerManager(CacheController):
 
 
         # closed positions have the same stats throughout the interval. lets do a single update now
-        # so that filling the void using the current state of those position(s)
+        # so that filling the void uses the current state of those position(s)
         for tp_id in tp_ids_to_build:
             if tp_id in open_positions_tp_ids or tp_id == TP_ID_PORTFOLIO:
                 continue
@@ -1236,7 +1239,7 @@ class PerfLedgerManager(CacheController):
 
         if perf_ledger_bundle_candidate is None:
             first_order_time_ms = min(p.orders[0].processed_ms for p in positions)
-            perf_ledger_bundle_candidate = {TP_ID_PORTFOLIO: PerfLedger(initialization_time_ms=first_order_time_ms, target_ledger_window_ms=self.target_ledger_window_ms, tp_id=TP_ID_PORTFOLIO)}
+            perf_ledger_bundle_candidate = {TP_ID_PORTFOLIO: PerfLedger(initialization_time_ms=first_order_time_ms, target_ledger_window_ms=self.target_ledger_window_ms)}
             verbose = True
         else:
             perf_ledger_bundle_candidate = deepcopy(perf_ledger_bundle_candidate)
@@ -1542,7 +1545,7 @@ class PerfLedgerManager(CacheController):
                 if x in self.perf_ledger_hks_to_invalidate:
                     del self.perf_ledger_hks_to_invalidate[x]
 
-        if testing_one_hotkey:
+        if testing_one_hotkey and not self.running_unit_tests:
             portfolio_ledger = perf_ledger_bundles[testing_one_hotkey][TP_ID_PORTFOLIO]
             # print all attributes except cps: Note ledger is an object
             print(f'Portfolio ledger attributes: initialization_time_ms {portfolio_ledger.initialization_time_ms},'
