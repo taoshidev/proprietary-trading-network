@@ -2,7 +2,7 @@
 from copy import deepcopy
 from datetime import datetime, timezone
 
-from tests.shared_objects.mock_classes import MockMetagraph
+from tests.shared_objects.mock_metagraph import MockMetagraph
 from tests.vali_tests.base_objects.test_base import TestBase
 from time_util.time_util import MS_IN_8_HOURS, MS_IN_24_HOURS, TimeUtil
 from vali_objects.enums.order_type_enum import OrderType

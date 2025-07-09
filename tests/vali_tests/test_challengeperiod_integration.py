@@ -1,7 +1,8 @@
 # developer: trdougherty
 from copy import deepcopy
 
-from tests.shared_objects.mock_classes import MockMetagraph, MockPositionManager
+from tests.shared_objects.mock_classes import MockPositionManager
+from tests.shared_objects.mock_metagraph import MockMetagraph
 from tests.shared_objects.test_utilities import (
     generate_losing_ledger,
     generate_winning_ledger,

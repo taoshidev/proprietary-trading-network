@@ -1,7 +1,7 @@
 import json
 from copy import deepcopy
 
-from tests.shared_objects.mock_classes import MockMetagraph
+from tests.shared_objects.mock_metagraph import MockMetagraph
 from tests.vali_tests.base_objects.test_base import TestBase
 from vali_objects.decoders.generalized_json_decoder import GeneralizedJSONDecoder
 from vali_objects.enums.order_type_enum import OrderType
