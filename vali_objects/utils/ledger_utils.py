@@ -359,6 +359,8 @@ class LedgerUtils:
         Args:
             ledger: PerfLedger - the ledger of the miner
         """
+        if not ledger:
+            return 0
         checkpoints = ledger.cps
         if len(checkpoints) == 0:
             return 0
