@@ -3,6 +3,7 @@ import math
 import os
 import time
 import traceback
+import datetime
 from collections import defaultdict
 from copy import deepcopy
 from enum import Enum
@@ -1548,6 +1549,9 @@ class PerfLedgerManager(CacheController):
             # print all attributes except cps: Note ledger is an object
             print(f'Portfolio ledger attributes: initialization_time_ms {portfolio_ledger.initialization_time_ms},'
                     f' max_return {portfolio_ledger.max_return}')
+            from vali_objects.utils.ledger_utils import LedgerUtils
+            daily_returns = LedgerUtils.daily_return_ratio_by_date(portfolio_ledger)
+            datetime_to_daily_return = {datetime.datetime.combine(k, datetime.time.min).timestamp() :v for k, v in daily_returns.items()}
             returns = []
             returns_muled = []
             times = []
@@ -1580,15 +1584,27 @@ class PerfLedgerManager(CacheController):
                 print(x, last_update_formated)
             # Plot time vs return using matplotlib as well as time vs dd. use a legend.
             import matplotlib.pyplot as plt
+
+            returns_debug = []
+            times_debug = []
+
+            for t in times:
+                ts = datetime.datetime.combine(t.date(), datetime.time.min).timestamp()
+                if ts in datetime_to_daily_return:
+                    returns_debug.append(datetime_to_daily_return[ts])
+                    times_debug.append(t)
+
+
             # Make the plot bigger
             plt.figure(figsize=(10, 5))
             plt.plot(times, returns, color='red', label='Return')
             plt.plot(times, returns_muled, color='blue', label='Return_Mulled')
             plt.plot(times, mdds, color='green', label='MDD')
+            plt.plot(times_debug, returns_debug, color='orange', label='Daily Return Debug')
             # Labels
             plt.xlabel('Time')
             plt.title(f'Return vs Time for HK {testing_one_hotkey}')
-            plt.legend(['Return', 'Return_Mulled', 'MDD'])
+            plt.legend(['Return', 'Return_Mulled', 'MDD', 'Daily Return Debug'])
             plt.show()
 
             for tp_id, pl in perf_ledger_bundles[testing_one_hotkey].items():
@@ -1753,7 +1769,7 @@ if __name__ == "__main__":
     # Configuration flags
     parallel_mode = ParallelizationMode.SERIAL  # 1 for pyspark, 2 for multiprocessing
     top_n_miners = 4
-    test_single_hotkey = '5Cd9y4yxBPztgVZT3rA95wWUVsC278NYFXyhrWgq8XzVa1Lg'  # Set to a specific hotkey string to test single hotkey, or None for all
+    test_single_hotkey = '5CRxn5ARFyVnPLTE6PChbw3mAFk8vAT2BnPwrZgWxcKKgqoe'  # Set to a specific hotkey string to test single hotkey, or None for all
     regenerate_all = False  # Whether to regenerate all ledgers from scratch
     build_portfolio_ledgers_only = True  # Whether to build only the portfolio ledgers or per trade pair
 

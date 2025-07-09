@@ -35,6 +35,46 @@ class LedgerUtils:
         date_return_map = LedgerUtils.daily_return_log_by_date(ledger)
         return {date: (math.exp(log_return) - 1) * 100
                 for date, log_return in date_return_map.items()}
+
+    @staticmethod
+    def daily_return_ratio_by_date(ledger: PerfLedger) -> dict[datetime.date, float]:
+        """
+        Calculate daily returns from performance checkpoints, with date keys as datetime.date objects.
+
+        :param ledger: PerfLedger - the ledger of the miner
+        :return: dict[datetime.date, float] - dictionary mapping dates to daily returns as ratios
+        """
+        if not ledger or not ledger.cps:
+            return {}
+
+        daily_cps = {}
+
+        # Group checkpoints by date
+        for cp in ledger.cps:
+            # Need to use the beginning of the cell, otherwise it may bleed into the next day
+            start_time = (cp.last_update_ms - cp.accum_ms)
+            full_cell = cp.accum_ms == ValiConfig.TARGET_CHECKPOINT_DURATION_MS
+
+            # Use the 12PM cps as their last value is the next days start value
+            running_date = datetime.fromtimestamp((start_time + ValiConfig.TARGET_CHECKPOINT_DURATION_MS)/ 1000, tz=timezone.utc).date()
+            if full_cell:
+                if running_date not in daily_cps:
+                    daily_cps[running_date] = cp
+                else:
+                    if cp.last_update_ms < daily_cps[running_date].last_update_ms:
+                        # Keep the earliest checkpoint for the day. we want the 12 AM value not the 12 PM value
+                        daily_cps[running_date] = cp
+
+        ans = {}
+        prev_ret = None
+        # Iterating in cronological order since python dicts are sorted by insertion order
+        for i, (k, cp) in enumerate(daily_cps.items()):
+            if i == 0:
+                ans[k] = None
+            else:
+                ans[k] = (cp.prev_portfolio_ret / prev_ret) - 1
+            prev_ret = cp.prev_portfolio_ret
+        return ans
                 
     @staticmethod
     def daily_returns_by_date_json(ledger: PerfLedger) -> dict[str, float]:
