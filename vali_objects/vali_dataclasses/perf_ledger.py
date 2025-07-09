@@ -422,9 +422,6 @@ class PerfLedgerManager(CacheController):
         self.parallel_mode = parallel_mode
         self.use_slippage = use_slippage
         position_file.ALWAYS_USE_SLIPPAGE = use_slippage
-
-        bt.logging.info(f"Running performance ledger manager with mode {self.parallel_mode.name}")
-
         self.build_portfolio_ledgers_only = build_portfolio_ledgers_only
         if perf_ledger_hks_to_invalidate is None:
             self.perf_ledger_hks_to_invalidate = {}
@@ -464,6 +461,7 @@ class PerfLedgerManager(CacheController):
         if self.is_backtesting or self.parallel_mode != ParallelizationMode.SERIAL:
             pass
         else:
+            bt.logging.info(f"Running performance ledger manager with mode {self.parallel_mode.name}")
             initial_perf_ledgers = self.get_perf_ledgers(from_disk=True, portfolio_only=False)
             for k, v in initial_perf_ledgers.items():
                 self.hotkey_to_perf_bundle[k] = v
@@ -1244,8 +1242,6 @@ class PerfLedgerManager(CacheController):
             perf_ledger_bundle_candidate = deepcopy(perf_ledger_bundle_candidate)
             verbose = False
 
-        pl_update_start_time_ms = perf_ledger_bundle_candidate[TP_ID_PORTFOLIO].last_update_ms
-
         for tp_id, perf_ledger in perf_ledger_bundle_candidate.items():
             perf_ledger.init_max_portfolio_value()
 
@@ -1334,6 +1330,9 @@ class PerfLedgerManager(CacheController):
         lag = (TimeUtil.now_in_millis() - portfolio_perf_ledger.last_update_ms) // 1000
         total_product = portfolio_perf_ledger.get_total_product()
         last_portfolio_value = portfolio_perf_ledger.prev_portfolio_ret
+        pl_update_start_time_ms = perf_ledger_bundle_candidate[TP_ID_PORTFOLIO].last_update_ms
+        if pl_update_start_time_ms == 0:
+            pl_update_start_time_ms = perf_ledger_bundle_candidate[TP_ID_PORTFOLIO].initialization_time_ms
         if verbose:
             bt.logging.success(
                 f"Done updating perf ledger for {hotkey} {hotkey_i + 1}/{n_hotkeys} in {time.time() - t0} "
