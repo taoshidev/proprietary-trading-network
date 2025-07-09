@@ -11,6 +11,7 @@ import bittensor as bt
 from pydantic import BaseModel, ConfigDict
 from setproctitle import setproctitle
 from shared_objects.sn8_multiprocessing import ParallelizationMode, get_spark_session, get_multiprocessing_pool
+from tests.shared_objects.mock_classes import MockMetagraph
 from time_util.time_util import MS_IN_8_HOURS, MS_IN_24_HOURS, timeme
 import vali_objects.position as position_file
 
@@ -454,11 +455,6 @@ class PerfLedgerManager(CacheController):
         self.now_ms = 0  # The largest timestamp we want to buffer candles for. time.time() - UPDATE_LOOKBACK_S
         #self.base_dd_stats = {'worst_dd':1.0, 'last_dd':0, 'mrpv':1.0, 'n_closed_pos':0, 'n_checks':0, 'current_portfolio_return': 1.0}
         #self.hk_to_dd_stats = defaultdict(lambda: deepcopy(self.base_dd_stats))
-        # ipc list does not update the object without using __setitem__
-        temp = self.get_perf_ledger_eliminations(first_fetch=True)
-        self.pl_elimination_rows.extend(temp)
-        for i, x in enumerate(temp):
-            self.pl_elimination_rows[i] = x
         self.candidate_pl_elimination_rows = []
         self.hk_to_last_order_processed_ms = {}
         self.mode_to_n_updates = {}
@@ -471,6 +467,11 @@ class PerfLedgerManager(CacheController):
             initial_perf_ledgers = self.get_perf_ledgers(from_disk=True, portfolio_only=False)
             for k, v in initial_perf_ledgers.items():
                 self.hotkey_to_perf_bundle[k] = v
+            # ipc list does not update the object without using __setitem__
+            temp = self.get_perf_ledger_eliminations(first_fetch=True)
+            self.pl_elimination_rows.extend(temp)
+            for i, x in enumerate(temp):
+                self.pl_elimination_rows[i] = x
 
         if secrets:
             self.secrets = secrets
@@ -1659,7 +1660,6 @@ class PerfLedgerManager(CacheController):
     def update_one_perf_ledger_parallel(self, data_tuple):
         t0 = time.time()
         hotkey_i, n_hotkeys, hotkey, positions, existing_bundle, now_ms, is_backtesting = data_tuple
-        from tests.shared_objects.mock_classes import MockMetagraph
         # Create a temporary manager for processing
         # This is to avoid sharing state between executors
         worker_plm = PerfLedgerManager(
@@ -1749,7 +1749,6 @@ class PerfLedgerManager(CacheController):
 
 
 if __name__ == "__main__":
-    from tests.shared_objects.mock_classes import MockMetagraph
     bt.logging.enable_info()
 
     # Configuration flags
