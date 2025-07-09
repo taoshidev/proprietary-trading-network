@@ -11,7 +11,7 @@ import bittensor as bt
 from pydantic import BaseModel, ConfigDict
 from setproctitle import setproctitle
 from shared_objects.sn8_multiprocessing import ParallelizationMode, get_spark_session, get_multiprocessing_pool
-from tests.shared_objects.mock_classes import MockMetagraph
+from tests.shared_objects.mock_metagraph import MockMetagraph
 from time_util.time_util import MS_IN_8_HOURS, MS_IN_24_HOURS, timeme
 import vali_objects.position as position_file
 

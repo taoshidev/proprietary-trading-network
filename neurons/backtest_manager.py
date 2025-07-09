@@ -40,7 +40,7 @@ bt.logging.enable_info()
 from runnable.generate_request_minerstatistics import MinerStatisticsManager  # noqa: E402
 from shared_objects.sn8_multiprocessing import get_multiprocessing_pool, get_spark_session  # noqa: E402
 from taoshi.ts import ptn as ptn_utils  # noqa: E402
-from tests.shared_objects.mock_classes import MockMetagraph  # noqa: E402
+from tests.shared_objects.mock_metagraph import MockMetagraph
 from tests.test_data.backtest_test_positions import get_test_positions  # noqa: E402
 from time_util.time_util import TimeUtil  # noqa: E402
 from vali_objects.position import Position  # noqa: E402
