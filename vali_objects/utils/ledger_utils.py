@@ -37,12 +37,13 @@ class LedgerUtils:
                 for date, log_return in date_return_map.items()}
 
     @staticmethod
-    def daily_return_ratio_by_date(ledger: PerfLedger) -> dict[datetime.date, float]:
+    def daily_return_ratio_by_date(ledger: PerfLedger, use_log: bool) -> dict[datetime.date, float]:
         """
         Calculate daily returns from performance checkpoints, with date keys as datetime.date objects.
 
         :param ledger: PerfLedger - the ledger of the miner
-        :return: dict[datetime.date, float] - dictionary mapping dates to daily returns as ratios
+        :param use_log: If True, calculates log returns; otherwise, calculates simple returns
+        :return: dict[datetime.date, float] - dictionary mapping dates to daily returns
         """
         if not ledger or not ledger.cps:
             return {}
@@ -67,12 +68,18 @@ class LedgerUtils:
 
         ans = {}
         prev_ret = None
-        # Iterating in cronological order since python dicts are sorted by insertion order
+        # Iterating in chronological order since python dicts are sorted by insertion order
         for i, (k, cp) in enumerate(daily_cps.items()):
             if i == 0:
                 ans[k] = None
             else:
-                ans[k] = (cp.prev_portfolio_ret / prev_ret) - 1
+                try:
+                    if use_log:
+                        ans[k] = math.log(cp.prev_portfolio_ret / prev_ret)
+                    else:
+                        ans[k] = (cp.prev_portfolio_ret / prev_ret) - 1
+                except (ZeroDivisionError, ValueError):
+                    ans[k] = None   # fallback if prev_ret is 0 or invalid
             prev_ret = cp.prev_portfolio_ret
         return ans
                 
