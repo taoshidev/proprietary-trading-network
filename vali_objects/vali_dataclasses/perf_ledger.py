@@ -245,7 +245,8 @@ class PerfLedger():
             self.init_with_first_order(now_ms, point_in_time_dd=1.0, current_portfolio_value=1.0,
                                            current_portfolio_fee_spread=1.0, current_portfolio_carry=1.0)
         prev_max_return = self.max_return
-        prev_mdd = CacheController.calculate_drawdown(prev_max_return, self.max_return)
+        last_portfolio_return = self.cps[-1].prev_portfolio_ret
+        prev_mdd = CacheController.calculate_drawdown(last_portfolio_return, prev_max_return)
         self.max_return = max(self.max_return, current_portfolio_value)
         point_in_time_dd = CacheController.calculate_drawdown(current_portfolio_value, self.max_return)
         if not point_in_time_dd:
@@ -259,7 +260,6 @@ class PerfLedger():
                                        current_portfolio_carry)
             return
 
-        last_portfolio_return = self.cps[-1].prev_portfolio_ret
         time_since_last_update_ms = now_ms - self.cps[-1].last_update_ms
         assert time_since_last_update_ms >= 0, self.cps
         """
@@ -315,7 +315,7 @@ class PerfLedger():
                     prev_portfolio_carry_fee=self.cps[-1].prev_portfolio_carry_fee,
                     accum_ms=self.target_cp_duration_ms,
                     open_ms=0,  # No market data for void periods
-                    mdd=1.0,
+                    mdd=prev_mdd,
                     mpv=last_portfolio_return
                 )
                 assert new_cp.last_update_ms % self.target_cp_duration_ms == 0, f"Checkpoint not aligned: {new_cp.last_update_ms}"
