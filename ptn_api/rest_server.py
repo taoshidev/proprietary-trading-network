@@ -224,7 +224,7 @@ class PTNRestServer(APIKeyMixin):
     """Handles REST API requests with Flask and Waitress."""
 
     def __init__(self, api_keys_file, shared_queue=None, host="127.0.0.1",
-                 port=48888, refresh_interval=15, metrics_interval_minutes=5, position_manager=None):
+                 port=48888, refresh_interval=15, metrics_interval_minutes=5, position_manager=None, contract_manager=None):
         """Initialize the REST server with API key handling and routing.
 
         Args:
@@ -235,6 +235,7 @@ class PTNRestServer(APIKeyMixin):
             refresh_interval: How often to check for API key changes (seconds)
             metrics_interval_minutes: How often to log API metrics (minutes)
             position_manager: Optional position manager for handling miner positions
+            contract_manager: Optional contract manager for handling collateral operations
         """
         # Initialize API key handling
         APIKeyMixin.__init__(self, api_keys_file, refresh_interval)
@@ -242,6 +243,7 @@ class PTNRestServer(APIKeyMixin):
         # REST server configuration
         self.shared_queue = shared_queue
         self.position_manager: PositionManager = position_manager
+        self.contract_manager = contract_manager
         self.data_path = ValiConfig.BASE_DIR
         self.host = host
         self.port = port
@@ -526,6 +528,149 @@ class PTNRestServer(APIKeyMixin):
                 return jsonify({'error': 'Eliminations data not found'}), 404
             else:
                 return jsonify(data)
+
+        @self.app.route("/collateral/deposit", methods=["POST"])
+        def deposit_collateral():
+            """Process collateral deposit with encoded extrinsic."""
+            api_key = self._get_api_key_safe()
+            
+            # Check if the API key is valid
+            if not self.is_valid_api_key(api_key):
+                return jsonify({'error': 'Unauthorized access'}), 401
+                
+            # Check if contract manager is available
+            if not self.contract_manager:
+                return jsonify({'error': 'Collateral operations not available'}), 503
+                
+            try:
+                # Parse JSON request
+                if not request.is_json:
+                    return jsonify({'error': 'Content-Type must be application/json'}), 400
+                    
+                data = request.get_json()
+                if not data:
+                    return jsonify({'error': 'Invalid JSON body'}), 400
+                    
+                # Validate required fields
+                required_fields = ['extrinsic_data', 'amount', 'miner_address']
+                for field in required_fields:
+                    if field not in data:
+                        return jsonify({'error': f'Missing required field: {field}'}), 400
+                        
+                # Process the deposit using raw data
+                result = self.contract_manager.process_deposit_request(
+                    extrinsic_data=data['extrinsic_data'],
+                    amount=data['amount'],
+                    miner_address=data['miner_address']
+                )
+                
+                # Return response
+                return jsonify(result)
+                
+            except Exception as e:
+                bt.logging.error(f"Error processing collateral deposit: {e}")
+                return jsonify({'error': 'Internal server error processing deposit'}), 500
+                
+        @self.app.route("/collateral/withdraw", methods=["POST"])
+        def withdraw_collateral():
+            """Process collateral withdrawal request."""
+            api_key = self._get_api_key_safe()
+            
+            # Check if the API key is valid
+            if not self.is_valid_api_key(api_key):
+                return jsonify({'error': 'Unauthorized access'}), 401
+
+            # Check if contract manager is available
+            if not self.contract_manager:
+                return jsonify({'error': 'Collateral operations not available'}), 503
+                
+            try:
+                # Parse JSON request
+                if not request.is_json:
+                    return jsonify({'error': 'Content-Type must be application/json'}), 400
+                    
+                data = request.get_json()
+                if not data:
+                    return jsonify({'error': 'Invalid JSON body'}), 400
+                    
+                # Validate required fields
+                required_fields = ['amount', 'miner_address']
+                for field in required_fields:
+                    if field not in data:
+                        return jsonify({'error': f'Missing required field: {field}'}), 400
+                        
+                # Process the withdrawal using raw data
+                result = self.contract_manager.process_withdrawal_request(
+                    amount=data['amount'],
+                    miner_address=data['miner_address']
+                )
+                
+                # Return response
+                return jsonify(result)
+                
+            except Exception as e:
+                bt.logging.error(f"Error processing collateral withdrawal: {e}")
+                return jsonify({'error': 'Internal server error processing withdrawal'}), 500
+                
+        @self.app.route("/collateral/balance/<miner_address>", methods=["GET"])
+        def get_collateral_balance(miner_address):
+            """Get a miner's collateral balance."""
+            api_key = self._get_api_key_safe()
+            
+            # Check if the API key is valid
+            if not self.is_valid_api_key(api_key):
+                return jsonify({'error': 'Unauthorized access'}), 401
+                
+            # Check if contract manager is available
+            if not self.contract_manager:
+                return jsonify({'error': 'Collateral operations not available'}), 503
+                
+            try:
+                # Get the balance
+                balance = self.contract_manager.get_miner_collateral_balance(miner_address)
+                
+                if balance is None:
+                    return jsonify({'error': 'Failed to retrieve collateral balance'}), 500
+                    
+                return jsonify({
+                    'miner_address': miner_address,
+                    'balance_theta': balance,
+                    'balance_rao': self.contract_manager.theta_to_rao(balance)
+                })
+                
+            except Exception as e:
+                bt.logging.error(f"Error getting collateral balance for {miner_address}: {e}")
+                return jsonify({'error': 'Internal server error retrieving balance'}), 500
+                
+        @self.app.route("/collateral/stats", methods=["GET"])
+        def get_collateral_stats():
+            """Get overall collateral system statistics."""
+            api_key = self._get_api_key_safe()
+            
+            # Check if the API key is valid
+            if not self.is_valid_api_key(api_key):
+                return jsonify({'error': 'Unauthorized access'}), 401
+                
+            # Require tier 100 access for system statistics
+            if not self.can_access_tier(api_key, 100):
+                return jsonify({'error': 'Collateral statistics require tier 100 access'}), 403
+                
+            # Check if contract manager is available
+            if not self.contract_manager:
+                return jsonify({'error': 'Collateral operations not available'}), 503
+                
+            try:
+                # Get the statistics
+                stats = self.contract_manager.get_total_collateral_stats()
+                
+                if not stats:
+                    return jsonify({'error': 'Failed to retrieve collateral statistics'}), 500
+                    
+                return jsonify(stats)
+                
+            except Exception as e:
+                bt.logging.error(f"Error getting collateral statistics: {e}")
+                return jsonify({'error': 'Internal server error retrieving statistics'}), 500
 
     def _get_api_key_safe(self) -> Optional[str]:
         """

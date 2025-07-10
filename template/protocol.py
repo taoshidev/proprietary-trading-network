@@ -44,24 +44,3 @@ class GetDashData(bt.Synapse):
     error_message: str = Field("", title="Error Message", frozen=False)
     computed_body_hash: str = Field("", title="Computed Body Hash", frozen=False)
 GetDashData.required_hash_fields = ["data"]
-
-class DepositCollateral(bt.Synapse):
-    extrinsic_data: str = Field("", title="Encoded Extrinsic Data", frozen=False)
-    amount: int = Field(0, title="Deposit Amount in Theta", frozen=False)
-    miner_address: str = Field("", title="Miner SS58 Address", frozen=False, max_length=256)
-    successfully_processed: bool = Field(False, title="Successfully Processed", frozen=False)
-    error_message: str = Field("", title="Error Message", frozen=False, max_length=4096)
-    transaction_hash: str = Field("", title="EVM Transaction Hash", frozen=False, max_length=256)
-    computed_body_hash: str = Field("", title="Computed Body Hash", frozen=False)
-
-DepositCollateral.required_hash_fields = ["extrinsic_data", "amount", "miner_address"]
-
-class WithdrawCollateral(bt.Synapse):
-    amount: int = Field(0, title="Withdrawal Amount in Theta", frozen=False)
-    miner_address: str = Field("", title="Miner SS58 Address", frozen=False, max_length=256)
-    successfully_processed: bool = Field(False, title="Successfully Processed", frozen=False)
-    error_message: str = Field("", title="Error Message", frozen=False, max_length=4096)
-    returned_amount: int = Field(0, title="Actual Amount Withdrawn in Theta", frozen=False)
-    computed_body_hash: str = Field("", title="Computed Body Hash", frozen=False)
-
-WithdrawCollateral.required_hash_fields = ["amount", "miner_address"]
