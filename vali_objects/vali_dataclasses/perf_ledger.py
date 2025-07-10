@@ -11,6 +11,7 @@ from typing import List
 import bittensor as bt
 from pydantic import BaseModel, ConfigDict
 from setproctitle import setproctitle
+from vali_objects.utils.position_source import PositionSourceManager, PositionSource
 from shared_objects.sn8_multiprocessing import ParallelizationMode, get_spark_session, get_multiprocessing_pool
 from tests.shared_objects.mock_metagraph import MockMetagraph
 from time_util.time_util import MS_IN_8_HOURS, MS_IN_24_HOURS, timeme
@@ -1550,7 +1551,7 @@ class PerfLedgerManager(CacheController):
             print(f'Portfolio ledger attributes: initialization_time_ms {portfolio_ledger.initialization_time_ms},'
                     f' max_return {portfolio_ledger.max_return}')
             from vali_objects.utils.ledger_utils import LedgerUtils
-            daily_returns = LedgerUtils.daily_return_ratio_by_date(portfolio_ledger)
+            daily_returns = LedgerUtils.daily_return_ratio_by_date(portfolio_ledger, use_log=False)
             datetime_to_daily_return = {datetime.datetime.combine(k, datetime.time.min).timestamp() :v for k, v in daily_returns.items()}
             returns = []
             returns_muled = []
@@ -1600,7 +1601,7 @@ class PerfLedgerManager(CacheController):
             plt.plot(times, returns, color='red', label='Return')
             plt.plot(times, returns_muled, color='blue', label='Return_Mulled')
             plt.plot(times, mdds, color='green', label='MDD')
-            plt.plot(times_debug, returns_debug, color='orange', label='Daily Return Debug')
+            #plt.plot(times_debug, returns_debug, color='orange', label='Daily Return Debug')
             # Labels
             plt.xlabel('Time')
             plt.title(f'Return vs Time for HK {testing_one_hotkey}')
@@ -1767,19 +1768,70 @@ if __name__ == "__main__":
     bt.logging.enable_info()
 
     # Configuration flags
+    use_database_positions = True  # NEW: Enable database position loading
+    use_test_positions = False      # NEW: Enable test position loading
+    
     parallel_mode = ParallelizationMode.SERIAL  # 1 for pyspark, 2 for multiprocessing
     top_n_miners = 4
-    test_single_hotkey = '5CRxn5ARFyVnPLTE6PChbw3mAFk8vAT2BnPwrZgWxcKKgqoe'  # Set to a specific hotkey string to test single hotkey, or None for all
+    test_single_hotkey = '5FmqXG5YBU1Hke9jHD5FT41CUM9gVod7nFgYvbd7PmpqcUJm'  # Set to a specific hotkey string to test single hotkey, or None for all
     regenerate_all = False  # Whether to regenerate all ledgers from scratch
     build_portfolio_ledgers_only = True  # Whether to build only the portfolio ledgers or per trade pair
+    
+    # Time range for database queries (if using database positions)
+    start_time_ms = 1735689600000  # Jan 1, 2025
+    end_time_ms = 1736035200000    # Jan 5, 2025
 
+    # Validate configuration
+    if use_database_positions and use_test_positions:
+        raise ValueError("Cannot use both database and test positions. Choose one.")
 
     # Initialize components
     all_miners_dir = ValiBkpUtils.get_miner_dir(running_unit_tests=False)
     all_hotkeys_on_disk = CacheController.get_directory_names(all_miners_dir)
-    mmg = MockMetagraph(hotkeys=all_hotkeys_on_disk)
+    
+    # Determine which hotkeys to process
+    if test_single_hotkey:
+        hotkeys_to_process = [test_single_hotkey]
+    else:
+        hotkeys_to_process = all_hotkeys_on_disk
+    
+    # Load positions from alternative sources if configured
+    hk_to_positions = {}
+    if use_database_positions or use_test_positions:
+        # Determine source type
+        if use_database_positions:
+            source_type = PositionSource.DATABASE
+            bt.logging.info("Using database as position source")
+        else:  # use_test_positions
+            source_type = PositionSource.TEST
+            bt.logging.info("Using test data as position source")
+        
+        # Load positions
+        position_source_manager = PositionSourceManager(source_type)
+        hk_to_positions = position_source_manager.load_positions(
+            end_time_ms=end_time_ms if use_database_positions else None,
+            hotkeys=hotkeys_to_process if use_database_positions else None
+        )
+        
+        # Update hotkeys to process based on loaded positions
+        if hk_to_positions:
+            hotkeys_to_process = list(hk_to_positions.keys())
+            bt.logging.info(f"Loaded positions for {len(hotkeys_to_process)} miners from {source_type.value}")
+    
+    # Initialize metagraph and managers with appropriate hotkeys
+    mmg = MockMetagraph(hotkeys=hotkeys_to_process)
     elimination_manager = EliminationManager(mmg, None, None)
     position_manager = PositionManager(metagraph=mmg, running_unit_tests=False, elimination_manager=elimination_manager)
+    
+    # Save loaded positions to position manager if using alternative source
+    if hk_to_positions:
+        position_count = 0
+        for hk, positions in hk_to_positions.items():
+            for pos in positions:
+                position_manager.save_miner_position(pos)
+                position_count += 1
+        bt.logging.info(f"Saved {position_count} positions to position manager")
+    
     perf_ledger_manager = PerfLedgerManager(mmg, position_manager=position_manager, running_unit_tests=False,
                                             enable_rss=False, parallel_mode=parallel_mode,
                                             build_portfolio_ledgers_only=build_portfolio_ledgers_only)

@@ -23,11 +23,8 @@ Usage Examples:
     end_time_ms = 1736035200000
     test_single_hotkey = '5HDmzyhrEco9w6Jv8eE3hDMcXSE4AGg1MuezPR4u2covxKwZ'
 """
-
-import copy
 import os
 import time
-from collections import defaultdict
 
 import bittensor as bt
 
@@ -37,11 +34,9 @@ os.environ["TAOSHI_TS_PLATFORM"] = "LOCAL"
 
 from runnable.generate_request_minerstatistics import MinerStatisticsManager  # noqa: E402
 from shared_objects.sn8_multiprocessing import get_multiprocessing_pool, get_spark_session  # noqa: E402
-from taoshi.ts import ptn as ptn_utils  # noqa: E402
 from tests.shared_objects.mock_metagraph import MockMetagraph # noqa: E402
-from tests.test_data.backtest_test_positions import get_test_positions  # noqa: E402
+from vali_objects.utils.position_source import PositionSourceManager, PositionSource# noqa: E402
 from time_util.time_util import TimeUtil  # noqa: E402
-from vali_objects.position import Position  # noqa: E402
 from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager  # noqa: E402
 from vali_objects.utils.elimination_manager import EliminationManager  # noqa: E402
 from vali_objects.utils.live_price_fetcher import LivePriceFetcher  # noqa: E402
@@ -100,66 +95,6 @@ def save_positions_to_manager(position_manager, hk_to_positions):
             position_count += 1
 
     bt.logging.info(f"Saved {position_count} positions for {len(hk_to_positions)} miners to position manager")
-
-def load_database_positions(start_time_ms, end_time_ms, test_single_hotkey):
-    """
-    Load positions from database using taoshi.ts.ptn.
-
-    Args:
-        start_time_ms: Start time in milliseconds
-        end_time_ms: End time in milliseconds
-        test_single_hotkey: single hotkey to filter by
-
-    Returns:
-        Dictionary mapping hotkeys to Position objects
-    """
-
-    bt.logging.info(f"Loading positions from database for hotkey {test_single_hotkey} for period "
-                   f"{TimeUtil.millis_to_formatted_date_str(start_time_ms)} to "
-                   f"{TimeUtil.millis_to_formatted_date_str(end_time_ms)}")
-
-    try:
-
-        # Initialize database position source
-        miner_db = ptn_utils.DatabasePositionOrderSource()
-
-        # Get positions from database
-        hotkeys_to_query = [test_single_hotkey]
-        filtered_positions = miner_db.get_positions_with_orders(
-            start_ms=0,
-            end_ms=end_time_ms,
-            miner_hotkeys=hotkeys_to_query
-        )
-
-        bt.logging.info(f"Retrieved {len(filtered_positions)} positions from database")
-
-        # Convert database positions to Position objects
-        hk_to_positions = defaultdict(list)
-        for position_data in filtered_positions:
-            position_copy = copy.deepcopy(position_data)
-
-            # Convert database format to Position object format (simplified like original commit)
-            position_copy["trade_pair"] = [position_data["trade_pair_id"]]
-            position_copy["position_type"] = str(position_copy["position_type"])
-
-            # Create Position object
-            try:
-                position_obj = Position(**position_copy)
-                hk_to_positions[position_obj.miner_hotkey].append(position_obj)
-            except Exception as e:
-                bt.logging.error(f"Failed to create Position object from database data: {e}")
-                continue
-
-        bt.logging.info(f"Successfully converted positions for {len(hk_to_positions)} miners")
-        return hk_to_positions
-
-    except ImportError as e:
-        bt.logging.error(f"Failed to import database utilities: {e}")
-        bt.logging.error("Make sure taoshi.ts.ptn is available and properly configured")
-        raise
-    except Exception as e:
-        bt.logging.error(f"Failed to load positions from database: {e}")
-        raise
 
 class BacktestManager:
 
@@ -343,47 +278,53 @@ if __name__ == '__main__':
 
     start_time_ms = 1735689600000
     end_time_ms = 1736035200000
-    test_single_hotkey ='5HDmzyhrEco9w6Jv8eE3hDMcXSE4AGg1MuezPR4u2covxKwZ'
+    test_single_hotkey ='5FmqXG5YBU1Hke9jHD5FT41CUM9gVod7nFgYvbd7PmpqcUJm'
 
+    # Determine position source
     if use_test_positions:
-        # Import test positions from separate file
-        test_positions = get_test_positions()
-        hk_to_positions = defaultdict(list)
-        # Calculate time range from test data
-        start_time_ms = min(min(o['processed_ms'] for o in pos['orders']) for pos in test_positions)
-        max_order_time_ms = max(max(o['processed_ms'] for o in pos['orders']) for pos in test_positions)
-        for pos in test_positions:
-            hk_to_positions[pos['miner_hotkey']].append(Position(**pos))
-        end_time_ms = max_order_time_ms + 1
-
-        # Initialize components with test position hotkeys
-        hotkeys = list(hk_to_positions.keys())
-        mmg, elimination_manager, position_manager, perf_ledger_manager = initialize_components(
-            hotkeys, parallel_mode, build_portfolio_ledgers_only)
-
-        # Save test positions to position manager
-        save_positions_to_manager(position_manager, hk_to_positions)
-
+        position_source = PositionSource.TEST
     elif use_database_positions:
-        # Load positions from database
-        hk_to_positions = load_database_positions(start_time_ms, end_time_ms, test_single_hotkey)
-
-        # Initialize components with database position hotkeys
-        hotkeys_list = list(hk_to_positions.keys()) if not test_single_hotkey else [test_single_hotkey]
-        mmg, elimination_manager, position_manager, perf_ledger_manager = initialize_components(
-            hotkeys_list, parallel_mode, build_portfolio_ledgers_only)
-
-        # Save database positions to position manager
-        save_positions_to_manager(position_manager, hk_to_positions)
-
+        position_source = PositionSource.DATABASE
     else:
-        # Load positions from disk (default behavior)
+        position_source = PositionSource.DISK
+    
+    # Create position source manager
+    position_source_manager = PositionSourceManager(position_source)
+    
+    # Load positions based on source
+    if position_source == PositionSource.DISK:
+        # For disk-based positions, use existing logic
         # Initialize components with specified hotkey
         mmg, elimination_manager, position_manager, perf_ledger_manager = initialize_components(
             test_single_hotkey, parallel_mode, build_portfolio_ledgers_only)
-
+        
         # Get positions from disk via perf ledger manager
         hk_to_positions, _ = perf_ledger_manager.get_positions_perf_ledger(testing_one_hotkey=test_single_hotkey)
+    else:
+        # For database/test positions, use position source manager
+        hk_to_positions = position_source_manager.load_positions(
+            end_time_ms=end_time_ms,
+            hotkeys=[test_single_hotkey] if test_single_hotkey and position_source == PositionSource.DATABASE else None
+        )
+        
+        # For test positions, update time range based on loaded data
+        if position_source == PositionSource.TEST and hk_to_positions:
+            # Calculate time range from test data
+            all_order_times = []
+            for positions in hk_to_positions.values():
+                for pos in positions:
+                    all_order_times.extend([order.processed_ms for order in pos.orders])
+            if all_order_times:
+                start_time_ms = min(all_order_times)
+                end_time_ms = max(all_order_times) + 1
+        
+        # Initialize components with loaded hotkeys
+        hotkeys_list = list(hk_to_positions.keys()) if hk_to_positions else [test_single_hotkey]
+        mmg, elimination_manager, position_manager, perf_ledger_manager = initialize_components(
+            hotkeys_list, parallel_mode, build_portfolio_ledgers_only)
+        
+        # Save loaded positions to position manager
+        save_positions_to_manager(position_manager, hk_to_positions)
 
 
     t0 = time.time()
