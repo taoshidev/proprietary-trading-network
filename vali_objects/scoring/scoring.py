@@ -79,16 +79,16 @@ class Scoring:
             evaluation_time_ms: int = None,
             verbose=True,
             weighting=False
-    ) -> List[Tuple[str, float]]:
+    ) -> tuple[List[Tuple[str, float]], dict[str, float]]:
         if len(ledger_dict) == 0:
             bt.logging.debug("No results to compute, returning empty list")
-            return []
+            return [], {}
 
         if len(ledger_dict) == 1:
             miner = list(ledger_dict.keys())[0]
             if verbose:
                 bt.logging.info(f"compute_results_checkpoint - Only one miner: {miner}, returning 1.0 for the solo miner weight")
-            return [(miner, 1.0)]
+            return [(miner, 1.0)], {}
 
         if evaluation_time_ms is None:
             evaluation_time_ms = TimeUtil.now_in_millis()
@@ -129,7 +129,7 @@ class Scoring:
 
         # Normalize the scores
         normalized_scores = Scoring.normalize_scores(combined_scores)
-        return sorted(normalized_scores.items(), key=lambda x: x[1], reverse=True)
+        return sorted(normalized_scores.items(), key=lambda x: x[1], reverse=True), miner_competitiveness
 
     @staticmethod
     def score_miners(

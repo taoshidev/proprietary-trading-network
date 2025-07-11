@@ -2,7 +2,7 @@
 from datetime import datetime, timezone
 import os
 import math
-
+from collections import defaultdict
 from enum import Enum
 
 from meta import load_version
@@ -460,7 +460,11 @@ class TradePair(Enum):
     @classmethod
     def subcategories(cls):
         # Eventually we'll want subcategories for each trade pair
-        return {tp.trade_pair_id: tp.value[6].value for tp in cls if len(tp.value) > 6}
+        trade_pairs_by_subcategory = defaultdict(list)
+        for tp in cls:
+            if tp.subcategory is not None:
+                trade_pairs_by_subcategory[tp.subcategory.value].append(tp.trade_pair_id)
+        return trade_pairs_by_subcategory
 
     @staticmethod
     def to_dict():

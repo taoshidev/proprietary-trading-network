@@ -8,7 +8,7 @@ from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
 from vali_objects.utils.elimination_manager import EliminationManager
 from vali_objects.utils.plagiarism_detector import PlagiarismDetector
 from vali_objects.utils.position_manager import PositionManager
-from vali_objects.vali_config import ValiConfig
+from vali_objects.vali_config import ValiConfig, TradePair
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.utils.subtensor_weight_setter import SubtensorWeightSetter
 from vali_objects.utils.position_utils import PositionUtils
@@ -444,28 +444,28 @@ class MinerStatisticsManager:
             selected_miner_hotkeys = all_miner_hotkeys
 
         # Filter ledger/positions
-        filtered_ledger = self.perf_ledger_manager.filtered_ledger_for_scoring(all_miner_hotkeys)
+        filtered_ledger = self.perf_ledger_manager.filtered_ledger_for_scoring(portfolio_only=True, hotkeys=all_miner_hotkeys)
         filtered_positions, _ = self.position_manager.filtered_positions_for_scoring(all_miner_hotkeys)
 
         # For weighting logic: gather "successful" checkpoint-based results
-        successful_ledger = self.perf_ledger_manager.filtered_ledger_for_scoring(challengeperiod_success_hotkeys)
+        successful_ledger = self.perf_ledger_manager.filtered_ledger_for_scoring(portfolio_only=True, hotkeys=challengeperiod_success_hotkeys)
         successful_positions, _ = self.position_manager.filtered_positions_for_scoring(challengeperiod_success_hotkeys)
 
         # Compute the checkpoint-based weighting for successful miners
-        checkpoint_results = Scoring.compute_results_checkpoint(
+        checkpoint_results, success_competitiveness = Scoring.compute_results_checkpoint(
             successful_ledger,
             successful_positions,
             evaluation_time_ms=time_now,
             verbose=False,
             weighting=final_results_weighting
-        )  # returns list of (hotkey, weightVal)
+        )  # returns list of (hotkey, weightVal), asset competitiveness dict
 
         # Only used for testing weight calculation
-        testing_ledger = self.perf_ledger_manager.filtered_ledger_for_scoring(challengeperiod_eval_hotkeys)
+        testing_ledger = self.perf_ledger_manager.filtered_ledger_for_scoring(portfolio_only=True, hotkeys=challengeperiod_eval_hotkeys)
         testing_positions, _ = self.position_manager.filtered_positions_for_scoring(challengeperiod_eval_hotkeys)
 
         # Compute testing miner scores
-        testing_checkpoint_results = Scoring.compute_results_checkpoint(
+        testing_checkpoint_results, _ = Scoring.compute_results_checkpoint(
             testing_ledger,
             testing_positions,
             evaluation_time_ms=time_now,
@@ -646,6 +646,11 @@ class MinerStatisticsManager:
         # Sort by ascending rank
         results_sorted = sorted(results_with_weight, key=lambda x: x["weight"]["rank"])
 
+        # network level data
+        network_data_dict = {
+            "asset_competitiveness": success_competitiveness
+        }
+
         # If you'd prefer not to filter out those without weight, you could keep them at the end
         # Or you can unify them in a single list. For simplicity, let's keep it consistent:
         final_dict = {
@@ -653,7 +658,8 @@ class MinerStatisticsManager:
             'created_timestamp_ms': time_now,
             'created_date': TimeUtil.millis_to_formatted_date_str(time_now),
             'data': results_sorted,
-            'constants': self.get_printable_config()
+            'constants': self.get_printable_config(),
+            'network_data': network_data_dict
         }
         return final_dict
 
@@ -663,11 +669,17 @@ class MinerStatisticsManager:
     def get_printable_config(self) -> Dict[str, Any]:
         """Get printable configuration values."""
         config_data = dict(ValiConfig.__dict__)
-        return {
+        printable_config = {
             key: value for key, value in config_data.items()
             if isinstance(value, (int, float, str))
                and key not in ['BASE_DIR', 'base_directory']
         }
+        
+        # Add asset class breakdown and subcategory weights
+        printable_config['asset_class_breakdown'] = ValiConfig.ASSET_CLASS_BREAKDOWN
+        printable_config['trade_pairs_by_subcategory'] = TradePair.subcategories()
+        
+        return printable_config
 
     # -------------------------------------------
     # Write to disk
