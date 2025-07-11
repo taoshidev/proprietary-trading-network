@@ -19,7 +19,7 @@ from vali_objects.utils.ledger_utils import LedgerUtils
 from vali_objects.utils.metrics import Metrics
 from vali_objects.utils.position_penalties import PositionPenalties
 from vali_objects.utils.asset_segmentation import AssetSegmentation
-
+from vali_objects.vali_config import TradePair, TradePairCategory, TradePairSubcategory
 import bittensor as bt
 
 
@@ -178,15 +178,15 @@ class Scoring:
 
         # We now want to track miner incentive between each asset class
         asset_class_breakdown = ValiConfig.ASSET_CLASS_BREAKDOWN
-        asset_classes = list(asset_class_breakdown.keys())
+        asset_subcategories = AssetSegmentation.distill_asset_subcategories(asset_class_breakdown)
 
         segmentation_machine = AssetSegmentation(ledger_dict)
 
         # This is going to track miner scores on each asset class
         miner_asset_benefit = {}
 
-        for asset_class in asset_classes:
-            asset_ledger = segmentation_machine.segmentation(asset_class)
+        for asset_subcategory in asset_subcategories:
+            asset_ledger = segmentation_machine.segmentation(asset_subcategory)
             filtered_ledger_returns = LedgerUtils.ledger_returns_log(asset_ledger)
             scores_dict = {"metrics": {}}
             for config_name, config in Scoring.scoring_config.items():
@@ -213,7 +213,7 @@ class Scoring:
                 }
 
             scores_dict["penalties"] = copy.deepcopy(full_miner_penalties)
-            miner_asset_benefit[asset_class] = scores_dict
+            miner_asset_benefit[asset_subcategory] = scores_dict
 
         return miner_asset_benefit
 
@@ -379,10 +379,42 @@ class Scoring:
         """
         aggregated_scores = defaultdict(float)
         asset_class_breakdown = ValiConfig.ASSET_CLASS_BREAKDOWN
+        category_lookup = ValiConfig.CATEGORY_LOOKUP
 
-        for asset_class, scores in miner_asset_scoftmax_scores.items():
+        # Compose the full penalties dictionary based on subcategories and weights
+        full_penalties_dictionary = {}
+        for asset_class, asset_data in miner_asset_scoftmax_scores.items():
+            tradepair_lookup = category_lookup.get(asset_class, None)
+            if tradepair_lookup is None:
+                bt.logging.warning(f"Asset class {asset_class} not found in category lookup, assigning forex.")
+                tradepair_lookup = TradePairCategory.FOREX
+
+            asset_class_information = asset_class_breakdown.get(tradepair_lookup, {})
+
+            asset_class_emission = asset_class_information.get('emission', 0)
+            asset_subcategory_weight = asset_class_breakdown.get('subcategory_weights', {})
+
+            bt.logging.info(f"Asset class {asset_class} has emission {asset_class_emission} and subcategory weights {asset_subcategory_weight}")
+
+            if asset_class_emission == 0:
+                bt.logging.warning(f"Asset class {asset_class} has no emission. Please report this issue!")
+
+            if asset_subcategory_weight is None or len(asset_subcategory_weight) == 0:
+                raise ValueError(f"Asset class {asset_class} has no subcategory weights.")
+
+            for subcategory, subcategory_weight in asset_subcategory_weight.items():
+                full_penalties_dictionary[subcategory] = asset_class_emission * subcategory_weight
+
+        bt.logging.info(f"Full penalties dictionary: {full_penalties_dictionary}")
+
+        # Now check how the miners are achieving the asset class breakdown
+        for subcategory, scores in miner_asset_scoftmax_scores.items():
             for miner, score in scores:
-                aggregated_scores[miner] += score * asset_class_breakdown.get(asset_class, 0)
+                asset_class_emission = full_penalties_dictionary.get(subcategory, 0)
+                if miner not in aggregated_scores:
+                    aggregated_scores[miner] = 0.0
+
+                aggregated_scores[miner] += score * asset_class_emission
 
         return sorted(aggregated_scores.items(), key=lambda x: x[1], reverse=True)
 
