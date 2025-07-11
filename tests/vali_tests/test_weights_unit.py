@@ -39,7 +39,7 @@ class TestWeights(TestBase):
         ledger = {}
         miner_positions = {}
         for i in range(10):
-            ledger[f"miner{i}"] = generate_ledger(0.1)[TP_ID_PORTFOLIO]
+            ledger[f"miner{i}"] = generate_ledger(0.1)
             miner_positions[f"miner{i}"] = [copy.deepcopy(self.DEFAULT_POSITION)]
 
         # Test the default values

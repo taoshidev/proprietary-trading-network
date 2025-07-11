@@ -167,20 +167,20 @@ def checkpoint_generator(
 
 def generate_winning_ledger(start, end):
     # Designed with challenge period in mind
-    return generate_ledger(
-        start_time=start,
-        end_time=end,
-        gain=0.1,
-        loss=-0.08,
-        mdd=0.99
-    )
+    btc_ledger = generate_ledger(start_time=start, end_time=end, gain=0.1, loss=-0.08, mdd=0.99)
+    portfolio_ledger = generate_ledger(start_time=start, end_time=end, gain=0.1, loss=-0.08, mdd=0.99)
+
+    return {
+            TP_ID_PORTFOLIO: portfolio_ledger[TP_ID_PORTFOLIO],
+            "BTCUSD": btc_ledger[TP_ID_PORTFOLIO]
+            }
 
 def generate_losing_ledger(start, end):
     # Designed with challenge period in mind
-    return generate_ledger(
-        gain=0.1,
-        loss=-0.2,
-        mdd=(1 - (ValiConfig.DRAWDOWN_MAXVALUE_PERCENTAGE / 100)) - 0.01,
-        start_time=start,
-        end_time=end
-    )
+    btc_ledger = generate_ledger(start_time=start, end_time=end, gain=0.1, loss=-0.2, mdd=(1 - (ValiConfig.DRAWDOWN_MAXVALUE_PERCENTAGE / 100)) - 0.01)
+    portfolio_ledger = generate_ledger(start_time=start, end_time=end, gain=0.1, loss=-0.2, mdd=(1 - (ValiConfig.DRAWDOWN_MAXVALUE_PERCENTAGE / 100)) - 0.01)
+
+    return {
+        TP_ID_PORTFOLIO: portfolio_ledger[TP_ID_PORTFOLIO],
+        "BTCUSD": btc_ledger[TP_ID_PORTFOLIO]
+    }

@@ -115,7 +115,7 @@ class TestMetrics(TestBase):
 
     def test_sharpe_perfect_positive_year(self):
         """Test that the sharpe function works for 365 days of returns"""
-        log_returns = [0.10/ValiConfig.DAYS_IN_YEAR for _ in range(ValiConfig.DAYS_IN_YEAR)]
+        log_returns = [0.10/ValiConfig.DAYS_IN_YEAR_CRYPTO for _ in range(ValiConfig.DAYS_IN_YEAR_CRYPTO)]
 
         sharpe = Metrics.sharpe(log_returns)
 

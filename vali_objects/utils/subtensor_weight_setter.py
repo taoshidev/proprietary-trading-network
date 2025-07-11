@@ -9,6 +9,8 @@ from vali_objects.vali_config import ValiConfig
 from shared_objects.cache_controller import CacheController
 from vali_objects.utils.position_manager import PositionManager
 from vali_objects.scoring.scoring import Scoring
+from vali_objects.vali_dataclasses.perf_ledger import PerfLedger
+
 
 class SubtensorWeightSetter(CacheController):
     def __init__(self, metagraph, position_manager: PositionManager,
@@ -69,7 +71,8 @@ class SubtensorWeightSetter(CacheController):
         miner_group = "challenge period" if scoring_challenge else "main competition"
 
         # only collect ledger elements for the miners that passed the challenge period
-        filtered_ledger = self.perf_ledger_manager.filtered_ledger_for_scoring(hotkeys=hotkeys_to_compute_weights_for)
+        filtered_ledger: dict[str, dict[str, PerfLedger]] = self.perf_ledger_manager.filtered_ledger_for_scoring(
+            hotkeys=hotkeys_to_compute_weights_for)
         filtered_positions, _ = self.position_manager.filtered_positions_for_scoring(
             hotkeys=hotkeys_to_compute_weights_for)
 
