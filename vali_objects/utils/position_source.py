@@ -1,25 +1,23 @@
 # developer: Taoshidev
 # Copyright © 2024 Taoshi Inc
-
-import os
-
-os.environ["TAOSHI_TS_DEPLOYMENT"] = "DEVELOPMENT"
-os.environ["TAOSHI_TS_PLATFORM"] = "LOCAL"
 try:
+    import os
+    os.environ["TAOSHI_TS_DEPLOYMENT"] = "DEVELOPMENT"
+    os.environ["TAOSHI_TS_PLATFORM"] = "LOCAL"
     from taoshi.ts.ptn import wiring
     from taoshi.ts import ptn as ptn_utils
+    import copy
+    from enum import Enum
+    from typing import Dict, List, Optional
+    from collections import defaultdict
+    import bittensor as bt
+    import traceback
+    from vali_objects.position import Position
+    from time_util.time_util import TimeUtil
 except ImportError as e:
     print(f"Failed to import taoshi.ts.ptn: {e}. Ignoring.")
-
-import copy
-from enum import Enum
-from typing import Dict, List, Optional
-from collections import defaultdict
-
-import bittensor as bt
-
-from vali_objects.position import Position
-from time_util.time_util import TimeUtil
+    # Print full traceback for debugging
+    traceback.print_exc()
 
 
 class PositionSource(Enum):
