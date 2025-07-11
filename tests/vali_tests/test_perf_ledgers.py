@@ -2,7 +2,7 @@ from unittest.mock import patch
 
 import bittensor as bt
 
-from tests.shared_objects.mock_metagraph import MockMetagraph
+from shared_objects.mock_metagraph import MockMetagraph
 from tests.vali_tests.base_objects.test_base import TestBase
 from time_util.time_util import TimeUtil
 from vali_objects.enums.order_type_enum import OrderType

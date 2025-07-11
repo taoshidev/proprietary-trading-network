@@ -3,7 +3,7 @@
 import uuid
 
 from tests.shared_objects.mock_classes import MockPlagiarismDetector
-from tests.shared_objects.mock_metagraph import MockMetagraph
+from shared_objects.mock_metagraph import MockMetagraph
 from tests.vali_tests.base_objects.test_base import TestBase
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.position import Position

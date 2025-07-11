@@ -1771,15 +1771,14 @@ if __name__ == "__main__":
     use_database_positions = True  # NEW: Enable database position loading
     use_test_positions = False      # NEW: Enable test position loading
     
-    parallel_mode = ParallelizationMode.SERIAL  # 1 for pyspark, 2 for multiprocessing
+    parallel_mode = ParallelizationMode.MULTIPROCESSING  # 1 for pyspark, 2 for multiprocessing
     top_n_miners = 4
     test_single_hotkey = '5FmqXG5YBU1Hke9jHD5FT41CUM9gVod7nFgYvbd7PmpqcUJm'  # Set to a specific hotkey string to test single hotkey, or None for all
     regenerate_all = False  # Whether to regenerate all ledgers from scratch
     build_portfolio_ledgers_only = True  # Whether to build only the portfolio ledgers or per trade pair
     
     # Time range for database queries (if using database positions)
-    start_time_ms = 1735689600000  # Jan 1, 2025
-    end_time_ms = 1736035200000    # Jan 5, 2025
+    end_time_ms = None# 1736035200000    # Jan 5, 2025
 
     # Validate configuration
     if use_database_positions and use_test_positions:
