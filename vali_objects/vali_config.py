@@ -109,14 +109,16 @@ class InterpolatedValueFromDate():
 class ValiConfig:
     # versioning
     VERSION = meta_version
-    DAYS_IN_YEAR = 365  # annualization factor
+    DAYS_IN_YEAR_CRYPTO = 365  # annualization factor
+    DAYS_IN_YEAR_FOREX = 252
 
     STATISTICAL_CONFIDENCE_MINIMUM_N = 60
 
     # Market-specific configurations
     ANNUAL_RISK_FREE_PERCENTAGE = 4.19  # From tbill rates
     ANNUAL_RISK_FREE_DECIMAL = ANNUAL_RISK_FREE_PERCENTAGE / 100
-    DAILY_LOG_RISK_FREE_RATE = math.log(1 + ANNUAL_RISK_FREE_DECIMAL) / DAYS_IN_YEAR
+    DAILY_LOG_RISK_FREE_RATE_CRYPTO = math.log(1 + ANNUAL_RISK_FREE_DECIMAL) / DAYS_IN_YEAR_CRYPTO
+    DAILY_LOG_RISK_FREE_RATE_FOREX = math.log(1 + ANNUAL_RISK_FREE_DECIMAL) / DAYS_IN_YEAR_FOREX
     MS_RISK_FREE_RATE = math.log(1 + ANNUAL_RISK_FREE_PERCENTAGE / 100) / (365 * 24 * 60 * 60 * 1000)
 
     # Asset Class Breakdown - defines the total emission for each asset class
@@ -128,6 +130,7 @@ class ValiConfig:
                 CryptoSubcategory.MAJORS: 0.5,  # 50% of crypto emission for majors
                 CryptoSubcategory.ALTS: 0.5,  # 50% of crypto emission for alts
             },
+            "days_in_year": DAYS_IN_YEAR_CRYPTO,
         },
         # These are based on margin requirements on brokerage accounts
         TradePairCategory.FOREX: {
@@ -139,6 +142,7 @@ class ValiConfig:
                 ForexSubcategory.G4: 0.0976,  # 9.76% of forex emission for group 4
                 ForexSubcategory.G5: 0.2561,  # 25.61% of forex emission for group 5
             },
+            "days_in_year": DAYS_IN_YEAR_FOREX,
         },
     }
 

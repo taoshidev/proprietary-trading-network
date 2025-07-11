@@ -1,6 +1,8 @@
 import copy
 import os
 import math
+from typing import Any
+
 import bittensor as bt
 
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedger, PerfCheckpoint
@@ -122,6 +124,9 @@ class AssetSegmentation:
         """
         # Placeholder logic for competitiveness segmentation
         vals = incentive_distribution
+        if vals is None:
+            raise ValueError("Vals must not be None.")
+
         n = len(vals)
         if n == 0:
             return math.nan
@@ -149,9 +154,19 @@ class AssetSegmentation:
         competitiveness_dict = {}
         for asset_class, distribution in asset_incentive_distributions.items():
             if not distribution:
+                bt.logging.warning(f"Distribution for {asset_class} isn't defined.")
                 competitiveness_dict[asset_class] = math.nan
             else:
                 incentive_distribution = [value for _, value in distribution]
                 competitiveness_dict[asset_class] = AssetSegmentation.segment_competitiveness(incentive_distribution)
 
         return competitiveness_dict
+
+    def days_in_year_from_asset_category(self, asset_category: TradePairCategory) -> int:
+
+        days_in_year = self.asset_breakdown.get(asset_category, {}).get("days_in_year")
+
+        if days_in_year is None or days_in_year <= 0:
+            raise ValueError(f"Days in year must be positive, instead of {days_in_year}")
+
+        return math.log(1 + ValiConfig.ANNUAL_RISK_FREE_DECIMAL) / days_in_year

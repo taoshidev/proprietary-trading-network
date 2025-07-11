@@ -11,6 +11,12 @@ from vali_objects.vali_dataclasses.perf_ledger import PerfLedger
 class Metrics:
 
     @staticmethod
+    def log_risk_free_rate(days_in_year: int) -> float:
+        if days_in_year is None or days_in_year <= 0:
+            return np.inf
+        return math.log(1 + ValiConfig.ANNUAL_RISK_FREE_DECIMAL) / days_in_year
+
+    @staticmethod
     def weighted_log_returns(log_returns: list[float]) -> list[float]:
         if len(log_returns) < 1:
             return []
@@ -77,14 +83,14 @@ class Metrics:
         return Metrics.average((np.array(log_returns) - Metrics.average(log_returns, weighting=weighting, indices=indices)) ** 2, weighting=weighting, indices=indices)
 
     @staticmethod
-    def ann_excess_return(log_returns: list[float], weighting=False) -> float:
+    def ann_excess_return(log_returns: list[float], weighting=False, days_in_year: int = ValiConfig.DAYS_IN_YEAR_CRYPTO) -> float:
         """
         Calculates annualized excess return using mean daily log returns and mean daily 1yr risk free rate.
         Parameters:
         log_returns list[float]: Daily Series of log returns.
+        days_in_year int: Number of trading days in a year for annualization.
         """
         annual_risk_free_rate = ValiConfig.ANNUAL_RISK_FREE_DECIMAL
-        days_in_year = ValiConfig.DAYS_IN_YEAR
 
         if len(log_returns) == 0:
             return 0.0
@@ -94,7 +100,7 @@ class Metrics:
         return annualized_excess_return
 
     @staticmethod
-    def ann_volatility(log_returns: list[float], ddof: int = 1, weighting=False, indices: list[int]=None) -> float:
+    def ann_volatility(log_returns: list[float], ddof: int = 1, weighting=False, indices: list[int]=None, days_in_year: int = ValiConfig.DAYS_IN_YEAR_CRYPTO) -> float:
         """
         Calculates annualized volatility ASSUMING DAILY OBSERVATIONS
         Parameters:
@@ -102,13 +108,12 @@ class Metrics:
         ddof int: Delta Degrees of Freedom. The divisor used in the calculation is N - ddof, where N represents the number of elements.
         weighting bool: Whether to use weighted average.
         indices list[int]: The indices of the log returns to consider.
+        days_in_year int: Number of trading days in a year for annualization.
         """
         if indices is None:
             indices = list(range(len(log_returns)))
             
         # Annualize volatility of the daily log returns assuming sample variance
-        days_in_year = ValiConfig.DAYS_IN_YEAR
-
         window = len(indices)
         if window < ddof + 1:
             return np.inf
@@ -118,25 +123,30 @@ class Metrics:
         return float(annualized_volatility)
 
     @staticmethod
-    def ann_downside_volatility(log_returns: list[float], target: int = ValiConfig.DAILY_LOG_RISK_FREE_RATE, weighting=False) -> float:
+    def ann_downside_volatility(log_returns: list[float], target: int = None, weighting=False, days_in_year: int = ValiConfig.DAYS_IN_YEAR_CRYPTO) -> float:
         """
         Args:
             log_returns: list[float] - Daily Series of log returns.
             target: int: The target return (default: 0).
             weighting: bool: Whether to use weighted average.
+            days_in_year int: Number of trading days in a year for annualization.
 
         Returns:
             The downside annualized volatility as a float assuming sample variance
         """
+        if target is None:
+            target = Metrics.log_risk_free_rate(days_in_year=days_in_year)
+
         indices = [i for i, log_return in enumerate(log_returns) if log_return < target]
-        return Metrics.ann_volatility(log_returns, weighting=weighting, indices=indices)
+        return Metrics.ann_volatility(log_returns, weighting=weighting, indices=indices, days_in_year=days_in_year)
 
     @staticmethod
-    def base_return_log(log_returns: list[float], weighting=False) -> float:
+    def base_return_log(log_returns: list[float], weighting=False, days_in_year: int = ValiConfig.DAYS_IN_YEAR_CRYPTO) -> float:
         """
         Args:
             log_returns: list of daily log returns from the miner
             weighting: whether to use weighted average
+            days_in_year: number of trading days in a year for annualization
 
         Returns:
              The aggregate total return of the miner as a log total
@@ -144,14 +154,15 @@ class Metrics:
         if len(log_returns) == 0:
             return 0.0
 
-        return float(Metrics.average(log_returns, weighting=weighting)) * ValiConfig.DAYS_IN_YEAR
+        return float(Metrics.average(log_returns, weighting=weighting)) * days_in_year
 
     @staticmethod
-    def base_return_log_percentage(log_returns: list[float], weighting=False, **kwargs) -> float:
+    def base_return_log_percentage(log_returns: list[float], weighting=False, days_in_year: int = ValiConfig.DAYS_IN_YEAR_CRYPTO, **kwargs) -> float:
         """
         Args:
             log_returns: list of daily log returns from the miner
             weighting: whether to use weighted average
+            days_in_year: number of trading days in a year for annualization
 
         Returns:
              The aggregate total return of the miner as a percentage log total
@@ -159,19 +170,20 @@ class Metrics:
         if len(log_returns) == 0:
             return 0.0
 
-        return Metrics.average(log_returns, weighting=weighting) * ValiConfig.DAYS_IN_YEAR * 100
+        return Metrics.average(log_returns, weighting=weighting) * days_in_year * 100
 
     @staticmethod
-    def base_return(log_returns: list[float], weighting: bool = False) -> float:
+    def base_return(log_returns: list[float], weighting: bool = False, days_in_year: int = ValiConfig.DAYS_IN_YEAR_CRYPTO) -> float:
         """
         Args:
             log_returns: list of daily log returns from the miner
             weighting: whether to use weighted average
+            days_in_year: number of trading days in a year for annualization
 
         Returns:
              The aggregate total return of the miner as a percentage
         """
-        return float((math.exp(Metrics.base_return_log(log_returns, weighting=weighting)) - 1) * 100)
+        return float((math.exp(Metrics.base_return_log(log_returns, weighting=weighting, days_in_year=days_in_year)) - 1) * 100)
 
     @staticmethod
     def daily_max_drawdown(log_returns: list[float]) -> float:
@@ -201,31 +213,33 @@ class Metrics:
         return max_drawdown
 
     @staticmethod
-    def calmar(log_returns: list[float], ledger: PerfLedger, bypass_confidence: bool = False, weighting: bool = False, **kwargs) -> float:
+    def calmar(log_returns: list[float], ledger: PerfLedger, bypass_confidence: bool = False, weighting: bool = False, days_in_year: int = ValiConfig.DAYS_IN_YEAR_CRYPTO, **kwargs) -> float:
         """
         Args:
             log_returns: list of daily log returns from the miner
             ledger: the ledger of the miner
             bypass_confidence: whether to use default value if not enough trading days
             weighting: whether to use weighted average
+            days_in_year: number of trading days in a year for annualization
         """
         # Positional Component
         if len(log_returns) < ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N:
             if not bypass_confidence:
                 return ValiConfig.CALMAR_NOCONFIDENCE_VALUE
 
-        base_return_percentage = Metrics.base_return_log_percentage(log_returns, weighting=weighting)
+        base_return_percentage = Metrics.base_return_log_percentage(log_returns, weighting=weighting, days_in_year=days_in_year)
         drawdown_normalization_factor = LedgerUtils.risk_normalization(ledger)
 
         return float(base_return_percentage * drawdown_normalization_factor)
 
     @staticmethod
-    def sharpe(log_returns: list[float], bypass_confidence: bool = False, weighting: bool = False, **kwargs) -> float:
+    def sharpe(log_returns: list[float], bypass_confidence: bool = False, weighting: bool = False, days_in_year: int = ValiConfig.DAYS_IN_YEAR_CRYPTO, **kwargs) -> float:
         """
         Args:
             log_returns: list of daily log returns from the miner
             bypass_confidence: whether to use default value if not enough trading days
             weighting: whether to use weighted average
+            days_in_year: number of trading days in a year for annualization
         """
         # Need a large enough sample size
         if len(log_returns) < ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N:
@@ -235,8 +249,8 @@ class Metrics:
         # Hyperparameter
         min_std_dev = ValiConfig.SHARPE_STDDEV_MINIMUM
 
-        excess_return = Metrics.ann_excess_return(log_returns, weighting=weighting)
-        volatility = Metrics.ann_volatility(log_returns, weighting=weighting)
+        excess_return = Metrics.ann_excess_return(log_returns, weighting=weighting, days_in_year=days_in_year)
+        volatility = Metrics.ann_volatility(log_returns, weighting=weighting, days_in_year=days_in_year)
         
         return float(excess_return / max(volatility, min_std_dev))
 
@@ -322,12 +336,13 @@ class Metrics:
         return float(res.statistic)
 
     @staticmethod
-    def sortino(log_returns: list[float], bypass_confidence: bool = False, weighting: bool = False, **kwargs) -> float:
+    def sortino(log_returns: list[float], bypass_confidence: bool = False, weighting: bool = False, days_in_year: int = ValiConfig.DAYS_IN_YEAR_CRYPTO, **kwargs) -> float:
         """
         Args:
             log_returns: list of daily log returns from the miner
             bypass_confidence: whether to use default value if not enough trading days
             weighting: whether to use weighted average
+            days_in_year: number of trading days in a year for annualization
         """
         # Need a large enough sample size
         if len(log_returns) < ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N:
@@ -338,8 +353,8 @@ class Metrics:
         min_downside = ValiConfig.SORTINO_DOWNSIDE_MINIMUM
 
         # Sortino ratio is calculated as the mean of the returns divided by the standard deviation of the negative returns
-        excess_return = Metrics.ann_excess_return(log_returns, weighting=weighting)
-        downside_volatility = Metrics.ann_downside_volatility(log_returns, weighting=weighting)
+        excess_return = Metrics.ann_excess_return(log_returns, weighting=weighting, days_in_year=days_in_year)
+        downside_volatility = Metrics.ann_downside_volatility(log_returns, weighting=weighting, days_in_year=days_in_year)
 
         return float(excess_return / max(downside_volatility, min_downside))
 

@@ -188,6 +188,8 @@ class Scoring:
         for asset_subcategory in asset_subcategories:
             asset_ledger = segmentation_machine.segmentation(asset_subcategory)
             filtered_ledger_returns = LedgerUtils.ledger_returns_log(asset_ledger)
+            days_in_year = segmentation_machine.days_in_year_from_asset_category(asset_subcategory.asset_class)
+
             scores_dict = {"metrics": {}}
             for config_name, config in Scoring.scoring_config.items():
                 scores = []
@@ -202,7 +204,8 @@ class Scoring:
                     score = config['function'](
                         log_returns=returns,
                         ledger=ledger,
-                        weighting=weighting
+                        weighting=weighting,
+                        days_in_year=days_in_year,
                     )
 
                     scores.append((miner, float(score)))

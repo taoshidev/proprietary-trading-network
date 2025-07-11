@@ -22,6 +22,7 @@ from vali_objects.scoring.scoring import Scoring
 from vali_objects.vali_dataclasses.order import Order
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.vali_dataclasses.perf_ledger import TP_ID_PORTFOLIO
+import vali_objects.vali_config as vali_file
 
 class TestChallengePeriodUnit(TestBase):
 
@@ -87,18 +88,22 @@ class TestChallengePeriodUnit(TestBase):
         self.MIN_SCORE = 0.2
 
         # Set up successful scores for 4 miners
-        self.success_scores_dict = {"metrics": {}}
+        self.default_subcategory = vali_file.CryptoSubcategory.MAJORS # Possibly use a mock
+        #Use
+        self.success_scores_dict = {self.default_subcategory: {"metrics": {}}}
+
+        self.subcategory_dict = self.success_scores_dict.get(self.default_subcategory)
 
         raw_scores = np.linspace(self.TOP_SCORE, self.MIN_SCORE, len(self.SUCCESS_MINER_NAMES))
         success_scores = list(zip(self.SUCCESS_MINER_NAMES, raw_scores))
 
         for config_name, config in Scoring.scoring_config.items():
-            self.success_scores_dict["metrics"][config_name] = {'scores': copy.deepcopy(success_scores),
+            self.subcategory_dict["metrics"][config_name] = {'scores': copy.deepcopy(success_scores),
                                                                 'weight': config['weight']}
         raw_penalties = [1 for _ in self.SUCCESS_MINER_NAMES]
         success_penalties = dict(zip(self.SUCCESS_MINER_NAMES, raw_penalties))
 
-        self.success_scores_dict["penalties"] = copy.deepcopy(success_penalties)
+        self.subcategory_dict["penalties"] = copy.deepcopy(success_penalties)
 
         # Initialize system components
         self.mock_metagraph = MockMetagraph(self.MINER_NAMES)
@@ -125,8 +130,9 @@ class TestChallengePeriodUnit(TestBase):
             high_performing: true means trial miner should be passing, false means they should be failing
             score: specific score to use
         """
-        trial_scores_dict = {"metrics": {}}
-        trial_metrics = trial_scores_dict["metrics"]
+        trial_scores_dict = {self.default_subcategory: {"metrics": {}}}
+        subcategory_trial_scores = trial_scores_dict.get(self.default_subcategory)
+        trial_metrics = subcategory_trial_scores["metrics"]
         if score is not None:
             for config_name, config in Scoring.scoring_config.items():
                 trial_metrics[config_name] = {'scores': [("miner", score)],
@@ -142,7 +148,7 @@ class TestChallengePeriodUnit(TestBase):
                 trial_metrics[config_name] = {'scores': [("miner", self.MIN_SCORE)],
                                               'weight': config['weight']
                                                   }
-        trial_scores_dict["penalties"] = {"miner": 1}
+        subcategory_trial_scores["penalties"] = {"miner": 1}
         return trial_scores_dict
 
 
@@ -204,7 +210,7 @@ class TestChallengePeriodUnit(TestBase):
         # Check that the miner is screened as failing
         passing, demoted, failing = self.challengeperiod_manager.inspect(
             positions=inspection_positions,
-            ledger={hk: v[TP_ID_PORTFOLIO] for hk, v in inspection_ledger.items()},
+            ledger=inspection_ledger,
             success_hotkeys=[],
             inspection_hotkeys={"miner": current_time},
             current_time=current_time,
@@ -232,7 +238,7 @@ class TestChallengePeriodUnit(TestBase):
         # Check that the miner is screened as failing
         passing, demoted, failing = self.challengeperiod_manager.inspect(
             positions=inspection_positions,
-            ledger={hk: v[TP_ID_PORTFOLIO] for hk, v in inspection_ledger.items()},
+            ledger=inspection_ledger,
             success_hotkeys=[],
             inspection_hotkeys=inspection_hotkeys,
             current_time=current_time,
@@ -261,7 +267,7 @@ class TestChallengePeriodUnit(TestBase):
         # Check that the miner is screened as failing
         passing, demoted, failing = self.challengeperiod_manager.inspect(
             positions=inspection_positions,
-            ledger={hk: v[TP_ID_PORTFOLIO] for hk, v in inspection_ledger.items()},
+            ledger=inspection_ledger,
             success_hotkeys=[],
             inspection_hotkeys=inspection_hotkeys,
             current_time=current_time,
@@ -289,7 +295,7 @@ class TestChallengePeriodUnit(TestBase):
         # Check that the miner is screened as failing
         passing, demoted, failing = self.challengeperiod_manager.inspect(
             positions=inspection_positions,
-            ledger={hk: v[TP_ID_PORTFOLIO] for hk, v in inspection_ledger.items()},
+            ledger=inspection_ledger,
             success_hotkeys=[],
             inspection_hotkeys=inspection_hotkeys,
             current_time=current_time,
@@ -320,7 +326,7 @@ class TestChallengePeriodUnit(TestBase):
         # Check that the miner is screened as failing
         passing, demoted, failing = self.challengeperiod_manager.inspect(
             positions=inspection_positions,
-            ledger={hk: v[TP_ID_PORTFOLIO] for hk, v in inspection_ledger.items()},
+            ledger=inspection_ledger,
             success_hotkeys=[],
             inspection_hotkeys=inspection_hotkeys,
             current_time=current_time,
@@ -350,7 +356,7 @@ class TestChallengePeriodUnit(TestBase):
         # Check that the miner is screened as testing still
         passing, demoted, failing = self.challengeperiod_manager.inspect(
             positions=inspection_positions,
-            ledger={hk: v[TP_ID_PORTFOLIO] for hk, v in inspection_ledger.items()},
+            ledger=inspection_ledger,
             success_hotkeys=self.SUCCESS_MINER_NAMES,
             inspection_hotkeys=inspection_hotkeys,
             current_time=current_time,
@@ -379,7 +385,7 @@ class TestChallengePeriodUnit(TestBase):
     #     # Check that the miner is screened as testing still
     #     passing, demoted, failing = self.challengeperiod_manager.inspect(
     #         positions=inspection_positions,
-    #         ledger={hk: v[TP_ID_PORTFOLIO] for hk, v in inspection_ledger.items()},
+    #         ledger=inspection_ledger,
     #         success_hotkeys=self.SUCCESS_MINER_NAMES,
     #         inspection_hotkeys=inspection_hotkeys,
     #         current_time=current_time,
@@ -406,7 +412,7 @@ class TestChallengePeriodUnit(TestBase):
         # Check that the miner is screened as passing
         passing, demoted, failing = self.challengeperiod_manager.inspect(
             positions=inspection_positions,
-            ledger={hk: v[TP_ID_PORTFOLIO] for hk, v in inspection_ledger.items()},
+            ledger=inspection_ledger,
             success_hotkeys=self.SUCCESS_MINER_NAMES,
             inspection_hotkeys={"miner": current_time},
             current_time=current_time,
@@ -434,7 +440,7 @@ class TestChallengePeriodUnit(TestBase):
         # Check that the miner continues in challenge
         passing, demoted, failing = self.challengeperiod_manager.inspect(
             positions=inspection_positions,
-            ledger={hk: v[TP_ID_PORTFOLIO] for hk, v in inspection_ledger.items()},
+            ledger=inspection_ledger,
             success_hotkeys=[],
             inspection_hotkeys={"miner": current_time},
             current_time=current_time,
@@ -460,7 +466,8 @@ class TestChallengePeriodUnit(TestBase):
         # the miner ends up with a percentile at 0.75.
         trial_scoring_dict = self.get_trial_scores(score=0.75)
 
-        success_scores_dict = {"metrics": {}}
+        success_scores_dict = {self.default_subcategory: {"metrics": {}}}
+        subcategory_success_scores_dict = success_scores_dict.get(self.default_subcategory)
         success_miner_names = self.SUCCESS_MINER_NAMES[1:]
         raw_scores = np.linspace(self.TOP_SCORE, self.MIN_SCORE, len(success_miner_names))
         success_scores = list(zip(success_miner_names, raw_scores))
@@ -471,18 +478,18 @@ class TestChallengePeriodUnit(TestBase):
         self.challengeperiod_manager.active_miners["miner4"] = (MinerBucket.MAINCOMP, 0)
 
         for config_name, config in Scoring.scoring_config.items():
-            success_scores_dict["metrics"][config_name] = {'scores': copy.deepcopy(success_scores),
+            subcategory_success_scores_dict["metrics"][config_name] = {'scores': copy.deepcopy(success_scores),
                                                            'weight': config['weight']
                                                           }
         raw_penalties = [1 for _ in success_miner_names]
         success_penalties = dict(zip(success_miner_names, raw_penalties))
 
-        success_scores_dict["penalties"] = copy.deepcopy(success_penalties)
+        subcategory_success_scores_dict["penalties"] = copy.deepcopy(success_penalties)
 
         # Check that the miner is screened as passing
         passing, demoted, failing = self.challengeperiod_manager.inspect(
             positions=inspection_positions,
-            ledger={hk: v[TP_ID_PORTFOLIO] for hk, v in inspection_ledger.items()},
+            ledger=inspection_ledger,
             success_hotkeys=[],
             inspection_hotkeys={"miner": current_time},
             current_time=current_time,
@@ -508,7 +515,7 @@ class TestChallengePeriodUnit(TestBase):
         self.assertEqual(ChallengePeriodManager.screen_minimum_interaction(base_ledger_portfolio), True)
 
         inspection_positions, hk_to_first_order_time = self.save_and_get_positions(base_positions, ["miner"])
-        inspection_ledger = {"miner": base_ledger_portfolio}
+        inspection_ledger = {"miner": base_ledger}
 
         current_time = self.MIN_PROMOTION_TIME
 
@@ -548,7 +555,7 @@ class TestChallengePeriodUnit(TestBase):
         base_positions = deepcopy(self.DEFAULT_POSITIONS)
 
         inspection_positions, hk_to_first_order_time = self.save_and_get_positions(base_positions, ["miner"])
-        inspection_ledger = {"miner": base_ledger_portfolio}
+        inspection_ledger = {"miner": base_ledger}
 
         current_time = self.BEFORE_PROMOTION_TIME
 

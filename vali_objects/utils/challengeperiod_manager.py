@@ -10,7 +10,7 @@ from vali_objects.vali_config import ValiConfig
 from shared_objects.cache_controller import CacheController
 from vali_objects.scoring.scoring import Scoring
 from time_util.time_util import TimeUtil
-from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager, PerfLedger
+from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager, PerfLedger, TP_ID_PORTFOLIO
 from vali_objects.utils.ledger_utils import LedgerUtils
 from vali_objects.utils.position_manager import PositionManager
 from vali_objects.position import Position
@@ -260,7 +260,7 @@ class ChallengePeriodManager(CacheController):
     def inspect(
         self,
         positions: dict[str, list[Position]],
-        ledger: dict[str, PerfLedger],
+        ledger: dict[str, dict[str, PerfLedger]],
         success_hotkeys: list[str],
         inspection_hotkeys: dict[str, int],
         current_time: int,
@@ -294,10 +294,13 @@ class ChallengePeriodManager(CacheController):
         miners_recently_reregistered = set()
         miners_not_enough_positions = []
 
+        # Used for checking base cases
+        #TODO revisit this
+        portfolio_only_ledgers = {hotkey: asset_ledgers.get("portfolio") for hotkey, asset_ledgers in ledger.items() if asset_ledgers is not None}
         valid_candidate_hotkeys = []
         for hotkey, bucket_start_time in inspection_hotkeys.items():
 
-            if ChallengePeriodManager.is_recently_re_registered(ledger.get(hotkey), hotkey, hk_to_first_order_time):
+            if ChallengePeriodManager.is_recently_re_registered(portfolio_only_ledgers.get(hotkey), hotkey, hk_to_first_order_time):
                 miners_recently_reregistered.add(hotkey)
                 continue
 
@@ -319,7 +322,7 @@ class ChallengePeriodManager(CacheController):
                 continue
 
             # Get hotkey to ledger dict that only includes the inspection miner
-            has_minimum_ledger, inspection_ledger = ChallengePeriodManager.screen_minimum_ledger(ledger, hotkey)
+            has_minimum_ledger, inspection_ledger = ChallengePeriodManager.screen_minimum_ledger(portfolio_only_ledgers, hotkey)
             if not has_minimum_ledger:
                 continue
 
@@ -382,13 +385,21 @@ class ChallengePeriodManager(CacheController):
             threshold_rank=ValiConfig.PROMOTION_THRESHOLD_RANK
             ) -> tuple[list[str], list[str]]:
         combined_scores_dict = copy.deepcopy(success_scores_dict)
-        for metric_name, config in combined_scores_dict["metrics"].items():
-            candidate_metric_score = inspection_scores_dict["metrics"][metric_name]["scores"]
-            miner_scores = config["scores"] + candidate_metric_score
-            combined_scores_dict["metrics"][metric_name]["scores"] = miner_scores
-        combined_scores_dict["penalties"].update(inspection_scores_dict["penalties"])
+        for asset_class, asset_class_combined_scores in combined_scores_dict.items():
+            asset_class_inspection_scores = inspection_scores_dict[asset_class]
 
-        all_scores = Scoring.combine_scores(combined_scores_dict)
+            for metric_name, config in asset_class_combined_scores["metrics"].items():
+                candidate_metric_score = asset_class_inspection_scores["metrics"][metric_name]["scores"]
+                miner_scores = config["scores"] + candidate_metric_score
+                asset_class_combined_scores["metrics"][metric_name]["scores"] = miner_scores
+            asset_class_combined_scores["penalties"].update(asset_class_inspection_scores["penalties"])
+
+        asset_combined_scores = Scoring.combine_scores(combined_scores_dict)
+        asset_softmaxed_scores = Scoring.softmax_by_asset(asset_combined_scores)
+
+        all_scores_list = Scoring.softmax_aggregation(asset_softmaxed_scores)
+
+        all_scores = dict(all_scores_list)
         sorted_scores = sorted(all_scores.values(), reverse=True)
 
         promote_hotkeys = []

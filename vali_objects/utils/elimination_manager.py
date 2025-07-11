@@ -316,6 +316,7 @@ class EliminationManager(CacheController):
         challengeperiod_success_hotkeys = self.challengeperiod_manager.get_hotkeys_by_bucket(MinerBucket.MAINCOMP)
 
         filtered_ledger = self.position_manager.perf_ledger_manager.filtered_ledger_for_scoring(
+            portfolio_only=True,
             hotkeys=challengeperiod_success_hotkeys)
         for miner_hotkey, ledger in filtered_ledger.items():
             if self.shutdown_dict:
