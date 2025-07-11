@@ -1,23 +1,14 @@
 # developer: Taoshidev
 # Copyright © 2024 Taoshi Inc
-try:
-    import os
-    os.environ["TAOSHI_TS_DEPLOYMENT"] = "DEVELOPMENT"
-    os.environ["TAOSHI_TS_PLATFORM"] = "LOCAL"
-    from taoshi.ts.ptn import wiring
-    from taoshi.ts import ptn as ptn_utils
-    import copy
-    from enum import Enum
-    from typing import Dict, List, Optional
-    from collections import defaultdict
-    import bittensor as bt
-    import traceback
-    from vali_objects.position import Position
-    from time_util.time_util import TimeUtil
-except ImportError as e:
-    print(f"Failed to import taoshi.ts.ptn: {e}. Ignoring.")
-    # Print full traceback for debugging
-    traceback.print_exc()
+import os
+import copy
+from enum import Enum
+from typing import Dict, List, Optional
+from collections import defaultdict
+import bittensor as bt
+import traceback
+from vali_objects.position import Position
+from time_util.time_util import TimeUtil
 
 
 class PositionSource(Enum):
@@ -94,6 +85,17 @@ class PositionSourceManager:
         
         if hotkeys:
             bt.logging.info(f"Filtering for {len(hotkeys)} specific hotkeys")
+
+        # Import taoshi.ts.ptn locally to avoid circular import
+        try:
+            os.environ["TAOSHI_TS_DEPLOYMENT"] = "DEVELOPMENT"
+            os.environ["TAOSHI_TS_PLATFORM"] = "LOCAL"
+            from taoshi.ts.ptn import wiring
+            from taoshi.ts import ptn as ptn_utils
+        except ImportError as e:
+            bt.logging.error(f"Failed to import taoshi.ts.ptn: {e}")
+            traceback.print_exc()
+            return {}
 
         # Initialize database position source
         miner_db = ptn_utils.DatabasePositionOrderSource()
