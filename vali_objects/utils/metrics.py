@@ -390,13 +390,9 @@ class Metrics:
         # Get daily PnL values for complete days only
         daily_pnl_values = LedgerUtils.daily_pnl(ledger)
 
-        # TODO, PNL may not require a certain number of trading days so bypass_confidence isn't needed
         if not daily_pnl_values:
             return ValiConfig.PNL_NOCONFIDENCE_VALUE
             
         # Apply time weighting if requested
-        if weighting:
-            return Metrics.average(daily_pnl_values, weighting=True)
-        else:
-            return Metrics.average(daily_pnl_values, weighting=False)
+        return Metrics.average(daily_pnl_values, weighting=weighting)
 
