@@ -2,8 +2,7 @@
 import math
 import numpy as np
 import copy
-from datetime import datetime, timezone, date
-
+from datetime import datetime, timezone, timedelta, date
 from vali_objects.vali_dataclasses.perf_ledger import TP_ID_PORTFOLIO
 from vali_objects.vali_config import ValiConfig, TradePair
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedger
@@ -52,35 +51,33 @@ class LedgerUtils:
 
         # Group checkpoints by date
         for cp in ledger.cps:
-            # Need to use the beginning of the cell, otherwise it may bleed into the next day
-            start_time = (cp.last_update_ms - cp.accum_ms)
-            full_cell = cp.accum_ms == ValiConfig.TARGET_CHECKPOINT_DURATION_MS
-
-            # Use the 12PM cps as their last value is the next days start value
-            running_date = datetime.fromtimestamp((start_time + ValiConfig.TARGET_CHECKPOINT_DURATION_MS)/ 1000, tz=timezone.utc).date()
-            if full_cell:
-                if running_date not in daily_cps:
-                    daily_cps[running_date] = cp
-                else:
-                    if cp.last_update_ms < daily_cps[running_date].last_update_ms:
-                        # Keep the earliest checkpoint for the day. we want the 12 AM value not the 12 PM value
-                        daily_cps[running_date] = cp
+            # if cp's `last_update_ms` is at day T 00:00:00, it represents the ending value for day T-1
+            cp_dt = datetime.fromtimestamp(cp.last_update_ms / 1000, tz=timezone.utc)
+            if cp_dt.time() == datetime.min.time():   # 00:00:00 UTC
+                running_date = (cp_dt - timedelta(days=1)).date()
+                daily_cps[running_date] = cp
 
         ans = {}
-        prev_ret = None
+        prev_day_end_value = 1.0  # First day begins with portfolio value of 1
+        
         # Iterating in chronological order since python dicts are sorted by insertion order
-        for i, (k, cp) in enumerate(daily_cps.items()):
-            if i == 0:
-                ans[k] = None
-            else:
-                try:
-                    if use_log:
-                        ans[k] = math.log(cp.prev_portfolio_ret / prev_ret)
-                    else:
-                        ans[k] = (cp.prev_portfolio_ret / prev_ret) - 1
-                except (ZeroDivisionError, ValueError):
-                    ans[k] = None   # fallback if prev_ret is 0 or invalid
-            prev_ret = cp.prev_portfolio_ret
+        for date, cp in daily_cps.items():
+            # For day 'date':
+            # - begin_value = portfolio value at beginning of day (00:00:00)
+            # - end_value = portfolio value at end of day (next day 00:00:00)
+            begin_value = prev_day_end_value
+            end_value = cp.prev_portfolio_ret
+            
+            try:
+                if use_log:
+                    ans[date] = math.log(end_value / begin_value)
+                else:
+                    ans[date] = (end_value / begin_value) - 1
+            except (ZeroDivisionError, ValueError):
+                ans[date] = None   # fallback if begin_value is 0 or invalid
+                
+            prev_day_end_value = end_value
+
         return ans
                 
     @staticmethod
