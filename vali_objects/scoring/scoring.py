@@ -383,16 +383,16 @@ class Scoring:
 
         # Compose the full penalties dictionary based on subcategories and weights
         full_penalties_dictionary = {}
-        for asset_class, asset_data in miner_asset_scoftmax_scores.items():
-            tradepair_lookup = category_lookup.get(asset_class, None)
-            if tradepair_lookup is None:
-                bt.logging.warning(f"Asset class {asset_class} not found in category lookup, assigning forex.")
-                tradepair_lookup = TradePairCategory.FOREX
+        for asset_subclass, asset_data in miner_asset_scoftmax_scores.items():
+            asset_class = category_lookup.get(asset_subclass, None)
+            if asset_class is None:
+                bt.logging.warning(f"Asset subclass {asset_subclass} not found in category lookup, assigning forex.")
+                asset_class = TradePairCategory.FOREX
 
-            asset_class_information = asset_class_breakdown.get(tradepair_lookup, {})
+            asset_class_information = asset_class_breakdown.get(asset_class, {})
 
             asset_class_emission = asset_class_information.get('emission', 0)
-            asset_subcategory_weight = asset_class_breakdown.get('subcategory_weights', {})
+            asset_subcategory_weight = asset_class_information.get('subcategory_weights', {})
 
             bt.logging.info(f"Asset class {asset_class} has emission {asset_class_emission} and subcategory weights {asset_subcategory_weight}")
 
