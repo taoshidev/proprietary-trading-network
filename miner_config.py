@@ -23,3 +23,4 @@ class MinerConfig:
     @staticmethod
     def get_miner_failed_signals_dir() -> str:
         return ValiConfig.BASE_DIR + "/mining/failed_signals/"
+

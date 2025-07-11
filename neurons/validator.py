@@ -54,6 +54,7 @@ from vali_objects.utils.vali_utils import ValiUtils
 from vali_objects.vali_config import ValiConfig
 
 from vali_objects.utils.plagiarism_detector import PlagiarismDetector
+from vali_objects.utils.validator_contract_manager import ValidatorContractManager
 
 # Global flag used to indicate shutdown
 shutdown_dict = {}
@@ -276,6 +277,7 @@ class Validator:
         def rc_priority_fn(synapse: template.protocol.ValidatorCheckpoint) -> float:
             return Validator.priority_fn(synapse, self.metagraph)
 
+
         self.axon.attach(
             forward_fn=self.receive_signal,
             blacklist_fn=rs_blacklist_fn,
@@ -349,7 +351,8 @@ class Validator:
                 ws_port=self.config.api_ws_port,
                 rest_host=self.config.api_host,
                 rest_port=self.config.api_rest_port,
-                position_manager=self.position_manager
+                position_manager=self.position_manager,
+                contract_manager=self.contract_manager
             )
 
             # Start the API Manager in a separate process
@@ -379,6 +382,20 @@ class Validator:
                 bt.logging.warning(msg)
                 self.position_syncer.sync_positions(
                     False, candidate_data=self.position_syncer.read_validator_checkpoint_from_gcloud_zip())
+        
+        # Initialize ValidatorContractManager for collateral operations
+        try:
+            bt.logging.info("Initializing validator contract manager...")
+            self.contract_manager = ValidatorContractManager(
+                config=self.config,
+                wallet=self.wallet,
+                metagraph=self.metagraph
+            )
+            bt.logging.info("Validator contract manager initialized successfully")
+        except Exception as e:
+            bt.logging.error(f"Failed to initialize validator contract manager: {e}")
+            bt.logging.error(traceback.format_exc())
+            self.contract_manager = None
 
 
     @staticmethod
@@ -919,6 +936,7 @@ class Validator:
             synapse.error_message = "Rejecting checkpoint poke from non validator"
             synapse.successfully_processed = False
         return synapse
+
 
 # This is the main function, which runs the miner.
 if __name__ == "__main__":
