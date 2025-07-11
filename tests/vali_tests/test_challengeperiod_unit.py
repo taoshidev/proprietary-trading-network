@@ -8,7 +8,7 @@ from tests.shared_objects.mock_classes import (
     MockChallengePeriodManager,
     MockPositionManager,
 )
-from tests.shared_objects.mock_metagraph import MockMetagraph
+from shared_objects.mock_metagraph import MockMetagraph
 from tests.shared_objects.test_utilities import generate_ledger
 from tests.vali_tests.base_objects.test_base import TestBase
 from vali_objects.enums.order_type_enum import OrderType

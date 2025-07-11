@@ -3,7 +3,7 @@ from copy import deepcopy
 
 from bittensor import Balance
 
-from tests.shared_objects.mock_metagraph import MockMetagraph, MockNeuron, MockAxonInfo
+from shared_objects.mock_metagraph import MockMetagraph, MockNeuron, MockAxonInfo
 from tests.vali_tests.base_objects.test_base import TestBase
 from time_util.time_util import TimeUtil
 from vali_objects.enums.order_type_enum import OrderType

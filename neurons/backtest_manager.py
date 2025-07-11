@@ -34,7 +34,7 @@ os.environ["TAOSHI_TS_PLATFORM"] = "LOCAL"
 
 from runnable.generate_request_minerstatistics import MinerStatisticsManager  # noqa: E402
 from shared_objects.sn8_multiprocessing import get_multiprocessing_pool, get_spark_session  # noqa: E402
-from tests.shared_objects.mock_metagraph import MockMetagraph # noqa: E402
+from shared_objects.mock_metagraph import MockMetagraph # noqa: E402
 from vali_objects.utils.position_source import PositionSourceManager, PositionSource# noqa: E402
 from time_util.time_util import TimeUtil  # noqa: E402
 from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager  # noqa: E402

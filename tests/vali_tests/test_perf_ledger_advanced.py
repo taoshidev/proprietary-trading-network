@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import Mock, patch
 
-from tests.shared_objects.mock_metagraph import MockMetagraph
+from shared_objects.mock_metagraph import MockMetagraph
 from tests.vali_tests.base_objects.test_base import TestBase
 from time_util.time_util import TimeUtil
 from vali_objects.utils.elimination_manager import EliminationManager
