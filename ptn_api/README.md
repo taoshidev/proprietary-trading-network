@@ -274,6 +274,105 @@ Perf Ledger schema
 Perf ledgers are built based off realtime price data and are consumed in the scoring logic. More info in the PTN repo.
 
 
+## Collateral Management
+
+The API includes comprehensive collateral management endpoints for miners to deposit, withdraw, and check their collateral balances. These endpoints interact with the collateral smart contract system.
+
+### Deposit Collateral
+
+`POST /collateral/deposit`
+
+Process a collateral deposit with encoded extrinsic data.
+
+**Request Body:**
+```json
+{
+  "extrinsic_data": "0x1234567890abcdef...",
+  "amount": 10.5,
+  "miner_address": "5HEo565WAy4Dbq3Sv271SAi7syBSofyfhhwRNjFNSM2gP9M2"
+}
+```
+
+**Response:**
+```json
+{
+  "successfully_processed": true,
+  "error_message": "",
+  "transaction_hash": "0xabc123...",
+  "computed_body_hash": "0xdef456..."
+}
+```
+
+**Parameters:**
+- `extrinsic_data` (string): Hex-encoded signed extrinsic for stake transfer
+- `amount` (float): Amount to deposit in theta tokens
+- `miner_address` (string): Miner's coldkey SS58 address
+
+### Withdraw Collateral
+
+`POST /collateral/withdraw`
+
+Process a collateral withdrawal request.
+
+**Request Body:**
+```json
+{
+  "amount": 5.0,
+  "miner_address": "5HEo565WAy4Dbq3Sv271SAi7syBSofyfhhwRNjFNSM2gP9M2"
+}
+```
+
+**Response:**
+```json
+{
+  "successfully_processed": true,
+  "error_message": "",
+  "returned_amount": 5.0,
+  "computed_body_hash": "0xdef456..."
+}
+```
+
+**Parameters:**
+- `amount` (float): Amount to withdraw in theta tokens
+- `miner_address` (string): Miner's coldkey SS58 address
+
+### Get Collateral Balance
+
+`GET /collateral/balance/<miner_address>`
+
+Retrieve a miner's current collateral balance.
+
+**Response:**
+```json
+{
+  "miner_address": "5HEo565WAy4Dbq3Sv271SAi7syBSofyfhhwRNjFNSM2gP9M2",
+  "balance_theta": 15.5,
+  "balance_rao": 15500000000
+}
+```
+
+### Get Collateral Statistics
+
+`GET /collateral/stats`
+
+Retrieve overall collateral system statistics.
+
+**Authentication Required:** Valid API Key
+
+**Response:**
+```json
+{
+  "total_collateral_rao": 1000000000000,
+  "total_collateral_theta": 1000.0,
+  "slashed_collateral_rao": 50000000000,
+  "slashed_collateral_theta": 50.0,
+  "theta_token_price": 1.05,
+  "network": "TESTNET",
+  "contract_owner_configured": true
+}
+```
+
+
 ## Compression Support
 
 The API server supports automatic gzip compression for REST responses, which can significantly reduce payload sizes and improve performance. Compression is particularly beneficial for large responses like miner positions and statistics.

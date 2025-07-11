@@ -532,12 +532,6 @@ class PTNRestServer(APIKeyMixin):
         @self.app.route("/collateral/deposit", methods=["POST"])
         def deposit_collateral():
             """Process collateral deposit with encoded extrinsic."""
-            api_key = self._get_api_key_safe()
-            
-            # Check if the API key is valid
-            if not self.is_valid_api_key(api_key):
-                return jsonify({'error': 'Unauthorized access'}), 401
-                
             # Check if contract manager is available
             if not self.contract_manager:
                 return jsonify({'error': 'Collateral operations not available'}), 503
@@ -574,12 +568,6 @@ class PTNRestServer(APIKeyMixin):
         @self.app.route("/collateral/withdraw", methods=["POST"])
         def withdraw_collateral():
             """Process collateral withdrawal request."""
-            api_key = self._get_api_key_safe()
-            
-            # Check if the API key is valid
-            if not self.is_valid_api_key(api_key):
-                return jsonify({'error': 'Unauthorized access'}), 401
-
             # Check if contract manager is available
             if not self.contract_manager:
                 return jsonify({'error': 'Collateral operations not available'}), 503
@@ -615,12 +603,6 @@ class PTNRestServer(APIKeyMixin):
         @self.app.route("/collateral/balance/<miner_address>", methods=["GET"])
         def get_collateral_balance(miner_address):
             """Get a miner's collateral balance."""
-            api_key = self._get_api_key_safe()
-            
-            # Check if the API key is valid
-            if not self.is_valid_api_key(api_key):
-                return jsonify({'error': 'Unauthorized access'}), 401
-                
             # Check if contract manager is available
             if not self.contract_manager:
                 return jsonify({'error': 'Collateral operations not available'}), 503
@@ -650,11 +632,7 @@ class PTNRestServer(APIKeyMixin):
             # Check if the API key is valid
             if not self.is_valid_api_key(api_key):
                 return jsonify({'error': 'Unauthorized access'}), 401
-                
-            # Require tier 100 access for system statistics
-            if not self.can_access_tier(api_key, 100):
-                return jsonify({'error': 'Collateral statistics require tier 100 access'}), 403
-                
+
             # Check if contract manager is available
             if not self.contract_manager:
                 return jsonify({'error': 'Collateral operations not available'}), 503

@@ -38,7 +38,12 @@ class ValidatorContractManager:
             secrets = ValiUtils.get_secrets()
             self.owner_address = secrets.get('collateral_owner_address')
             self.owner_private_key = secrets.get('collateral_owner_private_key')
-            bt.logging.info("Collateral owner credentials loaded successfully")
+            if not self.owner_address or not self.owner_private_key:
+                bt.logging.warning("Collateral owner credentials not found. Collateral operations will fail.")
+                self.owner_address = None
+                self.owner_private_key = None
+            else:
+                bt.logging.info("Collateral owner credentials loaded successfully")
                 
         except Exception as e:
             bt.logging.warning(f"Failed to load collateral owner credentials: {e}")
