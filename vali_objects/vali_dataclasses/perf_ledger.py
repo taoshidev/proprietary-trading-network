@@ -1019,7 +1019,8 @@ class PerfLedgerManager(CacheController):
 
     def get_bypass_values_if_applicable(self, perf_ledger: PerfLedger, tp_id: str, any_open: TradePairReturnStatus,
                                       position_just_closed: bool, calculated_return: float, 
-                                      calculated_spread_fee: float, calculated_carry_fee: float) -> tuple[float, float, float]:
+                                      calculated_spread_fee: float, calculated_carry_fee: float,
+                                      tp_id_rtp: str = None) -> tuple[float, float, float]:
         """
         Returns values to pass to update_pl. Uses previous checkpoint values if in bypass mode 
         (all positions closed + no position just closed) to prevent floating point drift.
@@ -1032,13 +1033,15 @@ class PerfLedgerManager(CacheController):
             calculated_return: Freshly calculated portfolio return
             calculated_spread_fee: Freshly calculated spread fee
             calculated_carry_fee: Freshly calculated carry fee
+            tp_id_rtp: Trade pair ID of the position that just closed (realtime_position_to_pop)
         
         Returns:
             Tuple of (return, spread_fee, carry_fee) to pass to update_pl
         """
-        # Check if we should use bypass (all closed + no position just closed)
+        # Check if we should use bypass (all closed + no position just closed + same trade pair if applicable)
         use_bypass = (any_open == TradePairReturnStatus.TP_NO_OPEN_POSITIONS and 
                       not position_just_closed and 
+                      (tp_id_rtp is None or tp_id == tp_id_rtp) and
                       len(perf_ledger.cps) > 0)
         
         if use_bypass:
@@ -1132,8 +1135,9 @@ class PerfLedgerManager(CacheController):
                 perf_ledger = perf_ledger_bundle[tp_id]
                 
                 tp_return, tp_spread_fee, tp_carry_fee = self.get_bypass_values_if_applicable(
-                    perf_ledger, tp_id, any_open, position_just_closed and tp_id == tp_id_rtp,
-                    initial_tp_to_return[tp_id], initial_tp_to_spread_fee[tp_id], initial_tp_to_carry_fee[tp_id]
+                    perf_ledger, tp_id, any_open, position_just_closed,
+                    initial_tp_to_return[tp_id], initial_tp_to_spread_fee[tp_id], initial_tp_to_carry_fee[tp_id],
+                    tp_id_rtp
                 )
 
                 tp_to_historical_positions_compact = {}
@@ -1183,8 +1187,9 @@ class PerfLedgerManager(CacheController):
             assert perf_ledger.last_update_ms < end_time_ms, (perf_ledger.last_update_ms, end_time_ms, tp_id, perf_ledger.last_update_ms - end_time_ms)
             
             current_return, current_spread_fee, current_carry_fee = self.get_bypass_values_if_applicable(
-                perf_ledger, tp_id, TradePairReturnStatus.TP_NO_OPEN_POSITIONS, position_just_closed and tp_id == tp_id_rtp,
-                tp_to_initial_return[tp_id], tp_to_initial_spread_fee[tp_id], tp_to_initial_carry_fee[tp_id]
+                perf_ledger, tp_id, TradePairReturnStatus.TP_NO_OPEN_POSITIONS, position_just_closed,
+                tp_to_initial_return[tp_id], tp_to_initial_spread_fee[tp_id], tp_to_initial_carry_fee[tp_id],
+                tp_id_rtp
             )
             
             perf_ledger.update_pl(current_return, start_time_ms, miner_hotkey, TradePairReturnStatus.TP_NO_OPEN_POSITIONS,
@@ -1238,8 +1243,9 @@ class PerfLedgerManager(CacheController):
                 perf_ledger = perf_ledger_bundle[tp_id]
                 
                 current_return, current_spread_fee, current_carry_fee = self.get_bypass_values_if_applicable(
-                    perf_ledger, tp_id, tp_to_any_open[tp_id], position_just_closed and tp_id == tp_id_rtp,
-                    tp_to_current_return[tp_id], tp_to_current_spread_fee[tp_id], tp_to_current_carry_fee[tp_id]
+                    perf_ledger, tp_id, tp_to_any_open[tp_id], position_just_closed,
+                    tp_to_current_return[tp_id], tp_to_current_spread_fee[tp_id], tp_to_current_carry_fee[tp_id],
+                    tp_id_rtp
                 )
                 
                 perf_ledger.update_pl(current_return, t_ms, miner_hotkey, tp_to_any_open[tp_id], 
@@ -1264,8 +1270,9 @@ class PerfLedgerManager(CacheController):
                 calculated_return = tp_to_current_return[tp_id]
             
             current_return, current_spread_fee, current_carry_fee = self.get_bypass_values_if_applicable(
-                perf_ledger, tp_id, tp_to_any_open[tp_id], position_just_closed and tp_id == tp_id_rtp,
-                calculated_return, tp_to_current_spread_fee[tp_id], tp_to_current_carry_fee[tp_id]
+                perf_ledger, tp_id, tp_to_any_open[tp_id], position_just_closed,
+                calculated_return, tp_to_current_spread_fee[tp_id], tp_to_current_carry_fee[tp_id],
+                tp_id_rtp
             )
 
             perf_ledger.update_pl(current_return, end_time_ms, miner_hotkey, tp_to_any_open[tp_id], 
