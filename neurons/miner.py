@@ -39,17 +39,17 @@ class Miner:
         self.subtensor = bt.subtensor(config=self.config)
         self.metagraph = self.subtensor.metagraph(self.config.netuid)
         self.position_inspector = PositionInspector(self.wallet, self.metagraph, self.config)
+        self.metagraph_updater = MetagraphUpdater(self.config, self.metagraph, self.wallet.hotkey.ss58_address,
+                                                  True, position_inspector=self.position_inspector,
+                                                    slack_notifier=self.slack_notifier)
         self.prop_net_order_placer = PropNetOrderPlacer(
             self.wallet,
-            self.metagraph,
+            self.metagraph_updater,
             self.config,
             self.is_testnet,
             position_inspector=self.position_inspector,
             slack_notifier=self.slack_notifier
         )
-        self.metagraph_updater = MetagraphUpdater(self.config, self.metagraph, self.wallet.hotkey.ss58_address,
-                                                  True, position_inspector=self.position_inspector,
-                                                    slack_notifier=self.slack_notifier)
 
         self.check_miner_registration()
         self.my_subnet_uid = self.metagraph.hotkeys.index(self.wallet.hotkey.ss58_address)
@@ -244,9 +244,11 @@ class Miner:
         while True:
             try:
                 signals, signal_file_names = self.get_all_files_in_dir_no_duplicate_trade_pairs()
+                n_signals = len(signals)
                 self.prop_net_order_placer.send_signals(signals, signal_file_names, recently_acked_validators=
                 self.position_inspector.get_recently_acked_validators())
-                time.sleep(1)
+                if n_signals == 0:
+                    time.sleep(0.2)
             # If someone intentionally stops the miner, it'll safely terminate operations.
             except KeyboardInterrupt:
                 self.slack_notifier.send_message("🛑 Miner shutting down (keyboard interrupt)", level="warning")

@@ -95,9 +95,9 @@ class PropNetOrderPlacer:
     MAX_WORKERS = 10
     THREAD_POOL_TIMEOUT = 300  # 5 minutes
 
-    def __init__(self, wallet, metagraph, config, is_testnet, position_inspector=None, slack_notifier=None):
+    def __init__(self, wallet, metagraph_updater, config, is_testnet, position_inspector=None, slack_notifier=None):
         self.wallet = wallet
-        self.metagraph = metagraph
+        self.metagraph_updater = metagraph_updater
         self.config = config
         self.recently_acked_validators = []
         self.is_testnet = is_testnet
@@ -226,7 +226,7 @@ class PropNetOrderPlacer:
         """
         Processes a signal file by attempting to send it to the validators.
         """
-        hotkey_to_v_trust = {neuron.hotkey: neuron.validator_trust for neuron in self.metagraph.neurons}
+        hotkey_to_v_trust = {neuron.hotkey: neuron.validator_trust for neuron in self.metagraph_updater.get_metagraph().neurons}
         axons_to_try = self.position_inspector.get_possible_validators()
         axons_to_try.sort(key=lambda validator: hotkey_to_v_trust[validator.hotkey], reverse=True)
 
@@ -330,7 +330,7 @@ class PropNetOrderPlacer:
                                metrics: SignalMetrics):
         self._ensure_event_loop()
 
-        hotkey_to_v_trust = {neuron.hotkey: neuron.validator_trust for neuron in self.metagraph.neurons}
+        hotkey_to_v_trust = {neuron.hotkey: neuron.validator_trust for neuron in self.metagraph_updater.get_metagraph().neurons}
 
         bt.logging.info(
             f"Attempt #{retry_status['retry_attempts']} for {send_signal_request.signal['trade_pair']['trade_pair_id']} "
