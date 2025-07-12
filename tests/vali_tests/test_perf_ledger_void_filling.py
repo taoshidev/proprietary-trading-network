@@ -197,8 +197,38 @@ class TestPerfLedgerVoidFilling(TestBase):
                 
                 prev_cp = cp
 
+        # Update one more time, 10 days in the future
+        future_time_ms = self.now_ms + (10 * MS_IN_24_HOURS)
+        plm.update(t_ms=future_time_ms)
+        bundles = plm.get_perf_ledgers(portfolio_only=False)
+        self.assertIn(self.test_hotkey, bundles)
+        for tp_id, ledger in bundles[self.test_hotkey].items():
+            checkpoints = ledger.cps
 
-        
+            # Verify we still have flat performance in void
+            checkpoint_to_compare_to = None
+            for i, cp in enumerate(checkpoints):
+                if cp.n_updates > 0:
+                    continue
+                else:
+                    if checkpoint_to_compare_to is None:
+                        # Make sure there are X days left of checkpoints
+                        expected_days_left_of_checkpoints = 10 + 5 # closed 5 days before now. Updated 10 days in the future
+                        cps_remainings = len(checkpoints) - i
+                        self.assertEqual(cps_remainings, expected_days_left_of_checkpoints * 2,
+                                            f"Should have at least {expected_days_left_of_checkpoints * 2} checkpoints remaining")
+                        checkpoint_to_compare_to = cp
+                        continue
+                    self.assertEqual(checkpoint_to_compare_to.mdd, cp.mdd)
+                    self.assertEqual(checkpoint_to_compare_to.prev_portfolio_ret, cp.prev_portfolio_ret)
+                    self.assertEqual(checkpoint_to_compare_to.prev_portfolio_spread_fee, cp.prev_portfolio_spread_fee)
+                    self.assertEqual(checkpoint_to_compare_to.prev_portfolio_carry_fee, cp.prev_portfolio_carry_fee)
+                    self.assertEqual(checkpoint_to_compare_to.gain, cp.gain)
+                    self.assertEqual(checkpoint_to_compare_to.loss, cp.loss)
+                    self.assertEqual(0, cp.gain)
+                    self.assertEqual(0, cp.loss)
+
+
     @patch('vali_objects.vali_dataclasses.perf_ledger.LivePriceFetcher')
     def test_multiple_void_periods(self, mock_lpf):
         """
