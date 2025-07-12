@@ -16,6 +16,15 @@ class MetagraphUpdater(CacheController):
         super().__init__(metagraph)
         self.config = config
         self.subtensor = bt.subtensor(config=self.config)
+        # Parse out the arg for subtensor.network. If it is "finney" or "subvortex", we will roundrobin on metagraph failure
+        self.round_robin_networks = ['finney', 'subvortex']
+        self.round_robin_enabled = False
+        self.current_round_robin_index = 0
+        if self.config.subtensor.network in self.round_robin_networks:
+            bt.logging.info(f"Using round-robin metagraph for network {self.config.subtensor.network}. ")
+            self.round_robin_enabled = True
+            self.current_round_robin_index = self.round_robin_networks.index(self.config.subtensor.network)
+
         # Initialize likely validators and miners with empty dictionaries. This maps hotkey to timestamp.
         self.likely_validators = {}
         self.likely_miners = {}
@@ -31,7 +40,7 @@ class MetagraphUpdater(CacheController):
         self.slack_notifier = slack_notifier  # Add slack notifier for error reporting
 
         # Exponential backoff parameters
-        self.min_backoff = 30  # 30 seconds minimum (changed from 1 second)
+        self.min_backoff = 10 if self.round_robin_enabled else 120
         self.max_backoff = 43200  # 12 hours maximum (12 * 60 * 60)
         self.backoff_factor = 2  # Double the wait time on each retry
         self.current_backoff = self.min_backoff
@@ -79,11 +88,14 @@ class MetagraphUpdater(CacheController):
                 self.update_metagraph()
                 # Reset backoff on successful update
                 if self.consecutive_failures > 0:
+                    rr_network = self.round_robin_networks[self.current_round_robin_index] if self.round_robin_enabled else "N/A"
                     bt.logging.info(
-                        f"Metagraph update successful after {self.consecutive_failures} failures. Resetting backoff.")
+                        f"Metagraph update successful after {self.consecutive_failures} failures. Resetting backoff. "
+                        f"round_robin_enabled: {self.round_robin_enabled}. rr_network: {rr_network}")
                     if self.slack_notifier:
                         self.slack_notifier.send_message(
-                            f"✅ Metagraph update recovered after {self.consecutive_failures} consecutive failures",
+                            f"✅ Metagraph update recovered after {self.consecutive_failures} consecutive failures."
+                            f" round_robin_enabled: {self.round_robin_enabled}, rr_network: {rr_network}",
                             level="info"
                         )
                 self.consecutive_failures = 0
@@ -98,8 +110,10 @@ class MetagraphUpdater(CacheController):
                 compact_trace = self._get_compact_traceback(e)
 
                 # Log error with backoff information and compact stack trace
+                rr_network = self.round_robin_networks[self.current_round_robin_index] if self.round_robin_enabled else "N/A"
                 error_msg = (f"Error during metagraph update (attempt #{self.consecutive_failures}): {e}. "
-                             f"Next retry in {self.current_backoff} seconds.")
+                             f"Next retry in {self.current_backoff} seconds. round_robin_enabled: {self.round_robin_enabled}"
+                             f" rr_network {rr_network}\n")
                 bt.logging.error(error_msg)
                 bt.logging.error(traceback.format_exc())
 
@@ -174,13 +188,24 @@ class MetagraphUpdater(CacheController):
         for item in items_to_add:
             shared_list.append(item)
 
+    def get_metagraph(self):
+        """
+        Returns the metagraph object.
+        """
+        return self.metagraph
+
     def update_metagraph(self):
         if not self.refresh_allowed(self.interval_wait_time_ms):
             return
-        # Searching the BT forums suggests this is needed to recover from a metagraph update failure.
-        if self.consecutive_failures > 0:
-            self.subtensor = bt.subtensor(config=self.config)
 
+        if self.consecutive_failures > 0:
+            if self.round_robin_enabled:
+                # Round-robin logic to switch networks
+                self.current_round_robin_index = (self.current_round_robin_index + 1) % len(self.round_robin_networks)
+                self.config['subtensor']['network'] = self.round_robin_networks[self.current_round_robin_index]
+                bt.logging.warning(f"Switching to next network in round-robin: {self.config['subtensor']['network']}")
+
+        self.subtensor = bt.subtensor(config=self.config)
         recently_acked_miners = None
         recently_acked_validators = None
         if self.is_miner:

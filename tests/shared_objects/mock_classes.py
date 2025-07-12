@@ -1,20 +1,19 @@
 from collections import defaultdict
-from typing import List
 
 import pandas as pd
-from bittensor import Balance
 
 from data_generator.polygon_data_service import PolygonDataService
+from shared_objects.cache_controller import CacheController
+from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
 from vali_objects.utils.live_price_fetcher import LivePriceFetcher
 from vali_objects.utils.mdd_checker import MDDChecker
 from vali_objects.utils.plagiarism_detector import PlagiarismDetector
-from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
 from vali_objects.utils.position_manager import PositionManager
 from vali_objects.utils.price_slippage_model import PriceSlippageModel
 from vali_objects.vali_config import TradePair
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
-from shared_objects.cache_controller import CacheController
 from vali_objects.vali_dataclasses.price_source import PriceSource
+
 
 class MockMDDChecker(MDDChecker):
     def __init__(self, metagraph, position_manager, live_price_fetcher):
@@ -94,41 +93,13 @@ class MockPriceSlippageModel(PriceSlippageModel):
         if trade_pair.is_forex:
             bars_df = pd.DataFrame({
                 'annualized_vol': [0.5],  # Mock annualized volatility
-                f'adv_last_{adv_lookback_window}_days': [100_000]  # Mock 10-day average daily volume
+                f'adv_last_{adv_lookback_window}_days': [100_000],  # Mock 10-day average daily volume
             })
         else:  # equities
             bars_df = pd.DataFrame({
                 'annualized_vol': [0.5],  # Mock annualized volatility
-                f'adv_last_{adv_lookback_window}_days': [100_000_000]  # Mock 10-day average daily volume
+                f'adv_last_{adv_lookback_window}_days': [100_000_000],  # Mock 10-day average daily volume
             })
         return bars_df
 
-
-class MockAxonInfo:
-    ip: str
-
-    def __init__(self, ip: str):
-        self.ip = ip
-
-
-class MockNeuron:
-    axon_info: MockAxonInfo
-    stake: Balance
-
-    def __init__(self, axon_info: MockAxonInfo, stake: Balance):
-        self.axon_info = axon_info
-        self.stake = stake
-
-
-class MockMetagraph():
-    neurons: List[MockNeuron]
-    hotkeys: List[str]
-    uids: List[int]
-    block_at_registration: List[int]
-
-    def __init__(self, hotkeys, neurons = None):
-        self.hotkeys = hotkeys
-        self.neurons = neurons
-        self.uids = []
-        self.block_at_registration = []
 

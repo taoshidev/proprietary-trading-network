@@ -2,16 +2,17 @@
 from copy import deepcopy
 from datetime import datetime, timezone
 
-from tests.shared_objects.mock_classes import MockMetagraph
+from shared_objects.mock_metagraph import MockMetagraph
 from tests.vali_tests.base_objects.test_base import TestBase
-from time_util.time_util import TimeUtil, MS_IN_24_HOURS, MS_IN_8_HOURS
-from vali_objects.vali_config import TradePair
+from time_util.time_util import MS_IN_8_HOURS, MS_IN_24_HOURS, TimeUtil
 from vali_objects.enums.order_type_enum import OrderType
-from vali_objects.position import Position, FEE_V6_TIME_MS
+from vali_objects.position import FEE_V6_TIME_MS, Position
 from vali_objects.utils.live_price_fetcher import LivePriceFetcher
 from vali_objects.utils.position_manager import PositionManager
 from vali_objects.utils.vali_utils import ValiUtils
+from vali_objects.vali_config import TradePair
 from vali_objects.vali_dataclasses.order import Order
+
 
 class TestTimeUtil(TestBase):
 
