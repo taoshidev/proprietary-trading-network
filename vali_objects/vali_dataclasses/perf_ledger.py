@@ -666,7 +666,7 @@ class PerfLedgerManager(CacheController):
 
 
     def _can_shortcut(self, tp_to_historical_positions: dict[str: Position], end_time_ms: int,
-                      realtime_position_to_pop: Position | None, start_time_ms: int, perf_ledger_bundle: dict[str, PerfLedger]) -> (ShortcutReason, float, float, float):
+                      realtime_position_to_pop: Position | None, start_time_ms: int, perf_ledger_bundle: dict[str, PerfLedger]) -> (ShortcutReason, float, float, float, TradePairReturnStatus):
 
         tp_to_return = {}
         tp_to_spread_fee = {}
@@ -687,6 +687,7 @@ class PerfLedgerManager(CacheController):
         n_positions = 0
         n_closed_positions = 0
         n_positions_newly_opened = 0
+        any_open : TradePairReturnStatus = TradePairReturnStatus.TP_MARKET_NOT_OPEN
 
         for tp_id, historical_positions in tp_to_historical_positions.items():
             for i, historical_position in enumerate(historical_positions):
@@ -728,6 +729,7 @@ class PerfLedgerManager(CacheController):
 
             reason += 'No open positions. '
             ans = ShortcutReason.NO_OPEN_POSITIONS
+            any_open = TradePairReturnStatus.TP_NO_OPEN_POSITIONS
 
         # This window would be dropped anyway
         if (end_time_ms < ledger_cutoff_ms):
@@ -780,7 +782,7 @@ class PerfLedgerManager(CacheController):
                   f'final portfolio cp {final_cp}')
             print('---------------------------------------------------------------------')
 
-        return ans, tp_to_return, tp_to_spread_fee, tp_to_carry_fee
+        return ans, tp_to_return, tp_to_spread_fee, tp_to_carry_fee, any_open
 
 
     def new_window_intersects_old_window(self, start_time_ms, end_time_ms, existing_lb_ms, existing_ub_ms):
@@ -1015,7 +1017,7 @@ class PerfLedgerManager(CacheController):
                 mode = 'second'
         return mode
 
-    def get_bypass_values_if_applicable(self, perf_ledger: PerfLedger, tp_id: str, any_open: TradePairReturnStatus, 
+    def get_bypass_values_if_applicable(self, perf_ledger: PerfLedger, tp_id: str, any_open: TradePairReturnStatus,
                                       position_just_closed: bool, calculated_return: float, 
                                       calculated_spread_fee: float, calculated_carry_fee: float) -> tuple[float, float, float]:
         """
@@ -1035,7 +1037,7 @@ class PerfLedgerManager(CacheController):
             Tuple of (return, spread_fee, carry_fee) to pass to update_pl
         """
         # Check if we should use bypass (all closed + no position just closed)
-        use_bypass = (any_open in (TradePairReturnStatus.TP_MARKET_NOT_OPEN, TradePairReturnStatus.TP_NO_OPEN_POSITIONS) and
+        use_bypass = (any_open == TradePairReturnStatus.TP_NO_OPEN_POSITIONS and 
                       not position_just_closed and 
                       len(perf_ledger.cps) > 0)
         
@@ -1096,7 +1098,8 @@ class PerfLedgerManager(CacheController):
     def build_perf_ledger(self, perf_ledger_bundle: dict[str:dict[str, PerfLedger]], tp_to_historical_positions: dict[str: Position], start_time_ms, end_time_ms, miner_hotkey, realtime_position_to_pop) -> bool:
         # Calculate if a position just closed in this update
         position_just_closed = realtime_position_to_pop is not None and not realtime_position_to_pop.is_open_position
-        
+        tp_id_rtp = realtime_position_to_pop.trade_pair.trade_pair_id if realtime_position_to_pop else None
+
         portfolio_pl = perf_ledger_bundle[TP_ID_PORTFOLIO]
         if len(portfolio_pl.cps) == 0:
             portfolio_pl.init_with_first_order(end_time_ms, point_in_time_dd=1.0, current_portfolio_value=1.0,
@@ -1113,7 +1116,7 @@ class PerfLedgerManager(CacheController):
             else:
                 assert len(positions) == 1
                 assert len(positions[0].orders) == 0, (tp_id, positions[0], list(perf_ledger_bundle.keys()))
-                assert realtime_position_to_pop and tp_id == realtime_position_to_pop.trade_pair.trade_pair_id
+                assert realtime_position_to_pop and tp_id == tp_id_rtp
                 initialization_time_ms = realtime_position_to_pop.orders[0].processed_ms
                 perf_ledger_bundle[tp_id] = PerfLedger(initialization_time_ms=initialization_time_ms, target_ledger_window_ms=self.target_ledger_window_ms)
                 perf_ledger_bundle[tp_id].init_with_first_order(end_time_ms, point_in_time_dd=1.0, current_portfolio_value=1.0,
@@ -1122,14 +1125,14 @@ class PerfLedgerManager(CacheController):
             return False  # Can only build perf ledger between orders or after all orders have passed.
 
         # "Shortcut" All positions closed and one newly open position OR before the ledger lookback window.
-        shortcut_reason, initial_tp_to_return, initial_tp_to_spread_fee, initial_tp_to_carry_fee = \
+        shortcut_reason, initial_tp_to_return, initial_tp_to_spread_fee, initial_tp_to_carry_fee, any_open = \
             self._can_shortcut(tp_to_historical_positions, end_time_ms, realtime_position_to_pop, start_time_ms, perf_ledger_bundle)
         if shortcut_reason != ShortcutReason.NO_SHORTCUT:
             for tp_id in tp_ids_to_build:
                 perf_ledger = perf_ledger_bundle[tp_id]
                 
                 tp_return, tp_spread_fee, tp_carry_fee = self.get_bypass_values_if_applicable(
-                    perf_ledger, tp_id, TradePairReturnStatus.TP_MARKET_NOT_OPEN, position_just_closed,
+                    perf_ledger, tp_id, any_open, position_just_closed and tp_id == tp_id_rtp,
                     initial_tp_to_return[tp_id], initial_tp_to_spread_fee[tp_id], initial_tp_to_carry_fee[tp_id]
                 )
 
@@ -1180,7 +1183,7 @@ class PerfLedgerManager(CacheController):
             assert perf_ledger.last_update_ms < end_time_ms, (perf_ledger.last_update_ms, end_time_ms, tp_id, perf_ledger.last_update_ms - end_time_ms)
             
             current_return, current_spread_fee, current_carry_fee = self.get_bypass_values_if_applicable(
-                perf_ledger, tp_id, TradePairReturnStatus.TP_NO_OPEN_POSITIONS, position_just_closed,
+                perf_ledger, tp_id, TradePairReturnStatus.TP_NO_OPEN_POSITIONS, position_just_closed and tp_id == tp_id_rtp,
                 tp_to_initial_return[tp_id], tp_to_initial_spread_fee[tp_id], tp_to_initial_carry_fee[tp_id]
             )
             
@@ -1235,7 +1238,7 @@ class PerfLedgerManager(CacheController):
                 perf_ledger = perf_ledger_bundle[tp_id]
                 
                 current_return, current_spread_fee, current_carry_fee = self.get_bypass_values_if_applicable(
-                    perf_ledger, tp_id, tp_to_any_open[tp_id], position_just_closed,
+                    perf_ledger, tp_id, tp_to_any_open[tp_id], position_just_closed and tp_id == tp_id_rtp,
                     tp_to_current_return[tp_id], tp_to_current_spread_fee[tp_id], tp_to_current_carry_fee[tp_id]
                 )
                 
@@ -1247,7 +1250,6 @@ class PerfLedgerManager(CacheController):
         # Get last sliver of time for open positions and fill the void for closed positions.
         # This also ensures return aligns with the price baked into the Order object.
         # Note - nothing changes on closed positions over time, not even fees.
-        tp_id_rtp = realtime_position_to_pop.trade_pair.trade_pair_id if realtime_position_to_pop else None
         boundary_correction_enabled = tp_id_rtp in tp_to_historical_positions_dense and realtime_position_to_pop and tp_id_rtp in tp_ids_to_build
         for tp_id in tp_ids_to_build:
             perf_ledger = perf_ledger_bundle[tp_id]
@@ -1262,7 +1264,7 @@ class PerfLedgerManager(CacheController):
                 calculated_return = tp_to_current_return[tp_id]
             
             current_return, current_spread_fee, current_carry_fee = self.get_bypass_values_if_applicable(
-                perf_ledger, tp_id, tp_to_any_open[tp_id], position_just_closed,
+                perf_ledger, tp_id, tp_to_any_open[tp_id], position_just_closed and tp_id == tp_id_rtp,
                 calculated_return, tp_to_current_spread_fee[tp_id], tp_to_current_carry_fee[tp_id]
             )
 

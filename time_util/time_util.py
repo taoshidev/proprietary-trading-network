@@ -18,6 +18,7 @@ from pandas.tseries.holiday import USFederalHolidayCalendar  # noqa: E402
 
 import pandas_market_calendars as mcal  # noqa: E402
 from pandas.tseries.holiday import Holiday, nearest_workday, GoodFriday  # noqa: E402
+MS_IN_1_HOUR = 3600000
 MS_IN_8_HOURS =  28800000
 MS_IN_24_HOURS = 86400000
 
