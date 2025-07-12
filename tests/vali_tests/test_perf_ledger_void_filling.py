@@ -220,11 +220,17 @@ class TestPerfLedgerVoidFilling(TestBase):
                         checkpoint_to_compare_to = cp
                         continue
                     self.assertEqual(checkpoint_to_compare_to.mdd, cp.mdd)
-                    self.assertEqual(checkpoint_to_compare_to.prev_portfolio_ret, cp.prev_portfolio_ret)
-                    self.assertEqual(checkpoint_to_compare_to.prev_portfolio_spread_fee, cp.prev_portfolio_spread_fee)
-                    self.assertEqual(checkpoint_to_compare_to.prev_portfolio_carry_fee, cp.prev_portfolio_carry_fee)
-                    self.assertEqual(checkpoint_to_compare_to.gain, cp.gain)
-                    self.assertEqual(checkpoint_to_compare_to.loss, cp.loss)
+                    # Assertions with detailed err messages
+                    self.assertEqual(checkpoint_to_compare_to.prev_portfolio_ret, cp.prev_portfolio_ret,
+                                     f"Checkpoint {i} returns should match previous checkpoint {checkpoint_to_compare_to.last_update_ms} != {cp.last_update_ms}")
+                    self.assertEqual(checkpoint_to_compare_to.prev_portfolio_spread_fee, cp.prev_portfolio_spread_fee,
+                                        f"Checkpoint {i} spread fee should match previous checkpoint {checkpoint_to_compare_to.last_update_ms} != {cp.last_update_ms}")
+                    self.assertEqual(checkpoint_to_compare_to.prev_portfolio_carry_fee, cp.prev_portfolio_carry_fee,
+                                        f"Checkpoint {i} carry fee should match previous checkpoint {checkpoint_to_compare_to.last_update_ms} != {cp.last_update_ms}")
+                    self.assertEqual(checkpoint_to_compare_to.gain, cp.gain,
+                                        f"Checkpoint {i} gain should match previous checkpoint {checkpoint_to_compare_to.last_update_ms} != {cp.last_update_ms}")
+                    self.assertEqual(checkpoint_to_compare_to.loss, cp.loss,
+                                        f"Checkpoint {i} loss should match previous checkpoint {checkpoint_to_compare_to.last_update_ms} != {cp.last_update_ms}")
                     self.assertEqual(0, cp.gain)
                     self.assertEqual(0, cp.loss)
 
