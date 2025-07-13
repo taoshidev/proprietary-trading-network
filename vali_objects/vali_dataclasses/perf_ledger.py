@@ -415,7 +415,8 @@ class PerfLedgerManager(CacheController):
                  perf_ledger_hks_to_invalidate=None, live_price_fetcher=None, position_manager=None,
                  use_slippage=None,
                  enable_rss=True, is_backtesting=False, parallel_mode=ParallelizationMode.SERIAL, secrets=None,
-                 build_portfolio_ledgers_only=False, target_ledger_window_ms=ValiConfig.TARGET_LEDGER_WINDOW_MS):
+                 build_portfolio_ledgers_only=False, target_ledger_window_ms=ValiConfig.TARGET_LEDGER_WINDOW_MS,
+                 is_testing=False):
         super().__init__(metagraph=metagraph, running_unit_tests=running_unit_tests, is_backtesting=is_backtesting)
         self.shutdown_dict = shutdown_dict
         self.live_price_fetcher = live_price_fetcher
@@ -423,6 +424,7 @@ class PerfLedgerManager(CacheController):
         self.enable_rss = enable_rss
         self.parallel_mode = parallel_mode
         self.use_slippage = use_slippage
+        self.is_testing = is_testing
         position_file.ALWAYS_USE_SLIPPAGE = use_slippage
         self.build_portfolio_ledgers_only = build_portfolio_ledgers_only
         if perf_ledger_hks_to_invalidate is None:
@@ -832,8 +834,16 @@ class PerfLedgerManager(CacheController):
         #t0 = time.time()
         #print(f"Starting #{requested_seconds} candle fetch for {tp.trade_pair}")
         if self.pds is None:
-            live_price_fetcher = LivePriceFetcher(self.secrets, disable_ws=True)
-            self.pds = live_price_fetcher.polygon_data_service
+            if self.is_testing:
+                # Create a minimal mock data service for testing
+                from unittest.mock import Mock
+                self.pds = Mock()
+                self.pds.unified_candle_fetcher.return_value = []
+                self.pds.tp_to_mfs = {}
+            else:
+                # Production path - create real price fetcher
+                live_price_fetcher = LivePriceFetcher(self.secrets, disable_ws=True)
+                self.pds = live_price_fetcher.polygon_data_service
 
         price_info_raw = self.pds.unified_candle_fetcher(
             trade_pair=tp, start_timestamp_ms=start_time_ms, end_timestamp_ms=end_time_ms, timespan=mode)
@@ -1752,6 +1762,7 @@ class PerfLedgerManager(CacheController):
             target_ledger_window_ms=self.target_ledger_window_ms,
             is_backtesting=is_backtesting,
             use_slippage=self.use_slippage,
+            is_testing=self.is_testing,  # Pass testing flag to worker
         )
         worker_plm.now_ms = now_ms
 
