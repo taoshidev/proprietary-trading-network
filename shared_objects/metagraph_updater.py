@@ -205,7 +205,7 @@ class MetagraphUpdater(CacheController):
                 self.config['subtensor']['network'] = self.round_robin_networks[self.current_round_robin_index]
                 bt.logging.warning(f"Switching to next network in round-robin: {self.config['subtensor']['network']}")
 
-        self.subtensor = bt.subtensor(config=self.config)
+            self.subtensor = bt.subtensor(config=self.config)
         recently_acked_miners = None
         recently_acked_validators = None
         if self.is_miner:
@@ -242,16 +242,16 @@ class MetagraphUpdater(CacheController):
                     f"🚨 CRITICAL: {error_msg}",
                     level="error"
                 )
-        elif self.is_miner:
-            self.metagraph = metagraph_clone
-        else:
-            # Multiprocessing (validator only)
-            self.sync_lists(self.metagraph.neurons, list(metagraph_clone.neurons), brute_force=True)
-            self.sync_lists(self.metagraph.uids, metagraph_clone.uids, brute_force=True)
-            self.sync_lists(self.metagraph.hotkeys, metagraph_clone.hotkeys, brute_force=True)
-            # Tuple doesn't support item assignment.
-            self.sync_lists(self.metagraph.block_at_registration, metagraph_clone.block_at_registration,
-                            brute_force=True)
+
+        self.sync_lists(self.metagraph.neurons, list(metagraph_clone.neurons), brute_force=True)
+        self.sync_lists(self.metagraph.uids, metagraph_clone.uids, brute_force=True)
+        self.sync_lists(self.metagraph.hotkeys, metagraph_clone.hotkeys, brute_force=True)
+        # Tuple doesn't support item assignment.
+        self.sync_lists(self.metagraph.block_at_registration, metagraph_clone.block_at_registration,
+                        brute_force=True)
+        if self.is_miner:
+            self.sync_lists(self.metagraph.axons, metagraph_clone.axons, brute_force=True)
+
 
         if recently_acked_miners:
             self.update_likely_miners(recently_acked_miners)

@@ -20,6 +20,15 @@ from shared_objects.metagraph_updater import MetagraphUpdater
 from vali_objects.decoders.generalized_json_decoder import GeneralizedJSONDecoder
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 
+class MinerMetagraph():
+    def __init__(self):
+        # Only essential attributes used in miner codebase
+        self.neurons = []         # Used to access neuron properties (stake, validator_trust, axon_info)
+        self.hotkeys = []         # Used for registration check and UID lookup  
+        self.uids = []            # Used by shared code
+        self.block_at_registration = []  # Used by metagraph_updater.py sync_lists
+        self.axons = []           # Used in dashboard.py for testnet validator queries
+
 
 class Miner:
     def __init__(self):
@@ -36,8 +45,7 @@ class Miner:
             webhook_url=self.config.slack_webhook_url,
             error_webhook_url=self.config.slack_error_webhook_url
         )
-        self.subtensor = bt.subtensor(config=self.config)
-        self.metagraph = self.subtensor.metagraph(self.config.netuid)
+        self.metagraph = MinerMetagraph()
         self.position_inspector = PositionInspector(self.wallet, self.metagraph, self.config)
         self.metagraph_updater = MetagraphUpdater(self.config, self.metagraph, self.wallet.hotkey.ss58_address,
                                                   True, position_inspector=self.position_inspector,
@@ -51,6 +59,23 @@ class Miner:
             slack_notifier=self.slack_notifier
         )
 
+        # Start the metagraph updater loop in its own thread to populate the metagraph
+        self.metagraph_updater_thread = threading.Thread(target=self.metagraph_updater.run_update_loop, daemon=True)
+        self.metagraph_updater_thread.start()
+        
+        # Wait for initial metagraph population before proceeding
+        bt.logging.info("Waiting for initial metagraph population...")
+        max_wait_time = 60  # 60 seconds max wait
+        start_time = time.time()
+        while not self.metagraph.hotkeys and (time.time() - start_time) < max_wait_time:
+            time.sleep(1)
+        
+        if not self.metagraph.hotkeys:
+            error_msg = "Failed to populate metagraph within 60 seconds"
+            bt.logging.error(error_msg)
+            self.slack_notifier.send_message(f"❌ {error_msg}", level="error")
+            exit()
+        
         self.check_miner_registration()
         self.my_subnet_uid = self.metagraph.hotkeys.index(self.wallet.hotkey.ss58_address)
         bt.logging.info(f"Running miner on netuid {self.config.netuid} with uid: {self.my_subnet_uid}")
@@ -64,9 +89,6 @@ class Miner:
             level="info"
         )
 
-        # Start the metagraph updater loop in its own thread
-        self.metagraph_updater_thread = threading.Thread(target=self.metagraph_updater.run_update_loop, daemon=True)
-        self.metagraph_updater_thread.start()
         # Start position inspector loop in its own thread
         if self.config.run_position_inspector:
             self.position_inspector_thread = threading.Thread(target=self.position_inspector.run_update_loop,
