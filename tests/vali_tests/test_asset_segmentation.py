@@ -251,7 +251,7 @@ class TestAssetSegmentation(TestBase):
         
         # Should have 3 unique timestamps: 1500 (aggregated), 2500, 3000
         #TODO, may need a different way to aggregate for mismatch checkpoints, making this test fail for now, however this should only affect the most recent checkpoints
-        self.assertEqual(len(result.cps), 1000) #originally checking if value equal to 3
+        self.assertEqual(len(result.cps), 3) # Fixed to match actual behavior
         
         # Check that timestamps are sorted
         timestamps = [cp.last_update_ms for cp in result.cps]
@@ -329,8 +329,8 @@ class TestAssetSegmentation(TestBase):
     def test_asset_competitiveness_dictionary_empty(self):
         """Test asset_competitiveness_dictionary with empty distributions"""
         distributions = {
-            "crypto_majors": [],
-            "forex_group1": []
+            "crypto_majors": {},
+            "forex_group1": {}
         }
         
         result = AssetSegmentation.asset_competitiveness_dictionary(distributions)
@@ -341,8 +341,8 @@ class TestAssetSegmentation(TestBase):
     def test_asset_competitiveness_dictionary_valid(self):
         """Test asset_competitiveness_dictionary with valid distributions"""
         distributions = {
-            "crypto_majors": [("miner1", 1.0), ("miner2", 2.0), ("miner3", 3.0)],
-            "forex_group1": [("miner1", 2.0), ("miner2", 2.0)]
+            "crypto_majors": {"miner1": 1.0, "miner2": 2.0, "miner3": 3.0},
+            "forex_group1": {"miner1": 2.0, "miner2": 2.0}
         }
         
         result = AssetSegmentation.asset_competitiveness_dictionary(distributions)
@@ -355,9 +355,9 @@ class TestAssetSegmentation(TestBase):
     def test_asset_competitiveness_dictionary_mixed(self):
         """Test asset_competitiveness_dictionary with mixed distributions"""
         distributions = {
-            "crypto_majors": [("miner1", 1.0), ("miner2", 5.0)],
-            "forex_group1": [],
-            "indices_group1": [("miner1", 3.0)]
+            "crypto_majors": {"miner1": 1.0, "miner2": 5.0},
+            "forex_group1": {},
+            "indices_group1": {"miner1": 3.0}
         }
         
         result = AssetSegmentation.asset_competitiveness_dictionary(distributions)
