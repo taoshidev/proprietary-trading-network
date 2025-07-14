@@ -84,6 +84,7 @@ class SubtensorWeightSetter(CacheController):
                 filtered_ledger,
                 filtered_positions,
                 evaluation_time_ms=current_time,
+                verbose=True,
                 weighting=True
             )
             checkpoint_results = sorted(checkpoint_results, key=lambda x: x[1], reverse=True)

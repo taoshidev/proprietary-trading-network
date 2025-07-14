@@ -352,14 +352,16 @@ class ChallengePeriodManager(CacheController):
                     ledger_dict=success_ledger,
                     positions=success_positions,
                     evaluation_time_ms=current_time,
-                    weighting=True)
+                    weighting=True,
+                    verbose=False)
 
         if not inspection_scores_dict:
             inspection_scores_dict = Scoring.score_miners(
                     ledger_dict=candidates_ledgers,
                     positions=candidates_positions,
                     evaluation_time_ms=current_time,
-                    weighting=True)
+                    weighting=True,
+                    verbose=False)
 
         hotkeys_to_promote, hotkeys_to_demote = ChallengePeriodManager.evaluate_promotions(success_hotkeys,
                                                                                            success_scores_dict,

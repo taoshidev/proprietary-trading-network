@@ -12,7 +12,7 @@ import numpy as np
 from scipy.stats import percentileofscore
 
 from vali_objects.vali_config import ValiConfig
-from vali_objects.vali_dataclasses.perf_ledger import PerfLedger
+from vali_objects.vali_dataclasses.perf_ledger import PerfLedger, TP_ID_PORTFOLIO
 from time_util.time_util import TimeUtil
 from vali_objects.utils.position_filtering import PositionFiltering
 from vali_objects.utils.ledger_utils import LedgerUtils
@@ -87,7 +87,8 @@ class Scoring:
         if len(ledger_dict) == 1:
             miner = list(ledger_dict.keys())[0]
             if verbose:
-                bt.logging.info(f"compute_results_checkpoint - Only one miner: {miner}, returning 1.0 for the solo miner weight")
+                bt.logging.info(
+                    f"compute_results_checkpoint - Only one miner: {miner}, returning 1.0 for the solo miner weight")
             return [(miner, 1.0)]
 
         if evaluation_time_ms is None:
@@ -319,7 +320,8 @@ class Scoring:
             miner_penalties[miner] = cumulative_penalty
 
         if empty_ledger_miners:
-            bt.logging.warning(f"Unexpectedly skipping miners with empty ledgers [(hk, n_positions)]: {empty_ledger_miners}")
+            bt.logging.warning(
+                f"Unexpectedly skipping miners with empty ledgers [(hk, n_positions)]: {empty_ledger_miners}")
 
         return miner_penalties
 
@@ -433,7 +435,8 @@ class Scoring:
             asset_class_emission = asset_class_information.get('emission', 0)
             asset_subcategory_weight = asset_class_information.get('subcategory_weights', {})
 
-            bt.logging.info(f"Asset class {asset_class} has emission {asset_class_emission} and subcategory weights {asset_subcategory_weight}")
+            bt.logging.info(
+                f"Asset class {asset_class} has emission {asset_class_emission} and subcategory weights {asset_subcategory_weight}")
 
             if asset_class_emission == 0:
                 bt.logging.warning(f"Asset class {asset_class} has no emission. Please report this issue!")
@@ -461,14 +464,14 @@ class Scoring:
     def softmax_scores(returns: list[tuple[str, float]]) -> list[tuple[str, float]]:
         """
         Assign weights to the returns based on their relative position and apply softmax with a temperature parameter.
-    
+
         The softmax function is used to convert the scores into probabilities that sum to 1.
         Subtracting the max value from the scores before exponentiation improves numerical stability.
-    
+
         Parameters:
         returns (list[tuple[str, float]]): List of tuples with miner names and their scores.
         temperature (float): Temperature parameter to control the sharpness of the softmax distribution. Default is 1.0.
-    
+
         Returns:
         list[tuple[str, float]]: List of tuples with miner names and their softmax weights.
         """
@@ -521,7 +524,8 @@ class Scoring:
 
         if len(miner_scores) == 1:
             miner, score = miner_scores[0]
-            bt.logging.info(f"miner_scores_percentiles - Only one miner: {miner}, returning 1.0 for the solo miner weight")
+            bt.logging.info(
+                f"miner_scores_percentiles - Only one miner: {miner}, returning 1.0 for the solo miner weight")
             return [(miner, 1.0)]
 
         miner_hotkeys = []

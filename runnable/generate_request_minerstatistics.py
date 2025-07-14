@@ -404,7 +404,7 @@ class MinerStatisticsManager:
 
         miner_risk_report = {}
         for hotkey, positions in miner_data_positions.items():
-            risk_report = RiskProfiling.risk_profile_reporting(positions)
+            risk_report = RiskProfiling.risk_profile_reporting(positions, verbose=False)
             miner_risk_report[hotkey] = risk_report
 
         return miner_risk_report
