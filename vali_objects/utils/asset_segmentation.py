@@ -159,7 +159,7 @@ class AssetSegmentation:
                 bt.logging.warning(f"Distribution for {asset_class} isn't defined.")
                 competitiveness_dict[asset_class] = math.nan
             else:
-                incentive_distribution = [value for _, value in distribution.items()]
+                incentive_distribution = [value for value in distribution.values() if value is not None and value >= 0]
                 competitiveness_dict[asset_class] = AssetSegmentation.segment_competitiveness(incentive_distribution)
 
         return competitiveness_dict

@@ -275,7 +275,7 @@ class ValiConfig:
     ELIMINATION_FILE_DELETION_DELAY_MS = 2 * 24 * 60 * 60 * 1000  # 2 days
 
     # Distributional statistics
-    SOFTMAX_TEMPERATURE = 0.25
+    SOFTMAX_TEMPERATURE = 0.15
 
     # Qualifications to be a trusted validator sending checkpoints
     TOP_N_CHECKPOINTS = 10

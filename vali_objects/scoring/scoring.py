@@ -449,15 +449,31 @@ class Scoring:
             return [(returns[0][0], 1.0)]
 
         # Extract scores and apply softmax with temperature
-        scores = np.array([score for _, score in returns])
-        max_score = np.max(scores)
-        exp_scores = np.exp((scores - max_score) / temperature)
-        softmax_scores = exp_scores / max(np.sum(exp_scores), epsilon)
+        names, scores = zip(*returns)
+        scores = np.array(scores, dtype=np.float64)
 
-        # Combine miners with their respective softmax scores
-        weighted_returns = [(miner, float(softmax_scores[i])) for i, (miner, _) in enumerate(returns)]
+        # Mask for non-zero scores
+        nonzero_mask = scores != 0
+        valid_scores = scores[nonzero_mask]
 
-        return weighted_returns
+        # Softmax only on non-zero scores
+        if valid_scores.size == 0:
+            # All scores are zero, return zero weights
+            return [(name, 0.0) for name in names]
+
+        # Numerically stable softmax
+        shifted_scores = (valid_scores - np.max(valid_scores)) / temperature
+        exp_scores = np.exp(shifted_scores)
+        softmax_scores = exp_scores / (np.sum(exp_scores) + epsilon)
+
+        # Reinsert weights with 0.0 for zero-score items
+        result = []
+        softmax_iter = iter(softmax_scores)
+        for name, is_nonzero in zip(names, nonzero_mask):
+            weight = next(softmax_iter) if is_nonzero else 0.0
+            result.append((name, float(weight)))
+
+        return result
 
     @staticmethod
     def miner_scores_percentiles(miner_scores: list[tuple[str, float]]) -> list[tuple[str, float]]:
