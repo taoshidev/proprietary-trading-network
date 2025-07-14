@@ -141,7 +141,8 @@ class TestWeights(TestBase):
         """Test when all miners have the same scores"""
         miner_scores = [("miner1", 10.0), ("miner2", 10.0), ("miner3", 10.0)]
         result = Scoring.miner_scores_percentiles(miner_scores)
-        expected_result = [("miner1", 0.6667), ("miner2", 0.6667), ("miner3", 0.6667)]
+        # When all scores are the same, strict percentile gives 0.0 for all miners
+        expected_result = [("miner1", 0.0), ("miner2", 0.0), ("miner3", 0.0)]
 
         for i in range(len(result)):
             self.assertAlmostEqual(result[i][1], expected_result[i][1], places=3)
@@ -150,8 +151,8 @@ class TestWeights(TestBase):
         """Test when all scores are zero"""
         miner_scores = [("miner1", 0.0), ("miner2", 0.0), ("miner3", 0.0)]
         result = Scoring.miner_scores_percentiles(miner_scores)
-        expected_result = [("miner1", 0.6667), ("miner2", 0.6667),
-                           ("miner3", 0.6667)]  # All scores are zero, so all are ranked the same
+        # When all scores are zero (same), strict percentile gives 0.0 for all miners
+        expected_result = [("miner1", 0.0), ("miner2", 0.0), ("miner3", 0.0)]
         for i in range(len(result)):
             self.assertAlmostEqual(result[i][1], expected_result[i][1], places=3)
 
@@ -160,16 +161,16 @@ class TestWeights(TestBase):
         miner_scores = [("miner1", 20.0), ("miner2", 30.0), ("miner3", 10.0), ("miner4", 40.0)]
         result = Scoring.miner_scores_percentiles(miner_scores)
 
-        # Expected percentiles:
-        # "miner3" with score 10.0 -> 0.25 (25th percentile)
-        # "miner1" with score 20.0 -> 0.50 (50th percentile)
-        # "miner2" with score 30.0 -> 0.75 (75th percentile)
-        # "miner4" with score 40.0 -> 1.00 (100th percentile)
+        # Expected percentiles with strict percentile ranking:
+        # "miner3" with score 10.0 -> 0.0 (lowest score)
+        # "miner1" with score 20.0 -> 0.25 (25th percentile)
+        # "miner2" with score 30.0 -> 0.50 (50th percentile)
+        # "miner4" with score 40.0 -> 0.75 (75th percentile)
         expected_result = [
-            ("miner1", 0.50),
-            ("miner2", 0.75),
-            ("miner3", 0.25),
-            ("miner4", 1.00)
+            ("miner1", 0.25),
+            ("miner2", 0.50),
+            ("miner3", 0.0),
+            ("miner4", 0.75)
         ]
 
         self.assertEqual(result, expected_result)
