@@ -269,38 +269,126 @@ class TestLedgerUtils(TestBase):
         self.assertGreaterEqual(LedgerUtils.daily_returns(l1_ledger)[0], LedgerUtils.daily_return_log(l1_ledger)[0] * 100)
 
     # Want to test the individual functions inputs and outputs
-    def test_max_drawdown(self):
-        l1 = generate_ledger(0.1, mdd=0.99)[TP_ID_PORTFOLIO]
-        
+    def test_instantaneous_max_drawdown(self):
+        """Test instantaneous_max_drawdown function"""
         # Empty ledger test
         empty_ledger = PerfLedger()
-        self.assertEqual(LedgerUtils.max_drawdown(empty_ledger), 0.0)
+        self.assertEqual(LedgerUtils.instantaneous_max_drawdown(empty_ledger), 0.0)
 
         # Valid ledger tests
-        self.assertEqual(LedgerUtils.max_drawdown(l1), 0.99)
+        l1 = generate_ledger(0.1, mdd=0.99)[TP_ID_PORTFOLIO]
+        self.assertEqual(LedgerUtils.instantaneous_max_drawdown(l1), 0.99)
 
         l2 = generate_ledger(0.1, mdd=0.95)[TP_ID_PORTFOLIO]
-        self.assertEqual(LedgerUtils.max_drawdown(l2), 0.95)
+        self.assertEqual(LedgerUtils.instantaneous_max_drawdown(l2), 0.95)
 
+        # Test with varying drawdowns - should return the minimum (worst) drawdown
         l3 = generate_ledger(0.1, mdd=0.99)[TP_ID_PORTFOLIO]
         l3_cps = l3.cps
-        l3_cps[-1].mdd = 0.5
-        self.assertEqual(LedgerUtils.max_drawdown(l3), 0.5)
+        l3_cps[-1].mdd = 0.5  # Worse drawdown
+        self.assertEqual(LedgerUtils.instantaneous_max_drawdown(l3), 0.5)
 
         l4 = generate_ledger(0.1, mdd=0.99)[TP_ID_PORTFOLIO]
         l4_cps = l4.cps
-        l4_cps[0].mdd = 0.5
-        self.assertEqual(LedgerUtils.max_drawdown(l4), 0.5)
+        l4_cps[0].mdd = 0.5  # Worse drawdown at start
+        self.assertEqual(LedgerUtils.instantaneous_max_drawdown(l4), 0.5)
 
+        # Test bounds - should always be between 0 and 1
         for element in [l1, l2, l3, l4]:
-            self.assertGreaterEqual(LedgerUtils.max_drawdown(element), 0)
-            self.assertLessEqual(LedgerUtils.max_drawdown(element), 1)
+            result = LedgerUtils.instantaneous_max_drawdown(element)
+            self.assertGreaterEqual(result, 0)
+            self.assertLessEqual(result, 1)
 
         # Test with a minimal ledger containing just a few checkpoints
-        drawdowns = [0.99, 0.98]
+        drawdowns = [0.99, 0.98, 0.97]
         checkpoints = [checkpoint_generator(mdd=mdd) for mdd in drawdowns]
         minimal_ledger = ledger_generator(checkpoints=checkpoints)
-        self.assertEqual(LedgerUtils.max_drawdown(minimal_ledger), 0.98)
+        self.assertEqual(LedgerUtils.instantaneous_max_drawdown(minimal_ledger), 0.97)
+
+        # Test with single checkpoint
+        single_checkpoint = [checkpoint_generator(mdd=0.85)]
+        single_ledger = ledger_generator(checkpoints=single_checkpoint)
+        self.assertEqual(LedgerUtils.instantaneous_max_drawdown(single_ledger), 0.85)
+
+        # Test with drawdown values that need clipping
+        extreme_drawdowns = [1.1, -0.1, 0.3]  # Values outside [0, 1]
+        extreme_checkpoints = [checkpoint_generator(mdd=mdd) for mdd in extreme_drawdowns]
+        extreme_ledger = ledger_generator(checkpoints=extreme_checkpoints)
+        result = LedgerUtils.instantaneous_max_drawdown(extreme_ledger)
+        self.assertGreaterEqual(result, 0)
+        self.assertLessEqual(result, 1)
+
+    def test_daily_max_drawdown(self):
+        """Test daily_max_drawdown function"""
+        # Empty ledger test
+        empty_ledger = PerfLedger()
+        self.assertEqual(LedgerUtils.daily_max_drawdown(empty_ledger), 0.0)
+
+        # Test with a simple ledger with known gains and losses
+        # Create checkpoints with specific gain/loss values
+        checkpoint1 = checkpoint_generator(gain=0.1, loss=-0.05)  # Net +0.05
+        checkpoint2 = checkpoint_generator(gain=0.05, loss=-0.15)  # Net -0.10
+        checkpoint3 = checkpoint_generator(gain=0.2, loss=-0.1)   # Net +0.10
+        
+        test_ledger = ledger_generator(checkpoints=[checkpoint1, checkpoint2, checkpoint3])
+        result = LedgerUtils.daily_max_drawdown(test_ledger)
+        
+        # Result should be a float between 0 and 1
+        self.assertIsInstance(result, float)
+        self.assertGreaterEqual(result, 0)
+        self.assertLessEqual(result, 1)
+
+        # Test with all positive returns (no drawdown expected)
+        positive_checkpoints = [
+            checkpoint_generator(gain=0.1, loss=0.0),
+            checkpoint_generator(gain=0.05, loss=0.0),
+            checkpoint_generator(gain=0.08, loss=0.0)
+        ]
+        positive_ledger = ledger_generator(checkpoints=positive_checkpoints)
+        positive_result = LedgerUtils.daily_max_drawdown(positive_ledger)
+        self.assertGreaterEqual(positive_result, 0)
+        self.assertLessEqual(positive_result, 1)
+
+        # Test with all negative returns (significant drawdown expected)
+        negative_checkpoints = [
+            checkpoint_generator(gain=0.0, loss=-0.1),
+            checkpoint_generator(gain=0.0, loss=-0.05),
+            checkpoint_generator(gain=0.0, loss=-0.08)
+        ]
+        negative_ledger = ledger_generator(checkpoints=negative_checkpoints)
+        negative_result = LedgerUtils.daily_max_drawdown(negative_ledger)
+        self.assertGreaterEqual(negative_result, 0)
+        self.assertLessEqual(negative_result, 1)
+        
+        # Negative returns should generally result in lower drawdown values (worse performance)
+        self.assertLessEqual(negative_result, positive_result)
+
+        # Test with single checkpoint
+        single_checkpoint = [checkpoint_generator(gain=0.05, loss=-0.03)]
+        single_ledger = ledger_generator(checkpoints=single_checkpoint)
+        single_result = LedgerUtils.daily_max_drawdown(single_ledger)
+        self.assertGreaterEqual(single_result, 0)
+        self.assertLessEqual(single_result, 1)
+
+        # Test with mixed performance (recovery scenario)
+        mixed_checkpoints = [
+            checkpoint_generator(gain=0.1, loss=0.0),    # +0.1
+            checkpoint_generator(gain=0.0, loss=-0.2),   # -0.2 (drawdown)
+            checkpoint_generator(gain=0.15, loss=0.0),   # +0.15 (recovery)
+        ]
+        mixed_ledger = ledger_generator(checkpoints=mixed_checkpoints)
+        mixed_result = LedgerUtils.daily_max_drawdown(mixed_ledger)
+        self.assertGreaterEqual(mixed_result, 0)
+        self.assertLessEqual(mixed_result, 1)
+
+        # Test edge case with zero returns
+        zero_checkpoints = [
+            checkpoint_generator(gain=0.0, loss=0.0),
+            checkpoint_generator(gain=0.0, loss=0.0),
+        ]
+        zero_ledger = ledger_generator(checkpoints=zero_checkpoints)
+        zero_result = LedgerUtils.daily_max_drawdown(zero_ledger)
+        self.assertEqual(zero_result, 1.0)  # No drawdown when returns are zero
 
     def test_drawdown_percentage(self):
         self.assertAlmostEqual(LedgerUtils.drawdown_percentage(1), 0)

@@ -186,7 +186,7 @@ class TestChallengePeriodUnit(TestBase):
         base_ledger[TP_ID_PORTFOLIO].cps[0].mdd = 0.5
 
         # Drawdown criteria
-        max_drawdown = LedgerUtils.max_drawdown(base_ledger[TP_ID_PORTFOLIO])
+        max_drawdown = LedgerUtils.instantaneous_max_drawdown(base_ledger[TP_ID_PORTFOLIO])
         max_drawdown_percentage = LedgerUtils.drawdown_percentage(max_drawdown)
         self.assertGreater(max_drawdown_percentage, ValiConfig.DRAWDOWN_MAXVALUE_PERCENTAGE)
 

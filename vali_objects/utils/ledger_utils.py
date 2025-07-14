@@ -272,7 +272,7 @@ class LedgerUtils:
             return 1
         drawdown_limit = ValiConfig.DRAWDOWN_MAXVALUE_PERCENTAGE
 
-        effective_drawdown = LedgerUtils.max_drawdown(ledger)
+        effective_drawdown = LedgerUtils.instantaneous_max_drawdown(ledger)
         effective_drawdown_percentage = LedgerUtils.drawdown_percentage(effective_drawdown)
 
         if effective_drawdown_percentage >= drawdown_limit:
@@ -281,7 +281,34 @@ class LedgerUtils:
         return 1
 
     @staticmethod
-    def max_drawdown(ledger: PerfLedger) -> float:
+    def daily_max_drawdown(ledger: PerfLedger) -> float:
+        """
+        Args:
+            ledger: PerfLedger - the ledger of the miner
+
+        Returns:
+            float - the maximum drawdown percentage for the ledger
+        """
+        checkpoints = ledger.cps
+        if len(checkpoints) == 0:
+            return 0
+
+        derivative_account_values = np.array([cp.gain + cp.loss for cp in checkpoints])
+
+        # We are now looking at the cumulative account values as a percentage relative to 1 (baseline)
+        cumulative_account_values = np.exp(np.cumsum(derivative_account_values))
+
+        # Minimum points in the future relative to the current point
+        forward_mins = np.minimum.accumulate(cumulative_account_values[::-1])[::-1]
+
+        # Calculate the drawdowns as a percentage relative to the current point
+        drawdown_percentages = (forward_mins - cumulative_account_values) / cumulative_account_values
+        drawdown_numeric = 1 + drawdown_percentages  # drawdowns should all be negative
+
+        return min(drawdown_numeric)
+
+    @staticmethod
+    def instantaneous_max_drawdown(ledger: PerfLedger) -> float:
         """
         Args:
             ledger: PerfLedger - the ledger of the miner
@@ -308,7 +335,7 @@ class LedgerUtils:
 
         maximum_drawdown_percent = ValiConfig.DRAWDOWN_MAXVALUE_PERCENTAGE
 
-        max_drawdown = LedgerUtils.max_drawdown(ledger_element)
+        max_drawdown = LedgerUtils.instantaneous_max_drawdown(ledger_element)
         recorded_drawdown_percentage = LedgerUtils.drawdown_percentage(max_drawdown)
 
         # Drawdown is less than our maximum permitted drawdown
@@ -326,7 +353,7 @@ class LedgerUtils:
             ledger: PerfLedger - the ledger of the miner
         """
         # recent_drawdown = LedgerUtils.recent_drawdown(checkpoints)
-        approximate_drawdown = LedgerUtils.max_drawdown(ledger)
+        approximate_drawdown = LedgerUtils.daily_max_drawdown(ledger)
         drawdown_penalty = LedgerUtils.mdd_augmentation(approximate_drawdown)
         return drawdown_penalty
 

@@ -175,7 +175,8 @@ class MinerStatisticsManager:
         ann_downside_volatility = min(Metrics.ann_downside_volatility(miner_returns), 100)
 
         # Drawdowns
-        mdd = LedgerUtils.max_drawdown(miner_ledger)
+        instantaneous_mdd = LedgerUtils.instantaneous_max_drawdown(miner_ledger)
+        daily_mdd = LedgerUtils.daily_max_drawdown(miner_ledger)
 
         # Engagement: positions
         n_positions = len(miner_positions)
@@ -192,7 +193,8 @@ class MinerStatisticsManager:
         return {
             "annual_volatility": ann_volatility,
             "annual_downside_volatility": ann_downside_volatility,
-            "max_drawdown": mdd,
+            "instantaneous_max_drawdown": instantaneous_mdd,
+            "daily_max_drawdown": daily_mdd,
             "positions_info": {
                 "n_positions": n_positions,
                 "positional_duration": pos_duration,
@@ -576,7 +578,8 @@ class MinerStatisticsManager:
             }
             # Drawdowns
             drawdowns_subdict = {
-                "max_drawdown": extra.get("max_drawdown"),
+                "instantaneous_max_drawdown": extra.get("instantaneous_max_drawdown"),
+                "daily_max_drawdown": extra.get("daily_max_drawdown"),
             }
             # Engagement
             engagement_subdict = {
