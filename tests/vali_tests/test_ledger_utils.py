@@ -324,71 +324,114 @@ class TestLedgerUtils(TestBase):
         empty_ledger = PerfLedger()
         self.assertEqual(LedgerUtils.daily_max_drawdown(empty_ledger), 0.0)
 
-        # Test with a simple ledger with known gains and losses
-        # Create checkpoints with specific gain/loss values
-        checkpoint1 = checkpoint_generator(gain=0.1, loss=-0.05)  # Net +0.05
-        checkpoint2 = checkpoint_generator(gain=0.05, loss=-0.15)  # Net -0.10
-        checkpoint3 = checkpoint_generator(gain=0.2, loss=-0.1)   # Net +0.10
-        
-        test_ledger = ledger_generator(checkpoints=[checkpoint1, checkpoint2, checkpoint3])
-        result = LedgerUtils.daily_max_drawdown(test_ledger)
-        
-        # Result should be a float between 0 and 1
-        self.assertIsInstance(result, float)
-        self.assertGreaterEqual(result, 0)
-        self.assertLessEqual(result, 1)
-
-        # Test with all positive returns (no drawdown expected)
-        positive_checkpoints = [
-            checkpoint_generator(gain=0.1, loss=0.0),
-            checkpoint_generator(gain=0.05, loss=0.0),
-            checkpoint_generator(gain=0.08, loss=0.0)
-        ]
-        positive_ledger = ledger_generator(checkpoints=positive_checkpoints)
-        positive_result = LedgerUtils.daily_max_drawdown(positive_ledger)
-        self.assertGreaterEqual(positive_result, 0)
-        self.assertLessEqual(positive_result, 1)
-
-        # Test with all negative returns (significant drawdown expected)
-        negative_checkpoints = [
-            checkpoint_generator(gain=0.0, loss=-0.1),
-            checkpoint_generator(gain=0.0, loss=-0.05),
-            checkpoint_generator(gain=0.0, loss=-0.08)
-        ]
-        negative_ledger = ledger_generator(checkpoints=negative_checkpoints)
-        negative_result = LedgerUtils.daily_max_drawdown(negative_ledger)
-        self.assertGreaterEqual(negative_result, 0)
-        self.assertLessEqual(negative_result, 1)
-        
-        # Negative returns should generally result in lower drawdown values (worse performance)
-        self.assertLessEqual(negative_result, positive_result)
-
-        # Test with single checkpoint
+        # Test with ledger that has no complete daily returns
+        # Single checkpoint won't create complete daily returns
         single_checkpoint = [checkpoint_generator(gain=0.05, loss=-0.03)]
         single_ledger = ledger_generator(checkpoints=single_checkpoint)
         single_result = LedgerUtils.daily_max_drawdown(single_ledger)
-        self.assertGreaterEqual(single_result, 0)
-        self.assertLessEqual(single_result, 1)
+        self.assertEqual(single_result, 0.0)  # No complete daily returns = 0
 
-        # Test with mixed performance (recovery scenario)
-        mixed_checkpoints = [
-            checkpoint_generator(gain=0.1, loss=0.0),    # +0.1
-            checkpoint_generator(gain=0.0, loss=-0.2),   # -0.2 (drawdown)
-            checkpoint_generator(gain=0.15, loss=0.0),   # +0.15 (recovery)
-        ]
-        mixed_ledger = ledger_generator(checkpoints=mixed_checkpoints)
-        mixed_result = LedgerUtils.daily_max_drawdown(mixed_ledger)
-        self.assertGreaterEqual(mixed_result, 0)
-        self.assertLessEqual(mixed_result, 1)
-
-        # Test edge case with zero returns
-        zero_checkpoints = [
-            checkpoint_generator(gain=0.0, loss=0.0),
-            checkpoint_generator(gain=0.0, loss=0.0),
-        ]
+        # Test with ledger that would create complete daily returns
+        # We need to create a ledger that will pass the daily_return_log requirements
+        # Create checkpoints that will form complete days
+        day1_date = datetime(2023, 1, 1, tzinfo=timezone.utc)
+        day2_date = datetime(2023, 1, 2, tzinfo=timezone.utc)
+        day3_date = datetime(2023, 1, 3, tzinfo=timezone.utc)
+        
+        checkpoint_duration = ValiConfig.TARGET_CHECKPOINT_DURATION_MS
+        num_cp_per_day = int(ValiConfig.DAILY_CHECKPOINTS)
+        
+        # Create checkpoints for 3 complete days with specific return patterns
+        def create_day_checkpoints(date: datetime, gain: float, loss: float) -> list:
+            checkpoints = []
+            for i in range(num_cp_per_day):
+                hour = 6 + i * (12 // num_cp_per_day)  # Space them out
+                checkpoint_start = int(date.timestamp() * 1000) + (hour * 3600 * 1000)
+                checkpoints.append(
+                    PerfCheckpoint(
+                        last_update_ms=checkpoint_start + checkpoint_duration,
+                        accum_ms=checkpoint_duration,
+                        open_ms=checkpoint_start,
+                        gain=gain,
+                        loss=loss,
+                        prev_portfolio_ret=1.0,
+                        n_updates=1,
+                        mdd=0.99
+                    )
+                )
+            return checkpoints
+        
+        # Test with positive returns only (no drawdown expected)
+        positive_checkpoints = (
+            create_day_checkpoints(day1_date, 0.1, 0.0) +    # +0.1 per checkpoint
+            create_day_checkpoints(day2_date, 0.05, 0.0) +   # +0.05 per checkpoint
+            create_day_checkpoints(day3_date, 0.08, 0.0)     # +0.08 per checkpoint
+        )
+        positive_ledger = ledger_generator(checkpoints=positive_checkpoints)
+        positive_result = LedgerUtils.daily_max_drawdown(positive_ledger)
+        
+        # With only positive returns, drawdown should be 1.0 (no drawdown)
+        self.assertEqual(positive_result, 1.0)
+        
+        # Test with pattern: up, down, up (recovery scenario)
+        recovery_checkpoints = (
+            create_day_checkpoints(day1_date, 0.1, 0.0) +    # Up day: +0.1 per checkpoint
+            create_day_checkpoints(day2_date, 0.0, -0.15) +  # Down day: -0.15 per checkpoint
+            create_day_checkpoints(day3_date, 0.12, 0.0)     # Recovery day: +0.12 per checkpoint
+        )
+        recovery_ledger = ledger_generator(checkpoints=recovery_checkpoints)
+        recovery_result = LedgerUtils.daily_max_drawdown(recovery_ledger)
+        
+        # Should have some drawdown (less than 1.0) due to the down day
+        self.assertGreaterEqual(recovery_result, 0)
+        self.assertLess(recovery_result, 1.0)
+        
+        # Test with consistently negative returns (significant drawdown expected)
+        negative_checkpoints = (
+            create_day_checkpoints(day1_date, 0.0, -0.1) +   # Down day: -0.1 per checkpoint
+            create_day_checkpoints(day2_date, 0.0, -0.05) +  # Down day: -0.05 per checkpoint
+            create_day_checkpoints(day3_date, 0.0, -0.08)    # Down day: -0.08 per checkpoint
+        )
+        negative_ledger = ledger_generator(checkpoints=negative_checkpoints)
+        negative_result = LedgerUtils.daily_max_drawdown(negative_ledger)
+        
+        # Should have significant drawdown (much less than 1.0)
+        self.assertGreaterEqual(negative_result, 0)
+        self.assertLess(negative_result, 1.0)
+        
+        # Negative returns should result in lower drawdown values than positive
+        self.assertLess(negative_result, positive_result)
+        
+        # Test with zero returns (no change in value)
+        zero_checkpoints = (
+            create_day_checkpoints(day1_date, 0.0, 0.0) +    # Flat day
+            create_day_checkpoints(day2_date, 0.0, 0.0)      # Flat day
+        )
         zero_ledger = ledger_generator(checkpoints=zero_checkpoints)
         zero_result = LedgerUtils.daily_max_drawdown(zero_ledger)
-        self.assertEqual(zero_result, 1.0)  # No drawdown when returns are zero
+        
+        # With zero returns, cumulative values stay at 1.0, no drawdown
+        self.assertEqual(zero_result, 1.0)
+        
+        # Test mathematical correctness with known values
+        # Day 1: +0.1 per checkpoint * 2 checkpoints = 0.2 total return -> cumulative value = exp(0.2) ≈ 1.221
+        # Day 2: -0.2 per checkpoint * 2 checkpoints = -0.4 total return -> cumulative value = exp(0.2-0.4) = exp(-0.2) ≈ 0.819
+        # Day 3: +0.15 per checkpoint * 2 checkpoints = 0.3 total return -> cumulative value = exp(0.2-0.4+0.3) = exp(0.1) ≈ 1.105
+        # Running max: [1.221, 1.221, 1.221]
+        # Drawdown on day 2: (0.819 - 1.221) / 1.221 ≈ -0.33
+        # Min drawdown_numeric: 1 + (-0.33) ≈ 0.67
+        
+        math_test_checkpoints = (
+            create_day_checkpoints(day1_date, 0.1, 0.0) +    # Net +0.1 per checkpoint
+            create_day_checkpoints(day2_date, 0.0, -0.2) +   # Net -0.2 per checkpoint  
+            create_day_checkpoints(day3_date, 0.15, 0.0)     # Net +0.15 per checkpoint
+        )
+        math_test_ledger = ledger_generator(checkpoints=math_test_checkpoints)
+        math_result = LedgerUtils.daily_max_drawdown(math_test_ledger)
+        
+        # The result should be around 0.67 based on the calculation above
+        self.assertGreaterEqual(math_result, 0.65)
+        self.assertLessEqual(math_result, 0.7)
 
     def test_drawdown_percentage(self):
         self.assertAlmostEqual(LedgerUtils.drawdown_percentage(1), 0)

@@ -293,19 +293,22 @@ class LedgerUtils:
         if len(checkpoints) == 0:
             return 0
 
-        derivative_account_values = np.array([cp.gain + cp.loss for cp in checkpoints])
+        # First collect daily returns
+        derivative_account_values = LedgerUtils.daily_return_log(ledger)
+        
+        # Handle case where there are no complete daily returns
+        if len(derivative_account_values) == 0:
+            return 0
 
         # We are now looking at the cumulative account values as a percentage relative to 1 (baseline)
         cumulative_account_values = np.exp(np.cumsum(derivative_account_values))
 
         # Minimum points in the future relative to the current point
-        forward_mins = np.minimum.accumulate(cumulative_account_values[::-1])[::-1]
+        running_max = np.maximum.accumulate(cumulative_account_values)
+        drawdowns = (cumulative_account_values - running_max) / running_max
+        drawdowns_numeric = 1 + drawdowns  # drawdowns should all be negative
 
-        # Calculate the drawdowns as a percentage relative to the current point
-        drawdown_percentages = (forward_mins - cumulative_account_values) / cumulative_account_values
-        drawdown_numeric = 1 + drawdown_percentages  # drawdowns should all be negative
-
-        return min(drawdown_numeric)
+        return min(drawdowns_numeric)
 
     @staticmethod
     def instantaneous_max_drawdown(ledger: PerfLedger) -> float:
