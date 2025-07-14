@@ -397,7 +397,7 @@ class ChallengePeriodManager(CacheController):
         asset_combined_scores = Scoring.combine_scores(combined_scores_dict)
         asset_softmaxed_scores = Scoring.softmax_by_asset(asset_combined_scores)
 
-        all_scores_list = Scoring.softmax_aggregation(asset_softmaxed_scores)
+        all_scores_list = Scoring.subclass_score_aggregation(asset_softmaxed_scores)
 
         all_scores = dict(all_scores_list)
         sorted_scores = sorted(all_scores.values(), reverse=True)

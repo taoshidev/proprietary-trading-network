@@ -61,6 +61,8 @@ class AssetSegmentation:
 
         subset_ledger = {}
         for hotkey, full_ledger in self.overall_ledgers.items():
+            if full_ledger is None:
+                continue
             miner_subset_ledger = {}
             for asset_name, ledger in full_ledger.items():
                 if asset_name == "portfolio":

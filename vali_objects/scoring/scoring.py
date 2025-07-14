@@ -268,7 +268,7 @@ class Scoring:
                 empty_ledger_miners.append((miner, len(positions)))
 
             # TODO: check if this will cause issues
-            portfolio_ledger = ledger.get('portfolio') if ledger else {'portfolio': PerfLedger()}
+            portfolio_ledger = ledger.get('portfolio') if ledger else PerfLedger()
 
             cumulative_penalty = 1
             for penalty_name, penalty_config in Scoring.penalties_config.items():
@@ -480,7 +480,7 @@ class Scoring:
             miner_hotkeys.append(miner)
             scores.append(score)
 
-        percentiles = percentileofscore(scores, scores, kind='rank') / 100
+        percentiles = percentileofscore(scores, scores, kind='strict') / 100
 
         miner_percentiles = list(zip(miner_hotkeys, percentiles))
 
