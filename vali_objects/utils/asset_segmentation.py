@@ -146,7 +146,7 @@ class AssetSegmentation:
 
     @staticmethod
     def asset_competitiveness_dictionary(
-            asset_incentive_distributions: dict[str, list[tuple[str, float]]]
+            asset_incentive_distributions: dict[str, dict[str, float]]
     ) -> dict[str, float]:
         """
         Returns a dictionary with asset classes as keys and their competitiveness as values.
@@ -157,7 +157,7 @@ class AssetSegmentation:
                 bt.logging.warning(f"Distribution for {asset_class} isn't defined.")
                 competitiveness_dict[asset_class] = math.nan
             else:
-                incentive_distribution = [value for _, value in distribution]
+                incentive_distribution = [value for _, value in distribution.items()]
                 competitiveness_dict[asset_class] = AssetSegmentation.segment_competitiveness(incentive_distribution)
 
         return competitiveness_dict

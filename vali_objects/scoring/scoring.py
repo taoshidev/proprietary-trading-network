@@ -115,16 +115,17 @@ class Scoring:
 
         # Combine and penalize scores
         asset_combined_scores = Scoring.combine_scores(asset_penalized_scores_dict)
-        asset_softmaxed_scores = Scoring.softmax_by_asset(asset_combined_scores)
-
-        # Here is where we can check for the competitiveness
-        miner_competitiveness = AssetSegmentation.asset_competitiveness_dictionary(asset_softmaxed_scores)
+        miner_competitiveness = AssetSegmentation.asset_competitiveness_dictionary(asset_combined_scores)
         bt.logging.debug(f"Asset competitiveness: {miner_competitiveness}")
 
-        combined_scores = Scoring.softmax_aggregation(asset_softmaxed_scores)
+        # Now we probably want to apply the softmax to the asset combined scores
+        asset_softmaxed_scores = Scoring.softmax_by_asset(asset_combined_scores)
+
+        # Now combine the percentile scores prior to running a full softmax
+        asset_aggregated_scores = Scoring.subclass_score_aggregation(asset_softmaxed_scores)
 
         # Force good performance of all error metrics
-        combined_weighed = combined_scores + full_penalty_miner_scores
+        combined_weighed = asset_aggregated_scores + full_penalty_miner_scores
         combined_scores = dict(combined_weighed)
 
         # Normalize the scores
@@ -350,7 +351,7 @@ class Scoring:
     @staticmethod
     def softmax_by_asset(
             asset_miner_scores: dict[str, dict[str, float]]
-    ) -> dict[str, list[tuple[str, float]]]:
+    ) -> dict[str, dict[str, float]]:
         """
         Applies softmax to the scores of miners within each asset class.
 
@@ -363,19 +364,19 @@ class Scoring:
         softmaxed_scores = {}
         for asset_class, miner_scores in asset_miner_scores.items():
             sorted_returns = sorted(miner_scores.items(), key=lambda x: x[1], reverse=True)
-            softmaxed_scores[asset_class] = Scoring.softmax_scores(sorted_returns)
+            softmaxed_scores[asset_class] = dict(Scoring.softmax_scores(sorted_returns))
 
         return softmaxed_scores
 
     @staticmethod
-    def softmax_aggregation(
-            miner_asset_scoftmax_scores: dict[str, list[tuple[str, float]]]
+    def subclass_score_aggregation(
+            miner_asset_scores: dict[str, dict[str, float]]
     ) -> list[tuple[str, float]]:
         """
         Aggregates the softmax scores of miners across different asset classes.
 
         Args:
-            miner_asset_scoftmax_scores (dict[str, list[tuple[str, float]]]): A dictionary where keys are asset classes and values are lists of tuples with miner names and their softmax scores.
+            miner_asset_scores (dict[str, list[tuple[str, float]]]): A dictionary where keys are asset classes and values are lists of tuples with miner names and their softmax scores.
 
         Returns:
             list[tuple[str, float]]: A list of tuples with miner names and their aggregated softmax scores.
@@ -386,7 +387,7 @@ class Scoring:
 
         # Compose the full penalties dictionary based on subcategories and weights
         full_penalties_dictionary = {}
-        for asset_subclass, asset_data in miner_asset_scoftmax_scores.items():
+        for asset_subclass, _ in miner_asset_scores.items():
             asset_class = category_lookup.get(asset_subclass, None)
             if asset_class is None:
                 bt.logging.warning(f"Asset subclass {asset_subclass} not found in category lookup, assigning forex.")
@@ -411,8 +412,8 @@ class Scoring:
         bt.logging.info(f"Full penalties dictionary: {full_penalties_dictionary}")
 
         # Now check how the miners are achieving the asset class breakdown
-        for subcategory, scores in miner_asset_scoftmax_scores.items():
-            for miner, score in scores:
+        for subcategory, scores in miner_asset_scores.items():
+            for miner, score in scores.items():
                 asset_class_emission = full_penalties_dictionary.get(subcategory, 0)
                 if miner not in aggregated_scores:
                     aggregated_scores[miner] = 0.0
