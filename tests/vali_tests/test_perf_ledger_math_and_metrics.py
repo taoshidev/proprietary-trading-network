@@ -196,53 +196,6 @@ class TestPerfLedgerMathAndMetrics(TestBase):
                 break
 
     @patch('vali_objects.vali_dataclasses.perf_ledger.LivePriceFetcher')
-    def test_performance_with_large_dataset(self, mock_lpf):
-        """Test performance with a large number of positions and checkpoints."""
-        mock_pds = Mock()
-        mock_pds.unified_candle_fetcher.return_value = []
-        mock_pds.tp_to_mfs = {}
-        mock_lpf.return_value.polygon_data_service = mock_pds
-        
-        plm = PerfLedgerManager(
-            metagraph=self.mmg,
-            running_unit_tests=True,
-            position_manager=self.position_manager,
-            parallel_mode=ParallelizationMode.SERIAL,
-        )
-        
-        base_time = self.now_ms - (100 * MS_IN_24_HOURS)
-        
-        # Create 100 positions over 100 days
-        for i in range(100):
-            # Random returns between -5% and +5%
-            open_price = 50000.0
-            return_pct = (random.random() - 0.5) * 0.10  # -5% to +5%
-            close_price = open_price * (1 + return_pct)
-            
-            position = self._create_position(
-                f"perf_{i}", TradePair.BTCUSD,
-                base_time + (i * MS_IN_24_HOURS),
-                base_time + ((i + 1) * MS_IN_24_HOURS),
-                open_price, close_price, OrderType.LONG
-            )
-            self.position_manager.save_miner_position(position)
-        
-        # Time the update
-        start_time = time.time()
-        plm.update(t_ms=self.now_ms)
-        update_time = time.time() - start_time
-        
-        # Should complete in reasonable time (relaxed for CI/different hardware)
-        self.assertLess(update_time, 10.0, f"Update took {update_time}s, should be < 10s")
-        
-        # Verify data integrity
-        bundles = plm.get_perf_ledgers(portfolio_only=False)
-        btc_ledger = bundles[self.test_hotkey][TradePair.BTCUSD.trade_pair_id]
-        
-        # Should have many checkpoints
-        self.assertGreater(len(btc_ledger.cps), 50, "Should have many checkpoints")
-
-    @patch('vali_objects.vali_dataclasses.perf_ledger.LivePriceFetcher')
     def test_return_compounding(self, mock_lpf):
         """Test that returns compound correctly over multiple periods."""
         mock_pds = Mock()

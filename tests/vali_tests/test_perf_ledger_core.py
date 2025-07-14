@@ -441,5 +441,186 @@ class TestPerfLedgerCore(TestBase):
         return position
 
 
+    @patch('vali_objects.vali_dataclasses.perf_ledger.LivePriceFetcher')
+    def test_single_checkpoint_open_ms_tracking(self, mock_lpf):
+        """
+        Test that a perf ledger with only one checkpoint properly tracks
+        the open_ms to match when the position was actually open.
+        """
+        # Mock the live price fetcher
+        mock_pds = Mock()
+        mock_pds.unified_candle_fetcher.return_value = []
+        mock_pds.tp_to_mfs = {}
+        mock_lpf.return_value.polygon_data_service = mock_pds
+        
+        # Create the perf ledger manager
+        plm = PerfLedgerManager(
+            metagraph=self.mmg,
+            running_unit_tests=True,
+            position_manager=self.position_manager,
+            parallel_mode=ParallelizationMode.SERIAL,
+            is_testing=True,
+        )
+        
+        # Align to checkpoint boundaries for predictable behavior
+        checkpoint_duration = 12 * 60 * 60 * 1000  # 12 hours
+        base_time = (self.now_ms // checkpoint_duration) * checkpoint_duration - (5 * MS_IN_24_HOURS)
+        
+        # Create a position that opens at a specific time and stays open for 3 hours
+        position_open_time = base_time + (2 * 60 * 60 * 1000)  # 2 hours after base
+        position_close_time = position_open_time + (3 * 60 * 60 * 1000)  # 3 hours later
+        
+        # Create the position using the helper method
+        position = self._create_position(
+            "single_checkpoint_pos", TradePair.BTCUSD,
+            position_open_time, position_close_time,
+            50000.0, 51000.0, OrderType.LONG
+        )
+        
+        # Save the position
+        self.position_manager.save_miner_position(position)
+        
+        # Update the perf ledger at a time after the position closed
+        # but within the same checkpoint period
+        update_time = position_close_time + (1 * 60 * 60 * 1000)  # 1 hour after close
+        plm.update(t_ms=update_time)
+        
+        # Get the perf ledgers
+        bundles = plm.get_perf_ledgers(portfolio_only=False)
+        self.assertIn(self.test_hotkey, bundles, "Should have bundle for test hotkey")
+        
+        # Check BTCUSD ledger
+        btc_bundle = bundles[self.test_hotkey]
+        self.assertIn(TradePair.BTCUSD.trade_pair_id, btc_bundle, "Should have BTCUSD ledger")
+        btc_ledger = btc_bundle[TradePair.BTCUSD.trade_pair_id]
+        
+        # Verify we have exactly one checkpoint
+        self.assertEqual(len(btc_ledger.cps), 1, "Should have exactly one checkpoint")
+        
+        checkpoint = btc_ledger.cps[0]
+        
+        # Verify the checkpoint properties
+        print(f"\n=== Single Checkpoint Test Results ===")
+        print(f"Position open time: {position_open_time} ({TimeUtil.millis_to_formatted_date_str(position_open_time)})")
+        print(f"Position close time: {position_close_time} ({TimeUtil.millis_to_formatted_date_str(position_close_time)})")
+        print(f"Update time: {update_time} ({TimeUtil.millis_to_formatted_date_str(update_time)})")
+        print(f"Checkpoint last_update_ms: {checkpoint.last_update_ms} ({TimeUtil.millis_to_formatted_date_str(checkpoint.last_update_ms)})")
+        print(f"Checkpoint accum_ms: {checkpoint.accum_ms} ({checkpoint.accum_ms / (60 * 60 * 1000):.2f} hours)")
+        print(f"Checkpoint open_ms: {checkpoint.open_ms} ({checkpoint.open_ms / (60 * 60 * 1000):.2f} hours)")
+        print(f"Position was open for: {(position_close_time - position_open_time) / (60 * 60 * 1000):.2f} hours")
+        
+        # The open_ms should match the duration the position was actually open
+        expected_open_duration_ms = position_close_time - position_open_time
+        self.assertEqual(
+            checkpoint.open_ms,
+            expected_open_duration_ms,
+            f"Checkpoint open_ms should match position open duration. "
+            f"Expected {expected_open_duration_ms}ms ({expected_open_duration_ms/(60*60*1000):.2f}h), "
+            f"got {checkpoint.open_ms}ms ({checkpoint.open_ms/(60*60*1000):.2f}h)"
+        )
+        
+        # Verify the checkpoint reflects the position's return (accounting for fees)
+        # The checkpoint return will be less than or equal to the raw position return due to fees
+        self.assertLessEqual(
+            checkpoint.prev_portfolio_ret,
+            position.return_at_close,
+            msg="Checkpoint return should be less than or equal to position return due to fees"
+        )
+        self.assertGreater(
+            checkpoint.prev_portfolio_ret,
+            1.0,
+            msg="Checkpoint return should still be profitable"
+        )
+        
+        # Check portfolio ledger
+        self.assertIn(TP_ID_PORTFOLIO, btc_bundle, "Should have portfolio ledger")
+        portfolio_ledger = btc_bundle[TP_ID_PORTFOLIO]
+        self.assertEqual(len(portfolio_ledger.cps), 1, "Portfolio should have one checkpoint")
+        
+        portfolio_checkpoint = portfolio_ledger.cps[0]
+        self.assertEqual(
+            portfolio_checkpoint.open_ms,
+            expected_open_duration_ms,
+            "Portfolio checkpoint should also track correct open duration"
+        )
+
+    @patch('vali_objects.vali_dataclasses.perf_ledger.LivePriceFetcher')
+    def test_single_checkpoint_multiple_positions_sequential(self, mock_lpf):
+        """
+        Test single checkpoint with multiple positions that open and close sequentially.
+        The open_ms should be the sum of all position open durations.
+        """
+        # Mock the live price fetcher
+        mock_pds = Mock()
+        mock_pds.unified_candle_fetcher.return_value = []
+        mock_pds.tp_to_mfs = {}
+        mock_lpf.return_value.polygon_data_service = mock_pds
+        
+        plm = PerfLedgerManager(
+            metagraph=self.mmg,
+            running_unit_tests=True,
+            position_manager=self.position_manager,
+            parallel_mode=ParallelizationMode.SERIAL,
+            is_testing=True,
+        )
+        
+        # Align to checkpoint boundaries
+        checkpoint_duration = 12 * 60 * 60 * 1000  # 12 hours
+        base_time = (self.now_ms // checkpoint_duration) * checkpoint_duration - (5 * MS_IN_24_HOURS)
+        
+        # Create two positions that don't overlap
+        # Position 1: 2-4 hours after base (2 hours duration)
+        pos1_open = base_time + (2 * 60 * 60 * 1000)
+        pos1_close = base_time + (4 * 60 * 60 * 1000)
+        
+        position1 = self._create_position(
+            "pos1", TradePair.BTCUSD,
+            pos1_open, pos1_close,
+            50000.0, 51000.0, OrderType.LONG
+        )
+        self.position_manager.save_miner_position(position1)
+        
+        # Position 2: 5-7 hours after base (2 hours duration)
+        pos2_open = base_time + (5 * 60 * 60 * 1000)
+        pos2_close = base_time + (7 * 60 * 60 * 1000)
+        
+        position2 = self._create_position(
+            "pos2", TradePair.BTCUSD,
+            pos2_open, pos2_close,
+            51000.0, 52000.0, OrderType.LONG
+        )
+        self.position_manager.save_miner_position(position2)
+        
+        # Update after both positions are closed
+        update_time = base_time + (8 * 60 * 60 * 1000)
+        plm.update(t_ms=update_time)
+        
+        # Get the ledgers
+        bundles = plm.get_perf_ledgers(portfolio_only=False)
+        btc_ledger = bundles[self.test_hotkey][TradePair.BTCUSD.trade_pair_id]
+        
+        # Should have single checkpoint
+        self.assertEqual(len(btc_ledger.cps), 1, "Should have exactly one checkpoint")
+        
+        checkpoint = btc_ledger.cps[0]
+        
+        # Total open duration should be sum of both positions
+        expected_total_open_ms = (pos1_close - pos1_open) + (pos2_close - pos2_open)
+        expected_total_hours = expected_total_open_ms / (60 * 60 * 1000)
+        
+        print(f"\n=== Sequential Positions Test ===")
+        print(f"Position 1 open duration: {(pos1_close - pos1_open)/(60*60*1000):.2f} hours")
+        print(f"Position 2 open duration: {(pos2_close - pos2_open)/(60*60*1000):.2f} hours")
+        print(f"Expected total open_ms: {expected_total_hours:.2f} hours")
+        print(f"Actual checkpoint open_ms: {checkpoint.open_ms/(60*60*1000):.2f} hours")
+        
+        self.assertEqual(
+            checkpoint.open_ms,
+            expected_total_open_ms,
+            f"Checkpoint open_ms should be sum of position durations. "
+            f"Expected {expected_total_hours:.2f}h, got {checkpoint.open_ms/(60*60*1000):.2f}h"
+        )
+
+
 if __name__ == '__main__':
     unittest.main()
