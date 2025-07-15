@@ -157,20 +157,21 @@ class Validator:
         self.last_error_notification_time = 0
         self.error_notification_cooldown = 300  # 5 minutes between error notifications
         
-        self.subtensor = bt.subtensor(config=self.config)
         bt.logging.info(f"Wallet: {self.wallet}")
-
-        # subtensor manages the blockchain connection, facilitating interaction with the Bittensor blockchain.
-        bt.logging.info(f"Subtensor: {self.subtensor}")
 
         # metagraph provides the network's current state, holding state about other participants in a subnet.
         # IMPORTANT: Only update this variable in-place. Otherwise, the reference will be lost in the helper classes.
         self.metagraph = get_ipc_metagraph(self.ipc_manager)
 
+        # Create MetagraphUpdater which manages the subtensor connection
         self.metagraph_updater = MetagraphUpdater(self.config, self.metagraph, self.wallet.hotkey.ss58_address,
                                                   False, position_manager=None,
                                                   shutdown_dict=shutdown_dict,
                                                   slack_notifier=self.slack_notifier)
+        
+        # We don't store a reference to subtensor; instead use the getter from MetagraphUpdater
+        # This ensures we always have the current subtensor instance even after round-robin switches
+        bt.logging.info(f"Subtensor: {self.metagraph_updater.get_subtensor()}")
         self.metagraph_updater.update_metagraph()
 
         # Start the metagraph updater loop in its own thread
@@ -245,7 +246,7 @@ class Validator:
         if self.wallet.hotkey.ss58_address not in self.metagraph.hotkeys:
             bt.logging.error(
                 f"\nYour validator: {self.wallet} is not registered to chain "
-                f"connection: {self.subtensor} \nRun btcli register and try again. "
+                f"connection: {self.metagraph_updater.get_subtensor()} \nRun btcli register and try again. "
             )
             exit()
 
@@ -421,6 +422,15 @@ class Validator:
             f"Prioritizing {synapse.dendrite.hotkey} with value: ", priority
         )
         return priority
+    
+    @property
+    def subtensor(self):
+        """
+        Property that always returns the current subtensor instance from MetagraphUpdater.
+        This ensures we're always using the active subtensor connection, even after
+        round-robin network switches in the MetagraphUpdater.
+        """
+        return self.metagraph_updater.get_subtensor()
 
     def get_config(self):
         # Step 2: Set up the configuration parser

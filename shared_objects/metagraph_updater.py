@@ -52,6 +52,14 @@ class MetagraphUpdater(CacheController):
 
     def _is_expired(self, timestamp):
         return (self._current_timestamp() - timestamp) > 86400  # 24 hours in seconds
+    
+    def get_subtensor(self):
+        """
+        Get the current subtensor instance.
+        This should be used instead of directly accessing self.subtensor
+        to ensure you always have the current instance after round-robin switches.
+        """
+        return self.subtensor
 
     def estimate_number_of_validators(self):
         # Filter out expired validators
