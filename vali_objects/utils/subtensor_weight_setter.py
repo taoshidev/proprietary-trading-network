@@ -80,7 +80,7 @@ class SubtensorWeightSetter(CacheController):
             return [], []
         else:
             bt.logging.info(f"Calculating new subtensor weights for {miner_group}...")
-            checkpoint_results, _, _ = Scoring.compute_results_checkpoint(
+            checkpoint_results = Scoring.compute_results_checkpoint(
                 filtered_ledger,
                 filtered_positions,
                 evaluation_time_ms=current_time,

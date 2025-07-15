@@ -16,7 +16,7 @@ from vali_objects.utils.position_penalties import PositionPenalties
 from vali_objects.utils.ledger_utils import LedgerUtils
 from vali_objects.scoring.scoring import Scoring
 from vali_objects.utils.metrics import Metrics
-from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
+from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager, TP_ID_PORTFOLIO
 from vali_objects.utils.risk_profiling import RiskProfiling
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedger
 from vali_objects.position import Position
@@ -160,15 +160,14 @@ class MinerStatisticsManager:
     # -------------------------------------------
     # Gather Extra Stats (drawdowns, volatility, etc.)
     # -------------------------------------------
-    def gather_extra_data(self, hotkey: str, ledger_dict: Dict[str, Any], positions_dict: Dict[str, Any]) -> Dict[str, Any]:
+    def gather_extra_data(self, hotkey: str, miner_ledger: PerfLedger, positions_dict: Dict[str, Any]) -> Dict[str, Any]:
         """
         Gathers additional data such as volatility, drawdowns, engagement stats,
         ignoring short-term metrics.
         """
-        miner_ledger = ledger_dict.get(hotkey)
         miner_cps = miner_ledger.cps if miner_ledger else []
         miner_positions = positions_dict.get(hotkey, [])
-        miner_returns = LedgerUtils.daily_return_log(ledger_dict.get(hotkey, None))
+        miner_returns = LedgerUtils.daily_return_log(miner_ledger)
 
         # Volatility
         ann_volatility = min(Metrics.ann_volatility(miner_returns), 100)
@@ -214,14 +213,14 @@ class MinerStatisticsManager:
         """
         Combines the minimal fields needed for the metrics plus the extra data.
         """
-        miner_ledger: PerfLedger = filtered_ledger.get(hotkey)
+        miner_ledger: PerfLedger = filtered_ledger.get(hotkey, {}).get(TP_ID_PORTFOLIO)
         if not miner_ledger:
             return {}
         cumulative_miner_returns_ledger: PerfLedger = LedgerUtils.cumulative(miner_ledger)
-        miner_daily_returns: list[float] = LedgerUtils.daily_return_log(filtered_ledger.get(hotkey, None))
+        miner_daily_returns: list[float] = LedgerUtils.daily_return_log(miner_ledger)
         miner_positions: list[Position] = filtered_positions.get(hotkey, [])
 
-        extra_data = self.gather_extra_data(hotkey, filtered_ledger, filtered_positions)
+        extra_data = self.gather_extra_data(hotkey, miner_ledger, filtered_positions)
 
         return {
             "positions": miner_positions,
@@ -321,11 +320,11 @@ class MinerStatisticsManager:
     # -------------------------------------------
     # Daily Returns
     # -------------------------------------------
-    def calculate_all_daily_returns(self, filtered_ledger: dict[str, PerfLedger]) -> dict[str, list[float]]:
+    def calculate_all_daily_returns(self, filtered_ledger: dict[str, dict[str, PerfLedger]]) -> dict[str, list[float]]:
         """Calculate daily returns for all miners."""
         return {
-            hotkey: LedgerUtils.daily_returns_by_date_json(ledger)
-            for hotkey, ledger in filtered_ledger.items()
+            hotkey: LedgerUtils.daily_returns_by_date_json(ledgers.get(TP_ID_PORTFOLIO))
+            for hotkey, ledgers in filtered_ledger.items()
         }
 
     # -------------------------------------------
@@ -477,28 +476,35 @@ class MinerStatisticsManager:
             selected_miner_hotkeys = all_miner_hotkeys
 
         # Filter ledger/positions
-        filtered_ledger = self.perf_ledger_manager.filtered_ledger_for_scoring(portfolio_only=True, hotkeys=all_miner_hotkeys)
+        filtered_ledger = self.perf_ledger_manager.filtered_ledger_for_scoring(hotkeys=all_miner_hotkeys)
         filtered_positions, _ = self.position_manager.filtered_positions_for_scoring(all_miner_hotkeys)
+
+        success_competitiveness, asset_softmaxed_scores = Scoring.score_miner_asset_subcategories(
+            filtered_ledger,
+            filtered_positions,
+            evaluation_time_ms=time_now,
+            weighting=final_results_weighting
+        ) # returns asset competitiveness dict, asset softmaxed scores
 
         # For weighting logic: gather "successful" checkpoint-based results
         successful_ledger = self.perf_ledger_manager.filtered_ledger_for_scoring(hotkeys=challengeperiod_success_hotkeys)
         successful_positions, _ = self.position_manager.filtered_positions_for_scoring(challengeperiod_success_hotkeys)
 
         # Compute the checkpoint-based weighting for successful miners
-        checkpoint_results, success_competitiveness, asset_softmaxed_scores = Scoring.compute_results_checkpoint(
+        checkpoint_results = Scoring.compute_results_checkpoint(
             successful_ledger,
             successful_positions,
             evaluation_time_ms=time_now,
             verbose=False,
             weighting=final_results_weighting
-        )  # returns list of (hotkey, weightVal), asset competitiveness dict, asset softmaxed scores
+        )  # returns list of (hotkey, weightVal)
 
         # Only used for testing weight calculation
         testing_ledger = self.perf_ledger_manager.filtered_ledger_for_scoring(hotkeys=challengeperiod_eval_hotkeys)
         testing_positions, _ = self.position_manager.filtered_positions_for_scoring(challengeperiod_eval_hotkeys)
 
         # Compute testing miner scores
-        testing_checkpoint_results, _, _ = Scoring.compute_results_checkpoint(
+        testing_checkpoint_results = Scoring.compute_results_checkpoint(
             testing_ledger,
             testing_positions,
             evaluation_time_ms=time_now,
@@ -506,7 +512,7 @@ class MinerStatisticsManager:
             weighting=final_results_weighting
         )
 
-        challengeperiod_scores = Scoring.score_testing_miners(testing_ledger.get('portfolio'), testing_checkpoint_results)
+        challengeperiod_scores = Scoring.score_testing_miners(testing_ledger.get(TP_ID_PORTFOLIO), testing_checkpoint_results)
 
         # Combine them
         combined_weights_list = checkpoint_results + challengeperiod_scores

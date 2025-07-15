@@ -79,16 +79,16 @@ class Scoring:
             evaluation_time_ms: int = None,
             verbose=True,
             weighting=False
-    ) -> tuple[List[Tuple[str, float]], dict[str, float], dict[str, dict[str, float]]]:
+    ) -> List[Tuple[str, float]]:
         if len(ledger_dict) == 0:
             bt.logging.debug("No results to compute, returning empty list")
-            return [], {}, {}
+            return []
 
         if len(ledger_dict) == 1:
             miner = list(ledger_dict.keys())[0]
             if verbose:
                 bt.logging.info(f"compute_results_checkpoint - Only one miner: {miner}, returning 1.0 for the solo miner weight")
-            return [(miner, 1.0)], {}, {}
+            return [(miner, 1.0)]
 
         if evaluation_time_ms is None:
             evaluation_time_ms = TimeUtil.now_in_millis()
@@ -105,21 +105,14 @@ class Scoring:
         full_penalty_miner_scores: list[tuple[str, float]] = [
             (miner, 0) for miner, penalty in miner_penalties.items() if penalty == 0
         ]
-        # Run all scoring functions
-        asset_penalized_scores_dict = Scoring.score_miners(
+
+        # Run scoring functions for each miner in each subcategory
+        _, asset_softmaxed_scores = Scoring.score_miner_asset_subcategories(
             ledger_dict=ledger_dict,
             positions=full_positions,
             evaluation_time_ms=evaluation_time_ms,
             weighting=weighting
         )
-
-        # Combine and penalize scores
-        asset_combined_scores = Scoring.combine_scores(asset_penalized_scores_dict)
-        miner_competitiveness = AssetSegmentation.asset_competitiveness_dictionary(asset_combined_scores)
-        bt.logging.debug(f"Asset competitiveness: {miner_competitiveness}")
-
-        # Now we probably want to apply the softmax to the asset combined scores
-        asset_softmaxed_scores = Scoring.softmax_by_asset(asset_combined_scores)
 
         # Now combine the percentile scores prior to running a full softmax
         asset_aggregated_scores = Scoring.subclass_score_aggregation(asset_softmaxed_scores)
@@ -130,7 +123,44 @@ class Scoring:
 
         # Normalize the scores
         normalized_scores = Scoring.normalize_scores(combined_scores)
-        return sorted(normalized_scores.items(), key=lambda x: x[1], reverse=True), miner_competitiveness, asset_softmaxed_scores
+        return sorted(normalized_scores.items(), key=lambda x: x[1], reverse=True)
+
+    @staticmethod
+    def score_miner_asset_subcategories(
+            ledger_dict: dict[str, dict[str, PerfLedger]],
+            positions: dict[str, list[Position]],
+            evaluation_time_ms: int = None,
+            weighting=False
+    ) -> tuple[dict[str, float], dict[str, dict[str, float]]]:
+        """
+        returns:
+        asset_competitiveness: dictionary with asset classes as keys and their competitiveness as values.
+        asset_miner_softmaxed_scores: A dictionary with softmax scores for each miner within each asset class
+        """
+        if len(ledger_dict) <= 1:
+            bt.logging.debug("No subcategory results to compute, returning empty dicts")
+            return {}, {}
+
+        if evaluation_time_ms is None:
+            evaluation_time_ms = TimeUtil.now_in_millis()
+
+        # Run all scoring functions
+        asset_penalized_scores_dict = Scoring.score_miners(
+            ledger_dict=ledger_dict,
+            positions=positions,
+            evaluation_time_ms=evaluation_time_ms,
+            weighting=weighting
+        )
+
+        # Combine and penalize scores
+        asset_combined_scores = Scoring.combine_scores(asset_penalized_scores_dict)
+        asset_competitiveness = AssetSegmentation.asset_competitiveness_dictionary(asset_combined_scores)
+        bt.logging.debug(f"Asset competitiveness: {asset_competitiveness}")
+
+        # Now we probably want to apply the softmax to the asset combined scores
+        asset_miner_softmaxed_scores = Scoring.softmax_by_asset(asset_combined_scores)
+
+        return asset_competitiveness, asset_miner_softmaxed_scores
 
     @staticmethod
     def score_miners(
