@@ -6,7 +6,7 @@ from typing import Union
 
 from vali_objects.vali_config import ValiConfig
 from vali_objects.utils.ledger_utils import LedgerUtils
-from vali_objects.vali_dataclasses.perf_ledger import PerfLedger
+from vali_objects.vali_dataclasses.perf_ledger import PerfLedger, TP_ID_PORTFOLIO
 
 class Metrics:
 
@@ -377,7 +377,7 @@ class Metrics:
 
         for miner, weight in miner_scores:
 
-            miner_ledger = ledgers.get(miner, None)
+            miner_ledger = ledgers.get(miner, {}).get(TP_ID_PORTFOLIO)
             miner_trading_days = LedgerUtils.get_trading_days(miner_ledger)
             time_weighted_scores.append((miner, weight * math.sqrt(miner_trading_days / LEDGER_WINDOW_DAYS)))
 

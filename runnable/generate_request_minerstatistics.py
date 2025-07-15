@@ -512,7 +512,7 @@ class MinerStatisticsManager:
             weighting=final_results_weighting
         )
 
-        challengeperiod_scores = Scoring.score_testing_miners(testing_ledger.get(TP_ID_PORTFOLIO), testing_checkpoint_results)
+        challengeperiod_scores = Scoring.score_testing_miners(testing_ledger, testing_checkpoint_results)
 
         # Combine them
         combined_weights_list = checkpoint_results + challengeperiod_scores
