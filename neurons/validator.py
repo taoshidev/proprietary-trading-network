@@ -360,6 +360,20 @@ class Validator:
         self.perf_ledger_updater_thread = Process(target=self.perf_ledger_manager.run_update_loop, daemon=True)
         self.perf_ledger_updater_thread.start()
 
+        # Initialize ValidatorContractManager for collateral operations
+        try:
+            bt.logging.info("Initializing validator contract manager...")
+            self.contract_manager = ValidatorContractManager(
+                config=self.config,
+                wallet=self.wallet,
+                metagraph=self.metagraph
+            )
+            bt.logging.info("Validator contract manager initialized successfully")
+        except Exception as e:
+            bt.logging.error(f"Failed to initialize validator contract manager: {e}")
+            bt.logging.error(traceback.format_exc())
+            self.contract_manager = None
+
         if self.config.start_generate:
             self.rog = RequestOutputGenerator(rcm=self.request_core_manager, msm=self.miner_statistics_manager)
             self.rog_thread = threading.Thread(target=self.rog.start_generation, daemon=True)
@@ -406,20 +420,6 @@ class Validator:
                 bt.logging.warning(msg)
                 self.position_syncer.sync_positions(
                     False, candidate_data=self.position_syncer.read_validator_checkpoint_from_gcloud_zip())
-        
-        # Initialize ValidatorContractManager for collateral operations
-        try:
-            bt.logging.info("Initializing validator contract manager...")
-            self.contract_manager = ValidatorContractManager(
-                config=self.config,
-                wallet=self.wallet,
-                metagraph=self.metagraph
-            )
-            bt.logging.info("Validator contract manager initialized successfully")
-        except Exception as e:
-            bt.logging.error(f"Failed to initialize validator contract manager: {e}")
-            bt.logging.error(traceback.format_exc())
-            self.contract_manager = None
 
 
     @staticmethod
