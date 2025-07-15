@@ -38,6 +38,8 @@ from time_util.time_util import TimeUtil
 from vali_objects.vali_config import TradePair
 from vali_objects.exceptions.signal_exception import SignalException
 from shared_objects.metagraph_updater import MetagraphUpdater
+from shared_objects.error_utils import ErrorUtils
+from miner_objects.slack_notifier import SlackNotifier
 from vali_objects.utils.elimination_manager import EliminationManager
 from vali_objects.utils.live_price_fetcher import LivePriceFetcher
 from vali_objects.utils.price_slippage_model import PriceSlippageModel
@@ -142,6 +144,19 @@ class Validator:
 
         # Wallet holds cryptographic information, ensuring secure transactions and communication.
         self.wallet = bt.wallet(config=self.config)
+        
+        # Initialize Slack notifier for error reporting
+        self.slack_notifier = SlackNotifier(
+            hotkey=self.wallet.hotkey.ss58_address,
+            webhook_url=getattr(self.config, 'slack_webhook_url', None),
+            error_webhook_url=getattr(self.config, 'slack_error_webhook_url', None),
+            is_miner=False  # This is a validator
+        )
+        
+        # Track last error notification time to prevent spam
+        self.last_error_notification_time = 0
+        self.error_notification_cooldown = 300  # 5 minutes between error notifications
+        
         self.subtensor = bt.subtensor(config=self.config)
         bt.logging.info(f"Wallet: {self.wallet}")
 
@@ -154,7 +169,8 @@ class Validator:
 
         self.metagraph_updater = MetagraphUpdater(self.config, self.metagraph, self.wallet.hotkey.ss58_address,
                                                   False, position_manager=None,
-                                                  shutdown_dict=shutdown_dict)
+                                                  shutdown_dict=shutdown_dict,
+                                                  slack_notifier=self.slack_notifier)
         self.metagraph_updater.update_metagraph()
 
         # Start the metagraph updater loop in its own thread
@@ -437,6 +453,20 @@ class Validator:
         bt.logging.add_args(parser)
         # Adds wallet specific arguments i.e. --wallet.name ..., --wallet.hotkey ./. or --wallet.path ...
         bt.wallet.add_args(parser)
+        
+        # Add Slack webhook arguments
+        parser.add_argument(
+            "--slack-webhook-url",
+            type=str,
+            default=None,
+            help="Slack webhook URL for general notifications (optional)"
+        )
+        parser.add_argument(
+            "--slack-error-webhook-url",
+            type=str,
+            default=None,
+            help="Slack webhook URL for error notifications (optional, defaults to general webhook if not provided)"
+        )
         # Adds axon specific arguments i.e. --axon.port ...
         bt.axon.add_args(parser)
         # Activating the parser to read any command-line inputs.
@@ -467,6 +497,14 @@ class Validator:
             return
         # Handle shutdown gracefully
         bt.logging.warning("Performing graceful exit...")
+        
+        # Send shutdown notification to Slack
+        if self.slack_notifier:
+            self.slack_notifier.send_message(
+                f"🛑 Validator shutting down gracefully\n"
+                f"Hotkey: {self.wallet.hotkey.ss58_address}",
+                level="warning"
+            )
         bt.logging.warning("Stopping axon...")
         self.axon.stop()
         bt.logging.warning("Stopping metagraph update...")
@@ -491,6 +529,19 @@ class Validator:
         global shutdown_dict
         # Keep the vali alive. This loop maintains the vali's operations until intentionally stopped.
         bt.logging.info("Starting main loop")
+        
+        # Send startup notification to Slack
+        if self.slack_notifier:
+            vm_info = f"VM: {self.slack_notifier.vm_hostname} ({self.slack_notifier.vm_ip})" if self.slack_notifier.vm_hostname else ""
+            self.slack_notifier.send_message(
+                f"🚀 Validator started successfully!\n"
+                f"Hotkey: {self.wallet.hotkey.ss58_address}\n"
+                f"Network: {self.config.subtensor.network}\n"
+                f"Netuid: {self.config.netuid}\n"
+                f"AutoSync: {self.auto_sync}\n"
+                f"{vm_info}",
+                level="info"
+            )
         while not shutdown_dict:
             try:
                 current_time = TimeUtil.now_in_millis()
@@ -499,13 +550,35 @@ class Validator:
                 self.mdd_checker.mdd_check(self.position_locks)
                 self.challengeperiod_manager.refresh(current_time=current_time)
                 self.elimination_manager.process_eliminations(self.position_locks)
-                self.weight_setter.set_weights(self.wallet, self.config.netuid, self.subtensor, current_time=current_time)
                 #self.position_locks.cleanup_locks(self.metagraph.hotkeys)
-                self.p2p_syncer.sync_positions_with_cooldown()
+                self.weight_setter.set_weights(self.wallet, self.config.netuid, self.subtensor, current_time=current_time)
+                #self.p2p_syncer.sync_positions_with_cooldown()
 
-            # In case of unforeseen errors, the miner will log the error and continue operations.
-            except Exception:
-                bt.logging.error(traceback.format_exc())
+            # In case of unforeseen errors, the validator will log the error and send notification to Slack
+            except Exception as e:
+                error_traceback = traceback.format_exc()
+                bt.logging.error(error_traceback)
+                
+                # Send error notification to Slack with rate limiting
+                current_time_seconds = time.time()
+                if self.slack_notifier and (current_time_seconds - self.last_error_notification_time) > self.error_notification_cooldown:
+                    self.last_error_notification_time = current_time_seconds
+                    
+                    # Use shared error formatting utility
+                    error_message = ErrorUtils.format_error_for_slack(
+                        error=e,
+                        traceback_str=error_traceback,
+                        include_operation=True,
+                        include_timestamp=True
+                    )
+                    
+                    self.slack_notifier.send_message(
+                        f"❌ Validator main loop error!\n"
+                        f"{error_message}\n"
+                        f"Note: Further errors suppressed for {self.error_notification_cooldown/60:.0f} minutes",
+                        level="error"
+                    )
+                
                 time.sleep(10)
 
         self.check_shutdown()

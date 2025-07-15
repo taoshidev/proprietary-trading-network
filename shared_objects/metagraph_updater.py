@@ -6,6 +6,7 @@ import traceback
 
 from vali_objects.vali_config import ValiConfig
 from shared_objects.cache_controller import CacheController
+from shared_objects.error_utils import ErrorUtils
 
 import bittensor as bt
 
@@ -52,27 +53,6 @@ class MetagraphUpdater(CacheController):
     def _is_expired(self, timestamp):
         return (self._current_timestamp() - timestamp) > 86400  # 24 hours in seconds
 
-    def _get_compact_traceback(self, exception):
-        """Get a compact version of the stack trace showing only the most relevant frames."""
-        tb_lines = traceback.format_exception(type(exception), exception, exception.__traceback__)
-
-        # Filter out lines that are less relevant (like internal library calls)
-        relevant_lines = []
-        for line in tb_lines:
-            # Keep the exception line and lines from our code
-            if (line.strip().startswith('File') and
-                    (any(keyword in line for keyword in ['metagraph', 'miner', 'validator', 'vali_', 'neurons/']) or
-                     line.count('/') <= 3)):  # Keep shorter paths (likely our code)
-                relevant_lines.append(line.strip())
-            elif not line.strip().startswith('File'):
-                relevant_lines.append(line.strip())
-
-        # If we filtered too much, just take the last few lines
-        if len(relevant_lines) < 3:
-            relevant_lines = [line.strip() for line in tb_lines[-3:]]
-
-        return ' | '.join(relevant_lines)
-
     def estimate_number_of_validators(self):
         # Filter out expired validators
         self.likely_validators = {k: v for k, v in self.likely_validators.items() if not self._is_expired(v)}
@@ -106,10 +86,7 @@ class MetagraphUpdater(CacheController):
                 # Calculate next backoff time
                 self.current_backoff = min(self.current_backoff * self.backoff_factor, self.max_backoff)
 
-                # Get compact traceback
-                compact_trace = self._get_compact_traceback(e)
-
-                # Log error with backoff information and compact stack trace
+                # Log error with backoff information
                 rr_network = self.round_robin_networks[self.current_round_robin_index] if self.round_robin_enabled else "N/A"
                 error_msg = (f"Error during metagraph update (attempt #{self.consecutive_failures}): {e}. "
                              f"Next retry in {self.current_backoff} seconds. round_robin_enabled: {self.round_robin_enabled}"
@@ -118,14 +95,18 @@ class MetagraphUpdater(CacheController):
                 bt.logging.error(traceback.format_exc())
 
                 if self.slack_notifier:
+                    # Get compact traceback using shared utility
+                    compact_trace = ErrorUtils.get_compact_stacktrace(e)
+                    
                     hours = self.current_backoff / 3600
+                    node_type = "miner" if self.is_miner else "validator"
                     self.slack_notifier.send_message(
                         f"❌ Metagraph update failing repeatedly!\n"
                         f"Consecutive failures: {self.consecutive_failures}\n"
                         f"Error: {str(e)}\n"
                         f"Trace: {compact_trace}\n"
                         f"Next retry in: {hours:.2f} hours\n"
-                        f"Please check the miner logs!",
+                        f"Please check the {node_type} logs!",
                         level="error"
                     )
 
