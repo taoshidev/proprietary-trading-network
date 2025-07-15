@@ -43,7 +43,7 @@ class TestWeights(TestBase):
             miner_positions[f"miner{i}"] = [copy.deepcopy(self.DEFAULT_POSITION)]
 
         # Test the default values
-        scaled_transformed_list, _ = Scoring.compute_results_checkpoint(
+        scaled_transformed_list, _, _ = Scoring.compute_results_checkpoint(
             ledger,
             miner_positions,
             evaluation_time_ms=self.EVALUATION_TIME_MS

@@ -411,6 +411,37 @@ class MinerStatisticsManager:
         return miner_risk_report
 
     # -------------------------------------------
+    # Asset Subcategory Performance
+    # -------------------------------------------
+    def miner_subcategory_scores(self, hotkey: str, asset_softmaxed_scores: dict[str, dict[str, float]]) -> dict[str, dict[str, float]]:
+        """
+        Extract individual miner's scores and rankings for each asset subcategory.
+        
+        Args:
+            hotkey: The miner's hotkey
+            asset_softmaxed_scores: The asset softmaxed scores from compute_results_checkpoint
+            
+        Returns:
+            dict with subcategory as key and score/rank info as value
+        """
+        subcategory_data = {}
+        
+        for subcategory, miner_scores in asset_softmaxed_scores.items():
+            sorted_scores = sorted(miner_scores.items(), key=lambda x: x[1], reverse=True)
+
+            if hotkey in miner_scores:
+                # Get this miner's score and rank
+                miner_score = miner_scores[hotkey]
+                rank = next((i + 1 for i, (hk, _) in enumerate(sorted_scores) if hk == hotkey), len(sorted_scores))
+
+                subcategory_data[subcategory] = {
+                    "score": miner_score,
+                    "rank": rank
+                }
+        
+        return subcategory_data
+
+    # -------------------------------------------
     # Generate final data
     # -------------------------------------------
     def generate_miner_statistics_data(
@@ -450,24 +481,24 @@ class MinerStatisticsManager:
         filtered_positions, _ = self.position_manager.filtered_positions_for_scoring(all_miner_hotkeys)
 
         # For weighting logic: gather "successful" checkpoint-based results
-        successful_ledger = self.perf_ledger_manager.filtered_ledger_for_scoring(portfolio_only=True, hotkeys=challengeperiod_success_hotkeys)
+        successful_ledger = self.perf_ledger_manager.filtered_ledger_for_scoring(hotkeys=challengeperiod_success_hotkeys)
         successful_positions, _ = self.position_manager.filtered_positions_for_scoring(challengeperiod_success_hotkeys)
 
         # Compute the checkpoint-based weighting for successful miners
-        checkpoint_results, success_competitiveness = Scoring.compute_results_checkpoint(
+        checkpoint_results, success_competitiveness, asset_softmaxed_scores = Scoring.compute_results_checkpoint(
             successful_ledger,
             successful_positions,
             evaluation_time_ms=time_now,
             verbose=False,
             weighting=final_results_weighting
-        )  # returns list of (hotkey, weightVal), asset competitiveness dict
+        )  # returns list of (hotkey, weightVal), asset competitiveness dict, asset softmaxed scores
 
         # Only used for testing weight calculation
-        testing_ledger = self.perf_ledger_manager.filtered_ledger_for_scoring(portfolio_only=True, hotkeys=challengeperiod_eval_hotkeys)
+        testing_ledger = self.perf_ledger_manager.filtered_ledger_for_scoring(hotkeys=challengeperiod_eval_hotkeys)
         testing_positions, _ = self.position_manager.filtered_positions_for_scoring(challengeperiod_eval_hotkeys)
 
         # Compute testing miner scores
-        testing_checkpoint_results, _ = Scoring.compute_results_checkpoint(
+        testing_checkpoint_results, _, _ = Scoring.compute_results_checkpoint(
             testing_ledger,
             testing_positions,
             evaluation_time_ms=time_now,
@@ -475,7 +506,7 @@ class MinerStatisticsManager:
             weighting=final_results_weighting
         )
 
-        challengeperiod_scores = Scoring.score_testing_miners(testing_ledger, testing_checkpoint_results)
+        challengeperiod_scores = Scoring.score_testing_miners(testing_ledger.get('portfolio'), testing_checkpoint_results)
 
         # Combine them
         combined_weights_list = checkpoint_results + challengeperiod_scores
@@ -608,6 +639,9 @@ class MinerStatisticsManager:
             # Risk Profile
             risk_profile_single_dict = risk_profile_dict.get(hotkey, {})
 
+            # Asset Subcategory Performance
+            asset_subcategory_performance = self.miner_subcategory_scores(hotkey, asset_softmaxed_scores)
+
             final_miner_dict = {
                 "hotkey": hotkey,
                 "challengeperiod": challengeperiod_info,
@@ -619,6 +653,7 @@ class MinerStatisticsManager:
                 "plagiarism": plagiarism_val,
                 "engagement": engagement_subdict,
                 "risk_profile": risk_profile_single_dict,
+                "asset_subcategory_performance": asset_subcategory_performance,
                 "penalties": {
                     "drawdown_threshold": pen_break.get("drawdown_threshold", 1.0),
                     "risk_profile": pen_break.get("risk_profile", 1.0),
