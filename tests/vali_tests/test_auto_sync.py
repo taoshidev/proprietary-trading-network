@@ -65,7 +65,7 @@ class TestPositions(TestBase):
         )
         self.default_closed_position.close_out_position(self.DEFAULT_OPEN_MS + 1000 * 60 * 60 * 6)
 
-        self.position_syncer = PositionSyncer(running_unit_tests=True, position_manager=self.position_manager)
+        self.position_syncer = PositionSyncer(running_unit_tests=True, position_manager=self.position_manager, enable_position_splitting=True)
 
     def validate_comprehensive_stats(self, stats, expected_miners=1, expected_eliminated=0, 
                                    expected_pos_updates=0, expected_pos_matches=0, expected_pos_insertions=0, 

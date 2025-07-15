@@ -30,9 +30,12 @@ class PositionSyncResultException(Exception):
 class ValidatorSyncBase():
     def __init__(self, shutdown_dict=None, signal_sync_lock=None, signal_sync_condition=None,
                  n_orders_being_processed=None, running_unit_tests=False, position_manager=None,
-                 ipc_manager=None):
+                 ipc_manager=None, enable_position_splitting = False, verbose=False
+):
+        self.verbose = verbose
         self.is_mothership = 'ms' in ValiUtils.get_secrets(running_unit_tests=running_unit_tests)
         self.SYNC_LOOK_AROUND_MS = 1000 * 60 * 3
+        self.enable_position_splitting = enable_position_splitting
         self.position_manager = position_manager
         self.shutdown_dict = shutdown_dict
         self.last_signal_sync_time_ms = 0
@@ -424,7 +427,6 @@ class ValidatorSyncBase():
                  abs(o1["processed_ms"] - o2["processed_ms"]) < timebound_ms))
 
     def sync_orders(self, ep, cp, hk, trade_pair, hard_snap_cutoff_ms):
-        debug = 1
         existing_orders = ep.orders
         candidate_orders = cp.orders
         min_timestamp_of_order_change = float('inf')
@@ -510,7 +512,7 @@ class ValidatorSyncBase():
             self.miners_with_order_updates.add(hk)
 
         any_changes = stats['inserted'] + stats['deleted']
-        if debug and any_changes:
+        if self.verbose and any_changes:
             print(f'hk {hk} trade pair {trade_pair.trade_pair} - Found {len(candidate_orders)} candidates and'
                   f' {len(existing_orders)} existing orders. stats {stats} min_timestamp_of_order_change {min_timestamp_of_order_change}')
 
@@ -543,7 +545,6 @@ class ValidatorSyncBase():
         return ans, min_timestamp_of_order_change
 
     def resolve_positions(self, candidate_positions, existing_positions, trade_pair, hk, hard_snap_cutoff_ms):
-        debug = 1
         min_timestamp_of_change = float('inf')  # If this stays as float('inf), no changes happened
         candidate_positions_original = deepcopy(candidate_positions)
         existing_positions_original = deepcopy(existing_positions)
@@ -687,7 +688,7 @@ class ValidatorSyncBase():
             self.miners_with_position_updates.add(hk)
 
 
-        if debug and (stats['inserted'] or stats['deleted']):
+        if self.verbose and (stats['inserted'] or stats['deleted']):
             print(f'hk {hk} trade pair {trade_pair.trade_pair} - Found {len(candidate_positions)} candidates and'
                   f' {len(existing_positions)} existing positions. stats {stats}')
 
@@ -814,6 +815,10 @@ class ValidatorSyncBase():
         - No position starts with a FLAT order
         """
         # Use unified split logic
+        if not self.enable_position_splitting:
+            # If splitting is disabled, return the original position as a single item list
+            return [position]
+
         split_points = self._find_split_points(position)
         
         if not split_points:
