@@ -227,6 +227,10 @@ class RiskProfiling:
 
         # Now compute the cumulative leverages on the position since inception
         positional_delta_leverages = [x.leverage for x in position.orders]
+        if len(positional_delta_leverages) == 0:
+            bt.logging.warning(f"Position unexpectedly has no valid orders when assessing risk, uuid: {position.position_uuid}")
+            return 0
+
         positional_aggregate_leverages = np.abs(np.cumsum(positional_delta_leverages))
         max_utilized_leverage = max(positional_aggregate_leverages)
 

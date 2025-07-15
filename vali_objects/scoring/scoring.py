@@ -12,7 +12,7 @@ import numpy as np
 from scipy.stats import percentileofscore
 
 from vali_objects.vali_config import ValiConfig
-from vali_objects.vali_dataclasses.perf_ledger import PerfLedger
+from vali_objects.vali_dataclasses.perf_ledger import PerfLedger, TP_ID_PORTFOLIO
 from time_util.time_util import TimeUtil
 from vali_objects.utils.position_filtering import PositionFiltering
 from vali_objects.utils.ledger_utils import LedgerUtils
@@ -151,6 +151,11 @@ class Scoring:
             dict[str, dict]: A dictionary where keys are asset classes and values are dictionaries containing scores and penalties.
 
         """
+        if ledger_dict is None or len(ledger_dict) == 0:
+            bt.logging.warning("No ledger provided for scoring, returning empty scores")
+
+        if positions is None or len(positions) == 0:
+            bt.logging.warning("No positions provided for scoring, returning empty scores")
 
         if evaluation_time_ms is None:
             evaluation_time_ms = TimeUtil.now_in_millis()
@@ -266,9 +271,9 @@ class Scoring:
 
             if not ledger:
                 empty_ledger_miners.append((miner, len(positions)))
+                continue
 
-            # TODO: check if this will cause issues
-            portfolio_ledger = ledger.get('portfolio') if ledger else PerfLedger()
+            portfolio_ledger = ledger.get(TP_ID_PORTFOLIO) if ledger else PerfLedger()
 
             cumulative_penalty = 1
             for penalty_name, penalty_config in Scoring.penalties_config.items():

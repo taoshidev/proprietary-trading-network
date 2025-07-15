@@ -5,7 +5,7 @@ from tests.vali_tests.base_objects.test_base import TestBase
 from vali_objects.scoring.scoring import Scoring
 from vali_objects.position import Position
 from vali_objects.enums.order_type_enum import OrderType
-from vali_objects.vali_config import TradePair, ValiConfig
+from vali_objects.vali_config import TradePair, ValiConfig, ForexSubcategory, CryptoSubcategory
 
 from tests.shared_objects.test_utilities import generate_ledger
 from vali_objects.vali_dataclasses.perf_ledger import TP_ID_PORTFOLIO
@@ -31,6 +31,37 @@ class TestWeights(TestBase):
             open_ms=self.DEFAULT_OPEN_MS,
             trade_pair=self.DEFAULT_TRADE_PAIR,
         )
+        self.DEFAULT_SUBCATEGORY = ForexSubcategory.G1
+        self.DEFAULT_ASSET_SCORES = {
+            ForexSubcategory.G1: {
+                "miner1": 0.6,
+                "miner2": 0.3,
+                "miner3": 0.1,
+            },
+            CryptoSubcategory.MAJORS: {
+                "miner1": 0.2,
+                "miner2": 0.7,
+                "miner3": 0.1,
+            }
+        }
+        self.DEFAULT_SCORING_DICT = {
+            self.DEFAULT_SUBCATEGORY: {
+                "metrics": {
+                    "sharpe": {
+                        "scores": [("miner1", 1.5), ("miner2", 1.0)],
+                        "weight": 0.5
+                    },
+                    "calmar": {
+                        "scores": [("miner1", 2.0), ("miner2", 1.5)],
+                        "weight": 0.3
+                    }
+                },
+                "penalties": {
+                    "miner1": 1.0,
+                    "miner2": 0.9
+                }
+            }
+        }
 
         self.DEFAULT_LEDGER = generate_ledger(0.1)
 
@@ -259,3 +290,186 @@ class TestWeights(TestBase):
 
         self.assertEqual(final_scores["miner3"], MAX_WEIGHT)
         self.assertEqual(final_scores["miner1"], MIN_WEIGHT)
+
+    def test_subclass_score_aggregation_empty_input(self):
+        """Test subclass_score_aggregation with empty input"""
+        result = Scoring.subclass_score_aggregation({})
+        self.assertEqual(result, [])
+
+    def test_subclass_score_aggregation_single_asset(self):
+        """Test subclass_score_aggregation with single asset class"""
+
+        asset_scores = {self.DEFAULT_SUBCATEGORY: self.DEFAULT_ASSET_SCORES[self.DEFAULT_SUBCATEGORY]}
+        
+        result = Scoring.subclass_score_aggregation(asset_scores)
+        self.assertIsInstance(result, list)
+        self.assertEqual(len(result), 3)
+        
+        # Check that results are sorted in descending order
+        self.assertGreaterEqual(result[0][1], result[1][1])
+        
+        # Check that all miners are present
+        miner_names = [r[0] for r in result]
+        self.assertIn("miner1", miner_names)
+        self.assertIn("miner2", miner_names)
+        self.assertIn("miner3", miner_names)
+
+    def test_subclass_score_aggregation_multiple_assets(self):
+        """Test subclass_score_aggregation with multiple asset classes"""
+        asset_scores = self.DEFAULT_ASSET_SCORES
+
+        result = Scoring.subclass_score_aggregation(asset_scores)
+        self.assertIsInstance(result, list)
+        self.assertEqual(len(result), 3)
+        
+        # Check that results are sorted in descending order
+        for i in range(len(result) - 1):
+            self.assertGreaterEqual(result[i][1], result[i + 1][1])
+
+    def test_softmax_by_asset_empty_input(self):
+        """Test softmax_by_asset with empty input"""
+        result = Scoring.softmax_by_asset({})
+        self.assertEqual(result, {})
+
+    def test_softmax_by_asset_single_asset(self):
+        """Test softmax_by_asset with single asset class"""
+        asset_scores = {self.DEFAULT_SUBCATEGORY: self.DEFAULT_ASSET_SCORES[self.DEFAULT_SUBCATEGORY]}
+
+        result = Scoring.softmax_by_asset(asset_scores)
+        self.assertIsInstance(result, dict)
+        self.assertEqual(len(result), 1)
+        self.assertIn(self.DEFAULT_SUBCATEGORY, result)
+        
+        softmax_scores = result[self.DEFAULT_SUBCATEGORY]
+        self.assertEqual(len(softmax_scores), 3)
+        
+        # Check that softmax scores sum to approximately 1.0
+        total_score = sum(softmax_scores.values())
+        self.assertAlmostEqual(total_score, 1.0, places=5)
+        
+        # Check that higher original scores get higher softmax scores
+        self.assertGreater(softmax_scores["miner1"], softmax_scores["miner2"])
+        self.assertGreater(softmax_scores["miner2"], softmax_scores["miner3"])
+
+    def test_softmax_by_asset_multiple_assets(self):
+        """Test softmax_by_asset with multiple asset classes"""
+        asset_scores = self.DEFAULT_ASSET_SCORES
+        
+        result = Scoring.softmax_by_asset(asset_scores)
+        self.assertIsInstance(result, dict)
+        self.assertEqual(len(result), 2)
+        
+        # Check that each asset class has softmax scores that sum to 1.0
+        for asset_class, scores in result.items():
+            total_score = sum(scores.values())
+            self.assertAlmostEqual(total_score, 1.0, places=5)
+
+    def test_score_miners_empty_ledger(self):
+        """Test score_miners with empty ledger"""
+        result = Scoring.score_miners({}, {}, self.EVALUATION_TIME_MS)
+
+        # Function output should retain structure, but have no scores
+        for subcategory, score_dict in result.items():
+            subcategory_metrics = score_dict["metrics"]
+            for metric, metric_score_dict in subcategory_metrics.items():
+                self.assertListEqual(metric_score_dict["scores"], [])
+
+    def test_score_miners_single_miner(self):
+        """Test score_miners with single miner"""
+        ledger = {"miner1": self.DEFAULT_LEDGER}
+        positions = {"miner1": [self.DEFAULT_POSITION]}
+        
+        result = Scoring.score_miners(ledger, positions, self.EVALUATION_TIME_MS)
+        self.assertIsInstance(result, dict)
+        
+        # Check that result contains asset subcategories
+        self.assertGreater(len(result), 0)
+        
+        # Check structure of result
+        for asset_class, asset_data in result.items():
+            self.assertIn("metrics", asset_data)
+            self.assertIn("penalties", asset_data)
+            self.assertIsInstance(asset_data["penalties"], dict)
+
+    def test_combine_scores_empty_input(self):
+        """Test combine_scores with empty input"""
+        result = Scoring.combine_scores({})
+        self.assertEqual(result, {})
+
+    def test_combine_scores_single_asset(self):
+        """Test combine_scores with single asset class"""
+        scoring_dict = self.DEFAULT_SCORING_DICT
+        
+        result = Scoring.combine_scores(scoring_dict)
+        self.assertIsInstance(result, dict)
+        self.assertEqual(len(result), 1)
+        self.assertIn(ForexSubcategory.G1, result)
+        
+        combined_scores = result[ForexSubcategory.G1]
+        self.assertIn("miner1", combined_scores)
+        self.assertIn("miner2", combined_scores)
+
+    def test_miner_penalties_empty_input(self):
+        """Test miner_penalties with empty input"""
+        result = Scoring.miner_penalties({}, {})
+        self.assertEqual(result, {})
+
+    def test_miner_penalties_with_ledger(self):
+        """Test miner_penalties with valid ledger"""
+        positions = {"miner1": [self.DEFAULT_POSITION]}
+        ledger = {"miner1": self.DEFAULT_LEDGER}
+        
+        result = Scoring.miner_penalties(positions, ledger)
+        self.assertIsInstance(result, dict)
+        self.assertIn("miner1", result)
+        self.assertIsInstance(result["miner1"], float)
+        self.assertGreaterEqual(result["miner1"], 0.0)
+        self.assertLessEqual(result["miner1"], 1.0)
+
+    def test_miner_penalties_empty_ledger(self):
+        """Test miner_penalties with empty ledger"""
+        positions = {"miner1": [self.DEFAULT_POSITION]}
+        ledger = {"miner1": None}
+        
+        result = Scoring.miner_penalties(positions, ledger)
+        self.assertEqual(result, {})
+
+    def test_normalize_scores_empty_input(self):
+        """Test normalize_scores with empty input"""
+        result = Scoring.normalize_scores({})
+        self.assertEqual(result, {})
+
+    def test_normalize_scores_zero_sum(self):
+        """Test normalize_scores with zero sum"""
+        scores = {"miner1": 0.0, "miner2": 0.0}
+        result = Scoring.normalize_scores(scores)
+        self.assertEqual(result, {})
+
+    def test_normalize_scores_valid_input(self):
+        """Test normalize_scores with valid input"""
+        scores = {"miner1": 0.6, "miner2": 0.4}
+        result = Scoring.normalize_scores(scores)
+        
+        self.assertIsInstance(result, dict)
+        self.assertEqual(len(result), 2)
+        
+        # Check that scores sum to 1.0
+        total_score = sum(result.values())
+        self.assertAlmostEqual(total_score, 1.0, places=5)
+        
+        # Check that relative proportions are maintained
+        self.assertAlmostEqual(result["miner1"], 0.6, places=5)
+        self.assertAlmostEqual(result["miner2"], 0.4, places=5)
+
+    def test_normalize_scores_greater_than_one(self):
+        """Test normalize_scores with greater than one"""
+        scores = {"miner1": 1.0, "miner2": 1.0}
+        result = Scoring.normalize_scores(scores)
+
+        self.assertIsInstance(result, dict)
+        self.assertEqual(len(result), 2)
+
+        # Check that scores sum to 1.0
+        total_score = sum(result.values())
+        self.assertAlmostEqual(total_score, 1.0, places=5)
+
