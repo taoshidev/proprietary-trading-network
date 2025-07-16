@@ -120,7 +120,7 @@ class AssetSegmentation:
         return default_ledger_copy
 
     @staticmethod
-    def segment_competitiveness(incentive_distribution: list[float]) -> float:
+    def segment_competitiveness(incentive_distribution: list[float]) -> float | None:
         """
         Indicates the relative level of competitiveness for an asset class based on the incentive distribution.
         """
@@ -131,7 +131,7 @@ class AssetSegmentation:
 
         n = len(vals)
         if n == 0:
-            return math.nan
+            return None
         if any(v < 0 for v in vals):
             raise ValueError("Gini coefficient is undefined for negative values")
 
@@ -149,7 +149,7 @@ class AssetSegmentation:
     @staticmethod
     def asset_competitiveness_dictionary(
             asset_incentive_distributions: dict[str, dict[str, float]]
-    ) -> dict[str, float]:
+    ) -> dict[str, float | None]:
         """
         Returns a dictionary with asset classes as keys and their competitiveness as values.
         """
@@ -157,7 +157,7 @@ class AssetSegmentation:
         for asset_class, distribution in asset_incentive_distributions.items():
             if not distribution:
                 bt.logging.warning(f"Distribution for {asset_class} isn't defined.")
-                competitiveness_dict[asset_class] = math.nan
+                competitiveness_dict[asset_class] = None
             else:
                 incentive_distribution = [value for value in distribution.values() if value is not None and value >= 0]
                 competitiveness_dict[asset_class] = AssetSegmentation.segment_competitiveness(incentive_distribution)
