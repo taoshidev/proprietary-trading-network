@@ -432,10 +432,13 @@ class MinerStatisticsManager:
                 # Get this miner's score and rank
                 miner_score = miner_scores[hotkey]
                 rank = next((i + 1 for i, (hk, _) in enumerate(sorted_scores) if hk == hotkey), len(sorted_scores))
+                total_miners = len(miner_scores)
+                percentile = ((total_miners - rank) / total_miners) * 100 if total_miners > 0 else 0
 
                 subcategory_data[subcategory] = {
                     "score": miner_score,
-                    "rank": rank
+                    "rank": rank,
+                    "percentile": percentile
                 }
         
         return subcategory_data
