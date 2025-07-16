@@ -172,11 +172,12 @@ class Validator:
         # We don't store a reference to subtensor; instead use the getter from MetagraphUpdater
         # This ensures we always have the current subtensor instance even after round-robin switches
         bt.logging.info(f"Subtensor: {self.metagraph_updater.get_subtensor()}")
-        self.metagraph_updater.update_metagraph()
-
-        # Start the metagraph updater loop in its own thread
-        self.metagraph_updater_thread = threading.Thread(target=self.metagraph_updater.run_update_loop, daemon=True)
-        self.metagraph_updater_thread.start()
+        
+        # Start the metagraph updater and wait for initial population
+        self.metagraph_updater_thread = self.metagraph_updater.start_and_wait_for_initial_update(
+            max_wait_time=60,
+            slack_notifier=self.slack_notifier
+        )
 
         self.elimination_manager = EliminationManager(self.metagraph, None,  # Set after self.pm creation
                                                       None, shutdown_dict=shutdown_dict,

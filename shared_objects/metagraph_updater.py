@@ -3,6 +3,7 @@
 
 import time
 import traceback
+import threading
 
 from vali_objects.vali_config import ValiConfig
 from shared_objects.cache_controller import CacheController
@@ -62,6 +63,44 @@ class MetagraphUpdater(CacheController):
         """
         return self.subtensor
     
+    def start_and_wait_for_initial_update(self, max_wait_time=60, slack_notifier=None):
+        """
+        Start the metagraph updater thread and wait for initial population.
+        
+        This method provides a clean way to:
+        1. Start the background metagraph update loop
+        2. Wait for the metagraph to be initially populated
+        3. Proceed with confidence that metagraph data is available
+        
+        Args:
+            max_wait_time (int): Maximum time to wait for initial population (seconds)
+            slack_notifier: Optional slack notifier for error reporting
+            
+        Returns:
+            threading.Thread: The started metagraph updater thread
+            
+        Raises:
+            SystemExit: If metagraph fails to populate within max_wait_time
+        """
+        # Start the metagraph updater loop in its own thread
+        updater_thread = threading.Thread(target=self.run_update_loop, daemon=True)
+        updater_thread.start()
+        
+        # Wait for initial metagraph population before proceeding
+        bt.logging.info("Waiting for initial metagraph population...")
+        start_time = time.time()
+        while not self.metagraph.hotkeys and (time.time() - start_time) < max_wait_time:
+            time.sleep(1)
+        
+        if not self.metagraph.hotkeys:
+            error_msg = f"Failed to populate metagraph within {max_wait_time} seconds"
+            bt.logging.error(error_msg)
+            if slack_notifier:
+                slack_notifier.send_message(f"❌ {error_msg}", level="error")
+            exit()
+        
+        bt.logging.info(f"Metagraph populated with {len(self.metagraph.hotkeys)} hotkeys")
+        return updater_thread
 
     def estimate_number_of_validators(self):
         # Filter out expired validators

@@ -59,22 +59,11 @@ class Miner:
             slack_notifier=self.slack_notifier
         )
 
-        # Start the metagraph updater loop in its own thread to populate the metagraph
-        self.metagraph_updater_thread = threading.Thread(target=self.metagraph_updater.run_update_loop, daemon=True)
-        self.metagraph_updater_thread.start()
-        
-        # Wait for initial metagraph population before proceeding
-        bt.logging.info("Waiting for initial metagraph population...")
-        max_wait_time = 60  # 60 seconds max wait
-        start_time = time.time()
-        while not self.metagraph.hotkeys and (time.time() - start_time) < max_wait_time:
-            time.sleep(1)
-        
-        if not self.metagraph.hotkeys:
-            error_msg = "Failed to populate metagraph within 60 seconds"
-            bt.logging.error(error_msg)
-            self.slack_notifier.send_message(f"❌ {error_msg}", level="error")
-            exit()
+        # Start the metagraph updater and wait for initial population
+        self.metagraph_updater_thread = self.metagraph_updater.start_and_wait_for_initial_update(
+            max_wait_time=60,
+            slack_notifier=self.slack_notifier
+        )
         
         self.check_miner_registration()
         self.my_subnet_uid = self.metagraph.hotkeys.index(self.wallet.hotkey.ss58_address)
