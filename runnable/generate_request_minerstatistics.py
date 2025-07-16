@@ -418,22 +418,29 @@ class MinerStatisticsManager:
         
         Args:
             hotkey: The miner's hotkey
-            asset_softmaxed_scores: The asset softmaxed scores from compute_results_checkpoint
+            asset_softmaxed_scores: A dictionary with softmax scores for each miner within each asset class
             
         Returns:
-            dict with subcategory as key and score/rank info as value
+            subcategory_data: dict with subcategory as key and score/rank/percentile info as value
         """
         subcategory_data = {}
         
         for subcategory, miner_scores in asset_softmaxed_scores.items():
-            sorted_scores = sorted(miner_scores.items(), key=lambda x: x[1], reverse=True)
-
             if hotkey in miner_scores:
-                # Get this miner's score and rank
                 miner_score = miner_scores[hotkey]
-                rank = next((i + 1 for i, (hk, _) in enumerate(sorted_scores) if hk == hotkey), len(sorted_scores))
-                total_miners = len(miner_scores)
-                percentile = ((total_miners - rank) / total_miners) * 100 if total_miners > 0 else 0
+                # Filter out miners with zero scores for ranking purposes
+                nonzero_scores = {hk: score for hk, score in miner_scores.items() if score > 0}
+                total_miners = len(nonzero_scores)
+                
+                if miner_score == 0:
+                    # Miners with zero scores get lowest rank
+                    rank = total_miners + 1
+                    percentile = 0
+                else:
+                    unique_scores = sorted(set(nonzero_scores.values()), reverse=True)
+                    # Find rank based on tied scores (all miners with same score get highest rank)
+                    rank = unique_scores.index(miner_score) + 1
+                    percentile = ((total_miners - rank + 1) / total_miners) * 100 if total_miners > 0 else 0
 
                 subcategory_data[subcategory] = {
                     "score": miner_score,
