@@ -55,6 +55,16 @@ class MetagraphUpdater(CacheController):
     def _is_expired(self, timestamp):
         return (self._current_timestamp() - timestamp) > 86400  # 24 hours in seconds
     
+    def _cleanup_subtensor_connection(self):
+        """Safely close substrate connection to prevent file descriptor leaks"""
+        if hasattr(self, 'subtensor') and self.subtensor:
+            try:
+                if hasattr(self.subtensor, 'substrate') and self.subtensor.substrate:
+                    bt.logging.debug("Cleaning up substrate connection")
+                    self.subtensor.substrate.close()
+            except Exception as e:
+                bt.logging.warning(f"Error during substrate cleanup: {e}")
+    
     def get_subtensor(self):
         """
         Get the current subtensor instance.
@@ -235,6 +245,8 @@ class MetagraphUpdater(CacheController):
                 self.config['subtensor']['network'] = self.round_robin_networks[self.current_round_robin_index]
                 bt.logging.warning(f"Switching to next network in round-robin: {self.config['subtensor']['network']}")
 
+            # CRITICAL: Close existing connection before creating new one to prevent file descriptor leak
+            self._cleanup_subtensor_connection()
             self.subtensor = bt.subtensor(config=self.config)
         recently_acked_miners = None
         recently_acked_validators = None

@@ -321,7 +321,7 @@ class Validator:
             f"Serving attached axons on network:"
             f" {self.config.subtensor.chain_endpoint} with netuid: {self.config.netuid}"
         )
-        self.axon.serve(netuid=self.config.netuid, subtensor=self.subtensor)
+        self.axon.serve(netuid=self.config.netuid, subtensor=self.metagraph_updater.get_subtensor())
 
         # Starts the miner's axon, making it active on the network.
         bt.logging.info(f"Starting axon server on port: {self.config.axon.port}")
@@ -343,7 +343,13 @@ class Validator:
 
         self.mdd_checker = MDDChecker(self.metagraph, self.position_manager, live_price_fetcher=self.live_price_fetcher,
                                       shutdown_dict=shutdown_dict, compaction_enabled=True)
-        self.weight_setter = SubtensorWeightSetter(self.metagraph, position_manager=self.position_manager)
+        self.weight_setter = SubtensorWeightSetter(
+            self.metagraph, 
+            position_manager=self.position_manager,
+            slack_notifier=self.slack_notifier
+        )
+        # Set config reference for alert context
+        self.weight_setter.config = self.config
 
         self.request_core_manager = RequestCoreManager(self.position_manager, self.weight_setter, self.plagiarism_detector)
         self.miner_statistics_manager = MinerStatisticsManager(self.position_manager, self.weight_setter, self.plagiarism_detector)
@@ -562,7 +568,7 @@ class Validator:
                 self.challengeperiod_manager.refresh(current_time=current_time)
                 self.elimination_manager.process_eliminations(self.position_locks)
                 #self.position_locks.cleanup_locks(self.metagraph.hotkeys)
-                self.weight_setter.set_weights(self.wallet, self.config.netuid, self.subtensor, current_time=current_time)
+                self.weight_setter.set_weights(self.wallet, self.config.netuid, self.metagraph_updater.get_subtensor(), current_time=current_time)
                 #self.p2p_syncer.sync_positions_with_cooldown()
 
             # In case of unforeseen errors, the validator will log the error and send notification to Slack

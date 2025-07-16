@@ -2,6 +2,7 @@ from collections import defaultdict
 
 import bittensor as bt
 import time
+import asyncio
 
 from miner_config import MinerConfig
 from template.protocol import GetPositions
@@ -22,14 +23,18 @@ class PositionInspector:
         self.is_testnet = self.config.netuid == 116
 
 
-    def run_update_loop(self):
+    async def run_update_loop(self):
         while not self.stop_requested:
             try:
-                self.log_validator_positions()
+                await self.log_validator_positions()
             except Exception as e:
                 # Handle exceptions or log errors
                 bt.logging.error(f"Error during position inspector update: {e}. Please alert a team member ASAP!")
-            time.sleep(1)  # Don't busy loop
+            await asyncio.sleep(1)  # Don't busy loop
+    
+    def run_update_loop_sync(self):
+        """Synchronous wrapper for threading compatibility"""
+        asyncio.run(self.run_update_loop())
 
     def stop_update_loop(self):
         self.stop_requested = True
@@ -47,9 +52,13 @@ class PositionInspector:
                     if n.stake > bt.Balance(MinerConfig.STAKE_MIN)
                     and n.axon_info.ip != MinerConfig.AXON_NO_IP]
 
-    def query_positions(self, validators, hotkey_to_positions):
+    async def query_positions(self, validators, hotkey_to_positions):
         remaining_validators_to_query = [v for v in validators if v.hotkey not in hotkey_to_positions]
-        responses = bt.dendrite(wallet=self.wallet).query(remaining_validators_to_query, GetPositions(version=1), deserialize=True)
+        
+        # Use async context manager for automatic cleanup
+        async with bt.dendrite(wallet=self.wallet) as dendrite:
+            responses = await dendrite.aquery(remaining_validators_to_query, GetPositions(version=1), deserialize=True)
+        
         hotkey_to_v_trust = {neuron.hotkey: neuron.validator_trust for neuron in self.metagraph.neurons}
         ret = []
         for validator, response in zip(remaining_validators_to_query, responses):
@@ -102,16 +111,16 @@ class PositionInspector:
                         f" {hotkey_to_v_trust.get(corresponding_hotkey, 0)}. Corresponding positions: {corresponding_positions}")
         return corresponding_positions
 
-    def get_positions_with_retry(self, validators_to_query):
+    async def get_positions_with_retry(self, validators_to_query):
         attempts = 0
         delay = self.INITIAL_RETRY_DELAY
         hotkey_to_positions = {}
         while attempts < self.MAX_RETRIES and len(hotkey_to_positions) != len(validators_to_query):
             if attempts > 0:
-                time.sleep(delay)
+                await asyncio.sleep(delay)
                 delay *= 2  # Exponential backoff
 
-            positions = self.query_positions(validators_to_query, hotkey_to_positions)
+            positions = await self.query_positions(validators_to_query, hotkey_to_positions)
             for p in positions:
                 hotkey_to_positions[p[0].hotkey] = p[1]
 
@@ -128,7 +137,7 @@ class PositionInspector:
     def refresh_allowed(self):
         return (time.time() - self.last_update_time) > self.UPDATE_INTERVAL_S
 
-    def log_validator_positions(self):
+    async def log_validator_positions(self):
         """
         Sends signals to the validators to get their time-sorted positions for this miner.
         This method may be used directly in your own logic to attempt to "fix" validator positions.
@@ -139,7 +148,7 @@ class PositionInspector:
 
         validators_to_query = self.get_possible_validators()
         bt.logging.info(f"Querying {len(validators_to_query)} possible validators for positions")
-        result = self.get_positions_with_retry(validators_to_query)
+        result = await self.get_positions_with_retry(validators_to_query)
 
         if not result:
             bt.logging.info("No positions found.")

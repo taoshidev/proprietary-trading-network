@@ -80,7 +80,7 @@ class Miner:
 
         # Start position inspector loop in its own thread
         if self.config.run_position_inspector:
-            self.position_inspector_thread = threading.Thread(target=self.position_inspector.run_update_loop,
+            self.position_inspector_thread = threading.Thread(target=self.position_inspector.run_update_loop_sync,
                                                               daemon=True)
             self.position_inspector_thread.start()
         else:
