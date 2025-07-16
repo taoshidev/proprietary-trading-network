@@ -19,7 +19,7 @@ from vali_objects.utils.ledger_utils import LedgerUtils
 from vali_objects.utils.metrics import Metrics
 from vali_objects.utils.position_penalties import PositionPenalties
 from vali_objects.utils.asset_segmentation import AssetSegmentation
-from vali_objects.vali_config import TradePair, TradePairCategory, TradePairSubcategory
+from vali_objects.vali_config import TradePairCategory
 import bittensor as bt
 
 

@@ -10,7 +10,7 @@ from vali_objects.vali_config import ValiConfig
 from shared_objects.cache_controller import CacheController
 from vali_objects.scoring.scoring import Scoring
 from time_util.time_util import TimeUtil
-from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager, PerfLedger, TP_ID_PORTFOLIO
+from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager, PerfLedger
 from vali_objects.utils.ledger_utils import LedgerUtils
 from vali_objects.utils.position_manager import PositionManager
 from vali_objects.position import Position

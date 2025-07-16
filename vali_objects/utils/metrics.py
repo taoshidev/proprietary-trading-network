@@ -376,8 +376,10 @@ class Metrics:
             return []
 
         for miner, weight in miner_scores:
-
-            miner_ledger = ledgers.get(miner, {}).get(TP_ID_PORTFOLIO)
+            if isinstance(ledgers.get(miner), dict):
+                miner_ledger = ledgers.get(miner).get(TP_ID_PORTFOLIO)
+            else:
+                miner_ledger = ledgers.get(miner)
             miner_trading_days = LedgerUtils.get_trading_days(miner_ledger)
             time_weighted_scores.append((miner, weight * math.sqrt(miner_trading_days / LEDGER_WINDOW_DAYS)))
 

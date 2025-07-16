@@ -1,13 +1,11 @@
-import copy
-import math
 import unittest
 from unittest.mock import Mock, patch
 
 from tests.vali_tests.base_objects.test_base import TestBase
 from tests.shared_objects.test_utilities import generate_ledger, checkpoint_generator, ledger_generator
 from vali_objects.utils.asset_segmentation import AssetSegmentation
-from vali_objects.vali_config import TradePair, TradePairCategory, TradePairSubcategory, ValiConfig
-from vali_objects.vali_dataclasses.perf_ledger import PerfLedger, PerfCheckpoint, TP_ID_PORTFOLIO
+from vali_objects.vali_config import TradePair, TradePairCategory, ValiConfig
+from vali_objects.vali_dataclasses.perf_ledger import PerfLedger, TP_ID_PORTFOLIO
 
 # Common patches and mocks for all tests
 MOCK_ASSET_BREAKDOWN = {
@@ -295,7 +293,7 @@ class TestAssetSegmentation(TestBase):
     def test_segment_competitiveness_base_cases(self):
         """Test segment_competitiveness with empty incentive distribution"""
         result = AssetSegmentation.segment_competitiveness([])
-        self.assertTrue(math.isnan(result))
+        self.assertIsNone(result)
 
 
         with self.assertRaises(ValueError) as context:
@@ -334,9 +332,9 @@ class TestAssetSegmentation(TestBase):
         }
         
         result = AssetSegmentation.asset_competitiveness_dictionary(distributions)
-        
-        self.assertTrue(math.isnan(result["crypto_majors"]))
-        self.assertTrue(math.isnan(result["forex_group1"]))
+
+        self.assertIsNone(result["crypto_majors"])
+        self.assertIsNone(result["forex_group1"])
 
     def test_asset_competitiveness_dictionary_valid(self):
         """Test asset_competitiveness_dictionary with valid distributions"""
@@ -363,7 +361,7 @@ class TestAssetSegmentation(TestBase):
         result = AssetSegmentation.asset_competitiveness_dictionary(distributions)
         
         self.assertGreater(result["crypto_majors"], 0.0)
-        self.assertTrue(math.isnan(result["forex_group1"]))
+        self.assertIsNone(result["forex_group1"])
         self.assertAlmostEqual(result["indices_group1"], 0.0, places=5)
 
     def test_aggregation_preserves_checkpoint_order(self):

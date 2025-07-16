@@ -1,14 +1,11 @@
 import copy
-import os
 import math
-from typing import Any
 
 import bittensor as bt
 
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedger, PerfCheckpoint
 from vali_objects.vali_config import ValiConfig, TradePair, TradePairCategory, TradePairSubcategory
 
-from vali_objects.utils.logger_utils import LoggerUtils
 
 
 class AssetSegmentation:
