@@ -7,6 +7,7 @@ import traceback
 from vali_objects.vali_config import ValiConfig
 from shared_objects.cache_controller import CacheController
 from shared_objects.error_utils import ErrorUtils
+from shared_objects.subtensor_lock import get_subtensor_lock
 
 import bittensor as bt
 
@@ -60,6 +61,7 @@ class MetagraphUpdater(CacheController):
         to ensure you always have the current instance after round-robin switches.
         """
         return self.subtensor
+    
 
     def estimate_number_of_validators(self):
         # Filter out expired validators
@@ -206,7 +208,10 @@ class MetagraphUpdater(CacheController):
                 recently_acked_miners = []
 
         hotkeys_before = set(self.metagraph.hotkeys)
-        metagraph_clone = self.subtensor.metagraph(self.config.netuid)
+        
+        # Synchronize with weight setting operations to prevent WebSocket concurrency errors
+        with get_subtensor_lock():
+            metagraph_clone = self.subtensor.metagraph(self.config.netuid)
         assert hasattr(metagraph_clone, 'hotkeys'), "Metagraph clone does not have hotkeys attribute"
         bt.logging.info("Updating metagraph...")
         # metagraph_clone.sync(subtensor=self.subtensor) The call to subtensor.metagraph() already syncs the metagraph.

@@ -11,6 +11,7 @@ from vali_objects.utils.position_manager import PositionManager
 from vali_objects.scoring.scoring import Scoring
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedger
 
+from shared_objects.subtensor_lock import get_subtensor_lock
 
 class SubtensorWeightSetter(CacheController):
     def __init__(self, metagraph, position_manager: PositionManager,
@@ -154,13 +155,15 @@ class SubtensorWeightSetter(CacheController):
         filtered_netuids = [x[0] for x in self.transformed_list]
         scaled_transformed_list = [x[1] for x in self.transformed_list]
 
-        success, err_msg = subtensor.set_weights(
-            netuid=netuid,
-            wallet=wallet,
-            uids=filtered_netuids,
-            weights=scaled_transformed_list,
-            version_key=self.subnet_version,
-        )
+        # Synchronize with metagraph updates to prevent WebSocket concurrency errors
+        with get_subtensor_lock():
+            success, err_msg = subtensor.set_weights(
+                netuid=netuid,
+                wallet=wallet,
+                uids=filtered_netuids,
+                weights=scaled_transformed_list,
+                version_key=self.subnet_version,
+            )
 
         if success:
             bt.logging.success("Successfully set weights.")
