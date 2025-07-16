@@ -144,7 +144,7 @@ class AssetSegmentation:
 
         total = cumulative
         g = (2 * cumulative_weighted) / (n * total) - (n + 1) / n
-        return g
+        return g if not math.isnan(g) else None
 
     @staticmethod
     def asset_competitiveness_dictionary(
