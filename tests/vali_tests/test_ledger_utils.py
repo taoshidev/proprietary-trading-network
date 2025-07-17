@@ -596,4 +596,84 @@ class TestLedgerUtils(TestBase):
             self.assertEqual(parsed_json, json_results)
         except TypeError:
             self.fail("daily_returns_by_date_json results should be JSON serializable")
+    
+    def test_is_valid_trading_day_forex_saturday_exclusion(self):
+        """Test that forex trade pairs correctly exclude Saturdays as invalid trading days"""
+        # Test data: asset_id, expected_saturday_result, expected_monday_result
+        test_cases = [
+            ("EURUSD", False, True),    # Forex - Saturday closed, Monday open
+            ("GBPUSD", False, True),    # Forex - Saturday closed, Monday open
+            ("USDJPY", False, True),    # Forex - Saturday closed, Monday open
+            ("BTCUSD", True, True),     # Crypto - Always open
+            (TP_ID_PORTFOLIO, True, True),  # Portfolio - Always valid
+        ]
+        
+        saturday_date = date_type(2023, 1, 7)  # Saturday
+        monday_date = date_type(2023, 1, 9)    # Monday
+        
+        for asset_id, expected_saturday, expected_monday in test_cases:
+            ledger = generate_ledger(0.1)[TP_ID_PORTFOLIO]
+            ledger.asset_id = asset_id
+            
+            saturday_result = LedgerUtils.is_valid_trading_day(ledger, saturday_date)
+            monday_result = LedgerUtils.is_valid_trading_day(ledger, monday_date)
+            
+            self.assertEqual(
+                saturday_result, expected_saturday,
+                f"{asset_id} Saturday result should be {expected_saturday}"
+            )
+            self.assertEqual(
+                monday_result, expected_monday,
+                f"{asset_id} Monday result should be {expected_monday}"
+            )
+    
+    def test_daily_return_log_by_date_forex_saturday_exclusion(self):
+        """Test that daily_return_log_by_date excludes Saturdays for forex pairs"""
+        # Create ledgers spanning a weekend using generate_ledger
+        friday_start = int(datetime(2023, 1, 6, tzinfo=timezone.utc).timestamp() * 1000)  # Friday
+        monday_end = int(datetime(2023, 1, 9, 23, 59, 59, tzinfo=timezone.utc).timestamp() * 1000)  # Monday
+        
+        # Create forex and crypto ledgers with same time range
+        forex_ledger = generate_ledger(0.1, start_time=friday_start, end_time=monday_end)[TP_ID_PORTFOLIO]
+        forex_ledger.asset_id = "EURUSD"
+        
+        crypto_ledger = generate_ledger(0.1, start_time=friday_start, end_time=monday_end)[TP_ID_PORTFOLIO]
+        crypto_ledger.asset_id = "BTCUSD"
+        
+        # Get daily returns for both ledgers
+        forex_daily_returns = LedgerUtils.daily_return_log_by_date(forex_ledger)
+        crypto_daily_returns = LedgerUtils.daily_return_log_by_date(crypto_ledger)
+        
+        # Crypto should have more days than forex (Saturday should be excluded for forex)
+        self.assertLess(len(forex_daily_returns), len(crypto_daily_returns), 
+                       "Forex should have fewer trading days than crypto due to Saturday exclusion")
+        
+        # Check that Saturday (2023-01-07) is missing from forex but present in crypto
+        saturday_date_obj = date_type(2023, 1, 7)
+        self.assertNotIn(saturday_date_obj, forex_daily_returns, "Forex should NOT have Saturday returns")
+        self.assertIn(saturday_date_obj, crypto_daily_returns, "Crypto should have Saturday returns")
+    
+    def test_is_valid_trading_day_error_handling(self):
+        """Test error handling for is_valid_trading_day function"""
+        # Test with None ledger
+        self.assertFalse(LedgerUtils.is_valid_trading_day(None, date_type(2023, 1, 1)))
+        
+        # Test with None date
+        ledger = generate_ledger(0.1)[TP_ID_PORTFOLIO]
+        ledger.asset_id = "EURUSD"
+        self.assertFalse(LedgerUtils.is_valid_trading_day(ledger, None))
+        
+        # Test with invalid date type
+        self.assertFalse(LedgerUtils.is_valid_trading_day(ledger, "2023-01-01"))
+        self.assertFalse(LedgerUtils.is_valid_trading_day(ledger, 20230101))
+        
+        # Test with invalid asset_id (should return False due to None trade_pair)
+        invalid_ledger = generate_ledger(0.1)[TP_ID_PORTFOLIO]
+        invalid_ledger.asset_id = "INVALID_PAIR"
+        self.assertFalse(LedgerUtils.is_valid_trading_day(invalid_ledger, date_type(2023, 1, 1)))
+        
+        # Test portfolio ledger should always return True (except for error cases)
+        portfolio_ledger = generate_ledger(0.1)[TP_ID_PORTFOLIO]
+        portfolio_ledger.asset_id = TP_ID_PORTFOLIO
+        self.assertTrue(LedgerUtils.is_valid_trading_day(portfolio_ledger, date_type(2023, 1, 7)))  # Saturday
 

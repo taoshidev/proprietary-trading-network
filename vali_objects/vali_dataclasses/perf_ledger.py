@@ -119,13 +119,15 @@ class PerfCheckpoint(BaseModel):
 class PerfLedger():
     def __init__(self, initialization_time_ms: int=0, max_return:float=1.0,
                  target_cp_duration_ms:int=ValiConfig.TARGET_CHECKPOINT_DURATION_MS,
-                 target_ledger_window_ms=ValiConfig.TARGET_LEDGER_WINDOW_MS, cps: list[PerfCheckpoint]=None):
+                 target_ledger_window_ms=ValiConfig.TARGET_LEDGER_WINDOW_MS, cps: list[PerfCheckpoint]=None,
+                 asset_id: str=TP_ID_PORTFOLIO):
         if cps is None:
             cps = []
         self.max_return = float(max_return)
         self.target_cp_duration_ms = int(target_cp_duration_ms)
         self.target_ledger_window_ms = target_ledger_window_ms
         self.initialization_time_ms = int(initialization_time_ms)
+        self.asset_id = str(asset_id)
         self.cps = cps
 
     def to_dict(self):
@@ -1006,7 +1008,7 @@ class PerfLedgerManager(CacheController):
                 assert len(positions[0].orders) == 0, (tp_id, positions[0], list(perf_ledger_bundle.keys()))
                 assert realtime_position_to_pop and tp_id == realtime_position_to_pop.trade_pair.trade_pair_id
                 initialization_time_ms = realtime_position_to_pop.orders[0].processed_ms
-                perf_ledger_bundle[tp_id] = PerfLedger(initialization_time_ms=initialization_time_ms, target_ledger_window_ms=self.target_ledger_window_ms)
+                perf_ledger_bundle[tp_id] = PerfLedger(initialization_time_ms=initialization_time_ms, target_ledger_window_ms=self.target_ledger_window_ms, asset_id=tp_id)
                 perf_ledger_bundle[tp_id].init_with_first_order(end_time_ms, point_in_time_dd=1.0, current_portfolio_value=1.0,
                                                    current_portfolio_fee_spread=1.0, current_portfolio_carry=1.0)
 
@@ -1147,7 +1149,7 @@ class PerfLedgerManager(CacheController):
 
         if perf_ledger_bundle_candidate is None:
             first_order_time_ms = min(p.orders[0].processed_ms for p in positions)
-            perf_ledger_bundle_candidate = {TP_ID_PORTFOLIO: PerfLedger(initialization_time_ms=first_order_time_ms, target_ledger_window_ms=self.target_ledger_window_ms)}
+            perf_ledger_bundle_candidate = {TP_ID_PORTFOLIO: PerfLedger(initialization_time_ms=first_order_time_ms, target_ledger_window_ms=self.target_ledger_window_ms, asset_id=TP_ID_PORTFOLIO)}
             verbose = True
         else:
             perf_ledger_bundle_candidate = deepcopy(perf_ledger_bundle_candidate)

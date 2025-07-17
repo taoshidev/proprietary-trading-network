@@ -3,7 +3,7 @@
 import functools
 import re
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, date
 from typing import List, Tuple
 from functools import lru_cache
 from zoneinfo import ZoneInfo  # Make sure to use Python 3.9 or later
@@ -11,6 +11,7 @@ from zoneinfo import ZoneInfo  # Make sure to use Python 3.9 or later
 import pandas as pd
 
 from vali_objects.vali_config import TradePair
+import bittensor as bt
 
 pd.set_option('future.no_silent_downcasting', True)
 from pandas.tseries.holiday import USFederalHolidayCalendar  # noqa: E402
@@ -101,6 +102,25 @@ class ForexHolidayCalendar(USFederalHolidayCalendar):
         self.cache_valid_min_ms = ms_timestamp
         self.cache_valid_ans = ans
         return ans
+
+    def is_forex_market_closed_full_day(self, testing_day: date) -> bool:
+        """Check if the market is closed at the start of the UTC day and at the end of the UTC day."""
+        if testing_day is None or not isinstance(testing_day, date):
+            bt.logging.info(f"testing day is invalid, returning false: {testing_day}")
+            return False
+        # Convert the date to UTC datetime at start of day (00:00:00)
+        start_of_day = datetime.combine(testing_day, datetime.min.time()).replace(tzinfo=timezone.utc)
+        start_of_day_ms = int(start_of_day.timestamp() * 1000)
+        
+        # Convert the date to UTC datetime at end of day (23:59:59)
+        end_of_day = datetime.combine(testing_day, datetime.max.time()).replace(tzinfo=timezone.utc)
+        end_of_day_ms = int(end_of_day.timestamp() * 1000)
+        
+        # Check if market is closed at both start and end of day
+        market_closed_at_start = not self.is_forex_market_open(start_of_day_ms)
+        market_closed_at_end = not self.is_forex_market_open(end_of_day_ms)
+        
+        return market_closed_at_start and market_closed_at_end
 
 
 class IndicesMarketCalendar:

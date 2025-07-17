@@ -2,13 +2,18 @@
 import math
 import numpy as np
 import copy
-from datetime import datetime, timezone
+from datetime import datetime, timezone, date
 
-from vali_objects.vali_config import ValiConfig
+from vali_objects.vali_dataclasses.perf_ledger import TP_ID_PORTFOLIO
+from vali_objects.vali_config import ValiConfig, TradePair
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedger
+from time_util.time_util import ForexHolidayCalendar
+import bittensor as bt
 
 
 class LedgerUtils:
+    forex_holiday_calendar = ForexHolidayCalendar()
+
     @staticmethod
     def daily_returns(ledger: PerfLedger) -> list[float]:
         """
@@ -21,7 +26,7 @@ class LedgerUtils:
         return daily_returns_percentage
 
     @staticmethod
-    def daily_returns_by_date(ledger: PerfLedger) -> dict[datetime.date, float]:
+    def daily_returns_by_date(ledger: PerfLedger) -> dict[date, float]:
         """
         Calculate daily returns from performance checkpoints, only including full days
         :param ledger: PerfLedger - the ledger of the miner
@@ -62,7 +67,7 @@ class LedgerUtils:
         return list(date_return_map.values())
 
     @staticmethod
-    def daily_return_log_by_date(ledger: PerfLedger) -> dict[datetime.date, float]:
+    def daily_return_log_by_date(ledger: PerfLedger) -> dict[date, float]:
         """
         Calculate daily returns from performance checkpoints, only including full days
         with complete data and correct total accumulated time.
@@ -71,7 +76,7 @@ class LedgerUtils:
         Args:
             ledger: PerfLedger - the ledger of the miner
         Returns:
-            dict[datetime.date, float] - dictionary mapping dates to daily log returns
+            dict[date, float] - dictionary mapping dates to daily log returns
         """
         if not ledger.cps:
             return {}
@@ -88,6 +93,8 @@ class LedgerUtils:
             full_cell = cp.accum_ms == ValiConfig.TARGET_CHECKPOINT_DURATION_MS
 
             running_date = datetime.fromtimestamp(start_time / 1000, tz=timezone.utc).date()
+            if not LedgerUtils.is_valid_trading_day(ledger, running_date):
+                continue
             if full_cell:
                 if running_date not in daily_groups:
                     daily_groups[running_date] = []
@@ -101,6 +108,42 @@ class LedgerUtils:
                 date_return_map[running_date] = daily_return
 
         return date_return_map
+
+    @staticmethod
+    def is_valid_trading_day(ledger: PerfLedger, testing_date: date) -> bool:
+        """
+        Verifies if a particular forex day has polygon data at the start and end of a day.
+        If the fx market is closed for an entire day (Saturdays with UTC), we don't
+        want to track daily returns for that day.
+
+        Args:
+            ledger: PerfLedger - the ledger of the miner
+            testing_date: datetime - the date at which to check for valid forex days
+        Returns:
+            bool - True if a valid forex day is found, False otherwise
+        """
+        if ledger is None:
+            bt.logging.info("ledger is None, returning False")
+            return False
+        
+        if testing_date is None or not isinstance(testing_date, date):
+            bt.logging.info(f"testing_date is invalid, returning False: {testing_date}")
+            return False
+        
+        asset_id = ledger.asset_id
+        # TODO We may need to revisit this if portfolio ledgers become asset specific
+        if asset_id == TP_ID_PORTFOLIO:
+            return True
+
+        trade_pair = TradePair.from_trade_pair_id(asset_id)
+        if trade_pair is None:
+            bt.logging.info(f"trade_pair not found for asset_id: {asset_id}, returning False")
+            return False
+            
+        if trade_pair.is_forex and LedgerUtils.forex_holiday_calendar.is_forex_market_closed_full_day(testing_date):
+            return False
+
+        return True
 
     @staticmethod
     def ledger_drawdowns(ledger: PerfLedger) -> list[float]:
