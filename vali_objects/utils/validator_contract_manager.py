@@ -22,11 +22,11 @@ class ValidatorContractManager:
         bt.logging.info(f"ValidatorContractManager using vault wallet: {self.vault_wallet}")
         
         if config.subtensor.network == "test":
-            self.network = Network.TESTNET
+            bt.logging.info("Using testnet collateral manager")
+            self.collateral_manager = CollateralManager(Network.TESTNET)
         else:
-            self.network = Network.MAINNET
-            
-        self.collateral_manager = CollateralManager(self.network)
+            bt.logging.info("Using mainnet collateral manager")
+            self.collateral_manager = CollateralManager(Network.MAINNET)
         
         # Load contract owner credentials from environment or config
         self._load_contract_owner_credentials()
@@ -119,7 +119,7 @@ class ValidatorContractManager:
             try:
                 encoded_extrinsic = bytes.fromhex(extrinsic_data)
                 extrinsic = self.collateral_manager.decode_extrinsic(encoded_extrinsic)
-                bt.logging.debug("Extrinsic decoded successfully")
+                bt.logging.info("Extrinsic decoded successfully")
             except Exception as e:
                 error_msg = f"Invalid extrinsic data: {str(e)}"
                 bt.logging.error(error_msg)
@@ -132,7 +132,11 @@ class ValidatorContractManager:
             
             # Execute the deposit through the collateral manager
             try:
-                vault_stake = self.collateral_manager.subtensor_api.staking.get_stake_for_coldkey(self.vault_wallet.coldkeypub.ss58_address)[0]
+                stake_list = self.collateral_manager.subtensor_api.staking.get_stake_for_coldkey(self.vault_wallet.coldkeypub.ss58_address)
+                vault_stake = next(
+                    (stake for stake in stake_list if stake.hotkey_ss58 == self.vault_wallet.hotkey.ss58_address),
+                    None
+                )
 
                 deposited_balance = self.collateral_manager.deposit(
                     extrinsic=extrinsic,
@@ -216,7 +220,11 @@ class ValidatorContractManager:
             
             # Execute the withdrawal through the collateral manager
             try:
-                vault_stake = self.collateral_manager.subtensor_api.staking.get_stake_for_coldkey(self.vault_wallet.coldkeypub.ss58_address)[0]
+                stake_list = self.collateral_manager.subtensor_api.staking.get_stake_for_coldkey(self.vault_wallet.coldkeypub.ss58_address)
+                vault_stake = next(
+                    (stake for stake in stake_list if stake.hotkey_ss58 == self.vault_wallet.hotkey.ss58_address),
+                    None
+                )
 
                 withdrawn_balance = self.collateral_manager.withdraw(
                     amount=self.theta_to_rao(amount),
