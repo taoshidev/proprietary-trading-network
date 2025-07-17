@@ -69,6 +69,13 @@ class BaseDataService():
         self.trade_pair_lookup = {pair.trade_pair: pair for pair in TradePair}
         self.trade_pair_to_longest_seen_lag_s = {}
         self.market_calendar = UnifiedMarketCalendar()
+        
+        # Unified websocket management
+        self.websocket_tasks = {}
+        self.task_locks = {}  # Will be initialized in async context
+        self.restart_backoff = {}
+        self.last_restart_time = {}
+        self.tpc_to_last_event_time = {t: 0 for t in self.enabled_websocket_categories}
 
         for trade_pair in TradePair:
             assert trade_pair.trade_pair_category in self.trade_pair_category_to_longest_allowed_lag_s, \
@@ -158,6 +165,12 @@ class BaseDataService():
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
 
+        # Store references to websocket tasks for monitoring
+        self.websocket_tasks = {}
+        
+        # Store loop reference for restart operations
+        self._websocket_loop = loop
+
         # Define the websocket coroutine for each category
         async def run_websocket(category):
             while True:
@@ -177,6 +190,9 @@ class BaseDataService():
                         await asyncio.sleep(5)
                         continue
 
+                except asyncio.CancelledError:
+                    bt.logging.info(f"{self.provider_name}[{category}] websocket task cancelled")
+                    break  # Exit the loop if task is cancelled
                 except Exception as e:
                     bt.logging.error(f"{self.provider_name}[{category}] websocket error: {e}")
                     bt.logging.error(traceback.format_exc())
@@ -189,38 +205,27 @@ class BaseDataService():
                 except Exception as e:
                     bt.logging.error(f"Error during websocket cleanup for {category}: {e}")
                     await asyncio.sleep(5)  # Back off on errors
+        
+        # Store run_websocket as instance method for access in restart
+        self._run_websocket = run_websocket
 
         async def health_check():
-            tpc_to_prev = {t: 0 for t in self.enabled_websocket_categories}
-            last_health_check = time.time()
+            """Unified health check that handles both task death and stale connections"""
+            # Initialize per-TPC locks in async context
+            self.task_locks = {tpc: asyncio.Lock() for tpc in TradePairCategory}
+            self.restart_backoff = {tpc: 1.0 for tpc in TradePairCategory}
+            self.last_restart_time = {tpc: 0 for tpc in TradePairCategory}
+            
             last_debug = time.time()
-
+            
             while True:
                 try:
                     now = time.time()
-                    if now - last_health_check > self.MAX_TIME_NO_EVENTS_S:
-                        resets = []
-                        for tpc in self.enabled_websocket_categories:
-                            curr = self.tpc_to_n_events[tpc]
-                            prev = tpc_to_prev[tpc]
-
-                            if (curr == prev and self.is_market_open(self.get_first_trade_pair_in_category(tpc))):
-                                # Get a reference to the current websocket
-                                old: WebSocketClient|TiingoWebsocketClient = self.WEBSOCKET_OBJECTS.get(tpc)
-                                if old:
-                                    resets.append(tpc)
-                                    try:
-                                        await self._kill_ws_for_category(tpc)
-                                        bt.logging.info(f'Health check triggered shutdown for {tpc.name.lower()}')
-                                    except Exception as e:
-                                        bt.logging.warning(f"Health check shutdown trigger failed for {tpc}: {e}")
-
-                        tpc_to_prev = {t: self.tpc_to_n_events[t] for t in self.enabled_websocket_categories}
-                        if resets:
-                            bt.logging.warning(
-                                f"Health check restarting {self.provider_name} websockets for {resets!r}. curr {curr} prev {prev}")
-                        last_health_check = now
-
+                    
+                    # Check health of each websocket
+                    for tpc in self.enabled_websocket_categories:
+                        await self._check_websocket_health(tpc, loop)
+                    
                     if self.using_ipc:
                         self.check_flush()
 
@@ -235,12 +240,13 @@ class BaseDataService():
                     bt.logging.error(f"Error in health check: {e}")
                     bt.logging.error(traceback.format_exc())
 
-                await asyncio.sleep(1)
+                await asyncio.sleep(5)  # Check every 5 seconds
 
         # Create and store tasks for each websocket category
         tasks = []
         for tpc in self.enabled_websocket_categories:
             task = loop.create_task(run_websocket(tpc))
+            self.websocket_tasks[tpc] = task
             tasks.append(task)
 
         # Add the health check task
@@ -264,27 +270,106 @@ class BaseDataService():
             except Exception as e:
                 bt.logging.error(f"Error during shutdown: {e}")
 
-    async def _kill_ws_for_category(self, tpc:TradePairCategory):
-        """
-        Signal that a websocket should be closed.
-        """
+    async def _check_websocket_health(self, tpc: TradePairCategory, loop):
+        """Check and maintain health of a single websocket"""
+        async with self.task_locks[tpc]:
+            task = self.websocket_tasks.get(tpc)
+            last_event_time = self.tpc_to_last_event_time.get(tpc, 0)
+            now = time.time()
+            
+            # Market check first
+            # Get a representative trade pair for the category
+            trade_pair = self.get_first_trade_pair_in_category(tpc)
+            if trade_pair and not self.is_market_open(trade_pair):
+                if task and not task.done():
+                    bt.logging.info(f"{self.provider_name}[{tpc}] market closed, stopping")
+                    task.cancel()
+                    try:
+                        await task
+                    except asyncio.CancelledError:
+                        pass
+                    self.websocket_tasks[tpc] = None
+                return
+            
+            # Determine if restart needed
+            needs_restart = False
+            reason = None
+            
+            if task is None:
+                needs_restart = True
+                reason = "No task"
+            elif task.done():
+                needs_restart = True
+                reason = "Task completed"
+                try:
+                    await task  # Get any exception
+                except Exception as e:
+                    reason = f"Task failed: {e}"
+            elif last_event_time > 0 and now - last_event_time > self.MAX_TIME_NO_EVENTS_S:
+                needs_restart = True
+                reason = f"No events for {now - last_event_time:.1f}s"
+                if not task.done():
+                    task.cancel()
+                    try:
+                        await task
+                    except asyncio.CancelledError:
+                        pass
+            
+            if needs_restart:
+                await self._restart_websocket(tpc, loop, reason)
+
+    async def _restart_websocket(self, tpc: TradePairCategory, loop, reason: str):
+        """Restart websocket with exponential backoff"""
+        bt.logging.warning(f"{self.provider_name}[{tpc}] restarting: {reason}")
+        
+        # Apply backoff
+        now = time.time()
+        time_since_last = now - self.last_restart_time.get(tpc, 0)
+        
+        if time_since_last < 60:  # Recent restart
+            backoff = self.restart_backoff[tpc]
+            bt.logging.info(f"Applying {backoff:.1f}s backoff for {tpc}")
+            await asyncio.sleep(backoff)
+            self.restart_backoff[tpc] = min(backoff * 1.5, 30.0)
+        else:
+            self.restart_backoff[tpc] = 1.0
+        
+        self.last_restart_time[tpc] = now
+        
+        # Clean up old websocket
+        await self._cleanup_websocket(tpc)
+        
+        # Start new task
+        try:
+            new_task = loop.create_task(self._run_websocket(tpc))
+            self.websocket_tasks[tpc] = new_task
+        except Exception as e:
+            bt.logging.error(f"Failed to create task for {tpc}: {e}")
+            self.websocket_tasks[tpc] = None
+
+    async def _cleanup_websocket(self, tpc: TradePairCategory):
+        """Clean up websocket resources"""
         client = self.WEBSOCKET_OBJECTS.get(tpc)
         if client:
             try:
-                client.unsubscribe_all()
-                bt.logging.info(f'Unsubscribed {self.provider_name} websocket for {tpc.name.lower()}')
-
-                # Set the should_close flag if the client has it
+                if hasattr(client, 'unsubscribe_all'):
+                    client.unsubscribe_all()
                 if hasattr(client, '_should_close'):
                     client._should_close = True
-
-                # Since we're in the same event loop, we can safely close
-                await client.close()
-                bt.logging.info(f'Closed {self.provider_name} websocket for {tpc.name.lower()}')
+                if hasattr(client, 'close'):
+                    await client.close()
+                bt.logging.info(f"Cleaned up {self.provider_name}[{tpc}] websocket")
+            except Exception as e:
+                bt.logging.error(f"Cleanup error for {tpc}: {e}")
+            finally:
                 self.WEBSOCKET_OBJECTS[tpc] = None
 
-            except Exception as e:
-                bt.logging.warning(f"Failed to initiate shutdown for {self.provider_name} websocket for {tpc}: {e}")
+    async def _kill_ws_for_category(self, tpc:TradePairCategory):
+        """
+        Signal that a websocket should be closed.
+        Deprecated: Use _cleanup_websocket instead for unified management.
+        """
+        await self._cleanup_websocket(tpc)
 
     def _create_websocket_client(self, tpc):
         raise NotImplementedError

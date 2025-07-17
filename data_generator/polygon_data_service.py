@@ -317,6 +317,7 @@ class PolygonDataService(BaseDataService):
 
                 tpc = tp.trade_pair_category
                 self.tpc_to_n_events[tpc] += 1
+                self.tpc_to_last_event_time[tpc] = time.time()
                 # This could be a candle so we can make 2 prices, one for the open and one for the close
                 symbol = tp.trade_pair
                 ps1, ps2 = msg_to_price_sources(m, tp)
