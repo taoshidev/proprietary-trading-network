@@ -15,8 +15,11 @@ class ValidatorContractManager:
     
     def __init__(self, config, wallet: Wallet, metagraph):
         self.config = config
-        self.wallet = wallet
+        self.vault_wallet = wallet
         self.metagraph = metagraph
+        
+        # Log which wallet is being used for collateral operations
+        bt.logging.info(f"ValidatorContractManager using vault wallet: {self.vault_wallet}")
         
         if config.subtensor.network == "test":
             self.network = Network.TESTNET
@@ -129,13 +132,13 @@ class ValidatorContractManager:
             
             # Execute the deposit through the collateral manager
             try:
-                vault_stake = self.collateral_manager.subtensor_api.staking.get_stake_for_coldkey(self.wallet.coldkeypub.ss58_address)[0]
+                vault_stake = self.collateral_manager.subtensor_api.staking.get_stake_for_coldkey(self.vault_wallet.coldkeypub.ss58_address)[0]
 
                 deposited_balance = self.collateral_manager.deposit(
                     extrinsic=extrinsic,
                     sender=miner_address,
                     vault_stake=vault_stake.hotkey_ss58,
-                    vault_wallet=self.wallet,
+                    vault_wallet=self.vault_wallet,
                     owner_address=self.owner_address,
                     owner_private_key=self.owner_private_key
                 )
@@ -213,13 +216,13 @@ class ValidatorContractManager:
             
             # Execute the withdrawal through the collateral manager
             try:
-                vault_stake = self.collateral_manager.subtensor_api.staking.get_stake_for_coldkey(self.wallet.coldkeypub.ss58_address)[0]
+                vault_stake = self.collateral_manager.subtensor_api.staking.get_stake_for_coldkey(self.vault_wallet.coldkeypub.ss58_address)[0]
 
                 withdrawn_balance = self.collateral_manager.withdraw(
                     amount=self.theta_to_rao(amount),
                     dest=miner_address,
                     vault_stake=vault_stake.hotkey_ss58,
-                    vault_wallet=self.wallet,
+                    vault_wallet=self.vault_wallet,
                     owner_address=self.owner_address,
                     owner_private_key=self.owner_private_key
                 )
