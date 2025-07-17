@@ -2,7 +2,7 @@
 from datetime import datetime, timezone
 import os
 import math
-
+from collections import defaultdict
 from enum import Enum
 
 from meta import load_version
@@ -23,6 +23,75 @@ class TradePairCategory(str, Enum):
     EQUITIES = "equities"
 
 
+class TradePairSubcategory(str, Enum):
+    """
+    All concrete sub‑category enums must set `ASSET_CLASS`
+    to one of the TradePairCategory members.
+    """
+    @property
+    def asset_class(self) -> TradePairCategory:
+        raise NotImplementedError("Subclasses must implement the asset_class property.")
+
+class ForexSubcategory(TradePairSubcategory):
+    G1 = "forex_group1"
+    G2 = "forex_group2"
+    G3 = "forex_group3"
+    G4 = "forex_group4"
+    G5 = "forex_group5"
+
+    @property
+    def asset_class(self) -> TradePairCategory:
+        return TradePairCategory.FOREX
+
+class CryptoSubcategory(TradePairSubcategory):
+    MAJORS = "crypto_majors"
+    ALTS = "crypto_alts"
+
+    @property
+    def asset_class(self) -> TradePairCategory:
+        return TradePairCategory.CRYPTO
+
+
+class EquitiesSubcategory(TradePairSubcategory):
+    LARGE_CAP = "equities_large_cap"
+    MID_CAP = "equities_mid_cap"
+    SMALL_CAP = "equities_small_cap"
+
+    @property
+    def asset_class(self) -> TradePairCategory:
+        return TradePairCategory.EQUITIES
+
+
+class IndicesSubcategory(TradePairSubcategory):
+    GLOBAL = "indices_global"
+    REGIONAL = "indices_regional"
+    SECTOR = "indices_sector"
+
+    @property
+    def asset_class(self) -> TradePairCategory:
+        return TradePairCategory.INDICES
+
+
+def _TradePair_Lookup() -> dict[str, TradePairCategory]:
+    """
+    Walk through every *concrete* subclass of TradePairSubcategory,
+    collect their members, and map the member's *value* (your string)
+    to its TradePairCategory.
+    """
+    mapping: dict[str, TradePairCategory] = {}
+
+    # subclasses() finds *direct* children; recurse for grand‑children.
+    def _walk(cls):
+        for subcls in cls.__subclasses__():
+            if issubclass(subcls, Enum):
+                _walk(subcls)
+                # subcls is itself an Enum: add all its members
+                for member in subcls:
+                    mapping[member.value] = member.asset_class
+
+    _walk(TradePairSubcategory)
+    return mapping
+
 class InterpolatedValueFromDate():
     def __init__(self, start_date: str, *, low: int, interval: int, increment: int, target: int):
         self.start_date = datetime.strptime(start_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
@@ -40,15 +109,42 @@ class InterpolatedValueFromDate():
 class ValiConfig:
     # versioning
     VERSION = meta_version
-    DAYS_IN_YEAR = 365  # annualization factor
+    DAYS_IN_YEAR_CRYPTO = 365  # annualization factor
+    DAYS_IN_YEAR_FOREX = 252
 
     STATISTICAL_CONFIDENCE_MINIMUM_N = 60
 
     # Market-specific configurations
     ANNUAL_RISK_FREE_PERCENTAGE = 4.19  # From tbill rates
     ANNUAL_RISK_FREE_DECIMAL = ANNUAL_RISK_FREE_PERCENTAGE / 100
-    DAILY_LOG_RISK_FREE_RATE = math.log(1 + ANNUAL_RISK_FREE_DECIMAL) / DAYS_IN_YEAR
+    DAILY_LOG_RISK_FREE_RATE_CRYPTO = math.log(1 + ANNUAL_RISK_FREE_DECIMAL) / DAYS_IN_YEAR_CRYPTO
+    DAILY_LOG_RISK_FREE_RATE_FOREX = math.log(1 + ANNUAL_RISK_FREE_DECIMAL) / DAYS_IN_YEAR_FOREX
     MS_RISK_FREE_RATE = math.log(1 + ANNUAL_RISK_FREE_PERCENTAGE / 100) / (365 * 24 * 60 * 60 * 1000)
+
+    # Asset Class Breakdown - defines the total emission for each asset class
+    CATEGORY_LOOKUP: dict[str, TradePairCategory] = _TradePair_Lookup()
+    ASSET_CLASS_BREAKDOWN = {
+        TradePairCategory.CRYPTO: {
+            "emission": 0.5,  # Total emission for crypto
+            "subcategory_weights": {
+                CryptoSubcategory.MAJORS: 0.5,  # 50% of crypto emission for majors
+                CryptoSubcategory.ALTS: 0.5,  # 50% of crypto emission for alts
+            },
+            "days_in_year": DAYS_IN_YEAR_CRYPTO,
+        },
+        # These are based on margin requirements on brokerage accounts
+        TradePairCategory.FOREX: {
+            "emission": 0.5,  # Total emission for forex
+            "subcategory_weights": {
+                ForexSubcategory.G1: 0.2927,  # 29.27% of forex emission for group 1
+                ForexSubcategory.G2: 0.1463,  # 14.63% of forex emission for group 2
+                ForexSubcategory.G3: 0.2073,  # 20.73% of forex emission for group 3
+                ForexSubcategory.G4: 0.0976,  # 9.76% of forex emission for group 4
+                ForexSubcategory.G5: 0.2561,  # 25.61% of forex emission for group 5
+            },
+            "days_in_year": DAYS_IN_YEAR_FOREX,
+        },
+    }
 
     # Time Configurations
     TARGET_CHECKPOINT_DURATION_MS = 1000 * 60 * 60 * 12  # 12 hours
@@ -145,6 +241,7 @@ class ValiConfig:
     SORTINO_NOCONFIDENCE_VALUE = -100
     STATISTICAL_CONFIDENCE_NOCONFIDENCE_VALUE = -100
     CALMAR_NOCONFIDENCE_VALUE = -100
+    CALMAR_RATIO_CAP = 10
 
     # MDD penalty calculation
     APPROXIMATE_DRAWDOWN_PERCENTILE = 0.75
@@ -179,7 +276,7 @@ class ValiConfig:
     ELIMINATION_FILE_DELETION_DELAY_MS = 2 * 24 * 60 * 60 * 1000  # 2 days
 
     # Distributional statistics
-    SOFTMAX_TEMPERATURE = 0.25
+    SOFTMAX_TEMPERATURE = 0.15
 
     # Qualifications to be a trusted validator sending checkpoints
     TOP_N_CHECKPOINTS = 10
@@ -205,76 +302,76 @@ assert ValiConfig.EQUITIES_MAX_LEVERAGE <= ValiConfig.ORDER_MAX_LEVERAGE
 class TradePair(Enum):
     # crypto
     BTCUSD = ["BTCUSD", "BTC/USD", 0.001, ValiConfig.CRYPTO_MIN_LEVERAGE, ValiConfig.CRYPTO_MAX_LEVERAGE,
-              TradePairCategory.CRYPTO]
+              TradePairCategory.CRYPTO, CryptoSubcategory.MAJORS]
     ETHUSD = ["ETHUSD", "ETH/USD", 0.001, ValiConfig.CRYPTO_MIN_LEVERAGE, ValiConfig.CRYPTO_MAX_LEVERAGE,
-              TradePairCategory.CRYPTO]
+              TradePairCategory.CRYPTO, CryptoSubcategory.MAJORS]
     SOLUSD = ["SOLUSD", "SOL/USD", 0.001, ValiConfig.CRYPTO_MIN_LEVERAGE, ValiConfig.CRYPTO_MAX_LEVERAGE,
-              TradePairCategory.CRYPTO]
+              TradePairCategory.CRYPTO, CryptoSubcategory.ALTS]
     XRPUSD = ["XRPUSD", "XRP/USD", 0.001, ValiConfig.CRYPTO_MIN_LEVERAGE, ValiConfig.CRYPTO_MAX_LEVERAGE,
-                TradePairCategory.CRYPTO]
+                TradePairCategory.CRYPTO, CryptoSubcategory.ALTS]
     DOGEUSD = ["DOGEUSD", "DOGE/USD", 0.001, ValiConfig.CRYPTO_MIN_LEVERAGE, ValiConfig.CRYPTO_MAX_LEVERAGE,
-                TradePairCategory.CRYPTO]
+                TradePairCategory.CRYPTO, CryptoSubcategory.ALTS]
 
 
     # forex
     AUDCAD = ["AUDCAD", "AUD/CAD", 0.00007, ValiConfig.FOREX_MIN_LEVERAGE, ValiConfig.FOREX_MAX_LEVERAGE,
-              TradePairCategory.FOREX]
+              TradePairCategory.FOREX, ForexSubcategory.G5]
     AUDCHF = ["AUDCHF", "AUD/CHF", 0.00007, ValiConfig.FOREX_MIN_LEVERAGE, ValiConfig.FOREX_MAX_LEVERAGE,
-              TradePairCategory.FOREX]
+              TradePairCategory.FOREX, ForexSubcategory.G5]
     AUDUSD = ["AUDUSD", "AUD/USD", 0.00007, ValiConfig.FOREX_MIN_LEVERAGE, ValiConfig.FOREX_MAX_LEVERAGE,
-              TradePairCategory.FOREX]
+              TradePairCategory.FOREX, ForexSubcategory.G1]
     AUDJPY = ["AUDJPY", "AUD/JPY", 0.00007, ValiConfig.FOREX_MIN_LEVERAGE, ValiConfig.FOREX_MAX_LEVERAGE,
-              TradePairCategory.FOREX]
+              TradePairCategory.FOREX, ForexSubcategory.G2]
     AUDNZD = ["AUDNZD", "AUD/NZD", 0.00007, ValiConfig.FOREX_MIN_LEVERAGE, ValiConfig.FOREX_MAX_LEVERAGE,
-              TradePairCategory.FOREX]
+              TradePairCategory.FOREX, ForexSubcategory.G5]
     CADCHF = ["CADCHF", "CAD/CHF", 0.00007, ValiConfig.FOREX_MIN_LEVERAGE, ValiConfig.FOREX_MAX_LEVERAGE,
-              TradePairCategory.FOREX]
+              TradePairCategory.FOREX, ForexSubcategory.G5]
     CADJPY = ["CADJPY", "CAD/JPY", 0.00007, ValiConfig.FOREX_MIN_LEVERAGE, ValiConfig.FOREX_MAX_LEVERAGE,
-              TradePairCategory.FOREX]
+              TradePairCategory.FOREX, ForexSubcategory.G2]
     CHFJPY = ["CHFJPY", "CHF/JPY", 0.00007, ValiConfig.FOREX_MIN_LEVERAGE, ValiConfig.FOREX_MAX_LEVERAGE,
-              TradePairCategory.FOREX]
+              TradePairCategory.FOREX, ForexSubcategory.G2]
     EURAUD = ["EURAUD", "EUR/AUD", 0.00007, ValiConfig.FOREX_MIN_LEVERAGE, ValiConfig.FOREX_MAX_LEVERAGE,
-              TradePairCategory.FOREX]
+              TradePairCategory.FOREX, ForexSubcategory.G3]
     EURCAD = ["EURCAD", "EUR/CAD", 0.00007, ValiConfig.FOREX_MIN_LEVERAGE, ValiConfig.FOREX_MAX_LEVERAGE,
-              TradePairCategory.FOREX]
+              TradePairCategory.FOREX, ForexSubcategory.G3]
     EURUSD = ["EURUSD", "EUR/USD", 0.00007, ValiConfig.FOREX_MIN_LEVERAGE, ValiConfig.FOREX_MAX_LEVERAGE,
-              TradePairCategory.FOREX]
+              TradePairCategory.FOREX, ForexSubcategory.G1]
     EURCHF = ["EURCHF", "EUR/CHF", 0.00007, ValiConfig.FOREX_MIN_LEVERAGE, ValiConfig.FOREX_MAX_LEVERAGE,
-              TradePairCategory.FOREX]
+              TradePairCategory.FOREX, ForexSubcategory.G3]
     EURGBP = ["EURGBP", "EUR/GBP", 0.00007, ValiConfig.FOREX_MIN_LEVERAGE, ValiConfig.FOREX_MAX_LEVERAGE,
-              TradePairCategory.FOREX]
+              TradePairCategory.FOREX, ForexSubcategory.G3]
     EURJPY = ["EURJPY", "EUR/JPY", 0.00007, ValiConfig.FOREX_MIN_LEVERAGE, ValiConfig.FOREX_MAX_LEVERAGE,
-              TradePairCategory.FOREX]
+              TradePairCategory.FOREX, ForexSubcategory.G2]
     EURNZD = ["EURNZD", "EUR/NZD", 0.00007, ValiConfig.FOREX_MIN_LEVERAGE, ValiConfig.FOREX_MAX_LEVERAGE,
-              TradePairCategory.FOREX]
+              TradePairCategory.FOREX, ForexSubcategory.G3]
     NZDCAD = ["NZDCAD", "NZD/CAD", 0.00007, ValiConfig.FOREX_MIN_LEVERAGE, ValiConfig.FOREX_MAX_LEVERAGE,
-              TradePairCategory.FOREX]
+              TradePairCategory.FOREX, ForexSubcategory.G5]
     NZDCHF = ["NZDCHF", "NZD/CHF", 0.00007, ValiConfig.FOREX_MIN_LEVERAGE, ValiConfig.FOREX_MAX_LEVERAGE,
-              TradePairCategory.FOREX]
+              TradePairCategory.FOREX, ForexSubcategory.G5]
     NZDJPY = ["NZDJPY", "NZD/JPY", 0.00007, ValiConfig.FOREX_MIN_LEVERAGE, ValiConfig.FOREX_MAX_LEVERAGE,
-              TradePairCategory.FOREX]
+              TradePairCategory.FOREX, ForexSubcategory.G2]
     NZDUSD = ["NZDUSD", "NZD/USD", 0.00007, ValiConfig.FOREX_MIN_LEVERAGE, ValiConfig.FOREX_MAX_LEVERAGE,
-              TradePairCategory.FOREX]
+              TradePairCategory.FOREX, ForexSubcategory.G1]
     GBPAUD = ["GBPAUD", "GBP/AUD", 0.00007, ValiConfig.FOREX_MIN_LEVERAGE, ValiConfig.FOREX_MAX_LEVERAGE,
-                TradePairCategory.FOREX]
+                TradePairCategory.FOREX, ForexSubcategory.G4]
     GBPCAD = ["GBPCAD", "GBP/CAD", 0.00007, ValiConfig.FOREX_MIN_LEVERAGE, ValiConfig.FOREX_MAX_LEVERAGE,
-                TradePairCategory.FOREX]
+                TradePairCategory.FOREX, ForexSubcategory.G4]
     GBPCHF = ["GBPCHF", "GBP/CHF", 0.00007, ValiConfig.FOREX_MIN_LEVERAGE, ValiConfig.FOREX_MAX_LEVERAGE,
-              TradePairCategory.FOREX]
+              TradePairCategory.FOREX, ForexSubcategory.G4]
     GBPJPY = ["GBPJPY", "GBP/JPY", 0.00007, ValiConfig.FOREX_MIN_LEVERAGE, ValiConfig.FOREX_MAX_LEVERAGE,
-              TradePairCategory.FOREX]
+              TradePairCategory.FOREX, ForexSubcategory.G2]
     GBPNZD = ["GBPNZD", "GBP/NZD", 0.00007, ValiConfig.FOREX_MIN_LEVERAGE, ValiConfig.FOREX_MAX_LEVERAGE,
-              TradePairCategory.FOREX]
+              TradePairCategory.FOREX, ForexSubcategory.G4]
     GBPUSD = ["GBPUSD", "GBP/USD", 0.00007, ValiConfig.FOREX_MIN_LEVERAGE, ValiConfig.FOREX_MAX_LEVERAGE,
-              TradePairCategory.FOREX]
+              TradePairCategory.FOREX, ForexSubcategory.G1]
     USDCAD = ["USDCAD", "USD/CAD", 0.00007, ValiConfig.FOREX_MIN_LEVERAGE, ValiConfig.FOREX_MAX_LEVERAGE,
-              TradePairCategory.FOREX]
+              TradePairCategory.FOREX, ForexSubcategory.G1]
     USDCHF = ["USDCHF", "USD/CHF", 0.00007, ValiConfig.FOREX_MIN_LEVERAGE, ValiConfig.FOREX_MAX_LEVERAGE,
-              TradePairCategory.FOREX]
+              TradePairCategory.FOREX, ForexSubcategory.G1]
     USDJPY = ["USDJPY", "USD/JPY", 0.00007, ValiConfig.FOREX_MIN_LEVERAGE, ValiConfig.FOREX_MAX_LEVERAGE,
-              TradePairCategory.FOREX]
+              TradePairCategory.FOREX, ForexSubcategory.G2]
     USDMXN = ["USDMXN", "USD/MXN", 0.00007, ValiConfig.FOREX_MIN_LEVERAGE, ValiConfig.FOREX_MAX_LEVERAGE,
-              TradePairCategory.FOREX]
+              TradePairCategory.FOREX, ForexSubcategory.G5]
 
     # "Commodities" (Bundle with Forex for now) (temporariliy paused for trading)
     XAUUSD = ["XAUUSD", "XAU/USD", 0.00007, ValiConfig.FOREX_MIN_LEVERAGE, ValiConfig.FOREX_MAX_LEVERAGE, TradePairCategory.FOREX]
@@ -329,6 +426,12 @@ class TradePair(Enum):
         return self.value[5]
 
     @property
+    def subcategory(self):
+        if len(self.value) > 6:
+            return self.value[6]
+        return None
+
+    @property
     def is_crypto(self):
         return self.trade_pair_category == TradePairCategory.CRYPTO
 
@@ -354,6 +457,15 @@ class TradePair(Enum):
     @classmethod
     def categories(cls):
         return {tp.trade_pair_id: tp.trade_pair_category.value for tp in cls}
+
+    @classmethod
+    def subcategories(cls):
+        # Eventually we'll want subcategories for each trade pair
+        trade_pairs_by_subcategory = defaultdict(list)
+        for tp in cls:
+            if tp.subcategory is not None:
+                trade_pairs_by_subcategory[tp.subcategory.value].append(tp.trade_pair_id)
+        return trade_pairs_by_subcategory
 
     @staticmethod
     def to_dict():

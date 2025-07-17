@@ -6,18 +6,20 @@ import math
 from typing import List, Tuple, Callable
 from vali_objects.position import Position
 import copy
+from collections import defaultdict
 
 import numpy as np
 from scipy.stats import percentileofscore
 
 from vali_objects.vali_config import ValiConfig
-from vali_objects.vali_dataclasses.perf_ledger import PerfLedger
+from vali_objects.vali_dataclasses.perf_ledger import PerfLedger, TP_ID_PORTFOLIO
 from time_util.time_util import TimeUtil
 from vali_objects.utils.position_filtering import PositionFiltering
 from vali_objects.utils.ledger_utils import LedgerUtils
 from vali_objects.utils.metrics import Metrics
 from vali_objects.utils.position_penalties import PositionPenalties
-
+from vali_objects.utils.asset_segmentation import AssetSegmentation
+from vali_objects.vali_config import TradePairCategory
 import bittensor as bt
 
 
@@ -25,6 +27,7 @@ class PenaltyInputType(Enum):
     LEDGER = auto()
     POSITIONS = auto()
     PSEUDO_POSITIONS = auto()
+
 
 @dataclass
 class PenaltyConfig:
@@ -71,7 +74,7 @@ class Scoring:
 
     @staticmethod
     def compute_results_checkpoint(
-            ledger_dict: dict[str, PerfLedger],
+            ledger_dict: dict[str, dict[str, PerfLedger]],
             full_positions: dict[str, list[Position]],
             evaluation_time_ms: int = None,
             verbose=True,
@@ -86,10 +89,10 @@ class Scoring:
             if verbose:
                 bt.logging.info(f"compute_results_checkpoint - Only one miner: {miner}, returning 1.0 for the solo miner weight")
             return [(miner, 1.0)]
-        
+
         if evaluation_time_ms is None:
             evaluation_time_ms = TimeUtil.now_in_millis()
-        
+
         filtered_positions = PositionFiltering.filter(
             full_positions,
             evaluation_time_ms=evaluation_time_ms
@@ -102,19 +105,20 @@ class Scoring:
         full_penalty_miner_scores: list[tuple[str, float]] = [
             (miner, 0) for miner, penalty in miner_penalties.items() if penalty == 0
         ]
-        # Run all scoring functions
-        penalized_scores_dict = Scoring.score_miners(
+
+        # Run scoring functions for each miner in each subcategory
+        _, asset_softmaxed_scores = Scoring.score_miner_asset_subcategories(
             ledger_dict=ledger_dict,
             positions=full_positions,
             evaluation_time_ms=evaluation_time_ms,
             weighting=weighting
         )
 
-        # Combine and penalize scores
-        combined_scores = Scoring.combine_scores(penalized_scores_dict)
+        # Now combine the percentile scores prior to running a full softmax
+        asset_aggregated_scores = Scoring.subclass_score_aggregation(asset_softmaxed_scores)
 
         # Force good performance of all error metrics
-        combined_weighed = Scoring.softmax_scores(list(combined_scores.items())) + full_penalty_miner_scores
+        combined_weighed = asset_aggregated_scores + full_penalty_miner_scores
         combined_scores = dict(combined_weighed)
 
         # Normalize the scores
@@ -122,12 +126,66 @@ class Scoring:
         return sorted(normalized_scores.items(), key=lambda x: x[1], reverse=True)
 
     @staticmethod
-    def score_miners(
-            ledger_dict: dict[str, PerfLedger],
+    def score_miner_asset_subcategories(
+            ledger_dict: dict[str, dict[str, PerfLedger]],
             positions: dict[str, list[Position]],
-            evaluation_time_ms: int= None,
+            evaluation_time_ms: int = None,
+            weighting=False
+    ) -> tuple[dict[str, float], dict[str, dict[str, float]]]:
+        """
+        returns:
+        asset_competitiveness: dictionary with asset classes as keys and their competitiveness as values.
+        asset_miner_softmaxed_scores: A dictionary with softmax scores for each miner within each asset class
+        """
+        if len(ledger_dict) <= 1:
+            bt.logging.debug("No subcategory results to compute, returning empty dicts")
+            return {}, {}
+
+        if evaluation_time_ms is None:
+            evaluation_time_ms = TimeUtil.now_in_millis()
+
+        # Run all scoring functions
+        asset_penalized_scores_dict = Scoring.score_miners(
+            ledger_dict=ledger_dict,
+            positions=positions,
+            evaluation_time_ms=evaluation_time_ms,
+            weighting=weighting
+        )
+
+        # Combine and penalize scores
+        asset_combined_scores = Scoring.combine_scores(asset_penalized_scores_dict)
+        asset_competitiveness = AssetSegmentation.asset_competitiveness_dictionary(asset_combined_scores)
+        bt.logging.debug(f"Asset competitiveness: {asset_competitiveness}")
+
+        # Now we probably want to apply the softmax to the asset combined scores
+        asset_miner_softmaxed_scores = Scoring.softmax_by_asset(asset_combined_scores)
+
+        return asset_competitiveness, asset_miner_softmaxed_scores
+
+    @staticmethod
+    def score_miners(
+            ledger_dict: dict[str, dict[str, PerfLedger]],
+            positions: dict[str, list[Position]],
+            evaluation_time_ms: int = None,
             weighting: bool = False
-    ):
+    ) -> dict[str, dict]:
+        """
+        Scores the miners based on their ledger and positions.
+        Args:
+            ledger_dict:
+            positions:
+            evaluation_time_ms:
+            weighting:
+
+        Returns:
+            dict[str, dict]: A dictionary where keys are asset classes and values are dictionaries containing scores and penalties.
+
+        """
+        if ledger_dict is None or len(ledger_dict) == 0:
+            bt.logging.warning("No ledger provided for scoring, returning empty scores")
+
+        if positions is None or len(positions) == 0:
+            bt.logging.warning("No positions provided for scoring, returning empty scores")
 
         if evaluation_time_ms is None:
             evaluation_time_ms = TimeUtil.now_in_millis()
@@ -136,6 +194,7 @@ class Scoring:
             positions,
             evaluation_time_ms=evaluation_time_ms
         )
+
         # psuedo_positions = PositionUtils.build_pseudo_positions(filtered_positions)
 
         # Compute miner penalties
@@ -153,59 +212,85 @@ class Scoring:
             miner for miner, penalty in full_miner_penalties.items() if penalty == 0
         ])
 
-        filtered_ledger_returns = LedgerUtils.ledger_returns_log(ledger_dict)
-        scores_dict = {"metrics": {}}
-        for config_name, config in Scoring.scoring_config.items():
-            scores = []
-            for miner, returns in filtered_ledger_returns.items():
-                # Get the miner ledger
-                ledger = ledger_dict.get(miner, PerfLedger())
+        # We now want to track miner incentive between each asset class
+        asset_class_breakdown = ValiConfig.ASSET_CLASS_BREAKDOWN
+        asset_subcategories = AssetSegmentation.distill_asset_subcategories(asset_class_breakdown)
 
-                # Check if the miner has full penalty - if not include them in the scoring competition
-                if miner in full_penalty_miners:
-                    continue
+        segmentation_machine = AssetSegmentation(ledger_dict)
 
-                score = config['function'](
-                    log_returns=returns,
-                    ledger=ledger,
-                    weighting=weighting
-                )
+        # This is going to track miner scores on each asset class
+        miner_asset_benefit = {}
 
-                scores.append((miner, float(score)))
+        for asset_subcategory in asset_subcategories:
+            asset_ledger = segmentation_machine.segmentation(asset_subcategory)
+            filtered_ledger_returns = LedgerUtils.ledger_returns_log(asset_ledger)
+            days_in_year = segmentation_machine.days_in_year_from_asset_category(asset_subcategory.asset_class)
 
-            scores_dict["metrics"][config_name] = {
-                "scores": scores[:],
-                "weight": config["weight"]
-            }
+            scores_dict = {"metrics": {}}
+            for config_name, config in Scoring.scoring_config.items():
+                scores = []
+                for miner, returns in filtered_ledger_returns.items():
+                    # Get the miner ledger
+                    ledger = asset_ledger.get(miner, PerfLedger())
 
-        scores_dict["penalties"] = copy.deepcopy(full_miner_penalties)
+                    # Check if the miner has full penalty - if not include them in the scoring competition
+                    if miner in full_penalty_miners:
+                        continue
 
+                    score = config['function'](
+                        log_returns=returns,
+                        ledger=ledger,
+                        weighting=weighting,
+                        days_in_year=days_in_year,
+                    )
 
-        return scores_dict
+                    scores.append((miner, float(score)))
+
+                scores_dict["metrics"][config_name] = {
+                    "scores": scores[:],
+                    "weight": config["weight"]
+                }
+
+            scores_dict["penalties"] = copy.deepcopy(full_miner_penalties)
+            miner_asset_benefit[asset_subcategory] = scores_dict
+
+        return miner_asset_benefit
 
     @staticmethod
-    def combine_scores(scoring_dict: dict[str, dict]):
+    def combine_scores(scoring_dict: dict[str, dict[str, dict]]) -> dict[str, dict[str, float]]:
+        """
+        Combines scores and penalties for each of the asset classes into a single score for each asset class.
+        Args:
+            scoring_dict:
 
-        combined_scores = {}
-        for config_name, config in scoring_dict["metrics"].items():
+        Returns:
 
-            percentile_scores = Scoring.miner_scores_percentiles(config["scores"])
-            for miner, percentile_rank in percentile_scores:
-                if miner not in combined_scores:
-                    combined_scores[miner] = 0
-                combined_scores[miner] += config['weight'] * percentile_rank  # + (1 - config['weight'])
+        """
 
-        # Now applying the penalties post scoring
-        for miner, penalty in scoring_dict["penalties"].items():
-            if miner in combined_scores:
-                combined_scores[miner] *= penalty
+        asset_combined_scores = {}
+        for asset_class, asset_scores in scoring_dict.items():
+            combined_scores = {}
+            for config_name, config in asset_scores["metrics"].items():
 
-        return combined_scores
+                percentile_scores = Scoring.miner_scores_percentiles(config["scores"])
+                for miner, percentile_rank in percentile_scores:
+                    if miner not in combined_scores:
+                        combined_scores[miner] = 0
+                    combined_scores[miner] += config['weight'] * percentile_rank  # + (1 - config['weight'])
+
+            # Now applying the penalties post scoring
+            for miner, penalty in asset_scores["penalties"].items():
+                if miner in combined_scores:
+                    combined_scores[miner] *= penalty
+
+            asset_combined_scores[asset_class] = combined_scores
+
+        return asset_combined_scores
 
     @staticmethod
     def miner_penalties(
             hotkey_positions: dict[str, list[Position]],
-            ledger_dict: dict[str, PerfLedger]
+            ledger_dict: dict[str, dict[str, PerfLedger]]
     ) -> dict[str, float]:
         # Compute miner penalties
         miner_penalties = {}
@@ -216,15 +301,16 @@ class Scoring:
 
             if not ledger:
                 empty_ledger_miners.append((miner, len(positions)))
+                continue
 
-            ledger = ledger if ledger else PerfLedger()
+            portfolio_ledger = ledger.get(TP_ID_PORTFOLIO) if ledger else PerfLedger()
 
             cumulative_penalty = 1
             for penalty_name, penalty_config in Scoring.penalties_config.items():
                 # Apply penalty based on its input type
                 penalty = 1
                 if penalty_config.input_type == PenaltyInputType.LEDGER:
-                    penalty = penalty_config.function(ledger)
+                    penalty = penalty_config.function(portfolio_ledger)
                 elif penalty_config.input_type == PenaltyInputType.POSITIONS:
                     penalty = penalty_config.function(positions)
 
@@ -278,6 +364,100 @@ class Scoring:
         return aggregate_return
 
     @staticmethod
+    def class_aggregation(asset_miner_scores: dict[str, dict[str, float]]) -> dict[str, float]:
+        """
+        Aggregates the scores of miners across different asset classes.
+
+        Args:
+            asset_miner_scores (dict[str, dict[str, float]]): A dictionary where keys are asset classes and values are dictionaries of miner scores.
+
+        Returns:
+            dict[str, float]: A dictionary with aggregated scores for each miner across all asset classes.
+        """
+        asset_class_breakdown: dict[str, float] = ValiConfig.ASSET_CLASS_BREAKDOWN
+        aggregated_scores = defaultdict(float)
+
+        for asset_class, miner_scores in asset_miner_scores.items():
+            for miner, score in miner_scores.items():
+                aggregated_scores[miner] += score * asset_class_breakdown.get(asset_class, 0)
+
+        return dict(aggregated_scores)
+
+    @staticmethod
+    def softmax_by_asset(
+            asset_miner_scores: dict[str, dict[str, float]]
+    ) -> dict[str, dict[str, float]]:
+        """
+        Applies softmax to the scores of miners within each asset class.
+
+        Args:
+            asset_miner_scores (dict[str, dict[str, float]]): A dictionary where keys are asset classes and values are dictionaries of miner scores.
+
+        Returns:
+            dict[str, dict[str, float]]: A dictionary with softmax scores for each miner within each asset class.
+        """
+        softmaxed_scores = {}
+        for asset_class, miner_scores in asset_miner_scores.items():
+            sorted_returns = sorted(miner_scores.items(), key=lambda x: x[1], reverse=True)
+            softmaxed_scores[asset_class] = dict(Scoring.softmax_scores(sorted_returns))
+
+        return softmaxed_scores
+
+    @staticmethod
+    def subclass_score_aggregation(
+            miner_asset_scores: dict[str, dict[str, float]]
+    ) -> list[tuple[str, float]]:
+        """
+        Aggregates the softmax scores of miners across different asset classes.
+
+        Args:
+            miner_asset_scores (dict[str, list[tuple[str, float]]]): A dictionary where keys are asset classes and values are lists of tuples with miner names and their softmax scores.
+
+        Returns:
+            list[tuple[str, float]]: A list of tuples with miner names and their aggregated softmax scores.
+        """
+        aggregated_scores = defaultdict(float)
+        asset_class_breakdown = ValiConfig.ASSET_CLASS_BREAKDOWN
+        category_lookup = ValiConfig.CATEGORY_LOOKUP
+
+        # Compose the full penalties dictionary based on subcategories and weights
+        full_penalties_dictionary = {}
+        for asset_subclass, _ in miner_asset_scores.items():
+            asset_class = category_lookup.get(asset_subclass, None)
+            if asset_class is None:
+                bt.logging.warning(f"Asset subclass {asset_subclass} not found in category lookup, assigning forex.")
+                asset_class = TradePairCategory.FOREX
+
+            asset_class_information = asset_class_breakdown.get(asset_class, {})
+
+            asset_class_emission = asset_class_information.get('emission', 0)
+            asset_subcategory_weight = asset_class_information.get('subcategory_weights', {})
+
+            bt.logging.info(f"Asset class {asset_class} has emission {asset_class_emission} and subcategory weights {asset_subcategory_weight}")
+
+            if asset_class_emission == 0:
+                bt.logging.warning(f"Asset class {asset_class} has no emission. Please report this issue!")
+
+            if asset_subcategory_weight is None or len(asset_subcategory_weight) == 0:
+                raise ValueError(f"Asset class {asset_class} has no subcategory weights.")
+
+            for subcategory, subcategory_weight in asset_subcategory_weight.items():
+                full_penalties_dictionary[subcategory] = asset_class_emission * subcategory_weight
+
+        bt.logging.info(f"Full penalties dictionary: {full_penalties_dictionary}")
+
+        # Now check how the miners are achieving the asset class breakdown
+        for subcategory, scores in miner_asset_scores.items():
+            for miner, score in scores.items():
+                asset_class_emission = full_penalties_dictionary.get(subcategory, 0)
+                if miner not in aggregated_scores:
+                    aggregated_scores[miner] = 0.0
+
+                aggregated_scores[miner] += score * asset_class_emission
+
+        return sorted(aggregated_scores.items(), key=lambda x: x[1], reverse=True)
+
+    @staticmethod
     def softmax_scores(returns: list[tuple[str, float]]) -> list[tuple[str, float]]:
         """
         Assign weights to the returns based on their relative position and apply softmax with a temperature parameter.
@@ -294,25 +474,41 @@ class Scoring:
         """
         epsilon = ValiConfig.EPSILON
         temperature = ValiConfig.SOFTMAX_TEMPERATURE
-    
+
         if not returns:
             bt.logging.debug("No returns to score, returning empty list")
             return []
-    
+
         if len(returns) == 1:
             bt.logging.info("softmax_scores - Only one miner, returning 1.0 for the solo miner weight")
             return [(returns[0][0], 1.0)]
-    
+
         # Extract scores and apply softmax with temperature
-        scores = np.array([score for _, score in returns])
-        max_score = np.max(scores)
-        exp_scores = np.exp((scores - max_score) / temperature)
-        softmax_scores = exp_scores / max(np.sum(exp_scores), epsilon)
-    
-        # Combine miners with their respective softmax scores
-        weighted_returns = [(miner, float(softmax_scores[i])) for i, (miner, _) in enumerate(returns)]
-    
-        return weighted_returns
+        names, scores = zip(*returns)
+        scores = np.array(scores, dtype=np.float64)
+
+        # Mask for non-zero scores
+        nonzero_mask = scores != 0
+        valid_scores = scores[nonzero_mask]
+
+        # Softmax only on non-zero scores
+        if valid_scores.size == 0:
+            # All scores are zero, return zero weights
+            return [(name, 0.0) for name in names]
+
+        # Numerically stable softmax
+        shifted_scores = (valid_scores - np.max(valid_scores)) / temperature
+        exp_scores = np.exp(shifted_scores)
+        softmax_scores = exp_scores / (np.sum(exp_scores) + epsilon)
+
+        # Reinsert weights with 0.0 for zero-score items
+        result = []
+        softmax_iter = iter(softmax_scores)
+        for name, is_nonzero in zip(names, nonzero_mask):
+            weight = next(softmax_iter) if is_nonzero else 0.0
+            result.append((name, float(weight)))
+
+        return result
 
     @staticmethod
     def miner_scores_percentiles(miner_scores: list[tuple[str, float]]) -> list[tuple[str, float]]:
@@ -335,7 +531,7 @@ class Scoring:
             miner_hotkeys.append(miner)
             scores.append(score)
 
-        percentiles = percentileofscore(scores, scores, kind='rank') / 100
+        percentiles = percentileofscore(scores, scores, kind='strict') / 100
 
         miner_percentiles = list(zip(miner_hotkeys, percentiles))
 

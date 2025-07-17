@@ -269,38 +269,169 @@ class TestLedgerUtils(TestBase):
         self.assertGreaterEqual(LedgerUtils.daily_returns(l1_ledger)[0], LedgerUtils.daily_return_log(l1_ledger)[0] * 100)
 
     # Want to test the individual functions inputs and outputs
-    def test_max_drawdown(self):
-        l1 = generate_ledger(0.1, mdd=0.99)[TP_ID_PORTFOLIO]
-        
+    def test_instantaneous_max_drawdown(self):
+        """Test instantaneous_max_drawdown function"""
         # Empty ledger test
         empty_ledger = PerfLedger()
-        self.assertEqual(LedgerUtils.max_drawdown(empty_ledger), 0.0)
+        self.assertEqual(LedgerUtils.instantaneous_max_drawdown(empty_ledger), 0.0)
 
         # Valid ledger tests
-        self.assertEqual(LedgerUtils.max_drawdown(l1), 0.99)
+        l1 = generate_ledger(0.1, mdd=0.99)[TP_ID_PORTFOLIO]
+        self.assertEqual(LedgerUtils.instantaneous_max_drawdown(l1), 0.99)
 
         l2 = generate_ledger(0.1, mdd=0.95)[TP_ID_PORTFOLIO]
-        self.assertEqual(LedgerUtils.max_drawdown(l2), 0.95)
+        self.assertEqual(LedgerUtils.instantaneous_max_drawdown(l2), 0.95)
 
+        # Test with varying drawdowns - should return the minimum (worst) drawdown
         l3 = generate_ledger(0.1, mdd=0.99)[TP_ID_PORTFOLIO]
         l3_cps = l3.cps
-        l3_cps[-1].mdd = 0.5
-        self.assertEqual(LedgerUtils.max_drawdown(l3), 0.5)
+        l3_cps[-1].mdd = 0.5  # Worse drawdown
+        self.assertEqual(LedgerUtils.instantaneous_max_drawdown(l3), 0.5)
 
         l4 = generate_ledger(0.1, mdd=0.99)[TP_ID_PORTFOLIO]
         l4_cps = l4.cps
-        l4_cps[0].mdd = 0.5
-        self.assertEqual(LedgerUtils.max_drawdown(l4), 0.5)
+        l4_cps[0].mdd = 0.5  # Worse drawdown at start
+        self.assertEqual(LedgerUtils.instantaneous_max_drawdown(l4), 0.5)
 
+        # Test bounds - should always be between 0 and 1
         for element in [l1, l2, l3, l4]:
-            self.assertGreaterEqual(LedgerUtils.max_drawdown(element), 0)
-            self.assertLessEqual(LedgerUtils.max_drawdown(element), 1)
+            result = LedgerUtils.instantaneous_max_drawdown(element)
+            self.assertGreaterEqual(result, 0)
+            self.assertLessEqual(result, 1)
 
         # Test with a minimal ledger containing just a few checkpoints
-        drawdowns = [0.99, 0.98]
+        drawdowns = [0.99, 0.98, 0.97]
         checkpoints = [checkpoint_generator(mdd=mdd) for mdd in drawdowns]
         minimal_ledger = ledger_generator(checkpoints=checkpoints)
-        self.assertEqual(LedgerUtils.max_drawdown(minimal_ledger), 0.98)
+        self.assertEqual(LedgerUtils.instantaneous_max_drawdown(minimal_ledger), 0.97)
+
+        # Test with single checkpoint
+        single_checkpoint = [checkpoint_generator(mdd=0.85)]
+        single_ledger = ledger_generator(checkpoints=single_checkpoint)
+        self.assertEqual(LedgerUtils.instantaneous_max_drawdown(single_ledger), 0.85)
+
+        # Test with drawdown values that need clipping
+        extreme_drawdowns = [1.1, -0.1, 0.3]  # Values outside [0, 1]
+        extreme_checkpoints = [checkpoint_generator(mdd=mdd) for mdd in extreme_drawdowns]
+        extreme_ledger = ledger_generator(checkpoints=extreme_checkpoints)
+        result = LedgerUtils.instantaneous_max_drawdown(extreme_ledger)
+        self.assertGreaterEqual(result, 0)
+        self.assertLessEqual(result, 1)
+
+    def test_daily_max_drawdown(self):
+        """Test daily_max_drawdown function"""
+        # Empty ledger test
+        empty_ledger = PerfLedger()
+        self.assertEqual(LedgerUtils.daily_max_drawdown(empty_ledger), 0.0)
+
+        # Test with ledger that has no complete daily returns
+        # Single checkpoint won't create complete daily returns
+        single_checkpoint = [checkpoint_generator(gain=0.05, loss=-0.03)]
+        single_ledger = ledger_generator(checkpoints=single_checkpoint)
+        single_result = LedgerUtils.daily_max_drawdown(single_ledger)
+        self.assertEqual(single_result, 0.0)  # No complete daily returns = 0
+
+        # Test with ledger that would create complete daily returns
+        # We need to create a ledger that will pass the daily_return_log requirements
+        # Create checkpoints that will form complete days
+        day1_date = datetime(2023, 1, 1, tzinfo=timezone.utc)
+        day2_date = datetime(2023, 1, 2, tzinfo=timezone.utc)
+        day3_date = datetime(2023, 1, 3, tzinfo=timezone.utc)
+        
+        checkpoint_duration = ValiConfig.TARGET_CHECKPOINT_DURATION_MS
+        num_cp_per_day = int(ValiConfig.DAILY_CHECKPOINTS)
+        
+        # Create checkpoints for 3 complete days with specific return patterns
+        def create_day_checkpoints(date: datetime, gain: float, loss: float) -> list:
+            checkpoints = []
+            for i in range(num_cp_per_day):
+                hour = 6 + i * (12 // num_cp_per_day)  # Space them out
+                checkpoint_start = int(date.timestamp() * 1000) + (hour * 3600 * 1000)
+                checkpoints.append(
+                    PerfCheckpoint(
+                        last_update_ms=checkpoint_start + checkpoint_duration,
+                        accum_ms=checkpoint_duration,
+                        open_ms=checkpoint_start,
+                        gain=gain,
+                        loss=loss,
+                        prev_portfolio_ret=1.0,
+                        n_updates=1,
+                        mdd=0.99
+                    )
+                )
+            return checkpoints
+        
+        # Test with positive returns only (no drawdown expected)
+        positive_checkpoints = (
+            create_day_checkpoints(day1_date, 0.1, 0.0) +    # +0.1 per checkpoint
+            create_day_checkpoints(day2_date, 0.05, 0.0) +   # +0.05 per checkpoint
+            create_day_checkpoints(day3_date, 0.08, 0.0)     # +0.08 per checkpoint
+        )
+        positive_ledger = ledger_generator(checkpoints=positive_checkpoints)
+        positive_result = LedgerUtils.daily_max_drawdown(positive_ledger)
+        
+        # With only positive returns, drawdown should be 1.0 (no drawdown)
+        self.assertEqual(positive_result, 1.0)
+        
+        # Test with pattern: up, down, up (recovery scenario)
+        recovery_checkpoints = (
+            create_day_checkpoints(day1_date, 0.1, 0.0) +    # Up day: +0.1 per checkpoint
+            create_day_checkpoints(day2_date, 0.0, -0.15) +  # Down day: -0.15 per checkpoint
+            create_day_checkpoints(day3_date, 0.12, 0.0)     # Recovery day: +0.12 per checkpoint
+        )
+        recovery_ledger = ledger_generator(checkpoints=recovery_checkpoints)
+        recovery_result = LedgerUtils.daily_max_drawdown(recovery_ledger)
+        
+        # Should have some drawdown (less than 1.0) due to the down day
+        self.assertGreaterEqual(recovery_result, 0)
+        self.assertLess(recovery_result, 1.0)
+        
+        # Test with consistently negative returns (significant drawdown expected)
+        negative_checkpoints = (
+            create_day_checkpoints(day1_date, 0.0, -0.1) +   # Down day: -0.1 per checkpoint
+            create_day_checkpoints(day2_date, 0.0, -0.05) +  # Down day: -0.05 per checkpoint
+            create_day_checkpoints(day3_date, 0.0, -0.08)    # Down day: -0.08 per checkpoint
+        )
+        negative_ledger = ledger_generator(checkpoints=negative_checkpoints)
+        negative_result = LedgerUtils.daily_max_drawdown(negative_ledger)
+        
+        # Should have significant drawdown (much less than 1.0)
+        self.assertGreaterEqual(negative_result, 0)
+        self.assertLess(negative_result, 1.0)
+        
+        # Negative returns should result in lower drawdown values than positive
+        self.assertLess(negative_result, positive_result)
+        
+        # Test with zero returns (no change in value)
+        zero_checkpoints = (
+            create_day_checkpoints(day1_date, 0.0, 0.0) +    # Flat day
+            create_day_checkpoints(day2_date, 0.0, 0.0)      # Flat day
+        )
+        zero_ledger = ledger_generator(checkpoints=zero_checkpoints)
+        zero_result = LedgerUtils.daily_max_drawdown(zero_ledger)
+        
+        # With zero returns, cumulative values stay at 1.0, no drawdown
+        self.assertEqual(zero_result, 1.0)
+        
+        # Test mathematical correctness with known values
+        # Day 1: +0.1 per checkpoint * 2 checkpoints = 0.2 total return -> cumulative value = exp(0.2) ≈ 1.221
+        # Day 2: -0.2 per checkpoint * 2 checkpoints = -0.4 total return -> cumulative value = exp(0.2-0.4) = exp(-0.2) ≈ 0.819
+        # Day 3: +0.15 per checkpoint * 2 checkpoints = 0.3 total return -> cumulative value = exp(0.2-0.4+0.3) = exp(0.1) ≈ 1.105
+        # Running max: [1.221, 1.221, 1.221]
+        # Drawdown on day 2: (0.819 - 1.221) / 1.221 ≈ -0.33
+        # Min drawdown_numeric: 1 + (-0.33) ≈ 0.67
+        
+        math_test_checkpoints = (
+            create_day_checkpoints(day1_date, 0.1, 0.0) +    # Net +0.1 per checkpoint
+            create_day_checkpoints(day2_date, 0.0, -0.2) +   # Net -0.2 per checkpoint  
+            create_day_checkpoints(day3_date, 0.15, 0.0)     # Net +0.15 per checkpoint
+        )
+        math_test_ledger = ledger_generator(checkpoints=math_test_checkpoints)
+        math_result = LedgerUtils.daily_max_drawdown(math_test_ledger)
+        
+        # The result should be around 0.67 based on the calculation above
+        self.assertGreaterEqual(math_result, 0.65)
+        self.assertLessEqual(math_result, 0.7)
 
     def test_drawdown_percentage(self):
         self.assertAlmostEqual(LedgerUtils.drawdown_percentage(1), 0)
@@ -465,4 +596,84 @@ class TestLedgerUtils(TestBase):
             self.assertEqual(parsed_json, json_results)
         except TypeError:
             self.fail("daily_returns_by_date_json results should be JSON serializable")
+    
+    def test_is_valid_trading_day_forex_saturday_exclusion(self):
+        """Test that forex trade pairs correctly exclude Saturdays as invalid trading days"""
+        # Test data: asset_id, expected_saturday_result, expected_monday_result
+        test_cases = [
+            ("EURUSD", False, True),    # Forex - Saturday closed, Monday open
+            ("GBPUSD", False, True),    # Forex - Saturday closed, Monday open
+            ("USDJPY", False, True),    # Forex - Saturday closed, Monday open
+            ("BTCUSD", True, True),     # Crypto - Always open
+            (TP_ID_PORTFOLIO, True, True),  # Portfolio - Always valid
+        ]
+        
+        saturday_date = date_type(2023, 1, 7)  # Saturday
+        monday_date = date_type(2023, 1, 9)    # Monday
+        
+        for asset_id, expected_saturday, expected_monday in test_cases:
+            ledger = generate_ledger(0.1)[TP_ID_PORTFOLIO]
+            ledger.asset_id = asset_id
+            
+            saturday_result = LedgerUtils.is_valid_trading_day(ledger, saturday_date)
+            monday_result = LedgerUtils.is_valid_trading_day(ledger, monday_date)
+            
+            self.assertEqual(
+                saturday_result, expected_saturday,
+                f"{asset_id} Saturday result should be {expected_saturday}"
+            )
+            self.assertEqual(
+                monday_result, expected_monday,
+                f"{asset_id} Monday result should be {expected_monday}"
+            )
+    
+    def test_daily_return_log_by_date_forex_saturday_exclusion(self):
+        """Test that daily_return_log_by_date excludes Saturdays for forex pairs"""
+        # Create ledgers spanning a weekend using generate_ledger
+        friday_start = int(datetime(2023, 1, 6, tzinfo=timezone.utc).timestamp() * 1000)  # Friday
+        monday_end = int(datetime(2023, 1, 9, 23, 59, 59, tzinfo=timezone.utc).timestamp() * 1000)  # Monday
+        
+        # Create forex and crypto ledgers with same time range
+        forex_ledger = generate_ledger(0.1, start_time=friday_start, end_time=monday_end)[TP_ID_PORTFOLIO]
+        forex_ledger.asset_id = "EURUSD"
+        
+        crypto_ledger = generate_ledger(0.1, start_time=friday_start, end_time=monday_end)[TP_ID_PORTFOLIO]
+        crypto_ledger.asset_id = "BTCUSD"
+        
+        # Get daily returns for both ledgers
+        forex_daily_returns = LedgerUtils.daily_return_log_by_date(forex_ledger)
+        crypto_daily_returns = LedgerUtils.daily_return_log_by_date(crypto_ledger)
+        
+        # Crypto should have more days than forex (Saturday should be excluded for forex)
+        self.assertLess(len(forex_daily_returns), len(crypto_daily_returns), 
+                       "Forex should have fewer trading days than crypto due to Saturday exclusion")
+        
+        # Check that Saturday (2023-01-07) is missing from forex but present in crypto
+        saturday_date_obj = date_type(2023, 1, 7)
+        self.assertNotIn(saturday_date_obj, forex_daily_returns, "Forex should NOT have Saturday returns")
+        self.assertIn(saturday_date_obj, crypto_daily_returns, "Crypto should have Saturday returns")
+    
+    def test_is_valid_trading_day_error_handling(self):
+        """Test error handling for is_valid_trading_day function"""
+        # Test with None ledger
+        self.assertFalse(LedgerUtils.is_valid_trading_day(None, date_type(2023, 1, 1)))
+        
+        # Test with None date
+        ledger = generate_ledger(0.1)[TP_ID_PORTFOLIO]
+        ledger.asset_id = "EURUSD"
+        self.assertFalse(LedgerUtils.is_valid_trading_day(ledger, None))
+        
+        # Test with invalid date type
+        self.assertFalse(LedgerUtils.is_valid_trading_day(ledger, "2023-01-01"))
+        self.assertFalse(LedgerUtils.is_valid_trading_day(ledger, 20230101))
+        
+        # Test with invalid asset_id (should return False due to None trade_pair)
+        invalid_ledger = generate_ledger(0.1)[TP_ID_PORTFOLIO]
+        invalid_ledger.asset_id = "INVALID_PAIR"
+        self.assertFalse(LedgerUtils.is_valid_trading_day(invalid_ledger, date_type(2023, 1, 1)))
+        
+        # Test portfolio ledger should always return True (except for error cases)
+        portfolio_ledger = generate_ledger(0.1)[TP_ID_PORTFOLIO]
+        portfolio_ledger.asset_id = TP_ID_PORTFOLIO
+        self.assertTrue(LedgerUtils.is_valid_trading_day(portfolio_ledger, date_type(2023, 1, 7)))  # Saturday
 

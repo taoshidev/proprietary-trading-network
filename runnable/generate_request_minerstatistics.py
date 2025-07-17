@@ -8,7 +8,7 @@ from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
 from vali_objects.utils.elimination_manager import EliminationManager
 from vali_objects.utils.plagiarism_detector import PlagiarismDetector
 from vali_objects.utils.position_manager import PositionManager
-from vali_objects.vali_config import ValiConfig
+from vali_objects.vali_config import ValiConfig, TradePair
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.utils.subtensor_weight_setter import SubtensorWeightSetter
 from vali_objects.utils.position_utils import PositionUtils
@@ -16,7 +16,7 @@ from vali_objects.utils.position_penalties import PositionPenalties
 from vali_objects.utils.ledger_utils import LedgerUtils
 from vali_objects.scoring.scoring import Scoring
 from vali_objects.utils.metrics import Metrics
-from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
+from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager, TP_ID_PORTFOLIO
 from vali_objects.utils.risk_profiling import RiskProfiling
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedger
 from vali_objects.position import Position
@@ -160,22 +160,22 @@ class MinerStatisticsManager:
     # -------------------------------------------
     # Gather Extra Stats (drawdowns, volatility, etc.)
     # -------------------------------------------
-    def gather_extra_data(self, hotkey: str, ledger_dict: Dict[str, Any], positions_dict: Dict[str, Any]) -> Dict[str, Any]:
+    def gather_extra_data(self, hotkey: str, miner_ledger: PerfLedger, positions_dict: Dict[str, Any]) -> Dict[str, Any]:
         """
         Gathers additional data such as volatility, drawdowns, engagement stats,
         ignoring short-term metrics.
         """
-        miner_ledger = ledger_dict.get(hotkey)
         miner_cps = miner_ledger.cps if miner_ledger else []
         miner_positions = positions_dict.get(hotkey, [])
-        miner_returns = LedgerUtils.daily_return_log(ledger_dict.get(hotkey, None))
+        miner_returns = LedgerUtils.daily_return_log(miner_ledger)
 
         # Volatility
         ann_volatility = min(Metrics.ann_volatility(miner_returns), 100)
         ann_downside_volatility = min(Metrics.ann_downside_volatility(miner_returns), 100)
 
         # Drawdowns
-        mdd = LedgerUtils.max_drawdown(miner_ledger)
+        instantaneous_mdd = LedgerUtils.instantaneous_max_drawdown(miner_ledger)
+        daily_mdd = LedgerUtils.daily_max_drawdown(miner_ledger)
 
         # Engagement: positions
         n_positions = len(miner_positions)
@@ -192,7 +192,8 @@ class MinerStatisticsManager:
         return {
             "annual_volatility": ann_volatility,
             "annual_downside_volatility": ann_downside_volatility,
-            "max_drawdown": mdd,
+            "instantaneous_max_drawdown": instantaneous_mdd,
+            "daily_max_drawdown": daily_mdd,
             "positions_info": {
                 "n_positions": n_positions,
                 "positional_duration": pos_duration,
@@ -212,14 +213,14 @@ class MinerStatisticsManager:
         """
         Combines the minimal fields needed for the metrics plus the extra data.
         """
-        miner_ledger: PerfLedger = filtered_ledger.get(hotkey)
+        miner_ledger: PerfLedger = filtered_ledger.get(hotkey, {}).get(TP_ID_PORTFOLIO)
         if not miner_ledger:
             return {}
         cumulative_miner_returns_ledger: PerfLedger = LedgerUtils.cumulative(miner_ledger)
-        miner_daily_returns: list[float] = LedgerUtils.daily_return_log(filtered_ledger.get(hotkey, None))
+        miner_daily_returns: list[float] = LedgerUtils.daily_return_log(miner_ledger)
         miner_positions: list[Position] = filtered_positions.get(hotkey, [])
 
-        extra_data = self.gather_extra_data(hotkey, filtered_ledger, filtered_positions)
+        extra_data = self.gather_extra_data(hotkey, miner_ledger, filtered_positions)
 
         return {
             "positions": miner_positions,
@@ -319,11 +320,11 @@ class MinerStatisticsManager:
     # -------------------------------------------
     # Daily Returns
     # -------------------------------------------
-    def calculate_all_daily_returns(self, filtered_ledger: dict[str, PerfLedger]) -> dict[str, list[float]]:
+    def calculate_all_daily_returns(self, filtered_ledger: dict[str, dict[str, PerfLedger]]) -> dict[str, list[float]]:
         """Calculate daily returns for all miners."""
         return {
-            hotkey: LedgerUtils.daily_returns_by_date_json(ledger)
-            for hotkey, ledger in filtered_ledger.items()
+            hotkey: LedgerUtils.daily_returns_by_date_json(ledgers.get(TP_ID_PORTFOLIO))
+            for hotkey, ledgers in filtered_ledger.items()
         }
 
     # -------------------------------------------
@@ -409,6 +410,47 @@ class MinerStatisticsManager:
         return miner_risk_report
 
     # -------------------------------------------
+    # Asset Subcategory Performance
+    # -------------------------------------------
+    def miner_subcategory_scores(self, hotkey: str, asset_softmaxed_scores: dict[str, dict[str, float]]) -> dict[str, dict[str, float]]:
+        """
+        Extract individual miner's scores and rankings for each asset subcategory.
+        
+        Args:
+            hotkey: The miner's hotkey
+            asset_softmaxed_scores: A dictionary with softmax scores for each miner within each asset class
+            
+        Returns:
+            subcategory_data: dict with subcategory as key and score/rank/percentile info as value
+        """
+        subcategory_data = {}
+        
+        for subcategory, miner_scores in asset_softmaxed_scores.items():
+            if hotkey in miner_scores:
+                miner_score = miner_scores[hotkey]
+                # Filter out miners with zero scores for ranking purposes
+                nonzero_scores = {hk: score for hk, score in miner_scores.items() if score > 0}
+                total_miners = len(nonzero_scores)
+                
+                if miner_score == 0:
+                    # Miners with zero scores get lowest rank
+                    rank = total_miners + 1
+                    percentile = 0
+                else:
+                    unique_scores = sorted(set(nonzero_scores.values()), reverse=True)
+                    # Find rank based on tied scores (all miners with same score get highest rank)
+                    rank = unique_scores.index(miner_score) + 1
+                    percentile = ((total_miners - rank + 1) / total_miners) * 100 if total_miners > 0 else 0
+
+                subcategory_data[subcategory] = {
+                    "score": miner_score,
+                    "rank": rank,
+                    "percentile": percentile
+                }
+        
+        return subcategory_data
+
+    # -------------------------------------------
     # Generate final data
     # -------------------------------------------
     def generate_miner_statistics_data(
@@ -444,11 +486,18 @@ class MinerStatisticsManager:
             selected_miner_hotkeys = all_miner_hotkeys
 
         # Filter ledger/positions
-        filtered_ledger = self.perf_ledger_manager.filtered_ledger_for_scoring(all_miner_hotkeys)
+        filtered_ledger = self.perf_ledger_manager.filtered_ledger_for_scoring(hotkeys=all_miner_hotkeys)
         filtered_positions, _ = self.position_manager.filtered_positions_for_scoring(all_miner_hotkeys)
 
+        success_competitiveness, asset_softmaxed_scores = Scoring.score_miner_asset_subcategories(
+            filtered_ledger,
+            filtered_positions,
+            evaluation_time_ms=time_now,
+            weighting=final_results_weighting
+        ) # returns asset competitiveness dict, asset softmaxed scores
+
         # For weighting logic: gather "successful" checkpoint-based results
-        successful_ledger = self.perf_ledger_manager.filtered_ledger_for_scoring(challengeperiod_success_hotkeys)
+        successful_ledger = self.perf_ledger_manager.filtered_ledger_for_scoring(hotkeys=challengeperiod_success_hotkeys)
         successful_positions, _ = self.position_manager.filtered_positions_for_scoring(challengeperiod_success_hotkeys)
 
         # Compute the checkpoint-based weighting for successful miners
@@ -461,7 +510,7 @@ class MinerStatisticsManager:
         )  # returns list of (hotkey, weightVal)
 
         # Only used for testing weight calculation
-        testing_ledger = self.perf_ledger_manager.filtered_ledger_for_scoring(challengeperiod_eval_hotkeys)
+        testing_ledger = self.perf_ledger_manager.filtered_ledger_for_scoring(hotkeys=challengeperiod_eval_hotkeys)
         testing_positions, _ = self.position_manager.filtered_positions_for_scoring(challengeperiod_eval_hotkeys)
 
         # Compute testing miner scores
@@ -576,7 +625,8 @@ class MinerStatisticsManager:
             }
             # Drawdowns
             drawdowns_subdict = {
-                "max_drawdown": extra.get("max_drawdown"),
+                "instantaneous_max_drawdown": extra.get("instantaneous_max_drawdown"),
+                "daily_max_drawdown": extra.get("daily_max_drawdown"),
             }
             # Engagement
             engagement_subdict = {
@@ -605,6 +655,9 @@ class MinerStatisticsManager:
             # Risk Profile
             risk_profile_single_dict = risk_profile_dict.get(hotkey, {})
 
+            # Asset Subcategory Performance
+            asset_subcategory_performance = self.miner_subcategory_scores(hotkey, asset_softmaxed_scores)
+
             final_miner_dict = {
                 "hotkey": hotkey,
                 "challengeperiod": challengeperiod_info,
@@ -616,6 +669,7 @@ class MinerStatisticsManager:
                 "plagiarism": plagiarism_val,
                 "engagement": engagement_subdict,
                 "risk_profile": risk_profile_single_dict,
+                "asset_subcategory_performance": asset_subcategory_performance,
                 "penalties": {
                     "drawdown_threshold": pen_break.get("drawdown_threshold", 1.0),
                     "risk_profile": pen_break.get("risk_profile", 1.0),
@@ -646,6 +700,11 @@ class MinerStatisticsManager:
         # Sort by ascending rank
         results_sorted = sorted(results_with_weight, key=lambda x: x["weight"]["rank"])
 
+        # network level data
+        network_data_dict = {
+            "asset_competitiveness": success_competitiveness
+        }
+
         # If you'd prefer not to filter out those without weight, you could keep them at the end
         # Or you can unify them in a single list. For simplicity, let's keep it consistent:
         final_dict = {
@@ -653,7 +712,8 @@ class MinerStatisticsManager:
             'created_timestamp_ms': time_now,
             'created_date': TimeUtil.millis_to_formatted_date_str(time_now),
             'data': results_sorted,
-            'constants': self.get_printable_config()
+            'constants': self.get_printable_config(),
+            'network_data': network_data_dict
         }
         return final_dict
 
@@ -663,11 +723,17 @@ class MinerStatisticsManager:
     def get_printable_config(self) -> Dict[str, Any]:
         """Get printable configuration values."""
         config_data = dict(ValiConfig.__dict__)
-        return {
+        printable_config = {
             key: value for key, value in config_data.items()
             if isinstance(value, (int, float, str))
                and key not in ['BASE_DIR', 'base_directory']
         }
+        
+        # Add asset class breakdown and subcategory weights
+        printable_config['asset_class_breakdown'] = ValiConfig.ASSET_CLASS_BREAKDOWN
+        printable_config['trade_pairs_by_subcategory'] = TradePair.subcategories()
+        
+        return printable_config
 
     # -------------------------------------------
     # Write to disk
