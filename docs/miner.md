@@ -35,6 +35,28 @@ A long position is a bet that the trade pair will increase, while a short positi
 12. There is a 10-second cooldown period between orders of the same trade pair, during which the miner cannot place another order.
 13. Avoid reusing hotkeys that have been previously deregistered.
 
+## Scoring Categories
+Our incentive is split into a number of subcategories, each of which is competitive using the same rules of logic as seen above. This helps to balance the spread of information which is generated on our network, without being too prescriptive in terms of what it means to score well within a specific subtopic. The incentive is split evenly between asset classes, with subcategories as follows:
+
+### Crypto (50% total emission)
+| Subcategory | Weight | Percentage | Effective Total |
+|-------------|--------|------------|-----------------|
+| MAJORS      | 0.7    | 70%        | 35%             |
+| ALTS        | 0.3    | 30%        | 15%             |
+
+### Forex (50% total emission)
+*Based on margin requirements on brokerage accounts*
+
+| Subcategory | Weight  | Percentage | Effective Total |
+|-------------|---------|------------|-----------------|
+| G1          | 0.2927  | 29.27%     | 14.64%          |
+| G2          | 0.1463  | 14.63%     | 7.32%           |
+| G3          | 0.2073  | 20.73%     | 10.37%          |
+| G4          | 0.0976  | 9.76%      | 4.88%           |
+| G5          | 0.2561  | 25.61%     | 12.81%          |
+
+To achieve maximum reward as a miner, you will need to be competitive in all asset categories. You may find more information about this in the following proposal: [P23](https://docs.taoshi.io/tips/p23/).
+
 ## Scoring Details
 
 PTN relies on a number of scoring metrics to build a comprehensive measure of _Risk-Adjusted Returns_. In practice, these metrics are often highly correlated, but each offers a unique lens through which to see the miners.
