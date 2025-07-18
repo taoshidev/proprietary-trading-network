@@ -140,6 +140,8 @@ class AssetSegmentation:
             cumulative_weighted += i * v
 
         total = cumulative
+        if n == 0 or total == 0:
+            return None
         g = (2 * cumulative_weighted) / (n * total) - (n + 1) / n
         return g if not math.isnan(g) else None
 

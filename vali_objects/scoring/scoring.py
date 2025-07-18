@@ -424,7 +424,6 @@ class Scoring:
 
         # Compose the full penalties dictionary based on subcategories and weights
         full_penalties_dictionary = {}
-        asset_emissions_logs = []
         for asset_subclass, _ in miner_asset_scores.items():
             asset_class = category_lookup.get(asset_subclass, None)
             if asset_class is None:
@@ -436,7 +435,7 @@ class Scoring:
             asset_class_emission = asset_class_information.get('emission', 0)
             asset_subcategory_weight = asset_class_information.get('subcategory_weights', {})
 
-            asset_emissions_logs.append(f"Asset class {asset_class} has emission {asset_class_emission} and subcategory weights {asset_subcategory_weight}")
+            # bt.logging.info(f"Asset class {asset_class} has emission {asset_class_emission} and subcategory weights {asset_subcategory_weight}")
 
             if asset_class_emission == 0:
                 bt.logging.warning(f"Asset class {asset_class} has no emission. Please report this issue!")
@@ -447,8 +446,6 @@ class Scoring:
             for subcategory, subcategory_weight in asset_subcategory_weight.items():
                 full_penalties_dictionary[subcategory] = asset_class_emission * subcategory_weight
 
-        asset_emissions_logs.append(f"Full penalties dictionary: {full_penalties_dictionary}")
-
         # Now check how the miners are achieving the asset class breakdown
         for subcategory, scores in miner_asset_scores.items():
             for miner, score in scores.items():
@@ -458,7 +455,7 @@ class Scoring:
 
                 aggregated_scores[miner] += score * asset_class_emission
 
-        bt.logging.info(f"Asset emissions logs: {asset_emissions_logs}")
+        bt.logging.info(f"Full penalties dictionary: {full_penalties_dictionary}")
         return sorted(aggregated_scores.items(), key=lambda x: x[1], reverse=True)
 
     @staticmethod
