@@ -583,7 +583,7 @@ class ValidatorSyncBase():
                     else:
                         position_to_sync_status[e] = PositionSyncResult.NOTHING
                         # Check if position actually needs splitting before forcing write_modifications
-                        if self._position_needs_splitting(e):
+                        if self.position_manager and self.position_manager._position_needs_splitting(e):
                             # Force write_modifications to be called for position splitting
                             min_timestamp_of_change = min(min_timestamp_of_change, e.open_ms)
                     # open_postition_acked |= e.is_open_position
@@ -615,7 +615,7 @@ class ValidatorSyncBase():
                     else:
                         position_to_sync_status[e] = PositionSyncResult.NOTHING
                         # Check if position actually needs splitting before forcing write_modifications
-                        if self._position_needs_splitting(e):
+                        if self.position_manager and self.position_manager._position_needs_splitting(e):
                             # Force write_modifications to be called for position splitting
                             min_timestamp_of_change = min(min_timestamp_of_change, e.open_ms)
                     # open_postition_acked |= e.is_open_position
@@ -757,112 +757,25 @@ class ValidatorSyncBase():
             positions_by_trade_pair[position.trade_pair].append(deepcopy(position))
         return positions_by_trade_pair
 
-    def _find_split_points(self, position: Position) -> list[int]:
-        """
-        Find all valid split points in a position where splitting should occur.
-        Returns a list of order indices where splits should happen.
-        This is the single source of truth for split logic.
-        """
-        if len(position.orders) < 2:
-            return []
-            
-        split_points = []
-        cumulative_leverage = 0.0
-        
-        for i, order in enumerate(position.orders):
-            cumulative_leverage += order.leverage
-            
-            # Check for explicit FLAT or implicit flat (leverage reaches zero)
-            is_explicit_flat = order.order_type == OrderType.FLAT
-            is_implicit_flat = abs(cumulative_leverage) < 1e-9 and not is_explicit_flat
-            
-            if is_explicit_flat or is_implicit_flat:
-                # Don't split if this is the last order
-                if i < len(position.orders) - 1:
-                    # Check if the split would create valid sub-positions
-                    orders_before = position.orders[:i+1]
-                    orders_after = position.orders[i+1:]
-                    
-                    # Check if first part is valid (2+ orders, doesn't start with FLAT)
-                    first_valid = (len(orders_before) >= 2 and 
-                                 orders_before[0].order_type != OrderType.FLAT)
-                    
-                    # Check if second part would be valid (at least 1 order, doesn't start with FLAT)
-                    second_valid = (len(orders_after) >= 1 and 
-                                  orders_after[0].order_type != OrderType.FLAT)
-                    
-                    if first_valid and second_valid:
-                        split_points.append(i)
-                        cumulative_leverage = 0.0  # Reset for next segment
-        
-        return split_points
-
-    def _position_needs_splitting(self, position: Position) -> bool:
-        """
-        Check if a position would actually be split by split_position_on_flat.
-        Uses the same logic as split_position_on_flat but without creating new positions.
-        """
-        return len(self._find_split_points(position)) > 0
-
     def split_position_on_flat(self, position: Position) -> list[Position]:
         """
-        Takes a position, iterates through the orders, and splits the position into multiple positions
-        separated by FLAT orders OR when cumulative leverage reaches zero (implicit flat).
-        Uses _find_split_points as the single source of truth for split logic.
-        Ensures:
-        - CLOSED positions have at least 2 orders
-        - OPEN positions can have 1 order
-        - No position starts with a FLAT order
+        Delegates position splitting to the PositionManager.
+        This maintains the autosync logic while using the centralized splitting implementation.
         """
-        # Use unified split logic
-        if not self.enable_position_splitting:
-            # If splitting is disabled, return the original position as a single item list
-            return [position]
-
-        split_points = self._find_split_points(position)
-        
-        if not split_points:
+        if not self.position_manager or not self.enable_position_splitting:
+            # If no position manager or splitting disabled, return position as-is
             return [position]
         
-        # Create order groups based on split points
-        order_groups = []
-        start_idx = 0
+        # Use the position manager's split method
+        positions, split_info = self.position_manager.split_position_on_flat(position, track_stats=False)
         
-        # Track implicit flats for statistics
-        cumulative_leverage = 0.0
-        
-        for split_idx in split_points:
-            # Add orders up to and including the split point
-            order_group = position.orders[start_idx:split_idx + 1]
-            order_groups.append(order_group)
+        # Track statistics for autosync
+        if len(positions) > 1:
+            self.global_stats['n_positions_spawned_from_post_flat_orders'] += len(positions) - 1
             
-            # Check if this split was due to implicit flat for statistics
-            group_leverage = sum(o.leverage for o in order_group)
-            if abs(group_leverage) < 1e-9 and order_group[-1].order_type != OrderType.FLAT:
+            # Track implicit flat splits
+            if split_info['implicit_flat_splits'] > 0:
                 self.global_stats['n_positions_split_on_implicit_flat'] = \
-                    self.global_stats.get('n_positions_split_on_implicit_flat', 0) + 1
-            
-            start_idx = split_idx + 1
+                    self.global_stats.get('n_positions_split_on_implicit_flat', 0) + split_info['implicit_flat_splits']
         
-        # Add remaining orders if any
-        if start_idx < len(position.orders):
-            order_groups.append(position.orders[start_idx:])
-        
-        # Update the original position with the first group
-        position.orders = order_groups[0]
-        position.rebuild_position_with_updated_orders()
-        
-        positions = [position]
-        
-        # Create new positions for remaining groups
-        for order_group in order_groups[1:]:
-            new_position = Position(miner_hotkey=position.miner_hotkey,
-                                    position_uuid=order_group[0].order_uuid,
-                                    open_ms=0,
-                                    trade_pair=position.trade_pair,
-                                    orders=order_group)
-            new_position.rebuild_position_with_updated_orders()
-            positions.append(new_position)
-            
-        self.global_stats['n_positions_spawned_from_post_flat_orders'] += len(positions) - 1
         return positions
