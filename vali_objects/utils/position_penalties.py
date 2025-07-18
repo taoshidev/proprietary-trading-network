@@ -12,15 +12,17 @@ class PositionPenalties:
 
     @staticmethod
     def risk_profile_penalty(
-            positions_object: list[Position]
+            positions_object: list[Position],
+            verbose: bool = False
     ) -> float:
         """
         Returns the martingale penalty for each miner
 
         Args:
             positions_object: dict[str, list[Position]] - the list of equivalent positions for processing
+            verbose: If True, enable detailed logging during risk assessment
         """
-        risk_profile_score = PositionPenalties.risk_profile_score(positions_object)
+        risk_profile_score = PositionPenalties.risk_profile_score(positions_object, verbose=verbose)
         return FunctionalUtils.sigmoid(
             risk_profile_score,
             ValiConfig.RISK_PROFILING_SIGMOID_SHIFT,
@@ -29,18 +31,20 @@ class PositionPenalties:
 
     @staticmethod
     def risk_profile_score(
-            positions
+            positions,
+            verbose: bool = False
     ) -> float:
         """
         Returns the martingale penalty for each miner
 
         Args:
             positions: dict[str, list[Position]] - the list of equivalent positions for processing
+            verbose: If True, enable detailed logging during risk assessment
         """
         # positions_equivalence = PositionUtils.positional_equivalence(positions)
 
         # Now track the positions
-        clean_position_penalty = RiskProfiling.risk_profile_score_list(positions)
+        clean_position_penalty = RiskProfiling.risk_profile_score_list(positions, verbose=verbose)
         # equivalence_position_penalty = RiskProfiling.risk_profile_score_list(positions_equivalence)
         return clean_position_penalty  # max(clean_position_penalty, equivalence_position_penalty)
 

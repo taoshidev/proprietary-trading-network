@@ -3,15 +3,15 @@ from copy import deepcopy
 
 from bittensor import Balance
 
-from time_util.time_util import TimeUtil
-from tests.shared_objects.mock_classes import MockMetagraph, MockNeuron, MockAxonInfo
+from shared_objects.mock_metagraph import MockMetagraph, MockNeuron, MockAxonInfo
 from tests.vali_tests.base_objects.test_base import TestBase
-from vali_objects.utils.elimination_manager import EliminationManager
-from vali_objects.vali_config import TradePair
+from time_util.time_util import TimeUtil
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.position import Position
+from vali_objects.utils.elimination_manager import EliminationManager
 from vali_objects.utils.p2p_syncer import P2PSyncer
 from vali_objects.utils.position_manager import PositionManager
+from vali_objects.vali_config import TradePair
 from vali_objects.vali_dataclasses.order import Order
 
 
@@ -32,7 +32,7 @@ class TestPositions(TestBase):
             open_ms=self.DEFAULT_OPEN_MS,
             trade_pair=self.DEFAULT_TRADE_PAIR,
             orders=[self.default_order],
-            position_type=OrderType.LONG
+            position_type=OrderType.LONG,
         )
 
         self.default_neuron = MockNeuron(axon_info=MockAxonInfo("0.0.0.0"),
@@ -51,7 +51,7 @@ class TestPositions(TestBase):
             open_ms=self.DEFAULT_OPEN_MS,
             trade_pair=self.DEFAULT_TRADE_PAIR,
             orders=[self.default_order],
-            position_type=OrderType.LONG
+            position_type=OrderType.LONG,
         )
 
         self.default_closed_position = Position(
@@ -60,7 +60,7 @@ class TestPositions(TestBase):
             open_ms=self.DEFAULT_OPEN_MS,
             trade_pair=self.DEFAULT_TRADE_PAIR,
             orders=[self.default_order],
-            position_type=OrderType.FLAT
+            position_type=OrderType.FLAT,
         )
         self.default_closed_position.close_out_position(self.DEFAULT_OPEN_MS + 1000 * 60 * 60 * 6)
 

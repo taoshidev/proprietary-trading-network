@@ -41,7 +41,8 @@ class PositionManager(CacheController):
                  ipc_manager=None,
                  live_price_fetcher=None,
                  is_backtesting=False,
-                 shared_queue_websockets=None):
+                 shared_queue_websockets=None,
+                 split_positions_on_disk_load=False):
 
         super().__init__(metagraph=metagraph, running_unit_tests=running_unit_tests, is_backtesting=is_backtesting)
         # Populate memory with positions
@@ -56,6 +57,11 @@ class PositionManager(CacheController):
         self.is_mothership = is_mothership
         self.perform_compaction = perform_compaction
         self.perform_order_corrections = perform_order_corrections
+        self.split_positions_on_disk_load = split_positions_on_disk_load
+        
+        # Track splitting statistics
+        self.split_stats = defaultdict(self._default_split_stats)
+        
         if ipc_manager:
             self.hotkey_to_positions = ipc_manager.dict()
         else:
@@ -63,6 +69,14 @@ class PositionManager(CacheController):
         self.secrets = secrets
         self._populate_memory_positions_for_first_time()
         self.live_price_fetcher = live_price_fetcher
+    
+    def _default_split_stats(self):
+        """Default split statistics for each miner. Used to make defaultdict pickleable."""
+        return {
+            'n_positions_split': 0,
+            'product_return_pre_split': 1.0,
+            'product_return_post_split': 1.0
+        }
 
     @timeme
     def _populate_memory_positions_for_first_time(self):
@@ -70,6 +84,62 @@ class PositionManager(CacheController):
             return
 
         initial_hk_to_positions = self.get_positions_for_all_miners(from_disk=True)
+        
+        # Apply position splitting if enabled on disk load
+        if self.split_positions_on_disk_load:
+            bt.logging.info("Applying position splitting on disk load...")
+            total_hotkeys = len(initial_hk_to_positions)
+            hotkeys_with_splits = 0
+            hotkeys_with_errors = []
+            
+            for hk, positions in initial_hk_to_positions.items():
+                split_positions = []
+                positions_split_for_hotkey = 0
+                
+                for position in positions:
+                    try:
+                        # Split the position and track stats
+                        new_positions, split_info = self.split_position_on_flat(position, track_stats=True)
+                        split_positions.extend(new_positions)
+                        
+                        # Count if this position was actually split
+                        if len(new_positions) > 1:
+                            positions_split_for_hotkey += 1
+                            
+                    except Exception as e:
+                        bt.logging.error(f"Failed to split position {position.position_uuid} for hotkey {hk}: {e}")
+                        bt.logging.error(f"Position details: {len(position.orders)} orders, trade_pair={position.trade_pair}")
+                        traceback.print_exc()
+                        # Keep the original position if splitting fails
+                        split_positions.append(position)
+                        if hk not in hotkeys_with_errors:
+                            hotkeys_with_errors.append(hk)
+                
+                # Track if this hotkey had any splits
+                if positions_split_for_hotkey > 0:
+                    hotkeys_with_splits += 1
+                
+                # Update with split positions
+                initial_hk_to_positions[hk] = split_positions
+            
+            # Log comprehensive splitting statistics
+            self._log_split_stats()
+            
+            # Log summary for all hotkeys
+            bt.logging.info("=" * 60)
+            bt.logging.info("POSITION SPLITTING SUMMARY")
+            bt.logging.info("=" * 60)
+            bt.logging.info(f"Total hotkeys processed: {total_hotkeys}")
+            bt.logging.info(f"Hotkeys with positions split: {hotkeys_with_splits}")
+            bt.logging.info(f"Hotkeys with no splits needed: {total_hotkeys - hotkeys_with_splits - len(hotkeys_with_errors)}")
+            if hotkeys_with_errors:
+                bt.logging.error(f"Hotkeys with splitting errors: {len(hotkeys_with_errors)}")
+                for hk in hotkeys_with_errors[:5]:  # Show first 5 errors
+                    bt.logging.error(f"  - {hk}")
+                if len(hotkeys_with_errors) > 5:
+                    bt.logging.error(f"  ... and {len(hotkeys_with_errors) - 5} more")
+            bt.logging.info("=" * 60)
+        
         for hk, positions in initial_hk_to_positions.items():
             if positions:  # Only populate if there are no positions in the miner dir
                 self.hotkey_to_positions[hk] = positions
@@ -1106,6 +1176,208 @@ class PositionManager(CacheController):
 
     def get_miner_hotkeys_with_at_least_one_position(self) -> set[str]:
         return set(self.hotkey_to_positions.keys())
+    
+    def _log_split_stats(self):
+        """Log statistics about position splitting."""
+        bt.logging.info("=" * 60)
+        bt.logging.info("POSITION SPLITTING STATISTICS")
+        bt.logging.info("=" * 60)
+        
+        total_splits = 0
+        for hotkey, stats in self.split_stats.items():
+            if stats['n_positions_split'] > 0:
+                bt.logging.info(f"Hotkey: {hotkey}")
+                bt.logging.info(f"  Number of positions split: {stats['n_positions_split']}")
+                bt.logging.info(f"  Product of returns pre-split: {stats['product_return_pre_split']:.6f}")
+                bt.logging.info(f"  Product of returns post-split: {stats['product_return_post_split']:.6f}")
+                total_splits += stats['n_positions_split']
+        
+        bt.logging.info(f"Total positions split across all hotkeys: {total_splits}")
+        bt.logging.info("=" * 60)
+    
+    def _find_split_points(self, position: Position) -> list[int]:
+        """
+        Find all valid split points in a position where splitting should occur.
+        Returns a list of order indices where splits should happen.
+        This is the single source of truth for split logic.
+        """
+        if len(position.orders) < 2:
+            return []
+            
+        split_points = []
+        cumulative_leverage = 0.0
+        previous_sign = None
+        
+        for i, order in enumerate(position.orders):
+            previous_leverage = cumulative_leverage
+            cumulative_leverage += order.leverage
+            
+            # Determine the sign of leverage (positive, negative, or zero)
+            current_sign = None
+            if abs(cumulative_leverage) < 1e-9:
+                current_sign = 0
+            elif cumulative_leverage > 0:
+                current_sign = 1
+            else:
+                current_sign = -1
+            
+            # Check for leverage sign flip
+            leverage_flipped = False
+            if previous_sign is not None and previous_sign != 0 and current_sign != 0 and previous_sign != current_sign:
+                leverage_flipped = True
+            
+            # Check for explicit FLAT or implicit flat (leverage reaches zero or flips sign)
+            is_explicit_flat = order.order_type == OrderType.FLAT
+            is_implicit_flat = (abs(cumulative_leverage) < 1e-9 or leverage_flipped) and not is_explicit_flat
+            
+            if is_explicit_flat or is_implicit_flat:
+                # Don't split if this is the last order
+                if i < len(position.orders) - 1:
+                    # Check if the split would create valid sub-positions
+                    orders_before = position.orders[:i+1]
+                    orders_after = position.orders[i+1:]
+                    
+                    # Check if first part is valid (2+ orders, doesn't start with FLAT)
+                    first_valid = (len(orders_before) >= 2 and 
+                                 orders_before[0].order_type != OrderType.FLAT)
+                    
+                    # Check if second part would be valid (at least 1 order, doesn't start with FLAT)
+                    second_valid = (len(orders_after) >= 1 and 
+                                  orders_after[0].order_type != OrderType.FLAT)
+                    
+                    if first_valid and second_valid:
+                        split_points.append(i)
+                        cumulative_leverage = 0.0  # Reset for next segment
+                        previous_sign = 0
+                        continue
+            
+            # Update previous sign for next iteration
+            previous_sign = current_sign
+        
+        return split_points
+
+    def _position_needs_splitting(self, position: Position) -> bool:
+        """
+        Check if a position would actually be split by split_position_on_flat.
+        Uses the same logic as split_position_on_flat but without creating new positions.
+        """
+        return len(self._find_split_points(position)) > 0
+
+    def split_position_on_flat(self, position: Position, track_stats: bool = False) -> tuple[list[Position], dict]:
+        """
+        Takes a position, iterates through the orders, and splits the position into multiple positions
+        separated by FLAT orders OR when cumulative leverage reaches zero or flips sign (implicit flat).
+        
+        Implicit flat is defined as:
+        - Cumulative leverage reaches zero (abs(cumulative_leverage) < 1e-9), OR
+        - Cumulative leverage flips sign (e.g., from positive to negative or vice versa)
+        
+        Uses _find_split_points as the single source of truth for split logic.
+        Ensures:
+        - CLOSED positions have at least 2 orders
+        - OPEN positions can have 1 order
+        - No position starts with a FLAT order
+        
+        If track_stats is True, updates split_stats with splitting information.
+        
+        Returns:
+            tuple: (list of positions, split_info dict with 'implicit_flat_splits' and 'explicit_flat_splits')
+        """
+        try:
+            split_points = self._find_split_points(position)
+            
+            if not split_points:
+                return [position], {'implicit_flat_splits': 0, 'explicit_flat_splits': 0}
+            
+            # Track pre-split return if requested
+            pre_split_return = position.return_at_close if track_stats else None
+            
+            # Count implicit vs explicit flats
+            implicit_flat_splits = 0
+            explicit_flat_splits = 0
+            
+            cumulative_leverage = 0.0
+            previous_sign = None
+            
+            for i, order in enumerate(position.orders):
+                cumulative_leverage += order.leverage
+                
+                # Determine the sign of leverage (positive, negative, or zero)
+                current_sign = None
+                if abs(cumulative_leverage) < 1e-9:
+                    current_sign = 0
+                elif cumulative_leverage > 0:
+                    current_sign = 1
+                else:
+                    current_sign = -1
+                
+                # Check for leverage sign flip
+                leverage_flipped = False
+                if previous_sign is not None and previous_sign != 0 and current_sign != 0 and previous_sign != current_sign:
+                    leverage_flipped = True
+                
+                if i in split_points:
+                    if order.order_type == OrderType.FLAT:
+                        explicit_flat_splits += 1
+                    elif abs(cumulative_leverage) < 1e-9 or leverage_flipped:
+                        implicit_flat_splits += 1
+                
+                # Update previous sign for next iteration
+                previous_sign = current_sign
+            
+            # Create order groups based on split points
+            order_groups = []
+            start_idx = 0
+            
+            for split_idx in split_points:
+                # Add orders up to and including the split point
+                order_group = position.orders[start_idx:split_idx + 1]
+                order_groups.append(order_group)
+                start_idx = split_idx + 1
+            
+            # Add remaining orders if any
+            if start_idx < len(position.orders):
+                order_groups.append(position.orders[start_idx:])
+            
+            # Update the original position with the first group
+            position.orders = order_groups[0]
+            position.rebuild_position_with_updated_orders()
+            
+            positions = [position]
+            
+            # Create new positions for remaining groups
+            for order_group in order_groups[1:]:
+                new_position = Position(miner_hotkey=position.miner_hotkey,
+                                        position_uuid=order_group[0].order_uuid,
+                                        open_ms=0,
+                                        trade_pair=position.trade_pair,
+                                        orders=order_group)
+                new_position.rebuild_position_with_updated_orders()
+                positions.append(new_position)
+                
+            split_info = {
+                'implicit_flat_splits': implicit_flat_splits,
+                'explicit_flat_splits': explicit_flat_splits
+            }
+            
+        except Exception as e:
+            bt.logging.error(f"Error during position splitting for {position.miner_hotkey}: {e}")
+            bt.logging.error(f"Position UUID: {position.position_uuid}, Orders: {len(position.orders)}")
+            # Return original position on error
+            return [position], {'implicit_flat_splits': 0, 'explicit_flat_splits': 0}
+        
+        # Track stats if requested
+        if track_stats and pre_split_return is not None:
+            hotkey = position.miner_hotkey
+            self.split_stats[hotkey]['n_positions_split'] += 1
+            self.split_stats[hotkey]['product_return_pre_split'] *= pre_split_return
+            
+            # Calculate post-split product of returns
+            for pos in positions:
+                if pos.is_closed_position:
+                    self.split_stats[hotkey]['product_return_post_split'] *= pos.return_at_close
+        
+        return positions, split_info
 
 if __name__ == '__main__':
     from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager

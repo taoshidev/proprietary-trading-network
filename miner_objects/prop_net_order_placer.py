@@ -95,9 +95,9 @@ class PropNetOrderPlacer:
     MAX_WORKERS = 10
     THREAD_POOL_TIMEOUT = 300  # 5 minutes
 
-    def __init__(self, wallet, metagraph, config, is_testnet, position_inspector=None, slack_notifier=None):
+    def __init__(self, wallet, metagraph_updater, config, is_testnet, position_inspector=None, slack_notifier=None):
         self.wallet = wallet
-        self.metagraph = metagraph
+        self.metagraph_updater = metagraph_updater
         self.config = config
         self.recently_acked_validators = []
         self.is_testnet = is_testnet
@@ -136,11 +136,11 @@ class PropNetOrderPlacer:
                 if self._shutdown:
                     break
 
-                future = self.executor.submit(
-                    self._safe_process_signal,
-                    signal_file_path,
-                    signal_data
-                )
+                # Create a wrapper to run async function in thread with proper closure
+                def run_async_signal(file_path, data):
+                    return asyncio.run(self._safe_process_signal(file_path, data))
+                
+                future = self.executor.submit(run_async_signal, signal_file_path, signal_data)
                 futures.append(future)
                 self._active_futures.add(future)
 
@@ -152,14 +152,14 @@ class PropNetOrderPlacer:
         )
         monitor_thread.start()
 
-    def _safe_process_signal(self, signal_file_path, signal_data):
+    async def _safe_process_signal(self, signal_file_path, signal_data):
         """Wrapper for process_a_signal with error handling and metrics"""
         signal_uuid = signal_file_path.split('/')[-1]
         trade_pair_id = signal_data.get('trade_pair', {}).get('trade_pair_id', 'Unknown')
         metrics = SignalMetrics(signal_uuid, trade_pair_id)
 
         try:
-            result = self.process_a_signal(signal_file_path, signal_data, metrics)
+            result = await self.process_a_signal(signal_file_path, signal_data, metrics)
             metrics.complete()
 
             # Send summary to Slack
@@ -221,12 +221,13 @@ class PropNetOrderPlacer:
         """Get the number of currently active signal processing tasks"""
         with self._lock:
             return len(self._active_futures)
+    
 
-    def process_a_signal(self, signal_file_path, signal_data, metrics: SignalMetrics):
+    async def process_a_signal(self, signal_file_path, signal_data, metrics: SignalMetrics):
         """
         Processes a signal file by attempting to send it to the validators.
         """
-        hotkey_to_v_trust = {neuron.hotkey: neuron.validator_trust for neuron in self.metagraph.neurons}
+        hotkey_to_v_trust = {neuron.hotkey: neuron.validator_trust for neuron in self.metagraph_updater.get_metagraph().neurons}
         axons_to_try = self.position_inspector.get_possible_validators()
         axons_to_try.sort(key=lambda validator: hotkey_to_v_trust[validator.hotkey], reverse=True)
 
@@ -267,7 +268,7 @@ class PropNetOrderPlacer:
             if self._shutdown:
                 bt.logging.warning("Shutting down, abandoning signal processing")
                 return None
-            self.attempt_to_send_signal(send_signal_request, retry_status, high_trust_validators,
+            await self.attempt_to_send_signal(send_signal_request, retry_status, high_trust_validators,
                                         validator_hotkey_to_axon, metrics)
 
         # After retries, check if all high-trust validators have processed the signal successfully
@@ -318,19 +319,11 @@ class PropNetOrderPlacer:
         else:
             return high_trust_validators
 
-    def _ensure_event_loop(self):
-        try:
-            asyncio.get_running_loop()
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
 
-    def attempt_to_send_signal(self, send_signal_request: SendSignal, retry_status: dict,
+    async def attempt_to_send_signal(self, send_signal_request: SendSignal, retry_status: dict,
                                high_trust_validators: list, validator_hotkey_to_axon: dict,
                                metrics: SignalMetrics):
-        self._ensure_event_loop()
-
-        hotkey_to_v_trust = {neuron.hotkey: neuron.validator_trust for neuron in self.metagraph.neurons}
+        hotkey_to_v_trust = {neuron.hotkey: neuron.validator_trust for neuron in self.metagraph_updater.get_metagraph().neurons}
 
         bt.logging.info(
             f"Attempt #{retry_status['retry_attempts']} for {send_signal_request.signal['trade_pair']['trade_pair_id']} "
@@ -338,14 +331,14 @@ class PropNetOrderPlacer:
             f"Sending order to {len(retry_status['validators_needing_retry'])} hotkeys...")
 
         if retry_status['retry_attempts'] != 0:
-            time.sleep(retry_status['retry_delay_seconds'])
+            await asyncio.sleep(retry_status['retry_delay_seconds'])
             retry_status['retry_delay_seconds'] *= 2
 
-        dendrite = bt.dendrite(wallet=self.wallet)
-
-        metrics.mark_network_start()
-        validator_responses: list[Synapse] = dendrite.query(retry_status['validators_needing_retry'], send_signal_request)
-        metrics.mark_network_end()
+        # Use async context manager for automatic cleanup
+        async with bt.dendrite(wallet=self.wallet) as dendrite:
+            metrics.mark_network_start()
+            validator_responses: list[Synapse] = await dendrite.aquery(retry_status['validators_needing_retry'], send_signal_request)
+            metrics.mark_network_end()
 
         all_high_trust_validators_succeeded = True
         success_validators = set()

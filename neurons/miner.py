@@ -20,6 +20,15 @@ from shared_objects.metagraph_updater import MetagraphUpdater
 from vali_objects.decoders.generalized_json_decoder import GeneralizedJSONDecoder
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 
+class MinerMetagraph():
+    def __init__(self):
+        # Only essential attributes used in miner codebase
+        self.neurons = []         # Used to access neuron properties (stake, validator_trust, axon_info)
+        self.hotkeys = []         # Used for registration check and UID lookup  
+        self.uids = []            # Used by shared code
+        self.block_at_registration = []  # Used by metagraph_updater.py sync_lists
+        self.axons = []           # Used in dashboard.py for testnet validator queries
+
 
 class Miner:
     def __init__(self):
@@ -36,21 +45,26 @@ class Miner:
             webhook_url=self.config.slack_webhook_url,
             error_webhook_url=self.config.slack_error_webhook_url
         )
-        self.subtensor = bt.subtensor(config=self.config)
-        self.metagraph = self.subtensor.metagraph(self.config.netuid)
+        self.metagraph = MinerMetagraph()
         self.position_inspector = PositionInspector(self.wallet, self.metagraph, self.config)
+        self.metagraph_updater = MetagraphUpdater(self.config, self.metagraph, self.wallet.hotkey.ss58_address,
+                                                  True, position_inspector=self.position_inspector,
+                                                    slack_notifier=self.slack_notifier)
         self.prop_net_order_placer = PropNetOrderPlacer(
             self.wallet,
-            self.metagraph,
+            self.metagraph_updater,
             self.config,
             self.is_testnet,
             position_inspector=self.position_inspector,
             slack_notifier=self.slack_notifier
         )
-        self.metagraph_updater = MetagraphUpdater(self.config, self.metagraph, self.wallet.hotkey.ss58_address,
-                                                  True, position_inspector=self.position_inspector,
-                                                    slack_notifier=self.slack_notifier)
 
+        # Start the metagraph updater and wait for initial population
+        self.metagraph_updater_thread = self.metagraph_updater.start_and_wait_for_initial_update(
+            max_wait_time=60,
+            slack_notifier=self.slack_notifier
+        )
+        
         self.check_miner_registration()
         self.my_subnet_uid = self.metagraph.hotkeys.index(self.wallet.hotkey.ss58_address)
         bt.logging.info(f"Running miner on netuid {self.config.netuid} with uid: {self.my_subnet_uid}")
@@ -64,12 +78,9 @@ class Miner:
             level="info"
         )
 
-        # Start the metagraph updater loop in its own thread
-        self.metagraph_updater_thread = threading.Thread(target=self.metagraph_updater.run_update_loop, daemon=True)
-        self.metagraph_updater_thread.start()
         # Start position inspector loop in its own thread
         if self.config.run_position_inspector:
-            self.position_inspector_thread = threading.Thread(target=self.position_inspector.run_update_loop,
+            self.position_inspector_thread = threading.Thread(target=self.position_inspector.run_update_loop_sync,
                                                               daemon=True)
             self.position_inspector_thread.start()
         else:
@@ -244,9 +255,11 @@ class Miner:
         while True:
             try:
                 signals, signal_file_names = self.get_all_files_in_dir_no_duplicate_trade_pairs()
+                n_signals = len(signals)
                 self.prop_net_order_placer.send_signals(signals, signal_file_names, recently_acked_validators=
                 self.position_inspector.get_recently_acked_validators())
-                time.sleep(1)
+                if n_signals == 0:
+                    time.sleep(0.2)
             # If someone intentionally stops the miner, it'll safely terminate operations.
             except KeyboardInterrupt:
                 self.slack_notifier.send_message("🛑 Miner shutting down (keyboard interrupt)", level="warning")

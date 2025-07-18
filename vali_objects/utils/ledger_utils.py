@@ -2,8 +2,7 @@
 import math
 import numpy as np
 import copy
-from datetime import datetime, timezone, date
-
+from datetime import datetime, timezone, timedelta, date
 from vali_objects.vali_dataclasses.perf_ledger import TP_ID_PORTFOLIO
 from vali_objects.vali_config import ValiConfig, TradePair
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedger
@@ -35,6 +34,51 @@ class LedgerUtils:
         date_return_map = LedgerUtils.daily_return_log_by_date(ledger)
         return {date: (math.exp(log_return) - 1) * 100
                 for date, log_return in date_return_map.items()}
+
+    @staticmethod
+    def daily_return_ratio_by_date(ledger: PerfLedger, use_log: bool) -> dict[datetime.date, float]:
+        """
+        Calculate daily returns from performance checkpoints, with date keys as datetime.date objects.
+
+        :param ledger: PerfLedger - the ledger of the miner
+        :param use_log: If True, calculates log returns; otherwise, calculates simple returns
+        :return: dict[datetime.date, float] - dictionary mapping dates to daily returns
+        """
+        if not ledger or not ledger.cps:
+            return {}
+
+        daily_cps = {}
+
+        # Group checkpoints by date
+        for cp in ledger.cps:
+            # if cp's `last_update_ms` is at day T 00:00:00, it represents the ending value for day T-1
+            cp_dt = datetime.fromtimestamp(cp.last_update_ms / 1000, tz=timezone.utc)
+            if cp_dt.time() == datetime.min.time():   # 00:00:00 UTC
+                running_date = (cp_dt - timedelta(days=1)).date()
+                daily_cps[running_date] = cp
+
+        ans = {}
+        prev_day_end_value = 1.0  # First day begins with portfolio value of 1
+        
+        # Iterating in chronological order since python dicts are sorted by insertion order
+        for date, cp in daily_cps.items():
+            # For day 'date':
+            # - begin_value = portfolio value at beginning of day (00:00:00)
+            # - end_value = portfolio value at end of day (next day 00:00:00)
+            begin_value = prev_day_end_value
+            end_value = cp.prev_portfolio_ret
+            
+            try:
+                if use_log:
+                    ans[date] = math.log(end_value / begin_value)
+                else:
+                    ans[date] = (end_value / begin_value) - 1
+            except (ZeroDivisionError, ValueError):
+                ans[date] = None   # fallback if begin_value is 0 or invalid
+                
+            prev_day_end_value = end_value
+
+        return ans
                 
     @staticmethod
     def daily_returns_by_date_json(ledger: PerfLedger) -> dict[str, float]:
@@ -130,7 +174,7 @@ class LedgerUtils:
             bt.logging.info(f"testing_date is invalid, returning False: {testing_date}")
             return False
         
-        asset_id = ledger.asset_id
+        asset_id = ledger.tp_id
         # TODO We may need to revisit this if portfolio ledgers become asset specific
         if asset_id == TP_ID_PORTFOLIO:
             return True
@@ -359,6 +403,8 @@ class LedgerUtils:
         Args:
             ledger: PerfLedger - the ledger of the miner
         """
+        if not ledger:
+            return 0
         checkpoints = ledger.cps
         if len(checkpoints) == 0:
             return 0

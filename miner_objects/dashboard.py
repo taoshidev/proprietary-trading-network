@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from miner_config import MinerConfig
 from shared_objects.rate_limiter import RateLimiter
+# Note: Using async with bt.dendrite() for automatic cleanup - no need for manual DendriteUtils
 
 origins = [
     "*",
@@ -87,25 +88,26 @@ class Dashboard:
         get miner stats from validator
         """
         success = False
-        dendrite = bt.dendrite(wallet=self.wallet)
         error_messages = []
         if self.is_testnet:
             validator_axons = self.metagraph.axons
         else:
             validator_axons = [n.axon_info for n in self.metagraph.neurons if n.hotkey == "5FeNwZ5oAqcJMitNqGx71vxGRWJhsdTqxFGVwPRfg8h2UZmo"]
+        
         try:
             bt.logging.info("Dashboard stats request processing")
             miner_dash_synapse = template.protocol.GetDashData()
-            validator_response = await dendrite.aquery(axons=validator_axons, synapse=miner_dash_synapse, timeout=15)
-            for response in validator_response:
-                if response.successfully_processed:
-                    if response.data["timestamp"] >= self.miner_data["timestamp"]:  # use the validator with the freshest data
-                        self.miner_data = response.data
-                        validator_hotkey = response.axon.hotkey
-                        success = True
-                else:
-                    if response.error_message:
-                        error_messages.append(response.error_message)
+            async with bt.dendrite(wallet=self.wallet) as dendrite:
+                validator_response = await dendrite.aquery(axons=validator_axons, synapse=miner_dash_synapse, timeout=15)
+                for response in validator_response:
+                    if response.successfully_processed:
+                        if response.data["timestamp"] >= self.miner_data["timestamp"]:  # use the validator with the freshest data
+                            self.miner_data = response.data
+                            validator_hotkey = response.axon.hotkey
+                            success = True
+                    else:
+                        if response.error_message:
+                            error_messages.append(response.error_message)
         except Exception as e:
             bt.logging.info(
                 f"Unable to receive dashboard info from validators with error [{e}]")

@@ -182,7 +182,6 @@ class PolygonDataService(BaseDataService):
             else:
                 self.websocket_manager_thread = threading.Thread(target=self.websocket_manager, daemon=True)
             self.websocket_manager_thread.start()
-            #time.sleep(3) # Let the websocket_manager_thread start
 
     def parse_price_for_forex(self, m, stats=None, is_ws=False) -> (float, float, float):
         t_ms = m.timestamp if is_ws else m.participant_timestamp // 1000000
@@ -317,6 +316,7 @@ class PolygonDataService(BaseDataService):
 
                 tpc = tp.trade_pair_category
                 self.tpc_to_n_events[tpc] += 1
+                self.tpc_to_last_event_time[tpc] = time.time()
                 # This could be a candle so we can make 2 prices, one for the open and one for the close
                 symbol = tp.trade_pair
                 ps1, ps2 = msg_to_price_sources(m, tp)

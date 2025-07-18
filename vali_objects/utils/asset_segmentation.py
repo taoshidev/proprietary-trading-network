@@ -67,7 +67,7 @@ class AssetSegmentation:
 
                 trade_pair = TradePair.from_trade_pair_id(asset_name)
                 trade_pair_category = trade_pair.subcategory
-                if trade_pair_category is None:
+                if trade_pair_category is None and trade_pair.trade_pair_category not in (TradePairCategory.INDICES, TradePairCategory.EQUITIES):
                     bt.logging.warning(
                         f"Trade pair {asset_name} does not have a valid subcategory. "
                         "This may lead to incorrect asset segmentation."
@@ -140,6 +140,8 @@ class AssetSegmentation:
             cumulative_weighted += i * v
 
         total = cumulative
+        if n == 0 or total == 0:
+            return None
         g = (2 * cumulative_weighted) / (n * total) - (n + 1) / n
         return g if not math.isnan(g) else None
 

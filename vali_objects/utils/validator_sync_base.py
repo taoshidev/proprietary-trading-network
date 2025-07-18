@@ -30,9 +30,12 @@ class PositionSyncResultException(Exception):
 class ValidatorSyncBase():
     def __init__(self, shutdown_dict=None, signal_sync_lock=None, signal_sync_condition=None,
                  n_orders_being_processed=None, running_unit_tests=False, position_manager=None,
-                 ipc_manager=None):
+                 ipc_manager=None, enable_position_splitting = False, verbose=False
+):
+        self.verbose = verbose
         self.is_mothership = 'ms' in ValiUtils.get_secrets(running_unit_tests=running_unit_tests)
         self.SYNC_LOOK_AROUND_MS = 1000 * 60 * 3
+        self.enable_position_splitting = enable_position_splitting
         self.position_manager = position_manager
         self.shutdown_dict = shutdown_dict
         self.last_signal_sync_time_ms = 0
@@ -48,15 +51,17 @@ class ValidatorSyncBase():
     def init_data(self):
         self.global_stats = defaultdict(int)
 
-        self.miners_with_order_deletion = set()
-        self.miners_with_order_insertion = set()
-        self.miners_with_order_matched = set()
-        self.miners_with_order_kept = set()
+        # Order tracking sets (by miner)
+        self.miners_with_order_deletions = set()
+        self.miners_with_order_insertions = set()
+        self.miners_with_order_matches = set()
+        self.miners_with_order_updates = set()
 
-        self.miners_with_position_deletion = set()
-        self.miners_with_position_insertion = set()
-        self.miners_with_position_matched = set()
-        self.miners_with_position_kept = set()
+        # Position tracking sets (by miner)
+        self.miners_with_position_deletions = set()
+        self.miners_with_position_insertions = set()
+        self.miners_with_position_matches = set()
+        self.miners_with_position_updates = set()
         self.perf_ledger_hks_to_invalidate.clear()
 
     def sync_positions(self, shadow_mode, candidate_data=None, disk_positions=None) -> dict[str: list[Position]]:
@@ -89,8 +94,20 @@ class ValidatorSyncBase():
 
         eliminations = candidate_data['eliminations']
         if not self.is_mothership:
+            # Get current eliminations before sync
+            old_eliminated_hotkeys = set(x['hotkey'] for x in self.position_manager.elimination_manager.eliminations)
+            
+            # Sync eliminations and get removed hotkeys
             removed = self.position_manager.elimination_manager.sync_eliminations(eliminations)
+            
+            # Get new eliminations after sync
+            new_eliminated_hotkeys = set(x['hotkey'] for x in eliminations)
+            newly_eliminated = new_eliminated_hotkeys - old_eliminated_hotkeys
+            
+            # Invalidate perf ledgers for both removed and newly eliminated miners
             for hk in removed:
+                self.perf_ledger_hks_to_invalidate[hk] = 0
+            for hk in newly_eliminated:
                 self.perf_ledger_hks_to_invalidate[hk] = 0
 
 
@@ -123,9 +140,13 @@ class ValidatorSyncBase():
             if hotkey in eliminated_hotkeys:
                 self.global_stats['n_miners_skipped_eliminated'] += 1
                 continue
-            self.position_manager.dedupe_positions(positions, hotkey)
+            
+            # Deduplicate candidate positions BEFORE processing
+            deduped_positions = self._dedupe_candidate_positions(positions)
+            candidate_hk_to_positions[hotkey] = deduped_positions
+            
             self.global_stats['n_miners_synced'] += 1
-            candidate_positions_by_trade_pair = self.partition_positions_by_trade_pair(positions)
+            candidate_positions_by_trade_pair = self.partition_positions_by_trade_pair(deduped_positions)
             existing_positions_by_trade_pair = self.partition_positions_by_trade_pair(disk_positions.get(hotkey, []))
             unified_trade_pairs = set(candidate_positions_by_trade_pair.keys()) | set(existing_positions_by_trade_pair.keys())
             for trade_pair in unified_trade_pairs:
@@ -154,32 +175,98 @@ class ValidatorSyncBase():
                         self.global_stats['exceptions_seen'] += 1
 
 
-        # count sets
-        self.global_stats['n_miners_positions_deleted'] = len(self.miners_with_position_deletion)
-        self.global_stats['n_miners_positions_inserted'] = len(self.miners_with_position_insertion)
-        self.global_stats['n_miners_positions_matched'] = len(self.miners_with_position_matched)
-        self.global_stats['n_miners_positions_kept'] = len(self.miners_with_position_kept)
+        # Reorganized stats with clear, grouped naming
+        # Overview
+        self.global_stats['miners_processed'] = self.global_stats['n_miners_synced']
+        self.global_stats['miners_eliminated_skipped'] = self.global_stats['n_miners_skipped_eliminated']
+        
+        # Position outcomes (by unique miners)
+        self.global_stats['miners_with_position_updates'] = len(self.miners_with_position_updates)
+        self.global_stats['miners_with_position_matches'] = len(self.miners_with_position_matches)
+        self.global_stats['miners_with_position_insertions'] = len(self.miners_with_position_insertions)
+        self.global_stats['miners_with_position_deletions'] = len(self.miners_with_position_deletions)
+        
+        # Order outcomes (by unique miners)
+        self.global_stats['miners_with_order_updates'] = len(self.miners_with_order_updates)
+        self.global_stats['miners_with_order_matches'] = len(self.miners_with_order_matches)
+        self.global_stats['miners_with_order_insertions'] = len(self.miners_with_order_insertions)
+        self.global_stats['miners_with_order_deletions'] = len(self.miners_with_order_deletions)
+        
+        # Note: Raw counts use existing legacy keys directly (no duplication)
 
-        self.global_stats['n_miners_orders_deleted'] = len(self.miners_with_order_deletion)
-        self.global_stats['n_miners_orders_inserted'] = len(self.miners_with_order_insertion)
-        self.global_stats['n_miners_orders_matched'] = len(self.miners_with_order_matched)
-        self.global_stats['n_miners_orders_kept'] = len(self.miners_with_order_kept)
-
-        # Print self.global_stats
-        bt.logging.info("Global stats:")
-        for k, v in self.global_stats.items():
-            bt.logging.info(f"  {k}: {v}")
-        bt.logging.info(f"Position sync took {time.time() - t0} seconds")
+        # Print reorganized stats with clear grouping
+        bt.logging.info("=" * 60)
+        bt.logging.info("AUTOSYNC STATISTICS")
+        bt.logging.info("=" * 60)
+        
+        # Overview section
+        bt.logging.info("SYNC OVERVIEW:")
+        bt.logging.info(f"  miners_processed: {self.global_stats.get('miners_processed', 0)}")
+        bt.logging.info(f"  miners_eliminated_skipped: {self.global_stats.get('miners_eliminated_skipped', 0)}")
+        bt.logging.info(f"  sync_duration_seconds: {time.time() - t0:.2f}")
+        
+        # Position outcomes
+        bt.logging.info("POSITION OUTCOMES (by unique miners):")
+        bt.logging.info(f"  miners_with_position_updates: {self.global_stats.get('miners_with_position_updates', 0)}")
+        bt.logging.info(f"  miners_with_position_matches: {self.global_stats.get('miners_with_position_matches', 0)}")
+        bt.logging.info(f"  miners_with_position_insertions: {self.global_stats.get('miners_with_position_insertions', 0)}")
+        bt.logging.info(f"  miners_with_position_deletions: {self.global_stats.get('miners_with_position_deletions', 0)}")
+        
+        # Order outcomes
+        bt.logging.info("ORDER OUTCOMES (by unique miners):")
+        bt.logging.info(f"  miners_with_order_updates: {self.global_stats.get('miners_with_order_updates', 0)}")
+        bt.logging.info(f"  miners_with_order_matches: {self.global_stats.get('miners_with_order_matches', 0)}")
+        bt.logging.info(f"  miners_with_order_insertions: {self.global_stats.get('miners_with_order_insertions', 0)}")
+        bt.logging.info(f"  miners_with_order_deletions: {self.global_stats.get('miners_with_order_deletions', 0)}")
+        
+        # Order-level operation counts (more actionable metrics)
+        bt.logging.info("ORDER OPERATIONS (total counts):")
+        bt.logging.info(f"  total_orders_inserted: {self.global_stats.get('orders_inserted', 0)}")
+        bt.logging.info(f"  total_orders_updated: {self.global_stats.get('orders_updated', 0)}")
+        bt.logging.info(f"  total_orders_deleted: {self.global_stats.get('orders_deleted', 0)}")
+        bt.logging.info(f"  total_orders_matched: {self.global_stats.get('orders_matched', 0)}")
+        
+        # Raw counts (total items and miners processed)
+        bt.logging.info("RAW COUNTS (total items and miners processed):")
+        bt.logging.info(f"  total_positions_processed: {self.global_stats.get('positions_matched', 0)}")
+        bt.logging.info(f"  total_orders_processed: {self.global_stats.get('orders_matched', 0)}")
+        bt.logging.info(f"  total_miners_processed: {self.global_stats.get('miners_processed', 0)}")
+        
+        # Other stats (exclude keys we already displayed above)
+        excluded_keys = {
+            'miners_processed', 'miners_eliminated_skipped',  # Overview keys
+            'n_miners_synced', 'n_miners_skipped_eliminated',  # Legacy overview 
+            'positions_matched', 'orders_matched',  # Raw counts (already shown)
+            'positions_deleted', 'positions_inserted', 'positions_kept',  # Raw position ops
+            'orders_deleted', 'orders_inserted', 'orders_updated', 'orders_kept'  # Order ops (already shown)
+        }
+        other_stats = {k: v for k, v in self.global_stats.items() 
+                      if not k.startswith('miners_with_') and k not in excluded_keys}
+        if other_stats:
+            bt.logging.info("OTHER STATS:")
+            for k, v in other_stats.items():
+                bt.logging.info(f"  {k}: {v}")
+        
+        bt.logging.info("=" * 60)
 
     def write_modifications(self, position_to_sync_status, stats):
+        # Track position sync statuses for global stats
+        for position, sync_status in position_to_sync_status.items():
+            hk = position.miner_hotkey
+            if sync_status == PositionSyncResult.UPDATED:
+                self.miners_with_position_updates.add(hk)
+            elif sync_status == PositionSyncResult.NOTHING:
+                self.miners_with_position_matches.add(hk)
+            elif sync_status == PositionSyncResult.INSERTED:
+                self.miners_with_position_insertions.add(hk)
+            elif sync_status == PositionSyncResult.DELETED:
+                self.miners_with_position_deletions.add(hk)
+            # KEPT status is handled elsewhere in the existing flow
+        
         # Ensure the enums align with the global stats
         kept_and_matched = stats['kept'] + stats['matched']
         deleted = stats['deleted']
         inserted = stats['inserted']
-
-        # handle having multiple open positions for a hotkey
-        # close the older open position
-        prev_open_position = None
 
         #for position, sync_status in position_to_sync_status.items():
         #    position_debug_sting = f'---debug printing pos to ss: {position.trade_pair.trade_pair_id} n_orders {len(position.orders)}'
@@ -201,6 +288,9 @@ class ValidatorSyncBase():
         #        if not self.is_mothership:
         #            if position.is_closed_position:
         #                self.position_manager.delete_open_position_if_exists(position)
+        
+        # Handle multiple open positions for a hotkey - reset for each sync status to prevent cross-contamination
+        prev_open_position = None
         for position, sync_status in position_to_sync_status.items():
             if sync_status == PositionSyncResult.UPDATED:
                 if not self.is_mothership:
@@ -210,7 +300,10 @@ class ValidatorSyncBase():
                             prev_open_position = self.close_older_open_position(p, prev_open_position)
                         self.position_manager.overwrite_position_on_disk(p)
                 kept_and_matched -= 1
+        
         # Insertions happen last so that there is no double open position issue
+        # Reset prev_open_position to prevent contamination from UPDATED positions
+        prev_open_position = None
         for position, sync_status in position_to_sync_status.items():
             if sync_status == PositionSyncResult.INSERTED:
                 inserted -= 1
@@ -220,6 +313,10 @@ class ValidatorSyncBase():
                         if p.is_open_position:
                             prev_open_position = self.close_older_open_position(p, prev_open_position)
                         self.position_manager.overwrite_position_on_disk(p)
+        
+        # Handle NOTHING status positions
+        # Reset prev_open_position to prevent contamination from previous sync statuses
+        prev_open_position = None
         for position, sync_status in position_to_sync_status.items():
             if sync_status == PositionSyncResult.NOTHING:
                 kept_and_matched -= 1
@@ -228,6 +325,7 @@ class ValidatorSyncBase():
                     for p in positions:
                         if p.is_open_position:
                             prev_open_position = self.close_older_open_position(p, prev_open_position)
+                        self.position_manager.overwrite_position_on_disk(p)
 
         if kept_and_matched != 0:
             raise PositionSyncResultException(f"kept_and_matched: {kept_and_matched} stats {stats}")
@@ -329,7 +427,6 @@ class ValidatorSyncBase():
                  abs(o1["processed_ms"] - o2["processed_ms"]) < timebound_ms))
 
     def sync_orders(self, ep, cp, hk, trade_pair, hard_snap_cutoff_ms):
-        debug = 1
         existing_orders = ep.orders
         candidate_orders = cp.orders
         min_timestamp_of_order_change = float('inf')
@@ -399,19 +496,23 @@ class ValidatorSyncBase():
 
         if stats['deleted']:
             self.global_stats['orders_deleted'] += stats['deleted']
-            self.miners_with_order_deletion.add(hk)
+            self.miners_with_order_deletions.add(hk)
         if stats['inserted']:
             self.global_stats['orders_inserted'] += stats['inserted']
-            self.miners_with_order_insertion.add(hk)
+            self.miners_with_order_insertions.add(hk)
         if stats['matched']:
             self.global_stats['orders_matched'] += stats['matched']
-            self.miners_with_order_matched.add(hk)
+            self.miners_with_order_matches.add(hk)
         if stats['kept']:
             self.global_stats['orders_kept'] += stats['kept']
-            self.miners_with_order_kept.add(hk)
+        
+        # Track order updates (when orders are modified)
+        if stats.get('updated', 0) > 0:
+            self.global_stats['orders_updated'] = self.global_stats.get('orders_updated', 0) + stats['updated']
+            self.miners_with_order_updates.add(hk)
 
         any_changes = stats['inserted'] + stats['deleted']
-        if debug and any_changes:
+        if self.verbose and any_changes:
             print(f'hk {hk} trade pair {trade_pair.trade_pair} - Found {len(candidate_orders)} candidates and'
                   f' {len(existing_orders)} existing orders. stats {stats} min_timestamp_of_order_change {min_timestamp_of_order_change}')
 
@@ -444,7 +545,6 @@ class ValidatorSyncBase():
         return ans, min_timestamp_of_order_change
 
     def resolve_positions(self, candidate_positions, existing_positions, trade_pair, hk, hard_snap_cutoff_ms):
-        debug = 1
         min_timestamp_of_change = float('inf')  # If this stays as float('inf), no changes happened
         candidate_positions_original = deepcopy(candidate_positions)
         existing_positions_original = deepcopy(existing_positions)
@@ -482,6 +582,10 @@ class ValidatorSyncBase():
                         position_to_sync_status[e] = PositionSyncResult.UPDATED
                     else:
                         position_to_sync_status[e] = PositionSyncResult.NOTHING
+                        # Check if position actually needs splitting before forcing write_modifications
+                        if self.position_manager and self.position_manager._position_needs_splitting(e):
+                            # Force write_modifications to be called for position splitting
+                            min_timestamp_of_change = min(min_timestamp_of_change, e.open_ms)
                     # open_postition_acked |= e.is_open_position
                     ret.append(e)
 
@@ -510,6 +614,10 @@ class ValidatorSyncBase():
                         position_to_sync_status[e] = PositionSyncResult.UPDATED
                     else:
                         position_to_sync_status[e] = PositionSyncResult.NOTHING
+                        # Check if position actually needs splitting before forcing write_modifications
+                        if self.position_manager and self.position_manager._position_needs_splitting(e):
+                            # Force write_modifications to be called for position splitting
+                            min_timestamp_of_change = min(min_timestamp_of_change, e.open_ms)
                     # open_postition_acked |= e.is_open_position
                     matched_candidates_by_uuid |= {c.position_uuid}
                     matched_existing_by_uuid |= {e.position_uuid}
@@ -564,19 +672,23 @@ class ValidatorSyncBase():
 
         if stats['deleted']:
             self.global_stats['positions_deleted'] += stats['deleted']
-            self.miners_with_position_deletion.add(hk)
+            self.miners_with_position_deletions.add(hk)
         if stats['inserted']:
             self.global_stats['positions_inserted'] += stats['inserted']
-            self.miners_with_position_insertion.add(hk)
+            self.miners_with_position_insertions.add(hk)
         if stats['matched']:
             self.global_stats['positions_matched'] += stats['matched']
-            self.miners_with_position_matched.add(hk)
+            self.miners_with_position_matches.add(hk)
         if stats['kept']:
             self.global_stats['positions_kept'] += stats['kept']
-            self.miners_with_position_kept.add(hk)
+        
+        # Track position updates (when positions are modified)
+        if stats.get('updated', 0) > 0:
+            self.global_stats['positions_updated'] = self.global_stats.get('positions_updated', 0) + stats['updated']
+            self.miners_with_position_updates.add(hk)
 
 
-        if debug and (stats['inserted'] or stats['deleted']):
+        if self.verbose and (stats['inserted'] or stats['deleted']):
             print(f'hk {hk} trade pair {trade_pair.trade_pair} - Found {len(candidate_positions)} candidates and'
                   f' {len(existing_positions)} existing positions. stats {stats}')
 
@@ -608,6 +720,37 @@ class ValidatorSyncBase():
         # assert n_open < 2, f"n_open: {n_open}"
         return position_to_sync_status, min_timestamp_of_change, stats
 
+    def _dedupe_candidate_positions(self, positions: list[Position]) -> list[Position]:
+        """
+        Deduplicate candidate positions in memory before sync processing.
+        Similar to position_manager.dedupe_positions but works on in-memory data.
+        """
+        if not positions:
+            return positions
+            
+        positions_by_trade_pair = defaultdict(list)
+        for position in positions:
+            positions_by_trade_pair[position.trade_pair].append(position)
+
+        deduped_positions = []
+        for trade_pair, trade_pair_positions in positions_by_trade_pair.items():
+            position_uuid_to_keep = {}
+            
+            for position in trade_pair_positions:
+                if position.position_uuid in position_uuid_to_keep:
+                    # Keep the position with more orders (same logic as position_manager.dedupe_positions)
+                    existing_position = position_uuid_to_keep[position.position_uuid]
+                    if len(position.orders) > len(existing_position.orders):
+                        position_uuid_to_keep[position.position_uuid] = position
+                    # If current has same or fewer orders, keep the existing one (do nothing)
+                else:
+                    position_uuid_to_keep[position.position_uuid] = position
+            
+            # Add the deduplicated positions for this trade pair
+            deduped_positions.extend(position_uuid_to_keep.values())
+        
+        return deduped_positions
+
     def partition_positions_by_trade_pair(self, positions: list[Position]) -> dict[str, list[Position]]:
         positions_by_trade_pair = defaultdict(list)
         for position in positions:
@@ -616,41 +759,23 @@ class ValidatorSyncBase():
 
     def split_position_on_flat(self, position: Position) -> list[Position]:
         """
-        Takes a position, iterates through the orders, and splits the position into multiple positions
-        separated by the FLAT orders in the original position.
-        If there are no FLAT orders or the FLAT is at the end, no splitting is done.
+        Delegates position splitting to the PositionManager.
+        This maintains the autosync logic while using the centralized splitting implementation.
         """
-        positions = [position]
-        all_orders = []
-        orders_for_sub_position = []
-
-        for order in position.orders:
-            orders_for_sub_position.append(order)
-
-            if order.order_type == OrderType.FLAT:
-                all_orders.append(orders_for_sub_position)
-                orders_for_sub_position = []
-
-        # last set of orders not ending in FLAT
-        if orders_for_sub_position:
-            all_orders.append(orders_for_sub_position)
-
-        # return original position if there is no FLAT, or FLAT is last order
-        if len(all_orders) == 1:
-            return positions
-
-        # truncate orders in original position
-        position.orders = all_orders[0]
-        position.rebuild_position_with_updated_orders()
-
-        # create new positions for each set of remaining orders
-        for position_orders in all_orders[1:]:
-            new_position = Position(miner_hotkey=position.miner_hotkey,
-                                    position_uuid=position_orders[0].order_uuid,
-                                    open_ms=0,
-                                    trade_pair=position.trade_pair,
-                                    orders=position_orders)
-            new_position.rebuild_position_with_updated_orders()
-            positions.append(new_position)
-        self.global_stats['n_positions_spawned_from_post_flat_orders'] += len(positions) - 1
+        if not self.position_manager or not self.enable_position_splitting:
+            # If no position manager or splitting disabled, return position as-is
+            return [position]
+        
+        # Use the position manager's split method
+        positions, split_info = self.position_manager.split_position_on_flat(position, track_stats=False)
+        
+        # Track statistics for autosync
+        if len(positions) > 1:
+            self.global_stats['n_positions_spawned_from_post_flat_orders'] += len(positions) - 1
+            
+            # Track implicit flat splits
+            if split_info['implicit_flat_splits'] > 0:
+                self.global_stats['n_positions_split_on_implicit_flat'] = \
+                    self.global_stats.get('n_positions_split_on_implicit_flat', 0) + split_info['implicit_flat_splits']
+        
         return positions

@@ -18,6 +18,7 @@ from pandas.tseries.holiday import USFederalHolidayCalendar  # noqa: E402
 
 import pandas_market_calendars as mcal  # noqa: E402
 from pandas.tseries.holiday import Holiday, nearest_workday, GoodFriday  # noqa: E402
+MS_IN_1_HOUR = 3600000
 MS_IN_8_HOURS =  28800000
 MS_IN_24_HOURS = 86400000
 
@@ -104,23 +105,21 @@ class ForexHolidayCalendar(USFederalHolidayCalendar):
         return ans
 
     def is_forex_market_closed_full_day(self, testing_day: date) -> bool:
-        """Check if the market is closed at the start of the UTC day and at the end of the UTC day."""
+        """Check if the Forex market is closed for the entire UTC day."""
+
         if testing_day is None or not isinstance(testing_day, date):
             bt.logging.info(f"testing day is invalid, returning false: {testing_day}")
             return False
-        # Convert the date to UTC datetime at start of day (00:00:00)
-        start_of_day = datetime.combine(testing_day, datetime.min.time()).replace(tzinfo=timezone.utc)
-        start_of_day_ms = int(start_of_day.timestamp() * 1000)
-        
-        # Convert the date to UTC datetime at end of day (23:59:59)
-        end_of_day = datetime.combine(testing_day, datetime.max.time()).replace(tzinfo=timezone.utc)
-        end_of_day_ms = int(end_of_day.timestamp() * 1000)
-        
-        # Check if market is closed at both start and end of day
-        market_closed_at_start = not self.is_forex_market_open(start_of_day_ms)
-        market_closed_at_end = not self.is_forex_market_open(end_of_day_ms)
-        
-        return market_closed_at_start and market_closed_at_end
+
+        # Check start, middle, and end of UTC day
+        for hour in [0, 12, 23]:
+            timestamp = datetime(testing_day.year, testing_day.month, testing_day.day, hour, tzinfo=timezone.utc)
+            timestamp_ms = int(timestamp.timestamp() * 1000)
+
+            if self.is_forex_market_open(timestamp_ms):
+                return False
+
+        return True
 
 
 class IndicesMarketCalendar:
@@ -507,3 +506,42 @@ class TimeUtil:
         day_of_week = dt.weekday()
 
         return day_of_week
+
+    @staticmethod
+    def align_to_12hour_checkpoint_boundary(timestamp_ms: int) -> int:
+        """
+        Align a timestamp to the NEXT 12-hour checkpoint boundary (UTC boundaries).
+        
+        For 12-hour checkpoints, boundaries are at 00:00:00 and 12:00:00 UTC each day.
+        This function always snaps forward to the next boundary, never backward.
+        
+        Args:
+            timestamp_ms: Timestamp in milliseconds to align
+            
+        Returns:
+            Aligned timestamp in milliseconds (always >= input timestamp)
+            
+        Examples:
+            11:45:00 -> 12:00:00 (next boundary)
+            12:00:00 -> 12:00:00 (already on boundary, no change)
+            12:00:01 -> 00:00:00 next day (next boundary) 
+            23:59:59 -> 00:00:00 next day (next boundary)
+        """
+        # Convert to datetime to work with hour/minute/second
+        dt = TimeUtil.millis_to_datetime(timestamp_ms)
+        
+        # Check if we're already exactly on a 12-hour boundary
+        if dt.hour in [0, 12] and dt.minute == 0 and dt.second == 0 and dt.microsecond == 0:
+            # Already on boundary, return as-is
+            return timestamp_ms
+        
+        # Otherwise, find the next boundary
+        if dt.hour < 12:
+            # Next boundary is 12:00:00 today
+            boundary_dt = dt.replace(hour=12, minute=0, second=0, microsecond=0)
+        else:
+            # Next boundary is 00:00:00 tomorrow
+            boundary_dt = dt.replace(hour=0, minute=0, second=0, microsecond=0)
+            boundary_dt += timedelta(days=1)
+        
+        return int(boundary_dt.timestamp() * 1000)

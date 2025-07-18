@@ -4,6 +4,7 @@ import json
 import math
 import statistics
 import traceback
+import asyncio
 from collections import defaultdict
 from typing import List, Set
 
@@ -36,7 +37,7 @@ class P2PSyncer(ValidatorSyncBase):
         self.last_signal_sync_time_ms = 0
         self.running_unit_tests = running_unit_tests
 
-    def send_checkpoint_requests(self):
+    async def send_checkpoint_requests(self):
         """
         serializes checkpoint json and transmits to all validators via synapse
         """
@@ -46,14 +47,14 @@ class P2PSyncer(ValidatorSyncBase):
             return
 
         # get axons to send checkpoints to
-        dendrite = bt.dendrite(wallet=self.wallet)
         validator_axons = self.get_largest_staked_validators(ValiConfig.TOP_N_STAKE)
 
         try:
             bt.logging.info(f"Validator {self.wallet.hotkey.ss58_address} requesting checkpoints")
             # create dendrite and transmit synapse
             checkpoint_synapse = template.protocol.ValidatorCheckpoint()
-            validator_responses = dendrite.query(axons=validator_axons,  synapse=checkpoint_synapse, timeout=60 * 5)
+            async with bt.dendrite(wallet=self.wallet) as dendrite:
+                validator_responses = await dendrite.aquery(axons=validator_axons,  synapse=checkpoint_synapse, timeout=60 * 5)
 
             n_failures = 0
             n_successful_checkpoints = 0
@@ -573,7 +574,7 @@ class P2PSyncer(ValidatorSyncBase):
 
         return self.get_validators(sorted_stake_neurons)[:top_n_validators]
 
-    def sync_positions_with_cooldown(self):
+    async def sync_positions_with_cooldown(self):
         now_ms = TimeUtil.now_in_millis()
         # Already performed a sync recently
         if now_ms - self.last_signal_sync_time_ms < 1000 * 60 * 15:
@@ -593,7 +594,7 @@ class P2PSyncer(ValidatorSyncBase):
         try:
             bt.logging.info("Calling send_checkpoint_requests")
             self.golden = None
-            self.send_checkpoint_requests()
+            await self.send_checkpoint_requests()
             if self.created_golden:
                 bt.logging.info("Calling apply_golden")
                 # TODO guard sync_positions with the signal lock once we move on from shadow mode
@@ -607,6 +608,6 @@ class P2PSyncer(ValidatorSyncBase):
 if __name__ == "__main__":
     bt.logging.enable_default()
     position_syncer = P2PSyncer(is_testnet=True)
-    position_syncer.send_checkpoint_requests()
+    asyncio.run(position_syncer.send_checkpoint_requests())
     if position_syncer.created_golden:
         position_syncer.sync_positions(True, candidate_data=position_syncer.golden)

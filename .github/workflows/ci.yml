@@ -1,17 +1,16 @@
 name: Python CI
 
-on: [push, pull_request]
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+    branches:
+      - main
+      - master
 
 jobs:
-  ruff:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
-      - name: Ruff linting
-        uses: chartboost/ruff-action@v1
-
   pytest:
     runs-on: ubuntu-latest
     steps:
@@ -32,10 +31,3 @@ jobs:
         run: |
           coverage run -m pytest .
           coverage xml -o coverage.xml
-
-      - name: Report results to DeepSource
-        run: |
-          curl https://deepsource.io/cli | sh
-          ./bin/deepsource report --analyzer test-coverage --key python --value-file ./coverage.xml
-        env:
-          DEEPSOURCE_DSN: ${{ secrets.DEEPSOURCE_DSN }}

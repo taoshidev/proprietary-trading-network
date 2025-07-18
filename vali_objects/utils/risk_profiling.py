@@ -4,6 +4,7 @@ import numpy as np
 import bittensor as bt
 
 from vali_objects.vali_config import ValiConfig
+from time_util.time_util import TimeUtil
 
 from vali_objects.position import Position, Order
 from vali_objects.enums.order_type_enum import OrderType
@@ -11,8 +12,129 @@ from vali_objects.vali_config import TradePair
 from vali_objects.utils.functional_utils import FunctionalUtils
 
 class RiskProfiling:
+    
     @staticmethod
-    def monotonic_positions(position: Position) -> Position:
+    def _log_zero_leverage_warning(position: Position, position_orders: list[Order], 
+                                   final_active_order: int, is_long: bool, position_direction: int):
+        """
+        Build and log a comprehensive warning for positions with zero aggregate leverage.
+        
+        Args:
+            position: The position being analyzed
+            position_orders: List of orders in the position
+            final_active_order: Number of active orders to process
+            is_long: Whether this is a LONG position
+            position_direction: 1 for LONG, -1 for SHORT
+        """
+        # Build complete order history for logging
+        temp_aggregate_leverage = 0
+        temp_total_weighted_price = 0
+        temp_max_leverage = 0
+        temp_avg_in_price = 0
+        all_order_history = []
+        
+        # Process all orders to build complete history
+        for i in range(final_active_order):
+            current_order = position_orders[i]
+            
+            if i == 0:
+                # First order
+                temp_aggregate_leverage = current_order.leverage
+                temp_max_leverage = temp_aggregate_leverage
+                temp_total_weighted_price = current_order.price * current_order.leverage
+                temp_avg_in_price = current_order.price
+                
+                all_order_history.append({
+                    'order_idx': 0,
+                    'order_uuid': current_order.order_uuid,
+                    'order_type': current_order.order_type.name,
+                    'price': current_order.price,
+                    'leverage_delta': current_order.leverage,
+                    'agg_leverage': temp_aggregate_leverage,
+                    'losing': False,
+                    'avg_entry_price': temp_avg_in_price,
+                    'flagged': False,
+                    'zero_leverage': False
+                })
+            else:
+                # Subsequent orders
+                order_price_direction = current_order.price - temp_avg_in_price
+                losing_order = order_price_direction * position_direction < 0
+                
+                new_aggregate_leverage = temp_aggregate_leverage + current_order.leverage
+                leverage_increased_beyond_max = abs(new_aggregate_leverage) > abs(temp_max_leverage)
+                is_flagged = losing_order and leverage_increased_beyond_max
+                
+                if is_flagged:
+                    temp_max_leverage = new_aggregate_leverage
+                
+                temp_total_weighted_price += current_order.price * current_order.leverage
+                is_zero_leverage = (new_aggregate_leverage == 0)
+                
+                if is_zero_leverage:
+                    new_aggregate_leverage = ValiConfig.EPSILON
+                
+                temp_avg_in_price = temp_total_weighted_price / new_aggregate_leverage
+                temp_aggregate_leverage = new_aggregate_leverage
+                
+                all_order_history.append({
+                    'order_idx': i,
+                    'order_uuid': current_order.order_uuid,
+                    'order_type': current_order.order_type.name,
+                    'price': current_order.price,
+                    'leverage_delta': current_order.leverage,
+                    'agg_leverage': temp_aggregate_leverage,
+                    'losing': losing_order,
+                    'avg_entry_price': temp_avg_in_price,
+                    'flagged': is_flagged,
+                    'zero_leverage': is_zero_leverage
+                })
+        
+        # Build tabulated message
+        msg_lines = [
+            f"\n{'='*100}",
+            f"MONOTONIC POSITIONS: Zero Aggregate Leverage Detected",
+            f"{'='*100}",
+            f"Hotkey: {position.miner_hotkey}",
+            f"Position: {position.position_uuid}",
+            f"Type: {'LONG' if is_long else 'SHORT'}",
+            f"Opened: {TimeUtil.millis_to_formatted_date_str(position.open_ms)}",
+            f"{'='*100}",
+            f"COMPLETE ORDER HISTORY:",
+            f"{'-'*100}"
+        ]
+        
+        # Add header for events table
+        msg_lines.append(f"{'Idx':>3} | {'Order UUID':>12} | {'Type':>6} | {'Price':>10} | {'Lev Δ':>8} | {'Agg Lev':>8} | {'Losing':>6} | {'Avg Entry':>10} | {'Flags':>15}")
+        msg_lines.append(f"{'-'*3}-+-{'-'*12}-+-{'-'*6}-+-{'-'*10}-+-{'-'*8}-+-{'-'*8}-+-{'-'*6}-+-{'-'*10}-+-{'-'*15}")
+        
+        # Add each order
+        for event in all_order_history:
+            flags = []
+            if event['flagged']:
+                flags.append('FLAGGED')
+            if event['zero_leverage']:
+                flags.append('ZERO_LEV')
+            flag_str = ', '.join(flags) if flags else '-'
+            
+            msg_lines.append(
+                f"{event['order_idx']:>3} | "
+                f"{event['order_uuid'][:12]:>12} | "
+                f"{event['order_type']:>6} | "
+                f"{event['price']:>10.4f} | "
+                f"{event['leverage_delta']:>+8.4f} | "
+                f"{event['agg_leverage']:>8.4f} | "
+                f"{'YES' if event['losing'] else 'NO':>6} | "
+                f"{event['avg_entry_price']:>10.4f} | "
+                f"{flag_str:>15}"
+            )
+        
+        msg_lines.append(f"{'='*100}")
+        
+        # Log as single warning
+        bt.logging.warning('\n'.join(msg_lines))
+    @staticmethod
+    def monotonic_positions(position: Position, verbose=False) -> Position:
         """
         Extract orders with monotonically increasing leverage on losing positions.
 
@@ -21,6 +143,7 @@ class RiskProfiling:
 
         Args:
             position: Position object containing order history
+            verbose: If True, log detailed warnings for zero leverage events
 
         Returns:
             Position: A copy of the position with only the monotonically increasing leverage orders
@@ -53,6 +176,9 @@ class RiskProfiling:
         total_weighted_price = position_orders[0].price * initial_leverage  # need this to be "negative" for SHORT positions
         avg_in_price = total_weighted_price / aggregate_leverage  # this should always be positive though
 
+        # Track zero leverage detection (lazy initialization)
+        has_zero_leverage = False
+
         for i in range(1, final_active_order):
             current_order = position_orders[i]
             current_leverage_delta: float = current_order.leverage
@@ -60,7 +186,7 @@ class RiskProfiling:
             # Price movement is against the position if:
             # - For LONG: current price < avg_in_price
             # - For SHORT: current price > avg_in_price
-            order_price_direction: bool = current_order.price - avg_in_price  # how is the price of the most recent order changing relative to the average entry price
+            order_price_direction: float = current_order.price - avg_in_price  # how is the price of the most recent order changing relative to the average entry price
 
             # If the price direction is going the same way as the position, it's winning. If they are opposite (less than zero), it's losing.
             losing_order: bool = order_price_direction * position_direction < 0
@@ -71,8 +197,11 @@ class RiskProfiling:
             # Leverage is increasing if the new aggregate leverage is greater than the previous aggregate
             leverage_increased_beyond_max = abs(new_aggregate_leverage) > abs(max_leverage)
 
+            # Check if this order will be flagged
+            is_flagged = losing_order and leverage_increased_beyond_max
+            
             # Flag if position is losing and leverage increased
-            if losing_order and leverage_increased_beyond_max:
+            if is_flagged:
                 # Add the order to the subset
                 order_copy = copy.deepcopy(current_order)
                 order_copy.leverage = new_aggregate_leverage
@@ -84,12 +213,18 @@ class RiskProfiling:
             # Update weighted price and average entry price for the next iteration
             total_weighted_price += current_order.price * current_leverage_delta  # this will actually be "negative" for SHORT positions
 
+            # Check for zero leverage
             if new_aggregate_leverage == 0:
-                bt.logging.warning(f"Monotonic positions new aggregate leverage is zero for current order: {current_order}")
+                has_zero_leverage = True
                 new_aggregate_leverage = ValiConfig.EPSILON
 
             avg_in_price = total_weighted_price / new_aggregate_leverage  # don't want to use absolute value here, as the avg in price should always be positive
             aggregate_leverage = new_aggregate_leverage
+
+        # Log warning once per position if any zero leverage events occurred
+        if verbose and has_zero_leverage:
+            RiskProfiling._log_zero_leverage_warning(position, position_orders, 
+                                                     final_active_order, is_long, position_direction)
 
         # Use the new position object
         result_position.orders = position_order_subset
@@ -171,7 +306,7 @@ class RiskProfiling:
         return utilization >= ValiConfig.RISK_PROFILING_STEPS_CRITERIA
 
     @staticmethod
-    def risk_assessment_monotonic_utilization(position: Position) -> int:
+    def risk_assessment_monotonic_utilization(position: Position, verbose=False) -> int:
         """
         Count the number of orders with monotonically increasing leverage on losing positions.
 
@@ -180,15 +315,16 @@ class RiskProfiling:
 
         Args:
             position: Position object containing order history
+            verbose: If True, enable detailed logging during monotonic position analysis
 
         Returns:
             int: The number of orders with monotonically increasing leverage on losing trades.
         """
-        monotone_position = RiskProfiling.monotonic_positions(position)
+        monotone_position = RiskProfiling.monotonic_positions(position, verbose=verbose)
         return len(monotone_position.orders)
 
     @staticmethod
-    def risk_assessment_monotonic_criteria(position: Position) -> bool:
+    def risk_assessment_monotonic_criteria(position: Position, verbose=False) -> bool:
         """
         Determine if a position exceeds the monotonic criteria threshold for risk.
 
@@ -201,7 +337,7 @@ class RiskProfiling:
         Returns:
             bool: True if the position exceeds the monotonic criteria threshold, False otherwise.
         """
-        utilization = RiskProfiling.risk_assessment_monotonic_utilization(position)
+        utilization = RiskProfiling.risk_assessment_monotonic_utilization(position, verbose=verbose)
         return utilization >= ValiConfig.RISK_PROFILING_MONOTONIC_CRITERIA
 
     @staticmethod
@@ -375,7 +511,7 @@ class RiskProfiling:
 
 
     @staticmethod
-    def risk_profile_single(position: Position) -> dict:
+    def risk_profile_single(position: Position, verbose=False) -> dict:
         """
         Create a comprehensive risk profile for a single position.
 
@@ -384,6 +520,7 @@ class RiskProfiling:
 
         Args:
             position: Position object containing order history
+            verbose: If True, enable detailed logging during risk assessment
 
         Returns:
             dict: A dictionary containing the position's risk profile, including:
@@ -396,7 +533,7 @@ class RiskProfiling:
         steps_utilization = RiskProfiling.risk_assessment_steps_utilization(position)
         steps_criteria = int(RiskProfiling.risk_assessment_steps_criteria(position))
 
-        monotonic_utilization = RiskProfiling.risk_assessment_monotonic_utilization(position)
+        monotonic_utilization = RiskProfiling.risk_assessment_monotonic_utilization(position, verbose=verbose)
         monotonic_criteria = int(RiskProfiling.risk_assessment_monotonic_criteria(position))
 
         margin_utilization = RiskProfiling.risk_assessment_margin_utilization(position)
@@ -428,20 +565,21 @@ class RiskProfiling:
         }
 
     @staticmethod
-    def risk_profile_reporting(positions: list[Position]) -> dict:
+    def risk_profile_reporting(positions: list[Position], verbose=False) -> dict:
         """
         Generate risk profiles for a list of positions.
 
         Args:
             positions: List of Position objects to evaluate
+            verbose: If True, enable detailed logging during risk assessment
 
         Returns:
             dict: A dictionary mapping position UUIDs to their risk profiles
         """
-        return {position.position_uuid: RiskProfiling.risk_profile_single(position) for position in positions}
+        return {position.position_uuid: RiskProfiling.risk_profile_single(position, verbose=verbose) for position in positions}
 
     @staticmethod
-    def risk_profile_full_criteria(position: Position) -> bool:
+    def risk_profile_full_criteria(position: Position, verbose=False) -> bool:
         """
         Determines the relative risk profile of various assets.
 
@@ -457,7 +595,7 @@ class RiskProfiling:
         """
         # Step-based risk factors
         steps_criteria = RiskProfiling.risk_assessment_steps_criteria(position)
-        monotonic_criteria = RiskProfiling.risk_assessment_monotonic_criteria(position)
+        monotonic_criteria = RiskProfiling.risk_assessment_monotonic_criteria(position, verbose=verbose)
         step_risk_triggered = steps_criteria or monotonic_criteria
 
         # Leverage-based risk factors
@@ -472,12 +610,13 @@ class RiskProfiling:
         return step_risk_triggered and leverage_risk_triggered and time_risk_triggered
 
     @staticmethod
-    def risk_profile_score_list(miner_positions: list[Position]) -> float:
+    def risk_profile_score_list(miner_positions: list[Position], verbose=False) -> float:
         """
         Calculate the overall risk score for a list of positions with improved numerical stability.
 
         Args:
             miner_positions: List of Position objects to evaluate
+            verbose: If True, enable detailed logging during risk assessment
 
         Returns:
             float: A value between 0.0 and 1.0 representing the overall risk score
@@ -486,7 +625,7 @@ class RiskProfiling:
             return 0.0
 
         # Compute risk flags for all positions
-        criteria_weight = np.array([int(RiskProfiling.risk_profile_full_criteria(position)) for position in miner_positions])
+        criteria_weight = np.array([int(RiskProfiling.risk_profile_full_criteria(position, verbose=verbose)) for position in miner_positions])
 
         # If no positions are flagged as risky, return 0.0
         if np.sum(criteria_weight) == 0:
@@ -516,12 +655,13 @@ class RiskProfiling:
         return profile_score
 
     @staticmethod
-    def risk_profile_score(miner_positions: dict[str, list[Position]]) -> dict[str, float]:
+    def risk_profile_score(miner_positions: dict[str, list[Position]], verbose=False) -> dict[str, float]:
         """
         Calculate risk scores for multiple miners.
 
         Args:
             miner_positions: Dictionary mapping miner hotkeys to lists of their positions
+            verbose: If True, enable detailed logging during risk assessment
 
         Returns:
             dict: Dictionary mapping miner hotkeys to their risk scores (0.0-1.0)
@@ -529,12 +669,12 @@ class RiskProfiling:
         miner_scores = {}
 
         for miner, positions in miner_positions.items():
-            miner_scores[miner] = RiskProfiling.risk_profile_score_list(positions)
+            miner_scores[miner] = RiskProfiling.risk_profile_score_list(positions, verbose=verbose)
 
         return miner_scores
 
     @staticmethod
-    def risk_profile_penalty(miner_positions: dict[str, list[Position]]) -> dict[str, float]:
+    def risk_profile_penalty(miner_positions: dict[str, list[Position]], verbose: bool = False) -> dict[str, float]:
         """
         Calculate risk penalty multipliers for multiple miners.
 
@@ -544,12 +684,13 @@ class RiskProfiling:
 
         Args:
             miner_positions: Dictionary mapping miner hotkeys to lists of their positions
+            verbose: If True, enable detailed logging during risk assessment
 
         Returns:
             dict: Dictionary mapping miner hotkeys to their penalty multipliers (0.0-1.0),
                  where 1.0 means no penalty and values close to 0.0 mean heavy penalties.
         """
-        risk_profile_scores = RiskProfiling.risk_profile_score(miner_positions)
+        risk_profile_scores = RiskProfiling.risk_profile_score(miner_positions, verbose=verbose)
         risk_profile_penalty = {}
 
         for miner, score in risk_profile_scores.items():

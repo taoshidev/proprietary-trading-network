@@ -6,7 +6,7 @@ from pydantic import model_validator, BaseModel, Field
 
 from time_util.time_util import TimeUtil, MS_IN_8_HOURS, MS_IN_24_HOURS
 from vali_objects.vali_config import TradePair, ValiConfig
-from vali_objects.vali_dataclasses.order import Order, ORDER_SRC_ELIMINATION_FLAT, ORDER_SRC_ORGANIC
+from vali_objects.vali_dataclasses.order import Order, ORDER_SRC_ELIMINATION_FLAT, ORDER_SRC_DEPRECATION_FLAT
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.utils import leverage_utils
 import bittensor as bt
@@ -86,8 +86,6 @@ class Position(BaseModel):
         current_leverage = 0.0
         cumulative_leverage = 0.0
         for order in self.orders:
-            if order.src != ORDER_SRC_ORGANIC:
-                continue
             # Explicit flat
             if order.order_type == OrderType.FLAT:
                 cumulative_leverage += abs(current_leverage)
@@ -108,8 +106,7 @@ class Position(BaseModel):
 
     def get_spread_fee(self, timestamp_ms) -> float:
         if ALWAYS_USE_SLIPPAGE or (ALWAYS_USE_SLIPPAGE is None and timestamp_ms >= SLIPPAGE_V1_TIME_MS):
-            # slippage will replace the spread fee
-            return 1
+            return 1  # slippage replaces spread fee
         else:
             return 1.0 - (self.get_cumulative_leverage() * self.trade_pair.fees * 0.5)
 
@@ -188,7 +185,6 @@ class Position(BaseModel):
         else:
             raise Exception(f'Unexpected trade pair: {self.trade_pair.trade_pair_id}')
 
-        #print('haahahahahahahah', self.trade_pair.trade_pair_id, current_time_ms, next_update_time_ms, TimeUtil.millis_to_formatted_date_str(current_time_ms), TimeUtil.millis_to_formatted_date_str(next_update_time_ms))
         return carry_fee, next_update_time_ms
 
 
@@ -546,7 +542,7 @@ class Position(BaseModel):
         realtime_price = order.price
         assert self.initial_entry_price > 0, self.initial_entry_price
         new_net_leverage = self.net_leverage + delta_leverage
-        if order.src == ORDER_SRC_ELIMINATION_FLAT:
+        if order.src in (ORDER_SRC_ELIMINATION_FLAT, ORDER_SRC_DEPRECATION_FLAT):
             self.net_leverage = 0.0
             return  # Don't set returns since the price is zero'd out.
         self.set_returns(realtime_price, time_ms=order.processed_ms, order=order)

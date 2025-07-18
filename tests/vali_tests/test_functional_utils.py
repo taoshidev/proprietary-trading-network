@@ -4,6 +4,7 @@ import numpy as np
 from tests.vali_tests.base_objects.test_base import TestBase
 from vali_objects.utils.functional_utils import FunctionalUtils
 
+
 class TestFunctionalUtils(TestBase):
     def setUp(self):
         super().setUp()

@@ -1,28 +1,28 @@
 # developer: trdougherty
 import copy
 from copy import deepcopy
+
 import numpy as np
 
-from tests.vali_tests.base_objects.test_base import TestBase
-from tests.shared_objects.test_utilities import generate_ledger
-from vali_objects.utils.elimination_manager import EliminationManager
-from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
-
-from vali_objects.utils.miner_bucket_enum import MinerBucket
-from vali_objects.vali_config import TradePair
-from vali_objects.position import Position
-from vali_objects.vali_config import ValiConfig
-
 from tests.shared_objects.mock_classes import (
-    MockMetagraph, MockChallengePeriodManager, MockPositionManager
+    MockChallengePeriodManager,
+    MockPositionManager,
 )
-
-from vali_objects.utils.ledger_utils import LedgerUtils
-from vali_objects.scoring.scoring import Scoring
-from vali_objects.vali_dataclasses.order import Order
+from shared_objects.mock_metagraph import MockMetagraph
+from tests.shared_objects.test_utilities import generate_ledger
+from tests.vali_tests.base_objects.test_base import TestBase
 from vali_objects.enums.order_type_enum import OrderType
+from vali_objects.position import Position
+from vali_objects.scoring.scoring import Scoring
+from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
+from vali_objects.utils.elimination_manager import EliminationManager
+from vali_objects.utils.ledger_utils import LedgerUtils
+from vali_objects.utils.miner_bucket_enum import MinerBucket
+from vali_objects.vali_config import TradePair, ValiConfig
+from vali_objects.vali_dataclasses.order import Order
 from vali_objects.vali_dataclasses.perf_ledger import TP_ID_PORTFOLIO
 import vali_objects.vali_config as vali_file
+
 
 class TestChallengePeriodUnit(TestBase):
 
@@ -61,7 +61,7 @@ class TestChallengePeriodUnit(TestBase):
             close_ms=self.END_TIME,
             trade_pair=TradePair.BTCUSD,
             is_closed_position=True,
-            return_at_close=1.0
+            return_at_close=1.0,
         )
 
         # Generate a positions list with N_POSITIONS positions
@@ -81,7 +81,7 @@ class TestChallengePeriodUnit(TestBase):
             end_time=self.END_TIME,
             gain=0.1,
             loss=-0.08,
-            mdd=0.99
+            mdd=0.99,
         )
 
         self.TOP_SCORE = 1.0
@@ -136,17 +136,17 @@ class TestChallengePeriodUnit(TestBase):
         if score is not None:
             for config_name, config in Scoring.scoring_config.items():
                 trial_metrics[config_name] = {'scores': [("miner", score)],
-                                              'weight': config['weight']
+                                              'weight': config['weight'],
             }
         elif high_performing:
             for config_name, config in Scoring.scoring_config.items():
                 trial_metrics[config_name] = {'scores': [("miner", self.TOP_SCORE)],
-                                              'weight': config['weight']
+                                              'weight': config['weight'],
             }
         else:
             for config_name, config in Scoring.scoring_config.items():
                 trial_metrics[config_name] = {'scores': [("miner", self.MIN_SCORE)],
-                                              'weight': config['weight']
+                                              'weight': config['weight'],
                                                   }
         subcategory_trial_scores["penalties"] = {"miner": 1}
         return trial_scores_dict
@@ -216,7 +216,7 @@ class TestChallengePeriodUnit(TestBase):
             current_time=current_time,
             success_scores_dict=self.success_scores_dict,
             inspection_scores_dict=trial_scoring_dict,
-            hk_to_first_order_time=hk_to_first_order_time
+            hk_to_first_order_time=hk_to_first_order_time,
         )
         self.assertNotIn("miner", passing)
         self.assertNotIn("miner", list(failing.keys()))
@@ -244,7 +244,7 @@ class TestChallengePeriodUnit(TestBase):
             current_time=current_time,
             success_scores_dict=self.success_scores_dict,
             inspection_scores_dict=trial_scoring_dict,
-            hk_to_first_order_time=hk_to_first_order_time
+            hk_to_first_order_time=hk_to_first_order_time,
         )
 
         self.assertNotIn("miner", passing)
@@ -273,7 +273,7 @@ class TestChallengePeriodUnit(TestBase):
             current_time=current_time,
             success_scores_dict=self.success_scores_dict,
             inspection_scores_dict=trial_scoring_dict,
-            hk_to_first_order_time=hk_to_first_order_time
+            hk_to_first_order_time=hk_to_first_order_time,
         )
 
         self.assertIn("miner", passing)
@@ -301,7 +301,7 @@ class TestChallengePeriodUnit(TestBase):
             current_time=current_time,
             success_scores_dict=self.success_scores_dict,
             inspection_scores_dict=trial_scoring_dict,
-            hk_to_first_order_time=hk_to_first_order_time
+            hk_to_first_order_time=hk_to_first_order_time,
         )
 
         self.assertListEqual(passing, ["miner"])
@@ -330,7 +330,7 @@ class TestChallengePeriodUnit(TestBase):
             success_hotkeys=[],
             inspection_hotkeys=inspection_hotkeys,
             current_time=current_time,
-            hk_to_first_order_time=hk_to_first_order_time
+            hk_to_first_order_time=hk_to_first_order_time,
         )
 
         self.assertNotIn("miner", passing)
@@ -361,7 +361,7 @@ class TestChallengePeriodUnit(TestBase):
             inspection_hotkeys=inspection_hotkeys,
             current_time=current_time,
             success_scores_dict=self.success_scores_dict,
-            hk_to_first_order_time=hk_to_first_order_time
+            hk_to_first_order_time=hk_to_first_order_time,
         )
 
         self.assertNotIn("miner", passing)
@@ -418,7 +418,7 @@ class TestChallengePeriodUnit(TestBase):
             current_time=current_time,
             success_scores_dict=self.success_scores_dict,
             inspection_scores_dict=trial_scoring_dict,
-            hk_to_first_order_time=hk_to_first_order_time
+            hk_to_first_order_time=hk_to_first_order_time,
         )
         self.assertIn("miner", passing)
         self.assertNotIn("miner", list(failing.keys()))
@@ -446,7 +446,7 @@ class TestChallengePeriodUnit(TestBase):
             current_time=current_time,
             success_scores_dict=self.success_scores_dict,
             inspection_scores_dict=trial_scoring_dict,
-            hk_to_first_order_time=hk_to_first_order_time
+            hk_to_first_order_time=hk_to_first_order_time,
         )
         self.assertNotIn("miner", passing)
         self.assertNotIn("miner", list(failing.keys()))
@@ -495,7 +495,7 @@ class TestChallengePeriodUnit(TestBase):
             current_time=current_time,
             success_scores_dict=success_scores_dict,
             inspection_scores_dict=trial_scoring_dict,
-            hk_to_first_order_time=hk_to_first_order_time
+            hk_to_first_order_time=hk_to_first_order_time,
         )
 
         self.assertIn("miner", passing)
@@ -532,7 +532,7 @@ class TestChallengePeriodUnit(TestBase):
             current_time=current_time,
             success_scores_dict=self.success_scores_dict,
             inspection_scores_dict=trial_scoring_dict,
-            hk_to_first_order_time=hk_to_first_order_time
+            hk_to_first_order_time=hk_to_first_order_time,
         )
 
         self.assertIn("miner", passing)
@@ -571,7 +571,7 @@ class TestChallengePeriodUnit(TestBase):
             current_time=current_time,
             success_scores_dict=self.success_scores_dict,
             inspection_scores_dict=trial_scoring_dict,
-            hk_to_first_order_time=hk_to_first_order_time
+            hk_to_first_order_time=hk_to_first_order_time,
         )
 
         self.assertNotIn("miner", passing)

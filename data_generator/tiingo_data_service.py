@@ -133,7 +133,6 @@ class TiingoDataService(BaseDataService):
             else:
                 self.websocket_manager_thread = threading.Thread(target=self.websocket_manager, daemon=True)
             self.websocket_manager_thread.start()
-            #time.sleep(3) # Let the websocket_manager_thread start
 
     def _close_ws_for_category(self, tpc: TradePairCategory, loop):
         """
@@ -283,6 +282,7 @@ class TiingoDataService(BaseDataService):
                 return
 
             self.tpc_to_n_events[tp.trade_pair_category] += 1
+            self.tpc_to_last_event_time[tp.trade_pair_category] = time.time()
             ps1 = msg_to_price_sources(msg, tp)
 
             self.process_ps_from_websocket(tp, ps1)

@@ -3,9 +3,12 @@
 
 import time
 import traceback
+import threading
 
 from vali_objects.vali_config import ValiConfig
 from shared_objects.cache_controller import CacheController
+from shared_objects.error_utils import ErrorUtils
+from shared_objects.subtensor_lock import get_subtensor_lock
 
 import bittensor as bt
 
@@ -16,6 +19,15 @@ class MetagraphUpdater(CacheController):
         super().__init__(metagraph)
         self.config = config
         self.subtensor = bt.subtensor(config=self.config)
+        # Parse out the arg for subtensor.network. If it is "finney" or "subvortex", we will roundrobin on metagraph failure
+        self.round_robin_networks = ['finney', 'subvortex']
+        self.round_robin_enabled = False
+        self.current_round_robin_index = 0
+        if self.config.subtensor.network in self.round_robin_networks:
+            bt.logging.info(f"Using round-robin metagraph for network {self.config.subtensor.network}. ")
+            self.round_robin_enabled = True
+            self.current_round_robin_index = self.round_robin_networks.index(self.config.subtensor.network)
+
         # Initialize likely validators and miners with empty dictionaries. This maps hotkey to timestamp.
         self.likely_validators = {}
         self.likely_miners = {}
@@ -31,7 +43,7 @@ class MetagraphUpdater(CacheController):
         self.slack_notifier = slack_notifier  # Add slack notifier for error reporting
 
         # Exponential backoff parameters
-        self.min_backoff = 30  # 30 seconds minimum (changed from 1 second)
+        self.min_backoff = 10 if self.round_robin_enabled else 120
         self.max_backoff = 43200  # 12 hours maximum (12 * 60 * 60)
         self.backoff_factor = 2  # Double the wait time on each retry
         self.current_backoff = self.min_backoff
@@ -42,27 +54,63 @@ class MetagraphUpdater(CacheController):
 
     def _is_expired(self, timestamp):
         return (self._current_timestamp() - timestamp) > 86400  # 24 hours in seconds
-
-    def _get_compact_traceback(self, exception):
-        """Get a compact version of the stack trace showing only the most relevant frames."""
-        tb_lines = traceback.format_exception(type(exception), exception, exception.__traceback__)
-
-        # Filter out lines that are less relevant (like internal library calls)
-        relevant_lines = []
-        for line in tb_lines:
-            # Keep the exception line and lines from our code
-            if (line.strip().startswith('File') and
-                    (any(keyword in line for keyword in ['metagraph', 'miner', 'validator', 'vali_', 'neurons/']) or
-                     line.count('/') <= 3)):  # Keep shorter paths (likely our code)
-                relevant_lines.append(line.strip())
-            elif not line.strip().startswith('File'):
-                relevant_lines.append(line.strip())
-
-        # If we filtered too much, just take the last few lines
-        if len(relevant_lines) < 3:
-            relevant_lines = [line.strip() for line in tb_lines[-3:]]
-
-        return ' | '.join(relevant_lines)
+    
+    def _cleanup_subtensor_connection(self):
+        """Safely close substrate connection to prevent file descriptor leaks"""
+        if hasattr(self, 'subtensor') and self.subtensor:
+            try:
+                if hasattr(self.subtensor, 'substrate') and self.subtensor.substrate:
+                    bt.logging.debug("Cleaning up substrate connection")
+                    self.subtensor.substrate.close()
+            except Exception as e:
+                bt.logging.warning(f"Error during substrate cleanup: {e}")
+    
+    def get_subtensor(self):
+        """
+        Get the current subtensor instance.
+        This should be used instead of directly accessing self.subtensor
+        to ensure you always have the current instance after round-robin switches.
+        """
+        return self.subtensor
+    
+    def start_and_wait_for_initial_update(self, max_wait_time=60, slack_notifier=None):
+        """
+        Start the metagraph updater thread and wait for initial population.
+        
+        This method provides a clean way to:
+        1. Start the background metagraph update loop
+        2. Wait for the metagraph to be initially populated
+        3. Proceed with confidence that metagraph data is available
+        
+        Args:
+            max_wait_time (int): Maximum time to wait for initial population (seconds)
+            slack_notifier: Optional slack notifier for error reporting
+            
+        Returns:
+            threading.Thread: The started metagraph updater thread
+            
+        Raises:
+            SystemExit: If metagraph fails to populate within max_wait_time
+        """
+        # Start the metagraph updater loop in its own thread
+        updater_thread = threading.Thread(target=self.run_update_loop, daemon=True)
+        updater_thread.start()
+        
+        # Wait for initial metagraph population before proceeding
+        bt.logging.info("Waiting for initial metagraph population...")
+        start_time = time.time()
+        while not self.metagraph.hotkeys and (time.time() - start_time) < max_wait_time:
+            time.sleep(1)
+        
+        if not self.metagraph.hotkeys:
+            error_msg = f"Failed to populate metagraph within {max_wait_time} seconds"
+            bt.logging.error(error_msg)
+            if slack_notifier:
+                slack_notifier.send_message(f"❌ {error_msg}", level="error")
+            exit()
+        
+        bt.logging.info(f"Metagraph populated with {len(self.metagraph.hotkeys)} hotkeys")
+        return updater_thread
 
     def estimate_number_of_validators(self):
         # Filter out expired validators
@@ -79,11 +127,14 @@ class MetagraphUpdater(CacheController):
                 self.update_metagraph()
                 # Reset backoff on successful update
                 if self.consecutive_failures > 0:
+                    rr_network = self.round_robin_networks[self.current_round_robin_index] if self.round_robin_enabled else "N/A"
                     bt.logging.info(
-                        f"Metagraph update successful after {self.consecutive_failures} failures. Resetting backoff.")
+                        f"Metagraph update successful after {self.consecutive_failures} failures. Resetting backoff. "
+                        f"round_robin_enabled: {self.round_robin_enabled}. rr_network: {rr_network}")
                     if self.slack_notifier:
                         self.slack_notifier.send_message(
-                            f"✅ Metagraph update recovered after {self.consecutive_failures} consecutive failures",
+                            f"✅ Metagraph update recovered after {self.consecutive_failures} consecutive failures."
+                            f" round_robin_enabled: {self.round_robin_enabled}, rr_network: {rr_network}",
                             level="info"
                         )
                 self.consecutive_failures = 0
@@ -94,24 +145,27 @@ class MetagraphUpdater(CacheController):
                 # Calculate next backoff time
                 self.current_backoff = min(self.current_backoff * self.backoff_factor, self.max_backoff)
 
-                # Get compact traceback
-                compact_trace = self._get_compact_traceback(e)
-
-                # Log error with backoff information and compact stack trace
+                # Log error with backoff information
+                rr_network = self.round_robin_networks[self.current_round_robin_index] if self.round_robin_enabled else "N/A"
                 error_msg = (f"Error during metagraph update (attempt #{self.consecutive_failures}): {e}. "
-                             f"Next retry in {self.current_backoff} seconds.")
+                             f"Next retry in {self.current_backoff} seconds. round_robin_enabled: {self.round_robin_enabled}"
+                             f" rr_network {rr_network}\n")
                 bt.logging.error(error_msg)
                 bt.logging.error(traceback.format_exc())
 
                 if self.slack_notifier:
+                    # Get compact traceback using shared utility
+                    compact_trace = ErrorUtils.get_compact_stacktrace(e)
+                    
                     hours = self.current_backoff / 3600
+                    node_type = "miner" if self.is_miner else "validator"
                     self.slack_notifier.send_message(
                         f"❌ Metagraph update failing repeatedly!\n"
                         f"Consecutive failures: {self.consecutive_failures}\n"
                         f"Error: {str(e)}\n"
                         f"Trace: {compact_trace}\n"
                         f"Next retry in: {hours:.2f} hours\n"
-                        f"Please check the miner logs!",
+                        f"Please check the {node_type} logs!",
                         level="error"
                     )
 
@@ -174,13 +228,26 @@ class MetagraphUpdater(CacheController):
         for item in items_to_add:
             shared_list.append(item)
 
+    def get_metagraph(self):
+        """
+        Returns the metagraph object.
+        """
+        return self.metagraph
+
     def update_metagraph(self):
         if not self.refresh_allowed(self.interval_wait_time_ms):
             return
-        # Searching the BT forums suggests this is needed to recover from a metagraph update failure.
-        if self.consecutive_failures > 0:
-            self.subtensor = bt.subtensor(config=self.config)
 
+        if self.consecutive_failures > 0:
+            if self.round_robin_enabled:
+                # Round-robin logic to switch networks
+                self.current_round_robin_index = (self.current_round_robin_index + 1) % len(self.round_robin_networks)
+                self.config['subtensor']['network'] = self.round_robin_networks[self.current_round_robin_index]
+                bt.logging.warning(f"Switching to next network in round-robin: {self.config['subtensor']['network']}")
+
+            # CRITICAL: Close existing connection before creating new one to prevent file descriptor leak
+            self._cleanup_subtensor_connection()
+            self.subtensor = bt.subtensor(config=self.config)
         recently_acked_miners = None
         recently_acked_validators = None
         if self.is_miner:
@@ -192,7 +259,10 @@ class MetagraphUpdater(CacheController):
                 recently_acked_miners = []
 
         hotkeys_before = set(self.metagraph.hotkeys)
-        metagraph_clone = self.subtensor.metagraph(self.config.netuid)
+        
+        # Synchronize with weight setting operations to prevent WebSocket concurrency errors
+        with get_subtensor_lock():
+            metagraph_clone = self.subtensor.metagraph(self.config.netuid)
         assert hasattr(metagraph_clone, 'hotkeys'), "Metagraph clone does not have hotkeys attribute"
         bt.logging.info("Updating metagraph...")
         # metagraph_clone.sync(subtensor=self.subtensor) The call to subtensor.metagraph() already syncs the metagraph.
@@ -217,16 +287,16 @@ class MetagraphUpdater(CacheController):
                     f"🚨 CRITICAL: {error_msg}",
                     level="error"
                 )
-        elif self.is_miner:
-            self.metagraph = metagraph_clone
-        else:
-            # Multiprocessing (validator only)
-            self.sync_lists(self.metagraph.neurons, list(metagraph_clone.neurons), brute_force=True)
-            self.sync_lists(self.metagraph.uids, metagraph_clone.uids, brute_force=True)
-            self.sync_lists(self.metagraph.hotkeys, metagraph_clone.hotkeys, brute_force=True)
-            # Tuple doesn't support item assignment.
-            self.sync_lists(self.metagraph.block_at_registration, metagraph_clone.block_at_registration,
-                            brute_force=True)
+
+        self.sync_lists(self.metagraph.neurons, list(metagraph_clone.neurons), brute_force=True)
+        self.sync_lists(self.metagraph.uids, metagraph_clone.uids, brute_force=True)
+        self.sync_lists(self.metagraph.hotkeys, metagraph_clone.hotkeys, brute_force=True)
+        # Tuple doesn't support item assignment.
+        self.sync_lists(self.metagraph.block_at_registration, metagraph_clone.block_at_registration,
+                        brute_force=True)
+        if self.is_miner:
+            self.sync_lists(self.metagraph.axons, metagraph_clone.axons, brute_force=True)
+
 
         if recently_acked_miners:
             self.update_likely_miners(recently_acked_miners)

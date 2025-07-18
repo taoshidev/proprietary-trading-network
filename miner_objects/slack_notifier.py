@@ -11,13 +11,15 @@ import bittensor as bt
 
 
 class SlackNotifier:
-    """Handles all Slack notifications for the miner with enhanced features"""
+    """Handles all Slack notifications for miners and validators with enhanced features"""
 
-    def __init__(self, hotkey, webhook_url: Optional[str] = None, error_webhook_url: Optional[str] = None):
+    def __init__(self, hotkey, webhook_url: Optional[str] = None, error_webhook_url: Optional[str] = None, is_miner: bool = True):
         self.webhook_url = webhook_url
         self.hotkey = hotkey
         self.error_webhook_url = error_webhook_url or webhook_url  # Fallback to main if not provided
         self.enabled = bool(webhook_url)
+        self.is_miner = is_miner
+        self.node_type = "Miner" if is_miner else "Validator"
         self.vm_ip = self._get_vm_ip()
         self.vm_hostname = self._get_vm_hostname()
 
@@ -27,7 +29,7 @@ class SlackNotifier:
         self.last_summary_date = None
 
         # Persistent metrics (survive restarts)
-        self.metrics_file = "miner_lifetime_metrics.json"
+        self.metrics_file = f"{self.node_type.lower()}_lifetime_metrics.json"
         self.lifetime_metrics = self._load_lifetime_metrics()
 
         # Daily metrics (reset each day)
@@ -212,7 +214,7 @@ class SlackNotifier:
                         "short": False
                     },
                     {
-                        "title": "🕒 Miner Hotkey",
+                        "title": f"🕒 {self.node_type} Hotkey",
                         "value": f"...{self.hotkey[-8:]}",
                         "short": True
                     },
@@ -274,7 +276,7 @@ class SlackNotifier:
                     "attachments": [{
                         "color": "#4CAF50",  # Green for summary
                         "fields": fields,
-                        "footer": "Taoshi Miner Daily Summary",
+                        "footer": f"Taoshi {self.node_type} Daily Summary",
                         "ts": int(time.time())
                     }]
                 }
@@ -323,12 +325,12 @@ class SlackNotifier:
                     "color": color_map.get(level, "#808080"),
                     "fields": [
                         {
-                            "title": "Miner Alert",
+                            "title": f"{self.node_type} Alert",
                             "value": message,
                             "short": False
                         },
                         {
-                            "title": "VM IP | Miner Hotkey",
+                            "title": f"VM IP | {self.node_type} Hotkey",
                             "value": f"{self.vm_ip} | ...{self.hotkey[-8:]}",
                             "short": True
                         },
@@ -338,7 +340,7 @@ class SlackNotifier:
                             "short": True
                         }
                     ],
-                    "footer": "Taoshi Miner Notification",
+                    "footer": f"Taoshi {self.node_type} Notification",
                     "ts": int(time.time())
                 }]
             }
@@ -417,7 +419,7 @@ class SlackNotifier:
                     "short": True
                 },
                 {
-                    "title": "Miner Hotkey | Order UUID",
+                    "title": f"{self.node_type} Hotkey | Order UUID",
                     "value": "..." + summary_data.get("miner_hotkey", "Unknown")[-8:] + f" | {summary_data.get('signal_uuid', 'Unknown')[:12]}...",
                 },
                 {
@@ -510,7 +512,7 @@ class SlackNotifier:
                     "color": color,
                     "title": f"Signal Processing Summary - {status}",
                     "fields": fields,
-                    "footer": "Taoshi Miner Monitor",
+                    "footer": f"Taoshi {self.node_type} Monitor",
                     "ts": int(time.time())
                 }]
             }
