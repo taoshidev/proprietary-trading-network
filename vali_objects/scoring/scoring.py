@@ -433,7 +433,7 @@ class Scoring:
             asset_class_emission = asset_class_information.get('emission', 0)
             asset_subcategory_weight = asset_class_information.get('subcategory_weights', {})
 
-            bt.logging.info(f"Asset class {asset_class} has emission {asset_class_emission} and subcategory weights {asset_subcategory_weight}")
+            # bt.logging.info(f"Asset class {asset_class} has emission {asset_class_emission} and subcategory weights {asset_subcategory_weight}")
 
             if asset_class_emission == 0:
                 bt.logging.warning(f"Asset class {asset_class} has no emission. Please report this issue!")
