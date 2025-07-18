@@ -105,23 +105,21 @@ class ForexHolidayCalendar(USFederalHolidayCalendar):
         return ans
 
     def is_forex_market_closed_full_day(self, testing_day: date) -> bool:
-        """Check if the market is closed at the start of the UTC day and at the end of the UTC day."""
+        """Check if the Forex market is closed for the entire UTC day."""
+
         if testing_day is None or not isinstance(testing_day, date):
             bt.logging.info(f"testing day is invalid, returning false: {testing_day}")
             return False
-        # Convert the date to UTC datetime at start of day (00:00:00)
-        start_of_day = datetime.combine(testing_day, datetime.min.time()).replace(tzinfo=timezone.utc)
-        start_of_day_ms = int(start_of_day.timestamp() * 1000)
-        
-        # Convert the date to UTC datetime at end of day (23:59:59)
-        end_of_day = datetime.combine(testing_day, datetime.max.time()).replace(tzinfo=timezone.utc)
-        end_of_day_ms = int(end_of_day.timestamp() * 1000)
-        
-        # Check if market is closed at both start and end of day
-        market_closed_at_start = not self.is_forex_market_open(start_of_day_ms)
-        market_closed_at_end = not self.is_forex_market_open(end_of_day_ms)
-        
-        return market_closed_at_start and market_closed_at_end
+
+        # Check start, middle, and end of UTC day
+        for hour in [0, 12, 23]:
+            timestamp = datetime(testing_day.year, testing_day.month, testing_day.day, hour, tzinfo=timezone.utc)
+            timestamp_ms = int(timestamp.timestamp() * 1000)
+
+            if self.is_forex_market_open(timestamp_ms):
+                return False
+
+        return True
 
 
 class IndicesMarketCalendar:
