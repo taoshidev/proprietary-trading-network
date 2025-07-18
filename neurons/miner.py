@@ -210,6 +210,7 @@ class Miner:
         )
         return config
 
+
     def start_dashboard_frontend(self):
         """
         starts the miner dashboard. Allows the use of npm, yarn, or pnpm
@@ -275,6 +276,8 @@ class Miner:
                     self.dashboard_frontend_process.terminate()
                     self.dashboard_frontend_process.wait()
                     bt.logging.info("Dashboard terminated.")
+                
+                
                 self.metagraph_updater_thread.join()
                 self.position_inspector.stop_update_loop()
                 if self.position_inspector_thread:
