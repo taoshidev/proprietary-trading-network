@@ -35,7 +35,6 @@ def exception_handler_decorator():
                 func_name = func.__name__
                 thread_id = threading.get_native_id()
                 bt.logging.error(f"Failed to get {func_name} with error: {e}, type: {type(e).__name__} in thread {thread_id}")
-                #bt.logging.error(traceback.format_exc())
                 return {}
 
         return wrapper
@@ -81,11 +80,9 @@ class BaseDataService():
             assert trade_pair.trade_pair_category in self.trade_pair_category_to_longest_allowed_lag_s, \
                 f"Trade pair {trade_pair} has no allowed lag time"
 
-        # initialize our websocket slots to None
-        self.WEBSOCKET_THREADS = {}
+        # Initialize websocket objects (tasks are managed separately)
         self.WEBSOCKET_OBJECTS = {}
         for tpc in self.enabled_websocket_categories:
-            self.WEBSOCKET_THREADS[tpc] = None
             self.WEBSOCKET_OBJECTS[tpc] = None
 
 
@@ -145,13 +142,7 @@ class BaseDataService():
             self.websocket_manager_thread.join(timeout=1)
             bt.logging.info(f"Stopped {self.provider_name} websocket manager thread")
 
-        for tpc in self.enabled_websocket_categories:
-            self._kill_ws_for_category(tpc)
-            if self.WEBSOCKET_THREADS.get(tpc):
-                self.WEBSOCKET_THREADS[tpc].join(timeout=1)
-                bt.logging.info(f"Stopped {self.provider_name} websocket thread for {tpc.name.lower()}")
-            else:
-                bt.logging.warning(f"No websocket thread found for {tpc.name.lower()}")
+        # Websockets are now managed as asyncio tasks in the manager thread
 
     def websocket_manager(self):
         """
@@ -199,7 +190,7 @@ class BaseDataService():
 
                 # Clean up before reconnecting
                 try:
-                    await self._kill_ws_for_category(category)
+                    await self._cleanup_websocket(category)
                     # Wait before reconnecting
                     await asyncio.sleep(2)
                 except Exception as e:
@@ -364,12 +355,6 @@ class BaseDataService():
             finally:
                 self.WEBSOCKET_OBJECTS[tpc] = None
 
-    async def _kill_ws_for_category(self, tpc:TradePairCategory):
-        """
-        Signal that a websocket should be closed.
-        Deprecated: Use _cleanup_websocket instead for unified management.
-        """
-        await self._cleanup_websocket(tpc)
 
     def _create_websocket_client(self, tpc):
         raise NotImplementedError
@@ -395,17 +380,6 @@ class BaseDataService():
             symbol = trade_pair.trade_pair
             latest_event = self.trade_pair_to_recent_events[symbol].get_closest_event(time_ms)
             events[trade_pair] = latest_event
-            """
-            event = self.latest_websocket_events[symbol]
-            lag_s = self.get_websocket_lag_for_trade_pair_s(symbol)
-            is_stale = lag_s > self.trade_pair_category_to_longest_allowed_lag_s[trade_pair.trade_pair_category]
-            if is_stale:
-                bt.logging.warning(
-                    f"Found stale {self.provider_name} websocket data for {symbol}. Lag: {lag_s} seconds. "
-                    f"Max allowed lag for category: "
-                    f"{self.trade_pair_category_to_longest_allowed_lag_s[trade_pair.trade_pair_category]} seconds."
-                    f"Ignoring this data.")
-            """
 
         return events
 
@@ -442,7 +416,6 @@ class BaseDataService():
         now_ms = TimeUtil.now_in_millis()
         formatted_lags = {tp: f"{(now_ms - price_source.end_ms) / 1000.0:.2f}" for tp, price_source in
                           self.latest_websocket_events.items()}
-        #formatted_lags = {k:v for k, v in formatted_lags.items() if float(v) > 10}
         bt.logging.info(f"{self.provider_name} Current websocket lags (s): {formatted_lags}")
         # Log the prices
         formatted_prices = {}

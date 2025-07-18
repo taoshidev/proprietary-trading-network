@@ -160,7 +160,8 @@ class TestWebSocketRecovery(unittest.TestCase):
         self.service.stop_processing = True
         
         # Wait for timeout and recovery
-        time.sleep(2.5)
+        # Health check runs every 5 seconds, so we need to wait at least that long
+        time.sleep(6.0)
         
         # Resume processing
         self.service.stop_processing = False

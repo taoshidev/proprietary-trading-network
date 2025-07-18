@@ -182,7 +182,6 @@ class PolygonDataService(BaseDataService):
             else:
                 self.websocket_manager_thread = threading.Thread(target=self.websocket_manager, daemon=True)
             self.websocket_manager_thread.start()
-            #time.sleep(3) # Let the websocket_manager_thread start
 
     def parse_price_for_forex(self, m, stats=None, is_ws=False) -> (float, float, float):
         t_ms = m.timestamp if is_ws else m.participant_timestamp // 1000000
