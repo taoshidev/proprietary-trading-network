@@ -287,9 +287,7 @@ Process a collateral deposit with encoded extrinsic data.
 **Request Body:**
 ```json
 {
-  "extrinsic_data": "0x1234567890abcdef...",
-  "amount": 10.5,
-  "miner_address": "5HEo565WAy4Dbq3Sv271SAi7syBSofyfhhwRNjFNSM2gP9M2"
+  "extrinsic": "0x1234567890abcdef..."
 }
 ```
 
@@ -305,8 +303,6 @@ Process a collateral deposit with encoded extrinsic data.
 
 **Parameters:**
 - `extrinsic_data` (string): Hex-encoded signed extrinsic for stake transfer
-- `amount` (float): Amount to deposit in theta tokens
-- `miner_address` (string): Miner's coldkey SS58 address
 
 ### Withdraw Collateral
 

@@ -553,17 +553,15 @@ class PTNRestServer(APIKeyMixin):
                     return jsonify({'error': 'Invalid JSON body'}), 400
                     
                 # Validate required fields
-                required_fields = ['extrinsic_data', 'amount', 'miner_address']
+                required_fields = ['extrinsic']
                 for field in required_fields:
                     if field not in data:
                         return jsonify({'error': f'Missing required field: {field}'}), 400
                         
                 # Process the deposit using raw data
                 result = self.contract_manager.process_deposit_request(
-                    extrinsic_data=data['extrinsic_data'],
-                    vault_wallet=self.vault_wallet,
-                    amount=data['amount'],
-                    miner_address=data['miner_address']
+                    extrinsic_hex=data['extrinsic'],
+                    vault_wallet=self.vault_wallet
                 )
                 
                 # Return response

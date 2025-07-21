@@ -97,12 +97,12 @@ class ValidatorContractManager:
         bt.logging.debug(f"Converted {tao_amount} TAO to {theta_amount} theta tokens")
         return theta_amount
     
-    def process_deposit_request(self, extrinsic_data: str, vault_wallet: Wallet, amount: float, miner_address: str) -> Dict[str, Any]:
+    def process_deposit_request(self, extrinsic_hex: str, vault_wallet: Wallet) -> Dict[str, Any]:
         """
         Process a collateral deposit request using raw data.
         
         Args:
-            extrinsic_data (str): Hex-encoded extrinsic data
+            extrinsic_hex (str): Hex-encoded extrinsic data
             amount (float): Amount in theta tokens
             miner_address (str): Miner's SS58 address
             
@@ -110,11 +110,10 @@ class ValidatorContractManager:
             Dict[str, Any]: Result of deposit operation
         """
         try:
-            bt.logging.info(f"Processing deposit request from {miner_address} for {amount} Theta")
-            
+            bt.logging.info(f"Received deposit request")
             # Decode and validate the extrinsic
             try:
-                encoded_extrinsic = bytes.fromhex(extrinsic_data)
+                encoded_extrinsic = bytes.fromhex(extrinsic_hex)
                 extrinsic = self.collateral_manager.decode_extrinsic(encoded_extrinsic)
                 bt.logging.info("Extrinsic decoded successfully")
             except Exception as e:
@@ -134,10 +133,13 @@ class ValidatorContractManager:
                     (stake for stake in stake_list if stake.hotkey_ss58 == vault_wallet.hotkey.ss58_address),
                     None
                 )
+                miner_hotkey = next(arg["value"] for arg in extrinsic.value["call"]["call_args"] if arg["name"] == "hotkey")
+                deposit_amount = next(arg["value"] for arg in extrinsic.value["call"]["call_args"] if arg["name"] == "alpha_amount")
+                bt.logging.info(f"Processing deposit for: {self.rao_to_theta(deposit_amount)} Theta to miner: {miner_hotkey}")
 
                 deposited_balance = self.collateral_manager.deposit(
                     extrinsic=extrinsic,
-                    sender=miner_address,
+                    sender=extrinsic.value["address"],
                     vault_stake=vault_stake.hotkey_ss58,
                     vault_wallet=vault_wallet,
                     owner_address=self.owner_address,
@@ -147,7 +149,7 @@ class ValidatorContractManager:
                 # TODO: Get the actual transaction hash from the EVM/deposit operation
                 transaction_hash = ""
                 
-                bt.logging.info(f"Deposit successful: {deposited_balance.rao} RAO deposited for {miner_address}")
+                bt.logging.info(f"Deposit successful: {self.rao_to_theta(deposited_balance.rao)} Theta deposited for miner: {miner_hotkey}")
                 
                 return {
                     "successfully_processed": True,
