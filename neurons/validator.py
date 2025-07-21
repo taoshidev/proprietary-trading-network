@@ -361,19 +361,7 @@ class Validator:
         self.perf_ledger_updater_thread.start()
 
         # Initialize ValidatorContractManager for collateral operations
-        try:
-            bt.logging.info("Initializing validator contract manager...")
-            vault_wallet = self.get_vault_wallet()
-            self.contract_manager = ValidatorContractManager(
-                config=self.config,
-                wallet=vault_wallet,
-                metagraph=self.metagraph
-            )
-            bt.logging.info("Validator contract manager initialized successfully")
-        except Exception as e:
-            bt.logging.error(f"Failed to initialize validator contract manager: {e}")
-            bt.logging.error(traceback.format_exc())
-            self.contract_manager = None
+        self.contract_manager = ValidatorContractManager(config=self.config, metagraph=self.metagraph)
 
         if self.config.start_generate:
             self.rog = RequestOutputGenerator(rcm=self.request_core_manager, msm=self.miner_statistics_manager)
@@ -391,7 +379,8 @@ class Validator:
                 rest_host=self.config.api_host,
                 rest_port=self.config.api_rest_port,
                 position_manager=self.position_manager,
-                contract_manager=self.contract_manager
+                contract_manager=self.contract_manager,
+                config=self.config
             )
 
             # Start the API Manager in a separate process

@@ -13,13 +13,10 @@ class ValidatorContractManager:
     This class acts as the validator's interface to the collateral system.
     """
     
-    def __init__(self, config, wallet: Wallet, metagraph):
+    def __init__(self, config, metagraph, running_unit_tests=False):
         self.config = config
-        self.vault_wallet = wallet
         self.metagraph = metagraph
-        
-        # Log which wallet is being used for collateral operations
-        bt.logging.info(f"ValidatorContractManager using vault wallet: {self.vault_wallet}")
+        self.is_mothership = 'ms' in ValiUtils.get_secrets(running_unit_tests=running_unit_tests)
         
         if config.subtensor.network == "test":
             bt.logging.info("Using testnet collateral manager")
@@ -29,7 +26,8 @@ class ValidatorContractManager:
             self.collateral_manager = CollateralManager(Network.MAINNET)
         
         # Load contract owner credentials from environment or config
-        self._load_contract_owner_credentials()
+        if self.is_mothership:
+            self._load_contract_owner_credentials()
         
     def _load_contract_owner_credentials(self):
         """
@@ -42,14 +40,14 @@ class ValidatorContractManager:
             self.owner_address = secrets.get('collateral_owner_address')
             self.owner_private_key = secrets.get('collateral_owner_private_key')
             if not self.owner_address or not self.owner_private_key:
-                bt.logging.warning("Collateral owner credentials not found. Collateral operations will fail.")
+                bt.logging.warning("Contract owner credentials not found. Collateral operations will fail.")
                 self.owner_address = None
                 self.owner_private_key = None
             else:
-                bt.logging.info("Collateral owner credentials loaded successfully")
+                bt.logging.info("Contract owner credentials loaded successfully")
                 
         except Exception as e:
-            bt.logging.warning(f"Failed to load collateral owner credentials: {e}")
+            bt.logging.warning(f"Failed to load contract owner credentials: {e}")
             self.owner_address = None
             self.owner_private_key = None
 
@@ -99,8 +97,7 @@ class ValidatorContractManager:
         bt.logging.debug(f"Converted {tao_amount} TAO to {theta_amount} theta tokens")
         return theta_amount
     
-    
-    def process_deposit_request(self, extrinsic_data: str, amount: float, miner_address: str) -> Dict[str, Any]:
+    def process_deposit_request(self, extrinsic_data: str, vault_wallet: Wallet, amount: float, miner_address: str) -> Dict[str, Any]:
         """
         Process a collateral deposit request using raw data.
         
@@ -132,9 +129,9 @@ class ValidatorContractManager:
             
             # Execute the deposit through the collateral manager
             try:
-                stake_list = self.collateral_manager.subtensor_api.staking.get_stake_for_coldkey(self.vault_wallet.coldkeypub.ss58_address)
+                stake_list = self.collateral_manager.subtensor_api.staking.get_stake_for_coldkey(vault_wallet.coldkeypub.ss58_address)
                 vault_stake = next(
-                    (stake for stake in stake_list if stake.hotkey_ss58 == self.vault_wallet.hotkey.ss58_address),
+                    (stake for stake in stake_list if stake.hotkey_ss58 == vault_wallet.hotkey.ss58_address),
                     None
                 )
 
@@ -142,7 +139,7 @@ class ValidatorContractManager:
                     extrinsic=extrinsic,
                     sender=miner_address,
                     vault_stake=vault_stake.hotkey_ss58,
-                    vault_wallet=self.vault_wallet,
+                    vault_wallet=vault_wallet,
                     owner_address=self.owner_address,
                     owner_private_key=self.owner_private_key
                 )
@@ -181,7 +178,7 @@ class ValidatorContractManager:
                 "computed_body_hash": ""
             }
 
-    def process_withdrawal_request(self, amount: float, miner_address: str) -> Dict[str, Any]:
+    def process_withdrawal_request(self, amount: float, miner_address: str, vault_wallet: Wallet) -> Dict[str, Any]:
         """
         Process a collateral withdrawal request using raw data.
         
@@ -220,9 +217,9 @@ class ValidatorContractManager:
             
             # Execute the withdrawal through the collateral manager
             try:
-                stake_list = self.collateral_manager.subtensor_api.staking.get_stake_for_coldkey(self.vault_wallet.coldkeypub.ss58_address)
+                stake_list = self.collateral_manager.subtensor_api.staking.get_stake_for_coldkey(vault_wallet.coldkeypub.ss58_address)
                 vault_stake = next(
-                    (stake for stake in stake_list if stake.hotkey_ss58 == self.vault_wallet.hotkey.ss58_address),
+                    (stake for stake in stake_list if stake.hotkey_ss58 == vault_wallet.hotkey.ss58_address),
                     None
                 )
 
@@ -230,7 +227,7 @@ class ValidatorContractManager:
                     amount=self.theta_to_rao(amount),
                     dest=miner_address,
                     vault_stake=vault_stake.hotkey_ss58,
-                    vault_wallet=self.vault_wallet,
+                    vault_wallet=vault_wallet,
                     owner_address=self.owner_address,
                     owner_private_key=self.owner_private_key
                 )
