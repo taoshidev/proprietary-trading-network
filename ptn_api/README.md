@@ -295,9 +295,7 @@ Process a collateral deposit with encoded extrinsic data.
 ```json
 {
   "successfully_processed": true,
-  "error_message": "",
-  "transaction_hash": "0xabc123...",
-  "computed_body_hash": "0xdef456..."
+  "error_message": ""
 }
 ```
 
@@ -323,8 +321,7 @@ Process a collateral withdrawal request.
 {
   "successfully_processed": true,
   "error_message": "",
-  "returned_amount": 5.0,
-  "computed_body_hash": "0xdef456..."
+  "returned_amount": 5.0
 }
 ```
 

@@ -1,9 +1,8 @@
 import bittensor as bt
 from bittensor_wallet import Wallet
 from collateral_sdk import CollateralManager, Network
-from typing import Dict, Any, Optional, Tuple
+from typing import Dict, Any, Optional
 import traceback
-import os
 from vali_objects.utils.vali_utils import ValiUtils
 
 class ValidatorContractManager:
@@ -39,6 +38,7 @@ class ValidatorContractManager:
             secrets = ValiUtils.get_secrets()
             self.owner_address = secrets.get('collateral_owner_address')
             self.owner_private_key = secrets.get('collateral_owner_private_key')
+            self.vault_password = secrets.get('vault_password', None)
             if not self.owner_address or not self.owner_private_key:
                 bt.logging.warning("Contract owner credentials not found. Collateral operations will fail.")
                 self.owner_address = None
@@ -50,6 +50,7 @@ class ValidatorContractManager:
             bt.logging.warning(f"Failed to load contract owner credentials: {e}")
             self.owner_address = None
             self.owner_private_key = None
+            self.vault_password = None
 
 
     def get_theta_token_price(self) -> float:
@@ -110,7 +111,7 @@ class ValidatorContractManager:
             Dict[str, Any]: Result of deposit operation
         """
         try:
-            bt.logging.info(f"Received deposit request")
+            bt.logging.info("Received deposit request")
             # Decode and validate the extrinsic
             try:
                 encoded_extrinsic = bytes.fromhex(extrinsic_hex)
@@ -121,9 +122,7 @@ class ValidatorContractManager:
                 bt.logging.error(error_msg)
                 return {
                     "successfully_processed": False,
-                    "error_message": error_msg,
-                    "transaction_hash": "",
-                    "computed_body_hash": ""
+                    "error_message": error_msg
                 }
             
             # Execute the deposit through the collateral manager
@@ -143,19 +142,15 @@ class ValidatorContractManager:
                     vault_stake=vault_stake.hotkey_ss58,
                     vault_wallet=vault_wallet,
                     owner_address=self.owner_address,
-                    owner_private_key=self.owner_private_key
+                    owner_private_key=self.owner_private_key,
+                    wallet_password=self.vault_password
                 )
-                
-                # TODO: Get the actual transaction hash from the EVM/deposit operation
-                transaction_hash = ""
                 
                 bt.logging.info(f"Deposit successful: {self.rao_to_theta(deposited_balance.rao)} Theta deposited for miner: {miner_hotkey}")
                 
                 return {
                     "successfully_processed": True,
-                    "error_message": "",
-                    "transaction_hash": transaction_hash,
-                    "computed_body_hash": ""
+                    "error_message": ""
                 }
                 
             except Exception as e:
@@ -164,9 +159,7 @@ class ValidatorContractManager:
                 bt.logging.error(traceback.format_exc())
                 return {
                     "successfully_processed": False,
-                    "error_message": error_msg,
-                    "transaction_hash": "",
-                    "computed_body_hash": ""
+                    "error_message": error_msg
                 }
                 
         except Exception as e:
@@ -175,9 +168,7 @@ class ValidatorContractManager:
             bt.logging.error(traceback.format_exc())
             return {
                 "successfully_processed": False,
-                "error_message": error_msg,
-                "transaction_hash": "",
-                "computed_body_hash": ""
+                "error_message": error_msg
             }
 
     def process_withdrawal_request(self, amount: float, miner_address: str, vault_wallet: Wallet) -> Dict[str, Any]:
@@ -192,8 +183,7 @@ class ValidatorContractManager:
             Dict[str, Any]: Result of withdrawal operation
         """
         try:
-            bt.logging.info(f"Processing withdrawal request from {miner_address} for {amount} Theta")
-
+            bt.logging.info("Received withdrawal request")
             # Check current collateral balance
             try:
                 current_balance = self.collateral_manager.balance_of(miner_address)
@@ -204,8 +194,7 @@ class ValidatorContractManager:
                     return {
                         "successfully_processed": False,
                         "error_message": error_msg,
-                        "returned_amount": 0.0,
-                        "computed_body_hash": ""
+                        "returned_amount": 0.0
                     }
             except Exception as e:
                 error_msg = f"Failed to check collateral balance: {str(e)}"
@@ -213,8 +202,7 @@ class ValidatorContractManager:
                 return {
                     "successfully_processed": False,
                     "error_message": error_msg,
-                    "returned_amount": 0.0,
-                    "computed_body_hash": ""
+                    "returned_amount": 0.0
                 }
             
             # Execute the withdrawal through the collateral manager
@@ -225,23 +213,23 @@ class ValidatorContractManager:
                     None
                 )
 
+                bt.logging.info(f"Processing withdrawal request from {miner_address} for {amount} Theta")
                 withdrawn_balance = self.collateral_manager.withdraw(
                     amount=self.theta_to_rao(amount),
                     dest=miner_address,
                     vault_stake=vault_stake.hotkey_ss58,
                     vault_wallet=vault_wallet,
                     owner_address=self.owner_address,
-                    owner_private_key=self.owner_private_key
+                    owner_private_key=self.owner_private_key,
+                    wallet_password=self.vault_password
                 )
-                
                 returned_theta = self.rao_to_theta(withdrawn_balance.rao)
                 bt.logging.info(f"Withdrawal successful: {returned_theta} Theta withdrawn for {miner_address}")
-                
+                print(f"Withdrawal successful: {returned_theta} Theta withdrawn for {miner_address}")
                 return {
                     "successfully_processed": True,
                     "error_message": "",
-                    "returned_amount": returned_theta,
-                    "computed_body_hash": ""
+                    "returned_amount": returned_theta
                 }
                 
             except Exception as e:
@@ -251,8 +239,7 @@ class ValidatorContractManager:
                 return {
                     "successfully_processed": False,
                     "error_message": error_msg,
-                    "returned_amount": 0.0,
-                    "computed_body_hash": ""
+                    "returned_amount": 0.0
                 }
                 
         except Exception as e:
@@ -262,8 +249,7 @@ class ValidatorContractManager:
             return {
                 "successfully_processed": False,
                 "error_message": error_msg,
-                "returned_amount": 0.0,
-                "computed_body_hash": ""
+                "returned_amount": 0.0
             }
     
     def get_miner_collateral_balance(self, miner_address: str) -> Optional[float]:
