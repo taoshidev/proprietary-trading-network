@@ -290,6 +290,9 @@ class ValiConfig:
 
     # Cap leverage across miner's entire portfolio
     PORTFOLIO_LEVERAGE_CAP = 10
+    
+    # Collateral limits
+    MAX_COLLATERAL_BALANCE_THETA = 1000.0  # Maximum total collateral balance per miner in Theta tokens
 
 assert ValiConfig.CRYPTO_MIN_LEVERAGE >= ValiConfig.ORDER_MIN_LEVERAGE
 assert ValiConfig.CRYPTO_MAX_LEVERAGE <= ValiConfig.ORDER_MAX_LEVERAGE
