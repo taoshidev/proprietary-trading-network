@@ -295,7 +295,6 @@ class Validator:
         def rc_priority_fn(synapse: template.protocol.ValidatorCheckpoint) -> float:
             return Validator.priority_fn(synapse, self.metagraph)
 
-
         self.axon.attach(
             forward_fn=self.receive_signal,
             blacklist_fn=rs_blacklist_fn,
@@ -524,47 +523,6 @@ class Validator:
             )
         )
         return config
-
-    def get_vault_wallet(self):
-        """
-        Get the vault wallet for collateral operations.
-        If vault wallet arguments are provided, use them. Otherwise, fall back to the main validator wallet.
-        """
-        try:
-            # Check if vault wallet arguments are provided
-            if (hasattr(self.config, 'vault_wallet_name') and 
-                self.config.vault_wallet_name and 
-                hasattr(self.config, 'vault_wallet_hotkey') and 
-                self.config.vault_wallet_hotkey):
-
-                vault_wallet = bt.wallet(
-                    name=self.config.vault_wallet_name,
-                    hotkey=self.config.vault_wallet_hotkey,
-                    path=self.config.vault_wallet_path
-                )
-                
-                # Verify that the vault wallet exists
-                if not vault_wallet.coldkeypub_file.exists_on_device():
-                    bt.logging.error(f"Vault wallet coldkey not found: {vault_wallet.coldkeypub_file.path}")
-                    bt.logging.warning("Falling back to main validator wallet for collateral operations")
-                    return self.wallet
-                    
-                if not vault_wallet.hotkey_file.exists_on_device():
-                    bt.logging.error(f"Vault wallet hotkey not found: {vault_wallet.hotkey_file.path}")
-                    bt.logging.warning("Falling back to main validator wallet for collateral operations")
-                    return self.wallet
-                    
-                bt.logging.info(f"Successfully loaded vault wallet: {vault_wallet}")
-                return vault_wallet
-                
-            else:
-                bt.logging.info("No vault wallet specified, using main validator wallet for collateral operations")
-                return self.wallet
-                
-        except Exception as e:
-            bt.logging.error(f"Error fetching vault wallet: {e}")
-            bt.logging.warning("Falling back to main validator wallet for collateral operations")
-            return self.wallet
 
     def check_shutdown(self):
         global shutdown_dict
@@ -1067,7 +1025,6 @@ class Validator:
             synapse.error_message = "Rejecting checkpoint poke from non validator"
             synapse.successfully_processed = False
         return synapse
-
 
 # This is the main function, which runs the miner.
 if __name__ == "__main__":
