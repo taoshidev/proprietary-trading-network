@@ -13,6 +13,7 @@ import traceback
 from setproctitle import setproctitle
 from waitress import serve
 from flask_compress import Compress
+from bittensor_wallet import Keypair
 
 from time_util.time_util import TimeUtil
 from vali_objects.position import Position
@@ -587,13 +588,20 @@ class PTNRestServer(APIKeyMixin):
                 if not data:
                     return jsonify({'error': 'Invalid JSON body'}), 400
                     
-                # Validate required fields
-                required_fields = ['amount', 'miner_address']
+                # Validate required fields for signed withdrawal
+                required_fields = ['amount', 'miner_address', 'signature']
                 for field in required_fields:
                     if field not in data:
                         return jsonify({'error': f'Missing required field: {field}'}), 400
                         
-                # Process the withdrawal using raw data
+                # Verify the withdrawal signature
+                keypair = Keypair(ss58_address=data['miner_address'])
+                message = json.dumps({"amount": data['amount'], "miner_address": data['miner_address']}, sort_keys=True).encode('utf-8')
+                is_valid = keypair.verify(message, bytes.fromhex(data['signature']))
+                if not is_valid:
+                    return jsonify({'error': 'Invalid signature. Withdrawal request unauthorized'}), 401
+                        
+                # Process the withdrawal using verified data
                 result = self.contract_manager.process_withdrawal_request(
                     amount=data['amount'],
                     miner_address=data['miner_address'],

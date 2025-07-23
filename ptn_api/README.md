@@ -312,7 +312,8 @@ Process a collateral withdrawal request.
 ```json
 {
   "amount": 5.0,
-  "miner_address": "5HEo565WAy4Dbq3Sv271SAi7syBSofyfhhwRNjFNSM2gP9M2"
+  "miner_address": "5HEo565WAy4Dbq3Sv271SAi7syBSofyfhhwRNjFNSM2gP9M2",
+  "signature": "0x1234567890abcdef..."
 }
 ```
 
