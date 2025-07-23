@@ -345,28 +345,6 @@ Retrieve a miner's current collateral balance.
 }
 ```
 
-### Get Collateral Statistics
-
-`GET /collateral/stats`
-
-Retrieve overall collateral system statistics.
-
-**Authentication Required:** Valid API Key
-
-**Response:**
-```json
-{
-  "total_collateral_rao": 1000000000000,
-  "total_collateral_theta": 1000.0,
-  "slashed_collateral_rao": 50000000000,
-  "slashed_collateral_theta": 50.0,
-  "theta_token_price": 1.05,
-  "network": "TESTNET",
-  "contract_owner_configured": true
-}
-```
-
-
 ## Compression Support
 
 The API server supports automatic gzip compression for REST responses, which can significantly reduce payload sizes and improve performance. Compression is particularly beneficial for large responses like miner positions and statistics.

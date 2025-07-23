@@ -639,31 +639,11 @@ class PTNRestServer(APIKeyMixin):
                 bt.logging.error(f"Error getting collateral balance for {miner_address}: {e}")
                 return jsonify({'error': 'Internal server error retrieving balance'}), 500
                 
-        @self.app.route("/collateral/stats", methods=["GET"])
-        def get_collateral_stats():
-            """Get overall collateral system statistics."""
-            api_key = self._get_api_key_safe()
-            
-            # Check if the API key is valid
-            if not self.is_valid_api_key(api_key):
-                return jsonify({'error': 'Unauthorized access'}), 401
-
-            # Check if contract manager is available
-            if not self.contract_manager:
-                return jsonify({'error': 'Collateral operations not available'}), 503
-                
-            try:
-                # Get the statistics
-                stats = self.contract_manager.get_total_collateral_stats()
-                
-                if not stats:
-                    return jsonify({'error': 'Failed to retrieve collateral statistics'}), 500
-                    
-                return jsonify(stats)
+                return jsonify(response_data)
                 
             except Exception as e:
-                bt.logging.error(f"Error getting collateral statistics: {e}")
-                return jsonify({'error': 'Internal server error retrieving statistics'}), 500
+                bt.logging.error(f"Error getting collateral balance for {miner_address}: {e}")
+                return jsonify({'error': 'Internal server error retrieving balance'}), 500
 
     def _get_api_key_safe(self) -> Optional[str]:
         """
