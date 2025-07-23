@@ -21,9 +21,11 @@ class ValidatorContractManager:
         if config.subtensor.network == "test":
             bt.logging.info("Using testnet collateral manager")
             self.collateral_manager = CollateralManager(Network.TESTNET)
+            self.max_theta = ValiConfig.MAX_COLLATERAL_BALANCE_TESTNET
         else:
             bt.logging.info("Using mainnet collateral manager")
             self.collateral_manager = CollateralManager(Network.MAINNET)
+            self.max_theta = ValiConfig.MAX_COLLATERAL_BALANCE_THETA
         
         # Load contract owner credentials from environment or config
         if self.is_mothership:
@@ -133,19 +135,20 @@ class ValidatorContractManager:
                     (stake for stake in stake_list if stake.hotkey_ss58 == vault_wallet.hotkey.ss58_address),
                     None
                 )
+                miner_coldkey = extrinsic.value["address"]
                 miner_hotkey = next(arg["value"] for arg in extrinsic.value["call"]["call_args"] if arg["name"] == "hotkey")
                 deposit_amount = next(arg["value"] for arg in extrinsic.value["call"]["call_args"] if arg["name"] == "alpha_amount")
                 deposit_amount_theta = self.rao_to_theta(deposit_amount)
                 
                 # Check collateral balance limit before processing
                 try:
-                    current_balance_theta = self.rao_to_theta(self.collateral_manager.balance_of(miner_hotkey))
+                    current_balance_theta = self.rao_to_theta(self.collateral_manager.balance_of(miner_coldkey))
                     
-                    if current_balance_theta + deposit_amount_theta > ValiConfig.MAX_COLLATERAL_BALANCE_THETA:
+                    if current_balance_theta + deposit_amount_theta > self.max_theta:
                         error_msg = (f"Deposit would exceed maximum balance limit. "
                                    f"Current: {current_balance_theta:.2f} Theta, "
                                    f"Deposit: {deposit_amount_theta:.2f} Theta, "
-                                   f"Limit: {ValiConfig.MAX_COLLATERAL_BALANCE_THETA} Theta")
+                                   f"Limit: {self.max_theta} Theta")
                         bt.logging.warning(error_msg)
                         return {
                             "successfully_processed": False,
@@ -159,7 +162,7 @@ class ValidatorContractManager:
                         "error_message": e
                     }
                 
-                bt.logging.info(f"Processing deposit for: {deposit_amount_theta} Theta to miner: {miner_hotkey}")
+                bt.logging.info(f"Processing deposit for: {deposit_amount_theta} Theta to miner hotkey: {miner_hotkey} coldkey: {miner_coldkey}")
                 deposited_balance = self.collateral_manager.deposit(
                     extrinsic=extrinsic,
                     sender=extrinsic.value["address"],
@@ -170,8 +173,8 @@ class ValidatorContractManager:
                     wallet_password=self.vault_password
                 )
                 
-                bt.logging.info(f"Deposit successful: {self.rao_to_theta(deposited_balance.rao)} Theta deposited for miner: {miner_hotkey}")
-                
+                bt.logging.info(f"Deposit successful: {self.rao_to_theta(deposited_balance.rao)} Theta deposited to miner hotkey: {miner_hotkey} coldkey: {miner_coldkey}")
+                print("succesfully deposited")
                 return {
                     "successfully_processed": True,
                     "error_message": ""
