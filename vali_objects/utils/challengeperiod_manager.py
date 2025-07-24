@@ -1,4 +1,5 @@
 # developer: trdougherty
+from collections import defaultdict
 import time
 import bittensor as bt
 import copy
@@ -6,7 +7,7 @@ import copy
 from datetime import datetime
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.utils.vali_utils import ValiUtils
-from vali_objects.vali_config import ValiConfig
+from vali_objects.vali_config import TradePairCategory, ValiConfig
 from shared_objects.cache_controller import CacheController
 from vali_objects.scoring.scoring import Scoring
 from time_util.time_util import TimeUtil
@@ -377,6 +378,43 @@ class ChallengePeriodManager(CacheController):
         return hotkeys_to_promote, hotkeys_to_demote, miners_to_eliminate
 
     @staticmethod
+    def combine_scores_dicts(success_scores_dict, inspection_scores_dict):
+        combined_scores_dict = defaultdict(lambda: {
+            "metrics": {},
+            "penalties": {},
+        })
+
+        def merge_scores(scores_dict):
+            for subcategory, subcategory_scores_dict in scores_dict.items():
+                asset_class = subcategory.asset_class
+                weight = ValiConfig.ASSET_CLASS_BREAKDOWN[asset_class]["subcategory_weights"][subcategory]
+
+                # copy metrics
+                metrics = combined_scores_dict[asset_class]["metrics"]
+                for metric_name, metric_config in subcategory_scores_dict["metrics"].items():
+                    metric_obj = metrics.setdefault(metric_name, {
+                        "scores": defaultdict(float),
+                        "weight": metric_config["weight"]
+                    })
+
+                    for hotkey, score in metric_config["scores"]:
+                        metric_obj["scores"][hotkey] += score * weight
+
+                # copy penalties
+                penalties = combined_scores_dict[asset_class].get("penalties", {})
+                for hotkey, penalty in subcategory_scores_dict["penalties"].items():
+                    penalties[hotkey] = penalties.get(hotkey, 0) + weight * penalty
+
+        merge_scores(success_scores_dict)
+        merge_scores(inspection_scores_dict)
+
+        for asset_data in combined_scores_dict.values():
+            for metric in asset_data["metrics"].values():
+                metric["scores"] = list(metric["scores"].items())
+
+        return combined_scores_dict
+
+    @staticmethod
     def evaluate_promotions(
             success_hotkeys,
             success_scores_dict,
@@ -384,49 +422,42 @@ class ChallengePeriodManager(CacheController):
             inspection_scores_dict,
             threshold_rank=ValiConfig.PROMOTION_THRESHOLD_RANK
             ) -> tuple[list[str], list[str]]:
-        combined_scores_dict = copy.deepcopy(success_scores_dict)
-        for asset_class, asset_class_combined_scores in combined_scores_dict.items():
-            asset_class_inspection_scores = inspection_scores_dict[asset_class]
 
-            for metric_name, config in asset_class_combined_scores["metrics"].items():
-                candidate_metric_score = asset_class_inspection_scores["metrics"][metric_name]["scores"]
-                miner_scores = config["scores"] + candidate_metric_score
-                asset_class_combined_scores["metrics"][metric_name]["scores"] = miner_scores
-            asset_class_combined_scores["penalties"].update(asset_class_inspection_scores["penalties"])
+        combined_scores_dict = ChallengePeriodManager.combine_scores_dicts(success_scores_dict, inspection_scores_dict)
 
         asset_combined_scores = Scoring.combine_scores(combined_scores_dict)
         asset_softmaxed_scores = Scoring.softmax_by_asset(asset_combined_scores)
 
-        all_scores_list = Scoring.subclass_score_aggregation(asset_softmaxed_scores)
+        promote_hotkeys = set()
+        demote_hotkeys = set()
 
-        all_scores = dict(all_scores_list)
-        sorted_scores = sorted(all_scores.values(), reverse=True)
+        for _, asset_scores in asset_softmaxed_scores.items():
 
-        promote_hotkeys = []
-        demote_hotkeys = []
+            sorted_scores = sorted(asset_scores.values(), reverse=True)
 
-        if len(sorted_scores) < threshold_rank:
-            for hotkey in all_scores.keys():
-                if hotkey in candidate_hotkeys:
-                    promote_hotkeys.append(hotkey)
-        else:
-            threshold_idx = threshold_rank - 1
-            threshold_score = sorted_scores[threshold_idx]
+            if len(sorted_scores) < threshold_rank:
+                for hotkey in asset_scores.keys():
+                    if hotkey in candidate_hotkeys:
+                        promote_hotkeys.add(hotkey)
+            else:
+                threshold_idx = threshold_rank - 1
+                threshold_score = sorted_scores[threshold_idx]
 
-            for hotkey, score in all_scores.items():
-                if hotkey in candidate_hotkeys and score >= threshold_score:
-                    promote_hotkeys.append(hotkey)
-                elif hotkey in success_hotkeys and score < threshold_score:
-                    demote_hotkeys.append(hotkey)
+                for hotkey, score in asset_scores.items():
+                    if hotkey in candidate_hotkeys and score >= threshold_score:
+                        promote_hotkeys.add(hotkey)
+                    elif hotkey in success_hotkeys and score < threshold_score:
+                        demote_hotkeys.add(hotkey)
 
-        for hotkey in success_hotkeys:
-            if hotkey not in all_scores:
-                bt.logging.warning(f"Could not find MAINCOMP hotkey {hotkey} when scoring, miner will not be evaluated")
-        for hotkey in candidate_hotkeys:
-            if hotkey not in all_scores:
-                bt.logging.warning(f"Could not find CHALLENGE/PROBATION hotkey {hotkey} when scoring, miner will not be evaluated")
+            for hotkey in success_hotkeys:
+                if hotkey not in asset_scores:
+                    bt.logging.warning(f"Could not find MAINCOMP hotkey {hotkey} when scoring, miner will not be evaluated")
 
-        return promote_hotkeys, demote_hotkeys
+            for hotkey in candidate_hotkeys:
+                if hotkey not in asset_scores:
+                    bt.logging.warning(f"Could not find CHALLENGE/PROBATION hotkey {hotkey} when scoring, miner will not be evaluated")
+
+        return list(promote_hotkeys), list(demote_hotkeys)
 
     @staticmethod
     def screen_minimum_interaction(
