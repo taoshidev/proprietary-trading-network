@@ -447,13 +447,17 @@ class ChallengePeriodManager(CacheController):
         if bucket == MinerBucket.MAINCOMP:
             return False
 
-        elapsed_time_ms = current_time - bucket_start_time
+        # TODO [remove on 2025-10-02] 70 day grace period --> reset upper bound to bucket_end_time_ms
+        asset_split_grace_date = datetime.strptime(ValiConfig.ASSET_SPLIT_GRACE_DATE, "%Y-%m-%d")
+        asset_split_grace_timestamp = int(asset_split_grace_date.timestamp() * 1000)
+
         if bucket == MinerBucket.CHALLENGE:
-            upper_bound = ValiConfig.CHALLENGE_PERIOD_MAXIMUM_MS
-            return elapsed_time_ms <= upper_bound
+            probation_end_time_ms = bucket_start_time + ValiConfig.CHALLENGE_PERIOD_MAXIMUM_MS
+            return current_time <= max(probation_end_time_ms, asset_split_grace_timestamp)
 
         if bucket == MinerBucket.PROBATION:
-            return elapsed_time_ms <= ValiConfig.PROBATION_MAXIMUM_MS
+            probation_end_time_ms = bucket_start_time + ValiConfig.PROBATION_MAXIMUM_MS
+            return current_time <= max(probation_end_time_ms, asset_split_grace_timestamp)
 
     @staticmethod
     def screen_minimum_ledger(
