@@ -428,34 +428,30 @@ class ChallengePeriodManager(CacheController):
         asset_combined_scores = Scoring.combine_scores(combined_scores_dict)
         asset_softmaxed_scores = Scoring.softmax_by_asset(asset_combined_scores)
 
-        promote_hotkeys = set()
-        demote_hotkeys = set()
+        maincomp_hotkeys = set()
 
-        for _, asset_scores in asset_softmaxed_scores.items():
+        for asset_scores in asset_softmaxed_scores.values():
+            if len(asset_scores) < threshold_rank:
+                maincomp_hotkeys.update(asset_scores.keys())
+                continue
 
             sorted_scores = sorted(asset_scores.values(), reverse=True)
+            threshold_score = sorted_scores[threshold_rank-1]
 
-            if len(sorted_scores) < threshold_rank:
-                for hotkey in asset_scores.keys():
-                    if hotkey in candidate_hotkeys:
-                        promote_hotkeys.add(hotkey)
-            else:
-                threshold_idx = threshold_rank - 1
-                threshold_score = sorted_scores[threshold_idx]
+            for hotkey, score in asset_scores.items():
+                if score >= threshold_score:
+                    maincomp_hotkeys.add(hotkey)
 
-                for hotkey, score in asset_scores.items():
-                    if hotkey in candidate_hotkeys and score >= threshold_score:
-                        promote_hotkeys.add(hotkey)
-                    elif hotkey in success_hotkeys and score < threshold_score:
-                        demote_hotkeys.add(hotkey)
-
+            # logging
             for hotkey in success_hotkeys:
                 if hotkey not in asset_scores:
                     bt.logging.warning(f"Could not find MAINCOMP hotkey {hotkey} when scoring, miner will not be evaluated")
-
             for hotkey in candidate_hotkeys:
                 if hotkey not in asset_scores:
                     bt.logging.warning(f"Could not find CHALLENGE/PROBATION hotkey {hotkey} when scoring, miner will not be evaluated")
+
+        promote_hotkeys = maincomp_hotkeys - set(success_hotkeys)
+        demote_hotkeys = set(success_hotkeys) - maincomp_hotkeys
 
         return list(promote_hotkeys), list(demote_hotkeys)
 
