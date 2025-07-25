@@ -541,7 +541,7 @@ class LedgerUtils:
             ledger: PerfLedger - the ledger of the miner
         """
         # recent_drawdown = LedgerUtils.recent_drawdown(checkpoints)
-        approximate_drawdown = LedgerUtils.daily_max_drawdown(ledger)
+        approximate_drawdown = LedgerUtils.instantaneous_max_drawdown(ledger)
         drawdown_penalty = LedgerUtils.mdd_augmentation(approximate_drawdown)
         return drawdown_penalty
 
