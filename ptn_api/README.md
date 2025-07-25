@@ -340,8 +340,7 @@ Retrieve a miner's current collateral balance.
 ```json
 {
   "miner_address": "5HEo565WAy4Dbq3Sv271SAi7syBSofyfhhwRNjFNSM2gP9M2",
-  "balance_theta": 15.5,
-  "balance_rao": 15500000000
+  "balance_theta": 15.5
 }
 ```
 

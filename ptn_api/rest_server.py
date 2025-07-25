@@ -631,8 +631,7 @@ class PTNRestServer(APIKeyMixin):
                     
                 return jsonify({
                     'miner_address': miner_address,
-                    'balance_theta': balance,
-                    'balance_rao': self.contract_manager.theta_to_rao(balance)
+                    'balance_theta': balance
                 })
                 
             except Exception as e:
