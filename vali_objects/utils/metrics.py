@@ -222,7 +222,6 @@ class Metrics:
             weighting: whether to use weighted average
             days_in_year: number of trading days in a year for annualization
         """
-        calmar_ratio_cap = ValiConfig.CALMAR_RATIO_CAP
 
         # Positional Component
         if len(log_returns) < ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N:
@@ -232,8 +231,7 @@ class Metrics:
         base_return_percentage = Metrics.base_return_log_percentage(log_returns, weighting=weighting, days_in_year=days_in_year)
         drawdown_normalization_factor = LedgerUtils.risk_normalization(ledger)
 
-        raw_calmar = float(base_return_percentage * drawdown_normalization_factor)
-        return min(raw_calmar, calmar_ratio_cap)  # Cap the Calmar ratio to prevent extreme values
+        return float(base_return_percentage * drawdown_normalization_factor)
 
     @staticmethod
     def sharpe(log_returns: list[float], bypass_confidence: bool = False, weighting: bool = False, days_in_year: int = ValiConfig.DAYS_IN_YEAR_CRYPTO, **kwargs) -> float:
