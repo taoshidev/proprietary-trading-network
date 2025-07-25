@@ -108,7 +108,7 @@ class Scoring:
         ]
 
         # Run scoring functions for each miner in each subcategory
-        _, asset_softmaxed_scores = Scoring.score_miner_asset_subcategories(
+        _, asset_softmaxed_scores, _ = Scoring.score_miner_asset_subcategories(
             ledger_dict=ledger_dict,
             positions=full_positions,
             evaluation_time_ms=evaluation_time_ms,
@@ -132,15 +132,16 @@ class Scoring:
             positions: dict[str, list[Position]],
             evaluation_time_ms: int = None,
             weighting=False
-    ) -> tuple[dict[str, float], dict[str, dict[str, float]]]:
+    ) -> tuple[dict[str, float], dict[str, dict[str, float]], dict[str, dict]]:
         """
         returns:
         asset_competitiveness: dictionary with asset classes as keys and their competitiveness as values.
         asset_miner_softmaxed_scores: A dictionary with softmax scores for each miner within each asset class
+        asset_penalized_scores_dict: A dictionary where keys are asset classes and values are dictionaries containing scores and penalties.
         """
         if len(ledger_dict) <= 1:
             bt.logging.debug("No subcategory results to compute, returning empty dicts")
-            return {}, {}
+            return {}, {}, {}
 
         if evaluation_time_ms is None:
             evaluation_time_ms = TimeUtil.now_in_millis()
@@ -161,7 +162,7 @@ class Scoring:
         # Now we probably want to apply the softmax to the asset combined scores
         asset_miner_softmaxed_scores = Scoring.softmax_by_asset(asset_combined_scores)
 
-        return asset_competitiveness, asset_miner_softmaxed_scores
+        return asset_competitiveness, asset_miner_softmaxed_scores, asset_penalized_scores_dict
 
     @staticmethod
     def score_miners(
