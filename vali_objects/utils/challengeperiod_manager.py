@@ -378,65 +378,43 @@ class ChallengePeriodManager(CacheController):
         return hotkeys_to_promote, hotkeys_to_demote, miners_to_eliminate
 
     @staticmethod
-    def combine_scores_dicts(success_scores_dict, inspection_scores_dict):
-        combined_scores_dict = defaultdict(lambda: {
-            "metrics": {},
-            "penalties": {},
-        })
-
-        def merge_scores(scores_dict):
-            for subcategory, subcategory_scores_dict in scores_dict.items():
-                asset_class = subcategory.asset_class
-                weight = ValiConfig.ASSET_CLASS_BREAKDOWN[asset_class]["subcategory_weights"][subcategory]
-
-                # copy metrics
-                metrics = combined_scores_dict[asset_class]["metrics"]
-                for metric_name, metric_config in subcategory_scores_dict["metrics"].items():
-                    metric_obj = metrics.setdefault(metric_name, {
-                        "scores": defaultdict(float),
-                        "weight": metric_config["weight"]
-                    })
-
-                    for hotkey, score in metric_config["scores"]:
-                        metric_obj["scores"][hotkey] += score * weight
-
-                # copy penalties
-                penalties = combined_scores_dict[asset_class].get("penalties", {})
-                for hotkey, penalty in subcategory_scores_dict["penalties"].items():
-                    penalties[hotkey] = penalties.get(hotkey, 0) + weight * penalty
-
-        merge_scores(success_scores_dict)
-        merge_scores(inspection_scores_dict)
-
-        for asset_data in combined_scores_dict.values():
-            for metric in asset_data["metrics"].values():
-                metric["scores"] = list(metric["scores"].items())
-
-        return combined_scores_dict
-
-    @staticmethod
     def evaluate_promotions(
             success_hotkeys,
             success_scores_dict,
             candidate_hotkeys,
-            inspection_scores_dict,
-            threshold_rank=ValiConfig.PROMOTION_THRESHOLD_RANK
+            inspection_scores_dict
             ) -> tuple[list[str], list[str]]:
+        # combine maincomp and challenge/probation miners into one scoring dict
+        combined_scores_dict = copy.deepcopy(success_scores_dict)
+        for subcategory, candidate_scores_dict in inspection_scores_dict.items():
+            for metric_name, candidate_metric in candidate_scores_dict["metrics"].items():
+                combined_scores_dict[subcategory]['metrics'][metric_name]["scores"] += candidate_metric["scores"]
+            combined_scores_dict[subcategory]["penalties"].update(candidate_scores_dict["penalties"])
 
-        combined_scores_dict = ChallengePeriodManager.combine_scores_dicts(success_scores_dict, inspection_scores_dict)
-
+        # score them based on asset subcategory
         asset_combined_scores = Scoring.combine_scores(combined_scores_dict)
         asset_softmaxed_scores = Scoring.softmax_by_asset(asset_combined_scores)
 
-        maincomp_hotkeys = set()
+        # combine asset subcategories
+        total_scores = {}
+        for subcategory, miner_scores in asset_softmaxed_scores.items():
+            asset_class = ValiConfig.CATEGORY_LOOKUP[subcategory]
+            weight = ValiConfig.ASSET_CLASS_BREAKDOWN[asset_class]["subcategory_weights"][subcategory]
 
-        for asset_scores in asset_softmaxed_scores.values():
-            if len(asset_scores) < threshold_rank:
+            something_scores = defaultdict(float)
+            for hotkey, score in miner_scores.items():
+                something_scores[hotkey] += weight * score
+            total_scores[asset_class] = something_scores
+
+        maincomp_hotkeys = set()
+        promotion_threshold_rank = ValiConfig.PROMOTION_THRESHOLD_RANK
+        for asset_scores in total_scores.values():
+            if len(asset_scores) < promotion_threshold_rank:
                 maincomp_hotkeys.update(asset_scores.keys())
                 continue
 
             sorted_scores = sorted(asset_scores.values(), reverse=True)
-            threshold_score = sorted_scores[threshold_rank-1]
+            threshold_score = sorted_scores[promotion_threshold_rank-1]
 
             for hotkey, score in asset_scores.items():
                 if score >= threshold_score:
