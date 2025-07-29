@@ -198,7 +198,7 @@ class PerfLedger():
         # |-----------midday-----x-----| -> accum_ms_for_utc_alignment = (distance between midday and x) = x - midday_ms
         # By calculating the initial accum_ms this way, the co will always end at middday or 00:00:00 the next day.
 
-
+        assert order_processed_ms != 0, "order_processed_ms cannot be 0. This is likely a bug in the code."
         datetime_representation = TimeUtil.millis_to_datetime(order_processed_ms)
         assert self.target_cp_duration_ms == 43200000, f'self.target_cp_duration_ms is not 12 hours {self.target_cp_duration_ms}'
         midday = datetime_representation.replace(hour=12, minute=0, second=0, microsecond=0)
@@ -241,6 +241,23 @@ class PerfLedger():
 
     def update_pl(self, current_portfolio_value: float, now_ms: int, miner_hotkey: str, any_open: TradePairReturnStatus,
               current_portfolio_fee_spread: float, current_portfolio_carry: float, tp_debug=None, debug_dict=None):
+        # Skip gap validation during void filling, shortcuts, or when no debug info
+        # The absence of tp_debug typically means this is a high-level update that may span time
+        skip_gap_check = (not tp_debug or '_shortcut' in tp_debug or 'void' in tp_debug)
+        
+        # If we have checkpoints, verify continuous updates (unless explicitly skipping)
+        if len(self.cps) > 0 and not skip_gap_check:
+            time_gap = now_ms - self.last_update_ms
+            
+            # Allow up to 1 minute gap (plus small buffer for processing)
+            max_allowed_gap = 61000  # 61 seconds
+            
+            assert time_gap <= max_allowed_gap, (
+                f"Large gap in update_pl for {tp_debug or 'portfolio'}: {time_gap/1000:.1f}s. "
+                f"Last: {TimeUtil.millis_to_formatted_date_str(self.last_update_ms)}, "
+                f"Now: {TimeUtil.millis_to_formatted_date_str(now_ms)}"
+            )
+        
         if len(self.cps) == 0:
             self.init_with_first_order(now_ms, point_in_time_dd=1.0, current_portfolio_value=1.0,
                                            current_portfolio_fee_spread=1.0, current_portfolio_carry=1.0)
@@ -507,7 +524,7 @@ class PerfLedgerManager(CacheController):
         if 'initialization_time_ms' in ledger_value:
             ans = True
         # "Faked" v2 ledger
-        elif 'portfolio' in ledger_value and len(ledger_value) == 1:
+        elif TP_ID_PORTFOLIO in ledger_value and len(ledger_value) == 1:
             ans = True
         return ans
 
@@ -1077,8 +1094,8 @@ class PerfLedgerManager(CacheController):
             print(
                 f'perf ledger (pl_last_update_time {pl_last_update_time}) for hk {miner_hotkey} significant return drop on {time_formatted} from '
                 f'{portfolio_pl.cps[-1].prev_portfolio_ret} to {portfolio_return} over'
-                f' {time_since_last_update} ms ({t_ms}) when building up to {start_formatted} and {end_formatted} with open_positions_tp_ids {open_positions_tp_ids} ',
-                perf_ledger_bundle[TP_ID_PORTFOLIO].cps[-1].to_dict(), self.trade_pair_to_position_ret, mode)
+                f' {time_since_last_update} ms ({t_ms}) when building up to {start_formatted} and {end_formatted} with open_positions_tp_ids {open_positions_tp_ids}, ',
+                f'last cp {perf_ledger_bundle[TP_ID_PORTFOLIO].cps[-1].to_dict()}, trade_pair_to_position_ret {self.trade_pair_to_position_ret}, mode {mode} ')
             for tp_id, historical_positions in tp_to_historical_positions.items():
                 positions = []
                 for historical_position in historical_positions:
@@ -1097,6 +1114,8 @@ class PerfLedgerManager(CacheController):
 
 
     def inc_accumulated_time(self, mode, accumulated_time_ms):
+        old_accumulated_time = accumulated_time_ms
+        
         if mode == 'second':
             accumulated_time_ms += 1000
             self.mode_to_n_updates['second'] += 1
@@ -1105,6 +1124,12 @@ class PerfLedgerManager(CacheController):
             self.mode_to_n_updates['minute'] += 1
         else:
             raise Exception(f"Unknown mode: {mode}")
+        
+        # Assert we only increment by expected amount
+        increment = accumulated_time_ms - old_accumulated_time
+        expected_increment = 1000 if mode == 'second' else 60000
+        assert increment == expected_increment, f"Invalid time increment: {increment} ms in {mode} mode (expected {expected_increment} ms)"
+        
         return accumulated_time_ms
 
 
@@ -1114,8 +1139,34 @@ class PerfLedgerManager(CacheController):
         tp_id_rtp = realtime_position_to_pop.trade_pair.trade_pair_id if realtime_position_to_pop else None
 
         portfolio_pl = perf_ledger_bundle[TP_ID_PORTFOLIO]
+        is_first_update = len(portfolio_pl.cps) == 0
+        
+        # For non-first updates, validate that we're continuing from where we left off
+        # We should always start from the ledger's last update time
+        if not is_first_update:
+            # start_time_ms should match the ledger's last_update_ms
+            # If it doesn't, there's likely a bug in the calling code
+            expected_start = portfolio_pl.last_update_ms
+            gap = start_time_ms - expected_start
+            
+            # We should start from exactly where we left off (gap = 0)
+            # A negative gap means we're re-processing old data (regeneration)
+            # A positive gap means start_time is in the future - this is a bug
+            if gap != 0:
+                bt.logging.error(f"BUG DETECTED: Attempting to build ledger starting from future time")
+                bt.logging.error(f"  Ledger ID: {portfolio_pl.tp_id}")
+                bt.logging.error(f"  Ledger last_update_ms: {expected_start} ({TimeUtil.millis_to_formatted_date_str(expected_start)})")
+                bt.logging.error(f"  Requested start_time_ms: {start_time_ms} ({TimeUtil.millis_to_formatted_date_str(start_time_ms)})")
+                bt.logging.error(f"  Gap: {gap/1000/60:.2f} minutes into the future")
+                bt.logging.error(f"  End time: {TimeUtil.millis_to_formatted_date_str(end_time_ms)}")
+                raise AssertionError(
+                    f"Cannot start building from future time. "
+                    f"Ledger at {TimeUtil.millis_to_formatted_date_str(expected_start)}, "
+                    f"but start_time is {TimeUtil.millis_to_formatted_date_str(start_time_ms)}"
+                )
+        
         if len(portfolio_pl.cps) == 0:
-            portfolio_pl.init_with_first_order(end_time_ms, point_in_time_dd=1.0, current_portfolio_value=1.0,
+            portfolio_pl.init_with_first_order(portfolio_pl.initialization_time_ms, point_in_time_dd=1.0, current_portfolio_value=1.0,
                                               current_portfolio_fee_spread=1.0, current_portfolio_carry=1.0)
 
         # Init per-trade-pair perf ledgers
@@ -1132,8 +1183,31 @@ class PerfLedgerManager(CacheController):
                 assert realtime_position_to_pop and tp_id == tp_id_rtp
                 initialization_time_ms = realtime_position_to_pop.orders[0].processed_ms
                 perf_ledger_bundle[tp_id] = PerfLedger(initialization_time_ms=initialization_time_ms, target_ledger_window_ms=self.target_ledger_window_ms)
-                perf_ledger_bundle[tp_id].init_with_first_order(end_time_ms, point_in_time_dd=1.0, current_portfolio_value=1.0,
+                # Initialize with the actual initialization time, not the end time
+                perf_ledger_bundle[tp_id].init_with_first_order(initialization_time_ms, point_in_time_dd=1.0, current_portfolio_value=1.0,
                                                    current_portfolio_fee_spread=1.0, current_portfolio_carry=1.0)
+        
+        # Validate starting point for ALL ledgers that will be built
+        for tp_id in tp_ids_to_build:
+            perf_ledger = perf_ledger_bundle[tp_id]
+            is_ledger_first_update = len(perf_ledger.cps) == 0
+            
+            if not is_ledger_first_update:
+                gap_from_last_update = start_time_ms - perf_ledger.last_update_ms
+                if gap_from_last_update != 0:
+                    bt.logging.error(f"Gap validation failed for {tp_id}:")
+                    bt.logging.error(f"  perf_ledger.last_update_ms: {perf_ledger.last_update_ms}")
+                    bt.logging.error(f"  start_time_ms: {start_time_ms}")
+                    bt.logging.error(f"  gap: {gap_from_last_update}")
+                    bt.logging.error(f"  Ledger has {len(perf_ledger.cps)} checkpoints")
+                    if len(perf_ledger.cps) > 0:
+                        bt.logging.error(f"  Last checkpoint time: {perf_ledger.cps[-1].last_update_ms}")
+                assert gap_from_last_update == 0, (
+                    f"Gap detected for {tp_id} ledger between last_update_ms and start_time_ms: "
+                    f"{gap_from_last_update/1000/60:.2f} minutes. "
+                    f"Last update: {TimeUtil.millis_to_formatted_date_str(perf_ledger.last_update_ms)}, "
+                    f"Start time: {TimeUtil.millis_to_formatted_date_str(start_time_ms)}"
+                )
         if portfolio_pl.initialization_time_ms == end_time_ms:
             return False  # Can only build perf ledger between orders or after all orders have passed.
 
@@ -1143,6 +1217,12 @@ class PerfLedgerManager(CacheController):
         if shortcut_reason != ShortcutReason.NO_SHORTCUT:
             for tp_id in tp_ids_to_build:
                 perf_ledger = perf_ledger_bundle[tp_id]
+                
+                # Don't update if end_time is before the ledger's current state
+                if perf_ledger.last_update_ms > 0 and end_time_ms < perf_ledger.last_update_ms:
+                    bt.logging.info(f"Skipping shortcut update for {tp_id} - end_time_ms ({TimeUtil.millis_to_formatted_date_str(end_time_ms)}) "
+                                   f"is before last_update_ms ({TimeUtil.millis_to_formatted_date_str(perf_ledger.last_update_ms)})")
+                    continue
                 
                 tp_return, tp_spread_fee, tp_carry_fee = self.get_bypass_values_if_applicable(
                     perf_ledger, tp_id, any_open, position_just_closed,
@@ -1186,6 +1266,12 @@ class PerfLedgerManager(CacheController):
         accumulated_time_ms = 0
         #mode_to_ticks = {'second': 0, 'minute': 0}
         #snarey = False
+        
+        # Initialize tracking for time increments
+        self._last_loop_t_ms = {}
+        self._last_ledger_update_ms = {}
+        for tp_id in tp_ids_to_build:
+            self._last_ledger_update_ms[tp_id] = perf_ledger_bundle[tp_id].last_update_ms
 
 
         # closed positions have the same stats throughout the interval. lets do a single update now
@@ -1209,6 +1295,24 @@ class PerfLedgerManager(CacheController):
             # Need high resolution at the start and end of the time window
             mode = self.get_current_update_mode(default_mode, start_time_ms, end_time_ms, accumulated_time_ms)
             t_ms = start_time_ms + accumulated_time_ms
+            
+            # Verify proper time increments for all ledgers being built
+            if accumulated_time_ms > 0:
+                for tp_id in tp_ids_to_build:
+                    if tp_id in self._last_loop_t_ms:
+                        actual_increment = t_ms - self._last_loop_t_ms[tp_id]
+                        
+                        # Valid increments are 1000ms (second mode) or 60000ms (minute mode)
+                        # Mode can switch during processing, so we accept either increment
+                        valid_increments = [1000, 60000]
+                        
+                        assert actual_increment in valid_increments, (
+                            f"Time increment violation for {tp_id}: {actual_increment}ms "
+                            f"(expected 1000ms or 60000ms). "
+                            f"Current: {TimeUtil.millis_to_formatted_date_str(t_ms)}, "
+                            f"Previous: {TimeUtil.millis_to_formatted_date_str(self._last_loop_t_ms[tp_id])}. "
+                            f"Please alert a team member ASAP!"
+                        )
 
             #if t_ms + 60000 > 1737496980446:
             #    print('snare')
@@ -1260,6 +1364,48 @@ class PerfLedgerManager(CacheController):
                 
                 perf_ledger.update_pl(current_return, t_ms, miner_hotkey, tp_to_any_open[tp_id], 
                                      current_spread_fee, current_carry_fee, tp_debug=tp_id)
+                
+                # Verify the ledger was updated to current t_ms
+                assert perf_ledger.last_update_ms == t_ms, (
+                    f"Ledger {tp_id} last_update_ms doesn't match current t_ms after update. "
+                    f"Ledger: {TimeUtil.millis_to_formatted_date_str(perf_ledger.last_update_ms)}, "
+                    f"t_ms: {TimeUtil.millis_to_formatted_date_str(t_ms)}"
+                )
+                
+                # Verify continuous updates (no gaps)
+                if tp_id in self._last_ledger_update_ms:
+                    gap = perf_ledger.last_update_ms - self._last_ledger_update_ms[tp_id]
+                    
+                    # Special case: allow 0ms gap on first update after initialization
+                    # This happens when we start building from the exact initialization time
+                    is_first_update = accumulated_time_ms == 0 and gap == 0
+                    
+                    # Valid gaps are 1000ms (second mode) or 60000ms (minute mode)
+                    # Mode can switch during processing, so we accept either gap
+                    valid_gaps = [0, 1000, 60000] if is_first_update else [1000, 60000]
+                    
+                    assert gap in valid_gaps, (
+                        f"Ledger {tp_id} jumped {gap}ms (expected 1000ms or 60000ms). "
+                        f"Previous: {TimeUtil.millis_to_formatted_date_str(self._last_ledger_update_ms[tp_id])}, "
+                        f"Current: {TimeUtil.millis_to_formatted_date_str(perf_ledger.last_update_ms)}. "
+                        f"Please alert a team member ASAP!"
+                    )
+                
+                self._last_ledger_update_ms[tp_id] = perf_ledger.last_update_ms
+                self._last_loop_t_ms[tp_id] = t_ms
+            
+            # Verify all ledgers are synchronized
+            portfolio_time = perf_ledger_bundle[TP_ID_PORTFOLIO].last_update_ms
+            for tp_id in tp_ids_to_update:
+                if tp_id == TP_ID_PORTFOLIO:
+                    continue
+                
+                ledger_time = perf_ledger_bundle[tp_id].last_update_ms
+                assert ledger_time == portfolio_time, (
+                    f"Ledger {tp_id} out of sync with portfolio ledger. "
+                    f"Portfolio: {TimeUtil.millis_to_formatted_date_str(portfolio_time)}, "
+                    f"{tp_id}: {TimeUtil.millis_to_formatted_date_str(ledger_time)}"
+                )
 
             accumulated_time_ms = self.inc_accumulated_time(mode, accumulated_time_ms)
 
@@ -1289,6 +1435,15 @@ class PerfLedgerManager(CacheController):
                                  current_spread_fee, current_carry_fee)
 
             perf_ledger.purge_old_cps()
+        
+        # Final validation: ensure all ledgers reached end_time_ms
+        for tp_id in tp_ids_to_build:
+            perf_ledger = perf_ledger_bundle[tp_id]
+            assert perf_ledger.last_update_ms == end_time_ms, (
+                f"Ledger {tp_id} not updated to end_time_ms after build_perf_ledger. "
+                f"Last update: {TimeUtil.millis_to_formatted_date_str(perf_ledger.last_update_ms)}, "
+                f"Expected: {TimeUtil.millis_to_formatted_date_str(end_time_ms)}"
+            )
 
 
         #n_minutes_between_intervals = (end_time_ms - start_time_ms) // 60000
@@ -1307,6 +1462,18 @@ class PerfLedgerManager(CacheController):
 
         t0 = time.time()
         perf_ledger_bundle_candidate = existing_perf_ledger_bundles.get(hotkey)
+        
+        # Debug logging for regeneration issues
+        if perf_ledger_bundle_candidate:
+            portfolio_ledger = perf_ledger_bundle_candidate.get(TP_ID_PORTFOLIO)
+            if portfolio_ledger and portfolio_ledger.last_update_ms > 0:
+                gap_from_now = (now_ms - portfolio_ledger.last_update_ms) / 1000 / 60 / 60 / 24  # days
+                if gap_from_now > 60000:  # More than 1 minute old
+                    bt.logging.warning(f"Found old ledger for {hotkey}:")
+                    bt.logging.warning(f"  Last update: {TimeUtil.millis_to_formatted_date_str(portfolio_ledger.last_update_ms)}")
+                    bt.logging.warning(f"  Now: {TimeUtil.millis_to_formatted_date_str(now_ms)}")
+                    bt.logging.warning(f"  Gap: {gap_from_now:.1f} days")
+        
         if perf_ledger_bundle_candidate and self._is_v1_perf_ledger(perf_ledger_bundle_candidate):
             bt.logging.warning(f"hotkey {hotkey} has legacy perf ledger. Wiping.")
             perf_ledger_bundle_candidate = None
@@ -1315,9 +1482,16 @@ class PerfLedgerManager(CacheController):
             first_order_time_ms = min(p.orders[0].processed_ms for p in positions)
             perf_ledger_bundle_candidate = {TP_ID_PORTFOLIO: PerfLedger(initialization_time_ms=first_order_time_ms, target_ledger_window_ms=self.target_ledger_window_ms)}
             verbose = True
+            bt.logging.info(f"Creating new perf ledger for {hotkey} with init time: {TimeUtil.millis_to_formatted_date_str(first_order_time_ms)}")
         else:
             perf_ledger_bundle_candidate = deepcopy(perf_ledger_bundle_candidate)
             verbose = False
+            portfolio_ledger = perf_ledger_bundle_candidate.get(TP_ID_PORTFOLIO)
+            if portfolio_ledger:
+                bt.logging.info(f"Using existing perf ledger for {hotkey}:")
+                bt.logging.info(f"  Last update: {TimeUtil.millis_to_formatted_date_str(portfolio_ledger.last_update_ms)}")
+                bt.logging.info(f"  Initialization time: {TimeUtil.millis_to_formatted_date_str(portfolio_ledger.initialization_time_ms)}")
+                bt.logging.info(f"  Checkpoints: {len(portfolio_ledger.cps)}")
 
         for tp_id, perf_ledger in perf_ledger_bundle_candidate.items():
             perf_ledger.init_max_portfolio_value()
@@ -1378,15 +1552,24 @@ class PerfLedgerManager(CacheController):
 
             # Building from a checkpoint ledger. Skip until we get to the new order(s). We are only running this to build up tp_to_historical_positions.
             portfolio_last_update_ms = perf_ledger_bundle_candidate[TP_ID_PORTFOLIO].last_update_ms
+            if portfolio_last_update_ms == 0:
+                # If no checkpoints exist, use initialization time
+                portfolio_last_update_ms = perf_ledger_bundle_candidate[TP_ID_PORTFOLIO].initialization_time_ms
+            
             if order.processed_ms < portfolio_last_update_ms:
                 continue
+            
+            # Debug logging
+            bt.logging.info(f"Processing order for {hotkey}:")
+            bt.logging.info(f"  Order time: {TimeUtil.millis_to_formatted_date_str(order.processed_ms)}")
+            bt.logging.info(f"  Portfolio last update: {TimeUtil.millis_to_formatted_date_str(portfolio_last_update_ms)}")
+            bt.logging.info(f"  Ledger checkpoints: {len(perf_ledger_bundle_candidate[TP_ID_PORTFOLIO].cps)}")
 
             # Need to catch up from perf_ledger.last_update_ms to order.processed_ms
             eliminated = self.build_perf_ledger(perf_ledger_bundle_candidate, tp_to_historical_positions, portfolio_last_update_ms, order.processed_ms, hotkey, realtime_position_to_pop)
 
             if eliminated:
                 break
-            # print(f"Done processing order {order}. perf ledger {perf_ledger}")
 
         if eliminated and self.parallel_mode != ParallelizationMode.SERIAL:
             return perf_ledger_bundle_candidate
@@ -1398,9 +1581,25 @@ class PerfLedgerManager(CacheController):
 
         portfolio_perf_ledger = perf_ledger_bundle_candidate[TP_ID_PORTFOLIO]
         if now_ms > portfolio_perf_ledger.last_update_ms:
-            portfolio_last_update_ms = portfolio_perf_ledger.last_update_ms
+            # Always start from the current ledger state
+            # The ledger may have been updated during order processing above
+            current_last_update = portfolio_perf_ledger.last_update_ms
+            if current_last_update == 0:
+                # If no checkpoints exist, use initialization time
+                current_last_update = portfolio_perf_ledger.initialization_time_ms
+            
+            # Debug logging for gap issues
+            gap_minutes = (now_ms - current_last_update) / 1000 / 60
+            if gap_minutes > 60:  # Log if gap is more than 1 hour
+                bt.logging.info(f"Large gap detected in final catch-up for {hotkey}:")
+                bt.logging.info(f"  Current ledger last_update: {TimeUtil.millis_to_formatted_date_str(current_last_update)}")
+                bt.logging.info(f"  Target time (now_ms): {TimeUtil.millis_to_formatted_date_str(now_ms)}")
+                bt.logging.info(f"  Gap: {gap_minutes:.1f} minutes")
+                bt.logging.info(f"  Building from new orders: {building_from_new_orders}")
+                bt.logging.info(f"  Last event time: {TimeUtil.millis_to_formatted_date_str(last_event_time_ms)}")
+            
             self.build_perf_ledger(perf_ledger_bundle_candidate, tp_to_historical_positions,
-                                   portfolio_last_update_ms, now_ms, hotkey,None)
+                                   current_last_update, now_ms, hotkey, None)
 
         self.hk_to_last_order_processed_ms[hotkey] = last_event_time_ms
 
@@ -1602,11 +1801,15 @@ class PerfLedgerManager(CacheController):
 
         if regenerate_all_ledgers or testing_one_hotkey:
             bt.logging.info("Regenerating all perf ledgers")
+            bt.logging.info(f"  Before clearing: {len(perf_ledger_bundles)} ledgers")
             for k in list(perf_ledger_bundles.keys()):
                 del perf_ledger_bundles[k]
+            bt.logging.info(f"  After clearing: {len(perf_ledger_bundles)} ledgers")
 
         try:
             self.restore_out_of_sync_ledgers(perf_ledger_bundles, hotkey_to_positions)
+            if regenerate_all_ledgers or testing_one_hotkey:
+                bt.logging.info(f"  After restore_out_of_sync_ledgers: {len(perf_ledger_bundles)} ledgers")
         except Exception as e:
             bt.logging.warning(f"Couldn't restore out of sync ledgers: {e}. Continuing...")
             bt.logging.warning(traceback.format_exc())
@@ -1684,10 +1887,10 @@ class PerfLedgerManager(CacheController):
             plt.show()
 
             for tp_id, pl in perf_ledger_bundles[testing_one_hotkey].items():
-                print(f"perf ledger for {tp_id} last cp {pl.cps[-1]}")
-                print('    total gain product', pl.get_product_of_gains())
-                print('    total loss product', pl.get_product_of_loss())
-                print('    total product', pl.get_total_product())
+                first_cp_time = TimeUtil.millis_to_formatted_date_str(pl.cps[0].last_update_ms) if pl.cps else 'N/A'
+                last_cp_time = TimeUtil.millis_to_formatted_date_str(pl.cps[-1].last_update_ms) if pl.cps else 'N/A'
+                print(f"perf ledger for {tp_id} ({first_cp_time} -> {last_cp_time})\n  first cp {pl.cps[0]}\n  last cp {pl.cps[-1]}")
+                print('    total gain product', pl.get_product_of_gains(), ' total loss product', pl.get_product_of_loss(), 'total product', pl.get_total_product())
 
             print('validating returns:')
             for z in zip(returns, returns_muled, n_contributing_tps):
@@ -1847,9 +2050,9 @@ if __name__ == "__main__":
     use_database_positions = True  # NEW: Enable database position loading
     use_test_positions = False      # NEW: Enable test position loading
     
-    parallel_mode = ParallelizationMode.MULTIPROCESSING  # 1 for pyspark, 2 for multiprocessing
+    parallel_mode = ParallelizationMode.SERIAL  # 1 for pyspark, 2 for multiprocessing
     top_n_miners = 4
-    test_single_hotkey = '5FmqXG5YBU1Hke9jHD5FT41CUM9gVod7nFgYvbd7PmpqcUJm'  # Set to a specific hotkey string to test single hotkey, or None for all
+    test_single_hotkey = '5DthKaDbqEauMm25rKmKQCjJYvbshR84NzhAVT4zLq4Dz4qK'  # Set to a specific hotkey string to test single hotkey, or None for all
     regenerate_all = False  # Whether to regenerate all ledgers from scratch
     build_portfolio_ledgers_only = True  # Whether to build only the portfolio ledgers or per trade pair
     
@@ -1916,7 +2119,7 @@ if __name__ == "__main__":
         # Use serial update like validators do
         if test_single_hotkey:
             bt.logging.info(f"Running single-hotkey test for: {test_single_hotkey}")
-            perf_ledger_manager.update(testing_one_hotkey=test_single_hotkey)
+            perf_ledger_manager.update(testing_one_hotkey=test_single_hotkey, t_ms=TimeUtil.now_in_millis() - MS_IN_24_HOURS * 250)
         else:
             bt.logging.info("Running standard sequential update for all hotkeys")
             perf_ledger_manager.update(regenerate_all_ledgers=regenerate_all)
