@@ -312,7 +312,8 @@ Process a collateral withdrawal request.
 ```json
 {
   "amount": 5.0,
-  "miner_address": "5HEo565WAy4Dbq3Sv271SAi7syBSofyfhhwRNjFNSM2gP9M2",
+  "miner_coldkey": "5HEo565WAy4Dbq3Sv271SAi7syBSofyfhhwRNjFNSM2gP9M2",
+  "miner_hotkey": "5FrLxJsyJ5x9n2rmxFwosFraxFCKcXZDngEP9H7qjkKgHLcK",
   "signature": "0x1234567890abcdef..."
 }
 ```
@@ -322,7 +323,8 @@ Process a collateral withdrawal request.
 {
   "successfully_processed": true,
   "error_message": "",
-  "returned_amount": 5.0
+  "returned_amount": 5.0,
+  "returned_to": "5HEo565WAy4Dbq3Sv271SAi7syBSofyfhhwRNjFNSM2gP9M2"
 }
 ```
 

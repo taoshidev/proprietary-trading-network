@@ -589,14 +589,14 @@ class PTNRestServer(APIKeyMixin):
                     return jsonify({'error': 'Invalid JSON body'}), 400
                     
                 # Validate required fields for signed withdrawal
-                required_fields = ['amount', 'miner_address', 'signature']
+                required_fields = ['amount', 'miner_coldkey', 'miner_hotkey', 'signature']
                 for field in required_fields:
                     if field not in data:
                         return jsonify({'error': f'Missing required field: {field}'}), 400
                         
                 # Verify the withdrawal signature
-                keypair = Keypair(ss58_address=data['miner_address'])
-                message = json.dumps({"amount": data['amount'], "miner_address": data['miner_address']}, sort_keys=True).encode('utf-8')
+                keypair = Keypair(ss58_address=data['miner_coldkey'])
+                message = json.dumps({"amount": data['amount'], "miner_coldkey": data['miner_coldkey'], "miner_hotkey": data['miner_hotkey']}, sort_keys=True).encode('utf-8')
                 is_valid = keypair.verify(message, bytes.fromhex(data['signature']))
                 if not is_valid:
                     return jsonify({'error': 'Invalid signature. Withdrawal request unauthorized'}), 401
@@ -604,7 +604,8 @@ class PTNRestServer(APIKeyMixin):
                 # Process the withdrawal using verified data
                 result = self.contract_manager.process_withdrawal_request(
                     amount=data['amount'],
-                    miner_address=data['miner_address'],
+                    miner_coldkey=data['miner_coldkey'],
+                    miner_hotkey=data['miner_hotkey'],
                     vault_wallet=self.vault_wallet,
                 )
                 
