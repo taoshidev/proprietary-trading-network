@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from enum import Enum
 from collections import defaultdict
 
+from datetime import datetime
 from time_util.time_util import TimeUtil
 from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
 from vali_objects.utils.elimination_manager import EliminationManager
@@ -572,13 +573,16 @@ class MinerStatisticsManager:
 
         # Build the final list
         results = []
+        # TODO [remove on 2025-10-02] 70 day grace period --> reset upper bound to bucket_end_time_ms
+        asset_split_grace_date = datetime.strptime(ValiConfig.ASSET_SPLIT_GRACE_DATE, "%Y-%m-%d")
+        asset_split_grace_timestamp = int(asset_split_grace_date.timestamp() * 1000)
         for hotkey in selected_miner_hotkeys:
 
             # ChallengePeriod info
             challengeperiod_info = {}
             if hotkey in sorted_challengeperiod_testing:
                 cp_start = sorted_challengeperiod_testing[hotkey]
-                cp_end = cp_start + ValiConfig.CHALLENGE_PERIOD_MAXIMUM_MS
+                cp_end = max(cp_start + ValiConfig.CHALLENGE_PERIOD_MAXIMUM_MS, asset_split_grace_timestamp)
                 remaining = cp_end - time_now
                 challengeperiod_info = {
                     "status": "testing",
@@ -593,7 +597,7 @@ class MinerStatisticsManager:
                 }
             elif hotkey in sorted_challengeperiod_probation:
                 bucket_start = sorted_challengeperiod_probation[hotkey]
-                bucket_end = bucket_start + ValiConfig.PROBATION_MAXIMUM_MS
+                bucket_end = max(bucket_start + ValiConfig.PROBATION_MAXIMUM_MS, asset_split_grace_timestamp)
                 remaining = bucket_end - time_now
                 challengeperiod_info = {
                     "status": "probation",
