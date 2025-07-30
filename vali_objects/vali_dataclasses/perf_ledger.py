@@ -1549,11 +1549,6 @@ class PerfLedgerManager(CacheController):
             perf_ledger_bundle_candidate = deepcopy(perf_ledger_bundle_candidate)
             verbose = False
             portfolio_ledger = perf_ledger_bundle_candidate.get(TP_ID_PORTFOLIO)
-            if portfolio_ledger:
-                bt.logging.info(f"Using existing perf ledger for {hotkey}:")
-                bt.logging.info(f"  Last update: {TimeUtil.millis_to_formatted_date_str(portfolio_ledger.last_update_ms)}")
-                bt.logging.info(f"  Initialization time: {TimeUtil.millis_to_formatted_date_str(portfolio_ledger.initialization_time_ms)}")
-                bt.logging.info(f"  Checkpoints: {len(portfolio_ledger.cps)}")
 
         for tp_id, perf_ledger in perf_ledger_bundle_candidate.items():
             perf_ledger.init_max_portfolio_value()
