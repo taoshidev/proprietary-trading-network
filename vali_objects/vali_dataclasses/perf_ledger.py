@@ -1491,11 +1491,15 @@ class PerfLedgerManager(CacheController):
 
     def mutate_position_returns_for_continuity(self, tp_to_historical_positions, perf_ledger_bundle_candidate, t_ms):
         if not perf_ledger_bundle_candidate:
-            return
+            return {}
         if TP_ID_PORTFOLIO not in perf_ledger_bundle_candidate:
-            return
+            return {}
 
         portfolio_ledger = perf_ledger_bundle_candidate[TP_ID_PORTFOLIO]
+        
+        # Collect continuity application data for aggregate logging
+        continuity_applications = {}
+        
         for tp_id, positions_list in tp_to_historical_positions.items():
             if tp_id in portfolio_ledger.last_known_prices:
                 last_price, last_price_ms = portfolio_ledger.last_known_prices[tp_id]
@@ -1506,11 +1510,48 @@ class PerfLedgerManager(CacheController):
                             bt.logging.warning(f'Unexpected price continuity rejection for {tp_id} at {t_ms} with last known price {last_price} at {last_price_ms}')
                             continue
                         if position.orders and t_ms >= last_price_ms > position.orders[-1].processed_ms:
+                            # Record the price transition and return change for logging
+                            last_order_price = position.orders[-1].price
+                            old_return = position.return_at_close
+                            
                             # Calculate the return at the last known price point
                             position_spread_fee, _ = self.position_uuid_to_cache[position.position_uuid].get_spread_fee(position, t_ms)
                             position_carry_fee, _ = self.position_uuid_to_cache[position.position_uuid].get_carry_fee(t_ms, position)
                             position.set_returns(last_price, time_ms=t_ms, total_fees=position_spread_fee * position_carry_fee)
-                            bt.logging.info(f"Applied price continuity for {tp_id}, price={last_price}")
+                            
+                            # Store info for aggregate logging with both price and return changes
+                            new_return = position.return_at_close
+                            continuity_applications[tp_id] = {
+                                'price_change': f"{last_order_price:.6g} -> {last_price:.6g}",
+                                'return_change': f"{old_return:.6g} -> {new_return:.6g}",
+                                'leverage': position.net_leverage
+                            }
+        
+        return continuity_applications
+    
+    def _log_continuity_summary(self, hotkey: str, continuity_changes: dict, tp_to_historical_positions: dict):
+        """Log an aggregate summary of price continuity applications for a miner."""
+        # Count open positions and unique trade pairs
+        n_open_positions = sum(1 for tp_positions in tp_to_historical_positions.values() 
+                              for pos in tp_positions if pos.is_open_position)
+        n_trade_pairs_traded = len(tp_to_historical_positions)
+        
+        # Format the changes - each entry has both price and return changes
+        changes_parts = []
+        for tp_id, changes in continuity_changes.items():
+            price_change = changes['price_change']
+            return_change = changes['return_change']
+            leverage = changes['leverage']
+            changes_parts.append(f"{tp_id}: price({price_change}), return({return_change}), lev={leverage:.1f}")
+        
+        changes_str = ", ".join(changes_parts)
+        
+        bt.logging.info(
+            f"perf ledger price continuity applied for miner {hotkey[:8]}... | "
+            f"Open positions: {n_open_positions} | "
+            f"Trade pairs traded: {n_trade_pairs_traded} | "
+            f"Updates: {{{changes_str}}}"
+        )
 
     def update_one_perf_ledger_bundle(self, hotkey_i: int, n_hotkeys: int, hotkey: str, positions: List[Position],
                                       now_ms: int,
@@ -1619,8 +1660,12 @@ class PerfLedgerManager(CacheController):
 
             # Apply price continuity before building ledger (only if not already done)
             if not continuity_established:
-                self.mutate_position_returns_for_continuity(tp_to_historical_positions, perf_ledger_bundle_candidate, portfolio_last_update_ms)
+                continuity_changes = self.mutate_position_returns_for_continuity(tp_to_historical_positions, perf_ledger_bundle_candidate, portfolio_last_update_ms)
                 continuity_established = True
+                
+                # Log aggregate continuity info if changes were made
+                if continuity_changes:
+                    self._log_continuity_summary(hotkey, continuity_changes, tp_to_historical_positions)
             # Need to catch up from perf_ledger.last_update_ms to order.processed_ms
             eliminated = self.build_perf_ledger(perf_ledger_bundle_candidate, tp_to_historical_positions, portfolio_last_update_ms, order.processed_ms, hotkey, realtime_position_to_pop)
 
@@ -1656,8 +1701,12 @@ class PerfLedgerManager(CacheController):
             
             # Apply price continuity before final build_perf_ledger call
             if not continuity_established:
-                self.mutate_position_returns_for_continuity(tp_to_historical_positions, perf_ledger_bundle_candidate, current_last_update)
+                continuity_changes = self.mutate_position_returns_for_continuity(tp_to_historical_positions, perf_ledger_bundle_candidate, current_last_update)
                 continuity_established = True
+                
+                # Log aggregate continuity info if changes were made
+                if continuity_changes:
+                    self._log_continuity_summary(hotkey, continuity_changes, tp_to_historical_positions)
             
             self.build_perf_ledger(perf_ledger_bundle_candidate, tp_to_historical_positions,
                                    current_last_update, now_ms, hotkey, None)
