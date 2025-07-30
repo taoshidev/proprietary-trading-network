@@ -21,6 +21,7 @@ from vali_objects.utils.position_penalties import PositionPenalties
 from vali_objects.utils.ledger_utils import LedgerUtils
 from vali_objects.scoring.scoring import Scoring
 from vali_objects.utils.metrics import Metrics
+from vali_objects.utils.asset_segmentation import AssetSegmentation
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager, TP_ID_PORTFOLIO
 from vali_objects.utils.risk_profiling import RiskProfiling
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedger
@@ -332,6 +333,39 @@ class MinerStatisticsManager:
             for hotkey, ledgers in filtered_ledger.items()
         }
 
+    def calculate_subcategory_daily_returns(self, filtered_ledger: dict[str, dict[str, PerfLedger]]) -> dict[str, dict[str, dict[str, float]]]:
+        """
+        Calculate daily returns for each asset subcategory for all miners.
+        
+        Args:
+            filtered_ledger: The filtered ledger data for all miners
+            
+        Returns:
+            dict with structure: {hotkey: {subcategory: {date: return_value}}}
+        """
+        subcategory_daily_returns = {}
+        
+        # Get asset subcategories
+        asset_class_breakdown = ValiConfig.ASSET_CLASS_BREAKDOWN
+        asset_subcategories = AssetSegmentation.distill_asset_subcategories(asset_class_breakdown)
+        
+        segmentation_machine = AssetSegmentation(filtered_ledger)
+        
+        # Calculate returns for each subcategory
+        for subcategory in asset_subcategories:
+            subcategory_ledger = segmentation_machine.segmentation(subcategory)
+            
+            # Calculate daily returns for each miner in this subcategory
+            for hotkey, aggregated_ledger in subcategory_ledger.items():
+                if hotkey not in subcategory_daily_returns:
+                    subcategory_daily_returns[hotkey] = {}
+                
+                # Use the daily_returns_by_date_json function from LedgerUtils
+                daily_returns = LedgerUtils.daily_returns_by_date_json(aggregated_ledger)
+                subcategory_daily_returns[hotkey][subcategory] = daily_returns
+        
+        return subcategory_daily_returns
+
     # -------------------------------------------
     # Challenge Period
     # -------------------------------------------
@@ -624,6 +658,7 @@ class MinerStatisticsManager:
 
         # For visualization
         daily_returns_dict = self.calculate_all_daily_returns(filtered_ledger)
+        subcategory_daily_returns_dict = self.calculate_subcategory_daily_returns(filtered_ledger)
 
         # Also compute penalty breakdown (for display in final "penalties" dict).
         penalty_breakdown = self.calculate_penalties_breakdown(miner_data)
@@ -725,6 +760,9 @@ class MinerStatisticsManager:
             
             # Asset Subcategory Detailed Metrics
             asset_subcategory_metrics = self.miner_subcategory_metrics(hotkey, asset_detailed_scores)
+            
+            # Asset Subcategory Daily Returns
+            asset_subcategory_daily_returns = subcategory_daily_returns_dict.get(hotkey, {})
 
             final_miner_dict = {
                 "hotkey": hotkey,
@@ -739,6 +777,7 @@ class MinerStatisticsManager:
                 "risk_profile": risk_profile_single_dict,
                 "asset_subcategory_performance": asset_subcategory_performance,
                 "asset_subcategory_metrics": asset_subcategory_metrics,
+                "asset_subcategory_daily_returns": asset_subcategory_daily_returns,
                 "penalties": {
                     "drawdown_threshold": pen_break.get("drawdown_threshold", 1.0),
                     "risk_profile": pen_break.get("risk_profile", 1.0),
