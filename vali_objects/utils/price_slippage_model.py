@@ -136,7 +136,7 @@ class PriceSlippageModel:
         trade_pair = order.trade_pair
         if trade_pair in [TradePair.BTCUSD, TradePair.ETHUSD]:
             return 0.00001
-        elif trade_pair in [TradePair.SOLUSD, TradePair.XRPUSD, TradePair.DOGEUSD]:
+        elif trade_pair in [TradePair.SOLUSD, TradePair.XRPUSD, TradePair.DOGEUSD, TradePair.ADAUSD]:
             return 0.0001
         else:
             raise ValueError(f"Unknown crypto slippage for trade pair {trade_pair.trade_pair_id}")

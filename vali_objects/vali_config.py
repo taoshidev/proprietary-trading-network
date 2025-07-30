@@ -316,6 +316,8 @@ class TradePair(Enum):
                 TradePairCategory.CRYPTO, CryptoSubcategory.ALTS]
     DOGEUSD = ["DOGEUSD", "DOGE/USD", 0.001, ValiConfig.CRYPTO_MIN_LEVERAGE, ValiConfig.CRYPTO_MAX_LEVERAGE,
                 TradePairCategory.CRYPTO, CryptoSubcategory.ALTS]
+    ADAUSD = ["ADAUSD", "ADA/USD", 0.001, ValiConfig.CRYPTO_MIN_LEVERAGE, ValiConfig.CRYPTO_MAX_LEVERAGE,
+               TradePairCategory.CRYPTO, CryptoSubcategory.ALTS]
 
 
     # forex
