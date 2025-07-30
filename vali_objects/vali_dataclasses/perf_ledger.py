@@ -1542,7 +1542,7 @@ class PerfLedgerManager(CacheController):
             price_change = changes['price_change']
             return_change = changes['return_change']
             leverage = changes['leverage']
-            changes_parts.append(f"{tp_id}: price({price_change}), return({return_change}), lev={leverage:.1f}")
+            changes_parts.append(f"{tp_id}: price({price_change}), return({return_change}), lev={leverage:.2f}")
         
         changes_str = ", ".join(changes_parts)
         
