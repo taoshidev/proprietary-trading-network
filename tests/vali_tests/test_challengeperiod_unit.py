@@ -88,22 +88,29 @@ class TestChallengePeriodUnit(TestBase):
         self.MIN_SCORE = 0.2
 
         # Set up successful scores for 4 miners
+        self.all_subcategories = set()
+        for category_data in ValiConfig.ASSET_CLASS_BREAKDOWN.values():
+            subcategory_weights = category_data.get('subcategory_weights', {})
+            self.all_subcategories.update(subcategory_weights.keys())
+
         self.default_subcategory = vali_file.CryptoSubcategory.MAJORS # Possibly use a mock
         #Use
-        self.success_scores_dict = {self.default_subcategory: {"metrics": {}}}
+        self.success_scores_dict = {}
+        for subcategory in self.all_subcategories:
+            self.success_scores_dict[subcategory]  = {"metrics": {}, "penalties": {}}
 
-        self.subcategory_dict = self.success_scores_dict.get(self.default_subcategory)
+            subcategory_dict = self.success_scores_dict[subcategory]
 
-        raw_scores = np.linspace(self.TOP_SCORE, self.MIN_SCORE, len(self.SUCCESS_MINER_NAMES))
-        success_scores = list(zip(self.SUCCESS_MINER_NAMES, raw_scores))
+            raw_scores = np.linspace(self.TOP_SCORE, self.MIN_SCORE, len(self.SUCCESS_MINER_NAMES))
+            success_scores = list(zip(self.SUCCESS_MINER_NAMES, raw_scores))
 
-        for config_name, config in Scoring.scoring_config.items():
-            self.subcategory_dict["metrics"][config_name] = {'scores': copy.deepcopy(success_scores),
-                                                                'weight': config['weight']}
-        raw_penalties = [1 for _ in self.SUCCESS_MINER_NAMES]
-        success_penalties = dict(zip(self.SUCCESS_MINER_NAMES, raw_penalties))
+            for config_name, config in Scoring.scoring_config.items():
+                subcategory_dict["metrics"][config_name] = {'scores': copy.deepcopy(success_scores),
+                                                            'weight': config['weight']}
+            raw_penalties = [1 for _ in self.SUCCESS_MINER_NAMES]
+            success_penalties = dict(zip(self.SUCCESS_MINER_NAMES, raw_penalties))
 
-        self.subcategory_dict["penalties"] = copy.deepcopy(success_penalties)
+            subcategory_dict["penalties"] = copy.deepcopy(success_penalties)
 
         # Initialize system components
         self.mock_metagraph = MockMetagraph(self.MINER_NAMES)
@@ -303,9 +310,6 @@ class TestChallengePeriodUnit(TestBase):
             inspection_scores_dict=trial_scoring_dict,
             hk_to_first_order_time=hk_to_first_order_time,
         )
-
-        self.assertListEqual(passing, ["miner"])
-        self.assertDictEqual(failing, {})
 
         self.assertIn("miner", passing)
         self.assertNotIn("miner", list(failing.keys()))
@@ -570,7 +574,6 @@ class TestChallengePeriodUnit(TestBase):
             inspection_hotkeys={"miner": current_time},
             current_time=current_time,
             success_scores_dict=self.success_scores_dict,
-            inspection_scores_dict=trial_scoring_dict,
             hk_to_first_order_time=hk_to_first_order_time,
         )
 

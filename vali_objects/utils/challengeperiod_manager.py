@@ -1,4 +1,5 @@
 # developer: trdougherty
+from collections import defaultdict
 import time
 import bittensor as bt
 import copy
@@ -6,7 +7,7 @@ import copy
 from datetime import datetime
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.utils.vali_utils import ValiUtils
-from vali_objects.vali_config import ValiConfig
+from vali_objects.vali_config import TradePairCategory, ValiConfig
 from shared_objects.cache_controller import CacheController
 from vali_objects.scoring.scoring import Scoring
 from time_util.time_util import TimeUtil
@@ -309,7 +310,7 @@ class ChallengePeriodManager(CacheController):
                 continue
 
             miner_bucket = self.get_miner_bucket(hotkey)
-            before_challenge_end = ChallengePeriodManager.meets_time_criteria(current_time, bucket_start_time, miner_bucket)
+            before_challenge_end = self.meets_time_criteria(current_time, bucket_start_time, miner_bucket)
             if not before_challenge_end:
                 bt.logging.info(f'Hotkey {hotkey} has failed the {miner_bucket.value} period due to time. cp_failed')
                 miners_to_eliminate[hotkey] = (EliminationReason.FAILED_CHALLENGE_PERIOD_TIME.value, -1)
@@ -339,9 +340,6 @@ class ChallengePeriodManager(CacheController):
 
             valid_candidate_hotkeys.append(hotkey)
 
-        candidates_positions = {hotkey: positions[hotkey] for hotkey in valid_candidate_hotkeys}
-        candidates_ledgers = {hotkey: ledger[hotkey] for hotkey in valid_candidate_hotkeys}
-
         # If success_scoring_dict is already calculated, no need to calculate scores. Useful for testing
         if not success_scores_dict:
             success_positions = {hotkey: miner_positions for hotkey, miner_positions in positions.items() if hotkey in success_hotkeys}
@@ -355,6 +353,9 @@ class ChallengePeriodManager(CacheController):
                     weighting=True)
 
         if not inspection_scores_dict:
+            candidates_positions = {hotkey: positions[hotkey] for hotkey in valid_candidate_hotkeys}
+            candidates_ledgers = {hotkey: ledger[hotkey] for hotkey in valid_candidate_hotkeys}
+
             inspection_scores_dict = Scoring.score_miners(
                     ledger_dict=candidates_ledgers,
                     positions=candidates_positions,
@@ -381,57 +382,55 @@ class ChallengePeriodManager(CacheController):
             success_hotkeys,
             success_scores_dict,
             candidate_hotkeys,
-            inspection_scores_dict,
-            threshold_rank=ValiConfig.PROMOTION_THRESHOLD_RANK
+            inspection_scores_dict
             ) -> tuple[list[str], list[str]]:
+        # combine maincomp and challenge/probation miners into one scoring dict
         combined_scores_dict = copy.deepcopy(success_scores_dict)
-        for asset_class, asset_class_combined_scores in combined_scores_dict.items():
-            asset_class_inspection_scores = inspection_scores_dict[asset_class]
+        for subcategory, candidate_scores_dict in inspection_scores_dict.items():
+            for metric_name, candidate_metric in candidate_scores_dict["metrics"].items():
+                combined_scores_dict[subcategory]['metrics'][metric_name]["scores"] += candidate_metric["scores"]
+            combined_scores_dict[subcategory]["penalties"].update(candidate_scores_dict["penalties"])
 
-            for metric_name, config in asset_class_combined_scores["metrics"].items():
-                candidate_metric_score = asset_class_inspection_scores["metrics"][metric_name]["scores"]
-                miner_scores = config["scores"] + candidate_metric_score
-                asset_class_combined_scores["metrics"][metric_name]["scores"] = miner_scores
-            asset_class_combined_scores["penalties"].update(asset_class_inspection_scores["penalties"])
-
+        # score them based on asset subcategory
         asset_combined_scores = Scoring.combine_scores(combined_scores_dict)
         asset_softmaxed_scores = Scoring.softmax_by_asset(asset_combined_scores)
 
-        all_scores_list = Scoring.subclass_score_aggregation(asset_softmaxed_scores)
+        # combine asset subcategories
+        weighted_scores = defaultdict(lambda: defaultdict(float))
+        for subcategory, miner_scores in asset_softmaxed_scores.items():
+            asset_class = ValiConfig.CATEGORY_LOOKUP[subcategory]
+            weight = ValiConfig.ASSET_CLASS_BREAKDOWN[asset_class]["subcategory_weights"][subcategory]
 
-        all_scores = dict(all_scores_list)
-        sorted_scores = sorted(all_scores.values(), reverse=True)
+            for hotkey, score in miner_scores.items():
+                weighted_scores[asset_class][hotkey] += weight * score
 
-        promote_hotkeys = []
-        demote_hotkeys = []
+        maincomp_hotkeys = set()
+        promotion_threshold_rank = ValiConfig.PROMOTION_THRESHOLD_RANK
+        for asset_scores in weighted_scores.values():
+            threshold_score = 0
+            if len(asset_scores) >= promotion_threshold_rank:
+                sorted_scores = sorted(asset_scores.values(), reverse=True)
+                threshold_score = sorted_scores[promotion_threshold_rank-1]
 
-        if len(sorted_scores) < threshold_rank:
-            for hotkey in all_scores.keys():
-                if hotkey in candidate_hotkeys:
-                    promote_hotkeys.append(hotkey)
-        else:
-            threshold_idx = threshold_rank - 1
-            threshold_score = sorted_scores[threshold_idx]
+            for hotkey, score in asset_scores.items():
+                if score >= threshold_score and score > 0:
+                    maincomp_hotkeys.add(hotkey)
 
-            for hotkey, score in all_scores.items():
-                if hotkey in candidate_hotkeys and score >= threshold_score:
-                    promote_hotkeys.append(hotkey)
-                elif hotkey in success_hotkeys and score < threshold_score:
-                    demote_hotkeys.append(hotkey)
+            # logging
+            for hotkey in success_hotkeys:
+                if hotkey not in asset_scores:
+                    bt.logging.warning(f"Could not find MAINCOMP hotkey {hotkey} when scoring, miner will not be evaluated")
+            for hotkey in candidate_hotkeys:
+                if hotkey not in asset_scores:
+                    bt.logging.warning(f"Could not find CHALLENGE/PROBATION hotkey {hotkey} when scoring, miner will not be evaluated")
 
-        for hotkey in success_hotkeys:
-            if hotkey not in all_scores:
-                bt.logging.warning(f"Could not find MAINCOMP hotkey {hotkey} when scoring, miner will not be evaluated")
-        for hotkey in candidate_hotkeys:
-            if hotkey not in all_scores:
-                bt.logging.warning(f"Could not find CHALLENGE/PROBATION hotkey {hotkey} when scoring, miner will not be evaluated")
+        promote_hotkeys = maincomp_hotkeys - set(success_hotkeys)
+        demote_hotkeys = set(success_hotkeys) - maincomp_hotkeys
 
-        return promote_hotkeys, demote_hotkeys
+        return list(promote_hotkeys), list(demote_hotkeys)
 
     @staticmethod
-    def screen_minimum_interaction(
-            ledger_element: PerfLedger
-    ) -> bool:
+    def screen_minimum_interaction(ledger_element) -> bool:
         """
         Returns False if the miner doesn't have the minimum number of trading days.
         """
@@ -442,18 +441,23 @@ class ChallengePeriodManager(CacheController):
         miner_returns = LedgerUtils.daily_return_log(ledger_element)
         return len(miner_returns) >= ValiConfig.CHALLENGE_PERIOD_MINIMUM_DAYS.value()
 
-    @staticmethod
-    def meets_time_criteria(current_time, bucket_start_time, bucket):
+    def meets_time_criteria(self, current_time, bucket_start_time, bucket):
         if bucket == MinerBucket.MAINCOMP:
             return False
 
-        elapsed_time_ms = current_time - bucket_start_time
+        # TODO [remove on 2025-10-02] 70 day grace period --> reset upper bound to bucket_end_time_ms
+        asset_split_grace_date = datetime.strptime(ValiConfig.ASSET_SPLIT_GRACE_DATE, "%Y-%m-%d")
+        asset_split_grace_timestamp = int(asset_split_grace_date.timestamp() * 1000)
+        if self.running_unit_tests:
+            asset_split_grace_timestamp = 0
+
         if bucket == MinerBucket.CHALLENGE:
-            upper_bound = ValiConfig.CHALLENGE_PERIOD_MAXIMUM_MS
-            return elapsed_time_ms <= upper_bound
+            probation_end_time_ms = bucket_start_time + ValiConfig.CHALLENGE_PERIOD_MAXIMUM_MS
+            return current_time <= max(probation_end_time_ms, asset_split_grace_timestamp)
 
         if bucket == MinerBucket.PROBATION:
-            return elapsed_time_ms <= ValiConfig.PROBATION_MAXIMUM_MS
+            probation_end_time_ms = bucket_start_time + ValiConfig.PROBATION_MAXIMUM_MS
+            return current_time <= max(probation_end_time_ms, asset_split_grace_timestamp)
 
     @staticmethod
     def screen_minimum_ledger(
@@ -463,20 +467,22 @@ class ChallengePeriodManager(CacheController):
         """
         Ensures there is enough ledger data globally and for the specific miner to evaluate challenge period.
         """
-
         if ledger is None or len(ledger) == 0:
             bt.logging.info(f"No ledgers for any miner to evaluate for challenge period. ledger: {ledger}")
             return False, {}
 
         single_ledger = ledger.get(inspection_hotkey, None)
-        has_minimum_ledger = single_ledger is not None and len(single_ledger.cps) > 0
+        if single_ledger is None:
+            return False, {}
+
+        has_minimum_ledger = len(single_ledger.cps) > 0
+
         if not has_minimum_ledger:
             bt.logging.info(f"Hotkey: {inspection_hotkey} doesn't have the minimum ledger for challenge period. ledger: {single_ledger}")
 
         inspection_ledger = {inspection_hotkey: single_ledger} if has_minimum_ledger else {}
 
         return has_minimum_ledger, inspection_ledger
-
 
     @staticmethod
     def screen_minimum_positions(
@@ -497,7 +503,6 @@ class ChallengePeriodManager(CacheController):
         inspection_positions = {inspection_hotkey: positions_list} if has_minimum_positions else {}
 
         return has_minimum_positions, inspection_positions
-
 
     def sync_challenge_period_data(self, active_miners_sync):
         if not active_miners_sync:
