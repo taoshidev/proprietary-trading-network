@@ -22,6 +22,7 @@ from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.vali_config import ValiConfig
 from multiprocessing import current_process
 from ptn_api.api_key_refresh import APIKeyMixin
+from ptn_api.nonce_manager import NonceManager
 
 
 class APIMetricsTracker:
@@ -245,6 +246,7 @@ class PTNRestServer(APIKeyMixin):
         self.shared_queue = shared_queue
         self.position_manager: PositionManager = position_manager
         self.contract_manager = contract_manager
+        self.nonce_manager = NonceManager()
         self.data_path = ValiConfig.BASE_DIR
         self.host = host
         self.port = port
@@ -589,14 +591,29 @@ class PTNRestServer(APIKeyMixin):
                     return jsonify({'error': 'Invalid JSON body'}), 400
                     
                 # Validate required fields for signed withdrawal
-                required_fields = ['amount', 'miner_coldkey', 'miner_hotkey', 'signature']
+                required_fields = ['amount', 'miner_coldkey', 'miner_hotkey', 'nonce', 'timestamp', 'signature']
                 for field in required_fields:
                     if field not in data:
                         return jsonify({'error': f'Missing required field: {field}'}), 400
-                        
+
+                # Verify nonce
+                is_valid, error_msg = self.nonce_manager.is_valid_request(
+                    address=data['miner_hotkey'],
+                    nonce=data['nonce'],
+                    timestamp=data['timestamp']
+                )
+                if not is_valid:
+                    return jsonify({'error': f'{error_msg}'}), 401
+
                 # Verify the withdrawal signature
                 keypair = Keypair(ss58_address=data['miner_coldkey'])
-                message = json.dumps({"amount": data['amount'], "miner_coldkey": data['miner_coldkey'], "miner_hotkey": data['miner_hotkey']}, sort_keys=True).encode('utf-8')
+                message = json.dumps({
+                    "amount": data['amount'],
+                    "miner_coldkey": data['miner_coldkey'],
+                    "miner_hotkey": data['miner_hotkey'],
+                    "nonce": data['nonce'],
+                    "timestamp": data['timestamp']
+                }, sort_keys=True).encode('utf-8')
                 is_valid = keypair.verify(message, bytes.fromhex(data['signature']))
                 if not is_valid:
                     return jsonify({'error': 'Invalid signature. Withdrawal request unauthorized'}), 401

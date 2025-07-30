@@ -314,6 +314,8 @@ Process a collateral withdrawal request.
   "amount": 5.0,
   "miner_coldkey": "5HEo565WAy4Dbq3Sv271SAi7syBSofyfhhwRNjFNSM2gP9M2",
   "miner_hotkey": "5FrLxJsyJ5x9n2rmxFwosFraxFCKcXZDngEP9H7qjkKgHLcK",
+  "nonce": "0x1234567890abcdef...",
+  "timestamp": 1751409821967,
   "signature": "0x1234567890abcdef..."
 }
 ```
