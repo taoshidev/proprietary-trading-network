@@ -296,7 +296,9 @@ class MetagraphUpdater(CacheController):
                         brute_force=True)
         if self.is_miner:
             self.sync_lists(self.metagraph.axons, metagraph_clone.axons, brute_force=True)
-
+        else:
+            self.metagraph.pool.tao_in = metagraph_clone.pool.tao_in
+            self.metagraph.pool.alpha_in = metagraph_clone.pool.alpha_in
 
         if recently_acked_miners:
             self.update_likely_miners(recently_acked_miners)

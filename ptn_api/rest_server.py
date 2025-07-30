@@ -13,6 +13,7 @@ import traceback
 from setproctitle import setproctitle
 from waitress import serve
 from flask_compress import Compress
+from bittensor_wallet import Keypair
 
 from time_util.time_util import TimeUtil
 from vali_objects.position import Position
@@ -21,6 +22,7 @@ from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.vali_config import ValiConfig
 from multiprocessing import current_process
 from ptn_api.api_key_refresh import APIKeyMixin
+from ptn_api.nonce_manager import NonceManager
 
 
 class APIMetricsTracker:
@@ -224,7 +226,7 @@ class PTNRestServer(APIKeyMixin):
     """Handles REST API requests with Flask and Waitress."""
 
     def __init__(self, api_keys_file, shared_queue=None, host="127.0.0.1",
-                 port=48888, refresh_interval=15, metrics_interval_minutes=5, position_manager=None):
+                 port=48888, refresh_interval=15, metrics_interval_minutes=5, position_manager=None, contract_manager=None, config=None):
         """Initialize the REST server with API key handling and routing.
 
         Args:
@@ -235,6 +237,7 @@ class PTNRestServer(APIKeyMixin):
             refresh_interval: How often to check for API key changes (seconds)
             metrics_interval_minutes: How often to log API metrics (minutes)
             position_manager: Optional position manager for handling miner positions
+            contract_manager: Optional contract manager for handling collateral operations
         """
         # Initialize API key handling
         APIKeyMixin.__init__(self, api_keys_file, refresh_interval)
@@ -242,10 +245,19 @@ class PTNRestServer(APIKeyMixin):
         # REST server configuration
         self.shared_queue = shared_queue
         self.position_manager: PositionManager = position_manager
+        self.contract_manager = contract_manager
+        self.nonce_manager = NonceManager()
         self.data_path = ValiConfig.BASE_DIR
         self.host = host
         self.port = port
         self.app = Flask(__name__)
+
+        # Get vault wallet
+        self.vault_wallet = bt.wallet(
+            name=config.vault_wallet_name,
+            hotkey=config.vault_wallet_hotkey,
+            path=config.vault_wallet_path
+        )
 
         # Initialize Flask-Compress for GZIP compression
         Compress(self.app)
@@ -526,6 +538,129 @@ class PTNRestServer(APIKeyMixin):
                 return jsonify({'error': 'Eliminations data not found'}), 404
             else:
                 return jsonify(data)
+
+        @self.app.route("/collateral/deposit", methods=["POST"])
+        def deposit_collateral():
+            """Process collateral deposit with encoded extrinsic."""
+            # Check if contract manager is available
+            if not self.contract_manager:
+                return jsonify({'error': 'Collateral operations not available'}), 503
+                
+            try:
+                # Parse JSON request
+                if not request.is_json:
+                    return jsonify({'error': 'Content-Type must be application/json'}), 400
+                    
+                data = request.get_json()
+                if not data:
+                    return jsonify({'error': 'Invalid JSON body'}), 400
+                    
+                # Validate required fields
+                required_fields = ['extrinsic']
+                for field in required_fields:
+                    if field not in data:
+                        return jsonify({'error': f'Missing required field: {field}'}), 400
+                        
+                # Process the deposit using raw data
+                result = self.contract_manager.process_deposit_request(
+                    extrinsic_hex=data['extrinsic'],
+                    vault_wallet=self.vault_wallet
+                )
+                
+                # Return response
+                return jsonify(result)
+                
+            except Exception as e:
+                bt.logging.error(f"Error processing collateral deposit: {e}")
+                return jsonify({'error': 'Internal server error processing deposit'}), 500
+                
+        @self.app.route("/collateral/withdraw", methods=["POST"])
+        def withdraw_collateral():
+            """Process collateral withdrawal request."""
+            # Check if contract manager is available
+            if not self.contract_manager:
+                return jsonify({'error': 'Collateral operations not available'}), 503
+                
+            try:
+                # Parse JSON request
+                if not request.is_json:
+                    return jsonify({'error': 'Content-Type must be application/json'}), 400
+                    
+                data = request.get_json()
+                if not data:
+                    return jsonify({'error': 'Invalid JSON body'}), 400
+                    
+                # Validate required fields for signed withdrawal
+                required_fields = ['amount', 'miner_coldkey', 'miner_hotkey', 'nonce', 'timestamp', 'signature']
+                for field in required_fields:
+                    if field not in data:
+                        return jsonify({'error': f'Missing required field: {field}'}), 400
+
+                # Verify nonce
+                is_valid, error_msg = self.nonce_manager.is_valid_request(
+                    address=data['miner_hotkey'],
+                    nonce=data['nonce'],
+                    timestamp=data['timestamp']
+                )
+                if not is_valid:
+                    return jsonify({'error': f'{error_msg}'}), 401
+
+                # Verify the withdrawal signature
+                keypair = Keypair(ss58_address=data['miner_coldkey'])
+                message = json.dumps({
+                    "amount": data['amount'],
+                    "miner_coldkey": data['miner_coldkey'],
+                    "miner_hotkey": data['miner_hotkey'],
+                    "nonce": data['nonce'],
+                    "timestamp": data['timestamp']
+                }, sort_keys=True).encode('utf-8')
+                is_valid = keypair.verify(message, bytes.fromhex(data['signature']))
+                if not is_valid:
+                    return jsonify({'error': 'Invalid signature. Withdrawal request unauthorized'}), 401
+                        
+                # Process the withdrawal using verified data
+                result = self.contract_manager.process_withdrawal_request(
+                    amount=data['amount'],
+                    miner_coldkey=data['miner_coldkey'],
+                    miner_hotkey=data['miner_hotkey'],
+                    vault_wallet=self.vault_wallet,
+                )
+                
+                # Return response
+                return jsonify(result)
+                
+            except Exception as e:
+                bt.logging.error(f"Error processing collateral withdrawal: {e}")
+                return jsonify({'error': 'Internal server error processing withdrawal'}), 500
+                
+        @self.app.route("/collateral/balance/<miner_address>", methods=["GET"])
+        def get_collateral_balance(miner_address):
+            """Get a miner's collateral balance."""
+            # Check if contract manager is available
+            if not self.contract_manager:
+                return jsonify({'error': 'Collateral operations not available'}), 503
+                
+            try:
+                # Get the balance
+                balance = self.contract_manager.get_miner_collateral_balance(miner_address)
+                
+                if balance is None:
+                    return jsonify({'error': 'Failed to retrieve collateral balance'}), 500
+                    
+                return jsonify({
+                    'miner_address': miner_address,
+                    'balance_theta': balance
+                })
+                
+            except Exception as e:
+                bt.logging.error(f"Error getting collateral balance for {miner_address}: {e}")
+                return jsonify({'error': 'Internal server error retrieving balance'}), 500
+                
+                return jsonify(response_data)
+                
+            except Exception as e:
+                bt.logging.error(f"Error getting collateral balance for {miner_address}: {e}")
+                return jsonify({'error': 'Internal server error retrieving balance'}), 500
 
     def _get_api_key_safe(self) -> Optional[str]:
         """

@@ -274,6 +274,80 @@ Perf Ledger schema
 Perf ledgers are built based off realtime price data and are consumed in the scoring logic. More info in the PTN repo.
 
 
+## Collateral Management
+
+The API includes comprehensive collateral management endpoints for miners to deposit, withdraw, and check their collateral balances. These endpoints interact with the collateral smart contract system.
+
+### Deposit Collateral
+
+`POST /collateral/deposit`
+
+Process a collateral deposit with encoded extrinsic data.
+
+**Request Body:**
+```json
+{
+  "extrinsic": "0x1234567890abcdef..."
+}
+```
+
+**Response:**
+```json
+{
+  "successfully_processed": true,
+  "error_message": ""
+}
+```
+
+**Parameters:**
+- `extrinsic_data` (string): Hex-encoded signed extrinsic for stake transfer
+
+### Withdraw Collateral
+
+`POST /collateral/withdraw`
+
+Process a collateral withdrawal request.
+
+**Request Body:**
+```json
+{
+  "amount": 5.0,
+  "miner_coldkey": "5HEo565WAy4Dbq3Sv271SAi7syBSofyfhhwRNjFNSM2gP9M2",
+  "miner_hotkey": "5FrLxJsyJ5x9n2rmxFwosFraxFCKcXZDngEP9H7qjkKgHLcK",
+  "nonce": "0x1234567890abcdef...",
+  "timestamp": 1751409821967,
+  "signature": "0x1234567890abcdef..."
+}
+```
+
+**Response:**
+```json
+{
+  "successfully_processed": true,
+  "error_message": "",
+  "returned_amount": 5.0,
+  "returned_to": "5HEo565WAy4Dbq3Sv271SAi7syBSofyfhhwRNjFNSM2gP9M2"
+}
+```
+
+**Parameters:**
+- `amount` (float): Amount to withdraw in theta tokens
+- `miner_address` (string): Miner's coldkey SS58 address
+
+### Get Collateral Balance
+
+`GET /collateral/balance/<miner_address>`
+
+Retrieve a miner's current collateral balance.
+
+**Response:**
+```json
+{
+  "miner_address": "5HEo565WAy4Dbq3Sv271SAi7syBSofyfhhwRNjFNSM2gP9M2",
+  "balance_theta": 15.5
+}
+```
+
 ## Compression Support
 
 The API server supports automatic gzip compression for REST responses, which can significantly reduce payload sizes and improve performance. Compression is particularly beneficial for large responses like miner positions and statistics.

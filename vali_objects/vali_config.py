@@ -179,7 +179,7 @@ class ValiConfig:
     EQUITIES_MIN_LEVERAGE = 0.1
     EQUITIES_MAX_LEVERAGE = 3
 
-    CAPITAL = 100_000  # conversion of 1x leverage to $100K in capital
+    CAPITAL = 250_000  # conversion of 1x leverage to $250K in capital
 
     MAX_DAILY_DRAWDOWN = 0.95  # Portfolio should never fall below .95 x of initial value when measured day to day
     MAX_TOTAL_DRAWDOWN = 0.9  # Portfolio should never fall below .90 x of initial value when measured at any instant
@@ -290,6 +290,10 @@ class ValiConfig:
 
     # Cap leverage across miner's entire portfolio
     PORTFOLIO_LEVERAGE_CAP = 10
+    
+    # Collateral limits
+    MAX_COLLATERAL_BALANCE_THETA = 50.0  # Maximum total collateral balance per miner in Theta tokens
+    MAX_COLLATERAL_BALANCE_TESTNET = 10000.0
 
 assert ValiConfig.CRYPTO_MIN_LEVERAGE >= ValiConfig.ORDER_MIN_LEVERAGE
 assert ValiConfig.CRYPTO_MAX_LEVERAGE <= ValiConfig.ORDER_MAX_LEVERAGE

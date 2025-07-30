@@ -56,6 +56,7 @@ from vali_objects.utils.vali_utils import ValiUtils
 from vali_objects.vali_config import ValiConfig
 
 from vali_objects.utils.plagiarism_detector import PlagiarismDetector
+from vali_objects.utils.validator_contract_manager import ValidatorContractManager
 
 # Global flag used to indicate shutdown
 shutdown_dict = {}
@@ -358,6 +359,9 @@ class Validator:
         self.perf_ledger_updater_thread = Process(target=self.perf_ledger_manager.run_update_loop, daemon=True)
         self.perf_ledger_updater_thread.start()
 
+        # Initialize ValidatorContractManager for collateral operations
+        self.contract_manager = ValidatorContractManager(config=self.config, metagraph=self.metagraph)
+
         if self.config.start_generate:
             self.rog = RequestOutputGenerator(rcm=self.request_core_manager, msm=self.miner_statistics_manager)
             self.rog_thread = threading.Thread(target=self.rog.start_generation, daemon=True)
@@ -373,7 +377,9 @@ class Validator:
                 ws_port=self.config.api_ws_port,
                 rest_host=self.config.api_host,
                 rest_port=self.config.api_rest_port,
-                position_manager=self.position_manager
+                position_manager=self.position_manager,
+                contract_manager=self.contract_manager,
+                config=self.config
             )
 
             # Start the API Manager in a separate process
@@ -464,6 +470,16 @@ class Validator:
         # (developer): Adds your custom arguments to the parser.
         # Adds override arguments for network and netuid.
         parser.add_argument("--netuid", type=int, default=1, help="The chain subnet uid.")
+        
+        # Vault wallet specific arguments for collateral operations
+        # These allow using a separate wallet for collateral operations instead of the main validator wallet
+        parser.add_argument("--vault-wallet.name", type=str, default=None, dest="vault_wallet_name",
+                            help="Name of the vault wallet for collateral operations (optional)")
+        parser.add_argument("--vault-wallet.hotkey", type=str, default=None, dest="vault_wallet_hotkey",
+                            help="Hotkey of the vault wallet for collateral operations (optional)")
+        parser.add_argument("--vault-wallet.path", type=str, default="~/.bittensor/wallets/", dest="vault_wallet_path",
+                            help="Path to the vault wallet directory (default: ~/.bittensor/wallets/)")
+        
         # Adds subtensor specific arguments i.e. --subtensor.chain_endpoint ... --subtensor.network ...
         bt.subtensor.add_args(parser)
         # Adds logging specific arguments i.e. --logging.debug ..., --logging.trace .. or --logging.logging_dir ...
