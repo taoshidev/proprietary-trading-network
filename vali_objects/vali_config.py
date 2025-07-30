@@ -179,7 +179,7 @@ class ValiConfig:
     EQUITIES_MIN_LEVERAGE = 0.1
     EQUITIES_MAX_LEVERAGE = 3
 
-    CAPITAL = 100_000  # conversion of 1x leverage to $100K in capital
+    CAPITAL = 250_000  # conversion of 1x leverage to $250K in capital
 
     MAX_DAILY_DRAWDOWN = 0.95  # Portfolio should never fall below .95 x of initial value when measured day to day
     MAX_TOTAL_DRAWDOWN = 0.9  # Portfolio should never fall below .90 x of initial value when measured at any instant
