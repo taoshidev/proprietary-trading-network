@@ -156,8 +156,9 @@ class SlackNotifier:
                     sleep_seconds = (next_midnight - now).total_seconds()
                     time.sleep(sleep_seconds)
 
-                    # Send daily summary
-                    self._send_daily_summary()
+                    # Send daily summary (only makes sense for miners at this moment)
+                    if self.is_miner:
+                        self._send_daily_summary()
 
                 except Exception as e:
                     bt.logging.error(f"Error in daily summary thread: {e}")

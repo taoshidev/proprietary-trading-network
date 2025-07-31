@@ -1566,17 +1566,6 @@ class PerfLedgerManager(CacheController):
         perf_ledger_bundle_candidate = existing_perf_ledger_bundles.get(hotkey)
         continuity_established = False  # Track if we've already established price continuity
         
-        # Debug logging for regeneration issues
-        if perf_ledger_bundle_candidate:
-            portfolio_ledger = perf_ledger_bundle_candidate.get(TP_ID_PORTFOLIO)
-            if portfolio_ledger and portfolio_ledger.last_update_ms > 0:
-                gap_from_now = (now_ms - portfolio_ledger.last_update_ms) / 1000 / 60 / 60 / 24  # days
-                if gap_from_now > 60000:  # More than 1 minute old
-                    bt.logging.warning(f"Found old ledger for {hotkey}:")
-                    bt.logging.warning(f"  Last update: {TimeUtil.millis_to_formatted_date_str(portfolio_ledger.last_update_ms)}")
-                    bt.logging.warning(f"  Now: {TimeUtil.millis_to_formatted_date_str(now_ms)}")
-                    bt.logging.warning(f"  Gap: {gap_from_now:.1f} days")
-        
         if perf_ledger_bundle_candidate and self._is_v1_perf_ledger(perf_ledger_bundle_candidate):
             bt.logging.warning(f"hotkey {hotkey} has legacy perf ledger. Wiping.")
             perf_ledger_bundle_candidate = None
@@ -1589,7 +1578,6 @@ class PerfLedgerManager(CacheController):
         else:
             perf_ledger_bundle_candidate = deepcopy(perf_ledger_bundle_candidate)
             verbose = False
-            portfolio_ledger = perf_ledger_bundle_candidate.get(TP_ID_PORTFOLIO)
 
         for tp_id, perf_ledger in perf_ledger_bundle_candidate.items():
             perf_ledger.init_max_portfolio_value()
@@ -2226,7 +2214,7 @@ if __name__ == "__main__":
         # Use serial update like validators do
         if test_single_hotkey:
             bt.logging.info(f"Running single-hotkey test for: {test_single_hotkey}")
-            perf_ledger_manager.update(testing_one_hotkey=test_single_hotkey, t_ms=TimeUtil.now_in_millis() - MS_IN_24_HOURS * 250)
+            perf_ledger_manager.update(testing_one_hotkey=test_single_hotkey, t_ms=TimeUtil.now_in_millis())
         else:
             bt.logging.info("Running standard sequential update for all hotkeys")
             perf_ledger_manager.update(regenerate_all_ledgers=regenerate_all)
