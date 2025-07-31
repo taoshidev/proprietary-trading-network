@@ -962,6 +962,10 @@ class PerfLedgerManager(CacheController):
                 
                 # Track last known prices for portfolio ledger to maintain continuity
                 if price_at_t_ms is not None:
+                    # Store previous price before updating
+                    if tp_id in portfolio_pl.last_known_prices:
+                        prev_price, prev_ts = portfolio_pl.last_known_prices[tp_id]
+                        self.trade_pair_to_position_ret[tp_id + '_prev'] = prev_price
                     portfolio_pl.last_known_prices[tp_id] = (price_at_t_ms, t_ms)
 
                 # Update returns for all relevant IDs
@@ -983,7 +987,8 @@ class PerfLedgerManager(CacheController):
         for tp_id in list(tp_to_historical_positions_dense.keys()) + [TP_ID_PORTFOLIO]:
             if tp_id in self.trade_pair_to_position_ret:
                 self.trade_pair_to_position_ret[tp_id + '_prev'] = self.trade_pair_to_position_ret[tp_id]
-            self.trade_pair_to_position_ret[tp_id] = tp_to_return[tp_id]
+            if tp_id in tp_to_return:
+                self.trade_pair_to_position_ret[tp_id] = tp_to_return[tp_id]
         return tp_to_return, tp_to_any_open, tp_to_spread_fee, tp_to_carry_fee
 
 
@@ -1023,6 +1028,10 @@ class PerfLedgerManager(CacheController):
         
         for tp_id in tp_ids_to_remove:
             del portfolio_pl.last_known_prices[tp_id]
+            # Also clean up the prev_price tracking
+            prev_price_key = tp_id + '_prev'
+            if prev_price_key in self.trade_pair_to_position_ret:
+                del self.trade_pair_to_position_ret[prev_price_key]
             bt.logging.debug(f"Removed closed position {tp_id} from price tracking")
 
     def condense_positions(self, tp_ids_to_build, tp_to_historical_positions: dict[str: Position]) -> (float, float, float, dict[str: Position]):
@@ -1123,26 +1132,45 @@ class PerfLedgerManager(CacheController):
                 f'perf ledger (pl_last_update_time {pl_last_update_time}) for hk {miner_hotkey} significant return drop on {time_formatted} from '
                 f'{portfolio_pl.cps[-1].prev_portfolio_ret} to {portfolio_return} over'
                 f' {time_since_last_update} ms ({t_ms}) when building up to {start_formatted} and {end_formatted} with open_positions_tp_ids {open_positions_tp_ids}, ',
-                f'last cp {perf_ledger_bundle[TP_ID_PORTFOLIO].cps[-1].to_dict()}, trade_pair_to_position_ret {self.trade_pair_to_position_ret}, mode {mode} ')
+                f'trade_pair_to_position_ret {self.trade_pair_to_position_ret}, mode {mode} ')
             for tp_id, historical_positions in tp_to_historical_positions.items():
                 positions = []
                 for historical_position in historical_positions:
                     if historical_position.is_open_position and len(historical_position.orders):
-                        tpo = [TimeUtil.millis_to_formatted_date_str(x.processed_ms) for x in historical_position.orders]
                         tpo_ms = [TimeUtil.millis_to_formatted_date_str(x.processed_ms) for x in historical_position.orders]
                         positions.append({'position_uuid': historical_position.position_uuid,
                                          'net_leverage': historical_position.net_leverage,
                                          'price_per_order': [x.price for x in historical_position.orders],
                                          'return_at_close': historical_position.return_at_close,
-                                         'time_per_order': tpo,
-                                          'time_per_order_ms': tpo_ms})
+                                         'time_per_order_ms': tpo_ms})
                 if positions:
                     # Look up last known price for this tp_id
                     last_price_info = None
                     if tp_id != TP_ID_PORTFOLIO and tp_id in portfolio_pl.last_known_prices:
                         last_price_info = portfolio_pl.last_known_prices[tp_id]
-                    print(f'    tp_id {tp_id} last_known_price {last_price_info},'
-                          f' trade_pair_to_position_ret {self.trade_pair_to_position_ret.get(tp_id)}')
+                    # Get previous price if available
+                    prev_price = self.trade_pair_to_position_ret.get(tp_id + '_prev', 'N/A')
+                    current_price = last_price_info[0] if last_price_info else 'N/A'
+                    price_timestamp = last_price_info[1] if last_price_info else 'N/A'
+                    
+                    # Get current and previous position returns
+                    current_ret = self.trade_pair_to_position_ret.get(tp_id, 'N/A')
+                    prev_ret = self.trade_pair_to_position_ret.get(tp_id + '_prev', 'N/A')
+                    
+                    # Calculate time since last order for open positions
+                    time_since_last_order_str = ''
+                    if positions and historical_positions:
+                        # Since there's max one open position per trade pair, find it
+                        for hist_pos in historical_positions:
+                            if hist_pos.is_open_position and hist_pos.orders:
+                                last_order_ms = hist_pos.orders[-1].processed_ms
+                                if price_timestamp != 'N/A':
+                                    time_diff_ms = price_timestamp - last_order_ms
+                                    time_since_last_order_str = f', time_since_last_order={time_diff_ms}ms'
+                                break  # Found the single open position
+                    
+                    print(f'    tp_id {tp_id} price ({prev_price} -> {current_price}) @ {price_timestamp}{time_since_last_order_str},'
+                          f' position_ret ({prev_ret} -> {current_ret})')
                 for p in positions:
                     print(f'        position {p} ')
 
@@ -2147,9 +2175,9 @@ if __name__ == "__main__":
     
     parallel_mode = ParallelizationMode.SERIAL  # 1 for pyspark, 2 for multiprocessing
     top_n_miners = 4
-    test_single_hotkey = '5DthKaDbqEauMm25rKmKQCjJYvbshR84NzhAVT4zLq4Dz4qK'  # Set to a specific hotkey string to test single hotkey, or None for all
+    test_single_hotkey = '5FkMNsY29L9BFbk68RWrPHvQys2L9JKdm9Fua6LTEt9gMPvw'  # Set to a specific hotkey string to test single hotkey, or None for all
     regenerate_all = False  # Whether to regenerate all ledgers from scratch
-    build_portfolio_ledgers_only = True  # Whether to build only the portfolio ledgers or per trade pair
+    build_portfolio_ledgers_only = False  # Whether to build only the portfolio ledgers or per trade pair
     
     # Time range for database queries (if using database positions)
     end_time_ms = None# 1736035200000    # Jan 5, 2025
