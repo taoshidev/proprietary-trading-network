@@ -6,7 +6,6 @@ from unittest.mock import patch, MagicMock
 
 from collateral_sdk import Network
 
-from tests.shared_objects.mock_classes import MockMetagraph
 from tests.vali_tests.base_objects.test_base import TestBase
 from vali_objects.utils.contract_manager import ContractManager, CollateralRecord
 from vali_objects.vali_config import ValiConfig
