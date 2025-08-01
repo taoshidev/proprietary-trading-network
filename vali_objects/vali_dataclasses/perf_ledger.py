@@ -719,20 +719,24 @@ class PerfLedgerManager(CacheController):
                 if realtime_position_to_pop and tp_id == realtime_position_to_pop.trade_pair.trade_pair_id and i == len(historical_positions) - 1:
                     historical_position = realtime_position_to_pop
 
-                for tp_id in [TP_ID_PORTFOLIO, tp_id]:
+                for k in [TP_ID_PORTFOLIO, tp_id]:
                     csf, _ = self.position_uuid_to_cache[historical_position.position_uuid].get_spread_fee(historical_position, end_time_ms)
-                    tp_to_spread_fee[tp_id] *= csf
+                    tp_to_spread_fee[k] *= csf
                     ccf, _ = self.position_uuid_to_cache[historical_position.position_uuid].get_carry_fee(end_time_ms, historical_position)
-                    tp_to_carry_fee[tp_id] *= ccf
-                    tp_to_return[tp_id] *= historical_position.return_at_close
+                    tp_to_carry_fee[k] *= ccf
+                    tp_to_return[k] *= historical_position.return_at_close
 
 
 
         for tp_id in list(tp_to_historical_positions.keys()) + [TP_ID_PORTFOLIO]:
             pl = perf_ledger_bundle.get(tp_id)
-            if pl and tp_id in self.trade_pair_to_position_ret and self.trade_pair_to_position_ret[tp_id] != tp_to_return[tp_id]:
-                self.trade_pair_to_position_ret[tp_id + '_prev'] = self.trade_pair_to_position_ret[tp_id]
-            self.trade_pair_to_position_ret[tp_id] = tp_to_return[tp_id]
+            # Check if we need to update _prev (compare just the return value, not the tuple)
+            current_tuple = self.trade_pair_to_position_ret.get(tp_id)
+            if pl and current_tuple and current_tuple[0] != tp_to_return[tp_id]:
+                self.trade_pair_to_position_ret[tp_id + '_prev'] = current_tuple
+            # Count positions for this trade pair
+            position_count = len(tp_to_historical_positions.get(tp_id, [])) if tp_id != TP_ID_PORTFOLIO else n_positions
+            self.trade_pair_to_position_ret[tp_id] = (tp_to_return[tp_id], position_count)
 
         assert tp_to_carry_fee[TP_ID_PORTFOLIO] > 0, (tp_to_carry_fee[TP_ID_PORTFOLIO], tp_to_spread_fee[TP_ID_PORTFOLIO])
 
@@ -954,10 +958,13 @@ class PerfLedgerManager(CacheController):
                     
                     price_changed = price_at_t_ms != prev_price
 
-                # Update position returns based on whether price changed
-                if price_changed:
+                # Update position returns based on current price
+                if historical_position.is_open_position and price_at_t_ms is not None:
+                    # Always update returns for open positions when we have a price
+                    # This ensures returns are always current and prevents stale values
                     historical_position.set_returns(price_at_t_ms, time_ms=t_ms, total_fees=position_spread_fee * position_carry_fee)
                 else:
+                    # Closed positions or no price available - just update fees
                     historical_position.set_returns_with_updated_fees(position_spread_fee * position_carry_fee, t_ms)
                 
                 # Track last known prices for portfolio ledger to maintain continuity
@@ -965,7 +972,8 @@ class PerfLedgerManager(CacheController):
                     # Store previous price before updating
                     if tp_id in portfolio_pl.last_known_prices:
                         prev_price, prev_ts = portfolio_pl.last_known_prices[tp_id]
-                        self.trade_pair_to_position_ret[tp_id + '_prev'] = prev_price
+                        # Store previous price and timestamp in the same dict with _prev suffix
+                        portfolio_pl.last_known_prices[tp_id + '_prev'] = (prev_price, prev_ts)
                     portfolio_pl.last_known_prices[tp_id] = (price_at_t_ms, t_ms)
 
                 # Update returns for all relevant IDs
@@ -988,7 +996,9 @@ class PerfLedgerManager(CacheController):
             if tp_id in self.trade_pair_to_position_ret:
                 self.trade_pair_to_position_ret[tp_id + '_prev'] = self.trade_pair_to_position_ret[tp_id]
             if tp_id in tp_to_return:
-                self.trade_pair_to_position_ret[tp_id] = tp_to_return[tp_id]
+                # Count positions for this trade pair
+                position_count = len(tp_to_historical_positions_dense.get(tp_id, [])) if tp_id != TP_ID_PORTFOLIO else sum(len(positions) for positions in tp_to_historical_positions_dense.values())
+                self.trade_pair_to_position_ret[tp_id] = (tp_to_return[tp_id], position_count)
         return tp_to_return, tp_to_any_open, tp_to_spread_fee, tp_to_carry_fee
 
 
@@ -1021,17 +1031,18 @@ class PerfLedgerManager(CacheController):
             return
         
         # Find and remove trade pairs that are no longer open
+        # Skip _prev keys in the check since they're not in open_positions_tp_ids
         tp_ids_to_remove = [
             tp_id for tp_id in portfolio_pl.last_known_prices 
-            if tp_id not in open_positions_tp_ids
+            if not tp_id.endswith('_prev') and tp_id not in open_positions_tp_ids
         ]
         
         for tp_id in tp_ids_to_remove:
             del portfolio_pl.last_known_prices[tp_id]
-            # Also clean up the prev_price tracking
+            # Also clean up the prev price tracking
             prev_price_key = tp_id + '_prev'
-            if prev_price_key in self.trade_pair_to_position_ret:
-                del self.trade_pair_to_position_ret[prev_price_key]
+            if prev_price_key in portfolio_pl.last_known_prices:
+                del portfolio_pl.last_known_prices[prev_price_key]
             bt.logging.debug(f"Removed closed position {tp_id} from price tracking")
 
     def condense_positions(self, tp_ids_to_build, tp_to_historical_positions: dict[str: Position]) -> (float, float, float, dict[str: Position]):
@@ -1046,6 +1057,12 @@ class PerfLedgerManager(CacheController):
                 if historical_position.is_closed_position:
                     tp_ids_to_build = [TP_ID_PORTFOLIO] if self.build_portfolio_ledgers_only else [tp_id, TP_ID_PORTFOLIO]
                     for x in tp_ids_to_build:
+                        # Only accumulate closed position returns if there are open positions
+                        # Otherwise, we should skip as the shortcut should have handled this
+                        if x == tp_id and len(dense_positions) == 0:
+                            # No open positions for this tp_id, so don't accumulate closed returns
+                            # The shortcut logic should have handled this case
+                            continue
                         tp_to_initial_return[x] *= historical_position.return_at_close
                         tp_to_initial_spread_fee[x] *= self.position_uuid_to_cache[historical_position.position_uuid].get_spread_fee(historical_position, historical_position.orders[-1].processed_ms)[0]
                         tp_to_initial_carry_fee[x] *= self.position_uuid_to_cache[historical_position.position_uuid].get_carry_fee(historical_position.orders[-1].processed_ms, historical_position)[0]
@@ -1128,11 +1145,19 @@ class PerfLedgerManager(CacheController):
             time_formatted = TimeUtil.millis_to_formatted_date_str(t_ms)
             start_formatted = TimeUtil.millis_to_formatted_date_str(start_time_ms)
             end_formatted = TimeUtil.millis_to_formatted_date_str(end_time_ms)
+            # Format trade_pair_to_position_ret for display
+            formatted_returns = {}
+            for k, v in self.trade_pair_to_position_ret.items():
+                if isinstance(v, tuple):
+                    formatted_returns[k] = f"{v[0]:.6f} (n={v[1]})"
+                else:
+                    formatted_returns[k] = v
+            
             print(
                 f'perf ledger (pl_last_update_time {pl_last_update_time}) for hk {miner_hotkey} significant return drop on {time_formatted} from '
                 f'{portfolio_pl.cps[-1].prev_portfolio_ret} to {portfolio_return} over'
                 f' {time_since_last_update} ms ({t_ms}) when building up to {start_formatted} and {end_formatted} with open_positions_tp_ids {open_positions_tp_ids}, ',
-                f'trade_pair_to_position_ret {self.trade_pair_to_position_ret}, mode {mode} ')
+                f'trade_pair_to_position_ret {formatted_returns}, mode {mode} ')
             for tp_id, historical_positions in tp_to_historical_positions.items():
                 positions = []
                 for historical_position in historical_positions:
@@ -1148,14 +1173,37 @@ class PerfLedgerManager(CacheController):
                     last_price_info = None
                     if tp_id != TP_ID_PORTFOLIO and tp_id in portfolio_pl.last_known_prices:
                         last_price_info = portfolio_pl.last_known_prices[tp_id]
-                    # Get previous price if available
-                    prev_price = self.trade_pair_to_position_ret.get(tp_id + '_prev', 'N/A')
+                    # Get current price info
                     current_price = last_price_info[0] if last_price_info else 'N/A'
                     price_timestamp = last_price_info[1] if last_price_info else 'N/A'
                     
-                    # Get current and previous position returns
-                    current_ret = self.trade_pair_to_position_ret.get(tp_id, 'N/A')
-                    prev_ret = self.trade_pair_to_position_ret.get(tp_id + '_prev', 'N/A')
+                    # Get previous price and timestamp from last_known_prices
+                    prev_price_info = portfolio_pl.last_known_prices.get(tp_id + '_prev', None)
+                    if prev_price_info and isinstance(prev_price_info, tuple):
+                        prev_price, prev_timestamp = prev_price_info
+                    else:
+                        prev_price = prev_price_info if prev_price_info else 'N/A'
+                        prev_timestamp = 'N/A'
+                    
+                    # Calculate time delta between price updates
+                    price_delta_str = ''
+                    if prev_timestamp != 'N/A' and price_timestamp != 'N/A':
+                        price_delta_ms = price_timestamp - prev_timestamp
+                        price_delta_str = f', price_delta={price_delta_ms}ms'
+                    
+                    # Get current and previous position returns (now stored as tuples)
+                    current_tuple = self.trade_pair_to_position_ret.get(tp_id, None)
+                    prev_tuple = self.trade_pair_to_position_ret.get(tp_id + '_prev', None)
+                    
+                    if current_tuple:
+                        current_ret, current_pos_count = current_tuple
+                    else:
+                        current_ret, current_pos_count = 'N/A', 0
+                        
+                    if prev_tuple:
+                        prev_ret, prev_pos_count = prev_tuple
+                    else:
+                        prev_ret, prev_pos_count = 'N/A', 0
                     
                     # Calculate time since last order for open positions
                     time_since_last_order_str = ''
@@ -1168,9 +1216,10 @@ class PerfLedgerManager(CacheController):
                                     time_diff_ms = price_timestamp - last_order_ms
                                     time_since_last_order_str = f', time_since_last_order={time_diff_ms}ms'
                                 break  # Found the single open position
-                    
-                    print(f'    tp_id {tp_id} price ({prev_price} -> {current_price}) @ {price_timestamp}{time_since_last_order_str},'
-                          f' position_ret ({prev_ret} -> {current_ret})')
+
+                    last_cp = perf_ledger_bundle[tp_id].cps[-1] if tp_id in perf_ledger_bundle else None
+                    print(f'    tp_id {tp_id} price ({prev_price} -> {current_price}) @ {price_timestamp}{price_delta_str}{time_since_last_order_str},'
+                          f' position_ret ({prev_ret} -> {current_ret}), n_positions ({prev_pos_count} -> {current_pos_count}). last_cp {last_cp}')
                 for p in positions:
                     print(f'        position {p} ')
 
