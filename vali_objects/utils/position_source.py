@@ -109,32 +109,8 @@ class PositionSourceManager:
 
         bt.logging.info(f"Retrieved {len(filtered_positions)} positions from database")
 
-        # Convert database positions to Position objects
-        hk_to_positions = defaultdict(list)
-        conversion_errors = 0
 
-        for position_data in filtered_positions:
-            position_copy = copy.deepcopy(position_data)
-
-            # Convert database format to Position object format
-            # This matches the conversion logic from backtest_manager.py
-            position_copy["trade_pair"] = [position_data["trade_pair_id"]]
-            position_copy["position_type"] = str(position_copy["position_type"])
-
-            # Create Position object
-            try:
-                position_obj = Position(**position_copy)
-                hk_to_positions[position_obj.miner_hotkey].append(position_obj)
-            except Exception as e:
-                bt.logging.error(f"Failed to create Position object from database data: {e}")
-                conversion_errors += 1
-                continue
-
-        bt.logging.info(f"Successfully converted positions for {len(hk_to_positions)} miners")
-        if conversion_errors > 0:
-            bt.logging.warning(f"Failed to convert {conversion_errors} positions")
-
-        return dict(hk_to_positions)
+        return filtered_positions
 
             
     def _load_test_positions(self) -> Dict[str, List[Position]]:

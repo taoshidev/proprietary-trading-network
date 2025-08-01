@@ -4,6 +4,7 @@ import socket
 import requests
 import threading
 import time
+import subprocess
 from datetime import datetime, timezone
 from typing import Dict, Optional, Any
 from collections import defaultdict
@@ -22,6 +23,7 @@ class SlackNotifier:
         self.node_type = "Miner" if is_miner else "Validator"
         self.vm_ip = self._get_vm_ip()
         self.vm_hostname = self._get_vm_hostname()
+        self.git_branch = self._get_git_branch()
 
         # Daily summary tracking
         self.startup_time = datetime.now(timezone.utc)
@@ -68,6 +70,23 @@ class SlackNotifier:
         except Exception as e:
             bt.logging.error(f"Got exception: {e}")
             return "Unknown Hostname"
+    
+    def _get_git_branch(self) -> str:
+        """Get the current git branch"""
+        try:
+            result = subprocess.run(
+                ['git', 'rev-parse', '--abbrev-ref', 'HEAD'],
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            branch = result.stdout.strip()
+            if branch:
+                return branch
+            return "Unknown Branch"
+        except Exception as e:
+            bt.logging.error(f"Failed to get git branch: {e}")
+            return "Unknown Branch"
 
     def _load_lifetime_metrics(self) -> Dict[str, Any]:
         """Load persistent metrics from file
@@ -137,8 +156,9 @@ class SlackNotifier:
                     sleep_seconds = (next_midnight - now).total_seconds()
                     time.sleep(sleep_seconds)
 
-                    # Send daily summary
-                    self._send_daily_summary()
+                    # Send daily summary (only makes sense for miners at this moment)
+                    if self.is_miner:
+                        self._send_daily_summary()
 
                 except Exception as e:
                     bt.logging.error(f"Error in daily summary thread: {e}")
@@ -260,7 +280,7 @@ class SlackNotifier:
                     },
                     {
                         "title": "🖥️ System Info",
-                        "value": f"Host: {self.vm_hostname}\nIP: {self.vm_ip}",
+                        "value": f"Host: {self.vm_hostname}\nIP: {self.vm_ip}\nBranch: {self.git_branch}",
                         "short": True
                     }
                 ]
@@ -335,8 +355,8 @@ class SlackNotifier:
                             "short": True
                         },
                         {
-                            "title": "Script Uptime",
-                            "value": self._get_uptime_str(),
+                            "title": "Script Uptime | Git Branch",
+                            "value": f"{self._get_uptime_str()} | {self.git_branch}",
                             "short": True
                         }
                     ],

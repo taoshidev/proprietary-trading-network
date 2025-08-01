@@ -74,8 +74,7 @@ class EliminationManager(CacheController):
                                                                                                 close=v,
                                                                                                 start_ms=elimination_initiated_time_ms,
                                                                                                 timespan_ms=1000,
-                                                                                                websocket=False,
-                                                                                                trade_pair=trade_pair)
+                                                                                                websocket=False)
             self.handle_eliminated_miner(e['hotkey'], trade_pair_to_price_source_used_for_elimination_check, position_locks)
 
         if n_eliminations:
