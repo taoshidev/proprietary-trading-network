@@ -2219,7 +2219,7 @@ if __name__ == "__main__":
     bt.logging.enable_info()
 
     # Configuration flags
-    use_database_positions = True  # NEW: Enable database position loading
+    use_database_positions = False  # NEW: Enable database position loading
     use_test_positions = False      # NEW: Enable test position loading
     
     parallel_mode = ParallelizationMode.SERIAL  # 1 for pyspark, 2 for multiprocessing

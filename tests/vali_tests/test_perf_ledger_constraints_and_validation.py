@@ -1817,9 +1817,11 @@ class TestPerfLedgerConstraintsAndValidation(TestBase):
                 print(f"   - {tp_id}: price={price:.2f}, time={TimeUtil.millis_to_formatted_date_str(timestamp)}")
         
         # Verify all three positions have prices tracked
-        self.assertEqual(len(portfolio_ledger_1.last_known_prices), 3, 
-                        f"Expected 3 tracked prices, got {len(portfolio_ledger_1.last_known_prices)}. "
-                        f"Tracked: {list(portfolio_ledger_1.last_known_prices.keys())}")
+        # Filter out _prev entries to count only current prices
+        current_prices = {k: v for k, v in portfolio_ledger_1.last_known_prices.items() if not k.endswith('_prev')}
+        self.assertEqual(len(current_prices), 3, 
+                        f"Expected 3 tracked prices, got {len(current_prices)}. "
+                        f"Tracked: {list(current_prices.keys())}")
         
         # Verify the prices are reasonable (based on our mock data)
         btc_price, btc_time = portfolio_ledger_1.last_known_prices[TradePair.BTCUSD.trade_pair_id]
@@ -1878,8 +1880,12 @@ class TestPerfLedgerConstraintsAndValidation(TestBase):
         print(f"Portfolio ledger last_known_prices: {portfolio_ledger_2.last_known_prices}")
         
         # The system correctly cleaned up ETHUSD when it found a closed position for that pair
-        self.assertEqual(len(portfolio_ledger_2.last_known_prices), 2,
-                        "ETHUSD should be removed after closed position is added")
+        # We should have 2 current prices (BTCUSD, EURUSD) and 2 previous prices
+        current_prices_2 = {k: v for k, v in portfolio_ledger_2.last_known_prices.items() if not k.endswith('_prev')}
+        self.assertEqual(len(current_prices_2), 2,
+                        f"ETHUSD should be removed after closed position is added. Current prices: {list(current_prices_2.keys())}")
+        self.assertNotIn(TradePair.ETHUSD.trade_pair_id, current_prices_2,
+                        "ETHUSD should not be in current prices after position closed")
         
         # Verify prices have been updated
         btc_price_2, btc_time_2 = portfolio_ledger_2.last_known_prices[TradePair.BTCUSD.trade_pair_id]
