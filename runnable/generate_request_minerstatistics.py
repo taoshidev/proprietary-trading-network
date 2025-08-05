@@ -1,9 +1,13 @@
+import os
+import json
+import bittensor as bt
 from typing import List, Dict, Any
 from dataclasses import dataclass
 from enum import Enum
 from collections import defaultdict
 
 from datetime import datetime
+from shared_objects.mock_metagraph import MockMetagraph
 from time_util.time_util import TimeUtil
 from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
 from vali_objects.utils.elimination_manager import EliminationManager
@@ -742,9 +746,12 @@ class MinerStatisticsManager:
     # -------------------------------------------
     # Write to disk
     # -------------------------------------------
-    def generate_request_minerstatistics(self, time_now: int, checkpoints: bool = True, risk_report: bool = False, bypass_confidence: bool = False):
+    def generate_request_minerstatistics(self, time_now: int, checkpoints: bool = True, risk_report: bool = False, bypass_confidence: bool = False, custom_output_path=None):
         final_dict = self.generate_miner_statistics_data(time_now, checkpoints=checkpoints, risk_report=risk_report, bypass_confidence=bypass_confidence)
-        output_file_path = ValiBkpUtils.get_miner_stats_dir()
+        if custom_output_path:
+            output_file_path = custom_output_path
+        else:
+            output_file_path = ValiBkpUtils.get_miner_stats_dir()
         ValiBkpUtils.write_file(output_file_path, final_dict)
 
 
@@ -752,15 +759,20 @@ class MinerStatisticsManager:
 # Example usage
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
-    perf_ledger_manager = PerfLedgerManager(None)
-    elimination_manager = EliminationManager(None, None, None)
+    bt.logging.enable_info()
+    all_hotkeys = ValiBkpUtils.get_directories_in_dir(ValiBkpUtils.get_miner_dir())
+    print('N hotkeys:', len(all_hotkeys))
+    metagraph = MockMetagraph(all_hotkeys)
+
+    perf_ledger_manager = PerfLedgerManager(metagraph)
+    elimination_manager = EliminationManager(metagraph, None, None)
     position_manager = PositionManager(
-        None, None,
+        metagraph, None,
         elimination_manager=elimination_manager,
         challengeperiod_manager=None,
         perf_ledger_manager=perf_ledger_manager
     )
-    challengeperiod_manager = ChallengePeriodManager(None, None, position_manager=position_manager)
+    challengeperiod_manager = ChallengePeriodManager(metagraph, None, position_manager=position_manager)
 
     # Cross-wire references
     elimination_manager.position_manager = position_manager
@@ -770,12 +782,21 @@ if __name__ == "__main__":
     perf_ledger_manager.position_manager = position_manager
 
     subtensor_weight_setter = SubtensorWeightSetter(
-        metagraph=None,
+        metagraph=metagraph,
         running_unit_tests=False,
         position_manager=position_manager,
     )
-    plagiarism_detector = PlagiarismDetector(None, None, position_manager=position_manager)
+    plagiarism_detector = PlagiarismDetector(metagraph, None, position_manager=position_manager)
 
     msm = MinerStatisticsManager(position_manager, subtensor_weight_setter, plagiarism_detector)
-    msm.generate_request_minerstatistics(TimeUtil.now_in_millis(), True)
+    pwd = os.getcwd()
+    custom_output_path = os.path.join(pwd, 'debug_miner_statistics.json')
+    msm.generate_request_minerstatistics(TimeUtil.now_in_millis(), True, custom_output_path=custom_output_path)
+    # Confirm output path and ability to read file
+    if os.path.exists(custom_output_path):
+        with open(custom_output_path, 'r') as f:
+            data = json.load(f)
+            print('Generated miner statistics:', custom_output_path)
+    else:
+        print(f"Output file not found at {custom_output_path}")
 

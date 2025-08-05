@@ -27,7 +27,7 @@ from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.vali_dataclasses.order import OrderStatus, ORDER_SRC_DEPRECATION_FLAT, Order
 from vali_objects.utils.position_filtering import PositionFiltering
 
-TARGET_MS = 1742577204000 + (1000 * 60 * 60 * 3)  # + 3 hours
+TARGET_MS = 1754356766000 + (1000 * 60 * 60 * 3)  # + 3 hours
 
 
 class PositionManager(CacheController):
@@ -407,6 +407,7 @@ class PositionManager(CacheController):
         miners_to_wipe = []
         miners_to_promote = []
         wipe_positions = False
+        current_eliminations = self.elimination_manager.get_eliminations_from_memory()
         if now_ms < TARGET_MS:
             # All miners that wanted their challenge period restarted
             miners_to_wipe = []# All miners that should have been promoted
@@ -415,6 +416,11 @@ class PositionManager(CacheController):
             for p in positions_to_snap:
                 try:
                     pos = Position(**p)
+                    hotkey = pos.miner_hotkey
+                    # if this hotkey is eliminated, log an error and continue
+                    if any(e['hotkey'] == hotkey for e in current_eliminations):
+                        bt.logging.error(f"Hotkey {hotkey} is eliminated. Skipping position {pos}.")
+                        continue
                     if pos.is_open_position:
                         self.delete_open_position_if_exists(pos)
                     self.save_miner_position(pos)
@@ -423,7 +429,7 @@ class PositionManager(CacheController):
                     print(f"Error adding position {p} {e}")
 
         #Don't accidentally promote eliminated miners
-        for e in self.elimination_manager.get_eliminations_from_memory():
+        for e in current_eliminations:
             if e['hotkey'] in miners_to_promote:
                 miners_to_promote.remove(e['hotkey'])
 
