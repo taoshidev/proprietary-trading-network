@@ -1057,12 +1057,6 @@ class PerfLedgerManager(CacheController):
                 if historical_position.is_closed_position:
                     tp_ids_to_build = [TP_ID_PORTFOLIO] if self.build_portfolio_ledgers_only else [tp_id, TP_ID_PORTFOLIO]
                     for x in tp_ids_to_build:
-                        # Only accumulate closed position returns if there are open positions
-                        # Otherwise, we should skip as the shortcut should have handled this
-                        if x == tp_id and len(dense_positions) == 0:
-                            # No open positions for this tp_id, so don't accumulate closed returns
-                            # The shortcut logic should have handled this case
-                            continue
                         tp_to_initial_return[x] *= historical_position.return_at_close
                         tp_to_initial_spread_fee[x] *= self.position_uuid_to_cache[historical_position.position_uuid].get_spread_fee(historical_position, historical_position.orders[-1].processed_ms)[0]
                         tp_to_initial_carry_fee[x] *= self.position_uuid_to_cache[historical_position.position_uuid].get_carry_fee(historical_position.orders[-1].processed_ms, historical_position)[0]

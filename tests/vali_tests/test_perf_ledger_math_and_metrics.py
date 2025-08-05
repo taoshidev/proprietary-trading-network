@@ -312,6 +312,158 @@ class TestPerfLedgerMathAndMetrics(TestBase):
         self.assertLess(final_cp.prev_portfolio_ret, 1.08,
                        "Compounded return should account for the loss")
 
+    @patch('vali_objects.vali_dataclasses.perf_ledger.LivePriceFetcher')
+    def test_portfolio_vs_trade_pair_return_consistency(self, mock_lpf):
+        """Test that portfolio returns match the product of per-trade-pair returns."""
+        from collections import namedtuple
+        Candle = namedtuple('Candle', ['timestamp', 'close'])
+        
+        mock_pds = Mock()
+        
+        # Mock candle data for multiple trade pairs
+        def mock_unified_candle_fetcher(*args, **kwargs):
+            if args:
+                trade_pair = args[0]
+                start_ms = args[1] if len(args) > 1 else kwargs.get('start_timestamp_ms')
+                end_ms = args[2] if len(args) > 2 else kwargs.get('end_timestamp_ms')
+            else:
+                trade_pair = kwargs.get('trade_pair')
+                start_ms = kwargs.get('start_timestamp_ms')
+                end_ms = kwargs.get('end_timestamp_ms')
+            
+            candles = []
+            base_time = self.now_ms - (10 * MS_IN_24_HOURS)
+            
+            # Simple price progression for all trade pairs
+            price_schedule = [
+                (base_time, 50000.0),
+                (base_time + 2 * MS_IN_24_HOURS, 52000.0),  # 4% gain
+                (base_time + 4 * MS_IN_24_HOURS, 51000.0),  # 2% loss from peak
+                (base_time + 8 * MS_IN_24_HOURS, 53000.0),  # Final gain
+            ]
+            
+            # Generate minute candles
+            for i in range(len(price_schedule) - 1):
+                t1, p1 = price_schedule[i]
+                t2, p2 = price_schedule[i + 1]
+                
+                if t1 <= end_ms and t2 >= start_ms:
+                    current_ms = max(t1, start_ms)
+                    while current_ms <= min(t2, end_ms):
+                        progress = (current_ms - t1) / (t2 - t1) if t2 > t1 else 0
+                        price = p1 + (p2 - p1) * progress
+                        candles.append(Candle(timestamp=current_ms, close=price))
+                        current_ms += 60000  # 1 minute
+            
+            return candles
+        
+        mock_pds.unified_candle_fetcher.side_effect = mock_unified_candle_fetcher  
+        mock_pds.tp_to_mfs = {}
+        mock_lpf.return_value.polygon_data_service = mock_pds
+        
+        plm = PerfLedgerManager(
+            metagraph=self.mmg,
+            running_unit_tests=True,
+            position_manager=self.position_manager,
+            parallel_mode=ParallelizationMode.SERIAL,
+            live_price_fetcher=mock_lpf.return_value,
+            is_backtesting=True,
+        )
+        
+        base_time = self.now_ms - (10 * MS_IN_24_HOURS)
+        
+        # Create positions across multiple trade pairs
+        trade_pairs = [TradePair.BTCUSD, TradePair.ETHUSD, TradePair.EURUSD]
+        
+        for i, tp in enumerate(trade_pairs):
+            # Create one closed position per trade pair
+            closed_position = self._create_position(
+                f"closed_{tp.trade_pair_id}", tp,
+                base_time + (i * MS_IN_24_HOURS),
+                base_time + (i + 2) * MS_IN_24_HOURS,
+                50000.0, 52000.0, OrderType.LONG  # 4% gain
+            )
+            self.position_manager.save_miner_position(closed_position)
+            
+            # Create open position that starts after the closed one ends
+            open_position = self._create_position(
+                f"open_{tp.trade_pair_id}", tp,
+                base_time + (i + 3) * MS_IN_24_HOURS,
+                base_time + (8 * MS_IN_24_HOURS),  # Still open at end
+                51000.0, 53000.0, OrderType.LONG  # ~3.9% gain
+            )
+            open_position.is_closed_position = False
+            open_position.orders = open_position.orders[:-1]  # Remove close order
+            self.position_manager.save_miner_position(open_position)
+        
+        # Update incrementally
+        current_time = base_time
+        step_size = 12 * 60 * 60 * 1000  # 12 hours
+        final_time = base_time + (8 * MS_IN_24_HOURS)
+        
+        while current_time < final_time:
+            next_time = min(current_time + step_size, final_time)
+            plm.update(t_ms=next_time)
+            current_time = next_time
+        
+        # Get performance ledgers for all trade pairs
+        bundles = plm.get_perf_ledgers(portfolio_only=False)
+        self.assertIn(self.test_hotkey, bundles, "Should have ledger bundle for test hotkey")
+        
+        perf_ledger_bundles = {self.test_hotkey: bundles[self.test_hotkey]}
+        portfolio_ledger = perf_ledger_bundles[self.test_hotkey][TP_ID_PORTFOLIO]
+        
+        # Validate returns consistency using the reference code logic
+        returns = []
+        returns_muled = []
+        n_contributing_tps = []
+        
+        for i, portfolio_cp in enumerate(portfolio_ledger.cps):
+                
+            returns.append(portfolio_cp.prev_portfolio_ret)
+            
+            # Calculate product of individual trade pair returns at this checkpoint
+            product = 1.0
+            n_contributing = 0
+            
+            for tp_id, ledger in perf_ledger_bundles[self.test_hotkey].items():
+                if tp_id == TP_ID_PORTFOLIO:
+                    continue
+                    
+                # Find matching checkpoint by timestamp
+                matching_cp = None
+                for tp_cp in ledger.cps:
+                    if tp_cp.last_update_ms == portfolio_cp.last_update_ms:
+                        matching_cp = tp_cp
+                        break
+                
+                if matching_cp:
+                    product *= matching_cp.prev_portfolio_ret
+                    n_contributing += 1
+            
+            returns_muled.append(product)
+            n_contributing_tps.append(n_contributing)
+        
+        # Validate that we have meaningful data
+        self.assertGreater(len(returns), 0, "Should have portfolio checkpoints with data")
+        self.assertTrue(any(n > 0 for n in n_contributing_tps), 
+                       "Should have contributing trade pairs")
+        
+        # Test consistency: portfolio return should approximately equal product of trade pair returns
+        for i, (portfolio_ret, trade_pair_product, n_contrib) in enumerate(zip(returns, returns_muled, n_contributing_tps)):
+            diff = portfolio_ret - trade_pair_product
+            print(f'cp {i} portfolio_ret {portfolio_ret}, trade_pair_product {trade_pair_product}, diff {diff}, n_contributing_tps {n_contributing_tps}')
+
+        for i, (portfolio_ret, trade_pair_product, n_contrib) in enumerate(zip(returns, returns_muled, n_contributing_tps)):
+            if n_contrib > 0:  # Only test when we have contributing trade pairs
+                difference = abs(portfolio_ret - trade_pair_product)
+
+                # Allow for small floating point differences (0.1% tolerance)
+                self.assertLess(difference, 1e-10,
+                    f"Checkpoint {i}: Portfolio return {portfolio_ret:.6f} should match "
+                    f"product of trade pair returns {trade_pair_product:.6f} "
+                    f"(relative error: {difference})")
+
     def _create_position(self, position_id: str, trade_pair: TradePair, 
                         open_ms: int, close_ms: int, open_price: float, 
                         close_price: float, order_type: OrderType,
