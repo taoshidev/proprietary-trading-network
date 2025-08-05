@@ -1,5 +1,6 @@
 # developer: Taoshidev
 # Copyright © 2024 Taoshi Inc
+from typing import Optional
 from vali_objects.vali_config import TradePair
 from vali_objects.enums.order_type_enum import OrderType
 from pydantic import BaseModel, field_validator, model_validator
@@ -9,6 +10,9 @@ class Signal(BaseModel):
     trade_pair: TradePair
     order_type: OrderType
     leverage: float
+
+    execution_type: str = "MARKET"
+    stop_loss: Optional[float] = None
 
     @field_validator('leverage', mode='before')
     def set_leverage(cls, leverage, info):
