@@ -21,6 +21,7 @@ from vali_objects.utils.position_penalties import PositionPenalties
 from vali_objects.utils.ledger_utils import LedgerUtils
 from vali_objects.scoring.scoring import Scoring
 from vali_objects.utils.metrics import Metrics
+from vali_objects.utils.asset_segmentation import AssetSegmentation
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager, TP_ID_PORTFOLIO
 from vali_objects.utils.risk_profiling import RiskProfiling
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedger
@@ -332,6 +333,39 @@ class MinerStatisticsManager:
             for hotkey, ledgers in filtered_ledger.items()
         }
 
+    def calculate_subcategory_daily_returns(self, filtered_ledger: dict[str, dict[str, PerfLedger]]) -> dict[str, dict[str, dict[str, float]]]:
+        """
+        Calculate daily returns for each asset subcategory for all miners.
+        
+        Args:
+            filtered_ledger: The filtered ledger data for all miners
+            
+        Returns:
+            dict with structure: {hotkey: {subcategory: {date: return_value}}}
+        """
+        subcategory_daily_returns = {}
+        
+        # Get asset subcategories
+        asset_class_breakdown = ValiConfig.ASSET_CLASS_BREAKDOWN
+        asset_subcategories = AssetSegmentation.distill_asset_subcategories(asset_class_breakdown)
+        
+        segmentation_machine = AssetSegmentation(filtered_ledger)
+        
+        # Calculate returns for each subcategory
+        for subcategory in asset_subcategories:
+            subcategory_ledger = segmentation_machine.segmentation(subcategory)
+            
+            # Calculate daily returns for each miner in this subcategory
+            for hotkey, aggregated_ledger in subcategory_ledger.items():
+                if hotkey not in subcategory_daily_returns:
+                    subcategory_daily_returns[hotkey] = {}
+                
+                # Use the daily_returns_by_date_json function from LedgerUtils
+                daily_returns = LedgerUtils.daily_returns_by_date_json(aggregated_ledger)
+                subcategory_daily_returns[hotkey][subcategory] = daily_returns
+        
+        return subcategory_daily_returns
+
     # -------------------------------------------
     # Challenge Period
     # -------------------------------------------
@@ -445,7 +479,7 @@ class MinerStatisticsManager:
                     unique_scores = sorted(set(nonzero_scores.values()), reverse=True)
                     # Find rank based on tied scores (all miners with same score get highest rank)
                     rank = unique_scores.index(miner_score) + 1
-                    percentile = ((total_miners - rank + 1) / total_miners) * 100 if total_miners > 0 else 0
+                    percentile = ((total_miners - rank + 1) / total_miners) if total_miners > 0 else 0
 
                 subcategory_data[subcategory] = {
                     "score": miner_score,
@@ -454,6 +488,63 @@ class MinerStatisticsManager:
                 }
         
         return subcategory_data
+
+    def miner_subcategory_metrics(self, hotkey: str, asset_detailed_scores: dict[str, dict]) -> dict[str, dict[str, dict]]:
+        """
+        Extract detailed individual metrics (calmar, omega, sharpe, etc.) for each asset subcategory.
+        
+        Args:
+            hotkey: The miner's hotkey
+            asset_detailed_scores: A dictionary where keys are asset classes and values are dictionaries containing scores and penalties.
+            
+        Returns:
+            subcategory_metrics: dict with subcategory as key and detailed metrics as value
+        """
+        subcategory_metrics = {}
+        
+        for subcategory, subcategory_data in asset_detailed_scores.items():
+            if "metrics" not in subcategory_data:
+                continue
+                
+            metrics_dict = {}
+            
+            for metric_name, metric_data in subcategory_data["metrics"].items():
+                scores_list = metric_data.get("scores", [])
+                
+                # Find this miner's score in the list
+                miner_score = None
+                for miner_hotkey, score_value in scores_list:
+                    if miner_hotkey == hotkey:
+                        miner_score = score_value
+                        break
+                
+                if miner_score is not None:
+                    # Calculate rank and percentile for this specific metric
+                    all_scores = [score for _, score in scores_list]
+                    if metric_name == "omega":
+                        suitable_scores = [score for score in all_scores if score != 0.0]
+                    else:
+                        suitable_scores = [score for score in all_scores if score != -100]
+                    total_miners = len(suitable_scores)
+                    
+                    if miner_score == 0:
+                        rank = total_miners + 1
+                        percentile = 0
+                    else:
+                        unique_scores = sorted(set(suitable_scores), reverse=True)
+                        rank = unique_scores.index(miner_score) + 1 if miner_score in unique_scores else total_miners + 1
+                        percentile = ((total_miners - rank + 1) / total_miners) if total_miners > 0 else 0
+                    
+                    metrics_dict[metric_name] = {
+                        "value": miner_score,
+                        "rank": rank,
+                        "percentile": percentile
+                    }
+            
+            if metrics_dict:
+                subcategory_metrics[subcategory] = metrics_dict
+        
+        return subcategory_metrics
 
     # -------------------------------------------
     # Generate final data
@@ -494,12 +585,12 @@ class MinerStatisticsManager:
         filtered_ledger = self.perf_ledger_manager.filtered_ledger_for_scoring(hotkeys=all_miner_hotkeys)
         filtered_positions, _ = self.position_manager.filtered_positions_for_scoring(all_miner_hotkeys)
 
-        success_competitiveness, asset_softmaxed_scores = Scoring.score_miner_asset_subcategories(
+        success_competitiveness, asset_softmaxed_scores, asset_detailed_scores = Scoring.score_miner_asset_subcategories(
             filtered_ledger,
             filtered_positions,
             evaluation_time_ms=time_now,
             weighting=final_results_weighting
-        ) # returns asset competitiveness dict, asset softmaxed scores
+        ) # returns asset competitiveness dict, asset softmaxed scores, detailed scores
 
         # For weighting logic: gather "successful" checkpoint-based results
         successful_ledger = self.perf_ledger_manager.filtered_ledger_for_scoring(hotkeys=challengeperiod_success_hotkeys)
@@ -567,6 +658,7 @@ class MinerStatisticsManager:
 
         # For visualization
         daily_returns_dict = self.calculate_all_daily_returns(filtered_ledger)
+        subcategory_daily_returns_dict = self.calculate_subcategory_daily_returns(filtered_ledger)
 
         # Also compute penalty breakdown (for display in final "penalties" dict).
         penalty_breakdown = self.calculate_penalties_breakdown(miner_data)
@@ -665,6 +757,12 @@ class MinerStatisticsManager:
 
             # Asset Subcategory Performance
             asset_subcategory_performance = self.miner_subcategory_scores(hotkey, asset_softmaxed_scores)
+            
+            # Asset Subcategory Detailed Metrics
+            asset_subcategory_metrics = self.miner_subcategory_metrics(hotkey, asset_detailed_scores)
+            
+            # Asset Subcategory Daily Returns
+            asset_subcategory_daily_returns = subcategory_daily_returns_dict.get(hotkey, {})
 
             final_miner_dict = {
                 "hotkey": hotkey,
@@ -678,6 +776,8 @@ class MinerStatisticsManager:
                 "engagement": engagement_subdict,
                 "risk_profile": risk_profile_single_dict,
                 "asset_subcategory_performance": asset_subcategory_performance,
+                "asset_subcategory_metrics": asset_subcategory_metrics,
+                "asset_subcategory_daily_returns": asset_subcategory_daily_returns,
                 "penalties": {
                     "drawdown_threshold": pen_break.get("drawdown_threshold", 1.0),
                     "risk_profile": pen_break.get("risk_profile", 1.0),
