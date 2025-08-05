@@ -56,53 +56,53 @@ positions_to_snap = [
     },
 
     #Updated FLAT order - Exited position on  2025-07-02 12:25:00 (Price - 107237.030)
-    {
-        "miner_hotkey": "5GCALDKDfzFTC5MLT45JK7KDZECxsonR67fKcxV1uPPAm4c8",
-        "position_uuid": "970cf66b-75c5-429e-b0ae-25cd9e7622c5",
-        "open_ms": 1751455487902,
-        "trade_pair": [
-            "BTCUSD",
-            "BTC/USD",
-            0.003,
-            0.01,
-            0.5
-        ],
-        "orders": [
-            {
-                "order_type": "SHORT",
-                "leverage": -0.5,
-                "price": 107798.46,
-                "bid": 0,
-                "ask": 0,
-                "slippage": 0,
-                "processed_ms": 1751455487902,
-                "order_uuid": "970cf66b-75c5-429e-b0ae-25cd9e7622c5",
-                "price_sources": [],
-                "src": 0
-            },
-            {
-                "order_type": "FLAT",
-                "leverage": 0.5,
-                "price": 107237.030,
-                "bid": 107237.030,
-                "ask": 107237.030,
-                "slippage": 0,
-                "processed_ms": 1751459100000,
-                "order_uuid": "18d48d82-33eb-4b1b-99a1-3024b717cbd3",
-                "price_sources": [],
-                "src": 0
-            }
-        ],
-        "current_return": 0.9854724733544431,
-        "close_ms": 1752156439011,
-        "net_leverage": 0,
-        "return_at_close": 0.9841686860352171,
-        "average_entry_price": 107798.46,
-        "cumulative_entry_value": -53899.23,
-        "realized_pnl": -1566.0449999999983,
-        "position_type": "FLAT",
-        "is_closed_position": True
-    },
+    #{
+    #    "miner_hotkey": "5GCALDKDfzFTC5MLT45JK7KDZECxsonR67fKcxV1uPPAm4c8",
+    #    "position_uuid": "970cf66b-75c5-429e-b0ae-25cd9e7622c5",
+    #    "open_ms": 1751455487902,
+    #    "trade_pair": [
+    #        "BTCUSD",
+    #        "BTC/USD",
+    #        0.003,
+    #        0.01,
+    #        0.5
+    #    ],
+    #    "orders": [
+    #        {
+    #            "order_type": "SHORT",
+    #            "leverage": -0.5,
+    #            "price": 107798.46,
+    #            "bid": 0,
+    #            "ask": 0,
+    #            "slippage": 0,
+    #            "processed_ms": 1751455487902,
+    #            "order_uuid": "970cf66b-75c5-429e-b0ae-25cd9e7622c5",
+    #            "price_sources": [],
+    #            "src": 0
+    #        },
+    #        {
+    #            "order_type": "FLAT",
+    #            "leverage": 0.5,
+    #            "price": 107237.030,
+    #            "bid": 107237.030,
+    #            "ask": 107237.030,
+    #            "slippage": 0,
+    #            "processed_ms": 1751459100000,
+    #            "order_uuid": "18d48d82-33eb-4b1b-99a1-3024b717cbd3",
+    #            "price_sources": [],
+    #            "src": 0
+    #        }
+    #    ],
+    #    "current_return": 0.9854724733544431,
+    #    "close_ms": 1752156439011,
+    #    "net_leverage": 0,
+    #    "return_at_close": 0.9841686860352171,
+    #    "average_entry_price": 107798.46,
+    #    "cumulative_entry_value": -53899.23,
+    #    "realized_pnl": -1566.0449999999983,
+    #    "position_type": "FLAT",
+    #    "is_closed_position": True
+    #},
 
     #Updated FLAT order - Exited position on  2025-07-02 11:53:00 (Price - 2.1745)
     {
