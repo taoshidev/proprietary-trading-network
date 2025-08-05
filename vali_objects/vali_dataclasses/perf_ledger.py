@@ -1723,8 +1723,8 @@ class PerfLedgerManager(CacheController):
                 continuity_established = True
                 
                 # Log aggregate continuity info if changes were made
-                if continuity_changes:
-                    self._log_continuity_summary(hotkey, continuity_changes, tp_to_historical_positions)
+                #if continuity_changes:
+                #    self._log_continuity_summary(hotkey, continuity_changes, tp_to_historical_positions)
             # Need to catch up from perf_ledger.last_update_ms to order.processed_ms
             eliminated = self.build_perf_ledger(perf_ledger_bundle_candidate, tp_to_historical_positions, portfolio_last_update_ms, order.processed_ms, hotkey, realtime_position_to_pop)
 
@@ -1764,8 +1764,8 @@ class PerfLedgerManager(CacheController):
                 continuity_established = True
                 
                 # Log aggregate continuity info if changes were made
-                if continuity_changes:
-                    self._log_continuity_summary(hotkey, continuity_changes, tp_to_historical_positions)
+                #if continuity_changes:
+                #    self._log_continuity_summary(hotkey, continuity_changes, tp_to_historical_positions)
             
             self.build_perf_ledger(perf_ledger_bundle_candidate, tp_to_historical_positions,
                                    current_last_update, now_ms, hotkey, None)
