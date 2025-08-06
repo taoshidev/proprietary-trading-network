@@ -150,6 +150,7 @@ class PerfLedger():
         assert isinstance(x, dict), x
         x['cps'] = [PerfCheckpoint(**cp) for cp in x['cps']]
         x.pop('global_worst_mdd', None)  # Remove legacy field if present
+        x.pop('last_known_prices', None)  # Remove legacy field if present
         instance = cls(**x)
         return instance
 
