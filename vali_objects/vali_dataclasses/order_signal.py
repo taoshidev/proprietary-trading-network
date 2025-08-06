@@ -13,6 +13,7 @@ class Signal(BaseModel):
 
     execution_type: str = "MARKET"
     stop_loss: Optional[float] = None
+    cancel_order_uuid: Optional[str] = None
 
     @field_validator('leverage', mode='before')
     def set_leverage(cls, leverage, info):
@@ -35,6 +36,28 @@ class Signal(BaseModel):
         return values
 
     def __str__(self):
-        return str({'trade_pair': str(self.trade_pair),
-                    'order_type': str(self.order_type),
-                    'leverage': self.leverage})
+        base = {
+            'trade_pair': str(self.trade_pair),
+            'order_type': str(self.order_type),
+            'leverage': self.leverage,
+            'execution_type': self.execution_type
+        }
+        if self.execution_type == "MARKET":
+            return str(base)
+
+        elif self.execution_type == "LIMIT":
+            base.update({
+                'limit_price': self.limit_price,
+                'stop_loss': self.stop_loss,
+                'take_profit': self.take_profit
+            })
+            return str(base)
+
+        elif self.execution_type == "LIMIT_CANCEL":
+            return str({
+                'exeuction_type': self.execution_type,
+                'cancel_order_uuid': self.cancel_order_uuid
+            })
+
+        return str(base.update({'Error': 'Unknown execution type'}))
+

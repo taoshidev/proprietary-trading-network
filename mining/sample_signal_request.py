@@ -42,7 +42,8 @@ if __name__ == "__main__":
         'leverage': .05,
         'execution_type': "MARKET",
         # 'execution_type': "LIMIT",
-        # 'limit_price': 0.0,
+        # 'limit_price': 0.1,
+        # 'cancel_order_uuid': "order-uuid",
         'api_key': 'xxxx'
     }
 

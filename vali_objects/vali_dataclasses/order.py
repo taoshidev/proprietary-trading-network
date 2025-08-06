@@ -13,6 +13,10 @@ ORDER_SRC_ORGANIC = 0               # order generated from a miner's signal
 ORDER_SRC_ELIMINATION_FLAT = 1      # order inserted when a miner is eliminated
 ORDER_SRC_DEPRECATION_FLAT = 2      # order inserted when a trade pair is removed
 
+ORDER_SRC_LIMIT_UNFILLED = 3
+ORDER_SRC_LIMIT_FILLED = 4
+ORDER_SRC_LIMIT_CANCELLED = 5
+
 class Order(Signal):
     price: float
     bid: float = 0
