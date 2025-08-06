@@ -91,7 +91,6 @@ class MDDChecker(CacheController):
             bt.logging.error(traceback.format_exc())
             return {}
 
-    
     def mdd_check(self, position_locks):
         self.n_poly_api_requests = 0
         if not self.refresh_allowed(ValiConfig.MDD_CHECK_REFRESH_TIME_MS):
@@ -263,13 +262,3 @@ class MDDChecker(CacheController):
             # Perform needed updates
             if self._position_is_candidate_for_price_correction(position, now_ms):
                 self._update_position_returns_and_persist_to_disk(hotkey, position, tp_to_price_sources, position_locks)
-
-
-
-
-
-
-
-
-                
-

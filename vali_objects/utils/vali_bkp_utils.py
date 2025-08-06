@@ -334,3 +334,11 @@ class ValiBkpUtils:
         }[order_status]
 
         return f"{base_dir}{status_dir}"
+
+    @staticmethod
+    def get_limit_orders_dir(miner_hotkey, trade_pair_id, status_str, running_unit_tests=False):
+        base_dir = (f"{ValiBkpUtils.get_miner_dir(running_unit_tests=running_unit_tests)}"
+               f"{miner_hotkey}/limit_orders/{trade_pair_id}/")
+
+        return f"{base_dir}{status_str}/"
+

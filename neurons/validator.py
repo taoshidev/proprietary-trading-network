@@ -3,6 +3,7 @@
 # developer: Taoshidev
 # Copyright © 2024 Taoshi Inc
 import os
+import shutil
 import sys
 import threading
 import signal
@@ -49,7 +50,7 @@ from vali_objects.utils.vali_bkp_utils import ValiBkpUtils, CustomEncoder
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
 from vali_objects.utils.position_manager import PositionManager
 from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
-from vali_objects.vali_dataclasses.order import Order
+from vali_objects.vali_dataclasses.order import Order, ORDER_SRC_LIMIT_UNFILLED
 from vali_objects.position import Position
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.utils.vali_utils import ValiUtils
@@ -815,10 +816,9 @@ class Validator:
         now_ms = TimeUtil.now_in_millis()
         order = None
         miner_hotkey = synapse.dendrite.hotkey
-        miner_repo_version = synapse.repo_version
         synapse.validator_hotkey = self.wallet.hotkey.ss58_address
         signal = synapse.signal
-        bt.logging.info( f"received signal [{signal}] from miner_hotkey [{miner_hotkey}] using repo version [{miner_repo_version}].")
+        bt.logging.info( f"received signal [{signal}] from miner_hotkey [{miner_hotkey}] using repo version [{synapse.repo_version}].")
         if self.should_fail_early(synapse, SynapseMethod.SIGNAL, signal=signal, now_ms=now_ms):
             return synapse
 
@@ -828,61 +828,22 @@ class Validator:
         # error message to send back to miners in case of a problem so they can fix and resend
         error_message = ""
         try:
-            miner_order_uuid = self.parse_miner_uuid(synapse)
             trade_pair = self.parse_trade_pair_from_signal(signal)
             if trade_pair is None:
                 bt.logging.error(f"[{trade_pair}] not in TradePair enum.")
-                raise SignalException(
-                    f"miner [{miner_hotkey}] incorrectly sent trade pair. Raw signal: {signal}"
-                )
+                raise SignalException(f"miner [{miner_hotkey}] incorrectly sent trade pair. Raw signal: {signal}")
 
-            price_sources = self.live_price_fetcher.get_sorted_price_sources_for_trade_pair(trade_pair, now_ms)
-            if not price_sources:
-                raise SignalException(
-                    f"Ignoring order for [{miner_hotkey}] due to no live prices being found for trade_pair [{trade_pair}]. Please try again.")
-            best_price_source = price_sources[0]
+            execution_type = signal["execution_type"].upper()
 
-            signal_leverage = signal["leverage"]
-            signal_order_type = OrderType.from_string(signal["order_type"])
+            if execution_type == "MARKET":
+                self.process_market_order(synapse, trade_pair, now_ms)
+            elif execution_type == "LIMIT":
+                self.process_limit_order(synapse, trade_pair, now_ms)
+            elif execution_type == "LIMIT_CANCEL":
+                self.cancel_limit_order(synapse, trade_pair, now_ms)
 
-            # Multiple threads can run receive_signal at once. Don't allow two threads to trample each other.
-            with self.position_locks.get_lock(miner_hotkey, trade_pair.trade_pair_id):
-                self.enforce_no_duplicate_order(synapse)
-                if synapse.error_message:
-                    return synapse
-                # gather open positions and see which trade pairs have an open position
-                positions = self.position_manager.get_positions_for_one_hotkey(miner_hotkey, only_open_positions=True)
-                trade_pair_to_open_position = {position.trade_pair: position for position in positions}
-                existing_position = self._get_or_create_open_position_from_new_order(trade_pair, signal_order_type, now_ms, miner_hotkey, trade_pair_to_open_position, miner_order_uuid)
-                if existing_position:
-                    order = Order(
-                        trade_pair=trade_pair,
-                        order_type=signal_order_type,
-                        leverage=signal_leverage,
-                        price=best_price_source.parse_appropriate_price(now_ms, trade_pair.is_forex, signal_order_type,
-                                                                        existing_position),
-                        processed_ms=now_ms,
-                        order_uuid=miner_order_uuid,
-                        price_sources=price_sources,
-                        bid=best_price_source.bid,
-                        ask=best_price_source.ask,
-                    )
-                    self.price_slippage_model.refresh_features_daily()
-                    order.slippage = PriceSlippageModel.calculate_slippage(order.bid, order.ask, order)
-                    self._enforce_num_open_order_limit(trade_pair_to_open_position, order)
-                    net_portfolio_leverage = self.position_manager.calculate_net_portfolio_leverage(miner_hotkey)
-                    existing_position.add_order(order, net_portfolio_leverage)
-                    self.position_manager.save_miner_position(existing_position)
-                    if self.config.serve:
-                        # Add the position to the queue for broadcasting
-                        self.shared_queue_websockets.put(existing_position.to_websocket_dict(miner_repo_version=miner_repo_version))
-                    synapse.order_json = order.__str__()
-                    self.uuid_tracker.add(miner_order_uuid)
-                else:
-                    # Happens if a FLAT is sent when no position exists
-                    pass
-                # Update the last received order time
-                self.timestamp_manager.update_timestamp(now_ms)
+            # Update the last received order time
+            self.timestamp_manager.update_timestamp(now_ms)
 
         except SignalException as e:
             error_message = f"Error processing order for [{miner_hotkey}] with error [{e}]"
@@ -898,14 +859,152 @@ class Validator:
             synapse.successfully_processed = False
 
         synapse.error_message = error_message
+
         processing_time_s_3_decimals = round((TimeUtil.now_in_millis() - now_ms) / 1000.0, 3)
         bt.logging.success(f"Sending ack back to miner [{miner_hotkey}]. Synapse Message: {synapse.error_message}. "
                            f"Process time {processing_time_s_3_decimals} seconds. order {order}")
+
         with self.signal_sync_lock:
             self.n_orders_being_processed[0] -= 1
             if self.n_orders_being_processed[0] == 0:
                 self.signal_sync_condition.notify_all()
+
         return synapse
+
+    def process_market_order(self, synapse, trade_pair, now_ms):
+        signal = synapse.signal
+        miner_hotkey = synapse.dendrite.hotkey
+        miner_order_uuid = self.parse_miner_uuid(synapse)
+
+        price_sources = self.live_price_fetcher.get_sorted_price_sources_for_trade_pair(trade_pair, now_ms)
+        if not price_sources:
+            raise SignalException(f"No live prices found for trade_pair [{trade_pair}], {miner_hotkey}. Please try again.")
+
+        best_price_source = price_sources[0]
+        signal_leverage = signal["leverage"]
+        signal_order_type = OrderType.from_string(signal["order_type"])
+
+        # Multiple threads can run receive_signal at once. Don't allow two threads to trample each other.
+        with self.position_locks.get_lock(miner_hotkey, trade_pair.trade_pair_id):
+            self.enforce_no_duplicate_order(synapse)
+            if synapse.error_message:
+                return
+
+            # gather open positions and see which trade pairs have an open position
+            positions = self.position_manager.get_positions_for_one_hotkey(miner_hotkey, only_open_positions=True)
+            trade_pair_to_open_position = {position.trade_pair: position for position in positions}
+
+            existing_position = self._get_or_create_open_position_from_new_order(
+                trade_pair, signal_order_type, now_ms,
+                miner_hotkey, trade_pair_to_open_position,
+                miner_order_uuid
+            )
+
+            if not existing_position:
+                # Happens if a FLAT is sent when no position exists
+                return
+
+            order = Order(
+                    trade_pair=trade_pair,
+                    order_type=signal_order_type,
+                    leverage=signal_leverage,
+                    price=best_price_source.parse_appropriate_price(
+                        now_ms, trade_pair.is_forex, signal_order_type, existing_position
+                    ),
+                    processed_ms=now_ms,
+                    order_uuid=miner_order_uuid,
+                    price_sources=price_sources,
+                    bid=best_price_source.bid,
+                    ask=best_price_source.ask,
+                    )
+            self.price_slippage_model.refresh_features_daily()
+            order.slippage = PriceSlippageModel.calculate_slippage(order.bid, order.ask, order)
+            self._enforce_num_open_order_limit(trade_pair_to_open_position, order)
+            net_portfolio_leverage = self.position_manager.calculate_net_portfolio_leverage(miner_hotkey)
+            existing_position.add_order(order, net_portfolio_leverage)
+            self.position_manager.save_miner_position(existing_position)
+            if self.config.serve:
+                # Add the position to the queue for broadcasting
+                self.shared_queue_websockets.put(
+                    existing_position.to_websocket_dict(miner_repo_version=synapse.repo_version)
+                )
+
+            synapse.order_json = order.__str__()
+            self.uuid_tracker.add(miner_order_uuid)
+
+    def process_limit_order(self, synapse, trade_pair, now_ms):
+        signal = synapse.signal
+        miner_hotkey = synapse.dendrite.hotkey
+        order_uuid = self.parse_miner_uuid(synapse)
+
+        signal_leverage = signal["leverage"]
+        signal_order_type = OrderType.from_string(signal["order_type"])
+
+        if not signal.get("limit_price"):
+            raise SignalException("must set limit_price for limit order")
+
+        order = Order(
+            trade_pair=trade_pair,
+            order_uuid=order_uuid,
+            processed_ms=now_ms,
+            price=0.0,
+            order_type=signal_order_type,
+            leverage=signal_leverage,
+            execution_type="LIMIT",
+            limit_price=signal["limit_price"],
+            stop_loss=signal.get("stop_loss"),
+            take_profit=signal.get("take_profit"),
+            src=ORDER_SRC_LIMIT_UNFILLED
+        )
+
+        limit_order_dir = ValiBkpUtils.get_limit_orders_dir(miner_hotkey, trade_pair.trade_pair_id, "unfilled")
+        ValiBkpUtils.write_file(limit_order_dir + order_uuid, order)
+        
+        # Mark UUID as processed and set response
+        self.uuid_tracker.add(order_uuid)
+        synapse.order_json = order.__str__()
+
+    def cancel_limit_order(self, synapse, trade_pair, now_ms):
+        signal = synapse.signal
+        miner_hotkey = synapse.dendrite.hotkey
+        cancel_order_uuid = signal['cancel_order_uuid']
+        order_uuid = self.parse_miner_uuid(synapse)
+
+        print(signal)
+        
+        if not cancel_order_uuid:
+            raise SignalException(f"Missing order_uuid for limit order cancellation from miner [{miner_hotkey}]")
+        
+        unfilled_dir = ValiBkpUtils.get_limit_orders_dir(miner_hotkey, trade_pair.trade_pair_id, "unfilled")
+        unfilled_file = unfilled_dir + cancel_order_uuid
+        
+        source_file = None
+        
+        # Check unfilled directory first
+        if os.path.exists(unfilled_file):
+            source_file = unfilled_file
+        else:
+            raise SignalException(f"Limit order with uuid [{cancel_order_uuid}] not found for miner [{miner_hotkey}] in trade pair [{trade_pair.trade_pair_id}]")
+        
+        # Create filled directory and move the order
+        closed_dir = ValiBkpUtils.get_limit_orders_dir(miner_hotkey, trade_pair.trade_pair_id, "closed")
+        os.makedirs(closed_dir, exist_ok=True)
+        
+        closed_file = closed_dir + cancel_order_uuid
+        
+        shutil.move(source_file, closed_file)
+        
+        bt.logging.info(f"Successfully cancelled limit order [{cancel_order_uuid}] for miner [{miner_hotkey}] in trade pair [{trade_pair.trade_pair_id}]")
+        
+        # Set success response
+        synapse.order_json = json.dumps({
+            "order_uuid": order_uuid,
+            "cancel_order_uuid": cancel_order_uuid,
+            "status": "cancelled",
+            "miner_hotkey": miner_hotkey,
+            "trade_pair_id": trade_pair.trade_pair_id,
+            "cancelled_ms": now_ms
+        })
 
     def get_positions(self, synapse: template.protocol.GetPositions,
                       ) -> template.protocol.GetPositions:
