@@ -20,15 +20,14 @@ from datetime import datetime, timezone
 from typing import Dict, List, Tuple, Set, Optional, Any
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
-import threading
 import json
 import os
+import time
 
 import bittensor as bt
 import pandas as pd
-from sqlalchemy import create_engine, Column, String, Float, Date, Integer, DateTime, text, inspect
+from sqlalchemy import create_engine, Column, String, Float, Integer, DateTime, text, inspect
 from sqlalchemy.orm import declarative_base, sessionmaker
-from sqlalchemy.dialects.mysql import insert
 
 from time_util.time_util import TimeUtil
 from time_util.time_util import MS_IN_24_HOURS
@@ -36,9 +35,7 @@ from vali_objects.position import Position
 from vali_objects.utils.position_source import PositionSourceManager, PositionSource
 from vali_objects.utils.elimination_source import EliminationSourceManager, EliminationSource
 from vali_objects.utils.live_price_fetcher import LivePriceFetcher
-from vali_objects.utils.vali_utils import ValiUtils
 from vali_objects.vali_config import TradePair, TradePairCategory, CryptoSubcategory, ForexSubcategory
-from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.vali_dataclasses.price_source import PriceSource
 from vali_objects.utils.vali_utils import ValiUtils
 
@@ -306,7 +303,6 @@ class PriceFetcher:
         if not trade_pairs:
             return {}
         
-        import time
         start_time = time.time()
         
         target_datetime = datetime.fromtimestamp(target_date_ms / 1000, tz=timezone.utc)
@@ -386,38 +382,6 @@ class ReturnCalculator:
         
         position_copy.set_returns(realtime_price=price, time_ms=target_date_ms)
         return position_copy.return_at_close
-    
-    @staticmethod
-    def calculate_portfolio_return(
-        positions: List[Position],
-        target_date_ms: int,
-        cached_price_sources: Dict[TradePair, PriceSource]
-    ) -> float:
-        """Calculate weighted portfolio return for a list of positions."""
-        if not positions:
-            return 1.0
-        
-        total_weight = 0.0
-        weighted_return = 0.0
-        
-        for position in positions:
-            try:
-                position_return = ReturnCalculator.calculate_position_return(
-                    position, target_date_ms, cached_price_sources
-                )
-                
-                weight = abs(position.orders[0].leverage)
-                if weight == 0:
-                    weight = 1.0
-                
-                total_weight += weight
-                weighted_return += weight * position_return
-                
-            except Exception as e:
-                bt.logging.warning(f"Failed to calculate return for position {position.position_uuid}: {e}")
-                continue
-        
-        return weighted_return / total_weight if total_weight > 0 else 1.0
 
 
 class PositionCategorizer:
@@ -845,6 +809,14 @@ class DateUtils:
         # Round to end of UTC day
         last_date_ms = ((last_order_ms // MS_IN_24_HOURS) + 1) * MS_IN_24_HOURS
         
+        # Cap end date at today (beginning of current UTC day) to avoid processing future dates
+        today_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+        today_start_ms = (today_ms // MS_IN_24_HOURS) * MS_IN_24_HOURS
+        
+        if last_date_ms > today_start_ms:
+            bt.logging.info(f"Capping end date at today: {TimeUtil.millis_to_formatted_date_str(today_start_ms)}")
+            last_date_ms = today_start_ms
+        
         bt.logging.info(f"Date bounds determined from orders: "
                         f"{TimeUtil.millis_to_formatted_date_str(first_date_ms)} to "
                         f"{TimeUtil.millis_to_formatted_date_str(last_date_ms)}")
@@ -1224,7 +1196,6 @@ def main():
     current_ms = start_ms
     day_counter = 0
     while current_ms <= end_ms:
-        import time
         day_start_time = time.time()
         
         day_counter += 1
