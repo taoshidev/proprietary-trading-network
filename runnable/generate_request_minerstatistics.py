@@ -209,7 +209,7 @@ class MinerStatisticsManager:
         checkpoint_durations = sum(cp.open_ms for cp in miner_cps)
 
         # Minimum days boolean
-        meets_min_days = (len(miner_returns) >= ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N)
+        meets_min_days = (len(miner_returns) >= ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N_CEIL)
 
         return {
             "annual_volatility": ann_volatility,

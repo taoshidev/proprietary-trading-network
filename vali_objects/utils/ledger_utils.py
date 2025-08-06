@@ -6,6 +6,7 @@ from datetime import datetime, timezone, timedelta, date
 from vali_objects.vali_dataclasses.perf_ledger import TP_ID_PORTFOLIO
 from vali_objects.vali_config import ValiConfig, TradePair
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedger
+from vali_objects.utils.asset_segmentation import AssetSegmentation
 from time_util.time_util import ForexHolidayCalendar
 import bittensor as bt
 
@@ -582,3 +583,56 @@ class LedgerUtils:
         miner_returns = LedgerUtils.daily_return_log(ledger)
 
         return len(miner_returns)
+
+    @staticmethod
+    def calculate_dynamic_minimum_days_for_asset_subcategory(
+        ledger_dict: dict[str, dict[str, PerfLedger]], 
+        asset_subcategory: str
+    ) -> int:
+        """
+        Calculates the dynamic minimum participation days for a specific asset subcategory.
+        Returns the number of days that the 20th longest participating miner has, 
+        capped at 60 days and floored at 7 days.
+        
+        Args:
+            ledger_dict: Dictionary mapping hotkeys to their full ledger data
+            asset_subcategory: The asset subcategory to calculate minimum days for
+        
+        Returns:
+            int: The dynamic minimum days requirement (between 7-60 days)
+        """
+        if not ledger_dict:
+            return ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N_FLOOR  # Return minimum floor if no data available
+            
+        try:
+            # Create asset segmentation to get miners participating in this subcategory
+            segmentation_machine = AssetSegmentation(ledger_dict)
+            asset_ledger = segmentation_machine.segmentation(asset_subcategory)
+            
+            # Calculate participation days for each miner in this subcategory
+            participation_days = []
+            for hotkey, ledger in asset_ledger.items():
+                if ledger is not None:
+                    daily_returns = LedgerUtils.daily_return_log(ledger)
+                    days_participating = len(daily_returns)
+                    if days_participating > 0:
+                        participation_days.append(days_participating)
+            
+            # Sort in descending order (longest participation first)
+            participation_days.sort(reverse=True)
+            
+            # If we have fewer than 20 miners, use the shortest participating miner's days
+            if len(participation_days) < 20:
+                if len(participation_days) == 0:
+                    return ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N_FLOOR  # No participating miners, return floor
+                minimum_days = min(participation_days)  # Use shortest participation
+            else:
+                # Use the 20th longest participating miner (index 19)
+                minimum_days = participation_days[19]
+            
+            # Apply bounds: floor of 7 days, cap of 60 days
+            return max(ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N_FLOOR, min(ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N_CEIL, minimum_days))
+            
+        except Exception as e:
+            bt.logging.warning(f"Error calculating dynamic minimum days for {asset_subcategory}: {e}")
+            return ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N_FLOOR  # Return safe minimum on error
