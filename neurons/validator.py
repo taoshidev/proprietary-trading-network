@@ -639,17 +639,6 @@ class Validator:
         trade_pair = TradePair.from_trade_pair_id(string_trade_pair)
         return trade_pair
 
-    def _enforce_num_open_order_limit(self, trade_pair_to_open_position: dict, signal_to_order):
-        # Check if there are too many orders across all open positions.
-        # If so, check if the current order is a FLAT order (reduces number of open orders). If not, raise an exception
-        n_open_positions = sum([len(position.orders) for position in trade_pair_to_open_position.values()])
-        if n_open_positions >= ValiConfig.MAX_OPEN_ORDERS_PER_HOTKEY:
-            if signal_to_order.order_type != OrderType.FLAT:
-                raise SignalException(
-                    f"miner sent too many open orders [{n_open_positions}] > [{ValiConfig.MAX_OPEN_ORDERS_PER_HOTKEY}] and "
-                    f"order [{signal_to_order}] is not a FLAT order."
-                )
-
     def _get_or_create_open_position_from_new_order(self, trade_pair: TradePair, order_type: OrderType, order_time_ms: int,
                                         miner_hotkey: str, trade_pair_to_open_position: dict, miner_order_uuid: str):
 
@@ -919,7 +908,7 @@ class Validator:
                     )
             self.price_slippage_model.refresh_features_daily()
             order.slippage = PriceSlippageModel.calculate_slippage(order.bid, order.ask, order)
-            self._enforce_num_open_order_limit(trade_pair_to_open_position, order)
+            self.position_manager.enforce_num_open_order_limit(miner_hotkey, order)
             net_portfolio_leverage = self.position_manager.calculate_net_portfolio_leverage(miner_hotkey)
             existing_position.add_order(order, net_portfolio_leverage)
             self.position_manager.save_miner_position(existing_position)
