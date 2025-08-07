@@ -274,9 +274,8 @@ class TestDynamicMinimumDaysRobust(TestBase):
         
         ledger_dict = self.create_production_ledger_dict(miner_participation)
         
-        # Verify a sample of ledgers
-        for i in [0, 10, 20, 29]:  # Test corners and middle
-            expected_days = participation_days[i]
+        # Verify all ledgers produce expected days
+        for i, expected_days in enumerate(participation_days):
             miner_key = f"crypto_trader_{i:03d}"
             btc_ledger = ledger_dict[miner_key]["BTCUSD"]
             self.verify_ledger_produces_expected_days(btc_ledger, expected_days)
