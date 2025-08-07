@@ -68,6 +68,8 @@ class MDDChecker(CacheController):
     def reset_debug_counters(self):
         self.n_orders_corrected = 0
         self.miners_corrected = set()
+        self._limit_orders_evaluated = 0
+        self._limit_orders_filled = 0
 
     def _position_is_candidate_for_price_correction(self, position: Position, now_ms):
         return (position.is_open_position or
@@ -130,18 +132,19 @@ class MDDChecker(CacheController):
             eliminations=self.elimination_manager.get_eliminations_from_memory(),
         )
         tp_to_price_sources = self.get_sorted_price_sources(hotkey_to_positions)
-        
+
         for hotkey, sorted_positions in hotkey_to_positions.items():
             if self.shutdown_dict:
                 return
             self.perform_price_corrections(hotkey, sorted_positions, tp_to_price_sources, position_locks)
-            
+
             # self.process_limit_orders(hotkey, sorted_positions, tp_to_price_sources, position_locks)
             self.process_limit_orders(hotkey, tp_to_price_sources, position_locks)
 
         bt.logging.info(f"mdd checker completed."
                         f" n orders corrected: {self.n_orders_corrected}. n miners corrected: {len(self.miners_corrected)}."
-                        f" n_poly_api_requests: {self.n_poly_api_requests}")
+                        f" n_poly_api_requests: {self.n_poly_api_requests}."
+                        f" limit orders: {self._limit_orders_evaluated} evaluated, {self._limit_orders_filled} filled")
         self.set_last_update_time(skip_message=False)
 
     def update_order_with_newest_price_sources(self, order, candidate_price_sources, hotkey, position) -> bool:
@@ -288,31 +291,43 @@ class MDDChecker(CacheController):
                 self._update_position_returns_and_persist_to_disk(hotkey, position, tp_to_price_sources, position_locks)
 
         return False
-    
-    def add_limit_order(self, miner_hotkey, limit_order):
-        if not self.limit_orders.get(miner_hotkey):
-            self.limit_orders[miner_hotkey] = []
 
-        position = self._get_position_for(miner_hotkey, limit_order)
+    def save_limit_order(self, miner_hotkey, limit_order):
+        orders = self.limit_orders.setdefault(miner_hotkey, [])
 
-        if not position and limit_order.order_type == OrderType.FLAT:
+        unfilled_limit_orders = [order for order in orders if order.src == 3]
+
+        if len(unfilled_limit_orders) >= ValiConfig.MAX_UNFILLED_LIMIT_ORDERS:
+            raise Exception(
+                f"miner has too many unfilled limit orders "
+                f"[{len(unfilled_limit_orders)}] > [{ValiConfig.MAX_UNFILLED_LIMIT_ORDERS}]"
+            )
+
+        has_position = self._get_position_for(miner_hotkey, limit_order)
+        if not has_position and limit_order.order_type == OrderType.FLAT:
             raise SignalException(f"No position found for FLAT order")
 
-        self.limit_orders[miner_hotkey].append(limit_order)
+        trade_pair = limit_order.trade_pair
+        order_uuid = limit_order.order_uuid
 
-    def process_limit_orders(self, hotkey, tp_to_price_sources, position_locks):
-        orders = self.limit_orders.get(hotkey)
+        limit_order_dir = ValiBkpUtils.get_limit_orders_dir(miner_hotkey, trade_pair.trade_pair_id, "unfilled")
+        ValiBkpUtils.write_file(limit_order_dir + order_uuid, limit_order)
+
+        orders.append(limit_order)
+
+    def process_limit_orders(self, miner_hotkey, tp_to_price_sources, position_locks):
+        orders = self.limit_orders.get(miner_hotkey)
         if not orders:
             return
 
         for order in orders:
             trade_pair = order.trade_pair
             price_sources = tp_to_price_sources.get(trade_pair)
-            position = self._get_position_for(hotkey, order)
+            position = self._get_position_for(miner_hotkey, order)
 
-            if self._should_fill_limit_order(order, position, price_sources): 
-                self._fill_limit_order(hotkey, order, position, price_sources[0], position_locks)
-    
+            if self._should_fill_limit_order(order, position, price_sources):
+                self._fill_limit_order(miner_hotkey, order, position, price_sources[0], position_locks)
+
     def _get_position_for(self, hotkey, order):
         trade_pair_id = order.trade_pair.trade_pair_id
         return self.position_manager.get_open_position_for_a_miner_trade_pair(hotkey, trade_pair_id)
@@ -323,6 +338,7 @@ class MDDChecker(CacheController):
         if not price_sources:
             return False
 
+        self._limit_orders_evaluated += 1
         current_price = price_sources[0].close
         limit_price = order.limit_price
         order_type = order.order_type
@@ -378,6 +394,7 @@ class MDDChecker(CacheController):
             ValiBkpUtils.write_file(destination_filename, order)
             os.remove(unfilled_file)
 
+            self._limit_orders_filled += 1
             bt.logging.info(f"Filling {miner_hotkey} limit order {order.order_uuid}")
 
     def cancel_limit_order(self, miner_hotkey, trade_pair, cancel_order_uuid, now_ms, position_locks):
@@ -423,7 +440,7 @@ class MDDChecker(CacheController):
             ValiBkpUtils.get_miner_dir(self.running_unit_tests)
         )
         eliminated_hotkeys = self.elimination_manager.get_eliminations_from_memory()
-        
+
         orders = {}
 
         for hotkey in all_miner_hotkeys:

@@ -291,6 +291,8 @@ class ValiConfig:
     # Cap leverage across miner's entire portfolio
     PORTFOLIO_LEVERAGE_CAP = 10
 
+    MAX_UNFILLED_LIMIT_ORDERS = 100
+
 assert ValiConfig.CRYPTO_MIN_LEVERAGE >= ValiConfig.ORDER_MIN_LEVERAGE
 assert ValiConfig.CRYPTO_MAX_LEVERAGE <= ValiConfig.ORDER_MAX_LEVERAGE
 assert ValiConfig.FOREX_MIN_LEVERAGE >= ValiConfig.ORDER_MIN_LEVERAGE

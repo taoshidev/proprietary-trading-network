@@ -7,6 +7,7 @@ from flask import Flask, request, jsonify
 import waitress
 
 from miner_config import MinerConfig
+from vali_objects.enums.execution_type_enum import ExecutionType
 from vali_objects.vali_config import TradePair, ValiConfig
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
@@ -64,13 +65,14 @@ def handle_data():
         if trade_pair is None:
             return jsonify({"error": "Invalid trade pair"}), 401
 
-        signal = Signal(trade_pair=trade_pair,
-                        order_type=OrderType.from_string(data["order_type"].upper()),
-                        leverage=float(data["leverage"]),
-                        execution_type=data.get("execution_type", "MARKET").upper(),
-                        limit_price=float(data["limit_price"]) if "limit_price" in data else None,
-                        cancel_order_uuid=data["cancel_order_uuid"] if "cancel_order_uuid" in data else None
-                        )
+        signal = Signal(
+            trade_pair=trade_pair,
+            order_type=OrderType.from_string(data["order_type"].upper()),
+            leverage=float(data["leverage"]),
+            execution_type=data.get("execution_type", "MARKET").upper(),
+            limit_price=float(data["limit_price"]) if "limit_price" in data else None,
+            cancel_order_uuid=data["cancel_order_uuid"] if "cancel_order_uuid" in data else None
+        )
         # make miner received signals dir if doesnt exist
         ValiBkpUtils.make_dir(MinerConfig.get_miner_received_signals_dir())
         # store miner signal

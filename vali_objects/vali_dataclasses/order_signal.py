@@ -1,6 +1,7 @@
 # developer: Taoshidev
 # Copyright © 2024 Taoshi Inc
 from typing import Optional
+from vali_objects.enums.execution_type_enum import ExecutionType
 from vali_objects.vali_config import TradePair
 from vali_objects.enums.order_type_enum import OrderType
 from pydantic import BaseModel, field_validator, model_validator
@@ -11,7 +12,7 @@ class Signal(BaseModel):
     order_type: OrderType
     leverage: float
 
-    execution_type: str = "MARKET"
+    execution_type: ExecutionType = ExecutionType.MARKET
     limit_price: Optional[float] = None
     cancel_order_uuid: Optional[str] = None
 
@@ -42,18 +43,16 @@ class Signal(BaseModel):
             'leverage': self.leverage,
             'execution_type': self.execution_type
         }
-        if self.execution_type == "MARKET":
+        if self.execution_type == ExecutionType.MARKET:
             return str(base)
 
-        elif self.execution_type == "LIMIT":
+        elif self.execution_type == ExecutionType.LIMIT:
             base.update({
-                'limit_price': self.limit_price,
-                'stop_loss': self.stop_loss,
-                'take_profit': self.take_profit
+                'limit_price': self.limit_price
             })
             return str(base)
 
-        elif self.execution_type == "LIMIT_CANCEL":
+        elif self.execution_type == ExecutionType.LIMIT_CANCEL:
             return str({
                 'exeuction_type': self.execution_type,
                 'cancel_order_uuid': self.cancel_order_uuid
