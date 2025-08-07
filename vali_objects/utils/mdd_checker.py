@@ -293,6 +293,11 @@ class MDDChecker(CacheController):
         if not self.limit_orders.get(miner_hotkey):
             self.limit_orders[miner_hotkey] = []
 
+        position = self._get_position_for(miner_hotkey, limit_order)
+
+        if not position and limit_order.order_type == OrderType.FLAT:
+            raise SignalException(f"No position found for FLAT order")
+
         self.limit_orders[miner_hotkey].append(limit_order)
 
     def process_limit_orders(self, hotkey, tp_to_price_sources, position_locks):
@@ -303,11 +308,14 @@ class MDDChecker(CacheController):
         for order in orders:
             trade_pair = order.trade_pair
             price_sources = tp_to_price_sources.get(trade_pair)
-            position = self.position_manager.get_open_position_for_a_miner_trade_pair(hotkey, trade_pair.trade_pair_id)
+            position = self._get_position_for(hotkey, order)
 
             if self._should_fill_limit_order(order, position, price_sources): 
                 self._fill_limit_order(hotkey, order, position, price_sources[0], position_locks)
-
+    
+    def _get_position_for(self, hotkey, order):
+        trade_pair_id = order.trade_pair.trade_pair_id
+        return self.position_manager.get_open_position_for_a_miner_trade_pair(hotkey, trade_pair_id)
 
     def _should_fill_limit_order(self, order, position, price_sources):
         if order.src != ORDER_SRC_LIMIT_UNFILLED:
