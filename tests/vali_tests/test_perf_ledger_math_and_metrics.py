@@ -251,6 +251,244 @@ class TestPerfLedgerMathAndMetrics(TestBase):
         self.assertLess(final_cp.prev_portfolio_ret, 1.08,
                        "Compounded return should account for the loss")
 
+    @patch('vali_objects.vali_dataclasses.perf_ledger.LivePriceFetcher')
+    def test_checkpoint_pnl_attributes_closed_position(self, mock_lpf):
+        """Test that portfolio_realized_pnl and portfolio_unrealized_pnl are correctly set for closed positions."""
+        mock_pds = Mock()
+        mock_pds.unified_candle_fetcher.return_value = []
+        mock_pds.tp_to_mfs = {}
+        mock_lpf.return_value.polygon_data_service = mock_pds
+        
+        plm = PerfLedgerManager(
+            metagraph=self.mmg,
+            running_unit_tests=True,
+            position_manager=self.position_manager,
+            parallel_mode=ParallelizationMode.SERIAL,
+        )
+        
+        base_time = self.now_ms - (10 * MS_IN_24_HOURS)
+        
+        # Create a closed position with a known profit
+        open_price = 50000.0
+        close_price = 51000.0  # 2% gain
+        
+        position = self._create_position(
+            "closed_pnl_test", TradePair.BTCUSD,
+            base_time, base_time + MS_IN_24_HOURS,
+            open_price, close_price, OrderType.LONG
+        )
+        self.position_manager.save_miner_position(position)
+        
+        # Update ledger to create checkpoint
+        plm.update(t_ms=base_time + (2 * MS_IN_24_HOURS))
+        
+        # Get ledger
+        bundles = plm.get_perf_ledgers(portfolio_only=False)
+        portfolio_ledger = bundles[self.test_hotkey][TP_ID_PORTFOLIO]
+        
+        # Find checkpoint with the closed position
+        found_checkpoint = None
+        for cp in portfolio_ledger.cps:
+            if cp.portfolio_realized_pnl != 0:
+                found_checkpoint = cp
+                break
+        
+        self.assertIsNotNone(found_checkpoint, "Should find checkpoint with realized PnL")
+        
+        # For a closed position, we should have realized PnL
+        self.assertGreater(found_checkpoint.portfolio_realized_pnl, 0, 
+                          "Closed profitable position should have positive realized PnL")
+        
+        # For a closed position, unrealized PnL should typically be 0 or minimal
+        # (depending on implementation, there might be some unrealized component)
+        self.assertGreaterEqual(found_checkpoint.portfolio_unrealized_pnl, 0,
+                               "Unrealized PnL should not be negative for closed position")
+
+    @patch('vali_objects.vali_dataclasses.perf_ledger.LivePriceFetcher')  
+    def test_checkpoint_pnl_attributes_open_position(self, mock_lpf):
+        """Test that portfolio_unrealized_pnl is set correctly for open positions."""
+        mock_pds = Mock()
+        mock_pds.unified_candle_fetcher.return_value = []
+        mock_pds.tp_to_mfs = {}
+        mock_lpf.return_value.polygon_data_service = mock_pds
+        
+        plm = PerfLedgerManager(
+            metagraph=self.mmg,
+            running_unit_tests=True,
+            position_manager=self.position_manager,
+            parallel_mode=ParallelizationMode.SERIAL,
+        )
+        
+        base_time = self.now_ms - (5 * MS_IN_24_HOURS)
+        
+        # Create an open position
+        open_price = 50000.0
+        
+        position = Position(
+            miner_hotkey=self.test_hotkey,
+            position_uuid="open_pnl_test",
+            open_ms=base_time,
+            trade_pair=TradePair.BTCUSD,
+            orders=[
+                Order(
+                    price=open_price,
+                    processed_ms=base_time,
+                    order_uuid="open_order",
+                    trade_pair=TradePair.BTCUSD,
+                    order_type=OrderType.LONG,
+                    leverage=1.0,
+                )
+            ],
+            position_type=OrderType.LONG,
+            is_closed_position=False,
+        )
+        position.rebuild_position_with_updated_orders()
+        self.position_manager.save_miner_position(position)
+        
+        # Update ledger to create checkpoint
+        plm.update(t_ms=base_time + MS_IN_24_HOURS)
+        
+        # Get ledger
+        bundles = plm.get_perf_ledgers(portfolio_only=False)
+        portfolio_ledger = bundles[self.test_hotkey][TP_ID_PORTFOLIO]
+        
+        # Find checkpoint with the open position
+        found_checkpoint = None
+        for cp in portfolio_ledger.cps:
+            if cp.n_updates > 0:
+                found_checkpoint = cp
+                break
+        
+        self.assertIsNotNone(found_checkpoint, "Should find checkpoint with position data")
+        
+        # For an open position, realized PnL should be 0 or minimal
+        self.assertGreaterEqual(found_checkpoint.portfolio_realized_pnl, -100,  # Allow some tolerance
+                               "Open position should have minimal realized PnL")
+        
+        # Unrealized PnL depends on current price vs entry price
+        # Since we don't have real price updates, we can at least verify the field exists and is numeric
+        self.assertIsInstance(found_checkpoint.portfolio_unrealized_pnl, (int, float),
+                             "Portfolio unrealized PnL should be numeric")
+
+    @patch('vali_objects.vali_dataclasses.perf_ledger.LivePriceFetcher')
+    def test_checkpoint_pnl_multiple_updates(self, mock_lpf):
+        """Test PnL attributes across multiple ledger updates at different times."""
+        mock_pds = Mock()
+        mock_pds.unified_candle_fetcher.return_value = []
+        mock_pds.tp_to_mfs = {}
+        mock_lpf.return_value.polygon_data_service = mock_pds
+        
+        plm = PerfLedgerManager(
+            metagraph=self.mmg,
+            running_unit_tests=True,
+            position_manager=self.position_manager,
+            parallel_mode=ParallelizationMode.SERIAL,
+        )
+        
+        base_time = self.now_ms - (10 * MS_IN_24_HOURS)
+        
+        # Create multiple positions at different times
+        positions_data = [
+            ("early_pos", base_time, base_time + MS_IN_24_HOURS, 50000.0, 51000.0),  # Early profitable position
+            ("mid_pos", base_time + (2 * MS_IN_24_HOURS), base_time + (3 * MS_IN_24_HOURS), 51000.0, 50500.0),  # Later losing position
+        ]
+        
+        for pos_id, open_time, close_time, open_price, close_price in positions_data:
+            position = self._create_position(
+                pos_id, TradePair.BTCUSD,
+                open_time, close_time,
+                open_price, close_price, OrderType.LONG
+            )
+            self.position_manager.save_miner_position(position)
+        
+        # Update ledger multiple times at different intervals
+        update_times = [
+            base_time + MS_IN_24_HOURS,      # After first position
+            base_time + (2 * MS_IN_24_HOURS), # Between positions 
+            base_time + (4 * MS_IN_24_HOURS), # After second position
+            base_time + (6 * MS_IN_24_HOURS), # Later update
+        ]
+        
+        checkpoint_data = []
+        
+        for update_time in update_times:
+            plm.update(t_ms=update_time)
+            
+            # Get ledger and store checkpoint data
+            bundles = plm.get_perf_ledgers(portfolio_only=False)
+            portfolio_ledger = bundles[self.test_hotkey][TP_ID_PORTFOLIO]
+            
+            # Find the most recent checkpoint with data
+            for cp in reversed(portfolio_ledger.cps):
+                if cp.n_updates > 0:
+                    checkpoint_data.append({
+                        'update_time': update_time,
+                        'realized_pnl': cp.portfolio_realized_pnl,
+                        'unrealized_pnl': cp.portfolio_unrealized_pnl,
+                        'total_pnl': cp.portfolio_realized_pnl + cp.portfolio_unrealized_pnl,
+                        'prev_portfolio_ret': cp.prev_portfolio_ret
+                    })
+                    break
+        
+        # Verify we got checkpoint data from multiple updates
+        self.assertGreaterEqual(len(checkpoint_data), 2, "Should have checkpoint data from multiple updates")
+        
+        # Verify PnL values are reasonable
+        for i, cp_data in enumerate(checkpoint_data):
+            self.assertIsInstance(cp_data['realized_pnl'], (int, float),
+                                f"Realized PnL should be numeric at update {i}")
+            self.assertIsInstance(cp_data['unrealized_pnl'], (int, float), 
+                                f"Unrealized PnL should be numeric at update {i}")
+            
+            # Total PnL should be sum of realized + unrealized
+            expected_total = cp_data['realized_pnl'] + cp_data['unrealized_pnl']
+            self.assertAlmostEqual(cp_data['total_pnl'], expected_total, places=2,
+                                  msg=f"Total PnL should equal sum of components at update {i}")
+        
+        # Since we have one profitable and one losing position, the final realized PnL
+        # should reflect the net result
+        if len(checkpoint_data) >= 2:
+            final_cp = checkpoint_data[-1]
+            # We can't predict exact values due to fees, but we can verify they're reasonable
+            self.assertGreater(final_cp['prev_portfolio_ret'], 0.5, 
+                             "Portfolio return should be reasonable (not liquidated)")
+            self.assertLess(final_cp['prev_portfolio_ret'], 2.0,
+                           "Portfolio return should be reasonable (not impossibly high)")
+
+    @patch('vali_objects.vali_dataclasses.perf_ledger.LivePriceFetcher')
+    def test_checkpoint_pnl_zero_positions(self, mock_lpf):
+        """Test PnL attributes when there are no positions."""
+        mock_pds = Mock()
+        mock_pds.unified_candle_fetcher.return_value = []
+        mock_pds.tp_to_mfs = {}
+        mock_lpf.return_value.polygon_data_service = mock_pds
+        
+        plm = PerfLedgerManager(
+            metagraph=self.mmg,
+            running_unit_tests=True,
+            position_manager=self.position_manager,
+            parallel_mode=ParallelizationMode.SERIAL,
+        )
+        
+        base_time = self.now_ms - (5 * MS_IN_24_HOURS)
+        
+        # Update ledger without any positions
+        plm.update(t_ms=base_time)
+        
+        # Get ledger
+        bundles = plm.get_perf_ledgers(portfolio_only=False)
+        portfolio_ledger = bundles[self.test_hotkey][TP_ID_PORTFOLIO]
+        
+        # Check that checkpoints exist but have zero PnL
+        self.assertGreater(len(portfolio_ledger.cps), 0, "Should have checkpoints even without positions")
+        
+        for cp in portfolio_ledger.cps:
+            # For empty portfolio, PnL should be zero
+            self.assertEqual(cp.portfolio_realized_pnl, 0.0,
+                           "Empty portfolio should have zero realized PnL")
+            self.assertEqual(cp.portfolio_unrealized_pnl, 0.0,
+                           "Empty portfolio should have zero unrealized PnL")
+
     def _create_position(self, position_id: str, trade_pair: TradePair, 
                         open_ms: int, close_ms: int, open_price: float, 
                         close_price: float, order_type: OrderType,
@@ -277,7 +515,7 @@ class TestPerfLedgerMathAndMetrics(TestBase):
                     order_uuid=f"{position_id}_close",
                     trade_pair=trade_pair,
                     order_type=OrderType.FLAT,
-                    leverage=0.0,
+                    leverage=-leverage if order_type == OrderType.LONG else leverage,
                 )
             ],
             position_type=OrderType.FLAT,
