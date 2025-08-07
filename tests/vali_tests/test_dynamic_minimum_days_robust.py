@@ -4,7 +4,6 @@ Uses production code paths and tests for exact expected values.
 """
 
 import unittest
-from datetime import datetime, timedelta, timezone
 from typing import Dict, List
 
 from tests.vali_tests.base_objects.test_base import TestBase
@@ -171,10 +170,13 @@ class TestDynamicMinimumDaysRobust(TestBase):
         
         self.assertEqual(result, ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N_FLOOR)
     
-    def test_fewer_than_20_miners_exact(self):
-        """Test with fewer than 20 miners uses exact minimum participation."""
-        # Create 15 miners trading crypto majors with known participation days
-        participation_days = [60, 55, 50, 45, 40, 35, 30, 25, 20, 15, 12, 10, 8, 7, 5]
+    def test_fewer_than_percentile_rank_miners_exact(self):
+        """Test with fewer than PERCENTILE_RANK miners uses exact minimum participation."""
+        # Create fewer than PERCENTILE_RANK miners trading crypto majors with known participation days
+        percentile_rank = ValiConfig.DYNAMIC_MIN_DAYS_PERCENTILE_RANK
+        # Create fewer miners than the percentile rank (e.g., 15 if percentile rank is 20)
+        num_miners = percentile_rank - 5
+        participation_days = list(range(60, 60 - num_miners, -1))  # Descending participation
         miner_participation = {}
         
         for i, days in enumerate(participation_days):
@@ -196,15 +198,26 @@ class TestDynamicMinimumDaysRobust(TestBase):
             ledger_dict, CryptoSubcategory.MAJORS
         )
         
-        # Should use minimum (5) but apply floor (7)
-        expected = max(ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N_FLOOR, min(participation_days))
+        # Get actual aggregated participation after asset segmentation
+        segmentation = AssetSegmentation(ledger_dict)
+        crypto_major_ledgers = segmentation.segmentation(CryptoSubcategory.MAJORS)
+        
+        actual_participation = []
+        for miner_hotkey, ledger in crypto_major_ledgers.items():
+            if ledger and ledger.cps:
+                days = len(LedgerUtils.daily_return_log(ledger))
+                actual_participation.append(days)
+        
+        # Should use minimum participation but apply floor
+        expected = max(ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N_FLOOR, min(actual_participation))
         self.assertEqual(result, expected)
     
-    def test_exactly_20_miners_exact(self):
-        """Test with exactly 20 miners uses exact 20th percentile."""
-        # Create exactly 20 miners with 5-day increments (5, 10, 15, ..., 100)
-        participation_days = list(range(5, 101, 5))  # [5, 10, 15, ..., 95, 100]
-        self.assertEqual(len(participation_days), 20)
+    def test_exactly_percentile_rank_miners_exact(self):
+        """Test with exactly DYNAMIC_MIN_DAYS_PERCENTILE_RANK miners uses exact percentile."""
+        # Create exactly DYNAMIC_MIN_DAYS_PERCENTILE_RANK miners with incremental participation days
+        percentile_rank = ValiConfig.DYNAMIC_MIN_DAYS_PERCENTILE_RANK
+        participation_days = list(range(5, 5 + percentile_rank * 5, 5))  # [5, 10, 15, ..., up to percentile_rank * 5]
+        self.assertEqual(len(participation_days), percentile_rank)
         
         miner_participation = {}
         for i, days in enumerate(participation_days):
@@ -225,20 +238,32 @@ class TestDynamicMinimumDaysRobust(TestBase):
             ledger_dict, CryptoSubcategory.MAJORS
         )
         
-        # Sorted descending: [100, 95, 90, ..., 15, 10, 5]
-        # 20th element (index 19) = 5, but floor is 7
-        expected = max(ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N_FLOOR, 5)
+        # Sorted descending, the DYNAMIC_MIN_DAYS_PERCENTILE_RANK-th element (index percentile_rank-1) = 5, but floor is 7
+        sorted_desc = sorted(participation_days, reverse=True)
+        expected_raw = sorted_desc[percentile_rank - 1]  # Last element in our case
+        expected = max(ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N_FLOOR, expected_raw)
         self.assertEqual(result, expected)
     
-    def test_more_than_20_miners_exact(self):
-        """Test with more than 20 miners uses exact 20th percentile."""
-        # Create 30 miners with known participation pattern
+    def test_more_than_percentile_rank_miners_exact(self):
+        """Test with more than DYNAMIC_MIN_DAYS_PERCENTILE_RANK miners uses exact percentile."""
+        # Create more miners than the percentile rank with known participation pattern
+        percentile_rank = ValiConfig.DYNAMIC_MIN_DAYS_PERCENTILE_RANK
+        # Create 1.5x the percentile rank miners (e.g., 30 if percentile rank is 20)
+        total_miners = int(percentile_rank * 1.5)
+        
+        # Top third: high participation
+        top_third = total_miners // 3
+        # Middle third: medium participation  
+        middle_third = total_miners // 3
+        # Bottom third: low participation
+        bottom_third = total_miners - top_third - middle_third
+        
         participation_days = (
-            list(range(90, 100))  +  # Top 10: 90-99 days
-            list(range(40, 50))   +  # Next 10: 40-49 days (20th will be 40)
-            list(range(10, 20))      # Bottom 10: 10-19 days
+            list(range(90, 90 + top_third))  +     # Top miners: 90+ days
+            list(range(40, 40 + middle_third)) +   # Middle miners: 40+ days  
+            list(range(10, 10 + bottom_third))     # Bottom miners: 10+ days
         )
-        self.assertEqual(len(participation_days), 30)
+        self.assertEqual(len(participation_days), total_miners)
         
         miner_participation = {}
         for i, days in enumerate(participation_days):
@@ -260,9 +285,25 @@ class TestDynamicMinimumDaysRobust(TestBase):
             ledger_dict, CryptoSubcategory.MAJORS
         )
         
-        # Sorted descending: [99, 98, 97, ..., 42, 41, 40, 39, ..., 10]
-        # 20th element (index 19) = 40
-        self.assertEqual(result, 40)
+        # The AssetSegmentation.aggregate_miner_subledgers() function will aggregate
+        # BTCUSD and ETHUSD ledgers for each miner, creating a combined participation
+        # We need to get the actual result by testing the actual segmentation
+        segmentation = AssetSegmentation(ledger_dict)
+        crypto_major_ledgers = segmentation.segmentation(CryptoSubcategory.MAJORS)
+        
+        # Get actual participation days after aggregation
+        actual_participation = []
+        for miner_hotkey, ledger in crypto_major_ledgers.items():
+            if ledger and ledger.cps:
+                days = len(LedgerUtils.daily_return_log(ledger))
+                actual_participation.append(days)
+        
+        actual_participation.sort(reverse=True)
+        
+        # DYNAMIC_MIN_DAYS_PERCENTILE_RANK-th element (index percentile_rank-1) after aggregation
+        expected_element_index = percentile_rank - 1
+        expected_percentile_value = actual_participation[expected_element_index]
+        self.assertEqual(result, expected_percentile_value)
     
     def test_floor_ceiling_boundaries_exact(self):
         """Test exact floor and ceiling boundary conditions."""
@@ -280,7 +321,7 @@ class TestDynamicMinimumDaysRobust(TestBase):
             ledger_dict_low, CryptoSubcategory.MAJORS
         )
         
-        # 20th percentile would be 1, but should be floored at 7
+        # DYNAMIC_MIN_DAYS_PERCENTILE_RANK-th percentile would be 1, but should be floored at 7
         self.assertEqual(result_low, ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N_FLOOR)
         
         # Test ceiling boundary - create miners with high participation
@@ -297,8 +338,12 @@ class TestDynamicMinimumDaysRobust(TestBase):
             ledger_dict_high, CryptoSubcategory.MAJORS
         )
         
-        # 20th percentile would be 69, but should be capped at 60
-        expected_high = min(ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N_CEIL, 69)
+        # DYNAMIC_MIN_DAYS_PERCENTILE_RANK-th percentile would be 69, but should be capped at 60
+        # Calculate the actual percentile value dynamically
+        sorted_desc = sorted(high_participation, reverse=True)
+        percentile_rank = ValiConfig.DYNAMIC_MIN_DAYS_PERCENTILE_RANK
+        raw_percentile_value = sorted_desc[percentile_rank - 1] if len(sorted_desc) >= percentile_rank else min(sorted_desc)
+        expected_high = min(ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N_CEIL, raw_percentile_value)
         self.assertEqual(result_high, expected_high)
     
     def test_different_asset_subcategories_exact(self):
@@ -435,12 +480,18 @@ class TestDynamicMinimumDaysRobust(TestBase):
         
         actual_participation.sort(reverse=True)
         
-        # Should have 25 miners
-        self.assertEqual(len(actual_participation), 25)
+        # Should have 25 miners (5 top + 10 mid + 10 new)
+        expected_total_miners = 25
+        self.assertEqual(len(actual_participation), expected_total_miners)
         
-        # 20th element (index 19) after aggregation
-        expected_20th = actual_participation[19]
-        self.assertEqual(result, expected_20th)
+        # DYNAMIC_MIN_DAYS_PERCENTILE_RANK-th element (index percentile_rank-1) after aggregation
+        percentile_rank = ValiConfig.DYNAMIC_MIN_DAYS_PERCENTILE_RANK
+        if len(actual_participation) >= percentile_rank:
+            expected_percentile = actual_participation[percentile_rank - 1]
+        else:
+            expected_percentile = min(actual_participation) if actual_participation else ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N_FLOOR
+        expected_final = max(ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N_FLOOR, min(ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N_CEIL, expected_percentile))
+        self.assertEqual(result, expected_final)
     
     def test_exception_handling_exact(self):
         """Test that exceptions return exact floor value."""

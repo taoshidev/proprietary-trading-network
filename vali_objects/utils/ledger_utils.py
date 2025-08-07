@@ -591,8 +591,8 @@ class LedgerUtils:
     ) -> int:
         """
         Calculates the dynamic minimum participation days for a specific asset subcategory.
-        Returns the number of days that the 20th longest participating miner has, 
-        capped at 60 days and floored at 7 days.
+        Returns the number of days that the Nth longest participating miner has (where N is
+        configured by DYNAMIC_MIN_DAYS_PERCENTILE_RANK), capped at 60 days and floored at 7 days.
         
         Args:
             ledger_dict: Dictionary mapping hotkeys to their full ledger data
@@ -621,14 +621,15 @@ class LedgerUtils:
             # Sort in descending order (longest participation first)
             participation_days.sort(reverse=True)
             
-            # If we have fewer than 20 miners, use the shortest participating miner's days
-            if len(participation_days) < 20:
+            # If we have fewer than the configured percentile rank, use the shortest participating miner's days
+            percentile_rank = ValiConfig.DYNAMIC_MIN_DAYS_PERCENTILE_RANK
+            if len(participation_days) < percentile_rank:
                 if len(participation_days) == 0:
                     return ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N_FLOOR  # No participating miners, return floor
                 minimum_days = min(participation_days)  # Use shortest participation
             else:
-                # Use the 20th longest participating miner (index 19)
-                minimum_days = participation_days[19]
+                # Use the Nth longest participating miner (index N-1)
+                minimum_days = participation_days[percentile_rank - 1]
             
             # Apply bounds: floor of 7 days, cap of 60 days
             return max(ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N_FLOOR, min(ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N_CEIL, minimum_days))
