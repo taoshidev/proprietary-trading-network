@@ -65,10 +65,10 @@ def handle_data():
             return jsonify({"error": "Invalid trade pair"}), 401
 
         signal = Signal(trade_pair=trade_pair,
-                        leverage=float(data["leverage"]),
                         order_type=OrderType.from_string(data["order_type"].upper()),
+                        leverage=float(data["leverage"]),
                         execution_type=data.get("execution_type", "MARKET").upper(),
-                        stop_loss=float(data["stop_loss"]) if "stop_loss" in data else None,
+                        limit_price=float(data["limit_price"]) if "limit_price" in data else None,
                         cancel_order_uuid=data["cancel_order_uuid"] if "cancel_order_uuid" in data else None
                         )
         # make miner received signals dir if doesnt exist

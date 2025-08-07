@@ -342,3 +342,19 @@ class ValiBkpUtils:
 
         return f"{base_dir}{status_str}/"
 
+    @staticmethod
+    def get_all_limit_orders(miner_hotkey, running_unit_tests=False):
+        miner_dir = (f"{ValiBkpUtils.get_miner_dir(running_unit_tests=running_unit_tests)}"
+               f"{miner_hotkey}/limit_orders/")
+
+        all_files = ValiBkpUtils.get_all_files_in_dir(miner_dir)
+
+        orders = []
+        for filename in all_files:
+            try:
+                with open(filename, 'r') as f:
+                    orders.append(json.load(f))
+            except Exception as e:
+                bt.logging.error(f"Error loading {filename} from disk: {e}")
+
+        return orders

@@ -1,11 +1,15 @@
 # developer: jbonilla
 # Copyright © 2024 Taoshi Inc
+import shutil
 import threading
 import time
 import traceback
 from typing import List, Dict
 
 from time_util.time_util import TimeUtil
+from vali_objects import position
+from vali_objects.exceptions.signal_exception import SignalException
+from vali_objects.utils.price_slippage_model import PriceSlippageModel
 from vali_objects.vali_config import ValiConfig, TradePair
 from shared_objects.cache_controller import CacheController
 from vali_objects.position import Position
@@ -16,6 +20,11 @@ from vali_objects.utils.vali_utils import ValiUtils
 import bittensor as bt
 
 from vali_objects.vali_dataclasses.price_source import PriceSource
+from vali_objects.vali_dataclasses.order import ORDER_SRC_LIMIT_CANCELLED, ORDER_SRC_LIMIT_UNFILLED, Order, ORDER_SRC_LIMIT_FILLED
+from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
+from vali_objects.enums.order_type_enum import OrderType
+import os
+import json
 
 class MDDChecker(CacheController):
 
@@ -41,6 +50,8 @@ class MDDChecker(CacheController):
             self.compaction_thread = threading.Thread(target=self.run_compacting_forever, daemon=True)
             self.compaction_thread.start()
             bt.logging.info("Started compaction thread.")
+
+        self.limit_orders = self._read_limit_orders_from_disk()
 
     def run_compacting_forever(self):
         while not self.shutdown_dict:
@@ -77,15 +88,27 @@ class MDDChecker(CacheController):
                         if trade_pair_to_market_open[tp]:
                             required_trade_pairs_for_candles.add(tp)
 
+            for hotkey, orders in self.limit_orders.items():
+                for order in orders:
+                    tp = order.trade_pair
+                    if tp not in trade_pair_to_market_open:
+                        trade_pair_to_market_open[tp] = self.live_price_fetcher.polygon_data_service.is_market_open(tp)
+                    if trade_pair_to_market_open[tp]:
+                        required_trade_pairs_for_candles.add(tp)
+
             now = TimeUtil.now_in_millis()
-            trade_pair_to_price_sources = self.live_price_fetcher.get_tp_to_sorted_price_sources(list(required_trade_pairs_for_candles))
+            trade_pair_to_price_sources = self.live_price_fetcher.get_tp_to_sorted_price_sources(
+                list(required_trade_pairs_for_candles)
+            )
             #bt.logging.info(f"Got candle data for {len(candle_data)} {candle_data}")
+
             for tp, sources in trade_pair_to_price_sources.items():
                 if sources and any(x and not x.websocket for x in sources):
                     self.n_poly_api_requests += 1
 
             self.last_price_fetch_time_ms = now
             return trade_pair_to_price_sources
+
         except Exception as e:
             bt.logging.error(f"Error in get_sorted_price_sources: {e}")
             bt.logging.error(traceback.format_exc())
@@ -100,7 +123,6 @@ class MDDChecker(CacheController):
         if self.shutdown_dict:
             return
 
-        bt.logging.info("running mdd checker")
         self.reset_debug_counters()
 
         hotkey_to_positions = self.position_manager.get_positions_for_hotkeys(
@@ -108,10 +130,14 @@ class MDDChecker(CacheController):
             eliminations=self.elimination_manager.get_eliminations_from_memory(),
         )
         tp_to_price_sources = self.get_sorted_price_sources(hotkey_to_positions)
+        
         for hotkey, sorted_positions in hotkey_to_positions.items():
             if self.shutdown_dict:
                 return
             self.perform_price_corrections(hotkey, sorted_positions, tp_to_price_sources, position_locks)
+            
+            # self.process_limit_orders(hotkey, sorted_positions, tp_to_price_sources, position_locks)
+            self.process_limit_orders(hotkey, tp_to_price_sources, position_locks)
 
         bt.logging.info(f"mdd checker completed."
                         f" n orders corrected: {self.n_orders_corrected}. n miners corrected: {len(self.miners_corrected)}."
@@ -119,8 +145,6 @@ class MDDChecker(CacheController):
         self.set_last_update_time(skip_message=False)
 
     def update_order_with_newest_price_sources(self, order, candidate_price_sources, hotkey, position) -> bool:
-        from vali_objects.utils.price_slippage_model import PriceSlippageModel
-
         if not candidate_price_sources:
             return False
         trade_pair = position.trade_pair
@@ -262,3 +286,156 @@ class MDDChecker(CacheController):
             # Perform needed updates
             if self._position_is_candidate_for_price_correction(position, now_ms):
                 self._update_position_returns_and_persist_to_disk(hotkey, position, tp_to_price_sources, position_locks)
+
+        return False
+    
+    def add_limit_order(self, miner_hotkey, limit_order):
+        if not self.limit_orders.get(miner_hotkey):
+            self.limit_orders[miner_hotkey] = []
+
+        self.limit_orders[miner_hotkey].append(limit_order)
+
+    def process_limit_orders(self, hotkey, tp_to_price_sources, position_locks):
+        orders = self.limit_orders.get(hotkey)
+        if not orders:
+            return
+
+        for order in orders:
+            trade_pair = order.trade_pair
+            price_sources = tp_to_price_sources.get(trade_pair)
+            position = self.position_manager.get_open_position_for_a_miner_trade_pair(hotkey, trade_pair.trade_pair_id)
+
+            if self._should_fill_limit_order(order, position, price_sources): 
+                self._fill_limit_order(hotkey, order, position, price_sources[0], position_locks)
+
+
+    def _should_fill_limit_order(self, order, position, price_sources):
+        if order.src != ORDER_SRC_LIMIT_UNFILLED:
+            return False
+        if not price_sources:
+            return False
+
+        current_price = price_sources[0].close
+        limit_price = order.limit_price
+        order_type = order.order_type
+
+        if order_type == OrderType.LONG:
+            return current_price <= limit_price
+
+        if order_type == OrderType.SHORT:
+            return current_price >= limit_price
+
+        if order_type == OrderType.FLAT and position:
+            position_type = position.position_type
+
+            if position_type == OrderType.LONG:
+                return current_price >= order.limit_price
+
+            if position_type == OrderType.SHORT:
+                return current_price <= order.limit_price
+
+        return False
+
+    def _fill_limit_order(self, miner_hotkey, order, position, price_source, position_locks):
+        trade_pair = order.trade_pair
+        with (position_locks.get_lock(miner_hotkey, trade_pair.trade_pair_id)):
+            now_ms = TimeUtil.now_in_millis()
+            order.src = ORDER_SRC_LIMIT_FILLED
+            order.price_sources = [price_source]
+            order.price = price_source.parse_appropriate_price(now_ms, trade_pair.is_forex, order.order_type, position)
+            order.bid = price_source.bid
+            order.ask = price_source.ask
+            order.slippage = PriceSlippageModel.calculate_slippage(order.bid, order.ask, order)
+            order.processed_ms = now_ms
+
+            if not position:
+                position = Position(
+                    miner_hotkey=miner_hotkey,
+                    position_uuid=order.order_uuid,
+                    open_ms=now_ms,
+                    trade_pair=trade_pair
+                )
+            self.position_manager.enforce_num_open_order_limit(miner_hotkey, order)
+
+            net_portfolio_leverage = self.position_manager.calculate_net_portfolio_leverage(miner_hotkey)
+            position.add_order(order, net_portfolio_leverage)
+            self.position_manager.save_miner_position(position)
+
+            unfilled_dir = ValiBkpUtils.get_limit_orders_dir(miner_hotkey, trade_pair.trade_pair_id, "unfilled")
+            closed_dir = ValiBkpUtils.get_limit_orders_dir(miner_hotkey, trade_pair.trade_pair_id, "closed")
+
+            unfilled_file = unfilled_dir + order.order_uuid
+            destination_filename = closed_dir + order.order_uuid
+
+            ValiBkpUtils.write_file(destination_filename, order)
+            os.remove(unfilled_file)
+
+            bt.logging.info(f"Filling {miner_hotkey} limit order {order.order_uuid}")
+
+    def cancel_limit_order(self, miner_hotkey, trade_pair, cancel_order_uuid, now_ms, position_locks):
+        with (position_locks.get_lock(miner_hotkey, trade_pair.trade_pair_id)):
+            orders_to_cancel = []
+            if not cancel_order_uuid:
+                orders_to_cancel = [
+                    order for order in self.limit_orders.get(miner_hotkey, [])
+                    if order.src == ORDER_SRC_LIMIT_UNFILLED and order.trade_pair == trade_pair
+                ]
+            else:
+                orders_to_cancel = [
+                    order for order in self.limit_orders.get(miner_hotkey, [])
+                    if order.order_uuid == cancel_order_uuid
+                ]
+
+
+            unfilled_dir = ValiBkpUtils.get_limit_orders_dir(miner_hotkey, trade_pair.trade_pair_id, "unfilled")
+            closed_dir = ValiBkpUtils.get_limit_orders_dir(miner_hotkey, trade_pair.trade_pair_id, "closed")
+            os.makedirs(closed_dir, exist_ok=True)
+
+            if not orders_to_cancel:
+                raise SignalException(f"No unfilled limit orders found to cancel for {miner_hotkey} with {trade_pair.trade_pair_id}")
+
+            for cancelled_order in orders_to_cancel:
+                order_uuid = cancelled_order.order_uuid
+                cancelled_filename = unfilled_dir + order_uuid
+                destination_filename = closed_dir + order_uuid
+
+                if not os.path.exists(cancelled_filename):
+                    bt.logging.warning(f"Cancelling unfilled limit order not found on disk [{order_uuid}]")
+
+                cancelled_order.src = ORDER_SRC_LIMIT_CANCELLED
+                cancelled_order.processed_ms = now_ms
+
+                ValiBkpUtils.write_file(destination_filename, cancelled_order)
+                os.remove(cancelled_filename)
+
+                bt.logging.info(f"Successfully cancelled limit order [{order_uuid}][{trade_pair.trade_pair_id}] for [{miner_hotkey}]")
+
+    def _read_limit_orders_from_disk(self) -> dict[str, list[Order]]:
+        all_miner_hotkeys = ValiBkpUtils.get_directories_in_dir(
+            ValiBkpUtils.get_miner_dir(self.running_unit_tests)
+        )
+        eliminated_hotkeys = self.elimination_manager.get_eliminations_from_memory()
+        
+        orders = {}
+
+        for hotkey in all_miner_hotkeys:
+            miner_orders = []
+
+            if hotkey in eliminated_hotkeys:
+                continue
+
+            miner_order_dicts = ValiBkpUtils.get_all_limit_orders(hotkey, self.running_unit_tests)
+
+            for order_dict in miner_order_dicts:
+                try:
+                    order = Order.from_dict(order_dict)
+                    if order.src == ORDER_SRC_LIMIT_UNFILLED:
+                        miner_orders.append(order)
+                except Exception as e:
+                    bt.logging.error(f"Error converting order dict to Order: {e}")
+                    continue
+
+            if miner_orders:
+                orders[hotkey] = miner_orders
+
+        return orders

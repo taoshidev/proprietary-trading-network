@@ -5,6 +5,7 @@ from time_util.time_util import TimeUtil
 from pydantic import field_validator
 
 from vali_objects.enums.order_type_enum import OrderType
+from vali_objects.vali_config import TradePair
 from vali_objects.vali_dataclasses.order_signal import Signal
 from vali_objects.vali_dataclasses.price_source import PriceSource
 from enum import Enum, auto
@@ -56,6 +57,9 @@ class Order(Signal):
     def from_dict(cls, order_dict):
         # This method is now simplified as Pydantic can automatically
         # handle the conversion from dict to model instance
+        if 'trade_pair' in order_dict and isinstance(order_dict['trade_pair'], dict):
+            order_dict['trade_pair'] = TradePair.from_trade_pair_id(order_dict['trade_pair']['trade_pair_id'])
+
         return cls(**order_dict)
 
     def get_order_age(self, order):
