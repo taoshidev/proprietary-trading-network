@@ -295,6 +295,8 @@ class ValiConfig:
     MAX_COLLATERAL_BALANCE_THETA = 50.0  # Maximum total collateral balance per miner in Theta tokens
     MAX_COLLATERAL_BALANCE_TESTNET = 10000.0
 
+    MAX_UNFILLED_LIMIT_ORDERS = 100
+
 assert ValiConfig.CRYPTO_MIN_LEVERAGE >= ValiConfig.ORDER_MIN_LEVERAGE
 assert ValiConfig.CRYPTO_MAX_LEVERAGE <= ValiConfig.ORDER_MAX_LEVERAGE
 assert ValiConfig.FOREX_MIN_LEVERAGE >= ValiConfig.ORDER_MIN_LEVERAGE

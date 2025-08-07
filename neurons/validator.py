@@ -28,6 +28,7 @@ import base64
 from runnable.generate_request_core import RequestCoreManager
 from runnable.generate_request_minerstatistics import MinerStatisticsManager
 from runnable.generate_request_outputs import RequestOutputGenerator
+from vali_objects.enums.execution_type_enum import ExecutionType
 from vali_objects.utils.auto_sync import PositionSyncer
 from vali_objects.utils.p2p_syncer import P2PSyncer
 from shared_objects.rate_limiter import RateLimiter
@@ -758,7 +759,6 @@ class Validator:
             if synapse.error_message:
                 return True
 
-
         return False
 
     def enforce_order_cooldown(self, trade_pair_id, now_ms, miner_hotkey):
@@ -821,13 +821,12 @@ class Validator:
                 bt.logging.error(f"[{trade_pair}] not in TradePair enum.")
                 raise SignalException(f"miner [{miner_hotkey}] incorrectly sent trade pair. Raw signal: {signal}")
 
-            execution_type = signal["execution_type"].upper()
-
-            if execution_type == "MARKET":
+            execution_type = ExecutionType.from_string(signal["execution_type"].upper())
+            if execution_type == ExecutionType.MARKET:
                 self.process_market_order(synapse, trade_pair, now_ms)
-            elif execution_type == "LIMIT":
+            elif execution_type == ExecutionType.LIMIT:
                 self.process_limit_order(synapse, trade_pair, now_ms)
-            elif execution_type == "LIMIT_CANCEL":
+            elif execution_type == ExecutionType.LIMIT_CANCEL:
                 self.cancel_limit_order(synapse, trade_pair, now_ms)
 
             # Update the last received order time
@@ -938,19 +937,13 @@ class Validator:
             price=0.0,
             order_type=signal_order_type,
             leverage=signal_leverage,
-            execution_type="LIMIT",
+            execution_type=ExecutionType.LIMIT,
             limit_price=signal["limit_price"],
-            stop_loss=signal.get("stop_loss"),
-            take_profit=signal.get("take_profit"),
             src=ORDER_SRC_LIMIT_UNFILLED
         )
 
-        limit_order_dir = ValiBkpUtils.get_limit_orders_dir(miner_hotkey, trade_pair.trade_pair_id, "unfilled")
-        ValiBkpUtils.write_file(limit_order_dir + order_uuid, order)
+        self.mdd_checker.save_limit_order(miner_hotkey, order)
 
-        self.mdd_checker.add_limit_order(miner_hotkey, order)
-        
-        # Mark UUID as processed and set response
         self.uuid_tracker.add(order_uuid)
         synapse.order_json = order.__str__()
 
