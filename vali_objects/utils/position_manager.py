@@ -1131,6 +1131,19 @@ class PositionManager(CacheController):
                 filtered_positions.append(position)
         return filtered_positions
 
+    def enforce_num_open_order_limit(self, miner_hotkey, order):
+        # Check if there are too many orders across all open positions.
+        # If so, check if the current order is a FLAT order (reduces number of open orders). If not, raise an exception
+        positions = self.get_positions_for_one_hotkey(miner_hotkey, only_open_positions=True)
+        n_open_positions = sum(len(position.orders) for position in positions)
+
+        if n_open_positions >= ValiConfig.MAX_OPEN_ORDERS_PER_HOTKEY:
+            if order.order_type != OrderType.FLAT:
+                raise Exception(
+                    f"miner sent too many open orders [{n_open_positions}] > [{ValiConfig.MAX_OPEN_ORDERS_PER_HOTKEY}] and "
+                    f"order [{order}] is not a FLAT order."
+                )
+
     def get_positions_for_one_hotkey(self,
                                      miner_hotkey: str,
                                      only_open_positions: bool = False,
