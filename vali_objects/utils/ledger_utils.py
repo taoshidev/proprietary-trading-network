@@ -126,7 +126,10 @@ class LedgerUtils:
         
         date_return_map = {}
         for running_date, day_checkpoints in sorted(complete_days.items()):
-            daily_return = sum(cp.gain + cp.loss for cp in day_checkpoints)
+            pnl = sum(cp.portfolio_realized_pnl + cp.portfolio_unrealized_pnl for cp in day_checkpoints)
+            account_size = day_checkpoints[0].account_size
+            daily_return = math.log((pnl/account_size) + 1)
+
             date_return_map[running_date] = daily_return
 
         return date_return_map

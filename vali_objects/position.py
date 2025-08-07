@@ -51,7 +51,7 @@ class Position(BaseModel):
     return_at_close: float = 1.0  # includes all fees
     average_entry_price: float = 0.0
     cumulative_entry_value: float = 0.0
-    account_size: float = 0.0
+    account_size: float = ValiConfig.CAPITAL
     realized_pnl: float = 0.0
     unrealized_pnl: float = 0.0
     position_type: Optional[OrderType] = None
@@ -376,20 +376,25 @@ class Position(BaseModel):
         if not t_ms:
             t_ms = TimeUtil.now_in_millis()
 
+        if self.average_entry_price == 0:
+            position_volume = 0
+        else:
+            position_volume = (self.net_leverage * self.account_size) / self.average_entry_price
         # pnl with slippage
         if ALWAYS_USE_SLIPPAGE or (ALWAYS_USE_SLIPPAGE is None and t_ms >= SLIPPAGE_V1_TIME_MS):
+
             if order:
+                order_volume = (order.leverage * self.account_size) / order.price  # TODO: calculate order.volume as an order attribute
                 # update realized pnl for orders that reduce the size of a position
                 if (order.order_type != self.position_type or self.position_type == OrderType.FLAT):
                     exit_price = current_price * (1 + order.slippage) if order.leverage > 0 else current_price * (1 - order.slippage)
                     # TODO Verify this Calculation
-                    order_volume = (order.leverage * self.account_size) / order.price  # TODO: calculate order.volume as an order attribute
-                    self.realized_pnl += -1 * (exit_price - self.average_entry_price) * order_volume  # TODO: FIFO entry cost
-                self.unrealized_pnl = (current_price - self.average_entry_price) * min(self.net_leverage, self.net_leverage + order.leverage, key=abs)
+                    self.realized_pnl += -1 * (exit_price - self.average_entry_price) * order_volume
+                self.unrealized_pnl = (current_price - self.average_entry_price) * min(position_volume, position_volume + order_volume, key=abs)
             else:
-                self.unrealized_pnl = (current_price - self.average_entry_price) * self.net_leverage
+                self.unrealized_pnl = (current_price - self.average_entry_price) * position_volume
 
-            gain = (self.realized_pnl + self.unrealized_pnl) / self.initial_entry_price
+            gain = (self.realized_pnl + self.unrealized_pnl) / self.initial_entry_price # TODO replace with initial entry volume
         else:
             gain = (
                 (current_price - self.average_entry_price)
