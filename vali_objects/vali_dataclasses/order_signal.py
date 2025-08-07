@@ -12,7 +12,7 @@ class Signal(BaseModel):
     leverage: float
 
     execution_type: str = "MARKET"
-    stop_loss: Optional[float] = None
+    limit_price: Optional[float] = None
     cancel_order_uuid: Optional[str] = None
 
     @field_validator('leverage', mode='before')

@@ -3,7 +3,6 @@
 # developer: Taoshidev
 # Copyright © 2024 Taoshi Inc
 import os
-import shutil
 import sys
 import threading
 import signal
@@ -922,6 +921,8 @@ class Validator:
 
         limit_order_dir = ValiBkpUtils.get_limit_orders_dir(miner_hotkey, trade_pair.trade_pair_id, "unfilled")
         ValiBkpUtils.write_file(limit_order_dir + order_uuid, order)
+
+        self.mdd_checker.add_limit_order(miner_hotkey, order)
         
         # Mark UUID as processed and set response
         self.uuid_tracker.add(order_uuid)
@@ -933,32 +934,14 @@ class Validator:
         cancel_order_uuid = signal['cancel_order_uuid']
         order_uuid = self.parse_miner_uuid(synapse)
 
-        print(signal)
-        
-        if not cancel_order_uuid:
-            raise SignalException(f"Missing order_uuid for limit order cancellation from miner [{miner_hotkey}]")
-        
-        unfilled_dir = ValiBkpUtils.get_limit_orders_dir(miner_hotkey, trade_pair.trade_pair_id, "unfilled")
-        unfilled_file = unfilled_dir + cancel_order_uuid
-        
-        source_file = None
-        
-        # Check unfilled directory first
-        if os.path.exists(unfilled_file):
-            source_file = unfilled_file
-        else:
-            raise SignalException(f"Limit order with uuid [{cancel_order_uuid}] not found for miner [{miner_hotkey}] in trade pair [{trade_pair.trade_pair_id}]")
-        
-        # Create filled directory and move the order
-        closed_dir = ValiBkpUtils.get_limit_orders_dir(miner_hotkey, trade_pair.trade_pair_id, "closed")
-        os.makedirs(closed_dir, exist_ok=True)
-        
-        closed_file = closed_dir + cancel_order_uuid
-        
-        shutil.move(source_file, closed_file)
-        
-        bt.logging.info(f"Successfully cancelled limit order [{cancel_order_uuid}] for miner [{miner_hotkey}] in trade pair [{trade_pair.trade_pair_id}]")
-        
+        self.mdd_checker.cancel_limit_order(
+            miner_hotkey=miner_hotkey,
+            trade_pair=trade_pair,
+            cancel_order_uuid=cancel_order_uuid,
+            now_ms=now_ms,
+            position_locks=self.position_locks
+        )
+
         # Set success response
         synapse.order_json = json.dumps({
             "order_uuid": order_uuid,
