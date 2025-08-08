@@ -814,7 +814,7 @@ class Validator:
             temp = str(uuid.uuid4())
         return temp
 
-    def parse_order_size(self, signal, price, trade_pair, portfolio_value):
+    def parse_order_size(self, signal, price, trade_pair, portfolio_value, bid, ask):
         """
         parses an order signal and calculates leverage, value, and volume
         """
@@ -837,6 +837,70 @@ class Validator:
             leverage = value / portfolio_value
 
         return leverage, value, volume
+
+    def currency_converter(
+            amount: float,
+            trade_pair: TradePair,
+            from_currency: str,
+            to_currency: str,
+            bid_price: float,
+            ask_price: float,
+            is_reverse: bool = False
+    ) -> float:
+        """
+        Convert between currencies in a given trading pair using bid/ask prices
+
+        Args:
+            amount: Amount to convert or target amount to obtain
+            trade_pair: TradePair object containing base and quote currencies
+            from_currency: 3-letter ISO currency code to convert from (e.g. "USD")
+            to_currency: 3-letter ISO currency code to convert to (e.g. "EUR")
+            bid_price: Best available buying price for the currency pair
+            ask_price: Best available selling price for the currency pair
+            is_reverse: Reverse mode flag (defaults to False)
+                - True: Calculates how much source currency is required to obtain the target amount (reverse conversion)
+                - False: Calculates how much target currency can be obtained from the source amount (forward conversion)
+        Returns:
+            Converted amount in target currency, or None for invalid conversions
+
+        Raises:
+            ValueError: For invalid currency inputs or zero prices
+        """
+
+        # Validate inputs
+        if from_currency == to_currency or not trade_pair.is_forex:
+            return amount
+
+        base = trade_pair.base
+        quote = trade_pair.quote
+        
+        if base is None or quote is None:
+            raise ValueError(f"Trade pair {trade_pair.trade_pair_id} does not have valid base/quote currencies")
+        
+        valid_currencies = {base, quote}
+
+        if from_currency not in valid_currencies or to_currency not in valid_currencies:
+            raise ValueError(f"Currencies must belong to {trade_pair.trade_pair}. "
+                             f"Converting: {from_currency}->{to_currency}")
+
+        if bid_price <= 0 or ask_price <= 0:
+            raise ValueError("Bid/ask prices must be positive")
+
+        # Determine conversion direction
+        if not is_reverse:  # forward conversion
+            if from_currency == base and to_currency == quote:
+                return amount * bid_price  # Sell base at bid price
+            if from_currency == quote and to_currency == base:
+                return amount / ask_price  # Buy base with quote at ask price
+
+        else:  # reverse conversion
+            if from_currency == base and to_currency == quote:
+                return amount / bid_price
+            if from_currency == quote and to_currency == base:
+                return amount * ask_price
+
+        raise ValueError(f"Invalid conversion direction for {trade_pair.trade_pair}: "
+                         f"{from_currency}->{to_currency}")
 
     # This is the core validator function to receive a signal
     def receive_signal(self, synapse: template.protocol.SendSignal,
@@ -885,7 +949,9 @@ class Validator:
                 existing_position = self._get_or_create_open_position_from_new_order(trade_pair, signal_order_type, now_ms, miner_hotkey, trade_pair_to_open_position, miner_order_uuid)
                 if existing_position:
                     price = best_price_source.parse_appropriate_price(now_ms, trade_pair.is_forex, signal_order_type, existing_position)
-                    leverage, value, volume = self.parse_order_size(signal, price, trade_pair, ValiConfig.CAPITAL)
+                    bid = best_price_source.bid
+                    ask = best_price_source.ask
+                    leverage, value, volume = self.parse_order_size(signal, price, trade_pair, existing_position.account_size, bid, ask)
 
                     order = Order(
                         trade_pair=trade_pair,
