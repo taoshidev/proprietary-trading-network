@@ -18,11 +18,16 @@ class Order(Signal):
     price: float
     bid: float = 0
     ask: float = 0
+    base_usd_ask: float = 0
+    usd_base_bid: float = 0
+    usd_quote_ask: float = 0 # Used for price conversions with PnL
+    quote_usd_bid: float = 0
     slippage: float = 0
     processed_ms: int
     order_uuid: str
     price_sources: list = []
     src: int = ORDER_SRC_ORGANIC
+    volume: int = 0
 
     @field_validator('price', 'processed_ms', mode='before')
     def validate_values(cls, v, info):
@@ -84,6 +89,10 @@ class Order(Signal):
                     'price': self.price,
                     'bid': self.bid,
                     'ask': self.ask,
+                    'base_usd_ask': self.base_usd_ask,
+                    'usd_base_bid': self.usd_base_bid,
+                    'usd_quote_ask': self.usd_quote_ask,
+                    'quote_usd_bid': self.quote_usd_bid,
                     'slippage': self.slippage,
                     'processed_ms': self.processed_ms,
                     'price_sources': self.price_sources,

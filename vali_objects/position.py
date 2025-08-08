@@ -5,6 +5,7 @@ from typing import Optional, List
 from pydantic import model_validator, BaseModel, Field
 
 from time_util.time_util import TimeUtil, MS_IN_8_HOURS, MS_IN_24_HOURS
+from vali_objects.utils.price_utils import PriceUtils
 from vali_objects.vali_config import TradePair, ValiConfig
 from vali_objects.vali_dataclasses.order import Order, ORDER_SRC_ELIMINATION_FLAT, ORDER_SRC_DEPRECATION_FLAT
 from vali_objects.enums.order_type_enum import OrderType
@@ -51,6 +52,7 @@ class Position(BaseModel):
     return_at_close: float = 1.0  # includes all fees
     average_entry_price: float = 0.0
     cumulative_entry_value: float = 0.0
+    cumulative_position_volume: float = 0.0
     account_size: float = ValiConfig.CAPITAL
     realized_pnl: float = 0.0
     unrealized_pnl: float = 0.0
@@ -376,23 +378,23 @@ class Position(BaseModel):
         if not t_ms:
             t_ms = TimeUtil.now_in_millis()
 
-        if self.average_entry_price == 0:
-            position_volume = 0
-        else:
-            position_volume = (self.net_leverage * self.account_size) / self.average_entry_price
         # pnl with slippage
         if ALWAYS_USE_SLIPPAGE or (ALWAYS_USE_SLIPPAGE is None and t_ms >= SLIPPAGE_V1_TIME_MS):
-#TODO, change this to use the order.volume
+            realized_pnl_quote_currency = 0
             if order:
-                order_volume = (self.account_size * order.leverage) / order.price
                 # update realized pnl for orders that reduce the size of a position
                 if (order.order_type != self.position_type or self.position_type == OrderType.FLAT):
                     exit_price = current_price * (1 + order.slippage) if order.leverage > 0 else current_price * (1 - order.slippage)
-                    #TODO revert the below to use proper volume
-                    self.realized_pnl += -1 * (exit_price - self.average_entry_price) * order_volume #* (order.volume * order.trade_pair.lot_size)  # TODO: FIFO entry cost
-                self.unrealized_pnl = (current_price - self.average_entry_price) * min(position_volume, position_volume + order_volume, key=abs)
+                    realized_pnl_quote_currency = -1 * (exit_price - self.average_entry_price) * order.volume * order.trade_pair.lot_size
+
+                unrealized_pnl_quote_currency = (current_price - self.average_entry_price) * min(self.cumulative_position_volume, self.cumulative_position_volume + order.volume, key=abs) * order.trade_pair.lot_size
             else:
-                self.unrealized_pnl = (current_price - self.average_entry_price) * position_volume
+                unrealized_pnl_quote_currency = (current_price - self.average_entry_price) * self.cumulative_position_volume * order.trade_pair.lot_size
+
+            # Convert PnL to USD
+            self.realized_pnl += PriceUtils.convert_currency_for_order(amount=realized_pnl_quote_currency, order=order, to_USD=True)
+
+            self.unrealized_pnl = PriceUtils.convert_currency_for_order(amount=unrealized_pnl_quote_currency, order=order, to_USD=True)
 
             gain = (self.realized_pnl + self.unrealized_pnl) / self.initial_entry_price # TODO replace with initial entry volume
         else:
@@ -577,12 +579,12 @@ class Position(BaseModel):
                 entry_price = order.price * (1 + order.slippage) if order.leverage > 0 else order.price * (1 - order.slippage)
 
                 self.average_entry_price = (
-                    self.average_entry_price * self.net_leverage
-                    + entry_price * delta_leverage
-                ) / new_net_leverage
-                #TODO Revert this
-                order_volume = (self.account_size * order.leverage) / order.price
-                self.cumulative_entry_value += entry_price * order_volume #(order.volume * order.trade_pair.lot_size)
+                    self.average_entry_price * self.cumulative_position_volume
+                    + entry_price * order.volume
+                ) / (self.cumulative_position_volume + order.volume)
+
+                self.cumulative_entry_value += entry_price * order.volume
+                self.cumulative_position_volume += order.volume
             self.net_leverage = new_net_leverage
 
     def initialize_position_from_first_order(self, order):

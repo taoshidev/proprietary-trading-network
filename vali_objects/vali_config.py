@@ -566,6 +566,18 @@ class TradePair(Enum):
     def get_latest_trade_pair_from_trade_pair_str(trade_pair_str):
         return TRADE_PAIR_STR_TO_TRADE_PAIR.get(trade_pair_str)
 
+    @staticmethod
+    def get_valid_usd_conversion_trade_pair(currency_str):
+        """For usd conversions, use the trade pair listed on PTN"""
+
+        usd_to_currency = 'USD' + '/' + currency_str
+        currency_to_usd = currency_str + '/USD'
+        usd_base_tp = TradePair.get_latest_trade_pair_from_trade_pair_str(usd_to_currency)
+        usd_quote_tp = TradePair.get_latest_trade_pair_from_trade_pair_str(currency_to_usd)
+
+        return usd_base_tp if usd_base_tp is not None else usd_quote_tp
+
+
     def __str__(self):
         return str(self.__json__())
 
