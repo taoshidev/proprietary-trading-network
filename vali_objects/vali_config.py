@@ -179,7 +179,8 @@ class ValiConfig:
     EQUITIES_MIN_LEVERAGE = 0.1
     EQUITIES_MAX_LEVERAGE = 3
 
-    CAPITAL = 250_000  # conversion of 1x leverage to $250K in capital
+    ORDER_MIN_VALUE = 2000
+    CAPITAL = 100_000  # conversion of 1x leverage to $100K in capital
 
     MAX_DAILY_DRAWDOWN = 0.95  # Portfolio should never fall below .95 x of initial value when measured day to day
     MAX_TOTAL_DRAWDOWN = 0.9  # Portfolio should never fall below .90 x of initial value when measured at any instant
@@ -225,12 +226,13 @@ class ValiConfig:
     SHORT_LOOKBACK_WINDOW = 7 * DAILY_CHECKPOINTS
 
     # Scoring weights
-    SCORING_OMEGA_WEIGHT = 0.2
-    SCORING_SHARPE_WEIGHT = 0.2
-    SCORING_SORTINO_WEIGHT = 0.2
-    SCORING_STATISTICAL_CONFIDENCE_WEIGHT = 0.2
-    SCORING_CALMAR_WEIGHT = 0.2
+    SCORING_OMEGA_WEIGHT = 0.14
+    SCORING_SHARPE_WEIGHT = 0.14
+    SCORING_SORTINO_WEIGHT = 0.14
+    SCORING_STATISTICAL_CONFIDENCE_WEIGHT = 0.14
+    SCORING_CALMAR_WEIGHT = 0.14
     SCORING_RETURN_WEIGHT = 0.0
+    SCORING_PNL_WEIGHT = 0.3
 
     # Scoring hyperparameters
     OMEGA_LOSS_MINIMUM = 0.01   # Equivalent to 1% loss
@@ -241,6 +243,7 @@ class ValiConfig:
     SORTINO_NOCONFIDENCE_VALUE = -100
     STATISTICAL_CONFIDENCE_NOCONFIDENCE_VALUE = -100
     CALMAR_NOCONFIDENCE_VALUE = -100
+    PNL_NOCONFIDENCE_VALUE = -100 # TODO, likely make this far more negative
     CALMAR_RATIO_CAP = 10
 
     # MDD penalty calculation
@@ -290,10 +293,13 @@ class ValiConfig:
 
     # Cap leverage across miner's entire portfolio
     PORTFOLIO_LEVERAGE_CAP = 10
-    
+
     # Collateral limits
     MAX_COLLATERAL_BALANCE_THETA = 50.0  # Maximum total collateral balance per miner in Theta tokens
     MAX_COLLATERAL_BALANCE_TESTNET = 10000.0
+
+    # Account size USD value per theta of collateral
+    COST_PER_THETA = 175
 
 assert ValiConfig.CRYPTO_MIN_LEVERAGE >= ValiConfig.ORDER_MIN_LEVERAGE
 assert ValiConfig.CRYPTO_MAX_LEVERAGE <= ValiConfig.ORDER_MAX_LEVERAGE
@@ -447,9 +453,18 @@ class TradePair(Enum):
     @property
     def is_equities(self):
         return self.trade_pair_category == TradePairCategory.EQUITIES
+
     @property
     def is_indices(self):
         return self.trade_pair_category == TradePairCategory.INDICES
+
+    @property
+    def lot_size(self):
+        trade_pair_lot_size = {TradePairCategory.CRYPTO: 1,
+                               TradePairCategory.FOREX: 100_000,
+                               TradePairCategory.INDICES: 1,
+                               TradePairCategory.EQUITIES: 1}
+        return trade_pair_lot_size[self.trade_pair_category]
 
     @property
     def leverage_multiplier(self) -> int:
@@ -458,6 +473,16 @@ class TradePair(Enum):
                                           TradePairCategory.INDICES: 1,
                                           TradePairCategory.EQUITIES: 2}
         return trade_pair_leverage_multiplier[self.trade_pair_category]
+
+    @property
+    def base(self):
+        if self.is_forex:
+            return self.trade_pair.split("/")[0]
+
+    @property
+    def quote(self):
+        if self.is_forex:
+            return self.trade_pair.split("/")[1]
 
     @classmethod
     def categories(cls):
@@ -538,8 +563,20 @@ class TradePair(Enum):
         return TRADE_PAIR_ID_TO_TRADE_PAIR.get(trade_pair_id)
 
     @staticmethod
-    def get_latest_tade_pair_from_trade_pair_str(trade_pair_str):
+    def get_latest_trade_pair_from_trade_pair_str(trade_pair_str):
         return TRADE_PAIR_STR_TO_TRADE_PAIR.get(trade_pair_str)
+
+    @staticmethod
+    def get_valid_usd_conversion_trade_pair(currency_str):
+        """For usd conversions, use the trade pair listed on PTN"""
+
+        usd_to_currency = 'USD' + '/' + currency_str
+        currency_to_usd = currency_str + '/USD'
+        usd_base_tp = TradePair.get_latest_trade_pair_from_trade_pair_str(usd_to_currency)
+        usd_quote_tp = TradePair.get_latest_trade_pair_from_trade_pair_str(currency_to_usd)
+
+        return usd_base_tp if usd_base_tp is not None else usd_quote_tp
+
 
     def __str__(self):
         return str(self.__json__())

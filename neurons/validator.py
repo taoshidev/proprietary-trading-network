@@ -53,7 +53,8 @@ from vali_objects.vali_dataclasses.order import Order
 from vali_objects.position import Position
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.utils.vali_utils import ValiUtils
-from vali_objects.vali_config import ValiConfig
+from vali_objects.vali_config import ValiConfig, TradePair
+from vali_objects.utils.price_utils import PriceUtils
 
 from vali_objects.utils.plagiarism_detector import PlagiarismDetector
 from vali_objects.utils.validator_contract_manager import ValidatorContractManager
@@ -145,7 +146,7 @@ class Validator:
 
         # Wallet holds cryptographic information, ensuring secure transactions and communication.
         self.wallet = bt.wallet(config=self.config)
-        
+
         # Initialize Slack notifier for error reporting
         self.slack_notifier = SlackNotifier(
             hotkey=self.wallet.hotkey.ss58_address,
@@ -153,11 +154,11 @@ class Validator:
             error_webhook_url=getattr(self.config, 'slack_error_webhook_url', None),
             is_miner=False  # This is a validator
         )
-        
+
         # Track last error notification time to prevent spam
         self.last_error_notification_time = 0
         self.error_notification_cooldown = 300  # 5 minutes between error notifications
-        
+
         bt.logging.info(f"Wallet: {self.wallet}")
 
         # metagraph provides the network's current state, holding state about other participants in a subnet.
@@ -169,11 +170,11 @@ class Validator:
                                                   False, position_manager=None,
                                                   shutdown_dict=shutdown_dict,
                                                   slack_notifier=self.slack_notifier)
-        
+
         # We don't store a reference to subtensor; instead use the getter from MetagraphUpdater
         # This ensures we always have the current subtensor instance even after round-robin switches
         bt.logging.info(f"Subtensor: {self.metagraph_updater.get_subtensor()}")
-        
+
         # Start the metagraph updater and wait for initial population
         self.metagraph_updater_thread = self.metagraph_updater.start_and_wait_for_initial_update(
             max_wait_time=60,
@@ -200,10 +201,16 @@ class Validator:
                                     position_manager=None)  # Set after self.pm creation
 
 
+        # Initialize ValidatorContractManager for collateral operations
+        self.contract_manager = ValidatorContractManager(config=self.config, metagraph=self.metagraph)
+
+
         self.perf_ledger_manager = PerfLedgerManager(self.metagraph, ipc_manager=self.ipc_manager,
                                                      shutdown_dict=shutdown_dict,
                                                      perf_ledger_hks_to_invalidate=self.position_syncer.perf_ledger_hks_to_invalidate,
-                                                     position_manager=None)  # Set after self.pm creation
+                                                     position_manager=None,  # Set after self.pm creation
+                                                     contract_manager=self.contract_manager)
+
 
 
         self.position_manager = PositionManager(metagraph=self.metagraph,
@@ -345,7 +352,7 @@ class Validator:
         self.mdd_checker = MDDChecker(self.metagraph, self.position_manager, live_price_fetcher=self.live_price_fetcher,
                                       shutdown_dict=shutdown_dict, compaction_enabled=True)
         self.weight_setter = SubtensorWeightSetter(
-            self.metagraph, 
+            self.metagraph,
             position_manager=self.position_manager,
             slack_notifier=self.slack_notifier
         )
@@ -358,9 +365,6 @@ class Validator:
         # Start the perf ledger updater loop in its own process. Make sure it happens after the position manager has chances to make any fixes
         self.perf_ledger_updater_thread = Process(target=self.perf_ledger_manager.run_update_loop, daemon=True)
         self.perf_ledger_updater_thread.start()
-
-        # Initialize ValidatorContractManager for collateral operations
-        self.contract_manager = ValidatorContractManager(config=self.config, metagraph=self.metagraph)
 
         if self.config.start_generate:
             self.rog = RequestOutputGenerator(rcm=self.request_core_manager, msm=self.miner_statistics_manager)
@@ -435,7 +439,7 @@ class Validator:
             f"Prioritizing {synapse.dendrite.hotkey} with value: ", priority
         )
         return priority
-    
+
     @property
     def subtensor(self):
         """
@@ -470,7 +474,7 @@ class Validator:
         # (developer): Adds your custom arguments to the parser.
         # Adds override arguments for network and netuid.
         parser.add_argument("--netuid", type=int, default=1, help="The chain subnet uid.")
-        
+
         # Vault wallet specific arguments for collateral operations
         # These allow using a separate wallet for collateral operations instead of the main validator wallet
         parser.add_argument("--vault-wallet.name", type=str, default=None, dest="vault_wallet_name",
@@ -479,14 +483,14 @@ class Validator:
                             help="Hotkey of the vault wallet for collateral operations (optional)")
         parser.add_argument("--vault-wallet.path", type=str, default="~/.bittensor/wallets/", dest="vault_wallet_path",
                             help="Path to the vault wallet directory (default: ~/.bittensor/wallets/)")
-        
+
         # Adds subtensor specific arguments i.e. --subtensor.chain_endpoint ... --subtensor.network ...
         bt.subtensor.add_args(parser)
         # Adds logging specific arguments i.e. --logging.debug ..., --logging.trace .. or --logging.logging_dir ...
         bt.logging.add_args(parser)
         # Adds wallet specific arguments i.e. --wallet.name ..., --wallet.hotkey ./. or --wallet.path ...
         bt.wallet.add_args(parser)
-        
+
         # Add Slack webhook arguments
         parser.add_argument(
             "--slack-webhook-url",
@@ -530,7 +534,7 @@ class Validator:
             return
         # Handle shutdown gracefully
         bt.logging.warning("Performing graceful exit...")
-        
+
         # Send shutdown notification to Slack
         if self.slack_notifier:
             self.slack_notifier.send_message(
@@ -562,7 +566,7 @@ class Validator:
         global shutdown_dict
         # Keep the vali alive. This loop maintains the vali's operations until intentionally stopped.
         bt.logging.info("Starting main loop")
-        
+
         # Send startup notification to Slack
         if self.slack_notifier:
             vm_info = f"VM: {self.slack_notifier.vm_hostname} ({self.slack_notifier.vm_ip})" if self.slack_notifier.vm_hostname else ""
@@ -583,6 +587,7 @@ class Validator:
                 self.mdd_checker.mdd_check(self.position_locks)
                 self.challengeperiod_manager.refresh(current_time=current_time)
                 self.elimination_manager.process_eliminations(self.position_locks)
+                # self.contract_manager.refresh_account_sizes(timestamp_ms=current_time)
                 #self.position_locks.cleanup_locks(self.metagraph.hotkeys)
                 self.weight_setter.set_weights(self.wallet, self.config.netuid, self.metagraph_updater.get_subtensor(), current_time=current_time)
                 #self.p2p_syncer.sync_positions_with_cooldown()
@@ -591,12 +596,12 @@ class Validator:
             except Exception as e:
                 error_traceback = traceback.format_exc()
                 bt.logging.error(error_traceback)
-                
+
                 # Send error notification to Slack with rate limiting
                 current_time_seconds = time.time()
                 if self.slack_notifier and (current_time_seconds - self.last_error_notification_time) > self.error_notification_cooldown:
                     self.last_error_notification_time = current_time_seconds
-                    
+
                     # Use shared error formatting utility
                     error_message = ErrorUtils.format_error_for_slack(
                         error=e,
@@ -604,14 +609,14 @@ class Validator:
                         include_operation=True,
                         include_timestamp=True
                     )
-                    
+
                     self.slack_notifier.send_message(
                         f"❌ Validator main loop error!\n"
                         f"{error_message}\n"
                         f"Note: Further errors suppressed for {self.error_notification_cooldown/60:.0f} minutes",
                         level="error"
                     )
-                
+
                 time.sleep(10)
 
         self.check_shutdown()
@@ -658,12 +663,14 @@ class Validator:
             if order_type == OrderType.FLAT:
                 open_position = None
             else:
+                account_size = self.contract_manager.get_miner_account_size(hotkey=miner_hotkey, timestamp_ms=order_time_ms)
                 # if a position doesn't exist, then make a new one
                 open_position = Position(
                     miner_hotkey=miner_hotkey,
                     position_uuid=miner_order_uuid if miner_order_uuid else str(uuid.uuid4()),
                     open_ms=order_time_ms,
-                    trade_pair=trade_pair
+                    trade_pair=trade_pair,
+                    account_size=account_size
                 )
         return open_position
 
@@ -798,6 +805,93 @@ class Validator:
             temp = str(uuid.uuid4())
         return temp
 
+    def get_usd_conversion_prices(self, miner_hotkey, trade_pair, now_ms):
+        """Gets relevant bid and ask prices to be stored in the order"""
+        if not trade_pair.is_forex:
+            return 0, 0, 0, 0
+        # First fetch bid or ask price for converting USD to base
+        base = trade_pair.base
+        quote = trade_pair.quote
+        usd_first_conversion_trade_pair = TradePair.get_valid_usd_conversion_trade_pair(base)
+        if usd_first_conversion_trade_pair is None:
+            raise SignalException(
+                f"Ignoring order for [{miner_hotkey}] due to usd conversion trade pair not existing for [{trade_pair}]. Please alert a team member!")
+
+        usd_base_bid = 0
+        base_usd_ask = 0
+        quote_usd_bid = 0
+        usd_quote_ask = 0
+
+        first_price_sources = self.live_price_fetcher.get_sorted_price_sources_for_trade_pair(usd_first_conversion_trade_pair, now_ms)
+        if not first_price_sources:
+            raise SignalException(
+                f"Ignoring order for [{miner_hotkey}] due to no live prices being found for usd conversion trade pair [{usd_first_conversion_trade_pair}]. Please try again.")
+        first_best_price_source = first_price_sources[0]
+
+        if usd_first_conversion_trade_pair.quote == "USD":
+            base_usd_ask = first_best_price_source.ask
+        else:
+            usd_base_bid = first_best_price_source.bid
+
+        # Second fetch bid or ask price for converting from quote to USD
+        usd_second_conversion_trade_pair = TradePair.get_valid_usd_conversion_trade_pair(quote)
+        if usd_second_conversion_trade_pair is None:
+            raise SignalException(
+                f"Ignoring order for [{miner_hotkey}] due to usd conversion trade pair not existing for [{usd_second_conversion_trade_pair}]. Please alert a team member!")
+
+        second_price_sources = self.live_price_fetcher.get_sorted_price_sources_for_trade_pair(usd_second_conversion_trade_pair, now_ms)
+        if not second_price_sources:
+            raise SignalException(
+                f"Ignoring order for [{miner_hotkey}] due to no live prices being found for usd conversion trade pair [{usd_second_conversion_trade_pair}]. Please try again.")
+        second_best_price_source = second_price_sources[0]
+
+        if usd_second_conversion_trade_pair.quote == "USD":
+            quote_usd_bid = second_best_price_source.bid
+        else:
+            usd_quote_ask = second_best_price_source.ask
+
+        return usd_base_bid, base_usd_ask, quote_usd_bid, usd_quote_ask
+
+    def parse_order_size(self, signal, trade_pair, price, portfolio_value, usd_base_bid, base_usd_ask):
+        """
+        parses an order signal and calculates leverage, value, and volume
+        """
+        leverage = signal.get("leverage")
+        value = signal.get("value")
+
+        fields_set = [x is not None for x in (leverage, value)]
+        if sum(fields_set) != 1:
+            raise ValueError("Exactly one of 'leverage' or 'value' must be set")
+
+        # Get usd notional value
+        if value is not None:
+            usd_value = value
+        else:
+            usd_value = leverage * portfolio_value
+
+        # Only convert if forex
+        if trade_pair.is_forex:
+            if usd_base_bid == 0:
+                base = trade_pair.base
+                quote = "USD"
+            else:
+                base = "USD"
+                quote = trade_pair.base
+
+            # Convert currency
+            units_base_currency = PriceUtils.currency_converter(amount=usd_value, base=base, quote=quote, from_currency="USD", to_currency=trade_pair.base, bid_price=usd_base_bid, ask_price=base_usd_ask)
+
+            # Round to 0.01 standard lots
+            volume_base_currency = units_base_currency / trade_pair.lot_size
+
+            # Round to broker minimum lot size
+            rounded_volume = round(volume_base_currency, 2)
+        else:
+            rounded_volume = value / (price * trade_pair.lot_size)
+        if leverage is None:
+            leverage = value / portfolio_value
+        return leverage, usd_value, rounded_volume
+
     # This is the core validator function to receive a signal
     def receive_signal(self, synapse: template.protocol.SendSignal,
                        ) -> template.protocol.SendSignal:
@@ -832,7 +926,6 @@ class Validator:
                     f"Ignoring order for [{miner_hotkey}] due to no live prices being found for trade_pair [{trade_pair}]. Please try again.")
             best_price_source = price_sources[0]
 
-            signal_leverage = signal["leverage"]
             signal_order_type = OrderType.from_string(signal["order_type"])
 
             # Multiple threads can run receive_signal at once. Don't allow two threads to trample each other.
@@ -845,17 +938,26 @@ class Validator:
                 trade_pair_to_open_position = {position.trade_pair: position for position in positions}
                 existing_position = self._get_or_create_open_position_from_new_order(trade_pair, signal_order_type, now_ms, miner_hotkey, trade_pair_to_open_position, miner_order_uuid)
                 if existing_position:
+                    price = best_price_source.parse_appropriate_price(now_ms, trade_pair.is_forex, signal_order_type, existing_position)
+                    usd_base_bid, base_usd_ask, quote_usd_bid, usd_quote_ask = self.get_usd_conversion_prices(miner_hotkey, trade_pair, now_ms)
+                    leverage, value, volume = self.parse_order_size(signal, trade_pair, price, existing_position.account_size, usd_base_bid, base_usd_ask)
+
                     order = Order(
                         trade_pair=trade_pair,
                         order_type=signal_order_type,
-                        leverage=signal_leverage,
-                        price=best_price_source.parse_appropriate_price(now_ms, trade_pair.is_forex, signal_order_type,
-                                                                        existing_position),
+                        leverage=leverage,
+                        value=value,
+                        volume=volume,
+                        price=price,
                         processed_ms=now_ms,
                         order_uuid=miner_order_uuid,
                         price_sources=price_sources,
                         bid=best_price_source.bid,
                         ask=best_price_source.ask,
+                        usd_base_bid=usd_base_bid,
+                        base_usd_ask=base_usd_ask,
+                        quote_usd_bid=quote_usd_bid,
+                        usd_quote_ask=usd_quote_ask,
                     )
                     self.price_slippage_model.refresh_features_daily()
                     order.slippage = PriceSlippageModel.calculate_slippage(order.bid, order.ask, order)

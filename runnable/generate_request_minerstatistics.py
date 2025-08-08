@@ -44,6 +44,7 @@ class ScoreMetric:
     requires_penalties: bool = False
     requires_weighting: bool = False
     bypass_confidence: bool = False
+    args: Dict[str, Any] = None
 
 
 class ScoreResult:
@@ -70,40 +71,49 @@ class ScoreResult:
 class MetricsCalculator:
     """Class to handle all metrics calculations"""
 
-    def __init__(self):
+    def __init__(self, metrics=None):
         # Add or remove metrics as desired. Excluding short-term metrics as requested.
-        self.metrics = {
-            "omega": ScoreMetric(
-                name="omega",
-                metric_func=Metrics.omega,
-                weight=ValiConfig.SCORING_OMEGA_WEIGHT
-            ),
-            "sharpe": ScoreMetric(
-                name="sharpe",
-                metric_func=Metrics.sharpe,
-                weight=ValiConfig.SCORING_SHARPE_WEIGHT
-            ),
-            "sortino": ScoreMetric(
-                name="sortino",
-                metric_func=Metrics.sortino,
-                weight=ValiConfig.SCORING_SORTINO_WEIGHT
-            ),
-            "statistical_confidence": ScoreMetric(
-                name="statistical_confidence",
-                metric_func=Metrics.statistical_confidence,
-                weight=ValiConfig.SCORING_STATISTICAL_CONFIDENCE_WEIGHT
-            ),
-            "calmar": ScoreMetric(
-                name="calmar",
-                metric_func=Metrics.calmar,
-                weight=ValiConfig.SCORING_CALMAR_WEIGHT
-            ),
-            "return": ScoreMetric(
-                name="return",
-                metric_func=Metrics.base_return_log_percentage,
-                weight=ValiConfig.SCORING_RETURN_WEIGHT
-            ),
-        }
+        if metrics is None:
+
+            self.metrics = {
+                "omega": ScoreMetric(
+                    name="omega",
+                    metric_func=Metrics.omega,
+                    weight=ValiConfig.SCORING_OMEGA_WEIGHT,
+                ),
+                "sharpe": ScoreMetric(
+                    name="sharpe",
+                    metric_func=Metrics.sharpe,
+                    weight=ValiConfig.SCORING_SHARPE_WEIGHT
+                ),
+                "sortino": ScoreMetric(
+                    name="sortino",
+                    metric_func=Metrics.sortino,
+                    weight=ValiConfig.SCORING_SORTINO_WEIGHT
+                ),
+                "statistical_confidence": ScoreMetric(
+                    name="statistical_confidence",
+                    metric_func=Metrics.statistical_confidence,
+                    weight=ValiConfig.SCORING_STATISTICAL_CONFIDENCE_WEIGHT
+                ),
+                "calmar": ScoreMetric(
+                    name="calmar",
+                    metric_func=Metrics.calmar,
+                    weight=ValiConfig.SCORING_CALMAR_WEIGHT
+                ),
+                "return": ScoreMetric(
+                    name="return",
+                    metric_func=Metrics.base_return_log_percentage,
+                    weight=ValiConfig.SCORING_RETURN_WEIGHT
+                ),
+                "pnl": ScoreMetric(
+                    name="pnl",
+                    metric_func=Metrics.pnl_score,
+                    weight=ValiConfig.SCORING_PNL_WEIGHT
+                )
+            }
+        else:
+            self.metrics = metrics
 
     def calculate_metric(
         self,
@@ -118,13 +128,15 @@ class MetricsCalculator:
         for hotkey, miner_data in data.items():
             log_returns = miner_data.get("log_returns", [])
             ledger = miner_data.get("ledger", [])
-
-            value = metric.metric_func(
-                log_returns=log_returns,
-                ledger=ledger,
-                weighting=weighting,
-                bypass_confidence=metric.bypass_confidence
-            )
+            if metric.args is not None:
+                value = metric.metric_func(hotkey=hotkey)
+            else:
+                value = metric.metric_func(
+                    log_returns=log_returns,
+                    ledger=ledger,
+                    weighting=weighting,
+                    bypass_confidence=metric.bypass_confidence
+                )
 
             scores[hotkey] = value
 
@@ -139,7 +151,8 @@ class MinerStatisticsManager:
         self,
         position_manager: PositionManager,
         subtensor_weight_setter: SubtensorWeightSetter,
-        plagiarism_detector: PlagiarismDetector
+        plagiarism_detector: PlagiarismDetector,
+        metrics: Dict[str, MetricsCalculator] = None
     ):
         self.position_manager = position_manager
         self.perf_ledger_manager = position_manager.perf_ledger_manager
@@ -148,7 +161,7 @@ class MinerStatisticsManager:
         self.subtensor_weight_setter = subtensor_weight_setter
         self.plagiarism_detector = plagiarism_detector
 
-        self.metrics_calculator = MetricsCalculator()
+        self.metrics_calculator = MetricsCalculator(metrics=metrics)
 
     # -------------------------------------------
     # Ranking / Percentile Helpers
@@ -414,6 +427,20 @@ class MinerStatisticsManager:
 
         return miner_risk_report
 
+    def extract_scoring_config(self, scoremetric_dict):
+        scoring_config = {}
+
+        for key, metric in scoremetric_dict.items():
+            # Skip "return" if not needed in the final config
+            if key == "return":
+                continue
+
+            scoring_config[key] = {
+                "function": metric.metric_func,
+                "weight": metric.weight
+            }
+
+        return scoring_config
     # -------------------------------------------
     # Asset Subcategory Performance
     # -------------------------------------------
@@ -511,7 +538,8 @@ class MinerStatisticsManager:
             successful_positions,
             evaluation_time_ms=time_now,
             verbose=False,
-            weighting=final_results_weighting
+            weighting=final_results_weighting,
+            metrics=self.extract_scoring_config(self.metrics_calculator.metrics)
         )  # returns list of (hotkey, weightVal)
 
         # Only used for testing weight calculation
@@ -524,7 +552,8 @@ class MinerStatisticsManager:
             testing_positions,
             evaluation_time_ms=time_now,
             verbose=False,
-            weighting=final_results_weighting
+            weighting=final_results_weighting,
+            metrics= self.extract_scoring_config( self.metrics_calculator.metrics)
         )
 
         challengeperiod_scores = Scoring.score_testing_miners(testing_ledger, testing_checkpoint_results)

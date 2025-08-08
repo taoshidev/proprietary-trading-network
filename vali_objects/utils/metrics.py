@@ -4,6 +4,7 @@ import numpy as np
 from scipy.stats import ttest_1samp
 from typing import Union
 
+#from vali_objects.utils.contract_manager import CollateralRecord
 from vali_objects.vali_config import ValiConfig
 from vali_objects.utils.ledger_utils import LedgerUtils
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedger, TP_ID_PORTFOLIO
@@ -387,3 +388,31 @@ class Metrics:
             time_weighted_scores.append((miner, weight * math.sqrt(miner_trading_days / LEDGER_WINDOW_DAYS)))
 
         return time_weighted_scores
+
+    @staticmethod
+    def pnl_score(log_returns: list[float], ledger: PerfLedger, bypass_confidence: bool = False,
+                   weighting: bool = False, **kwargs) -> float:
+        """
+        Calculate PnL score from daily PnL values in the ledger.
+        
+        Args:
+            log_returns: list of daily log returns from the miner (unused but kept for consistency)
+            ledger: PerfLedger - the ledger of the miner
+            bypass_confidence: whether to use default value if not enough trading days
+            weighting: whether to use time-weighted average
+            
+        Returns:
+            float: Average daily PnL score
+        """
+        if not ledger:
+            return ValiConfig.PNL_NOCONFIDENCE_VALUE
+            
+        # Get daily PnL values for complete days only
+        daily_pnl_values = LedgerUtils.daily_pnl(ledger)
+
+        if not daily_pnl_values:
+            return ValiConfig.PNL_NOCONFIDENCE_VALUE
+            
+        # Apply time weighting if requested
+        return Metrics.average(daily_pnl_values, weighting=weighting)
+

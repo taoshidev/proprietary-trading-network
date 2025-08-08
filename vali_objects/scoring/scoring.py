@@ -57,6 +57,10 @@ class Scoring:
         'statistical_confidence': {
             'function': Metrics.statistical_confidence,
             'weight': ValiConfig.SCORING_STATISTICAL_CONFIDENCE_WEIGHT
+        },
+        'pnl': {
+            'function': Metrics.pnl_score,
+            'weight': ValiConfig.SCORING_PNL_WEIGHT
         }
     }
 
@@ -78,7 +82,8 @@ class Scoring:
             full_positions: dict[str, list[Position]],
             evaluation_time_ms: int = None,
             verbose=True,
-            weighting=False
+            weighting=False,
+            metrics=None
     ) -> List[Tuple[str, float]]:
         if len(ledger_dict) == 0:
             bt.logging.debug("No results to compute, returning empty list")
@@ -98,7 +103,8 @@ class Scoring:
             full_positions,
             evaluation_time_ms=evaluation_time_ms
         )
-
+        if metrics is not None:
+            Scoring.scoring_config = metrics
         # Compute miner penalties
         miner_penalties = Scoring.miner_penalties(filtered_positions, ledger_dict)
 
