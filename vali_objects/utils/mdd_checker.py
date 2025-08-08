@@ -310,7 +310,7 @@ class MDDChecker(CacheController):
         trade_pair = limit_order.trade_pair
         order_uuid = limit_order.order_uuid
 
-        limit_order_dir = ValiBkpUtils.get_limit_orders_dir(miner_hotkey, trade_pair.trade_pair_id, "unfilled")
+        limit_order_dir = ValiBkpUtils.get_limit_orders_dir(miner_hotkey, trade_pair.trade_pair_id, "unfilled", self.running_unit_tests)
         ValiBkpUtils.write_file(limit_order_dir + order_uuid, limit_order)
 
         orders.append(limit_order)
@@ -385,8 +385,8 @@ class MDDChecker(CacheController):
             position.add_order(order, net_portfolio_leverage)
             self.position_manager.save_miner_position(position)
 
-            unfilled_dir = ValiBkpUtils.get_limit_orders_dir(miner_hotkey, trade_pair.trade_pair_id, "unfilled")
-            closed_dir = ValiBkpUtils.get_limit_orders_dir(miner_hotkey, trade_pair.trade_pair_id, "closed")
+            unfilled_dir = ValiBkpUtils.get_limit_orders_dir(miner_hotkey, trade_pair.trade_pair_id, "unfilled", self.running_unit_tests)
+            closed_dir = ValiBkpUtils.get_limit_orders_dir(miner_hotkey, trade_pair.trade_pair_id, "closed", self.running_unit_tests)
 
             unfilled_file = unfilled_dir + order.order_uuid
             destination_filename = closed_dir + order.order_uuid
@@ -412,8 +412,8 @@ class MDDChecker(CacheController):
                 ]
 
 
-            unfilled_dir = ValiBkpUtils.get_limit_orders_dir(miner_hotkey, trade_pair.trade_pair_id, "unfilled")
-            closed_dir = ValiBkpUtils.get_limit_orders_dir(miner_hotkey, trade_pair.trade_pair_id, "closed")
+            unfilled_dir = ValiBkpUtils.get_limit_orders_dir(miner_hotkey, trade_pair.trade_pair_id, "unfilled", self.running_unit_tests)
+            closed_dir = ValiBkpUtils.get_limit_orders_dir(miner_hotkey, trade_pair.trade_pair_id, "closed", self.running_unit_tests)
             os.makedirs(closed_dir, exist_ok=True)
 
             if not orders_to_cancel:
