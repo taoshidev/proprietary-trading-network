@@ -42,7 +42,6 @@ class PositionManager(CacheController):
                  live_price_fetcher=None,
                  is_backtesting=False,
                  shared_queue_websockets=None,
-                 contract_manager=None,
                  split_positions_on_disk_load=False):
 
         super().__init__(metagraph=metagraph, running_unit_tests=running_unit_tests, is_backtesting=is_backtesting)
@@ -52,7 +51,6 @@ class PositionManager(CacheController):
         self.challengeperiod_manager = challengeperiod_manager
         self.elimination_manager = elimination_manager
         self.shared_queue_websockets = shared_queue_websockets
-        self.contract_manager = contract_manager
 
         self.recalibrated_position_uuids = set()
 
@@ -1386,91 +1384,6 @@ class PositionManager(CacheController):
                     self.split_stats[hotkey]['product_return_post_split'] *= pos.return_at_close
 
         return positions, split_info
-
-    def get_miner_allocated_capital(self, hotkey: str, tao_price_usd: float) -> float:
-        """
-        Get the allocated capital for a miner based on their collateral.
-
-        Args:
-            hotkey: Miner's hotkey (SS58 address)
-            tao_price_usd: Current TAO price in USD
-
-        Returns:
-            Allocated capital amount in USD
-        """
-        if not self.contract_manager:
-            return ValiConfig.CAPITAL  # fallback if no contract manager
-
-        allocated_capital, _ = self.contract_manager.calculate_capital_allocation(hotkey, tao_price_usd)
-        return allocated_capital
-
-    def is_miner_adequately_collateralized(self, hotkey: str, account_summary, tao_price_usd: float, min_collateral_ratio: float = 1.2) -> bool:
-        """
-        Check if miner has adequate collateral for their current positions.
-
-        Args:
-            hotkey: Miner's hotkey (SS58 address)
-            account_summary: Miner's performance summary
-            tao_price_usd: Current TAO price in USD
-            min_collateral_ratio: Minimum collateral ratio required
-
-        Returns:
-            True if adequately collateralized
-        """
-        if not self.contract_manager:
-            return True  # fallback if no contract manager
-
-        return self.contract_manager.is_miner_adequately_collateralized(
-            hotkey, account_summary, tao_price_usd, min_collateral_ratio
-        )
-
-    def get_miner_capital_stats(self, hotkey: str, tao_price_usd: float) -> Dict[str, float]:
-        """
-        Get comprehensive capital statistics for a miner.
-
-        Args:
-            hotkey: Miner's hotkey (SS58 address)
-            tao_price_usd: Current TAO price in USD
-
-        Returns:
-            Dictionary containing capital stats including collateral, allocation, leverage, etc.
-        """
-        stats = {}
-
-        if self.contract_manager:
-            # Get contract-based stats
-            allocated_capital, collateral_ratio = self.contract_manager.calculate_capital_allocation(hotkey, tao_price_usd)
-            collateral_tao = self.contract_manager.get_miner_collateral_balance_tao(hotkey)
-            account_size = self.contract_manager.get_miner_account_size(hotkey)
-
-            stats.update({
-                'allocated_capital_usd': allocated_capital,
-                'collateral_ratio': collateral_ratio,
-                'collateral_tao': collateral_tao,
-                'collateral_usd': collateral_tao * tao_price_usd,
-                'account_size_usd': account_size,
-            })
-        else:
-            # Fallback stats without contract manager
-            stats.update({
-                'allocated_capital_usd': ValiConfig.CAPITAL,
-                'collateral_ratio': 1.0,
-                'collateral_tao': 0.0,
-                'collateral_usd': 0.0,
-                'account_size_usd': ValiConfig.CAPITAL,
-            })
-
-        # Add position-based stats
-        portfolio_leverage = self.calculate_net_portfolio_leverage(hotkey)
-        open_positions = self.get_positions_for_one_hotkey(hotkey, only_open_positions=True)
-
-        stats.update({
-            'portfolio_leverage': portfolio_leverage,
-            'open_positions_count': len(open_positions),
-            'capital_utilization': portfolio_leverage / stats.get('allocated_capital_usd', ValiConfig.CAPITAL) if stats.get('allocated_capital_usd', ValiConfig.CAPITAL) > 0 else 0
-        })
-
-        return stats
 
 if __name__ == '__main__':
     from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager

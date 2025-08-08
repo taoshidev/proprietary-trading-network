@@ -57,8 +57,7 @@ from vali_objects.vali_config import ValiConfig, TradePair
 from vali_objects.utils.price_utils import PriceUtils
 
 from vali_objects.utils.plagiarism_detector import PlagiarismDetector
-from vali_objects.utils.contract_manager import ContractManager
-from collateral_sdk import Network
+from vali_objects.utils.validator_contract_manager import ValidatorContractManager
 
 # Global flag used to indicate shutdown
 shutdown_dict = {}
@@ -201,15 +200,10 @@ class Validator:
                                     ipc_manager=self.ipc_manager,
                                     position_manager=None)  # Set after self.pm creation
 
-        # Initialize ContractManager for collateral management
-        contract_network = Network.MAINNET if self.is_mainnet else Network.TESTNET
-        self.contract_manager = ContractManager(
-            network=contract_network,
-            owner_address=self.secrets.get('contract_owner_address'),
-            owner_private_key=self.secrets.get('contract_owner_private_key'),
-            data_dir=self.config.full_path
-        )
-        bt.logging.info(f"ContractManager initialized for network: {contract_network.name}")
+
+        # Initialize ValidatorContractManager for collateral operations
+        self.contract_manager = ValidatorContractManager(config=self.config, metagraph=self.metagraph)
+
 
         self.perf_ledger_manager = PerfLedgerManager(self.metagraph, ipc_manager=self.ipc_manager,
                                                      shutdown_dict=shutdown_dict,
@@ -226,8 +220,7 @@ class Validator:
                                                 elimination_manager=self.elimination_manager,
                                                 challengeperiod_manager=None,
                                                 secrets=self.secrets,
-                                                shared_queue_websockets=self.shared_queue_websockets,
-                                                contract_manager=self.contract_manager)
+                                                shared_queue_websockets=self.shared_queue_websockets)
 
         self.position_locks = PositionLocks(hotkey_to_positions=self.position_manager.get_positions_for_all_miners())
 
@@ -373,9 +366,6 @@ class Validator:
         self.perf_ledger_updater_thread = Process(target=self.perf_ledger_manager.run_update_loop, daemon=True)
         self.perf_ledger_updater_thread.start()
 
-        # Initialize ValidatorContractManager for collateral operations
-        self.contract_manager = ValidatorContractManager(config=self.config, metagraph=self.metagraph)
-
         if self.config.start_generate:
             self.rog = RequestOutputGenerator(rcm=self.request_core_manager, msm=self.miner_statistics_manager)
             self.rog_thread = threading.Thread(target=self.rog.start_generation, daemon=True)
@@ -484,7 +474,7 @@ class Validator:
         # (developer): Adds your custom arguments to the parser.
         # Adds override arguments for network and netuid.
         parser.add_argument("--netuid", type=int, default=1, help="The chain subnet uid.")
-        
+
         # Vault wallet specific arguments for collateral operations
         # These allow using a separate wallet for collateral operations instead of the main validator wallet
         parser.add_argument("--vault-wallet.name", type=str, default=None, dest="vault_wallet_name",
@@ -493,7 +483,7 @@ class Validator:
                             help="Hotkey of the vault wallet for collateral operations (optional)")
         parser.add_argument("--vault-wallet.path", type=str, default="~/.bittensor/wallets/", dest="vault_wallet_path",
                             help="Path to the vault wallet directory (default: ~/.bittensor/wallets/)")
-        
+
         # Adds subtensor specific arguments i.e. --subtensor.chain_endpoint ... --subtensor.network ...
         bt.subtensor.add_args(parser)
         # Adds logging specific arguments i.e. --logging.debug ..., --logging.trace .. or --logging.logging_dir ...
@@ -597,7 +587,7 @@ class Validator:
                 self.mdd_checker.mdd_check(self.position_locks)
                 self.challengeperiod_manager.refresh(current_time=current_time)
                 self.elimination_manager.process_eliminations(self.position_locks)
-                self.contract_manager.refresh_account_sizes(timestamp_ms=current_time)
+                # self.contract_manager.refresh_account_sizes(timestamp_ms=current_time)
                 #self.position_locks.cleanup_locks(self.metagraph.hotkeys)
                 self.weight_setter.set_weights(self.wallet, self.config.netuid, self.metagraph_updater.get_subtensor(), current_time=current_time)
                 #self.p2p_syncer.sync_positions_with_cooldown()
@@ -673,7 +663,7 @@ class Validator:
             if order_type == OrderType.FLAT:
                 open_position = None
             else:
-                account_size = self.contract_manager.get_recent_account_sizes(hotkeys=[miner_hotkey], timestamp_ms=order_time_ms).get(miner_hotkey)
+                account_size = self.contract_manager.get_miner_account_size(hotkey=miner_hotkey, timestamp_ms=order_time_ms)
                 # if a position doesn't exist, then make a new one
                 open_position = Position(
                     miner_hotkey=miner_hotkey,
