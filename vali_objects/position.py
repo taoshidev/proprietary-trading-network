@@ -382,13 +382,15 @@ class Position(BaseModel):
             position_volume = (self.net_leverage * self.account_size) / self.average_entry_price
         # pnl with slippage
         if ALWAYS_USE_SLIPPAGE or (ALWAYS_USE_SLIPPAGE is None and t_ms >= SLIPPAGE_V1_TIME_MS):
-
+#TODO, change this to use the order.volume
             if order:
+                order_volume = (self.account_size * order.leverage) / order.price
                 # update realized pnl for orders that reduce the size of a position
                 if (order.order_type != self.position_type or self.position_type == OrderType.FLAT):
                     exit_price = current_price * (1 + order.slippage) if order.leverage > 0 else current_price * (1 - order.slippage)
-                    self.realized_pnl += -1 * (exit_price - self.average_entry_price) * (order.volume * order.trade_pair.lot_size)  # TODO: FIFO entry cost
-                self.unrealized_pnl = (current_price - self.average_entry_price) * min(position_volume, position_volume + order.volume, key=abs)
+                    #TODO revert the below to use proper volume
+                    self.realized_pnl += -1 * (exit_price - self.average_entry_price) * order_volume #* (order.volume * order.trade_pair.lot_size)  # TODO: FIFO entry cost
+                self.unrealized_pnl = (current_price - self.average_entry_price) * min(position_volume, position_volume + order_volume, key=abs)
             else:
                 self.unrealized_pnl = (current_price - self.average_entry_price) * position_volume
 
@@ -578,7 +580,9 @@ class Position(BaseModel):
                     self.average_entry_price * self.net_leverage
                     + entry_price * delta_leverage
                 ) / new_net_leverage
-                self.cumulative_entry_value += entry_price * (order.volume * order.trade_pair.lot_size)
+                #TODO Revert this
+                order_volume = (self.account_size * order.leverage) / order.price
+                self.cumulative_entry_value += entry_price * order_volume #(order.volume * order.trade_pair.lot_size)
             self.net_leverage = new_net_leverage
 
     def initialize_position_from_first_order(self, order):
