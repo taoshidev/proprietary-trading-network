@@ -53,7 +53,8 @@ from vali_objects.vali_dataclasses.order import Order
 from vali_objects.position import Position
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.utils.vali_utils import ValiUtils
-from vali_objects.vali_config import ValiConfig
+from vali_objects.vali_config import ValiConfig, TradePair
+from vali_objects.utils.price_utils import PriceUtils
 
 from vali_objects.utils.plagiarism_detector import PlagiarismDetector
 from vali_objects.utils.contract_manager import ContractManager
@@ -799,93 +800,92 @@ class Validator:
             temp = str(uuid.uuid4())
         return temp
 
-    def parse_order_size(self, signal, price, trade_pair, portfolio_value, bid, ask):
+    def get_usd_conversion_prices(self, miner_hotkey, trade_pair, now_ms):
+        """Gets relevant bid and ask prices to be stored in the order"""
+        if not trade_pair.is_forex:
+            return 0, 0, 0, 0
+        # First fetch bid or ask price for converting USD to base
+        base = trade_pair.base
+        quote = trade_pair.quote
+        usd_first_conversion_trade_pair = TradePair.get_valid_usd_conversion_trade_pair(base)
+        if usd_first_conversion_trade_pair is None:
+            raise SignalException(
+                f"Ignoring order for [{miner_hotkey}] due to usd conversion trade pair not existing for [{trade_pair}]. Please alert a team member!")
+
+        usd_base_bid = 0
+        base_usd_ask = 0
+        quote_usd_bid = 0
+        usd_quote_ask = 0
+
+        first_price_sources = self.live_price_fetcher.get_sorted_price_sources_for_trade_pair(usd_first_conversion_trade_pair, now_ms)
+        if not first_price_sources:
+            raise SignalException(
+                f"Ignoring order for [{miner_hotkey}] due to no live prices being found for usd conversion trade pair [{usd_first_conversion_trade_pair}]. Please try again.")
+        first_best_price_source = first_price_sources[0]
+
+        if usd_first_conversion_trade_pair.quote == "USD":
+            base_usd_ask = first_best_price_source.ask
+        else:
+            usd_base_bid = first_best_price_source.bid
+
+        # Second fetch bid or ask price for converting from quote to USD
+        usd_second_conversion_trade_pair = TradePair.get_valid_usd_conversion_trade_pair(quote)
+        if usd_second_conversion_trade_pair is None:
+            raise SignalException(
+                f"Ignoring order for [{miner_hotkey}] due to usd conversion trade pair not existing for [{usd_second_conversion_trade_pair}]. Please alert a team member!")
+
+        second_price_sources = self.live_price_fetcher.get_sorted_price_sources_for_trade_pair(usd_second_conversion_trade_pair, now_ms)
+        if not second_price_sources:
+            raise SignalException(
+                f"Ignoring order for [{miner_hotkey}] due to no live prices being found for usd conversion trade pair [{usd_second_conversion_trade_pair}]. Please try again.")
+        second_best_price_source = second_price_sources[0]
+
+        if usd_second_conversion_trade_pair.quote == "USD":
+            quote_usd_bid = second_best_price_source.bid
+        else:
+            usd_quote_ask = second_best_price_source.ask
+
+        return usd_base_bid, base_usd_ask, quote_usd_bid, usd_quote_ask
+
+    def parse_order_size(self, signal, trade_pair, price, portfolio_value, usd_base_bid, base_usd_ask):
         """
         parses an order signal and calculates leverage, value, and volume
         """
         leverage = signal.get("leverage")
         value = signal.get("value")
-        volume = signal.get("volume")
 
-        fields_set = [x is not None for x in (leverage, value, volume)]
+        fields_set = [x is not None for x in (leverage, value)]
         if sum(fields_set) != 1:
-            raise ValueError("Exactly one of 'leverage', 'value', or 'volume' must be set")
+            raise ValueError("Exactly one of 'leverage' or 'value' must be set")
 
-        if leverage is not None:
-            value = leverage * portfolio_value
-            volume = value / (price * trade_pair.lot_size)
-        elif value is not None:
+        # Get usd notional value
+        if value is not None:
+            usd_value = value
+        else:
+            usd_value = leverage * portfolio_value
+
+        # Only convert if forex
+        if trade_pair.is_forex:
+            if usd_base_bid == 0:
+                base = trade_pair.base
+                quote = "USD"
+            else:
+                base = "USD"
+                quote = trade_pair.base
+
+            # Convert currency
+            units_base_currency = PriceUtils.currency_converter(amount=usd_value, base=base, quote=quote, from_currency="USD", to_currency=trade_pair.base, bid_price=usd_base_bid, ask_price=base_usd_ask)
+
+            # Round to 0.01 standard lots
+            volume_base_currency = units_base_currency / trade_pair.lot_size
+
+            # Round to broker minimum lot size
+            rounded_volume = round(volume_base_currency, 2)
+        else:
+            rounded_volume = value / (price * trade_pair.lot_size)
+        if leverage is None:
             leverage = value / portfolio_value
-            volume = value / (price * trade_pair.lot_size)
-        elif volume is not None:
-            value = volume * (price * trade_pair.lot_size)
-            leverage = value / portfolio_value
-
-        return leverage, value, volume
-
-    def currency_converter(
-            amount: float,
-            trade_pair: TradePair,
-            from_currency: str,
-            to_currency: str,
-            bid_price: float,
-            ask_price: float,
-            is_reverse: bool = False
-    ) -> float:
-        """
-        Convert between currencies in a given trading pair using bid/ask prices
-
-        Args:
-            amount: Amount to convert or target amount to obtain
-            trade_pair: TradePair object containing base and quote currencies
-            from_currency: 3-letter ISO currency code to convert from (e.g. "USD")
-            to_currency: 3-letter ISO currency code to convert to (e.g. "EUR")
-            bid_price: Best available buying price for the currency pair
-            ask_price: Best available selling price for the currency pair
-            is_reverse: Reverse mode flag (defaults to False)
-                - True: Calculates how much source currency is required to obtain the target amount (reverse conversion)
-                - False: Calculates how much target currency can be obtained from the source amount (forward conversion)
-        Returns:
-            Converted amount in target currency, or None for invalid conversions
-
-        Raises:
-            ValueError: For invalid currency inputs or zero prices
-        """
-
-        # Validate inputs
-        if from_currency == to_currency or not trade_pair.is_forex:
-            return amount
-
-        base = trade_pair.base
-        quote = trade_pair.quote
-        
-        if base is None or quote is None:
-            raise ValueError(f"Trade pair {trade_pair.trade_pair_id} does not have valid base/quote currencies")
-        
-        valid_currencies = {base, quote}
-
-        if from_currency not in valid_currencies or to_currency not in valid_currencies:
-            raise ValueError(f"Currencies must belong to {trade_pair.trade_pair}. "
-                             f"Converting: {from_currency}->{to_currency}")
-
-        if bid_price <= 0 or ask_price <= 0:
-            raise ValueError("Bid/ask prices must be positive")
-
-        # Determine conversion direction
-        if not is_reverse:  # forward conversion
-            if from_currency == base and to_currency == quote:
-                return amount * bid_price  # Sell base at bid price
-            if from_currency == quote and to_currency == base:
-                return amount / ask_price  # Buy base with quote at ask price
-
-        else:  # reverse conversion
-            if from_currency == base and to_currency == quote:
-                return amount / bid_price
-            if from_currency == quote and to_currency == base:
-                return amount * ask_price
-
-        raise ValueError(f"Invalid conversion direction for {trade_pair.trade_pair}: "
-                         f"{from_currency}->{to_currency}")
+        return leverage, usd_value, rounded_volume
 
     # This is the core validator function to receive a signal
     def receive_signal(self, synapse: template.protocol.SendSignal,
@@ -934,9 +934,8 @@ class Validator:
                 existing_position = self._get_or_create_open_position_from_new_order(trade_pair, signal_order_type, now_ms, miner_hotkey, trade_pair_to_open_position, miner_order_uuid)
                 if existing_position:
                     price = best_price_source.parse_appropriate_price(now_ms, trade_pair.is_forex, signal_order_type, existing_position)
-                    bid = best_price_source.bid
-                    ask = best_price_source.ask
-                    leverage, value, volume = self.parse_order_size(signal, price, trade_pair, existing_position.account_size, bid, ask)
+                    usd_base_bid, base_usd_ask, quote_usd_bid, usd_quote_ask = self.get_usd_conversion_prices(miner_hotkey, trade_pair, now_ms)
+                    leverage, value, volume = self.parse_order_size(signal, trade_pair, price, existing_position.account_size, usd_base_bid, base_usd_ask)
 
                     order = Order(
                         trade_pair=trade_pair,
@@ -950,6 +949,10 @@ class Validator:
                         price_sources=price_sources,
                         bid=best_price_source.bid,
                         ask=best_price_source.ask,
+                        usd_base_bid=usd_base_bid,
+                        base_usd_ask=base_usd_ask,
+                        quote_usd_bid=quote_usd_bid,
+                        usd_quote_ask=usd_quote_ask,
                     )
                     self.price_slippage_model.refresh_features_daily()
                     order.slippage = PriceSlippageModel.calculate_slippage(order.bid, order.ask, order)
