@@ -579,7 +579,7 @@ class Position(BaseModel):
                 entry_price = order.price * (1 + order.slippage) if order.leverage > 0 else order.price * (1 - order.slippage)
 
                 self.average_entry_price = (
-                    self.average_entry_price * self.cumulative_position_volume +
+                    self.average_entry_price * self.cumulative_position_volume
                     + entry_price * order.volume
                 ) / (self.cumulative_position_volume + order.volume)
 
