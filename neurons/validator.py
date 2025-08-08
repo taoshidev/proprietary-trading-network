@@ -199,15 +199,16 @@ class Validator:
                                     ipc_manager=self.ipc_manager,
                                     position_manager=None)  # Set after self.pm creation
 
+
         # Initialize ValidatorContractManager for collateral operations
         self.contract_manager = ValidatorContractManager(config=self.config, metagraph=self.metagraph)
+
 
         self.perf_ledger_manager = PerfLedgerManager(self.metagraph, ipc_manager=self.ipc_manager,
                                                      shutdown_dict=shutdown_dict,
                                                      perf_ledger_hks_to_invalidate=self.position_syncer.perf_ledger_hks_to_invalidate,
                                                      position_manager=None,  # Set after self.pm creation
                                                      contract_manager=self.contract_manager)
-
 
 
         self.position_manager = PositionManager(metagraph=self.metagraph,
@@ -217,8 +218,7 @@ class Validator:
                                                 elimination_manager=self.elimination_manager,
                                                 challengeperiod_manager=None,
                                                 secrets=self.secrets,
-                                                shared_queue_websockets=self.shared_queue_websockets,
-                                                contract_manager=self.contract_manager)
+                                                shared_queue_websockets=self.shared_queue_websockets)
 
         self.position_locks = PositionLocks(hotkey_to_positions=self.position_manager.get_positions_for_all_miners())
 
@@ -585,7 +585,7 @@ class Validator:
                 self.mdd_checker.mdd_check(self.position_locks)
                 self.challengeperiod_manager.refresh(current_time=current_time)
                 self.elimination_manager.process_eliminations(self.position_locks)
-                self.contract_manager.refresh_account_sizes(timestamp_ms=current_time)
+                # self.contract_manager.refresh_account_sizes(timestamp_ms=current_time)
                 #self.position_locks.cleanup_locks(self.metagraph.hotkeys)
                 self.weight_setter.set_weights(self.wallet, self.config.netuid, self.metagraph_updater.get_subtensor(), current_time=current_time)
                 #self.p2p_syncer.sync_positions_with_cooldown()
@@ -661,7 +661,7 @@ class Validator:
             if order_type == OrderType.FLAT:
                 open_position = None
             else:
-                account_size = self.contract_manager.get_recent_account_sizes(hotkeys=[miner_hotkey], timestamp_ms=order_time_ms).get(miner_hotkey)
+                account_size = self.contract_manager.get_miner_account_size(hotkey=miner_hotkey, timestamp_ms=order_time_ms)
                 # if a position doesn't exist, then make a new one
                 open_position = Position(
                     miner_hotkey=miner_hotkey,
