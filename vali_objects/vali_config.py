@@ -263,8 +263,9 @@ class ValiConfig:
 
     PROBATION_MAXIMUM_DAYS = 30
     PROBATION_MAXIMUM_MS = PROBATION_MAXIMUM_DAYS * DAILY_MS
+    ASSET_SPLIT_GRACE_DATE = "2025-10-02"
 
-    PROMOTION_THRESHOLD_RANK = 25 # Number of MAINNET miners
+    PROMOTION_THRESHOLD_RANK = 15 # Number of MAINCOMP miners per asset class
 
     # Plagiarism
     ORDER_SIMILARITY_WINDOW_MS = 60000 * 60 * 24
@@ -292,6 +293,10 @@ class ValiConfig:
 
     # Cap leverage across miner's entire portfolio
     PORTFOLIO_LEVERAGE_CAP = 10
+
+    # Collateral limits
+    MAX_COLLATERAL_BALANCE_THETA = 50.0  # Maximum total collateral balance per miner in Theta tokens
+    MAX_COLLATERAL_BALANCE_TESTNET = 10000.0
 
 assert ValiConfig.CRYPTO_MIN_LEVERAGE >= ValiConfig.ORDER_MIN_LEVERAGE
 assert ValiConfig.CRYPTO_MAX_LEVERAGE <= ValiConfig.ORDER_MAX_LEVERAGE

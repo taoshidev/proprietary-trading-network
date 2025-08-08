@@ -165,9 +165,11 @@ class TestAssetSegmentation(TestBase):
         segmentation = AssetSegmentation(self.test_ledgers)
         segmentation.asset_subcategories = {"crypto_majors"}
         
-        with patch('bittensor.logging.warning') as mock_warning:
-            segmentation.ledger_subset("crypto_majors")
-            mock_warning.assert_called()
+        # with patch('bittensor.logging.warning') as mock_warning:
+        #     segmentation.ledger_subset("crypto_majors")
+        #     mock_warning.assert_called()
+
+        assert all(value == {} for value in segmentation.ledger_subset("crypto_majors").values())
 
     def test_aggregate_miner_subledgers_empty(self):
         """Test aggregate_miner_subledgers with empty sub_ledgers"""

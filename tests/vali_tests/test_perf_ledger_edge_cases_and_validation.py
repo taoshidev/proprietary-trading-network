@@ -339,8 +339,55 @@ class TestPerfLedgerEdgeCasesAndValidation(TestBase):
     @patch('vali_objects.vali_dataclasses.perf_ledger.LivePriceFetcher')
     def test_negative_returns_and_mdd(self, mock_lpf):
         """Test maximum drawdown calculation with negative returns."""
+        from collections import namedtuple
+        Candle = namedtuple('Candle', ['timestamp', 'close'])
+        
         mock_pds = Mock()
-        mock_pds.unified_candle_fetcher.return_value = []
+        
+        # Mock candle data to provide prices for the positions
+        def mock_unified_candle_fetcher(*args, **kwargs):
+            # Extract parameters
+            if args:
+                trade_pair = args[0]
+                start_ms = args[1] if len(args) > 1 else kwargs.get('start_timestamp_ms')
+                end_ms = args[2] if len(args) > 2 else kwargs.get('end_timestamp_ms')
+            else:
+                trade_pair = kwargs.get('trade_pair')
+                start_ms = kwargs.get('start_timestamp_ms')
+                end_ms = kwargs.get('end_timestamp_ms')
+            
+            # Generate candles with prices matching our position prices
+            candles = []
+            base_time = self.now_ms - (20 * MS_IN_24_HOURS)
+            
+            # Define prices at key timestamps to match position open/close prices
+            price_schedule = [
+                (base_time, 50000.0),  # Start of loss1
+                (base_time + MS_IN_24_HOURS, 49000.0),  # End of loss1, start of loss2
+                (base_time + 2 * MS_IN_24_HOURS, 47000.0),  # End of loss2, start of loss3
+                (base_time + 3 * MS_IN_24_HOURS, 45000.0),  # End of loss3, start of recovery
+                (base_time + 4 * MS_IN_24_HOURS, 46000.0),  # End of recovery
+                (base_time + 10 * MS_IN_24_HOURS, 46000.0),  # Final update time
+            ]
+            
+            # Generate minute candles between start_ms and end_ms
+            for i in range(len(price_schedule) - 1):
+                t1, p1 = price_schedule[i]
+                t2, p2 = price_schedule[i + 1]
+                
+                if t1 <= end_ms and t2 >= start_ms:
+                    # Generate candles for this period
+                    current_ms = max(t1, start_ms)
+                    while current_ms <= min(t2, end_ms):
+                        # Linear interpolation between prices
+                        progress = (current_ms - t1) / (t2 - t1) if t2 > t1 else 0
+                        price = p1 + (p2 - p1) * progress
+                        candles.append(Candle(timestamp=current_ms, close=price))
+                        current_ms += 60000  # 1 minute
+            
+            return candles
+        
+        mock_pds.unified_candle_fetcher.side_effect = mock_unified_candle_fetcher
         mock_pds.tp_to_mfs = {}
         mock_lpf.return_value.polygon_data_service = mock_pds
         
@@ -349,6 +396,8 @@ class TestPerfLedgerEdgeCasesAndValidation(TestBase):
             running_unit_tests=True,
             position_manager=self.position_manager,
             parallel_mode=ParallelizationMode.SERIAL,
+            live_price_fetcher=mock_lpf.return_value,
+            is_backtesting=True,  # Ensure we process historical data
         )
         
         base_time = self.now_ms - (20 * MS_IN_24_HOURS)
@@ -370,16 +419,33 @@ class TestPerfLedgerEdgeCasesAndValidation(TestBase):
             )
             self.position_manager.save_miner_position(position)
         
-        # Update
-        plm.update(t_ms=base_time + (10 * MS_IN_24_HOURS))
+        # Update incrementally to build up state properly
+        current_time = base_time
+        step_size = 12 * 60 * 60 * 1000  # 12 hours
+        final_time = base_time + (10 * MS_IN_24_HOURS)
+        
+        while current_time < final_time:
+            next_time = min(current_time + step_size, final_time)
+            plm.update(t_ms=next_time)
+            current_time = next_time
         
         # Check MDD
         bundles = plm.get_perf_ledgers(portfolio_only=False)
         btc_ledger = bundles[self.test_hotkey][TradePair.BTCUSD.trade_pair_id]
         
         # MDD should be less than 1.0 (indicating drawdown)
-        final_cp = btc_ledger.cps[-1]
-        self.assertLess(final_cp.mdd, 1.0, "Should have drawdown with losing positions")
+        # Find a checkpoint with actual updates (n_updates > 0)
+        checkpoint_with_data = None
+        for cp in reversed(btc_ledger.cps):
+            if cp.n_updates > 0:
+                checkpoint_with_data = cp
+                break
+        
+        if checkpoint_with_data:
+            self.assertLess(checkpoint_with_data.mdd, 1.0, 
+                          f"Should have drawdown with losing positions. MDD={checkpoint_with_data.mdd}")
+        else:
+            self.fail("No checkpoint with updates found")
 
     @patch('vali_objects.vali_dataclasses.perf_ledger.LivePriceFetcher')
     def test_fee_edge_cases(self, mock_lpf):
