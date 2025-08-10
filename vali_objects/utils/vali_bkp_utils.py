@@ -123,6 +123,11 @@ class ValiBkpUtils:
         return ValiConfig.BASE_DIR + f"{suffix}/validation/challengeperiod.json"
 
     @staticmethod
+    def get_asset_selections_file_location(running_unit_tests=False) -> str:
+        suffix = "/tests" if running_unit_tests else ""
+        return ValiConfig.BASE_DIR + f"{suffix}/validation/asset_selections.json"
+
+    @staticmethod
     def get_last_order_timestamp_file_location(running_unit_tests=False) -> str:
         suffix = "/tests" if running_unit_tests else ""
         return ValiConfig.BASE_DIR + f"{suffix}/validation/timestamp.json"
