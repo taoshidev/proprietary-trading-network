@@ -944,9 +944,9 @@ class PTNRestServer(APIKeyMixin):
 
                 # Send Slack notification
                 if self.slack_notifier:
-                    if result.get('success', False):
+                    if result.get('successfully_processed', False):
                         self.slack_notifier.send_message(
-                            f"{result.get('message')}"
+                            f"{result.get('success_message')}"
                             f"Network: {self.config.subtensor.network}\n",
                             level="success"
                         )
