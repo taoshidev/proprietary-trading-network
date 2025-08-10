@@ -150,7 +150,7 @@ class AssetSelectionManager:
             
             return {
                 'success': True,
-                'message': f'Successfully selected asset class: {asset_selection}'
+                'message': f'Miner {miner} successfully selected asset class: {asset_selection}'
             }
             
         except Exception as e:

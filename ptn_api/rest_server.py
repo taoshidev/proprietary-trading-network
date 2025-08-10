@@ -294,7 +294,7 @@ class PTNRestServer(APIKeyMixin):
     """Handles REST API requests with Flask and Waitress."""
 
     def __init__(self, api_keys_file, shared_queue=None, host="127.0.0.1",
-                 port=48888, refresh_interval=15, metrics_interval_minutes=5, position_manager=None, contract_manager=None, asset_selection_manager=None, config=None):
+                 port=48888, refresh_interval=15, metrics_interval_minutes=5, position_manager=None, contract_manager=None, asset_selection_manager=None, config=None, slack_notifier=None):
         """Initialize the REST server with API key handling and routing.
 
         Args:
@@ -306,6 +306,7 @@ class PTNRestServer(APIKeyMixin):
             metrics_interval_minutes: How often to log API metrics (minutes)
             position_manager: Optional position manager for handling miner positions
             contract_manager: Optional contract manager for handling collateral operations
+            slack_notifier: Optional slack notifier for event notifications
         """
         # Initialize API key handling
         APIKeyMixin.__init__(self, api_keys_file, refresh_interval)
@@ -318,13 +319,20 @@ class PTNRestServer(APIKeyMixin):
         self.request_core_manager = request_core_manager
         self.nonce_manager = NonceManager()
         self.asset_selection_manager = asset_selection_manager
+        self.config = config
+        self.slack_notifier = slack_notifier
         self.data_path = ValiConfig.BASE_DIR
         self.host = host
         self.port = port
         self.app = Flask(__name__)
         self.app.config['MAX_CONTENT_LENGTH'] = 256 * 1024  # 256 KB upper bound
 
-        self.contract_manager.load_contract_owner()
+        # Get vault wallet
+        self.vault_wallet = bt.wallet(
+            name=self.config.vault_wallet_name,
+            hotkey=self.config.vault_wallet_hotkey,
+            path=self.config.vault_wallet_path
+        )
 
         # Flask-Compress removed to prevent double-compression of pre-compressed endpoints
         # Our critical endpoints (validator-checkpoint, minerstatistics) serve pre-compressed data
@@ -696,6 +704,15 @@ class PTNRestServer(APIKeyMixin):
                     extrinsic_hex=extrinsic
                 )
                 
+                # Send Slack notification
+                if self.slack_notifier:
+                    if result.get('successfully_processed', False):
+                        self.slack_notifier.send_message(
+                            f"{result.get('success_message')}"
+                            f"Network: {self.config.subtensor.network}\n",
+                            level="success"
+                        )
+                
                 # Return response
                 return jsonify(result)
                 
@@ -759,6 +776,15 @@ class PTNRestServer(APIKeyMixin):
                     miner_coldkey=data['miner_coldkey'],
                     miner_hotkey=data['miner_hotkey']
                 )
+
+                # Send Slack notification
+                if self.slack_notifier:
+                    if result.get('successfully_processed', False):
+                        self.slack_notifier.send_message(
+                            f"{result.get('success_message')}"
+                            f"Network: {self.config.subtensor.network}\n",
+                            level="success"
+                        )
                 
                 # Return response
                 return jsonify(result)
@@ -910,11 +936,20 @@ class PTNRestServer(APIKeyMixin):
                 if not is_valid:
                     return jsonify({'error': 'Invalid signature. Asset selection request unauthorized'}), 401
 
-                # Process the withdrawal using verified data
+                # Process the asset selection using verified data
                 result = self.asset_selection_manager.process_asset_selection_request(
                     asset_selection=data['asset_selection'],
                     miner=data['miner_hotkey']
                 )
+
+                # Send Slack notification
+                if self.slack_notifier:
+                    if result.get('success', False):
+                        self.slack_notifier.send_message(
+                            f"{result.get('message')}"
+                            f"Network: {self.config.subtensor.network}\n",
+                            level="success"
+                        )
 
                 # Return response
                 return jsonify(result)

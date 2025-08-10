@@ -9,7 +9,7 @@ from ptn_api.websocket_server import WebSocketServer
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 
 
-def start_rest_server(shared_queue, host="127.0.0.1", port=48888, refresh_interval=15, position_manager=None, contract_manager=None, asset_selection_manager=None, config=None):
+def start_rest_server(shared_queue, host="127.0.0.1", port=48888, refresh_interval=15, position_manager=None, contract_manager=None, asset_selection_manager=None, config=None, slack_notifier=None):
     """Starts the REST API server in a separate process."""
     try:
 
@@ -28,7 +28,8 @@ def start_rest_server(shared_queue, host="127.0.0.1", port=48888, refresh_interv
             position_manager=position_manager,
             contract_manager=contract_manager,
             asset_selection_manager=asset_selection_manager,
-            config=config
+            config=config,
+            slack_notifier=slack_notifier
         )
         rest_server.run()
     except Exception as e:
@@ -67,7 +68,7 @@ class APIManager:
                  rest_host="127.0.0.1", rest_port=48888,
                  ws_host="localhost", ws_port=8765,
                  position_manager=None, contract_manager=None,
-                 asset_selection_manager=None, config=None):
+                 asset_selection_manager=None, config=None, slack_notifier=None):
         """Initialize API management with shared queue and server configurations.
 
         Args:
@@ -79,6 +80,7 @@ class APIManager:
             ws_port: Port for the WebSocket server
             position_manager: PositionManager instance (optional) for fast miner positions
             contract_manager: ValidatorContractManager instance (optional) for collateral operations
+            slack_notifier: SlackNotifier instance (optional) for event notifications
         """
         if shared_queue is None:
             raise ValueError("shared_queue cannot be None - a valid queue is required")
@@ -95,6 +97,7 @@ class APIManager:
         self.contract_manager = contract_manager
         self.asset_selection_manager = asset_selection_manager
         self.config = config
+        self.slack_notifier = slack_notifier
 
         # Get default API keys file path
         self.api_keys_file = ValiBkpUtils.get_api_keys_file_path()
@@ -119,7 +122,7 @@ class APIManager:
         # Start REST server process with host/port configuration
         rest_process = Process(
             target=start_rest_server,
-            args=(self.shared_queue, self.rest_host, self.rest_port, self.refresh_interval, self.position_manager, self.contract_manager, self.asset_selection_manager, self.config),
+            args=(self.shared_queue, self.rest_host, self.rest_port, self.refresh_interval, self.position_manager, self.contract_manager, self.asset_selection_manager, self.config, self.slack_notifier),
             name="RestServer"
         )
         rest_process.start()
