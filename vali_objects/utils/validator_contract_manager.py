@@ -172,11 +172,12 @@ class ValidatorContractManager:
                     owner_private_key=self.owner_private_key,
                     wallet_password=self.vault_password
                 )
-                
-                bt.logging.info(f"Deposit successful: {self.rao_to_theta(deposited_balance.rao)} Theta deposited to miner: {miner_hotkey}")
+                msg = f"Deposit successful: {self.rao_to_theta(deposited_balance.rao)} Theta deposited to miner: {miner_hotkey}"
+                bt.logging.info(msg)
                 print("succesfully deposited")
                 return {
                     "successfully_processed": True,
+                    "success_message": msg,
                     "error_message": ""
                 }
                 
@@ -255,10 +256,12 @@ class ValidatorContractManager:
                     wallet_password=self.vault_password
                 )
                 returned_theta = self.rao_to_theta(withdrawn_balance.rao)
-                bt.logging.info(f"Withdrawal successful: {returned_theta} Theta withdrawn for {miner_hotkey}")
+                msg = f"Withdrawal successful: {returned_theta} Theta withdrawn for {miner_hotkey}"
+                bt.logging.info(msg)
                 print(f"Withdrawal successful: {returned_theta} Theta withdrawn for {miner_hotkey}, returned to {miner_coldkey}")
                 return {
                     "successfully_processed": True,
+                    "success_message": msg,
                     "error_message": "",
                     "returned_amount": returned_theta,
                     "returned_to": miner_hotkey
