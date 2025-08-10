@@ -25,13 +25,14 @@ PERCENT_NEW_POSITIONS_TIERS = [100, 50, 30, 0]
 assert sorted(PERCENT_NEW_POSITIONS_TIERS, reverse=True) == PERCENT_NEW_POSITIONS_TIERS, 'needs to be sorted for efficient pruning'
 
 class RequestCoreManager:
-    def __init__(self, position_manager, subtensor_weight_setter, plagiarism_detector):
+    def __init__(self, position_manager, subtensor_weight_setter, plagiarism_detector, asset_selection_manager=None):
         self.position_manager = position_manager
         self.perf_ledger_manager = position_manager.perf_ledger_manager
         self.elimination_manager = position_manager.elimination_manager
         self.challengeperiod_manager = position_manager.challengeperiod_manager
         self.subtensor_weight_setter = subtensor_weight_setter
         self.plagiarism_detector = plagiarism_detector
+        self.asset_selection_manager = asset_selection_manager
 
     def hash_string_to_int(self, s: str) -> int:
         # Create a SHA-256 hash object
@@ -153,6 +154,12 @@ class RequestCoreManager:
                                            challengeperiod_dict):
 
         perf_ledgers = self.perf_ledger_manager.get_perf_ledgers()
+        
+        # Get asset selections if available
+        asset_selections = {}
+        if self.asset_selection_manager:
+            asset_selections = self.asset_selection_manager._to_dict()
+        
         final_dict = {
             'version': ValiConfig.VERSION,
             'created_timestamp_ms': time_now,
@@ -162,7 +169,8 @@ class RequestCoreManager:
             'youngest_order_processed_ms': youngest_order_processed_ms,
             'oldest_order_processed_ms': oldest_order_processed_ms,
             'positions': ord_dict_hotkey_position_map,
-            'perf_ledgers': perf_ledgers
+            'perf_ledgers': perf_ledgers,
+            'asset_selections': asset_selections
         }
 
         vcp_output_file_path = ValiBkpUtils.get_vcp_output_path()
