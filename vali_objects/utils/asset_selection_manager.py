@@ -129,16 +129,16 @@ class AssetSelectionManager:
             if not self.is_valid_asset_class(asset_selection):
                 valid_classes = [category.value for category in TradePairCategory]
                 return {
-                    'success': False,
-                    'message': f'Invalid asset class. Valid options are: {", ".join(valid_classes)}'
+                    'successfully_processed': False,
+                    'error_message': f'Invalid asset class. Valid options are: {", ".join(valid_classes)}'
                 }
 
             # Check if miner has already selected an asset class
             if miner in self.asset_selections:
                 current_selection = self.asset_selections.get(miner)
                 return {
-                    'success': False,
-                    'message': f'Asset class already selected: {current_selection.value}. Cannot change selection.'
+                    'successfully_processed': False,
+                    'error_message': f'Asset class already selected: {current_selection.value}. Cannot change selection.'
                 }
 
             # Convert string to TradePairCategory and set the asset selection
@@ -149,15 +149,15 @@ class AssetSelectionManager:
             bt.logging.info(f"Miner {miner} selected asset class: {asset_selection}")
             
             return {
-                'success': True,
-                'message': f'Miner {miner} successfully selected asset class: {asset_selection}'
+                'successfully_processed': True,
+                'success_message': f'Miner {miner} successfully selected asset class: {asset_selection}'
             }
             
         except Exception as e:
             bt.logging.error(f"Error processing asset selection request for miner {miner}: {e}")
             return {
-                'success': False,
-                'message': 'Internal server error processing asset selection request'
+                'successfully_processed': False,
+                'error_message': 'Internal server error processing asset selection request'
             }
 
     def clear_all_selections(self) -> None:
