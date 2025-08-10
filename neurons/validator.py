@@ -405,7 +405,8 @@ class Validator:
                 position_manager=self.position_manager,
                 contract_manager=self.contract_manager,
                 asset_selection_manager=self.asset_selection_manager,
-                config=self.config
+                config=self.config,
+                slack_notifier=self.slack_notifier
             )
 
             # Start the API Manager in a separate process
