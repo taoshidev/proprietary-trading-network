@@ -15,6 +15,7 @@ from vali_objects.utils.position_manager import PositionManager
 from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
 from vali_objects.utils.validator_contract_manager import ValidatorContractManager
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
+from vali_objects.utils.asset_selection_manager import AssetSelectionManager
 import bittensor as bt
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
 
@@ -218,6 +219,22 @@ def regenerate_miner_positions(perform_backup=True, backup_from_data_dir=False, 
         bt.logging.info("No miner account sizes found in backup data")
 
     challengeperiod_manager._write_challengeperiod_from_memory_to_disk()
+    
+    ## Restore asset selections
+    asset_selections_data = data.get('asset_selections', {})
+    if asset_selections_data:
+        bt.logging.info(f"Restoring {len(asset_selections_data)} miner asset selections")
+        asset_selection_manager = AssetSelectionManager()
+        # Clear existing selections and restore from backup
+        asset_selection_manager.clear_all_selections()
+        # Restore selections by parsing the data
+        restored_selections = AssetSelectionManager._parse_asset_selections_dict(asset_selections_data)
+        asset_selection_manager.asset_selections = restored_selections
+        asset_selection_manager._save_asset_selections_to_disk()
+        bt.logging.info(f"Successfully restored {len(restored_selections)} asset selections")
+    else:
+        bt.logging.info("No asset selections found in backup data")
+    
     return True
 
 if __name__ == "__main__":

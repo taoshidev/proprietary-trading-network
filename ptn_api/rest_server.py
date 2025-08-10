@@ -294,8 +294,7 @@ class PTNRestServer(APIKeyMixin):
     """Handles REST API requests with Flask and Waitress."""
 
     def __init__(self, api_keys_file, shared_queue=None, host="127.0.0.1",
-                 port=48888, refresh_interval=15, metrics_interval_minutes=5, position_manager=None, contract_manager=None,
-                 miner_statistics_manager=None, request_core_manager=None):
+                 port=48888, refresh_interval=15, metrics_interval_minutes=5, position_manager=None, contract_manager=None, asset_selection_manager=None, config=None):
         """Initialize the REST server with API key handling and routing.
 
         Args:
@@ -318,6 +317,7 @@ class PTNRestServer(APIKeyMixin):
         self.miner_statistics_manager = miner_statistics_manager
         self.request_core_manager = request_core_manager
         self.nonce_manager = NonceManager()
+        self.asset_selection_manager = asset_selection_manager
         self.data_path = ValiConfig.BASE_DIR
         self.host = host
         self.port = port
@@ -880,6 +880,48 @@ class PTNRestServer(APIKeyMixin):
         except Exception as e:
             bt.logging.error(f"Error verifying coldkey-hotkey ownership: {e}")
             return False
+
+        @self.app.route("/asset-selection", methods=["POST"])
+        def asset_selection():
+            """Process asset selection request."""
+            try:
+                # Parse JSON request
+                if not request.is_json:
+                    return jsonify({'error': 'Content-Type must be application/json'}), 400
+
+                data = request.get_json()
+                if not data:
+                    return jsonify({'error': 'Invalid JSON body'}), 400
+
+                # Validate required fields for signed withdrawal
+                required_fields = ['asset_selection', 'miner_coldkey', 'miner_hotkey', 'signature']
+                for field in required_fields:
+                    if field not in data:
+                        return jsonify({'error': f'Missing required field: {field}'}), 400
+
+                # Verify the withdrawal signature
+                keypair = Keypair(ss58_address=data['miner_coldkey'])
+                message = json.dumps({
+                    "asset_selection": data['asset_selection'],
+                    "miner_coldkey": data['miner_coldkey'],
+                    "miner_hotkey": data['miner_hotkey']
+                }, sort_keys=True).encode('utf-8')
+                is_valid = keypair.verify(message, bytes.fromhex(data['signature']))
+                if not is_valid:
+                    return jsonify({'error': 'Invalid signature. Asset selection request unauthorized'}), 401
+
+                # Process the withdrawal using verified data
+                result = self.asset_selection_manager.process_asset_selection_request(
+                    asset_selection=data['asset_selection'],
+                    miner=data['miner_hotkey']
+                )
+
+                # Return response
+                return jsonify(result)
+
+            except Exception as e:
+                bt.logging.error(f"Error processing asset selection: {e}")
+                return jsonify({'error': 'Internal server error processing asset selection'}), 500
 
     def _get_api_key_safe(self) -> Optional[str]:
         """

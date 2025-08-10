@@ -29,16 +29,15 @@ class PositionSyncResultException(Exception):
 
 class ValidatorSyncBase():
     def __init__(self, shutdown_dict=None, signal_sync_lock=None, signal_sync_condition=None,
-                 n_orders_being_processed=None, running_unit_tests=False, position_manager=None,
-                 ipc_manager=None, enable_position_splitting = False, verbose=False, contract_manager=None,
-                 live_price_fetcher=None
+                 n_orders_being_processed=None, running_unit_tests=False, position_manager=None, asset_selection_manager=None,
+                 ipc_manager=None, enable_position_splitting = False, verbose=False
 ):
         self.verbose = verbose
         self.is_mothership = 'ms' in ValiUtils.get_secrets(running_unit_tests=running_unit_tests)
         self.SYNC_LOOK_AROUND_MS = 1000 * 60 * 3
         self.enable_position_splitting = enable_position_splitting
         self.position_manager = position_manager
-        self.contract_manager = contract_manager
+        self.asset_selection_manager = asset_selection_manager
         self.shutdown_dict = shutdown_dict
         self.last_signal_sync_time_ms = 0
         self.signal_sync_lock = signal_sync_lock
@@ -187,6 +186,20 @@ class ValidatorSyncBase():
                     else:
                         self.global_stats['exceptions_seen'] += 1
 
+        # Sync asset selections if available
+        asset_selections_data = candidate_data.get('asset_selections', {})
+        if asset_selections_data and self.asset_selection_manager:
+            bt.logging.info(f"Syncing {len(asset_selections_data)} miner asset selections")
+            try:
+                # Parse and update asset selections
+                restored_selections = self.asset_selection_manager._parse_asset_selections_dict(asset_selections_data)
+                self.asset_selection_manager.asset_selections = restored_selections
+                self.asset_selection_manager._save_asset_selections_to_disk()
+                bt.logging.info(f"Successfully synced {len(restored_selections)} asset selections")
+            except Exception as e:
+                bt.logging.error(f"Error syncing asset selections: {e}")
+        elif asset_selections_data:
+            bt.logging.warning("Asset selections found in backup but no AssetSelectionManager available")
 
         # Reorganized stats with clear, grouped naming
         # Overview
