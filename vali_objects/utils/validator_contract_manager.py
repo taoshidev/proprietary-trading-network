@@ -1,4 +1,4 @@
-from datetime import timezone, datetime
+from datetime import timezone, datetime, timedelta
 import bittensor as bt
 from bittensor_wallet import Wallet
 from collateral_sdk import CollateralManager, Network
@@ -17,10 +17,12 @@ class CollateralRecord:
 
     @staticmethod
     def valid_from_ms(update_time_ms) -> int:
-        """Returns timestamp of start of day (00:00:00 UTC) when this record is valid"""
+        """Returns timestamp of start of next day (00:00:00 UTC) when this record is valid"""
         dt = datetime.fromtimestamp(update_time_ms / 1000, tz=timezone.utc)
         start_of_day = dt.replace(hour=0, minute=0, second=0, microsecond=0)
-        return int(start_of_day.timestamp() * 1000)
+        # Record is valid from the start of the next day
+        start_of_next_day = start_of_day + timedelta(days=1)
+        return int(start_of_next_day.timestamp() * 1000)
 
     @property
     def valid_date_str(self) -> str:
@@ -446,48 +448,67 @@ class ValidatorContractManager:
 
     def set_miner_account_size(self, hotkey: str, timestamp_ms: int=None) -> None:
         """
-        Set the account size for a miner. Saves to memory and disk
+        Set the account size for a miner. Saves to memory and disk.
+        Records are kept in chronological order.
 
         Args:
             hotkey: Miner's hotkey (SS58 address)
+            timestamp_ms: Timestamp for the record (defaults to now)
         """
         if timestamp_ms is None:
             timestamp_ms = TimeUtil.now_in_millis()
 
         collateral_balance = self.get_miner_collateral_balance(hotkey)
+        if collateral_balance is None:
+            bt.logging.warning(f"Could not retrieve collateral balance for {hotkey}")
+            return
+            
         account_size = collateral_balance * ValiConfig.COST_PER_THETA
         collateral_record = CollateralRecord(account_size, timestamp_ms)
 
         if hotkey not in self.miner_account_sizes:
             self.miner_account_sizes[hotkey] = []
-        self.miner_account_sizes[hotkey].append(collateral_record)
         
+        # Add the new record
+        self.miner_account_sizes[hotkey].append(collateral_record)
+
         # Save to disk
         self._save_miner_account_sizes_to_disk()
 
-        bt.logging.info(f"Updated account size for {hotkey}: {account_size}")
+        bt.logging.info(f"Updated account size for {hotkey}: ${account_size:,.2f} (valid from {collateral_record.valid_date_str})")
 
     def get_miner_account_size(self, hotkey: str, timestamp_ms: int=None) -> float | None:
         """
-        Get the account size for a miner.
+        Get the account size for a miner at a given timestamp. Sort records in reverse chronological order, and return
+        the first record whose valid_date_timestamp <= start_of_day_ms
 
         Args:
             hotkey: Miner's hotkey (SS58 address)
+            timestamp_ms: Timestamp to query for (defaults to now)
 
         Returns:
-            Account size in USD
+            Account size in USD, or None if no applicable records
         """
         if timestamp_ms is None:
             timestamp_ms = TimeUtil.now_in_millis()
 
-        if hotkey in self.miner_account_sizes:
-            start_of_day_ms = int(
-                datetime.fromtimestamp(timestamp_ms / 1000, tz=timezone.utc)
-                .replace(hour=0, minute=0, second=0, microsecond=0)
-                .timestamp() * 1000
-            )
+        if hotkey not in self.miner_account_sizes or not self.miner_account_sizes[hotkey]:
+            return None
 
-            for collateral_record in self.miner_account_sizes[hotkey]:
-                if collateral_record.valid_date_timestamp == start_of_day_ms:
-                    return collateral_record.account_size
+        # Get start of the requested day
+        start_of_day_ms = int(
+            datetime.fromtimestamp(timestamp_ms / 1000, tz=timezone.utc)
+            .replace(hour=0, minute=0, second=0, microsecond=0)
+            .timestamp() * 1000
+        )
+        
+        # Sort records in reverse chronological order (newest first)
+        sorted_records = sorted(self.miner_account_sizes[hotkey], key=lambda r: r.update_time_ms, reverse=True)
+        
+        # Return the first record that is valid for or before the requested day
+        for record in sorted_records:
+            if record.valid_date_timestamp <= start_of_day_ms:
+                return record.account_size
+        
+        # No applicable records found
         return None
