@@ -107,8 +107,8 @@ class PerfCheckpoint(BaseModel):
     carry_fee_loss: float = 0.0
     mdd: float = 1.0
     mpv: float = 0.0
-    portfolio_realized_pnl: float = 0.0
-    portfolio_unrealized_pnl: float = 0.0
+    pnl_gain: float = 0.0
+    pnl_loss: float = 0.0
     account_size: float = ValiConfig.CAPITAL
 
     model_config = ConfigDict(extra="allow")
@@ -205,7 +205,7 @@ class PerfLedger():
 
     def init_with_first_order(self, order_processed_ms: int, point_in_time_dd: float, current_portfolio_value: float,
                               current_portfolio_fee_spread:float, current_portfolio_carry:float,
-                              portfolio_realized_pnl:float=0.0, portfolio_unrealized_pnl:float=0.0, hotkey: str=None):
+                              hotkey: str=None):
         # figure out how many ms we want to initalize the checkpoint with so that once self.target_cp_duration_ms is
         # reached, the CP ends at 00:00:00 UTC or 12:00:00 UTC (12 hr cp case). This may change based on self.target_cp_duration_ms
         # |----x------midday-----------| -> accum_ms_for_utc_alignment = (distance between start of day and x) = x - start_of_day_ms
@@ -228,7 +228,7 @@ class PerfLedger():
         new_cp = PerfCheckpoint(last_update_ms=order_processed_ms, prev_portfolio_ret=current_portfolio_value,
                                 mdd=point_in_time_dd, prev_portfolio_spread_fee=current_portfolio_fee_spread,
                                 prev_portfolio_carry_fee=current_portfolio_carry, accum_ms=accum_ms_for_utc_alignment,
-                                mpv=1.0, portfolio_realized_pnl=portfolio_realized_pnl, portfolio_unrealized_pnl=portfolio_unrealized_pnl)
+                                mpv=1.0)
         self.cps.append(new_cp)
 
 
@@ -255,8 +255,8 @@ class PerfLedger():
             self.init_max_portfolio_value()
 
     def update_pl(self, current_portfolio_value: float, now_ms: int, miner_hotkey: str, any_open: TradePairReturnStatus,
-              current_portfolio_fee_spread: float, current_portfolio_carry: float, portfolio_realized_pnl: float=0.0,
-                  portfolio_unrealized_pnl: float=0.0, tp_debug=None, debug_dict=None):
+              current_portfolio_fee_spread: float, current_portfolio_carry: float,
+              tp_debug=None, debug_dict=None):
         # Skip gap validation during void filling, shortcuts, or when no debug info
         # The absence of tp_debug typically means this is a high-level update that may span time
         skip_gap_check = (not tp_debug or '_shortcut' in tp_debug or 'void' in tp_debug)
@@ -391,8 +391,10 @@ class PerfLedger():
         delta_return = self.compute_delta_between_ticks(current_portfolio_value, current_cp.prev_portfolio_ret)
         if delta_return > 0:
             current_cp.gain += delta_return
+            current_cp.pnl_gain += delta_return * ValiConfig.CAPITAL # TODO use real account sizes
         elif delta_return < 0:
             current_cp.loss += delta_return
+            current_cp.pnl_loss += delta_return * ValiConfig.CAPITAL # TODO use real account sizes
         else:
             n_updates = 0
 
@@ -1459,7 +1461,7 @@ class PerfLedgerManager(CacheController):
                                                          f"mode: {mode},"
                                                          f" delta_ms: {(t_ms - portfolio_pl.last_update_ms)} ms. perf ledger {portfolio_pl}")
 
-            tp_to_current_return, tp_to_any_open, tp_to_current_spread_fee, tp_to_current_carry_fee, tp_to_current_realized_pnl, tp_to_current_unrealized_pnl = \
+            tp_to_current_return, tp_to_any_open, tp_to_current_spread_fee, tp_to_current_carry_fee, = \
                 self.positions_to_portfolio_return(tp_ids_to_build, tp_to_historical_positions_dense, t_ms, mode,
                    end_time_ms, tp_to_initial_return, tp_to_initial_spread_fee, tp_to_initial_carry_fee, portfolio_pl)
             portfolio_return = tp_to_current_return[TP_ID_PORTFOLIO]

@@ -187,7 +187,7 @@ class LedgerUtils:
         
         date_pnl_map = {}
         for running_date, day_checkpoints in sorted(complete_days.items()):
-            total_pnl = sum(cp.portfolio_realized_pnl + cp.portfolio_unrealized_pnl for cp in day_checkpoints)
+            total_pnl = sum(cp.pnl_gain + cp.pnl_loss for cp in day_checkpoints)
             date_pnl_map[running_date] = total_pnl
 
         return date_pnl_map
