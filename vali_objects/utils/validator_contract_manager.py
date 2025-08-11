@@ -40,20 +40,34 @@ class ValidatorContractManager:
         self.metagraph = metagraph
         self.is_mothership = 'ms' in ValiUtils.get_secrets(running_unit_tests=running_unit_tests)
         
-        if config.subtensor.network == "test":
+        # Store network type for dynamic max_theta property
+        self.is_testnet = config.subtensor.network == "test"
+        
+        if self.is_testnet:
             bt.logging.info("Using testnet collateral manager")
             self.collateral_manager = CollateralManager(Network.TESTNET)
-            self.max_theta = ValiConfig.MAX_COLLATERAL_BALANCE_TESTNET
         else:
             bt.logging.info("Using mainnet collateral manager")
             self.collateral_manager = CollateralManager(Network.MAINNET)
-            self.max_theta = ValiConfig.MAX_COLLATERAL_BALANCE_THETA
         
         # Load contract owner credentials from environment or config
         if self.is_mothership:
             self._load_contract_owner_credentials()
 
         self.miner_account_sizes: Dict[str, List[CollateralRecord]] = {}  # hotkey -> List[CollateralRecord] sorted by updated_time_ms
+    
+    @property
+    def max_theta(self) -> float:
+        """
+        Get the current maximum collateral balance limit in theta tokens.
+        
+        Returns:
+            float: Maximum balance limit based on network type and current date
+        """
+        if self.is_testnet:
+            return ValiConfig.MAX_COLLATERAL_BALANCE_TESTNET
+        else:
+            return ValiConfig.MAX_COLLATERAL_BALANCE_THETA.value()
         
     def _load_contract_owner_credentials(self):
         """
