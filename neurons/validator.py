@@ -207,8 +207,7 @@ class Validator:
         self.perf_ledger_manager = PerfLedgerManager(self.metagraph, ipc_manager=self.ipc_manager,
                                                      shutdown_dict=shutdown_dict,
                                                      perf_ledger_hks_to_invalidate=self.position_syncer.perf_ledger_hks_to_invalidate,
-                                                     position_manager=None,  # Set after self.pm creation
-                                                     contract_manager=self.contract_manager)
+                                                     position_manager=None)  # Set after self.pm creation)
 
 
 
@@ -226,7 +225,7 @@ class Validator:
 
         # Initialize ValidatorContractManager for collateral operations
         self.contract_manager = ValidatorContractManager(config=self.config, metagraph=self.metagraph, position_manager=self.position_manager)
-
+        self.perf_ledger_manager.contract_manager = self.contract_manager
 
         self.challengeperiod_manager = ChallengePeriodManager(self.metagraph,
                                                               perf_ledger_manager=self.perf_ledger_manager,
