@@ -57,6 +57,7 @@ from vali_objects.vali_config import ValiConfig
 
 from vali_objects.utils.plagiarism_detector import PlagiarismDetector
 from vali_objects.utils.validator_contract_manager import ValidatorContractManager
+from vali_objects.utils.asset_selection_manager import AssetSelectionManager
 
 # Global flag used to indicate shutdown
 shutdown_dict = {}
@@ -185,12 +186,15 @@ class Validator:
                                                       ipc_manager=self.ipc_manager,
                                                       shared_queue_websockets=self.shared_queue_websockets)
 
+        self.asset_selection_manager = AssetSelectionManager()
+
         self.position_syncer = PositionSyncer(shutdown_dict=shutdown_dict, signal_sync_lock=self.signal_sync_lock,
                                               signal_sync_condition=self.signal_sync_condition,
                                               n_orders_being_processed=self.n_orders_being_processed,
                                               ipc_manager=self.ipc_manager,
                                               position_manager=None,
-                                              auto_sync_enabled=self.auto_sync)  # Set after self.pm creation
+                                              auto_sync_enabled=self.auto_sync,
+                                              asset_selection_manager=self.asset_selection_manager)  # Set after self.pm creation
 
         self.p2p_syncer = P2PSyncer(wallet=self.wallet, metagraph=self.metagraph, is_testnet=not self.is_mainnet,
                                     shutdown_dict=shutdown_dict, signal_sync_lock=self.signal_sync_lock,
@@ -352,7 +356,7 @@ class Validator:
         # Set config reference for alert context
         self.weight_setter.config = self.config
 
-        self.request_core_manager = RequestCoreManager(self.position_manager, self.weight_setter, self.plagiarism_detector)
+        self.request_core_manager = RequestCoreManager(self.position_manager, self.weight_setter, self.plagiarism_detector, self.asset_selection_manager)
         self.miner_statistics_manager = MinerStatisticsManager(self.position_manager, self.weight_setter, self.plagiarism_detector)
 
         # Start the perf ledger updater loop in its own process. Make sure it happens after the position manager has chances to make any fixes
@@ -379,7 +383,9 @@ class Validator:
                 rest_port=self.config.api_rest_port,
                 position_manager=self.position_manager,
                 contract_manager=self.contract_manager,
-                config=self.config
+                asset_selection_manager=self.asset_selection_manager,
+                config=self.config,
+                slack_notifier=self.slack_notifier
             )
 
             # Start the API Manager in a separate process
@@ -659,6 +665,13 @@ class Validator:
                 open_position = None
             else:
                 # if a position doesn't exist, then make a new one
+                # Validate asset class selection
+                if not self.asset_selection_manager.validate_order_asset_class(miner_hotkey, trade_pair.trade_pair_category, order_time_ms):
+                    raise SignalException(
+                        f"miner [{miner_hotkey}] cannot trade asset class [{trade_pair.trade_pair_category.value}]. "
+                        f"Selected asset class: [{self.asset_selection_manager.asset_selections.get(miner_hotkey).value}]. Only trade pairs from your selected asset class are allowed."
+                    )
+
                 open_position = Position(
                     miner_hotkey=miner_hotkey,
                     position_uuid=miner_order_uuid if miner_order_uuid else str(uuid.uuid4()),

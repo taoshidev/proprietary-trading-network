@@ -226,7 +226,7 @@ class PTNRestServer(APIKeyMixin):
     """Handles REST API requests with Flask and Waitress."""
 
     def __init__(self, api_keys_file, shared_queue=None, host="127.0.0.1",
-                 port=48888, refresh_interval=15, metrics_interval_minutes=5, position_manager=None, contract_manager=None, config=None):
+                 port=48888, refresh_interval=15, metrics_interval_minutes=5, position_manager=None, contract_manager=None, asset_selection_manager=None, config=None, slack_notifier=None):
         """Initialize the REST server with API key handling and routing.
 
         Args:
@@ -238,6 +238,7 @@ class PTNRestServer(APIKeyMixin):
             metrics_interval_minutes: How often to log API metrics (minutes)
             position_manager: Optional position manager for handling miner positions
             contract_manager: Optional contract manager for handling collateral operations
+            slack_notifier: Optional slack notifier for event notifications
         """
         # Initialize API key handling
         APIKeyMixin.__init__(self, api_keys_file, refresh_interval)
@@ -247,6 +248,9 @@ class PTNRestServer(APIKeyMixin):
         self.position_manager: PositionManager = position_manager
         self.contract_manager = contract_manager
         self.nonce_manager = NonceManager()
+        self.asset_selection_manager = asset_selection_manager
+        self.config = config
+        self.slack_notifier = slack_notifier
         self.data_path = ValiConfig.BASE_DIR
         self.host = host
         self.port = port
@@ -254,9 +258,9 @@ class PTNRestServer(APIKeyMixin):
 
         # Get vault wallet
         self.vault_wallet = bt.wallet(
-            name=config.vault_wallet_name,
-            hotkey=config.vault_wallet_hotkey,
-            path=config.vault_wallet_path
+            name=self.config.vault_wallet_name,
+            hotkey=self.config.vault_wallet_hotkey,
+            path=self.config.vault_wallet_path
         )
 
         # Initialize Flask-Compress for GZIP compression
@@ -567,6 +571,15 @@ class PTNRestServer(APIKeyMixin):
                     vault_wallet=self.vault_wallet
                 )
                 
+                # Send Slack notification
+                if self.slack_notifier:
+                    if result.get('successfully_processed', False):
+                        self.slack_notifier.send_message(
+                            f"{result.get('success_message')}"
+                            f"Network: {self.config.subtensor.network}\n",
+                            level="success"
+                        )
+                
                 # Return response
                 return jsonify(result)
                 
@@ -625,6 +638,15 @@ class PTNRestServer(APIKeyMixin):
                     miner_hotkey=data['miner_hotkey'],
                     vault_wallet=self.vault_wallet,
                 )
+
+                # Send Slack notification
+                if self.slack_notifier:
+                    if result.get('successfully_processed', False):
+                        self.slack_notifier.send_message(
+                            f"{result.get('success_message')}"
+                            f"Network: {self.config.subtensor.network}\n",
+                            level="success"
+                        )
                 
                 # Return response
                 return jsonify(result)
@@ -661,6 +683,57 @@ class PTNRestServer(APIKeyMixin):
             except Exception as e:
                 bt.logging.error(f"Error getting collateral balance for {miner_address}: {e}")
                 return jsonify({'error': 'Internal server error retrieving balance'}), 500
+
+        @self.app.route("/asset-selection", methods=["POST"])
+        def asset_selection():
+            """Process asset selection request."""
+            try:
+                # Parse JSON request
+                if not request.is_json:
+                    return jsonify({'error': 'Content-Type must be application/json'}), 400
+
+                data = request.get_json()
+                if not data:
+                    return jsonify({'error': 'Invalid JSON body'}), 400
+
+                # Validate required fields for signed withdrawal
+                required_fields = ['asset_selection', 'miner_coldkey', 'miner_hotkey', 'signature']
+                for field in required_fields:
+                    if field not in data:
+                        return jsonify({'error': f'Missing required field: {field}'}), 400
+
+                # Verify the withdrawal signature
+                keypair = Keypair(ss58_address=data['miner_coldkey'])
+                message = json.dumps({
+                    "asset_selection": data['asset_selection'],
+                    "miner_coldkey": data['miner_coldkey'],
+                    "miner_hotkey": data['miner_hotkey']
+                }, sort_keys=True).encode('utf-8')
+                is_valid = keypair.verify(message, bytes.fromhex(data['signature']))
+                if not is_valid:
+                    return jsonify({'error': 'Invalid signature. Asset selection request unauthorized'}), 401
+
+                # Process the asset selection using verified data
+                result = self.asset_selection_manager.process_asset_selection_request(
+                    asset_selection=data['asset_selection'],
+                    miner=data['miner_hotkey']
+                )
+
+                # Send Slack notification
+                if self.slack_notifier:
+                    if result.get('successfully_processed', False):
+                        self.slack_notifier.send_message(
+                            f"{result.get('success_message')}"
+                            f"Network: {self.config.subtensor.network}\n",
+                            level="success"
+                        )
+
+                # Return response
+                return jsonify(result)
+
+            except Exception as e:
+                bt.logging.error(f"Error processing asset selection: {e}")
+                return jsonify({'error': 'Internal server error processing asset selection'}), 500
 
     def _get_api_key_safe(self) -> Optional[str]:
         """
