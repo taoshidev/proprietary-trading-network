@@ -152,7 +152,7 @@ class RequestCoreManager:
                                            youngest_order_processed_ms, oldest_order_processed_ms,
                                            challengeperiod_dict):
 
-        perf_ledgers = self.perf_ledger_manager.get_perf_ledgers()
+        perf_ledgers = self.perf_ledger_manager.get_perf_ledgers(portfolio_only=False)
         final_dict = {
             'version': ValiConfig.VERSION,
             'created_timestamp_ms': time_now,
