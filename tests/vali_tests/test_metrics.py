@@ -390,8 +390,8 @@ class TestMetrics(TestBase):
                 last_update_ms=1000,
                 prev_portfolio_ret=1.0,
                 accum_ms=100,  # Partial accumulation - won't count as complete day
-                portfolio_realized_pnl=10.0,
-                portfolio_unrealized_pnl=5.0
+                pnl_gain=10,
+
             )
         ])
         

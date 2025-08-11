@@ -256,7 +256,7 @@ class PerfLedger():
 
     def update_pl(self, current_portfolio_value: float, now_ms: int, miner_hotkey: str, any_open: TradePairReturnStatus,
               current_portfolio_fee_spread: float, current_portfolio_carry: float,
-              tp_debug=None, debug_dict=None):
+              tp_debug=None, debug_dict=None, contract_manager=None):
         # Skip gap validation during void filling, shortcuts, or when no debug info
         # The absence of tp_debug typically means this is a high-level update that may span time
         skip_gap_check = (not tp_debug or '_shortcut' in tp_debug or 'void' in tp_debug)
@@ -389,12 +389,22 @@ class PerfLedger():
         # Update gains/losses based on portfolio value change
         n_updates = 1
         delta_return = self.compute_delta_between_ticks(current_portfolio_value, current_cp.prev_portfolio_ret)
+
+        # Get valid account size for miner
+        if contract_manager is None:
+            account_size = ValiConfig.CAPITAL
+            bt.logging.info(f"Contract manager is not initialized, using default account sizes")
+        else:
+            account_size = contract_manager.get_miner_account_size(miner_hotkey, now_ms)
+        if account_size is None:
+            bt.logging.info(f"Miner doesn't have valid account size, hotkey: {miner_hotkey}")
+
         if delta_return > 0:
             current_cp.gain += delta_return
-            current_cp.pnl_gain += delta_return * ValiConfig.CAPITAL # TODO use real account sizes
+            current_cp.pnl_gain += (math.exp(delta_return) - 1) * account_size
         elif delta_return < 0:
             current_cp.loss += delta_return
-            current_cp.pnl_loss += delta_return * ValiConfig.CAPITAL # TODO use real account sizes
+            current_cp.pnl_loss += (math.exp(delta_return) - 1) * account_size
         else:
             n_updates = 0
 
@@ -441,7 +451,7 @@ class PerfLedgerManager(CacheController):
                  use_slippage=None,
                  enable_rss=True, is_backtesting=False, parallel_mode=ParallelizationMode.SERIAL, secrets=None,
                  build_portfolio_ledgers_only=False, target_ledger_window_ms=ValiConfig.TARGET_LEDGER_WINDOW_MS,
-                 is_testing=False):
+                 is_testing=False, contract_manager=None):
         super().__init__(metagraph=metagraph, running_unit_tests=running_unit_tests, is_backtesting=is_backtesting)
         self.shutdown_dict = shutdown_dict
         self.live_price_fetcher = live_price_fetcher
@@ -465,6 +475,7 @@ class PerfLedgerManager(CacheController):
             self.hotkey_to_perf_bundle = {}
         self.running_unit_tests = running_unit_tests
         self.position_manager = position_manager
+        self.contract_manager = contract_manager
         self.pds = live_price_fetcher.polygon_data_service if live_price_fetcher else None  # Load it later once the process starts so ipc works.
         self.live_price_fetcher = live_price_fetcher  # For unit tests only
 
@@ -1246,7 +1257,7 @@ class PerfLedgerManager(CacheController):
         return accumulated_time_ms
 
 
-    def build_perf_ledger(self, perf_ledger_bundle: dict[str:dict[str, PerfLedger]], tp_to_historical_positions: dict[str: Position], start_time_ms, end_time_ms, miner_hotkey, realtime_position_to_pop) -> bool:
+    def build_perf_ledger(self, perf_ledger_bundle: dict[str:dict[str, PerfLedger]], tp_to_historical_positions: dict[str: Position], start_time_ms, end_time_ms, miner_hotkey, realtime_position_to_pop, contract_manager) -> bool:
         # Calculate if a position just closed in this update
         position_just_closed = realtime_position_to_pop is not None and not realtime_position_to_pop.is_open_position
         tp_id_rtp = realtime_position_to_pop.trade_pair.trade_pair_id if realtime_position_to_pop else None
@@ -1359,7 +1370,7 @@ class PerfLedgerManager(CacheController):
                       'realtime_position_to_pop': realtime_position_to_pop
                       }
                 perf_ledger.update_pl(tp_return, end_time_ms, miner_hotkey, TradePairReturnStatus.TP_MARKET_NOT_OPEN,
-                      tp_spread_fee, tp_carry_fee, tp_debug=tp_id + '_shortcut', debug_dict=dd)
+                      tp_spread_fee, tp_carry_fee, tp_debug=tp_id + '_shortcut', debug_dict=dd, contract_manager=contract_manager)
 
                 perf_ledger.purge_old_cps()
             return False
@@ -1407,7 +1418,7 @@ class PerfLedgerManager(CacheController):
             )
 
             perf_ledger.update_pl(current_return, start_time_ms, miner_hotkey, TradePairReturnStatus.TP_NO_OPEN_POSITIONS,
-                                  current_spread_fee, current_carry_fee)
+                                  current_spread_fee, current_carry_fee, contract_manager=contract_manager)
 
         while start_time_ms + accumulated_time_ms < end_time_ms:
             # Need high resolution at the start and end of the time window
@@ -1483,7 +1494,7 @@ class PerfLedgerManager(CacheController):
 
                 perf_ledger.update_pl(current_return, t_ms, miner_hotkey, tp_to_any_open[tp_id],
                                      current_spread_fee, current_carry_fee,
-                                      tp_debug=tp_id)
+                                      tp_debug=tp_id, contract_manager=contract_manager)
 
                 # Verify the ledger was updated to current t_ms
                 assert perf_ledger.last_update_ms == t_ms, (
@@ -1552,7 +1563,7 @@ class PerfLedgerManager(CacheController):
             )
 
             perf_ledger.update_pl(current_return, end_time_ms, miner_hotkey, tp_to_any_open[tp_id],
-                                 current_spread_fee, current_carry_fee)
+                                 current_spread_fee, current_carry_fee, contract_manager=contract_manager)
 
             perf_ledger.purge_old_cps()
 
@@ -1736,7 +1747,7 @@ class PerfLedgerManager(CacheController):
                 #if continuity_changes:
                 #    self._log_continuity_summary(hotkey, continuity_changes, tp_to_historical_positions)
             # Need to catch up from perf_ledger.last_update_ms to order.processed_ms
-            eliminated = self.build_perf_ledger(perf_ledger_bundle_candidate, tp_to_historical_positions, portfolio_last_update_ms, order.processed_ms, hotkey, realtime_position_to_pop)
+            eliminated = self.build_perf_ledger(perf_ledger_bundle_candidate, tp_to_historical_positions, portfolio_last_update_ms, order.processed_ms, hotkey, realtime_position_to_pop, contract_manager=self.contract_manager)
 
             if eliminated:
                 break
@@ -1778,7 +1789,7 @@ class PerfLedgerManager(CacheController):
                 #    self._log_continuity_summary(hotkey, continuity_changes, tp_to_historical_positions)
 
             self.build_perf_ledger(perf_ledger_bundle_candidate, tp_to_historical_positions,
-                                   current_last_update, now_ms, hotkey, None)
+                                   current_last_update, now_ms, hotkey, None, contract_manager=self.contract_manager)
 
         self.hk_to_last_order_processed_ms[hotkey] = last_event_time_ms
 
