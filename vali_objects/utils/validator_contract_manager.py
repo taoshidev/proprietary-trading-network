@@ -36,9 +36,10 @@ class ValidatorContractManager:
     This class acts as the validator's interface to the collateral system.
     """
     
-    def __init__(self, config, metagraph, running_unit_tests=False):
+    def __init__(self, config, metagraph, running_unit_tests=False, position_manager=None):
         self.config = config
         self.metagraph = metagraph
+        self.position_manager = position_manager
         self.is_mothership = 'ms' in ValiUtils.get_secrets(running_unit_tests=running_unit_tests)
         
         # Store network type for dynamic max_theta property
@@ -274,6 +275,13 @@ class ValidatorContractManager:
                         "successfully_processed": False,
                         "error_message": e
                     }
+
+                # All positions must be closed before a miner can deposit or withdraw
+                if len(self.position_manager.get_positions_for_one_hotkey(miner_hotkey, only_open_positions=True)) > 0:
+                    return {
+                        "successfully_processed": False,
+                        "error_message": "Miner has open positions, please close all positions before depositing or withdrawing collateral"
+                    }
                 
                 bt.logging.info(f"Processing deposit for: {deposit_amount_theta} Theta to miner: {miner_hotkey}")
                 deposited_balance = self.collateral_manager.deposit(
@@ -349,6 +357,19 @@ class ValidatorContractManager:
             
             # Execute the withdrawal through the collateral manager
             try:
+                # All positions must be closed before a miner can deposit or withdraw
+                if len(self.position_manager.get_positions_for_one_hotkey(miner_hotkey, only_open_positions=True)) > 0:
+                    return {
+                        "successfully_processed": False,
+                        "error_message": "Miner has open positions, please close all positions before depositing or withdrawing collateral"
+                    }
+
+                stake_list = self.collateral_manager.subtensor_api.staking.get_stake_for_coldkey(vault_wallet.coldkeypub.ss58_address)
+                vault_stake = next(
+                    (stake for stake in stake_list if stake.hotkey_ss58 == vault_wallet.hotkey.ss58_address),
+                    None
+                )
+
                 bt.logging.info(f"Processing withdrawal request from {miner_hotkey} for {amount} Theta")
                 withdrawn_balance = self.collateral_manager.withdraw(
                     amount=int(amount * 10**9), # convert theta to rao_theta
