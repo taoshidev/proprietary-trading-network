@@ -7,6 +7,7 @@ import traceback
 from time_util.time_util import TimeUtil
 from vali_objects.utils.vali_utils import ValiUtils
 from vali_objects.vali_config import ValiConfig
+from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 
 class CollateralRecord:
     def __init__(self, account_size, update_time_ms):
@@ -54,7 +55,12 @@ class ValidatorContractManager:
         if self.is_mothership:
             self._load_contract_owner_credentials()
 
-        self.miner_account_sizes: Dict[str, List[CollateralRecord]] = {}  # hotkey -> List[CollateralRecord] sorted by updated_time_ms
+        # Initialize miner account sizes file location
+        self.MINER_ACCOUNT_SIZES_FILE = ValiBkpUtils.get_miner_account_sizes_file_location(running_unit_tests=running_unit_tests)
+        
+        # Load existing data from disk or initialize empty
+        self.miner_account_sizes: Dict[str, List[CollateralRecord]] = {}
+        self._load_miner_account_sizes_from_disk()
     
     @property
     def max_theta(self) -> float:
@@ -93,6 +99,73 @@ class ValidatorContractManager:
             self.owner_private_key = None
             self.vault_password = None
 
+    def _load_miner_account_sizes_from_disk(self):
+        """Load miner account sizes from disk during initialization"""
+        try:
+            disk_data = ValiUtils.get_vali_json_file_dict(self.MINER_ACCOUNT_SIZES_FILE)
+            self.miner_account_sizes = self._parse_miner_account_sizes_dict(disk_data)
+            bt.logging.info(f"Loaded {len(self.miner_account_sizes)} miner account size records from disk")
+        except Exception as e:
+            bt.logging.warning(f"Failed to load miner account sizes from disk: {e}")
+            self.miner_account_sizes = {}
+            # Create empty file structure
+            self._save_miner_account_sizes_to_disk()
+
+    def _save_miner_account_sizes_to_disk(self):
+        """Save miner account sizes to disk"""
+        try:
+            data_dict = self._to_dict()
+            ValiBkpUtils.write_file(self.MINER_ACCOUNT_SIZES_FILE, data_dict)
+        except Exception as e:
+            bt.logging.error(f"Failed to save miner account sizes to disk: {e}")
+
+    def _to_dict(self) -> Dict[str, List[Dict[str, Any]]]:
+        """Convert miner account sizes to checkpoint format for backup/sync"""
+        json_dict = {}
+        for hotkey, records in self.miner_account_sizes.items():
+            json_dict[hotkey] = [
+                {
+                    "account_size": record.account_size,
+                    "update_time_ms": record.update_time_ms,
+                    "valid_date_timestamp": record.valid_date_timestamp
+                }
+                for record in records
+            ]
+        return json_dict
+
+    @staticmethod
+    def _parse_miner_account_sizes_dict(data_dict: Dict[str, List[Dict[str, Any]]]) -> Dict[str, List[CollateralRecord]]:
+        """Parse miner account sizes from disk format back to CollateralRecord objects"""
+        parsed_dict = {}
+        for hotkey, records_data in data_dict.items():
+            try:
+                parsed_records = []
+                for record_data in records_data:
+                    if isinstance(record_data, dict) and all(key in record_data for key in ["account_size", "update_time_ms"]):
+                        record = CollateralRecord(record_data["account_size"], record_data["update_time_ms"])
+                        parsed_records.append(record)
+                
+                if parsed_records:  # Only add if we have valid records
+                    parsed_dict[hotkey] = parsed_records
+            except Exception as e:
+                bt.logging.warning(f"Failed to parse account size records for {hotkey}: {e}")
+        
+        return parsed_dict
+
+    def sync_miner_account_sizes_data(self, account_sizes_data: Dict[str, List[Dict[str, Any]]]):
+        """Sync miner account sizes data from external source (backup/sync)"""
+        if not account_sizes_data:
+            bt.logging.warning("miner_account_sizes_data appears empty or invalid")
+            return
+
+        try:
+            synced_data = self._parse_miner_account_sizes_dict(account_sizes_data)
+            self.miner_account_sizes.clear()
+            self.miner_account_sizes.update(synced_data)
+            self._save_miner_account_sizes_to_disk()
+            bt.logging.info(f"Synced {len(self.miner_account_sizes)} miner account size records")
+        except Exception as e:
+            bt.logging.error(f"Failed to sync miner account sizes data: {e}")
 
     def get_theta_token_price(self) -> float:
         """
@@ -372,7 +445,10 @@ class ValidatorContractManager:
 
         if hotkey not in self.miner_account_sizes:
             self.miner_account_sizes[hotkey] = []
-        self.miner_account_sizes[hotkey].append(collateral_record)      # TODO: save to disk
+        self.miner_account_sizes[hotkey].append(collateral_record)
+        
+        # Save to disk
+        self._save_miner_account_sizes_to_disk()
 
         bt.logging.info(f"Updated account size for {hotkey}: {account_size}")
 
