@@ -617,6 +617,11 @@ class PTNRestServer(APIKeyMixin):
                 is_valid = keypair.verify(message, bytes.fromhex(data['signature']))
                 if not is_valid:
                     return jsonify({'error': 'Invalid signature. Withdrawal request unauthorized'}), 401
+
+                # Verify coldkey-hotkey ownership using subtensor
+                owns_hotkey = self._verify_coldkey_owns_hotkey(data['miner_coldkey'], data['miner_hotkey'])
+                if not owns_hotkey:
+                    return jsonify({'error': 'Coldkey does not own the specified hotkey'}), 403
                         
                 # Process the withdrawal using verified data
                 result = self.contract_manager.process_withdrawal_request(
@@ -661,6 +666,28 @@ class PTNRestServer(APIKeyMixin):
             except Exception as e:
                 bt.logging.error(f"Error getting collateral balance for {miner_address}: {e}")
                 return jsonify({'error': 'Internal server error retrieving balance'}), 500
+
+    def _verify_coldkey_owns_hotkey(self, coldkey_ss58: str, hotkey_ss58: str) -> bool:
+        """
+        Verify that a coldkey owns the specified hotkey using subtensor.
+
+        Args:
+            coldkey_ss58: The coldkey SS58 address
+            hotkey_ss58: The hotkey SS58 address to verify ownership of
+
+        Returns:
+            bool: True if coldkey owns the hotkey, False otherwise
+        """
+        try:
+            subtensor_api = self.contract_manager.collateral_manager.subtensor_api
+            coldkey_owner = subtensor_api.queries.query_subtensor("Owner", None, [hotkey_ss58])
+
+            if getattr(coldkey_owner, "value", None) is not None:
+                return coldkey_owner.value == coldkey_ss58
+            return False
+        except Exception as e:
+            bt.logging.error(f"Error verifying coldkey-hotkey ownership: {e}")
+            return False
 
     def _get_api_key_safe(self) -> Optional[str]:
         """
