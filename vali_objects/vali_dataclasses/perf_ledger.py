@@ -397,7 +397,8 @@ class PerfLedger():
         else:
             account_size = contract_manager.get_miner_account_size(miner_hotkey, now_ms)
         if account_size is None:
-            bt.logging.info(f"Miner doesn't have valid account size, hotkey: {miner_hotkey}")
+            bt.logging.info(f"Miner doesn't have valid account size, hotkey: {miner_hotkey}, using default account size: {account_size}")
+            account_size = ValiConfig.CAPITAL
 
         if delta_return > 0:
             current_cp.gain += delta_return
