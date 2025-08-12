@@ -1,5 +1,4 @@
 # developer: jbonilla
-from functools import partial
 import time
 import traceback
 from setproctitle import setproctitle
@@ -13,8 +12,6 @@ from shared_objects.cache_controller import CacheController
 from vali_objects.utils.position_manager import PositionManager
 from vali_objects.scoring.scoring import Scoring
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedger
-
-from shared_objects.subtensor_lock import get_subtensor_lock
 
 
 
@@ -143,47 +140,8 @@ class SubtensorWeightSetter(CacheController):
                     bt.logging.warning(warning_str)
                     raise e
 
-    def set_weights(self, wallet, netuid, subtensor, current_time: int = None, scoring_function: callable = None, scoring_func_args: dict = None):
-        if not self.refresh_allowed(ValiConfig.SET_WEIGHT_REFRESH_TIME_MS):
-            return
-
-        bt.logging.info("running set weights")
-        if scoring_func_args is None:
-            scoring_func_args = {'current_time': current_time}
-
-        if scoring_function is None:
-            scoring_function = self.compute_weights_default  # Uses instance method
-        elif not hasattr(scoring_function, '__self__'):
-            scoring_function = partial(scoring_function, self)  # Only bind if external
-
-        checkpoint_results, transformed_list = scoring_function(**scoring_func_args)
-        self.checkpoint_results = checkpoint_results
-        self.transformed_list = transformed_list
-        if not self.is_backtesting:
-            self._set_subtensor_weights(wallet, subtensor, netuid)
-        self.set_last_update_time()
 
 
-    def _set_subtensor_weights(self, wallet, subtensor, netuid):
-        filtered_netuids = [x[0] for x in self.transformed_list]
-        scaled_transformed_list = [x[1] for x in self.transformed_list]
-
-        # Synchronize with metagraph updates to prevent WebSocket concurrency errors
-        with get_subtensor_lock():
-            success, err_msg = subtensor.set_weights(
-                netuid=netuid,
-                wallet=wallet,
-                uids=filtered_netuids,
-                weights=scaled_transformed_list,
-                version_key=self.subnet_version,
-            )
-
-        if success:
-            bt.logging.success("Successfully set weights.")
-        else:
-            bt.logging.warning(f"Failed to set weights. Error message: {err_msg}")
-            
-            # Note: Failure tracking now happens in MetagraphUpdater where actual weight setting occurs
     
     
     def run_update_loop(self):
