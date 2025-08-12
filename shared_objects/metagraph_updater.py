@@ -15,6 +15,102 @@ from shared_objects.subtensor_lock import get_subtensor_lock
 import bittensor as bt
 
 
+class WeightFailureTracker:
+    """Track weight setting failures and manage alerting logic"""
+    
+    def __init__(self):
+        self.consecutive_failures = 0
+        self.last_success_time = time.time()
+        self.last_alert_time = 0
+        self.failure_patterns = {}  # Track unknown error patterns
+        self.had_critical_failure = False
+        
+    def classify_failure(self, err_msg):
+        """Classify failure based on production patterns"""
+        error_lower = err_msg.lower()
+        
+        # BENIGN - Don't alert (expected behavior)
+        if any(phrase in error_lower for phrase in [
+            "no attempt made. perhaps it is too soon to commit weights",
+            "too soon to commit weights",
+            "too soon to commit"
+        ]):
+            return "benign"
+        
+        # CRITICAL - Alert immediately (known problematic patterns)
+        elif any(phrase in error_lower for phrase in [
+            "maximum recursion depth exceeded",
+            "invalid transaction",
+            "subtensor returned: invalid transaction"
+        ]):
+            return "critical"
+        
+        # UNKNOWN - Alert after pattern emerges
+        else:
+            return "unknown"
+    
+    def should_alert(self, failure_type, consecutive_count):
+        """Determine if we should send an alert"""
+        # Get current time once for consistency
+        current_time = time.time()
+        time_since_success = current_time - self.last_success_time
+        time_since_last_alert = current_time - self.last_alert_time
+        
+        # Alert if we haven't had a successful weight setting in 2 hours
+        # This is an absolute timeout that bypasses all other checks
+        if time_since_success > 7200:  # 2 hours
+            return True
+        
+        # Rate limiting check - but exempt critical errors and 1+ hour timeouts
+        if failure_type != "critical" and time_since_success <= 3600:
+            if time_since_last_alert < 600:
+                return False
+        
+        # Always alert for known critical errors (no rate limiting)
+        if failure_type == "critical":
+            return True
+        
+        # Alert if we haven't had a successful weight setting in 1 hour
+        # This check happens before benign check to catch prolonged benign failures
+        if time_since_success > 3600:
+            return True
+        
+        # Never alert for benign "too soon" errors (unless prolonged, caught above)
+        if failure_type == "benign":
+            return False
+        
+        # For unknown errors, alert after 2 consecutive failures
+        if failure_type == "unknown" and consecutive_count >= 2:
+            return True
+        
+        return False
+    
+    def track_failure(self, err_msg, failure_type):
+        """Track a failure"""
+        self.consecutive_failures += 1
+        
+        # Track if this was a critical failure
+        if failure_type == "critical":
+            self.had_critical_failure = True
+        
+        # Track unknown error patterns
+        if failure_type == "unknown":
+            pattern_key = err_msg[:50] if len(err_msg) > 50 else err_msg
+            self.failure_patterns[pattern_key] = self.failure_patterns.get(pattern_key, 0) + 1
+    
+    def track_success(self):
+        """Track a successful weight setting"""
+        # Check if we should send recovery alert
+        should_send_recovery = self.consecutive_failures > 0 and self.had_critical_failure
+        
+        # Reset tracking
+        self.consecutive_failures = 0
+        self.last_success_time = time.time()
+        self.had_critical_failure = False
+        
+        return should_send_recovery
+
+
 class MetagraphUpdater(CacheController):
     def __init__(self, config, metagraph, hotkey, is_miner, position_inspector=None, position_manager=None,
                  shutdown_dict=None, slack_notifier=None, weight_request_queue=None):
@@ -47,6 +143,7 @@ class MetagraphUpdater(CacheController):
         # Weight setting for validators only
         self.weight_request_queue = weight_request_queue if not is_miner else None
         self.last_weight_set = 0
+        self.weight_failure_tracker = WeightFailureTracker() if not is_miner else None
 
         # Exponential backoff parameters
         self.min_backoff = 10 if self.round_robin_enabled else 120
@@ -252,8 +349,23 @@ class MetagraphUpdater(CacheController):
             if success:
                 self.last_weight_set = current_time
                 bt.logging.success("Weight setting completed successfully")
+                
+                # Track success and check for recovery alerts
+                if self.weight_failure_tracker:
+                    should_send_recovery = self.weight_failure_tracker.track_success()
+                    if should_send_recovery and self.slack_notifier:
+                        self._send_recovery_alert(wallet)
             else:
                 bt.logging.warning(f"Weight setting failed: {error_msg}")
+                
+                # Track failure and send alerts
+                if self.weight_failure_tracker:
+                    failure_type = self.weight_failure_tracker.classify_failure(error_msg)
+                    self.weight_failure_tracker.track_failure(error_msg, failure_type)
+                    
+                    if self.weight_failure_tracker.should_alert(failure_type, self.weight_failure_tracker.consecutive_failures):
+                        self._send_weight_failure_alert(error_msg, failure_type, wallet)
+                        self.weight_failure_tracker.last_alert_time = time.time()
             
         except Exception as e:
             bt.logging.error(f"Error handling weight request: {e}")
@@ -286,6 +398,122 @@ class MetagraphUpdater(CacheController):
                     return False, str(e)
         
         return False, "All retry attempts failed"
+    
+    def _send_weight_failure_alert(self, err_msg, failure_type, wallet):
+        """Send contextual Slack alert for weight setting failure"""
+        if not self.slack_notifier:
+            return
+        
+        # Get context information
+        hotkey = "unknown"
+        if wallet:
+            if hasattr(wallet, 'hotkey'):
+                if hasattr(wallet.hotkey, 'ss58_address'):
+                    hotkey = wallet.hotkey.ss58_address
+                else:
+                    bt.logging.warning("Wallet hotkey missing ss58_address attribute")
+            else:
+                bt.logging.warning("Wallet missing hotkey attribute")
+        else:
+            bt.logging.warning("Wallet parameter is None in weight failure alert")
+        
+        netuid = "unknown"
+        network = "unknown"
+        if self.config:
+            if hasattr(self.config, 'netuid'):
+                netuid = self.config.netuid
+            else:
+                bt.logging.warning("Config missing netuid attribute")
+                
+            if hasattr(self.config, 'subtensor'):
+                if hasattr(self.config.subtensor, 'network'):
+                    network = self.config.subtensor.network
+                else:
+                    bt.logging.warning("Config subtensor missing network attribute")
+            else:
+                bt.logging.warning("Config missing subtensor attribute")
+        else:
+            bt.logging.warning("Config is None - cannot determine network/netuid for alert")
+            
+        consecutive = self.weight_failure_tracker.consecutive_failures
+        
+        # Build alert message based on failure type
+        if "maximum recursion depth exceeded" in err_msg.lower():
+            message = f"🚨 CRITICAL: Weight setting recursion error\n" \
+                     f"Network: {network}\n" \
+                     f"Hotkey: {hotkey}\n" \
+                     f"Error: {err_msg}\n" \
+                     f"This indicates a serious code issue that needs immediate attention."
+        
+        elif "invalid transaction" in err_msg.lower():
+            message = f"🚨 CRITICAL: Subtensor rejected weight transaction\n" \
+                     f"Network: {network}\n" \
+                     f"Hotkey: {hotkey}\n" \
+                     f"Error: {err_msg}\n" \
+                     f"This may indicate wallet/balance issues or network problems."
+        
+        elif failure_type == "unknown":
+            message = f"❓ NEW PATTERN: Unknown weight setting failure\n" \
+                     f"Network: {network}\n" \
+                     f"Hotkey: {hotkey}\n" \
+                     f"Consecutive failures: {consecutive}\n" \
+                     f"Error: {err_msg}\n" \
+                     f"This is a new error pattern that needs investigation."
+        
+        else:
+            # Prolonged failure alert
+            time_since_success = time.time() - self.weight_failure_tracker.last_success_time
+            hours_since_success = time_since_success / 3600
+            
+            if hours_since_success >= 2:
+                urgency = "🚨 URGENT"
+                time_msg = f"No successful weight setting in {hours_since_success:.1f} hours"
+            else:
+                urgency = "⚠️ WARNING"
+                time_msg = f"No successful weight setting in {hours_since_success:.1f} hours"
+            
+            message = f"{urgency}: Weight setting issues detected\n" \
+                     f"Network: {network}\n" \
+                     f"Hotkey: {hotkey}\n" \
+                     f"{time_msg}\n" \
+                     f"Last error: {err_msg}"
+        
+        self.slack_notifier.send_message(message, level="error")
+    
+    def _send_recovery_alert(self, wallet):
+        """Send recovery alert after critical failures"""
+        if not self.slack_notifier:
+            return
+        
+        hotkey = "unknown"
+        if wallet:
+            if hasattr(wallet, 'hotkey'):
+                if hasattr(wallet.hotkey, 'ss58_address'):
+                    hotkey = wallet.hotkey.ss58_address
+                else:
+                    bt.logging.warning("Wallet hotkey missing ss58_address attribute in recovery alert")
+            else:
+                bt.logging.warning("Wallet missing hotkey attribute in recovery alert")
+        else:
+            bt.logging.warning("Wallet parameter is None in recovery alert")
+            
+        network = "unknown"
+        if self.config:
+            if hasattr(self.config, 'subtensor'):
+                if hasattr(self.config.subtensor, 'network'):
+                    network = self.config.subtensor.network
+                else:
+                    bt.logging.warning("Config subtensor missing network attribute in recovery alert")
+            else:
+                bt.logging.warning("Config missing subtensor attribute in recovery alert")
+        else:
+            bt.logging.warning("Config is None - cannot determine network for recovery alert")
+        
+        message = f"✅ Weight setting recovered after failures\n" \
+                 f"Network: {network}\n" \
+                 f"Hotkey: {hotkey}"
+        
+        self.slack_notifier.send_message(message, level="info")
 
     def estimate_number_of_miners(self):
         # Filter out expired miners
