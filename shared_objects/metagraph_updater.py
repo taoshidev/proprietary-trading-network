@@ -252,10 +252,6 @@ class MetagraphUpdater(CacheController):
                 self.consecutive_failures = 0
                 self.current_backoff = self.min_backoff
                 
-                # Weight setting requests (validators only)
-                if self.weight_request_queue:
-                    self._process_weight_requests()
-                
                 time.sleep(1)  # Normal operation delay
             except Exception as e:
                 self.consecutive_failures += 1
@@ -289,6 +285,31 @@ class MetagraphUpdater(CacheController):
                 # Wait with exponential backoff
                 time.sleep(self.current_backoff)
 
+    def run_weight_processing_loop(self):
+        """
+        Dedicated loop for processing weight requests with fast 5-second intervals.
+        Runs in a separate thread for responsive weight setting.
+        """
+        setproctitle(f"weight_processor_{self.hotkey}")
+        bt.logging.enable_info()
+        bt.logging.info("Starting dedicated weight processing loop")
+        
+        while not self.shutdown_dict:
+            try:
+                # Process weight requests if we're a validator
+                if self.weight_request_queue:
+                    self._process_weight_requests()
+                
+                # Sleep for 5 seconds for responsive weight processing
+                time.sleep(5)
+                
+            except Exception as e:
+                bt.logging.error(f"Error in weight processing loop: {e}")
+                bt.logging.error(traceback.format_exc())
+                time.sleep(10)  # Longer sleep on error
+        
+        bt.logging.info("Weight processing loop shutting down")
+
     def _process_weight_requests(self):
         """Process pending weight setting requests (validators only)"""
         try:
@@ -316,11 +337,12 @@ class MetagraphUpdater(CacheController):
     def _handle_weight_request(self, request):
         """Handle a single weight setting request (no response needed)"""
         try:
-            wallet_config = request['wallet_config']
-            netuid = request['netuid']
             uids = request['uids']
             weights = request['weights']
             version_key = request['version_key']
+            
+            # Use our own config for netuid
+            netuid = self.config.netuid
             
             # Rate limiting check
             current_time = time.time()
@@ -328,12 +350,8 @@ class MetagraphUpdater(CacheController):
                 bt.logging.debug("Weight setting rate limited, skipping")
                 return
             
-            # Recreate wallet from config
-            wallet = bt.wallet(
-                name=wallet_config['name'],
-                hotkey=wallet_config['hotkey'],
-                path=wallet_config['path']
-            )
+            # Create wallet from our own config
+            wallet = bt.wallet(config=self.config)
             
             bt.logging.info(f"Processing weight setting request for {len(uids)} UIDs")
             

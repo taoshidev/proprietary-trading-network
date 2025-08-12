@@ -353,8 +353,6 @@ class Validator:
             self.metagraph, 
             position_manager=self.position_manager,
             slack_notifier=self.slack_notifier,
-            config=self.config,
-            netuid=self.config.netuid,
             shutdown_dict=shutdown_dict,
             weight_request_queue=weight_request_queue  # Same queue as MetagraphUpdater
         )
@@ -367,8 +365,13 @@ class Validator:
         self.perf_ledger_updater_thread.start()
         
         # Start the weight setter loop in its own process
-        self.weight_setter_thread = Process(target=self.weight_setter.run_update_loop, daemon=True)
-        self.weight_setter_thread.start()
+        self.weight_setter_process = Process(target=self.weight_setter.run_update_loop, daemon=True)
+        self.weight_setter_process.start()
+        
+        # Start dedicated weight processing thread in MetagraphUpdater (validators only)
+        if self.metagraph_updater.weight_request_queue:
+            self.weight_processing_thread = threading.Thread(target=self.metagraph_updater.run_weight_processing_loop, daemon=True)
+            self.weight_processing_thread.start()
 
         # Initialize ValidatorContractManager for collateral operations
         self.contract_manager = ValidatorContractManager(config=self.config, metagraph=self.metagraph)
@@ -558,7 +561,10 @@ class Validator:
         bt.logging.warning("Stopping perf ledger...")
         self.perf_ledger_updater_thread.join()
         bt.logging.warning("Stopping weight setter...")
-        self.weight_setter_thread.join()
+        self.weight_setter_process.join()
+        if hasattr(self, 'weight_processing_thread'):
+            bt.logging.warning("Stopping weight processing thread...")
+            self.weight_processing_thread.join()
         bt.logging.warning("Stopping plagiarism detector...")
         self.plagiarism_thread.join()
         if self.rog_thread:
