@@ -11,7 +11,7 @@ from vali_objects.enums.execution_type_enum import ExecutionType
 from vali_objects.exceptions.signal_exception import SignalException
 from vali_objects.position import Position
 from vali_objects.utils.elimination_manager import EliminationManager
-from vali_objects.utils.mdd_checker import MDDChecker
+from vali_objects.utils.limit_order_manager import LimitOrderManager
 from vali_objects.utils.position_lock import PositionLocks
 from vali_objects.utils.position_manager import PositionManager
 from vali_objects.utils.vali_utils import ValiUtils
@@ -46,15 +46,14 @@ class TestLimitOrders(TestBase):
         secrets = ValiUtils.get_secrets(running_unit_tests=True)
         self.live_price_fetcher = MockLivePriceFetcher(secrets=secrets, disable_ws=True)
 
-        self.mdd_checker = MDDChecker(
-            metagraph=self.mock_metagraph,
+        self.limit_order_manager = LimitOrderManager(
             position_manager=self.position_manager,
-            running_unit_tests=True,
-            live_price_fetcher=self.live_price_fetcher
+            live_price_fetcher=self.live_price_fetcher,
+            running_unit_tests=True
         )
 
         self.position_manager.clear_all_miner_positions()
-        self.mdd_checker.limit_orders.clear()
+        self.limit_order_manager.limit_orders.clear()
 
     def create_test_limit_order(self, order_type=OrderType.LONG, limit_price=49000.0,
                                trade_pair=None, leverage=0.5, order_uuid=None):
@@ -76,6 +75,39 @@ class TestLimitOrders(TestBase):
             src=ORDER_SRC_LIMIT_UNFILLED
         )
 
+    def create_test_price_sources(self, trigger_price, stable_price=None, num_sources=3):
+        """Helper to create price sources for limit order testing"""
+        if stable_price is None:
+            stable_price = trigger_price
+
+        now_ms = TimeUtil.now_in_millis()
+        sources = []
+        buffer_ms = 10 * 1000  # ValiConfig.LIMIT_ORDER_PRICE_BUFFER_MS
+
+        # First price source triggers the order
+        sources.append(PriceSource(
+            source='test', timespan_ms=0, open=trigger_price, close=trigger_price,
+            vwap=None, high=trigger_price, low=trigger_price,
+            start_ms=now_ms, websocket=True, lag_ms=100
+        ))
+
+        # Additional price sources within buffer window
+        for i in range(1, num_sources - 1):
+            sources.append(PriceSource(
+                source='test', timespan_ms=0, open=stable_price, close=stable_price,
+                vwap=None, high=stable_price, low=stable_price,
+                start_ms=now_ms + (i * 3000), websocket=True, lag_ms=100  # 3 second intervals
+            ))
+
+        # Last price source must be beyond the buffer window
+        sources.append(PriceSource(
+            source='test', timespan_ms=0, open=stable_price, close=stable_price,
+            vwap=None, high=stable_price, low=stable_price,
+            start_ms=now_ms + buffer_ms + 1000, websocket=True, lag_ms=100  # 1 second after buffer
+        ))
+
+        return sources
+
     def create_test_position(self, trade_pair=None, miner_hotkey=None):
         """Helper to create test positions"""
         if trade_pair is None:
@@ -94,9 +126,9 @@ class TestLimitOrders(TestBase):
         """Test basic limit order storage"""
         limit_order = self.create_test_limit_order()
 
-        self.mdd_checker.save_limit_order(self.DEFAULT_MINER_HOTKEY, limit_order)
+        self.limit_order_manager.save_limit_order(self.DEFAULT_MINER_HOTKEY, limit_order)
 
-        orders = self.mdd_checker.limit_orders.get(self.DEFAULT_MINER_HOTKEY, [])
+        orders = self.limit_order_manager.limit_orders.get(self.DEFAULT_MINER_HOTKEY, [])
         self.assertEqual(len(orders), 1)
         self.assertEqual(orders[0].order_uuid, limit_order.order_uuid)
         self.assertEqual(orders[0].src, ORDER_SRC_LIMIT_UNFILLED)
@@ -107,9 +139,9 @@ class TestLimitOrders(TestBase):
             limit_order = self.create_test_limit_order(
                 order_uuid=f"test_order_{i}"
             )
-            self.mdd_checker.save_limit_order(self.DEFAULT_MINER_HOTKEY, limit_order)
+            self.limit_order_manager.save_limit_order(self.DEFAULT_MINER_HOTKEY, limit_order)
 
-        orders = self.mdd_checker.limit_orders.get(self.DEFAULT_MINER_HOTKEY, [])
+        orders = self.limit_order_manager.limit_orders.get(self.DEFAULT_MINER_HOTKEY, [])
         self.assertEqual(len(orders), ValiConfig.MAX_UNFILLED_LIMIT_ORDERS)
 
         excess_order = self.create_test_limit_order(
@@ -117,7 +149,7 @@ class TestLimitOrders(TestBase):
         )
 
         with self.assertRaises(Exception) as context:
-            self.mdd_checker.save_limit_order(self.DEFAULT_MINER_HOTKEY, excess_order)
+            self.limit_order_manager.save_limit_order(self.DEFAULT_MINER_HOTKEY, excess_order)
         self.assertIn("too many unfilled limit orders", str(context.exception))
 
     def test_save_flat_limit_order_no_position(self):
@@ -128,7 +160,7 @@ class TestLimitOrders(TestBase):
         )
 
         with self.assertRaises(SignalException) as context:
-            self.mdd_checker.save_limit_order(self.DEFAULT_MINER_HOTKEY, flat_limit_order)
+            self.limit_order_manager.save_limit_order(self.DEFAULT_MINER_HOTKEY, flat_limit_order)
         self.assertIn("No position found for FLAT order", str(context.exception))
 
     def test_save_flat_limit_order_with_position(self):
@@ -141,9 +173,9 @@ class TestLimitOrders(TestBase):
             limit_price=51000.0
         )
 
-        self.mdd_checker.save_limit_order(self.DEFAULT_MINER_HOTKEY, flat_limit_order)
+        self.limit_order_manager.save_limit_order(self.DEFAULT_MINER_HOTKEY, flat_limit_order)
 
-        orders = self.mdd_checker.limit_orders.get(self.DEFAULT_MINER_HOTKEY, [])
+        orders = self.limit_order_manager.limit_orders.get(self.DEFAULT_MINER_HOTKEY, [])
         self.assertEqual(len(orders), 1)
         self.assertEqual(orders[0].order_type, OrderType.FLAT)
 
@@ -159,13 +191,13 @@ class TestLimitOrders(TestBase):
             vwap=None, high=50600.0, low=50600.0,
             start_ms=TimeUtil.now_in_millis(), websocket=True, lag_ms=100
         )]
-        self.assertFalse(self.mdd_checker._should_fill_limit_order(limit_order, None, price_sources))
+        self.assertFalse(self.limit_order_manager._evaluate_fill_price_source(limit_order, None, price_sources))
 
-        price_sources[0].close = 50500.0
-        self.assertTrue(self.mdd_checker._should_fill_limit_order(limit_order, None, price_sources))
+        price_sources[0].open = 50500.0
+        self.assertTrue(self.limit_order_manager._evaluate_fill_price_source(limit_order, None, price_sources))
 
-        price_sources[0].close = 50400.0
-        self.assertTrue(self.mdd_checker._should_fill_limit_order(limit_order, None, price_sources))
+        price_sources[0].open = 50400.0
+        self.assertTrue(self.limit_order_manager._evaluate_fill_price_source(limit_order, None, price_sources))
 
     def test_should_fill_short_limit_order(self):
         """Test SHORT limit order fill conditions"""
@@ -174,18 +206,17 @@ class TestLimitOrders(TestBase):
             limit_price=49500.0
         )
 
-        price_sources = [PriceSource(
-            source='test', timespan_ms=0, open=49400.0, close=49400.0,
-            vwap=None, high=49400.0, low=49400.0,
-            start_ms=TimeUtil.now_in_millis(), websocket=True, lag_ms=100
-        )]
-        self.assertFalse(self.mdd_checker._should_fill_limit_order(limit_order, None, price_sources))
+        # Price below limit - should not fill
+        price_sources = self.create_test_price_sources(49400.0)
+        self.assertFalse(self.limit_order_manager._evaluate_fill_price_source(limit_order, None, price_sources))
 
-        price_sources[0].close = 49500.0
-        self.assertTrue(self.mdd_checker._should_fill_limit_order(limit_order, None, price_sources))
+        # Price at limit - should fill
+        price_sources = self.create_test_price_sources(49500.0)
+        self.assertTrue(self.limit_order_manager._evaluate_fill_price_source(limit_order, None, price_sources))
 
-        price_sources[0].close = 49600.0
-        self.assertTrue(self.mdd_checker._should_fill_limit_order(limit_order, None, price_sources))
+        # Price above limit - should fill
+        price_sources = self.create_test_price_sources(49600.0)
+        self.assertTrue(self.limit_order_manager._evaluate_fill_price_source(limit_order, None, price_sources))
 
     def test_should_fill_flat_limit_order_long_position(self):
         """Test FLAT limit order fill conditions for LONG position"""
@@ -197,18 +228,17 @@ class TestLimitOrders(TestBase):
             limit_price=50500.0
         )
 
-        price_sources = [PriceSource(
-            source='test', timespan_ms=0, open=50400.0, close=50400.0,
-            vwap=None, high=50400.0, low=50400.0,
-            start_ms=TimeUtil.now_in_millis(), websocket=True, lag_ms=100
-        )]
-        self.assertFalse(self.mdd_checker._should_fill_limit_order(flat_limit_order, position, price_sources))
+        # Price below limit - should not fill LONG position
+        price_sources = self.create_test_price_sources(50400.0)
+        self.assertFalse(self.limit_order_manager._evaluate_fill_price_source(flat_limit_order, position, price_sources))
 
-        price_sources[0].close = 50500.0
-        self.assertTrue(self.mdd_checker._should_fill_limit_order(flat_limit_order, position, price_sources))
+        # Price at limit - should fill
+        price_sources = self.create_test_price_sources(50500.0)
+        self.assertTrue(self.limit_order_manager._evaluate_fill_price_source(flat_limit_order, position, price_sources))
 
-        price_sources[0].close = 50600.0
-        self.assertTrue(self.mdd_checker._should_fill_limit_order(flat_limit_order, position, price_sources))
+        # Price above limit - should fill
+        price_sources = self.create_test_price_sources(50600.0)
+        self.assertTrue(self.limit_order_manager._evaluate_fill_price_source(flat_limit_order, position, price_sources))
 
     def test_should_fill_flat_limit_order_short_position(self):
         """Test FLAT limit order fill conditions for SHORT position"""
@@ -220,18 +250,17 @@ class TestLimitOrders(TestBase):
             limit_price=49500.0
         )
 
-        price_sources = [PriceSource(
-            source='test', timespan_ms=0, open=49600.0, close=49600.0,
-            vwap=None, high=49600.0, low=49600.0,
-            start_ms=TimeUtil.now_in_millis(), websocket=True, lag_ms=100
-        )]
-        self.assertFalse(self.mdd_checker._should_fill_limit_order(flat_limit_order, position, price_sources))
+        # Price above limit - should not fill SHORT position
+        price_sources = self.create_test_price_sources(49600.0)
+        self.assertFalse(self.limit_order_manager._evaluate_fill_price_source(flat_limit_order, position, price_sources))
 
-        price_sources[0].close = 49500.0
-        self.assertTrue(self.mdd_checker._should_fill_limit_order(flat_limit_order, position, price_sources))
+        # Price at limit - should fill
+        price_sources = self.create_test_price_sources(49500.0)
+        self.assertTrue(self.limit_order_manager._evaluate_fill_price_source(flat_limit_order, position, price_sources))
 
-        price_sources[0].close = 49400.0
-        self.assertTrue(self.mdd_checker._should_fill_limit_order(flat_limit_order, position, price_sources))
+        # Price below limit - should fill
+        price_sources = self.create_test_price_sources(49400.0)
+        self.assertTrue(self.limit_order_manager._evaluate_fill_price_source(flat_limit_order, position, price_sources))
 
     def test_should_not_fill_already_filled_order(self):
         """Test that already filled orders are not processed"""
@@ -244,7 +273,7 @@ class TestLimitOrders(TestBase):
             start_ms=TimeUtil.now_in_millis(), websocket=True, lag_ms=100
         )]
 
-        self.assertFalse(self.mdd_checker._should_fill_limit_order(limit_order, None, price_sources))
+        self.assertFalse(self.limit_order_manager._evaluate_fill_price_source(limit_order, None, price_sources))
 
     def test_should_not_fill_cancelled_order(self):
         """Test that cancelled orders are not processed"""
@@ -257,14 +286,14 @@ class TestLimitOrders(TestBase):
             start_ms=TimeUtil.now_in_millis(), websocket=True, lag_ms=100
         )]
 
-        self.assertFalse(self.mdd_checker._should_fill_limit_order(limit_order, None, price_sources))
+        self.assertFalse(self.limit_order_manager._evaluate_fill_price_source(limit_order, None, price_sources))
 
     def test_should_not_fill_without_price_sources(self):
         """Test that orders are not filled without price sources"""
         limit_order = self.create_test_limit_order()
 
-        self.assertFalse(self.mdd_checker._should_fill_limit_order(limit_order, None, None))
-        self.assertFalse(self.mdd_checker._should_fill_limit_order(limit_order, None, []))
+        self.assertFalse(self.limit_order_manager._evaluate_fill_price_source(limit_order, None, None))
+        self.assertFalse(self.limit_order_manager._evaluate_fill_price_source(limit_order, None, []))
 
     def test_limit_order_evaluation_counter(self):
         """Test that limit order evaluation counter is incremented"""
@@ -276,11 +305,11 @@ class TestLimitOrders(TestBase):
             start_ms=TimeUtil.now_in_millis(), websocket=True, lag_ms=100
         )]
 
-        initial_count = self.mdd_checker._limit_orders_evaluated
+        initial_count = self.limit_order_manager._limit_orders_evaluated
 
-        self.mdd_checker._should_fill_limit_order(limit_order, None, price_sources)
+        self.limit_order_manager._evaluate_fill_price_source(limit_order, None, price_sources)
 
-        self.assertEqual(self.mdd_checker._limit_orders_evaluated, initial_count + 1)
+        self.assertEqual(self.limit_order_manager._limit_orders_evaluated, initial_count + 1)
 
     def test_multiple_limit_orders_storage(self):
         """Test storing multiple limit orders for different trade pairs"""
@@ -293,10 +322,10 @@ class TestLimitOrders(TestBase):
             order_uuid="eth_order"
         )
 
-        self.mdd_checker.save_limit_order(self.DEFAULT_MINER_HOTKEY, btc_order)
-        self.mdd_checker.save_limit_order(self.DEFAULT_MINER_HOTKEY, eth_order)
+        self.limit_order_manager.save_limit_order(self.DEFAULT_MINER_HOTKEY, btc_order)
+        self.limit_order_manager.save_limit_order(self.DEFAULT_MINER_HOTKEY, eth_order)
 
-        orders = self.mdd_checker.limit_orders.get(self.DEFAULT_MINER_HOTKEY, [])
+        orders = self.limit_order_manager.limit_orders.get(self.DEFAULT_MINER_HOTKEY, [])
         self.assertEqual(len(orders), 2)
 
         order_uuids = [o.order_uuid for o in orders]
@@ -313,19 +342,17 @@ class TestLimitOrders(TestBase):
             )]
         }
 
-        self.mdd_checker.process_limit_orders(
-            self.DEFAULT_MINER_HOTKEY,
-            tp_to_price_sources,
+        self.limit_order_manager.check_limit_orders(
             self.position_locks
         )
 
-        orders = self.mdd_checker.limit_orders.get(self.DEFAULT_MINER_HOTKEY, [])
+        orders = self.limit_order_manager.limit_orders.get(self.DEFAULT_MINER_HOTKEY, [])
         self.assertEqual(len(orders), 0)
 
     def test_process_limit_orders_no_price_sources(self):
         """Test processing limit orders without matching price sources"""
         limit_order = self.create_test_limit_order(trade_pair=TradePair.BTCUSD)
-        self.mdd_checker.save_limit_order(self.DEFAULT_MINER_HOTKEY, limit_order)
+        self.limit_order_manager.save_limit_order(self.DEFAULT_MINER_HOTKEY, limit_order)
 
         tp_to_price_sources = {
             TradePair.ETHUSD: [PriceSource(
@@ -335,22 +362,20 @@ class TestLimitOrders(TestBase):
             )]
         }
 
-        self.mdd_checker.process_limit_orders(
-            self.DEFAULT_MINER_HOTKEY,
-            tp_to_price_sources,
+        self.limit_order_manager.check_limit_orders(
             self.position_locks
         )
 
-        orders = self.mdd_checker.limit_orders.get(self.DEFAULT_MINER_HOTKEY, [])
+        orders = self.limit_order_manager.limit_orders.get(self.DEFAULT_MINER_HOTKEY, [])
         self.assertEqual(len(orders), 1)
         self.assertEqual(orders[0].src, ORDER_SRC_LIMIT_UNFILLED)
 
     def test_limit_order_state_transitions(self):
         """Test that limit orders transition through states correctly"""
         limit_order = self.create_test_limit_order()
-        self.mdd_checker.save_limit_order(self.DEFAULT_MINER_HOTKEY, limit_order)
+        self.limit_order_manager.save_limit_order(self.DEFAULT_MINER_HOTKEY, limit_order)
 
-        orders = self.mdd_checker.limit_orders.get(self.DEFAULT_MINER_HOTKEY, [])
+        orders = self.limit_order_manager.limit_orders.get(self.DEFAULT_MINER_HOTKEY, [])
         self.assertEqual(orders[0].src, ORDER_SRC_LIMIT_UNFILLED)
 
         orders[0].src = ORDER_SRC_LIMIT_FILLED
@@ -370,11 +395,11 @@ class TestLimitOrders(TestBase):
         order1 = self.create_test_limit_order(order_uuid="miner1_order")
         order2 = self.create_test_limit_order(order_uuid="miner2_order")
 
-        self.mdd_checker.save_limit_order(self.DEFAULT_MINER_HOTKEY, order1)
-        self.mdd_checker.save_limit_order(miner2_hotkey, order2)
+        self.limit_order_manager.save_limit_order(self.DEFAULT_MINER_HOTKEY, order1)
+        self.limit_order_manager.save_limit_order(miner2_hotkey, order2)
 
-        miner1_orders = self.mdd_checker.limit_orders.get(self.DEFAULT_MINER_HOTKEY, [])
-        miner2_orders = self.mdd_checker.limit_orders.get(miner2_hotkey, [])
+        miner1_orders = self.limit_order_manager.limit_orders.get(self.DEFAULT_MINER_HOTKEY, [])
+        miner2_orders = self.limit_order_manager.limit_orders.get(miner2_hotkey, [])
 
         self.assertEqual(len(miner1_orders), 1)
         self.assertEqual(len(miner2_orders), 1)
@@ -390,9 +415,9 @@ class TestLimitOrders(TestBase):
                 leverage=leverage,
                 order_uuid=f"leverage_order_{i}"
             )
-            self.mdd_checker.save_limit_order(self.DEFAULT_MINER_HOTKEY, order)
+            self.limit_order_manager.save_limit_order(self.DEFAULT_MINER_HOTKEY, order)
 
-        orders = self.mdd_checker.limit_orders.get(self.DEFAULT_MINER_HOTKEY, [])
+        orders = self.limit_order_manager.limit_orders.get(self.DEFAULT_MINER_HOTKEY, [])
         self.assertEqual(len(orders), len(leverages))
 
         stored_leverages = [o.leverage for o in orders]
@@ -400,20 +425,18 @@ class TestLimitOrders(TestBase):
             self.assertIn(leverage, stored_leverages)
 
     def test_limit_order_initialization_from_disk(self):
-        """Test that limit orders are properly initialized when MDDChecker starts"""
-        new_mdd_checker = MDDChecker(
-            metagraph=self.mock_metagraph,
+        """Test that limit orders are properly initialized when LimitOrderManager starts"""
+        limit_order_manager = LimitOrderManager(
             position_manager=self.position_manager,
-            running_unit_tests=True,
             live_price_fetcher=self.live_price_fetcher
         )
 
-        self.assertEqual(len(new_mdd_checker.limit_orders), 0)
+        self.assertEqual(len(limit_order_manager.limit_orders), 0)
 
         limit_order = self.create_test_limit_order()
-        new_mdd_checker.save_limit_order(self.DEFAULT_MINER_HOTKEY, limit_order)
+        limit_order_manager.save_limit_order(self.DEFAULT_MINER_HOTKEY, limit_order)
 
-        orders = new_mdd_checker.limit_orders.get(self.DEFAULT_MINER_HOTKEY, [])
+        orders = limit_order_manager.limit_orders.get(self.DEFAULT_MINER_HOTKEY, [])
         self.assertEqual(len(orders), 1)
 
 
