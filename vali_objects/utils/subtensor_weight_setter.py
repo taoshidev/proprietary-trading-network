@@ -18,7 +18,7 @@ from vali_objects.vali_dataclasses.perf_ledger import PerfLedger
 class SubtensorWeightSetter(CacheController):
     def __init__(self, metagraph, position_manager: PositionManager,
                  running_unit_tests=False, is_backtesting=False, slack_notifier=None,
-                 netuid=None, shutdown_dict=None, weight_request_queue=None):
+                 shutdown_dict=None, weight_request_queue=None):
         super().__init__(metagraph, running_unit_tests=running_unit_tests, is_backtesting=is_backtesting)
         self.position_manager = position_manager
         self.perf_ledger_manager = position_manager.perf_ledger_manager
@@ -29,7 +29,6 @@ class SubtensorWeightSetter(CacheController):
         self.slack_notifier = slack_notifier
         
         # IPC setup
-        self.netuid = netuid
         self.shutdown_dict = shutdown_dict if shutdown_dict is not None else {}
         self.weight_request_queue = weight_request_queue
 
@@ -194,9 +193,8 @@ class SubtensorWeightSetter(CacheController):
             weights = [x[1] for x in transformed_list]
             
             # Send request (no response expected)
-            # MetagraphUpdater will use its own config to create wallet
+            # MetagraphUpdater will use its own config for netuid and wallet
             request = {
-                'netuid': self.netuid,
                 'uids': uids,
                 'weights': weights,
                 'version_key': self.subnet_version,
