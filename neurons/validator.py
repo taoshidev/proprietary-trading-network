@@ -30,6 +30,7 @@ from runnable.generate_request_minerstatistics import MinerStatisticsManager
 from runnable.generate_request_outputs import RequestOutputGenerator
 from vali_objects.enums.execution_type_enum import ExecutionType
 from vali_objects.utils.auto_sync import PositionSyncer
+from vali_objects.utils.limit_order_manager import LimitOrderManager
 from vali_objects.utils.p2p_syncer import P2PSyncer
 from shared_objects.rate_limiter import RateLimiter
 from vali_objects.utils.position_lock import PositionLocks
@@ -227,6 +228,8 @@ class Validator:
                                                               perf_ledger_manager=self.perf_ledger_manager,
                                                               position_manager=self.position_manager,
                                                               ipc_manager=self.ipc_manager)
+
+        self.limit_order_manager = LimitOrderManager(self.position_manager, self.live_price_fetcher, shutdown_dict)
 
         # Attach the position manager to the other objects that need it
         for idx, obj in enumerate([self.perf_ledger_manager, self.position_manager, self.position_syncer,
@@ -592,6 +595,7 @@ class Validator:
                 self.price_slippage_model.refresh_features_daily()
                 self.position_syncer.sync_positions_with_cooldown(self.auto_sync)
                 self.mdd_checker.mdd_check(self.position_locks)
+                self.limit_order_manager.check_limit_orders(self.position_locks)
                 self.challengeperiod_manager.refresh(current_time=current_time)
                 self.elimination_manager.process_eliminations(self.position_locks)
                 #self.position_locks.cleanup_locks(self.metagraph.hotkeys)
@@ -942,7 +946,7 @@ class Validator:
             src=ORDER_SRC_LIMIT_UNFILLED
         )
 
-        self.mdd_checker.save_limit_order(miner_hotkey, order)
+        self.limit_order_manager.save_limit_order(miner_hotkey, order, self.position_locks)
 
         self.uuid_tracker.add(order_uuid)
         synapse.order_json = order.__str__()
@@ -953,7 +957,7 @@ class Validator:
         cancel_order_uuid = signal['cancel_order_uuid']
         order_uuid = self.parse_miner_uuid(synapse)
 
-        self.mdd_checker.cancel_limit_order(
+        self.limit_order_manager.cancel_limit_order(
             miner_hotkey=miner_hotkey,
             trade_pair=trade_pair,
             cancel_order_uuid=cancel_order_uuid,
