@@ -668,12 +668,6 @@ class PTNRestServer(APIKeyMixin):
             except Exception as e:
                 bt.logging.error(f"Error getting collateral balance for {miner_address}: {e}")
                 return jsonify({'error': 'Internal server error retrieving balance'}), 500
-                
-                return jsonify(response_data)
-                
-            except Exception as e:
-                bt.logging.error(f"Error getting collateral balance for {miner_address}: {e}")
-                return jsonify({'error': 'Internal server error retrieving balance'}), 500
 
     def _verify_coldkey_owns_hotkey(self, coldkey_ss58: str, hotkey_ss58: str) -> bool:
         """
