@@ -590,15 +590,6 @@ class PTNRestServer(APIKeyMixin):
                     if field not in data:
                         return jsonify({'error': f'Missing required field: {field}'}), 400
 
-                # Verify nonce
-                is_valid, error_msg = self.nonce_manager.is_valid_request(
-                    address=data['miner_hotkey'],
-                    nonce=data['nonce'],
-                    timestamp=data['timestamp']
-                )
-                if not is_valid:
-                    return jsonify({'error': f'{error_msg}'}), 401
-
                 # Verify the withdrawal signature
                 keypair = Keypair(ss58_address=data['miner_coldkey'])
                 message = json.dumps({
@@ -616,8 +607,18 @@ class PTNRestServer(APIKeyMixin):
                 owns_hotkey = self._verify_coldkey_owns_hotkey(data['miner_coldkey'], data['miner_hotkey'])
                 if not owns_hotkey:
                     return jsonify({'error': 'Coldkey does not own the specified hotkey'}), 403
-                        
-                # Process the withdrawal using verified data
+
+                # Verify nonce
+                nonce_key = f"{data['miner_coldkey']}::{data['miner_hotkey']}"
+                is_valid, error_msg = self.nonce_manager.is_valid_request(
+                    address=nonce_key,
+                    nonce=str(data['nonce']),
+                    timestamp=int(data['timestamp'])
+                )
+                if not is_valid:
+                    return jsonify({'error': f'{error_msg}'}), 401
+
+            # Process the withdrawal using verified data
                 result = self.contract_manager.process_withdrawal_request(
                     amount=data['amount'],
                     miner_coldkey=data['miner_coldkey'],
