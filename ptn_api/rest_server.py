@@ -226,7 +226,7 @@ class PTNRestServer(APIKeyMixin):
     """Handles REST API requests with Flask and Waitress."""
 
     def __init__(self, api_keys_file, shared_queue=None, host="127.0.0.1",
-                 port=48888, refresh_interval=15, metrics_interval_minutes=5, position_manager=None, contract_manager=None, config=None):
+                 port=48888, refresh_interval=15, metrics_interval_minutes=5, position_manager=None, contract_manager=None):
         """Initialize the REST server with API key handling and routing.
 
         Args:
@@ -252,12 +252,7 @@ class PTNRestServer(APIKeyMixin):
         self.port = port
         self.app = Flask(__name__)
 
-        # Get vault wallet
-        self.vault_wallet = bt.wallet(
-            name=config.vault_wallet_name,
-            hotkey=config.vault_wallet_hotkey,
-            path=config.vault_wallet_path
-        )
+        self.contract_manager.load_contract_owner_credentials()
 
         # Initialize Flask-Compress for GZIP compression
         Compress(self.app)
@@ -563,8 +558,7 @@ class PTNRestServer(APIKeyMixin):
                         
                 # Process the deposit using raw data
                 result = self.contract_manager.process_deposit_request(
-                    extrinsic_hex=data['extrinsic'],
-                    vault_wallet=self.vault_wallet
+                    extrinsic_hex=data['extrinsic']
                 )
                 
                 # Return response
@@ -627,8 +621,7 @@ class PTNRestServer(APIKeyMixin):
                 result = self.contract_manager.process_withdrawal_request(
                     amount=data['amount'],
                     miner_coldkey=data['miner_coldkey'],
-                    miner_hotkey=data['miner_hotkey'],
-                    vault_wallet=self.vault_wallet,
+                    miner_hotkey=data['miner_hotkey']
                 )
                 
                 # Return response
