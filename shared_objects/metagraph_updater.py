@@ -344,12 +344,6 @@ class MetagraphUpdater(CacheController):
             # Use our own config for netuid
             netuid = self.config.netuid
             
-            # Rate limiting check
-            current_time = time.time()
-            if current_time - self.last_weight_set < ValiConfig.SET_WEIGHT_REFRESH_TIME_MS / 1000:
-                bt.logging.debug("Weight setting rate limited, skipping")
-                return
-            
             # Create wallet from our own config
             wallet = bt.wallet(config=self.config)
             
@@ -365,7 +359,7 @@ class MetagraphUpdater(CacheController):
             )
             
             if success:
-                self.last_weight_set = current_time
+                self.last_weight_set = time.time()
                 bt.logging.success("Weight setting completed successfully")
                 
                 # Track success and check for recovery alerts
