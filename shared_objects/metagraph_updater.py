@@ -398,7 +398,7 @@ class MetagraphUpdater(CacheController):
                         version_key=version_key
                     )
                 
-                bt.logging.debug(f"Weight setting attempt {attempt + 1}: success={success}, error={error_msg}")
+                bt.logging.info(f"Weight setting attempt {attempt + 1}: success={success}, error={error_msg}")
                 return success, error_msg
                 
             except Exception as e:
@@ -410,6 +410,38 @@ class MetagraphUpdater(CacheController):
                     return False, str(e)
         
         return False, "All retry attempts failed"
+    
+    def _switch_to_next_network(self, cleanup_connection=True, create_new_subtensor=True):
+        """Switch to the next network in round-robin
+        
+        Args:
+            cleanup_connection (bool): Whether to cleanup existing subtensor connection
+            create_new_subtensor (bool): Whether to create new subtensor instance
+        """
+        if not self.round_robin_enabled:
+            return
+            
+        # Clean up existing connection if requested
+        if cleanup_connection:
+            self._cleanup_subtensor_connection()
+        
+        # Switch to next network
+        self.current_round_robin_index = (self.current_round_robin_index + 1) % len(self.round_robin_networks)
+        next_network = self.round_robin_networks[self.current_round_robin_index]
+        
+        bt.logging.info(f"Switching to next network: {next_network}")
+        
+        # Update config
+        self.config.subtensor.network = next_network
+        self.config.subtensor.chain_endpoint = f"wss://entrypoint-{next_network}.opentensor.ai:443"
+        
+        # For dict-style access (used in update_metagraph)
+        if hasattr(self.config, '__getitem__'):
+            self.config['subtensor']['network'] = next_network
+        
+        # Create new subtensor connection if requested
+        if create_new_subtensor:
+            self.subtensor = bt.subtensor(config=self.config)
     
     def _send_weight_failure_alert(self, err_msg, failure_type, wallet):
         """Send contextual Slack alert for weight setting failure"""
@@ -595,11 +627,10 @@ class MetagraphUpdater(CacheController):
 
         if self.consecutive_failures > 0:
             if self.round_robin_enabled:
-                # Round-robin logic to switch networks
-                self.current_round_robin_index = (self.current_round_robin_index + 1) % len(self.round_robin_networks)
-                self.config['subtensor']['network'] = self.round_robin_networks[self.current_round_robin_index]
-                bt.logging.warning(f"Switching to next network in round-robin: {self.config['subtensor']['network']}")
-
+                # Use modularized round-robin switching
+                bt.logging.warning(f"Switching to next network in round-robin due to consecutive failures")
+                self._switch_to_next_network(cleanup_connection=False, create_new_subtensor=False)
+            
             # CRITICAL: Close existing connection before creating new one to prevent file descriptor leak
             self._cleanup_subtensor_connection()
             self.subtensor = bt.subtensor(config=self.config)
