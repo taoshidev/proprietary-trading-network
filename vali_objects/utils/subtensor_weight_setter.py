@@ -1,6 +1,8 @@
 # developer: jbonilla
 from functools import partial
 import time
+import traceback
+from setproctitle import setproctitle
 
 import bittensor as bt
 
@@ -112,7 +114,8 @@ class WeightFailureTracker:
 
 class SubtensorWeightSetter(CacheController):
     def __init__(self, metagraph, position_manager: PositionManager,
-                 running_unit_tests=False, is_backtesting=False, slack_notifier=None):
+                 running_unit_tests=False, is_backtesting=False, slack_notifier=None,
+                 config=None, netuid=None, shutdown_dict=None, weight_request_queue=None):
         super().__init__(metagraph, running_unit_tests=running_unit_tests, is_backtesting=is_backtesting)
         self.position_manager = position_manager
         self.perf_ledger_manager = position_manager.perf_ledger_manager
@@ -123,9 +126,11 @@ class SubtensorWeightSetter(CacheController):
         self.weight_failure_tracker = WeightFailureTracker()
         self.slack_notifier = slack_notifier
         
-        # Config will be set by validator/miner after initialization
-        self.config = None
-        self.wallet = None
+        # Config and IPC setup
+        self.config = config
+        self.netuid = netuid
+        self.shutdown_dict = shutdown_dict if shutdown_dict is not None else {}
+        self.weight_request_queue = weight_request_queue
 
     def compute_weights_default(self, current_time: int) -> tuple[list[tuple[str, float]], list[tuple[str, float]]]:
         if current_time is None:
@@ -407,3 +412,76 @@ class SubtensorWeightSetter(CacheController):
                  f"Hotkey: {hotkey}"
         
         self.slack_notifier.send_message(message, level="info")
+    
+    def run_update_loop(self):
+        """
+        Weight setter loop that sends fire-and-forget requests to MetagraphUpdater.
+        """
+        setproctitle(f"vali_{self.__class__.__name__}")
+        bt.logging.enable_info()
+        bt.logging.info("Starting weight setter update loop (fire-and-forget IPC mode)")
+        
+        while not self.shutdown_dict:
+            try:
+                if self.refresh_allowed(ValiConfig.SET_WEIGHT_REFRESH_TIME_MS):
+                    bt.logging.info("Computing weights for IPC request")
+                    current_time = TimeUtil.now_in_millis()
+                    
+                    # Compute weights (existing logic)
+                    checkpoint_results, transformed_list = self.compute_weights_default(current_time)
+                    self.checkpoint_results = checkpoint_results
+                    self.transformed_list = transformed_list
+                    
+                    if transformed_list and self.weight_request_queue:
+                        # Send weight setting request (fire-and-forget)
+                        self._send_weight_request(transformed_list)
+                        self.set_last_update_time()
+                    else:
+                        bt.logging.debug("No weights to set or IPC not available")
+                        
+            except Exception as e:
+                bt.logging.error(f"Error in weight setter update loop: {e}")
+                bt.logging.error(traceback.format_exc())
+                
+                # Send error notification
+                if self.slack_notifier:
+                    self.slack_notifier.send_message(
+                        f"❌ Weight setter process error!\n"
+                        f"Error: {str(e)}\n"
+                        f"This occurred in the weight setter update loop",
+                        level="error"
+                    )
+                time.sleep(30)
+                
+            time.sleep(1)
+        
+        bt.logging.info("Weight setter update loop shutting down")
+    
+    def _send_weight_request(self, transformed_list):
+        """Send weight setting request to MetagraphUpdater (fire-and-forget)"""
+        try:
+            uids = [x[0] for x in transformed_list]
+            weights = [x[1] for x in transformed_list]
+            
+            # Create serializable wallet config
+            wallet_config = {
+                'name': self.config.wallet.name,
+                'hotkey': self.config.wallet.hotkey,
+                'path': self.config.wallet.path
+            }
+            
+            # Send request (no response expected)
+            request = {
+                'wallet_config': wallet_config,
+                'netuid': self.netuid,
+                'uids': uids,
+                'weights': weights,
+                'version_key': self.subnet_version,
+                'timestamp': TimeUtil.now_in_millis()
+            }
+            
+            self.weight_request_queue.put_nowait(request)
+            bt.logging.info(f"Weight request sent: {len(uids)} UIDs via IPC")
+            
+        except Exception as e:
+            bt.logging.error(f"Error sending weight request: {e}")

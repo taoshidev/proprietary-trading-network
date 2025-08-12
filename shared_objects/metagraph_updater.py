@@ -4,6 +4,8 @@
 import time
 import traceback
 import threading
+import queue
+from setproctitle import setproctitle
 
 from vali_objects.vali_config import ValiConfig
 from shared_objects.cache_controller import CacheController
@@ -15,7 +17,7 @@ import bittensor as bt
 
 class MetagraphUpdater(CacheController):
     def __init__(self, config, metagraph, hotkey, is_miner, position_inspector=None, position_manager=None,
-                 shutdown_dict=None, slack_notifier=None):
+                 shutdown_dict=None, slack_notifier=None, weight_request_queue=None):
         super().__init__(metagraph)
         self.config = config
         self.subtensor = bt.subtensor(config=self.config)
@@ -42,12 +44,21 @@ class MetagraphUpdater(CacheController):
         self.shutdown_dict = shutdown_dict  # Flag to control the loop
         self.slack_notifier = slack_notifier  # Add slack notifier for error reporting
 
+        # Weight setting for validators only
+        self.weight_request_queue = weight_request_queue if not is_miner else None
+        self.last_weight_set = 0
+
         # Exponential backoff parameters
         self.min_backoff = 10 if self.round_robin_enabled else 120
         self.max_backoff = 43200  # 12 hours maximum (12 * 60 * 60)
         self.backoff_factor = 2  # Double the wait time on each retry
         self.current_backoff = self.min_backoff
         self.consecutive_failures = 0
+        
+        # Log mode
+        mode = "miner" if is_miner else "validator"
+        weight_mode = "enabled" if self.weight_request_queue else "disabled"
+        bt.logging.info(f"MetagraphUpdater initialized in {mode} mode, weight setting: {weight_mode}")
 
     def _current_timestamp(self):
         return time.time()
@@ -122,6 +133,10 @@ class MetagraphUpdater(CacheController):
         return len(hotkeys_with_v_trust.union(set(self.likely_validators.keys())))
 
     def run_update_loop(self):
+        mode_name = "miner" if self.is_miner else "validator"
+        setproctitle(f"metagraph_updater_{mode_name}_{self.hotkey}")
+        bt.logging.enable_info()
+        
         while not self.shutdown_dict:
             try:
                 self.update_metagraph()
@@ -139,6 +154,11 @@ class MetagraphUpdater(CacheController):
                         )
                 self.consecutive_failures = 0
                 self.current_backoff = self.min_backoff
+                
+                # Weight setting requests (validators only)
+                if self.weight_request_queue:
+                    self._process_weight_requests()
+                
                 time.sleep(1)  # Normal operation delay
             except Exception as e:
                 self.consecutive_failures += 1
@@ -171,6 +191,101 @@ class MetagraphUpdater(CacheController):
 
                 # Wait with exponential backoff
                 time.sleep(self.current_backoff)
+
+    def _process_weight_requests(self):
+        """Process pending weight setting requests (validators only)"""
+        try:
+            # Non-blocking check for weight requests
+            processed_count = 0
+            while True:
+                try:
+                    request = self.weight_request_queue.get_nowait()
+                    self._handle_weight_request(request)
+                    processed_count += 1
+                    
+                    # Limit processing per cycle to prevent blocking metagraph updates
+                    if processed_count >= 5:  # Process max 5 requests per cycle
+                        break
+                        
+                except queue.Empty:
+                    break  # No more requests
+                    
+            if processed_count > 0:
+                bt.logging.debug(f"Processed {processed_count} weight requests")
+                    
+        except Exception as e:
+            bt.logging.error(f"Error processing weight requests: {e}")
+    
+    def _handle_weight_request(self, request):
+        """Handle a single weight setting request (no response needed)"""
+        try:
+            wallet_config = request['wallet_config']
+            netuid = request['netuid']
+            uids = request['uids']
+            weights = request['weights']
+            version_key = request['version_key']
+            
+            # Rate limiting check
+            current_time = time.time()
+            if current_time - self.last_weight_set < ValiConfig.SET_WEIGHT_REFRESH_TIME_MS / 1000:
+                bt.logging.debug("Weight setting rate limited, skipping")
+                return
+            
+            # Recreate wallet from config
+            wallet = bt.wallet(
+                name=wallet_config['name'],
+                hotkey=wallet_config['hotkey'],
+                path=wallet_config['path']
+            )
+            
+            bt.logging.info(f"Processing weight setting request for {len(uids)} UIDs")
+            
+            # Set weights with retry logic
+            success, error_msg = self._set_weights_with_retry(
+                netuid=netuid,
+                wallet=wallet,
+                uids=uids,
+                weights=weights,
+                version_key=version_key
+            )
+            
+            if success:
+                self.last_weight_set = current_time
+                bt.logging.success("Weight setting completed successfully")
+            else:
+                bt.logging.warning(f"Weight setting failed: {error_msg}")
+            
+        except Exception as e:
+            bt.logging.error(f"Error handling weight request: {e}")
+            bt.logging.error(traceback.format_exc())
+    
+    def _set_weights_with_retry(self, netuid, wallet, uids, weights, version_key):
+        """Set weights with round-robin retry using existing subtensor"""
+        max_retries = len(self.round_robin_networks) if self.round_robin_enabled else 1
+        
+        for attempt in range(max_retries):
+            try:
+                with get_subtensor_lock():
+                    success, error_msg = self.subtensor.set_weights(
+                        netuid=netuid,
+                        wallet=wallet,
+                        uids=uids,
+                        weights=weights,
+                        version_key=version_key
+                    )
+                
+                bt.logging.debug(f"Weight setting attempt {attempt + 1}: success={success}, error={error_msg}")
+                return success, error_msg
+                
+            except Exception as e:
+                bt.logging.warning(f"Weight setting failed (attempt {attempt + 1}): {e}")
+                if self.round_robin_enabled and attempt < max_retries - 1:
+                    bt.logging.info("Switching to next network for weight setting retry")
+                    self._switch_to_next_network()
+                else:
+                    return False, str(e)
+        
+        return False, "All retry attempts failed"
 
     def estimate_number_of_miners(self):
         # Filter out expired miners

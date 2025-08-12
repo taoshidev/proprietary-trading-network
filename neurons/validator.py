@@ -164,11 +164,15 @@ class Validator:
         # IMPORTANT: Only update this variable in-place. Otherwise, the reference will be lost in the helper classes.
         self.metagraph = get_ipc_metagraph(self.ipc_manager)
 
+        # Create single weight request queue (validator only)
+        weight_request_queue = self.ipc_manager.Queue()
+        
         # Create MetagraphUpdater which manages the subtensor connection
         self.metagraph_updater = MetagraphUpdater(self.config, self.metagraph, self.wallet.hotkey.ss58_address,
                                                   False, position_manager=None,
                                                   shutdown_dict=shutdown_dict,
-                                                  slack_notifier=self.slack_notifier)
+                                                  slack_notifier=self.slack_notifier,
+                                                  weight_request_queue=weight_request_queue)
         
         # We don't store a reference to subtensor; instead use the getter from MetagraphUpdater
         # This ensures we always have the current subtensor instance even after round-robin switches
@@ -344,13 +348,16 @@ class Validator:
 
         self.mdd_checker = MDDChecker(self.metagraph, self.position_manager, live_price_fetcher=self.live_price_fetcher,
                                       shutdown_dict=shutdown_dict, compaction_enabled=True)
+        
         self.weight_setter = SubtensorWeightSetter(
             self.metagraph, 
             position_manager=self.position_manager,
-            slack_notifier=self.slack_notifier
+            slack_notifier=self.slack_notifier,
+            config=self.config,
+            netuid=self.config.netuid,
+            shutdown_dict=shutdown_dict,
+            weight_request_queue=weight_request_queue  # Same queue as MetagraphUpdater
         )
-        # Set config reference for alert context
-        self.weight_setter.config = self.config
 
         self.request_core_manager = RequestCoreManager(self.position_manager, self.weight_setter, self.plagiarism_detector)
         self.miner_statistics_manager = MinerStatisticsManager(self.position_manager, self.weight_setter, self.plagiarism_detector)
@@ -358,6 +365,10 @@ class Validator:
         # Start the perf ledger updater loop in its own process. Make sure it happens after the position manager has chances to make any fixes
         self.perf_ledger_updater_thread = Process(target=self.perf_ledger_manager.run_update_loop, daemon=True)
         self.perf_ledger_updater_thread.start()
+        
+        # Start the weight setter loop in its own process
+        self.weight_setter_thread = Process(target=self.weight_setter.run_update_loop, daemon=True)
+        self.weight_setter_thread.start()
 
         # Initialize ValidatorContractManager for collateral operations
         self.contract_manager = ValidatorContractManager(config=self.config, metagraph=self.metagraph)
@@ -546,6 +557,8 @@ class Validator:
         self.live_price_fetcher.stop_all_threads()
         bt.logging.warning("Stopping perf ledger...")
         self.perf_ledger_updater_thread.join()
+        bt.logging.warning("Stopping weight setter...")
+        self.weight_setter_thread.join()
         bt.logging.warning("Stopping plagiarism detector...")
         self.plagiarism_thread.join()
         if self.rog_thread:
@@ -584,7 +597,7 @@ class Validator:
                 self.challengeperiod_manager.refresh(current_time=current_time)
                 self.elimination_manager.process_eliminations(self.position_locks)
                 #self.position_locks.cleanup_locks(self.metagraph.hotkeys)
-                self.weight_setter.set_weights(self.wallet, self.config.netuid, self.metagraph_updater.get_subtensor(), current_time=current_time)
+                # Weight setting now runs in its own process
                 #self.p2p_syncer.sync_positions_with_cooldown()
 
             # In case of unforeseen errors, the validator will log the error and send notification to Slack
