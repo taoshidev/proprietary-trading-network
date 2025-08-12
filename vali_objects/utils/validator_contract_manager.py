@@ -280,7 +280,7 @@ class ValidatorContractManager:
                     "successfully_processed": True,
                     "error_message": "",
                     "returned_amount": returned_theta,
-                    "returned_to": miner_hotkey
+                    "returned_to": miner_coldkey
                 }
                 
             except Exception as e:
