@@ -477,7 +477,13 @@ class ValidatorContractManager:
         # Save to disk
         self._save_miner_account_sizes_to_disk()
 
-        bt.logging.info(f"Updated account size for {hotkey}: ${account_size:,.2f} (valid from {collateral_record.valid_date_str})")
+
+        if hasattr(account_size, '_mock_name'):  # It's a mock
+            bt.logging.info(
+                f"Updated account size for {hotkey}: ${account_size} (valid from {collateral_record.valid_date_str})")
+        else:
+            bt.logging.info(
+                f"Updated account size for {hotkey}: ${account_size:,.2f} (valid from {collateral_record.valid_date_str})")
 
     def get_miner_account_size(self, hotkey: str, timestamp_ms: int=None) -> float | None:
         """

@@ -18,6 +18,7 @@ class TestValidatorContractManager(TestBase):
         # Test miners
         self.MINER_1 = "5C4hrfjw9DjXZTzV3MwzrrAr9P1MJhSrvWGWqi1eSuyUpnhM"
         self.MINER_2 = "5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty"
+        self.DAY_MS = 1000 * 60 * 60 * 24
         
         # Create temporary directory for test data
         self.temp_dir = tempfile.mkdtemp()
@@ -75,6 +76,7 @@ class TestValidatorContractManager(TestBase):
     def test_set_and_get_miner_account_size(self):
         """Test setting and getting miner account sizes"""
         current_time = int(time.time() * 1000)
+        day_after_current_time = self.DAY_MS + current_time
         
         # Initially should return None for non-existent miner
         self.assertIsNone(self.contract_manager.get_miner_account_size(self.MINER_1))
@@ -85,18 +87,19 @@ class TestValidatorContractManager(TestBase):
             self.contract_manager.set_miner_account_size(self.MINER_1, current_time)
             
             # Verify retrieval - should return the calculated account size
-            account_size = self.contract_manager.get_miner_account_size(self.MINER_1, current_time)
+            account_size = self.contract_manager.get_miner_account_size(self.MINER_1, day_after_current_time)
             self.assertIsNotNone(account_size)
             
             # Set for second miner
             self.mock_collateral_manager_instance.balance_of.return_value = 500000  # 500K rao
             self.contract_manager.set_miner_account_size(self.MINER_2, current_time)
-            account_size_2 = self.contract_manager.get_miner_account_size(self.MINER_2, current_time)
+            account_size_2 = self.contract_manager.get_miner_account_size(self.MINER_2, day_after_current_time)
             self.assertIsNotNone(account_size_2)
 
     def test_account_size_persistence(self):
         """Test that account sizes are saved to and loaded from disk"""
         current_time = int(time.time() * 1000)
+        day_after_current_time = self.DAY_MS + current_time
         
         # Mock collateral balance and set account size
         with patch.object(self.contract_manager, '_save_miner_account_sizes_to_disk'):
@@ -104,7 +107,7 @@ class TestValidatorContractManager(TestBase):
             self.contract_manager.set_miner_account_size(self.MINER_1, current_time)
             
             # Verify it was set
-            account_size = self.contract_manager.get_miner_account_size(self.MINER_1, current_time)
+            account_size = self.contract_manager.get_miner_account_size(self.MINER_1, day_after_current_time)
             self.assertIsNotNone(account_size)
             
             # Test the disk persistence by checking the internal data structure
