@@ -1,4 +1,6 @@
 import statistics
+from string import hexdigits
+
 import bittensor as bt
 import threading
 from collections import defaultdict, deque
@@ -251,6 +253,7 @@ class PTNRestServer(APIKeyMixin):
         self.host = host
         self.port = port
         self.app = Flask(__name__)
+        self.app.config['MAX_CONTENT_LENGTH'] = 256 * 1024  # 256 KB upper bound
 
         self.contract_manager.load_contract_owner_credentials()
 
@@ -537,6 +540,8 @@ class PTNRestServer(APIKeyMixin):
         @self.app.route("/collateral/deposit", methods=["POST"])
         def deposit_collateral():
             """Process collateral deposit with encoded extrinsic."""
+            MAX_EXTRINSIC_HEX = 200_000 # ~100 KB decoded;
+
             # Check if contract manager is available
             if not self.contract_manager:
                 return jsonify({'error': 'Collateral operations not available'}), 503
@@ -555,10 +560,19 @@ class PTNRestServer(APIKeyMixin):
                 for field in required_fields:
                     if field not in data:
                         return jsonify({'error': f'Missing required field: {field}'}), 400
+
+                # Validate extrinsic
+                extrinsic = data.get('extrinsic')
+                if not isinstance(extrinsic, str):
+                    return jsonify({'error': 'extrinsic must be a hex string'}), 400
+                if len(extrinsic) > MAX_EXTRINSIC_HEX:
+                    return jsonify({'error': 'extrinsic too large'}), 413
+                if len(extrinsic) % 2 != 0 or not all(c in hexdigits for c in extrinsic):
+                    return jsonify({'error': 'extrinsic must be even-length hex'}), 400
                         
                 # Process the deposit using raw data
                 result = self.contract_manager.process_deposit_request(
-                    extrinsic_hex=data['extrinsic']
+                    extrinsic_hex=extrinsic
                 )
                 
                 # Return response
