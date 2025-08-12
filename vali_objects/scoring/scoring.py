@@ -116,7 +116,11 @@ class Scoring:
         )
 
         # Now combine the percentile scores prior to running a full softmax
-        asset_aggregated_scores = Scoring.subclass_score_aggregation(asset_softmaxed_scores)
+        subclass_resolved_weighting = Scoring.subclass_scoring_weight_resolver(asset_softmaxed_scores)
+        asset_aggregated_scores = Scoring.subclass_score_aggregation(
+            asset_softmaxed_scores,
+            subclass_resolved_weighting
+        )
 
         # Force good performance of all error metrics
         combined_weighed = asset_aggregated_scores + full_penalty_miner_scores
@@ -406,24 +410,16 @@ class Scoring:
         return softmaxed_scores
 
     @staticmethod
-    def subclass_score_aggregation(
+    def subclass_scoring_weight_resolver(
             miner_asset_scores: dict[str, dict[str, float]]
-    ) -> list[tuple[str, float]]:
-        """
-        Aggregates the softmax scores of miners across different asset classes.
-
-        Args:
-            miner_asset_scores (dict[str, list[tuple[str, float]]]): A dictionary where keys are asset classes and values are lists of tuples with miner names and their softmax scores.
-
-        Returns:
-            list[tuple[str, float]]: A list of tuples with miner names and their aggregated softmax scores.
-        """
-        aggregated_scores = defaultdict(float)
+    ) -> dict[str, float]:
         asset_class_breakdown = ValiConfig.ASSET_CLASS_BREAKDOWN
         category_lookup = ValiConfig.CATEGORY_LOOKUP
 
         # Compose the full penalties dictionary based on subcategories and weights
-        full_penalties_dictionary = {}
+        subcategory_resolution_weighting = {}
+
+        # First step is to just build a dictionary of subcategory weightings
         for asset_subclass, _ in miner_asset_scores.items():
             asset_class = category_lookup.get(asset_subclass, None)
             if asset_class is None:
@@ -432,7 +428,7 @@ class Scoring:
 
             asset_class_information = asset_class_breakdown.get(asset_class, {})
 
-            asset_class_emission = asset_class_information.get('emission', 0)
+            asset_class_emission = asset_class_information.get('emission', 0.0)
             asset_subcategory_weight = asset_class_information.get('subcategory_weights', {})
 
             # bt.logging.info(f"Asset class {asset_class} has emission {asset_class_emission} and subcategory weights {asset_subcategory_weight}")
@@ -444,18 +440,37 @@ class Scoring:
                 raise ValueError(f"Asset class {asset_class} has no subcategory weights.")
 
             for subcategory, subcategory_weight in asset_subcategory_weight.items():
-                full_penalties_dictionary[subcategory] = asset_class_emission * subcategory_weight
+                subcategory_resolution_weighting[subcategory] = asset_class_emission * subcategory_weight
+
+        return subcategory_resolution_weighting
+
+    @staticmethod
+    def subclass_score_aggregation(
+            miner_asset_scores: dict[str, dict[str, float]],
+            subcategory_resolution_weighting: dict[str, float]
+    ) -> list[tuple[str, float]]:
+        """
+        Aggregates the softmax scores of miners across different asset classes.
+
+        Args:
+            miner_asset_scores (dict[str, list[tuple[str, float]]]): A dictionary where keys are asset classes and values are lists of tuples with miner names and their softmax scores.
+            subcategory_resolution_weighting (dict[str, float]): A dictionary where keys are subcategories and values are their resolved weights.
+
+        Returns:
+            list[tuple[str, float]]: A list of tuples with miner names and their aggregated softmax scores.
+        """
+        aggregated_scores = defaultdict(float)
 
         # Now check how the miners are achieving the asset class breakdown
         for subcategory, scores in miner_asset_scores.items():
             for miner, score in scores.items():
-                asset_class_emission = full_penalties_dictionary.get(subcategory, 0)
+                subcategory_resolved_weight = subcategory_resolution_weighting.get(subcategory, 0)
                 if miner not in aggregated_scores:
                     aggregated_scores[miner] = 0.0
 
-                aggregated_scores[miner] += score * asset_class_emission
+                aggregated_scores[miner] += score * subcategory_resolved_weight
 
-        bt.logging.info(f"Full penalties dictionary: {full_penalties_dictionary}")
+        bt.logging.info(f"Subclass weighting dictionary: {subcategory_resolution_weighting}")
         return sorted(aggregated_scores.items(), key=lambda x: x[1], reverse=True)
 
     @staticmethod

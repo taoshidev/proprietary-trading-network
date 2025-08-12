@@ -417,7 +417,12 @@ class MinerStatisticsManager:
     # -------------------------------------------
     # Asset Subcategory Performance
     # -------------------------------------------
-    def miner_subcategory_scores(self, hotkey: str, asset_softmaxed_scores: dict[str, dict[str, float]]) -> dict[str, dict[str, float]]:
+    def miner_subcategory_scores(
+            self,
+            hotkey: str,
+            asset_softmaxed_scores: dict[str, dict[str, float]],
+            subclass_resolved_weighting: dict[str, float] = None
+    ) -> dict[str, dict[str, float]]:
         """
         Extract individual miner's scores and rankings for each asset subcategory.
         
@@ -429,28 +434,21 @@ class MinerStatisticsManager:
             subcategory_data: dict with subcategory as key and score/rank/percentile info as value
         """
         subcategory_data = {}
-        
+
         for subcategory, miner_scores in asset_softmaxed_scores.items():
             if hotkey in miner_scores:
-                miner_score = miner_scores[hotkey]
-                # Filter out miners with zero scores for ranking purposes
-                nonzero_scores = {hk: score for hk, score in miner_scores.items() if score > 0}
-                total_miners = len(nonzero_scores)
-                
-                if miner_score == 0:
-                    # Miners with zero scores get lowest rank
-                    rank = total_miners + 1
-                    percentile = 0
-                else:
-                    unique_scores = sorted(set(nonzero_scores.values()), reverse=True)
-                    # Find rank based on tied scores (all miners with same score get highest rank)
-                    rank = unique_scores.index(miner_score) + 1
-                    percentile = ((total_miners - rank + 1) / total_miners) * 100 if total_miners > 0 else 0
+                subcategory_percentiles = self.percentile_rank_dictionary(miner_scores.items())
+                subcategory_ranks = self.rank_dictionary(miner_scores.items())
+
+                # Score is the only one directly impacted by the subclass weighting, each score element should show the overall scoring contribution
+                miner_score = miner_scores.get(hotkey)
+                subclass_scores = subclass_resolved_weighting.get(subcategory, 0.0)
+                aggregated_score = miner_score * subclass_scores
 
                 subcategory_data[subcategory] = {
-                    "score": miner_score,
-                    "rank": rank,
-                    "percentile": percentile
+                    "score": aggregated_score,
+                    "rank": subcategory_ranks.get(hotkey, 0),
+                    "percentile": subcategory_percentiles.get(hotkey, 0.0)
                 }
         
         return subcategory_data
@@ -500,6 +498,12 @@ class MinerStatisticsManager:
             evaluation_time_ms=time_now,
             weighting=final_results_weighting
         ) # returns asset competitiveness dict, asset softmaxed scores
+
+        subclass_resolved_weighting = Scoring.subclass_scoring_weight_resolver(asset_softmaxed_scores)
+        asset_aggregated_scores = Scoring.subclass_score_aggregation(
+            asset_softmaxed_scores,
+            subclass_resolved_weighting
+        )
 
         # For weighting logic: gather "successful" checkpoint-based results
         successful_ledger = self.perf_ledger_manager.filtered_ledger_for_scoring(hotkeys=challengeperiod_success_hotkeys)
@@ -664,7 +668,11 @@ class MinerStatisticsManager:
             risk_profile_single_dict = risk_profile_dict.get(hotkey, {})
 
             # Asset Subcategory Performance
-            asset_subcategory_performance = self.miner_subcategory_scores(hotkey, asset_softmaxed_scores)
+            asset_subcategory_performance = self.miner_subcategory_scores(
+                hotkey,
+                asset_softmaxed_scores,
+                subclass_resolved_weighting
+            )
 
             final_miner_dict = {
                 "hotkey": hotkey,
