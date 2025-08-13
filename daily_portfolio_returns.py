@@ -615,6 +615,448 @@ class CategoryReturnCalculator:
         return insert_values
 
 
+class DiagnosticMode:
+    """Comprehensive diagnostic analysis for missing days and miners."""
+    
+    @staticmethod
+    def analyze_missing_data(
+        all_positions: Dict[str, List[Position]],
+        elimination_tracker: 'EliminationTracker',
+        db_manager: 'DatabaseManager',
+        start_ms: int,
+        end_ms: int,
+        hotkeys_filter: Optional[List[str]] = None
+    ) -> Dict[str, Any]:
+        """
+        Comprehensive analysis of missing days and miners.
+        
+        Returns:
+            Dict containing detailed diagnostic information
+        """
+        bt.logging.info("🔍 Starting comprehensive diagnostic analysis...")
+        
+        results = {
+            'analysis_period': {
+                'start_date': TimeUtil.millis_to_formatted_date_str(start_ms),
+                'end_date': TimeUtil.millis_to_formatted_date_str(end_ms),
+                'total_days': int((end_ms - start_ms) // MS_IN_24_HOURS) + 1
+            },
+            'miner_analysis': {},
+            'date_analysis': {},
+            'database_analysis': {},
+            'elimination_analysis': {},
+            'position_analysis': {},
+            'summary': {}
+        }
+        
+        # Analyze all miners and their position coverage
+        results['miner_analysis'] = DiagnosticMode._analyze_miners(all_positions, start_ms, end_ms, hotkeys_filter)
+        
+        # Analyze date coverage
+        results['date_analysis'] = DiagnosticMode._analyze_date_coverage(all_positions, start_ms, end_ms)
+        
+        # Analyze database coverage if available
+        if db_manager:
+            results['database_analysis'] = DiagnosticMode._analyze_database_coverage(db_manager, start_ms, end_ms)
+        
+        # Analyze elimination impact
+        if elimination_tracker:
+            results['elimination_analysis'] = DiagnosticMode._analyze_elimination_impact(
+                all_positions, elimination_tracker, start_ms, end_ms
+            )
+        
+        # Analyze position distribution
+        results['position_analysis'] = DiagnosticMode._analyze_position_distribution(all_positions)
+        
+        # Generate summary
+        results['summary'] = DiagnosticMode._generate_summary(results)
+        
+        return results
+    
+    @staticmethod
+    def _analyze_miners(
+        all_positions: Dict[str, List[Position]], 
+        start_ms: int, 
+        end_ms: int,
+        hotkeys_filter: Optional[List[str]] = None
+    ) -> Dict[str, Any]:
+        """Analyze miner coverage and activity patterns."""
+        miner_stats = {}
+        
+        for hotkey, positions in all_positions.items():
+            if hotkeys_filter and hotkey not in hotkeys_filter:
+                continue
+                
+            # Calculate position time coverage
+            first_position_ms = min(pos.open_ms for pos in positions) if positions else None
+            last_position_ms = max(pos.close_ms or pos.open_ms for pos in positions) if positions else None
+            
+            # Calculate days with activity
+            active_days = set()
+            for pos in positions:
+                # Count all days this position was active
+                pos_start = max(pos.open_ms, start_ms)
+                pos_end = min(pos.close_ms or end_ms, end_ms)
+                
+                current_day = (pos_start // MS_IN_24_HOURS) * MS_IN_24_HOURS
+                while current_day <= pos_end:
+                    active_days.add(current_day)
+                    current_day += MS_IN_24_HOURS
+            
+            miner_stats[hotkey] = {
+                'total_positions': len(positions),
+                'first_position_date': TimeUtil.millis_to_formatted_date_str(first_position_ms) if first_position_ms else None,
+                'last_position_date': TimeUtil.millis_to_formatted_date_str(last_position_ms) if last_position_ms else None,
+                'active_days_count': len(active_days),
+                'expected_days_in_period': int((end_ms - start_ms) // MS_IN_24_HOURS) + 1,
+                'coverage_percentage': (len(active_days) / ((end_ms - start_ms) // MS_IN_24_HOURS + 1)) * 100 if active_days else 0,
+                'trade_pairs': list(set(pos.trade_pair.trade_pair for pos in positions)),
+                'position_types': list(set(pos.position_type for pos in positions))
+            }
+        
+        return {
+            'total_miners': len(miner_stats),
+            'filtered_miners': len([m for m in miner_stats.keys() if not hotkeys_filter or m in hotkeys_filter]),
+            'miners_with_low_coverage': [
+                hotkey for hotkey, stats in miner_stats.items() 
+                if stats['coverage_percentage'] < 50
+            ],
+            'miners_with_no_positions': [
+                hotkey for hotkey, stats in miner_stats.items() 
+                if stats['total_positions'] == 0
+            ],
+            'miner_details': miner_stats
+        }
+    
+    @staticmethod
+    def _analyze_date_coverage(all_positions: Dict[str, List[Position]], start_ms: int, end_ms: int) -> Dict[str, Any]:
+        """Analyze which dates have position activity."""
+        daily_activity = {}
+        
+        # Generate all dates in range
+        current_ms = start_ms
+        while current_ms <= end_ms:
+            date_str = TimeUtil.millis_to_formatted_date_str(current_ms)[:10]  # YYYY-MM-DD
+            daily_activity[date_str] = {
+                'total_positions': 0,
+                'active_miners': set(),
+                'open_positions': 0,
+                'closed_positions': 0,
+                'trade_pairs': set()
+            }
+            current_ms += MS_IN_24_HOURS
+        
+        # Count activity per day
+        for hotkey, positions in all_positions.items():
+            for position in positions:
+                pos_start_ms = position.open_ms
+                pos_end_ms = position.close_ms or end_ms
+                
+                # Find all days this position was active
+                current_day_ms = max((pos_start_ms // MS_IN_24_HOURS) * MS_IN_24_HOURS, start_ms)
+                while current_day_ms <= min(pos_end_ms, end_ms):
+                    date_str = TimeUtil.millis_to_formatted_date_str(current_day_ms)[:10]
+                    
+                    if date_str in daily_activity:
+                        daily_activity[date_str]['total_positions'] += 1
+                        daily_activity[date_str]['active_miners'].add(hotkey)
+                        daily_activity[date_str]['trade_pairs'].add(position.trade_pair.trade_pair)
+                        
+                        # Check if position was closed on this day
+                        if position.is_closed_position and position.close_ms:
+                            close_date_str = TimeUtil.millis_to_formatted_date_str(position.close_ms)[:10]
+                            if close_date_str == date_str:
+                                daily_activity[date_str]['closed_positions'] += 1
+                            else:
+                                daily_activity[date_str]['open_positions'] += 1
+                        else:
+                            daily_activity[date_str]['open_positions'] += 1
+                    
+                    current_day_ms += MS_IN_24_HOURS
+        
+        # Convert sets to counts for JSON serialization
+        for date_str in daily_activity:
+            daily_activity[date_str]['active_miners'] = len(daily_activity[date_str]['active_miners'])
+            daily_activity[date_str]['trade_pairs'] = len(daily_activity[date_str]['trade_pairs'])
+        
+        # Find dates with no activity
+        dates_with_no_activity = [
+            date_str for date_str, activity in daily_activity.items()
+            if activity['total_positions'] == 0
+        ]
+        
+        return {
+            'total_dates_in_range': len(daily_activity),
+            'dates_with_activity': len([d for d in daily_activity.values() if d['total_positions'] > 0]),
+            'dates_with_no_activity': dates_with_no_activity,
+            'daily_breakdown': daily_activity
+        }
+    
+    @staticmethod
+    def _analyze_database_coverage(db_manager: 'DatabaseManager', start_ms: int, end_ms: int) -> Dict[str, Any]:
+        """Analyze what data already exists in the database."""
+        start_date_str = datetime.fromtimestamp(start_ms / 1000, tz=timezone.utc).strftime('%Y-%m-%d')
+        end_date_str = datetime.fromtimestamp(end_ms / 1000, tz=timezone.utc).strftime('%Y-%m-%d')
+        
+        existing_dates = db_manager.get_existing_dates(start_date_str, end_date_str)
+        
+        # Get detailed database statistics
+        try:
+            with db_manager.SessionFactory() as session:
+                # Count miners per date
+                date_miner_counts = {}
+                for date_str in existing_dates:
+                    result = session.execute(text(
+                        "SELECT COUNT(DISTINCT miner_hotkey) as miner_count FROM miner_port_values WHERE date = :date"
+                    ), {"date": date_str})
+                    count = result.fetchone()[0]
+                    date_miner_counts[date_str] = count
+                
+                # Get total unique miners in database for this period
+                result = session.execute(text(
+                    "SELECT COUNT(DISTINCT miner_hotkey) as total_miners FROM miner_port_values "
+                    "WHERE date >= :start_date AND date <= :end_date"
+                ), {"start_date": start_date_str, "end_date": end_date_str})
+                total_db_miners = result.fetchone()[0]
+                
+        except Exception as e:
+            bt.logging.warning(f"Could not get detailed database statistics: {e}")
+            date_miner_counts = {}
+            total_db_miners = 0
+        
+        return {
+            'existing_dates': sorted(list(existing_dates)),
+            'missing_dates': [],  # Will be calculated in summary
+            'date_miner_counts': date_miner_counts,
+            'total_miners_in_db': total_db_miners
+        }
+    
+    @staticmethod
+    def _analyze_elimination_impact(
+        all_positions: Dict[str, List[Position]], 
+        elimination_tracker: 'EliminationTracker',
+        start_ms: int,
+        end_ms: int
+    ) -> Dict[str, Any]:
+        """Analyze the impact of eliminations on data coverage."""
+        if not elimination_tracker.loaded:
+            return {'status': 'no_elimination_data'}
+        
+        eliminated_miners = set(elimination_tracker.elimination_timestamps.keys())
+        all_miners = set(all_positions.keys())
+        
+        # Analyze elimination impact by date
+        daily_elimination_impact = {}
+        current_ms = start_ms
+        while current_ms <= end_ms:
+            date_str = TimeUtil.millis_to_formatted_date_str(current_ms)[:10]
+            
+            eliminated_on_date = set()
+            active_on_date = set()
+            
+            for hotkey in all_miners:
+                if elimination_tracker.is_hotkey_eliminated_at_date(hotkey, current_ms):
+                    eliminated_on_date.add(hotkey)
+                else:
+                    active_on_date.add(hotkey)
+            
+            daily_elimination_impact[date_str] = {
+                'total_miners': len(all_miners),
+                'eliminated_miners': len(eliminated_on_date),
+                'active_miners': len(active_on_date),
+                'elimination_percentage': (len(eliminated_on_date) / len(all_miners)) * 100 if all_miners else 0
+            }
+            
+            current_ms += MS_IN_24_HOURS
+        
+        return {
+            'total_eliminated_miners': len(eliminated_miners),
+            'total_active_miners': len(all_miners - eliminated_miners),
+            'elimination_timestamps': {
+                hotkey: TimeUtil.millis_to_formatted_date_str(timestamp)
+                for hotkey, timestamp in elimination_tracker.elimination_timestamps.items()
+            },
+            'daily_impact': daily_elimination_impact
+        }
+    
+    @staticmethod
+    def _analyze_position_distribution(all_positions: Dict[str, List[Position]]) -> Dict[str, Any]:
+        """Analyze the distribution of positions across miners and trade pairs."""
+        trade_pair_counts = defaultdict(int)
+        position_type_counts = defaultdict(int)
+        miner_position_counts = {}
+        
+        total_positions = 0
+        for hotkey, positions in all_positions.items():
+            miner_position_counts[hotkey] = len(positions)
+            total_positions += len(positions)
+            
+            for position in positions:
+                trade_pair_counts[position.trade_pair.trade_pair] += 1
+                position_type_counts[position.position_type] += 1
+        
+        return {
+            'total_positions': total_positions,
+            'total_miners': len(all_positions),
+            'avg_positions_per_miner': total_positions / len(all_positions) if all_positions else 0,
+            'trade_pair_distribution': dict(trade_pair_counts),
+            'position_type_distribution': dict(position_type_counts),
+            'top_trade_pairs': sorted(trade_pair_counts.items(), key=lambda x: x[1], reverse=True)[:10],
+            'miners_by_position_count': sorted(miner_position_counts.items(), key=lambda x: x[1], reverse=True)[:10]
+        }
+    
+    @staticmethod
+    def _generate_summary(results: Dict[str, Any]) -> Dict[str, Any]:
+        """Generate a comprehensive summary of findings."""
+        summary = {
+            'critical_issues': [],
+            'warnings': [],
+            'recommendations': [],
+            'statistics': {}
+        }
+        
+        # Check for critical issues
+        miner_analysis = results.get('miner_analysis', {})
+        if miner_analysis.get('miners_with_no_positions'):
+            summary['critical_issues'].append(
+                f"{len(miner_analysis['miners_with_no_positions'])} miners have no positions"
+            )
+        
+        date_analysis = results.get('date_analysis', {})
+        if date_analysis.get('dates_with_no_activity'):
+            summary['critical_issues'].append(
+                f"{len(date_analysis['dates_with_no_activity'])} dates have no position activity"
+            )
+        
+        # Check for warnings
+        low_coverage_miners = miner_analysis.get('miners_with_low_coverage', [])
+        if low_coverage_miners:
+            summary['warnings'].append(
+                f"{len(low_coverage_miners)} miners have < 50% date coverage"
+            )
+        
+        # Generate recommendations
+        if summary['critical_issues']:
+            summary['recommendations'].append("Investigate data loading and filtering logic")
+        
+        if low_coverage_miners:
+            summary['recommendations'].append("Review miners with low coverage for elimination status")
+        
+        # Generate statistics
+        total_period_days = results['analysis_period']['total_days']
+        active_days = date_analysis.get('dates_with_activity', 0)
+        
+        summary['statistics'] = {
+            'period_coverage_percentage': (active_days / total_period_days) * 100 if total_period_days else 0,
+            'total_miners_analyzed': miner_analysis.get('total_miners', 0),
+            'total_positions_analyzed': results.get('position_analysis', {}).get('total_positions', 0),
+            'date_range_days': total_period_days,
+            'active_days': active_days
+        }
+        
+        return summary
+    
+    @staticmethod
+    def print_diagnostic_report(results: Dict[str, Any]):
+        """Print a comprehensive diagnostic report."""
+        bt.logging.info("=" * 80)
+        bt.logging.info("🔍 DIAGNOSTIC MODE ANALYSIS REPORT")
+        bt.logging.info("=" * 80)
+        
+        # Period information
+        period = results['analysis_period']
+        bt.logging.info(f"📅 Analysis Period: {period['start_date']} to {period['end_date']} ({period['total_days']} days)")
+        bt.logging.info("")
+        
+        # Summary
+        summary = results['summary']
+        stats = summary['statistics']
+        bt.logging.info("📊 SUMMARY STATISTICS:")
+        bt.logging.info(f"   Total Miners: {stats['total_miners_analyzed']}")
+        bt.logging.info(f"   Total Positions: {stats['total_positions_analyzed']}")
+        bt.logging.info(f"   Period Coverage: {stats['period_coverage_percentage']:.1f}% ({stats['active_days']}/{stats['date_range_days']} days)")
+        bt.logging.info("")
+        
+        # Critical issues
+        if summary['critical_issues']:
+            bt.logging.info("🚨 CRITICAL ISSUES:")
+            for issue in summary['critical_issues']:
+                bt.logging.info(f"   ❌ {issue}")
+            bt.logging.info("")
+        
+        # Warnings
+        if summary['warnings']:
+            bt.logging.info("⚠️  WARNINGS:")
+            for warning in summary['warnings']:
+                bt.logging.info(f"   ⚠️  {warning}")
+            bt.logging.info("")
+        
+        # Miner analysis
+        miner_analysis = results['miner_analysis']
+        bt.logging.info("👥 MINER ANALYSIS:")
+        bt.logging.info(f"   Total Miners Found: {miner_analysis['total_miners']}")
+        
+        if miner_analysis['miners_with_no_positions']:
+            bt.logging.info(f"   Miners with No Positions: {len(miner_analysis['miners_with_no_positions'])}")
+            for hotkey in miner_analysis['miners_with_no_positions'][:5]:
+                bt.logging.info(f"     - {hotkey[:16]}...")
+            if len(miner_analysis['miners_with_no_positions']) > 5:
+                bt.logging.info(f"     ... and {len(miner_analysis['miners_with_no_positions']) - 5} more")
+        
+        if miner_analysis['miners_with_low_coverage']:
+            bt.logging.info(f"   Miners with Low Coverage (<50%): {len(miner_analysis['miners_with_low_coverage'])}")
+            for hotkey in miner_analysis['miners_with_low_coverage'][:5]:
+                coverage = miner_analysis['miner_details'][hotkey]['coverage_percentage']
+                bt.logging.info(f"     - {hotkey[:16]}... ({coverage:.1f}%)")
+            if len(miner_analysis['miners_with_low_coverage']) > 5:
+                bt.logging.info(f"     ... and {len(miner_analysis['miners_with_low_coverage']) - 5} more")
+        bt.logging.info("")
+        
+        # Date analysis
+        date_analysis = results['date_analysis']
+        bt.logging.info("📅 DATE ANALYSIS:")
+        bt.logging.info(f"   Total Dates in Range: {date_analysis['total_dates_in_range']}")
+        bt.logging.info(f"   Dates with Activity: {date_analysis['dates_with_activity']}")
+        
+        if date_analysis['dates_with_no_activity']:
+            bt.logging.info(f"   Dates with No Activity: {len(date_analysis['dates_with_no_activity'])}")
+            for date_str in date_analysis['dates_with_no_activity'][:10]:
+                bt.logging.info(f"     - {date_str}")
+            if len(date_analysis['dates_with_no_activity']) > 10:
+                bt.logging.info(f"     ... and {len(date_analysis['dates_with_no_activity']) - 10} more")
+        bt.logging.info("")
+        
+        # Database analysis
+        if 'database_analysis' in results:
+            db_analysis = results['database_analysis']
+            bt.logging.info("💾 DATABASE ANALYSIS:")
+            bt.logging.info(f"   Existing Dates in DB: {len(db_analysis['existing_dates'])}")
+            bt.logging.info(f"   Total Miners in DB: {db_analysis['total_miners_in_db']}")
+            
+            if db_analysis['existing_dates']:
+                bt.logging.info(f"   Date Range in DB: {db_analysis['existing_dates'][0]} to {db_analysis['existing_dates'][-1]}")
+            bt.logging.info("")
+        
+        # Elimination analysis
+        if 'elimination_analysis' in results and results['elimination_analysis'].get('status') != 'no_elimination_data':
+            elim_analysis = results['elimination_analysis']
+            bt.logging.info("🚫 ELIMINATION ANALYSIS:")
+            bt.logging.info(f"   Total Eliminated Miners: {elim_analysis['total_eliminated_miners']}")
+            bt.logging.info(f"   Total Active Miners: {elim_analysis['total_active_miners']}")
+            bt.logging.info("")
+        
+        # Recommendations
+        if summary['recommendations']:
+            bt.logging.info("💡 RECOMMENDATIONS:")
+            for rec in summary['recommendations']:
+                bt.logging.info(f"   💡 {rec}")
+            bt.logging.info("")
+        
+        bt.logging.info("=" * 80)
+        bt.logging.info("✅ Diagnostic analysis complete")
+        bt.logging.info("=" * 80)
+
+
 class Logger:
     """Handles all logging and summary reporting."""
     
@@ -961,7 +1403,7 @@ class EliminationTracker:
             Tuple of (filtered_positions_by_hotkey, elimination_stats)
         """
         if not self.loaded:
-            # No elimination filtering if not loaded
+            # No elimination filtering if not loaded - preserve all miners
             return positions_by_hotkey, {"total_hotkeys": len(positions_by_hotkey), "eliminated_hotkeys": 0}
         
         filtered_positions = {}
@@ -978,7 +1420,10 @@ class EliminationTracker:
                 
                 elimination_time = self.elimination_timestamps[hotkey]
                 elimination_date = TimeUtil.millis_to_formatted_date_str(elimination_time)
-                bt.logging.debug(f"Skipping eliminated miner {hotkey[:16]}... (eliminated {elimination_date})")
+                bt.logging.debug(f"Tracking eliminated miner {hotkey[:16]}... with empty positions (eliminated {elimination_date})")
+                
+                # Track eliminated miners with empty positions for consistency
+                filtered_positions[hotkey] = []
             else:
                 # Miner not eliminated, include their positions
                 filtered_positions[hotkey] = positions
@@ -1069,6 +1514,11 @@ def parse_args():
         action="store_true",
         help="Save results to CSV file (in addition to or instead of database)",
     )
+    parser.add_argument(
+        "--diagnostic-mode",
+        action="store_true",
+        help="Run in diagnostic mode to detect missing days and miners without processing",
+    )
     return parser.parse_args()
 
 
@@ -1115,6 +1565,73 @@ def main():
         bt.logging.info(f"✓ Elimination filtering enabled: {len(elimination_timestamps)} miners have eliminations on record")
     else:
         bt.logging.info("ℹ Elimination filtering disabled: No elimination data available or failed to load")
+    
+    # Handle diagnostic mode
+    if args.diagnostic_mode:
+        bt.logging.info("🔍 Running in diagnostic mode - analyzing missing data patterns...")
+        
+        # Determine date bounds for diagnostic analysis
+        if args.start_date and args.end_date:
+            start_date = datetime.strptime(args.start_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+            end_date = datetime.strptime(args.end_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+            start_ms = int(start_date.timestamp() * 1000)
+            end_ms = int(end_date.timestamp() * 1000)
+        else:
+            # Determine bounds from positions
+            start_ms, end_ms = DateUtils.determine_date_bounds(all_positions)
+            
+            # Override with user-provided dates if any
+            if args.start_date:
+                start_date = datetime.strptime(args.start_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+                start_ms = int(start_date.timestamp() * 1000)
+            if args.end_date:
+                end_date = datetime.strptime(args.end_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+                end_ms = int(end_date.timestamp() * 1000)
+        
+        # Initialize database manager for diagnostic analysis if possible
+        diagnostic_db_manager = None
+        try:
+            database_url = args.database_url
+            if not database_url:
+                database_url = get_database_url_from_config()
+            if not database_url:
+                try:
+                    secrets = ValiUtils.get_secrets()
+                    database_url = secrets.get('database_url') or secrets.get('db_ptn_editor_url')
+                except Exception as e:
+                    bt.logging.debug(f"Could not get database URL from ValiUtils secrets: {e}")
+            
+            if database_url:
+                diagnostic_db_manager = DatabaseManager(database_url)
+                bt.logging.info("✓ Database connection established for diagnostic analysis")
+            else:
+                bt.logging.warning("⚠️  No database connection for diagnostic analysis")
+        except Exception as e:
+            bt.logging.warning(f"⚠️  Could not connect to database for diagnostic analysis: {e}")
+        
+        # Run comprehensive diagnostic analysis
+        diagnostic_results = DiagnosticMode.analyze_missing_data(
+            all_positions=all_positions,
+            elimination_tracker=elimination_tracker,
+            db_manager=diagnostic_db_manager,
+            start_ms=start_ms,
+            end_ms=end_ms,
+            hotkeys_filter=hotkeys
+        )
+        
+        # Print comprehensive diagnostic report
+        DiagnosticMode.print_diagnostic_report(diagnostic_results)
+        
+        # Save diagnostic results to JSON file if requested
+        if args.save_csv:
+            diagnostic_output_file = args.output.replace('.csv', '_diagnostic.json') if args.output else "diagnostic_results.json"
+            with open(diagnostic_output_file, 'w') as f:
+                import json
+                json.dump(diagnostic_results, f, indent=2, default=str)
+            bt.logging.info(f"📄 Diagnostic results saved to {diagnostic_output_file}")
+        
+        bt.logging.info("🔍 Diagnostic mode complete - exiting without processing data")
+        return
     
     # Determine date bounds dynamically if not provided
     if args.start_date and args.end_date:
