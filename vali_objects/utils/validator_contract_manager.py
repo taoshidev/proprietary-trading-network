@@ -264,7 +264,7 @@ class ValidatorContractManager:
                 bt.logging.info(f"Processing withdrawal request from {miner_hotkey} for {amount} Theta")
                 withdrawn_balance = self.collateral_manager.withdraw(
                     amount=self.theta_to_rao(amount),
-                    dest=miner_coldkey,
+                    source_coldkey=miner_coldkey,
                     source_hotkey=miner_hotkey,
                     vault_stake=vault_stake.hotkey_ss58,
                     vault_wallet=self.vault_wallet,
