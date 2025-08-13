@@ -9,6 +9,7 @@ import requests
 from time_util.time_util import TimeUtil
 from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
 from vali_objects.utils.elimination_manager import EliminationManager
+from vali_objects.utils.limit_order_manager import LimitOrderManager
 from vali_objects.utils.position_manager import PositionManager
 from vali_objects.utils.validator_sync_base import ValidatorSyncBase
 import bittensor as bt
@@ -19,9 +20,9 @@ import bittensor as bt
 class PositionSyncer(ValidatorSyncBase):
     def __init__(self, shutdown_dict=None, signal_sync_lock=None, signal_sync_condition=None,
                  n_orders_being_processed=None, running_unit_tests=False, position_manager=None,
-                 ipc_manager=None, auto_sync_enabled=False, enable_position_splitting=False, verbose=False):
+                 limit_order_manager=None, ipc_manager=None, auto_sync_enabled=False, enable_position_splitting=False, verbose=False):
         super().__init__(shutdown_dict, signal_sync_lock, signal_sync_condition, n_orders_being_processed,
-                         running_unit_tests=running_unit_tests, position_manager=position_manager,
+                         running_unit_tests=running_unit_tests, position_manager=position_manager, limit_order_manager=limit_order_manager,
                          ipc_manager=ipc_manager, enable_position_splitting=enable_position_splitting, verbose=verbose)
 
         self.force_ran_on_boot = True
@@ -113,6 +114,7 @@ if __name__ == "__main__":
     position_manager = PositionManager({}, elimination_manager=elimination_manager, challengeperiod_manager=None)
     challengeperiod_manager = ChallengePeriodManager(metagraph=None, position_manager=position_manager)
     position_manager.challengeperiod_manager = challengeperiod_manager
-    position_syncer = PositionSyncer(position_manager=position_manager)
+    limit_order_manger = LimitOrderManager(position_manager, None)
+    position_syncer = PositionSyncer(position_manager=position_manager, limit_order_manager=limit_order_manger)
     candidate_data = position_syncer.read_validator_checkpoint_from_gcloud_zip()
     position_syncer.sync_positions(False, candidate_data=candidate_data)
