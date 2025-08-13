@@ -172,6 +172,26 @@ class LedgerUtils:
         return complete_days
 
     @staticmethod
+    def raw_pnl(ledger: PerfLedger) -> float:
+        """
+        Calculate total pnl from tracked PnL values in perf ledgers.
+
+        Args:
+            ledger: PerfLedger - the ledger of the miner
+
+        Returns:
+            float - total pnl of the ledger
+        """
+
+        if ledger is None or not ledger.cps:
+            return 0
+        total_pnl = 0
+        for cp in ledger.cps:
+            total_pnl += cp.pnl_gain + cp.pnl_loss
+
+        return total_pnl
+
+    @staticmethod
     def daily_pnl_by_date(ledger: PerfLedger) -> dict[datetime.date, float]:
         """
         Calculate daily PnL from performance checkpoints, only including full days

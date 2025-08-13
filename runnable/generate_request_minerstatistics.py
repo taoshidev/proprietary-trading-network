@@ -441,6 +441,39 @@ class MinerStatisticsManager:
             }
 
         return scoring_config
+
+    # -------------------------------------------
+    # Raw PnL Calculation
+    # -------------------------------------------
+    def calculate_all_raw_pnl(self, filtered_ledger: Dict[str, Dict[str, PerfLedger]]) -> Dict[str, Dict[str, float]]:
+        """Calculate raw PnL values, rankings and percentiles for all miners."""
+        raw_pnl_values = []
+        
+        # Calculate raw PnL for each miner
+        for hotkey, ledgers in filtered_ledger.items():
+            portfolio_ledger = ledgers.get(TP_ID_PORTFOLIO)
+            if portfolio_ledger:
+                raw_pnl = LedgerUtils.raw_pnl(portfolio_ledger)
+                raw_pnl_values.append((hotkey, raw_pnl))
+            else:
+                raw_pnl_values.append((hotkey, 0.0))
+        
+        # Calculate rankings and percentiles
+        ranks = self.rank_dictionary(raw_pnl_values)
+        percentiles = self.percentile_rank_dictionary(raw_pnl_values)
+        values_dict = dict(raw_pnl_values)
+        
+        # Build result dictionary
+        result = {}
+        for hotkey in values_dict:
+            result[hotkey] = {
+                "value": values_dict[hotkey],
+                "rank": ranks[hotkey],
+                "percentile": percentiles[hotkey]
+            }
+        
+        return result
+
     # -------------------------------------------
     # Asset Subcategory Performance
     # -------------------------------------------
@@ -597,6 +630,9 @@ class MinerStatisticsManager:
         # For visualization
         daily_returns_dict = self.calculate_all_daily_returns(filtered_ledger)
 
+        # Calculate raw PnL values with rankings and percentiles
+        raw_pnl_dict = self.calculate_all_raw_pnl(filtered_ledger)
+
         # Also compute penalty breakdown (for display in final "penalties" dict).
         penalty_breakdown = self.calculate_penalties_breakdown(miner_data)
 
@@ -674,6 +710,8 @@ class MinerStatisticsManager:
                 "minimum_days_boolean": extra.get("minimum_days_boolean"),
                 "percentage_profitable": extra.get("positions_info", {}).get("percentage_profitable"),
             }
+            # Raw PnL
+            raw_pnl_info = raw_pnl_dict.get(hotkey, {"value": 0.0, "rank": None, "percentile": 0.0})
             # Plagiarism
             plagiarism_val = plagiarism_scores.get(hotkey)
 
@@ -707,6 +745,7 @@ class MinerStatisticsManager:
                 "engagement": engagement_subdict,
                 "risk_profile": risk_profile_single_dict,
                 "asset_subcategory_performance": asset_subcategory_performance,
+                "raw_pnl": raw_pnl_info,
                 "penalties": {
                     "drawdown_threshold": pen_break.get("drawdown_threshold", 1.0),
                     "risk_profile": pen_break.get("risk_profile", 1.0),
