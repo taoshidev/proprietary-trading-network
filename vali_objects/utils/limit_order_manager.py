@@ -50,8 +50,7 @@ class LimitOrderManager(CacheController):
             if not position and limit_order.order_type == OrderType.FLAT:
                 raise SignalException(f"No position found for FLAT order")
 
-            limit_order_dir = ValiBkpUtils.get_limit_orders_dir(miner_hotkey, trade_pair.trade_pair_id, "unfilled", self.running_unit_tests)
-            ValiBkpUtils.write_file(limit_order_dir + order_uuid, limit_order)
+            self._write_to_disk(miner_hotkey, limit_order)
 
             orders.append(limit_order)
 
@@ -222,11 +221,7 @@ class LimitOrderManager(CacheController):
             raise SignalException(f"Cannot close limit order [{order.order_uuid}] about to be filled")
 
         unfilled_dir = ValiBkpUtils.get_limit_orders_dir(miner_hotkey, trade_pair_id, "unfilled", self.running_unit_tests)
-        closed_dir = ValiBkpUtils.get_limit_orders_dir(miner_hotkey, trade_pair_id, "closed", self.running_unit_tests)
-        os.makedirs(closed_dir, exist_ok=True)
-
         closed_filename = unfilled_dir + order_uuid
-        destination_filename = closed_dir + order_uuid
 
         if not os.path.exists(closed_filename):
             bt.logging.warning(f"Closed unfilled limit order not found on disk [{order_uuid}]")
@@ -234,7 +229,7 @@ class LimitOrderManager(CacheController):
         order.src = src
         order.processed_ms = time_ms
 
-        ValiBkpUtils.write_file(destination_filename, order)
+        self._write_to_disk(miner_hotkey, order)
         os.remove(closed_filename)
 
         self.limit_orders[miner_hotkey].remove(order)
@@ -276,7 +271,7 @@ class LimitOrderManager(CacheController):
             if hotkey in eliminated_hotkeys:
                 continue
 
-            miner_order_dicts = ValiBkpUtils.get_unfilled_limit_orders(hotkey, self.running_unit_tests)
+            miner_order_dicts = ValiBkpUtils.get_limit_orders(hotkey, unfilled_only=False, running_unit_tests=self.running_unit_tests)
 
             for order_dict in miner_order_dicts:
                 try:
@@ -295,3 +290,38 @@ class LimitOrderManager(CacheController):
     def _reset_counters(self):
         self._limit_orders_evaluated = 0
         self._limit_orders_filled = 0
+
+    def _write_to_disk(self, miner_hotkey, order):
+        if not order:
+            return
+        try:
+            trade_pair_id = order.trade_pair.trade_pair_id
+            if order.src == ORDER_SRC_LIMIT_UNFILLED:
+                status = "unfilled"
+            else:
+                status = "closed"
+
+            order_dir = ValiBkpUtils.get_limit_orders_dir(miner_hotkey, trade_pair_id, status, self.running_unit_tests)
+            os.makedirs(order_dir, exist_ok=True)
+
+            filepath = order_dir + order.order_uuid
+            ValiBkpUtils.write_file(filepath, order)
+        except Exception as e:
+            bt.logging.error(f"Error writing limit order to disk for miner hotkey {e}")
+
+    def sync_limit_orders(self, sync_orders):
+        if not sync_orders:
+            return
+
+        for miner_hotkey, orders_data in sync_orders.items():
+            if not orders_data:
+                continue
+
+            try:
+                for data in orders_data:
+                    order = Order.from_dict(data)
+                    self._write_to_disk(miner_hotkey, order)
+            except Exception as e:
+                print(f"Could not sync limit orders {e}")
+
+        self.limit_orders = self._read_limit_orders_from_disk()

@@ -9,6 +9,7 @@ from google.cloud import storage
 from time_util.time_util import TimeUtil
 from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
 from vali_objects.utils.elimination_manager import EliminationManager
+from vali_objects.utils.limit_order_manager import LimitOrderManager
 from vali_objects.utils.plagiarism_detector import PlagiarismDetector
 from vali_objects.vali_config import ValiConfig
 from vali_objects.decoders.generalized_json_decoder import GeneralizedJSONDecoder
@@ -25,13 +26,14 @@ PERCENT_NEW_POSITIONS_TIERS = [100, 50, 30, 0]
 assert sorted(PERCENT_NEW_POSITIONS_TIERS, reverse=True) == PERCENT_NEW_POSITIONS_TIERS, 'needs to be sorted for efficient pruning'
 
 class RequestCoreManager:
-    def __init__(self, position_manager, subtensor_weight_setter, plagiarism_detector):
+    def __init__(self, position_manager, subtensor_weight_setter, plagiarism_detector, limit_order_manager):
         self.position_manager = position_manager
         self.perf_ledger_manager = position_manager.perf_ledger_manager
         self.elimination_manager = position_manager.elimination_manager
         self.challengeperiod_manager = position_manager.challengeperiod_manager
         self.subtensor_weight_setter = subtensor_weight_setter
         self.plagiarism_detector = plagiarism_detector
+        self.limit_order_manager = limit_order_manager
 
     def hash_string_to_int(self, s: str) -> int:
         # Create a SHA-256 hash object
@@ -148,9 +150,16 @@ class RequestCoreManager:
         blob.upload_from_string(zip_buffer)
         print(f'Uploaded {blob_name} to {bucket_name}')
 
-    def create_and_upload_production_files(self, eliminations, ord_dict_hotkey_position_map, time_now,
-                                           youngest_order_processed_ms, oldest_order_processed_ms,
-                                           challengeperiod_dict):
+    def create_and_upload_production_files(
+        self,
+        eliminations,
+        ord_dict_hotkey_position_map,
+        time_now,
+        youngest_order_processed_ms,
+        oldest_order_processed_ms,
+        challengeperiod_dict,
+        limit_orders_dict
+    ):
 
         perf_ledgers = self.perf_ledger_manager.get_perf_ledgers()
         final_dict = {
@@ -162,7 +171,8 @@ class RequestCoreManager:
             'youngest_order_processed_ms': youngest_order_processed_ms,
             'oldest_order_processed_ms': oldest_order_processed_ms,
             'positions': ord_dict_hotkey_position_map,
-            'perf_ledgers': perf_ledgers
+            'perf_ledgers': perf_ledgers,
+            'limit_orders': limit_orders_dict
         }
 
         vcp_output_file_path = ValiBkpUtils.get_vcp_output_path()
@@ -255,11 +265,18 @@ class RequestCoreManager:
         assert n_orders_original == n_positions_new, f"n_orders_original: {n_orders_original}, n_positions_new: {n_positions_new}"
 
         challengeperiod_dict = self.challengeperiod_manager.to_checkpoint_dict()
+        limit_orders_dict = self.limit_order_manager.limit_orders
 
         if write_and_upload_production_files:
-            self.create_and_upload_production_files(eliminations, ord_dict_hotkey_position_map, time_now_ms,
-                                           youngest_order_processed_ms, oldest_order_processed_ms,
-                                           challengeperiod_dict)
+            self.create_and_upload_production_files(
+                    eliminations,
+                    ord_dict_hotkey_position_map,
+                    time_now_ms,
+                    youngest_order_processed_ms,
+                    oldest_order_processed_ms,
+                    challengeperiod_dict,
+                    limit_orders_dict
+                )
 
         checkpoint_dict = {
             'challengeperiod': challengeperiod_dict,
@@ -286,6 +303,7 @@ if __name__ == "__main__":
         position_manager=position_manager,
     )
     plagiarism_detector = PlagiarismDetector(None, None, position_manager=position_manager)
+    limit_order_manager = LimitOrderManager(position_manager, None)
 
-    rcm = RequestCoreManager(position_manager, subtensor_weight_setter, plagiarism_detector)
+    rcm = RequestCoreManager(position_manager, subtensor_weight_setter, plagiarism_detector, limit_order_manager)
     rcm.generate_request_core(write_and_upload_production_files=True)
