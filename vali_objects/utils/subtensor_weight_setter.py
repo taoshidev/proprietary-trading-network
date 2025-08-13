@@ -31,6 +31,7 @@ class SubtensorWeightSetter(CacheController):
         # IPC setup
         self.shutdown_dict = shutdown_dict if shutdown_dict is not None else {}
         self.weight_request_queue = weight_request_queue
+        
 
     def compute_weights_default(self, current_time: int) -> tuple[list[tuple[str, float]], list[tuple[str, float]]]:
         if current_time is None:
@@ -138,9 +139,6 @@ class SubtensorWeightSetter(CacheController):
                     bt.logging.warning(warning_str)
                     raise e
 
-
-
-    
     
     def run_update_loop(self):
         """
@@ -207,3 +205,4 @@ class SubtensorWeightSetter(CacheController):
         except Exception as e:
             bt.logging.error(f"Error sending weight request: {e}")
             bt.logging.error(traceback.format_exc())
+

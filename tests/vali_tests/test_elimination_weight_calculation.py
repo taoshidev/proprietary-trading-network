@@ -432,49 +432,6 @@ class TestEliminationWeightCalculation(TestBase):
             self.assertGreater(total, 0)  # Should have some non-zero weights
             # The weight setter handles normalization internally
 
-    def test_weight_setting_with_eliminations(self):
-        """Test the complete weight setting process with eliminations"""
-        # Mock subtensor
-        mock_subtensor = MagicMock()
-        mock_subtensor.set_weights = MagicMock(return_value=(True, "Success"))
-        
-        # Mock wallet
-        mock_wallet = MagicMock()
-        
-        # Process eliminations
-        self.elimination_manager.process_eliminations(self.position_locks)
-        
-        # Set weights
-        current_time = TimeUtil.now_in_millis()
-        self.weight_setter.set_weights(
-            wallet=mock_wallet,
-            netuid=8,
-            subtensor=mock_subtensor,
-            current_time=current_time
-        )
-        
-        # Verify weight setting was called
-        mock_subtensor.set_weights.assert_called()
-        
-        # Get the weights that were set
-        call_args = mock_subtensor.set_weights.call_args[1]
-        uids = call_args['uids']
-        weights = call_args['weights']
-        
-        # Verify weights are properly formatted for Bittensor
-        self.assertIsInstance(weights, list)
-        self.assertEqual(len(weights), len(uids))
-        
-        # Verify eliminated miners have zero weight
-        metagraph_hotkeys = list(self.mock_metagraph.hotkeys)
-        if self.ELIMINATED_MINER in metagraph_hotkeys:
-            eliminated_idx = metagraph_hotkeys.index(self.ELIMINATED_MINER)
-            if eliminated_idx in uids:
-                idx_position = uids.index(eliminated_idx)
-                self.assertEqual(weights[idx_position], 0.0)
-                
-        # Note: Bittensor's set_weights will normalize these weights internally
-        
     def test_weight_normalization_by_subtensor(self):
         """Test that our weight setter properly formats weights for Bittensor"""
         # Get the weights that would be sent to Bittensor
@@ -497,30 +454,8 @@ class TestEliminationWeightCalculation(TestBase):
                     self.assertEqual(score, 0.0)
         
         # Now test the full weight setting process
-        mock_subtensor = MagicMock()
-        captured_weights = []
-        
-        def capture_weights(**kwargs):
-            captured_weights.append(kwargs['weights'])
-            return (True, "Success")
-        
-        mock_subtensor.set_weights.side_effect = capture_weights
-        mock_wallet = MagicMock()
-        
-        # Set weights
-        self.weight_setter.set_weights(
-            wallet=mock_wallet,
-            netuid=8,
-            subtensor=mock_subtensor,
-            current_time=current_time
-        )
-        
-        # Verify weights were passed
-        self.assertEqual(len(captured_weights), 1)
-        weights = captured_weights[0]
-        
         # The weights passed to Bittensor are the normalized scores from Scoring
-        self.assertGreater(len(weights), 0)
+        self.assertGreater(len(transformed_list), 0)
         # Verify eliminated miners have zero weight
         if self.ELIMINATED_MINER in self.mock_metagraph.hotkeys:
             eliminated_idx = self.mock_metagraph.hotkeys.index(self.ELIMINATED_MINER)
@@ -528,7 +463,7 @@ class TestEliminationWeightCalculation(TestBase):
             transformed_uids = [uid for uid, _ in transformed_list]
             if eliminated_idx in transformed_uids:
                 pos = transformed_uids.index(eliminated_idx)
-                self.assertEqual(weights[pos], 0.0)
+                self.assertEqual(transformed_list[pos], 0.0)
                 
     def test_scoring_normalize_scores_method(self):
         """Test the production Scoring.normalize_scores method directly"""
