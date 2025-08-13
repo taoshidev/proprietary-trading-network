@@ -1,5 +1,7 @@
 import os
 import json
+import time
+
 import bittensor as bt
 from typing import List, Dict, Any
 from dataclasses import dataclass
@@ -13,6 +15,7 @@ from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
 from vali_objects.utils.elimination_manager import EliminationManager
 from vali_objects.utils.plagiarism_detector import PlagiarismDetector
 from vali_objects.utils.position_manager import PositionManager
+from vali_objects.utils.validator_contract_manager import ValidatorContractManager
 from vali_objects.vali_config import ValiConfig, TradePair
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.utils.subtensor_weight_setter import SubtensorWeightSetter
@@ -160,6 +163,7 @@ class MinerStatisticsManager:
         self.challengeperiod_manager = position_manager.challengeperiod_manager
         self.subtensor_weight_setter = subtensor_weight_setter
         self.plagiarism_detector = plagiarism_detector
+        self.contract_manager = perf_ledger_manager.contract_manager
 
         self.metrics_calculator = MetricsCalculator(metrics=metrics)
 
@@ -445,9 +449,13 @@ class MinerStatisticsManager:
     # -------------------------------------------
     # Raw PnL Calculation
     # -------------------------------------------
-    def calculate_all_raw_pnl(self, filtered_ledger: Dict[str, Dict[str, PerfLedger]]) -> Dict[str, Dict[str, float]]:
+    def calculate_pnl_info(self, filtered_ledger: Dict[str, Dict[str, PerfLedger]], now_ms: int = None) -> Dict[str, Dict[str, float]]:
         """Calculate raw PnL values, rankings and percentiles for all miners."""
+        if now_ms is None:
+            now_ms = TimeUtil.now_in_millis()
+
         raw_pnl_values = []
+        account_sizes = []
         
         # Calculate raw PnL for each miner
         for hotkey, ledgers in filtered_ledger.items():
@@ -457,19 +465,36 @@ class MinerStatisticsManager:
                 raw_pnl_values.append((hotkey, raw_pnl))
             else:
                 raw_pnl_values.append((hotkey, 0.0))
+
+            # Fetch most recent account size even if it isn't valid yet for scoring
+            account_size = self.contract_manager.get_miner_account_size(hotkey, now_ms, most_recent=True)
+            if account_size is None:
+                account_size = ValiConfig.CAPITAL
+            account_sizes.append((hotkey, account_size))
         
         # Calculate rankings and percentiles
         ranks = self.rank_dictionary(raw_pnl_values)
         percentiles = self.percentile_rank_dictionary(raw_pnl_values)
         values_dict = dict(raw_pnl_values)
+
+        account_size_ranks = self.rank_dictionary(account_sizes)
+        account_size_percentiles = self.percentile_rank_dictionary(account_sizes)
+        account_sizes_dict = dict(account_sizes)
         
         # Build result dictionary
         result = {}
         for hotkey in values_dict:
             result[hotkey] = {
-                "value": values_dict[hotkey],
-                "rank": ranks[hotkey],
-                "percentile": percentiles[hotkey]
+                "account_size": {
+                    "value": account_sizes_dict[hotkey],
+                    "rank": account_size_ranks[hotkey],
+                    "percentile": account_size_percentiles[hotkey]
+                },
+                "raw_pnl": {
+                    "value": values_dict[hotkey],
+                    "rank": ranks[hotkey],
+                    "percentile": percentiles[hotkey]
+                }
             }
         
         return result
@@ -631,7 +656,7 @@ class MinerStatisticsManager:
         daily_returns_dict = self.calculate_all_daily_returns(filtered_ledger)
 
         # Calculate raw PnL values with rankings and percentiles
-        raw_pnl_dict = self.calculate_all_raw_pnl(filtered_ledger)
+        raw_pnl_dict = self.calculate_pnl_info(filtered_ledger, now_ms=time_now)
 
         # Also compute penalty breakdown (for display in final "penalties" dict).
         penalty_breakdown = self.calculate_penalties_breakdown(miner_data)
@@ -745,7 +770,7 @@ class MinerStatisticsManager:
                 "engagement": engagement_subdict,
                 "risk_profile": risk_profile_single_dict,
                 "asset_subcategory_performance": asset_subcategory_performance,
-                "raw_pnl": raw_pnl_info,
+                "pnl_info": raw_pnl_info,
                 "penalties": {
                     "drawdown_threshold": pen_break.get("drawdown_threshold", 1.0),
                     "risk_profile": pen_break.get("risk_profile", 1.0),
@@ -841,6 +866,8 @@ if __name__ == "__main__":
         perf_ledger_manager=perf_ledger_manager
     )
     challengeperiod_manager = ChallengePeriodManager(metagraph, None, position_manager=position_manager)
+    contract_manager = ValidatorContractManager(config=None, metagraph=metagraph,
+                                                     position_manager=position_manager)
 
     # Cross-wire references
     elimination_manager.position_manager = position_manager
@@ -848,6 +875,7 @@ if __name__ == "__main__":
     elimination_manager.challengeperiod_manager = challengeperiod_manager
     challengeperiod_manager.position_manager = position_manager
     perf_ledger_manager.position_manager = position_manager
+    perf_ledger_manager.contract_manager = contract_manager
 
     subtensor_weight_setter = SubtensorWeightSetter(
         metagraph=metagraph,

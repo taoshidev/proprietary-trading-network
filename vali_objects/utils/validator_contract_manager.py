@@ -45,7 +45,11 @@ class ValidatorContractManager:
         self.is_mothership = 'ms' in ValiUtils.get_secrets(running_unit_tests=running_unit_tests)
         
         # Store network type for dynamic max_theta property
-        self.is_testnet = config.subtensor.network == "test"
+        if config is not None:
+            self.is_testnet = config.subtensor.network == "test"
+        else:
+            bt.logging.info("Config in contract manager is None")
+            self.is_testnet = False
         
         if self.is_testnet:
             bt.logging.info("Using testnet collateral manager")
@@ -485,7 +489,7 @@ class ValidatorContractManager:
             bt.logging.info(
                 f"Updated account size for {hotkey}: ${account_size:,.2f} (valid from {collateral_record.valid_date_str})")
 
-    def get_miner_account_size(self, hotkey: str, timestamp_ms: int=None) -> float | None:
+    def get_miner_account_size(self, hotkey: str, timestamp_ms: int=None, most_recent: bool=False) -> float | None:
         """
         Get the account size for a miner at a given timestamp. Sort records in reverse chronological order, and return
         the first record whose valid_date_timestamp <= start_of_day_ms
@@ -517,6 +521,9 @@ class ValidatorContractManager:
         for record in sorted_records:
             if record.valid_date_timestamp <= start_of_day_ms:
                 return record.account_size
-        
+
+        if most_recent:
+            most_recent_record = self.miner_account_sizes[hotkey][-1]
+            return most_recent_record.account_size
         # No applicable records found
         return None
