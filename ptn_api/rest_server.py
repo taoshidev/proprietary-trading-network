@@ -684,9 +684,7 @@ class PTNRestServer(APIKeyMixin):
             subtensor_api = self.contract_manager.collateral_manager.subtensor_api
             coldkey_owner = subtensor_api.queries.query_subtensor("Owner", None, [hotkey_ss58])
 
-            if getattr(coldkey_owner, "value", None) is not None:
-                return coldkey_owner.value == coldkey_ss58
-            return False
+            return coldkey_owner == coldkey_ss58
         except Exception as e:
             bt.logging.error(f"Error verifying coldkey-hotkey ownership: {e}")
             return False
