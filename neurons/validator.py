@@ -232,6 +232,7 @@ class Validator:
             obj.position_manager = self.position_manager
 
         self.position_manager.challengeperiod_manager = self.challengeperiod_manager
+        self.position_syncer.limit_order_manager = self.limit_order_manager
 
         #force_validator_to_restore_from_checkpoint(self.wallet.hotkey.ss58_address, self.metagraph, self.config, self.secrets)
 

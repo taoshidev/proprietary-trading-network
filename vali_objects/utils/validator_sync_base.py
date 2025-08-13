@@ -30,13 +30,14 @@ class PositionSyncResultException(Exception):
 class ValidatorSyncBase():
     def __init__(self, shutdown_dict=None, signal_sync_lock=None, signal_sync_condition=None,
                  n_orders_being_processed=None, running_unit_tests=False, position_manager=None,
-                 ipc_manager=None, enable_position_splitting = False, verbose=False
+                 limit_order_manager=None, ipc_manager=None, enable_position_splitting = False, verbose=False
 ):
         self.verbose = verbose
         self.is_mothership = 'ms' in ValiUtils.get_secrets(running_unit_tests=running_unit_tests)
         self.SYNC_LOOK_AROUND_MS = 1000 * 60 * 3
         self.enable_position_splitting = enable_position_splitting
         self.position_manager = position_manager
+        self.limit_order_manager = limit_order_manager
         self.shutdown_dict = shutdown_dict
         self.last_signal_sync_time_ms = 0
         self.signal_sync_lock = signal_sync_lock
@@ -110,6 +111,9 @@ class ValidatorSyncBase():
             for hk in newly_eliminated:
                 self.perf_ledger_hks_to_invalidate[hk] = 0
 
+        limit_orders_data = candidate_data.get('limit_orders', {})
+        if limit_orders_data:
+            self.limit_order_manager.sync_limit_orders(limit_orders_data)
 
         challengeperiod_data = candidate_data.get('challengeperiod', {})
         if challengeperiod_data:  # Only in autosync as of now.
