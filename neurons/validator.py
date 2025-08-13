@@ -682,7 +682,11 @@ class Validator:
             if order_type == OrderType.FLAT:
                 open_position = None
             else:
+                # Get relevant account size
                 account_size = self.contract_manager.get_miner_account_size(hotkey=miner_hotkey, timestamp_ms=order_time_ms)
+                if account_size is None:
+                    account_size = ValiConfig.CAPITAL
+
                 # if a position doesn't exist, then make a new one
                 open_position = Position(
                     miner_hotkey=miner_hotkey,

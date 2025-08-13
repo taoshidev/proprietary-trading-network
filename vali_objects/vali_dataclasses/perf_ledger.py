@@ -109,7 +109,6 @@ class PerfCheckpoint(BaseModel):
     mpv: float = 0.0
     pnl_gain: float = 0.0
     pnl_loss: float = 0.0
-    account_size: float = ValiConfig.CAPITAL
 
     model_config = ConfigDict(extra="allow")
 
