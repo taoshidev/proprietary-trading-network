@@ -163,7 +163,7 @@ class MinerStatisticsManager:
         self.challengeperiod_manager = position_manager.challengeperiod_manager
         self.subtensor_weight_setter = subtensor_weight_setter
         self.plagiarism_detector = plagiarism_detector
-        self.contract_manager = perf_ledger_manager.contract_manager
+        self.contract_manager = self.perf_ledger_manager.contract_manager
 
         self.metrics_calculator = MetricsCalculator(metrics=metrics)
 
