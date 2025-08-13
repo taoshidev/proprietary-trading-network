@@ -184,7 +184,7 @@ class ValidatorContractManager:
                 bt.logging.info(f"Processing deposit for: {deposit_amount_theta} Theta to miner: {miner_hotkey}")
                 deposited_balance = self.collateral_manager.deposit(
                     extrinsic=extrinsic,
-                    sender=miner_hotkey,
+                    source_hotkey=miner_hotkey,
                     vault_stake=vault_stake.hotkey_ss58,
                     vault_wallet=self.vault_wallet,
                     owner_address=self.owner_address,
@@ -193,7 +193,6 @@ class ValidatorContractManager:
                 )
                 
                 bt.logging.info(f"Deposit successful: {self.rao_to_theta(deposited_balance.rao)} Theta deposited to miner: {miner_hotkey}")
-                print("succesfully deposited")
                 return {
                     "successfully_processed": True,
                     "error_message": ""
@@ -224,7 +223,7 @@ class ValidatorContractManager:
         Args:
             amount (float): Amount to withdraw in theta tokens
             miner_coldkey (str): Miner's SS58 wallet coldkey address to return collateral to
-            miner_coldkey (str): Miner's SS58 hotkey
+            miner_hotkey (str): Miner's SS58 hotkey
             
         Returns:
             Dict[str, Any]: Result of withdrawal operation
@@ -274,8 +273,7 @@ class ValidatorContractManager:
                     wallet_password=self.vault_password
                 )
                 returned_theta = self.rao_to_theta(withdrawn_balance.rao)
-                bt.logging.info(f"Withdrawal successful: {returned_theta} Theta withdrawn for {miner_hotkey}")
-                print(f"Withdrawal successful: {returned_theta} Theta withdrawn for {miner_hotkey}, returned to {miner_coldkey}")
+                bt.logging.info(f"Withdrawal successful: {returned_theta} Theta withdrawn for {miner_hotkey}, returned to {miner_coldkey}")
                 return {
                     "successfully_processed": True,
                     "error_message": "",
