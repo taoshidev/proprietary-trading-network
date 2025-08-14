@@ -43,21 +43,8 @@ class ValidatorContractManager:
             self.owner_address = secrets.get('collateral_owner_address')
             self.owner_private_key = secrets.get('collateral_owner_private_key')
 
-            vault_name = secrets.get('vault_name')
-            vault_hotkey = secrets.get('vault_hotkey')
-            vault_path = secrets.get('vault_path', '~/.bittensor/wallets')
-            
-            # Create vault wallet from secrets
-            if vault_name and vault_hotkey:
-                self.vault_wallet = bt.wallet(
-                    name=vault_name,
-                    hotkey=vault_hotkey,
-                    path=vault_path
-                )
-                bt.logging.info(f"Vault wallet loaded: {self.vault_wallet}")
-            else:
-                bt.logging.warning("Vault wallet credentials not found in secrets. Collateral operations will fail.")
-                self.vault_wallet = None
+            self.vault_wallet = bt.wallet(config=self.config)
+            bt.logging.info(f"Vault wallet loaded: {self.vault_wallet}")
 
             self.vault_password = secrets.get('vault_password', None)
 
