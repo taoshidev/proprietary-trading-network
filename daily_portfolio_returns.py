@@ -16,7 +16,7 @@ Usage:
 
 import argparse
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Dict, List, Tuple, Set, Optional, Any
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -114,8 +114,49 @@ class DatabaseManager:
             bt.logging.error(f"Failed to fetch existing dates: {e}")
             return set()
     
-    def insert_daily_returns(self, daily_returns: List[Dict], target_timestamp: datetime) -> bool:
-        """Insert daily returns for a specific date using miner_port_values schema."""
+    def get_existing_hotkey_date_pairs(self, start_date: str, end_date: str, hotkeys: Optional[List[str]] = None) -> Set[Tuple[str, str]]:
+        """Get all (hotkey, date) pairs that already exist in database within date range.
+        
+        Args:
+            start_date: Start date in YYYY-MM-DD format
+            end_date: End date in YYYY-MM-DD format
+            hotkeys: Optional list of specific hotkeys to check
+            
+        Returns:
+            Set of (hotkey, date) tuples that already exist in database
+        """
+        try:
+            with self.SessionFactory() as session:
+                query = (
+                    "SELECT DISTINCT miner_hotkey, date FROM miner_port_values "
+                    "WHERE date >= :start_date AND date <= :end_date"
+                )
+                params = {"start_date": start_date, "end_date": end_date}
+                
+                if hotkeys:
+                    placeholders = ", ".join([f":hotkey_{i}" for i in range(len(hotkeys))])
+                    query += f" AND miner_hotkey IN ({placeholders})"
+                    for i, hotkey in enumerate(hotkeys):
+                        params[f"hotkey_{i}"] = hotkey
+                
+                result = session.execute(text(query), params)
+                
+                existing_pairs = {(row[0], row[1]) for row in result.fetchall()}
+                bt.logging.info(f"Found {len(existing_pairs)} existing hotkey-date pairs in database")
+                return existing_pairs
+                
+        except Exception as e:
+            bt.logging.error(f"Failed to fetch existing hotkey-date pairs: {e}")
+            return set()
+    
+    def insert_daily_returns(self, daily_returns: List[Dict], target_timestamp: datetime, skip_duplicates: bool = False) -> bool:
+        """Insert daily returns for a specific date using miner_port_values schema.
+        
+        Args:
+            daily_returns: List of return dictionaries to insert
+            target_timestamp: The timestamp for the returns
+            skip_duplicates: If True, skip individual records that already exist
+        """
         if not daily_returns:
             date_str = target_timestamp.strftime("%Y-%m-%d")
             bt.logging.warning(f"No returns to insert for {date_str}")
@@ -123,15 +164,32 @@ class DatabaseManager:
         
         try:
             with self.SessionFactory() as session:
-                # Create model instances and add them (no deletion - should be handled by skip logic)
+                inserted_count = 0
+                skipped_count = 0
+                
                 for value_dict in daily_returns:
+                    if skip_duplicates:
+                        # Check if this specific record already exists
+                        existing = session.query(MinerPortValuesModel).filter_by(
+                            miner_hotkey=value_dict['miner_hotkey'],
+                            timestamp=value_dict['timestamp']
+                        ).first()
+                        
+                        if existing:
+                            skipped_count += 1
+                            continue
+                    
                     port_value = MinerPortValuesModel(**value_dict)
                     session.add(port_value)
+                    inserted_count += 1
                 
                 session.commit()
                 
                 date_str = target_timestamp.strftime("%Y-%m-%d")
-                bt.logging.info(f"✓ Successfully inserted {len(daily_returns)} returns for {date_str}")
+                if skipped_count > 0:
+                    bt.logging.info(f"✓ Inserted {inserted_count} returns, skipped {skipped_count} duplicates for {date_str}")
+                else:
+                    bt.logging.info(f"✓ Successfully inserted {inserted_count} returns for {date_str}")
                 return True
                 
         except Exception as e:
@@ -668,6 +726,18 @@ class DiagnosticMode:
         # Analyze position distribution
         results['position_analysis'] = DiagnosticMode._analyze_position_distribution(all_positions)
         
+        # Analyze miners in positions vs database (NEW FEATURE)
+        if db_manager:
+            results['miner_cross_reference'] = DiagnosticMode._analyze_miners_positions_vs_database(
+                all_positions, results.get('database_analysis', {})
+            )
+        
+        # Analyze return gaps for miners in database (NEW FEATURE)
+        if db_manager:
+            results['return_gaps_analysis'] = DiagnosticMode._analyze_return_gaps(
+                db_manager, start_ms, end_ms, hotkeys_filter
+            )
+        
         # Generate summary
         results['summary'] = DiagnosticMode._generate_summary(results)
         
@@ -819,16 +889,25 @@ class DiagnosticMode:
                 ), {"start_date": start_date_str, "end_date": end_date_str})
                 total_db_miners = result.fetchone()[0]
                 
+                # Get all miners in database for this period
+                result = session.execute(text(
+                    "SELECT DISTINCT miner_hotkey FROM miner_port_values "
+                    "WHERE date >= :start_date AND date <= :end_date"
+                ), {"start_date": start_date_str, "end_date": end_date_str})
+                db_miners = {row[0] for row in result.fetchall()}
+                
         except Exception as e:
             bt.logging.warning(f"Could not get detailed database statistics: {e}")
             date_miner_counts = {}
             total_db_miners = 0
+            db_miners = set()
         
         return {
             'existing_dates': sorted(list(existing_dates)),
             'missing_dates': [],  # Will be calculated in summary
             'date_miner_counts': date_miner_counts,
-            'total_miners_in_db': total_db_miners
+            'total_miners_in_db': total_db_miners,
+            'db_miners': db_miners
         }
     
     @staticmethod
@@ -906,6 +985,201 @@ class DiagnosticMode:
         }
     
     @staticmethod
+    def _analyze_miners_positions_vs_database(
+        all_positions: Dict[str, List[Position]], 
+        database_analysis: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Analyze which miners exist in positions but not in database table."""
+        bt.logging.info("🔍 Analyzing miners: positions vs database...")
+        
+        # Get miners from positions
+        position_miners = set(all_positions.keys())
+        
+        # Get miners from database
+        db_miners = database_analysis.get('db_miners', set())
+        
+        # Cross-reference analysis
+        miners_in_positions_not_db = position_miners - db_miners
+        miners_in_db_not_positions = db_miners - position_miners
+        miners_in_both = position_miners & db_miners
+        
+        bt.logging.info(f"   Position miners: {len(position_miners)}")
+        bt.logging.info(f"   Database miners: {len(db_miners)}")
+        bt.logging.info(f"   Miners in both: {len(miners_in_both)}")
+        bt.logging.info(f"   Miners in positions but NOT in database: {len(miners_in_positions_not_db)}")
+        bt.logging.info(f"   Miners in database but NOT in positions: {len(miners_in_db_not_positions)}")
+        
+        return {
+            'total_position_miners': len(position_miners),
+            'total_database_miners': len(db_miners),
+            'miners_in_both': len(miners_in_both),
+            'miners_in_positions_not_db': sorted(list(miners_in_positions_not_db)),
+            'miners_in_db_not_positions': sorted(list(miners_in_db_not_positions)),
+            'position_coverage_in_db': (len(miners_in_both) / len(position_miners)) * 100 if position_miners else 0,
+            'database_coverage_in_positions': (len(miners_in_both) / len(db_miners)) * 100 if db_miners else 0
+        }
+    
+    @staticmethod
+    def _analyze_return_gaps(
+        db_manager: 'DatabaseManager', 
+        start_ms: int, 
+        end_ms: int, 
+        hotkeys_filter: Optional[List[str]] = None
+    ) -> Dict[str, Any]:
+        """Analyze miners that have gaps in returns (discontinuous return data)."""
+        bt.logging.info("🔍 Analyzing return gaps in database...")
+        
+        start_date_str = datetime.fromtimestamp(start_ms / 1000, tz=timezone.utc).strftime('%Y-%m-%d')
+        end_date_str = datetime.fromtimestamp(end_ms / 1000, tz=timezone.utc).strftime('%Y-%m-%d')
+        
+        gap_analysis = {
+            'miners_with_gaps': [],
+            'miners_without_gaps': [],
+            'gap_details': {},
+            'summary_stats': {}
+        }
+        
+        try:
+            with db_manager.SessionFactory() as session:
+                # Get all miner data for the period, ordered by date
+                query = text(
+                    "SELECT miner_hotkey, date FROM miner_port_values "
+                    "WHERE date >= :start_date AND date <= :end_date "
+                    "ORDER BY miner_hotkey, date"
+                )
+                result = session.execute(query, {"start_date": start_date_str, "end_date": end_date_str})
+                
+                # Group by miner
+                miner_dates = defaultdict(list)
+                for row in result.fetchall():
+                    hotkey, date_str = row
+                    if not hotkeys_filter or hotkey in hotkeys_filter:
+                        miner_dates[hotkey].append(date_str)
+                
+                # Generate expected date sequence
+                expected_dates = []
+                current_date = datetime.strptime(start_date_str, '%Y-%m-%d')
+                end_date = datetime.strptime(end_date_str, '%Y-%m-%d')
+                while current_date <= end_date:
+                    expected_dates.append(current_date.strftime('%Y-%m-%d'))
+                    current_date += timedelta(days=1)
+                
+                bt.logging.info(f"   Analyzing {len(miner_dates)} miners over {len(expected_dates)} expected dates")
+                
+                # Analyze gaps for each miner
+                for hotkey, actual_dates in miner_dates.items():
+                    if len(actual_dates) < 2:
+                        # Skip miners with insufficient data
+                        continue
+                    
+                    # Convert to set for faster lookup
+                    actual_dates_set = set(actual_dates)
+                    
+                    # Find gaps (missing dates between first and last date)
+                    first_date = actual_dates[0]
+                    last_date = actual_dates[-1]
+                    
+                    # Get expected dates for this miner's active period
+                    miner_start = datetime.strptime(first_date, '%Y-%m-%d')
+                    miner_end = datetime.strptime(last_date, '%Y-%m-%d')
+                    
+                    expected_miner_dates = []
+                    current = miner_start
+                    while current <= miner_end:
+                        expected_miner_dates.append(current.strftime('%Y-%m-%d'))
+                        current += timedelta(days=1)
+                    
+                    # Find missing dates (gaps)
+                    missing_dates = [date for date in expected_miner_dates if date not in actual_dates_set]
+                    
+                    if missing_dates:
+                        # Analyze gap patterns
+                        gap_sequences = DiagnosticMode._find_gap_sequences(missing_dates, expected_miner_dates)
+                        
+                        gap_analysis['miners_with_gaps'].append(hotkey)
+                        gap_analysis['gap_details'][hotkey] = {
+                            'first_date': first_date,
+                            'last_date': last_date,
+                            'total_expected_days': len(expected_miner_dates),
+                            'total_actual_days': len(actual_dates),
+                            'missing_days': len(missing_dates),
+                            'missing_dates': missing_dates,
+                            'gap_sequences': gap_sequences,
+                            'coverage_percentage': (len(actual_dates) / len(expected_miner_dates)) * 100
+                        }
+                    else:
+                        gap_analysis['miners_without_gaps'].append(hotkey)
+                
+                # Generate summary statistics
+                total_miners = len(gap_analysis['miners_with_gaps']) + len(gap_analysis['miners_without_gaps'])
+                miners_with_gaps = len(gap_analysis['miners_with_gaps'])
+                
+                gap_analysis['summary_stats'] = {
+                    'total_miners_analyzed': total_miners,
+                    'miners_with_gaps': miners_with_gaps,
+                    'miners_without_gaps': len(gap_analysis['miners_without_gaps']),
+                    'gap_percentage': (miners_with_gaps / total_miners) * 100 if total_miners > 0 else 0,
+                    'average_gaps_per_miner': sum(
+                        len(details['missing_dates']) 
+                        for details in gap_analysis['gap_details'].values()
+                    ) / miners_with_gaps if miners_with_gaps > 0 else 0
+                }
+                
+                bt.logging.info(f"   Found {miners_with_gaps}/{total_miners} miners with return gaps")
+                
+        except Exception as e:
+            bt.logging.error(f"Failed to analyze return gaps: {e}")
+            gap_analysis = {
+                'error': str(e),
+                'miners_with_gaps': [],
+                'miners_without_gaps': [],
+                'gap_details': {},
+                'summary_stats': {'total_miners_analyzed': 0, 'miners_with_gaps': 0}
+            }
+        
+        return gap_analysis
+    
+    @staticmethod
+    def _find_gap_sequences(missing_dates: List[str], expected_dates: List[str]) -> List[Dict[str, Any]]:
+        """Find sequences of consecutive missing dates (gap patterns)."""
+        if not missing_dates:
+            return []
+        
+        # Convert to date objects for easier manipulation
+        missing_date_objs = [datetime.strptime(date, '%Y-%m-%d') for date in missing_dates]
+        missing_date_objs.sort()
+        
+        sequences = []
+        current_sequence_start = missing_date_objs[0]
+        current_sequence_end = missing_date_objs[0]
+        
+        for i in range(1, len(missing_date_objs)):
+            current_date = missing_date_objs[i]
+            prev_date = missing_date_objs[i-1]
+            
+            # Check if this date continues the current sequence (consecutive days)
+            if (current_date - prev_date).days == 1:
+                current_sequence_end = current_date
+            else:
+                # End current sequence and start a new one
+                sequences.append({
+                    'start_date': current_sequence_start.strftime('%Y-%m-%d'),
+                    'end_date': current_sequence_end.strftime('%Y-%m-%d'),
+                    'duration_days': (current_sequence_end - current_sequence_start).days + 1
+                })
+                current_sequence_start = current_date
+                current_sequence_end = current_date
+        
+        # Add the final sequence
+        sequences.append({
+            'start_date': current_sequence_start.strftime('%Y-%m-%d'),
+            'end_date': current_sequence_end.strftime('%Y-%m-%d'),
+            'duration_days': (current_sequence_end - current_sequence_start).days + 1
+        })
+        
+        return sequences
+    
+    @staticmethod
     def _generate_summary(results: Dict[str, Any]) -> Dict[str, Any]:
         """Generate a comprehensive summary of findings."""
         summary = {
@@ -941,6 +1215,30 @@ class DiagnosticMode:
         
         if low_coverage_miners:
             summary['recommendations'].append("Review miners with low coverage for elimination status")
+        
+        # Check for cross-reference issues (NEW)
+        cross_ref = results.get('miner_cross_reference', {})
+        if cross_ref.get('miners_in_positions_not_db'):
+            summary['critical_issues'].append(
+                f"{len(cross_ref['miners_in_positions_not_db'])} miners have positions but no database records"
+            )
+            summary['recommendations'].append("Investigate missing miners in database - potential data pipeline issue")
+        
+        # Check for return gaps (NEW)
+        gaps_analysis = results.get('return_gaps_analysis', {})
+        if gaps_analysis.get('summary_stats', {}).get('miners_with_gaps', 0) > 0:
+            gap_count = gaps_analysis['summary_stats']['miners_with_gaps']
+            gap_percentage = gaps_analysis['summary_stats']['gap_percentage']
+            
+            if gap_percentage > 20:  # More than 20% of miners have gaps
+                summary['critical_issues'].append(
+                    f"{gap_count} miners have return gaps ({gap_percentage:.1f}% of analyzed miners)"
+                )
+                summary['recommendations'].append("High percentage of miners with return gaps - investigate data continuity issues")
+            else:
+                summary['warnings'].append(
+                    f"{gap_count} miners have return gaps ({gap_percentage:.1f}% of analyzed miners)"
+                )
         
         # Generate statistics
         total_period_days = results['analysis_period']['total_days']
@@ -1035,6 +1333,70 @@ class DiagnosticMode:
             
             if db_analysis['existing_dates']:
                 bt.logging.info(f"   Date Range in DB: {db_analysis['existing_dates'][0]} to {db_analysis['existing_dates'][-1]}")
+            bt.logging.info("")
+        
+        # Miner cross-reference analysis (NEW FEATURE)
+        if 'miner_cross_reference' in results:
+            cross_ref = results['miner_cross_reference']
+            bt.logging.info("🔄 MINER CROSS-REFERENCE ANALYSIS:")
+            bt.logging.info(f"   Miners with Positions: {cross_ref['total_position_miners']}")
+            bt.logging.info(f"   Miners in Database: {cross_ref['total_database_miners']}")
+            bt.logging.info(f"   Miners in Both: {cross_ref['miners_in_both']}")
+            
+            if cross_ref['miners_in_positions_not_db']:
+                bt.logging.info(f"   🚨 Miners in POSITIONS but NOT in DATABASE: {len(cross_ref['miners_in_positions_not_db'])}")
+                for hotkey in cross_ref['miners_in_positions_not_db'][:5]:
+                    bt.logging.info(f"     - {hotkey[:16]}...")
+                if len(cross_ref['miners_in_positions_not_db']) > 5:
+                    bt.logging.info(f"     ... and {len(cross_ref['miners_in_positions_not_db']) - 5} more")
+            
+            if cross_ref['miners_in_db_not_positions']:
+                bt.logging.info(f"   📊 Miners in DATABASE but NOT in positions: {len(cross_ref['miners_in_db_not_positions'])}")
+                for hotkey in cross_ref['miners_in_db_not_positions'][:3]:
+                    bt.logging.info(f"     - {hotkey[:16]}...")
+                if len(cross_ref['miners_in_db_not_positions']) > 3:
+                    bt.logging.info(f"     ... and {len(cross_ref['miners_in_db_not_positions']) - 3} more")
+            
+            coverage_pct = cross_ref['position_coverage_in_db']
+            bt.logging.info(f"   Position Coverage in DB: {coverage_pct:.1f}%")
+            bt.logging.info("")
+        
+        # Return gaps analysis (NEW FEATURE)
+        if 'return_gaps_analysis' in results and 'error' not in results['return_gaps_analysis']:
+            gaps = results['return_gaps_analysis']
+            stats = gaps['summary_stats']
+            bt.logging.info("📈 RETURN GAPS ANALYSIS:")
+            bt.logging.info(f"   Total Miners Analyzed: {stats['total_miners_analyzed']}")
+            bt.logging.info(f"   Miners with Gaps: {stats['miners_with_gaps']}")
+            bt.logging.info(f"   Miners without Gaps: {stats['miners_without_gaps']}")
+            bt.logging.info(f"   Gap Percentage: {stats['gap_percentage']:.1f}%")
+            
+            if stats['miners_with_gaps'] > 0:
+                bt.logging.info(f"   Average Missing Days per Gapped Miner: {stats['average_gaps_per_miner']:.1f}")
+                
+                # Show details for miners with the most gaps
+                gap_details = gaps['gap_details']
+                top_gapped_miners = sorted(
+                    gap_details.items(), 
+                    key=lambda x: x[1]['missing_days'], 
+                    reverse=True
+                )[:5]
+                
+                bt.logging.info("   🚨 Top Miners with Most Missing Days:")
+                for hotkey, details in top_gapped_miners:
+                    coverage = details['coverage_percentage']
+                    missing_days = details['missing_days']
+                    total_days = details['total_expected_days']
+                    bt.logging.info(f"     - {hotkey[:16]}... : {missing_days}/{total_days} missing ({coverage:.1f}% coverage)")
+                    
+                    # Show gap sequences for top gapped miners
+                    if len(details['gap_sequences']) > 0:
+                        longest_gap = max(details['gap_sequences'], key=lambda x: x['duration_days'])
+                        if len(details['gap_sequences']) == 1:
+                            bt.logging.info(f"       Gap: {longest_gap['start_date']} to {longest_gap['end_date']} ({longest_gap['duration_days']} days)")
+                        else:
+                            bt.logging.info(f"       Longest gap: {longest_gap['start_date']} to {longest_gap['end_date']} ({longest_gap['duration_days']} days)")
+                            bt.logging.info(f"       Total gap sequences: {len(details['gap_sequences'])}")
             bt.logging.info("")
         
         # Elimination analysis
@@ -1420,10 +1782,11 @@ class EliminationTracker:
                 
                 elimination_time = self.elimination_timestamps[hotkey]
                 elimination_date = TimeUtil.millis_to_formatted_date_str(elimination_time)
-                bt.logging.debug(f"Tracking eliminated miner {hotkey[:16]}... with empty positions (eliminated {elimination_date})")
+                bt.logging.debug(f"Skipping eliminated miner {hotkey[:16]}... (eliminated {elimination_date})")
                 
-                # Track eliminated miners with empty positions for consistency
-                filtered_positions[hotkey] = []
+                # Do NOT add eliminated miners - skip them entirely
+                # This prevents adding rows after elimination date
+                # Original line was: filtered_positions[hotkey] = []
             else:
                 # Miner not eliminated, include their positions
                 filtered_positions[hotkey] = positions
@@ -1508,6 +1871,12 @@ def parse_args():
         action="store_true",
         default=True,
         help="Skip dates that already exist in database (default: True)",
+    )
+    parser.add_argument(
+        "--skip-existing-fine",
+        action="store_true",
+        default=True,
+        help="Skip individual hotkey-date pairs that already exist (fine-grained duplicate check)",
     )
     parser.add_argument(
         "--save-csv",
@@ -1657,6 +2026,7 @@ def main():
     # Initialize database manager (default behavior)
     db_manager = None
     existing_dates = set()
+    existing_hotkey_date_pairs = set()
     
     try:
         # Get database connection string
@@ -1677,10 +2047,25 @@ def main():
             bt.logging.info("Initializing database connection...")
             db_manager = DatabaseManager(database_url)
             
-            if args.skip_existing:
-                # Get existing dates in batch upfront
-                start_date_str = datetime.fromtimestamp(start_ms / 1000, tz=timezone.utc).strftime('%Y-%m-%d')
-                end_date_str = datetime.fromtimestamp(end_ms / 1000, tz=timezone.utc).strftime('%Y-%m-%d')
+            start_date_str = datetime.fromtimestamp(start_ms / 1000, tz=timezone.utc).strftime('%Y-%m-%d')
+            end_date_str = datetime.fromtimestamp(end_ms / 1000, tz=timezone.utc).strftime('%Y-%m-%d')
+            
+            if args.skip_existing_fine:
+                # Get existing hotkey-date pairs for fine-grained skipping
+                existing_hotkey_date_pairs = db_manager.get_existing_hotkey_date_pairs(
+                    start_date_str, end_date_str, hotkeys
+                )
+                
+                if existing_hotkey_date_pairs:
+                    bt.logging.info(f"Found {len(existing_hotkey_date_pairs)} existing hotkey-date pairs")
+                    # Show sample of what will be skipped
+                    sample_pairs = list(existing_hotkey_date_pairs)[:3]
+                    for hotkey, date in sample_pairs:
+                        bt.logging.info(f"  Will skip: {hotkey[:12]}... on {date}")
+                    if len(existing_hotkey_date_pairs) > 3:
+                        bt.logging.info(f"  ... and {len(existing_hotkey_date_pairs) - 3} more pairs")
+            elif args.skip_existing:
+                # Get existing dates in batch upfront (old behavior)
                 existing_dates = db_manager.get_existing_dates(start_date_str, end_date_str)
                 
                 if existing_dates:
@@ -1722,8 +2107,8 @@ def main():
         
         bt.logging.info(f"=== Processing date: {current_date_short} ({current_date_utc_str}) [{day_counter}/{total_days}] ===")
         
-        # Check if this date already exists in database
-        if current_date_short in existing_dates:
+        # Check if this date already exists in database (coarse-grained check)
+        if not args.skip_existing_fine and current_date_short in existing_dates:
             bt.logging.info(f"⏭️  Skipping {current_date_short} - already exists in database")
             current_ms += MS_IN_24_HOURS
             continue
@@ -1794,6 +2179,21 @@ def main():
                 miner_category_returns, current_date
             )
             
+            # Filter out existing hotkey-date pairs if fine-grained skipping is enabled
+            if args.skip_existing_fine and existing_hotkey_date_pairs:
+                original_count = len(daily_returns)
+                daily_returns = [
+                    dr for dr in daily_returns 
+                    if (dr['miner_hotkey'], dr['date']) not in existing_hotkey_date_pairs
+                ]
+                skipped_count = original_count - len(daily_returns)
+                if skipped_count > 0:
+                    bt.logging.info(f"⏭️  Filtered out {skipped_count} existing hotkey-date pairs for {current_date_short}")
+                if not daily_returns:
+                    bt.logging.info(f"All {original_count} miners already have data for {current_date_short}, skipping...")
+                    current_ms += MS_IN_24_HOURS
+                    continue
+            
             # Calculate stats for logging (using old method for compatibility)
             daily_stats = DailyStats(skip_stats=skip_stats, elimination_stats=elimination_stats)
             
@@ -1837,7 +2237,12 @@ def main():
             # Save results based on configuration
             if db_manager and daily_returns:
                 # Primary: Insert into database
-                success = db_manager.insert_daily_returns(daily_returns, current_date)
+                # Use skip_duplicates=True when fine-grained skipping is enabled for extra safety
+                success = db_manager.insert_daily_returns(
+                    daily_returns, 
+                    current_date,
+                    skip_duplicates=args.skip_existing_fine
+                )
                 if success:
                     bt.logging.info(f"💾 Successfully saved {len(daily_returns)} returns to database for {current_date_short}")
                 else:
