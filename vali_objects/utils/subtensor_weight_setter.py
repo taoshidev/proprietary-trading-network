@@ -207,3 +207,9 @@ class SubtensorWeightSetter(CacheController):
         except Exception as e:
             bt.logging.error(f"Error sending weight request: {e}")
             bt.logging.error(traceback.format_exc())
+
+    def set_weights(self, current_time):
+        # Compute weights (existing logic)
+        checkpoint_results, transformed_list = self.compute_weights_default(current_time)
+        self.checkpoint_results = checkpoint_results
+        self.transformed_list = transformed_list
