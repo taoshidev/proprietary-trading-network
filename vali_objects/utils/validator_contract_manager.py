@@ -116,12 +116,6 @@ class ValidatorContractManager:
             
             # Execute the deposit through the collateral manager
             try:
-                stake_list = self.collateral_manager.subtensor_api.staking.get_stake_for_coldkey(self.vault_wallet.coldkeypub.ss58_address)
-                vault_stake = next(
-                    (stake for stake in stake_list if stake.hotkey_ss58 == self.vault_wallet.hotkey.ss58_address),
-                    None
-                )
-
                 miner_hotkey = next(arg["value"] for arg in extrinsic.value["call"]["call_args"] if arg["name"] == "hotkey")
                 deposit_amount = next(arg["value"] for arg in extrinsic.value["call"]["call_args"] if arg["name"] == "alpha_amount")
                 deposit_amount_theta = self.to_theta(deposit_amount)
@@ -152,7 +146,7 @@ class ValidatorContractManager:
                 deposited_balance = self.collateral_manager.deposit(
                     extrinsic=extrinsic,
                     source_hotkey=miner_hotkey,
-                    vault_stake=vault_stake.hotkey_ss58,
+                    vault_stake=self.vault_wallet.hotkey.ss58_address,
                     vault_wallet=self.vault_wallet,
                     owner_address=self.owner_address,
                     owner_private_key=self.owner_private_key,
@@ -222,18 +216,12 @@ class ValidatorContractManager:
             
             # Execute the withdrawal through the collateral manager
             try:
-                stake_list = self.collateral_manager.subtensor_api.staking.get_stake_for_coldkey(self.vault_wallet.coldkeypub.ss58_address)
-                vault_stake = next(
-                    (stake for stake in stake_list if stake.hotkey_ss58 == self.vault_wallet.hotkey.ss58_address),
-                    None
-                )
-
                 bt.logging.info(f"Processing withdrawal request from {miner_hotkey} for {amount} Theta")
                 withdrawn_balance = self.collateral_manager.withdraw(
                     amount=int(amount * 10**9), # convert theta to rao_theta
                     source_coldkey=miner_coldkey,
                     source_hotkey=miner_hotkey,
-                    vault_stake=vault_stake.hotkey_ss58,
+                    vault_stake=self.vault_wallet.hotkey.ss58_address,
                     vault_wallet=self.vault_wallet,
                     owner_address=self.owner_address,
                     owner_private_key=self.owner_private_key,
