@@ -1,4 +1,6 @@
 import statistics
+from string import hexdigits
+
 import bittensor as bt
 import threading
 from collections import defaultdict, deque
@@ -226,7 +228,7 @@ class PTNRestServer(APIKeyMixin):
     """Handles REST API requests with Flask and Waitress."""
 
     def __init__(self, api_keys_file, shared_queue=None, host="127.0.0.1",
-                 port=48888, refresh_interval=15, metrics_interval_minutes=5, position_manager=None, contract_manager=None, config=None):
+                 port=48888, refresh_interval=15, metrics_interval_minutes=5, position_manager=None, contract_manager=None):
         """Initialize the REST server with API key handling and routing.
 
         Args:
@@ -251,13 +253,9 @@ class PTNRestServer(APIKeyMixin):
         self.host = host
         self.port = port
         self.app = Flask(__name__)
+        self.app.config['MAX_CONTENT_LENGTH'] = 256 * 1024  # 256 KB upper bound
 
-        # Get vault wallet
-        self.vault_wallet = bt.wallet(
-            name=config.vault_wallet_name,
-            hotkey=config.vault_wallet_hotkey,
-            path=config.vault_wallet_path
-        )
+        self.contract_manager.load_contract_owner_credentials()
 
         # Initialize Flask-Compress for GZIP compression
         Compress(self.app)
@@ -542,6 +540,8 @@ class PTNRestServer(APIKeyMixin):
         @self.app.route("/collateral/deposit", methods=["POST"])
         def deposit_collateral():
             """Process collateral deposit with encoded extrinsic."""
+            MAX_EXTRINSIC_HEX = 200_000 # ~100 KB decoded;
+
             # Check if contract manager is available
             if not self.contract_manager:
                 return jsonify({'error': 'Collateral operations not available'}), 503
@@ -560,11 +560,19 @@ class PTNRestServer(APIKeyMixin):
                 for field in required_fields:
                     if field not in data:
                         return jsonify({'error': f'Missing required field: {field}'}), 400
+
+                # Validate extrinsic
+                extrinsic = data.get('extrinsic')
+                if not isinstance(extrinsic, str):
+                    return jsonify({'error': 'extrinsic must be a hex string'}), 400
+                if len(extrinsic) > MAX_EXTRINSIC_HEX:
+                    return jsonify({'error': 'extrinsic too large'}), 413
+                if len(extrinsic) % 2 != 0 or not all(c in hexdigits for c in extrinsic):
+                    return jsonify({'error': 'extrinsic must be even-length hex'}), 400
                         
                 # Process the deposit using raw data
                 result = self.contract_manager.process_deposit_request(
-                    extrinsic_hex=data['extrinsic'],
-                    vault_wallet=self.vault_wallet
+                    extrinsic_hex=extrinsic
                 )
                 
                 # Return response
@@ -596,15 +604,6 @@ class PTNRestServer(APIKeyMixin):
                     if field not in data:
                         return jsonify({'error': f'Missing required field: {field}'}), 400
 
-                # Verify nonce
-                is_valid, error_msg = self.nonce_manager.is_valid_request(
-                    address=data['miner_hotkey'],
-                    nonce=data['nonce'],
-                    timestamp=data['timestamp']
-                )
-                if not is_valid:
-                    return jsonify({'error': f'{error_msg}'}), 401
-
                 # Verify the withdrawal signature
                 keypair = Keypair(ss58_address=data['miner_coldkey'])
                 message = json.dumps({
@@ -617,13 +616,27 @@ class PTNRestServer(APIKeyMixin):
                 is_valid = keypair.verify(message, bytes.fromhex(data['signature']))
                 if not is_valid:
                     return jsonify({'error': 'Invalid signature. Withdrawal request unauthorized'}), 401
-                        
-                # Process the withdrawal using verified data
+
+                # Verify coldkey-hotkey ownership using subtensor
+                owns_hotkey = self._verify_coldkey_owns_hotkey(data['miner_coldkey'], data['miner_hotkey'])
+                if not owns_hotkey:
+                    return jsonify({'error': 'Coldkey does not own the specified hotkey'}), 403
+
+                # Verify nonce
+                nonce_key = f"{data['miner_coldkey']}::{data['miner_hotkey']}"
+                is_valid, error_msg = self.nonce_manager.is_valid_request(
+                    address=nonce_key,
+                    nonce=str(data['nonce']),
+                    timestamp=int(data['timestamp'])
+                )
+                if not is_valid:
+                    return jsonify({'error': f'{error_msg}'}), 401
+
+            # Process the withdrawal using verified data
                 result = self.contract_manager.process_withdrawal_request(
                     amount=data['amount'],
                     miner_coldkey=data['miner_coldkey'],
-                    miner_hotkey=data['miner_hotkey'],
-                    vault_wallet=self.vault_wallet,
+                    miner_hotkey=data['miner_hotkey']
                 )
                 
                 # Return response
@@ -655,12 +668,26 @@ class PTNRestServer(APIKeyMixin):
             except Exception as e:
                 bt.logging.error(f"Error getting collateral balance for {miner_address}: {e}")
                 return jsonify({'error': 'Internal server error retrieving balance'}), 500
-                
-                return jsonify(response_data)
-                
-            except Exception as e:
-                bt.logging.error(f"Error getting collateral balance for {miner_address}: {e}")
-                return jsonify({'error': 'Internal server error retrieving balance'}), 500
+
+    def _verify_coldkey_owns_hotkey(self, coldkey_ss58: str, hotkey_ss58: str) -> bool:
+        """
+        Verify that a coldkey owns the specified hotkey using subtensor.
+
+        Args:
+            coldkey_ss58: The coldkey SS58 address
+            hotkey_ss58: The hotkey SS58 address to verify ownership of
+
+        Returns:
+            bool: True if coldkey owns the hotkey, False otherwise
+        """
+        try:
+            subtensor_api = self.contract_manager.collateral_manager.subtensor_api
+            coldkey_owner = subtensor_api.queries.query_subtensor("Owner", None, [hotkey_ss58])
+
+            return coldkey_owner == coldkey_ss58
+        except Exception as e:
+            bt.logging.error(f"Error verifying coldkey-hotkey ownership: {e}")
+            return False
 
     def _get_api_key_safe(self) -> Optional[str]:
         """

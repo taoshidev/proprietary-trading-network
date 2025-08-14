@@ -392,8 +392,7 @@ class Validator:
                 rest_host=self.config.api_host,
                 rest_port=self.config.api_rest_port,
                 position_manager=self.position_manager,
-                contract_manager=self.contract_manager,
-                config=self.config
+                contract_manager=self.contract_manager
             )
 
             # Start the API Manager in a separate process
@@ -485,14 +484,6 @@ class Validator:
         # Adds override arguments for network and netuid.
         parser.add_argument("--netuid", type=int, default=1, help="The chain subnet uid.")
         
-        # Vault wallet specific arguments for collateral operations
-        # These allow using a separate wallet for collateral operations instead of the main validator wallet
-        parser.add_argument("--vault-wallet.name", type=str, default=None, dest="vault_wallet_name",
-                            help="Name of the vault wallet for collateral operations (optional)")
-        parser.add_argument("--vault-wallet.hotkey", type=str, default=None, dest="vault_wallet_hotkey",
-                            help="Hotkey of the vault wallet for collateral operations (optional)")
-        parser.add_argument("--vault-wallet.path", type=str, default="~/.bittensor/wallets/", dest="vault_wallet_path",
-                            help="Path to the vault wallet directory (default: ~/.bittensor/wallets/)")
         
         # Adds subtensor specific arguments i.e. --subtensor.chain_endpoint ... --subtensor.network ...
         bt.subtensor.add_args(parser)

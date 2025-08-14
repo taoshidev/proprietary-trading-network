@@ -27,21 +27,40 @@ class ValidatorContractManager:
             self.collateral_manager = CollateralManager(Network.MAINNET)
             self.max_theta = ValiConfig.MAX_COLLATERAL_BALANCE_THETA
         
-        # Load contract owner credentials from environment or config
-        if self.is_mothership:
-            self._load_contract_owner_credentials()
-        
-    def _load_contract_owner_credentials(self):
+        # Initialize vault wallet as None for all validators
+        self.vault_wallet = None
+
+    def load_contract_owner_credentials(self):
         """
         Load EVM contract owner credentials from secrets.json file.
         This validator must be authorized to execute collateral operations.
         """
+        if not self.is_mothership:
+            return
         try:
             # Load from secrets.json using ValiUtils
             secrets = ValiUtils.get_secrets()
             self.owner_address = secrets.get('collateral_owner_address')
             self.owner_private_key = secrets.get('collateral_owner_private_key')
+
+            vault_name = secrets.get('vault_name')
+            vault_hotkey = secrets.get('vault_hotkey')
+            vault_path = secrets.get('vault_path', '~/.bittensor/wallets')
+            
+            # Create vault wallet from secrets
+            if vault_name and vault_hotkey:
+                self.vault_wallet = bt.wallet(
+                    name=vault_name,
+                    hotkey=vault_hotkey,
+                    path=vault_path
+                )
+                bt.logging.info(f"Vault wallet loaded: {self.vault_wallet}")
+            else:
+                bt.logging.warning("Vault wallet credentials not found in secrets. Collateral operations will fail.")
+                self.vault_wallet = None
+
             self.vault_password = secrets.get('vault_password', None)
+
             if not self.owner_address or not self.owner_private_key:
                 bt.logging.warning("Contract owner credentials not found. Collateral operations will fail.")
                 self.owner_address = None
@@ -55,38 +74,9 @@ class ValidatorContractManager:
             self.owner_private_key = None
             self.vault_password = None
 
-
-    def get_theta_token_price(self) -> float:
+    def to_theta(self, rao_amount: int) -> float:
         """
-        Calculate the current theta token price in TAO.
-
-        Returns:
-            float: theta token price in TAO
-        """
-        theta_price = self.metagraph.pool.tao_in / self.metagraph.pool.alpha_in
-        bt.logging.debug(f"theta token price: {theta_price} TAO")
-        return theta_price
-
-    def theta_to_rao(self, theta_amount: float) -> int:
-        """
-        Convert theta token amount to RAO units.
-
-        Args:
-            theta_amount (float): Amount in theta tokens
-
-        Returns:
-            int: Amount in RAO units
-        """
-        theta_price = self.get_theta_token_price()
-        tao_amount = theta_amount * theta_price
-        rao_amount = int(tao_amount * 10 ** 9)  # Convert TAO to RAO
-
-        bt.logging.debug(f"Converted {theta_amount} theta tokens to {tao_amount} TAO")
-        return rao_amount
-
-    def rao_to_theta(self, rao_amount: int) -> float:
-        """
-        Convert RAO amount to theta tokens.
+        Convert rao_theta amount to theta tokens.
 
         Args:
             rao_amount (int): Amount in RAO units
@@ -94,14 +84,10 @@ class ValidatorContractManager:
         Returns:
             float: Amount in theta tokens
         """
-        theta_price = self.get_theta_token_price()
-        tao_amount = rao_amount / 10 ** 9  # Convert RAO to TAO
-        theta_amount = tao_amount / theta_price
-
-        bt.logging.debug(f"Converted {tao_amount} TAO to {theta_amount} theta tokens")
+        theta_amount = rao_amount / 10 ** 9  # Convert rao_theta to theta
         return theta_amount
     
-    def process_deposit_request(self, extrinsic_hex: str, vault_wallet: Wallet) -> Dict[str, Any]:
+    def process_deposit_request(self, extrinsic_hex: str) -> Dict[str, Any]:
         """
         Process a collateral deposit request using raw data.
         
@@ -130,19 +116,13 @@ class ValidatorContractManager:
             
             # Execute the deposit through the collateral manager
             try:
-                stake_list = self.collateral_manager.subtensor_api.staking.get_stake_for_coldkey(vault_wallet.coldkeypub.ss58_address)
-                vault_stake = next(
-                    (stake for stake in stake_list if stake.hotkey_ss58 == vault_wallet.hotkey.ss58_address),
-                    None
-                )
-
                 miner_hotkey = next(arg["value"] for arg in extrinsic.value["call"]["call_args"] if arg["name"] == "hotkey")
                 deposit_amount = next(arg["value"] for arg in extrinsic.value["call"]["call_args"] if arg["name"] == "alpha_amount")
-                deposit_amount_theta = self.rao_to_theta(deposit_amount)
+                deposit_amount_theta = self.to_theta(deposit_amount)
                 
                 # Check collateral balance limit before processing
                 try:
-                    current_balance_theta = self.rao_to_theta(self.collateral_manager.balance_of(miner_hotkey))
+                    current_balance_theta = self.to_theta(self.collateral_manager.balance_of(miner_hotkey))
                     
                     if current_balance_theta + deposit_amount_theta > self.max_theta:
                         error_msg = (f"Deposit would exceed maximum balance limit. "
@@ -165,16 +145,15 @@ class ValidatorContractManager:
                 bt.logging.info(f"Processing deposit for: {deposit_amount_theta} Theta to miner: {miner_hotkey}")
                 deposited_balance = self.collateral_manager.deposit(
                     extrinsic=extrinsic,
-                    sender=miner_hotkey,
-                    vault_stake=vault_stake.hotkey_ss58,
-                    vault_wallet=vault_wallet,
+                    source_hotkey=miner_hotkey,
+                    vault_stake=self.vault_wallet.hotkey.ss58_address,
+                    vault_wallet=self.vault_wallet,
                     owner_address=self.owner_address,
                     owner_private_key=self.owner_private_key,
                     wallet_password=self.vault_password
                 )
                 
-                bt.logging.info(f"Deposit successful: {self.rao_to_theta(deposited_balance.rao)} Theta deposited to miner: {miner_hotkey}")
-                print("succesfully deposited")
+                bt.logging.info(f"Deposit successful: {self.to_theta(deposited_balance.rao)} Theta deposited to miner: {miner_hotkey}")
                 return {
                     "successfully_processed": True,
                     "error_message": ""
@@ -198,14 +177,14 @@ class ValidatorContractManager:
                 "error_message": error_msg
             }
 
-    def process_withdrawal_request(self, amount: float, miner_coldkey: str, miner_hotkey: str, vault_wallet: Wallet) -> Dict[str, Any]:
+    def process_withdrawal_request(self, amount: float, miner_coldkey: str, miner_hotkey: str) -> Dict[str, Any]:
         """
         Process a collateral withdrawal request using raw data.
         
         Args:
             amount (float): Amount to withdraw in theta tokens
             miner_coldkey (str): Miner's SS58 wallet coldkey address to return collateral to
-            miner_coldkey (str): Miner's SS58 hotkey
+            miner_hotkey (str): Miner's SS58 hotkey
             
         Returns:
             Dict[str, Any]: Result of withdrawal operation
@@ -215,7 +194,7 @@ class ValidatorContractManager:
             # Check current collateral balance
             try:
                 current_balance = self.collateral_manager.balance_of(miner_hotkey)
-                theta_current_balance = self.rao_to_theta(current_balance)
+                theta_current_balance = self.to_theta(current_balance)
                 if amount > theta_current_balance:
                     error_msg = f"Insufficient collateral balance. Available: {theta_current_balance}, Requested: {amount}"
                     bt.logging.error(error_msg)
@@ -237,31 +216,24 @@ class ValidatorContractManager:
             
             # Execute the withdrawal through the collateral manager
             try:
-                stake_list = self.collateral_manager.subtensor_api.staking.get_stake_for_coldkey(vault_wallet.coldkeypub.ss58_address)
-                vault_stake = next(
-                    (stake for stake in stake_list if stake.hotkey_ss58 == vault_wallet.hotkey.ss58_address),
-                    None
-                )
-
                 bt.logging.info(f"Processing withdrawal request from {miner_hotkey} for {amount} Theta")
                 withdrawn_balance = self.collateral_manager.withdraw(
-                    amount=self.theta_to_rao(amount),
-                    dest=miner_coldkey,
+                    amount=int(amount * 10**9), # convert theta to rao_theta
+                    source_coldkey=miner_coldkey,
                     source_hotkey=miner_hotkey,
-                    vault_stake=vault_stake.hotkey_ss58,
-                    vault_wallet=vault_wallet,
+                    vault_stake=self.vault_wallet.hotkey.ss58_address,
+                    vault_wallet=self.vault_wallet,
                     owner_address=self.owner_address,
                     owner_private_key=self.owner_private_key,
                     wallet_password=self.vault_password
                 )
-                returned_theta = self.rao_to_theta(withdrawn_balance.rao)
-                bt.logging.info(f"Withdrawal successful: {returned_theta} Theta withdrawn for {miner_hotkey}")
-                print(f"Withdrawal successful: {returned_theta} Theta withdrawn for {miner_hotkey}, returned to {miner_coldkey}")
+                returned_theta = self.to_theta(withdrawn_balance.rao)
+                bt.logging.info(f"Withdrawal successful: {returned_theta} Theta withdrawn for {miner_hotkey}, returned to {miner_coldkey}")
                 return {
                     "successfully_processed": True,
                     "error_message": "",
                     "returned_amount": returned_theta,
-                    "returned_to": miner_hotkey
+                    "returned_to": miner_coldkey
                 }
                 
             except Exception as e:
@@ -298,7 +270,7 @@ class ValidatorContractManager:
         """
         try:
             rao_balance = self.collateral_manager.balance_of(miner_address)
-            return self.rao_to_theta(rao_balance)
+            return self.to_theta(rao_balance)
         except Exception as e:
             bt.logging.error(f"Failed to get collateral balance for {miner_address}: {e}")
             return None
