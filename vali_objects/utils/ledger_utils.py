@@ -376,6 +376,8 @@ class LedgerUtils:
         Returns:
             float - the maximum drawdown percentage for the ledger
         """
+        if not ledger:
+            return 0
         checkpoints = ledger.cps
         if len(checkpoints) == 0:
             return 0
