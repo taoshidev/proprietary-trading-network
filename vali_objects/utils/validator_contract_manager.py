@@ -523,7 +523,7 @@ class ValidatorContractManager:
                 return record.account_size
 
         if most_recent:
-            most_recent_record = self.miner_account_sizes[hotkey][-1]
+            most_recent_record = self.miner_account_sizes[hotkey][0]
             return most_recent_record.account_size
         # No applicable records found
         return None
