@@ -363,6 +363,17 @@ class ValidatorContractManager:
             
             # Execute the withdrawal through the collateral manager
             try:
+                eligible_for_withdrawal = self.eligible_for_withdrawal(miner_hotkey)
+                if amount > eligible_for_withdrawal:
+                    error_msg = f"Withdrawal request exceeds eligible amount based on drawdown. Available: {eligible_for_withdrawal}, Requested: {amount}"
+                    bt.logging.error(error_msg)
+                    return {
+                        "successfully_processed": False,
+                        "error_message": error_msg,
+                        "returned_amount": 0.0,
+                        "returned_to": ""
+                    }
+
                 # All positions must be closed before a miner can deposit or withdraw
                 if len(self.position_manager.get_positions_for_one_hotkey(miner_hotkey, only_open_positions=True)) > 0:
                     return {
@@ -418,6 +429,25 @@ class ValidatorContractManager:
                 "returned_amount": 0.0,
                 "returned_to": ""
             }
+
+    def eligible_for_withdrawal(self, miner_hotkey: str) -> float:
+        """
+        Return the amount of collateral balance that is eligible for withdrawal.
+
+        The miner is eligible to withdraw an amount proportional to 50% of their drawdown.
+        For ex:
+        10% drawdown (elimination) -> Eligible to withdraw 50%
+        5% drawdown -> Eligible to withdraw 75%
+        3% drawdown -> Eligible to withdraw 85%
+        """
+        balance = self.collateral_manager.balance_of(miner_hotkey)
+        theta_balance = self.rao_to_theta(balance)
+
+        drawdown = 0.95   #TODO
+        drawdown_proportion = (drawdown - ValiConfig.MAX_TOTAL_DRAWDOWN) / (1 - ValiConfig.MAX_TOTAL_DRAWDOWN)
+        eligible_proportion = ValiConfig.BASE_COLLATERAL_RETURNED + (1 - ValiConfig.BASE_COLLATERAL_RETURNED) * drawdown_proportion
+        eligible_for_withdrawal = theta_balance * eligible_proportion
+        return eligible_for_withdrawal
     
     def get_miner_collateral_balance(self, miner_address: str) -> Optional[float]:
         """
