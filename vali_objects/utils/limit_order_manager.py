@@ -232,8 +232,6 @@ class LimitOrderManager(CacheController):
         self._write_to_disk(miner_hotkey, order)
         os.remove(closed_filename)
 
-        self.limit_orders[miner_hotkey].remove(order)
-
         bt.logging.info(f"Successfully closed limit order [{order_uuid}] [{trade_pair_id}] for [{miner_hotkey}]")
 
     def cancel_limit_order(self, miner_hotkey, trade_pair, cancel_order_uuid, now_ms, position_locks):
@@ -256,23 +254,21 @@ class LimitOrderManager(CacheController):
             for order in orders_to_cancel:
                 self._close_order(miner_hotkey, order, ORDER_SRC_LIMIT_CANCELLED, now_ms)
 
-    def _read_limit_orders_from_disk(self) -> dict[str, list[Order]]:
-        all_miner_hotkeys = ValiBkpUtils.get_directories_in_dir(
-            ValiBkpUtils.get_miner_dir(self.running_unit_tests)
-        )
+    def _read_limit_orders_from_disk(self, hotkeys=None) -> dict[str, list[Order]]:
+        if not hotkeys:
+            hotkeys = ValiBkpUtils.get_directories_in_dir(
+                ValiBkpUtils.get_miner_dir(self.running_unit_tests)
+            )
         eliminated_hotkeys = self.elimination_manager.get_eliminations_from_memory()
 
         orders = {}
-        cnt = 0
-
-        for hotkey in all_miner_hotkeys:
+        for hotkey in hotkeys:
             miner_orders = []
 
             if hotkey in eliminated_hotkeys:
                 continue
 
-            miner_order_dicts = ValiBkpUtils.get_limit_orders(hotkey, unfilled_only=False, running_unit_tests=self.running_unit_tests)
-
+            miner_order_dicts = ValiBkpUtils.get_limit_orders(hotkey, self.running_unit_tests)
             for order_dict in miner_order_dicts:
                 try:
                     order = Order.from_dict(order_dict)
@@ -283,7 +279,6 @@ class LimitOrderManager(CacheController):
 
             if miner_orders:
                 orders[hotkey] = sorted(miner_orders, key=lambda o: o.processed_ms)
-                cnt += len(miner_orders)
 
         return orders
 
@@ -309,11 +304,11 @@ class LimitOrderManager(CacheController):
         except Exception as e:
             bt.logging.error(f"Error writing limit order to disk for miner hotkey {e}")
 
-    def sync_limit_orders(self, sync_orders):
-        if not sync_orders:
+    def sync_limit_orders(self, sync_data):
+        if not sync_data:
             return
 
-        for miner_hotkey, orders_data in sync_orders.items():
+        for miner_hotkey, orders_data in sync_data.items():
             if not orders_data:
                 continue
 

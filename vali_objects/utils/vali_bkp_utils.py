@@ -344,7 +344,7 @@ class ValiBkpUtils:
         return f"{base_dir}{status_str}/"
 
     @staticmethod
-    def get_limit_orders(miner_hotkey, unfilled_only=True, running_unit_tests=False):
+    def get_limit_orders(miner_hotkey, running_unit_tests=False):
         miner_limit_orders_dir = (f"{ValiBkpUtils.get_miner_dir(running_unit_tests=running_unit_tests)}"
                                   f"{miner_hotkey}/limit_orders/")
 
@@ -353,10 +353,7 @@ class ValiBkpUtils:
 
         orders = []
         trade_pair_dirs = ValiBkpUtils.get_directories_in_dir(miner_limit_orders_dir)
-        status_dirs = ["unfilled"]
-        if not unfilled_only:
-            status_dirs.append("closed")
-
+        status_dirs = ["unfilled", "closed"]
         for trade_pair_id in trade_pair_dirs:
             for status in status_dirs:
                 status_dirs = ValiBkpUtils.get_limit_orders_dir(miner_hotkey, trade_pair_id, status, running_unit_tests)

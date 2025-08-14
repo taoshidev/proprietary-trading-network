@@ -9,7 +9,7 @@ from ptn_api.websocket_server import WebSocketServer
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 
 
-def start_rest_server(shared_queue, host="127.0.0.1", port=48888, refresh_interval=15, position_manager=None):
+def start_rest_server(shared_queue, host="127.0.0.1", port=48888, refresh_interval=15, position_manager=None, limit_order_manager=None):
     """Starts the REST API server in a separate process."""
     try:
 
@@ -25,7 +25,8 @@ def start_rest_server(shared_queue, host="127.0.0.1", port=48888, refresh_interv
             host=host,
             port=port,
             refresh_interval=refresh_interval,
-            position_manager=position_manager
+            position_manager=position_manager,
+            limit_order_manager=limit_order_manager
         )
         rest_server.run()
     except Exception as e:
@@ -62,7 +63,7 @@ class APIManager:
 
     def __init__(self, shared_queue, refresh_interval=15,
                  rest_host="127.0.0.1", rest_port=48888,
-                 ws_host="localhost", ws_port=8765, position_manager=None):
+                 ws_host="localhost", ws_port=8765, position_manager=None, limit_order_manager=None):
         """Initialize API management with shared queue and server configurations.
 
         Args:
@@ -86,6 +87,7 @@ class APIManager:
         self.ws_host = ws_host
         self.ws_port = ws_port
         self.position_manager = position_manager
+        self.limit_order_manager = limit_order_manager
 
         # Get default API keys file path
         self.api_keys_file = ValiBkpUtils.get_api_keys_file_path()
@@ -110,7 +112,7 @@ class APIManager:
         # Start REST server process with host/port configuration
         rest_process = Process(
             target=start_rest_server,
-            args=(self.shared_queue, self.rest_host, self.rest_port, self.refresh_interval, self.position_manager),
+            args=(self.shared_queue, self.rest_host, self.rest_port, self.refresh_interval, self.position_manager, self.limit_order_manager),
             name="RestServer"
         )
         rest_process.start()
