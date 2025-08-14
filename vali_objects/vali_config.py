@@ -299,8 +299,10 @@ class ValiConfig:
     MIN_COLLATERAL_BALANCE_TESTNET = 0
     MAX_COLLATERAL_BALANCE_TESTNET = 10000.0
 
-    # Miner will get 50% collateral returned upon elimination
+    # Miner will get a base of 50% collateral returned upon elimination
     BASE_COLLATERAL_RETURNED = 0.5
+    # 50% of drawdown proportion is slashed
+    SLASH_PROPORTION = 0.5
 
     # Account size USD value per theta of collateral
     COST_PER_THETA = 175

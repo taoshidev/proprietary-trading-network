@@ -5,6 +5,7 @@ from collateral_sdk import CollateralManager, Network
 from typing import Dict, Any, Optional, List
 import traceback
 from time_util.time_util import TimeUtil
+from vali_objects.utils.ledger_utils import LedgerUtils
 from vali_objects.utils.vali_utils import ValiUtils
 from vali_objects.vali_config import ValiConfig
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
@@ -440,14 +441,104 @@ class ValidatorContractManager:
         5% drawdown -> Eligible to withdraw 75%
         3% drawdown -> Eligible to withdraw 85%
         """
-        balance = self.collateral_manager.balance_of(miner_hotkey)
-        theta_balance = self.rao_to_theta(balance)
+        balance = self.get_miner_collateral_balance(miner_hotkey)
 
         drawdown = 0.95   #TODO
         drawdown_proportion = (drawdown - ValiConfig.MAX_TOTAL_DRAWDOWN) / (1 - ValiConfig.MAX_TOTAL_DRAWDOWN)
         eligible_proportion = ValiConfig.BASE_COLLATERAL_RETURNED + (1 - ValiConfig.BASE_COLLATERAL_RETURNED) * drawdown_proportion
-        eligible_for_withdrawal = theta_balance * eligible_proportion
+        eligible_for_withdrawal = balance * eligible_proportion
         return eligible_for_withdrawal
+
+    def compute_slash_amount(self, miner_hotkey: str) -> float:
+        """
+        Compute the amount of collateral balance to slash, depending on current drawdown.
+
+        The amount slashed is 50% of the drawdown, scaled to the total collateral balance.
+        For ex:
+        10% drawdown (elimination) -> Slash 50%
+        5% drawdown -> Slash 25%
+        3% drawdown -> Slash 15%
+
+        Args:
+            miner_hotkey: miner hotkey to slash from
+
+        Returns:
+            float: amount to slash
+        """
+        filtered_ledgers = self.position_manager.perf_ledger_manager.filtered_ledger_for_scoring(portfolio_only=True, hotkeys=[miner_hotkey])
+        miner_ledger = filtered_ledgers.get(miner_hotkey)
+
+        try:
+            # Get the portfolio ledger for the miner
+            filtered_ledger = self.position_manager.perf_ledger_manager.filtered_ledger_for_scoring(
+                portfolio_only=True,
+                hotkeys=[miner_hotkey]
+            )
+
+            ledger = filtered_ledger.get(miner_hotkey)
+            if not ledger or len(ledger.cps) == 0:
+                bt.logging.warning(f"No ledger data found for {miner_hotkey}")
+                return 0.0
+
+            # Get current drawdown percentage
+            max_drawdown = LedgerUtils.instantaneous_max_drawdown(ledger)
+
+            # Get current balance
+            current_balance_theta = self.get_miner_collateral_balance(miner_hotkey)
+            if current_balance_theta is None or current_balance_theta <= 0:
+                bt.logging.warning(f"No collateral balance for {miner_hotkey}")
+                return 0.0
+
+            # Calculate slash amount (50% of drawdown percentage)
+            drawdown_proportion = 1 - ((max_drawdown - ValiConfig.MAX_TOTAL_DRAWDOWN) / (1 - ValiConfig.MAX_TOTAL_DRAWDOWN))  # scales x% drawdown to 100% of collateral
+            slash_proportion = drawdown_proportion * ValiConfig.SLASH_PROPORTION
+            slash_amount = current_balance_theta * slash_proportion
+
+            bt.logging.info(f"Computed slashing for {miner_hotkey}: "
+                            f"Drawdown: {max_drawdown:.2f}, "
+                            f"Slash: {slash_proportion:.2f} = {slash_amount:.2f} Theta")
+
+            return slash_amount
+
+        except Exception as e:
+            bt.logging.error(f"Failed to compute slash amount for {miner_hotkey}: {e}")
+            return 0.0
+
+    def slash_miner_collateral(self, miner_hotkey: str, slash_amount=None) -> bool:
+        """
+        Slash miner's collateral
+
+        Args:
+            miner_hotkey: miner hotkey to slash from
+        """
+        current_balance_theta = self.get_miner_collateral_balance(miner_hotkey)
+        if current_balance_theta is None or current_balance_theta <= 0:
+            return False
+
+        if slash_amount is None:
+            slash_amount = self.compute_slash_amount(miner_hotkey)
+
+        # Ensure we don't slash more than the current balance
+        slash_amount = min(slash_amount, current_balance_theta)
+        if slash_amount <= 0:
+            bt.logging.info(f"No slashing required for {miner_hotkey} (calculated amount: {slash_amount})")
+            return True
+
+        # Call collateral SDK slash method
+        try:
+            bt.logging.info(f"Processing slash of {slash_amount} Theta from {miner_hotkey}")
+            self.collateral_manager.slash(
+                address=miner_hotkey,
+                amount=int(slash_amount * 10 ** 9),
+                owner_address=self.owner_address,
+                owner_private_key=self.owner_private_key,
+            )
+            bt.logging.info(f"Successfully slashed {slash_amount} Theta from {miner_hotkey}")
+            return True
+
+        except Exception as e:
+            bt.logging.error(f"Failed to execute slashing for {miner_hotkey}: {e}")
+            return False
     
     def get_miner_collateral_balance(self, miner_address: str) -> Optional[float]:
         """
