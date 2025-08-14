@@ -41,8 +41,8 @@ if __name__ == "__main__":
         'trade_pair': TradePair.FTSE,
         'order_type': OrderType.LONG,
         'leverage': .05,
-        'execution_type': "MARKET",
-        # 'execution_type': "LIMIT",
+        # 'execution_type': ExecutionType.MARKET,
+        # 'execution_type': ExecutionType.LIMIT_CANCEL,
         # 'limit_price': 0.1,
         # 'cancel_order_uuid': "order-uuid",
         'api_key': 'xxxx'

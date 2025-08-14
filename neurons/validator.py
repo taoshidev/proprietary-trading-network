@@ -397,7 +397,8 @@ class Validator:
                 rest_host=self.config.api_host,
                 rest_port=self.config.api_rest_port,
                 position_manager=self.position_manager,
-                contract_manager=self.contract_manager
+                contract_manager=self.contract_manager,
+                limit_order_manager=self.limit_order_manager
             )
 
             # Start the API Manager in a separate process
