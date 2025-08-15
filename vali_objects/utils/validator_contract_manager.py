@@ -86,6 +86,19 @@ class ValidatorContractManager:
         else:
             return ValiConfig.MAX_COLLATERAL_BALANCE_THETA.value()
 
+    @property
+    def min_theta(self) -> float:
+        """
+        Get the current maximum collateral balance limit in theta tokens.
+
+        Returns:
+            float: Maximum balance limit based on network type and current date
+        """
+        if self.is_testnet:
+            return ValiConfig.MIN_COLLATERAL_BALANCE_TESTNET
+        else:
+            return ValiConfig.MIN_COLLATERAL_BALANCE_THETA
+
     def load_contract_owner_credentials(self):
         """
         Load EVM contract owner credentials from secrets.json file.
@@ -441,7 +454,10 @@ class ValidatorContractManager:
         """
         balance = self.get_miner_collateral_balance(miner_hotkey)
 
-        drawdown = 0.95   #TODO
+        filtered_ledgers = self.position_manager.perf_ledger_manager.filtered_ledger_for_scoring(portfolio_only=True, hotkeys=[miner_hotkey])
+        miner_ledger = filtered_ledgers.get(miner_hotkey)
+        drawdown = LedgerUtils.instantaneous_max_drawdown(miner_ledger)
+
         drawdown_proportion = (drawdown - ValiConfig.MAX_TOTAL_DRAWDOWN) / (1 - ValiConfig.MAX_TOTAL_DRAWDOWN)
         eligible_proportion = ValiConfig.BASE_COLLATERAL_RETURNED + (1 - ValiConfig.BASE_COLLATERAL_RETURNED) * drawdown_proportion
         eligible_for_withdrawal = balance * eligible_proportion

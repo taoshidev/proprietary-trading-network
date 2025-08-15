@@ -467,7 +467,7 @@ class MinerStatisticsManager:
                 raw_pnl_values.append((hotkey, 0.0))
 
             # Fetch most recent account size even if it isn't valid yet for scoring
-            account_size = self.contract_manager.get_miner_account_size(hotkey, now_ms, most_recent=True)
+            account_size = max(ValiConfig.CAPITAL_FLOOR, self.contract_manager.get_miner_account_size(hotkey, now_ms, most_recent=True))
             if account_size is None:
                 account_size = ValiConfig.CAPITAL
             account_sizes.append((hotkey, account_size))

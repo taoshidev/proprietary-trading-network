@@ -179,6 +179,8 @@ class ValiConfig:
     EQUITIES_MIN_LEVERAGE = 0.1
     EQUITIES_MAX_LEVERAGE = 3
 
+    # Account Size
+    CAPITAL_FLOOR = 5_000
     CAPITAL = 250_000  # conversion of 1x leverage to $250K in capital
 
     MAX_DAILY_DRAWDOWN = 0.95  # Portfolio should never fall below .95 x of initial value when measured day to day
@@ -294,8 +296,8 @@ class ValiConfig:
     PORTFOLIO_LEVERAGE_CAP = 10
 
     # Collateral limits
-    MIN_COLLATERAL_BALANCE_THETA = 285  # Required minimum total collateral balance per miner in Theta. Approx 50k capital account size
-    MAX_COLLATERAL_BALANCE_THETA = InterpolatedValueFromDate("2025-08-18", low=1429, increment=1000, interval=7, target=14286)  # Begins at 1429, and increases by 1000 every 7 days until limit 14286 is reached.
+    MIN_COLLATERAL_BALANCE_THETA = 50  # Required minimum total collateral balance per miner in Theta. Approx $8750 capital account size
+    MAX_COLLATERAL_BALANCE_THETA = InterpolatedValueFromDate("2025-08-16", low=60, increment=50, interval=1, target=300)  # Begins at 60, and increases by 50 every day until limit 300 is reached.
     MIN_COLLATERAL_BALANCE_TESTNET = 0
     MAX_COLLATERAL_BALANCE_TESTNET = 10000.0
 
