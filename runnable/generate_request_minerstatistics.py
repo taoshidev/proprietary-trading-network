@@ -11,7 +11,6 @@ from shared_objects.mock_metagraph import MockMetagraph
 from time_util.time_util import TimeUtil
 from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
 from vali_objects.utils.elimination_manager import EliminationManager
-from vali_objects.utils.plagiarism_detector import PlagiarismDetector
 from vali_objects.utils.position_manager import PositionManager
 from vali_objects.vali_config import ValiConfig, TradePair
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
@@ -138,15 +137,13 @@ class MinerStatisticsManager:
     def __init__(
         self,
         position_manager: PositionManager,
-        subtensor_weight_setter: SubtensorWeightSetter,
-        plagiarism_detector: PlagiarismDetector
+        subtensor_weight_setter: SubtensorWeightSetter
     ):
         self.position_manager = position_manager
         self.perf_ledger_manager = position_manager.perf_ledger_manager
         self.elimination_manager = position_manager.elimination_manager
         self.challengeperiod_manager = position_manager.challengeperiod_manager
         self.subtensor_weight_setter = subtensor_weight_setter
-        self.plagiarism_detector = plagiarism_detector
 
         self.metrics_calculator = MetricsCalculator()
 
@@ -553,8 +550,6 @@ class MinerStatisticsManager:
         weights_rank = self.rank_dictionary(combined_weights_list)
         weights_percentile = self.percentile_rank_dictionary(combined_weights_list)
 
-        # Load plagiarism once
-        plagiarism_scores = self.plagiarism_detector.get_plagiarism_scores_from_disk()
 
         # Prepare data for each miner
         miner_data = {}
@@ -645,8 +640,6 @@ class MinerStatisticsManager:
                 "minimum_days_boolean": extra.get("minimum_days_boolean"),
                 "percentage_profitable": extra.get("positions_info", {}).get("percentage_profitable"),
             }
-            # Plagiarism
-            plagiarism_val = plagiarism_scores.get(hotkey)
 
             # Weight
             w_val = weights_dict.get(hotkey)
@@ -674,7 +667,6 @@ class MinerStatisticsManager:
                 "daily_returns": daily_returns_list,
                 "volatility": volatility_subdict,
                 "drawdowns": drawdowns_subdict,
-                "plagiarism": plagiarism_val,
                 "engagement": engagement_subdict,
                 "risk_profile": risk_profile_single_dict,
                 "asset_subcategory_performance": asset_subcategory_performance,
@@ -786,9 +778,8 @@ if __name__ == "__main__":
         running_unit_tests=False,
         position_manager=position_manager,
     )
-    plagiarism_detector = PlagiarismDetector(metagraph, None, position_manager=position_manager)
 
-    msm = MinerStatisticsManager(position_manager, subtensor_weight_setter, plagiarism_detector)
+    msm = MinerStatisticsManager(position_manager, subtensor_weight_setter)
     pwd = os.getcwd()
     custom_output_path = os.path.join(pwd, 'debug_miner_statistics.json')
     msm.generate_request_minerstatistics(TimeUtil.now_in_millis(), True, custom_output_path=custom_output_path)

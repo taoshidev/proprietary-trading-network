@@ -7,7 +7,6 @@ from shared_objects.cache_controller import CacheController
 from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
 from vali_objects.utils.live_price_fetcher import LivePriceFetcher
 from vali_objects.utils.mdd_checker import MDDChecker
-from vali_objects.utils.plagiarism_detector import PlagiarismDetector
 from vali_objects.utils.position_manager import PositionManager
 from vali_objects.utils.price_slippage_model import PriceSlippageModel
 from vali_objects.vali_config import TradePair
@@ -39,15 +38,6 @@ class MockPositionManager(PositionManager):
 class MockPerfLedgerManager(PerfLedgerManager):
     def __init__(self, metagraph):
         super().__init__(metagraph, running_unit_tests=True)
-
-
-class MockPlagiarismDetector(PlagiarismDetector):
-    def __init__(self, metagraph, position_manager):
-        super().__init__(metagraph, running_unit_tests=True, position_manager=position_manager)
-
-    # Lets us bypass the wait period in PlagiarismDetector
-    def get_last_update_time_ms(self):
-        return 0
 
 
 class MockChallengePeriodManager(ChallengePeriodManager):
