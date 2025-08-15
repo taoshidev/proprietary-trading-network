@@ -299,12 +299,12 @@ class ValidatorContractManager:
                         "error_message": e
                     }
 
-                # All positions must be closed before a miner can deposit or withdraw
-                if len(self.position_manager.get_positions_for_one_hotkey(miner_hotkey, only_open_positions=True)) > 0:
-                    return {
-                        "successfully_processed": False,
-                        "error_message": "Miner has open positions, please close all positions before depositing or withdrawing collateral"
-                    }
+                # # All positions must be closed before a miner can deposit or withdraw
+                # if len(self.position_manager.get_positions_for_one_hotkey(miner_hotkey, only_open_positions=True)) > 0:
+                #     return {
+                #         "successfully_processed": False,
+                #         "error_message": "Miner has open positions, please close all positions before depositing or withdrawing collateral"
+                #     }
 
                 bt.logging.info(f"Processing deposit for: {deposit_amount_theta} Theta to miner: {miner_hotkey}")
                 deposited_balance = self.collateral_manager.deposit(
@@ -381,23 +381,23 @@ class ValidatorContractManager:
             
             # Execute the withdrawal through the collateral manager
             try:
-                eligible_for_withdrawal = self.eligible_for_withdrawal(miner_hotkey)
-                if amount > eligible_for_withdrawal:
-                    error_msg = f"Withdrawal request exceeds eligible amount based on drawdown. Available: {eligible_for_withdrawal}, Requested: {amount}"
-                    bt.logging.error(error_msg)
-                    return {
-                        "successfully_processed": False,
-                        "error_message": error_msg,
-                        "returned_amount": 0.0,
-                        "returned_to": ""
-                    }
-
-                # All positions must be closed before a miner can deposit or withdraw
-                if len(self.position_manager.get_positions_for_one_hotkey(miner_hotkey, only_open_positions=True)) > 0:
-                    return {
-                        "successfully_processed": False,
-                        "error_message": "Miner has open positions, please close all positions before depositing or withdrawing collateral"
-                    }
+                # eligible_for_withdrawal = self.eligible_for_withdrawal(miner_hotkey)
+                # if amount > eligible_for_withdrawal:
+                #     error_msg = f"Withdrawal request exceeds eligible amount based on drawdown. Available: {eligible_for_withdrawal}, Requested: {amount}"
+                #     bt.logging.error(error_msg)
+                #     return {
+                #         "successfully_processed": False,
+                #         "error_message": error_msg,
+                #         "returned_amount": 0.0,
+                #         "returned_to": ""
+                #     }
+                #
+                # # All positions must be closed before a miner can deposit or withdraw
+                # if len(self.position_manager.get_positions_for_one_hotkey(miner_hotkey, only_open_positions=True)) > 0:
+                #     return {
+                #         "successfully_processed": False,
+                #         "error_message": "Miner has open positions, please close all positions before depositing or withdrawing collateral"
+                #     }
 
                 bt.logging.info(f"Processing withdrawal request from {miner_hotkey} for {amount} Theta")
                 withdrawn_balance = self.collateral_manager.withdraw(
