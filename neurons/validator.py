@@ -672,9 +672,11 @@ class Validator:
                 open_position = None
             else:
                 # Get relevant account size
-                account_size = max(ValiConfig.CAPITAL_FLOOR, self.contract_manager.get_miner_account_size(hotkey=miner_hotkey, timestamp_ms=order_time_ms))
+                account_size = self.contract_manager.get_miner_account_size(hotkey=miner_hotkey, timestamp_ms=order_time_ms)
                 if account_size is None:
                     account_size = ValiConfig.CAPITAL
+                else:
+                    account_size = max(account_size, ValiConfig.CAPITAL_FLOOR)
 
                 # if a position doesn't exist, then make a new one
                 open_position = Position(

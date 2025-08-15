@@ -394,10 +394,12 @@ class PerfLedger():
             account_size = ValiConfig.CAPITAL
             #bt.logging.info(f"Contract manager is not initialized, using default account sizes")
         else:
-            account_size = max(ValiConfig.CAPITAL_FLOOR, contract_manager.get_miner_account_size(miner_hotkey, now_ms))
+            account_size = contract_manager.get_miner_account_size(miner_hotkey, now_ms)
         if account_size is None:
             #bt.logging.info(f"Miner doesn't have valid account size, hotkey: {miner_hotkey}, using default account size: {account_size}")
             account_size = ValiConfig.CAPITAL
+        else:
+            account_size = max(account_size, ValiConfig.CAPITAL_FLOOR)
 
         if delta_return > 0:
             current_cp.gain += delta_return
