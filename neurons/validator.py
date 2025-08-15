@@ -55,7 +55,6 @@ from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.utils.vali_utils import ValiUtils
 from vali_objects.vali_config import ValiConfig
 
-from vali_objects.utils.plagiarism_detector import PlagiarismDetector
 from vali_objects.utils.validator_contract_manager import ValidatorContractManager
 
 # Global flag used to indicate shutdown
@@ -346,11 +345,6 @@ class Validator:
         # Eliminations are written in elimination_manager, mdd_checker
         # Since the mainloop is run synchronously, we just need to lock eliminations when writing to them and when
         # reading outside of the mainloop (validator).
-        self.plagiarism_detector = PlagiarismDetector(self.metagraph, shutdown_dict=shutdown_dict,
-                                                      position_manager=self.position_manager)
-        # Start the plagiarism detector in its own thread
-        self.plagiarism_thread = Process(target=self.plagiarism_detector.run_update_loop, daemon=True)
-        self.plagiarism_thread.start()
 
         self.mdd_checker = MDDChecker(self.metagraph, self.position_manager, live_price_fetcher=self.live_price_fetcher,
                                       shutdown_dict=shutdown_dict, compaction_enabled=True)
@@ -363,8 +357,8 @@ class Validator:
             weight_request_queue=weight_request_queue  # Same queue as MetagraphUpdater
         )
 
-        self.request_core_manager = RequestCoreManager(self.position_manager, self.weight_setter, self.plagiarism_detector, self.contract_manager)
-        self.miner_statistics_manager = MinerStatisticsManager(self.position_manager, self.weight_setter, self.plagiarism_detector)
+        self.request_core_manager = RequestCoreManager(self.position_manager, self.weight_setter, self.contract_manager)
+        self.miner_statistics_manager = MinerStatisticsManager(self.position_manager, self.weight_setter)
 
         # Start the perf ledger updater loop in its own process. Make sure it happens after the position manager has chances to make any fixes
         self.perf_ledger_updater_thread = Process(target=self.perf_ledger_manager.run_update_loop, daemon=True)
@@ -559,8 +553,6 @@ class Validator:
         if hasattr(self, 'weight_processing_thread'):
             bt.logging.warning("Stopping weight processing thread...")
             self.weight_processing_thread.join()
-        bt.logging.warning("Stopping plagiarism detector...")
-        self.plagiarism_thread.join()
         if self.rog_thread:
             bt.logging.warning("Stopping request output generator...")
             self.rog_thread.join()

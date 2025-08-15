@@ -13,7 +13,6 @@ from shared_objects.mock_metagraph import MockMetagraph
 from time_util.time_util import TimeUtil
 from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
 from vali_objects.utils.elimination_manager import EliminationManager
-from vali_objects.utils.plagiarism_detector import PlagiarismDetector
 from vali_objects.utils.position_manager import PositionManager
 from vali_objects.utils.validator_contract_manager import ValidatorContractManager
 from vali_objects.vali_config import ValiConfig, TradePair
@@ -154,7 +153,6 @@ class MinerStatisticsManager:
         self,
         position_manager: PositionManager,
         subtensor_weight_setter: SubtensorWeightSetter,
-        plagiarism_detector: PlagiarismDetector,
         metrics: Dict[str, MetricsCalculator] = None
     ):
         self.position_manager = position_manager
@@ -162,7 +160,6 @@ class MinerStatisticsManager:
         self.elimination_manager = position_manager.elimination_manager
         self.challengeperiod_manager = position_manager.challengeperiod_manager
         self.subtensor_weight_setter = subtensor_weight_setter
-        self.plagiarism_detector = plagiarism_detector
         self.contract_manager = self.perf_ledger_manager.contract_manager
 
         self.metrics_calculator = MetricsCalculator(metrics=metrics)
@@ -456,7 +453,7 @@ class MinerStatisticsManager:
 
         raw_pnl_values = []
         account_sizes = []
-        
+
         # Calculate raw PnL for each miner
         for hotkey, ledgers in filtered_ledger.items():
             portfolio_ledger = ledgers.get(TP_ID_PORTFOLIO)
@@ -473,7 +470,7 @@ class MinerStatisticsManager:
             else:
                 account_size = max(account_size, ValiConfig.CAPITAL_FLOOR)
             account_sizes.append((hotkey, account_size))
-        
+
         # Calculate rankings and percentiles
         ranks = self.rank_dictionary(raw_pnl_values)
         percentiles = self.percentile_rank_dictionary(raw_pnl_values)
@@ -482,7 +479,7 @@ class MinerStatisticsManager:
         account_size_ranks = self.rank_dictionary(account_sizes)
         account_size_percentiles = self.percentile_rank_dictionary(account_sizes)
         account_sizes_dict = dict(account_sizes)
-        
+
         # Build result dictionary
         result = {}
         for hotkey in values_dict:
@@ -498,7 +495,7 @@ class MinerStatisticsManager:
                     "percentile": percentiles[hotkey]
                 }
             }
-        
+
         return result
 
     # -------------------------------------------
@@ -642,8 +639,6 @@ class MinerStatisticsManager:
         weights_rank = self.rank_dictionary(combined_weights_list)
         weights_percentile = self.percentile_rank_dictionary(combined_weights_list)
 
-        # Load plagiarism once
-        plagiarism_scores = self.plagiarism_detector.get_plagiarism_scores_from_disk()
 
         # Prepare data for each miner
         miner_data = {}
@@ -739,8 +734,6 @@ class MinerStatisticsManager:
             }
             # Raw PnL
             raw_pnl_info = raw_pnl_dict.get(hotkey, {"value": 0.0, "rank": None, "percentile": 0.0})
-            # Plagiarism
-            plagiarism_val = plagiarism_scores.get(hotkey)
 
             # Weight
             w_val = weights_dict.get(hotkey)
@@ -768,7 +761,6 @@ class MinerStatisticsManager:
                 "daily_returns": daily_returns_list,
                 "volatility": volatility_subdict,
                 "drawdowns": drawdowns_subdict,
-                "plagiarism": plagiarism_val,
                 "engagement": engagement_subdict,
                 "risk_profile": risk_profile_single_dict,
                 "asset_subcategory_performance": asset_subcategory_performance,
@@ -884,9 +876,8 @@ if __name__ == "__main__":
         running_unit_tests=False,
         position_manager=position_manager,
     )
-    plagiarism_detector = PlagiarismDetector(metagraph, None, position_manager=position_manager)
 
-    msm = MinerStatisticsManager(position_manager, subtensor_weight_setter, plagiarism_detector)
+    msm = MinerStatisticsManager(position_manager, subtensor_weight_setter)
     pwd = os.getcwd()
     custom_output_path = os.path.join(pwd, 'debug_miner_statistics.json')
     msm.generate_request_minerstatistics(TimeUtil.now_in_millis(), True, custom_output_path=custom_output_path)
