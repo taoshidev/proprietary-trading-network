@@ -246,8 +246,13 @@ class LimitOrderManager(CacheController):
         self._write_to_disk(miner_hotkey, order)
         os.remove(closed_filename)
 
-        # update for ipc manager?
-        self.limit_orders[miner_hotkey] = list(self.limit_orders[miner_hotkey])
+        # Update the shared dict the same way as save_limit_order
+        orders = list(self.limit_orders.get(miner_hotkey, []))
+        for i, o in enumerate(orders):
+            if o.order_uuid == order_uuid:
+                orders[i] = order
+                break
+        self.limit_orders[miner_hotkey] = orders
 
         bt.logging.info(f"Successfully closed limit order [{order_uuid}] [{trade_pair_id}] for [{miner_hotkey}]")
 
