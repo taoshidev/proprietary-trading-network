@@ -59,15 +59,19 @@ To achieve maximum reward as a miner, you will need to be competitive in all ass
 
 ## Scoring Details
 
-PTN relies on a number of scoring metrics to build a comprehensive measure of _PnL_ and _Risk-Adjusted Returns_. In practice, these metrics are often highly correlated, but each offers a unique lens through which to see the miners.
+*Average Daily PnL* has more weight than any other individual metric and incentivizes miners to maintain high returns while increasing account sizes. 
 
-While returns is a significant scoring mechanic, we also use penalties to prioritize different aspects of trading, such as the risk undertaken by the miners or their likelihood to engage in risky strategies.
+*Risk-Adjusted Returns* is a heavily weighted scoring mechanism in our system. We calculate this metric using a combination of average daily returns and a drawdown term, assessed over different lookback periods. This approach allows us to measure each miner’s returns while factoring in the level of risk undertaken to achieve those returns. 
 
-We calculate daily returns for all positions and the entire portfolio, spanning from 12:00 AM UTC to 12:00 AM UTC the following day. However, if a trading day is still ongoing, we still monitor real-time performance and risks.
+While PnL and risk-adjusted returns are significant scoring mechanics, consistency and statistical confidence each play a substantial role in scoring our miners as we look to prioritize miners with a consistent track record of success. Additionally, we have a layer of costs and penalties baked into PTN, to simulate the real costs of trading.
+
+We calculate daily returns for all positions and the entire portfolio, spanning from 12:00 AM UTC to 12:00 AM UTC the following day. However, if a trading day is still ongoing, we still monitor real-time performance and risks. 
 
 This daily calculation and evaluation framework closely aligns with real-world financial practices, enabling accurate, consistent, and meaningful performance measurement and comparison across strategies. This remains effective even for strategies trading different asset classes at different trading frequencies. This approach can also enhance the precision of volatility measurement for strategies.
 
-Annualization is used for the Sharpe ratio, Sortino ratio, and risk adjusted return with either volatility or returns being annualized to better evaluate the long-term value of strategies and standardize our metrics. In determining the correct annualization factor, we weigh more recent trading days slightly higher than older trading days. This should encourage miners to regularly update their strategies and adapt to changing market conditions, continually providing the network with the most relevant signals. The most recent 10 days account for 25% of the total score, the most recent 30 days account for 50%, and the most recent 70 days account for 75%, with a pattern that tapers exponentially over time.
+Annualization is used for the Sharpe ratio, Sortino ratio, and risk adjusted return with either volatility or returns being annualized to better evaluate the long-term value of strategies and standardize our metrics. Volatility is the standard deviation of returns and is a key factor in the Sharpe and Sortino calculations.
+
+In determining the correct annualization factor, we weigh more recent trading days slightly higher than older trading days. This should encourage miners to regularly update their strategies and adapt to changing market conditions, continually providing the network with the most relevant signals. The most recent 10 days account for 25% of the total score, the most recent 30 days account for 50%, and the most recent 70 days account for 75%, with a pattern that tapers exponentially over time.
 
 Additionally, normalization with annual risk-free rate of T-bills further standardizes our metrics and allows us to measure miner performance on a more consistent basis.
 
