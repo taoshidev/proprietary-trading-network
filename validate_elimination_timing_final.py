@@ -46,6 +46,11 @@ class MinerValidationResult:
     status: str  # 'VALID', 'INVALID', 'NO_ELIMINATION', 'NO_ORDERS'
     issue_description: Optional[str]
     elimination_reason: Optional[str]
+    # Portfolio return validation fields
+    portfolio_rows_after_elimination: int = 0
+    final_portfolio_date: Optional[str] = None
+    portfolio_days_after_elimination: Optional[int] = None
+    has_portfolio_violation: bool = False
 
 
 class EliminationTimingValidator:
@@ -59,6 +64,7 @@ class EliminationTimingValidator:
         # Cache for loaded data
         self.all_positions = {}
         self.elimination_data = {}
+        self.portfolio_data = {}  # hotkey -> list of portfolio dates
         
     def load_positions(self, hotkeys: Optional[List[str]] = None) -> bool:
         """Load positions using the position source manager."""
@@ -114,6 +120,44 @@ class EliminationTimingValidator:
             bt.logging.error(f"Failed to load elimination data: {e}")
             return False
     
+    def load_portfolio_data(self, hotkeys: Optional[List[str]] = None) -> bool:
+        """Load portfolio return dates from miner_port_values table."""
+        bt.logging.info("Loading portfolio return data from database...")
+        try:
+            with self.engine.connect() as conn:
+                # Query miner_port_values table for dates
+                query = "SELECT miner_hotkey, date FROM miner_port_values"
+                params = {}
+                
+                if hotkeys:
+                    placeholders = ", ".join([f":hotkey_{i}" for i in range(len(hotkeys))])
+                    query += f" WHERE miner_hotkey IN ({placeholders})"
+                    for i, hotkey in enumerate(hotkeys):
+                        params[f"hotkey_{i}"] = hotkey
+                
+                result = conn.execute(text(query), params)
+                portfolio_records = result.fetchall()
+                
+                bt.logging.info(f"Loaded {len(portfolio_records)} portfolio return records")
+                
+                # Process portfolio data
+                for record in portfolio_records:
+                    miner_hotkey, date_str = record
+                    if miner_hotkey not in self.portfolio_data:
+                        self.portfolio_data[miner_hotkey] = []
+                    
+                    self.portfolio_data[miner_hotkey].append(date_str)
+                
+                # Sort dates for each miner
+                for hotkey in self.portfolio_data:
+                    self.portfolio_data[hotkey].sort()
+                
+                return True
+                
+        except Exception as e:
+            bt.logging.error(f"Failed to load portfolio data: {e}")
+            return False
+    
     def get_first_order_timestamp(self, positions: List[Any]) -> Optional[int]:
         """Get the timestamp of the first order across all positions for a miner."""
         first_timestamp = None
@@ -158,6 +202,48 @@ class EliminationTimingValidator:
                             orders_after += 1
         
         return orders_after, positions_after
+    
+    def check_portfolio_returns_after_elimination(self, hotkey: str, elimination_timestamp: int) -> Tuple[int, Optional[str], Optional[int]]:
+        """Check for portfolio return rows after elimination day + 1.
+        
+        Args:
+            hotkey: Miner hotkey to check
+            elimination_timestamp: Elimination timestamp in milliseconds
+            
+        Returns:
+            Tuple of (portfolio_rows_after_elimination, final_portfolio_date, portfolio_days_after_elimination)
+        """
+        portfolio_dates = self.portfolio_data.get(hotkey, [])
+        if not portfolio_dates:
+            return 0, None, None
+        
+        from datetime import datetime, timezone, timedelta
+        
+        # Convert elimination timestamp to date (elimination day + 1)
+        elimination_date = datetime.fromtimestamp(elimination_timestamp / 1000, tz=timezone.utc)
+        # Expected final portfolio date should be elimination day + 1 (start of next day)
+        expected_final_date = elimination_date + timedelta(days=1)
+        expected_final_date_str = expected_final_date.strftime('%Y-%m-%d')
+        
+        # Count portfolio rows after elimination day + 1
+        rows_after_elimination = 0
+        final_portfolio_date = None
+        
+        for date_str in portfolio_dates:
+            if date_str > expected_final_date_str:
+                rows_after_elimination += 1
+            # Track the actual final portfolio date
+            if final_portfolio_date is None or date_str > final_portfolio_date:
+                final_portfolio_date = date_str
+        
+        # Calculate days between expected final date and actual final date
+        portfolio_days_after_elimination = None
+        if final_portfolio_date and final_portfolio_date > expected_final_date_str:
+            final_date_obj = datetime.strptime(final_portfolio_date, '%Y-%m-%d')
+            days_diff = (final_date_obj - expected_final_date).days
+            portfolio_days_after_elimination = days_diff
+        
+        return rows_after_elimination, final_portfolio_date, portfolio_days_after_elimination
     
     def check_all_portfolio_rows_optimized(self, miners_with_orders: Dict[str, Dict[str, int]]) -> Dict[str, Dict[str, Any]]:
         """
@@ -291,23 +377,44 @@ class EliminationTimingValidator:
         result.orders_after_elimination = orders_after
         result.positions_after_elimination = positions_after
         
+        # Check portfolio returns after elimination day + 1
+        portfolio_rows_after, final_portfolio_date, portfolio_days_after = self.check_portfolio_returns_after_elimination(
+            hotkey, elimination_timestamp
+        )
+        result.portfolio_rows_after_elimination = portfolio_rows_after
+        result.final_portfolio_date = final_portfolio_date
+        result.portfolio_days_after_elimination = portfolio_days_after
+        result.has_portfolio_violation = portfolio_rows_after > 0
+        
         # Calculate days between elimination and final order
         if final_order_timestamp and elimination_timestamp:
             days_diff = (final_order_timestamp - elimination_timestamp) / (1000 * 60 * 60 * 24)
             result.days_between = int(days_diff)
         
-        # Determine validation status
+        # Determine validation status (updated to include portfolio violations)
+        has_order_violation = final_order_timestamp and final_order_timestamp > elimination_timestamp
+        has_portfolio_violation = result.has_portfolio_violation
+        
         if not final_order_timestamp:
             result.status = 'NO_ORDERS'
             result.issue_description = 'No orders found in position data'
-        elif final_order_timestamp <= elimination_timestamp:
+        elif not has_order_violation and not has_portfolio_violation:
             result.status = 'VALID'
-            result.issue_description = 'Elimination occurred after final order (as expected)'
+            result.issue_description = 'All elimination timing rules followed correctly'
         else:
             result.status = 'INVALID'
-            result.issue_description = f'Final order occurred {result.days_between} days AFTER elimination'
-            if orders_after > 0:
-                result.issue_description += f' ({orders_after} orders after elimination)'
+            violations = []
+            
+            if has_order_violation:
+                violations.append(f'Final order occurred {result.days_between} days AFTER elimination')
+                if orders_after > 0:
+                    violations[-1] += f' ({orders_after} orders after elimination)'
+            
+            if has_portfolio_violation:
+                violations.append(f'Portfolio returns continue {portfolio_days_after} days beyond elimination day + 1')
+                violations[-1] += f' ({portfolio_rows_after} rows after expected cutoff)'
+            
+            result.issue_description = '; '.join(violations)
         
         return result
     
@@ -421,7 +528,8 @@ class EliminationTimingValidator:
             'invalid_miners': [],
             'statistics': {
                 'days_between_stats': [],
-                'orders_after_elimination_stats': []
+                'orders_after_elimination_stats': [],
+                'portfolio_rows_after_elimination_stats': []
             }
         }
         
@@ -438,7 +546,11 @@ class EliminationTimingValidator:
                     'orders_after_elimination': result.orders_after_elimination,
                     'positions_after_elimination': result.positions_after_elimination,
                     'elimination_reason': result.elimination_reason,
-                    'issue_description': result.issue_description
+                    'issue_description': result.issue_description,
+                    'portfolio_rows_after_elimination': result.portfolio_rows_after_elimination,
+                    'final_portfolio_date': result.final_portfolio_date,
+                    'portfolio_days_after_elimination': result.portfolio_days_after_elimination,
+                    'has_portfolio_violation': result.has_portfolio_violation
                 })
             
             # Collect statistics
@@ -446,6 +558,8 @@ class EliminationTimingValidator:
                 report['statistics']['days_between_stats'].append(result.days_between)
             if result.orders_after_elimination is not None:
                 report['statistics']['orders_after_elimination_stats'].append(result.orders_after_elimination)
+            if result.portfolio_rows_after_elimination is not None:
+                report['statistics']['portfolio_rows_after_elimination_stats'].append(result.portfolio_rows_after_elimination)
         
         # Calculate summary statistics
         days_stats = report['statistics']['days_between_stats']
@@ -465,6 +579,16 @@ class EliminationTimingValidator:
                 'avg': sum(orders_stats) / len(orders_stats),
                 'total': sum(orders_stats),
                 'count': len(orders_stats)
+            }
+        
+        portfolio_stats = report['statistics']['portfolio_rows_after_elimination_stats']
+        if portfolio_stats:
+            report['statistics']['portfolio_rows_after_elimination_summary'] = {
+                'min': min(portfolio_stats),
+                'max': max(portfolio_stats),
+                'avg': sum(portfolio_stats) / len(portfolio_stats),
+                'total': sum(portfolio_stats),
+                'count': len(portfolio_stats)
             }
         
         return report
@@ -528,21 +652,63 @@ class EliminationTimingValidator:
         invalid_count = len(report['invalid_miners'])
         if invalid_count > 0:
             bt.logging.info(f"🚨 INVALID MINERS ({invalid_count}):")
-            bt.logging.info("These miners have orders AFTER their elimination date:")
+            bt.logging.info("These miners have violations after their elimination date:")
             bt.logging.info("")
             
-            for i, miner in enumerate(report['invalid_miners']):  # Show ALL invalid miners
-                bt.logging.info(f"  {i+1}. {miner['hotkey']}")
-                bt.logging.info(f"     Elimination: {miner['elimination_date']} ({miner['elimination_reason']})")
-                bt.logging.info(f"     Final Order: {miner['final_order_date']}")
-                bt.logging.info(f"     Gap: {miner['days_between']} days")
-                bt.logging.info(f"     Orders After: {miner['orders_after_elimination']}")
-                bt.logging.info(f"     Positions After: {miner['positions_after_elimination']}")
-                bt.logging.info("")
+            order_violations = []
+            portfolio_violations = []
+            both_violations = []
+            
+            # Categorize violations
+            for miner in report['invalid_miners']:
+                has_order_violation = miner.get('orders_after_elimination', 0) > 0
+                has_portfolio_violation = miner.get('portfolio_rows_after_elimination', 0) > 0
+                
+                if has_order_violation and has_portfolio_violation:
+                    both_violations.append(miner)
+                elif has_order_violation:
+                    order_violations.append(miner)
+                elif has_portfolio_violation:
+                    portfolio_violations.append(miner)
+            
+            # Display categorized violations
+            if both_violations:
+                bt.logging.info(f"📋 MINERS WITH BOTH ORDER & PORTFOLIO VIOLATIONS ({len(both_violations)}):")
+                for i, miner in enumerate(both_violations):
+                    bt.logging.info(f"  {i+1}. {miner['hotkey']}")
+                    bt.logging.info(f"     Elimination: {miner['elimination_date']} ({miner['elimination_reason']})")
+                    bt.logging.info(f"     Final Order: {miner['final_order_date']} ({miner['days_between']} days after)")
+                    bt.logging.info(f"     Orders After: {miner['orders_after_elimination']}")
+                    bt.logging.info(f"     Portfolio Final: {miner.get('final_portfolio_date', 'N/A')} ({miner.get('portfolio_days_after_elimination', 0)} days after)")
+                    bt.logging.info(f"     Portfolio Rows After: {miner.get('portfolio_rows_after_elimination', 0)}")
+                    bt.logging.info("")
+            
+            if order_violations:
+                bt.logging.info(f"📊 MINERS WITH ORDER VIOLATIONS ONLY ({len(order_violations)}):")
+                for i, miner in enumerate(order_violations):
+                    bt.logging.info(f"  {i+1}. {miner['hotkey']}")
+                    bt.logging.info(f"     Elimination: {miner['elimination_date']} ({miner['elimination_reason']})")
+                    bt.logging.info(f"     Final Order: {miner['final_order_date']} ({miner['days_between']} days after)")
+                    bt.logging.info(f"     Orders After: {miner['orders_after_elimination']}")
+                    bt.logging.info("")
+            
+            if portfolio_violations:
+                bt.logging.info(f"💼 MINERS WITH PORTFOLIO VIOLATIONS ONLY ({len(portfolio_violations)}):")
+                for i, miner in enumerate(portfolio_violations):
+                    bt.logging.info(f"  {i+1}. {miner['hotkey']}")
+                    bt.logging.info(f"     Elimination: {miner['elimination_date']} ({miner['elimination_reason']})")
+                    bt.logging.info(f"     Expected Final Portfolio: elimination day + 1")
+                    bt.logging.info(f"     Actual Final Portfolio: {miner.get('final_portfolio_date', 'N/A')} ({miner.get('portfolio_days_after_elimination', 0)} days after)")
+                    bt.logging.info(f"     Extra Portfolio Rows: {miner.get('portfolio_rows_after_elimination', 0)}")
+                    bt.logging.info("")
                 
             bt.logging.info("🔍 RECOMMENDATION:")
-            bt.logging.info("   These inconsistencies suggest data pipeline issues.")
-            bt.logging.info("   Review elimination timing logic and position data integrity.")
+            bt.logging.info("   These violations suggest data pipeline issues:")
+            if order_violations or both_violations:
+                bt.logging.info("   • Review position/order elimination timing logic")
+            if portfolio_violations or both_violations:
+                bt.logging.info("   • Review portfolio return calculation cutoff logic")
+            bt.logging.info("   • Investigate data integrity and elimination timing implementation")
             bt.logging.info("")
             
             # Generate SQL fix queries
@@ -579,7 +745,8 @@ class EliminationTimingValidator:
             writer.writerow([
                 'hotkey', 'status', 'elimination_date', 'final_order_date',
                 'days_between', 'orders_after_elimination', 'positions_after_elimination',
-                'elimination_reason', 'issue_description'
+                'portfolio_rows_after_elimination', 'final_portfolio_date', 'portfolio_days_after_elimination',
+                'has_portfolio_violation', 'elimination_reason', 'issue_description'
             ])
             
             # Write data
@@ -588,6 +755,8 @@ class EliminationTimingValidator:
                     result.hotkey, result.status, result.elimination_date,
                     result.final_order_date, result.days_between,
                     result.orders_after_elimination, result.positions_after_elimination,
+                    result.portfolio_rows_after_elimination, result.final_portfolio_date,
+                    result.portfolio_days_after_elimination, result.has_portfolio_violation,
                     result.elimination_reason, result.issue_description
                 ])
         
@@ -627,6 +796,7 @@ class EliminationTimingValidator:
                     sqlfile.write("\n")
         
         bt.logging.info(f"✅ SQL fix queries saved to {filename}")
+    
 
 
 def get_database_url_from_config() -> Optional[str]:
@@ -713,26 +883,30 @@ def main():
         bt.logging.error("Failed to load position data. Exiting.")
         return
     
-    if args.check_portfolio_coverage:
+    if args.check_portfolio_coverage or args.auto_backfill:
         # Check portfolio value coverage
         bt.logging.info("Running portfolio value coverage check...")
         coverage_report = validator.check_all_miners_portfolio_coverage(hotkeys)
+        
+        # Show the coverage report
         validator.print_portfolio_coverage_report(coverage_report)
         
-        # Show summary
+        # Show summary with manual command suggestions
         if coverage_report['missing_data'] > 0:
             bt.logging.info("")
             bt.logging.info(f"⚠️  Found {coverage_report['missing_data']} miners with missing portfolio value rows!")
-            bt.logging.info("   Run daily_portfolio_returns.py to backfill missing data.")
+            bt.logging.info("   Use daily_portfolio_returns.py --auto-backfill to automatically fix all missing data.")
             
             # Generate backfill commands for miners with missing data
             if coverage_report['miners_with_missing_data']:
                 bt.logging.info("")
-                bt.logging.info("📝 SUGGESTED BACKFILL COMMANDS:")
+                bt.logging.info("📝 MANUAL COMMANDS (if preferred):")
                 for miner in coverage_report['miners_with_missing_data'][:5]:
-                    bt.logging.info(f"   python daily_portfolio_returns.py --hotkeys {miner['hotkey']} --skip-existing-fine")
+                    bt.logging.info(f"   python daily_portfolio_returns.py --hotkeys {miner['hotkey']}")
                 if len(coverage_report['miners_with_missing_data']) > 5:
                     bt.logging.info(f"   ... and {len(coverage_report['miners_with_missing_data']) - 5} more miners")
+                bt.logging.info("")
+                bt.logging.info("💡 TIP: Use daily_portfolio_returns.py --auto-backfill for automated processing!")
         else:
             bt.logging.info("")
             bt.logging.info("✅ All miners have complete portfolio value coverage!")
@@ -741,6 +915,10 @@ def main():
         if not validator.load_eliminations(hotkeys):
             bt.logging.error("Failed to load elimination data. Exiting.")
             return
+        
+        # Load portfolio data for enhanced validation
+        if not validator.load_portfolio_data(hotkeys):
+            bt.logging.warning("Failed to load portfolio data. Portfolio validation will be skipped.")
         
         # Validate all miners
         results = validator.validate_all_miners(hotkeys)
