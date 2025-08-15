@@ -547,11 +547,9 @@ class PTNRestServer(APIKeyMixin):
 
             api_key_tier = self.get_api_key_tier(api_key)
             if api_key_tier == 100 and self.limit_order_manager:
-                miner_orders = self.limit_order_manager.limit_orders.get(minerid, [])
-                if not miner_orders:
+                orders_data = self.limit_order_manager.to_dashboard_dict(minerid)
+                if not orders_data:
                     return jsonify({'error': f'No limit orders found for miner {minerid}'}), 404
-
-                orders_data = [order.to_dict() for order in miner_orders]
             else:
                 try:
                     orders_data = ValiBkpUtils.get_limit_orders(minerid, running_unit_tests=False)
@@ -562,7 +560,7 @@ class PTNRestServer(APIKeyMixin):
                     return jsonify({'error': 'Error retrieving limit orders'}), 500
 
             return jsonify(orders_data)
-            
+
         @self.app.route("/collateral/deposit", methods=["POST"])
         def deposit_collateral():
             """Process collateral deposit with encoded extrinsic."""

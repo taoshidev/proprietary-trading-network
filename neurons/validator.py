@@ -229,7 +229,7 @@ class Validator:
                                                               position_manager=self.position_manager,
                                                               ipc_manager=self.ipc_manager)
 
-        self.limit_order_manager = LimitOrderManager(self.position_manager, self.live_price_fetcher, shutdown_dict)
+        self.limit_order_manager = LimitOrderManager(self.position_manager, self.live_price_fetcher, shutdown_dict, ipc_manager=self.ipc_manager)
 
         # Attach the position manager to the other objects that need it
         for idx, obj in enumerate([self.perf_ledger_manager, self.position_manager, self.position_syncer,
@@ -827,7 +827,7 @@ class Validator:
                 bt.logging.error(f"[{trade_pair}] not in TradePair enum.")
                 raise SignalException(f"miner [{miner_hotkey}] incorrectly sent trade pair. Raw signal: {signal}")
 
-            execution_type = ExecutionType.from_string(signal["execution_type"].upper())
+            execution_type = ExecutionType.from_string(signal.get("execution_type", "MARKET").upper())
             if execution_type == ExecutionType.MARKET:
                 self.process_market_order(synapse, trade_pair, now_ms)
             elif execution_type == ExecutionType.LIMIT:

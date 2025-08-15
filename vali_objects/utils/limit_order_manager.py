@@ -2,6 +2,7 @@ from collections import defaultdict
 import os
 import statistics
 import time
+import json
 from shared_objects.cache_controller import CacheController
 from time_util.time_util import TimeUtil
 from vali_objects.enums.order_type_enum import OrderType
@@ -14,11 +15,12 @@ from vali_objects.utils.price_slippage_model import PriceSlippageModel
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.vali_config import ValiConfig
 from vali_objects.vali_dataclasses.order import ORDER_SRC_LIMIT_CANCELLED, ORDER_SRC_LIMIT_FILLED, ORDER_SRC_LIMIT_UNFILLED, Order
+from vali_objects.decoders.generalized_json_decoder import GeneralizedJSONDecoder
 
 import bittensor as bt
 
 class LimitOrderManager(CacheController):
-    def __init__(self, position_manager, live_price_fetcher, shutdown_dict=None, running_unit_tests=False):
+    def __init__(self, position_manager, live_price_fetcher, shutdown_dict=None, running_unit_tests=False, ipc_manager=None):
         super().__init__(running_unit_tests=running_unit_tests)
         self.position_manager: PositionManager = position_manager
         self.elimination_manager: EliminationManager = position_manager.elimination_manager
@@ -26,13 +28,20 @@ class LimitOrderManager(CacheController):
 
         self.shutdown_dict = shutdown_dict
 
-        self.limit_orders = self._read_limit_orders_from_disk()
+        if ipc_manager:
+            self.limit_orders = ipc_manager.dict()
+        else:
+            self.limit_orders = {}
+
+        self._read_limit_orders_from_disk()
         self.triggered_order_times = {}
         self.last_fill_time = defaultdict(lambda: defaultdict(int))
         self._reset_counters()
 
     def save_limit_order(self, miner_hotkey, limit_order, position_locks):
-        orders = self.limit_orders.setdefault(miner_hotkey, [])
+        if miner_hotkey not in self.limit_orders:
+            self.limit_orders[miner_hotkey] = []
+        orders = self.limit_orders[miner_hotkey]
 
         unfilled_limit_orders = [order for order in orders if order.src == ORDER_SRC_LIMIT_UNFILLED]
 
@@ -254,14 +263,13 @@ class LimitOrderManager(CacheController):
             for order in orders_to_cancel:
                 self._close_order(miner_hotkey, order, ORDER_SRC_LIMIT_CANCELLED, now_ms)
 
-    def _read_limit_orders_from_disk(self, hotkeys=None) -> dict[str, list[Order]]:
+    def _read_limit_orders_from_disk(self, hotkeys=None):
         if not hotkeys:
             hotkeys = ValiBkpUtils.get_directories_in_dir(
                 ValiBkpUtils.get_miner_dir(self.running_unit_tests)
             )
         eliminated_hotkeys = self.elimination_manager.get_eliminations_from_memory()
 
-        orders = {}
         for hotkey in hotkeys:
             miner_orders = []
 
@@ -278,9 +286,7 @@ class LimitOrderManager(CacheController):
                     continue
 
             if miner_orders:
-                orders[hotkey] = sorted(miner_orders, key=lambda o: o.processed_ms)
-
-        return orders
+                self.limit_orders[hotkey] = sorted(miner_orders, key=lambda o: o.processed_ms)
 
     def _reset_counters(self):
         self._limit_orders_evaluated = 0
@@ -319,4 +325,24 @@ class LimitOrderManager(CacheController):
             except Exception as e:
                 print(f"Could not sync limit orders {e}")
 
-        self.limit_orders = self._read_limit_orders_from_disk()
+        self._read_limit_orders_from_disk()
+
+    def to_dashboard_dict(self, miner_hotkey):
+        orders = self.limit_orders.get(miner_hotkey)
+        if not orders:
+            return None
+
+        order_list = []
+        for order in orders:
+            data = {
+                "trade_pair": [order.trade_pair.trade_pair_id, order.trade_pair.trade_pair],
+                "order_type": str(order.order_type),
+                "processed_ms": order.processed_ms,
+                "limit_price": order.limit_price,
+                "price": order.price,
+                "leverage": order.leverage,
+                "src": order.src
+            }
+            order_list.append(data)
+
+        return order_list
