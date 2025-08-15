@@ -153,16 +153,10 @@ class SharedDataManager:
     def _initialize_price_fetcher(self):
         """Initialize shared price fetcher for efficient caching across miners."""
         bt.logging.info("📊 Initializing shared price fetcher...")
-        try:
-            from vali_objects.utils.vali_utils import ValiUtils
-            secrets = ValiUtils.get_secrets()
-            self.live_price_fetcher = LivePriceFetcher(secrets, disable_ws=True)
-            bt.logging.info("✅ Shared price fetcher initialized (will cache prices across miners)")
-        except Exception as e:
-            bt.logging.error(f"Failed to initialize shared price fetcher: {e}")
-            bt.logging.error("Price fetcher is required for portfolio calculations. Exiting.")
-            raise RuntimeError(f"Cannot proceed without price fetcher: {e}")
-    
+        secrets = ValiUtils.get_secrets()
+        self.live_price_fetcher = LivePriceFetcher(secrets, disable_ws=True)
+        bt.logging.info("✅ Shared price fetcher initialized (will cache prices across miners)")
+
     def get_cache_statistics(self) -> Dict[str, Any]:
         """Get comprehensive cache performance statistics."""
         total_dates = len(self.price_source_cache)
@@ -414,8 +408,9 @@ def process_miner_with_main_logic(
     if all_daily_returns_flattened and not dry_run:
         bt.logging.info(f"💾 Single bulk inserting {len(all_daily_returns_flattened)} return records across {len(dates_processed)} days...")
         
-        # Single database call for all records
-        success = db_manager.insert_daily_returns(all_daily_returns_flattened, None, skip_duplicates=True)
+        # Single database call for all records  
+        # Use a generic date string since we're inserting multiple dates
+        success = db_manager.insert_daily_returns(all_daily_returns_flattened, "bulk_insert", skip_duplicates=True)
         if not success:
             raise RuntimeError(f"Failed to bulk insert {len(all_daily_returns_flattened)} return records")
         
@@ -424,14 +419,14 @@ def process_miner_with_main_logic(
         # Get price source statistics for detailed logging
         price_stats = shared_data_manager.get_miner_price_stats()
         bt.logging.info(f"✅ Miner {hotkey}: Successfully inserted {len(all_daily_returns_flattened)} portfolio return records across {len(dates_processed)} days "
-                       f"({price_stats['cache_hits']} days cached, {price_stats['live_fetches']} days live-fetched, {price_stats['total_days']} total)")
+                       f"(price fetching: {price_stats['cache_hits']} days cached, {price_stats['live_fetches']} days live-fetched, {price_stats['total_days']} days needed prices)")
     elif all_daily_returns_flattened and dry_run:
         days_inserted = len(dates_processed)
         
         # Get price source statistics for detailed logging
         price_stats = shared_data_manager.get_miner_price_stats()
         bt.logging.info(f"✅ [DRY RUN] Miner {hotkey}: Would bulk insert {len(all_daily_returns_flattened)} records across {len(dates_processed)} days "
-                       f"({price_stats['cache_hits']} days cached, {price_stats['live_fetches']} days live-fetched, {price_stats['total_days']} total)")
+                       f"(price fetching: {price_stats['cache_hits']} days cached, {price_stats['live_fetches']} days live-fetched, {price_stats['total_days']} days needed prices)")
     else:
         bt.logging.info(f"⚠️  No returns to insert")
     
@@ -628,21 +623,18 @@ class DatabaseManager:
             bt.logging.error(f"Failed to fetch existing hotkey-date pairs: {e}")
             return set()
     
-    def insert_daily_returns(self, daily_returns: List[Dict], target_timestamp: datetime, skip_duplicates: bool = False) -> bool:
+    def insert_daily_returns(self, daily_returns: List[Dict], current_date_str: str, skip_duplicates: bool = False) -> bool:
         """Insert daily returns for a specific date using miner_port_values schema with bulk operations.
         
         Args:
             daily_returns: List of return dictionaries to insert
-            target_timestamp: The timestamp for the returns
+            current_date_str: current_date_str
             skip_duplicates: If True, skip individual records that already exist
         """
         if not daily_returns:
-            date_str = target_timestamp.strftime("%Y-%m-%d")
-            bt.logging.warning(f"No returns to insert for {date_str}")
+            bt.logging.warning(f"No returns to insert for {current_date_str}")
             return False
-        
-        date_str = target_timestamp.strftime("%Y-%m-%d")
-        
+
         try:
             with self.SessionFactory() as session:
                 records_to_insert = daily_returns
@@ -679,13 +671,13 @@ class DatabaseManager:
                 
                 inserted_count = len(records_to_insert)
                 if skipped_count > 0:
-                    bt.logging.info(f"✓ Bulk inserted {inserted_count} returns, skipped {skipped_count} duplicates for {date_str}")
+                    bt.logging.info(f"✓ Bulk inserted {inserted_count} returns, skipped {skipped_count} duplicates for {current_date_str}")
                 else:
-                    bt.logging.info(f"✓ Bulk inserted {inserted_count} returns for {date_str}")
+                    bt.logging.info(f"✓ Bulk inserted {inserted_count} returns for {current_date_str}")
                 return True
                 
         except Exception as e:
-            bt.logging.error(f"Failed to bulk insert returns for {date_str}: {e}")
+            bt.logging.error(f"Failed to bulk insert returns for {current_date_str}: {e}")
             return False
 
 
@@ -2625,20 +2617,17 @@ def run_single_miner_backfill(hotkey: str, expected_days: int, shared_data_manag
             bt.logging.debug(f"   📋 Using shared database manager with portfolio cache")
         else:
             bt.logging.debug(f"   📋 Initializing new database manager for {hotkey[:12]}...")
-            try:
-                secrets = ValiUtils.get_secrets()
-                database_url = secrets.get('database_url') or secrets.get('db_ptn_editor_url')
-                if not database_url:
-                    database_url = get_database_url_from_config()
-                if not database_url:
-                    bt.logging.error("   ❌ No database URL available")
-                    return -1
-                
-                db_manager = DatabaseManager(database_url)
-            except Exception as e:
-                bt.logging.error(f"   ❌ Database initialization failed: {e}")
+            secrets = ValiUtils.get_secrets()
+            database_url = secrets.get('database_url') or secrets.get('db_ptn_editor_url')
+            if not database_url:
+                database_url = get_database_url_from_config()
+            if not database_url:
+                bt.logging.error("   ❌ No database URL available")
                 return -1
-        
+
+            db_manager = DatabaseManager(database_url)
+
+
         # Get existing hotkey-date pairs for fine-grained skipping
         start_date_str = datetime.fromtimestamp(start_ms / 1000, tz=timezone.utc).strftime('%Y-%m-%d')
         end_date_str = datetime.fromtimestamp(end_ms / 1000, tz=timezone.utc).strftime('%Y-%m-%d')
@@ -2652,13 +2641,7 @@ def run_single_miner_backfill(hotkey: str, expected_days: int, shared_data_manag
             live_price_fetcher = shared_data_manager.live_price_fetcher
             bt.logging.debug(f"   📋 Using shared price fetcher (cached across miners)")
         else:
-            # Initialize new price fetcher - get secrets 
-            try:
-                secrets = ValiUtils.get_secrets()
-            except Exception as e:
-                bt.logging.error(f"   ❌ Failed to get secrets for price fetcher: {e}")
-                return -1
-            
+            secrets = ValiUtils.get_secrets()
             live_price_fetcher = LivePriceFetcher(secrets, disable_ws=True)
             bt.logging.debug(f"   📋 Created new price fetcher for {hotkey[:12]}...")
         
@@ -2710,7 +2693,7 @@ def run_single_miner_backfill(hotkey: str, expected_days: int, shared_data_manag
             if daily_returns:
                 # Insert returns for this date
                 success = db_manager.insert_daily_returns(
-                    daily_returns, current_date, skip_duplicates=True
+                    daily_returns, current_date_str, skip_duplicates=True
                 )
                 if success:
                     days_inserted += 1
@@ -2822,7 +2805,7 @@ def run_automated_backfill(miners_with_orders: Dict[str, Dict[str, Any]], shared
         price_stats = global_shared_data_manager.get_miner_price_stats()
         
         bt.logging.info(f"✅ [{i}/{len(miners_with_orders)}] {hotkey}: {days_processed} days processed and written in {elapsed_time:.1f}s "
-                       f"({price_stats['cache_hits']} days cached, {price_stats['live_fetches']} days live-fetched)")
+                       f"(price fetching: {price_stats['cache_hits']} cached, {price_stats['live_fetches']} live-fetched)")
         
         # Track statistics
         if days_processed > 0:
@@ -3172,6 +3155,17 @@ def main():
     # Initialize live price fetcher
     secrets = ValiUtils.get_secrets()
     live_price_fetcher = LivePriceFetcher(secrets, disable_ws=True)
+    
+    # Initialize SharedDataManager for efficient price caching in regular mode
+    # This is needed for the regular flow (non-auto-backfill) to cache prices across days
+    bt.logging.info("Initializing shared data manager for price caching...")
+    shared_data_manager = SharedDataManager(database_url if db_manager else None, hotkeys=hotkeys)
+    shared_data_manager.live_price_fetcher = live_price_fetcher
+    shared_data_manager.all_positions = all_positions
+    shared_data_manager.elimination_tracker = elimination_tracker
+    
+    # Store in args for use in get_cached_or_fetch_price_sources
+    args.shared_data_manager = shared_data_manager
 
     # Results storage (only used if CSV output is requested)
     results = [] if args.save_csv else None
@@ -3232,48 +3226,23 @@ def main():
                 cached_price_sources = {}  # Empty dict but not None
             else:
                 bt.logging.info(f"Need prices for {len(required_trade_pair_ids)} trade pairs on {current_date_str}")
-                
-                # Initialize shared data manager if not already available
-                if not hasattr(args, 'shared_data_manager') or not args.shared_data_manager:
-                    # Create a basic shared data manager for price caching
-                    from vali_objects.utils.vali_utils import ValiUtils
-                    secrets = ValiUtils.get_secrets()
-                    temp_shared_manager = type('TempSharedManager', (), {
-                        'price_source_cache': {},
-                        'price_cache_hits': 0,
-                        'price_cache_misses': 0,
-                        'live_price_fetcher': live_price_fetcher,
-                        'get_cache_statistics': lambda self: {
-                            'hit_rate': self.price_cache_hits / (self.price_cache_hits + self.price_cache_misses) * 100 
-                                       if (self.price_cache_hits + self.price_cache_misses) > 0 else 0,
-                            'total_price_sources_cached': sum(len(p) for p in self.price_source_cache.values())
-                        }
-                    })()
-                    args.shared_data_manager = temp_shared_manager
-                
-                try:
-                    # Use smart caching strategy with date string
-                    cached_price_sources = get_cached_or_fetch_price_sources(
-                        args.shared_data_manager,
-                        current_date_str,  # Pass the pre-calculated date string
-                        current_ms,
-                        required_trade_pair_ids
-                    )
-                    
-                    # Log cache performance periodically
-                    if day_counter % 10 == 0:
-                        stats = args.shared_data_manager.get_cache_statistics()
-                        bt.logging.info(f"📊 Price cache performance: {stats['hit_rate']:.1f}% hit rate, "
-                                       f"{stats['total_price_sources_cached']} cached prices")
-                    
-                    bt.logging.info(f"✓ Successfully got prices for {current_date_str} UTC")
-                    
-                except Exception as e:
-                    day_elapsed_time = time.time() - day_start_time
-                    bt.logging.error(f"✗ CRITICAL ERROR: Failed to get prices for {current_date_str} UTC: {e} (took {day_elapsed_time:.2f}s)")
-                    bt.logging.error("Stopping script execution due to price fetching failure")
-                    raise RuntimeError(f"Price fetching failed for date {current_date_str}: {e}") from e
-            
+
+                # Use smart caching strategy with date string
+                cached_price_sources = get_cached_or_fetch_price_sources(
+                    args.shared_data_manager,
+                    current_date_str,  # Pass the pre-calculated date string
+                    current_ms,
+                    required_trade_pair_ids
+                )
+
+                # Log cache performance periodically
+                if day_counter % 10 == 0:
+                    stats = args.shared_data_manager.get_cache_statistics()
+                    bt.logging.info(f"📊 Price cache performance: {stats['hit_rate']:.1f}% hit rate, "
+                                   f"{stats['total_price_sources_cached']} cached prices")
+
+                bt.logging.info(f"✓ Successfully got prices for {current_date_str} UTC")
+
             # Step 3: Calculate returns for each miner using categorized approach
             # Flatten all positions for category-based calculation
             all_filtered_positions = []
@@ -3440,4 +3409,9 @@ if __name__ == "__main__":
     if not hasattr(bt.logging._logger, '_handlers_configured'):
         bt.logging.enable_info()
         bt.logging._logger._handlers_configured = True
+    
+    # Suppress noisy urllib3 warnings
+    import logging
+    logging.getLogger('urllib3.connectionpool').setLevel(logging.ERROR)
+    
     main()
