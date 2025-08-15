@@ -59,7 +59,7 @@ To achieve maximum reward as a miner, you will need to be competitive in all ass
 
 ## Scoring Details
 
-PTN relies on a number of scoring metrics to build a comprehensive measure of _Risk-Adjusted Returns_. In practice, these metrics are often highly correlated, but each offers a unique lens through which to see the miners.
+PTN relies on a number of scoring metrics to build a comprehensive measure of _PnL_ and _Risk-Adjusted Returns_. In practice, these metrics are often highly correlated, but each offers a unique lens through which to see the miners.
 
 While returns is a significant scoring mechanic, we also use penalties to prioritize different aspects of trading, such as the risk undertaken by the miners or their likelihood to engage in risky strategies.
 
@@ -73,9 +73,11 @@ Additionally, normalization with annual risk-free rate of T-bills further standa
 
 ### Scoring Metrics
 
-We use five scoring metrics to evaluate miners based on daily returns: **Calmar Ratio**, **Sharpe Ratio**, **Omega Ratio**, **Sortino Ratio**, and **Statistical Confidence (T-Statistic)**.
+We use **Average Daily PnL** and five risk-adjusted scoring metrics to evaluate miners based on daily returns: **Calmar Ratio**, **Sharpe Ratio**, **Omega Ratio**, **Sortino Ratio**, and **Statistical Confidence (T-Statistic)**.
 
 The miner risk used in the risk adjusted returns is the miner’s maximum portfolio drawdown.
+
+_Average Daily PnL_ will look at the average USD change in portfolio value for full trading days. The PnL values are based on the account sizes of miners which are calculated from deposited collateral.
 
 _Calmar Ratio_ will look at daily returns in the prior 120 days and is normalized by the max drawdown.
 
@@ -108,12 +110,13 @@ t = \frac{\bar{R} - \mu}{s / \sqrt{n}}
 $$
 
 | Metric                 | Scoring Weight |
-| ---------------------- | -------------- |
-| Calmar Ratio           | 20%            |
-| Sharpe Ratio           | 20%            |
-| Omega Ratio            | 20%            |
-| Sortino Ratio          | 20%            |
-| Statistical Confidence | 20%            |
+|------------------------|----------------|
+| Average Daily PnL      | 30%            |
+| Calmar Ratio           | 14%            |
+| Sharpe Ratio           | 14%            |
+| Omega Ratio            | 14%            |
+| Sortino Ratio          | 14%            |
+| Statistical Confidence | 14%            |
 
 ### Scoring Penalties
 
