@@ -13,20 +13,19 @@ This script calculates daily portfolio returns for each miner by:
 Usage:
     python daily_portfolio_returns.py [--start-date YYYY-MM-DD] [--end-date YYYY-MM-DD] [--hotkeys HOTKEY1,HOTKEY2,...] [--elimination-source DATABASE]
 """
-
+import time
 import argparse
 from dataclasses import dataclass
 from datetime import datetime, timezone, timedelta
-from typing import Dict, List, Tuple, Set, Optional, Any
+from typing import Dict, List, Tuple, Set, Optional, Any, Union
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 import os
-import time
 
 import bittensor as bt
 import pandas as pd
-from sqlalchemy import create_engine, Column, String, Float, Integer, DateTime, text, inspect
+from sqlalchemy import create_engine, Column, String, Float, Integer, DateTime, text, inspect, tuple_
 from sqlalchemy.orm import declarative_base, sessionmaker
 
 from time_util.time_util import TimeUtil
@@ -39,9 +38,406 @@ from vali_objects.vali_config import TradePair, TradePairCategory, CryptoSubcate
 from vali_objects.vali_dataclasses.price_source import PriceSource
 from vali_objects.utils.vali_utils import ValiUtils
 
-
 # Database setup
 Base = declarative_base()
+
+
+class SharedDataManager:
+    """Manages shared data loaded once at initialization to minimize database calls."""
+    
+    def __init__(self, database_url: str, hotkeys: Optional[List[str]] = None):
+        """Initialize shared data manager.
+        
+        Args:
+            database_url: Database connection string
+            hotkeys: Optional list of specific hotkeys to filter data loading
+        """
+        self.database_url = database_url
+        self.filter_hotkeys = hotkeys
+        
+        # Shared data loaded at initialization
+        self.all_positions = {}  # hotkey -> list of positions
+        self.db_manager = None   # DatabaseManager instance with portfolio data cache
+        self.elimination_tracker = None  # EliminationTracker with preloaded data
+        self.live_price_fetcher = None  # LivePriceFetcher for cached price requests across miners
+        
+        # Price source cache keyed by date string for maximum reuse
+        # Format: {"YYYY-MM-DD": {trade_pair_id: PriceSource}}
+        self.price_source_cache: Dict[str, Dict[str, Any]] = {}
+        self.price_cache_hits = 0
+        self.price_cache_misses = 0
+        
+        # Per-miner price source tracking for detailed logging
+        self.current_miner_price_stats = {
+            'cache_hits': 0,
+            'live_fetches': 0,
+            'total_days': 0
+        }
+        
+        # Load flags
+        self.positions_loaded = False
+        self.portfolio_data_loaded = False
+        self.eliminations_loaded = False
+    
+    def initialize_all_data(self, elimination_source: EliminationSource = EliminationSource.DATABASE):
+        """Load all required data at once to minimize database calls."""
+        bt.logging.info("🚀 Initializing shared data manager - loading all data at once...")
+        
+        # 1. Load positions
+        self._load_all_positions()
+        
+        # 2. Initialize database manager and load portfolio data
+        self._load_database_manager_with_portfolio_data()
+        
+        # 3. Load elimination data
+        self._load_elimination_data(elimination_source)
+        
+        # 4. Initialize shared price fetcher for efficiency across miners
+        self._initialize_price_fetcher()
+        
+        # Summary
+        total_miners = len(self.all_positions)
+        total_positions = sum(len(positions) for positions in self.all_positions.values())
+        
+        bt.logging.info("✅ Shared data manager initialization complete:")
+        bt.logging.info(f"   📊 Positions: {total_miners} miners, {total_positions} total positions")
+        if self.db_manager and self.db_manager.portfolio_data_loaded:
+            total_portfolio_records = sum(len(dates) for dates in self.db_manager.all_portfolio_data.values())
+            bt.logging.info(f"   📊 Portfolio data: {len(self.db_manager.all_portfolio_data)} miners, {total_portfolio_records} records")
+        if self.elimination_tracker and self.elimination_tracker.loaded:
+            bt.logging.info(f"   📊 Eliminations: {len(self.elimination_tracker.elimination_timestamps)} eliminated miners")
+        bt.logging.info(f"   📊 Price cache: Ready (0 cached prices)")
+        
+    def _load_all_positions(self):
+        """Load all positions using PositionSourceManager."""
+        bt.logging.info("📊 Loading all positions...")
+        try:
+            position_source_manager = PositionSourceManager(source_type=PositionSource.DATABASE)
+            self.all_positions = position_source_manager.load_positions(
+                start_time_ms=None,
+                end_time_ms=None, 
+                hotkeys=self.filter_hotkeys
+            )
+            self.positions_loaded = True
+            bt.logging.info(f"✅ Loaded positions for {len(self.all_positions)} miners")
+        except Exception as e:
+            bt.logging.error(f"Failed to load positions: {e}")
+            raise
+    
+    def _load_database_manager_with_portfolio_data(self):
+        """Initialize database manager and load all portfolio data."""
+        bt.logging.info("📊 Initializing database manager with portfolio data cache...")
+        try:
+            self.db_manager = DatabaseManager(self.database_url)
+            # Load all portfolio data into memory cache
+            self.db_manager.load_all_portfolio_data(hotkeys=self.filter_hotkeys)
+            self.portfolio_data_loaded = self.db_manager.portfolio_data_loaded
+            bt.logging.info("✅ Database manager initialized with portfolio data cache")
+        except Exception as e:
+            bt.logging.error(f"Failed to initialize database manager: {e}")
+            raise
+    
+    def _load_elimination_data(self, elimination_source: EliminationSource):
+        """Load elimination data."""
+        bt.logging.info("📊 Loading elimination data...")
+        try:
+            self.elimination_tracker = EliminationTracker(elimination_source_type=elimination_source)
+            elimination_timestamps = self.elimination_tracker.load_all_eliminations(hotkeys=self.filter_hotkeys)
+            self.eliminations_loaded = self.elimination_tracker.loaded
+            bt.logging.info(f"✅ Loaded elimination data for {len(elimination_timestamps)} miners")
+        except Exception as e:
+            bt.logging.error(f"Failed to load elimination data: {e}")
+            bt.logging.error("Elimination data is required for accurate portfolio calculations. Exiting.")
+            raise RuntimeError(f"Cannot proceed without elimination data: {e}")
+    
+    def _initialize_price_fetcher(self):
+        """Initialize shared price fetcher for efficient caching across miners."""
+        bt.logging.info("📊 Initializing shared price fetcher...")
+        try:
+            from vali_objects.utils.vali_utils import ValiUtils
+            secrets = ValiUtils.get_secrets()
+            self.live_price_fetcher = LivePriceFetcher(secrets, disable_ws=True)
+            bt.logging.info("✅ Shared price fetcher initialized (will cache prices across miners)")
+        except Exception as e:
+            bt.logging.error(f"Failed to initialize shared price fetcher: {e}")
+            bt.logging.error("Price fetcher is required for portfolio calculations. Exiting.")
+            raise RuntimeError(f"Cannot proceed without price fetcher: {e}")
+    
+    def get_cache_statistics(self) -> Dict[str, Any]:
+        """Get comprehensive cache performance statistics."""
+        total_dates = len(self.price_source_cache)
+        total_cached_prices = sum(len(prices) for prices in self.price_source_cache.values())
+        
+        return {
+            'dates_cached': total_dates,
+            'total_price_sources_cached': total_cached_prices,
+            'cache_hits': self.price_cache_hits,
+            'cache_misses': self.price_cache_misses,
+            'hit_rate': self.price_cache_hits / (self.price_cache_hits + self.price_cache_misses) * 100 
+                       if (self.price_cache_hits + self.price_cache_misses) > 0 else 0,
+            'dates_list': sorted(self.price_source_cache.keys()) if total_dates < 100 else None
+        }
+    
+    def clear_cache_before_date(self, cutoff_date_str: str):
+        """Clear cache entries older than cutoff date to manage memory."""
+        dates_to_remove = [date_str for date_str in self.price_source_cache.keys() 
+                          if date_str < cutoff_date_str]
+        for date_str in dates_to_remove:
+            del self.price_source_cache[date_str]
+        
+        if dates_to_remove:
+            bt.logging.info(f"🗑️ Cleared {len(dates_to_remove)} old cache entries before {cutoff_date_str}")
+    
+    def reset_miner_price_stats(self):
+        """Reset per-miner price statistics for tracking individual miner processing."""
+        self.current_miner_price_stats = {
+            'cache_hits': 0,
+            'live_fetches': 0,
+            'total_days': 0
+        }
+    
+    def get_miner_price_stats(self) -> Dict[str, int]:
+        """Get current miner price statistics."""
+        return self.current_miner_price_stats.copy()
+
+
+def get_cached_or_fetch_price_sources(
+    shared_data_manager: SharedDataManager,
+    date_str: str,  # Date string passed in, not calculated
+    target_date_ms: int,  # Still needed for fetching new prices
+    required_trade_pairs: Set[str]
+) -> Dict[str, Any]:
+    """
+    Get price sources using cache-first strategy.
+    
+    Args:
+        shared_data_manager: Shared data manager with price cache
+        date_str: YYYY-MM-DD date string (cache key)
+        target_date_ms: Timestamp in ms (for fetching new prices)
+        required_trade_pairs: Set of trade pair IDs needed
+    
+    Returns:
+        Dict mapping trade pair ID to PriceSource
+    """
+    if not required_trade_pairs:
+        return {}
+    
+    # Use provided date string directly - no conversion needed
+    date_cache = shared_data_manager.price_source_cache.get(date_str, {})
+    
+    # Identify which prices we need to fetch
+    missing_trade_pairs = required_trade_pairs - set(date_cache.keys())
+    cached_trade_pairs = required_trade_pairs & set(date_cache.keys())
+    
+    # Update cache statistics (global and per-miner)
+    shared_data_manager.price_cache_hits += len(cached_trade_pairs)
+    shared_data_manager.price_cache_misses += len(missing_trade_pairs)
+    
+    # Track per-miner stats
+    if cached_trade_pairs:
+        shared_data_manager.current_miner_price_stats['cache_hits'] += 1
+    if missing_trade_pairs:
+        shared_data_manager.current_miner_price_stats['live_fetches'] += 1
+    
+    # Always count this as a day processed
+    shared_data_manager.current_miner_price_stats['total_days'] += 1
+    
+    if cached_trade_pairs:
+        bt.logging.debug(f"Cache hit for {date_str}: {len(cached_trade_pairs)} prices reused")
+    
+    if missing_trade_pairs:
+        bt.logging.debug(f"Cache miss for {date_str}: fetching {len(missing_trade_pairs)} new prices")
+        
+        # Convert to TradePair objects for fetching
+        trade_pairs_to_fetch = set()
+        for tp_id in missing_trade_pairs:
+            # Create TradePair from ID (simplified - may need adjustment based on actual implementation)
+            trade_pair = TradePair.get_latest_trade_pair_from_trade_pair_id(tp_id)
+            trade_pairs_to_fetch.add(trade_pair)
+        
+        # Fetch only missing prices
+        price_fetcher = PriceFetcher(shared_data_manager.live_price_fetcher, max_workers=30)
+        new_prices = price_fetcher.fetch_multiple_price_sources(
+            trade_pairs_to_fetch, target_date_ms
+        )
+        
+        # Convert back to use trade pair IDs as keys
+        new_prices_by_id = {tp.trade_pair_id: ps for tp, ps in new_prices.items()}
+        
+        # Update cache with provided date string key
+        if date_str not in shared_data_manager.price_source_cache:
+            shared_data_manager.price_source_cache[date_str] = {}
+        
+        shared_data_manager.price_source_cache[date_str].update(new_prices_by_id)
+        date_cache.update(new_prices_by_id)
+        
+        bt.logging.debug(f"📊 Price cache for {date_str}: now contains {len(shared_data_manager.price_source_cache[date_str])} trade pairs")
+    
+    # Return combined cached + newly fetched prices as TradePair -> PriceSource mapping
+    # Need to convert back from IDs to TradePair objects for compatibility
+    result = {}
+    for tp_id in required_trade_pairs:
+        if tp_id in date_cache:
+            trade_pair = TradePair.get_latest_trade_pair_from_trade_pair_id(tp_id)
+            result[trade_pair] = date_cache[tp_id]
+    
+    return result
+
+
+def process_miner_with_main_logic(
+    all_positions: Dict[str, List],
+    hotkeys: List[str], 
+    shared_data_manager: SharedDataManager,
+    dry_run: bool = False,
+    collect_only: bool = False
+) -> Union[int, List[Dict]]:
+    """
+    Process a single miner using the exact same logic as the main processing loop.
+    This ensures auto-backfill uses the same code path as single miner mode.
+    Fast fails on any error - no try-catch masking.
+    
+    Args:
+        collect_only: If True, return the collected returns instead of inserting them
+    
+    Returns:
+        If collect_only=False: Number of days processed successfully
+        If collect_only=True: List of daily return records for bulk processing
+    """
+    # Use the exact same logic as main processing but for this specific miner
+    hotkey = hotkeys[0]  # Should only be one hotkey
+    
+    # Reset per-miner price statistics
+    shared_data_manager.reset_miner_price_stats()
+    
+    # Get positions for this miner
+    positions = all_positions.get(hotkey, [])
+    if not positions:
+        bt.logging.warning(f"No positions found for {hotkey}")
+        return [] if collect_only else 0
+    
+    # Determine date bounds from positions (same as main logic)
+    start_ms, end_ms = DateUtils.determine_date_bounds(all_positions)
+    
+    # Use shared database manager and elimination tracker
+    db_manager = shared_data_manager.db_manager
+    elimination_tracker = shared_data_manager.elimination_tracker
+    live_price_fetcher = shared_data_manager.live_price_fetcher
+    
+    # Get existing hotkey-date pairs for this miner (same as main logic)
+    start_date_str = datetime.fromtimestamp(start_ms / 1000, tz=timezone.utc).strftime('%Y-%m-%d')
+    end_date_str = datetime.fromtimestamp(end_ms / 1000, tz=timezone.utc).strftime('%Y-%m-%d')
+    
+    existing_hotkey_date_pairs = db_manager.get_existing_hotkey_date_pairs(
+        start_date_str, end_date_str, [hotkey]
+    )
+    
+    # Calculate total number of days to process (same as main logic)
+    total_days = int((end_ms - start_ms) // MS_IN_24_HOURS) + 1
+    bt.logging.info(f"📅 Total days in range: {total_days}")
+    
+    # Step through each day (same as main logic)
+    current_ms = start_ms
+    day_counter = 0
+    days_inserted = 0
+    
+    # Batch process: Calculate all returns first, then insert all at once
+    all_daily_returns_flattened = []  # Collect all return records for single bulk insert
+    dates_processed = []
+    
+    bt.logging.info(f"📊 Calculating returns for all days...")
+    while current_ms <= end_ms:
+        day_counter += 1
+        current_date = datetime.fromtimestamp(current_ms / 1000, tz=timezone.utc)
+        
+        # Calculate date string ONCE at the start of each day's processing
+        current_date_str = current_date.strftime('%Y-%m-%d')
+        
+        # Skip if this hotkey-date pair already exists (fine-grained checking)
+        if (hotkey, current_date_str) in existing_hotkey_date_pairs:
+            bt.logging.debug(f"⏭️  Skipping {current_date_str} - already exists for {hotkey[:12]}...")
+            current_ms += MS_IN_24_HOURS
+            continue
+        
+        # Filter positions and identify required trade pairs using date string
+        filtered_positions_by_hotkey, required_trade_pair_ids, skip_stats = PositionFilter.filter_and_analyze_positions_for_date(
+            all_positions, current_ms, current_date_str
+        )
+        
+        if not filtered_positions_by_hotkey or hotkey not in filtered_positions_by_hotkey:
+            bt.logging.info(f"⏭️  No positions or eliminated for {hotkey[:12]}... on {current_date_str}")
+            current_ms += MS_IN_24_HOURS
+            continue
+        
+        # Process this day
+        bt.logging.debug(f"⚡ Calculating returns for {current_date_str} for {hotkey}...")
+        
+        # Use cached price sources with date string key
+        if not required_trade_pair_ids:
+            bt.logging.debug(f"No open positions needing prices on {current_date_str}")
+            cached_price_sources = {}  # Empty dict but not None
+        else:
+            # Use smart caching strategy with date string
+            cached_price_sources = get_cached_or_fetch_price_sources(
+                shared_data_manager,
+                current_date_str,  # Pass the pre-calculated date string
+                current_ms,
+                required_trade_pair_ids
+            )
+            
+            # Log cache performance periodically
+            if day_counter % 10 == 0:
+                stats = shared_data_manager.get_cache_statistics()
+                bt.logging.debug(f"Price cache: {stats['hit_rate']:.1f}% hit rate, "
+                               f"{stats['total_price_sources_cached']} cached prices")
+        
+        # Calculate returns for this day
+        calculator = PortfolioCalculator(filtered_positions_by_hotkey, live_price_fetcher)
+        daily_returns = calculator.calculate_daily_returns(current_date, cached_price_sources)
+        
+        if daily_returns:
+            # Flatten the returns and collect for single bulk insert
+            all_daily_returns_flattened.extend(daily_returns)
+            dates_processed.append(current_date_str)
+            bt.logging.debug(f"✅ Calculated {len(daily_returns)} returns for {current_date_str}")
+        else:
+            bt.logging.warning(f"⚠️  No returns calculated for {current_date_str}")
+        
+        current_ms += MS_IN_24_HOURS
+    
+    # Handle collect_only mode (for auto-backfill optimization)
+    if collect_only:
+        bt.logging.debug(f"✅ Collected {len(all_daily_returns_flattened)} return records for {hotkey}")
+        return all_daily_returns_flattened
+    
+    # Single bulk insert for all returns at once to minimize database round trips
+    days_inserted = 0
+    if all_daily_returns_flattened and not dry_run:
+        bt.logging.info(f"💾 Single bulk inserting {len(all_daily_returns_flattened)} return records across {len(dates_processed)} days...")
+        
+        # Single database call for all records
+        success = db_manager.insert_daily_returns(all_daily_returns_flattened, None, skip_duplicates=True)
+        if not success:
+            raise RuntimeError(f"Failed to bulk insert {len(all_daily_returns_flattened)} return records")
+        
+        days_inserted = len(dates_processed)
+        
+        # Get price source statistics for detailed logging
+        price_stats = shared_data_manager.get_miner_price_stats()
+        bt.logging.info(f"✅ Miner {hotkey}: Successfully inserted {len(all_daily_returns_flattened)} portfolio return records across {len(dates_processed)} days "
+                       f"({price_stats['cache_hits']} days cached, {price_stats['live_fetches']} days live-fetched, {price_stats['total_days']} total)")
+    elif all_daily_returns_flattened and dry_run:
+        days_inserted = len(dates_processed)
+        
+        # Get price source statistics for detailed logging
+        price_stats = shared_data_manager.get_miner_price_stats()
+        bt.logging.info(f"✅ [DRY RUN] Miner {hotkey}: Would bulk insert {len(all_daily_returns_flattened)} records across {len(dates_processed)} days "
+                       f"({price_stats['cache_hits']} days cached, {price_stats['live_fetches']} days live-fetched, {price_stats['total_days']} total)")
+    else:
+        bt.logging.info(f"⚠️  No returns to insert")
+    
+    bt.logging.info(f"✨ Completed! Processed {day_counter} days, batch inserted {days_inserted} records")
+    return days_inserted
+
 
 class MinerPortValuesModel(Base):
     """Database model for storing miner port values matching taoshi-ts-ptn.miner_port_values schema."""
@@ -81,9 +477,20 @@ class DatabaseManager:
     
     def __init__(self, connection_string: str):
         """Initialize database connection."""
-        self.engine = create_engine(connection_string)
+        self.engine = create_engine(
+            connection_string,
+            pool_size=10,
+            max_overflow=20,
+            pool_timeout=60,
+            pool_recycle=3600,
+            pool_pre_ping=True
+        )
         self.SessionFactory = sessionmaker(bind=self.engine)
         self.ensure_table_exists()
+        
+        # In-memory cache for all portfolio data (loaded at initialization)
+        self.all_portfolio_data = {}  # hotkey -> set of dates
+        self.portfolio_data_loaded = False
     
     def ensure_table_exists(self):
         """Check that miner_port_values table exists - don't create new tables."""
@@ -96,6 +503,60 @@ class DatabaseManager:
         except Exception as e:
             bt.logging.error(f"Failed to verify database table exists: {e}")
             raise
+    
+    def load_all_portfolio_data(self, hotkeys: Optional[List[str]] = None):
+        """Load all portfolio value rows at initialization to minimize future database calls."""
+        if self.portfolio_data_loaded:
+            return  # Already loaded
+            
+        bt.logging.info("📊 Loading all portfolio value data at initialization...")
+        try:
+            with self.SessionFactory() as session:
+                # Build query to load all portfolio data
+                query = "SELECT miner_hotkey, date FROM miner_port_values"
+                params = {}
+                
+                if hotkeys:
+                    # Process in batches to avoid MySQL parameter limits
+                    batch_size = 1000
+                    for i in range(0, len(hotkeys), batch_size):
+                        batch_hotkeys = hotkeys[i:i + batch_size]
+                        
+                        placeholders = ", ".join([f":hotkey_{j}" for j in range(len(batch_hotkeys))])
+                        batch_query = f"{query} WHERE miner_hotkey IN ({placeholders})"
+                        batch_params = {f"hotkey_{j}": hotkey for j, hotkey in enumerate(batch_hotkeys)}
+                        
+                        result = session.execute(text(batch_query), batch_params)
+                        
+                        for row in result.fetchall():
+                            hotkey, date = row[0], row[1]
+                            if hotkey not in self.all_portfolio_data:
+                                self.all_portfolio_data[hotkey] = set()
+                            self.all_portfolio_data[hotkey].add(date)
+                        
+                        if len(hotkeys) > batch_size:
+                            bt.logging.info(f"   Loaded portfolio data for {min(i + batch_size, len(hotkeys))}/{len(hotkeys)} specified miners...")
+                else:
+                    # Load all portfolio data if no specific hotkeys
+                    result = session.execute(text(query), params)
+                    
+                    for row in result.fetchall():
+                        hotkey, date = row[0], row[1]
+                        if hotkey not in self.all_portfolio_data:
+                            self.all_portfolio_data[hotkey] = set()
+                        self.all_portfolio_data[hotkey].add(date)
+                
+                self.portfolio_data_loaded = True
+                total_miners = len(self.all_portfolio_data)
+                total_records = sum(len(dates) for dates in self.all_portfolio_data.values())
+                
+                bt.logging.info(f"✅ Loaded portfolio data for {total_miners} miners with {total_records} total records in memory")
+                
+        except Exception as e:
+            bt.logging.error(f"Failed to load all portfolio data: {e}")
+            # Continue without in-memory cache - will fall back to per-query methods
+            self.all_portfolio_data = {}
+            self.portfolio_data_loaded = False
     
     def get_existing_dates(self, start_date: str, end_date: str) -> Set[str]:
         """Get all dates that already exist in database within date range."""
@@ -125,6 +586,24 @@ class DatabaseManager:
         Returns:
             Set of (hotkey, date) tuples that already exist in database
         """
+        # Use in-memory cache if available
+        if self.portfolio_data_loaded:
+            existing_pairs = set()
+            
+            # Filter by hotkeys if specified
+            miners_to_check = set(hotkeys) if hotkeys else set(self.all_portfolio_data.keys())
+            
+            for hotkey in miners_to_check:
+                if hotkey in self.all_portfolio_data:
+                    # Filter dates within range
+                    for date_str in self.all_portfolio_data[hotkey]:
+                        if start_date <= date_str <= end_date:
+                            existing_pairs.add((hotkey, date_str))
+            
+            bt.logging.info(f"Found {len(existing_pairs)} existing hotkey-date pairs from in-memory cache")
+            return existing_pairs
+        
+        # Fall back to database query if cache not loaded
         try:
             with self.SessionFactory() as session:
                 query = (
@@ -142,7 +621,7 @@ class DatabaseManager:
                 result = session.execute(text(query), params)
                 
                 existing_pairs = {(row[0], row[1]) for row in result.fetchall()}
-                bt.logging.info(f"Found {len(existing_pairs)} existing hotkey-date pairs in database")
+                bt.logging.info(f"Found {len(existing_pairs)} existing hotkey-date pairs from database query")
                 return existing_pairs
                 
         except Exception as e:
@@ -150,7 +629,7 @@ class DatabaseManager:
             return set()
     
     def insert_daily_returns(self, daily_returns: List[Dict], target_timestamp: datetime, skip_duplicates: bool = False) -> bool:
-        """Insert daily returns for a specific date using miner_port_values schema.
+        """Insert daily returns for a specific date using miner_port_values schema with bulk operations.
         
         Args:
             daily_returns: List of return dictionaries to insert
@@ -162,40 +641,53 @@ class DatabaseManager:
             bt.logging.warning(f"No returns to insert for {date_str}")
             return False
         
+        date_str = target_timestamp.strftime("%Y-%m-%d")
+        
         try:
             with self.SessionFactory() as session:
-                inserted_count = 0
+                records_to_insert = daily_returns
                 skipped_count = 0
                 
-                for value_dict in daily_returns:
-                    if skip_duplicates:
-                        # Check if this specific record already exists
-                        existing = session.query(MinerPortValuesModel).filter_by(
-                            miner_hotkey=value_dict['miner_hotkey'],
-                            timestamp=value_dict['timestamp']
-                        ).first()
-                        
-                        if existing:
-                            skipped_count += 1
-                            continue
+                if skip_duplicates:
+                    # Single bulk query to check all existing records
+                    hotkey_timestamp_pairs = [(r['miner_hotkey'], r['timestamp']) for r in daily_returns]
                     
-                    port_value = MinerPortValuesModel(**value_dict)
-                    session.add(port_value)
-                    inserted_count += 1
+                    # Use bulk query with IN clause for all hotkeys and timestamps
+                    existing_query = session.query(
+                        MinerPortValuesModel.miner_hotkey, 
+                        MinerPortValuesModel.timestamp
+                    ).filter(
+                        tuple_(MinerPortValuesModel.miner_hotkey, MinerPortValuesModel.timestamp).in_(hotkey_timestamp_pairs)
+                    )
+                    
+                    existing_records = set(existing_query.all())
+                    
+                    # Filter out existing records
+                    records_to_insert = []
+                    for record in daily_returns:
+                        key = (record['miner_hotkey'], record['timestamp'])
+                        if key in existing_records:
+                            skipped_count += 1
+                        else:
+                            records_to_insert.append(record)
+                
+                if records_to_insert:
+                    # Use bulk_insert_mappings for maximum efficiency
+                    session.bulk_insert_mappings(MinerPortValuesModel, records_to_insert)
                 
                 session.commit()
                 
-                date_str = target_timestamp.strftime("%Y-%m-%d")
+                inserted_count = len(records_to_insert)
                 if skipped_count > 0:
-                    bt.logging.info(f"✓ Inserted {inserted_count} returns, skipped {skipped_count} duplicates for {date_str}")
+                    bt.logging.info(f"✓ Bulk inserted {inserted_count} returns, skipped {skipped_count} duplicates for {date_str}")
                 else:
-                    bt.logging.info(f"✓ Successfully inserted {inserted_count} returns for {date_str}")
+                    bt.logging.info(f"✓ Bulk inserted {inserted_count} returns for {date_str}")
                 return True
                 
         except Exception as e:
-            date_str = target_timestamp.strftime("%Y-%m-%d")
-            bt.logging.error(f"Failed to insert returns for {date_str}: {e}")
+            bt.logging.error(f"Failed to bulk insert returns for {date_str}: {e}")
             return False
+
 
 
 @dataclass
@@ -259,10 +751,12 @@ class PositionFilter:
         elif position.trade_pair.is_indices:
             return None, "indices"
         
-        # Filter orders to only include those before/at cutoff
+        # Filter orders to only include those before cutoff
+        # Note: cutoff_date_ms should be the END of the day we want to include
+        # So use < instead of <= to include all orders within the day
         filtered_orders = [
             order for order in position.orders 
-            if order.processed_ms <= cutoff_date_ms  # Inclusive comparison
+            if order.processed_ms < cutoff_date_ms  # Use < for end-of-day cutoff
         ]
         
         if not filtered_orders:
@@ -324,6 +818,70 @@ class PositionFilter:
                 filtered_positions_by_hotkey[hotkey] = filtered_positions
         
         return filtered_positions_by_hotkey, trade_pairs_needing_prices, stats
+    
+    @staticmethod
+    def filter_and_analyze_positions_for_date(
+        all_positions: Dict[str, List[Position]],
+        target_date_ms: int,
+        date_str: str  # Date string passed in
+    ) -> Tuple[Dict[str, List[Position]], Set[str], FilterStats]:
+        """
+        Filter positions and identify required trade pairs for a specific date.
+        Returns trade pair IDs (not TradePair objects) for easier caching.
+        
+        Args:
+            all_positions: All positions by hotkey
+            target_date_ms: Target timestamp in milliseconds
+            date_str: YYYY-MM-DD date string for logging
+        
+        Returns:
+            Tuple of (filtered_positions, required_trade_pair_ids, filter_stats)
+        """
+        filtered_positions_by_hotkey = {}
+        required_trade_pair_ids = set()  # Use IDs for cache keys
+        stats = FilterStats()
+        
+        bt.logging.debug(f"Filtering positions for {date_str} ({target_date_ms} ms)")
+        
+        for hotkey, positions in all_positions.items():
+            stats.total_positions_before_filter += len(positions)
+            filtered_positions = []
+            
+            for position in positions:
+                filtered_position, skip_reason = PositionFilter.filter_single_position(position, target_date_ms)
+                
+                if skip_reason == "equities":
+                    stats.equities_positions_skipped += 1
+                elif skip_reason == "indices":
+                    stats.indices_positions_skipped += 1
+                elif skip_reason == "date_filtered":
+                    stats.date_filtered_out += 1
+                elif skip_reason == "kept" and filtered_position:
+                    filtered_positions.append(filtered_position)
+                    stats.final_positions += 1
+                    
+                    # Precisely check if position needs a price on this specific date
+                    position_is_active = False
+                    if filtered_position.open_ms <= target_date_ms:
+                        if filtered_position.is_closed_position:
+                            # Closed position: needs price if still open on target date
+                            if filtered_position.close_ms and filtered_position.close_ms >= target_date_ms:
+                                position_is_active = True
+                        else:
+                            # Open position: always needs pricing
+                            position_is_active = True
+                    
+                    if position_is_active:
+                        # Use trade pair ID for cache key
+                        required_trade_pair_ids.add(filtered_position.trade_pair.trade_pair_id)
+            
+            if filtered_positions:
+                filtered_positions_by_hotkey[hotkey] = filtered_positions
+        
+        bt.logging.debug(f"Date {date_str}: {len(filtered_positions_by_hotkey)} miners, "
+                        f"{len(required_trade_pair_ids)} unique trade pairs needed")
+        
+        return filtered_positions_by_hotkey, required_trade_pair_ids, stats
 
 
 class PriceFetcher:
@@ -369,7 +927,7 @@ class PriceFetcher:
         price_sources = {}
         errors = []
         
-        bt.logging.info(f"Starting parallel price fetch for {len(trade_pairs)} trade pairs at {target_date_utc_str} using {self.max_workers} threads")
+        bt.logging.debug(f"Starting parallel price fetch for {len(trade_pairs)} trade pairs at {target_date_utc_str} using {self.max_workers} threads")
         
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             future_to_trade_pair = {
@@ -387,7 +945,7 @@ class PriceFetcher:
                     bt.logging.error(error_msg)
         
         elapsed_time = time.time() - start_time
-        bt.logging.info(f"Price fetch results for {target_date_utc_str}: {len(price_sources)} successful, {len(errors)} failed (took {elapsed_time:.2f}s)")
+        bt.logging.debug(f"Price fetch results for {target_date_utc_str}: {len(price_sources)} successful, {len(errors)} failed (took {elapsed_time:.2f}s)")
         
         if errors:
             error_summary = f"Failed to fetch prices for {len(errors)} trade pairs: {errors[:3]}"
@@ -446,12 +1004,12 @@ class PositionCategorizer:
     """Handles categorization of positions into crypto/forex subcategories."""
     
     @staticmethod
-    def categorize_position(trade_pair_id: str) -> List[str]:
+    def categorize_position(trade_pair_obj:TradePair) -> List[str]:
         """
         Determine which category(ies) a trade pair belongs to using the TradePair enum.
         
         Args:
-            trade_pair_id: The ID of the trade pair
+            trade_pair_obj: TP
             
         Returns:
             List[str]: A list of category names
@@ -462,10 +1020,9 @@ class PositionCategorizer:
         categories.append('all')
         
         # Get the TradePair object from the ID
-        trade_pair_obj = TradePair.from_trade_pair_id(trade_pair_id)
-        
+
         if trade_pair_obj is None:
-            bt.logging.warning(f"Unknown trade pair ID: {trade_pair_id}")
+            bt.logging.warning(f"Unknown trade pair ID: {trade_pair_obj.trade_pair_id}")
             return categories
         
         # Get the trade pair info (list format from enum)
@@ -507,6 +1064,50 @@ class PositionCategorizer:
 
 class PositionAnalyzer:
     """Analyzes positions for statistical insights."""
+    
+    @staticmethod
+    def analyze_positions(
+        positions: List[Position],
+        target_date_ms: int,
+        cached_price_sources: Dict[TradePair, PriceSource]
+    ) -> Dict[str, Dict[str, float]]:
+        """
+        Analyze positions and calculate categorized returns.
+        This is the main method used by PortfolioCalculator.
+        
+        Args:
+            positions: List of positions to analyze
+            target_date_ms: Target timestamp in milliseconds
+            cached_price_sources: Cached price sources for calculations
+            
+        Returns:
+            Dictionary of categories with returns and counts
+        """
+        # Use CategoryReturnCalculator to calculate returns by category
+        return CategoryReturnCalculator.calculate_miner_returns_by_category(
+            positions, target_date_ms, cached_price_sources
+        )
+    
+    @staticmethod
+    def prepare_database_records(
+        miner_returns: Dict[str, Dict[str, Dict[str, float]]],
+        target_timestamp: datetime
+    ) -> List[Dict[str, Any]]:
+        """
+        Prepare database records from miner returns.
+        This is used by PortfolioCalculator to format data for insertion.
+        
+        Args:
+            miner_returns: Dictionary of miner portfolio values by category
+            target_timestamp: The timestamp for the database records
+            
+        Returns:
+            List of dictionaries ready for database insertion
+        """
+        # Use CategoryReturnCalculator's prepare_insert_values method
+        return CategoryReturnCalculator.prepare_insert_values(
+            miner_returns, target_timestamp
+        )
     
     @staticmethod
     def analyze_positions_for_date(
@@ -601,7 +1202,7 @@ class CategoryReturnCalculator:
             trade_pair_id = position.trade_pair.trade_pair_id  # Use ID not display name
             
             # Determine categories for this position
-            categories = PositionCategorizer.categorize_position(trade_pair_id)
+            categories = PositionCategorizer.categorize_position(position.trade_pair)
             
             # Add return to each relevant category
             for category in categories:
@@ -618,9 +1219,6 @@ class CategoryReturnCalculator:
                     "return": data["return"],
                     "count": data["count"]
                 }
-        
-        # Log results (following reference)
-        bt.logging.info(f"Calculated returns for {len(results)} miners")
         
         return results
     
@@ -671,6 +1269,56 @@ class CategoryReturnCalculator:
                 "forex_group5_count": categories.get("forex_group5", {}).get("count", 0)
             })
         return insert_values
+
+
+class PortfolioCalculator:
+    """Handles portfolio return calculations for miners."""
+    
+    def __init__(self, positions_by_hotkey: Dict[str, List], live_price_fetcher):
+        """
+        Initialize portfolio calculator.
+        
+        Args:
+            positions_by_hotkey: Dictionary mapping hotkey -> list of positions
+            live_price_fetcher: LivePriceFetcher instance for price data
+        """
+        self.positions_by_hotkey = positions_by_hotkey
+        self.live_price_fetcher = live_price_fetcher
+    
+    def calculate_daily_returns(self, target_date: datetime, cached_price_sources: Dict) -> List[Dict]:
+        """
+        Calculate daily portfolio returns for all miners.
+        
+        Args:
+            target_date: The date to calculate returns for
+            cached_price_sources: REQUIRED pre-fetched price sources (must not be None)
+            
+        Returns:
+            List of dictionaries ready for database insertion
+        """
+        # Enforce cached_price_sources is provided
+        if cached_price_sources is None:
+            raise ValueError("cached_price_sources is required and cannot be None")
+        
+        target_date_ms = int(target_date.timestamp() * 1000)
+        
+        # Process each miner separately
+        all_results = []
+        for hotkey, positions in self.positions_by_hotkey.items():
+            if not positions:
+                continue
+            
+            # Calculate returns for this specific miner's positions
+            miner_returns = CategoryReturnCalculator.calculate_miner_returns_by_category(
+                positions, target_date_ms, cached_price_sources
+            )
+            
+            # Convert to database format for this miner
+            if miner_returns:
+                miner_records = CategoryReturnCalculator.prepare_insert_values(miner_returns, target_date)
+                all_results.extend(miner_records)
+        
+        return all_results
 
 
 class DiagnosticMode:
@@ -870,26 +1518,34 @@ class DiagnosticMode:
         
         existing_dates = db_manager.get_existing_dates(start_date_str, end_date_str)
         
-        # Get detailed database statistics
+        # Get detailed database statistics with efficient single query
         try:
             with db_manager.SessionFactory() as session:
-                # Count miners per date
-                date_miner_counts = {}
-                for date_str in existing_dates:
-                    result = session.execute(text(
-                        "SELECT COUNT(DISTINCT miner_hotkey) as miner_count FROM miner_port_values WHERE date = :date"
-                    ), {"date": date_str})
-                    count = result.fetchone()[0]
-                    date_miner_counts[date_str] = count
-                
-                # Get total unique miners in database for this period
+                # Get all date-miner counts in a single query instead of loop
                 result = session.execute(text(
-                    "SELECT COUNT(DISTINCT miner_hotkey) as total_miners FROM miner_port_values "
+                    "SELECT date, COUNT(DISTINCT miner_hotkey) as miner_count "
+                    "FROM miner_port_values "
+                    "WHERE date >= :start_date AND date <= :end_date "
+                    "GROUP BY date "
+                    "ORDER BY date"
+                ), {"start_date": start_date_str, "end_date": end_date_str})
+                date_miner_counts = {row[0]: row[1] for row in result.fetchall()}
+                
+                # Get summary statistics in one query using aggregate functions
+                result = session.execute(text(
+                    "SELECT "
+                    "  COUNT(DISTINCT miner_hotkey) as total_miners, "
+                    "  COUNT(DISTINCT date) as total_dates, "
+                    "  COUNT(*) as total_records, "
+                    "  MIN(date) as earliest_date, "
+                    "  MAX(date) as latest_date "
+                    "FROM miner_port_values "
                     "WHERE date >= :start_date AND date <= :end_date"
                 ), {"start_date": start_date_str, "end_date": end_date_str})
-                total_db_miners = result.fetchone()[0]
+                summary = result.fetchone()
+                total_db_miners = summary[0] if summary else 0
                 
-                # Get all miners in database for this period
+                # Get all unique miners in this period (if needed for detailed analysis)
                 result = session.execute(text(
                     "SELECT DISTINCT miner_hotkey FROM miner_port_values "
                     "WHERE date >= :start_date AND date <= :end_date"
@@ -1305,7 +1961,7 @@ class DiagnosticMode:
             bt.logging.info(f"   Miners with Low Coverage (<50%): {len(miner_analysis['miners_with_low_coverage'])}")
             for hotkey in miner_analysis['miners_with_low_coverage'][:5]:
                 coverage = miner_analysis['miner_details'][hotkey]['coverage_percentage']
-                bt.logging.info(f"     - {hotkey[:16]}... ({coverage:.1f}%)")
+                bt.logging.info(f"     - {hotkey} ({coverage:.1f}%)")
             if len(miner_analysis['miners_with_low_coverage']) > 5:
                 bt.logging.info(f"     ... and {len(miner_analysis['miners_with_low_coverage']) - 5} more")
         bt.logging.info("")
@@ -1387,7 +2043,7 @@ class DiagnosticMode:
                     coverage = details['coverage_percentage']
                     missing_days = details['missing_days']
                     total_days = details['total_expected_days']
-                    bt.logging.info(f"     - {hotkey[:16]}... : {missing_days}/{total_days} missing ({coverage:.1f}% coverage)")
+                    bt.logging.info(f"     - {hotkey} : {missing_days}/{total_days} missing ({coverage:.1f}% coverage)")
                     
                     # Show gap sequences for top gapped miners
                     if len(details['gap_sequences']) > 0:
@@ -1519,7 +2175,7 @@ class Logger:
         top_performers = final_day_data.nlargest(10, "return_pct")
         
         for i, (_, row) in enumerate(top_performers.iterrows(), 1):
-            bt.logging.info(f"   {i:2d}. {row['hotkey'][:16]}... : {row['return_pct']:+8.3f}% ({row['num_positions']} pos)")
+            bt.logging.info(f"   {i:2d}. {row['hotkey']} : {row['return_pct']:+8.3f}% ({row['num_positions']} pos)")
         
         bt.logging.info("")
         
@@ -1528,7 +2184,7 @@ class Logger:
         worst_performers = final_day_data.nsmallest(5, "return_pct")
         
         for i, (_, row) in enumerate(worst_performers.iterrows(), 1):
-            bt.logging.info(f"   {i:2d}. {row['hotkey'][:16]}... : {row['return_pct']:+8.3f}% ({row['num_positions']} pos)")
+            bt.logging.info(f"   {i:2d}. {row['hotkey']} : {row['return_pct']:+8.3f}% ({row['num_positions']} pos)")
         
         bt.logging.info("")
         
@@ -1560,7 +2216,7 @@ class Logger:
         
         bt.logging.info("   Top 10 by Total Return:")
         for i, stats in enumerate(miner_stats[:10], 1):
-            bt.logging.info(f"   {i:2d}. {stats['hotkey'][:16]}... : {stats['total_return_pct']:+8.3f}% total "
+            bt.logging.info(f"   {i:2d}. {stats['hotkey']} : {stats['total_return_pct']:+8.3f}% total "
                            f"({stats['avg_daily_return_pct']:+6.3f}% avg daily, {stats['avg_positions']:.1f} avg pos, {stats['days_active']} days)")
         
         bt.logging.info("")
@@ -1602,15 +2258,31 @@ class DateUtils:
         
         for hotkey, positions in positions_dict.items():
             for position in positions:
-                first_order_ms = min(first_order_ms, position.open_ms)
-                last_order_ms = max(last_order_ms, position.close_ms or 0)
+                # Look at actual order timestamps, not just position open/close times
+                if hasattr(position, 'orders') and position.orders:
+                    for order in position.orders:
+                        if hasattr(order, 'processed_ms') and order.processed_ms:
+                            first_order_ms = min(first_order_ms, order.processed_ms)
+                            last_order_ms = max(last_order_ms, order.processed_ms)
+                
+                # Also check position open/close times as fallback
+                if position.open_ms:
+                    first_order_ms = min(first_order_ms, position.open_ms)
+                    last_order_ms = max(last_order_ms, position.open_ms)
+                
+                if position.close_ms:
+                    last_order_ms = max(last_order_ms, position.close_ms)
         
-        if first_order_ms == float('inf') or last_order_ms == 0:
+        if first_order_ms == float('inf'):
             raise ValueError("No valid orders found in positions")
+        
+        # If we only found first_order_ms but no last order, use first as both
+        if last_order_ms == 0:
+            last_order_ms = first_order_ms
         
         # Round to start of UTC day
         first_date_ms = (first_order_ms // MS_IN_24_HOURS) * MS_IN_24_HOURS
-        # Round to end of UTC day
+        # Round to end of UTC day  
         last_date_ms = ((last_order_ms // MS_IN_24_HOURS) + 1) * MS_IN_24_HOURS
         
         # Cap end date at today (beginning of current UTC day) to avoid processing future dates
@@ -1737,21 +2409,24 @@ class EliminationTracker:
             
         except Exception as e:
             bt.logging.error(f"Failed to load eliminations: {e}")
-            bt.logging.warning("Continuing without elimination filtering")
-            self.elimination_timestamps = {}
-            self.loaded = False
-            return {}
+            bt.logging.error("Elimination data is required for accurate portfolio calculations. Cannot continue.")
+            raise RuntimeError(f"Cannot proceed without elimination data: {e}")
     
     def is_hotkey_eliminated_at_date(self, hotkey: str, target_date_ms: int) -> bool:
         """
         Check if a hotkey is eliminated at the given date.
         Returns True if eliminated (should be skipped).
+        
+        Fixed behavior: Miners should be processed THROUGH their elimination date,
+        then have a final row inserted on elimination day + 1, then be excluded.
         """
         if not self.loaded or hotkey not in self.elimination_timestamps:
             return False  # Not eliminated or no elimination data
         
         elimination_time = self.elimination_timestamps[hotkey]
-        return elimination_time <= target_date_ms  # Eliminated if elimination_time <= current_time
+        # Allow processing through elimination date, then stop after elimination day + 1
+        elimination_day_plus_1_ms = elimination_time + MS_IN_24_HOURS
+        return target_date_ms > elimination_day_plus_1_ms  # Skip only after elimination day + 1
     
     def filter_non_eliminated_positions(
         self, 
@@ -1760,6 +2435,11 @@ class EliminationTracker:
     ) -> Tuple[Dict[str, List[Position]], Dict[str, int]]:
         """
         Filter out positions from eliminated miners at the target date.
+        
+        Fixed behavior: 
+        - Process miners through elimination date (with positions)
+        - Process miners on elimination day + 1 (with empty positions for final row)
+        - Skip miners after elimination day + 1
         
         Returns:
             Tuple of (filtered_positions_by_hotkey, elimination_stats)
@@ -1776,19 +2456,27 @@ class EliminationTracker:
         }
         
         for hotkey, positions in positions_by_hotkey.items():
-            if self.is_hotkey_eliminated_at_date(hotkey, target_date_ms):
-                elimination_stats["eliminated_hotkeys"] += 1
-                elimination_stats["eliminated_hotkeys_list"].append(hotkey)
-                
+            if hotkey in self.elimination_timestamps:
                 elimination_time = self.elimination_timestamps[hotkey]
-                elimination_date = TimeUtil.millis_to_formatted_date_str(elimination_time)
-                bt.logging.debug(f"Skipping eliminated miner {hotkey[:16]}... (eliminated {elimination_date})")
+                elimination_day_plus_1_ms = elimination_time + MS_IN_24_HOURS
                 
-                # Do NOT add eliminated miners - skip them entirely
-                # This prevents adding rows after elimination date
-                # Original line was: filtered_positions[hotkey] = []
+                if target_date_ms > elimination_day_plus_1_ms:
+                    # Skip miners after elimination day + 1
+                    elimination_stats["eliminated_hotkeys"] += 1
+                    elimination_stats["eliminated_hotkeys_list"].append(hotkey)
+                    
+                    elimination_date = TimeUtil.millis_to_formatted_date_str(elimination_time)
+                    bt.logging.debug(f"Skipping eliminated miner {hotkey} (eliminated {elimination_date})")
+                    # Skip entirely - don't add to filtered_positions
+                elif target_date_ms == elimination_day_plus_1_ms:
+                    # Final row on elimination day + 1: empty positions (returns will default to 1.0)
+                    filtered_positions[hotkey] = []  # Empty positions for final row
+                    bt.logging.debug(f"Final row for eliminated miner {hotkey} (elimination day + 1)")
+                else:
+                    # Before elimination day + 1: include positions normally
+                    filtered_positions[hotkey] = positions
             else:
-                # Miner not eliminated, include their positions
+                # Not eliminated, include their positions
                 filtered_positions[hotkey] = positions
         
         return filtered_positions, elimination_stats
@@ -1816,6 +2504,375 @@ class EliminationTracker:
                 bt.logging.info(f"   Eliminated miners: {sample_str}")
         else:
             bt.logging.info(f"   Elimination Filtering: 0/{elimination_stats['total_hotkeys']} miners eliminated on {date_str}")
+
+
+def analyze_miners_with_orders(all_positions: Dict[str, List[Position]]) -> Dict[str, Dict[str, Any]]:
+    """Analyze miners to find their order date ranges.
+    
+    Args:
+        all_positions: Dict mapping hotkey -> list of positions
+        
+    Returns:
+        Dict mapping hotkey -> {first_order_date, last_order_date, missing_days}
+    """
+    miners_with_orders = {}
+    
+    bt.logging.info("Analyzing order data for all miners...")
+    
+    for hotkey, positions in all_positions.items():
+        order_timestamps = []
+        
+        for position in positions:
+            for order in position.orders:
+                order_timestamps.append(order.processed_ms)
+        
+        if order_timestamps:
+            first_order_ms = min(order_timestamps)
+            last_order_ms = max(order_timestamps)
+            
+            first_order_date = datetime.fromtimestamp(first_order_ms / 1000, tz=timezone.utc).strftime("%Y-%m-%d")
+            last_order_date = datetime.fromtimestamp(last_order_ms / 1000, tz=timezone.utc).strftime("%Y-%m-%d")
+            
+            # Note: Don't calculate missing_days here - it requires database lookup
+            # The actual missing days will be calculated in check_portfolio_coverage()
+            
+            miners_with_orders[hotkey] = {
+                "first_order_date": first_order_date,
+                "last_order_date": last_order_date
+            }
+    
+    return miners_with_orders
+
+
+def run_single_miner_backfill(hotkey: str, expected_days: int, shared_data_manager=None) -> int:
+    """
+    Run portfolio returns calculation for a single miner directly (no subprocess).
+    
+    Args:
+        hotkey: The miner hotkey to process
+        expected_days: Expected number of days to process
+        shared_data_manager: SharedDataManager with pre-loaded positions, eliminations, and portfolio data
+        
+    Returns:
+        Number of days processed (>= 0 for success, -1 for failure)
+    """
+    try:
+        # Use shared data if provided, otherwise load individually (less efficient)
+        if shared_data_manager and shared_data_manager.positions_loaded:
+            bt.logging.info(f"   📊 Using shared position data for {hotkey}...")
+            all_positions = {hotkey: shared_data_manager.all_positions.get(hotkey, [])}
+        else:
+            # Fall back to individual loading
+            bt.logging.info(f"   📊 Loading position data individually for {hotkey}...")
+            position_source_manager = PositionSourceManager(source_type=PositionSource.DATABASE)
+            all_positions = position_source_manager.load_positions(
+                start_time_ms=None,
+                end_time_ms=None,
+                hotkeys=[hotkey]
+            )
+        
+        if not all_positions or hotkey not in all_positions:
+            bt.logging.warning(f"   ⚠️  No positions found for {hotkey}")
+            return 0
+        
+        # Log position details
+        positions = all_positions[hotkey]
+        bt.logging.info(f"   📊 Found {len(positions)} positions with orders for {hotkey}")
+        
+        # Get order timestamps for better logging
+        first_order_ms = None
+        last_order_ms = None
+        total_orders = 0
+        
+        for position in positions:
+            if hasattr(position, 'orders') and position.orders:
+                total_orders += len(position.orders)
+                for order in position.orders:
+                    if hasattr(order, 'processed_ms') and order.processed_ms:
+                        if first_order_ms is None or order.processed_ms < first_order_ms:
+                            first_order_ms = order.processed_ms
+                        if last_order_ms is None or order.processed_ms > last_order_ms:
+                            last_order_ms = order.processed_ms
+        
+        if first_order_ms and last_order_ms:
+            first_order_date = TimeUtil.millis_to_formatted_date_str(first_order_ms)[:10]
+            last_order_date = TimeUtil.millis_to_formatted_date_str(last_order_ms)[:10]
+            bt.logging.info(f"   📊 Total orders: {total_orders} | First order: {first_order_date} | Last order: {last_order_date}")
+        else:
+            bt.logging.warning(f"   ⚠️  No orders found in {len(positions)} positions")
+        
+        # Use shared elimination tracker if provided (even if failed to load), otherwise create new one
+        if shared_data_manager and shared_data_manager.elimination_tracker:
+            elimination_tracker = shared_data_manager.elimination_tracker
+            if shared_data_manager.eliminations_loaded:
+                bt.logging.debug(f"   📋 Using shared elimination data")
+            else:
+                bt.logging.debug(f"   📋 Using shared elimination tracker (elimination data failed to load)")
+        else:
+            bt.logging.debug(f"   📋 Loading elimination data for {hotkey[:12]}...")
+            elimination_source = EliminationSource.DATABASE
+            elimination_tracker = EliminationTracker(elimination_source_type=elimination_source)
+            elimination_timestamps = elimination_tracker.load_all_eliminations(hotkeys=[hotkey])
+        
+        # Determine date bounds from positions
+        start_ms, end_ms = DateUtils.determine_date_bounds(all_positions)
+        
+        bt.logging.info(f"   🔄 Processing from {TimeUtil.millis_to_formatted_date_str(start_ms)} to {TimeUtil.millis_to_formatted_date_str(end_ms)}")
+        
+        # Use shared database manager if provided, otherwise create new one
+        if shared_data_manager and shared_data_manager.portfolio_data_loaded:
+            db_manager = shared_data_manager.db_manager
+            bt.logging.debug(f"   📋 Using shared database manager with portfolio cache")
+        else:
+            bt.logging.debug(f"   📋 Initializing new database manager for {hotkey[:12]}...")
+            try:
+                secrets = ValiUtils.get_secrets()
+                database_url = secrets.get('database_url') or secrets.get('db_ptn_editor_url')
+                if not database_url:
+                    database_url = get_database_url_from_config()
+                if not database_url:
+                    bt.logging.error("   ❌ No database URL available")
+                    return -1
+                
+                db_manager = DatabaseManager(database_url)
+            except Exception as e:
+                bt.logging.error(f"   ❌ Database initialization failed: {e}")
+                return -1
+        
+        # Get existing hotkey-date pairs for fine-grained skipping
+        start_date_str = datetime.fromtimestamp(start_ms / 1000, tz=timezone.utc).strftime('%Y-%m-%d')
+        end_date_str = datetime.fromtimestamp(end_ms / 1000, tz=timezone.utc).strftime('%Y-%m-%d')
+        
+        existing_hotkey_date_pairs = db_manager.get_existing_hotkey_date_pairs(
+            start_date_str, end_date_str, [hotkey]
+        )
+        
+        # Use shared price fetcher from shared_data_manager if available for efficiency
+        if shared_data_manager and hasattr(shared_data_manager, 'live_price_fetcher'):
+            live_price_fetcher = shared_data_manager.live_price_fetcher
+            bt.logging.debug(f"   📋 Using shared price fetcher (cached across miners)")
+        else:
+            # Initialize new price fetcher - get secrets 
+            try:
+                secrets = ValiUtils.get_secrets()
+            except Exception as e:
+                bt.logging.error(f"   ❌ Failed to get secrets for price fetcher: {e}")
+                return -1
+            
+            live_price_fetcher = LivePriceFetcher(secrets, disable_ws=True)
+            bt.logging.debug(f"   📋 Created new price fetcher for {hotkey[:12]}...")
+        
+        # Process each day
+        total_days = int((end_ms - start_ms) // MS_IN_24_HOURS) + 1
+        days_processed = 0
+        days_inserted = 0
+        
+        bt.logging.info(f"   📅 Total days in range: {total_days}")
+        bt.logging.info(f"   📋 Found {len(existing_hotkey_date_pairs)} existing hotkey-date pairs to skip")
+        
+        if existing_hotkey_date_pairs:
+            # Show sample of existing pairs
+            sample_pairs = list(existing_hotkey_date_pairs)[:3]
+            for hk, date_str in sample_pairs:
+                if hk == hotkey:
+                    bt.logging.info(f"      Will skip: {date_str} (already exists)")
+            if len([p for p in existing_hotkey_date_pairs if p[0] == hotkey]) > 3:
+                bt.logging.info(f"      ... and more existing dates")
+        
+        for day_offset in range(total_days):
+            current_time_ms = start_ms + (day_offset * MS_IN_24_HOURS)
+            current_date = datetime.fromtimestamp(current_time_ms / 1000, tz=timezone.utc)
+            current_date_str = current_date.strftime('%Y-%m-%d')
+            
+            # Skip if this hotkey-date pair already exists (fine-grained checking)
+            if (hotkey, current_date_str) in existing_hotkey_date_pairs:
+                bt.logging.debug(f"   ⏭️  Skipping {current_date_str} - already exists for {hotkey[:12]}...")
+                continue
+            
+            # Filter positions for non-eliminated miners at this date
+            # Use end of day for elimination filtering to be consistent
+            elimination_cutoff_ms = current_time_ms + MS_IN_24_HOURS
+            filtered_positions, elim_stats = elimination_tracker.filter_non_eliminated_positions(
+                all_positions, elimination_cutoff_ms
+            )
+            
+            if not filtered_positions or hotkey not in filtered_positions:
+                bt.logging.debug(f"   ⏭️  No positions or eliminated for {hotkey[:12]}... on {current_date_str}")
+                continue
+            
+            bt.logging.debug(f"   ⚡ Processing {current_date_str} for {hotkey[:12]}...")
+            days_processed += 1
+            
+            # Calculate portfolio returns for this date
+            calculator = PortfolioCalculator(filtered_positions, live_price_fetcher)
+            daily_returns = calculator.calculate_daily_returns(current_date)
+            
+            if daily_returns:
+                # Insert returns for this date
+                success = db_manager.insert_daily_returns(
+                    daily_returns, current_date, skip_duplicates=True
+                )
+                if success:
+                    days_inserted += 1
+                    bt.logging.debug(f"   ✅ Inserted {len(daily_returns)} returns for {current_date_str}")
+                else:
+                    bt.logging.warning(f"   ❌ Failed to insert returns for {current_date_str}")
+            else:
+                bt.logging.warning(f"   ⚠️  No returns calculated for {current_date_str}")
+            
+            if days_processed % 20 == 0:  # Progress every 20 days
+                bt.logging.info(f"   📊 Progress: {days_processed} processed, {days_inserted} inserted")
+        
+        bt.logging.info(f"   ✨ Completed! Processed {days_processed} days, inserted {days_inserted} new records")
+        return days_processed
+        
+    except Exception as e:
+        bt.logging.error(f"   ❌ Error processing {hotkey}: {e}")
+        return -1
+
+
+def run_automated_backfill(miners_with_orders: Dict[str, Dict[str, Any]], shared_data_manager: SharedDataManager = None,
+                           dry_run: bool = False) -> Dict[str, Any]:
+    """Run automated backfill process for miners with missing data.
+
+    Args:
+        miners_with_orders: Dict mapping hotkey -> {first_order_date, last_order_date, missing_days}
+        shared_data_manager: SharedDataManager with pre-loaded data for efficient processing
+        dry_run: If True, only show what would be done without executing
+
+    Returns:
+        Dict with backfill results
+    """
+
+
+    if not miners_with_orders:
+        bt.logging.info("✅ No miners need backfill - all portfolio data is up to date!")
+        return {"successful": [], "failed": [], "total_days_backfilled": 0}
+
+    bt.logging.info("=" * 80)
+    bt.logging.info("AUTOMATED PORTFOLIO BACKFILL")
+    bt.logging.info("=" * 80)
+    bt.logging.info(f"Found {len(miners_with_orders)} miners needing backfill")
+
+    if dry_run:
+        raise Exception
+
+    bt.logging.info("🚀 Starting automated backfill process...")
+    bt.logging.info("Processing miners serially to avoid database conflicts...")
+
+    # Use shared data manager if provided (more efficient), otherwise fall back to individual loading
+    if shared_data_manager:
+        bt.logging.info("📋 Using shared data manager for efficient processing...")
+        global_shared_data_manager = shared_data_manager
+        all_elimination_timestamps = shared_data_manager.elimination_tracker.elimination_timestamps if shared_data_manager.elimination_tracker else {}
+        bt.logging.info(f"✅ Using cached data for {len(all_elimination_timestamps)} eliminated miners")
+    else:
+        bt.logging.info("📋 Loading elimination data individually (less efficient)...")
+        try:
+            elimination_source = EliminationSource.DATABASE
+            global_elimination_tracker = EliminationTracker(elimination_source_type=elimination_source)
+            # Load ALL elimination data (no filtering by hotkey - it's small)
+            all_elimination_timestamps = global_elimination_tracker.load_all_eliminations(hotkeys=None)
+            bt.logging.info(f"✅ Cached elimination data for {len(all_elimination_timestamps)} miners")
+            # Create a minimal shared data manager for compatibility
+            global_shared_data_manager = type('MockSharedDataManager', (), {
+                'elimination_tracker': global_elimination_tracker,
+                'eliminations_loaded': True
+            })()
+        except Exception as e:
+            bt.logging.error(f"❌ Failed to load elimination data: {e}")
+            bt.logging.error(
+                "Elimination data is required for accurate portfolio calculations. Cannot continue auto-backfill.")
+            raise RuntimeError(f"Auto-backfill requires elimination data: {e}")
+
+    successful_backfills = []
+    failed_backfills = []
+    total_days_backfilled = 0
+
+    bt.logging.info("📋 Processing ALL miners with missing data (no filtering applied)")
+    bt.logging.info(f"🚀 Immediate write processing: Calculate and write each of {len(miners_with_orders)} miners immediately")
+
+    # Process each miner and write immediately
+    bt.logging.info("📊 Processing miners with immediate writes...")
+    total_start = time.time()
+    
+    # Get database manager from shared data
+    db_manager = global_shared_data_manager.db_manager
+    
+    for i, (hotkey, info) in enumerate(miners_with_orders.items(), 1):
+        bt.logging.info(f"📊 [{i}/{len(miners_with_orders)}] Processing {hotkey}...")
+        miner_start_time = time.time()
+
+        # Use the same main processing logic but don't collect - directly insert
+        single_hotkey_positions = {hotkey: global_shared_data_manager.all_positions.get(hotkey, [])}
+
+        # Fast fail on any error - no exception masking
+        # Use collect_only=False to directly insert into database
+        days_processed = process_miner_with_main_logic(
+            single_hotkey_positions,
+            [hotkey],
+            global_shared_data_manager,
+            dry_run=dry_run,
+            collect_only=False  # Write immediately instead of collecting
+        )
+
+        elapsed_time = time.time() - miner_start_time
+        
+        # Get price source statistics for detailed logging
+        price_stats = global_shared_data_manager.get_miner_price_stats()
+        
+        bt.logging.info(f"✅ [{i}/{len(miners_with_orders)}] {hotkey}: {days_processed} days processed and written in {elapsed_time:.1f}s "
+                       f"({price_stats['cache_hits']} days cached, {price_stats['live_fetches']} days live-fetched)")
+        
+        # Track statistics
+        if days_processed > 0:
+            successful_backfills.append({
+                "hotkey": hotkey,
+                "days_processed": days_processed,
+                "output_sample": f"Processed and written in {elapsed_time:.1f}s"
+            })
+            total_days_backfilled += days_processed
+        else:
+            bt.logging.warning(f"⚠️  No days processed for {hotkey}")
+
+    total_time = time.time() - total_start
+    bt.logging.info(f"✅ All miners completed in {total_time:.1f}s with immediate writes")
+
+    # Print summary
+    bt.logging.info("")
+    bt.logging.info("=" * 80)
+    bt.logging.info("OPTIMIZED BATCH BACKFILL SUMMARY")
+    bt.logging.info("=" * 80)
+    bt.logging.info(f"Total Miners Processed: {len(miners_with_orders)}")
+    bt.logging.info(f"✅ Successful: {len(successful_backfills)}")
+    bt.logging.info(f"❌ Failed: {len(failed_backfills)}")
+    bt.logging.info(f"📊 Total Records Processed: {total_days_backfilled}")
+    if not dry_run and total_days_backfilled > 0:
+        bt.logging.info(f"🚀 Database Optimization: Used single bulk insert instead of {len(miners_with_orders)} individual inserts")
+        bt.logging.info(f"⚡ Performance: Reduced database calls by {len(miners_with_orders)-1}x ({len(miners_with_orders)} → 1 calls)")
+    bt.logging.info("")
+
+    if successful_backfills:
+        bt.logging.info("✅ SUCCESSFUL BACKFILLS:")
+        for success in successful_backfills[:10]:  # Show first 10 to avoid spam
+            bt.logging.info(f"  {success['hotkey']} - {success['days_processed']} records - {success['output_sample']}")
+        if len(successful_backfills) > 10:
+            bt.logging.info(f"  ... and {len(successful_backfills) - 10} more successful backfills")
+
+    if failed_backfills:
+        bt.logging.info("")
+        bt.logging.info("❌ FAILED BACKFILLS:")
+        for failure in failed_backfills:
+            bt.logging.info(f"{failure['hotkey']} - {failure['error']}")
+
+    bt.logging.info("")
+    bt.logging.info("=" * 80)
+
+    return {
+        "successful": successful_backfills,
+        "failed": failed_backfills,
+        "total_days_backfilled": total_days_backfilled
+    }
 
 
 def parse_args():
@@ -1867,18 +2924,6 @@ def parse_args():
         help="Database connection string (if not provided, will read from config-development.json or secrets)",
     )
     parser.add_argument(
-        "--skip-existing",
-        action="store_true",
-        default=True,
-        help="Skip dates that already exist in database (default: True)",
-    )
-    parser.add_argument(
-        "--skip-existing-fine",
-        action="store_true",
-        default=True,
-        help="Skip individual hotkey-date pairs that already exist (fine-grained duplicate check)",
-    )
-    parser.add_argument(
         "--save-csv",
         action="store_true",
         help="Save results to CSV file (in addition to or instead of database)",
@@ -1887,6 +2932,16 @@ def parse_args():
         "--diagnostic-mode",
         action="store_true",
         help="Run in diagnostic mode to detect missing days and miners without processing",
+    )
+    parser.add_argument(
+        "--auto-backfill",
+        action="store_true",
+        help="Automatically detect and backfill missing portfolio data for all miners",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Show what would be backfilled without actually processing (use with --auto-backfill)",
     )
     return parser.parse_args()
 
@@ -1934,6 +2989,43 @@ def main():
         bt.logging.info(f"✓ Elimination filtering enabled: {len(elimination_timestamps)} miners have eliminations on record")
     else:
         bt.logging.info("ℹ Elimination filtering disabled: No elimination data available or failed to load")
+    
+    # Handle auto-backfill mode
+    if args.auto_backfill:
+        bt.logging.info("🚀 Running automated backfill mode...")
+        
+        # Analyze miners with orders to determine what needs backfilling
+        miners_with_orders = analyze_miners_with_orders(all_positions)
+        
+        bt.logging.info(f"Found {len(miners_with_orders)} miners with orders. Checking portfolio coverage...")
+        
+        # Initialize shared data manager for efficient backfill processing
+        database_url = args.database_url
+        if not database_url:
+            database_url = get_database_url_from_config()
+        if not database_url:
+            try:
+                secrets = ValiUtils.get_secrets()
+                database_url = secrets.get('database_url') or secrets.get('db_ptn_editor_url')
+            except Exception as e:
+                bt.logging.debug(f"Could not get database URL from ValiUtils secrets: {e}")
+
+        if not database_url:
+            bt.logging.error("No database URL available for automated backfill. Use --database-url argument.")
+            return
+
+        # Initialize SharedDataManager with all data loaded at once
+        bt.logging.info("🚀 Initializing shared data manager for efficient backfill processing...")
+        shared_data_manager = SharedDataManager(database_url, hotkeys=hotkeys)
+        shared_data_manager.initialize_all_data(elimination_source=getattr(EliminationSource, args.elimination_source))
+
+
+        # Run automated backfill with shared data manager
+        backfill_results = run_automated_backfill(miners_with_orders, shared_data_manager, dry_run=args.dry_run)
+
+        bt.logging.info("🎯 Automated backfill process completed!")
+        return
+
     
     # Handle diagnostic mode
     if args.diagnostic_mode:
@@ -2050,26 +3142,19 @@ def main():
             start_date_str = datetime.fromtimestamp(start_ms / 1000, tz=timezone.utc).strftime('%Y-%m-%d')
             end_date_str = datetime.fromtimestamp(end_ms / 1000, tz=timezone.utc).strftime('%Y-%m-%d')
             
-            if args.skip_existing_fine:
-                # Get existing hotkey-date pairs for fine-grained skipping
-                existing_hotkey_date_pairs = db_manager.get_existing_hotkey_date_pairs(
-                    start_date_str, end_date_str, hotkeys
-                )
-                
-                if existing_hotkey_date_pairs:
-                    bt.logging.info(f"Found {len(existing_hotkey_date_pairs)} existing hotkey-date pairs")
-                    # Show sample of what will be skipped
-                    sample_pairs = list(existing_hotkey_date_pairs)[:3]
-                    for hotkey, date in sample_pairs:
-                        bt.logging.info(f"  Will skip: {hotkey[:12]}... on {date}")
-                    if len(existing_hotkey_date_pairs) > 3:
-                        bt.logging.info(f"  ... and {len(existing_hotkey_date_pairs) - 3} more pairs")
-            elif args.skip_existing:
-                # Get existing dates in batch upfront (old behavior)
-                existing_dates = db_manager.get_existing_dates(start_date_str, end_date_str)
-                
-                if existing_dates:
-                    bt.logging.info(f"Will skip {len(existing_dates)} existing dates: {sorted(list(existing_dates))[:5]}{'...' if len(existing_dates) > 5 else ''}")
+            # Get existing hotkey-date pairs for fine-grained duplicate checking
+            existing_hotkey_date_pairs = db_manager.get_existing_hotkey_date_pairs(
+                start_date_str, end_date_str, hotkeys
+            )
+            
+            if existing_hotkey_date_pairs:
+                bt.logging.info(f"Found {len(existing_hotkey_date_pairs)} existing hotkey-date pairs")
+                # Show sample of what will be skipped
+                sample_pairs = list(existing_hotkey_date_pairs)[:3]
+                for hotkey, date in sample_pairs:
+                    bt.logging.info(f"  Will skip: {hotkey[:12]}... on {date}")
+                if len(existing_hotkey_date_pairs) > 3:
+                    bt.logging.info(f"  ... and {len(existing_hotkey_date_pairs) - 3} more pairs")
         else:
             if not args.save_csv:
                 bt.logging.error("No database URL available and --save-csv not specified")
@@ -2103,28 +3188,25 @@ def main():
         day_counter += 1
         current_date = datetime.fromtimestamp(current_ms / 1000, tz=timezone.utc)
         current_date_utc_str = current_date.strftime('%Y-%m-%d %H:%M:%S UTC')
-        current_date_short = current_date.strftime('%Y-%m-%d')
         
-        bt.logging.info(f"=== Processing date: {current_date_short} ({current_date_utc_str}) [{day_counter}/{total_days}] ===")
+        # Calculate date string ONCE at the start of each day's processing
+        current_date_str = current_date.strftime('%Y-%m-%d')
         
-        # Check if this date already exists in database (coarse-grained check)
-        if not args.skip_existing_fine and current_date_short in existing_dates:
-            bt.logging.info(f"⏭️  Skipping {current_date_short} - already exists in database")
-            current_ms += MS_IN_24_HOURS
-            continue
+        bt.logging.info(f"=== Processing date: {current_date_str} ({current_date_utc_str}) [{day_counter}/{total_days}] ===")
+        
         
         try:
-            # Step 1: Filter positions and identify trade pairs needing prices in single pass
-            filtered_positions_by_hotkey, trade_pairs_needing_prices, skip_stats = PositionFilter.filter_and_analyze_positions(
-                all_positions, current_ms
+            # Step 1: Filter positions and identify required trade pairs using date string
+            filtered_positions_by_hotkey, required_trade_pair_ids, skip_stats = PositionFilter.filter_and_analyze_positions_for_date(
+                all_positions, current_ms, current_date_str
             )
             
             # Log filtering statistics
-            Logger.log_filtering_stats(current_date_short, skip_stats)
+            Logger.log_filtering_stats(current_date_str, skip_stats)
             
             if not filtered_positions_by_hotkey:
                 day_elapsed_time = time.time() - day_start_time
-                bt.logging.info(f"No valid positions remaining after filtering on {current_date_short} UTC, skipping... (took {day_elapsed_time:.2f}s)")
+                bt.logging.info(f"No valid positions remaining after filtering on {current_date_str} UTC, skipping... (took {day_elapsed_time:.2f}s)")
                 current_ms += MS_IN_24_HOURS
                 continue
             
@@ -2134,34 +3216,63 @@ def main():
             )
             
             # Log elimination filtering statistics
-            elimination_tracker.log_elimination_filtering_stats(current_date_short, elimination_stats)
+            elimination_tracker.log_elimination_filtering_stats(current_date_str, elimination_stats)
             
             if not filtered_positions_by_hotkey:
                 day_elapsed_time = time.time() - day_start_time
-                bt.logging.info(f"No valid positions remaining after elimination filtering on {current_date_short} UTC, skipping... (took {day_elapsed_time:.2f}s)")
+                bt.logging.info(f"No valid positions remaining after elimination filtering on {current_date_str} UTC, skipping... (took {day_elapsed_time:.2f}s)")
                 current_ms += MS_IN_24_HOURS
                 continue
             
-            bt.logging.info(f"Found {len(filtered_positions_by_hotkey)} active miners with {sum(len(positions) for positions in filtered_positions_by_hotkey.values())} valid positions on {current_date_short} UTC")
+            bt.logging.info(f"Found {len(filtered_positions_by_hotkey)} active miners with {sum(len(positions) for positions in filtered_positions_by_hotkey.values())} valid positions on {current_date_str} UTC")
             
-            if not trade_pairs_needing_prices:
-                bt.logging.info(f"No open positions needing prices on {current_date_short} UTC, using closed position returns...")
+            # Step 2: Get prices using smart caching strategy
+            if not required_trade_pair_ids:
+                bt.logging.info(f"No open positions needing prices on {current_date_str} UTC, using closed position returns...")
+                cached_price_sources = {}  # Empty dict but not None
             else:
-                bt.logging.info(f"Need to fetch prices for {len(trade_pairs_needing_prices)} trade pairs: {[tp.trade_pair for tp in trade_pairs_needing_prices]}")
-            
-            # Step 2: Multi-threaded price fetching for all required trade pairs
-            price_fetcher = PriceFetcher(live_price_fetcher, max_workers=args.max_workers)
-            try:
-                cached_price_sources = price_fetcher.fetch_multiple_price_sources(
-                    trade_pairs_needing_prices, current_ms
-                )
-                bt.logging.info(f"✓ Successfully completed price fetching for {current_date_short} UTC")
+                bt.logging.info(f"Need prices for {len(required_trade_pair_ids)} trade pairs on {current_date_str}")
                 
-            except Exception as e:
-                day_elapsed_time = time.time() - day_start_time
-                bt.logging.error(f"✗ CRITICAL ERROR: Failed to fetch prices for {current_date_short} UTC: {e} (took {day_elapsed_time:.2f}s)")
-                bt.logging.error("Stopping script execution due to price fetching failure")
-                raise RuntimeError(f"Price fetching failed for date {current_date_short}: {e}") from e
+                # Initialize shared data manager if not already available
+                if not hasattr(args, 'shared_data_manager') or not args.shared_data_manager:
+                    # Create a basic shared data manager for price caching
+                    from vali_objects.utils.vali_utils import ValiUtils
+                    secrets = ValiUtils.get_secrets()
+                    temp_shared_manager = type('TempSharedManager', (), {
+                        'price_source_cache': {},
+                        'price_cache_hits': 0,
+                        'price_cache_misses': 0,
+                        'live_price_fetcher': live_price_fetcher,
+                        'get_cache_statistics': lambda self: {
+                            'hit_rate': self.price_cache_hits / (self.price_cache_hits + self.price_cache_misses) * 100 
+                                       if (self.price_cache_hits + self.price_cache_misses) > 0 else 0,
+                            'total_price_sources_cached': sum(len(p) for p in self.price_source_cache.values())
+                        }
+                    })()
+                    args.shared_data_manager = temp_shared_manager
+                
+                try:
+                    # Use smart caching strategy with date string
+                    cached_price_sources = get_cached_or_fetch_price_sources(
+                        args.shared_data_manager,
+                        current_date_str,  # Pass the pre-calculated date string
+                        current_ms,
+                        required_trade_pair_ids
+                    )
+                    
+                    # Log cache performance periodically
+                    if day_counter % 10 == 0:
+                        stats = args.shared_data_manager.get_cache_statistics()
+                        bt.logging.info(f"📊 Price cache performance: {stats['hit_rate']:.1f}% hit rate, "
+                                       f"{stats['total_price_sources_cached']} cached prices")
+                    
+                    bt.logging.info(f"✓ Successfully got prices for {current_date_str} UTC")
+                    
+                except Exception as e:
+                    day_elapsed_time = time.time() - day_start_time
+                    bt.logging.error(f"✗ CRITICAL ERROR: Failed to get prices for {current_date_str} UTC: {e} (took {day_elapsed_time:.2f}s)")
+                    bt.logging.error("Stopping script execution due to price fetching failure")
+                    raise RuntimeError(f"Price fetching failed for date {current_date_str}: {e}") from e
             
             # Step 3: Calculate returns for each miner using categorized approach
             # Flatten all positions for category-based calculation
@@ -2179,8 +3290,8 @@ def main():
                 miner_category_returns, current_date
             )
             
-            # Filter out existing hotkey-date pairs if fine-grained skipping is enabled
-            if args.skip_existing_fine and existing_hotkey_date_pairs:
+            # Filter out existing hotkey-date pairs (fine-grained duplicate checking)
+            if existing_hotkey_date_pairs:
                 original_count = len(daily_returns)
                 daily_returns = [
                     dr for dr in daily_returns 
@@ -2188,9 +3299,9 @@ def main():
                 ]
                 skipped_count = original_count - len(daily_returns)
                 if skipped_count > 0:
-                    bt.logging.info(f"⏭️  Filtered out {skipped_count} existing hotkey-date pairs for {current_date_short}")
+                    bt.logging.info(f"⏭️  Filtered out {skipped_count} existing hotkey-date pairs for {current_date_str}")
                 if not daily_returns:
-                    bt.logging.info(f"All {original_count} miners already have data for {current_date_short}, skipping...")
+                    bt.logging.info(f"All {original_count} miners already have data for {current_date_str}, skipping...")
                     current_ms += MS_IN_24_HOURS
                     continue
             
@@ -2230,7 +3341,7 @@ def main():
                         daily_stats.extreme_returns['worst'] = (hotkey, return_pct)
                     
                 except Exception as e:
-                    bt.logging.error(f"Failed to calculate return for {hotkey} on {current_date_short} UTC: {e}")
+                    bt.logging.error(f"Failed to calculate return for {hotkey} on {current_date_str} UTC: {e}")
                     daily_stats.failed_miners += 1
                     continue
             
@@ -2241,13 +3352,13 @@ def main():
                 success = db_manager.insert_daily_returns(
                     daily_returns, 
                     current_date,
-                    skip_duplicates=args.skip_existing_fine
+                    skip_duplicates=True
                 )
                 if success:
-                    bt.logging.info(f"💾 Successfully saved {len(daily_returns)} returns to database for {current_date_short}")
+                    bt.logging.info(f"💾 Successfully saved {len(daily_returns)} returns to database for {current_date_str}")
                 else:
-                    bt.logging.error(f"Failed to save returns to database for {current_date_short}")
-                    raise RuntimeError(f"Database insertion failed for {current_date_short}")
+                    bt.logging.error(f"Failed to save returns to database for {current_date_str}")
+                    raise RuntimeError(f"Database insertion failed for {current_date_str}")
                 
                 # Also save to CSV if requested (convert back to simple format for CSV compatibility)
                 if args.save_csv and results is not None:
@@ -2272,21 +3383,21 @@ def main():
                     })
             else:
                 # No valid output method
-                bt.logging.error(f"No valid output method configured for {current_date_short}")
+                bt.logging.error(f"No valid output method configured for {current_date_str}")
                 raise RuntimeError("No database connection and CSV output not enabled")
             
             # Log comprehensive daily summary
-            Logger.log_daily_summary(current_date_short, daily_stats)
+            Logger.log_daily_summary(current_date_str, daily_stats)
             
             # Log day processing time
             day_elapsed_time = time.time() - day_start_time
-            bt.logging.info(f"✓ Completed processing {current_date_short} UTC (took {day_elapsed_time:.2f}s)\n")
+            bt.logging.info(f"✓ Completed processing {current_date_str} UTC (took {day_elapsed_time:.2f}s)\n")
             
         except Exception as e:
             day_elapsed_time = time.time() - day_start_time
-            bt.logging.error(f"✗ CRITICAL ERROR: Failed to process date {current_date_short} UTC: {e} (took {day_elapsed_time:.2f}s)")
+            bt.logging.error(f"✗ CRITICAL ERROR: Failed to process date {current_date_str} UTC: {e} (took {day_elapsed_time:.2f}s)")
             bt.logging.error("Stopping script execution due to date processing failure")
-            raise RuntimeError(f"Date processing failed for {current_date_short}: {e}") from e
+            raise RuntimeError(f"Date processing failed for {current_date_str}: {e}") from e
         
         # Move to next day
         current_ms += MS_IN_24_HOURS
@@ -2325,5 +3436,8 @@ def main():
 
 
 if __name__ == "__main__":
-    bt.logging.enable_info()
+    # Prevent duplicate logging setup
+    if not hasattr(bt.logging._logger, '_handlers_configured'):
+        bt.logging.enable_info()
+        bt.logging._logger._handlers_configured = True
     main()
