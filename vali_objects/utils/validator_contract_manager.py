@@ -51,17 +51,20 @@ class ValidatorContractManager:
         else:
             bt.logging.info("Config in contract manager is None")
             self.is_testnet = False
-        
+
         if self.is_testnet:
             bt.logging.info("Using testnet collateral manager")
             self.collateral_manager = CollateralManager(Network.TESTNET)
         else:
             bt.logging.info("Using mainnet collateral manager")
             self.collateral_manager = CollateralManager(Network.MAINNET)
-        
-        # Load contract owner credentials from environment or config
-        if self.is_mothership:
-            self._load_contract_owner_credentials()
+
+        # GCP secret manager
+        self._gcp_secret_manager_client = None
+        # Initialize vault wallet as None for all validators
+        self.vault_wallet = None
+        # Initialize vault password as None for all validators
+        self.vault_password = None
 
         # Initialize miner account sizes file location
         self.MINER_ACCOUNT_SIZES_FILE = ValiBkpUtils.get_miner_account_sizes_file_location(running_unit_tests=running_unit_tests)
@@ -69,12 +72,12 @@ class ValidatorContractManager:
         # Load existing data from disk or initialize empty
         self.miner_account_sizes: Dict[str, List[CollateralRecord]] = {}
         self._load_miner_account_sizes_from_disk()
-    
+
     @property
     def max_theta(self) -> float:
         """
         Get the current maximum collateral balance limit in theta tokens.
-        
+
         Returns:
             float: Maximum balance limit based on network type and current date
         """
@@ -82,8 +85,8 @@ class ValidatorContractManager:
             return ValiConfig.MAX_COLLATERAL_BALANCE_TESTNET
         else:
             return ValiConfig.MAX_COLLATERAL_BALANCE_THETA.value()
-        
-    def _load_contract_owner_credentials(self):
+
+    def load_contract_owner_credentials(self):
         """
         Load EVM contract owner credentials from secrets.json file.
         This validator must be authorized to execute collateral operations.
@@ -163,12 +166,12 @@ class ValidatorContractManager:
                     if isinstance(record_data, dict) and all(key in record_data for key in ["account_size", "update_time_ms"]):
                         record = CollateralRecord(record_data["account_size"], record_data["update_time_ms"])
                         parsed_records.append(record)
-                
+
                 if parsed_records:  # Only add if we have valid records
                     parsed_dict[hotkey] = parsed_records
             except Exception as e:
                 bt.logging.warning(f"Failed to parse account size records for {hotkey}: {e}")
-        
+
         return parsed_dict
 
     def sync_miner_account_sizes_data(self, account_sizes_data: Dict[str, List[Dict[str, Any]]]):
@@ -186,7 +189,7 @@ class ValidatorContractManager:
         except Exception as e:
             bt.logging.error(f"Failed to sync miner account sizes data: {e}")
 
-    def get_theta_token_price(self) -> float:
+    def _get_gcp_vault_password(self, secrets: dict) -> Optional[str]:
         """
         Get vault password from Google Cloud Secret Manager with fallback to local secrets.
 
@@ -289,7 +292,7 @@ class ValidatorContractManager:
                         "successfully_processed": False,
                         "error_message": "Miner has open positions, please close all positions before depositing or withdrawing collateral"
                     }
-                
+
                 bt.logging.info(f"Processing deposit for: {deposit_amount_theta} Theta to miner: {miner_hotkey}")
                 deposited_balance = self.collateral_manager.deposit(
                     extrinsic=extrinsic,
@@ -300,7 +303,8 @@ class ValidatorContractManager:
                     owner_private_key=self.owner_private_key,
                     wallet_password=self.vault_password
                 )
-                bt.logging.info(f"Deposit successful: {self.rao_to_theta(deposited_balance.rao)} Theta deposited to miner: {miner_hotkey}")
+
+                bt.logging.info(f"Deposit successful: {self.to_theta(deposited_balance.rao)} Theta deposited to miner: {miner_hotkey}")
                 self.set_miner_account_size(miner_hotkey, TimeUtil.now_in_millis())
                 return {
                     "successfully_processed": True,
@@ -382,12 +386,6 @@ class ValidatorContractManager:
                         "error_message": "Miner has open positions, please close all positions before depositing or withdrawing collateral"
                     }
 
-                stake_list = self.collateral_manager.subtensor_api.staking.get_stake_for_coldkey(vault_wallet.coldkeypub.ss58_address)
-                vault_stake = next(
-                    (stake for stake in stake_list if stake.hotkey_ss58 == vault_wallet.hotkey.ss58_address),
-                    None
-                )
-
                 bt.logging.info(f"Processing withdrawal request from {miner_hotkey} for {amount} Theta")
                 withdrawn_balance = self.collateral_manager.withdraw(
                     amount=int(amount * 10**9), # convert theta to rao_theta
@@ -399,7 +397,7 @@ class ValidatorContractManager:
                     owner_private_key=self.owner_private_key,
                     wallet_password=self.vault_password
                 )
-                returned_theta = self.rao_to_theta(withdrawn_balance.rao)
+                returned_theta = self.to_theta(withdrawn_balance.rao)
                 bt.logging.info(f"Withdrawal successful: {returned_theta} Theta withdrawn for {miner_hotkey}, returned to {miner_coldkey}")
                 self.set_miner_account_size(miner_hotkey, TimeUtil.now_in_millis())
                 return {
@@ -539,7 +537,7 @@ class ValidatorContractManager:
         except Exception as e:
             bt.logging.error(f"Failed to execute slashing for {miner_hotkey}: {e}")
             return False
-    
+
     def get_miner_collateral_balance(self, miner_address: str) -> Optional[float]:
         """
         Get a miner's current collateral balance in theta tokens.
@@ -589,13 +587,13 @@ class ValidatorContractManager:
         if collateral_balance is None:
             bt.logging.warning(f"Could not retrieve collateral balance for {hotkey}")
             return
-            
+
         account_size = collateral_balance * ValiConfig.COST_PER_THETA
         collateral_record = CollateralRecord(account_size, timestamp_ms)
 
         if hotkey not in self.miner_account_sizes:
             self.miner_account_sizes[hotkey] = []
-        
+
         # Add the new record
         self.miner_account_sizes[hotkey].append(collateral_record)
 
@@ -634,10 +632,10 @@ class ValidatorContractManager:
             .replace(hour=0, minute=0, second=0, microsecond=0)
             .timestamp() * 1000
         )
-        
+
         # Sort records in reverse chronological order (newest first)
         sorted_records = sorted(self.miner_account_sizes[hotkey], key=lambda r: r.update_time_ms, reverse=True)
-        
+
         # Return the first record that is valid for or before the requested day
         for record in sorted_records:
             if record.valid_date_timestamp <= start_of_day_ms:
