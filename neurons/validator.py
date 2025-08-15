@@ -145,7 +145,7 @@ class Validator:
 
         # Wallet holds cryptographic information, ensuring secure transactions and communication.
         self.wallet = bt.wallet(config=self.config)
-        
+
         # Initialize Slack notifier for error reporting
         self.slack_notifier = SlackNotifier(
             hotkey=self.wallet.hotkey.ss58_address,
@@ -153,11 +153,11 @@ class Validator:
             error_webhook_url=getattr(self.config, 'slack_error_webhook_url', None),
             is_miner=False  # This is a validator
         )
-        
+
         # Track last error notification time to prevent spam
         self.last_error_notification_time = 0
         self.error_notification_cooldown = 300  # 5 minutes between error notifications
-        
+
         bt.logging.info(f"Wallet: {self.wallet}")
 
         # metagraph provides the network's current state, holding state about other participants in a subnet.
@@ -166,23 +166,27 @@ class Validator:
 
         # Create single weight request queue (validator only)
         weight_request_queue = self.ipc_manager.Queue()
-        
+
         # Create MetagraphUpdater which manages the subtensor connection
         self.metagraph_updater = MetagraphUpdater(self.config, self.metagraph, self.wallet.hotkey.ss58_address,
                                                   False, position_manager=None,
                                                   shutdown_dict=shutdown_dict,
                                                   slack_notifier=self.slack_notifier,
                                                   weight_request_queue=weight_request_queue)
-        
+
         # We don't store a reference to subtensor; instead use the getter from MetagraphUpdater
         # This ensures we always have the current subtensor instance even after round-robin switches
         bt.logging.info(f"Subtensor: {self.metagraph_updater.get_subtensor()}")
-        
+
         # Start the metagraph updater and wait for initial population
         self.metagraph_updater_thread = self.metagraph_updater.start_and_wait_for_initial_update(
             max_wait_time=60,
             slack_notifier=self.slack_notifier
         )
+
+        # Initialize ValidatorContractManager for collateral operations
+        self.contract_manager = ValidatorContractManager(config=self.config, metagraph=self.metagraph, position_manager=None)
+
 
         self.elimination_manager = EliminationManager(self.metagraph, None,  # Set after self.pm creation
                                                       None, shutdown_dict=shutdown_dict,
@@ -207,7 +211,8 @@ class Validator:
         self.perf_ledger_manager = PerfLedgerManager(self.metagraph, ipc_manager=self.ipc_manager,
                                                      shutdown_dict=shutdown_dict,
                                                      perf_ledger_hks_to_invalidate=self.position_syncer.perf_ledger_hks_to_invalidate,
-                                                     position_manager=None)  # Set after self.pm creation
+                                                     position_manager=None)  # Set after self.pm creation)
+        self.perf_ledger_manager.contract_manager = self.contract_manager
 
 
         self.position_manager = PositionManager(metagraph=self.metagraph,
@@ -229,7 +234,8 @@ class Validator:
 
         # Attach the position manager to the other objects that need it
         for idx, obj in enumerate([self.perf_ledger_manager, self.position_manager, self.position_syncer,
-                                   self.p2p_syncer, self.elimination_manager, self.metagraph_updater]):
+                                   self.p2p_syncer, self.elimination_manager, self.metagraph_updater,
+                                   self.contract_manager]):
             obj.position_manager = self.position_manager
 
         self.position_manager.challengeperiod_manager = self.challengeperiod_manager
@@ -348,33 +354,30 @@ class Validator:
 
         self.mdd_checker = MDDChecker(self.metagraph, self.position_manager, live_price_fetcher=self.live_price_fetcher,
                                       shutdown_dict=shutdown_dict, compaction_enabled=True)
-        
+
         self.weight_setter = SubtensorWeightSetter(
-            self.metagraph, 
+            self.metagraph,
             position_manager=self.position_manager,
             slack_notifier=self.slack_notifier,
             shutdown_dict=shutdown_dict,
             weight_request_queue=weight_request_queue  # Same queue as MetagraphUpdater
         )
 
-        self.request_core_manager = RequestCoreManager(self.position_manager, self.weight_setter, self.plagiarism_detector)
+        self.request_core_manager = RequestCoreManager(self.position_manager, self.weight_setter, self.plagiarism_detector, self.contract_manager)
         self.miner_statistics_manager = MinerStatisticsManager(self.position_manager, self.weight_setter, self.plagiarism_detector)
 
         # Start the perf ledger updater loop in its own process. Make sure it happens after the position manager has chances to make any fixes
         self.perf_ledger_updater_thread = Process(target=self.perf_ledger_manager.run_update_loop, daemon=True)
         self.perf_ledger_updater_thread.start()
-        
+
         # Start the weight setter loop in its own process
         self.weight_setter_process = Process(target=self.weight_setter.run_update_loop, daemon=True)
         self.weight_setter_process.start()
-        
+
         # Start dedicated weight processing thread in MetagraphUpdater (validators only)
         if self.metagraph_updater.weight_request_queue:
             self.weight_processing_thread = threading.Thread(target=self.metagraph_updater.run_weight_processing_loop, daemon=True)
             self.weight_processing_thread.start()
-
-        # Initialize ValidatorContractManager for collateral operations
-        self.contract_manager = ValidatorContractManager(config=self.config, metagraph=self.metagraph)
 
         if self.config.start_generate:
             self.rog = RequestOutputGenerator(rcm=self.request_core_manager, msm=self.miner_statistics_manager)
@@ -448,7 +451,7 @@ class Validator:
             f"Prioritizing {synapse.dendrite.hotkey} with value: ", priority
         )
         return priority
-    
+
     @property
     def subtensor(self):
         """
@@ -484,14 +487,14 @@ class Validator:
         # Adds override arguments for network and netuid.
         parser.add_argument("--netuid", type=int, default=1, help="The chain subnet uid.")
         
-        
+
         # Adds subtensor specific arguments i.e. --subtensor.chain_endpoint ... --subtensor.network ...
         bt.subtensor.add_args(parser)
         # Adds logging specific arguments i.e. --logging.debug ..., --logging.trace .. or --logging.logging_dir ...
         bt.logging.add_args(parser)
         # Adds wallet specific arguments i.e. --wallet.name ..., --wallet.hotkey ./. or --wallet.path ...
         bt.wallet.add_args(parser)
-        
+
         # Add Slack webhook arguments
         parser.add_argument(
             "--slack-webhook-url",
@@ -535,7 +538,7 @@ class Validator:
             return
         # Handle shutdown gracefully
         bt.logging.warning("Performing graceful exit...")
-        
+
         # Send shutdown notification to Slack
         if self.slack_notifier:
             self.slack_notifier.send_message(
@@ -572,7 +575,7 @@ class Validator:
         global shutdown_dict
         # Keep the vali alive. This loop maintains the vali's operations until intentionally stopped.
         bt.logging.info("Starting main loop")
-        
+
         # Send startup notification to Slack
         if self.slack_notifier:
             vm_info = f"VM: {self.slack_notifier.vm_hostname} ({self.slack_notifier.vm_ip})" if self.slack_notifier.vm_hostname else ""
@@ -601,12 +604,12 @@ class Validator:
             except Exception as e:
                 error_traceback = traceback.format_exc()
                 bt.logging.error(error_traceback)
-                
+
                 # Send error notification to Slack with rate limiting
                 current_time_seconds = time.time()
                 if self.slack_notifier and (current_time_seconds - self.last_error_notification_time) > self.error_notification_cooldown:
                     self.last_error_notification_time = current_time_seconds
-                    
+
                     # Use shared error formatting utility
                     error_message = ErrorUtils.format_error_for_slack(
                         error=e,
@@ -614,14 +617,14 @@ class Validator:
                         include_operation=True,
                         include_timestamp=True
                     )
-                    
+
                     self.slack_notifier.send_message(
                         f"❌ Validator main loop error!\n"
                         f"{error_message}\n"
                         f"Note: Further errors suppressed for {self.error_notification_cooldown/60:.0f} minutes",
                         level="error"
                     )
-                
+
                 time.sleep(10)
 
         self.check_shutdown()
@@ -668,12 +671,20 @@ class Validator:
             if order_type == OrderType.FLAT:
                 open_position = None
             else:
+                # Get relevant account size
+                account_size = self.contract_manager.get_miner_account_size(hotkey=miner_hotkey, timestamp_ms=order_time_ms)
+                if account_size is None:
+                    account_size = ValiConfig.CAPITAL
+                else:
+                    account_size = max(account_size, ValiConfig.CAPITAL_FLOOR)
+
                 # if a position doesn't exist, then make a new one
                 open_position = Position(
                     miner_hotkey=miner_hotkey,
                     position_uuid=miner_order_uuid if miner_order_uuid else str(uuid.uuid4()),
                     open_ms=order_time_ms,
-                    trade_pair=trade_pair
+                    trade_pair=trade_pair,
+                    account_size=account_size
                 )
         return open_position
 

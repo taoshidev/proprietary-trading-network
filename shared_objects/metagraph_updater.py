@@ -403,11 +403,12 @@ class MetagraphUpdater(CacheController):
                 
             except Exception as e:
                 bt.logging.warning(f"Weight setting failed (attempt {attempt + 1}): {e}")
-                if self.round_robin_enabled and attempt < max_retries - 1:
-                    bt.logging.info("Switching to next network for weight setting retry")
-                    self._switch_to_next_network()
-                else:
-                    return False, str(e)
+                # Let the metagraph updater handle round-robin switching to avoid potential race conditions and rate limit issues
+                #if self.round_robin_enabled and attempt < max_retries - 1:
+                #    bt.logging.info("Switching to next network for weight setting retry")
+                #    self._switch_to_next_network()
+                #else:
+                #    return False, str(e)
         
         return False, "All retry attempts failed"
     
