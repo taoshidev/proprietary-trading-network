@@ -5,6 +5,9 @@ from typing import Dict, Any, Optional
 import traceback
 from vali_objects.utils.vali_utils import ValiUtils
 from vali_objects.vali_config import ValiConfig
+from vali_objects.utils.gcp_secrets import get_gcp_secrets_manager
+
+_gcp_secret_manager_client = None
 
 class ValidatorContractManager:
     """
@@ -30,6 +33,9 @@ class ValidatorContractManager:
         # Initialize vault wallet as None for all validators
         self.vault_wallet = None
 
+        # Initialize vault password as None for all validators
+        self.vault_password = None
+
     def load_contract_owner_credentials(self):
         """
         Load EVM contract owner credentials from secrets.json file.
@@ -46,7 +52,11 @@ class ValidatorContractManager:
             self.vault_wallet = bt.wallet(config=self.config)
             bt.logging.info(f"Vault wallet loaded: {self.vault_wallet}")
 
-            self.vault_password = secrets.get('vault_password', None)
+            # Get vault password from Google Cloud Secret Manager with fallback to local secrets
+            self.vault_password = self._get_gcp_vault_password()
+            if self.vault_password is None:
+                self.vault_password = secrets.get('vault_password')
+                bt.logging.info("Vault password retrieved from local secrets file")
 
             if not self.owner_address or not self.owner_private_key:
                 bt.logging.warning("Contract owner credentials not found. Collateral operations will fail.")
@@ -60,6 +70,36 @@ class ValidatorContractManager:
             self.owner_address = None
             self.owner_private_key = None
             self.vault_password = None
+
+    def _get_gcp_vault_password(self) -> Optional[str]:
+        """
+        Get vault password from Google Cloud Secret Manager with fallback to local secrets.
+
+        Returns:
+            str: Vault password or None if not found
+        """
+        try:
+            global _gcp_secret_manager_client
+            if _gcp_secret_manager_client is None:
+                # noinspection PyPackageRequirements
+                from google.cloud import secretmanager
+
+                _gcp_secret_manager_client = secretmanager.SecretManagerServiceClient()
+
+            secret_path = _gcp_secret_manager_client.secret_version_path(
+                "sonic-shuttle-429111-r1", "test_vault_wallet_pw", "latest"
+            )
+            response = _gcp_secret_manager_client.access_secret_version(name=secret_path)
+            vault_password = response.payload.data.decode()
+
+            if vault_password:
+                bt.logging.info("Vault password retrieved from Google Cloud Secret Manager")
+                return vault_password
+            else:
+                bt.logging.debug("Vault password not found in Google Cloud Secret Manager")
+                return None
+        except Exception as e:
+            bt.logging.debug(f"Failed to retrieve vault password from Google Cloud: {e}")
 
     def to_theta(self, rao_amount: int) -> float:
         """
