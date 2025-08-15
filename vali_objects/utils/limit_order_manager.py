@@ -41,6 +41,9 @@ class LimitOrderManager(CacheController):
     def save_limit_order(self, miner_hotkey, limit_order, position_locks):
         if miner_hotkey not in self.limit_orders:
             self.limit_orders[miner_hotkey] = []
+        
+        # CRITICAL: Create a copy of the list to avoid unintended modifications to the shared IPC dict
+        # We must not change the shared data until we're ready to write the final, validated result
         orders = list(self.limit_orders[miner_hotkey])
 
         unfilled_limit_orders = [order for order in orders if order.src == ORDER_SRC_LIMIT_UNFILLED]
@@ -62,6 +65,7 @@ class LimitOrderManager(CacheController):
             self._write_to_disk(miner_hotkey, limit_order)
 
             orders.append(limit_order)
+            # Reassign the entire list back to the IPC dict to ensure synchronization
             self.limit_orders[miner_hotkey] = orders
 
         bt.logging.info(f"Saved [{miner_hotkey}] limit order [{order_uuid}]")
