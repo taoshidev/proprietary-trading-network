@@ -738,20 +738,23 @@ class Validator:
 
         if signal:
             tp = self.parse_trade_pair_from_signal(signal)
-            err_msg = self.enforce_order_cooldown(tp.trade_pair_id, now_ms, sender_hotkey)
-            if err_msg:
-                bt.logging.error(err_msg)
-                synapse.successfully_processed = False
-                synapse.error_message = err_msg
-                return True
+            execution_type = ExecutionType.from_string(signal.get("execution_type", "MARKET").upper())
 
-            if tp and not self.live_price_fetcher.polygon_data_service.is_market_open(tp):
-                msg = (f"Market for trade pair [{tp.trade_pair_id}] is likely closed or this validator is"
-                       f" having issues fetching live price. Please try again later.")
-                bt.logging.error(msg)
-                synapse.successfully_processed = False
-                synapse.error_message = msg
-                return True
+            if execution_type == ExecutionType.MARKET:
+                err_msg = self.enforce_order_cooldown(tp.trade_pair_id, now_ms, sender_hotkey)
+                if err_msg:
+                    bt.logging.error(err_msg)
+                    synapse.successfully_processed = False
+                    synapse.error_message = err_msg
+                    return True
+
+                if tp and not self.live_price_fetcher.polygon_data_service.is_market_open(tp):
+                    msg = (f"Market for trade pair [{tp.trade_pair_id}] is likely closed or this validator is"
+                           f" having issues fetching live price. Please try again later.")
+                    bt.logging.error(msg)
+                    synapse.successfully_processed = False
+                    synapse.error_message = msg
+                    return True
 
             if tp and tp in self.live_price_fetcher.polygon_data_service.UNSUPPORTED_TRADE_PAIRS:
                 msg = (f"Trade pair [{tp.trade_pair_id}] has been temporarily halted. "
