@@ -41,7 +41,7 @@ class LimitOrderManager(CacheController):
     def save_limit_order(self, miner_hotkey, limit_order, position_locks):
         if miner_hotkey not in self.limit_orders:
             self.limit_orders[miner_hotkey] = []
-        orders = self.limit_orders[miner_hotkey]
+        orders = list(self.limit_orders[miner_hotkey])
 
         unfilled_limit_orders = [order for order in orders if order.src == ORDER_SRC_LIMIT_UNFILLED]
 
@@ -62,6 +62,7 @@ class LimitOrderManager(CacheController):
             self._write_to_disk(miner_hotkey, limit_order)
 
             orders.append(limit_order)
+            self.limit_orders[miner_hotkey] = orders
 
         bt.logging.info(f"Saved [{miner_hotkey}] limit order [{order_uuid}]")
         bt.logging.info(f"checking for trigger price")
@@ -241,6 +242,9 @@ class LimitOrderManager(CacheController):
         self._write_to_disk(miner_hotkey, order)
         os.remove(closed_filename)
 
+        # update for ipc manager?
+        self.limit_orders[miner_hotkey] = list(self.limit_orders[miner_hotkey])
+
         bt.logging.info(f"Successfully closed limit order [{order_uuid}] [{trade_pair_id}] for [{miner_hotkey}]")
 
     def cancel_limit_order(self, miner_hotkey, trade_pair, cancel_order_uuid, now_ms, position_locks):
@@ -286,7 +290,8 @@ class LimitOrderManager(CacheController):
                     continue
 
             if miner_orders:
-                self.limit_orders[hotkey] = sorted(miner_orders, key=lambda o: o.processed_ms)
+                sorted_orders = sorted(miner_orders, key=lambda o: o.processed_ms)
+                self.limit_orders[hotkey] = sorted_orders
 
     def _reset_counters(self):
         self._limit_orders_evaluated = 0
