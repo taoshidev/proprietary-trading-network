@@ -356,18 +356,18 @@ class ValiBkpUtils:
         status_dirs = ["unfilled", "closed"]
         for trade_pair_id in trade_pair_dirs:
             for status in status_dirs:
-                status_dirs = ValiBkpUtils.get_limit_orders_dir(miner_hotkey, trade_pair_id, status, running_unit_tests)
+                status_dir = ValiBkpUtils.get_limit_orders_dir(miner_hotkey, trade_pair_id, status, running_unit_tests)
 
-                if not os.path.exists(status_dirs):
+                if not os.path.exists(status_dir):
                     continue
 
                 try:
-                    status_files = ValiBkpUtils.get_all_files_in_dir(status_dirs)
+                    status_files = ValiBkpUtils.get_all_files_in_dir(status_dir)
                     for filename in status_files:
                         with open(filename, 'r') as f:
                             orders.append(json.load(f))
 
                 except Exception as e:
-                    bt.logging.error(f"Error accessing {status} directory {status_dirs}: {e}")
+                    bt.logging.error(f"Error accessing {status} directory {status_dir}: {e}")
 
         return orders
