@@ -26,9 +26,15 @@ class ValidatorContractManager:
             bt.logging.info("Using mainnet collateral manager")
             self.collateral_manager = CollateralManager(Network.MAINNET)
             self.max_theta = ValiConfig.MAX_COLLATERAL_BALANCE_THETA
+
+        # GCP secret manager
+        self._gcp_secret_manager_client = None
         
         # Initialize vault wallet as None for all validators
         self.vault_wallet = None
+
+        # Initialize vault password as None for all validators
+        self.vault_password = None
 
     def load_contract_owner_credentials(self):
         """
@@ -43,23 +49,14 @@ class ValidatorContractManager:
             self.owner_address = secrets.get('collateral_owner_address')
             self.owner_private_key = secrets.get('collateral_owner_private_key')
 
-            vault_name = secrets.get('vault_name')
-            vault_hotkey = secrets.get('vault_hotkey')
-            vault_path = secrets.get('vault_path', '~/.bittensor/wallets')
-            
-            # Create vault wallet from secrets
-            if vault_name and vault_hotkey:
-                self.vault_wallet = bt.wallet(
-                    name=vault_name,
-                    hotkey=vault_hotkey,
-                    path=vault_path
-                )
-                bt.logging.info(f"Vault wallet loaded: {self.vault_wallet}")
-            else:
-                bt.logging.warning("Vault wallet credentials not found in secrets. Collateral operations will fail.")
-                self.vault_wallet = None
+            self.vault_wallet = bt.wallet(config=self.config)
+            bt.logging.info(f"Vault wallet loaded: {self.vault_wallet}")
 
-            self.vault_password = secrets.get('vault_password', None)
+            # Get vault password from Google Cloud Secret Manager with fallback to local secrets
+            self.vault_password = self._get_gcp_vault_password(secrets)
+            if self.vault_password is None:
+                self.vault_password = secrets.get('vault_password')
+                bt.logging.info("Vault password retrieved from local secrets file")
 
             if not self.owner_address or not self.owner_private_key:
                 bt.logging.warning("Contract owner credentials not found. Collateral operations will fail.")
@@ -73,6 +70,35 @@ class ValidatorContractManager:
             self.owner_address = None
             self.owner_private_key = None
             self.vault_password = None
+
+    def _get_gcp_vault_password(self, secrets: dict) -> Optional[str]:
+        """
+        Get vault password from Google Cloud Secret Manager with fallback to local secrets.
+
+        Returns:
+            str: Vault password or None if not found
+        """
+        try:
+            if self._gcp_secret_manager_client is None:
+                # noinspection PyPackageRequirements
+                from google.cloud import secretmanager
+
+                self._gcp_secret_manager_client = secretmanager.SecretManagerServiceClient()
+
+            secret_path = self._gcp_secret_manager_client.secret_version_path(
+                secrets.get('gcp_project_name'), secrets.get('gcp_vali_pw_name'), "latest"
+            )
+            response = self._gcp_secret_manager_client.access_secret_version(name=secret_path)
+            vault_password = response.payload.data.decode()
+
+            if vault_password:
+                bt.logging.info("Vault password retrieved from Google Cloud Secret Manager")
+                return vault_password
+            else:
+                bt.logging.debug("Vault password not found in Google Cloud Secret Manager")
+                return None
+        except Exception as e:
+            bt.logging.debug(f"Failed to retrieve vault password from Google Cloud: {e}")
 
     def to_theta(self, rao_amount: int) -> float:
         """
