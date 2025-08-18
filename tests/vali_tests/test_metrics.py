@@ -1,16 +1,20 @@
 import copy
 import math
 import random
+import time
+
 
 import numpy as np
 
 from tests.vali_tests.base_objects.test_base import TestBase
+from tests.shared_objects.test_utilities import create_daily_checkpoints_with_pnl
 from vali_objects.utils.metrics import Metrics
+from vali_objects.vali_dataclasses.perf_ledger import PerfLedger, PerfCheckpoint
 from vali_objects.vali_config import ValiConfig
 
 
-class TestMetrics(TestBase):
 
+class TestMetrics(TestBase):
     def test_return_no_positions(self):
         self.assertEqual(Metrics.base_return([]), 0.0)
 
@@ -365,3 +369,306 @@ class TestMetrics(TestBase):
 
         # Max drawdown should be close to 50%
         self.assertAlmostEqual(mdd, 0.5, delta=0.02)
+
+    def test_pnl_score_empty_ledger(self):
+        """Test pnl_score with empty or None ledger"""
+        # Test with None ledger
+        result = Metrics.pnl_score([], None)
+        self.assertEqual(result, ValiConfig.PNL_NOCONFIDENCE_VALUE)
+        
+        # Test with empty ledger
+        empty_ledger = PerfLedger(cps=[])
+        result = Metrics.pnl_score([], empty_ledger)
+        self.assertEqual(result, ValiConfig.PNL_NOCONFIDENCE_VALUE)
+
+    def test_pnl_score_no_daily_pnl(self):
+        """Test pnl_score when daily_pnl returns empty list"""
+        # Create a ledger with incomplete checkpoints that won't count as complete days
+        current_time_ms = int(time.time() * 1000)
+        ledger = PerfLedger(cps=[
+            PerfCheckpoint(
+                last_update_ms=current_time_ms,
+                prev_portfolio_ret=1.0,
+                accum_ms=100,  # Partial accumulation - won't count as complete day
+                pnl_gain=10,
+                pnl_loss=0,
+                gain=0.01,
+                loss=0.0,
+                mdd=0.95
+            )
+        ])
+        
+        result = Metrics.pnl_score([], ledger)
+        self.assertEqual(result, ValiConfig.PNL_NOCONFIDENCE_VALUE)
+
+    def test_pnl_score_with_positive_pnl(self):
+        """Test pnl_score with positive daily PnL values"""
+        # Create ledger with positive PnL values
+        pnl_pattern = [100.0, 150.0, 200.0]
+        ledger = create_daily_checkpoints_with_pnl(pnl_pattern)
+        
+        result = Metrics.pnl_score([], ledger, weighting=False)
+        
+        # Should return average of the daily PnL values
+        expected = sum(pnl_pattern) / len(pnl_pattern)
+        self.assertEqual(result, expected)
+
+    def test_pnl_score_with_negative_pnl(self):
+        """Test pnl_score with negative daily PnL values"""
+        # Create ledger with negative PnL values
+        pnl_pattern = [-50.0, -75.0, -25.0]
+        ledger = create_daily_checkpoints_with_pnl(pnl_pattern)
+        
+        result = Metrics.pnl_score([], ledger, weighting=False)
+        
+        # Should return average of the daily PnL values
+        expected = sum(pnl_pattern) / len(pnl_pattern)
+        self.assertEqual(result, expected)
+
+    def test_pnl_score_with_mixed_pnl(self):
+        """Test pnl_score with mixed positive and negative daily PnL values"""
+        # Create ledger with mixed PnL values
+        pnl_pattern = [100.0, -50.0, 75.0, -25.0]
+        ledger = create_daily_checkpoints_with_pnl(pnl_pattern)
+        
+        result = Metrics.pnl_score([], ledger, weighting=False)
+        
+        # Should return average of the daily PnL values
+        expected = sum(pnl_pattern) / len(pnl_pattern)
+        self.assertEqual(result, expected)
+
+    def test_pnl_score_with_zero_pnl(self):
+        """Test pnl_score with zero daily PnL values"""
+        # Create ledger with zero PnL values
+        pnl_pattern = [0.0, 0.0, 0.0]
+        ledger = create_daily_checkpoints_with_pnl(pnl_pattern)
+        
+        result = Metrics.pnl_score([], ledger, weighting=False)
+        
+        # Should return 0.0
+        self.assertEqual(result, 0.0)
+
+    def test_pnl_score_without_weighting(self):
+        """Test pnl_score without time weighting"""
+        # Create ledger with specific PnL values
+        pnl_pattern = [10.0, 20.0, 30.0]
+        ledger = create_daily_checkpoints_with_pnl(pnl_pattern)
+        
+        result = Metrics.pnl_score([], ledger, weighting=False)
+        
+        # Should return average of the daily PnL values
+        expected = sum(pnl_pattern) / len(pnl_pattern)
+        self.assertEqual(result, expected)
+
+    def test_pnl_score_with_weighting(self):
+        """Test pnl_score with time weighting enabled"""
+        # Create ledger with ascending PnL pattern to test time weighting
+        pnl_pattern = [10.0, 20.0, 30.0]
+        ledger = create_daily_checkpoints_with_pnl(pnl_pattern)
+        
+        weighted_result = Metrics.pnl_score([], ledger, weighting=True)
+        unweighted_result = Metrics.pnl_score([], ledger, weighting=False)
+        
+        # Unweighted should be the simple average
+        expected_unweighted = sum(pnl_pattern) / len(pnl_pattern)
+        self.assertEqual(unweighted_result, expected_unweighted)
+        
+        # Weighted should be higher than unweighted due to recent higher values
+        self.assertGreater(weighted_result, unweighted_result)
+
+    def test_pnl_score_single_day(self):
+        """Test pnl_score with single day of PnL data"""
+        # Create ledger with single day of PnL data
+        pnl_pattern = [42.5]
+        ledger = create_daily_checkpoints_with_pnl(pnl_pattern)
+        
+        result = Metrics.pnl_score([], ledger, weighting=False)
+        
+        # Should return the single value
+        self.assertEqual(result, 42.5)
+
+    def test_pnl_score_large_pnl_values(self):
+        """Test pnl_score with large PnL values"""
+        # Create ledger with large PnL values
+        pnl_pattern = [10000.0, 15000.0, 12000.0]
+        ledger = create_daily_checkpoints_with_pnl(pnl_pattern)
+        
+        result = Metrics.pnl_score([], ledger, weighting=False)
+        
+        # Should handle large values correctly
+        expected = sum(pnl_pattern) / len(pnl_pattern)
+        self.assertEqual(result, expected)
+
+    def test_pnl_score_bypass_confidence_parameter(self):
+        """Test that pnl_score accepts bypass_confidence parameter (though it may not use it)"""
+        # Create ledger with specific PnL values
+        pnl_pattern = [50.0, 60.0]
+        ledger = create_daily_checkpoints_with_pnl(pnl_pattern)
+        
+        # Test with bypass_confidence=True
+        result1 = Metrics.pnl_score([], ledger, bypass_confidence=True, weighting=False)
+        
+        # Test with bypass_confidence=False
+        result2 = Metrics.pnl_score([], ledger, bypass_confidence=False, weighting=False)
+        
+        # Should return same result regardless (as noted in function comment)
+        expected = sum(pnl_pattern) / len(pnl_pattern)
+        self.assertEqual(result1, expected)
+        self.assertEqual(result2, expected)
+
+    def test_pnl_score_log_returns_parameter_unused(self):
+        """Test that pnl_score doesn't use the log_returns parameter"""
+        # Create ledger with specific PnL values
+        pnl_pattern = [30.0, 40.0]
+        ledger = create_daily_checkpoints_with_pnl(pnl_pattern)
+        
+        # Test with different log_returns values - should not affect result
+        result1 = Metrics.pnl_score([0.1, 0.2, 0.3], ledger, weighting=False)
+        result2 = Metrics.pnl_score([], ledger, weighting=False)
+        result3 = Metrics.pnl_score([100, 200], ledger, weighting=False)
+        
+        # All should return same result since log_returns is unused
+        expected = sum(pnl_pattern) / len(pnl_pattern)
+        self.assertEqual(result1, expected)
+        self.assertEqual(result2, expected)
+        self.assertEqual(result3, expected)
+
+    def test_pnl_score_time_weighted_recent_low_reduces_historical_high(self):
+        """Test that recent low PnL brings down historically large PnL with time weighting"""
+        # Pattern: [1000, 1000, 1000, 1000, -500, -500, -500]
+        # Recent values should have higher weight and bring down the average
+        pnl_pattern = [1000.0, 1000.0, 1000.0, 1000.0, -500.0, -500.0, -500.0]
+        ledger = create_daily_checkpoints_with_pnl(pnl_pattern)
+        
+        # Calculate both weighted and unweighted scores
+        weighted_score = Metrics.pnl_score([], ledger, weighting=True)
+        unweighted_score = Metrics.pnl_score([], ledger, weighting=False)
+        
+        # Unweighted average should be: (4*1000 + 3*(-500)) / 7 = 2500/7 ≈ 357.14
+        expected_unweighted = sum(pnl_pattern) / len(pnl_pattern)
+        self.assertAlmostEqual(unweighted_score, expected_unweighted, places=1)
+        
+        # With time weighting, recent negative values should reduce the score significantly
+        self.assertLess(weighted_score, unweighted_score,
+                       "Time-weighted score should be lower due to recent poor performance")
+        
+        # The weighted score should be lower than unweighted
+        self.assertLess(weighted_score, expected_unweighted,
+                       "Time weighting should  reduce score due to recent losses")
+
+    def test_pnl_score_time_weighted_recent_high_increases_score(self):
+        """Test that recent high PnL increases score with historically low PnL"""
+        # Pattern: [-500, -500, -500, -500, 1000, 1000, 1000]
+        pnl_pattern = [-500.0, -500.0, -500.0, -500.0, 1000.0, 1000.0, 1000.0]
+        ledger = create_daily_checkpoints_with_pnl(pnl_pattern)
+        
+        # Calculate both weighted and unweighted scores
+        weighted_score = Metrics.pnl_score([], ledger, weighting=True)
+        unweighted_score = Metrics.pnl_score([], ledger, weighting=False)
+        
+        # Unweighted average should be: (4*(-500) + 3*1000) / 7 = 1000/7 ≈ 142.86
+        expected_unweighted = sum(pnl_pattern) / len(pnl_pattern)
+        self.assertAlmostEqual(unweighted_score, expected_unweighted, places=1)
+        
+        # With time weighting, recent positive values should increase the score
+        self.assertGreater(weighted_score, unweighted_score,
+                          "Time-weighted score should be higher due to recent strong performance")
+
+    def test_pnl_score_time_weighted_consistent_pattern(self):
+        """Test time weighting with consistent PnL pattern"""
+        # Consistent positive PnL pattern
+        pnl_pattern = [100.0] * 10
+        ledger = create_daily_checkpoints_with_pnl(pnl_pattern)
+        
+        # With consistent values, weighted and unweighted should be very similar
+        weighted_score = Metrics.pnl_score([], ledger, weighting=True)
+        unweighted_score = Metrics.pnl_score([], ledger, weighting=False)
+        
+        # Both should equal 100.0
+        self.assertAlmostEqual(weighted_score, 100.0, places=1)
+        self.assertAlmostEqual(unweighted_score, 100.0, places=1)
+        self.assertAlmostEqual(weighted_score, unweighted_score, places=1)
+
+    def test_pnl_score_time_weighted_gradual_decline(self):
+        """Test time weighting with gradual PnL decline"""
+        # Gradual decline: [500, 400, 300, 200, 100, 0, -100]
+        pnl_pattern = [500.0, 400.0, 300.0, 200.0, 100.0, 0.0, -100.0]
+        ledger = create_daily_checkpoints_with_pnl(pnl_pattern)
+        
+        weighted_score = Metrics.pnl_score([], ledger, weighting=True)
+        unweighted_score = Metrics.pnl_score([], ledger, weighting=False)
+        
+        # Unweighted average: sum(pnl_pattern) / len = 1300/7 ≈ 185.71
+        expected_unweighted = sum(pnl_pattern) / len(pnl_pattern)
+        self.assertAlmostEqual(unweighted_score, expected_unweighted, places=1)
+        
+        # With time weighting, recent lower values should reduce the weighted average
+        self.assertLess(weighted_score, unweighted_score,
+                       "Time weighting should emphasize recent decline")
+
+    def test_pnl_score_time_weighted_volatile_pattern(self):
+        """Test time weighting with highly volatile PnL pattern"""
+        # Volatile pattern: [1000, -800, 600, -400, 200, -100, 50]
+        pnl_pattern = [1000.0, -800.0, 600.0, -400.0, 200.0, -100.0, 50.0]
+        ledger = create_daily_checkpoints_with_pnl(pnl_pattern)
+        
+        weighted_score = Metrics.pnl_score([], ledger, weighting=True)
+        unweighted_score = Metrics.pnl_score([], ledger, weighting=False)
+        
+        # Both scores should be finite numbers
+        self.assertNotEqual(weighted_score, float('inf'))
+        self.assertNotEqual(weighted_score, float('-inf'))
+        self.assertNotEqual(unweighted_score, float('inf'))
+        self.assertNotEqual(unweighted_score, float('-inf'))
+        
+        # Verify the function handles volatile data correctly
+        self.assertTrue(isinstance(weighted_score, (int, float)))
+        self.assertTrue(isinstance(unweighted_score, (int, float)))
+
+    def test_pnl_score_time_weighted_extreme_recent_values(self):
+        """Test time weighting with extreme recent values"""
+        # Pattern with extreme recent loss: [100, 100, 100, 100, 100, -10000]
+        pnl_pattern = [100.0, 100.0, 100.0, 100.0, 100.0, -10000.0]
+        ledger = create_daily_checkpoints_with_pnl(pnl_pattern)
+        
+        weighted_score = Metrics.pnl_score([], ledger, weighting=True)
+        unweighted_score = Metrics.pnl_score([], ledger, weighting=False)
+        
+        # Unweighted: (5*100 + 1*(-10000)) / 6 = -9500/6 ≈ -1583.33
+        expected_unweighted = sum(pnl_pattern) / len(pnl_pattern)
+        self.assertAlmostEqual(unweighted_score, expected_unweighted, places=1)
+        
+        # Weighted score should be even more negative due to recency weighting
+        self.assertLess(weighted_score, unweighted_score,
+                       "Extreme recent loss should be heavily weighted")
+
+    def test_pnl_score_time_weighted_single_value(self):
+        """Test time weighting with single PnL value"""
+        pnl_pattern = [250.0]
+        ledger = create_daily_checkpoints_with_pnl(pnl_pattern)
+        
+        weighted_score = Metrics.pnl_score([], ledger, weighting=True)
+        unweighted_score = Metrics.pnl_score([], ledger, weighting=False)
+        
+        # With single value, both should return the same result
+        self.assertEqual(weighted_score, 250.0)
+        self.assertEqual(unweighted_score, 250.0)
+        self.assertEqual(weighted_score, unweighted_score)
+
+    def test_pnl_score_time_weighted_large_dataset(self):
+        """Test time weighting with large PnL dataset"""
+        # Create large dataset with declining trend
+        # First 20 days: positive, last 10 days: negative
+        pnl_pattern = [50.0] * 20 + [-100.0] * 10
+        ledger = create_daily_checkpoints_with_pnl(pnl_pattern)
+        
+        weighted_score = Metrics.pnl_score([], ledger, weighting=True)
+        unweighted_score = Metrics.pnl_score([], ledger, weighting=False)
+        
+        # Unweighted: (20*50 + 10*(-100)) / 30 = 0/30 = 0
+        expected_unweighted = sum(pnl_pattern) / len(pnl_pattern)
+        self.assertAlmostEqual(unweighted_score, expected_unweighted, places=1)
+        
+        # Time weighting should make the score more negative due to recent losses
+        self.assertLess(weighted_score, unweighted_score,
+                       "Recent negative values should dominate with time weighting")

@@ -30,13 +30,14 @@ class PositionSyncResultException(Exception):
 class ValidatorSyncBase():
     def __init__(self, shutdown_dict=None, signal_sync_lock=None, signal_sync_condition=None,
                  n_orders_being_processed=None, running_unit_tests=False, position_manager=None,
-                 ipc_manager=None, enable_position_splitting = False, verbose=False
+                 ipc_manager=None, enable_position_splitting = False, verbose=False, contract_manager=None
 ):
         self.verbose = verbose
         self.is_mothership = 'ms' in ValiUtils.get_secrets(running_unit_tests=running_unit_tests)
         self.SYNC_LOOK_AROUND_MS = 1000 * 60 * 3
         self.enable_position_splitting = enable_position_splitting
         self.position_manager = position_manager
+        self.contract_manager = contract_manager
         self.shutdown_dict = shutdown_dict
         self.last_signal_sync_time_ms = 0
         self.signal_sync_lock = signal_sync_lock
@@ -132,6 +133,16 @@ class ValidatorSyncBase():
                             f"Challengeperiod success sync keys removed: {orig_success_keys - new_success_keys}")
             if not shadow_mode:
                 self.position_manager.challengeperiod_manager.sync_challenge_period_data(challengeperiod_data)
+
+        # Sync miner account sizes if available and contract manager is present
+        miner_account_sizes_data = candidate_data.get('miner_account_sizes', {})
+        if miner_account_sizes_data and hasattr(self, 'contract_manager') and self.contract_manager:
+            if not shadow_mode:
+                bt.logging.info(f"Syncing {len(miner_account_sizes_data)} miner account size records from auto sync")
+                self.contract_manager.sync_miner_account_sizes_data(miner_account_sizes_data)
+        elif miner_account_sizes_data:
+            bt.logging.warning("Miner account sizes data found but contract manager not available for sync")
+
         eliminated_hotkeys = set([e['hotkey'] for e in eliminations])
         # For a healthy validator, the existing positions will always be a superset of the candidate positions
         for hotkey, positions in candidate_hk_to_positions.items():
