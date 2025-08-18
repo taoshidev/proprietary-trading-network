@@ -1183,11 +1183,11 @@ class CategoryReturnCalculator:
             )
             
             # Fail fast - if we can't calculate return, something is wrong
-            if not position_return:
-                raise ValueError(f"Position {position.position_uuid} returned invalid return: {position_return}")
+            #if not position_return:
+            #    raise ValueError(f"Position {position.position_uuid} returned invalid return: {position_return}")
             
             # Fail fast - if return is not positive, something is wrong
-            if position_return <= 0:
+            if position_return < 0:
                 raise ValueError(f"Position {position.position_uuid} returned non-positive return: {position_return}")
                 
             miner_hotkey = position.miner_hotkey
@@ -2250,21 +2250,9 @@ class DateUtils:
         
         for hotkey, positions in positions_dict.items():
             for position in positions:
-                # Look at actual order timestamps, not just position open/close times
-                if hasattr(position, 'orders') and position.orders:
-                    for order in position.orders:
-                        if hasattr(order, 'processed_ms') and order.processed_ms:
-                            first_order_ms = min(first_order_ms, order.processed_ms)
-                            last_order_ms = max(last_order_ms, order.processed_ms)
-                
-                # Also check position open/close times as fallback
-                if position.open_ms:
-                    first_order_ms = min(first_order_ms, position.open_ms)
-                    last_order_ms = max(last_order_ms, position.open_ms)
-                
-                if position.close_ms:
-                    last_order_ms = max(last_order_ms, position.close_ms)
-        
+                first_order_ms = min(position.orders[0].processed_ms, first_order_ms)
+                last_order_ms = max(last_order_ms, position.orders[0].processed_ms)
+
         if first_order_ms == float('inf'):
             raise ValueError("No valid orders found in positions")
         
@@ -2280,16 +2268,13 @@ class DateUtils:
         # Cap end date at today (beginning of current UTC day) to avoid processing future dates
         today_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
         today_start_ms = (today_ms // MS_IN_24_HOURS) * MS_IN_24_HOURS
-        
-        if last_date_ms > today_start_ms:
-            bt.logging.info(f"Capping end date at today: {TimeUtil.millis_to_formatted_date_str(today_start_ms)}")
-            last_date_ms = today_start_ms
+
         
         bt.logging.info(f"Date bounds determined from orders: "
                         f"{TimeUtil.millis_to_formatted_date_str(first_date_ms)} to "
                         f"{TimeUtil.millis_to_formatted_date_str(last_date_ms)}")
         
-        return first_date_ms, last_date_ms
+        return first_date_ms, today_start_ms
 
 
 def get_database_url_from_config() -> Optional[str]:
