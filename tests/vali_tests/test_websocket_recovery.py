@@ -57,8 +57,8 @@ class MockWebSocketClient:
         await asyncio.sleep(0.01)
 
 
-class TestDataService(BaseDataService):
-    """Test implementation of BaseDataService"""
+class MockDataService(BaseDataService):
+    """Mock implementation of BaseDataService for testing"""
     
     def __init__(self):
         super().__init__(provider_name="TestProvider", ipc_manager=None)
@@ -99,7 +99,7 @@ class TestWebSocketRecovery(unittest.TestCase):
     
     def test_task_death_recovery(self):
         """Test recovery when websocket task dies"""
-        self.service = TestDataService()
+        self.service = MockDataService()
         self.service.MAX_TIME_NO_EVENTS_S = 1.0  # Fast timeout for testing
         
         # Configure first client to fail after 3 messages
@@ -134,7 +134,7 @@ class TestWebSocketRecovery(unittest.TestCase):
     
     def test_stale_connection_recovery(self):
         """Test recovery when connection stops sending events"""
-        self.service = TestDataService()
+        self.service = MockDataService()
         self.service.MAX_TIME_NO_EVENTS_S = 1.0  # 1 second timeout
         
         # Override handle_msg to stop processing after initial events
@@ -181,7 +181,7 @@ class TestWebSocketRecovery(unittest.TestCase):
     
     def test_no_duplicate_restarts(self):
         """Test that concurrent restart attempts don't create duplicate tasks"""
-        self.service = TestDataService()
+        self.service = MockDataService()
         self.service.MAX_TIME_NO_EVENTS_S = 0.5  # Very fast timeout
         
         # Make health check run very frequently
