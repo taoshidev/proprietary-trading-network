@@ -508,28 +508,73 @@ class TestEliminationIntegration(TestBase):
         # 3. Update challenge period
         self.challengeperiod_manager.refresh(self.position_locks)
         
-        # 4. Set weights
-        self.weight_setter.set_weights(
-            wallet=mock_wallet,
-            netuid=8,
-            subtensor=mock_subtensor,
-            current_time=current_time
+        # 4. NEW: Set up IPC architecture like real validator to test production code paths
+        from multiprocessing import Manager
+        from shared_objects.metagraph_updater import MetagraphUpdater
+        from unittest.mock import Mock
+        
+        # Create mock config for MetagraphUpdater
+        mock_config = Mock()
+        mock_config.netuid = 8
+        mock_config.subtensor = Mock()
+        mock_config.subtensor.network = "finney"
+        
+        # Create IPC queue like validator.py
+        ipc_manager = Manager()
+        weight_request_queue = ipc_manager.Queue()
+        
+        # Create MetagraphUpdater like validator.py  
+        metagraph_updater = MetagraphUpdater(
+            config=mock_config,
+            metagraph=self.mock_metagraph,
+            hotkey="test_hotkey", 
+            is_miner=False,
+            slack_notifier=None,
+            weight_request_queue=weight_request_queue
         )
         
-        # Verify weight setting was called
-        mock_subtensor.set_weights.assert_called()
+        # Update weight_setter to use IPC queue
+        self.weight_setter.weight_request_queue = weight_request_queue
         
-        # Analyze the weights that were set
-        call_args = mock_subtensor.set_weights.call_args[1]
-        uids = call_args['uids']
-        weights = call_args['weights']
-        version = call_args['version_key']
+        # 5. Trigger weight computation using real production code path
+        checkpoint_results, transformed_list = self.weight_setter.compute_weights_default(current_time)
         
-        # Verify appropriate number of weights
-        self.assertGreater(len(weights), 0)
-        self.assertEqual(len(uids), len(weights))
-        self.assertEqual(version, self.weight_setter.subnet_version)
+        # Verify weights were computed
+        self.assertGreater(len(transformed_list), 0)
         
-        # Verify weights sum appropriately (exact sum depends on scaling)
-        total_weight = sum(weights)
-        self.assertGreater(total_weight, 0)
+        # 6. If there are weights, weight_setter should send IPC request
+        if transformed_list:
+            # Manually send the request (since we're not running the full process loop)
+            self.weight_setter._send_weight_request(transformed_list)
+            
+            # 7. Verify IPC message was sent
+            self.assertFalse(weight_request_queue.empty())
+            
+            # 8. Test MetagraphUpdater processing the request using production code
+            # Mock the subtensor in MetagraphUpdater
+            metagraph_updater.subtensor = mock_subtensor
+            
+            # Patch bt.wallet creation to avoid config conversion issues
+            with patch('shared_objects.metagraph_updater.bt.wallet') as mock_wallet_creation:
+                mock_wallet_creation.return_value = mock_wallet
+                
+                # Process the IPC request using real production logic
+                metagraph_updater._process_weight_requests()
+            
+            # Verify mock subtensor was called
+            mock_subtensor.set_weights.assert_called()
+            
+            # Analyze the weights that were set
+            call_args = mock_subtensor.set_weights.call_args[1]
+            uids = call_args['uids']
+            weights = call_args['weights'] 
+            version = call_args['version_key']
+            
+            # Verify appropriate number of weights
+            self.assertGreater(len(weights), 0)
+            self.assertEqual(len(uids), len(weights))
+            self.assertEqual(version, self.weight_setter.subnet_version)
+            
+            # Verify weights sum appropriately
+            total_weight = sum(weights)
+            self.assertGreater(total_weight, 0)

@@ -179,6 +179,8 @@ class ValiConfig:
     EQUITIES_MIN_LEVERAGE = 0.1
     EQUITIES_MAX_LEVERAGE = 3
 
+    # Account Size
+    CAPITAL_FLOOR = 5_000
     CAPITAL = 250_000  # conversion of 1x leverage to $250K in capital
 
     MAX_DAILY_DRAWDOWN = 0.95  # Portfolio should never fall below .95 x of initial value when measured day to day
@@ -225,12 +227,13 @@ class ValiConfig:
     SHORT_LOOKBACK_WINDOW = 7 * DAILY_CHECKPOINTS
 
     # Scoring weights
-    SCORING_OMEGA_WEIGHT = 0.2
-    SCORING_SHARPE_WEIGHT = 0.2
-    SCORING_SORTINO_WEIGHT = 0.2
-    SCORING_STATISTICAL_CONFIDENCE_WEIGHT = 0.2
-    SCORING_CALMAR_WEIGHT = 0.2
+    SCORING_OMEGA_WEIGHT = 0.14
+    SCORING_SHARPE_WEIGHT = 0.14
+    SCORING_SORTINO_WEIGHT = 0.14
+    SCORING_STATISTICAL_CONFIDENCE_WEIGHT = 0.14
+    SCORING_CALMAR_WEIGHT = 0.14
     SCORING_RETURN_WEIGHT = 0.0
+    SCORING_PNL_WEIGHT = 0.3
 
     # Scoring hyperparameters
     OMEGA_LOSS_MINIMUM = 0.01   # Equivalent to 1% loss
@@ -241,6 +244,7 @@ class ValiConfig:
     SORTINO_NOCONFIDENCE_VALUE = -100
     STATISTICAL_CONFIDENCE_NOCONFIDENCE_VALUE = -100
     CALMAR_NOCONFIDENCE_VALUE = -100
+    PNL_NOCONFIDENCE_VALUE = -100_000
     CALMAR_RATIO_CAP = 10
 
     # MDD penalty calculation
@@ -290,10 +294,20 @@ class ValiConfig:
 
     # Cap leverage across miner's entire portfolio
     PORTFOLIO_LEVERAGE_CAP = 10
-    
+
     # Collateral limits
-    MAX_COLLATERAL_BALANCE_THETA = 50.0  # Maximum total collateral balance per miner in Theta tokens
+    MIN_COLLATERAL_BALANCE_THETA = 50  # Required minimum total collateral balance per miner in Theta. Approx $8750 capital account size
+    MAX_COLLATERAL_BALANCE_THETA = InterpolatedValueFromDate("2025-08-16", low=60, increment=50, interval=1, target=300)  # Begins at 60, and increases by 50 every day until limit 300 is reached.
+    MIN_COLLATERAL_BALANCE_TESTNET = 0
     MAX_COLLATERAL_BALANCE_TESTNET = 10000.0
+
+    # Miner will get a base of 50% collateral returned upon elimination
+    BASE_COLLATERAL_RETURNED = 0.5
+    # 50% of drawdown proportion is slashed
+    SLASH_PROPORTION = 0.5
+
+    # Account size USD value per theta of collateral
+    COST_PER_THETA = 175
 
 assert ValiConfig.CRYPTO_MIN_LEVERAGE >= ValiConfig.ORDER_MIN_LEVERAGE
 assert ValiConfig.CRYPTO_MAX_LEVERAGE <= ValiConfig.ORDER_MAX_LEVERAGE

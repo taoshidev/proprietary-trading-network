@@ -10,6 +10,7 @@ from time_util.time_util import TimeUtil
 from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
 from vali_objects.utils.elimination_manager import EliminationManager
 from vali_objects.utils.position_manager import PositionManager
+from vali_objects.utils.validator_contract_manager import ValidatorContractManager
 from vali_objects.utils.validator_sync_base import ValidatorSyncBase
 import bittensor as bt
 #from restore_validator_from_backup import regenerate_miner_positions
@@ -19,10 +20,12 @@ import bittensor as bt
 class PositionSyncer(ValidatorSyncBase):
     def __init__(self, shutdown_dict=None, signal_sync_lock=None, signal_sync_condition=None,
                  n_orders_being_processed=None, running_unit_tests=False, position_manager=None,
-                 ipc_manager=None, auto_sync_enabled=False, enable_position_splitting=False, verbose=False):
+                 ipc_manager=None, auto_sync_enabled=False, enable_position_splitting=False, verbose=False,
+                 contract_manager=None):
         super().__init__(shutdown_dict, signal_sync_lock, signal_sync_condition, n_orders_being_processed,
                          running_unit_tests=running_unit_tests, position_manager=position_manager,
-                         ipc_manager=ipc_manager, enable_position_splitting=enable_position_splitting, verbose=verbose)
+                         ipc_manager=ipc_manager, enable_position_splitting=enable_position_splitting, verbose=verbose,
+                         contract_manager=contract_manager)
 
         self.force_ran_on_boot = True
         print(f'PositionSyncer: auto_sync_enabled: {auto_sync_enabled}')
@@ -101,7 +104,7 @@ class PositionSyncer(ValidatorSyncBase):
             return
 
         datetime_now = TimeUtil.generate_start_timestamp(0)  # UTC
-        if not (datetime_now.hour == 6 and (8 < datetime_now.minute < 20)):
+        if not (datetime_now.hour == 16 and (8 < datetime_now.minute < 20)):
             return
 
         self.perform_sync()
@@ -112,7 +115,8 @@ if __name__ == "__main__":
     elimination_manager = EliminationManager(None, [], None, None)
     position_manager = PositionManager({}, elimination_manager=elimination_manager, challengeperiod_manager=None)
     challengeperiod_manager = ChallengePeriodManager(metagraph=None, position_manager=position_manager)
+    contract_manager = ValidatorContractManager(config=None, metagraph=None, running_unit_tests=False)
     position_manager.challengeperiod_manager = challengeperiod_manager
-    position_syncer = PositionSyncer(position_manager=position_manager)
+    position_syncer = PositionSyncer(position_manager=position_manager, contract_manager=contract_manager)
     candidate_data = position_syncer.read_validator_checkpoint_from_gcloud_zip()
     position_syncer.sync_positions(False, candidate_data=candidate_data)

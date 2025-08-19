@@ -113,6 +113,11 @@ class ValiBkpUtils:
         return ValiConfig.BASE_DIR + f"{suffix}/validation/timestamp.json"
 
     @staticmethod
+    def get_miner_account_sizes_file_location(running_unit_tests=False) -> str:
+        suffix = "/tests" if running_unit_tests else ""
+        return ValiConfig.BASE_DIR + f"{suffix}/validation/miner_account_sizes.json"
+
+    @staticmethod
     def get_secrets_dir():
         return ValiConfig.BASE_DIR + "/secrets.json"
 

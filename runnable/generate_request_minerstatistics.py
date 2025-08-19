@@ -1,5 +1,7 @@
 import os
 import json
+import time
+
 import bittensor as bt
 from typing import List, Dict, Any
 from dataclasses import dataclass
@@ -13,6 +15,7 @@ from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
 from vali_objects.utils.elimination_manager import EliminationManager
 from vali_objects.utils.plagiarism_detector import PlagiarismDetector
 from vali_objects.utils.position_manager import PositionManager
+from vali_objects.utils.validator_contract_manager import ValidatorContractManager
 from vali_objects.vali_config import ValiConfig, TradePair
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.utils.subtensor_weight_setter import SubtensorWeightSetter
@@ -44,6 +47,7 @@ class ScoreMetric:
     requires_penalties: bool = False
     requires_weighting: bool = False
     bypass_confidence: bool = False
+    args: Dict[str, Any] = None
 
 
 class ScoreResult:
@@ -70,40 +74,49 @@ class ScoreResult:
 class MetricsCalculator:
     """Class to handle all metrics calculations"""
 
-    def __init__(self):
+    def __init__(self, metrics=None):
         # Add or remove metrics as desired. Excluding short-term metrics as requested.
-        self.metrics = {
-            "omega": ScoreMetric(
-                name="omega",
-                metric_func=Metrics.omega,
-                weight=ValiConfig.SCORING_OMEGA_WEIGHT
-            ),
-            "sharpe": ScoreMetric(
-                name="sharpe",
-                metric_func=Metrics.sharpe,
-                weight=ValiConfig.SCORING_SHARPE_WEIGHT
-            ),
-            "sortino": ScoreMetric(
-                name="sortino",
-                metric_func=Metrics.sortino,
-                weight=ValiConfig.SCORING_SORTINO_WEIGHT
-            ),
-            "statistical_confidence": ScoreMetric(
-                name="statistical_confidence",
-                metric_func=Metrics.statistical_confidence,
-                weight=ValiConfig.SCORING_STATISTICAL_CONFIDENCE_WEIGHT
-            ),
-            "calmar": ScoreMetric(
-                name="calmar",
-                metric_func=Metrics.calmar,
-                weight=ValiConfig.SCORING_CALMAR_WEIGHT
-            ),
-            "return": ScoreMetric(
-                name="return",
-                metric_func=Metrics.base_return_log_percentage,
-                weight=ValiConfig.SCORING_RETURN_WEIGHT
-            ),
-        }
+        if metrics is None:
+
+            self.metrics = {
+                "omega": ScoreMetric(
+                    name="omega",
+                    metric_func=Metrics.omega,
+                    weight=ValiConfig.SCORING_OMEGA_WEIGHT,
+                ),
+                "sharpe": ScoreMetric(
+                    name="sharpe",
+                    metric_func=Metrics.sharpe,
+                    weight=ValiConfig.SCORING_SHARPE_WEIGHT
+                ),
+                "sortino": ScoreMetric(
+                    name="sortino",
+                    metric_func=Metrics.sortino,
+                    weight=ValiConfig.SCORING_SORTINO_WEIGHT
+                ),
+                "statistical_confidence": ScoreMetric(
+                    name="statistical_confidence",
+                    metric_func=Metrics.statistical_confidence,
+                    weight=ValiConfig.SCORING_STATISTICAL_CONFIDENCE_WEIGHT
+                ),
+                "calmar": ScoreMetric(
+                    name="calmar",
+                    metric_func=Metrics.calmar,
+                    weight=ValiConfig.SCORING_CALMAR_WEIGHT
+                ),
+                "return": ScoreMetric(
+                    name="return",
+                    metric_func=Metrics.base_return_log_percentage,
+                    weight=ValiConfig.SCORING_RETURN_WEIGHT
+                ),
+                "pnl": ScoreMetric(
+                    name="pnl",
+                    metric_func=Metrics.pnl_score,
+                    weight=ValiConfig.SCORING_PNL_WEIGHT
+                )
+            }
+        else:
+            self.metrics = metrics
 
     def calculate_metric(
         self,
@@ -118,13 +131,15 @@ class MetricsCalculator:
         for hotkey, miner_data in data.items():
             log_returns = miner_data.get("log_returns", [])
             ledger = miner_data.get("ledger", [])
-
-            value = metric.metric_func(
-                log_returns=log_returns,
-                ledger=ledger,
-                weighting=weighting,
-                bypass_confidence=metric.bypass_confidence
-            )
+            if metric.args is not None:
+                value = metric.metric_func(hotkey=hotkey)
+            else:
+                value = metric.metric_func(
+                    log_returns=log_returns,
+                    ledger=ledger,
+                    weighting=weighting,
+                    bypass_confidence=metric.bypass_confidence
+                )
 
             scores[hotkey] = value
 
@@ -139,7 +154,8 @@ class MinerStatisticsManager:
         self,
         position_manager: PositionManager,
         subtensor_weight_setter: SubtensorWeightSetter,
-        plagiarism_detector: PlagiarismDetector
+        plagiarism_detector: PlagiarismDetector,
+        metrics: Dict[str, MetricsCalculator] = None
     ):
         self.position_manager = position_manager
         self.perf_ledger_manager = position_manager.perf_ledger_manager
@@ -147,8 +163,9 @@ class MinerStatisticsManager:
         self.challengeperiod_manager = position_manager.challengeperiod_manager
         self.subtensor_weight_setter = subtensor_weight_setter
         self.plagiarism_detector = plagiarism_detector
+        self.contract_manager = self.perf_ledger_manager.contract_manager
 
-        self.metrics_calculator = MetricsCalculator()
+        self.metrics_calculator = MetricsCalculator(metrics=metrics)
 
     # -------------------------------------------
     # Ranking / Percentile Helpers
@@ -414,6 +431,76 @@ class MinerStatisticsManager:
 
         return miner_risk_report
 
+    def extract_scoring_config(self, scoremetric_dict):
+        scoring_config = {}
+
+        for key, metric in scoremetric_dict.items():
+            # Skip "return" if not needed in the final config
+            if key == "return":
+                continue
+
+            scoring_config[key] = {
+                "function": metric.metric_func,
+                "weight": metric.weight
+            }
+
+        return scoring_config
+
+    # -------------------------------------------
+    # Raw PnL Calculation
+    # -------------------------------------------
+    def calculate_pnl_info(self, filtered_ledger: Dict[str, Dict[str, PerfLedger]], now_ms: int = None) -> Dict[str, Dict[str, float]]:
+        """Calculate raw PnL values, rankings and percentiles for all miners."""
+        if now_ms is None:
+            now_ms = TimeUtil.now_in_millis()
+
+        raw_pnl_values = []
+        account_sizes = []
+        
+        # Calculate raw PnL for each miner
+        for hotkey, ledgers in filtered_ledger.items():
+            portfolio_ledger = ledgers.get(TP_ID_PORTFOLIO)
+            if portfolio_ledger:
+                raw_pnl = LedgerUtils.raw_pnl(portfolio_ledger)
+                raw_pnl_values.append((hotkey, raw_pnl))
+            else:
+                raw_pnl_values.append((hotkey, 0.0))
+
+            # Fetch most recent account size even if it isn't valid yet for scoring
+            account_size = self.contract_manager.get_miner_account_size(hotkey, now_ms, most_recent=True)
+            if account_size is None:
+                account_size = ValiConfig.CAPITAL_FLOOR
+            else:
+                account_size = max(account_size, ValiConfig.CAPITAL_FLOOR)
+            account_sizes.append((hotkey, account_size))
+        
+        # Calculate rankings and percentiles
+        ranks = self.rank_dictionary(raw_pnl_values)
+        percentiles = self.percentile_rank_dictionary(raw_pnl_values)
+        values_dict = dict(raw_pnl_values)
+
+        account_size_ranks = self.rank_dictionary(account_sizes)
+        account_size_percentiles = self.percentile_rank_dictionary(account_sizes)
+        account_sizes_dict = dict(account_sizes)
+        
+        # Build result dictionary
+        result = {}
+        for hotkey in values_dict:
+            result[hotkey] = {
+                "account_size": {
+                    "value": account_sizes_dict[hotkey],
+                    "rank": account_size_ranks[hotkey],
+                    "percentile": account_size_percentiles[hotkey]
+                },
+                "raw_pnl": {
+                    "value": values_dict[hotkey],
+                    "rank": ranks[hotkey],
+                    "percentile": percentiles[hotkey]
+                }
+            }
+        
+        return result
+
     # -------------------------------------------
     # Asset Subcategory Performance
     # -------------------------------------------
@@ -511,7 +598,8 @@ class MinerStatisticsManager:
             successful_positions,
             evaluation_time_ms=time_now,
             verbose=False,
-            weighting=final_results_weighting
+            weighting=final_results_weighting,
+            metrics=self.extract_scoring_config(self.metrics_calculator.metrics)
         )  # returns list of (hotkey, weightVal)
 
         # Only used for testing weight calculation
@@ -524,7 +612,8 @@ class MinerStatisticsManager:
             testing_positions,
             evaluation_time_ms=time_now,
             verbose=False,
-            weighting=final_results_weighting
+            weighting=final_results_weighting,
+            metrics= self.extract_scoring_config( self.metrics_calculator.metrics)
         )
 
         challengeperiod_scores = Scoring.score_testing_miners(testing_ledger, testing_checkpoint_results)
@@ -567,6 +656,9 @@ class MinerStatisticsManager:
 
         # For visualization
         daily_returns_dict = self.calculate_all_daily_returns(filtered_ledger)
+
+        # Calculate raw PnL values with rankings and percentiles
+        raw_pnl_dict = self.calculate_pnl_info(filtered_ledger, now_ms=time_now)
 
         # Also compute penalty breakdown (for display in final "penalties" dict).
         penalty_breakdown = self.calculate_penalties_breakdown(miner_data)
@@ -645,6 +737,8 @@ class MinerStatisticsManager:
                 "minimum_days_boolean": extra.get("minimum_days_boolean"),
                 "percentage_profitable": extra.get("positions_info", {}).get("percentage_profitable"),
             }
+            # Raw PnL
+            raw_pnl_info = raw_pnl_dict.get(hotkey, {"value": 0.0, "rank": None, "percentile": 0.0})
             # Plagiarism
             plagiarism_val = plagiarism_scores.get(hotkey)
 
@@ -678,6 +772,7 @@ class MinerStatisticsManager:
                 "engagement": engagement_subdict,
                 "risk_profile": risk_profile_single_dict,
                 "asset_subcategory_performance": asset_subcategory_performance,
+                "pnl_info": raw_pnl_info,
                 "penalties": {
                     "drawdown_threshold": pen_break.get("drawdown_threshold", 1.0),
                     "risk_profile": pen_break.get("risk_profile", 1.0),
@@ -773,6 +868,8 @@ if __name__ == "__main__":
         perf_ledger_manager=perf_ledger_manager
     )
     challengeperiod_manager = ChallengePeriodManager(metagraph, None, position_manager=position_manager)
+    contract_manager = ValidatorContractManager(config=None, metagraph=metagraph,
+                                                     position_manager=position_manager)
 
     # Cross-wire references
     elimination_manager.position_manager = position_manager
@@ -780,6 +877,7 @@ if __name__ == "__main__":
     elimination_manager.challengeperiod_manager = challengeperiod_manager
     challengeperiod_manager.position_manager = position_manager
     perf_ledger_manager.position_manager = position_manager
+    perf_ledger_manager.contract_manager = contract_manager
 
     subtensor_weight_setter = SubtensorWeightSetter(
         metagraph=metagraph,
