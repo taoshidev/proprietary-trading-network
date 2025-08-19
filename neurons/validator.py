@@ -674,7 +674,7 @@ class Validator:
                 # Get relevant account size
                 account_size = self.contract_manager.get_miner_account_size(hotkey=miner_hotkey, timestamp_ms=order_time_ms)
                 if account_size is None:
-                    account_size = ValiConfig.CAPITAL
+                    account_size = ValiConfig.CAPITAL_FLOOR
                 else:
                     account_size = max(account_size, ValiConfig.CAPITAL_FLOOR)
 

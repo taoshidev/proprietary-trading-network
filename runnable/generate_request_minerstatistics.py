@@ -469,7 +469,7 @@ class MinerStatisticsManager:
             # Fetch most recent account size even if it isn't valid yet for scoring
             account_size = self.contract_manager.get_miner_account_size(hotkey, now_ms, most_recent=True)
             if account_size is None:
-                account_size = ValiConfig.CAPITAL
+                account_size = ValiConfig.CAPITAL_FLOOR
             else:
                 account_size = max(account_size, ValiConfig.CAPITAL_FLOOR)
             account_sizes.append((hotkey, account_size))
