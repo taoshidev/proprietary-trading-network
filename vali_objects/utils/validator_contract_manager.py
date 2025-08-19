@@ -61,10 +61,9 @@ class ValidatorContractManager:
 
         # GCP secret manager
         self._gcp_secret_manager_client = None
+        self.secrets = None
         # Initialize vault wallet as None for all validators
         self.vault_wallet = None
-        # Initialize vault password as None for all validators
-        self.vault_password = None
 
         # Initialize miner account sizes file location
         self.MINER_ACCOUNT_SIZES_FILE = ValiBkpUtils.get_miner_account_sizes_file_location(running_unit_tests=running_unit_tests)
@@ -108,18 +107,12 @@ class ValidatorContractManager:
             return
         try:
             # Load from secrets.json using ValiUtils
-            secrets = ValiUtils.get_secrets()
-            self.owner_address = secrets.get('collateral_owner_address')
-            self.owner_private_key = secrets.get('collateral_owner_private_key')
+            self.secrets = ValiUtils.get_secrets()
+            self.owner_address = self.secrets.get('collateral_owner_address')
+            self.owner_private_key = self.secrets.get('collateral_owner_private_key')
 
             self.vault_wallet = bt.wallet(config=self.config)
             bt.logging.info(f"Vault wallet loaded: {self.vault_wallet}")
-
-            # Get vault password from Google Cloud Secret Manager with fallback to local secrets
-            self.vault_password = self._get_gcp_vault_password(secrets)
-            if self.vault_password is None:
-                self.vault_password = secrets.get('vault_password')
-                bt.logging.info("Vault password retrieved from local secrets file")
 
             if not self.owner_address or not self.owner_private_key:
                 bt.logging.warning("Contract owner credentials not found. Collateral operations will fail.")
@@ -132,7 +125,6 @@ class ValidatorContractManager:
             bt.logging.warning(f"Failed to load contract owner credentials: {e}")
             self.owner_address = None
             self.owner_private_key = None
-            self.vault_password = None
 
     def _load_miner_account_sizes_from_disk(self):
         """Load miner account sizes from disk during initialization"""
@@ -199,9 +191,28 @@ class ValidatorContractManager:
         except Exception as e:
             bt.logging.error(f"Failed to sync miner account sizes data: {e}")
 
-    def _get_gcp_vault_password(self, secrets: dict) -> Optional[str]:
+    def get_secret(self, secret_name: str) -> Optional[str]:
         """
-        Get vault password from Google Cloud Secret Manager with fallback to local secrets.
+        Get secret with fallback to local secrets
+
+        Args:
+            secret_name (str): name of secret
+        """
+        secret = self._get_gcp_secret(secret_name)
+        if secret is not None:
+            return secret
+
+        secret = self.secrets.get(secret_name)
+        if secret is not None:
+            bt.logging.info(f"{secret_name} retrieved from local secrets file")
+        return secret
+
+    def _get_gcp_secret(self, secret_name: str) -> Optional[str]:
+        """
+        Get vault password from Google Cloud Secret Manager.
+
+        Args:
+            secret_name (str): name of secret
 
         Returns:
             str: Vault password or None if not found
@@ -214,19 +225,19 @@ class ValidatorContractManager:
                 self._gcp_secret_manager_client = secretmanager.SecretManagerServiceClient()
 
             secret_path = self._gcp_secret_manager_client.secret_version_path(
-                secrets.get('gcp_project_name'), secrets.get('gcp_vali_pw_name'), "latest"
+                self.secrets.get('gcp_project_name'), self.secrets.get(secret_name), "latest"
             )
             response = self._gcp_secret_manager_client.access_secret_version(name=secret_path)
-            vault_password = response.payload.data.decode()
+            secret = response.payload.data.decode()
 
-            if vault_password:
-                bt.logging.info("Vault password retrieved from Google Cloud Secret Manager")
-                return vault_password
+            if secret:
+                bt.logging.info(f"{secret_name} retrieved from Google Cloud Secret Manager")
+                return secret
             else:
-                bt.logging.debug("Vault password not found in Google Cloud Secret Manager")
+                bt.logging.debug(f"{secret_name} not found in Google Cloud Secret Manager")
                 return None
         except Exception as e:
-            bt.logging.debug(f"Failed to retrieve vault password from Google Cloud: {e}")
+            bt.logging.debug(f"Failed to retrieve {secret_name} from Google Cloud: {e}")
 
     def to_theta(self, rao_amount: int) -> float:
         """
@@ -304,6 +315,7 @@ class ValidatorContractManager:
                 #     }
 
                 bt.logging.info(f"Processing deposit for: {deposit_amount_theta} Theta to miner: {miner_hotkey}")
+                vault_password = self.get_secret("vault_password")
                 deposited_balance = self.collateral_manager.deposit(
                     extrinsic=extrinsic,
                     source_hotkey=miner_hotkey,
@@ -311,7 +323,7 @@ class ValidatorContractManager:
                     vault_wallet=self.vault_wallet,
                     owner_address=self.owner_address,
                     owner_private_key=self.owner_private_key,
-                    wallet_password=self.vault_password
+                    wallet_password=vault_password
                 )
 
                 bt.logging.info(f"Deposit successful: {self.to_theta(deposited_balance.rao)} Theta deposited to miner: {miner_hotkey}")
@@ -397,6 +409,7 @@ class ValidatorContractManager:
                 #     }
 
                 bt.logging.info(f"Processing withdrawal request from {miner_hotkey} for {amount} Theta")
+                vault_password = self.get_secret("vault_password")
                 withdrawn_balance = self.collateral_manager.withdraw(
                     amount=int(amount * 10**9), # convert theta to rao_theta
                     source_coldkey=miner_coldkey,
@@ -405,7 +418,7 @@ class ValidatorContractManager:
                     vault_wallet=self.vault_wallet,
                     owner_address=self.owner_address,
                     owner_private_key=self.owner_private_key,
-                    wallet_password=self.vault_password
+                    wallet_password=vault_password
                 )
                 returned_theta = self.to_theta(withdrawn_balance.rao)
                 bt.logging.info(f"Withdrawal successful: {returned_theta} Theta withdrawn for {miner_hotkey}, returned to {miner_coldkey}")
