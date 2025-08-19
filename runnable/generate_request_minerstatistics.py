@@ -868,8 +868,7 @@ if __name__ == "__main__":
         perf_ledger_manager=perf_ledger_manager
     )
     challengeperiod_manager = ChallengePeriodManager(metagraph, None, position_manager=position_manager)
-    contract_manager = ValidatorContractManager(config=None, metagraph=metagraph,
-                                                     position_manager=position_manager)
+    contract_manager = ValidatorContractManager(config=None, position_manager=position_manager)
 
     # Cross-wire references
     elimination_manager.position_manager = position_manager

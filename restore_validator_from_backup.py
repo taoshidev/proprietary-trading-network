@@ -87,7 +87,7 @@ def regenerate_miner_positions(perform_backup=True, backup_from_data_dir=False, 
                                        challengeperiod_manager=None,
                                        elimination_manager=elimination_manager)
     challengeperiod_manager = ChallengePeriodManager(metagraph=None, position_manager=position_manager)
-    contract_manager = ValidatorContractManager(config=None, metagraph=None, running_unit_tests=False)
+    contract_manager = ValidatorContractManager(config=None, running_unit_tests=False)
     perf_ledger_manager = PerfLedgerManager(None)
 
     if DEBUG:
