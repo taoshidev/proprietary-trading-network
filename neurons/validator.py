@@ -198,7 +198,8 @@ class Validator:
                                               n_orders_being_processed=self.n_orders_being_processed,
                                               ipc_manager=self.ipc_manager,
                                               position_manager=None,
-                                              auto_sync_enabled=self.auto_sync)  # Set after self.pm creation
+                                              auto_sync_enabled=self.auto_sync,
+                                              contract_manager=self.contract_manager)  # Set after self.pm creation
 
         self.p2p_syncer = P2PSyncer(wallet=self.wallet, metagraph=self.metagraph, is_testnet=not self.is_mainnet,
                                     shutdown_dict=shutdown_dict, signal_sync_lock=self.signal_sync_lock,
