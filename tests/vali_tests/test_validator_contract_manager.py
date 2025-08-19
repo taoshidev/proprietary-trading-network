@@ -37,7 +37,6 @@ class TestValidatorContractManager(TestBase):
             with patch('vali_objects.utils.validator_contract_manager.ValidatorContractManager._save_miner_account_sizes_to_disk'):
                 self.contract_manager = ValidatorContractManager(
                     config=mock_config,
-                    metagraph=mock_metagraph,
                     running_unit_tests=True
                 )
         

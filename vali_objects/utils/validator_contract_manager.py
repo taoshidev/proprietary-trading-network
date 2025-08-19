@@ -39,11 +39,11 @@ class ValidatorContractManager:
     This class acts as the validator's interface to the collateral system.
     """
     
-    def __init__(self, config, metagraph, running_unit_tests=False, position_manager=None):
+    def __init__(self, config=None, position_manager=None, running_unit_tests=False, is_backtesting=False):
         self.config = config
-        self.metagraph = metagraph
         self.position_manager = position_manager
         self.is_mothership = 'ms' in ValiUtils.get_secrets(running_unit_tests=running_unit_tests)
+        self.is_backtesting = is_backtesting
         
         # Store network type for dynamic max_theta property
         if config is not None:
