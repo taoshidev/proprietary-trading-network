@@ -253,7 +253,7 @@ class BacktestManager:
             self.challengeperiod_manager.add_all_miners_to_success(current_time_ms=current_time_ms, run_elimination=run_elimination)
         if run_elimination:
             self.elimination_manager.process_eliminations(self.position_locks)
-        self.weight_setter.set_weights(None, None, None, current_time=current_time_ms)
+        self.weight_setter.set_weights(current_time=current_time_ms)
 
 
 if __name__ == '__main__':
