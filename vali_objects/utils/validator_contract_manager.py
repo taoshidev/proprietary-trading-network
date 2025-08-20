@@ -665,13 +665,15 @@ class ValidatorContractManager:
         # Sort records in reverse chronological order (newest first)
         sorted_records = sorted(self.miner_account_sizes[hotkey], key=lambda r: r.update_time_ms, reverse=True)
 
+        # Return most recent record
+        if most_recent:
+            most_recent_record = self.miner_account_sizes[hotkey][0]
+            return most_recent_record.account_size
+
         # Return the first record that is valid for or before the requested day
         for record in sorted_records:
             if record.valid_date_timestamp <= start_of_day_ms:
                 return record.account_size
 
-        if most_recent:
-            most_recent_record = self.miner_account_sizes[hotkey][0]
-            return most_recent_record.account_size
         # No applicable records found
         return None
