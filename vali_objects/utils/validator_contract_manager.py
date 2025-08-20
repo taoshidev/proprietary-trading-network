@@ -330,7 +330,6 @@ class ValidatorContractManager:
             except Exception as e:
                 error_msg = f"Deposit execution failed: {str(e)}"
                 bt.logging.error(error_msg)
-                bt.logging.error(traceback.format_exc())
                 return {
                     "successfully_processed": False,
                     "error_message": error_msg
@@ -339,7 +338,6 @@ class ValidatorContractManager:
         except Exception as e:
             error_msg = f"Deposit processing error: {str(e)}"
             bt.logging.error(error_msg)
-            bt.logging.error(traceback.format_exc())
             return {
                 "successfully_processed": False,
                 "error_message": error_msg
@@ -434,7 +432,6 @@ class ValidatorContractManager:
             except Exception as e:
                 error_msg = f"Withdrawal execution failed: {str(e)}"
                 bt.logging.error(error_msg)
-                bt.logging.error(traceback.format_exc())
                 return {
                     "successfully_processed": False,
                     "error_message": error_msg,
@@ -445,7 +442,6 @@ class ValidatorContractManager:
         except Exception as e:
             error_msg = f"Withdrawal processing error: {str(e)}"
             bt.logging.error(error_msg)
-            bt.logging.error(traceback.format_exc())
             return {
                 "successfully_processed": False,
                 "error_message": error_msg,
