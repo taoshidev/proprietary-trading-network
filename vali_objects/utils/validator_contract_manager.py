@@ -39,11 +39,11 @@ class ValidatorContractManager:
     This class acts as the validator's interface to the collateral system.
     """
     
-    def __init__(self, config, metagraph, running_unit_tests=False, position_manager=None):
+    def __init__(self, config=None, position_manager=None, running_unit_tests=False, is_backtesting=False):
         self.config = config
-        self.metagraph = metagraph
         self.position_manager = position_manager
         self.is_mothership = 'ms' in ValiUtils.get_secrets(running_unit_tests=running_unit_tests)
+        self.is_backtesting = is_backtesting
         
         # Store network type for dynamic max_theta property
         if config is not None:
@@ -142,19 +142,16 @@ class ValidatorContractManager:
             bt.logging.info(f"Loaded {len(self.miner_account_sizes)} miner account size records from disk")
         except Exception as e:
             bt.logging.warning(f"Failed to load miner account sizes from disk: {e}")
-            self.miner_account_sizes = {}
-            # Create empty file structure
-            self._save_miner_account_sizes_to_disk()
 
     def _save_miner_account_sizes_to_disk(self):
         """Save miner account sizes to disk"""
         try:
-            data_dict = self._to_dict()
+            data_dict = self.miner_account_sizes_dict()
             ValiBkpUtils.write_file(self.MINER_ACCOUNT_SIZES_FILE, data_dict)
         except Exception as e:
             bt.logging.error(f"Failed to save miner account sizes to disk: {e}")
 
-    def _to_dict(self) -> Dict[str, List[Dict[str, Any]]]:
+    def miner_account_sizes_dict(self) -> Dict[str, List[Dict[str, Any]]]:
         """Convert miner account sizes to checkpoint format for backup/sync"""
         json_dict = {}
         for hotkey, records in self.miner_account_sizes.items():

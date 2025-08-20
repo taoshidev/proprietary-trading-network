@@ -37,7 +37,6 @@ class TestValidatorContractManager(TestBase):
             with patch('vali_objects.utils.validator_contract_manager.ValidatorContractManager._save_miner_account_sizes_to_disk'):
                 self.contract_manager = ValidatorContractManager(
                     config=mock_config,
-                    metagraph=mock_metagraph,
                     running_unit_tests=True
                 )
         
@@ -184,7 +183,7 @@ class TestValidatorContractManager(TestBase):
             self.contract_manager.set_miner_account_size(self.MINER_2, current_time)
             
             # Get checkpoint dict
-            checkpoint_dict = self.contract_manager._to_dict()
+            checkpoint_dict = self.contract_manager.miner_account_sizes_dict()
             
             # Verify structure
             self.assertIsInstance(checkpoint_dict, dict)

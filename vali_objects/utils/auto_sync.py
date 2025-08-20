@@ -104,7 +104,7 @@ class PositionSyncer(ValidatorSyncBase):
             return
 
         datetime_now = TimeUtil.generate_start_timestamp(0)  # UTC
-        if not (datetime_now.hour == 16 and (8 < datetime_now.minute < 20)):
+        if not (datetime_now.hour == 20 and (8 < datetime_now.minute < 20)):
             return
 
         self.perform_sync()
@@ -115,7 +115,7 @@ if __name__ == "__main__":
     elimination_manager = EliminationManager(None, [], None, None)
     position_manager = PositionManager({}, elimination_manager=elimination_manager, challengeperiod_manager=None)
     challengeperiod_manager = ChallengePeriodManager(metagraph=None, position_manager=position_manager)
-    contract_manager = ValidatorContractManager(config=None, metagraph=None, running_unit_tests=False)
+    contract_manager = ValidatorContractManager(config=None, running_unit_tests=False)
     position_manager.challengeperiod_manager = challengeperiod_manager
     position_syncer = PositionSyncer(position_manager=position_manager, contract_manager=contract_manager)
     candidate_data = position_syncer.read_validator_checkpoint_from_gcloud_zip()

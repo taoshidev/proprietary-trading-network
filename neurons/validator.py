@@ -185,7 +185,7 @@ class Validator:
         )
 
         # Initialize ValidatorContractManager for collateral operations
-        self.contract_manager = ValidatorContractManager(config=self.config, metagraph=self.metagraph, position_manager=None)
+        self.contract_manager = ValidatorContractManager(config=self.config, position_manager=None)
 
 
         self.elimination_manager = EliminationManager(self.metagraph, None,  # Set after self.pm creation
@@ -212,8 +212,8 @@ class Validator:
         self.perf_ledger_manager = PerfLedgerManager(self.metagraph, ipc_manager=self.ipc_manager,
                                                      shutdown_dict=shutdown_dict,
                                                      perf_ledger_hks_to_invalidate=self.position_syncer.perf_ledger_hks_to_invalidate,
-                                                     position_manager=None)  # Set after self.pm creation)
-        self.perf_ledger_manager.contract_manager = self.contract_manager
+                                                     position_manager=None,
+                                                     contract_manager=self.contract_manager)  # Set after self.pm creation)
 
 
         self.position_manager = PositionManager(metagraph=self.metagraph,
