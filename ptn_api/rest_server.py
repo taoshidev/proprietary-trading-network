@@ -255,7 +255,7 @@ class PTNRestServer(APIKeyMixin):
         self.app = Flask(__name__)
         self.app.config['MAX_CONTENT_LENGTH'] = 256 * 1024  # 256 KB upper bound
 
-        self.contract_manager.load_contract_owner_credentials()
+        self.contract_manager.load_contract_owner()
 
         # Initialize Flask-Compress for GZIP compression
         Compress(self.app)
