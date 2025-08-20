@@ -37,6 +37,8 @@ from vali_objects.utils.live_price_fetcher import LivePriceFetcher
 from vali_objects.vali_config import TradePair, TradePairCategory, CryptoSubcategory, ForexSubcategory
 from vali_objects.vali_dataclasses.price_source import PriceSource
 from vali_objects.utils.vali_utils import ValiUtils
+from collections import defaultdict
+from datetime import datetime, timezone
 
 # Database setup
 Base = declarative_base()
@@ -315,6 +317,7 @@ def process_miner_with_main_logic(
     
     # Use shared database manager and elimination tracker
     db_manager = shared_data_manager.db_manager
+    elimination_tracker = shared_data_manager.elimination_tracker
     live_price_fetcher = shared_data_manager.live_price_fetcher
     
     # Get existing hotkey-date pairs for this miner (same as main logic)
@@ -352,7 +355,7 @@ def process_miner_with_main_logic(
         
         # Filter positions and identify required trade pairs using date string
         filtered_positions_by_hotkey, required_trade_pair_ids, skip_stats = PositionFilter.filter_and_analyze_positions_for_date(
-            all_positions, current_ms, current_date_str
+            all_positions, current_ms, current_date_str, elimination_tracker
         )
         
         if not filtered_positions_by_hotkey or hotkey not in filtered_positions_by_hotkey:
@@ -379,7 +382,7 @@ def process_miner_with_main_logic(
         
         # Calculate returns for this day
         calculator = PortfolioCalculator(filtered_positions_by_hotkey, live_price_fetcher)
-        daily_returns = calculator.calculate_daily_returns(current_date, cached_price_sources)
+        daily_returns = calculator.calculate_daily_returns(current_date, cached_price_sources, live_price_fetcher)
         
         if daily_returns:
             # Flatten the returns and collect for single bulk insert
@@ -819,7 +822,8 @@ class PositionFilter:
     def filter_and_analyze_positions_for_date(
         all_positions: Dict[str, List[Position]],
         target_date_ms: int,
-        date_str: str  # Date string passed in
+        date_str: str,  # Date string passed in
+        elimination_tracker: Optional['EliminationTracker'] = None
     ) -> Tuple[Dict[str, List[Position]], Set[str], FilterStats]:
         """
         Filter positions and identify required trade pairs for a specific date.
@@ -840,6 +844,11 @@ class PositionFilter:
         bt.logging.debug(f"Filtering positions for {date_str} ({target_date_ms} ms)")
         
         for hotkey, positions in all_positions.items():
+            # Skip eliminated miners entirely to avoid unnecessary position processing
+            if elimination_tracker and elimination_tracker.is_hotkey_eliminated_at_date(hotkey, target_date_ms):
+                bt.logging.debug(f"Skipping eliminated miner {hotkey[:12]} for {date_str}")
+                continue
+                
             stats.total_positions_before_filter += len(positions)
             filtered_positions = []
             
@@ -859,11 +868,7 @@ class PositionFilter:
                     # Precisely check if position needs a price on this specific date
                     position_is_active = False
                     if filtered_position.open_ms <= target_date_ms:
-                        if filtered_position.is_closed_position:
-                            # Closed position: needs price if still open on target date
-                            if filtered_position.close_ms and filtered_position.close_ms >= target_date_ms:
-                                position_is_active = True
-                        else:
+                        if filtered_position.is_open_position:
                             # Open position: always needs pricing
                             position_is_active = True
                     
@@ -959,18 +964,34 @@ class ReturnCalculator:
     def calculate_position_return(
         position: Position,
         target_date_ms: int,
-        cached_price_sources: Dict[TradePair, PriceSource]
+        cached_price_sources: Dict[TradePair, PriceSource],
+        live_price_fetcher: LivePriceFetcher
     ) -> float:
         """Calculate return for a single position."""
         # If position is closed and closed before/at target date, use actual return
-        if position.is_closed_position and position.close_ms and position.close_ms <= target_date_ms:
+        do_special_fetch = position.is_closed_position and \
+                position.return_at_close == 1.0 and \
+                position.orders and \
+                position.orders[-1].src == 1
+
+        if position.is_closed_position and not do_special_fetch:
             return position.return_at_close
         
         # For open positions, calculate using cached price
         if position.trade_pair not in cached_price_sources:
-            raise ValueError(f"Price not available for {position.trade_pair.trade_pair} at target date")
-        
-        price_source = cached_price_sources[position.trade_pair]
+            if not do_special_fetch:
+                raise ValueError(f"Price not available for {position.trade_pair.trade_pair} at target date")
+
+        if do_special_fetch:
+            orders_to_use = position.orders[:-1]  # Exclude the last order which is the closing order with src = 1
+            price_source = live_price_fetcher.get_close_at_date(
+                trade_pair=position.trade_pair,
+                timestamp_ms=position.close_ms,
+                verbose=False
+            )
+        else:
+            price_source = cached_price_sources[position.trade_pair]
+            orders_to_use = position.orders[:]
         
         # Create a copy to avoid modifying the original position
         position_copy = Position(
@@ -979,7 +1000,7 @@ class ReturnCalculator:
             open_ms=position.open_ms,
             close_ms=position.close_ms,
             trade_pair=position.trade_pair,
-            orders=position.orders[:],
+            orders=orders_to_use,
             position_type=position.position_type,
             is_closed_position=position.is_closed_position,
         )
@@ -993,6 +1014,9 @@ class ReturnCalculator:
         )
         
         position_copy.set_returns(realtime_price=price, time_ms=target_date_ms)
+        if do_special_fetch:
+            bt.logging.warning(f'Special fetch for closed position {position.position_uuid} at {position.close_ms} ms. '
+                               f'Trade pair {position.trade_pair.trade_pair} Return: {position_copy.return_at_close}. price_source: {price_source}')
         return position_copy.return_at_close
 
 
@@ -1104,51 +1128,6 @@ class PositionAnalyzer:
         return CategoryReturnCalculator.prepare_insert_values(
             miner_returns, target_timestamp
         )
-    
-    @staticmethod
-    def analyze_positions_for_date(
-        positions: List[Position],
-        target_date_ms: int,
-        cached_price_sources: Dict[TradePair, PriceSource]
-    ) -> Dict:
-        """Analyze positions for detailed statistics."""
-        stats = {
-            'open_positions': 0,
-            'closed_positions': 0,
-            'returns': [],
-            'leverage_distribution': [],
-            'position_durations': [],
-            'trade_pairs': set()
-        }
-        
-        for position in positions:
-            stats['trade_pairs'].add(position.trade_pair.trade_pair)
-            
-            # Calculate position duration up to target date
-            if position.is_closed_position and position.close_ms and position.close_ms <= target_date_ms:
-                stats['closed_positions'] += 1
-                duration_ms = position.close_ms - position.open_ms
-            else:
-                stats['open_positions'] += 1
-                duration_ms = target_date_ms - position.open_ms
-            
-            duration_days = duration_ms / MS_IN_24_HOURS
-            stats['position_durations'].append(duration_days)
-            
-            # Get leverage info
-            if position.orders:
-                stats['leverage_distribution'].append(abs(position.orders[0].leverage))
-            
-            # Calculate individual position return
-            try:
-                position_return = ReturnCalculator.calculate_position_return(
-                    position, target_date_ms, cached_price_sources
-                )
-                stats['returns'].append(position_return)
-            except Exception as e:
-                bt.logging.warning(f"Failed to calculate return for position {position.position_uuid}: {e}")
-        
-        return stats
 
 
 class CategoryReturnCalculator:
@@ -1158,7 +1137,7 @@ class CategoryReturnCalculator:
     def calculate_miner_returns_by_category(
         positions: List[Position],
         target_date_ms: int,
-        cached_price_sources: Dict[TradePair, PriceSource]
+        cached_price_sources: Dict[TradePair, PriceSource], live_price_fetcher, pos_debug=False
     ) -> Dict[str, Dict[str, float]]:
         """
         Calculate portfolio values by category for each miner based on positions.
@@ -1172,18 +1151,20 @@ class CategoryReturnCalculator:
         Returns:
             Dict[str, Dict[str, Dict[str, float]]]: Nested dict of miner_hotkey -> category -> {"return": value, "count": count}
         """
-        from collections import defaultdict
-        
+
         # Initialize data structure for results (following reference exactly)
         # Format: {miner_hotkey: {category: {"return": cumulative_portfolio_value, "count": count}}}
         miner_category_returns = defaultdict(
             lambda: defaultdict(lambda: {"return": 1.0, "count": 0}))
         
+        # Collect position returns for debugging
+        position_returns_debug = []
+        
         # Process each position (following reference logic exactly)
         for position in positions:
             # Calculate return_at_close for this position at the target date
             position_return = ReturnCalculator.calculate_position_return(
-                position, target_date_ms, cached_price_sources
+                position, target_date_ms, cached_price_sources, live_price_fetcher
             )
             
             # Fail fast - if we can't calculate return, something is wrong
@@ -1195,7 +1176,11 @@ class CategoryReturnCalculator:
                 raise ValueError(f"Position {position.position_uuid} returned non-positive return: {position_return}")
                 
             miner_hotkey = position.miner_hotkey
-            trade_pair_id = position.trade_pair.trade_pair_id  # Use ID not display name
+
+            # Collect for debugging
+            if pos_debug:
+                trade_pair_str = position.trade_pair.trade_pair  # Get the actual trade pair string
+                position_returns_debug.append((trade_pair_str, position_return))
             
             # Determine categories for this position
             categories = PositionCategorizer.categorize_position(position.trade_pair)
@@ -1205,6 +1190,11 @@ class CategoryReturnCalculator:
                 # Directly multiply the return values together (reference logic)
                 miner_category_returns[miner_hotkey][category]["return"] *= position_return
                 miner_category_returns[miner_hotkey][category]["count"] += 1
+        
+        # Log position returns for debugging
+        if position_returns_debug:
+            target_date = datetime.fromtimestamp(target_date_ms / 1000, tz=timezone.utc)
+            bt.logging.info(f"📊 Position returns for {target_date.strftime('%Y-%m-%d')} ({len(position_returns_debug)} positions): {position_returns_debug}")
         
         # Convert the results to the final format (following reference)
         results = {}
@@ -1281,7 +1271,7 @@ class PortfolioCalculator:
         self.positions_by_hotkey = positions_by_hotkey
         self.live_price_fetcher = live_price_fetcher
     
-    def calculate_daily_returns(self, target_date: datetime, cached_price_sources: Dict) -> List[Dict]:
+    def calculate_daily_returns(self, target_date: datetime, cached_price_sources: Dict, live_price_fetcher) -> List[Dict]:
         """
         Calculate daily portfolio returns for all miners.
         
@@ -1306,7 +1296,7 @@ class PortfolioCalculator:
             
             # Calculate returns for this specific miner's positions
             miner_returns = CategoryReturnCalculator.calculate_miner_returns_by_category(
-                positions, target_date_ms, cached_price_sources
+                positions, target_date_ms, cached_price_sources, live_price_fetcher
             )
             
             # Convert to database format for this miner
@@ -1350,11 +1340,10 @@ class DateUtils:
                 # If miner has elimination timestamp, use elimination_time + 1 day as their end date
                 if hotkey in elimination_timestamps:
                     elimination_ms = elimination_timestamps[hotkey]
-                    # Add 1 day (24 hours) to elimination time for final portfolio calculation
-                    miner_end_ms = elimination_ms + MS_IN_24_HOURS
-                    elim_time = miner_end_ms
-                    # Round to end of UTC day
-                    final_end_ms = ((miner_end_ms // MS_IN_24_HOURS) + 1) * MS_IN_24_HOURS
+                    # Process through elimination day + 1, then stop
+                    # Example: elimination March 18 01:31 -> process March 18, March 19, stop before March 20
+                    elimination_day_start = (elimination_ms // MS_IN_24_HOURS) * MS_IN_24_HOURS  # March 18 00:00
+                    final_end_ms = elimination_day_start + MS_IN_24_HOURS  # March 19 00:00 (will process March 18 and March 19)
                 else:
                     # No elimination, use current time
                     last_order_ms = max(last_order_ms, position.orders[0].processed_ms)
@@ -1653,7 +1642,7 @@ def run_single_miner_backfill(hotkey: str, expected_days: int, shared_data_manag
             secrets = ValiUtils.get_secrets()
             live_price_fetcher = LivePriceFetcher(secrets, disable_ws=True)
             bt.logging.debug(f"   📋 Created new price fetcher for {hotkey[:12]}...")
-        
+
         # Process each day
         total_days = int((end_ms - start_ms) // MS_IN_24_HOURS) + 1
         days_processed = 0
@@ -1689,9 +1678,21 @@ def run_single_miner_backfill(hotkey: str, expected_days: int, shared_data_manag
             bt.logging.debug(f"   ⚡ Processing {current_date_str} for {hotkey[:12]}...")
             days_processed += 1
             
+            # Get cached price sources for required trade pairs
+            if not required_trade_pair_ids:
+                cached_price_sources = {}  # Empty dict but not None
+            else:
+                # Use smart caching strategy with date string
+                cached_price_sources = get_cached_or_fetch_price_sources(
+                    shared_data_manager,
+                    current_date_str,  # Pass the pre-calculated date string
+                    current_time_ms,
+                    required_trade_pair_ids
+                )
+            
             # Calculate portfolio returns for this date
-            calculator = PortfolioCalculator(filtered_positions, live_price_fetcher)
-            daily_returns = calculator.calculate_daily_returns(current_date)
+            calculator = PortfolioCalculator({hotkey: all_positions[hotkey]}, live_price_fetcher)
+            daily_returns = calculator.calculate_daily_returns(current_date, cached_price_sources, live_price_fetcher)
             
             if daily_returns:
                 # Insert returns for this date
@@ -2105,7 +2106,7 @@ def main():
         try:
             # Step 1: Filter positions and identify required trade pairs using date string
             filtered_positions_by_hotkey, required_trade_pair_ids, skip_stats = PositionFilter.filter_and_analyze_positions_for_date(
-                all_positions, current_ms, current_date_str
+                all_positions, current_ms, current_date_str, elimination_tracker
             )
 
             
@@ -2150,7 +2151,7 @@ def main():
             
             # Calculate returns by category
             miner_category_returns = CategoryReturnCalculator.calculate_miner_returns_by_category(
-                all_filtered_positions, current_ms, cached_price_sources
+                all_filtered_positions, current_ms, cached_price_sources, live_price_fetcher
             )
             
             # Prepare insert values for miner_port_values table
@@ -2188,28 +2189,8 @@ def main():
                 else:
                     bt.logging.error(f"Failed to save returns to database for {current_date_str}")
                     raise RuntimeError(f"Database insertion failed for {current_date_str}")
-                
-                # Also save to CSV if requested (convert back to simple format for CSV compatibility)
-                if args.save_csv and results is not None:
-                    for miner_data in daily_returns:
-                        results.append({
-                            "date": miner_data["date"],
-                            "hotkey": miner_data["miner_hotkey"],
-                            "portfolio_return": miner_data["all_port_value"],
-                            "return_pct": (miner_data["all_port_value"] - 1.0) * 100,
-                            "num_positions": miner_data["all_count"],
-                        })
-                    
-            elif args.save_csv and results is not None:
-                # CSV only mode (convert to simple format)
-                for miner_data in daily_returns:
-                    results.append({
-                        "date": miner_data["date"],
-                        "hotkey": miner_data["miner_hotkey"],
-                        "portfolio_return": miner_data["all_port_value"],
-                        "return_pct": (miner_data["all_port_value"] - 1.0) * 100,
-                        "num_positions": miner_data["all_count"],
-                    })
+
+
             else:
                 # No valid output method
                 bt.logging.error(f"No valid output method configured for {current_date_str}")
