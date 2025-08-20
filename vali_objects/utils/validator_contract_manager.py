@@ -302,18 +302,23 @@ class ValidatorContractManager:
                 #     }
 
                 bt.logging.info(f"Processing deposit for: {deposit_amount_theta} Theta to miner: {miner_hotkey}")
-                vault_password = self.get_secret("vault_password")
                 owner_address = self.get_secret("collateral_owner_address")
                 owner_private_key = self.get_secret("collateral_owner_private_key")
-                deposited_balance = self.collateral_manager.deposit(
-                    extrinsic=extrinsic,
-                    source_hotkey=miner_hotkey,
-                    vault_stake=self.vault_wallet.hotkey.ss58_address,
-                    vault_wallet=self.vault_wallet,
-                    owner_address=owner_address,
-                    owner_private_key=owner_private_key,
-                    wallet_password=vault_password
-                )
+                vault_password = self.get_secret("vault_password")
+                try:
+                    deposited_balance = self.collateral_manager.deposit(
+                        extrinsic=extrinsic,
+                        source_hotkey=miner_hotkey,
+                        vault_stake=self.vault_wallet.hotkey.ss58_address,
+                        vault_wallet=self.vault_wallet,
+                        owner_address=owner_address,
+                        owner_private_key=owner_private_key,
+                        wallet_password=vault_password
+                    )
+                finally:
+                    del owner_address
+                    del owner_private_key
+                    del vault_password
 
                 bt.logging.info(f"Deposit successful: {self.to_theta(deposited_balance.rao)} Theta deposited to miner: {miner_hotkey}")
                 self.set_miner_account_size(miner_hotkey, TimeUtil.now_in_millis())
@@ -398,19 +403,24 @@ class ValidatorContractManager:
                 #     }
 
                 bt.logging.info(f"Processing withdrawal request from {miner_hotkey} for {amount} Theta")
-                vault_password = self.get_secret("vault_password")
                 owner_address = self.get_secret("collateral_owner_address")
                 owner_private_key = self.get_secret("collateral_owner_private_key")
-                withdrawn_balance = self.collateral_manager.withdraw(
-                    amount=int(amount * 10**9), # convert theta to rao_theta
-                    source_coldkey=miner_coldkey,
-                    source_hotkey=miner_hotkey,
-                    vault_stake=self.vault_wallet.hotkey.ss58_address,
-                    vault_wallet=self.vault_wallet,
-                    owner_address=owner_address,
-                    owner_private_key=owner_private_key,
-                    wallet_password=vault_password
-                )
+                vault_password = self.get_secret("vault_password")
+                try:
+                    withdrawn_balance = self.collateral_manager.withdraw(
+                        amount=int(amount * 10**9), # convert theta to rao_theta
+                        source_coldkey=miner_coldkey,
+                        source_hotkey=miner_hotkey,
+                        vault_stake=self.vault_wallet.hotkey.ss58_address,
+                        vault_wallet=self.vault_wallet,
+                        owner_address=owner_address,
+                        owner_private_key=owner_private_key,
+                        wallet_password=vault_password
+                    )
+                finally:
+                    del owner_address
+                    del owner_private_key
+                    del vault_password
                 returned_theta = self.to_theta(withdrawn_balance.rao)
                 bt.logging.info(f"Withdrawal successful: {returned_theta} Theta withdrawn for {miner_hotkey}, returned to {miner_coldkey}")
                 self.set_miner_account_size(miner_hotkey, TimeUtil.now_in_millis())
@@ -544,12 +554,16 @@ class ValidatorContractManager:
             bt.logging.info(f"Processing slash of {slash_amount} Theta from {miner_hotkey}")
             owner_address = self.get_secret("collateral_owner_address")
             owner_private_key = self.get_secret("collateral_owner_private_key")
-            self.collateral_manager.slash(
-                address=miner_hotkey,
-                amount=int(slash_amount * 10 ** 9),
-                owner_address=owner_address,
-                owner_private_key=owner_private_key,
-            )
+            try:
+                self.collateral_manager.slash(
+                    address=miner_hotkey,
+                    amount=int(slash_amount * 10 ** 9),
+                    owner_address=owner_address,
+                    owner_private_key=owner_private_key,
+                )
+            finally:
+                del owner_address
+                del owner_private_key
             bt.logging.info(f"Successfully slashed {slash_amount} Theta from {miner_hotkey}")
             return True
 
