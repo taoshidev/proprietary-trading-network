@@ -184,7 +184,7 @@ class TestValidatorContractManager(TestBase):
             self.contract_manager.set_miner_account_size(self.MINER_2, current_time)
             
             # Get checkpoint dict
-            checkpoint_dict = self.contract_manager._to_dict()
+            checkpoint_dict = self.contract_manager.miner_account_sizes_dict()
             
             # Verify structure
             self.assertIsInstance(checkpoint_dict, dict)

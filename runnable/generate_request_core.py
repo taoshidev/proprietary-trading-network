@@ -10,6 +10,7 @@ from time_util.time_util import TimeUtil
 from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
 from vali_objects.utils.elimination_manager import EliminationManager
 from vali_objects.utils.plagiarism_detector import PlagiarismDetector
+from vali_objects.utils.validator_contract_manager import ValidatorContractManager
 from vali_objects.vali_config import ValiConfig
 from vali_objects.decoders.generalized_json_decoder import GeneralizedJSONDecoder
 from vali_objects.position import Position
@@ -261,7 +262,7 @@ class RequestCoreManager:
         # Get miner account sizes if contract manager is available
         miner_account_sizes_dict = {}
         if self.contract_manager:
-            miner_account_sizes_dict = self.contract_manager._to_dict()
+            miner_account_sizes_dict = self.contract_manager.miner_account_sizes_dict()
 
         if write_and_upload_production_files:
             self.create_and_upload_production_files(eliminations, ord_dict_hotkey_position_map, time_now_ms,
@@ -276,6 +277,7 @@ class RequestCoreManager:
         return checkpoint_dict
 
 if __name__ == "__main__":
+    contract_manager = ValidatorContractManager()
     perf_ledger_manager = PerfLedgerManager(None, {}, [])
     elimination_manager = EliminationManager(None, [],None, None)
     position_manager = PositionManager(None, None, elimination_manager=elimination_manager,
@@ -295,5 +297,5 @@ if __name__ == "__main__":
     )
     plagiarism_detector = PlagiarismDetector(None, None, position_manager=position_manager)
 
-    rcm = RequestCoreManager(position_manager, subtensor_weight_setter, plagiarism_detector)
+    rcm = RequestCoreManager(position_manager, subtensor_weight_setter, plagiarism_detector, contract_manager=contract_manager)
     rcm.generate_request_core(write_and_upload_production_files=True)
