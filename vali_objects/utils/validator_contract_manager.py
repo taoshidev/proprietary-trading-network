@@ -6,7 +6,6 @@ from collateral_sdk import CollateralManager, Network
 from typing import Dict, Any, Optional, List
 import traceback
 
-from build.lib.vali_objects.utils.validator_contract_manager import CollateralRecord
 from time_util.time_util import TimeUtil
 from vali_objects.utils.ledger_utils import LedgerUtils
 from vali_objects.utils.vali_utils import ValiUtils
