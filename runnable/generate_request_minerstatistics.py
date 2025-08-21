@@ -342,10 +342,18 @@ class MinerStatisticsManager:
     # -------------------------------------------
     # Daily Returns
     # -------------------------------------------
-    def calculate_all_daily_returns(self, filtered_ledger: dict[str, dict[str, PerfLedger]]) -> dict[str, list[float]]:
-        """Calculate daily returns for all miners."""
+    def calculate_all_daily_returns(self, filtered_ledger: dict[str, dict[str, PerfLedger]], return_type: str = 'simple') -> dict[str, list[float]]:
+        """Calculate daily returns for all miners.
+        
+        Args:
+            filtered_ledger: Dictionary of miner ledgers
+            return_type: 'simple' or 'log' to specify return type (default: 'simple')
+        
+        Returns:
+            Dictionary mapping hotkeys to daily returns
+        """
         return {
-            hotkey: LedgerUtils.daily_returns_by_date_json(ledgers.get(TP_ID_PORTFOLIO))
+            hotkey: LedgerUtils.daily_returns_by_date_json(ledgers.get(TP_ID_PORTFOLIO), return_type=return_type)
             for hotkey, ledgers in filtered_ledger.items()
         }
 
@@ -655,7 +663,7 @@ class MinerStatisticsManager:
         augmented_scores = self.calculate_scores_with_challengeperiod(miner_data, challengeperiod_success_hotkeys, challengeperiod_eval_hotkeys, ScoreType.AUGMENTED, bypass_confidence)
 
         # For visualization
-        daily_returns_dict = self.calculate_all_daily_returns(filtered_ledger)
+        daily_returns_dict = self.calculate_all_daily_returns(filtered_ledger, return_type='simple')
 
         # Calculate raw PnL values with rankings and percentiles
         raw_pnl_dict = self.calculate_pnl_info(filtered_ledger, now_ms=time_now)

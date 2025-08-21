@@ -25,25 +25,38 @@ class LedgerUtils:
         return daily_returns_percentage
 
     @staticmethod
-    def daily_returns_by_date(ledger: PerfLedger) -> dict[date, float]:
+    def daily_returns_by_date(ledger: PerfLedger, return_type: str) -> dict[date, float]:
         """
         Calculate daily returns from performance checkpoints, only including full days
         :param ledger: PerfLedger - the ledger of the miner
-        :return: dict[datetime.date, float] - dictionary mapping dates to daily returns as a percentage
+        :param return_type: str - either 'simple' or 'log' to specify return type
+        :return: dict[datetime.date, float] - dictionary mapping dates to daily returns 
+                 (both as decimal values, not percentages)
         """
+        if return_type not in ['simple', 'log']:
+            raise ValueError("return_type must be either 'simple' or 'log'")
+        
         date_return_map = LedgerUtils.daily_return_log_by_date(ledger)
-        return {date: (math.exp(log_return) - 1) * 100
-                for date, log_return in date_return_map.items()}
+        
+        if return_type == 'log':
+            return date_return_map
+        else:  # simple
+            return {date: math.exp(log_return) - 1
+                    for date, log_return in date_return_map.items()}
 
     @staticmethod
-    def daily_return_ratio_by_date(ledger: PerfLedger, use_log: bool) -> dict[datetime.date, float]:
+    def daily_return_ratio_by_date(ledger: PerfLedger, return_type: str) -> dict[datetime.date, float]:
         """
         Calculate daily returns from performance checkpoints, with date keys as datetime.date objects.
 
         :param ledger: PerfLedger - the ledger of the miner
-        :param use_log: If True, calculates log returns; otherwise, calculates simple returns
-        :return: dict[datetime.date, float] - dictionary mapping dates to daily returns
+        :param return_type: str - either 'simple' or 'log' to specify return type
+        :return: dict[datetime.date, float] - dictionary mapping dates to daily returns 
+                 (both as decimal values, not percentages)
         """
+        if return_type not in ['simple', 'log']:
+            raise ValueError("return_type must be either 'simple' or 'log'")
+            
         if not ledger or not ledger.cps:
             return {}
 
@@ -69,9 +82,9 @@ class LedgerUtils:
             end_value = cp.prev_portfolio_ret
             
             try:
-                if use_log:
+                if return_type == 'log':
                     ans[date] = math.log(end_value / begin_value)
-                else:
+                else:  # simple
                     ans[date] = (end_value / begin_value) - 1
             except (ZeroDivisionError, ValueError):
                 ans[date] = None   # fallback if begin_value is 0 or invalid
@@ -81,16 +94,18 @@ class LedgerUtils:
         return ans
                 
     @staticmethod
-    def daily_returns_by_date_json(ledger: PerfLedger) -> dict[str, float]:
+    def daily_returns_by_date_json(ledger: PerfLedger, return_type: str) -> dict[str, float]:
         """
         Calculate daily returns from performance checkpoints, with date keys as strings (YYYY-MM-DD)
         to ensure JSON compatibility.
         
         :param ledger: PerfLedger - the ledger of the miner
-        :return: dict[str, float] - dictionary mapping date strings to daily returns as percentages
+        :param return_type: str - either 'simple' or 'log' to specify return type
+        :return: dict[str, float] - dictionary mapping date strings to daily returns 
+                 (both as decimal values, not percentages, rounded to 6 decimal places)
         """
-        date_return_map = LedgerUtils.daily_returns_by_date(ledger)
-        return {date.isoformat(): round(return_value, 3)
+        date_return_map = LedgerUtils.daily_returns_by_date(ledger, return_type)
+        return {date.isoformat(): round(return_value, 6)
                 for date, return_value in date_return_map.items()}
 
     @staticmethod
