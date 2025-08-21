@@ -554,55 +554,88 @@ class TestLedgerUtils(TestBase):
         """Test the daily returns by date function"""
         # Test with empty ledger
         empty_ledger = PerfLedger()
-        self.assertEqual(LedgerUtils.daily_returns_by_date(empty_ledger), {})
+        self.assertEqual(LedgerUtils.daily_returns_by_date(empty_ledger, 'simple'), {})
+        self.assertEqual(LedgerUtils.daily_returns_by_date(empty_ledger, 'log'), {})
 
         # Test with ledger containing checkpoints
         ledger = self.DEFAULT_LEDGER
-        log_results = LedgerUtils.daily_return_log_by_date(ledger)
-        percentage_results = LedgerUtils.daily_returns_by_date(ledger)
-
+        log_results_direct = LedgerUtils.daily_return_log_by_date(ledger)
+        
+        # Test log returns
+        log_results = LedgerUtils.daily_returns_by_date(ledger, 'log')
+        self.assertEqual(log_results, log_results_direct)
+        
+        # Test simple returns
+        simple_results = LedgerUtils.daily_returns_by_date(ledger, 'simple')
+        
         # Should have same dates as keys
-        self.assertEqual(set(log_results.keys()), set(percentage_results.keys()))
+        self.assertEqual(set(log_results.keys()), set(simple_results.keys()))
 
-        # Values should be percentages (exp(log_return) - 1) * 100
+        # Values should be simple returns (exp(log_return) - 1) as decimals, not percentages
         for date, log_return in log_results.items():
-            expected_percentage = (math.exp(log_return) - 1) * 100
-            self.assertAlmostEqual(percentage_results[date], expected_percentage)
+            expected_simple = math.exp(log_return) - 1
+            self.assertAlmostEqual(simple_results[date], expected_simple)
+        
+        # Test invalid return_type
+        with self.assertRaises(ValueError):
+            LedgerUtils.daily_returns_by_date(ledger, 'invalid')
 
     def test_daily_returns_by_date_json(self):
         """Test the JSON-compatible daily returns by date function"""
         # Test with empty ledger
         empty_ledger = PerfLedger()
-        self.assertEqual(LedgerUtils.daily_returns_by_date_json(empty_ledger), {})
+        self.assertEqual(LedgerUtils.daily_returns_by_date_json(empty_ledger, 'simple'), {})
+        self.assertEqual(LedgerUtils.daily_returns_by_date_json(empty_ledger, 'log'), {})
 
         # Test with ledger containing checkpoints
         ledger = self.DEFAULT_LEDGER
-        regular_results = LedgerUtils.daily_returns_by_date(ledger)
-        json_results = LedgerUtils.daily_returns_by_date_json(ledger)
+        
+        # Test simple returns
+        simple_results = LedgerUtils.daily_returns_by_date(ledger, 'simple')
+        json_simple_results = LedgerUtils.daily_returns_by_date_json(ledger, 'simple')
+        
+        # Test log returns
+        log_results = LedgerUtils.daily_returns_by_date(ledger, 'log')
+        json_log_results = LedgerUtils.daily_returns_by_date_json(ledger, 'log')
 
         # Should have same number of entries
-        self.assertEqual(len(regular_results), len(json_results))
+        self.assertEqual(len(simple_results), len(json_simple_results))
+        self.assertEqual(len(log_results), len(json_log_results))
 
         # Keys in json_results should be strings in ISO format (YYYY-MM-DD)
-        for key in json_results.keys():
+        for key in json_simple_results.keys():
             self.assertIsInstance(key, str)
             # Verify it's in ISO format by parsing it back to a date
             parsed_date = date_type.fromisoformat(key)
             self.assertIsInstance(parsed_date, date_type)
+        
+        # Values should be rounded to 6 decimal places
+        for date_str, value in json_simple_results.items():
+            date_obj = date_type.fromisoformat(date_str)
+            expected_value = round(simple_results[date_obj], 6)
+            self.assertAlmostEqual(value, expected_value, places=6)
+        
+        for date_str, value in json_log_results.items():
+            date_obj = date_type.fromisoformat(date_str)
+            expected_value = round(log_results[date_obj], 6)
+            self.assertAlmostEqual(value, expected_value, places=6)
+        
+        # Test invalid return_type
+        with self.assertRaises(ValueError):
+            LedgerUtils.daily_returns_by_date_json(ledger, 'invalid')
 
-        # Values should match between regular and JSON formats
-        for date, value in regular_results.items():
-            date_str = date.isoformat()
-            self.assertIn(date_str, json_results)
-            self.assertEqual(json_results[date_str], value)
-
-        # Test JSON serializability
+        # Test JSON serializability for both simple and log returns
         import json
         try:
-            json_string = json.dumps(json_results)
-        # Parsing back should give the same data
-            parsed_json = json.loads(json_string)
-            self.assertEqual(parsed_json, json_results)
+            # Test simple returns JSON serializability
+            json_string_simple = json.dumps(json_simple_results)
+            parsed_json_simple = json.loads(json_string_simple)
+            self.assertEqual(parsed_json_simple, json_simple_results)
+            
+            # Test log returns JSON serializability
+            json_string_log = json.dumps(json_log_results)
+            parsed_json_log = json.loads(json_string_log)
+            self.assertEqual(parsed_json_log, json_log_results)
         except TypeError:
             self.fail("daily_returns_by_date_json results should be JSON serializable")
     
