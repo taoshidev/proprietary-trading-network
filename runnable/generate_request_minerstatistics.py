@@ -456,24 +456,19 @@ class MinerStatisticsManager:
         return scoring_config
 
     # -------------------------------------------
-    # Raw PnL Calculation
+    # Current Account Size
     # -------------------------------------------
-    def calculate_pnl_info(self, filtered_ledger: Dict[str, Dict[str, PerfLedger]], now_ms: int = None) -> Dict[str, Dict[str, float]]:
-        """Calculate raw PnL values, rankings and percentiles for all miners."""
+
+    def prepare_account_sizes(self, filtered_ledger, now_ms):
+        """Calculates percentiles for most recent account size"""
         if now_ms is None:
             now_ms = TimeUtil.now_in_millis()
 
-        raw_pnl_values = []
         account_sizes = []
-        
+        account_size_object = self.contract_manager.get_miner_account_sizes_dictionary(records_as_dict=True)
+
         # Calculate raw PnL for each miner
-        for hotkey, ledgers in filtered_ledger.items():
-            portfolio_ledger = ledgers.get(TP_ID_PORTFOLIO)
-            if portfolio_ledger:
-                raw_pnl = LedgerUtils.raw_pnl(portfolio_ledger)
-                raw_pnl_values.append((hotkey, raw_pnl))
-            else:
-                raw_pnl_values.append((hotkey, 0.0))
+        for hotkey, _ in filtered_ledger.items():
 
             # Fetch most recent account size even if it isn't valid yet for scoring
             account_size = self.contract_manager.get_miner_account_size(hotkey, now_ms, most_recent=True)
@@ -482,29 +477,55 @@ class MinerStatisticsManager:
             else:
                 account_size = max(account_size, ValiConfig.CAPITAL_FLOOR)
             account_sizes.append((hotkey, account_size))
+
+        account_size_ranks = self.rank_dictionary(account_sizes)
+        account_size_percentiles = self.percentile_rank_dictionary(account_sizes)
+        account_sizes_dict = dict(account_sizes)
+
+
+        # Build result dictionary
+        result = {}
+        for hotkey in account_sizes_dict:
+            result[hotkey] = {
+                "account_size_statistics": {
+                    "value": account_sizes_dict.get(hotkey),
+                    "rank": account_size_ranks.get(hotkey),
+                    "percentile": account_size_percentiles.get(hotkey),
+                "account_sizes": account_size_object.get(hotkey)
+                }
+            }
+
+        return result
+
+    # -------------------------------------------
+    # Raw PnL Calculation
+    # -------------------------------------------
+    def calculate_pnl_info(self, filtered_ledger: Dict[str, Dict[str, PerfLedger]]) -> Dict[str, Dict[str, float]]:
+        """Calculate raw PnL values, rankings and percentiles for all miners."""
+
+        raw_pnl_values = []
+        # Calculate raw PnL for each miner
+        for hotkey, ledgers in filtered_ledger.items():
+            portfolio_ledger = ledgers.get(TP_ID_PORTFOLIO)
+            if portfolio_ledger:
+                raw_pnl = LedgerUtils.raw_pnl(portfolio_ledger)
+                raw_pnl_values.append((hotkey, raw_pnl))
+            else:
+                raw_pnl_values.append((hotkey, 0.0))
         
         # Calculate rankings and percentiles
         ranks = self.rank_dictionary(raw_pnl_values)
         percentiles = self.percentile_rank_dictionary(raw_pnl_values)
         values_dict = dict(raw_pnl_values)
-
-        account_size_ranks = self.rank_dictionary(account_sizes)
-        account_size_percentiles = self.percentile_rank_dictionary(account_sizes)
-        account_sizes_dict = dict(account_sizes)
         
         # Build result dictionary
         result = {}
         for hotkey in values_dict:
             result[hotkey] = {
-                "account_size": {
-                    "value": account_sizes_dict[hotkey],
-                    "rank": account_size_ranks[hotkey],
-                    "percentile": account_size_percentiles[hotkey]
-                },
                 "raw_pnl": {
-                    "value": values_dict[hotkey],
-                    "rank": ranks[hotkey],
-                    "percentile": percentiles[hotkey]
+                    "value": values_dict.get(hotkey),
+                    "rank": ranks.get(hotkey),
+                    "percentile": percentiles.get(hotkey)
                 }
             }
         
@@ -677,7 +698,10 @@ class MinerStatisticsManager:
         daily_returns_dict = self.calculate_all_daily_returns(filtered_ledger, return_type='simple')
 
         # Calculate raw PnL values with rankings and percentiles
-        raw_pnl_dict = self.calculate_pnl_info(filtered_ledger, now_ms=time_now)
+        raw_pnl_dict = self.calculate_pnl_info(filtered_ledger)
+
+        # Gather account sizes
+        account_size_dict = self.prepare_account_sizes(filtered_ledger, now_ms=time_now)
 
         # Also compute penalty breakdown (for display in final "penalties" dict).
         penalty_breakdown = self.calculate_penalties_breakdown(miner_data)
@@ -757,7 +781,11 @@ class MinerStatisticsManager:
                 "percentage_profitable": extra.get("positions_info", {}).get("percentage_profitable"),
             }
             # Raw PnL
-            raw_pnl_info = raw_pnl_dict.get(hotkey, {"value": 0.0, "rank": None, "percentile": 0.0})
+            raw_pnl_info = raw_pnl_dict.get(hotkey)
+
+            # Account Size
+            account_sizes = account_size_dict.get(hotkey)
+
             # Plagiarism
             plagiarism_val = plagiarism_scores.get(hotkey)
 
@@ -792,6 +820,7 @@ class MinerStatisticsManager:
                 "risk_profile": risk_profile_single_dict,
                 "asset_subcategory_performance": asset_subcategory_performance,
                 "pnl_info": raw_pnl_info,
+                "account_size_info": account_sizes,
                 "penalties": {
                     "drawdown_threshold": pen_break.get("drawdown_threshold", 1.0),
                     "risk_profile": pen_break.get("risk_profile", 1.0),
