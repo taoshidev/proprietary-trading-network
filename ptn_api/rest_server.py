@@ -75,7 +75,7 @@ class APIMetricsTracker:
             status_code: HTTP status code of the response
         """
         # Get user_id from api_key if available
-        user_id = self.api_key_to_alias.get(api_key, f"unknown_key_{api_key[:8] if api_key else 'none'}")
+        user_id = self.api_key_to_alias.get(api_key, "unknown_key")
 
         now = time.time()
 
@@ -255,7 +255,7 @@ class PTNRestServer(APIKeyMixin):
         self.app = Flask(__name__)
         self.app.config['MAX_CONTENT_LENGTH'] = 256 * 1024  # 256 KB upper bound
 
-        self.contract_manager.load_contract_owner_credentials()
+        self.contract_manager.load_contract_owner()
 
         # Initialize Flask-Compress for GZIP compression
         Compress(self.app)
@@ -311,7 +311,7 @@ class PTNRestServer(APIKeyMixin):
         def handle_bad_request(e):
             # Log the error with user context
             api_key = self._get_api_key_safe()
-            user_id = self.api_key_to_alias.get(api_key, f"unknown_key_{api_key[:8] if api_key else 'none'}")
+            user_id = self.api_key_to_alias.get(api_key, "unknown_key")
 
             bt.logging.warning(
                 f"Bad Request: user={user_id} endpoint={request.path} method={request.method} "
@@ -336,7 +336,7 @@ class PTNRestServer(APIKeyMixin):
         def handle_internal_error(e):
             # Log the error with user context
             api_key = self._get_api_key_safe()
-            user_id = self.api_key_to_alias.get(api_key, f"unknown_key_{api_key[:8] if api_key else 'none'}")
+            user_id = self.api_key_to_alias.get(api_key, "unknown_key")
 
             bt.logging.error(
                 f"Internal Error: user={user_id} endpoint={request.path} method={request.method} "
@@ -349,7 +349,7 @@ class PTNRestServer(APIKeyMixin):
         def handle_exception(e):
             # Log unexpected errors
             api_key = self._get_api_key_safe()
-            user_id = self.api_key_to_alias.get(api_key, f"unknown_key_{api_key[:8] if api_key else 'none'}")
+            user_id = self.api_key_to_alias.get(api_key, "unknown_key")
 
             bt.logging.error(
                 f"Unhandled Exception: user={user_id} endpoint={request.path} method={request.method} "

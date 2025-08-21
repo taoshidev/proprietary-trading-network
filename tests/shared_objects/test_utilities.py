@@ -197,7 +197,9 @@ def generate_losing_ledger(start, end):
 def create_daily_checkpoints_with_pnl(pnl_values: list[float]) -> PerfLedger:
         """Helper method to create checkpoints for complete days with specific PnL values"""
         checkpoints = []
-        current_time_ms = int(time.time() * 1000)
+        # Use fixed timestamp for deterministic tests (2024-01-01 00:00:00 UTC)
+        # This ensures tests are reproducible regardless of when they run
+        current_time_ms = 1735689600000  # 2024-01-01 00:00:00 UTC (midnight)
         checkpoint_duration_ms = ValiConfig.TARGET_CHECKPOINT_DURATION_MS
         checkpoints_per_day = int(ValiConfig.DAILY_CHECKPOINTS)
 
@@ -207,12 +209,18 @@ def create_daily_checkpoints_with_pnl(pnl_values: list[float]) -> PerfLedger:
             pnl_gain = pnl_per_checkpoint if pnl_per_checkpoint > 0 else 0
             pnl_loss = pnl_per_checkpoint if pnl_per_checkpoint < 0 else 0
 
+            # Calculate the start of this day (since current_time_ms is already midnight UTC,
+            # this gives us midnight of each subsequent day)
+            day_start_ms = current_time_ms + (day_idx * 24 * 60 * 60 * 1000)
+            
             for cp_idx in range(checkpoints_per_day):
-                checkpoint_time_ms = current_time_ms + (day_idx * 24 * 60 * 60 * 1000) + (
-                            cp_idx * checkpoint_duration_ms)
+                # Position checkpoints within the same day
+                # Start each checkpoint at the beginning of its interval within the day
+                checkpoint_start_ms = day_start_ms + (cp_idx * checkpoint_duration_ms)
+                checkpoint_end_ms = checkpoint_start_ms + checkpoint_duration_ms
 
                 cp = PerfCheckpoint(
-                    last_update_ms=checkpoint_time_ms,
+                    last_update_ms=checkpoint_end_ms,
                     prev_portfolio_ret=1.0,
                     accum_ms=checkpoint_duration_ms,  # Complete checkpoint
                     pnl_gain=pnl_gain,

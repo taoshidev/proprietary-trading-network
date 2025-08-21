@@ -754,12 +754,6 @@ class Validator:
 
         if signal:
             tp = self.parse_trade_pair_from_signal(signal)
-            err_msg = self.enforce_order_cooldown(tp.trade_pair_id, now_ms, sender_hotkey)
-            if err_msg:
-                bt.logging.error(err_msg)
-                synapse.successfully_processed = False
-                synapse.error_message = err_msg
-                return True
 
             if tp and not self.live_price_fetcher.polygon_data_service.is_market_open(tp):
                 msg = (f"Market for trade pair [{tp.trade_pair_id}] is likely closed or this validator is"
@@ -787,6 +781,7 @@ class Validator:
     def enforce_order_cooldown(self, trade_pair_id, now_ms, miner_hotkey):
         """
         Enforce cooldown between orders for the same trade pair using an efficient cache.
+        This method must be called within the position lock to prevent race conditions.
         """
         cache_key = (miner_hotkey, trade_pair_id)
         current_order_time_ms = now_ms
@@ -807,8 +802,6 @@ class Validator:
                     f"Please wait {time_to_wait_in_s:.1f} seconds before placing another order."
                 )
 
-        # Update the cache with the current order time (will be done after order is successfully processed)
-        self.last_order_time_cache[(miner_hotkey, trade_pair_id)] = now_ms
         return msg
 
     def parse_miner_uuid(self, synapse: template.protocol.SendSignal):
@@ -859,6 +852,14 @@ class Validator:
 
             # Multiple threads can run receive_signal at once. Don't allow two threads to trample each other.
             with self.position_locks.get_lock(miner_hotkey, trade_pair.trade_pair_id):
+                # Check cooldown inside the lock to prevent race conditions
+                err_msg = self.enforce_order_cooldown(trade_pair.trade_pair_id, now_ms, miner_hotkey)
+                if err_msg:
+                    bt.logging.error(err_msg)
+                    synapse.successfully_processed = False
+                    synapse.error_message = err_msg
+                    return synapse
+                    
                 self.enforce_no_duplicate_order(synapse)
                 if synapse.error_message:
                     return synapse
@@ -885,6 +886,8 @@ class Validator:
                     net_portfolio_leverage = self.position_manager.calculate_net_portfolio_leverage(miner_hotkey)
                     existing_position.add_order(order, net_portfolio_leverage)
                     self.position_manager.save_miner_position(existing_position)
+                    # Update cooldown cache after successful order processing
+                    self.last_order_time_cache[(miner_hotkey, trade_pair.trade_pair_id)] = now_ms
                     if self.config.serve:
                         # Add the position to the queue for broadcasting
                         self.shared_queue_websockets.put(existing_position.to_websocket_dict(miner_repo_version=miner_repo_version))
