@@ -4,6 +4,8 @@ from bittensor_wallet import Wallet
 from collateral_sdk import CollateralManager, Network
 from typing import Dict, Any, Optional, List
 import traceback
+
+from build.lib.vali_objects.utils.validator_contract_manager import CollateralRecord
 from time_util.time_util import TimeUtil
 from vali_objects.utils.ledger_utils import LedgerUtils
 from vali_objects.utils.vali_utils import ValiUtils
@@ -30,6 +32,12 @@ class CollateralRecord:
         """Returns YYYY-MM-DD format for easy reading"""
         dt = datetime.fromtimestamp(self.valid_date_timestamp / 1000, tz=timezone.utc)
         return dt.strftime("%Y-%m-%d")
+
+    @staticmethod
+    def collateral_record_to_dict(collateral_record: CollateralRecord) -> Dict[str, Any]:
+        if isinstance(collateral_record, CollateralRecord):
+            return vars(collateral_record)
+        return {}
 
 
 class ValidatorContractManager:
@@ -677,3 +685,13 @@ class ValidatorContractManager:
 
         # No applicable records found
         return None
+
+    def get_miner_account_sizes_dictionary(self, records_as_dict: bool=False):
+        miner_account_sizes = {}
+
+        if records_as_dict:
+            for hotkey, records in self.miner_account_sizes.items():
+                miner_account_sizes[hotkey] = [CollateralRecord.collateral_record_to_dict(record) for record in records]
+            return miner_account_sizes
+
+        return self.miner_account_sizes
