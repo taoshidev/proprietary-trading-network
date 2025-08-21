@@ -610,29 +610,26 @@ class LedgerUtils:
             asset_ledger = segmentation_machine.segmentation(asset_subcategory)
             
             # Calculate participation days for each miner in this subcategory
-            participation_days = []
+            miner_participation_days = []
             for hotkey, ledger in asset_ledger.items():
                 if ledger is not None:
                     daily_returns = LedgerUtils.daily_return_log(ledger)
                     days_participating = len(daily_returns)
                     if days_participating > 0:
-                        participation_days.append(days_participating)
+                        miner_participation_days.append(days_participating)
             
             # Sort in descending order (longest participation first)
-            participation_days.sort(reverse=True)
-            
-            # If we have fewer than the configured percentile rank, use the shortest participating miner's days
-            percentile_rank = ValiConfig.DYNAMIC_MIN_DAYS_PERCENTILE_RANK
-            if len(participation_days) < percentile_rank:
-                if len(participation_days) == 0:
-                    return ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N_FLOOR  # No participating miners, return floor
-                minimum_days = min(participation_days)  # Use shortest participation
+            miner_participation_days.sort(reverse=True)
+
+            num_miners = ValiConfig.DYNAMIC_MIN_DAYS_MINER_RANK
+            if len(miner_participation_days) < num_miners:
+                minimum_days = ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N_FLOOR  # Not enough participating miners, return floor
             else:
                 # Use the Nth longest participating miner (index N-1)
-                minimum_days = participation_days[percentile_rank - 1]
+                minimum_days = max(ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N_FLOOR, miner_participation_days[num_miners - 1])
             
             # Apply bounds: floor of 7 days, cap of 60 days
-            return max(ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N_FLOOR, min(ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N_CEIL, minimum_days))
+            return min(ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N_CEIL, minimum_days)
             
         except Exception as e:
             bt.logging.warning(f"Error calculating dynamic minimum days for {asset_subcategory}: {e}")

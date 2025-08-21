@@ -116,7 +116,7 @@ class ValiConfig:
     STATISTICAL_CONFIDENCE_MINIMUM_N_FLOOR = 7
     
     # Dynamic minimum days calculation - use Nth longest participating miner as threshold
-    DYNAMIC_MIN_DAYS_PERCENTILE_RANK = 20
+    DYNAMIC_MIN_DAYS_MINER_RANK = 20
 
     # Market-specific configurations
     ANNUAL_RISK_FREE_PERCENTAGE = 4.19  # From tbill rates
@@ -268,7 +268,7 @@ class ValiConfig:
 
     PROBATION_MAXIMUM_DAYS = 30
     PROBATION_MAXIMUM_MS = PROBATION_MAXIMUM_DAYS * DAILY_MS
-    ASSET_SPLIT_GRACE_DATE = "2025-08-07"
+    ASSET_SPLIT_GRACE_DATE = "2025-08-24"
 
     PROMOTION_THRESHOLD_RANK = 15 # Number of MAINCOMP miners per asset class
 
