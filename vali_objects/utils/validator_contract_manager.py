@@ -304,7 +304,7 @@ class ValidatorContractManager:
                 bt.logging.info(f"Processing deposit for: {deposit_amount_theta} Theta to miner: {miner_hotkey}")
                 owner_address = self.get_secret("collateral_owner_address")
                 owner_private_key = self.get_secret("collateral_owner_private_key")
-                vault_password = self.get_secret("vault_password")
+                vault_password = self.get_secret("gcp_vali_pw_name")
                 try:
                     deposited_balance = self.collateral_manager.deposit(
                         extrinsic=extrinsic,
@@ -403,7 +403,7 @@ class ValidatorContractManager:
                 bt.logging.info(f"Processing withdrawal request from {miner_hotkey} for {amount} Theta")
                 owner_address = self.get_secret("collateral_owner_address")
                 owner_private_key = self.get_secret("collateral_owner_private_key")
-                vault_password = self.get_secret("vault_password")
+                vault_password = self.get_secret("gcp_vali_pw_name")
                 try:
                     withdrawn_balance = self.collateral_manager.withdraw(
                         amount=int(amount * 10**9), # convert theta to rao_theta
