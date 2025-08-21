@@ -342,12 +342,12 @@ class MinerStatisticsManager:
     # -------------------------------------------
     # Daily Returns
     # -------------------------------------------
-    def calculate_all_daily_returns(self, filtered_ledger: dict[str, dict[str, PerfLedger]], return_type: str = 'simple') -> dict[str, list[float]]:
+    def calculate_all_daily_returns(self, filtered_ledger: dict[str, dict[str, PerfLedger]], return_type: str) -> dict[str, list[float]]:
         """Calculate daily returns for all miners.
         
         Args:
             filtered_ledger: Dictionary of miner ledgers
-            return_type: 'simple' or 'log' to specify return type (default: 'simple')
+            return_type: 'simple' or 'log' to specify return type
         
         Returns:
             Dictionary mapping hotkeys to daily returns
