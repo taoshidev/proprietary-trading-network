@@ -33,7 +33,7 @@ class CollateralRecord:
         return dt.strftime("%Y-%m-%d")
 
     @staticmethod
-    def collateral_record_to_dict(collateral_record: CollateralRecord) -> Dict[str, Any]:
+    def collateral_record_to_dict(collateral_record) -> Dict[str, Any]:
         if isinstance(collateral_record, CollateralRecord):
             return vars(collateral_record)
         return {}
@@ -674,7 +674,7 @@ class ValidatorContractManager:
 
         # Return most recent record
         if most_recent:
-            most_recent_record = self.miner_account_sizes[hotkey][0]
+            most_recent_record = sorted_records[0]
             return most_recent_record.account_size
 
         # Return the first record that is valid for or before the requested day
