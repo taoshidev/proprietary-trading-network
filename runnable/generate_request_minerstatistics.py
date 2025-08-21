@@ -760,7 +760,7 @@ class MinerStatisticsManager:
 
             # Purely for visualization purposes
             daily_returns = daily_returns_dict.get(hotkey, {})
-            daily_returns_list = [{"date": date, "value": value} for date, value in daily_returns.items()]
+            daily_returns_list = [{"date": date, "value": value * 100} for date, value in daily_returns.items()]
 
             # Risk Profile
             risk_profile_single_dict = risk_profile_dict.get(hotkey, {})
