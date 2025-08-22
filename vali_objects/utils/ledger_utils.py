@@ -601,7 +601,7 @@ class LedgerUtils:
         Returns:
             dict[str, int]: Dictionary mapping asset subcategory to min days requirement (between 7-60 days)
         """
-        subcategory_min_days = {subcategory: ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N_FLOOR for subcategory in asset_subcategories}
+        subcategory_min_days = {subcategory: ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N_CEIL for subcategory in asset_subcategories}
 
         if not ledger_dict:
             return subcategory_min_days

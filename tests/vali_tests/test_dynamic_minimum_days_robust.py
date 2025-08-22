@@ -146,11 +146,11 @@ class TestDynamicMinimumDaysRobust(TestBase):
         )
     
     def test_empty_ledger_dict_exact(self):
-        """Test with empty ledger dictionary returns exact floor value."""
-        result = LedgerUtils.calculate_dynamic_minimum_days_for_asset_subcategories(
-            {}, CryptoSubcategory.MAJORS
+        """Test with empty ledger dictionary returns exact ceil value."""
+        result_dict = LedgerUtils.calculate_dynamic_minimum_days_for_asset_subcategories(
+            {}, [CryptoSubcategory.MAJORS]
         )
-        self.assertEqual(result, ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N_FLOOR)
+        self.assertEqual(result_dict[CryptoSubcategory.MAJORS], ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N_CEIL)
     
     def test_no_participating_miners_exact(self):
         """Test when no miners participate in the subcategory returns exact floor."""
@@ -164,11 +164,11 @@ class TestDynamicMinimumDaysRobust(TestBase):
         ledger_dict = self.create_production_ledger_dict(miner_participation)
         
         # Test for crypto majors - should find no participants
-        result = LedgerUtils.calculate_dynamic_minimum_days_for_asset_subcategories(
-            ledger_dict, CryptoSubcategory.MAJORS
+        result_dict = LedgerUtils.calculate_dynamic_minimum_days_for_asset_subcategories(
+            ledger_dict, [CryptoSubcategory.MAJORS]
         )
         
-        self.assertEqual(result, ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N_FLOOR)
+        self.assertEqual(result_dict[CryptoSubcategory.MAJORS], ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N_FLOOR)
     
     def test_fewer_than_percentile_rank_miners_exact(self):
         """Test with fewer than PERCENTILE_RANK miners uses exact minimum participation."""
@@ -194,9 +194,10 @@ class TestDynamicMinimumDaysRobust(TestBase):
             self.verify_ledger_produces_expected_days(btc_ledger, expected_days)
         
         # Test the function
-        result = LedgerUtils.calculate_dynamic_minimum_days_for_asset_subcategories(
-            ledger_dict, CryptoSubcategory.MAJORS
+        result_dict = LedgerUtils.calculate_dynamic_minimum_days_for_asset_subcategories(
+            ledger_dict, [CryptoSubcategory.MAJORS]
         )
+        result = result_dict[CryptoSubcategory.MAJORS]
         
         # Get actual aggregated participation after asset segmentation
         segmentation = AssetSegmentation(ledger_dict)
@@ -208,9 +209,8 @@ class TestDynamicMinimumDaysRobust(TestBase):
                 days = len(LedgerUtils.daily_return_log(ledger))
                 actual_participation.append(days)
         
-        # Should use minimum participation but apply floor
-        expected = max(ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N_FLOOR, min(actual_participation))
-        self.assertEqual(result, expected)
+        # With fewer than 20 miners, should return floor regardless of actual participation
+        self.assertEqual(result, ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N_FLOOR)
     
     def test_exactly_percentile_rank_miners_exact(self):
         """Test with exactly DYNAMIC_MIN_DAYS_PERCENTILE_RANK miners uses exact percentile."""
@@ -234,9 +234,10 @@ class TestDynamicMinimumDaysRobust(TestBase):
             btc_ledger = ledger_dict[miner_key]["BTCUSD"]
             self.verify_ledger_produces_expected_days(btc_ledger, expected_days)
         
-        result = LedgerUtils.calculate_dynamic_minimum_days_for_asset_subcategories(
-            ledger_dict, CryptoSubcategory.MAJORS
+        result_dict = LedgerUtils.calculate_dynamic_minimum_days_for_asset_subcategories(
+            ledger_dict, [CryptoSubcategory.MAJORS]
         )
+        result = result_dict[CryptoSubcategory.MAJORS]
         
         # Sorted descending, the DYNAMIC_MIN_DAYS_PERCENTILE_RANK-th element (index percentile_rank-1) = 5, but floor is 7
         sorted_desc = sorted(participation_days, reverse=True)
@@ -280,9 +281,10 @@ class TestDynamicMinimumDaysRobust(TestBase):
             btc_ledger = ledger_dict[miner_key]["BTCUSD"]
             self.verify_ledger_produces_expected_days(btc_ledger, expected_days)
         
-        result = LedgerUtils.calculate_dynamic_minimum_days_for_asset_subcategories(
-            ledger_dict, CryptoSubcategory.MAJORS
+        result_dict = LedgerUtils.calculate_dynamic_minimum_days_for_asset_subcategories(
+            ledger_dict, [CryptoSubcategory.MAJORS]
         )
+        result = result_dict[CryptoSubcategory.MAJORS]
         
         # The AssetSegmentation.aggregate_miner_subledgers() function will aggregate
         # BTCUSD and ETHUSD ledgers for each miner, creating a combined participation
@@ -316,9 +318,10 @@ class TestDynamicMinimumDaysRobust(TestBase):
             }
         
         ledger_dict_low = self.create_production_ledger_dict(miner_participation_low)
-        result_low = LedgerUtils.calculate_dynamic_minimum_days_for_asset_subcategories(
-            ledger_dict_low, CryptoSubcategory.MAJORS
+        result_dict_low = LedgerUtils.calculate_dynamic_minimum_days_for_asset_subcategories(
+            ledger_dict_low, [CryptoSubcategory.MAJORS]
         )
+        result_low = result_dict_low[CryptoSubcategory.MAJORS]
         
         # DYNAMIC_MIN_DAYS_PERCENTILE_RANK-th percentile would be 1, but should be floored at 7
         self.assertEqual(result_low, ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N_FLOOR)
@@ -333,9 +336,10 @@ class TestDynamicMinimumDaysRobust(TestBase):
             }
         
         ledger_dict_high = self.create_production_ledger_dict(miner_participation_high)
-        result_high = LedgerUtils.calculate_dynamic_minimum_days_for_asset_subcategories(
-            ledger_dict_high, CryptoSubcategory.MAJORS
+        result_dict_high = LedgerUtils.calculate_dynamic_minimum_days_for_asset_subcategories(
+            ledger_dict_high, [CryptoSubcategory.MAJORS]
         )
+        result_high = result_dict_high[CryptoSubcategory.MAJORS]
         
         # DYNAMIC_MIN_DAYS_PERCENTILE_RANK-th percentile would be 69, but should be capped at 60
         # Calculate the actual percentile value dynamically
@@ -371,25 +375,21 @@ class TestDynamicMinimumDaysRobust(TestBase):
         
         ledger_dict = self.create_production_ledger_dict(miner_participation)
         
-        # Test crypto majors
-        crypto_major_result = LedgerUtils.calculate_dynamic_minimum_days_for_asset_subcategories(
-            ledger_dict, CryptoSubcategory.MAJORS
+        # Calculate all subcategories at once
+        from vali_objects.vali_config import CryptoSubcategory, ForexSubcategory
+        result_dict = LedgerUtils.calculate_dynamic_minimum_days_for_asset_subcategories(
+            ledger_dict, [CryptoSubcategory.MAJORS, CryptoSubcategory.ALTS, ForexSubcategory.G1]
         )
         
-        # Test crypto alts
-        crypto_alt_result = LedgerUtils.calculate_dynamic_minimum_days_for_asset_subcategories(
-            ledger_dict, CryptoSubcategory.ALTS
-        )
+        # Extract results for each subcategory
+        crypto_major_result = result_dict[CryptoSubcategory.MAJORS]
+        crypto_alt_result = result_dict[CryptoSubcategory.ALTS]
+        forex_g1_result = result_dict[ForexSubcategory.G1]
         
-        # Test forex G1
-        forex_g1_result = LedgerUtils.calculate_dynamic_minimum_days_for_asset_subcategories(
-            ledger_dict, ForexSubcategory.G1
-        )
-        
-        # Results should be different (crypto majors should have higher minimum than forex)
-        self.assertNotEqual(crypto_major_result, forex_g1_result)
-        self.assertGreaterEqual(crypto_major_result, ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N_FLOOR)
-        self.assertLessEqual(crypto_major_result, ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N_CEIL)
+        # With fewer than 20 miners in each subcategory, all should return floor value
+        self.assertEqual(crypto_major_result, ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N_FLOOR)
+        self.assertEqual(crypto_alt_result, ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N_FLOOR)  
+        self.assertEqual(forex_g1_result, ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N_FLOOR)
         
         # All results should be within bounds
         for result in [crypto_major_result, crypto_alt_result, forex_g1_result]:
@@ -417,19 +417,17 @@ class TestDynamicMinimumDaysRobust(TestBase):
         ledger_dict = self.create_production_ledger_dict(miner_participation)
         
         # Test each subcategory finds exactly the expected miners
-        crypto_major_result = LedgerUtils.calculate_dynamic_minimum_days_for_asset_subcategories(
-            ledger_dict, CryptoSubcategory.MAJORS
+        result_dict = LedgerUtils.calculate_dynamic_minimum_days_for_asset_subcategories(
+            ledger_dict, [CryptoSubcategory.MAJORS, CryptoSubcategory.ALTS]
         )
-        # Only btc_trader participates, so minimum should be their participation (50) capped at ceiling
-        expected_crypto = min(50, ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N_CEIL)
-        self.assertEqual(crypto_major_result, expected_crypto)
         
-        crypto_alt_result = LedgerUtils.calculate_dynamic_minimum_days_for_asset_subcategories(
-            ledger_dict, CryptoSubcategory.ALTS
-        )
-        # Only sol_trader participates
-        expected_alt = min(40, ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N_CEIL)
-        self.assertEqual(crypto_alt_result, expected_alt)
+        crypto_major_result = result_dict[CryptoSubcategory.MAJORS]
+        # Only btc_trader participates, but with fewer than 20 miners, should return floor
+        self.assertEqual(crypto_major_result, ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N_FLOOR)
+        
+        crypto_alt_result = result_dict[CryptoSubcategory.ALTS]
+        # Only sol_trader participates, but with fewer than 20 miners, should return floor
+        self.assertEqual(crypto_alt_result, ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N_FLOOR)
     
     def test_realistic_production_scenario(self):
         """Test with a realistic production-like scenario with exact expectations."""
@@ -459,9 +457,10 @@ class TestDynamicMinimumDaysRobust(TestBase):
         
         ledger_dict = self.create_production_ledger_dict(miner_participation)
         
-        result = LedgerUtils.calculate_dynamic_minimum_days_for_asset_subcategories(
-            ledger_dict, CryptoSubcategory.MAJORS
+        result_dict = LedgerUtils.calculate_dynamic_minimum_days_for_asset_subcategories(
+            ledger_dict, [CryptoSubcategory.MAJORS]
         )
+        result = result_dict[CryptoSubcategory.MAJORS]
         
         # The AssetSegmentation.aggregate_miner_subledgers() function will aggregate
         # BTCUSD and ETHUSD ledgers for each miner, creating a combined participation
@@ -493,18 +492,18 @@ class TestDynamicMinimumDaysRobust(TestBase):
         self.assertEqual(result, expected_final)
     
     def test_exception_handling_exact(self):
-        """Test that exceptions return exact floor value."""
+        """Test that exceptions return exact ceil value."""
         # Create invalid ledger structure that will cause AssetSegmentation to fail
         invalid_ledger_dict = {
             "miner_001": None,  # Invalid structure
             "miner_002": "not_a_dict",  # Invalid type
         }
         
-        result = LedgerUtils.calculate_dynamic_minimum_days_for_asset_subcategories(
-            invalid_ledger_dict, CryptoSubcategory.MAJORS
+        result_dict = LedgerUtils.calculate_dynamic_minimum_days_for_asset_subcategories(
+            invalid_ledger_dict, [CryptoSubcategory.MAJORS]
         )
         
-        self.assertEqual(result, ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N_FLOOR)
+        self.assertEqual(result_dict[CryptoSubcategory.MAJORS], ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N_CEIL)
     
     def test_production_asset_segmentation_integration(self):
         """Test integration with production AssetSegmentation logic."""
@@ -549,9 +548,10 @@ class TestDynamicMinimumDaysRobust(TestBase):
         self.assertIsInstance(crypto_major_ledgers["crypto_only"], PerfLedger)
         
         # Test the dynamic minimum calculation uses this segmentation
-        result = LedgerUtils.calculate_dynamic_minimum_days_for_asset_subcategories(
-            ledger_dict, CryptoSubcategory.MAJORS
+        result_dict = LedgerUtils.calculate_dynamic_minimum_days_for_asset_subcategories(
+            ledger_dict, [CryptoSubcategory.MAJORS]
         )
+        result = result_dict[CryptoSubcategory.MAJORS]
         
         # Should be within expected bounds
         self.assertGreaterEqual(result, ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N_FLOOR)

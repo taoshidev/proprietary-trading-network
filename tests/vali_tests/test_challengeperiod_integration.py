@@ -49,11 +49,12 @@ class TestChallengePeriodIntegration(TestBase):
 
         # Define miner categories
         self.SUCCESS_MINER_NAMES = [f"maincomp_miner{i}" for i in range(1, self.N_MAINCOMP_MINERS+1)]
+        self.PROBATION_MINER_NAMES = [f"probation_miner{i}" for i in range(1, self.N_PROBATION_MINERS+1)]
         self.TESTING_MINER_NAMES = [f"challenge_miner{i}" for i in range(1, self.N_CHALLENGE_MINERS+1)]
         self.FAILING_MINER_NAMES = [f"eliminated_miner{i}" for i in range(1, self.N_ELIMINATED_MINERS+1)]
 
-        self.NOT_FAILING_MINER_NAMES = self.SUCCESS_MINER_NAMES + self.TESTING_MINER_NAMES
-        self.NOT_MAIN_COMP_MINER_NAMES = self.TESTING_MINER_NAMES + self.FAILING_MINER_NAMES
+        self.NOT_FAILING_MINER_NAMES = self.SUCCESS_MINER_NAMES + self.TESTING_MINER_NAMES + self.PROBATION_MINER_NAMES
+        self.NOT_MAIN_COMP_MINER_NAMES = self.TESTING_MINER_NAMES + self.FAILING_MINER_NAMES + self.PROBATION_MINER_NAMES
         self.MINER_NAMES = self.NOT_FAILING_MINER_NAMES + self.FAILING_MINER_NAMES
 
         # Default characteristics
@@ -152,7 +153,8 @@ class TestChallengePeriodIntegration(TestBase):
         self.challengeperiod_manager.elimination_manager.clear_eliminations()
 
         self._populate_active_miners(maincomp=self.SUCCESS_MINER_NAMES,
-                                     challenge=self.TESTING_MINER_NAMES)
+                                     challenge=self.TESTING_MINER_NAMES,
+                                     probation=self.PROBATION_MINER_NAMES,)
 
     def _populate_active_miners(self, *, maincomp=[], challenge=[], probation=[]):
         miners = {}
@@ -294,6 +296,7 @@ class TestChallengePeriodIntegration(TestBase):
             positions=positions,
             ledger=ledgers,
             success_hotkeys=self.SUCCESS_MINER_NAMES,
+            probation_hotkeys=self.PROBATION_MINER_NAMES,
             inspection_hotkeys=self.challengeperiod_manager.get_testing_miners(),
             current_time=self.max_open_ms,
             hk_to_first_order_time=self.HK_TO_OPEN_MS,
@@ -563,7 +566,7 @@ class TestChallengePeriodIntegration(TestBase):
                 eliminated_for_time.add(elimination["hotkey"])
                 self.assertEqual(elimination["reason"], EliminationReason.FAILED_CHALLENGE_PERIOD_TIME.value)
         self.assertEqual(len(eliminated_for_mdd), len(self.FAILING_MINER_NAMES))
-        self.assertEqual(len(eliminated_for_time), len(self.TESTING_MINER_NAMES))
+        self.assertEqual(len(eliminated_for_time), len(self.TESTING_MINER_NAMES + self.PROBATION_MINER_NAMES))
 
  #TODO
  #   def test_no_miners_in_main_competition(self):
