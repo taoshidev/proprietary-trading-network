@@ -18,11 +18,16 @@ from vali_objects.utils.vali_bkp_utils import ValiBkpUtils, CustomEncoder
 from vali_objects.utils.subtensor_weight_setter import SubtensorWeightSetter
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
 
+from proof_of_portfolio import prove
+
 from vali_objects.utils.validator_sync_base import AUTO_SYNC_ORDER_LAG_MS
 
 # no filters,... , max filter
 PERCENT_NEW_POSITIONS_TIERS = [100, 50, 30, 0]
-assert sorted(PERCENT_NEW_POSITIONS_TIERS, reverse=True) == PERCENT_NEW_POSITIONS_TIERS, 'needs to be sorted for efficient pruning'
+assert (
+    sorted(PERCENT_NEW_POSITIONS_TIERS, reverse=True) == PERCENT_NEW_POSITIONS_TIERS
+), "needs to be sorted for efficient pruning"
+
 
 class RequestCoreManager:
     def __init__(self, position_manager, subtensor_weight_setter, plagiarism_detector):
@@ -37,26 +42,93 @@ class RequestCoreManager:
         # Create a SHA-256 hash object
         hash_object = hashlib.sha256()
         # Update the hash object with the bytes of the string
-        hash_object.update(s.encode('utf-8'))
+        hash_object.update(s.encode("utf-8"))
         # Get the hexadecimal digest of the hash
         hex_digest = hash_object.hexdigest()
         # Convert the hexadecimal digest to an integer
         hash_int = int(hex_digest, 16)
         return hash_int
 
-    def filter_new_positions_random_sample(self, percent_new_positions_keep: float, hotkey_to_positions: dict[str:[dict]], time_of_position_read_ms:int) -> None:
+    def generate_proofs_of_portfolio(self, positions_dict, perf_ledgers):
+        """
+        Generate zero-knowledge proofs for each miner's portfolio performance.
+
+        Args:
+            positions_dict: Dictionary mapping hotkeys to position data
+            perf_ledgers: Dictionary mapping hotkeys to performance ledgers
+
+        Returns:
+            Dictionary mapping hotkeys to proof results
+        """
+        if not ValiConfig.ENABLE_ZK_PROOFS:
+            print("Skipping ZK proof generation - disabled in configuration")
+            return {}
+
+        proof_results = {}
+
+        for hotkey, position_data in positions_dict.items():
+            if hotkey not in perf_ledgers:
+                print(f"Warning: No performance ledger found for hotkey {hotkey}")
+                continue
+
+            try:
+                miner_data = {
+                    "perf_ledgers": {hotkey: perf_ledgers[hotkey]},
+                    "positions": {hotkey: {"positions": position_data["positions"]}},
+                }
+
+                print(f"Generating ZK proof for miner {hotkey[:8]}...")
+
+                proof_result = prove(miner_data, hotkey)
+                proof_results[hotkey] = proof_result
+
+                if proof_result.get("status") == "success":
+                    metrics = proof_result.get("portfolio_metrics", {})
+                    print(
+                        f"✅ Proof generated for {hotkey[:8]} - Sharpe: {metrics.get('sharpe_ratio_scaled', 'N/A'):.4f}, "
+                        f"Drawdown: {metrics.get('max_drawdown_percentage', 'N/A'):.2f}%"
+                    )
+                else:
+                    print(
+                        f"⚠️  Proof generation failed for {hotkey[:8]}: {proof_result.get('message', 'Unknown error')}"
+                    )
+
+            except Exception as e:
+                print(f"❌ Error generating proof for miner {hotkey[:8]}: {str(e)}")
+                proof_results[hotkey] = {
+                    "status": "error",
+                    "message": str(e),
+                    "proof_generated": False,
+                }
+
+        return proof_results
+
+    def filter_new_positions_random_sample(
+        self,
+        percent_new_positions_keep: float,
+        hotkey_to_positions: dict[str:[dict]],
+        time_of_position_read_ms: int,
+    ) -> None:
         """
         candidate_data['positions'][hk]['positions'] = [json.loads(str(p), cls=GeneralizedJSONDecoder) for p in positions_orig]
         """
+
         def filter_orders(p: Position) -> bool:
             nonlocal stale_date_threshold_ms
             if p.is_closed_position and p.close_ms < stale_date_threshold_ms:
                 return False
-            if p.is_open_position and p.orders[-1].processed_ms < stale_date_threshold_ms:
+            if (
+                p.is_open_position
+                and p.orders[-1].processed_ms < stale_date_threshold_ms
+            ):
                 return False
             if percent_new_positions_keep == 100:
                 return False
-            if percent_new_positions_keep and self.hash_string_to_int(p.position_uuid) % 100 < percent_new_positions_keep:
+            if (
+                percent_new_positions_keep
+                and self.hash_string_to_int(p.position_uuid) % 100
+                < percent_new_positions_keep
+            ):
                 return False
             return True
 
@@ -80,7 +152,10 @@ class RequestCoreManager:
         stale_date_threshold_ms = time_of_position_read_ms - AUTO_SYNC_ORDER_LAG_MS
         for hotkey, positions in hotkey_to_positions.items():
             new_positions = []
-            positions_deserialized = [Position(**json_positions_dict) for json_positions_dict in positions['positions']]
+            positions_deserialized = [
+                Position(**json_positions_dict)
+                for json_positions_dict in positions["positions"]
+            ]
             for position in positions_deserialized:
                 if filter_orders(position):
                     truncated_position = truncate_position(position)
@@ -90,7 +165,9 @@ class RequestCoreManager:
                     new_positions.append(position)
 
             # Turn the positions back into json dicts. Note we are overwriting the original positions
-            positions['positions'] = [json.loads(str(p), cls=GeneralizedJSONDecoder) for p in new_positions]
+            positions["positions"] = [
+                json.loads(str(p), cls=GeneralizedJSONDecoder) for p in new_positions
+            ]
 
     def compress_dict(self, data: dict) -> bytes:
         str_to_write = json.dumps(data, cls=CustomEncoder)
@@ -113,12 +190,12 @@ class RequestCoreManager:
         Positions are already time-filtered from the code called before this function.
         """
         datetime_now = TimeUtil.generate_start_timestamp(0)  # UTC
-        #if not (datetime_now.hour == 6 and datetime_now.minute < 9 and datetime_now.second < 30):
+        # if not (datetime_now.hour == 6 and datetime_now.minute < 9 and datetime_now.second < 30):
         if not (datetime_now.minute == 24):
             return
 
         # check if file exists
-        KEY_PATH = ValiConfig.BASE_DIR + '/gcloud_new.json'
+        KEY_PATH = ValiConfig.BASE_DIR + "/gcloud_new.json"
         if not os.path.exists(KEY_PATH):
             return
 
@@ -130,14 +207,14 @@ class RequestCoreManager:
         client = storage.Client.from_service_account_info(key_info)
 
         # Name of the bucket you want to write to
-        bucket_name = 'validator_checkpoint'
+        bucket_name = "validator_checkpoint"
 
         # Get the bucket
         bucket = client.get_bucket(bucket_name)
 
         # Name for the new blob
         # blob_name = 'validator_checkpoint.json'
-        blob_name = 'validator_checkpoint.json.gz'
+        blob_name = "validator_checkpoint.json.gz"
 
         # Create a new blob and upload data
         blob = bucket.blob(blob_name)
@@ -146,23 +223,37 @@ class RequestCoreManager:
         zip_buffer = self.compress_dict(final_dict)
         # Upload the content of the zip_buffer to Google Cloud Storage
         blob.upload_from_string(zip_buffer)
-        print(f'Uploaded {blob_name} to {bucket_name}')
+        print(f"Uploaded {blob_name} to {bucket_name}")
 
-    def create_and_upload_production_files(self, eliminations, ord_dict_hotkey_position_map, time_now,
-                                           youngest_order_processed_ms, oldest_order_processed_ms,
-                                           challengeperiod_dict):
+    def create_and_upload_production_files(
+        self,
+        eliminations,
+        ord_dict_hotkey_position_map,
+        time_now,
+        youngest_order_processed_ms,
+        oldest_order_processed_ms,
+        challengeperiod_dict,
+    ):
 
         perf_ledgers = self.perf_ledger_manager.get_perf_ledgers()
+
+        # Generate zero-knowledge proofs for all miners
+        print("\n🔐 Generating zero-knowledge proofs for portfolio performance...")
+        proof_results = self.generate_zk_proofs_for_miners(
+            ord_dict_hotkey_position_map, perf_ledgers
+        )
+
         final_dict = {
-            'version': ValiConfig.VERSION,
-            'created_timestamp_ms': time_now,
-            'created_date': TimeUtil.millis_to_formatted_date_str(time_now),
-            'challengeperiod': challengeperiod_dict,
-            'eliminations': eliminations,
-            'youngest_order_processed_ms': youngest_order_processed_ms,
-            'oldest_order_processed_ms': oldest_order_processed_ms,
-            'positions': ord_dict_hotkey_position_map,
-            'perf_ledgers': perf_ledgers
+            "version": ValiConfig.VERSION,
+            "created_timestamp_ms": time_now,
+            "created_date": TimeUtil.millis_to_formatted_date_str(time_now),
+            "challengeperiod": challengeperiod_dict,
+            "eliminations": eliminations,
+            "youngest_order_processed_ms": youngest_order_processed_ms,
+            "oldest_order_processed_ms": oldest_order_processed_ms,
+            "positions": ord_dict_hotkey_position_map,
+            "perf_ledgers": perf_ledgers,
+            "zk_proofs": proof_results,  # Add ZK proof results to the checkpoint
         }
 
         vcp_output_file_path = ValiBkpUtils.get_vcp_output_path()
@@ -180,22 +271,29 @@ class RequestCoreManager:
                     ord_dict_hotkey_position_map,
                 )
             else:
-                self.filter_new_positions_random_sample(t, ord_dict_hotkey_position_map, time_now)
+                self.filter_new_positions_random_sample(
+                    t, ord_dict_hotkey_position_map, time_now
+                )
 
             # "v2" add a tier. compress the data. This is a location in a subdir
             for hotkey, dat in ord_dict_hotkey_position_map.items():
-                dat['tier'] = t
+                dat["tier"] = t
 
             compressed_positions = self.compress_dict(ord_dict_hotkey_position_map)
             ValiBkpUtils.write_file(
                 ValiBkpUtils.get_miner_positions_output_path(suffix_dir=str(t)),
-                compressed_positions, is_binary=True
+                compressed_positions,
+                is_binary=True,
             )
 
         # Max filtering
         self.upload_checkpoint_to_gcloud(final_dict)
 
-    def generate_request_core(self, get_dash_data_hotkey: str | None = None, write_and_upload_production_files=False) -> dict:
+    def generate_request_core(
+        self,
+        get_dash_data_hotkey: str | None = None,
+        write_and_upload_production_files=False,
+    ) -> dict:
         eliminations = self.elimination_manager.get_eliminations_from_memory()
         try:
             if not os.path.exists(ValiBkpUtils.get_miner_dir()):
@@ -209,12 +307,13 @@ class RequestCoreManager:
         if get_dash_data_hotkey:
             all_miner_hotkeys: list = [get_dash_data_hotkey]
         else:
-            all_miner_hotkeys: list = ValiBkpUtils.get_directories_in_dir(ValiBkpUtils.get_miner_dir())
+            all_miner_hotkeys: list = ValiBkpUtils.get_directories_in_dir(
+                ValiBkpUtils.get_miner_dir()
+            )
 
         # we won't be able to query for eliminated hotkeys from challenge period
         hotkey_positions = self.position_manager.get_positions_for_hotkeys(
-            all_miner_hotkeys,
-            sort_positions=True
+            all_miner_hotkeys, sort_positions=True
         )
 
         time_now_ms = TimeUtil.now_in_millis()
@@ -225,12 +324,20 @@ class RequestCoreManager:
         oldest_order_processed_ms = 0
 
         for k, original_positions in hotkey_positions.items():
-            dict_hotkey_position_map[k] = self.position_manager.positions_to_dashboard_dict(original_positions, time_now_ms)
+            dict_hotkey_position_map[k] = (
+                self.position_manager.positions_to_dashboard_dict(
+                    original_positions, time_now_ms
+                )
+            )
             for p in original_positions:
-                youngest_order_processed_ms = min(youngest_order_processed_ms,
-                                                  min(p.orders, key=lambda o: o.processed_ms).processed_ms)
-                oldest_order_processed_ms = max(oldest_order_processed_ms,
-                                                max(p.orders, key=lambda o: o.processed_ms).processed_ms)
+                youngest_order_processed_ms = min(
+                    youngest_order_processed_ms,
+                    min(p.orders, key=lambda o: o.processed_ms).processed_ms,
+                )
+                oldest_order_processed_ms = max(
+                    oldest_order_processed_ms,
+                    max(p.orders, key=lambda o: o.processed_ms).processed_ms,
+                )
 
         ord_dict_hotkey_position_map = dict(
             sorted(
@@ -249,31 +356,45 @@ class RequestCoreManager:
 
         n_positions_new = 0
         for data in ord_dict_hotkey_position_map.values():
-            positions = data['positions']
-            n_positions_new += sum([len(p['orders']) for p in positions])
+            positions = data["positions"]
+            n_positions_new += sum([len(p["orders"]) for p in positions])
 
-        assert n_orders_original == n_positions_new, f"n_orders_original: {n_orders_original}, n_positions_new: {n_positions_new}"
+        assert (
+            n_orders_original == n_positions_new
+        ), f"n_orders_original: {n_orders_original}, n_positions_new: {n_positions_new}"
 
         challengeperiod_dict = self.challengeperiod_manager.to_checkpoint_dict()
 
         if write_and_upload_production_files:
-            self.create_and_upload_production_files(eliminations, ord_dict_hotkey_position_map, time_now_ms,
-                                           youngest_order_processed_ms, oldest_order_processed_ms,
-                                           challengeperiod_dict)
+            self.create_and_upload_production_files(
+                eliminations,
+                ord_dict_hotkey_position_map,
+                time_now_ms,
+                youngest_order_processed_ms,
+                oldest_order_processed_ms,
+                challengeperiod_dict,
+            )
 
         checkpoint_dict = {
-            'challengeperiod': challengeperiod_dict,
-            'positions': unfiltered_positions
+            "challengeperiod": challengeperiod_dict,
+            "positions": unfiltered_positions,
         }
         return checkpoint_dict
 
+
 if __name__ == "__main__":
     perf_ledger_manager = PerfLedgerManager(None, {}, [])
-    elimination_manager = EliminationManager(None, [],None, None)
-    position_manager = PositionManager(None, None, elimination_manager=elimination_manager,
-                                       challengeperiod_manager=None,
-                                       perf_ledger_manager=perf_ledger_manager)
-    challengeperiod_manager = ChallengePeriodManager(None, None, position_manager=position_manager)
+    elimination_manager = EliminationManager(None, [], None, None)
+    position_manager = PositionManager(
+        None,
+        None,
+        elimination_manager=elimination_manager,
+        challengeperiod_manager=None,
+        perf_ledger_manager=perf_ledger_manager,
+    )
+    challengeperiod_manager = ChallengePeriodManager(
+        None, None, position_manager=position_manager
+    )
 
     elimination_manager.position_manager = position_manager
     position_manager.challengeperiod_manager = challengeperiod_manager
@@ -285,7 +406,11 @@ if __name__ == "__main__":
         running_unit_tests=False,
         position_manager=position_manager,
     )
-    plagiarism_detector = PlagiarismDetector(None, None, position_manager=position_manager)
+    plagiarism_detector = PlagiarismDetector(
+        None, None, position_manager=position_manager
+    )
 
-    rcm = RequestCoreManager(position_manager, subtensor_weight_setter, plagiarism_detector)
+    rcm = RequestCoreManager(
+        position_manager, subtensor_weight_setter, plagiarism_detector
+    )
     rcm.generate_request_core(write_and_upload_production_files=True)
