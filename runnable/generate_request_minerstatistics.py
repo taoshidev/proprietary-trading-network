@@ -491,7 +491,7 @@ class MinerStatisticsManager:
                     "value": account_sizes_dict.get(hotkey),
                     "rank": account_size_ranks.get(hotkey),
                     "percentile": account_size_percentiles.get(hotkey),
-                "account_sizes": account_size_object.get(hotkey)
+                "account_sizes": account_size_object.get(hotkey, [])
                 }
             }
 
