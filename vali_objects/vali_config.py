@@ -116,7 +116,7 @@ class ValiConfig:
     STATISTICAL_CONFIDENCE_MINIMUM_N_FLOOR = 7
     
     # Dynamic minimum days calculation - use Nth longest participating miner as threshold
-    DYNAMIC_MIN_DAYS_MINER_RANK = 20
+    DYNAMIC_MIN_DAYS_NUM_MINERS = 20
 
     # Market-specific configurations
     ANNUAL_RISK_FREE_PERCENTAGE = 4.19  # From tbill rates

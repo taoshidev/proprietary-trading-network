@@ -11,6 +11,7 @@ from collections import defaultdict
 from datetime import datetime
 from shared_objects.mock_metagraph import MockMetagraph
 from time_util.time_util import TimeUtil
+from vali_objects.utils.asset_segmentation import AssetSegmentation
 from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
 from vali_objects.utils.elimination_manager import EliminationManager
 from vali_objects.utils.plagiarism_detector import PlagiarismDetector
@@ -589,9 +590,17 @@ class MinerStatisticsManager:
         filtered_ledger = self.perf_ledger_manager.filtered_ledger_for_scoring(hotkeys=all_miner_hotkeys)
         filtered_positions, _ = self.position_manager.filtered_positions_for_scoring(all_miner_hotkeys)
 
+        maincomp_ledger = self.perf_ledger_manager.filtered_ledger_for_scoring(hotkeys=[*challengeperiod_success_hotkeys, *challengeperiod_probation_hotkeys])  # ledger of all miners in maincomp, including probation
+        asset_subcategories = list(AssetSegmentation.distill_asset_subcategories(ValiConfig.ASSET_CLASS_BREAKDOWN))
+        subcategory_min_days = LedgerUtils.calculate_dynamic_minimum_days_for_asset_subcategories(
+            maincomp_ledger, asset_subcategories
+        )
+        bt.logging.info(f"generate_minerstats subcategory_min_days: {subcategory_min_days}")
+
         success_competitiveness, asset_softmaxed_scores = Scoring.score_miner_asset_subcategories(
             filtered_ledger,
             filtered_positions,
+            subcategory_min_days=subcategory_min_days,
             evaluation_time_ms=time_now,
             weighting=final_results_weighting
         ) # returns asset competitiveness dict, asset softmaxed scores
@@ -604,6 +613,7 @@ class MinerStatisticsManager:
         checkpoint_results = Scoring.compute_results_checkpoint(
             successful_ledger,
             successful_positions,
+            subcategory_min_days=subcategory_min_days,
             evaluation_time_ms=time_now,
             verbose=False,
             weighting=final_results_weighting,
@@ -618,6 +628,7 @@ class MinerStatisticsManager:
         testing_checkpoint_results = Scoring.compute_results_checkpoint(
             testing_ledger,
             testing_positions,
+            subcategory_min_days=subcategory_min_days,
             evaluation_time_ms=time_now,
             verbose=False,
             weighting=final_results_weighting,

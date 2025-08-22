@@ -5,6 +5,8 @@ import bittensor as bt
 import copy
 
 from datetime import datetime
+
+from vali_objects.utils.asset_segmentation import AssetSegmentation
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.utils.vali_utils import ValiUtils
 from vali_objects.vali_config import TradePairCategory, ValiConfig
@@ -184,6 +186,7 @@ class ChallengePeriodManager(CacheController):
             positions=hk_to_positions,
             ledger=ledger,
             success_hotkeys=challengeperiod_success_hotkeys,
+            probation_hotkeys=challengeperiod_probation_hotkeys,
             inspection_hotkeys=inspection_miners,
             current_time=current_time,
             hk_to_first_order_time=hk_to_first_order_time
@@ -263,6 +266,7 @@ class ChallengePeriodManager(CacheController):
         positions: dict[str, list[Position]],
         ledger: dict[str, dict[str, PerfLedger]],
         success_hotkeys: list[str],
+        probation_hotkeys: list[str],
         inspection_hotkeys: dict[str, int],
         current_time: int,
         success_scores_dict: dict[str, dict] | None = None,
@@ -340,6 +344,14 @@ class ChallengePeriodManager(CacheController):
 
             valid_candidate_hotkeys.append(hotkey)
 
+        # Calculate dynamic minimum participation days for asset subcategories
+        maincomp_ledger = {hotkey: ledger_data for hotkey, ledger_data in ledger.items() if hotkey in [*success_hotkeys, *probation_hotkeys]}   # ledger of all miners in maincomp, including probation
+        asset_subcategories = list(AssetSegmentation.distill_asset_subcategories(ValiConfig.ASSET_CLASS_BREAKDOWN))
+        subcategory_min_days = LedgerUtils.calculate_dynamic_minimum_days_for_asset_subcategories(
+            maincomp_ledger, asset_subcategories
+        )
+        bt.logging.info(f"challengeperiod_manager subcategory_min_days: {subcategory_min_days}")
+
         # If success_scoring_dict is already calculated, no need to calculate scores. Useful for testing
         if not success_scores_dict:
             success_positions = {hotkey: miner_positions for hotkey, miner_positions in positions.items() if hotkey in success_hotkeys}
@@ -349,6 +361,7 @@ class ChallengePeriodManager(CacheController):
             success_scores_dict = Scoring.score_miners(
                     ledger_dict=success_ledger,
                     positions=success_positions,
+                    subcategory_min_days=subcategory_min_days,
                     evaluation_time_ms=current_time,
                     weighting=True)
 
@@ -359,6 +372,7 @@ class ChallengePeriodManager(CacheController):
             inspection_scores_dict = Scoring.score_miners(
                     ledger_dict=candidates_ledgers,
                     positions=candidates_positions,
+                    subcategory_min_days=subcategory_min_days,
                     evaluation_time_ms=current_time,
                     weighting=True)
 

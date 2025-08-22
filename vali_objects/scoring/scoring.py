@@ -80,6 +80,7 @@ class Scoring:
     def compute_results_checkpoint(
             ledger_dict: dict[str, dict[str, PerfLedger]],
             full_positions: dict[str, list[Position]],
+            subcategory_min_days: dict[str, int],
             evaluation_time_ms: int = None,
             verbose=True,
             weighting=False,
@@ -117,6 +118,7 @@ class Scoring:
         _, asset_softmaxed_scores = Scoring.score_miner_asset_subcategories(
             ledger_dict=ledger_dict,
             positions=full_positions,
+            subcategory_min_days=subcategory_min_days,
             evaluation_time_ms=evaluation_time_ms,
             weighting=weighting
         )
@@ -136,6 +138,7 @@ class Scoring:
     def score_miner_asset_subcategories(
             ledger_dict: dict[str, dict[str, PerfLedger]],
             positions: dict[str, list[Position]],
+            subcategory_min_days: dict[str, int],
             evaluation_time_ms: int = None,
             weighting=False
     ) -> tuple[dict[str, float], dict[str, dict[str, float]]]:
@@ -155,6 +158,7 @@ class Scoring:
         asset_penalized_scores_dict = Scoring.score_miners(
             ledger_dict=ledger_dict,
             positions=positions,
+            subcategory_min_days=subcategory_min_days,  # TODO
             evaluation_time_ms=evaluation_time_ms,
             weighting=weighting
         )
@@ -173,6 +177,7 @@ class Scoring:
     def score_miners(
             ledger_dict: dict[str, dict[str, PerfLedger]],
             positions: dict[str, list[Position]],
+            subcategory_min_days: dict[str, int],
             evaluation_time_ms: int = None,
             weighting: bool = False
     ) -> dict[str, dict]:
@@ -233,12 +238,6 @@ class Scoring:
             filtered_ledger_returns = LedgerUtils.ledger_returns_log(asset_ledger)
             days_in_year = segmentation_machine.days_in_year_from_asset_category(asset_subcategory.asset_class)
 
-            # Calculate dynamic minimum participation days for this asset subcategory
-            dynamic_minimum_n = LedgerUtils.calculate_dynamic_minimum_days_for_asset_subcategory(
-                ledger_dict, asset_subcategory
-            )
-            bt.logging.info(f"Asset subcategory {asset_subcategory} using dynamic minimum {dynamic_minimum_n} days")
-
             scores_dict = {"metrics": {}}
             for config_name, config in Scoring.scoring_config.items():
                 scores = []
@@ -255,7 +254,7 @@ class Scoring:
                         ledger=ledger,
                         weighting=weighting,
                         days_in_year=days_in_year,
-                        min_days=dynamic_minimum_n,
+                        min_days=subcategory_min_days[asset_subcategory],
                     )
 
                     scores.append((miner, float(score)))
