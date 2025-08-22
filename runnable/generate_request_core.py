@@ -239,7 +239,7 @@ class RequestCoreManager:
 
         # Generate zero-knowledge proofs for all miners
         print("\n🔐 Generating zero-knowledge proofs for portfolio performance...")
-        proof_results = self.generate_zk_proofs_for_miners(
+        proof_results = self.generate_proofs_of_portfolio(
             ord_dict_hotkey_position_map, perf_ledgers
         )
 
