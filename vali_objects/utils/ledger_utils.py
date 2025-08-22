@@ -1,5 +1,7 @@
 # developer: trdougherty
 import math
+import statistics
+
 import numpy as np
 import copy
 from datetime import datetime, timezone, timedelta, date
@@ -617,8 +619,7 @@ class LedgerUtils:
                 miner_participation_days = []
                 for hotkey, ledger in asset_ledger.items():
                     if ledger is not None:
-                        daily_returns = LedgerUtils.daily_return_log(ledger)
-                        days_participating = len(daily_returns)
+                        days_participating = LedgerUtils.get_trading_days(ledger)
                         if days_participating > 0:
                             miner_participation_days.append(days_participating)
 
@@ -628,11 +629,11 @@ class LedgerUtils:
                 if len(miner_participation_days) < ValiConfig.DYNAMIC_MIN_DAYS_NUM_MINERS:
                     minimum_days = ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N_FLOOR  # Not enough participating miners, return floor
                 else:
-                    # Use the Nth longest participating miner (index N-1)
-                    minimum_days = max(ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N_FLOOR, miner_participation_days[ValiConfig.DYNAMIC_MIN_DAYS_NUM_MINERS - 1])
+                    # Use the shorter of Nth longest participating miner (index N-1), or median of all participating miners
+                    minimum_days = min(miner_participation_days[ValiConfig.DYNAMIC_MIN_DAYS_NUM_MINERS - 1], int(statistics.median(miner_participation_days)))
 
                 # Apply bounds: floor of 7 days, cap of 60 days
-                subcategory_min_days[subcategory] = min(ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N_CEIL, minimum_days)
+                subcategory_min_days[subcategory] = max(ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N_FLOOR, min(ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N_CEIL, minimum_days))
             return subcategory_min_days
         except Exception as e:
             bt.logging.warning(f"Error calculating dynamic minimum days: {e}")

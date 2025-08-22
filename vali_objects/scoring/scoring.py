@@ -158,7 +158,7 @@ class Scoring:
         asset_penalized_scores_dict = Scoring.score_miners(
             ledger_dict=ledger_dict,
             positions=positions,
-            subcategory_min_days=subcategory_min_days,  # TODO
+            subcategory_min_days=subcategory_min_days,
             evaluation_time_ms=evaluation_time_ms,
             weighting=weighting
         )
