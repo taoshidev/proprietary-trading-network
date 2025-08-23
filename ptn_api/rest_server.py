@@ -691,35 +691,21 @@ class PTNRestServer(APIKeyMixin):
 
     def _get_api_key_safe(self) -> Optional[str]:
         """
-        Safely get the API key from the query parameters or request headers.
+        Safely get the API key from the Authorization header.
+        Reject keys in query params or request bodies to prevent accidental leakage.
         Returns None if there's any error accessing the API key.
         """
         try:
-            # First try Authorization header
             auth_header = request.headers.get('Authorization')
-            if auth_header:
-                # Handle both "Bearer <token>" and plain token formats
-                parts = auth_header.split(' ', 1)
-                if len(parts) == 2 and parts[0].lower() == 'bearer':
-                    return parts[1]
-                else:
-                    return auth_header
+            if not auth_header:
+                return None  # No key presented
 
-            # Then try query parameter
-            api_key = request.args.get('api_key')
-            if api_key:
-                return api_key
+            # Handle both "Bearer <token>" and plain token formats
+            parts = auth_header.split(' ', 1)
+            if len(parts) != 2 or parts[0].lower() != 'bearer':
+                return None  # Malformed or non‐bearer auth
 
-            # Finally try JSON body if it's a JSON request
-            if request.is_json:
-                try:
-                    data = request.get_json(force=True, silent=True)
-                    if data and isinstance(data, dict) and "api_key" in data:
-                        return data["api_key"]
-                except Exception:
-                    pass
-
-            return None
+            return parts[1]
         except Exception as e:
             bt.logging.debug(f"Error extracting API key: {e}")
             return None
