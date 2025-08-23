@@ -76,13 +76,13 @@ class TestMetrics(TestBase):
         self.assertEqual(omega, ValiConfig.OMEGA_NOCONFIDENCE_VALUE)
     def test_omega_weighting(self):
         #No positive returns means empty numerator
-        returns = [-0.01] * (ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N + 1)
+        returns = [-0.01] * (ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N_CEIL + 1)
         omega = Metrics.omega(returns, weighting=True)
         #Numerator is 0 so will be 0
         self.assertEqual(omega, 0)
 
         #No negative returns means empty denominator
-        returns = [0.01] * (ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N + 1)
+        returns = [0.01] * (ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N_CEIL + 1)
         omega = Metrics.omega(returns, weighting=True)
         #Should be small in magnitude, but positive
         self.assertGreater(omega, 0)
@@ -137,7 +137,7 @@ class TestMetrics(TestBase):
 
     def test_sortino_noconfidence_limit(self):
         """Test that the Sortino function returns 0.0 when there are no returns"""
-        log_returns = [0.1] * (ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N - 1)
+        log_returns = [0.1] * (ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N_CEIL - 1)
 
         sortino = Metrics.sortino(log_returns)
 
@@ -196,7 +196,7 @@ class TestMetrics(TestBase):
 
     def test_statistical_confidence_noconfidence_limit(self):
         """Test that the statistical confidence function returns 0.0 when there are no returns"""
-        log_returns = [0.1] * (ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N - 1)
+        log_returns = [0.1] * (ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N_CEIL - 1)
 
         confidence = Metrics.statistical_confidence(log_returns)
 

@@ -214,7 +214,7 @@ class Metrics:
         return max_drawdown
 
     @staticmethod
-    def calmar(log_returns: list[float], ledger: PerfLedger, bypass_confidence: bool = False, weighting: bool = False, days_in_year: int = ValiConfig.DAYS_IN_YEAR_CRYPTO, **kwargs) -> float:
+    def calmar(log_returns: list[float], ledger: PerfLedger, bypass_confidence: bool = False, weighting: bool = False, days_in_year: int = ValiConfig.DAYS_IN_YEAR_CRYPTO, min_days: int = None, **kwargs) -> float:
         """
         Args:
             log_returns: list of daily log returns from the miner
@@ -222,11 +222,15 @@ class Metrics:
             bypass_confidence: whether to use default value if not enough trading days
             weighting: whether to use weighted average
             days_in_year: number of trading days in a year for annualization
+            min_days: dynamic minimum number of days for statistical confidence
         """
         calmar_ratio_cap = ValiConfig.CALMAR_RATIO_CAP
 
+        # Use dynamic minimum if provided, otherwise fall back to global config
+        minimum_n = min_days if min_days is not None else ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N_CEIL
+
         # Positional Component
-        if len(log_returns) < ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N:
+        if len(log_returns) < minimum_n:
             if not bypass_confidence:
                 return ValiConfig.CALMAR_NOCONFIDENCE_VALUE
 
@@ -237,16 +241,20 @@ class Metrics:
         return min(raw_calmar, calmar_ratio_cap)  # Cap the Calmar ratio to prevent extreme values
 
     @staticmethod
-    def sharpe(log_returns: list[float], bypass_confidence: bool = False, weighting: bool = False, days_in_year: int = ValiConfig.DAYS_IN_YEAR_CRYPTO, **kwargs) -> float:
+    def sharpe(log_returns: list[float], bypass_confidence: bool = False, weighting: bool = False, days_in_year: int = ValiConfig.DAYS_IN_YEAR_CRYPTO, min_days: int = None, **kwargs) -> float:
         """
         Args:
             log_returns: list of daily log returns from the miner
             bypass_confidence: whether to use default value if not enough trading days
             weighting: whether to use weighted average
             days_in_year: number of trading days in a year for annualization
+            min_days: dynamic minimum number of days for statistical confidence
         """
+        # Use dynamic minimum if provided, otherwise fall back to global config
+        minimum_n = min_days if min_days is not None else ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N_CEIL
+
         # Need a large enough sample size
-        if len(log_returns) < ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N:
+        if len(log_returns) < minimum_n:
             if not bypass_confidence:
                 return ValiConfig.SHARPE_NOCONFIDENCE_VALUE
 
@@ -259,15 +267,19 @@ class Metrics:
         return float(excess_return / max(volatility, min_std_dev))
 
     @staticmethod
-    def omega(log_returns: list[float], bypass_confidence: bool = False, weighting: bool = False, **kwargs) -> float:
+    def omega(log_returns: list[float], bypass_confidence: bool = False, weighting: bool = False, min_days: int = None, **kwargs) -> float:
         """
         Args:
             log_returns: list of daily log returns from the miner
             bypass_confidence: whether to use default value if not enough trading days
             weighting: whether to use weighted average
+            min_days: dynamic minimum number of days for statistical confidence
         """
+        # Use dynamic minimum if provided, otherwise fall back to global config
+        minimum_n = min_days if min_days is not None else ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N_CEIL
+
         # Need a large enough sample size
-        if len(log_returns) < ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N:
+        if len(log_returns) < minimum_n:
             if not bypass_confidence:
                 return ValiConfig.OMEGA_NOCONFIDENCE_VALUE
 
@@ -319,15 +331,19 @@ class Metrics:
         return float(numerator / denominator)
 
     @staticmethod
-    def statistical_confidence(log_returns: list[float], bypass_confidence: bool = False, **kwargs) -> float:
+    def statistical_confidence(log_returns: list[float], bypass_confidence: bool = False, min_days: int = None, **kwargs) -> float:
         """
         Args:
             log_returns: list of daily log returns from the miner
             bypass_confidence: whether to use default value if not enough trading days
             weighting: whether to use weighted average
+            min_days: dynamic minimum number of days for statistical confidence
         """
+        # Use dynamic minimum if provided, otherwise fall back to global config
+        minimum_n = min_days if min_days is not None else ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N_CEIL
+
         # Impose a minimum sample size on the miner
-        if len(log_returns) < ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N:
+        if len(log_returns) < minimum_n:
             if not bypass_confidence or len(log_returns) < 2:
                 return ValiConfig.STATISTICAL_CONFIDENCE_NOCONFIDENCE_VALUE
 
@@ -340,16 +356,20 @@ class Metrics:
         return float(res.statistic)
 
     @staticmethod
-    def sortino(log_returns: list[float], bypass_confidence: bool = False, weighting: bool = False, days_in_year: int = ValiConfig.DAYS_IN_YEAR_CRYPTO, **kwargs) -> float:
+    def sortino(log_returns: list[float], bypass_confidence: bool = False, weighting: bool = False, days_in_year: int = ValiConfig.DAYS_IN_YEAR_CRYPTO, min_days: int = None, **kwargs) -> float:
         """
         Args:
             log_returns: list of daily log returns from the miner
             bypass_confidence: whether to use default value if not enough trading days
             weighting: whether to use weighted average
             days_in_year: number of trading days in a year for annualization
+            min_days: dynamic minimum number of days for statistical confidence
         """
+        # Use dynamic minimum if provided, otherwise fall back to global config
+        minimum_n = min_days if min_days is not None else ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N_CEIL
+
         # Need a large enough sample size
-        if len(log_returns) < ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N:
+        if len(log_returns) < minimum_n:
             if not bypass_confidence:
                 return ValiConfig.SORTINO_NOCONFIDENCE_VALUE
 

@@ -112,7 +112,11 @@ class ValiConfig:
     DAYS_IN_YEAR_CRYPTO = 365  # annualization factor
     DAYS_IN_YEAR_FOREX = 252
 
-    STATISTICAL_CONFIDENCE_MINIMUM_N = 60
+    STATISTICAL_CONFIDENCE_MINIMUM_N_CEIL = 60
+    STATISTICAL_CONFIDENCE_MINIMUM_N_FLOOR = 7
+    
+    # Dynamic minimum days calculation - use Nth longest participating miner as threshold
+    DYNAMIC_MIN_DAYS_NUM_MINERS = 20
 
     # Market-specific configurations
     ANNUAL_RISK_FREE_PERCENTAGE = 4.19  # From tbill rates
