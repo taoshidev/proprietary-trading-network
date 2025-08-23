@@ -59,7 +59,7 @@ class MockLivePriceFetcher(LivePriceFetcher):
         super().__init__(secrets=secrets, disable_ws=disable_ws)
         self.polygon_data_service = MockPolygonDataService(api_key=secrets["polygon_apikey"], disable_ws=disable_ws)
 
-    def get_sorted_price_sources_for_trade_pair(self, trade_pair, processed_ms):
+    def get_sorted_price_sources_for_trade_pair(self, trade_pair, time_ms=None, live=True):
         return [PriceSource(price=1, open=1, high=1, close=1, low=1, bid=1, ask=1)]
 
 class MockPolygonDataService(PolygonDataService):
