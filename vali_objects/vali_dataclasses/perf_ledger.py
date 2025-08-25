@@ -155,6 +155,9 @@ class PerfCheckpoint(BaseModel):
     def __json__(self):
         return self.to_dict()
 
+    def __iter__(self):
+        return iter(self.to_dict().items())
+
     @property
     def lowerbound_time_created_ms(self):
         # accum_ms boundary alignment makes this a lowerbound for the first cp.
@@ -214,6 +217,9 @@ class PerfLedger:
 
     def __json__(self):
         return self.to_dict()
+
+    def __iter__(self):
+        return iter(self.to_dict().items())
 
     @property
     def mdd(self):
