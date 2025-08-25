@@ -7,7 +7,6 @@ from enum import Enum
 
 from meta import load_version
 
-ENABLE_ZK_PROOFS = True
 
 BASE_DIR = base_directory = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 meta_dict = load_version(os.path.join(base_directory, "meta", "meta.json"))
@@ -123,6 +122,9 @@ class ValiConfig:
     VERSION = meta_version
     DAYS_IN_YEAR_CRYPTO = 365  # annualization factor
     DAYS_IN_YEAR_FOREX = 252
+
+    # Proof of Portfolio
+    ENABLE_ZK_PROOFS = True
 
     STATISTICAL_CONFIDENCE_MINIMUM_N = 60
 
