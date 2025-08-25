@@ -254,8 +254,8 @@ class PerfLedger():
             self.init_max_portfolio_value()
 
     def update_pl(self, current_portfolio_value: float, now_ms: int, miner_hotkey: str, any_open: TradePairReturnStatus,
-              current_portfolio_fee_spread: float, current_portfolio_carry: float,
-              tp_debug=None, debug_dict=None, contract_manager=None):
+                  current_portfolio_fee_spread: float, current_portfolio_carry: float,
+                  tp_debug=None, debug_dict=None, contract_manager=None, miner_account_sizes=None):
         # Skip gap validation during void filling, shortcuts, or when no debug info
         # The absence of tp_debug typically means this is a high-level update that may span time
         skip_gap_check = (not tp_debug or '_shortcut' in tp_debug or 'void' in tp_debug)
@@ -389,17 +389,20 @@ class PerfLedger():
         n_updates = 1
         delta_return = self.compute_delta_between_ticks(current_portfolio_value, current_cp.prev_portfolio_ret)
 
-        # Get valid account size for miner
-        if contract_manager is None:
+        # Get valid account size for miner - use cache if available to avoid expensive IPC calls
+        if miner_account_sizes is not None and miner_hotkey in miner_account_sizes:
+            account_size = miner_account_sizes[miner_hotkey]
+        elif contract_manager is None:
             account_size = ValiConfig.CAPITAL_FLOOR
             #bt.logging.info(f"Contract manager is not initialized, using default account sizes")
         else:
             account_size = contract_manager.get_miner_account_size(miner_hotkey, now_ms)
-        if account_size is None:
-            #bt.logging.info(f"Miner doesn't have valid account size, hotkey: {miner_hotkey}, using default account size: {account_size}")
-            account_size = ValiConfig.CAPITAL_FLOOR
-        else:
-            account_size = max(account_size, ValiConfig.CAPITAL_FLOOR)
+            if account_size is None:
+                #bt.logging.info(f"Miner doesn't have valid account size, hotkey: {miner_hotkey}, using default account size: {account_size}")
+                account_size = ValiConfig.CAPITAL_FLOOR
+        
+        # Ensure account size meets minimum floor
+        account_size = max(account_size, ValiConfig.CAPITAL_FLOOR)
 
         if delta_return > 0:
             current_cp.gain += delta_return
@@ -1259,7 +1262,7 @@ class PerfLedgerManager(CacheController):
         return accumulated_time_ms
 
 
-    def build_perf_ledger(self, perf_ledger_bundle: dict[str:dict[str, PerfLedger]], tp_to_historical_positions: dict[str: Position], start_time_ms, end_time_ms, miner_hotkey, realtime_position_to_pop, contract_manager) -> bool:
+    def build_perf_ledger(self, perf_ledger_bundle: dict[str:dict[str, PerfLedger]], tp_to_historical_positions: dict[str: Position], start_time_ms, end_time_ms, miner_hotkey, realtime_position_to_pop, contract_manager, miner_account_sizes_cache) -> bool:
         # Calculate if a position just closed in this update
         position_just_closed = realtime_position_to_pop is not None and not realtime_position_to_pop.is_open_position
         tp_id_rtp = realtime_position_to_pop.trade_pair.trade_pair_id if realtime_position_to_pop else None
@@ -1372,7 +1375,7 @@ class PerfLedgerManager(CacheController):
                       'realtime_position_to_pop': realtime_position_to_pop
                       }
                 perf_ledger.update_pl(tp_return, end_time_ms, miner_hotkey, TradePairReturnStatus.TP_MARKET_NOT_OPEN,
-                      tp_spread_fee, tp_carry_fee, tp_debug=tp_id + '_shortcut', debug_dict=dd, contract_manager=contract_manager)
+                                      tp_spread_fee, tp_carry_fee, tp_debug=tp_id + '_shortcut', debug_dict=dd, contract_manager=contract_manager, miner_account_sizes=miner_account_sizes_cache)
 
                 perf_ledger.purge_old_cps()
             return False
@@ -1420,7 +1423,7 @@ class PerfLedgerManager(CacheController):
             )
 
             perf_ledger.update_pl(current_return, start_time_ms, miner_hotkey, TradePairReturnStatus.TP_NO_OPEN_POSITIONS,
-                                  current_spread_fee, current_carry_fee, contract_manager=contract_manager)
+                                  current_spread_fee, current_carry_fee, contract_manager=contract_manager, miner_account_sizes=miner_account_sizes_cache)
 
         while start_time_ms + accumulated_time_ms < end_time_ms:
             # Need high resolution at the start and end of the time window
@@ -1495,8 +1498,8 @@ class PerfLedgerManager(CacheController):
                 )
 
                 perf_ledger.update_pl(current_return, t_ms, miner_hotkey, tp_to_any_open[tp_id],
-                                     current_spread_fee, current_carry_fee,
-                                      tp_debug=tp_id, contract_manager=contract_manager)
+                                      current_spread_fee, current_carry_fee,
+                                      tp_debug=tp_id, contract_manager=contract_manager, miner_account_sizes=miner_account_sizes_cache)
 
                 # Verify the ledger was updated to current t_ms
                 assert perf_ledger.last_update_ms == t_ms, (
@@ -1565,7 +1568,7 @@ class PerfLedgerManager(CacheController):
             )
 
             perf_ledger.update_pl(current_return, end_time_ms, miner_hotkey, tp_to_any_open[tp_id],
-                                 current_spread_fee, current_carry_fee, contract_manager=contract_manager)
+                                  current_spread_fee, current_carry_fee, contract_manager=contract_manager, miner_account_sizes=miner_account_sizes_cache)
 
             perf_ledger.purge_old_cps()
 
@@ -1649,7 +1652,8 @@ class PerfLedgerManager(CacheController):
 
     def update_one_perf_ledger_bundle(self, hotkey_i: int, n_hotkeys: int, hotkey: str, positions: List[Position],
                                       now_ms: int,
-                                      existing_perf_ledger_bundles: dict[str, dict[str, PerfLedger]]) -> None | dict[str, PerfLedger]:
+                                      existing_perf_ledger_bundles: dict[str, dict[str, PerfLedger]],
+                                      miner_account_sizes_cache: dict[str, float] = None) -> None | dict[str, PerfLedger]:
         eliminated = False
         self.n_api_calls = 0
         self.mode_to_n_updates = {'second': 0, 'minute': 0}
@@ -1749,7 +1753,7 @@ class PerfLedgerManager(CacheController):
                 #if continuity_changes:
                 #    self._log_continuity_summary(hotkey, continuity_changes, tp_to_historical_positions)
             # Need to catch up from perf_ledger.last_update_ms to order.processed_ms
-            eliminated = self.build_perf_ledger(perf_ledger_bundle_candidate, tp_to_historical_positions, portfolio_last_update_ms, order.processed_ms, hotkey, realtime_position_to_pop, contract_manager=self.contract_manager)
+            eliminated = self.build_perf_ledger(perf_ledger_bundle_candidate, tp_to_historical_positions, portfolio_last_update_ms, order.processed_ms, hotkey, realtime_position_to_pop, contract_manager=self.contract_manager, miner_account_sizes_cache=miner_account_sizes_cache)
 
             if eliminated:
                 break
@@ -1791,7 +1795,7 @@ class PerfLedgerManager(CacheController):
                 #    self._log_continuity_summary(hotkey, continuity_changes, tp_to_historical_positions)
 
             self.build_perf_ledger(perf_ledger_bundle_candidate, tp_to_historical_positions,
-                                   current_last_update, now_ms, hotkey, None, contract_manager=self.contract_manager)
+                                   current_last_update, now_ms, hotkey, None, contract_manager=self.contract_manager, miner_account_sizes_cache=miner_account_sizes_cache)
 
         self.hk_to_last_order_processed_ms[hotkey] = last_event_time_ms
 
@@ -1838,10 +1842,22 @@ class PerfLedgerManager(CacheController):
         t_init = time.time()
         self.now_ms = now_ms
         self.candidate_pl_elimination_rows = []
+        
+        # Cache miner account sizes once at the beginning to avoid expensive IPC calls
+        miner_account_sizes_cache = {}
+        if self.contract_manager is not None:
+            try:
+                for hotkey in hotkey_to_positions.keys():
+                    account_size = self.contract_manager.get_miner_account_size(hotkey, now_ms)
+                    miner_account_sizes_cache[hotkey] = account_size if account_size is not None else ValiConfig.CAPITAL_FLOOR
+                bt.logging.info(f"Cached account sizes for {len(miner_account_sizes_cache)} miners")
+            except Exception as e:
+                bt.logging.warning(f"Failed to cache miner account sizes: {e}")
+        
         n_hotkeys = len(hotkey_to_positions)
         for hotkey_i, (hotkey, positions) in enumerate(hotkey_to_positions.items()):
             try:
-                self.update_one_perf_ledger_bundle(hotkey_i, n_hotkeys, hotkey, positions, now_ms, existing_perf_ledgers)
+                self.update_one_perf_ledger_bundle(hotkey_i, n_hotkeys, hotkey, positions, now_ms, existing_perf_ledgers, miner_account_sizes_cache)
             except Exception as e:
                 bt.logging.error(f"Error updating perf ledger for {hotkey}: {e}. Please alert a team member ASAP!")
                 bt.logging.error(traceback.format_exc())
@@ -2169,6 +2185,7 @@ class PerfLedgerManager(CacheController):
         bt.logging.success(f'Completed update_one_perf_ledger_parallel for {hotkey} in {time.time() - t0} s over '
               f'{pl_start_time} to {pl_end_time}.')
         return hotkey, new_bundle
+
     def update_perf_ledgers_parallel(self, spark, pool, hotkey_to_positions: dict[str, List[Position]],
                                      existing_perf_ledgers: dict[str, dict[str, PerfLedger]],
                                      parallel_mode: ParallelizationMode = ParallelizationMode.PYSPARK,
