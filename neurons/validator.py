@@ -185,7 +185,7 @@ class Validator:
         )
 
         # Initialize ValidatorContractManager for collateral operations
-        self.contract_manager = ValidatorContractManager(config=self.config, position_manager=None)
+        self.contract_manager = ValidatorContractManager(config=self.config, position_manager=None, ipc_manager=self.ipc_manager)
 
 
         self.elimination_manager = EliminationManager(self.metagraph, None,  # Set after self.pm creation

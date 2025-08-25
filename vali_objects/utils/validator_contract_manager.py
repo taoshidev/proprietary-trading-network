@@ -39,7 +39,7 @@ class ValidatorContractManager:
     This class acts as the validator's interface to the collateral system.
     """
     
-    def __init__(self, config=None, position_manager=None, running_unit_tests=False, is_backtesting=False):
+    def __init__(self, config=None, position_manager=None, ipc_manager=None, running_unit_tests=False, is_backtesting=False):
         self.config = config
         self.position_manager = position_manager
         self.is_mothership = 'ms' in ValiUtils.get_secrets(running_unit_tests=running_unit_tests)
@@ -69,7 +69,10 @@ class ValidatorContractManager:
         self.MINER_ACCOUNT_SIZES_FILE = ValiBkpUtils.get_miner_account_sizes_file_location(running_unit_tests=running_unit_tests)
         
         # Load existing data from disk or initialize empty
-        self.miner_account_sizes: Dict[str, List[CollateralRecord]] = {}
+        if ipc_manager:
+            self.miner_account_sizes = ipc_manager.dict()
+        else:
+            self.miner_account_sizes: Dict[str, List[CollateralRecord]] = {}
         self._load_miner_account_sizes_from_disk()
 
     @property
