@@ -18,7 +18,7 @@ from vali_objects.utils.vali_bkp_utils import ValiBkpUtils, CustomEncoder
 from vali_objects.utils.subtensor_weight_setter import SubtensorWeightSetter
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
 
-from proof_of_portfolio import prove
+from proof_of_portfolio import prove_sync as prove
 
 from vali_objects.utils.validator_sync_base import AUTO_SYNC_ORDER_LAG_MS
 
@@ -238,7 +238,7 @@ class RequestCoreManager:
         perf_ledgers = self.perf_ledger_manager.get_perf_ledgers()
 
         # Generate zero-knowledge proofs for all miners
-        print("\n🔐 Generating zero-knowledge proofs for portfolio performance...")
+        print("Generating zero-knowledge proofs for portfolio performance...")
         proof_results = self.generate_proofs_of_portfolio(
             ord_dict_hotkey_position_map, perf_ledgers
         )
