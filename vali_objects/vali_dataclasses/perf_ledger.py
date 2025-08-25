@@ -1275,9 +1275,9 @@ class PerfLedgerManager(CacheController):
         # For non-first updates, validate that we're continuing from where we left off
         # We should always start from the ledger's last update time
         if not is_first_update:
-            # start_time_ms should match the ledger's last_update_ms
+            # start_time_ms should match the ledger's last_update_ms + 1000ms (smallest update interval)
             # If it doesn't, there's likely a bug in the calling code
-            expected_start = portfolio_pl.last_update_ms
+            expected_start = portfolio_pl.last_update_ms + 1000
             gap = start_time_ms - expected_start
 
             # We should start from exactly where we left off (gap = 0)
@@ -1325,7 +1325,7 @@ class PerfLedgerManager(CacheController):
 
             if not is_ledger_first_update:
                 gap_from_last_update = start_time_ms - perf_ledger.last_update_ms
-                if gap_from_last_update != 0:
+                if gap_from_last_update != 1000:
                     bt.logging.error(f"Gap validation failed for {tp_id}:")
                     bt.logging.error(f"  perf_ledger.last_update_ms: {perf_ledger.last_update_ms}")
                     bt.logging.error(f"  start_time_ms: {start_time_ms}")
@@ -1333,7 +1333,7 @@ class PerfLedgerManager(CacheController):
                     bt.logging.error(f"  Ledger has {len(perf_ledger.cps)} checkpoints")
                     if len(perf_ledger.cps) > 0:
                         bt.logging.error(f"  Last checkpoint time: {perf_ledger.cps[-1].last_update_ms}")
-                assert gap_from_last_update == 0, (
+                assert gap_from_last_update == 1000, (
                     f"Gap detected for {tp_id} ledger between last_update_ms and start_time_ms: "
                     f"{gap_from_last_update/1000/60:.2f} minutes. "
                     f"Last update: {TimeUtil.millis_to_formatted_date_str(perf_ledger.last_update_ms)}, "
@@ -1453,10 +1453,6 @@ class PerfLedgerManager(CacheController):
                             f"Please alert a team member ASAP!"
                         )
 
-            #if t_ms + 60000 > 1737496980446:
-            #    print('snare')
-
-            # CRITICAL BUG FIX: Enhanced validation and debugging for timestamp issues
             if t_ms < portfolio_pl.last_update_ms:
                 time_diff_ms = portfolio_pl.last_update_ms - t_ms
                 time_diff_days = time_diff_ms / (1000 * 60 * 60 * 24)
@@ -1477,7 +1473,7 @@ class PerfLedgerManager(CacheController):
                 raise Exception(f'CRITICAL TIMESTAMP BUG DETECTED: t_ms {t_ms} is before last_update_ms {portfolio_pl.last_update_ms}. '
                                 f'Check logs for more details.')
 
-            assert t_ms >= portfolio_pl.last_update_ms, (f"t_ms: {t_ms}, "
+            assert t_ms > portfolio_pl.last_update_ms, (f"t_ms: {t_ms}, "
                                                          f"last_update_ms: {TimeUtil.millis_to_formatted_date_str(portfolio_pl.last_update_ms)},"
                                                          f"mode: {mode},"
                                                          f" delta_ms: {(t_ms - portfolio_pl.last_update_ms)} ms. perf ledger {portfolio_pl}")
@@ -1761,7 +1757,7 @@ class PerfLedgerManager(CacheController):
                 #if continuity_changes:
                 #    self._log_continuity_summary(hotkey, continuity_changes, tp_to_historical_positions)
             # Need to catch up from perf_ledger.last_update_ms to order.processed_ms
-            eliminated = self.build_perf_ledger(perf_ledger_bundle_candidate, tp_to_historical_positions, portfolio_last_update_ms, order.processed_ms, hotkey, realtime_position_to_pop, contract_manager=self.contract_manager)
+            eliminated = self.build_perf_ledger(perf_ledger_bundle_candidate, tp_to_historical_positions, portfolio_last_update_ms + 1000, order.processed_ms, hotkey, realtime_position_to_pop, contract_manager=self.contract_manager)
 
             if eliminated:
                 break
@@ -1803,7 +1799,7 @@ class PerfLedgerManager(CacheController):
                 #    self._log_continuity_summary(hotkey, continuity_changes, tp_to_historical_positions)
 
             self.build_perf_ledger(perf_ledger_bundle_candidate, tp_to_historical_positions,
-                                   current_last_update, now_ms, hotkey, None, contract_manager=self.contract_manager)
+                                   current_last_update + 1000, now_ms, hotkey, None, contract_manager=self.contract_manager)
 
         self.hk_to_last_order_processed_ms[hotkey] = last_event_time_ms
 
@@ -1969,7 +1965,7 @@ class PerfLedgerManager(CacheController):
 
         eliminated_hotkeys = self.position_manager.elimination_manager.get_eliminated_hotkeys()
 
-        # Remove keys from perf ledgers if they aren't in the metagraph anymore
+        # Remove keys from perf ledgers if they aren't inx the metagraph anymore
         metagraph_hotkeys = set(self.metagraph.hotkeys)
         hotkeys_to_delete = set([x for x in hotkeys_with_no_positions if x in perf_ledger_bundles])
         rss_modified = False
@@ -2290,12 +2286,12 @@ if __name__ == "__main__":
     bt.logging.enable_info()
 
     # Configuration flags
-    use_database_positions = False  # NEW: Enable database position loading
+    use_database_positions = True  # NEW: Enable database position loading
     use_test_positions = False      # NEW: Enable test position loading
 
     parallel_mode = ParallelizationMode.SERIAL  # 1 for pyspark, 2 for multiprocessing
     top_n_miners = 4
-    test_single_hotkey = '5FkMNsY29L9BFbk68RWrPHvQys2L9JKdm9Fua6LTEt9gMPvw'  # Set to a specific hotkey string to test single hotkey, or None for all
+    test_single_hotkey = '5CD1oNfmr2dP8xVcuBbmyRLCtyKoVNhY8EFqA4L59tUDXB1j'  # Set to a specific hotkey string to test single hotkey, or None for all
     regenerate_all = False  # Whether to regenerate all ledgers from scratch
     build_portfolio_ledgers_only = False  # Whether to build only the portfolio ledgers or per trade pair
 
@@ -2362,7 +2358,7 @@ if __name__ == "__main__":
         # Use serial update like validators do
         if test_single_hotkey:
             bt.logging.info(f"Running single-hotkey test for: {test_single_hotkey}")
-            perf_ledger_manager.update(testing_one_hotkey=test_single_hotkey, t_ms=TimeUtil.now_in_millis())
+            perf_ledger_manager.update(testing_one_hotkey=test_single_hotkey, t_ms=TimeUtil.now_in_millis() - 5 * 31 * 24 * 3600 * 1000)
         else:
             bt.logging.info("Running standard sequential update for all hotkeys")
             perf_ledger_manager.update(regenerate_all_ledgers=regenerate_all)
