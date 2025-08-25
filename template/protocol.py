@@ -44,3 +44,10 @@ class GetDashData(bt.Synapse):
     error_message: str = Field("", title="Error Message", frozen=False)
     computed_body_hash: str = Field("", title="Computed Body Hash", frozen=False)
 GetDashData.required_hash_fields = ["data"]
+
+class CollateralRecord(bt.Synapse):
+    collateral_record: typing.Dict = Field(default_factory=dict, title="Collateral Record", frozen=False, max_length=4096)
+    successfully_processed: bool = Field(False, title="Successfully Processed", frozen=False)
+    error_message: str = Field("", title="Error Message", frozen=False, max_length=4096)
+    computed_body_hash: str = Field("", title="Computed Body Hash", frozen=False)
+GetDashData.required_hash_fields = ["collateral_record"]
