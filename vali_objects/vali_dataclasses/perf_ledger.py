@@ -1850,7 +1850,7 @@ class PerfLedgerManager(CacheController):
                 for hotkey in hotkey_to_positions.keys():
                     account_size = self.contract_manager.get_miner_account_size(hotkey, now_ms)
                     miner_account_sizes_cache[hotkey] = account_size if account_size is not None else ValiConfig.CAPITAL_FLOOR
-                bt.logging.info(f"Cached account sizes for {len(miner_account_sizes_cache)} miners")
+                bt.logging.info(f"Cached account sizes for {len(miner_account_sizes_cache)} miners. Cached account sizes: {miner_account_sizes_cache}")
             except Exception as e:
                 bt.logging.warning(f"Failed to cache miner account sizes: {e}")
         
@@ -2158,7 +2158,7 @@ class PerfLedgerManager(CacheController):
 
     def update_one_perf_ledger_parallel(self, data_tuple):
         t0 = time.time()
-        hotkey_i, n_hotkeys, hotkey, positions, existing_bundle, now_ms, is_backtesting = data_tuple
+        hotkey_i, n_hotkeys, hotkey, positions, existing_bundle, now_ms, is_backtesting, miner_account_sizes_cache = data_tuple
         # Create a temporary manager for processing
         # This is to avoid sharing state between executors
         worker_plm = PerfLedgerManager(
@@ -2175,7 +2175,7 @@ class PerfLedgerManager(CacheController):
         worker_plm.now_ms = now_ms
 
         new_bundle = worker_plm.update_one_perf_ledger_bundle(
-            hotkey_i, n_hotkeys, hotkey, positions, now_ms, {hotkey:existing_bundle}
+            hotkey_i, n_hotkeys, hotkey, positions, now_ms, {hotkey:existing_bundle}, miner_account_sizes_cache
         )
         last_update_time_ms = existing_bundle[TP_ID_PORTFOLIO].last_update_ms if existing_bundle else new_bundle[TP_ID_PORTFOLIO].initialization_time_ms
         portfolio_pl = new_bundle[TP_ID_PORTFOLIO]
@@ -2220,10 +2220,22 @@ class PerfLedgerManager(CacheController):
                 now_ms = current_time_ms
         self.now_ms = now_ms
 
+        # Cache miner account sizes once at the beginning to avoid expensive IPC calls in parallel workers
+        miner_account_sizes_cache = {}
+        if self.contract_manager is not None:
+            try:
+                # Pre-compute account sizes for all miners at current timestamp
+                for hotkey in hotkey_to_positions.keys():
+                    account_size = self.contract_manager.get_miner_account_size(hotkey, now_ms)
+                    miner_account_sizes_cache[hotkey] = account_size if account_size is not None else ValiConfig.CAPITAL_FLOOR
+                bt.logging.info(f"Cached account sizes for {len(miner_account_sizes_cache)} miners for parallel processing. Cached account sizes: {miner_account_sizes_cache}")
+            except Exception as e:
+                bt.logging.warning(f"Failed to cache miner account sizes for parallel processing: {e}")
+
         # Create a list of hotkeys with their positions for RDD
         hotkey_data = []
         for i, (hotkey, positions) in enumerate(hotkey_to_positions.items()):
-            hotkey_data.append((i, len(hotkey_to_positions), hotkey, positions, existing_perf_ledgers.get(hotkey), now_ms, is_backtesting))
+            hotkey_data.append((i, len(hotkey_to_positions), hotkey, positions, existing_perf_ledgers.get(hotkey), now_ms, is_backtesting, miner_account_sizes_cache))
             if top_n_miners and i == top_n_miners - 1:
                 break
 
