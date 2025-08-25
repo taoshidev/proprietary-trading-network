@@ -68,12 +68,12 @@ class RequestCoreManager:
 
         for hotkey, position_data in positions_dict.items():
             if hotkey not in perf_ledgers:
-                print(f"Warning: No performance ledger found for hotkey {hotkey}")
+                print(f"No performance ledger found for hotkey {hotkey}")
                 continue
 
             try:
                 miner_data = {
-                    "perf_ledgers": {hotkey: perf_ledgers[hotkey]},
+                    "perf_ledgers": {hotkey: perf_ledgers[hotkey].to_dict()},
                     "positions": {hotkey: {"positions": position_data["positions"]}},
                 }
 
@@ -90,11 +90,11 @@ class RequestCoreManager:
                     )
                 else:
                     print(
-                        f"⚠️  Proof generation failed for {hotkey[:8]}: {proof_result.get('message', 'Unknown error')}"
+                        f"Proof generation failed for {hotkey[:8]}: {proof_result.get('message', 'Unknown error')}"
                     )
 
             except Exception as e:
-                print(f"❌ Error generating proof for miner {hotkey[:8]}: {str(e)}")
+                print(f"Error generating proof for miner {hotkey[:8]}: {str(e)}")
                 proof_results[hotkey] = {
                     "status": "error",
                     "message": str(e),
