@@ -32,12 +32,6 @@ class CollateralRecord:
         dt = datetime.fromtimestamp(self.valid_date_timestamp / 1000, tz=timezone.utc)
         return dt.strftime("%Y-%m-%d")
 
-    @staticmethod
-    def collateral_record_to_dict(collateral_record) -> Dict[str, Any]:
-        if isinstance(collateral_record, CollateralRecord):
-            return vars(collateral_record)
-        return {}
-
 
 class ValidatorContractManager:
     """
@@ -684,13 +678,3 @@ class ValidatorContractManager:
 
         # No applicable records found
         return None
-
-    def get_miner_account_sizes_dictionary(self, records_as_dict: bool=False):
-        miner_account_sizes = {}
-
-        if records_as_dict:
-            for hotkey, records in self.miner_account_sizes.items():
-                miner_account_sizes[hotkey] = [CollateralRecord.collateral_record_to_dict(record) for record in records]
-            return miner_account_sizes
-
-        return self.miner_account_sizes

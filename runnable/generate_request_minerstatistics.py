@@ -435,7 +435,7 @@ class MinerStatisticsManager:
             now_ms = TimeUtil.now_in_millis()
 
         account_sizes = []
-        account_size_object = self.contract_manager.get_miner_account_sizes_dictionary(records_as_dict=True)
+        account_size_object = self.contract_manager.miner_account_sizes_dict()
 
         # Calculate raw PnL for each miner
         for hotkey, _ in filtered_ledger.items():
