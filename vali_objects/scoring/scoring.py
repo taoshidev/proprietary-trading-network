@@ -183,7 +183,8 @@ class Scoring:
             positions: dict[str, list[Position]],
             subcategory_min_days: dict[str, int],
             evaluation_time_ms: int = None,
-            weighting: bool = False
+            weighting: bool = False,
+            scoring_config: dict[str, dict[str, float]] = None
     ) -> dict[str, dict]:
         """
         Scores the miners based on their ledger and positions.
@@ -205,6 +206,8 @@ class Scoring:
 
         if evaluation_time_ms is None:
             evaluation_time_ms = TimeUtil.now_in_millis()
+        if scoring_config is None:
+            scoring_config = Scoring.scoring_config
 
         filtered_positions = PositionFiltering.filter(
             positions,
@@ -243,7 +246,7 @@ class Scoring:
             days_in_year = segmentation_machine.days_in_year_from_asset_category(asset_subcategory.asset_class)
 
             scores_dict = {"metrics": {}}
-            for config_name, config in Scoring.scoring_config.items():
+            for config_name, config in scoring_config.items():
                 scores = []
                 for miner, returns in filtered_ledger_returns.items():
                     # Get the miner ledger
