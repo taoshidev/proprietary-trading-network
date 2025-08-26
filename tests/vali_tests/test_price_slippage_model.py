@@ -52,12 +52,12 @@ class TestPriceSlippageModel(TestBase):
             orders=[],
         )
 
-        self.open_position.add_order(self.open_order)
+        self.open_position.add_order(self.open_order, self.live_price_fetcher)
         # print(self.open_position)
         assert self.open_position.initial_entry_price == 105  # 100 * (1 + 0.05) = 105
         assert self.open_position.average_entry_price == 105
 
-        self.open_position.set_returns(110)  # say the current price has grown from 100 -> 110
+        self.open_position.set_returns(110, self.live_price_fetcher)  # say the current price has grown from 100 -> 110
         # the current return only applies slippage to the entry price, for unrealized PnL
         assert self.open_position.current_return == 1.0476190476190477  # (110-105) / 105
 
@@ -91,8 +91,8 @@ class TestPriceSlippageModel(TestBase):
             trade_pair=TradePair.EURUSD,
             orders=[],
         )
-        self.closed_position.add_order(self.open_order)
-        self.closed_position.add_order(self.close_order)
+        self.closed_position.add_order(self.open_order, self.live_price_fetcher)
+        self.closed_position.add_order(self.close_order, self.live_price_fetcher)
 
         assert self.closed_position.initial_entry_price == 101  # 100 * (1 + 0.01) = 101
         assert self.closed_position.average_entry_price == 101

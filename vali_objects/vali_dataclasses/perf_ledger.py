@@ -675,9 +675,9 @@ class PerfLedgerManager(CacheController):
                 new_orders.append(o)
 
         position_at_start_timestamp.orders = new_orders[:-1]
-        position_at_start_timestamp.rebuild_position_with_updated_orders()
+        position_at_start_timestamp.rebuild_position_with_updated_orders(self.live_price_fetcher)
         position_at_end_timestamp.orders = new_orders
-        position_at_end_timestamp.rebuild_position_with_updated_orders()
+        position_at_end_timestamp.rebuild_position_with_updated_orders(self.live_price_fetcher)
         # Handle position that was forced closed due to realtime data (liquidated)
         if len(new_orders) == len(position.orders) and position.return_at_close == 0:
             position_at_end_timestamp.return_at_close = 0
@@ -984,10 +984,10 @@ class PerfLedgerManager(CacheController):
                 if historical_position.is_open_position and price_at_t_ms is not None:
                     # Always update returns for open positions when we have a price
                     # This ensures returns are always current and prevents stale values
-                    historical_position.set_returns(price_at_t_ms, time_ms=t_ms, total_fees=position_spread_fee * position_carry_fee)
+                    historical_position.set_returns(price_at_t_ms, self.live_price_fetcher, time_ms=t_ms, total_fees=position_spread_fee * position_carry_fee)
                 else:
                     # Closed positions or no price available - just update fees
-                    historical_position.set_returns_with_updated_fees(position_spread_fee * position_carry_fee, t_ms)
+                    historical_position.set_returns_with_updated_fees(position_spread_fee * position_carry_fee, t_ms, self.live_price_fetcher)
 
                 # Track last known prices for portfolio ledger to maintain continuity
                 if price_at_t_ms is not None:
@@ -1611,7 +1611,7 @@ class PerfLedgerManager(CacheController):
                             # Calculate the return at the last known price point
                             position_spread_fee, _ = self.position_uuid_to_cache[position.position_uuid].get_spread_fee(position, t_ms)
                             position_carry_fee, _ = self.position_uuid_to_cache[position.position_uuid].get_carry_fee(t_ms, position)
-                            position.set_returns(last_price, time_ms=t_ms, total_fees=position_spread_fee * position_carry_fee)
+                            position.set_returns(last_price, self.live_price_fetcher, time_ms=t_ms, total_fees=position_spread_fee * position_carry_fee)
 
                             # Store info for aggregate logging with both price and return changes
                             new_return = position.return_at_close

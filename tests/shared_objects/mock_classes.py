@@ -31,9 +31,10 @@ class MockCacheController(CacheController):
 
 
 class MockPositionManager(PositionManager):
-    def __init__(self, metagraph, perf_ledger_manager, elimination_manager):
+    def __init__(self, metagraph, perf_ledger_manager, elimination_manager, live_price_fetcher=None):
         super().__init__(metagraph=metagraph, running_unit_tests=True,
-                         perf_ledger_manager=perf_ledger_manager, elimination_manager=elimination_manager)
+                         perf_ledger_manager=perf_ledger_manager, elimination_manager=elimination_manager,
+                         live_price_fetcher=live_price_fetcher)
 
 
 class MockPerfLedgerManager(PerfLedgerManager):
@@ -60,7 +61,10 @@ class MockLivePriceFetcher(LivePriceFetcher):
         self.polygon_data_service = MockPolygonDataService(api_key=secrets["polygon_apikey"], disable_ws=disable_ws)
 
     def get_sorted_price_sources_for_trade_pair(self, trade_pair, processed_ms):
-        return [PriceSource(price=1, open=1, high=1, close=1, low=1, bid=1, ask=1)]
+        return [PriceSource(open=1, high=1, close=1, low=1, bid=1, ask=1)]
+
+    def get_close_at_date(self, trade_pair, timestamp_ms, order=None, verbose=True):
+        return PriceSource(open=1, high=1, close=1, low=1, bid=1, ask=1)
 
 class MockPolygonDataService(PolygonDataService):
     def __init__(self, api_key, disable_ws=True):
